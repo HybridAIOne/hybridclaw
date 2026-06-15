@@ -158,6 +158,7 @@ export interface GatewayStatus {
     jid: string | null;
     pairingQrText: string | null;
     pairingUpdatedAt: string | null;
+    pairingError: string | null;
   };
   providerHealth?: Record<
     string,
@@ -803,6 +804,7 @@ export interface AdminConfig {
     healthPort: number;
     webApiToken: string;
     gatewayBaseUrl: string;
+    gatewayInternalBaseUrl: string;
     gatewayApiToken: string;
     dbPath: string;
     logLevel: LogLevel;
@@ -813,6 +815,30 @@ export interface AdminConfig {
 export interface AdminConfigResponse {
   path: string;
   config: AdminConfig;
+}
+
+export interface AdminLogFile {
+  id: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  readable: boolean;
+  sizeBytes: number | null;
+  mtime: string | null;
+  description: string;
+  error: string | null;
+}
+
+export interface AdminLogTail {
+  fileId: string;
+  content: string;
+  tailBytes: number;
+  truncated: boolean;
+}
+
+export interface AdminLogsResponse {
+  files: AdminLogFile[];
+  selected: AdminLogTail | null;
 }
 
 export interface AdminBrowserPoolHealthResponse {

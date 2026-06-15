@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { redactSecretsDeep } from '../security/redact.js';
+import { isExpectedTransportError } from '../utils/transport-errors.js';
 
 type SentryModule = typeof import('@sentry/node');
 
@@ -74,6 +75,23 @@ function normalizeException(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+function sentryEventHasExpectedTransportError(event: {
+  exception?: {
+    values?: Array<{
+      type?: unknown;
+      value?: unknown;
+    }>;
+  };
+}): boolean {
+  return Boolean(
+    event.exception?.values?.some((value) =>
+      [value.type, value.value].some(
+        (part) => typeof part === 'string' && isExpectedTransportError(part),
+      ),
+    ),
+  );
+}
+
 export function isSentryConfigured(): boolean {
   return Boolean(readRuntimeSetting('SENTRY_DSN'));
 }
@@ -91,7 +109,13 @@ export async function initSentry(): Promise<void> {
         release: readRuntimeSetting('SENTRY_RELEASE') || defaultSentryRelease(),
         skipOpenTelemetrySetup: true,
         tracesSampleRate: readSampleRate(),
-        beforeSend(event) {
+        beforeSend(event, hint) {
+          if (
+            isExpectedTransportError(hint?.originalException) ||
+            sentryEventHasExpectedTransportError(event)
+          ) {
+            return null;
+          }
           return redactSecretsDeep(event);
         },
       });

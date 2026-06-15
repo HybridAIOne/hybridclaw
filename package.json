@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.24.0",
+  "version": "0.24.2",
   "type": "module",
   "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
   "repository": {
@@ -159,9 +159,6 @@
     "tsx": "4.22.4",
     "typescript": "5.9.3",
     "vitest": "4.1.8"
-  },
-  "optionalDependencies": {
-    "appdmg": "0.6.6"
   },
   "overrides": {
     "undici": "6.24.1",

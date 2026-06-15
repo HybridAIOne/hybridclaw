@@ -12,7 +12,7 @@ import { registerChannel } from './channels/channel-registry.js';
 import { buildLocalSessionSlashHelpEntries } from './command-registry.js';
 import {
   APP_VERSION,
-  GATEWAY_BASE_URL,
+  GATEWAY_CLIENT_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
@@ -642,7 +642,7 @@ function printBanner(
       currentModel: modelInfo.current,
       defaultModel: modelInfo.defaultModel,
       sandboxMode,
-      gatewayBaseUrl: GATEWAY_BASE_URL,
+      gatewayBaseUrl: GATEWAY_CLIENT_BASE_URL,
       hybridAIBaseUrl: HYBRIDAI_BASE_URL,
       chatbotId: HYBRIDAI_CHATBOT_ID || 'unset',
       version: APP_VERSION,

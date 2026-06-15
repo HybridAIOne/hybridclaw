@@ -56,6 +56,7 @@ import {
   advanceStalledTurnCount,
   MAX_STALLED_MODEL_TURNS,
   shouldRetryEmptyFinalResponse,
+  shouldRetryEmptyVisibleCompletion,
 } from './stalled-turns.js';
 import {
   collapseSystemMessages,
@@ -157,6 +158,8 @@ const DEFAULT_RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(
     ? -1
     : Math.max(0, Math.min(64, RAW_DEFAULT_RALPH_MAX_EXTRA_ITERATIONS))
   : 0;
+const EMPTY_VISIBLE_COMPLETION_RETRY_PROMPT =
+  'Your last model response had no visible text and did not request a tool. Continue the task now. Reply with a visible answer, or request the next tool call if more work is needed.';
 
 function applyRuntimeEnv(runtimeEnv: ContainerInput['runtimeEnv']): void {
   for (const [name, value] of Object.entries(runtimeEnv || {})) {
@@ -1045,6 +1048,7 @@ async function processRequest(
   const maxStalledTurns = resolveMaxStalledTurns(ralphMaxExtraIterations);
   let ralphExtraIterations = 0;
   let stalledTurns = 0;
+  let emptyVisibleCompletionRetries = 0;
   let latestVisibleAssistantText: string | null = null;
   let compactionRetries = 0;
   const tokenEstimateCache = createTokenEstimateCache();
@@ -1439,28 +1443,36 @@ async function processRequest(
       }
     }
 
-    const assistantMessage: ChatMessage = {
-      role: 'assistant',
-      content: choice.message.content,
-    };
-
-    if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
-      assistantMessage.tool_calls = choice.message.tool_calls;
-    }
-
-    history.push(assistantMessage);
-    const visibleAssistantText = stripRalphChoiceTags(choice.message.content);
-    if (visibleAssistantText) {
-      latestVisibleAssistantText = visibleAssistantText;
-    }
+    const branchChoice = parseRalphChoice(choice.message.content);
     if (
       provider === 'hybridai' &&
-      parseRalphChoice(choice.message.content) === null &&
+      branchChoice === null &&
       isHybridAIEmptyVisibleCompletion(response)
     ) {
       console.error(
         `[model] empty completion provider=hybridai model=${model} debug=${summarizeHybridAICompletionForDebug(response)}`,
       );
+      if (
+        shouldRetryEmptyVisibleCompletion({
+          retryCount: emptyVisibleCompletionRetries,
+        })
+      ) {
+        emptyVisibleCompletionRetries += 1;
+        stalledTurns = advanceStalledTurnCount({
+          current: stalledTurns,
+          toolCalls: 0,
+          successfulToolCalls: 0,
+        });
+        history.push({
+          role: 'user',
+          content: EMPTY_VISIBLE_COMPLETION_RETRY_PROMPT,
+        });
+        console.error(
+          `[model] retrying empty HybridAI completion retry=${emptyVisibleCompletionRetries}`,
+        );
+        continue;
+      }
+
       const failed: ContainerOutput = {
         status: 'error',
         result: null,
@@ -1479,9 +1491,24 @@ async function processRequest(
       });
       return failed;
     }
+    emptyVisibleCompletionRetries = 0;
+
+    const assistantMessage: ChatMessage = {
+      role: 'assistant',
+      content: choice.message.content,
+    };
+
+    if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
+      assistantMessage.tool_calls = choice.message.tool_calls;
+    }
+
+    history.push(assistantMessage);
+    const visibleAssistantText = stripRalphChoiceTags(choice.message.content);
+    if (visibleAssistantText) {
+      latestVisibleAssistantText = visibleAssistantText;
+    }
     if (toolCalls.length === 0) {
       if (ralphEnabled) {
-        const branchChoice = parseRalphChoice(choice.message.content);
         if (branchChoice === 'STOP') {
           collectRequestedArtifacts({
             artifacts,

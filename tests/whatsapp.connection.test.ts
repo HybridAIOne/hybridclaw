@@ -165,9 +165,13 @@ async function importFreshConnectionModule(options?: {
   });
 
   const module = await import('../src/channels/whatsapp/connection.ts');
+  const pairingState = await import(
+    '../src/channels/whatsapp/pairing-state.ts'
+  );
   return {
     APP_VERSION,
     ...module,
+    pairingState,
     qrcodeGenerate,
     sockets,
     whatsappLogger,
@@ -278,7 +282,12 @@ test('waitForSocket does not revive the manager after stop during implicit start
 });
 
 test('transport-level WhatsApp emitters are handled without throwing', async () => {
-  const { createWhatsAppConnectionManager, sockets, whatsappLogger } =
+  const {
+    createWhatsAppConnectionManager,
+    pairingState,
+    sockets,
+    whatsappLogger,
+  } =
     await importFreshConnectionModule({
       logLevel: 'debug',
       rootLevel: 'debug',
@@ -301,6 +310,9 @@ test('transport-level WhatsApp emitters are handled without throwing', async () 
   ).not.toThrow();
 
   expect(whatsappLogger.debug).toHaveBeenCalledWith(
+    'WhatsApp WebSocket DNS lookup failed for web.whatsapp.com. Reconnect will be retried automatically.',
+  );
+  expect(pairingState.getWhatsAppPairingState().error).toBe(
     'WhatsApp WebSocket DNS lookup failed for web.whatsapp.com. Reconnect will be retried automatically.',
   );
 });
@@ -377,6 +389,34 @@ test('reconnect warnings use human-readable wording for lost connections', async
 
   expect(whatsappLogger.warn).toHaveBeenCalledWith(
     'WhatsApp connection was lost. Retrying connection in 1s.',
+  );
+
+  await manager.stop();
+});
+
+test('reconnect warning catches wrapped WhatsApp websocket handshake timeouts', async () => {
+  const { createWhatsAppConnectionManager, sockets, whatsappLogger } =
+    await importFreshConnectionModule();
+
+  const manager = createWhatsAppConnectionManager();
+  await manager.start();
+
+  const updateHandlers = sockets[0]?.evHandlers.get('connection.update');
+  expect(updateHandlers).toHaveLength(1);
+
+  updateHandlers?.[0]?.({
+    connection: 'close',
+    lastDisconnect: {
+      error: Object.assign(new Error('WebSocket Error'), {
+        data: new Error('Opening handshake has timed out'),
+        output: { statusCode: 408 },
+      }),
+      date: new Date(),
+    },
+  });
+
+  expect(whatsappLogger.warn).toHaveBeenCalledWith(
+    'WhatsApp WebSocket connection to web.whatsapp.com timed out. Retrying connection in 1s.',
   );
 
   await manager.stop();

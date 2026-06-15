@@ -2,7 +2,9 @@ import { describe, expect, test } from 'vitest';
 
 import {
   advanceStalledTurnCount,
+  MAX_EMPTY_VISIBLE_COMPLETION_RETRIES,
   shouldRetryEmptyFinalResponse,
+  shouldRetryEmptyVisibleCompletion,
 } from '../container/src/stalled-turns.js';
 
 describe('container stalled turn budget', () => {
@@ -59,6 +61,40 @@ describe('container stalled turn budget', () => {
         visibleAssistantText: null,
         toolExecutionCount: 1,
         artifactCount: 1,
+      }),
+    ).toBe(false);
+  });
+
+  test('retries one consecutive empty visible completion', () => {
+    expect(
+      shouldRetryEmptyVisibleCompletion({
+        retryCount: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetryEmptyVisibleCompletion({
+        retryCount: MAX_EMPTY_VISIBLE_COMPLETION_RETRIES,
+      }),
+    ).toBe(false);
+  });
+
+  test('respects an overridden empty completion retry budget', () => {
+    expect(
+      shouldRetryEmptyVisibleCompletion({
+        retryCount: 1,
+        maxRetries: 2,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetryEmptyVisibleCompletion({
+        retryCount: 2,
+        maxRetries: 2,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetryEmptyVisibleCompletion({
+        retryCount: 0,
+        maxRetries: 0,
       }),
     ).toBe(false);
   });

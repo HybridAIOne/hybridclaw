@@ -538,6 +538,7 @@ export let HEALTH_HOST = '127.0.0.1';
 export let HEALTH_PORT = 9090;
 export let WEB_API_TOKEN = '';
 export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
+export let GATEWAY_CLIENT_BASE_URL = 'http://127.0.0.1:9090';
 const GATEWAY_API_TOKEN_LOCK_STALE_MS = 10_000;
 const GATEWAY_API_TOKEN_LOCK_TIMEOUT_MS = 5_000;
 const GATEWAY_API_TOKEN_LOCK_RETRY_MS = 25;
@@ -1105,6 +1106,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     readRuntimeSecretValue(['WEB_API_TOKEN'], 'WEB_API_TOKEN', storedSecrets) ||
     config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
+  GATEWAY_CLIENT_BASE_URL = config.ops.gatewayInternalBaseUrl;
   gatewayApiTokenUsesGeneratedFallback = false;
   GATEWAY_API_TOKEN =
     readRuntimeSecretValue(

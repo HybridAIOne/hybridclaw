@@ -163,7 +163,7 @@ function getConfigApi(): ConfigApi {
 }
 
 function getGatewayBaseUrl(): string {
-  return getConfigApi().GATEWAY_BASE_URL;
+  return getConfigApi().GATEWAY_CLIENT_BASE_URL;
 }
 
 function resolveInstallRoot(): string {

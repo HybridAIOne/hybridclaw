@@ -4,6 +4,7 @@ import {
   createPlaceholderMap,
   dehydrateConfidential,
   rehydrateConfidential,
+  rehydrateConfidentialWithStats,
   scanForLeaks,
 } from '../src/security/confidential-redact.js';
 import { parseConfidentialYaml } from '../src/security/confidential-rules.js';
@@ -108,6 +109,22 @@ describe('dehydrate / rehydrate', () => {
   test('case-insensitive literal matching', () => {
     const { hits } = dehydrateConfidential('SERVICEPLAN told ACME', ruleSet);
     expect(hits).toBe(2);
+  });
+
+  test('reports metadata-only class counts for mask and rehydrate operations', () => {
+    const { text, mappings, classes } = dehydrateConfidential(
+      'Serviceplan discussed Project Falcon with Acme.',
+      ruleSet,
+    );
+
+    expect(classes).toEqual([
+      { class: 'client', count: 2 },
+      { class: 'project', count: 1 },
+    ]);
+    const rehydrated = rehydrateConfidentialWithStats(text, mappings);
+    expect(rehydrated.classes).toEqual(classes);
+    expect(rehydrated.text).toContain('Serviceplan');
+    expect(rehydrated.text).toContain('Project Falcon');
   });
 
   test('no-op when rule set is empty', () => {

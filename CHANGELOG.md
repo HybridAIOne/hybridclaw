@@ -2,6 +2,59 @@
 
 ## Unreleased
 
+## [0.24.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.2) - 2026-06-14
+
+### Added
+
+- **Admin log viewer**: The admin console includes a Logs route and sidebar
+  entry for inspecting configured gateway and model-response debug log tails.
+  Operators can see file status, size, modified time, and capped tail content
+  through the gateway API without shelling into the host.
+
+### Changed
+
+- **Desktop macOS packaging**: Desktop DMG builds use
+  `electron-builder --mac dir zip dmg` end to end, removing the custom
+  `appdmg` path and scripts. The desktop release guide documents the expected
+  app, ZIP, block map, and DMG outputs, and the dependency-policy baseline is
+  aligned with the Electron packaging lockfile.
+
+### Fixed
+
+- **WhatsApp auth lock recovery**: Stale WhatsApp auth locks from a previous
+  process lifetime with the same PID are cleared before acquiring a fresh
+  lock, preventing reconnect, linking, or reset flows from blocking on
+  orphaned lock metadata.
+
+## [0.24.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.1) - 2026-06-14
+
+### Added
+
+- **Onboarding helpful links**: New agent workspaces seed a `Helpful Links`
+  section in `USER.md` for agent chat, WhatsApp setup, and documentation URLs.
+  The hatching flow now reads those exact links when preparing the tailored
+  first-jobs email and includes whichever links are available instead of
+  guessing deployment URLs. The admin Channels page also honors `#whatsapp`
+  deep links by selecting and scrolling directly to the WhatsApp setup panel.
+
+### Fixed
+
+- **WhatsApp pairing diagnostics**: WhatsApp transport, reconnect, and pairing
+  failures are now stored in pairing status and surfaced in the admin Channels
+  UI instead of leaving operators on a generic "waiting for QR" message.
+- **Bootstrap cleanup approvals**: Deleting the root `BOOTSTRAP.md` one-time
+  onboarding file is now auto-approved as safe cleanup after hatching, while
+  other delete calls still require explicit approval.
+- **HybridAI empty completion recovery**: HybridAI responses with no visible
+  text and no tool call now get one targeted retry before the container fails
+  the turn. Whitespace-only content is treated as empty, and the stalled-turn
+  budget tracks the retry.
+- **WebSocket transport error handling**: Expected transport failures nested in
+  wrapper `data`, `error`, `cause`, or aggregate fields are classified
+  consistently, timeout messages are rendered clearly, expected handshake
+  timeouts are dropped before Sentry reporting, and WhatsApp reconnect handling
+  preserves the original disconnect error for diagnosis.
+
 ## [0.24.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.0) - 2026-06-11
 
 ### Added

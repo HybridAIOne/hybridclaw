@@ -22,6 +22,7 @@ import { FleetTopologyPage } from './routes/fleet-topology';
 import { GatewayPage } from './routes/gateway';
 import { HarnessEvolutionPage } from './routes/harness-evolution';
 import { JobsPage } from './routes/jobs';
+import { LogsPage } from './routes/logs';
 import { McpPage } from './routes/mcp';
 import { ModelsPage } from './routes/models';
 import { OutputGuardPage } from './routes/output-guard';
@@ -139,6 +140,12 @@ const gatewayRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/gateway',
   component: GatewayPage,
+});
+
+const logsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/logs',
+  component: LogsPage,
 });
 
 const fleetTopologyRoute = createRoute({
@@ -275,6 +282,7 @@ const routeTree = rootRoute.addChildren([
     agentScoreboardRoute,
     terminalRoute,
     gatewayRoute,
+    logsRoute,
     fleetTopologyRoute,
     sessionsRoute,
     channelsRoute,

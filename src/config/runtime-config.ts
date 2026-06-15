@@ -1178,6 +1178,7 @@ export interface RuntimeConfig {
     healthPort: number;
     webApiToken: string;
     gatewayBaseUrl: string;
+    gatewayInternalBaseUrl: string;
     gatewayApiToken: string;
     dbPath: string;
     logLevel: LogLevel;
@@ -1940,6 +1941,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     healthPort: 9090,
     webApiToken: '',
     gatewayBaseUrl: 'http://127.0.0.1:9090',
+    gatewayInternalBaseUrl: 'http://127.0.0.1:9090',
     gatewayApiToken: '',
     dbPath: DEFAULT_DB_PATH,
     logLevel: 'info',
@@ -7926,6 +7928,10 @@ function normalizeRuntimeConfig(
       webApiToken,
       gatewayBaseUrl: normalizeBaseUrl(
         rawOps.gatewayBaseUrl,
+        `http://127.0.0.1:${healthPort}`,
+      ),
+      gatewayInternalBaseUrl: normalizeBaseUrl(
+        rawOps.gatewayInternalBaseUrl,
         `http://127.0.0.1:${healthPort}`,
       ),
       gatewayApiToken: normalizeString(resolvedGatewayApiToken, webApiToken, {
