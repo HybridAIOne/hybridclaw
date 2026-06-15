@@ -21,6 +21,37 @@ export function formatUnknownError(error: unknown): string {
     : String(error);
 }
 
+const DISCOVERY_STORE_STATE_UPDATE = Symbol('discoveryStoreStateUpdate');
+
+export interface DiscoveryStoreStateUpdate<T> {
+  readonly [DISCOVERY_STORE_STATE_UPDATE]: true;
+  readonly state: T;
+  readonly skipCache?: boolean;
+}
+
+export function discoveryStoreStateUpdate<T>(
+  state: T,
+  opts?: { skipCache?: boolean },
+): DiscoveryStoreStateUpdate<T> {
+  return {
+    [DISCOVERY_STORE_STATE_UPDATE]: true,
+    state,
+    ...(opts?.skipCache ? { skipCache: true } : {}),
+  };
+}
+
+function isDiscoveryStoreStateUpdate<T>(
+  value: T | DiscoveryStoreStateUpdate<T>,
+): value is DiscoveryStoreStateUpdate<T> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { [DISCOVERY_STORE_STATE_UPDATE]?: unknown })[
+      DISCOVERY_STORE_STATE_UPDATE
+    ] === true
+  );
+}
+
 export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
   let state = initialState;
   let discoveredAtMs = 0;
@@ -35,7 +66,13 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
     fetchFreshState: () => Promise<T>,
     opts?: {
       force?: boolean;
-      onError?: (err: unknown, staleState: T) => T | Promise<T>;
+      onError?: (
+        err: unknown,
+        staleState: T,
+      ) =>
+        | T
+        | DiscoveryStoreStateUpdate<T>
+        | Promise<T | DiscoveryStoreStateUpdate<T>>;
     },
   ): Promise<T> => {
     if (
@@ -54,8 +91,12 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
         return state;
       } catch (err) {
         if (!opts?.onError) return staleState;
-        const nextState = await opts.onError(err, staleState);
-        replaceState(nextState);
+        const fallback = await opts.onError(err, staleState);
+        if (isDiscoveryStoreStateUpdate(fallback)) {
+          replaceState(fallback.state, { skipCache: fallback.skipCache });
+        } else {
+          replaceState(fallback);
+        }
         return state;
       } finally {
         discoveryInFlight = null;

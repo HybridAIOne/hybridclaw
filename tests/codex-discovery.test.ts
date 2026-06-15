@@ -14,6 +14,7 @@ async function importFreshDiscovery() {
   }));
   vi.doMock('../src/logger.js', () => ({
     logger: {
+      debug: vi.fn(),
       warn: vi.fn(),
     },
   }));
@@ -64,6 +65,113 @@ describe('codex discovery', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       { err: expect.any(Error) },
       'Codex model discovery failed',
+    );
+  });
+
+  test('force-refreshes Codex credentials and retries once when discovery is unauthorized', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('', { status: 401 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'gpt-5.5', context_window: 500_000 }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const discovery = await importFreshDiscovery();
+    const auth = await import('../src/auth/codex-auth.js');
+    vi.mocked(auth.resolveCodexCredentials).mockImplementation(
+      async (opts?: { forceRefresh?: boolean }) => ({
+        baseUrl: 'https://api.openai.com/v1',
+        headers: {
+          Authorization: opts?.forceRefresh
+            ? 'Bearer codex-refreshed'
+            : 'Bearer codex-stale',
+        },
+      }),
+    );
+    const { logger } = await import('../src/logger.js');
+    const store = discovery.createCodexDiscoveryStore();
+
+    await expect(store.discoverModels({ force: true })).resolves.toContain(
+      'openai-codex/gpt-5.5',
+    );
+
+    expect(auth.resolveCodexCredentials).toHaveBeenCalledTimes(2);
+    expect(auth.resolveCodexCredentials).toHaveBeenNthCalledWith(2, {
+      allowCodexCliImportFallback: true,
+      forceRefresh: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: 'Bearer codex-stale',
+    });
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: 'Bearer codex-refreshed',
+    });
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.debug).not.toHaveBeenCalled();
+  });
+
+  test('does not warn or cache empty models when Codex credential refresh requires relogin', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('', { status: 401 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'gpt-5.5', context_window: 500_000 }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const discovery = await importFreshDiscovery();
+    const auth = await import('../src/auth/codex-auth.js');
+    const reloginError = new Error('relogin required') as Error & {
+      reloginRequired: boolean;
+    };
+    reloginError.name = 'CodexAuthError';
+    reloginError.reloginRequired = true;
+    vi.mocked(auth.resolveCodexCredentials).mockImplementation(
+      async (opts?: { forceRefresh?: boolean }) => {
+        if (opts?.forceRefresh) throw reloginError;
+        return {
+          baseUrl: 'https://api.openai.com/v1',
+          headers: { Authorization: 'Bearer codex-stale' },
+        };
+      },
+    );
+    const { logger } = await import('../src/logger.js');
+    const store = discovery.createCodexDiscoveryStore();
+
+    await expect(store.discoverModels({ force: true })).resolves.toEqual([]);
+    expect(store.getModelNames()).toEqual([]);
+    await expect(store.discoverModels()).resolves.toContain(
+      'openai-codex/gpt-5.5',
+    );
+
+    expect(auth.resolveCodexCredentials).toHaveBeenCalledTimes(3);
+    expect(auth.resolveCodexCredentials).toHaveBeenNthCalledWith(2, {
+      allowCodexCliImportFallback: true,
+      forceRefresh: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Codex model discovery skipped because credentials were rejected',
     );
   });
 });
