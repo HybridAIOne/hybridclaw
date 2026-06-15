@@ -1476,8 +1476,16 @@ th {
   align-content: start;
 }
 
+.managed-secret-field > .button-row {
+  align-items: stretch;
+}
+
 .managed-secret-action {
   min-height: var(--control-height);
+  height: var(--control-height);
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: var(--control-line-height);
 }
 
 .managed-secret-editor {

@@ -17,7 +17,12 @@ import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { ChannelLogo } from '../components/channel-logo';
-import { Field, FieldContent, FieldLabel } from '../components/field';
+import {
+  Field,
+  FieldContent,
+  FieldLabel,
+  FieldTitle,
+} from '../components/field';
 import {
   Form,
   FormField,
@@ -206,8 +211,8 @@ function ManagedSecretField(props: {
   });
 
   return (
-    <div className="field managed-secret-field">
-      <span>{props.label}</span>
+    <Field className="managed-secret-field">
+      <FieldTitle>{props.label}</FieldTitle>
       {!isEditing ? (
         <div className="button-row">
           <Button
@@ -263,7 +268,7 @@ function ManagedSecretField(props: {
           </div>
         </div>
       ) : null}
-    </div>
+    </Field>
   );
 }
 
