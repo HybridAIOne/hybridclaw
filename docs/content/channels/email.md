@@ -91,8 +91,10 @@ The top-level **Default mailbox address** and **Default mailbox password**
 fields configure the default mailbox for the main agent. In the web admin
 console, open **Channels > Email**, use **Add additional mailbox**, select the
 target agent, enter that mailbox address, and set the password SecretRef id for
-a secret stored in **Secrets**. The top-level IMAP/SMTP fields act as shared
-defaults; each additional mailbox row can override them.
+a secret stored in **Secrets**. Inbound mail received by the default mailbox is
+handled by the main agent. Outbound mail from agents without an additional
+mailbox uses the default mailbox as its fallback sender. The top-level IMAP/SMTP
+fields act as shared defaults; each additional mailbox row can override them.
 
 For separate mailbox credentials per agent, set `email.accounts`. HybridClaw
 continues polling the top-level `email.address` account as the main agent's

@@ -1547,12 +1547,18 @@ function EmailChannelEditor(props: {
       ) : null}
 
       <div className="email-account-section-header">
-        <h4>
-          Default agent mailbox:
-          <span className="email-default-agent-target">
-            {formatDefaultEmailAgentLabel(props.agents)}
-          </span>
-        </h4>
+        <div className="email-account-section-copy">
+          <h4>
+            Default agent mailbox:
+            <span className="email-default-agent-target">
+              {formatDefaultEmailAgentLabel(props.agents)}
+            </span>
+          </h4>
+          <p>
+            Inbound target; outbound fallback for agents without an additional
+            mailbox.
+          </p>
+        </div>
       </div>
 
       <div className="field-grid">

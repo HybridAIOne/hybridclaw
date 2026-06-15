@@ -492,6 +492,9 @@ describe('ChannelsPage', () => {
 
     screen.getByText(/Default agent mailbox:/);
     screen.getByText('Main Agent (main)');
+    screen.getByText(
+      'Inbound target; outbound fallback for agents without an additional mailbox.',
+    );
   });
 
   it('saves agent mailbox mappings through the email channel editor', async () => {

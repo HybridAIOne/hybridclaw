@@ -1519,6 +1519,18 @@ th {
   font-weight: 700;
 }
 
+.email-account-section-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.email-account-section-copy p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
 .email-default-agent-target {
   margin-left: 8px;
   color: var(--muted-foreground);
