@@ -17,18 +17,11 @@ import { resolveSentFolderPath } from './mailbox-folders.js';
 import type { EmailDeliveryMetadata } from './metadata.js';
 import { createThreadTracker, type ThreadContext } from './threading.js';
 
-type EmailAccountConfig = RuntimeEmailAccountConfig;
-
-type EmailAppendSentConfig = Pick<
-  EmailAccountConfig,
-  'address' | 'imapHost' | 'imapPort' | 'imapSecure'
->;
-
 interface ResolvedEmailAccount {
   key: string;
   agentId: string;
   address: string;
-  config: EmailAccountConfig;
+  config: RuntimeEmailAccountConfig;
   password: string;
 }
 
@@ -76,7 +69,7 @@ export type EmailMessageHandler = (
 
 export interface EmailAttachmentSendParams {
   to: string;
-  agentId?: string | null;
+  agentId?: string;
   filePath: string;
   body?: string;
   subject?: string | null;
@@ -91,7 +84,7 @@ export interface EmailAttachmentSendParams {
 }
 
 export interface EmailTextSendOptions {
-  agentId?: string | null;
+  agentId?: string;
   subject?: string | null;
   cc?: string[] | null;
   bcc?: string[] | null;
@@ -106,7 +99,10 @@ function createEmailShutdownAbortError(): Error {
 }
 
 async function appendSentCopiesToImap(
-  config: EmailAppendSentConfig,
+  config: Pick<
+    RuntimeEmailAccountConfig,
+    'address' | 'imapHost' | 'imapPort' | 'imapSecure'
+  >,
   password: string,
   sentCopies: Array<{ messageId: string | null; raw: Buffer }>,
 ): Promise<void> {
@@ -166,11 +162,19 @@ function normalizeEmailAgentId(value: string): string {
   return String(value || '').trim() || DEFAULT_AGENT_ID;
 }
 
+function resolvePlainEmailPassword(value: unknown, label: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(
+      `${label} password must be resolved before starting the email runtime.`,
+    );
+  }
+  return value.trim();
+}
+
 function accountFromLegacyConfig(
   config: RuntimeEmailConfig,
 ): ResolvedEmailAccount | null {
   const address = config.address.trim();
-  const password = String(EMAIL_PASSWORD || config.password || '').trim();
   if (!address && !config.imapHost.trim() && !config.smtpHost.trim()) {
     return null;
   }
@@ -183,12 +187,15 @@ function accountFromLegacyConfig(
   if (!config.smtpHost.trim()) {
     throw new Error('Email SMTP host is not configured.');
   }
+  const envPassword = String(EMAIL_PASSWORD || '').trim();
+  const password =
+    envPassword || resolvePlainEmailPassword(config.password, 'Email channel');
   if (!password) {
     throw new Error(
       'Email channel password is required. Store EMAIL_PASSWORD with `hybridclaw secret set EMAIL_PASSWORD <password>` or in TUI with `/secret set EMAIL_PASSWORD <password>`, or set email.password in /admin/config.',
     );
   }
-  const accountConfig: EmailAccountConfig = {
+  const accountConfig: RuntimeEmailAccountConfig = {
     agentId: DEFAULT_AGENT_ID,
     imapHost: config.imapHost,
     imapPort: config.imapPort,
@@ -218,7 +225,6 @@ function accountFromAccountConfig(
 ): ResolvedEmailAccount {
   const address = account.address.trim();
   const agentId = normalizeEmailAgentId(account.agentId);
-  const password = String(account.password || '').trim();
   const label = address || `email.accounts[${index}]`;
   if (!address) {
     throw new Error(`Email account ${index + 1} address is not configured.`);
@@ -229,6 +235,10 @@ function accountFromAccountConfig(
   if (!account.smtpHost.trim()) {
     throw new Error(`Email account ${label} SMTP host is not configured.`);
   }
+  const password = resolvePlainEmailPassword(
+    account.password,
+    `Email account ${label}`,
+  );
   if (!password) {
     throw new Error(`Email account ${label} password is not configured.`);
   }
@@ -252,7 +262,10 @@ function configuredAccountOverridesLegacy(
   account: ResolvedEmailAccount,
   legacy: ResolvedEmailAccount,
 ): boolean {
-  return account.agentId === DEFAULT_AGENT_ID || account.key === legacy.key;
+  const targetsDefaultAgent = account.agentId === DEFAULT_AGENT_ID;
+  const usesLegacyAddress = account.key === legacy.key;
+  // Default-agent accounts replace legacy config; matching addresses avoid duplicate polling.
+  return targetsDefaultAgent || usesLegacyAddress;
 }
 
 function resolveRuntimeConfig(): ResolvedEmailRuntimeConfig {
@@ -334,9 +347,7 @@ export function createEmailRuntime() {
     }
   };
 
-  const resolveSendAccountState = (
-    agentId?: string | null,
-  ): EmailAccountState => {
+  const resolveSendAccountState = (agentId?: string): EmailAccountState => {
     ensureRuntimeActive();
     const states = ensureAccountStates();
     const normalizedAgentId = String(agentId || '').trim();
@@ -349,6 +360,15 @@ export function createEmailRuntime() {
     const first = states[0];
     if (!first) {
       throw new Error('Email channel has no configured accounts.');
+    }
+    if (normalizedAgentId) {
+      logger.warn(
+        {
+          agentId: normalizedAgentId,
+          fallbackAddress: first.account.address,
+        },
+        'Email account not found for agent; falling back to default outbound mailbox',
+      );
     }
     return first;
   };
@@ -576,7 +596,10 @@ export function createEmailRuntime() {
       return ensureRuntimeConfig();
     },
     resolveRegistration: (config) =>
-      config.accounts.map((account) => account.address).join(','),
+      config.accounts
+        .map((account) => account.address)
+        .sort()
+        .join(','),
     start: async (params: {
       config: ResolvedRuntimeConfig;
       handler: EmailMessageHandler;

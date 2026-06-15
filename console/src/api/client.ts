@@ -1003,7 +1003,8 @@ export function fetchEmailConfig(
   const query = new URLSearchParams();
   const handleId = String(options.handleId || '').trim();
   if (handleId) query.set('handleId', handleId);
-  const suffix = query.toString() ? `?${query.toString()}` : '';
+  const queryString = query.toString();
+  const suffix = queryString ? `?${queryString}` : '';
   return requestJson<unknown>(`/api/admin/email-config/fetch${suffix}`, {
     token,
   });

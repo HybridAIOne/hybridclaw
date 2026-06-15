@@ -351,6 +351,7 @@ import {
   runtimeSecretsPath,
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import { isSecretRefInput } from '../security/secret-refs.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
 import { parseSessionKey } from '../session/session-key.js';
@@ -5562,27 +5563,11 @@ function preserveGatewayAdminEmailAccountPasswordRefs(config: RuntimeConfig) {
       !Array.isArray(sourceAccount)
         ? (sourceAccount as Record<string, unknown>).password
         : null;
-    if (!isStoredSecretRef(password)) continue;
+    if (!isSecretRefInput(password)) continue;
     const account = config.email.accounts[index];
     if (!account) continue;
-    (
-      account as unknown as {
-        password: { source: 'store'; id: string };
-      }
-    ).password = { source: 'store', id: password.id };
+    account.password = { source: 'store', id: password.id };
   }
-}
-
-function isStoredSecretRef(
-  value: unknown,
-): value is { source: 'store'; id: string } {
-  return (
-    Boolean(value) &&
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    (value as { source?: unknown }).source === 'store' &&
-    typeof (value as { id?: unknown }).id === 'string'
-  );
 }
 
 export function getGatewayAdminConfig(): GatewayAdminConfigResponse {

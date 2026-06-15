@@ -737,7 +737,7 @@ export interface RuntimeEmailAccountConfig {
   smtpPort: number;
   smtpSecure: boolean;
   address: string;
-  password: string;
+  password: SecretInput;
   pollIntervalMs: number;
   folders: string[];
   allowFrom: string[];
@@ -4106,7 +4106,7 @@ function normalizeEmailAccountConfig(
     }),
     password: normalizeString(
       password ?? value.password,
-      fallback?.password ?? '',
+      typeof fallback?.password === 'string' ? fallback.password : '',
       {
         allowEmpty: true,
       },
@@ -5281,14 +5281,35 @@ function preserveEmailAccountSecretInputs(
     : [];
   serializableEmail.accounts = serializableAccounts;
 
+  copyEmailAccountPasswordSecretRefs(sourceAccounts, serializableAccounts);
+}
+
+function copyEmailAccountPasswordSecretRefs(
+  sourceAccounts: unknown[],
+  targetAccounts: unknown[],
+  options: {
+    cloneExistingTarget?: boolean;
+    createMissingTarget?: boolean;
+  } = {},
+): void {
   for (let index = 0; index < sourceAccounts.length; index += 1) {
     const sourceAccount = sourceAccounts[index];
     if (!isRecord(sourceAccount) || !isSecretRefInput(sourceAccount.password)) {
       continue;
     }
-    const target = serializableAccounts[index];
-    if (!isRecord(target)) continue;
-    target.password = cloneConfig(sourceAccount.password);
+
+    const target = targetAccounts[index];
+    if (!isRecord(target)) {
+      if (!options.createMissingTarget) continue;
+      targetAccounts[index] = {
+        password: cloneConfig(sourceAccount.password),
+      };
+      continue;
+    }
+
+    const nextTarget = options.cloneExistingTarget ? { ...target } : target;
+    nextTarget.password = cloneConfig(sourceAccount.password);
+    targetAccounts[index] = nextTarget;
   }
 }
 
@@ -5323,20 +5344,10 @@ function mergeSubmittedSecretInputs(
     : [];
   mergedEmail.accounts = mergedAccounts;
 
-  for (let index = 0; index < submittedAccounts.length; index += 1) {
-    const submittedAccount = submittedAccounts[index];
-    if (
-      !isRecord(submittedAccount) ||
-      !isSecretRefInput(submittedAccount.password)
-    ) {
-      continue;
-    }
-    const mergedAccount = isRecord(mergedAccounts[index])
-      ? { ...mergedAccounts[index] }
-      : {};
-    mergedAccount.password = cloneConfig(submittedAccount.password);
-    mergedAccounts[index] = mergedAccount;
-  }
+  copyEmailAccountPasswordSecretRefs(submittedAccounts, mergedAccounts, {
+    cloneExistingTarget: true,
+    createMissingTarget: true,
+  });
 
   return merged;
 }

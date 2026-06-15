@@ -172,11 +172,24 @@ function normalizeSecretRefName(value: string): string {
   return normalized || 'AGENT';
 }
 
+function createSecretRefNameHash(value: string): string {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0).toString(36).toUpperCase().padStart(6, '0');
+}
+
 function createEmailAccountPasswordSecretName(
   account: EmailAccountConfig,
   handleId: string,
 ): string {
-  return `${normalizeSecretRefName(account.agentId || handleId)}_EMAIL_PASSWORD`;
+  const prefix = normalizeSecretRefName(account.agentId || handleId);
+  const suffix = createSecretRefNameHash(
+    `${account.agentId || ''}\n${handleId}\n${account.address || ''}`,
+  );
+  return `${prefix}_${suffix}_EMAIL_PASSWORD`;
 }
 
 function resolveEmailAccountHandleId(

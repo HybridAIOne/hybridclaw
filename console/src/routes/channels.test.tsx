@@ -682,11 +682,11 @@ describe('ChannelsPage', () => {
     });
     expect(setRuntimeSecretMock).toHaveBeenCalledWith(
       'test-token',
-      'SUPPORT_EMAIL_PASSWORD',
+      'SUPPORT_1AQ2GZ1_EMAIL_PASSWORD',
       'support-password',
     );
     screen.getByDisplayValue('support@example.com');
-    screen.getByDisplayValue('SUPPORT_EMAIL_PASSWORD');
+    screen.getByDisplayValue('SUPPORT_1AQ2GZ1_EMAIL_PASSWORD');
     screen.getByDisplayValue('imap.hybridai.example');
     screen.getByDisplayValue('smtp.hybridai.example');
   });

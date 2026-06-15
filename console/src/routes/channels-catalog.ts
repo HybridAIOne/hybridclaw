@@ -1,7 +1,6 @@
 import type { AdminConfig } from '../api/types';
+import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { pluralize } from '../lib/format';
-
-const DEFAULT_AGENT_ID = 'main';
 
 export type ChannelKind =
   | 'discord'
