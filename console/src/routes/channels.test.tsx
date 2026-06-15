@@ -450,9 +450,11 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Email/i });
+    const [emailChannelButton] = await screen.findAllByRole('button', {
+      name: /Email/i,
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: /Email/i }));
+    fireEvent.click(emailChannelButton);
     fireEvent.change(screen.getByLabelText('Default mailbox address'), {
       target: { value: 'support@example.com' },
     });
@@ -486,9 +488,11 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Email/i });
+    const [emailChannelButton] = await screen.findAllByRole('button', {
+      name: /Email/i,
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: /Email/i }));
+    fireEvent.click(emailChannelButton);
 
     screen.getByText(/Default agent mailbox:/);
     screen.getByText('Main Agent (main)');
@@ -513,9 +517,11 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Email/i });
+    const [emailChannelButton] = await screen.findAllByRole('button', {
+      name: /Email/i,
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: /Email/i }));
+    fireEvent.click(emailChannelButton);
     fireEvent.click(
       screen.getByRole('button', { name: 'Add additional mailbox' }),
     );
@@ -562,6 +568,127 @@ describe('ChannelsPage', () => {
         }),
       }),
     );
+  });
+
+  it('loads HybridAI mailbox config into an additional agent mailbox row', async () => {
+    const config = makeConfig();
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+    fetchAdminAgentsMock.mockResolvedValue([
+      makeAgent({
+        id: 'support',
+        name: 'Support Agent',
+        chatbotId: 'support-bot',
+      }),
+    ]);
+    fetchEmailConfigMock.mockResolvedValue({
+      handles: [{ id: 'support-bot', handle: 'support', status: 'active' }],
+      handleId: 'support-bot',
+      credentials: {
+        email: 'support@example.com',
+        password: 'support-password',
+        imap_host: 'imap.hybridai.example',
+        imap_port: 993,
+        smtp_host: 'smtp.hybridai.example',
+        smtp_port: 587,
+      },
+    });
+    setRuntimeSecretMock.mockResolvedValue({
+      kind: 'plain',
+      text: 'stored',
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      hybridai: {
+        apiKeyConfigured: true,
+        apiKeySource: 'runtime-secrets',
+      },
+      email: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      imessage: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      whatsapp: {
+        linked: false,
+        jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
+      },
+    });
+    useAuthMock.mockReturnValue({
+      token: 'test-token',
+      gatewayStatus: {
+        hybridai: {
+          apiKeyConfigured: true,
+          apiKeySource: 'runtime-secrets',
+        },
+        email: {
+          passwordConfigured: false,
+          passwordSource: null,
+        },
+        imessage: {
+          passwordConfigured: false,
+          passwordSource: null,
+        },
+        whatsapp: {
+          linked: false,
+          jid: null,
+          pairingQrText: null,
+          pairingUpdatedAt: null,
+        },
+      },
+    });
+
+    renderChannelsPage();
+
+    const [emailChannelButton] = await screen.findAllByRole('button', {
+      name: /Email/i,
+    });
+
+    fireEvent.click(emailChannelButton);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Add additional mailbox' }),
+    );
+
+    await screen.findByRole('option', {
+      name: 'Support Agent (support)',
+    });
+
+    fireEvent.change(screen.getByLabelText('Agent'), {
+      target: { value: 'support' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Fetch HybridAI mailbox' }),
+    );
+
+    await waitFor(() => {
+      expect(fetchEmailConfigMock).toHaveBeenCalledWith('test-token', {
+        handleId: 'support-bot',
+      });
+    });
+    expect(setRuntimeSecretMock).toHaveBeenCalledWith(
+      'test-token',
+      'SUPPORT_EMAIL_PASSWORD',
+      'support-password',
+    );
+    screen.getByDisplayValue('support@example.com');
+    screen.getByDisplayValue('SUPPORT_EMAIL_PASSWORD');
+    screen.getByDisplayValue('imap.hybridai.example');
+    screen.getByDisplayValue('smtp.hybridai.example');
   });
 
   it('shows WhatsApp as available until it is linked', async () => {

@@ -95,6 +95,9 @@ a secret stored in **Secrets**. Inbound mail received by the default mailbox is
 handled by the main agent. Outbound mail from agents without an additional
 mailbox uses the default mailbox as its fallback sender. The top-level IMAP/SMTP
 fields act as shared defaults; each additional mailbox row can override them.
+When HybridAI credentials are configured, **Fetch HybridAI mailbox** on an
+additional mailbox row loads the preconfigured HybridAI postbox for that row's
+agent, using the agent `chatbotId` when set and the agent id otherwise.
 
 For separate mailbox credentials per agent, set `email.accounts`. HybridClaw
 continues polling the top-level `email.address` account as the main agent's

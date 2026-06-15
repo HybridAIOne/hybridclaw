@@ -5126,6 +5126,7 @@ async function hybridAIFetch(
 
 async function handleApiAdminEmailConfigFetch(
   res: ServerResponse,
+  url: URL,
 ): Promise<void> {
   let apiKey: string;
   try {
@@ -5177,7 +5178,28 @@ async function handleApiAdminEmailConfigFetch(
     return;
   }
 
-  const activeHandle = handles.find((h) => h.status === 'active') || handles[0];
+  const requestedHandleId = (url.searchParams.get('handleId') || '').trim();
+  const activeHandle = requestedHandleId
+    ? handles.find(
+        (h) => h.id === requestedHandleId || h.handle === requestedHandleId,
+      )
+    : handles.find((h) => h.status === 'active') || handles[0];
+
+  if (requestedHandleId && !activeHandle) {
+    res.setHeader('Cache-Control', 'no-store');
+    sendJson(res, 404, {
+      handles,
+      credentials: null,
+      error: `No HybridAI agent handle found for ${requestedHandleId}.`,
+    });
+    return;
+  }
+  if (!activeHandle) {
+    res.setHeader('Cache-Control', 'no-store');
+    sendJson(res, 200, { handles, credentials: null });
+    return;
+  }
+
   const handleId = activeHandle.id || activeHandle.handle;
 
   if (!handleId) {
@@ -7124,7 +7146,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             pathname === '/api/admin/email-config/fetch' &&
             method === 'GET'
           ) {
-            await handleApiAdminEmailConfigFetch(res);
+            await handleApiAdminEmailConfigFetch(res, url);
             return;
           }
           if (pathname === '/api/admin/audit' && method === 'GET') {

@@ -93,6 +93,22 @@ function ListField(props: {
 }
 
 type EmailAccountConfig = NonNullable<AdminConfig['email']['accounts']>[number];
+type HybridAIEmailConfigFetchResult = {
+  handles?: Array<{
+    id?: string;
+    handle?: string;
+    status?: string;
+  }>;
+  credentials?: {
+    email?: string;
+    password?: string;
+    imap_host?: string;
+    imap_port?: number;
+    smtp_host?: string;
+    smtp_port?: number;
+  } | null;
+  handleId?: string;
+};
 
 function getEmailAccounts(config: AdminConfig): EmailAccountConfig[] {
   return Array.isArray(config.email.accounts) ? config.email.accounts : [];
@@ -145,6 +161,30 @@ function formatDefaultEmailAgentLabel(agents: AdminAgent[]): string {
   const defaultAgent = agents.find((agent) => agent.id === DEFAULT_AGENT_ID);
   if (defaultAgent) return formatAgentOptionLabel(defaultAgent);
   return `Main Agent (${DEFAULT_AGENT_ID})`;
+}
+
+function normalizeSecretRefName(value: string): string {
+  const normalized = value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return normalized || 'AGENT';
+}
+
+function createEmailAccountPasswordSecretName(
+  account: EmailAccountConfig,
+  handleId: string,
+): string {
+  return `${normalizeSecretRefName(account.agentId || handleId)}_EMAIL_PASSWORD`;
+}
+
+function resolveEmailAccountHandleId(
+  account: EmailAccountConfig,
+  agents: AdminAgent[],
+): string {
+  const agent = agents.find((entry) => entry.id === account.agentId);
+  return String(agent?.chatbotId || account.agentId || '').trim();
 }
 
 function createEmailAccountKey(): string {
@@ -1394,6 +1434,9 @@ function EmailChannelEditor(props: {
   onSecretSaved: () => void;
 }) {
   const [fetchingEmailConfig, setFetchingEmailConfig] = useState(false);
+  const [fetchingEmailAccountIndex, setFetchingEmailAccountIndex] = useState<
+    number | null
+  >(null);
   const toast = useToast();
   const emailAccounts = getEmailAccounts(props.draft);
   const [emailAccountKeys, setEmailAccountKeys] = useState<string[]>(() =>
@@ -1448,22 +1491,9 @@ function EmailChannelEditor(props: {
   async function handleFetchEmailConfig() {
     setFetchingEmailConfig(true);
     try {
-      const result = (await fetchEmailConfig(props.token)) as {
-        handles?: Array<{
-          id?: string;
-          handle?: string;
-          status?: string;
-        }>;
-        credentials?: {
-          email?: string;
-          password?: string;
-          imap_host?: string;
-          imap_port?: number;
-          smtp_host?: string;
-          smtp_port?: number;
-        } | null;
-        handleId?: string;
-      };
+      const result = (await fetchEmailConfig(
+        props.token,
+      )) as HybridAIEmailConfigFetchResult;
 
       const handles = result?.handles;
       if (!Array.isArray(handles) || handles.length === 0) {
@@ -1512,6 +1542,72 @@ function EmailChannelEditor(props: {
       toast.error('Failed to fetch email config', getErrorMessage(error));
     } finally {
       setFetchingEmailConfig(false);
+    }
+  }
+
+  async function handleFetchEmailAccountConfig(index: number) {
+    const account = emailAccounts[index];
+    if (!account) return;
+
+    const handleId = resolveEmailAccountHandleId(account, props.agents);
+    if (!handleId) {
+      toast.info('Select an agent before fetching a HybridAI mailbox.');
+      return;
+    }
+
+    setFetchingEmailAccountIndex(index);
+    try {
+      const result = (await fetchEmailConfig(props.token, {
+        handleId,
+      })) as HybridAIEmailConfigFetchResult;
+      const creds = result?.credentials;
+      if (!creds) {
+        toast.info(
+          `Could not retrieve mailbox credentials for ${result?.handleId || handleId}.`,
+        );
+        return;
+      }
+
+      const passwordSecretName = createEmailAccountPasswordSecretName(
+        account,
+        result.handleId || handleId,
+      );
+      if (creds.password) {
+        try {
+          await setRuntimeSecret(
+            props.token,
+            passwordSecretName,
+            creds.password,
+          );
+          props.onSecretSaved();
+        } catch (err) {
+          toast.error('Password could not be saved', getErrorMessage(err));
+          toast.info(
+            'Mailbox credentials were not applied because the password was not saved.',
+          );
+          return;
+        }
+      }
+
+      updateEmailAccount(index, (current) => ({
+        ...current,
+        ...(creds.email ? { address: creds.email } : {}),
+        ...(creds.imap_host ? { imapHost: creds.imap_host } : {}),
+        ...(creds.imap_port != null ? { imapPort: creds.imap_port } : {}),
+        ...(creds.smtp_host ? { smtpHost: creds.smtp_host } : {}),
+        ...(creds.smtp_port != null ? { smtpPort: creds.smtp_port } : {}),
+        ...(creds.password
+          ? { password: { source: 'store' as const, id: passwordSecretName } }
+          : {}),
+      }));
+
+      toast.success(
+        `Mailbox config loaded from ${result.handleId || handleId}.`,
+      );
+    } catch (error) {
+      toast.error('Failed to fetch mailbox config', getErrorMessage(error));
+    } finally {
+      setFetchingEmailAccountIndex(null);
     }
   }
 
@@ -1758,21 +1854,47 @@ function EmailChannelEditor(props: {
               const selectedAgentKnown = props.agents.some(
                 (agent) => agent.id === account.agentId,
               );
+              const fetchHandleId = resolveEmailAccountHandleId(
+                account,
+                props.agents,
+              );
+              const fetchingThisEmailAccount =
+                fetchingEmailAccountIndex === index;
               return (
                 <div className="email-account-row" key={accountKey}>
                   <div className="email-account-row-header">
                     <strong>{account.address || `Mailbox ${index + 1}`}</strong>
-                    <Button
-                      aria-label={`Remove mailbox ${index + 1}`}
-                      title={`Remove mailbox ${index + 1}`}
-                      className="email-account-remove"
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeEmailAccount(index)}
-                    >
-                      <Trash width="16" height="16" />
-                    </Button>
+                    <div className="email-account-row-actions">
+                      {props.hybridaiApiKeyConfigured ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          loading={fetchingThisEmailAccount}
+                          disabled={
+                            fetchingEmailAccountIndex !== null || !fetchHandleId
+                          }
+                          title={
+                            fetchHandleId
+                              ? `Fetch HybridAI mailbox for ${fetchHandleId}`
+                              : 'Select an agent before fetching a HybridAI mailbox'
+                          }
+                          onClick={() => handleFetchEmailAccountConfig(index)}
+                        >
+                          Fetch HybridAI mailbox
+                        </Button>
+                      ) : null}
+                      <Button
+                        aria-label={`Remove mailbox ${index + 1}`}
+                        title={`Remove mailbox ${index + 1}`}
+                        className="email-account-remove"
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeEmailAccount(index)}
+                      >
+                        <Trash width="16" height="16" />
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="field-grid">

@@ -1549,6 +1549,13 @@ th {
   overflow-wrap: anywhere;
 }
 
+.email-account-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .email-account-remove {
   color: var(--danger);
 }
