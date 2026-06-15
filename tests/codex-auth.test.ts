@@ -37,6 +37,32 @@ function makeJwt(payload: Record<string, unknown>): string {
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.sig`;
 }
 
+function writeCodexCliTokenAuthStore(
+  homeDir: string,
+  accessToken: string,
+  refreshToken = 'refresh_import',
+): string {
+  const codexHome = path.join(homeDir, 'codex-home');
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.writeFileSync(
+    path.join(codexHome, 'auth.json'),
+    `${JSON.stringify(
+      {
+        tokens: {
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        },
+        last_refresh: '2026-03-06T12:00:00.000Z',
+      },
+      null,
+      2,
+    )}\n`,
+    'utf-8',
+  );
+  process.env.CODEX_HOME = codexHome;
+  return codexHome;
+}
+
 async function importFreshCodexAuth(
   homeDir: string,
   options?: {
@@ -337,6 +363,65 @@ describe('codex auth refresh', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('force-refreshes unexpired credentials when requested', async () => {
+    const homeDir = makeTempHome();
+    const codexAuth = await importFreshCodexAuth(homeDir);
+    const currentToken = makeJwt({
+      exp: Math.floor(Date.now() / 1000) + 3_600,
+      chatgpt_account_id: 'acct_old',
+    });
+    const refreshedToken = makeJwt({
+      exp: Math.floor(Date.now() / 1000) + 7_200,
+      chatgpt_account_id: 'acct_new',
+    });
+
+    codexAuth.saveCodexAuthStore(
+      {
+        version: 1,
+        credentials: {
+          accessToken: currentToken,
+          refreshToken: 'refresh_old',
+          accountId: 'acct_old',
+          expiresAt: codexAuth.extractExpiresAtFromJwt(currentToken),
+          provider: 'openai-codex',
+          authMethod: 'oauth',
+          source: 'browser-pkce',
+          lastRefresh: new Date(0).toISOString(),
+        },
+        updatedAt: new Date(0).toISOString(),
+      },
+      homeDir,
+    );
+
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(String(init?.body)).toBe(
+        'client_id=app_EMoamEEZ73f0CkXaXp7hrann&grant_type=refresh_token&refresh_token=refresh_old',
+      );
+      return new Response(
+        JSON.stringify({
+          access_token: refreshedToken,
+          refresh_token: 'refresh_new',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await codexAuth.ensureFreshCredentials({
+      forceRefresh: true,
+    });
+    const stored = codexAuth.loadCodexAuthStore(homeDir);
+
+    expect(result.refreshed).toBe(true);
+    expect(result.credentials.accessToken).toBe(refreshedToken);
+    expect(stored.credentials?.accessToken).toBe(refreshedToken);
+    expect(stored.credentials?.refreshToken).toBe('refresh_new');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('marks 401 refresh failures as relogin-required', async () => {
     const homeDir = makeTempHome();
     const codexAuth = await importFreshCodexAuth(homeDir);
@@ -379,6 +464,60 @@ describe('codex auth refresh', () => {
       code: 'codex_refresh_failed',
       reloginRequired: true,
     });
+    expect(codexAuth.loadCodexAuthStore(homeDir).credentials).toBeNull();
+    expect(codexAuth.getCodexAuthStatus().reloginRequired).toBe(true);
+  });
+
+  it('falls back to Codex CLI credentials when forced refresh requires relogin', async () => {
+    const homeDir = makeTempHome();
+    const staleToken = makeJwt({
+      exp: Math.floor(Date.now() / 1000) + 3_600,
+      chatgpt_account_id: 'acct_stale',
+    });
+    const importedToken = makeJwt({
+      exp: Math.floor(Date.now() / 1000) + 7_200,
+      chatgpt_account_id: 'acct_import',
+    });
+    writeCodexCliTokenAuthStore(homeDir, importedToken);
+
+    const codexAuth = await importFreshCodexAuth(homeDir);
+    codexAuth.saveCodexAuthStore(
+      {
+        version: 1,
+        credentials: {
+          accessToken: staleToken,
+          refreshToken: 'refresh_stale',
+          accountId: 'acct_stale',
+          expiresAt: codexAuth.extractExpiresAtFromJwt(staleToken),
+          provider: 'openai-codex',
+          authMethod: 'oauth',
+          source: 'browser-pkce',
+          lastRefresh: new Date(0).toISOString(),
+        },
+        updatedAt: new Date(0).toISOString(),
+      },
+      homeDir,
+    );
+
+    const fetchMock = vi.fn(async () => {
+      return new Response(JSON.stringify({ error: 'invalid_grant' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const resolved = await codexAuth.resolveCodexCredentials({
+      allowCodexCliImportFallback: true,
+      forceRefresh: true,
+    });
+    const stored = codexAuth.loadCodexAuthStore(homeDir);
+
+    expect(resolved.accountId).toBe('acct_import');
+    expect(resolved.apiKey).toBe(importedToken);
+    expect(stored.credentials?.source).toBe('codex-cli-import');
+    expect(stored.credentials?.refreshToken).toBe('refresh_import');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -768,6 +907,48 @@ describe('codex auth CLI import', () => {
     expect(stored.credentials?.accountId).toBe('acct_import');
     expect(stored.credentials?.source).toBe('codex-cli-import');
     expect(importedRaw).toContain('"refresh_token": "refresh_import"');
+  });
+
+  it('imports credentials from the Codex CLI auth store without an interactive prompt', async () => {
+    const homeDir = makeTempHome();
+    const accessToken = makeJwt({
+      exp: Math.floor(Date.now() / 1000) + 3_600,
+      chatgpt_account_id: 'acct_import',
+    });
+    const codexHome = writeCodexCliTokenAuthStore(homeDir, accessToken);
+
+    const codexAuth = await importFreshCodexAuth(homeDir);
+    const resolved = await codexAuth.resolveCodexCredentials({
+      allowCodexCliImportFallback: true,
+    });
+    const stored = codexAuth.loadCodexAuthStore(homeDir);
+
+    expect(resolved.accountId).toBe('acct_import');
+    expect(resolved.apiKey).toBe(accessToken);
+    expect(stored.credentials?.accountId).toBe('acct_import');
+    expect(stored.credentials?.source).toBe('codex-cli-import');
+    expect(fs.existsSync(path.join(codexHome, 'auth.json'))).toBe(true);
+  });
+
+  it('rejects expired credentials from the Codex CLI auth store', async () => {
+    const homeDir = makeTempHome();
+    const expiredToken = makeJwt({
+      exp: Math.floor(Date.now() / 1000) - 60,
+      chatgpt_account_id: 'acct_expired',
+    });
+    writeCodexCliTokenAuthStore(homeDir, expiredToken);
+
+    const codexAuth = await importFreshCodexAuth(homeDir);
+
+    await expect(
+      codexAuth.resolveCodexCredentials({
+        allowCodexCliImportFallback: true,
+      }),
+    ).rejects.toMatchObject({
+      code: 'codex_auth_missing_access_token',
+      reloginRequired: true,
+    });
+    expect(codexAuth.loadCodexAuthStore(homeDir).credentials).toBeNull();
   });
 });
 
