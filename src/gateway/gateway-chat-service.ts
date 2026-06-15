@@ -629,9 +629,10 @@ function buildBootstrapChatTurnPrompt(fileName: 'BOOTSTRAP.md'): string {
   return [
     'Hatching mode is active for this agent.',
     `A startup instruction file (${fileName}) exists and is already loaded in the system context.`,
-    'Do not answer this as a normal chat turn.',
-    `Follow ${fileName} now: introduce yourself, begin onboarding, and ask the first few useful customization questions.`,
-    'Use the user message below only as the signal that the user is present.',
+    'Continue the in-progress hatching conversation using the full chat history above.',
+    'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
+    `Keep following ${fileName}: acknowledge the user's latest reply and ask only the next useful customization question.`,
+    'If the user has not answered the previous questions yet, briefly point back to them instead of asking a fresh set.',
     'Do not ask a generic "what can I do for you?" question.',
     `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
   ].join('\n');

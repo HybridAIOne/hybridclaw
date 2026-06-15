@@ -432,7 +432,11 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
   if (msg.role === 'thinking') {
     return (
-      <div className={css.thinking}>
+      <div
+        className={css.thinking}
+        role="status"
+        aria-label="Assistant is thinking"
+      >
         <span className={css.thinkingDot} />
         <span className={css.thinkingDot} />
         <span className={css.thinkingDot} />
