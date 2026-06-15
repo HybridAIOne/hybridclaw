@@ -248,19 +248,33 @@ function accountFromAccountConfig(
   };
 }
 
+function configuredAccountOverridesLegacy(
+  account: ResolvedEmailAccount,
+  legacy: ResolvedEmailAccount,
+): boolean {
+  return account.agentId === DEFAULT_AGENT_ID || account.key === legacy.key;
+}
+
 function resolveRuntimeConfig(): ResolvedEmailRuntimeConfig {
   const config = getConfigSnapshot().email;
   if (!config.enabled) {
     throw new Error('Email channel is not enabled.');
   }
 
-  const rawAccounts =
-    config.accounts.length > 0
-      ? config.accounts.map(accountFromAccountConfig)
-      : [accountFromLegacyConfig(config)].filter(Boolean);
-  const accounts = rawAccounts.filter(
-    (account): account is ResolvedEmailAccount => Boolean(account),
-  );
+  const configuredAccounts = config.accounts.map(accountFromAccountConfig);
+  const legacyAccount =
+    configuredAccounts.length > 0 && !config.address.trim()
+      ? null
+      : accountFromLegacyConfig(config);
+  const accounts = [...configuredAccounts];
+  if (
+    legacyAccount &&
+    !configuredAccounts.some((account) =>
+      configuredAccountOverridesLegacy(account, legacyAccount),
+    )
+  ) {
+    accounts.unshift(legacyAccount);
+  }
   if (accounts.length === 0) {
     throw new Error('Email channel has no configured accounts.');
   }

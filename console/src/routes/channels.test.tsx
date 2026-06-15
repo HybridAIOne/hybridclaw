@@ -453,7 +453,7 @@ describe('ChannelsPage', () => {
     await screen.findByRole('button', { name: /Email/i });
 
     fireEvent.click(screen.getByRole('button', { name: /Email/i }));
-    fireEvent.change(screen.getByLabelText('Address'), {
+    fireEvent.change(screen.getByLabelText('Default mailbox address'), {
       target: { value: 'support@example.com' },
     });
     fireEvent.click(
@@ -493,7 +493,9 @@ describe('ChannelsPage', () => {
     await screen.findByRole('button', { name: /Email/i });
 
     fireEvent.click(screen.getByRole('button', { name: /Email/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add agent mailbox' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Add additional mailbox' }),
+    );
 
     await screen.findByRole('option', {
       name: 'Support Agent (support)',
@@ -1638,7 +1640,9 @@ describe('ChannelsPage', () => {
       );
     });
 
-    screen.getByText('Password updated in encrypted runtime secrets.');
+    screen.getByText(
+      'Default mailbox password updated in encrypted runtime secrets.',
+    );
   });
 
   it('updates Discord tokens through encrypted runtime secrets', async () => {

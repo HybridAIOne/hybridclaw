@@ -1136,6 +1136,169 @@ describe('email runtime', () => {
     );
   });
 
+  test('polls the top-level mailbox as the default agent alongside additional agent mailboxes', async () => {
+    const accounts = [
+      {
+        ...BASE_EMAIL_CONFIG,
+        agentId: 'support',
+        address: 'support@example.com',
+        password: 'support-password',
+      },
+    ];
+
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_PASSWORD: '',
+      EMAIL_TEXT_CHUNK_LIMIT: 50_000,
+      getConfigSnapshot: () => ({
+        email: {
+          ...BASE_EMAIL_CONFIG,
+          address: 'main@example.com',
+          password: 'main-password',
+          accounts,
+        },
+      }),
+    }));
+
+    const transports: Array<{ authUser?: string }> = [];
+    const createTransport = vi.fn(
+      (options: { auth?: { user?: string } }) => {
+        transports.push({ authUser: options.auth?.user });
+        return {
+          close: vi.fn(async () => {}),
+          verify: vi.fn(async () => {}),
+        };
+      },
+    );
+    const connections: Array<{
+      address: string;
+      agentId: string;
+      password: string;
+    }> = [];
+
+    vi.doMock('nodemailer', () => ({
+      default: {
+        createTransport,
+      },
+    }));
+    vi.doMock('../src/channels/email/connection.ts', () => ({
+      createEmailConnectionManager: vi.fn(
+        (
+          config: { address: string; agentId: string },
+          password: string,
+        ) => {
+          connections.push({
+            address: config.address,
+            agentId: config.agentId,
+            password,
+          });
+          return {
+            start: vi.fn(async () => {}),
+            stop: vi.fn(async () => {}),
+          };
+        },
+      ),
+    }));
+    vi.doMock('../src/channels/email/inbound.ts', () => ({
+      cleanupEmailInboundMedia: vi.fn(async () => {}),
+      processInboundEmail: vi.fn(),
+    }));
+
+    const { createEmailRuntime } = await import(
+      '../src/channels/email/runtime.js'
+    );
+    const runtime = createEmailRuntime();
+
+    await runtime.initEmail(vi.fn());
+
+    expect(connections).toEqual([
+      {
+        address: 'main@example.com',
+        agentId: 'main',
+        password: 'main-password',
+      },
+      {
+        address: 'support@example.com',
+        agentId: 'support',
+        password: 'support-password',
+      },
+    ]);
+    expect(transports.map((transport) => transport.authUser)).toEqual([
+      'main@example.com',
+      'support@example.com',
+    ]);
+  });
+
+  test('lets an explicit main-agent mailbox override the top-level mailbox', async () => {
+    const accounts = [
+      {
+        ...BASE_EMAIL_CONFIG,
+        agentId: 'main',
+        address: 'main-agent-row@example.com',
+        password: 'row-password',
+      },
+    ];
+
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_PASSWORD: '',
+      EMAIL_TEXT_CHUNK_LIMIT: 50_000,
+      getConfigSnapshot: () => ({
+        email: {
+          ...BASE_EMAIL_CONFIG,
+          address: 'main@example.com',
+          password: 'main-password',
+          accounts,
+        },
+      }),
+    }));
+
+    const connections: Array<{ address: string; agentId: string }> = [];
+
+    vi.doMock('nodemailer', () => ({
+      default: {
+        createTransport: vi.fn(() => ({
+          close: vi.fn(async () => {}),
+          verify: vi.fn(async () => {}),
+        })),
+      },
+    }));
+    vi.doMock('../src/channels/email/connection.ts', () => ({
+      createEmailConnectionManager: vi.fn(
+        (config: { address: string; agentId: string }) => {
+          connections.push({
+            address: config.address,
+            agentId: config.agentId,
+          });
+          return {
+            start: vi.fn(async () => {}),
+            stop: vi.fn(async () => {}),
+          };
+        },
+      ),
+    }));
+    vi.doMock('../src/channels/email/inbound.ts', () => ({
+      cleanupEmailInboundMedia: vi.fn(async () => {}),
+      processInboundEmail: vi.fn(),
+    }));
+
+    const { createEmailRuntime } = await import(
+      '../src/channels/email/runtime.js'
+    );
+    const runtime = createEmailRuntime();
+
+    await runtime.initEmail(vi.fn());
+
+    expect(connections).toEqual([
+      {
+        address: 'main-agent-row@example.com',
+        agentId: 'main',
+      },
+    ]);
+  });
+
   test('aborts in-flight handlers during shutdown', async () => {
     vi.doMock('../src/config/config.ts', () => ({
       APP_VERSION: '0.7.1',

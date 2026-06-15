@@ -1539,18 +1539,22 @@ function EmailChannelEditor(props: {
         </div>
       ) : null}
 
+      <div className="email-account-section-header">
+        <h4>Default agent mailbox</h4>
+      </div>
+
       <div className="field-grid">
         <FormField
           name="email.address"
           render={({ field }) => (
             <Field>
-              <FieldLabel>Address</FieldLabel>
+              <FieldLabel>Default mailbox address</FieldLabel>
               <Input {...field} placeholder="bot@example.com" />
             </Field>
           )}
         />
         <ManagedSecretField
-          label="Password"
+          label="Default mailbox password"
           secretName="EMAIL_PASSWORD"
           secretLabel="password"
           configValue={props.draft.email.password}
@@ -1717,15 +1721,15 @@ function EmailChannelEditor(props: {
       />
       <div className="email-account-section">
         <div className="email-account-section-header">
-          <h4>Agent mailboxes</h4>
+          <h4>Additional agent mailboxes</h4>
           <Button type="button" variant="ghost" onClick={addEmailAccount}>
-            Add agent mailbox
+            Add additional mailbox
           </Button>
         </div>
 
         {emailAccounts.length === 0 ? (
           <div className="empty-state email-account-empty">
-            No agent mailboxes configured.
+            No additional agent mailboxes configured.
           </div>
         ) : (
           <div className="email-account-list">
