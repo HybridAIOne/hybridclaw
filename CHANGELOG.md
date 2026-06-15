@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+## [0.24.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.3) - 2026-06-15
+
+### Changed
+
+- **Hatching conversation flow**: Agent hatching now stays conversational and
+  uses a tailored first-email subject instead of a fixed default. Web chat
+  reflects gateway-owned hatching autostart with a thinking state and refreshed
+  history instead of injecting a hidden kickoff message from the browser.
+
+### Fixed
+
+- **Confidential audit metadata**: Confidential masking and rehydration now
+  write metadata-only audit events with redaction counts, class summaries, and
+  surface names while keeping raw secret and client values out of the audit
+  wire log.
+- **Codex model discovery recovery**: Codex model discovery force-refreshes
+  stale credentials after authorization failures, can re-import the Codex CLI
+  auth store when refresh requires relogin, and avoids caching empty model
+  lists after rejected credentials.
+- **Hatching chat continuity**: Switched-agent hatching turns now keep the full
+  prior chat history in context, avoid repeating onboarding after the prelude,
+  and reload browser history so gateway-authored hatching messages appear
+  immediately.
+- **Legacy audit user actors**: Structured audit queries canonicalize legacy
+  plain user ids as local user actors and validate the normalized actor before
+  indexing.
+- **Container edit compatibility**: The container `edit` tool accepts
+  model-generated `old_text` and `new_text` aliases in addition to the primary
+  replacement fields.
+
 ## [0.24.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.2) - 2026-06-14
 
 ### Added
