@@ -10,6 +10,11 @@ export const LOG_LEVELS = [
 
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
+export interface AdminConfigReloadResponse {
+  status: string;
+  message?: string;
+}
+
 export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
@@ -808,6 +813,8 @@ export interface AdminConfig {
     gatewayApiToken: string;
     dbPath: string;
     logLevel: LogLevel;
+    logRequests?: boolean;
+    debugModelResponses?: boolean;
   };
   [key: string]: unknown;
 }
@@ -836,9 +843,26 @@ export interface AdminLogTail {
   truncated: boolean;
 }
 
+export interface AdminLoggingState {
+  configuredLevel: LogLevel;
+  effectiveLevel: LogLevel;
+  forcedLevel: LogLevel | null;
+  logRequests: {
+    configured: boolean;
+    envEnabled: boolean;
+    effective: boolean;
+  };
+  debugModelResponses: {
+    configured: boolean;
+    envEnabled: boolean;
+    effective: boolean;
+  };
+}
+
 export interface AdminLogsResponse {
   files: AdminLogFile[];
   selected: AdminLogTail | null;
+  logging?: AdminLoggingState;
 }
 
 export interface AdminBrowserPoolHealthResponse {

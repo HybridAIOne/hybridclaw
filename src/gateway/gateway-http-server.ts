@@ -93,7 +93,7 @@ import {
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
-import { logger } from '../logger.js';
+import { logger, syncLoggerLevelFromRuntimeConfig } from '../logger.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { normalizeMimeType } from '../media/mime-utils.js';
 import {
@@ -3917,6 +3917,7 @@ function handleApiConfigReload(res: ServerResponse): void {
   try {
     refreshRuntimeSecretsFromEnv();
     reloadRuntimeConfig('admin-api');
+    syncLoggerLevelFromRuntimeConfig('admin-api');
   } catch (error) {
     sendJson(res, 500, {
       error:
