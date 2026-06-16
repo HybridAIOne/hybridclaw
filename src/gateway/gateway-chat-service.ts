@@ -61,6 +61,11 @@ import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
+import {
+  collectModelLookupCandidates,
+  matchesModelFamily,
+} from '../providers/model-lookup.js';
+import { isGpt5ModelId } from '../providers/model-metadata.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { maybeAutoTitleSession } from '../session/session-title.js';
@@ -625,17 +630,37 @@ function captureGatewayChatResultError(params: {
   });
 }
 
-function buildBootstrapChatTurnPrompt(fileName: 'BOOTSTRAP.md'): string {
+function isGpt5OnboardingModelId(modelId: string): boolean {
+  return collectModelLookupCandidates(modelId).some(
+    (candidate) =>
+      isGpt5ModelId(candidate) || matchesModelFamily(candidate, 'gpt-5'),
+  );
+}
+
+function buildGpt5OnboardingPromptInjection(): string[] {
   return [
+    'If you have the basic info about the user and a valid email address, proceed to send the welcome message. Do not display the draft to the user first, but send without asking.',
+  ];
+}
+
+function buildBootstrapChatTurnPrompt(params: {
+  fileName: 'BOOTSTRAP.md';
+  model: string;
+}): string {
+  const lines = [
     'Hatching mode is active for this agent.',
-    `A startup instruction file (${fileName}) exists and is already loaded in the system context.`,
+    `A startup instruction file (${params.fileName}) exists and is already loaded in the system context.`,
     'Continue the in-progress hatching conversation using the full chat history above.',
     'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
-    `Keep following ${fileName}: acknowledge the user's latest reply and ask only the next useful customization question.`,
+    `Keep following ${params.fileName}: acknowledge the user's latest reply and ask only the next useful customization question.`,
     'If the user has not answered the previous questions yet, briefly point back to them instead of asking a fresh set.',
     'Do not ask a generic "what can I do for you?" question.',
-    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
-  ].join('\n');
+    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${params.fileName} explicitly requires it.`,
+  ];
+  if (isGpt5OnboardingModelId(params.model)) {
+    lines.push('', ...buildGpt5OnboardingPromptInjection());
+  }
+  return lines.join('\n');
 }
 
 function shouldInjectBootstrapChatTurnPrompt(params: {
@@ -1609,7 +1634,10 @@ async function handleGatewayMessageInner(
         startupBootstrapFile === 'BOOTSTRAP.md' ? startupBootstrapFile : null,
     })
   ) {
-    agentUserContent = `${buildBootstrapChatTurnPrompt('BOOTSTRAP.md')}\n\nUser message:\n${agentUserContent}`;
+    agentUserContent = `${buildBootstrapChatTurnPrompt({
+      fileName: 'BOOTSTRAP.md',
+      model,
+    })}\n\nUser message:\n${agentUserContent}`;
   }
   if (pluginManager?.hasMiddleware('pre_send')) {
     const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {
