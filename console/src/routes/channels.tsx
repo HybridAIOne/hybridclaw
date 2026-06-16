@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
+  fetchAdminAgents,
   fetchConfig,
   fetchEmailConfig,
   fetchSignalLink,
@@ -11,18 +12,24 @@ import {
   startSignalLink,
   validateToken,
 } from '../api/client';
-import type { AdminConfig } from '../api/types';
+import type { AdminAgent, AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { ChannelLogo } from '../components/channel-logo';
-import { Field, FieldContent, FieldLabel } from '../components/field';
+import {
+  Field,
+  FieldContent,
+  FieldLabel,
+  FieldTitle,
+} from '../components/field';
 import {
   Form,
   FormField,
   type UseFormControllerReturn,
   useForm,
 } from '../components/form';
+import { Trash } from '../components/icons';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { NumberField } from '../components/number-field';
@@ -30,6 +37,7 @@ import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { useFormMutation } from '../hooks/use-form-mutation';
+import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { getErrorMessage } from '../lib/error-message';
 import { joinStringList, parseStringList } from '../lib/format';
 import {
@@ -82,6 +90,120 @@ function ListField(props: {
       />
     </label>
   );
+}
+
+type EmailAccountConfig = NonNullable<AdminConfig['email']['accounts']>[number];
+type HybridAIEmailConfigFetchResult = {
+  handles?: Array<{
+    id?: string;
+    handle?: string;
+    status?: string;
+  }>;
+  credentials?: {
+    email?: string;
+    password?: string;
+    imap_host?: string;
+    imap_port?: number;
+    smtp_host?: string;
+    smtp_port?: number;
+  } | null;
+  handleId?: string;
+};
+
+function getEmailAccounts(config: AdminConfig): EmailAccountConfig[] {
+  return Array.isArray(config.email.accounts) ? config.email.accounts : [];
+}
+
+function createEmailAccount(config: AdminConfig['email']): EmailAccountConfig {
+  return {
+    agentId: '',
+    imapHost: config.imapHost,
+    imapPort: config.imapPort,
+    imapSecure: config.imapSecure,
+    smtpHost: config.smtpHost,
+    smtpPort: config.smtpPort,
+    smtpSecure: config.smtpSecure,
+    address: '',
+    password: '',
+    pollIntervalMs: config.pollIntervalMs,
+    folders: [...config.folders],
+    allowFrom: [...config.allowFrom],
+    mediaMaxMb: config.mediaMaxMb,
+  };
+}
+
+function getEmailAccountPasswordRefId(account: EmailAccountConfig): string {
+  const password = account.password;
+  if (password && typeof password === 'object' && password.source === 'store') {
+    return password.id;
+  }
+  return '';
+}
+
+function setEmailAccountPasswordRefId(
+  account: EmailAccountConfig,
+  id: string,
+): EmailAccountConfig {
+  const next = { ...account };
+  if (id) {
+    next.password = { source: 'store', id };
+  } else {
+    delete next.password;
+  }
+  return next;
+}
+
+function formatAgentOptionLabel(agent: AdminAgent): string {
+  return agent.name ? `${agent.name} (${agent.id})` : agent.id;
+}
+
+function formatDefaultEmailAgentLabel(agents: AdminAgent[]): string {
+  const defaultAgent = agents.find((agent) => agent.id === DEFAULT_AGENT_ID);
+  if (defaultAgent) return formatAgentOptionLabel(defaultAgent);
+  return `Main Agent (${DEFAULT_AGENT_ID})`;
+}
+
+function normalizeSecretRefName(value: string): string {
+  const normalized = value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return normalized || 'AGENT';
+}
+
+function createSecretRefNameHash(value: string): string {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0).toString(36).toUpperCase().padStart(6, '0');
+}
+
+function createEmailAccountPasswordSecretName(
+  account: EmailAccountConfig,
+  handleId: string,
+): string {
+  const prefix = normalizeSecretRefName(account.agentId || handleId);
+  const suffix = createSecretRefNameHash(
+    `${account.agentId || ''}\n${handleId}\n${account.address || ''}`,
+  );
+  return `${prefix}_${suffix}_EMAIL_PASSWORD`;
+}
+
+function resolveEmailAccountHandleId(
+  account: EmailAccountConfig,
+  agents: AdminAgent[],
+): string {
+  const agent = agents.find((entry) => entry.id === account.agentId);
+  return String(agent?.chatbotId || account.agentId || '').trim();
+}
+
+function createEmailAccountKey(): string {
+  return `mailbox-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
 }
 
 function ChannelInstructionsField(props: { kind: ChannelInstructionKind }) {
@@ -149,11 +271,12 @@ function ManagedSecretField(props: {
   });
 
   return (
-    <div className="field managed-secret-field">
-      <span>{props.label}</span>
+    <Field className="managed-secret-field">
+      <FieldTitle>{props.label}</FieldTitle>
       {!isEditing ? (
         <div className="button-row">
           <Button
+            className="managed-secret-action"
             variant="ghost"
             type="button"
             onClick={() => {
@@ -205,7 +328,7 @@ function ManagedSecretField(props: {
           </div>
         </div>
       ) : null}
-    </div>
+    </Field>
   );
 }
 
@@ -1319,31 +1442,71 @@ function EmailChannelEditor(props: {
   passwordConfigured: boolean;
   passwordSource: SecretSource;
   hybridaiApiKeyConfigured: boolean;
+  agents: AdminAgent[];
   token: string;
   onSecretSaved: () => void;
 }) {
   const [fetchingEmailConfig, setFetchingEmailConfig] = useState(false);
+  const [fetchingEmailAccountIndex, setFetchingEmailAccountIndex] = useState<
+    number | null
+  >(null);
   const toast = useToast();
+  const emailAccounts = getEmailAccounts(props.draft);
+  const [emailAccountKeys, setEmailAccountKeys] = useState<string[]>(() =>
+    emailAccounts.map(() => createEmailAccountKey()),
+  );
+
+  useEffect(() => {
+    setEmailAccountKeys((current) => {
+      if (current.length === emailAccounts.length) return current;
+      if (current.length > emailAccounts.length) {
+        return current.slice(0, emailAccounts.length);
+      }
+      return [
+        ...current,
+        ...Array.from(
+          { length: emailAccounts.length - current.length },
+          createEmailAccountKey,
+        ),
+      ];
+    });
+  }, [emailAccounts.length]);
+
+  function setEmailAccounts(next: EmailAccountConfig[]) {
+    props.form.setField('email.accounts', next);
+  }
+
+  function updateEmailAccount(
+    index: number,
+    update: (account: EmailAccountConfig) => EmailAccountConfig,
+  ) {
+    setEmailAccounts(
+      emailAccounts.map((account, currentIndex) =>
+        currentIndex === index ? update(account) : account,
+      ),
+    );
+  }
+
+  function addEmailAccount() {
+    setEmailAccountKeys((current) => [...current, createEmailAccountKey()]);
+    setEmailAccounts([...emailAccounts, createEmailAccount(props.draft.email)]);
+  }
+
+  function removeEmailAccount(index: number) {
+    setEmailAccountKeys((current) =>
+      current.filter((_, currentIndex) => currentIndex !== index),
+    );
+    setEmailAccounts(
+      emailAccounts.filter((_, currentIndex) => currentIndex !== index),
+    );
+  }
 
   async function handleFetchEmailConfig() {
     setFetchingEmailConfig(true);
     try {
-      const result = (await fetchEmailConfig(props.token)) as {
-        handles?: Array<{
-          id?: string;
-          handle?: string;
-          status?: string;
-        }>;
-        credentials?: {
-          email?: string;
-          password?: string;
-          imap_host?: string;
-          imap_port?: number;
-          smtp_host?: string;
-          smtp_port?: number;
-        } | null;
-        handleId?: string;
-      };
+      const result = (await fetchEmailConfig(
+        props.token,
+      )) as HybridAIEmailConfigFetchResult;
 
       const handles = result?.handles;
       if (!Array.isArray(handles) || handles.length === 0) {
@@ -1395,6 +1558,72 @@ function EmailChannelEditor(props: {
     }
   }
 
+  async function handleFetchEmailAccountConfig(index: number) {
+    const account = emailAccounts[index];
+    if (!account) return;
+
+    const handleId = resolveEmailAccountHandleId(account, props.agents);
+    if (!handleId) {
+      toast.info('Select an agent before fetching a HybridAI mailbox.');
+      return;
+    }
+
+    setFetchingEmailAccountIndex(index);
+    try {
+      const result = (await fetchEmailConfig(props.token, {
+        handleId,
+      })) as HybridAIEmailConfigFetchResult;
+      const creds = result?.credentials;
+      if (!creds) {
+        toast.info(
+          `Could not retrieve mailbox credentials for ${result?.handleId || handleId}.`,
+        );
+        return;
+      }
+
+      const passwordSecretName = createEmailAccountPasswordSecretName(
+        account,
+        result.handleId || handleId,
+      );
+      if (creds.password) {
+        try {
+          await setRuntimeSecret(
+            props.token,
+            passwordSecretName,
+            creds.password,
+          );
+          props.onSecretSaved();
+        } catch (err) {
+          toast.error('Password could not be saved', getErrorMessage(err));
+          toast.info(
+            'Mailbox credentials were not applied because the password was not saved.',
+          );
+          return;
+        }
+      }
+
+      updateEmailAccount(index, (current) => ({
+        ...current,
+        ...(creds.email ? { address: creds.email } : {}),
+        ...(creds.imap_host ? { imapHost: creds.imap_host } : {}),
+        ...(creds.imap_port != null ? { imapPort: creds.imap_port } : {}),
+        ...(creds.smtp_host ? { smtpHost: creds.smtp_host } : {}),
+        ...(creds.smtp_port != null ? { smtpPort: creds.smtp_port } : {}),
+        ...(creds.password
+          ? { password: { source: 'store' as const, id: passwordSecretName } }
+          : {}),
+      }));
+
+      toast.success(
+        `Mailbox config loaded from ${result.handleId || handleId}.`,
+      );
+    } catch (error) {
+      toast.error('Failed to fetch mailbox config', getErrorMessage(error));
+    } finally {
+      setFetchingEmailAccountIndex(null);
+    }
+  }
+
   return (
     <>
       <FormField
@@ -1426,18 +1655,33 @@ function EmailChannelEditor(props: {
         </div>
       ) : null}
 
+      <div className="email-account-section-header">
+        <div className="email-account-section-copy">
+          <h4>
+            Default agent mailbox:
+            <span className="email-default-agent-target">
+              {formatDefaultEmailAgentLabel(props.agents)}
+            </span>
+          </h4>
+          <p>
+            Inbound target; outbound fallback for agents without an additional
+            mailbox.
+          </p>
+        </div>
+      </div>
+
       <div className="field-grid">
         <FormField
           name="email.address"
           render={({ field }) => (
             <Field>
-              <FieldLabel>Address</FieldLabel>
+              <FieldLabel>Default mailbox address</FieldLabel>
               <Input {...field} placeholder="bot@example.com" />
             </Field>
           )}
         />
         <ManagedSecretField
-          label="Password"
+          label="Default mailbox password"
           secretName="EMAIL_PASSWORD"
           secretLabel="password"
           configValue={props.draft.email.password}
@@ -1602,6 +1846,293 @@ function EmailChannelEditor(props: {
           </Field>
         )}
       />
+      <div className="email-account-section">
+        <div className="email-account-section-header">
+          <h4>Additional agent mailboxes</h4>
+          <Button type="button" variant="ghost" onClick={addEmailAccount}>
+            Add additional mailbox
+          </Button>
+        </div>
+
+        {emailAccounts.length === 0 ? (
+          <div className="empty-state email-account-empty">
+            No additional agent mailboxes configured.
+          </div>
+        ) : (
+          <div className="email-account-list">
+            {emailAccounts.map((account, index) => {
+              const accountKey =
+                emailAccountKeys[index] ||
+                `${account.agentId}:${account.address}:${account.imapHost}:${account.smtpHost}`;
+              const selectedAgentKnown = props.agents.some(
+                (agent) => agent.id === account.agentId,
+              );
+              const fetchHandleId = resolveEmailAccountHandleId(
+                account,
+                props.agents,
+              );
+              const fetchingThisEmailAccount =
+                fetchingEmailAccountIndex === index;
+              return (
+                <div className="email-account-row" key={accountKey}>
+                  <div className="email-account-row-header">
+                    <strong>{account.address || `Mailbox ${index + 1}`}</strong>
+                    <div className="email-account-row-actions">
+                      {props.hybridaiApiKeyConfigured ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          loading={fetchingThisEmailAccount}
+                          disabled={
+                            fetchingEmailAccountIndex !== null || !fetchHandleId
+                          }
+                          title={
+                            fetchHandleId
+                              ? `Fetch HybridAI mailbox for ${fetchHandleId}`
+                              : 'Select an agent before fetching a HybridAI mailbox'
+                          }
+                          onClick={() => handleFetchEmailAccountConfig(index)}
+                        >
+                          Fetch HybridAI mailbox
+                        </Button>
+                      ) : null}
+                      <Button
+                        aria-label={`Remove mailbox ${index + 1}`}
+                        title={`Remove mailbox ${index + 1}`}
+                        className="email-account-remove"
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeEmailAccount(index)}
+                      >
+                        <Trash width="16" height="16" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="field-grid">
+                    <Field>
+                      <FieldLabel>Agent</FieldLabel>
+                      {props.agents.length > 0 ? (
+                        <NativeSelect
+                          value={account.agentId}
+                          onChange={(event) =>
+                            updateEmailAccount(index, (current) => ({
+                              ...current,
+                              agentId: event.target.value,
+                            }))
+                          }
+                        >
+                          <NativeSelectOption value="">
+                            Select agent
+                          </NativeSelectOption>
+                          {props.agents.map((agent) => (
+                            <NativeSelectOption key={agent.id} value={agent.id}>
+                              {formatAgentOptionLabel(agent)}
+                            </NativeSelectOption>
+                          ))}
+                          {account.agentId && !selectedAgentKnown ? (
+                            <NativeSelectOption value={account.agentId}>
+                              {account.agentId}
+                            </NativeSelectOption>
+                          ) : null}
+                        </NativeSelect>
+                      ) : (
+                        <Input
+                          value={account.agentId}
+                          placeholder="sales"
+                          onChange={(event) =>
+                            updateEmailAccount(index, (current) => ({
+                              ...current,
+                              agentId: event.target.value,
+                            }))
+                          }
+                        />
+                      )}
+                    </Field>
+                    <Field>
+                      <FieldLabel>Mailbox address</FieldLabel>
+                      <Input
+                        type="email"
+                        value={account.address}
+                        placeholder="sales@example.com"
+                        onChange={(event) =>
+                          updateEmailAccount(index, (current) => ({
+                            ...current,
+                            address: event.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                  </div>
+
+                  <Field>
+                    <FieldLabel>Password SecretRef id</FieldLabel>
+                    <Input
+                      value={getEmailAccountPasswordRefId(account)}
+                      placeholder="SALES_EMAIL_PASSWORD"
+                      onChange={(event) =>
+                        updateEmailAccount(index, (current) =>
+                          setEmailAccountPasswordRefId(
+                            current,
+                            event.target.value.trim(),
+                          ),
+                        )
+                      }
+                    />
+                  </Field>
+
+                  <div className="field-grid">
+                    <Field>
+                      <FieldLabel>Mailbox IMAP host</FieldLabel>
+                      <Input
+                        value={account.imapHost}
+                        onChange={(event) =>
+                          updateEmailAccount(index, (current) => ({
+                            ...current,
+                            imapHost: event.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Mailbox SMTP host</FieldLabel>
+                      <Input
+                        value={account.smtpHost}
+                        onChange={(event) =>
+                          updateEmailAccount(index, (current) => ({
+                            ...current,
+                            smtpHost: event.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="field-grid">
+                    <Field>
+                      <FieldLabel>Mailbox IMAP port</FieldLabel>
+                      <NumberField
+                        integer
+                        min={0}
+                        value={account.imapPort}
+                        onValueChange={(imapPort) =>
+                          updateEmailAccount(index, (current) => ({
+                            ...current,
+                            imapPort,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Mailbox SMTP port</FieldLabel>
+                      <NumberField
+                        integer
+                        min={0}
+                        value={account.smtpPort}
+                        onValueChange={(smtpPort) =>
+                          updateEmailAccount(index, (current) => ({
+                            ...current,
+                            smtpPort,
+                          }))
+                        }
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="field-grid">
+                    <Field orientation="horizontal">
+                      <Switch
+                        checked={account.imapSecure}
+                        onCheckedChange={(imapSecure) =>
+                          updateEmailAccount(index, (current) => ({
+                            ...current,
+                            imapSecure,
+                          }))
+                        }
+                      />
+                      <FieldContent>
+                        <FieldLabel>Mailbox IMAP secure</FieldLabel>
+                      </FieldContent>
+                    </Field>
+                    <Field orientation="horizontal">
+                      <Switch
+                        checked={account.smtpSecure}
+                        onCheckedChange={(smtpSecure) =>
+                          updateEmailAccount(index, (current) => ({
+                            ...current,
+                            smtpSecure,
+                          }))
+                        }
+                      />
+                      <FieldContent>
+                        <FieldLabel>Mailbox SMTP secure</FieldLabel>
+                      </FieldContent>
+                    </Field>
+                  </div>
+
+                  <ListField
+                    label="Mailbox folders"
+                    value={account.folders}
+                    rows={2}
+                    placeholder="INBOX, Support"
+                    onChange={(folders) =>
+                      updateEmailAccount(index, (current) => ({
+                        ...current,
+                        folders,
+                      }))
+                    }
+                  />
+
+                  <ListField
+                    label="Mailbox allowed senders"
+                    value={account.allowFrom}
+                    rows={2}
+                    placeholder="name@example.com, *@example.com"
+                    onChange={(allowFrom) =>
+                      updateEmailAccount(index, (current) => ({
+                        ...current,
+                        allowFrom,
+                      }))
+                    }
+                  />
+
+                  <div className="field-grid">
+                    <Field>
+                      <FieldLabel>Mailbox poll interval ms</FieldLabel>
+                      <NumberField
+                        integer
+                        min={0}
+                        value={account.pollIntervalMs}
+                        onValueChange={(pollIntervalMs) =>
+                          updateEmailAccount(index, (current) => ({
+                            ...current,
+                            pollIntervalMs,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Mailbox media max MB</FieldLabel>
+                      <NumberField
+                        integer
+                        min={0}
+                        value={account.mediaMaxMb}
+                        onValueChange={(mediaMaxMb) =>
+                          updateEmailAccount(index, (current) => ({
+                            ...current,
+                            mediaMaxMb,
+                          }))
+                        }
+                      />
+                    </Field>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
       <ChannelInstructionsField kind="email" />
     </>
   );
@@ -2750,6 +3281,7 @@ function renderSelectedEditor(
     cliVersion: string | null;
     cliError: string | null;
   },
+  agents: AdminAgent[],
   onConfigSaved: (config: AdminConfig) => void,
   onSecretSaved: () => void,
 ) {
@@ -2858,6 +3390,7 @@ function renderSelectedEditor(
           passwordConfigured={secretStatus.email.configured}
           passwordSource={secretStatus.email.source}
           hybridaiApiKeyConfigured={hybridaiApiKeyConfigured}
+          agents={agents}
           token={token}
           onSecretSaved={onSecretSaved}
         />
@@ -2893,6 +3426,11 @@ export function ChannelsPage() {
     queryFn: () => validateToken(auth.token),
     initialData: auth.gatewayStatus,
     refetchInterval: 3_000,
+  });
+  const agentsQuery = useQuery({
+    queryKey: ['admin-agents', auth.token],
+    queryFn: () => fetchAdminAgents(auth.token),
+    enabled: selectedKind === 'email',
   });
 
   const form = useForm<AdminConfig>({
@@ -3089,6 +3627,7 @@ export function ChannelsPage() {
                       hybridaiApiKeyConfigured,
                       whatsappStatus,
                       signalStatus,
+                      agentsQuery.data || [],
                       (config) => {
                         const payload = {
                           path: configQuery.data?.path || '',

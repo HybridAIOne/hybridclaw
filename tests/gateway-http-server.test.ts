@@ -5798,6 +5798,120 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('fetches HybridAI mailbox credentials for a requested handle', async () => {
+    const previousApiKey = process.env.HYBRIDAI_API_KEY;
+    process.env.HYBRIDAI_API_KEY = 'hai-test-token';
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'https://hybridai.one/api/v1/agent-handles/') {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({
+            handles: [
+              { id: 'main-bot', handle: 'main', status: 'active' },
+              { id: 'support-bot', handle: 'support', status: 'active' },
+            ],
+          }),
+        };
+      }
+      if (
+        url ===
+        'https://hybridai.one/api/v1/agent-handles/support-bot/mailbox/credentials'
+      ) {
+        expect(init?.method).toBe('POST');
+        expect((init?.headers as Record<string, string>).Authorization).toBe(
+          'Bearer hai-test-token',
+        );
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({
+            email: 'support@example.com',
+            password: 'support-password',
+            imap_host: 'imap.example.com',
+            imap_port: 993,
+            smtp_host: 'smtp.example.com',
+            smtp_port: 587,
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const state = await importFreshHealth();
+      const req = makeRequest({
+        url: '/api/admin/email-config/fetch?handleId=support-bot',
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await settle();
+
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toMatchObject({
+        handleId: 'support-bot',
+        credentials: {
+          email: 'support@example.com',
+          imap_host: 'imap.example.com',
+        },
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      if (previousApiKey === undefined) {
+        delete process.env.HYBRIDAI_API_KEY;
+      } else {
+        process.env.HYBRIDAI_API_KEY = previousApiKey;
+      }
+    }
+  });
+
+  test('does not fetch HybridAI mailbox credentials for an unknown handle', async () => {
+    const previousApiKey = process.env.HYBRIDAI_API_KEY;
+    process.env.HYBRIDAI_API_KEY = 'hai-test-token';
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://hybridai.one/api/v1/agent-handles/') {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({
+            handles: [{ id: 'main-bot', handle: 'main', status: 'active' }],
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const state = await importFreshHealth();
+      const req = makeRequest({
+        url: '/api/admin/email-config/fetch?handleId=support-bot',
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await settle();
+
+      expect(res.statusCode).toBe(404);
+      expect(JSON.parse(res.body)).toMatchObject({
+        credentials: null,
+        error: 'No HybridAI agent handle found for support-bot.',
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previousApiKey === undefined) {
+        delete process.env.HYBRIDAI_API_KEY;
+      } else {
+        process.env.HYBRIDAI_API_KEY = previousApiKey;
+      }
+    }
+  });
+
   test('rejects unauthorized requests for live admin email mailbox metadata', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
     const req = makeRequest({

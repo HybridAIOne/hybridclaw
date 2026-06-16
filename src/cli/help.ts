@@ -67,7 +67,7 @@ Commands:
   hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--system-prompt=<parts|none>] [--tools=full|none] [--no-tools] [--sandbox=container|host]
   hybridclaw gateway stop
   hybridclaw gateway status
-  hybridclaw gateway sessions [active|clear-active]
+  hybridclaw gateway sessions [active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]
   hybridclaw gateway bot info
   hybridclaw gateway voice [info|call <e164-number>]
   hybridclaw gateway show [all|thinking|tools|none]
@@ -189,7 +189,7 @@ Interactive slash commands inside TUI:
   /reset [yes|no]
   /schedule add "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
   /secret list   /secret set <name> <value>   /secret show <name>   /secret unset <name>   /secret route ...
-  /sessions [active|clear-active]
+  /sessions [active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]
   /show [all|thinking|tools|none]
   /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|unblock <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
   /status

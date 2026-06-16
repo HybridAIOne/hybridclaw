@@ -1008,8 +1008,18 @@ export function startBrowserPool(
   );
 }
 
-export function fetchEmailConfig(token: string): Promise<unknown> {
-  return requestJson<unknown>('/api/admin/email-config/fetch', { token });
+export function fetchEmailConfig(
+  token: string,
+  options: { handleId?: string | null } = {},
+): Promise<unknown> {
+  const query = new URLSearchParams();
+  const handleId = String(options.handleId || '').trim();
+  if (handleId) query.set('handleId', handleId);
+  const queryString = query.toString();
+  const suffix = queryString ? `?${queryString}` : '';
+  return requestJson<unknown>(`/api/admin/email-config/fetch${suffix}`, {
+    token,
+  });
 }
 
 export function saveConfig(

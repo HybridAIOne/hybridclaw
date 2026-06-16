@@ -1299,6 +1299,220 @@ test('sessions command includes abbreviated first and last message snippets', as
   expect(result.text).toContain('" ... "');
 });
 
+test('sessions prune defaults to dry-run and keeps matched sessions', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-16T12:00:00.000Z'));
+  vi.resetModules();
+
+  const {
+    getOrCreateSession,
+    getSessionById,
+    initDatabase,
+    storeMessage,
+    withMemoryDatabase,
+  } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const oldSession = getOrCreateSession(
+    'session-prune-old-dry-run',
+    null,
+    'web',
+    'main',
+  );
+  storeMessage(
+    oldSession.id,
+    'user_a',
+    'user_a',
+    'user',
+    'Old message retained by dry run.',
+  );
+  withMemoryDatabase((db) => {
+    db.prepare('UPDATE sessions SET last_active = ? WHERE id = ?').run(
+      '2026-01-01T00:00:00.000Z',
+      oldSession.id,
+    );
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-prune-command-dry-run',
+    guildId: null,
+    channelId: 'web',
+    args: ['sessions', 'prune', '--older-than', '90d'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Sessions Prune Dry Run');
+  expect(result.text).toContain('Matched: 1 session');
+  expect(result.text).toContain('No sessions were deleted.');
+  expect(result.text).toContain('session-prune-old-dry-run');
+  expect(getSessionById(oldSession.id)).toBeDefined();
+});
+
+test('sessions prune confirm deletes old sessions and skips protected sessions', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-16T12:00:00.000Z'));
+  vi.resetModules();
+  vi.doMock('../src/agent/executor.js', async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import('../src/agent/executor.js')>();
+    return {
+      ...actual,
+      getActiveExecutorSessionIds: vi.fn(() => ['session-prune-active']),
+    };
+  });
+
+  const {
+    getOrCreateSession,
+    getRecentStructuredAuditForSession,
+    getSessionById,
+    initDatabase,
+    storeMessage,
+    withMemoryDatabase,
+  } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const deletedSession = getOrCreateSession(
+    'session-prune-delete',
+    null,
+    'web',
+    'main',
+  );
+  const recentSession = getOrCreateSession(
+    'session-prune-recent',
+    null,
+    'web',
+    'main',
+  );
+  const fullAutoSession = getOrCreateSession(
+    'session-prune-fullauto',
+    null,
+    'web',
+    'main',
+  );
+  const schedulerSession = getOrCreateSession(
+    'scheduler:session-prune',
+    null,
+    'scheduler',
+    'main',
+  );
+  const activeSession = getOrCreateSession(
+    'session-prune-active',
+    null,
+    'web',
+    'main',
+  );
+
+  for (const targetSession of [
+    deletedSession,
+    recentSession,
+    fullAutoSession,
+    schedulerSession,
+    activeSession,
+  ]) {
+    storeMessage(
+      targetSession.id,
+      'user_a',
+      'user_a',
+      'user',
+      `Message for ${targetSession.id}`,
+    );
+  }
+
+  withMemoryDatabase((db) => {
+    const updateLastActive = db.prepare(
+      'UPDATE sessions SET last_active = ? WHERE id = ?',
+    );
+    for (const targetSession of [
+      deletedSession,
+      fullAutoSession,
+      schedulerSession,
+      activeSession,
+    ]) {
+      updateLastActive.run('2026-01-01T00:00:00.000Z', targetSession.id);
+    }
+    updateLastActive.run('2026-06-01T00:00:00.000Z', recentSession.id);
+    db.prepare('UPDATE sessions SET full_auto_enabled = 1 WHERE id = ?').run(
+      fullAutoSession.id,
+    );
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-prune-command-confirm',
+    guildId: null,
+    channelId: 'web',
+    args: ['sessions', 'prune', '--older-than=90d', '--confirm'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Pruned Sessions');
+  expect(result.text).toContain('Matched: 1 session');
+  expect(result.text).toContain('Protected skipped: 3');
+  expect(result.text).toContain('Deleted: 1 session');
+  const auditEvents = getRecentStructuredAuditForSession(
+    'session-prune-command-confirm',
+    10,
+  );
+  expect(auditEvents[0]?.event_type).toBe('session.prune');
+  expect(JSON.parse(auditEvents[0]?.payload || '{}')).toMatchObject({
+    type: 'session.prune',
+    source: 'command',
+    olderThan: '90d',
+    matchedCount: 1,
+    deletedCount: 1,
+    protectedSkipped: 3,
+    invalidTimestampSkipped: 0,
+    deletedRows: {
+      messages: 1,
+    },
+  });
+  expect(getSessionById(deletedSession.id)).toBeUndefined();
+  expect(getSessionById(recentSession.id)).toBeDefined();
+  expect(getSessionById(fullAutoSession.id)).toBeDefined();
+  expect(getSessionById(schedulerSession.id)).toBeDefined();
+  expect(getSessionById(activeSession.id)).toBeDefined();
+});
+
+test('sessions prune rejects retention windows shorter than 24h', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-prune-short-window',
+    guildId: null,
+    channelId: 'web',
+    args: ['sessions', 'prune', '--older-than', '1h', '--confirm'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('must be at least 24h');
+});
+
 test('sessions active lists active sandbox sessions and clear-active stops them', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

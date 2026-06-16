@@ -85,6 +85,61 @@ Optional tuning:
 /config set email.mediaMaxMb 20
 ```
 
+## Multiple Mailboxes And Agents
+
+The top-level **Default mailbox address** and **Default mailbox password**
+fields configure the default mailbox for the main agent. In the web admin
+console, open **Channels > Email**, use **Add additional mailbox**, select the
+target agent, enter that mailbox address, and set the password SecretRef id for
+a secret stored in **Secrets**. Inbound mail received by the default mailbox is
+handled by the main agent. Outbound mail from agents without an additional
+mailbox uses the default mailbox as its fallback sender. The top-level IMAP/SMTP
+fields act as shared defaults; each additional mailbox row can override them.
+When HybridAI credentials are configured, **Fetch HybridAI mailbox** on an
+additional mailbox row loads the preconfigured HybridAI postbox for that row's
+agent, using the agent `chatbotId` when set and the agent id otherwise.
+
+For separate mailbox credentials per agent, set `email.accounts`. HybridClaw
+continues polling the top-level `email.address` account as the main agent's
+mailbox and also polls the `email.accounts` entries. An `email.accounts` entry
+for agent `main` or for the same mailbox address overrides the top-level
+mailbox to avoid polling it twice. Each account can inherit shared IMAP/SMTP
+defaults from the top-level `email.*` fields and override only the mailbox,
+password, folders, allowlist, and target agent:
+
+```text
+/secret set SALES_EMAIL_PASSWORD <sales-mail-password>
+/secret set SUPPORT_EMAIL_PASSWORD <support-mail-password>
+/config set email.enabled true
+/config set email.imapHost "imap.example.com"
+/config set email.imapPort 993
+/config set email.imapSecure true
+/config set email.smtpHost "smtp.example.com"
+/config set email.smtpPort 587
+/config set email.smtpSecure false
+/config set email.accounts [
+  {
+    "agentId": "sales",
+    "address": "sales@example.com",
+    "password": { "source": "store", "id": "SALES_EMAIL_PASSWORD" },
+    "folders": ["INBOX"],
+    "allowFrom": ["*@customer.example"]
+  },
+  {
+    "agentId": "support",
+    "address": "support@example.com",
+    "password": { "source": "store", "id": "SUPPORT_EMAIL_PASSWORD" },
+    "folders": ["INBOX"],
+    "allowFrom": ["*"]
+  }
+]
+```
+
+Inbound mail to each account starts a session for that account's `agentId`.
+Replies use the same mailbox that received the message. Agent-initiated email
+sends through the `message` tool prefer the account mapped to the active agent
+and fall back to the first configured account.
+
 ## Step 2: Start Or Restart The Gateway
 
 ```bash

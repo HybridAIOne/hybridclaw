@@ -1,6 +1,11 @@
 import { ImapFlow } from 'imapflow';
 import nodemailer, { type Transporter } from 'nodemailer';
+import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import { EMAIL_PASSWORD, getConfigSnapshot } from '../../config/config.js';
+import type {
+  RuntimeEmailAccountConfig,
+  RuntimeEmailConfig,
+} from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { EMAIL_CAPABILITIES } from '../channel.js';
@@ -12,14 +17,41 @@ import { resolveSentFolderPath } from './mailbox-folders.js';
 import type { EmailDeliveryMetadata } from './metadata.js';
 import { createThreadTracker, type ThreadContext } from './threading.js';
 
-export type EmailReplyFn = (content: string) => Promise<void>;
+interface ResolvedEmailAccount {
+  key: string;
+  agentId: string;
+  address: string;
+  config: RuntimeEmailAccountConfig;
+  password: string;
+}
+
+interface ResolvedEmailRuntimeConfig {
+  accounts: ResolvedEmailAccount[];
+}
+
+interface EmailAccountState {
+  account: ResolvedEmailAccount;
+  connectionManager: ReturnType<typeof createEmailConnectionManager> | null;
+  transport: Transporter | null;
+  threadTracker: ReturnType<typeof createThreadTracker>;
+}
+
+export type EmailReplyFn = (
+  content: string,
+  options?: EmailTextSendOptions,
+) => Promise<void>;
 
 export interface EmailMessageContext {
+  accountAddress: string;
+  agentId: string;
   abortSignal: AbortSignal;
   folder: string;
   uid: number;
   senderAddress: string;
   senderName: string;
+  sendAttachment: (
+    params: Omit<EmailAttachmentSendParams, 'to'>,
+  ) => Promise<void>;
   threadContext: ThreadContext | null;
 }
 
@@ -37,6 +69,7 @@ export type EmailMessageHandler = (
 
 export interface EmailAttachmentSendParams {
   to: string;
+  agentId?: string;
   filePath: string;
   body?: string;
   subject?: string | null;
@@ -51,6 +84,7 @@ export interface EmailAttachmentSendParams {
 }
 
 export interface EmailTextSendOptions {
+  agentId?: string;
   subject?: string | null;
   cc?: string[] | null;
   bcc?: string[] | null;
@@ -65,7 +99,10 @@ function createEmailShutdownAbortError(): Error {
 }
 
 async function appendSentCopiesToImap(
-  config: ReturnType<typeof getConfigSnapshot>['email'],
+  config: Pick<
+    RuntimeEmailAccountConfig,
+    'address' | 'imapHost' | 'imapPort' | 'imapSecure'
+  >,
   password: string,
   sentCopies: Array<{ messageId: string | null; raw: Buffer }>,
 ): Promise<void> {
@@ -115,18 +152,33 @@ async function appendSentCopiesToImap(
   }
 }
 
-function resolveRuntimeConfig(): {
-  address: string;
-  config: ReturnType<typeof getConfigSnapshot>['email'];
-  password: string;
-} {
-  const snapshot = getConfigSnapshot();
-  const config = snapshot.email;
-  const password = String(EMAIL_PASSWORD || '').trim();
-  if (!config.enabled) {
-    throw new Error('Email channel is not enabled.');
+function accountKey(address: string): string {
+  return String(address || '')
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeEmailAgentId(value: string): string {
+  return String(value || '').trim() || DEFAULT_AGENT_ID;
+}
+
+function resolvePlainEmailPassword(value: unknown, label: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(
+      `${label} password must be resolved before starting the email runtime.`,
+    );
   }
-  if (!config.address.trim()) {
+  return value.trim();
+}
+
+function accountFromLegacyConfig(
+  config: RuntimeEmailConfig,
+): ResolvedEmailAccount | null {
+  const address = config.address.trim();
+  if (!address && !config.imapHost.trim() && !config.smtpHost.trim()) {
+    return null;
+  }
+  if (!address) {
     throw new Error('Email channel address is not configured.');
   }
   if (!config.imapHost.trim()) {
@@ -135,28 +187,132 @@ function resolveRuntimeConfig(): {
   if (!config.smtpHost.trim()) {
     throw new Error('Email SMTP host is not configured.');
   }
+  const envPassword = String(EMAIL_PASSWORD || '').trim();
+  const password =
+    envPassword || resolvePlainEmailPassword(config.password, 'Email channel');
   if (!password) {
     throw new Error(
       'Email channel password is required. Store EMAIL_PASSWORD with `hybridclaw secret set EMAIL_PASSWORD <password>` or in TUI with `/secret set EMAIL_PASSWORD <password>`, or set email.password in /admin/config.',
     );
   }
-  return {
-    address: config.address.trim(),
-    config,
+  const accountConfig: RuntimeEmailAccountConfig = {
+    agentId: DEFAULT_AGENT_ID,
+    imapHost: config.imapHost,
+    imapPort: config.imapPort,
+    imapSecure: config.imapSecure,
+    smtpHost: config.smtpHost,
+    smtpPort: config.smtpPort,
+    smtpSecure: config.smtpSecure,
+    address,
     password,
+    pollIntervalMs: config.pollIntervalMs,
+    folders: [...config.folders],
+    allowFrom: [...config.allowFrom],
+    mediaMaxMb: config.mediaMaxMb,
+  };
+  return {
+    key: accountKey(address),
+    agentId: DEFAULT_AGENT_ID,
+    address,
+    config: accountConfig,
+    password,
+  };
+}
+
+function accountFromAccountConfig(
+  account: RuntimeEmailAccountConfig,
+  index: number,
+): ResolvedEmailAccount {
+  const address = account.address.trim();
+  const agentId = normalizeEmailAgentId(account.agentId);
+  const label = address || `email.accounts[${index}]`;
+  if (!address) {
+    throw new Error(`Email account ${index + 1} address is not configured.`);
+  }
+  if (!account.imapHost.trim()) {
+    throw new Error(`Email account ${label} IMAP host is not configured.`);
+  }
+  if (!account.smtpHost.trim()) {
+    throw new Error(`Email account ${label} SMTP host is not configured.`);
+  }
+  const password = resolvePlainEmailPassword(
+    account.password,
+    `Email account ${label}`,
+  );
+  if (!password) {
+    throw new Error(`Email account ${label} password is not configured.`);
+  }
+  return {
+    key: accountKey(address),
+    agentId,
+    address,
+    config: {
+      ...account,
+      agentId,
+      address,
+      password,
+      folders: [...account.folders],
+      allowFrom: [...account.allowFrom],
+    },
+    password,
+  };
+}
+
+function configuredAccountOverridesLegacy(
+  account: ResolvedEmailAccount,
+  legacy: ResolvedEmailAccount,
+): boolean {
+  const targetsDefaultAgent = account.agentId === DEFAULT_AGENT_ID;
+  const usesLegacyAddress = account.key === legacy.key;
+  // Default-agent accounts replace legacy config; matching addresses avoid duplicate polling.
+  return targetsDefaultAgent || usesLegacyAddress;
+}
+
+function resolveRuntimeConfig(): ResolvedEmailRuntimeConfig {
+  const config = getConfigSnapshot().email;
+  if (!config.enabled) {
+    throw new Error('Email channel is not enabled.');
+  }
+
+  const configuredAccounts = config.accounts.map(accountFromAccountConfig);
+  const legacyAccount =
+    configuredAccounts.length > 0 && !config.address.trim()
+      ? null
+      : accountFromLegacyConfig(config);
+  const accounts = [...configuredAccounts];
+  if (
+    legacyAccount &&
+    !configuredAccounts.some((account) =>
+      configuredAccountOverridesLegacy(account, legacyAccount),
+    )
+  ) {
+    accounts.unshift(legacyAccount);
+  }
+  if (accounts.length === 0) {
+    throw new Error('Email channel has no configured accounts.');
+  }
+
+  const seen = new Set<string>();
+  for (const account of accounts) {
+    if (seen.has(account.key)) {
+      throw new Error(
+        `Email account address is configured more than once: ${account.address}`,
+      );
+    }
+    seen.add(account.key);
+  }
+
+  return {
+    accounts,
   };
 }
 
 export function createEmailRuntime() {
   type ResolvedRuntimeConfig = ReturnType<typeof resolveRuntimeConfig>;
 
-  let connectionManager: ReturnType<
-    typeof createEmailConnectionManager
-  > | null = null;
   let shuttingDown = false;
   let runtimeConfig: ResolvedRuntimeConfig | null = null;
-  let transport: Transporter | null = null;
-  let threadTracker: ReturnType<typeof createThreadTracker> | null = null;
+  const accountStates = new Map<string, EmailAccountState>();
   const inFlightControllers = new Set<AbortController>();
 
   const ensureRuntimeActive = (): void => {
@@ -170,9 +326,18 @@ export function createEmailRuntime() {
     return runtimeConfig;
   };
 
-  const ensureThreadTracker = (): ReturnType<typeof createThreadTracker> => {
-    threadTracker ??= createThreadTracker();
-    return threadTracker;
+  const ensureAccountStates = (): EmailAccountState[] => {
+    ensureRuntimeActive();
+    if (accountStates.size > 0) return [...accountStates.values()];
+    for (const account of ensureRuntimeConfig().accounts) {
+      accountStates.set(account.key, {
+        account,
+        connectionManager: null,
+        transport: null,
+        threadTracker: createThreadTracker(),
+      });
+    }
+    return [...accountStates.values()];
   };
 
   const abortInFlightHandlers = (): void => {
@@ -182,50 +347,78 @@ export function createEmailRuntime() {
     }
   };
 
-  const ensureTransport = async (): Promise<Transporter> => {
+  const resolveSendAccountState = (agentId?: string): EmailAccountState => {
     ensureRuntimeActive();
-    if (transport) return transport;
+    const states = ensureAccountStates();
+    const normalizedAgentId = String(agentId || '').trim();
+    if (normalizedAgentId) {
+      const matching = states.find(
+        (state) => state.account.agentId === normalizedAgentId,
+      );
+      if (matching) return matching;
+    }
+    const first = states[0];
+    if (!first) {
+      throw new Error('Email channel has no configured accounts.');
+    }
+    if (normalizedAgentId) {
+      logger.warn(
+        {
+          agentId: normalizedAgentId,
+          fallbackAddress: first.account.address,
+        },
+        'Email account not found for agent; falling back to default outbound mailbox',
+      );
+    }
+    return first;
+  };
 
-    const { address, config, password } = ensureRuntimeConfig();
-    transport = nodemailer.createTransport({
+  const ensureTransport = async (
+    state: EmailAccountState,
+  ): Promise<Transporter> => {
+    ensureRuntimeActive();
+    if (state.transport) return state.transport;
+
+    const { account } = state;
+    state.transport = nodemailer.createTransport({
       pool: true,
-      host: config.smtpHost,
-      port: config.smtpPort,
-      secure: config.smtpSecure,
+      host: account.config.smtpHost,
+      port: account.config.smtpPort,
+      secure: account.config.smtpSecure,
       auth: {
-        user: address,
-        pass: password,
+        user: account.address,
+        pass: account.password,
       },
     });
-    await transport.verify();
-    return transport;
+    await state.transport.verify();
+    return state.transport;
   };
 
   const sendWithTracking = async (
+    state: EmailAccountState,
     params: Omit<
       EmailSendParams,
       'selfAddress' | 'threadContext' | 'transport'
     >,
   ): Promise<void> => {
     ensureRuntimeActive();
-    const tracker = ensureThreadTracker();
-    const transport = await ensureTransport();
-    const runtime = ensureRuntimeConfig();
-    const { address } = runtime;
+    const transport = await ensureTransport(state);
+    const { account, threadTracker } = state;
     const result = await sendEmail({
       ...params,
       transport,
-      selfAddress: address,
-      threadContext: tracker.get(params.to),
+      selfAddress: account.address,
+      threadContext: threadTracker.get(params.to),
     });
     await appendSentCopiesToImap(
-      runtime.config,
-      runtime.password,
+      account.config,
+      account.password,
       result.sentCopies,
     ).catch((error) => {
       logger.warn(
         {
           error,
+          from: account.address,
           to: params.to,
           sentCopyCount: result.sentCopies.length,
         },
@@ -233,16 +426,17 @@ export function createEmailRuntime() {
       );
     });
     if (result.threadContext) {
-      tracker.remember(params.to, result.threadContext);
+      threadTracker.remember(params.to, result.threadContext);
     }
   };
 
-  const sendTextToAddress = async (
+  const sendTextFromAccount = async (
+    state: EmailAccountState,
     to: string,
     text: string,
     options?: EmailTextSendOptions,
   ): Promise<void> => {
-    await sendWithTracking({
+    await sendWithTracking(state, {
       to,
       body: text,
       subject: options?.subject,
@@ -255,10 +449,11 @@ export function createEmailRuntime() {
     });
   };
 
-  const sendAttachmentToAddress = async (
+  const sendAttachmentFromAccount = async (
+    state: EmailAccountState,
     params: EmailAttachmentSendParams,
   ): Promise<void> => {
-    await sendWithTracking({
+    await sendWithTracking(state, {
       to: params.to,
       body: params.body || '',
       subject: params.subject,
@@ -276,82 +471,122 @@ export function createEmailRuntime() {
     });
   };
 
-  const ensureConnectionManager = (
-    messageHandler?: EmailMessageHandler,
-  ): ReturnType<typeof createEmailConnectionManager> => {
-    if (connectionManager) return connectionManager;
-
-    const { address, config, password } = ensureRuntimeConfig();
-    const tracker = ensureThreadTracker();
-    connectionManager = createEmailConnectionManager(
-      config,
-      password,
-      async (messages) => {
-        if (!messageHandler || shuttingDown) return;
-        for (const message of messages) {
-          if (shuttingDown) break;
-          const inbound = await processInboundEmail(
-            message.raw,
-            config,
-            address,
-          );
-          if (!inbound) continue;
-
-          if (inbound.threadContext) {
-            tracker.remember(inbound.senderAddress, inbound.threadContext);
-          }
-
-          const controller = new AbortController();
-          inFlightControllers.add(controller);
-          if (shuttingDown && !controller.signal.aborted) {
-            controller.abort(createEmailShutdownAbortError());
-          }
-          const reply: EmailReplyFn = async (content) => {
-            if (controller.signal.aborted) {
-              const reason = controller.signal.reason;
-              throw reason instanceof Error
-                ? reason
-                : createEmailShutdownAbortError();
-            }
-            await sendTextToAddress(inbound.channelId, content);
-          };
-
-          try {
-            await messageHandler(
-              inbound.sessionId,
-              inbound.guildId,
-              inbound.channelId,
-              inbound.userId,
-              inbound.username,
-              inbound.content,
-              inbound.media,
-              reply,
-              {
-                abortSignal: controller.signal,
-                folder: message.folder,
-                uid: message.uid,
-                senderAddress: inbound.senderAddress,
-                senderName: inbound.senderName,
-                threadContext: inbound.threadContext,
-              },
-            );
-          } finally {
-            inFlightControllers.delete(controller);
-            await cleanupEmailInboundMedia(inbound.media).catch((error) => {
-              logger.debug(
-                {
-                  error,
-                  sessionId: inbound.sessionId,
-                  channelId: inbound.channelId,
-                },
-                'Failed to clean up email inbound media',
-              );
-            });
-          }
-        }
-      },
+  const sendTextToAddress = async (
+    to: string,
+    text: string,
+    options?: EmailTextSendOptions,
+  ): Promise<void> => {
+    await sendTextFromAccount(
+      resolveSendAccountState(options?.agentId),
+      to,
+      text,
+      options,
     );
-    return connectionManager;
+  };
+
+  const sendAttachmentToAddress = async (
+    params: EmailAttachmentSendParams,
+  ): Promise<void> => {
+    await sendAttachmentFromAccount(
+      resolveSendAccountState(params.agentId),
+      params,
+    );
+  };
+
+  const ensureConnectionManagers = (
+    messageHandler?: EmailMessageHandler,
+  ): EmailAccountState[] => {
+    const states = ensureAccountStates();
+    for (const state of states) {
+      if (state.connectionManager) continue;
+      const { account, threadTracker } = state;
+      state.connectionManager = createEmailConnectionManager(
+        account.config,
+        account.password,
+        async (messages) => {
+          if (!messageHandler || shuttingDown) return;
+          for (const message of messages) {
+            if (shuttingDown) break;
+            const inbound = await processInboundEmail(
+              message.raw,
+              account.config,
+              account.address,
+              account.agentId,
+            );
+            if (!inbound) continue;
+
+            if (inbound.threadContext) {
+              threadTracker.remember(
+                inbound.senderAddress,
+                inbound.threadContext,
+              );
+            }
+
+            const controller = new AbortController();
+            inFlightControllers.add(controller);
+            if (shuttingDown && !controller.signal.aborted) {
+              controller.abort(createEmailShutdownAbortError());
+            }
+            const reply: EmailReplyFn = async (content, options) => {
+              if (controller.signal.aborted) {
+                const reason = controller.signal.reason;
+                throw reason instanceof Error
+                  ? reason
+                  : createEmailShutdownAbortError();
+              }
+              await sendTextFromAccount(
+                state,
+                inbound.channelId,
+                content,
+                options,
+              );
+            };
+
+            try {
+              await messageHandler(
+                inbound.sessionId,
+                inbound.guildId,
+                inbound.channelId,
+                inbound.userId,
+                inbound.username,
+                inbound.content,
+                inbound.media,
+                reply,
+                {
+                  accountAddress: account.address,
+                  agentId: inbound.agentId,
+                  abortSignal: controller.signal,
+                  folder: message.folder,
+                  uid: message.uid,
+                  senderAddress: inbound.senderAddress,
+                  senderName: inbound.senderName,
+                  sendAttachment: async (params) => {
+                    await sendAttachmentFromAccount(state, {
+                      to: inbound.channelId,
+                      ...params,
+                    });
+                  },
+                  threadContext: inbound.threadContext,
+                },
+              );
+            } finally {
+              inFlightControllers.delete(controller);
+              await cleanupEmailInboundMedia(inbound.media).catch((error) => {
+                logger.debug(
+                  {
+                    error,
+                    sessionId: inbound.sessionId,
+                    channelId: inbound.channelId,
+                  },
+                  'Failed to clean up email inbound media',
+                );
+              });
+            }
+          }
+        },
+      );
+    }
+    return states;
   };
   const runtimeLifecycle = createChannelRuntime<EmailMessageHandler>()({
     kind: 'email',
@@ -360,24 +595,32 @@ export function createEmailRuntime() {
       ensureRuntimeActive();
       return ensureRuntimeConfig();
     },
-    resolveRegistration: (config) => config.address,
+    resolveRegistration: (config) =>
+      config.accounts
+        .map((account) => account.address)
+        .sort()
+        .join(','),
     start: async (params: {
       config: ResolvedRuntimeConfig;
       handler: EmailMessageHandler;
     }) => {
-      await ensureTransport();
-      await ensureConnectionManager(params.handler).start();
+      const states = ensureConnectionManagers(params.handler);
+      await Promise.all(states.map((state) => ensureTransport(state)));
+      await Promise.all(
+        states.map((state) => state.connectionManager?.start()),
+      );
     },
     cleanup: async () => {
       shuttingDown = true;
       abortInFlightHandlers();
-      await connectionManager?.stop();
-      await transport?.close();
-      connectionManager = null;
+      const states = [...accountStates.values()];
+      await Promise.all(states.map((state) => state.connectionManager?.stop()));
+      await Promise.all(states.map((state) => state.transport?.close()));
+      for (const state of states) {
+        state.threadTracker.clear();
+      }
+      accountStates.clear();
       runtimeConfig = null;
-      transport = null;
-      threadTracker?.clear();
-      threadTracker = null;
     },
   });
 
