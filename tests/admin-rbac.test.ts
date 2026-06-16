@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   ADMIN_RBAC_ACTIONS,
   ADMIN_RBAC_ROLE_ACTIONS,
+  ADMIN_RBAC_ROLE_BUNDLES,
   collectAdminActionClaims,
   collectAdminRoleClaims,
   isAdminActionAllowed,
@@ -16,6 +17,10 @@ describe('admin RBAC role bundles', () => {
         expect(actionCatalog.has(action)).toBe(true);
       }
     }
+  });
+
+  test('keeps legacy bearer-token requests fully authorized without session claims', () => {
+    expect(isAdminActionAllowed(null, 'admin.config.write')).toBe(true);
   });
 
   test('expands config manager role claims into route actions', () => {
@@ -47,5 +52,52 @@ describe('admin RBAC role bundles', () => {
     );
     expect(isAdminActionAllowed(payload, 'admin.overview.read')).toBe(true);
     expect(isAdminActionAllowed(payload, 'admin.config.reload')).toBe(false);
+  });
+
+  test('expands auditor role claims into read-only actions', () => {
+    const payload = { roles: ['admin:auditor'] };
+
+    expect(collectAdminRoleClaims(payload)).toEqual(
+      new Set(['admin:auditor']),
+    );
+    expect(isAdminActionAllowed(payload, 'admin.audit.read')).toBe(true);
+    expect(isAdminActionAllowed(payload, 'admin.config.write')).toBe(false);
+  });
+
+  test('expands owner role claims into the full action catalog', () => {
+    const payload = { role: 'admin:owner' };
+
+    expect(isAdminActionAllowed(payload, 'secret.overwrite')).toBe(true);
+    expect(isAdminActionAllowed(payload, 'admin.gateway.restart')).toBe(true);
+  });
+
+  test('combines explicit actions, scope strings, and role bundles', () => {
+    const claims = collectAdminActionClaims({
+      actions: 'admin.overview.read',
+      scope: 'admin.config:*',
+      roles: 'admin:secret-manager',
+    });
+
+    expect(claims?.has('admin.overview.read')).toBe(true);
+    expect(claims?.has('admin.config:*')).toBe(true);
+    expect(claims?.has('secret.unset')).toBe(true);
+    expect(
+      isAdminActionAllowed({ roles: 'admin:secret-manager' }, 'secret.overwrite'),
+    ).toBe(true);
+    expect(
+      isAdminActionAllowed(
+        { roles: 'admin:secret-manager' },
+        'admin.config.write',
+      ),
+    ).toBe(false);
+  });
+
+  test('publishes stable ISO role bundle names for access reviews', () => {
+    expect(Object.keys(ADMIN_RBAC_ROLE_BUNDLES).sort()).toEqual([
+      'admin:auditor',
+      'admin:operator',
+      'admin:owner',
+      'admin:secret-manager',
+    ]);
   });
 });

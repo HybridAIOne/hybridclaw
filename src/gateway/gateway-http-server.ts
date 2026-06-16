@@ -356,7 +356,6 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
 );
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
-const LOCAL_TOKEN_BOOTSTRAP_PARAM = '__hybridclaw_token_bootstrapped';
 
 const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -1998,9 +1997,7 @@ function extractHostnameFromHostHeader(
 }
 
 function isLocalWebSessionAllowed(req: IncomingMessage): boolean {
-  return (
-    !WEB_API_TOKEN && isLoopbackHost(HEALTH_HOST) && isLoopbackWebRequest(req)
-  );
+  return isLoopbackHost(HEALTH_HOST) && isLoopbackWebRequest(req);
 }
 
 function isLoopbackWebRequest(req: IncomingMessage): boolean {
@@ -2009,15 +2006,6 @@ function isLoopbackWebRequest(req: IncomingMessage): boolean {
     isLoopbackSocketAddress(req.socket.remoteAddress) &&
     !hasForwardingHeaders(req) &&
     Boolean(requestHost && isLoopbackHost(requestHost))
-  );
-}
-
-function shouldBootstrapLocalWebToken(req: IncomingMessage, url: URL): boolean {
-  return (
-    Boolean(WEB_API_TOKEN) &&
-    isConsoleSpaPath(url.pathname) &&
-    !url.searchParams.has(LOCAL_TOKEN_BOOTSTRAP_PARAM) &&
-    isLoopbackWebRequest(req)
   );
 }
 
@@ -2196,40 +2184,6 @@ function dispatchWebhookRoute(
 function sendText(res: ServerResponse, statusCode: number, text: string): void {
   res.writeHead(statusCode, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end(text);
-}
-
-function sendWebTokenBootstrap(
-  res: ServerResponse,
-  params: {
-    redirectTo: string;
-    userId?: string;
-  },
-): void {
-  const escapedToken = escapeInlineScriptValue(WEB_API_TOKEN);
-  const escapedRedirect = escapeInlineScriptValue(params.redirectTo);
-  const escapedUserId = escapeInlineScriptValue(params.userId || '');
-  res.writeHead(200, {
-    'Content-Type': 'text/html; charset=utf-8',
-    'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'",
-    'X-Content-Type-Options': 'nosniff',
-  });
-  res.end(
-    `<!DOCTYPE html><html><body><script>` +
-      `sessionStorage.setItem('hybridclaw_token',${escapedToken});` +
-      `localStorage.removeItem('hybridclaw_token');` +
-      `if (${escapedUserId}) sessionStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
-      `window.location.replace(${escapedRedirect});` +
-      `</script></body></html>`,
-  );
-}
-
-function sendLocalWebTokenBootstrap(res: ServerResponse, url: URL): void {
-  const redirectUrl = new URL(url);
-  redirectUrl.searchParams.set(LOCAL_TOKEN_BOOTSTRAP_PARAM, '1');
-  sendWebTokenBootstrap(res, {
-    redirectTo: `${redirectUrl.pathname}${redirectUrl.search}`,
-  });
 }
 
 function sendRedirect(
@@ -2859,11 +2813,21 @@ function serveConsoleFile(
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
   const mimeType = SITE_MIME_TYPES[ext] || 'application/octet-stream';
+  const isIndex = filePath.endsWith('index.html');
   res.writeHead(200, {
     'Content-Type': mimeType,
-    'Cache-Control': filePath.endsWith('index.html')
+    'Cache-Control': isIndex
       ? 'no-cache'
       : 'public, max-age=31536000, immutable',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    ...(isIndex
+      ? {
+          'Content-Security-Policy':
+            "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss:",
+        }
+      : {}),
   });
   res.end(fs.readFileSync(filePath));
   return true;
@@ -7463,11 +7427,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
-      return;
-    }
-
-    if (shouldBootstrapLocalWebToken(req, url)) {
-      sendLocalWebTokenBootstrap(res, url);
       return;
     }
 

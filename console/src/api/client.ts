@@ -263,25 +263,9 @@ export async function requestJson<T>(
 }
 
 export function readStoredToken(): string {
-  const search = new URLSearchParams(window.location.search);
-  const queryToken = (search.get('token') || '').trim();
-  if (queryToken) {
-    window.sessionStorage.setItem(TOKEN_STORAGE_KEY, queryToken);
-    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-    removeSearchParams(['token', LOCAL_TOKEN_BOOTSTRAP_PARAM]);
-    return queryToken;
-  }
-  removeSearchParams([LOCAL_TOKEN_BOOTSTRAP_PARAM]);
-
-  const sessionToken = window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
-  if (sessionToken) return sessionToken;
-
-  const legacyToken = window.localStorage.getItem(TOKEN_STORAGE_KEY) || '';
-  if (legacyToken) {
-    window.sessionStorage.setItem(TOKEN_STORAGE_KEY, legacyToken);
-    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-  }
-  return legacyToken;
+  removeSearchParams(['token', LOCAL_TOKEN_BOOTSTRAP_PARAM]);
+  clearStoredToken();
+  return '';
 }
 
 function removeSearchParams(names: string[]): void {
@@ -301,8 +285,8 @@ function removeSearchParams(names: string[]): void {
 }
 
 export function storeToken(token: string): void {
-  window.sessionStorage.setItem(TOKEN_STORAGE_KEY, token.trim());
-  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  void token;
+  clearStoredToken();
 }
 
 export function clearStoredToken(): void {
@@ -310,7 +294,8 @@ export function clearStoredToken(): void {
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
 }
 
-export function adminEventsUrl(_token: string): string {
+export function adminEventsUrl(token: string): string {
+  void token;
   return '/api/events';
 }
 

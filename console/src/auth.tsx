@@ -78,15 +78,17 @@ export function AuthProvider(props: { children: ReactNode }) {
                 gatewayStatus,
                 error: null,
               });
-            } catch (error) {
+              return;
+            } catch {
               if (cancelled) return;
-              setState({
-                status: 'prompt',
-                token: '',
-                gatewayStatus: null,
-                error: error instanceof Error ? error.message : null,
-              });
             }
+
+            setState({
+              status: 'prompt',
+              token: '',
+              gatewayStatus: null,
+              error: null,
+            });
             return;
           }
 
@@ -258,9 +260,7 @@ export function AuthProvider(props: { children: ReactNode }) {
 }
 
 export function isAuthReadyForApi(auth: AuthContextValue): boolean {
-  if (auth.status !== 'ready') return false;
-  if (auth.gatewayStatus.webAuthConfigured !== true) return true;
-  return auth.token.trim().length > 0;
+  return auth.status === 'ready';
 }
 
 export function useAuth(): AuthContextValue {

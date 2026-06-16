@@ -129,49 +129,44 @@ describe('client command helpers', () => {
     });
   });
 
-  it('removes the local token bootstrap marker after reading stored auth', () => {
+  it('clears legacy browser-stored tokens and URL auth params', () => {
     window.localStorage.clear();
     window.sessionStorage.setItem(TOKEN_STORAGE_KEY, 'stored-token');
     window.history.pushState(
       null,
       '',
-      '/admin?__hybridclaw_token_bootstrapped=1&view=models#top',
+      '/admin?token=query-token&__hybridclaw_token_bootstrapped=1&view=models#top',
     );
 
-    expect(readStoredToken()).toBe('stored-token');
+    expect(readStoredToken()).toBe('');
+    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.location.pathname).toBe('/admin');
     expect(window.location.search).toBe('?view=models');
     expect(window.location.hash).toBe('#top');
   });
 
-  it('moves query tokens into session storage and removes them from the URL', () => {
+  it('removes query tokens from the URL without persisting them', () => {
     window.history.pushState(null, '', '/admin?token=query-token&view=models');
 
-    expect(readStoredToken()).toBe('query-token');
-    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBe(
-      'query-token',
-    );
+    expect(readStoredToken()).toBe('');
+    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.location.search).toBe('?view=models');
   });
 
-  it('migrates legacy localStorage tokens into session storage', () => {
+  it('clears legacy localStorage tokens without migrating them', () => {
     window.localStorage.setItem(TOKEN_STORAGE_KEY, 'legacy-token');
 
-    expect(readStoredToken()).toBe('legacy-token');
-    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBe(
-      'legacy-token',
-    );
+    expect(readStoredToken()).toBe('');
+    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
   });
 
-  it('stores manual tokens in session storage only', () => {
+  it('does not persist manual tokens in browser storage', () => {
     storeToken(' manual-token ');
 
-    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBe(
-      'manual-token',
-    );
+    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
 
     clearStoredToken();
@@ -180,8 +175,8 @@ describe('client command helpers', () => {
     expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
   });
 
-  it('does not put bearer tokens in the admin events URL', () => {
-    expect(adminEventsUrl('secret-token')).toBe('/api/events');
+  it('does not embed tokens into the admin events stream URL', () => {
+    expect(adminEventsUrl('test-token')).toBe('/api/events');
   });
 
   it('reloads local chat surfaces instead of prompting when auth expires', () => {

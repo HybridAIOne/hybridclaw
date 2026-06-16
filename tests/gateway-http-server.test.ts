@@ -2297,7 +2297,7 @@ describe('gateway HTTP server', () => {
     expect(getSetCookieHeader(res)).toContain('SameSite=Strict');
   });
 
-  test('bootstraps WEB_API_TOKEN into sessionStorage for loopback console pages', async () => {
+  test('issues a local web-session cookie for loopback console pages when WEB_API_TOKEN is configured', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
     const req = makeRequest({
       url: '/admin',
@@ -2309,25 +2309,19 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
 
     expect(res.statusCode).toBe(200);
-    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
-    expect(res.headers['Cache-Control']).toBe('no-store');
-    expect(res.body).toContain(
-      'sessionStorage.setItem(\'hybridclaw_token\',"web-token")',
-    );
-    expect(res.body).toContain(
-      "localStorage.removeItem('hybridclaw_token')",
-    );
-    expect(res.body).toContain(
-      'window.location.replace("/admin?__hybridclaw_token_bootstrapped=1")',
-    );
+    expect(res.body).toBe('<h1>Admin</h1>');
+    expect(res.body).not.toContain('web-token');
+    expect(getSetCookieHeader(res)).toContain('hybridclaw_local_session=');
+    expect(getSetCookieHeader(res)).toContain('HttpOnly');
+    expect(getSetCookieHeader(res)).toContain('SameSite=Strict');
   });
 
-  test('serves console index after local WEB_API_TOKEN bootstrap marker', async () => {
+  test('serves console index with defensive headers', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
 
     for (const pathname of ['/admin', '/agents']) {
       const req = makeRequest({
-        url: `${pathname}?__hybridclaw_token_bootstrapped=1`,
+        url: pathname,
         headers: { host: 'localhost:9090' },
         noAuth: true,
       });
@@ -2338,10 +2332,15 @@ describe('gateway HTTP server', () => {
       expect(res.statusCode).toBe(200);
       expect(res.body).toBe('<h1>Admin</h1>');
       expect(res.body).not.toContain('web-token');
+      expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
+      expect(res.headers['Referrer-Policy']).toBe('no-referrer');
+      expect(res.headers['Content-Security-Policy']).toContain(
+        "default-src 'self'",
+      );
     }
   });
 
-  test('bootstraps WEB_API_TOKEN into sessionStorage for loopback agents SPA', async () => {
+  test('does not expose WEB_API_TOKEN in the loopback agents SPA', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
     const req = makeRequest({
       url: '/agents',
@@ -2353,12 +2352,9 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toContain(
-      'sessionStorage.setItem(\'hybridclaw_token\',"web-token")',
-    );
-    expect(res.body).toContain(
-      'window.location.replace("/agents?__hybridclaw_token_bootstrapped=1")',
-    );
+    expect(res.body).toBe('<h1>Admin</h1>');
+    expect(res.body).not.toContain('web-token');
+    expect(getSetCookieHeader(res)).toContain('hybridclaw_local_session=');
   });
 
   test('does not bootstrap WEB_API_TOKEN for non-loopback request hosts', async () => {
@@ -2655,8 +2651,8 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: '/api/status',
       headers: { 'x-forwarded-for': '127.0.0.1' },
-      remoteAddress: '203.0.113.10',
       noAuth: true,
+      remoteAddress: '203.0.113.10',
     });
     const res = makeResponse();
 
@@ -4189,9 +4185,12 @@ describe('gateway HTTP server', () => {
     expect(res.headers['Set-Cookie']).toEqual(
       expect.stringContaining('hybridclaw_session='),
     );
+    expect(res.headers['Set-Cookie']).toEqual(
+      expect.stringContaining('HttpOnly'),
+    );
   });
 
-  test('/auth/callback uses redirect cache controls when WEB_API_TOKEN is set', async () => {
+  test('/auth/callback does not render token-bearing HTML when WEB_API_TOKEN is set', async () => {
     const authSecret = 'health-secret';
     const launchToken = signAuthPayload(
       {
@@ -4214,9 +4213,11 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(302);
     expect(res.headers.Location).toBe('/admin');
     expect(res.headers['Cache-Control']).toBe('no-store');
+    expect(res.headers['Content-Security-Policy']).toBeUndefined();
+    expect(res.body).toBe('');
   });
 
-  test('/auth/callback does not render WEB_API_TOKEN script content', async () => {
+  test('/auth/callback never reflects WEB_API_TOKEN characters into the response body', async () => {
     const authSecret = 'health-secret';
     const launchToken = signAuthPayload(
       {
@@ -4240,6 +4241,7 @@ describe('gateway HTTP server', () => {
     expect(res.headers.Location).toBe('/admin');
     expect(res.body).not.toContain('token-with-');
     expect(res.body).not.toContain('<script>');
+    expect(res.body).toBe('');
   });
 
   test('/auth/callback returns 302 redirect when WEB_API_TOKEN is not set', async () => {
@@ -4306,7 +4308,7 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(302);
     expect(res.headers.Location).toBe('/dashboard');
-    expect(res.body).not.toContain('my-web-token');
+    expect(res.body).toBe('');
   });
 
   test('/auth/callback ignores protocol-relative next param to prevent open redirect', async () => {
@@ -5269,6 +5271,51 @@ describe('gateway HTTP server', () => {
     expect(state.refreshRuntimeSecretsFromEnv).toHaveBeenCalledTimes(1);
     expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
     expect(res.statusCode).toBe(200);
+  });
+
+  test('allows scoped admin sessions through ISO role bundle aliases', async () => {
+    const authSecret = 'admin-rbac-iso-role-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/api/admin/audit',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          roles: ['admin:auditor'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(state.getGatewayAdminAudit).toHaveBeenCalledTimes(1);
+  });
+
+  test('denies scoped admin sessions when a role bundle lacks the route action', async () => {
+    const authSecret = 'admin-rbac-role-deny-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/config',
+      body: {},
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          roles: ['admin:auditor'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(403);
   });
 
   test('returns admin secret metadata without cleartext values', async () => {
@@ -8303,6 +8350,24 @@ describe('gateway HTTP server', () => {
         }),
       },
       remoteAddress: '203.0.113.10',
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('event: overview');
+  });
+
+  test('allows cookie-authenticated SSE admin events', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const req = makeRequest({
+      url: '/api/events',
+      headers: { cookie, host: 'localhost:9090' },
+      noAuth: true,
     });
     const res = makeResponse();
 
