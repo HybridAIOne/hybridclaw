@@ -450,7 +450,12 @@ async function runEmailMessageSendAction(
   const inReplyTo = normalizeOptionalThreadMessageId(request.inReplyTo);
   const references = normalizeThreadReferenceList(request.references);
   const fromName = resolveEmailSenderNameForRequest(request);
+  const session = getSessionById(String(request.sessionId || '').trim());
+  const agentId = session
+    ? resolveAgentForRequest({ session }).agentId
+    : undefined;
   const emailOptions = {
+    ...(agentId ? { agentId } : {}),
     ...(subject ? { subject } : {}),
     ...(cc ? { cc } : {}),
     ...(bcc ? { bcc } : {}),

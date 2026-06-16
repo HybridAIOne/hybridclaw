@@ -175,6 +175,7 @@ import {
 } from '../config/config.js';
 import {
   getRuntimeConfig,
+  getRuntimeConfigSourceSnapshot,
   isGoogleApisUrlPrefix,
   isGoogleOAuthSecretRef,
   isGoogleOAuthSpecifier,
@@ -351,6 +352,7 @@ import {
   runtimeSecretsPath,
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import { isSecretRefInput } from '../security/secret-refs.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
 import { parseSessionKey } from '../session/session-key.js';
@@ -5825,7 +5827,34 @@ function redactGatewayAdminConfigSecrets(config: RuntimeConfig): RuntimeConfig {
   for (const webhook of Object.values(redacted.discordWebhook.webhooks)) {
     webhook.webhookUrl = '';
   }
+  preserveGatewayAdminEmailAccountPasswordRefs(redacted);
   return redacted;
+}
+
+function preserveGatewayAdminEmailAccountPasswordRefs(config: RuntimeConfig) {
+  const source = getRuntimeConfigSourceSnapshot();
+  const sourceEmail =
+    source.email &&
+    typeof source.email === 'object' &&
+    !Array.isArray(source.email)
+      ? (source.email as Record<string, unknown>)
+      : null;
+  const sourceAccounts = Array.isArray(sourceEmail?.accounts)
+    ? sourceEmail.accounts
+    : [];
+  for (let index = 0; index < sourceAccounts.length; index += 1) {
+    const sourceAccount = sourceAccounts[index];
+    const password =
+      sourceAccount &&
+      typeof sourceAccount === 'object' &&
+      !Array.isArray(sourceAccount)
+        ? (sourceAccount as Record<string, unknown>).password
+        : null;
+    if (!isSecretRefInput(password)) continue;
+    const account = config.email.accounts[index];
+    if (!account) continue;
+    account.password = { source: 'store', id: password.id };
+  }
 }
 
 export function getGatewayAdminConfig(): GatewayAdminConfigResponse {

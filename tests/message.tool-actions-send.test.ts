@@ -777,7 +777,7 @@ test('send action uses active agent name as email sender display name', async ()
   expect(state.sendToEmail).toHaveBeenCalledWith(
     'ops@example.com',
     '[Subject: Hello]\n\nI just hatched.',
-    { fromName: 'assist' },
+    { agentId: 'assist', fromName: 'assist' },
   );
 });
 
@@ -806,6 +806,7 @@ test('send action routes email attachments through email delivery', async () => 
     bcc: ['audit@example.com'],
     inReplyTo: '<msg-1@example.com>',
     references: ['<ref-1@example.com>', '<msg-1@example.com>'],
+    agentId: 'main',
     fromName: 'Main Agent',
   });
   expect(result).toMatchObject({

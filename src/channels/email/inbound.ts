@@ -15,6 +15,7 @@ const EMAIL_MEDIA_TMP_PREFIX = 'hybridclaw-email-';
 
 export interface ProcessedEmailInbound {
   sessionId: string;
+  agentId: string;
   guildId: null;
   channelId: string;
   userId: string;
@@ -171,7 +172,7 @@ export async function cleanupEmailInboundMedia(
 
 export async function processInboundEmail(
   raw: Buffer | string,
-  config: RuntimeEmailConfig,
+  config: Pick<RuntimeEmailConfig, 'allowFrom' | 'mediaMaxMb'>,
   selfAddress: string,
   agentId = DEFAULT_AGENT_ID,
 ): Promise<ProcessedEmailInbound | null> {
@@ -196,6 +197,7 @@ export async function processInboundEmail(
 
   return {
     sessionId: buildSessionKey(agentId, 'email', 'dm', sender.address),
+    agentId,
     guildId: null,
     channelId: sender.address,
     userId: sender.address,

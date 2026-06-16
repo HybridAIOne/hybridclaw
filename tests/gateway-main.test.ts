@@ -76,6 +76,7 @@ function createGatewayMainTestState(options?: {
         imapSecure: true,
         smtpHost: options?.emailEnabled ? 'smtp.example.com' : '',
         smtpSecure: false,
+        accounts: [],
       },
       discordWebhook: {
         enabled: false,

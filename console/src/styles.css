@@ -1476,6 +1476,18 @@ th {
   align-content: start;
 }
 
+.managed-secret-field > .button-row {
+  align-items: stretch;
+}
+
+.managed-secret-action {
+  min-height: var(--control-height);
+  height: var(--control-height);
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: var(--control-line-height);
+}
+
 .managed-secret-editor {
   display: grid;
   gap: 10px;
@@ -1483,6 +1495,69 @@ th {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--panel-muted);
+}
+
+.email-account-section,
+.email-account-list,
+.email-account-row {
+  display: grid;
+  gap: 12px;
+}
+
+.email-account-section-header,
+.email-account-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.email-account-section-header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.email-account-section-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.email-account-section-copy p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.email-default-agent-target {
+  margin-left: 8px;
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
+.email-account-row {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg);
+}
+
+.email-account-row-header strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.email-account-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.email-account-remove {
+  color: var(--danger);
 }
 
 .whatsapp-pairing-field {
