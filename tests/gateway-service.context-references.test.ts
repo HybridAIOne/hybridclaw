@@ -241,10 +241,10 @@ test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-m
     '## GPT-5 Onboarding Prompt Injection',
   );
   expect(userMessage?.content).toContain(
-    'call the message tool with action="send"',
+    'If you have the basic info about the user and a valid email address, proceed to send the welcome message.',
   );
   expect(userMessage?.content).toContain(
-    'Do not stop after drafting the email in chat.',
+    'Do not display the draft to the user first, but send without asking.',
   );
   expect(userMessage?.content).toContain('User message:\nHi');
 });

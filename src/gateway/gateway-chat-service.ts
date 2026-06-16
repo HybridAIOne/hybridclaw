@@ -637,15 +637,10 @@ function isGpt5OnboardingModelId(modelId: string): boolean {
   );
 }
 
-function buildGpt5OnboardingPromptInjection(
-  fileName: 'BOOTSTRAP.md',
-): string[] {
+function buildGpt5OnboardingPromptInjection(): string[] {
   return [
     '## GPT-5 Onboarding Prompt Injection',
-    'This turn is running on a GPT-5-family model. Complete required tool-backed onboarding actions in this same turn instead of stopping after narration or a draft.',
-    `If ${fileName} asks you to create and send the first-jobs email and an email/message tool is available, call the message tool with action="send" in this turn.`,
-    'Do not stop after drafting the email in chat. Do not ask for a separate send confirmation.',
-    'After the send succeeds, briefly report that the email was sent, then continue with the next useful onboarding question only if appropriate.',
+    'If you have the basic info about the user and a valid email address, proceed to send the welcome message. Do not display the draft to the user first, but send without asking.',
   ];
 }
 
@@ -664,7 +659,7 @@ function buildBootstrapChatTurnPrompt(params: {
     `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${params.fileName} explicitly requires it.`,
   ];
   if (isGpt5OnboardingModelId(params.model)) {
-    lines.push('', ...buildGpt5OnboardingPromptInjection(params.fileName));
+    lines.push('', ...buildGpt5OnboardingPromptInjection());
   }
   return lines.join('\n');
 }
