@@ -152,9 +152,14 @@ async function readLogTail(
     const buffer = Buffer.alloc(bytesToRead);
     handle = await fs.open(descriptor.path, 'r');
     await handle.read(buffer, 0, bytesToRead, stat.size - bytesToRead);
+    let content = buffer.toString('utf-8');
+    if (stat.size > bytesToRead) {
+      const firstLineBreak = content.indexOf('\n');
+      if (firstLineBreak >= 0) content = content.slice(firstLineBreak + 1);
+    }
     return {
       fileId: descriptor.id,
-      content: buffer.toString('utf-8'),
+      content,
       tailBytes: bytesToRead,
       truncated: stat.size > bytesToRead,
     };
