@@ -13,6 +13,11 @@ HybridClaw admin access has two compatibility modes:
 - Scoped admin sessions are restricted by the `actions`, `scope`, `role`, and
   `roles` claims in the signed session payload.
 
+Browser admin surfaces prefer HttpOnly session cookies. If a bearer token must
+be entered manually, the console stores it in `sessionStorage` for the current
+browser tab only and deletes any legacy `localStorage` copy. Live admin event
+streams do not put bearer tokens in query strings.
+
 The route-level action catalog and role bundle source of truth is
 [`src/security/admin-rbac.ts`](../../../src/security/admin-rbac.ts).
 

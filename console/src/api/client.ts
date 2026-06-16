@@ -265,18 +265,33 @@ export function readStoredToken(): string {
   const search = new URLSearchParams(window.location.search);
   const queryToken = (search.get('token') || '').trim();
   if (queryToken) {
-    window.localStorage.setItem(TOKEN_STORAGE_KEY, queryToken);
-    removeSearchParam(LOCAL_TOKEN_BOOTSTRAP_PARAM);
+    window.sessionStorage.setItem(TOKEN_STORAGE_KEY, queryToken);
+    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+    removeSearchParams(['token', LOCAL_TOKEN_BOOTSTRAP_PARAM]);
     return queryToken;
   }
-  removeSearchParam(LOCAL_TOKEN_BOOTSTRAP_PARAM);
-  return window.localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+  removeSearchParams([LOCAL_TOKEN_BOOTSTRAP_PARAM]);
+
+  const sessionToken = window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  if (sessionToken) return sessionToken;
+
+  const legacyToken = window.localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+  if (legacyToken) {
+    window.sessionStorage.setItem(TOKEN_STORAGE_KEY, legacyToken);
+    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
+  return legacyToken;
 }
 
-function removeSearchParam(name: string): void {
+function removeSearchParams(names: string[]): void {
   const url = new URL(window.location.href);
-  if (!url.searchParams.has(name)) return;
-  url.searchParams.delete(name);
+  let changed = false;
+  for (const name of names) {
+    if (!url.searchParams.has(name)) continue;
+    url.searchParams.delete(name);
+    changed = true;
+  }
+  if (!changed) return;
   window.history.replaceState(
     window.history.state,
     '',
@@ -285,18 +300,17 @@ function removeSearchParam(name: string): void {
 }
 
 export function storeToken(token: string): void {
-  window.localStorage.setItem(TOKEN_STORAGE_KEY, token.trim());
-}
-
-export function clearStoredToken(): void {
+  window.sessionStorage.setItem(TOKEN_STORAGE_KEY, token.trim());
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
 }
 
-export function adminEventsUrl(token: string): string {
-  const trimmed = token.trim();
-  if (!trimmed) return '/api/events';
-  const params = new URLSearchParams({ token: trimmed });
-  return `/api/events?${params.toString()}`;
+export function clearStoredToken(): void {
+  window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+export function adminEventsUrl(_token: string): string {
+  return '/api/events';
 }
 
 export function validateToken(token: string): Promise<GatewayStatus> {

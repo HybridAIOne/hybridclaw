@@ -2291,7 +2291,7 @@ describe('gateway HTTP server', () => {
     expect(getSetCookieHeader(res)).toContain('SameSite=Strict');
   });
 
-  test('bootstraps WEB_API_TOKEN into localStorage for loopback console pages', async () => {
+  test('bootstraps WEB_API_TOKEN into sessionStorage for loopback console pages', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
     const req = makeRequest({
       url: '/admin',
@@ -2306,7 +2306,10 @@ describe('gateway HTTP server', () => {
     expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
     expect(res.headers['Cache-Control']).toBe('no-store');
     expect(res.body).toContain(
-      'localStorage.setItem(\'hybridclaw_token\',"web-token")',
+      'sessionStorage.setItem(\'hybridclaw_token\',"web-token")',
+    );
+    expect(res.body).toContain(
+      "localStorage.removeItem('hybridclaw_token')",
     );
     expect(res.body).toContain(
       'window.location.replace("/admin?__hybridclaw_token_bootstrapped=1")',
@@ -2332,7 +2335,7 @@ describe('gateway HTTP server', () => {
     }
   });
 
-  test('bootstraps WEB_API_TOKEN into localStorage for loopback agents SPA', async () => {
+  test('bootstraps WEB_API_TOKEN into sessionStorage for loopback agents SPA', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
     const req = makeRequest({
       url: '/agents',
@@ -2345,7 +2348,7 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain(
-      'localStorage.setItem(\'hybridclaw_token\',"web-token")',
+      'sessionStorage.setItem(\'hybridclaw_token\',"web-token")',
     );
     expect(res.body).toContain(
       'window.location.replace("/agents?__hybridclaw_token_bootstrapped=1")',
@@ -2549,6 +2552,96 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual({
       error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
     });
+  });
+
+  test('allows API requests with a signed session cookie when WEB_API_TOKEN is configured', async () => {
+    const authSecret = 'api-session-auth-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: '/api/status',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          role: 'admin.viewer',
+        }),
+        host: 'example.test',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual(
+      expect.objectContaining({ status: 'ok' }),
+    );
+  });
+
+  test('requires same-origin headers for signed session cookie API mutations', async () => {
+    const authSecret = 'api-session-origin-auth-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'web-token',
+    });
+    const cookie = makeSessionCookie(authSecret, {
+      sessionId: 'admin-session-1',
+      actor: 'admin-user',
+      role: 'admin.config_manager',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie,
+        host: 'example.test',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(state.reloadRuntimeConfig).not.toHaveBeenCalled();
+  });
+
+  test('allows signed session cookie API mutations with matching origin', async () => {
+    const authSecret = 'api-session-mutation-auth-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          role: 'admin.config_manager',
+        }),
+        host: 'example.test',
+        origin: 'http://example.test',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
   });
 
   test('rejects forwarded loopback headers from unauthenticated external sockets', async () => {
@@ -4063,7 +4156,7 @@ describe('gateway HTTP server', () => {
     expect(res.body).toBe('Unauthorized. Invalid or expired auth token.');
   });
 
-  test('/auth/callback returns HTML with localStorage script when WEB_API_TOKEN is set', async () => {
+  test('/auth/callback redirects with a session cookie when WEB_API_TOKEN is set', async () => {
     const authSecret = 'health-secret';
     const launchToken = signAuthPayload(
       {
@@ -4083,21 +4176,16 @@ describe('gateway HTTP server', () => {
 
     state.handler(req as never, res as never);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
-    expect(res.body).toContain('localStorage.setItem');
-    expect(res.body).toContain('hybridclaw_token');
-    expect(res.body).toContain('hybridclaw_user_id');
-    expect(res.body).toContain('my-web-token');
-    expect(res.body).toContain('user-1');
-    expect(res.body).toContain('window.location.replace("/admin")');
-    // Session cookie should still be set
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/admin');
+    expect(res.body).not.toContain('my-web-token');
+    expect(res.body).not.toContain('hybridclaw_token');
     expect(res.headers['Set-Cookie']).toEqual(
       expect.stringContaining('hybridclaw_session='),
     );
   });
 
-  test('/auth/callback includes CSP and X-Content-Type-Options headers when WEB_API_TOKEN is set', async () => {
+  test('/auth/callback uses redirect cache controls when WEB_API_TOKEN is set', async () => {
     const authSecret = 'health-secret';
     const launchToken = signAuthPayload(
       {
@@ -4117,15 +4205,12 @@ describe('gateway HTTP server', () => {
 
     state.handler(req as never, res as never);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.headers['Content-Security-Policy']).toBe(
-      "default-src 'none'; script-src 'unsafe-inline'",
-    );
-    expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/admin');
     expect(res.headers['Cache-Control']).toBe('no-store');
   });
 
-  test('/auth/callback escapes angle brackets in WEB_API_TOKEN to prevent script injection', async () => {
+  test('/auth/callback does not render WEB_API_TOKEN script content', async () => {
     const authSecret = 'health-secret';
     const launchToken = signAuthPayload(
       {
@@ -4145,11 +4230,10 @@ describe('gateway HTTP server', () => {
 
     state.handler(req as never, res as never);
 
-    expect(res.statusCode).toBe(200);
-    // Raw `<` must not appear inside the <script> block payload
-    expect(res.body).not.toMatch(/<script>.*<(?!\/script>).*<\/script>/s);
-    // The escaped form should be present instead
-    expect(res.body).toContain('\\u003c');
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/admin');
+    expect(res.body).not.toContain('token-with-');
+    expect(res.body).not.toContain('<script>');
   });
 
   test('/auth/callback returns 302 redirect when WEB_API_TOKEN is not set', async () => {
@@ -4194,7 +4278,7 @@ describe('gateway HTTP server', () => {
     expect(res.headers.Location).toBe('/chat');
   });
 
-  test('/auth/callback respects a valid next query parameter (HTML localStorage redirect)', async () => {
+  test('/auth/callback respects a valid next query parameter when WEB_API_TOKEN is set', async () => {
     const authSecret = 'health-secret';
     const launchToken = signAuthPayload(
       {
@@ -4214,8 +4298,9 @@ describe('gateway HTTP server', () => {
 
     state.handler(req as never, res as never);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toContain('window.location.replace("/dashboard")');
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/dashboard');
+    expect(res.body).not.toContain('my-web-token');
   });
 
   test('/auth/callback ignores protocol-relative next param to prevent open redirect', async () => {
@@ -8171,12 +8256,42 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('allows query-token auth for SSE admin events', async () => {
+  test('rejects query-token auth for SSE admin events', async () => {
     const state = await importFreshHealth({
       webApiToken: 'web-token',
     });
     const req = makeRequest({
       url: '/api/events?token=web-token',
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('allows signed session cookie auth for SSE admin events', async () => {
+    const authSecret = 'sse-session-auth-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: '/api/events',
+      noAuth: true,
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          role: 'admin.viewer',
+        }),
+      },
       remoteAddress: '203.0.113.10',
     });
     const res = makeResponse();
