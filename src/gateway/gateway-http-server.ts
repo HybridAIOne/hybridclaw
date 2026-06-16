@@ -2049,6 +2049,7 @@ function hasApiAuth(
   opts?: {
     allowLocalWebSession?: boolean;
     allowQueryToken?: boolean;
+    allowSessionCookie?: boolean;
     requireSameOrigin?: boolean;
   },
 ): boolean {
@@ -2057,6 +2058,13 @@ function hasApiAuth(
   if (opts?.allowQueryToken && url && hasQueryToken(url)) return true;
 
   if (hasBearerToken(authHeader, WEB_API_TOKEN)) return true;
+  if (
+    opts?.allowSessionCookie &&
+    hasSessionAuth(req) &&
+    (!opts.requireSameOrigin || hasSameGatewayOrigin(req))
+  ) {
+    return true;
+  }
   if (
     opts?.allowLocalWebSession &&
     isLocalWebSessionAllowed(req) &&
@@ -2208,8 +2216,9 @@ function sendWebTokenBootstrap(
   });
   res.end(
     `<!DOCTYPE html><html><body><script>` +
-      `localStorage.setItem('hybridclaw_token',${escapedToken});` +
-      `if (${escapedUserId}) localStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
+      `sessionStorage.setItem('hybridclaw_token',${escapedToken});` +
+      `localStorage.removeItem('hybridclaw_token');` +
+      `if (${escapedUserId}) sessionStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
       `window.location.replace(${escapedRedirect});` +
       `</script></body></html>`,
   );
@@ -3507,7 +3516,12 @@ function handleApiAgentAvatar(
   res: ServerResponse,
   url: URL,
 ): void {
-  if (!hasApiAuth(req, url, { allowLocalWebSession: true })) {
+  if (
+    !hasApiAuth(req, url, {
+      allowLocalWebSession: true,
+      allowSessionCookie: true,
+    })
+  ) {
     sendJson(res, 401, {
       error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
     });
@@ -6505,6 +6519,7 @@ async function handleApiArtifact(
     !hasApiAuth(req, url, {
       allowLocalWebSession: true,
       allowQueryToken: true,
+      allowSessionCookie: true,
     })
   ) {
     sendJson(res, 401, {
@@ -6801,19 +6816,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       try {
         const payload = verifyLaunchToken(token);
         setSessionCookie(res, payload);
-        // Respond with a small HTML page that stores the WEB_API_TOKEN in
-        // localStorage before redirecting.  This lets the console make
-        // Bearer-authenticated API calls without ever showing the manual
-        // token prompt.  The token never appears in the URL (avoiding
-        // leaks via browser history, referrer headers, or server logs).
-        if (WEB_API_TOKEN) {
-          sendWebTokenBootstrap(res, {
-            redirectTo,
-            userId: normalizeOptionalString(payload.sub) || undefined,
-          });
-        } else {
-          sendRedirect(res, 302, redirectTo);
-        }
+        sendRedirect(res, 302, redirectTo);
       } catch {
         sendText(res, 401, 'Unauthorized. Invalid or expired auth token.');
       }
@@ -6918,8 +6921,9 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
       if (
         !hasApiAuth(req, url, {
-          allowQueryToken: pathname === '/api/events',
+          allowQueryToken: false,
           allowLocalWebSession: true,
+          allowSessionCookie: true,
           requireSameOrigin: method !== 'GET',
         })
       ) {
