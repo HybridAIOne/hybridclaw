@@ -89,6 +89,24 @@ describe('logger forced level override', () => {
     expect(logger.level).toBe('debug');
   });
 
+  it('reports effective and forced logger levels', async () => {
+    process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
+    vi.doMock('../src/config/runtime-config.ts', () => ({
+      getRuntimeConfig: () => ({
+        ops: { logLevel: 'info' },
+      }),
+      onRuntimeConfigChange: vi.fn(),
+    }));
+
+    const { getLoggerRuntimeState } = await importLoggerModule();
+
+    expect(getLoggerRuntimeState()).toEqual({
+      configuredLevel: 'info',
+      effectiveLevel: 'debug',
+      forcedLevel: 'debug',
+    });
+  });
+
   it('mirrors logs to the configured gateway log file', async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hybridclaw-logger-'));
     const logPath = path.join(tempDir, 'gateway.log');

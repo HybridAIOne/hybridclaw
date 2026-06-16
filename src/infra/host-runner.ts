@@ -44,7 +44,10 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
-import type { CodexTurnRuntime } from '../config/runtime-config.js';
+import {
+  type CodexTurnRuntime,
+  getRuntimeConfig,
+} from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
@@ -118,6 +121,13 @@ import { computeWorkerSignature } from './worker-signature.js';
 
 const HOST_CAPACITY_WAIT_MS = 15_000;
 const HOST_CAPACITY_POLL_MS = 100;
+
+function isModelResponseDebugEnabled(): boolean {
+  return (
+    process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1' ||
+    getRuntimeConfig().ops.debugModelResponses === true
+  );
+}
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 
 function resolveExecutorMaxTokens(params: {
@@ -971,7 +981,7 @@ async function runHostProcessInner(
     scheduleSideEffectsEnabled,
     skipContainerSystemPrompt,
     streamTextDeltas: Boolean(onTextDelta),
-    debugModelResponses: process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1',
+    debugModelResponses: isModelResponseDebugEnabled(),
     maxTokens: resolveExecutorMaxTokens({
       model: runtimeModel,
       discoveredMaxTokens: modelRuntime.maxTokens,

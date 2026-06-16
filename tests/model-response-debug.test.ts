@@ -4,6 +4,10 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../src/gateway/gateway-lifecycle.js';
 import { consumeModelResponseDebugFileLine } from '../src/infra/model-response-debug.js';
 
+const runtimeConfigMock = vi.hoisted(() => ({
+  ops: { debugModelResponses: false },
+}));
+
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
   return {
@@ -17,6 +21,14 @@ vi.mock('node:fs', async (importOriginal) => {
   };
 });
 
+vi.mock('../src/config/config.js', () => ({
+  DATA_DIR: '/tmp/hybridclaw-model-debug-test',
+}));
+
+vi.mock('../src/config/runtime-config.js', () => ({
+  getRuntimeConfig: () => runtimeConfigMock,
+}));
+
 function encodeDebugLine(prefix: string, text: string): string {
   return `${prefix} ${Buffer.from(text, 'utf-8').toString('base64')}`;
 }
@@ -24,6 +36,7 @@ function encodeDebugLine(prefix: string, text: string): string {
 describe('model response debug file consumer', () => {
   afterEach(() => {
     delete process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV];
+    runtimeConfigMock.ops.debugModelResponses = false;
     vi.clearAllMocks();
   });
 
@@ -66,5 +79,18 @@ describe('model response debug file consumer', () => {
     expect(fs.mkdirSync).toHaveBeenCalledTimes(2);
     expect(fs.appendFileSync).toHaveBeenCalledTimes(2);
     expect(fs.writeFileSync).toHaveBeenCalledTimes(2);
+  });
+
+  test('writes debug output when enabled in runtime config', async () => {
+    runtimeConfigMock.ops.debugModelResponses = true;
+    vi.clearAllMocks();
+    const modelResponseLine = encodeDebugLine(
+      '[model-response-debug-file]',
+      'data: config\n\n',
+    );
+
+    expect(consumeModelResponseDebugFileLine(modelResponseLine)).toBe(true);
+
+    expect(fs.appendFileSync).toHaveBeenCalledTimes(1);
   });
 });

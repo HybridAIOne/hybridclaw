@@ -1,13 +1,18 @@
 import type { FileHandle } from 'node:fs/promises';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { getRuntimeConfig } from '../config/runtime-config.js';
+import { getLoggerRuntimeState } from '../logger.js';
 import {
+  GATEWAY_DEBUG_MODEL_RESPONSES_ENV,
   GATEWAY_LOG_PATH,
+  GATEWAY_LOG_REQUESTS_ENV,
   GATEWAY_MODEL_RESPONSE_DEBUG_PATH,
 } from './gateway-lifecycle.js';
 
 const DEFAULT_TAIL_BYTES = 64 * 1024;
 const MAX_TAIL_BYTES = 256 * 1024;
+const ENABLED_ENV_VALUE = '1';
 
 export interface GatewayAdminLogFile {
   id: string;
@@ -28,9 +33,26 @@ export interface GatewayAdminLogTail {
   truncated: boolean;
 }
 
+export interface GatewayAdminLoggingState {
+  configuredLevel: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'];
+  effectiveLevel: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'];
+  forcedLevel: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'] | null;
+  logRequests: {
+    configured: boolean;
+    envEnabled: boolean;
+    effective: boolean;
+  };
+  debugModelResponses: {
+    configured: boolean;
+    envEnabled: boolean;
+    effective: boolean;
+  };
+}
+
 export interface GatewayAdminLogsResponse {
   files: GatewayAdminLogFile[];
   selected: GatewayAdminLogTail | null;
+  logging: GatewayAdminLoggingState;
 }
 
 interface LogDescriptor {
@@ -143,6 +165,37 @@ async function readLogTail(
   }
 }
 
+function isEnvFlagEnabled(name: string): boolean {
+  return String(process.env[name] || '').trim() === ENABLED_ENV_VALUE;
+}
+
+function getGatewayAdminLoggingState(): GatewayAdminLoggingState {
+  const config = getRuntimeConfig();
+  const loggerState = getLoggerRuntimeState();
+  const logRequestsEnvEnabled = isEnvFlagEnabled(GATEWAY_LOG_REQUESTS_ENV);
+  const debugModelResponsesEnvEnabled = isEnvFlagEnabled(
+    GATEWAY_DEBUG_MODEL_RESPONSES_ENV,
+  );
+
+  return {
+    configuredLevel: loggerState.configuredLevel,
+    effectiveLevel: loggerState.effectiveLevel,
+    forcedLevel: loggerState.forcedLevel,
+    logRequests: {
+      configured: config.ops.logRequests === true,
+      envEnabled: logRequestsEnvEnabled,
+      effective: config.ops.logRequests === true || logRequestsEnvEnabled,
+    },
+    debugModelResponses: {
+      configured: config.ops.debugModelResponses === true,
+      envEnabled: debugModelResponsesEnvEnabled,
+      effective:
+        config.ops.debugModelResponses === true ||
+        debugModelResponsesEnvEnabled,
+    },
+  };
+}
+
 export async function getGatewayAdminLogs(options?: {
   fileId?: string | null;
   tailBytes?: string | null;
@@ -157,7 +210,11 @@ export async function getGatewayAdminLogs(options?: {
       ) ?? descriptors[0]);
 
   if (!selectedDescriptor) {
-    return { files, selected: null };
+    return {
+      files,
+      selected: null,
+      logging: getGatewayAdminLoggingState(),
+    };
   }
   if (requestedFileId && selectedDescriptor.id !== requestedFileId) {
     throw new Error(`Unknown log file "${requestedFileId}".`);
@@ -167,5 +224,9 @@ export async function getGatewayAdminLogs(options?: {
     selectedDescriptor,
     normalizeTailBytes(options?.tailBytes ?? null),
   );
-  return { files, selected };
+  return {
+    files,
+    selected,
+    logging: getGatewayAdminLoggingState(),
+  };
 }

@@ -135,6 +135,20 @@ export function forceLoggerLevel(
   logger.debug({ forcedLevel: level }, 'Logger level forced programmatically');
 }
 
+export function getLoggerRuntimeState(): {
+  configuredLevel: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'];
+  effectiveLevel: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'];
+  forcedLevel: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'] | null;
+} {
+  return {
+    configuredLevel: getRuntimeConfig().ops.logLevel,
+    effectiveLevel: logger.level as ReturnType<
+      typeof getRuntimeConfig
+    >['ops']['logLevel'],
+    forcedLevel,
+  };
+}
+
 onRuntimeConfigChange((next, prev) => {
   if (forcedLevel) {
     if (next.ops.logLevel !== prev.ops.logLevel) {

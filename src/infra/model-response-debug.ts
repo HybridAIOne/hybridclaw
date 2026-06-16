@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
   GATEWAY_DEBUG_MODEL_RESPONSES_ENV,
   GATEWAY_MODEL_RESPONSE_DEBUG_PATH,
@@ -20,7 +21,10 @@ function ensureDebugDir(filePath: string): void {
 }
 
 function isModelResponseDebugEnabled(): boolean {
-  return process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1';
+  return (
+    process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1' ||
+    getRuntimeConfig().ops.debugModelResponses === true
+  );
 }
 
 export function consumeModelResponseDebugFileLine(line: string): boolean {

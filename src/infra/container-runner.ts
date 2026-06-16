@@ -56,7 +56,10 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
-import type { CodexTurnRuntime } from '../config/runtime-config.js';
+import {
+  type CodexTurnRuntime,
+  getRuntimeConfig,
+} from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
@@ -135,6 +138,13 @@ function resolveExecutorMaxTokens(params: {
     model: params.model,
     discoveredMaxTokens: params.discoveredMaxTokens,
   });
+}
+
+function isModelResponseDebugEnabled(): boolean {
+  return (
+    process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1' ||
+    getRuntimeConfig().ops.debugModelResponses === true
+  );
 }
 
 interface PoolEntry extends WarmRunnerEntry {
@@ -1123,7 +1133,7 @@ async function runContainerInner(
     scheduleSideEffectsEnabled,
     skipContainerSystemPrompt,
     streamTextDeltas: Boolean(onTextDelta),
-    debugModelResponses: process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1',
+    debugModelResponses: isModelResponseDebugEnabled(),
     maxTokens: resolveExecutorMaxTokens({
       model: runtimeModel,
       discoveredMaxTokens: modelRuntime.maxTokens,
