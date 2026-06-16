@@ -55,6 +55,7 @@ type EvalSuiteId =
   | 'locomo'
   | 'trace-judge'
   | 'terminal-bench-2.0'
+  | 'agent-risk'
   | 'agentbench'
   | 'gaia';
 
@@ -304,6 +305,37 @@ interface TraceJudgeNativeSummary {
   failureCount: number;
 }
 
+interface AgentRiskNativeScenarioSummary {
+  id: string;
+  title: string;
+  passed: boolean;
+  findings: Array<{
+    id: string;
+    severity: string;
+    message: string;
+  }>;
+  evidencePath: string;
+  toolCallCount: number;
+}
+
+interface AgentRiskNativeSummary {
+  jobDir: string;
+  resultPath: string;
+  evidenceDir: string;
+  model: string;
+  baseUrl: string;
+  passed: boolean;
+  scenarioCount: number;
+  passedCount: number;
+  failedCount: number;
+  scenarios: AgentRiskNativeScenarioSummary[];
+  coverage: {
+    nistAiRmf: string[];
+    nistGaiProfile: string[];
+    owaspLlmTop10: string[];
+  };
+}
+
 const MAX_QUEUED_EVAL_MESSAGES = 200;
 const EVAL_PROGRESS_BAR_WIDTH = 20;
 const EVAL_PROGRESS_POLL_INTERVAL_MS = 1000;
@@ -411,6 +443,26 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
       'The default offline mode is deterministic and suitable for CI gating of the judge prompt, parser, metrics, and dataset integrity.',
       '`--live` calls the configured trace judge through the same `judgeTrace` path used by runtime features.',
       'The suite reports macro precision, recall, and F1 for each criterion type and fails when any criterion falls below the requested thresholds.',
+    ],
+  },
+  {
+    id: 'agent-risk',
+    title: 'Agent Risk',
+    summary:
+      'Native HybridClaw agent-risk gate for NIST AI RMF, NIST AI 600-1, and OWASP LLM Top 10 scenarios.',
+    aliases: ['risk', 'llm-risk', 'genai-risk'],
+    prereqs: ['Running HybridClaw gateway', 'configured local eval token'],
+    starter: [
+      '/eval agent-risk run',
+      '/eval agent-risk run --scenario data-privacy',
+      '/eval agent-risk run --scenario prompt-injection',
+      '/eval agent-risk run --scenario system-prompt-leakage',
+      '/eval agent-risk run --scenario excessive-agency',
+    ],
+    notes: [
+      'Runs synthetic canary scenarios through the local OpenAI-compatible gateway and fails if private canaries leak, injected instructions are followed, hidden policy markers are disclosed, or high-impact client tools are called without approval.',
+      'Evidence is written under the run job directory with synthetic canaries redacted and hashed.',
+      'Scenario tags map to NIST AI RMF functions, NIST AI 600-1 GAI risks, and OWASP LLM Top 10 2025 IDs.',
     ],
   },
   {
@@ -534,7 +586,8 @@ function isImplementedManagedSuite(suite: EvalSuiteDefinition): boolean {
   return (
     suite.id === 'terminal-bench-2.0' ||
     suite.id === 'locomo' ||
-    suite.id === 'trace-judge'
+    suite.id === 'trace-judge' ||
+    suite.id === 'agent-risk'
   );
 }
 
@@ -558,6 +611,7 @@ function renderUnimplementedSuite(
     'Implemented suites today:',
     '- `/eval locomo ...`',
     '- `/eval trace-judge ...`',
+    '- `/eval agent-risk ...`',
     '- `/eval terminal-bench-2.0 ...`',
     '- `/eval tau2 ...`',
   ].join('\n');
@@ -572,6 +626,7 @@ function renderUsage(env: EvalEnvironment): string {
     '- `/eval env [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
     '- `/eval locomo [setup|run|status|stop|results|logs]`',
     '- `/eval trace-judge [run|status|stop|results|logs]`',
+    '- `/eval agent-risk [run|status|stop|results|logs]`',
     '- `/eval terminal-bench-2.0 [setup|run|status|stop|results|logs]`',
     '- `/eval tau2 [setup|run|status|stop|results]`',
     '- `/eval hybridai-skills [setup|list|run|results]`',
@@ -589,7 +644,7 @@ function renderUsage(env: EvalEnvironment): string {
     'Suites:',
     ...renderSuiteList(),
     '',
-    'Only `locomo`, `trace-judge`, `terminal-bench-2.0`, `tau2`, and `hybridai-skills` are implemented today.',
+    'Only `locomo`, `trace-judge`, `agent-risk`, `terminal-bench-2.0`, `tau2`, and `hybridai-skills` are implemented today.',
   ].join('\n');
 }
 
@@ -821,6 +876,8 @@ function getManagedSuiteRunExample(suite: EvalSuiteDefinition): string {
       return '/eval locomo run --budget 4000 --max-questions 20';
     case 'trace-judge':
       return '/eval trace-judge run';
+    case 'agent-risk':
+      return '/eval agent-risk run';
     case 'terminal-bench-2.0':
       return '/eval terminal-bench-2.0 run --num-tasks 10';
     default:
@@ -968,7 +1025,7 @@ function isManagedSuiteInstalled(
   suite: EvalSuiteDefinition,
   dataDir: string,
 ): boolean {
-  if (suite.id === 'trace-judge') return true;
+  if (suite.id === 'trace-judge' || suite.id === 'agent-risk') return true;
   if (suite.id === 'locomo') {
     return (
       fs.existsSync(getManagedSuiteMarkerPath(suite, dataDir)) &&
@@ -1098,6 +1155,9 @@ function getManagedSuiteNextStep(
     }
     case 'trace-judge': {
       return '/eval trace-judge run';
+    }
+    case 'agent-risk': {
+      return '/eval agent-risk run';
     }
     case 'terminal-bench-2.0': {
       return `/eval terminal-bench-2.0 run --num-tasks 10`;
@@ -1232,6 +1292,14 @@ function prepareManagedSuiteRun(
     return {
       commandArgs: ['trace-judge', 'run', ...args],
       command: buildInternalEvalCommand('__eval-trace-judge-native', args),
+      displayCommand: buildCommandString([suite.id, 'run', ...args]),
+      cwd: getEvalBaseDir(dataDir),
+    };
+  }
+  if (suite.id === 'agent-risk') {
+    return {
+      commandArgs: ['agent-risk', 'run', ...args],
+      command: buildInternalEvalCommand('__eval-agent-risk-native', args),
       displayCommand: buildCommandString([suite.id, 'run', ...args]),
       cwd: getEvalBaseDir(dataDir),
     };
@@ -2176,6 +2244,102 @@ function readTraceJudgeNativeSummary(
   }
 }
 
+function readAgentRiskJobDir(meta: EvalRunMeta): string | null {
+  if (meta.suiteId !== 'agent-risk' || meta.operation !== 'run') {
+    return null;
+  }
+  return path.join(path.dirname(meta.stdoutPath), 'agent-risk');
+}
+
+function readAgentRiskNativeSummary(
+  meta: EvalRunMeta,
+): AgentRiskNativeSummary | null {
+  const jobDir = readAgentRiskJobDir(meta);
+  if (!jobDir) return null;
+  const resultPath = path.join(jobDir, 'result.json');
+  if (!fs.existsSync(resultPath)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(resultPath, 'utf-8')) as Record<
+      string,
+      unknown
+    >;
+    const scenarios = Array.isArray(parsed.scenarios)
+      ? parsed.scenarios
+          .map((scenario): AgentRiskNativeScenarioSummary | null => {
+            if (
+              !scenario ||
+              typeof scenario !== 'object' ||
+              Array.isArray(scenario)
+            ) {
+              return null;
+            }
+            const record = scenario as Record<string, unknown>;
+            const findings = Array.isArray(record.findings)
+              ? record.findings
+                  .map((finding) => {
+                    if (
+                      !finding ||
+                      typeof finding !== 'object' ||
+                      Array.isArray(finding)
+                    ) {
+                      return null;
+                    }
+                    const findingRecord = finding as Record<string, unknown>;
+                    return {
+                      id: readStringValue(findingRecord.id) || 'finding',
+                      severity:
+                        readStringValue(findingRecord.severity) || 'unknown',
+                      message: readStringValue(findingRecord.message) || '',
+                    };
+                  })
+                  .filter((finding) => finding !== null)
+              : [];
+            return {
+              id: readStringValue(record.id) || 'scenario',
+              title: readStringValue(record.title) || 'Scenario',
+              passed: record.passed === true,
+              findings,
+              evidencePath: readStringValue(record.evidencePath) || '',
+              toolCallCount: readFiniteNumber(record.toolCallCount) ?? 0,
+            };
+          })
+          .filter((scenario) => scenario !== null)
+      : [];
+    const coverage =
+      parsed.coverage && typeof parsed.coverage === 'object'
+        ? (parsed.coverage as Record<string, unknown>)
+        : {};
+    const readStringArray = (value: unknown): string[] =>
+      Array.isArray(value)
+        ? value.filter((entry): entry is string => typeof entry === 'string')
+        : [];
+    return {
+      jobDir,
+      resultPath,
+      evidenceDir:
+        readStringValue(parsed.evidenceDir) || path.join(jobDir, 'evidence'),
+      model: readStringValue(parsed.model) || meta.baseModel || meta.model,
+      baseUrl: readStringValue(parsed.baseUrl) || meta.openaiBaseUrl,
+      passed: parsed.passed === true,
+      scenarioCount: readFiniteNumber(parsed.scenarioCount) ?? scenarios.length,
+      passedCount:
+        readFiniteNumber(parsed.passedCount) ??
+        scenarios.filter((scenario) => scenario.passed).length,
+      failedCount:
+        readFiniteNumber(parsed.failedCount) ??
+        scenarios.filter((scenario) => !scenario.passed).length,
+      scenarios,
+      coverage: {
+        nistAiRmf: readStringArray(coverage.nistAiRmf),
+        nistGaiProfile: readStringArray(coverage.nistGaiProfile),
+        owaspLlmTop10: readStringArray(coverage.owaspLlmTop10),
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 function readLocomoNativeProgress(
   meta: EvalRunMeta,
 ): LocomoNativeProgress | null {
@@ -2977,8 +3141,7 @@ function startEvalProgressTracker(params: {
 }): void {
   const progress = params.progress;
   if (
-    !progress ||
-    !progress.total ||
+    !progress?.total ||
     progress.total <= 0 ||
     !supportsQueuedEvalProgress(params.channelId)
   ) {
@@ -3080,6 +3243,11 @@ export async function startDetachedEvalRun(params: {
   if (params.suiteId === 'trace-judge' && params.operation === 'run') {
     shellCommand = `${shellCommand} --job-dir ${quoteShellArg(
       path.join(runDir, 'trace-judge'),
+    )}`;
+  }
+  if (params.suiteId === 'agent-risk' && params.operation === 'run') {
+    shellCommand = `${shellCommand} --job-dir ${quoteShellArg(
+      path.join(runDir, 'agent-risk'),
     )}`;
   }
   const stdoutFd = fs.openSync(stdoutPath, 'a');
@@ -3494,6 +3662,7 @@ function renderManagedSuiteStatus(
   suite: EvalSuiteDefinition,
   dataDir: string,
 ): string {
+  const managed = getManagedSuiteSetup(suite);
   const installDir = getManagedSuiteInstallDir(suite, dataDir);
   const markerPath = getManagedSuiteMarkerPath(suite, dataDir);
   const executablePath = getManagedSuiteExecutablePath(suite, dataDir);
@@ -3522,13 +3691,19 @@ function renderManagedSuiteStatus(
     suite.id === 'trace-judge' && latestRun
       ? readTraceJudgeNativeSummary(latestRun)
       : null;
+  const latestAgentRiskSummary =
+    suite.id === 'agent-risk' && latestRun
+      ? readAgentRiskNativeSummary(latestRun)
+      : null;
   const setupFailure =
     !installed && latestSetup ? describeRunFailureReason(latestSetup) : null;
 
   return [
     `Install dir: ${installDir}`,
     `Installed: ${installed ? 'yes' : 'no'}`,
-    `Marker: ${fs.existsSync(markerPath) ? markerPath : 'missing'}`,
+    ...(managed
+      ? [`Marker: ${fs.existsSync(markerPath) ? markerPath : 'missing'}`]
+      : ['Setup: none required']),
     ...(suite.id === 'locomo'
       ? [
           `Dataset: ${fs.existsSync(getLocomoDatasetPath(dataDir)) ? getLocomoDatasetPath(dataDir) : 'missing'}`,
@@ -3562,6 +3737,17 @@ function renderManagedSuiteStatus(
                 `Failures: ${latestTraceJudgeSummary.failureCount}`,
                 `Predictions: ${latestTraceJudgeSummary.predictionsPath ?? 'missing'}`,
                 `Result: ${latestTraceJudgeSummary.resultPath}`,
+              ]
+            : []),
+          ...(latestAgentRiskSummary
+            ? [
+                `Gate: ${latestAgentRiskSummary.passed ? 'passed' : 'failed'}`,
+                `Scenarios: ${latestAgentRiskSummary.passedCount}/${latestAgentRiskSummary.scenarioCount} passed`,
+                `NIST AI RMF: ${latestAgentRiskSummary.coverage.nistAiRmf.join(', ') || 'none'}`,
+                `NIST AI 600-1: ${latestAgentRiskSummary.coverage.nistGaiProfile.join(', ') || 'none'}`,
+                `OWASP LLM Top 10: ${latestAgentRiskSummary.coverage.owaspLlmTop10.join(', ') || 'none'}`,
+                `Evidence: ${latestAgentRiskSummary.evidenceDir}`,
+                `Result: ${latestAgentRiskSummary.resultPath}`,
               ]
             : []),
           ...(latestLocomoSummary
@@ -3820,6 +4006,10 @@ function renderManagedSuiteResults(
     suite.id === 'trace-judge' && latestJob.operation === 'run'
       ? readTraceJudgeNativeSummary(latestJob)
       : null;
+  const agentRiskSummary =
+    suite.id === 'agent-risk' && latestJob.operation === 'run'
+      ? readAgentRiskNativeSummary(latestJob)
+      : null;
   if (suite.id === 'terminal-bench-2.0') {
     const overviewSection = renderKeyValueSection('Overview', [
       ['Evaluated model', latestJob.baseModel || latestJob.model],
@@ -3934,6 +4124,74 @@ function renderManagedSuiteResults(
         overviewSection,
         outcomeSection,
         criterionSection,
+        runSection,
+        pathsSection,
+      ]),
+    );
+  }
+  if (suite.id === 'agent-risk') {
+    const overviewSection = renderKeyValueSection('Overview', [
+      ['Evaluated model', agentRiskSummary?.model || latestJob.baseModel],
+      ['Harness', `HybridClaw v${resolveHarnessVersion()}`],
+      ['Status', describeManagedSuiteRunLifecycle(latestJob)],
+      [
+        'Gate',
+        agentRiskSummary
+          ? agentRiskSummary.passed
+            ? 'passed'
+            : 'failed'
+          : null,
+      ],
+      [
+        'Scenarios',
+        agentRiskSummary
+          ? `${agentRiskSummary.passedCount}/${agentRiskSummary.scenarioCount} passed`
+          : null,
+      ],
+    ]);
+    const coverageSection = renderKeyValueSection('Coverage', [
+      ['NIST AI RMF', agentRiskSummary?.coverage.nistAiRmf.join(', ')],
+      ['NIST AI 600-1', agentRiskSummary?.coverage.nistGaiProfile.join(', ')],
+      ['OWASP LLM Top 10', agentRiskSummary?.coverage.owaspLlmTop10.join(', ')],
+    ]);
+    const scenarioSection = renderKeyValueSection(
+      'Scenarios',
+      (agentRiskSummary?.scenarios || []).map((scenario) => [
+        scenario.id,
+        [
+          scenario.passed ? 'passed' : 'failed',
+          `${scenario.findings.length} finding(s)`,
+          `${scenario.toolCallCount} tool call(s)`,
+        ].join(' | '),
+      ]),
+    );
+    const findingSection = renderKeyValueSection(
+      'Findings',
+      (agentRiskSummary?.scenarios || []).flatMap((scenario) =>
+        scenario.findings.map((finding) => [
+          `${scenario.id}/${finding.id}`,
+          `${finding.severity}: ${finding.message}`,
+        ]),
+      ),
+    );
+    const runSection = renderKeyValueSection('Run', [
+      ['Run ID', latestJob.runId],
+      ['Command', latestJob.displayCommand || latestJob.command],
+    ]);
+    const pathsSection = renderKeyValueSection('Paths', [
+      ['Job dir', agentRiskSummary?.jobDir],
+      ['Evidence dir', agentRiskSummary?.evidenceDir],
+      ['Result JSON', agentRiskSummary?.resultPath],
+      ['Stdout', latestJob.stdoutPath],
+      ['Stderr', latestJob.stderrPath],
+    ]);
+    return infoResult(
+      `${suite.title} Results`,
+      joinSections([
+        overviewSection,
+        coverageSection,
+        scenarioSection,
+        findingSection,
         runSection,
         pathsSection,
       ]),
@@ -4247,6 +4505,15 @@ async function handleManagedSuiteSetup(params: {
       ].join('\n'),
     );
   }
+  if (params.suite.id === 'agent-risk') {
+    return infoResult(
+      `${params.suite.title} Setup`,
+      [
+        'No setup is required for the packaged agent-risk scenarios.',
+        'Run `/eval agent-risk run` to execute the NIST/OWASP canary gate against the local OpenAI-compatible gateway.',
+      ].join('\n'),
+    );
+  }
   const managed = getManagedSuiteSetup(params.suite);
   if (!managed) {
     return errorResult(
@@ -4448,6 +4715,7 @@ async function handleManagedSuiteCommand(params: {
         'Implemented suites today:',
         '- `/eval locomo ...`',
         '- `/eval trace-judge ...`',
+        '- `/eval agent-risk ...`',
         '- `/eval terminal-bench-2.0 ...`',
         '- `/eval tau2 ...`',
       ].join('\n'),

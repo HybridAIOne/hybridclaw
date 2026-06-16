@@ -51,6 +51,9 @@ Notes:
   - Target coworker workspaces expose seven editable surfaces:
     system_prompt.md, tools.yaml, tools/, middleware/, sub_agents/, config/, long_term_memory/.
   - Fresh evolution refuses non-minimal seeds; production coworkers can use run without --fresh-seed.
+  - Suites may tag tasks with risks.nistAiRmf, risks.nistGaiProfile, and risks.owaspLlmTop10,
+    then require coverage with riskCoverage.requireNistAiRmfCore,
+    requireNistGaiProfile, or requireOwaspLlmTop10.
   - contract prints the evolve-agent system prompt and tool schema for host orchestration.
   - Round artifacts and F12 manifests are written under target runs/.`);
 }
@@ -75,6 +78,8 @@ Commands:
 export function printEvalUsage(): void {
   console.log(`Usage: hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]
        hybridclaw eval locomo [setup|run|status|stop|results|logs]
+       hybridclaw eval trace-judge [run|status|stop|results|logs]
+       hybridclaw eval agent-risk [run|status|stop|results|logs]
        hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
        hybridclaw eval tau2 [setup|run|status|stop|results]
        hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
@@ -101,6 +106,9 @@ Examples:
   hybridclaw eval locomo run --mode retrieval --matrix rerank --budget 4000
   hybridclaw eval locomo run --mode retrieval --matrix tokenizer --budget 4000
   hybridclaw eval locomo run --mode retrieval --matrix embedding --budget 4000
+  hybridclaw eval trace-judge run
+  hybridclaw eval agent-risk run
+  hybridclaw eval agent-risk run --scenario data-privacy
   hybridclaw eval tau2
   hybridclaw eval tau2 setup
   hybridclaw eval terminal-bench-2.0 setup
@@ -116,8 +124,10 @@ Examples:
 Notes:
   - This is a local-only command. It is not intended for remote chat channels.
   - Detached benchmark commands are launched directly with \`hybridclaw eval <command...>\`.
-  - Only \`locomo\`, \`terminal-bench-2.0\`, and \`tau2\` have active HybridClaw implementations today.
+  - Only \`locomo\`, \`trace-judge\`, \`agent-risk\`, \`terminal-bench-2.0\`, and \`tau2\` have active HybridClaw implementations today.
   - \`swebench-verified\`, \`agentbench\`, and \`gaia\` are stub entries that return \`not implemented yet\`.
+  - \`agent-risk\` runs synthetic NIST AI RMF, NIST AI 600-1, and OWASP LLM Top 10 canary scenarios through the local OpenAI-compatible gateway.
+  - \`agent-risk run --scenario <id>\` supports \`data-privacy\`, \`prompt-injection\`, \`system-prompt-leakage\`, and \`excessive-agency\`.
   - \`locomo\` downloads the official \`locomo10.json\` dataset during \`setup\`.
   - \`locomo --mode qa\` sends evaluate_gpts-style QA prompts through HybridClaw's local OpenAI-compatible gateway and scores the generated answers.
   - \`locomo --mode retrieval\` skips model generation, ingests each conversation into an isolated native memory session, and scores evidence hit-rate from recalled semantic memories.
