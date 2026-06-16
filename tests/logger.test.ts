@@ -107,6 +107,37 @@ describe('logger forced level override', () => {
     });
   });
 
+  it('allows startup debug level to resync from runtime config', async () => {
+    vi.doMock('../src/config/runtime-config.ts', () => ({
+      getRuntimeConfig: () => ({
+        ops: { logLevel: 'info' },
+      }),
+      onRuntimeConfigChange: vi.fn(),
+    }));
+
+    const {
+      getLoggerRuntimeState,
+      logger,
+      setLoggerStartupLevel,
+      syncLoggerLevelFromRuntimeConfig,
+    } = await importLoggerModule();
+
+    expect(logger.level).toBe('info');
+    setLoggerStartupLevel('debug');
+    expect(getLoggerRuntimeState()).toEqual({
+      configuredLevel: 'info',
+      effectiveLevel: 'debug',
+      forcedLevel: null,
+    });
+
+    syncLoggerLevelFromRuntimeConfig('test');
+    expect(getLoggerRuntimeState()).toEqual({
+      configuredLevel: 'info',
+      effectiveLevel: 'info',
+      forcedLevel: null,
+    });
+  });
+
   it('mirrors logs to the configured gateway log file', async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hybridclaw-logger-'));
     const logPath = path.join(tempDir, 'gateway.log');

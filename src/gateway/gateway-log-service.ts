@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { getLoggerRuntimeState } from '../logger.js';
+import { stripAnsi } from '../utils/ansi.js';
 import {
   GATEWAY_DEBUG_MODEL_RESPONSES_ENV,
   GATEWAY_LOG_PATH,
@@ -157,6 +158,7 @@ async function readLogTail(
       const firstLineBreak = content.indexOf('\n');
       if (firstLineBreak >= 0) content = content.slice(firstLineBreak + 1);
     }
+    content = stripAnsi(content);
     return {
       fileId: descriptor.id,
       content,

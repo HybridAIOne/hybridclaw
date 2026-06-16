@@ -138,7 +138,10 @@ export function LogsPage() {
         auth.token,
         applyLoggingMode(current, mode),
       );
-      await reloadGateway(auth.token);
+      const reload = await reloadGateway(auth.token);
+      if (reload.status !== 'ok') {
+        throw new Error(reload.message || 'Gateway reload failed.');
+      }
       return saved;
     },
     onSuccess: (payload) => {

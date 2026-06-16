@@ -1873,6 +1873,7 @@ async function importFreshHealth(options?: {
       effectiveLevel: 'info',
       forcedLevel: null,
     }),
+    syncLoggerLevelFromRuntimeConfig: vi.fn(),
     logger: {
       debug: loggerDebug,
       error: loggerError,
@@ -5840,10 +5841,14 @@ describe('gateway HTTP server', () => {
     const dataDir = makeTempDataDir();
     const logPath = path.join(dataDir, 'gateway', 'gateway.log');
     fs.mkdirSync(path.dirname(logPath), { recursive: true });
-    fs.writeFileSync(logPath, 'first line\nsecond line\nthird line\n', 'utf8');
+    fs.writeFileSync(
+      logPath,
+      'first line\nsecond line\nthird \x1b[32mline\x1b[39m\n',
+      'utf8',
+    );
     const state = await importFreshHealth({ dataDir });
     const req = makeRequest({
-      url: '/api/admin/logs?file=gateway&tailBytes=16',
+      url: '/api/admin/logs?file=gateway&tailBytes=28',
     });
     const res = makeResponse();
 

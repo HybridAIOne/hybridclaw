@@ -226,6 +226,23 @@ describe('LogsPage', () => {
     expect(reloadGatewayMock).toHaveBeenCalledWith('admin-token');
   });
 
+  it('reports an error when the gateway reload response is not ok', async () => {
+    reloadGatewayMock.mockResolvedValueOnce({
+      status: 'error',
+      message: 'Reload refused.',
+    });
+
+    renderLogsPage();
+
+    expect(await screen.findByText('Current mode: on')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Debug' }));
+
+    await waitFor(() => expect(saveConfigMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(reloadGatewayMock).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Logging mode update failed')).toBeTruthy();
+    expect(screen.getByText('Reload refused.')).toBeTruthy();
+  });
+
   it('shows debug when the runtime logger is forced to debug', async () => {
     fetchAdminLogsMock.mockResolvedValue({
       ...makeLogs(),

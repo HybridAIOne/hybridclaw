@@ -10,6 +10,11 @@ export const LOG_LEVELS = [
 
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
+export interface AdminConfigReloadResponse {
+  status: string;
+  message?: string;
+}
+
 export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;

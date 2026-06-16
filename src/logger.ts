@@ -48,6 +48,8 @@ const initialLevel = forcedLevel || getRuntimeConfig().ops.logLevel;
 const gatewayLogFile = String(
   process.env.HYBRIDCLAW_GATEWAY_LOG_FILE || '',
 ).trim();
+const stdoutMirrorsGatewayLog =
+  String(process.env.HYBRIDCLAW_GATEWAY_STDIO_TO_LOG || '').trim() === '1';
 
 function createPrettyDestination(
   prettyOptions: typeof LOGGER_PRETTY_OPTIONS,
@@ -93,7 +95,15 @@ function createLogger() {
   const streams: Array<{ level: 'trace'; stream: NodeJS.WritableStream }> = [
     {
       level: 'trace',
-      stream: createPrettyDestination(LOGGER_PRETTY_OPTIONS, process.stdout),
+      stream: createPrettyDestination(
+        {
+          ...LOGGER_PRETTY_OPTIONS,
+          colorize: stdoutMirrorsGatewayLog
+            ? false
+            : LOGGER_PRETTY_OPTIONS.colorize,
+        },
+        process.stdout,
+      ),
     },
   ];
 
@@ -135,6 +145,36 @@ export function forceLoggerLevel(
   logger.debug({ forcedLevel: level }, 'Logger level forced programmatically');
 }
 
+export function setLoggerStartupLevel(
+  level: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'],
+): void {
+  if (!VALID_LOG_LEVELS.has(level)) {
+    throw new Error(`Invalid log level: ${level}`);
+  }
+  if (forcedLevel) return;
+  logger.level = level;
+  logger.debug({ level }, 'Logger level set by startup flag');
+}
+
+export function syncLoggerLevelFromRuntimeConfig(reason: string): void {
+  if (forcedLevel) {
+    logger.debug(
+      {
+        configuredLevel: getRuntimeConfig().ops.logLevel,
+        forcedLevel,
+        reason,
+      },
+      'Ignoring runtime config log-level sync due to forced override',
+    );
+    return;
+  }
+
+  const level = getRuntimeConfig().ops.logLevel;
+  if (logger.level === level) return;
+  logger.level = level;
+  logger.info({ level, reason }, 'Logger level updated from runtime config');
+}
+
 export function getLoggerRuntimeState(): {
   configuredLevel: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'];
   effectiveLevel: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'];
@@ -163,11 +203,7 @@ onRuntimeConfigChange((next, prev) => {
     return;
   }
   if (next.ops.logLevel !== prev.ops.logLevel) {
-    logger.level = next.ops.logLevel;
-    logger.info(
-      { level: next.ops.logLevel },
-      'Logger level updated from runtime config',
-    );
+    syncLoggerLevelFromRuntimeConfig('runtime-config-change');
   }
 });
 

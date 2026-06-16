@@ -7,6 +7,7 @@ import { consumeModelResponseDebugFileLine } from '../src/infra/model-response-d
 const runtimeConfigMock = vi.hoisted(() => ({
   ops: { debugModelResponses: false },
 }));
+const loggerWarnMock = vi.hoisted(() => vi.fn());
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
@@ -27,6 +28,12 @@ vi.mock('../src/config/config.js', () => ({
 
 vi.mock('../src/config/runtime-config.js', () => ({
   getRuntimeConfig: () => runtimeConfigMock,
+}));
+
+vi.mock('../src/logger.js', () => ({
+  logger: {
+    warn: loggerWarnMock,
+  },
 }));
 
 function encodeDebugLine(prefix: string, text: string): string {
@@ -92,5 +99,28 @@ describe('model response debug file consumer', () => {
     expect(consumeModelResponseDebugFileLine(modelResponseLine)).toBe(true);
 
     expect(fs.appendFileSync).toHaveBeenCalledTimes(1);
+  });
+
+  test('warns once for invalid debug env values', () => {
+    process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] = 'true';
+    vi.clearAllMocks();
+    const modelResponseLine = encodeDebugLine(
+      '[model-response-debug-file]',
+      'data: invalid\n\n',
+    );
+
+    expect(consumeModelResponseDebugFileLine(modelResponseLine)).toBe(true);
+    expect(consumeModelResponseDebugFileLine(modelResponseLine)).toBe(true);
+
+    expect(fs.appendFileSync).not.toHaveBeenCalled();
+    expect(loggerWarnMock).toHaveBeenCalledTimes(1);
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      {
+        envVar: GATEWAY_DEBUG_MODEL_RESPONSES_ENV,
+        expectedValue: '1',
+        value: 'true',
+      },
+      'Ignoring invalid gateway model response debug env value',
+    );
   });
 });

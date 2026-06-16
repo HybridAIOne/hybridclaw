@@ -881,10 +881,9 @@ async function runGatewayForeground(
     process.env[GATEWAY_TOOLS_MODE_ENV] = toolsMode;
   }
   if (debug || debugModelResponses) {
-    process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
-    const { forceLoggerLevel } = await import('./logger.js');
-    forceLoggerLevel('debug');
-    console.log(`${commandName}: forcing gateway log level to debug.`);
+    const { setLoggerStartupLevel } = await import('./logger.js');
+    setLoggerStartupLevel('debug');
+    console.log(`${commandName}: setting startup log level to debug.`);
   }
   const foregroundGatewayPid = registerForegroundGatewayPid(commandName);
   await ensureRuntimeContainer(commandName, true, sandboxMode);
