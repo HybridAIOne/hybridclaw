@@ -9,6 +9,7 @@ import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
 import { sleep } from '../utils/sleep.js';
+import { isRecord } from '../utils/type-guards.js';
 
 export const CODEX_AUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 export const CODEX_AUTH_ISSUER = 'https://auth.openai.com';
@@ -134,10 +135,6 @@ export class CodexAuthError extends Error {
     this.retryable = options?.retryable === true;
     this.status = options?.status;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeTimestamp(value: unknown): number {
@@ -733,20 +730,48 @@ function needsRefresh(credentials: CodexStoredCredentials): boolean {
   return credentials.expiresAt <= Date.now() + CODEX_REFRESH_SKEW_MS;
 }
 
-export async function ensureFreshCredentials(): Promise<EnsureFreshCredentialsResult> {
-  const initial = assertStoredCredentials(loadCodexAuthStore());
-  if (!needsRefresh(initial)) {
+export async function ensureFreshCredentials(options?: {
+  allowCodexCliImportFallback?: boolean;
+  forceRefresh?: boolean;
+}): Promise<EnsureFreshCredentialsResult> {
+  let initial: CodexStoredCredentials;
+  try {
+    initial = assertStoredCredentials(loadCodexAuthStore());
+  } catch (error) {
+    if (
+      options?.allowCodexCliImportFallback &&
+      error instanceof CodexAuthError &&
+      error.reloginRequired
+    ) {
+      const imported = importCodexCliCredentialsFromStore();
+      return { credentials: imported.credentials, refreshed: true };
+    }
+    throw error;
+  }
+  if (!options?.forceRefresh && !needsRefresh(initial)) {
     return { credentials: initial, refreshed: false };
   }
 
   const releaseLock = await acquireFileLock();
   try {
     const underLock = assertStoredCredentials(loadCodexAuthStore());
-    if (!needsRefresh(underLock)) {
+    if (!options?.forceRefresh && !needsRefresh(underLock)) {
       return { credentials: underLock, refreshed: false };
     }
 
-    const refreshed = await refreshAccessToken(underLock);
+    let refreshed: CodexStoredCredentials;
+    try {
+      refreshed = await refreshAccessToken(underLock);
+    } catch (error) {
+      if (error instanceof CodexAuthError && error.reloginRequired) {
+        saveCredentials(null);
+        if (options?.allowCodexCliImportFallback) {
+          const imported = importCodexCliCredentialsFromStore();
+          return { credentials: imported.credentials, refreshed: true };
+        }
+      }
+      throw error;
+    }
     saveCredentials(refreshed);
     return { credentials: refreshed, refreshed: true };
   } finally {
@@ -754,8 +779,11 @@ export async function ensureFreshCredentials(): Promise<EnsureFreshCredentialsRe
   }
 }
 
-export async function resolveCodexCredentials(): Promise<CodexResolvedCredentials> {
-  const { credentials } = await ensureFreshCredentials();
+export async function resolveCodexCredentials(options?: {
+  allowCodexCliImportFallback?: boolean;
+  forceRefresh?: boolean;
+}): Promise<CodexResolvedCredentials> {
+  const { credentials } = await ensureFreshCredentials(options);
   const baseUrl = (
     process.env.HYBRIDCLAW_CODEX_BASE_URL || CODEX_DEFAULT_BASE_URL
   )
@@ -1208,8 +1236,10 @@ export async function loginWithBrowserPkce(): Promise<{
 
 function resolveCodexCliAuthPath(): string {
   const codexHome = (process.env.CODEX_HOME || '').trim();
-  const baseDir = codexHome || path.join(os.homedir(), '.codex');
-  return path.join(baseDir, 'auth.json');
+  const baseDir = codexHome
+    ? path.resolve(codexHome)
+    : path.join(os.homedir(), '.codex');
+  return path.resolve(baseDir, 'auth.json');
 }
 
 function readImportedTokenData(filePath: string): {
@@ -1317,21 +1347,53 @@ export async function importCodexCliCredentials(): Promise<{
       throw new Error('Codex CLI credential import cancelled.');
     }
 
-    const credentials: CodexStoredCredentials = {
-      accessToken: imported.accessToken,
-      refreshToken: imported.refreshToken,
-      accountId: imported.accountId,
-      expiresAt: extractExpiresAtFromJwt(imported.accessToken),
-      provider: CODEX_AUTH_PROVIDER,
-      authMethod: CODEX_AUTH_METHOD,
-      source: 'codex-cli-import',
-      lastRefresh: imported.lastRefresh,
-    };
-    const filePath = saveCredentials(credentials);
-    return { credentials, path: filePath, importedFrom: importPath };
+    return saveImportedCodexCliCredentials(importPath, imported);
   } finally {
     rl.close();
   }
+}
+
+function saveImportedCodexCliCredentials(
+  importPath: string,
+  imported: ReturnType<typeof readImportedTokenData>,
+): {
+  credentials: CodexStoredCredentials;
+  path: string;
+  importedFrom: string;
+} {
+  const expiresAt = extractExpiresAtFromJwt(imported.accessToken);
+  if (expiresAt <= Date.now()) {
+    throw new CodexAuthError(
+      'codex_auth_missing_access_token',
+      `Codex CLI credentials at ${importPath} have already expired.`,
+      { reloginRequired: true },
+    );
+  }
+
+  const credentials: CodexStoredCredentials = {
+    accessToken: imported.accessToken,
+    refreshToken: imported.refreshToken,
+    accountId: imported.accountId,
+    expiresAt,
+    provider: CODEX_AUTH_PROVIDER,
+    authMethod: CODEX_AUTH_METHOD,
+    source: 'codex-cli-import',
+    lastRefresh: imported.lastRefresh,
+  };
+  const filePath = saveCredentials(credentials);
+  return { credentials, path: filePath, importedFrom: importPath };
+}
+
+function importCodexCliCredentialsFromStore(): {
+  credentials: CodexStoredCredentials;
+  path: string;
+  importedFrom: string;
+} {
+  const importPath = resolveCodexCliAuthPath();
+  return saveImportedCodexCliCredentials(
+    importPath,
+    readImportedTokenData(importPath),
+  );
 }
 
 export function selectDefaultCodexLoginMethod():

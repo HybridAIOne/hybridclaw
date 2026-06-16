@@ -14,6 +14,7 @@ import {
   TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
   type TwoFactorDetectionResult,
 } from '../shared/two-factor-detection.js';
+import type { ModelBehavior } from './model-behavior.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   type RuntimeProvider,
@@ -174,6 +175,7 @@ type BrowserModelContext = {
   chatbotId: string;
   requestHeaders: Record<string, string>;
   maxTokens?: number;
+  modelBehavior?: ModelBehavior;
   debugModelResponses?: boolean;
 };
 
@@ -195,7 +197,6 @@ type BrowserSession = {
 type BrowserVisionContext = BrowserModelContext & {
   isLocal?: boolean;
   contextWindow?: number;
-  thinkingFormat?: 'qwen';
 };
 
 type DownloadSnapshot = {
@@ -276,6 +277,7 @@ export function setBrowserModelContext(
   chatbotId: string,
   requestHeaders?: Record<string, string>,
   maxTokens?: number,
+  modelBehavior?: ModelBehavior,
   debugModelResponses = false,
 ): void {
   currentBrowserModelContext = {
@@ -294,6 +296,7 @@ export function setBrowserModelContext(
       maxTokens > 0
         ? Math.floor(maxTokens)
         : undefined,
+    modelBehavior,
     debugModelResponses,
   };
 }

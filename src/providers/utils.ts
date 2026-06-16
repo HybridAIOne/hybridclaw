@@ -21,6 +21,24 @@ export function formatUnknownError(error: unknown): string {
     : String(error);
 }
 
+interface DiscoveryStoreStateUpdate<T> {
+  _tag: 'update';
+  state: T;
+  skipCache?: boolean;
+}
+
+type DiscoveryStoreOnErrorResult<T> = T | DiscoveryStoreStateUpdate<T>;
+
+function isDiscoveryStoreStateUpdate<T>(
+  value: DiscoveryStoreOnErrorResult<T>,
+): value is DiscoveryStoreStateUpdate<T> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { _tag?: unknown })._tag === 'update'
+  );
+}
+
 export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
   let state = initialState;
   let discoveredAtMs = 0;
@@ -35,7 +53,12 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
     fetchFreshState: () => Promise<T>,
     opts?: {
       force?: boolean;
-      onError?: (err: unknown, staleState: T) => T | Promise<T>;
+      onError?: (
+        err: unknown,
+        staleState: T,
+      ) =>
+        | DiscoveryStoreOnErrorResult<T>
+        | Promise<DiscoveryStoreOnErrorResult<T>>;
     },
   ): Promise<T> => {
     if (
@@ -54,8 +77,12 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
         return state;
       } catch (err) {
         if (!opts?.onError) return staleState;
-        const nextState = await opts.onError(err, staleState);
-        replaceState(nextState);
+        const fallback = await opts.onError(err, staleState);
+        if (isDiscoveryStoreStateUpdate(fallback)) {
+          replaceState(fallback.state, { skipCache: fallback.skipCache });
+        } else {
+          replaceState(fallback);
+        }
         return state;
       } finally {
         discoveryInFlight = null;

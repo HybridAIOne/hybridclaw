@@ -1,6 +1,6 @@
 ---
 title: Productivity Skills
-description: Feature planning, project management, and Trello board integration.
+description: Feature planning, human distillation, project management, and Trello board integration.
 sidebar_position: 6
 ---
 
@@ -36,6 +36,53 @@ tasks.
 > `1. Plan the implementation of a webhook delivery system with retry logic and dead-letter queue`
 > `2. The retry backoff strategy — break that subtask down further with exact acceptance criteria and edge cases`
 > `3. What's the riskiest part of this plan and what should we prototype first?`
+
+---
+
+## human-distill
+
+Distill a real person's source material into a coworker agent with consent
+gating, cited claims, reversible merges, leakage/fidelity evals, and
+multi-host export.
+
+**Prerequisites** — source material owned or approved for this use, plus a
+recorded consent artefact before distilling a real, named human.
+
+```bash
+hybridclaw coworker consent record --alias maya \
+  --granted-by "Maya Lindqvist" --method written \
+  --statement "I consent to HybridClaw distilling my work communications into a coworker agent."
+
+hybridclaw coworker distill --alias maya --name "Maya Lindqvist" \
+  --source ./slack-export --source ./maya-mail.mbox
+```
+
+> 💡 **Tips & Tricks**
+>
+> The deterministic engine is `hybridclaw coworker`; the `human-distill` skill drives intake, extraction, interviews, and mirroring.
+>
+> Every persona claim must cite corpus document ids. Unsupported claims are flagged into the run report instead of written into identity files.
+>
+> Use `hybridclaw coworker eval --alias <alias>` before assigning real work to a distilled coworker.
+
+> 🎯 **Try it yourself**
+>
+> `Help me prepare a consent-gated distillation run for Maya from this Slack export and mbox file`
+>
+> `Review this distillation analysis packet and write extraction.json with cited claims only`
+>
+> `Run the coworker leakage/fidelity eval and summarize any blockers`
+
+**Troubleshooting**
+
+- **Consent missing** — record consent first; the pipeline blocks real-person
+  distillation without it.
+- **Uncited claims** — remove the claim or cite a real corpus document id from
+  the analysis packet.
+- **PII leakage** — stop and run the eval; fix generated files before using
+  the coworker.
+
+See [Human Distillation](../human-distillation.md) for the full workflow.
 
 ---
 

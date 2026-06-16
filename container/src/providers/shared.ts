@@ -1,3 +1,8 @@
+import {
+  type ModelBehavior,
+  type ModelThinkingFormat,
+  normalizeModelBehavior,
+} from '../model-behavior.js';
 import { normalizeMessageContentToText } from '../ralph.js';
 import type {
   ChatCompletionResponse,
@@ -24,7 +29,8 @@ export interface NormalizedCallArgs {
   maxTokens: number | undefined;
   isLocal: boolean;
   contextWindow: number | undefined;
-  thinkingFormat: 'qwen' | undefined;
+  modelBehavior?: ModelBehavior;
+  thinkingFormat: ModelThinkingFormat | undefined;
 }
 
 export interface NormalizedStreamCallArgs extends NormalizedCallArgs {
@@ -139,7 +145,7 @@ export function isHybridAIEmptyVisibleCompletion(
   const choice = response.choices[0];
   if (!choice) return false;
   if ((choice.message.tool_calls || []).length > 0) return false;
-  return !normalizeMessageContentToText(choice.message.content);
+  return !normalizeMessageContentToText(choice.message.content).trim();
 }
 
 export function summarizeHybridAICompletionForDebug(
@@ -252,6 +258,27 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   return isRecord(value);
 }
 
+function normalizeThinkingFormat(
+  value: unknown,
+): ModelThinkingFormat | undefined {
+  return value === 'qwen' ? 'qwen' : undefined;
+}
+
+function normalizeCallModelBehavior(
+  value: unknown,
+  thinkingFormat: ModelThinkingFormat | undefined,
+): ModelBehavior | undefined {
+  const rawBehavior = isRecord(value)
+    ? normalizeModelBehavior({
+        thinkingFormat: normalizeThinkingFormat(value.thinkingFormat),
+      })
+    : undefined;
+  return normalizeModelBehavior({
+    ...(rawBehavior || {}),
+    ...(thinkingFormat ? { thinkingFormat } : {}),
+  });
+}
+
 export function buildRequestHeaders(
   apiKey: string,
   requestHeaders?: Record<string, string>,
@@ -290,7 +317,11 @@ export function normalizeCallArgs(rawArgs: unknown[]): NormalizedCallArgs {
       maxTokens: typeof rawArgs[10] === 'number' ? rawArgs[10] : undefined,
       isLocal: Boolean(rawArgs[11]),
       contextWindow: typeof rawArgs[12] === 'number' ? rawArgs[12] : undefined,
-      thinkingFormat: rawArgs[13] === 'qwen' ? 'qwen' : undefined,
+      thinkingFormat: normalizeThinkingFormat(rawArgs[13]),
+      modelBehavior: normalizeCallModelBehavior(
+        rawArgs[14],
+        normalizeThinkingFormat(rawArgs[13]),
+      ),
     };
   }
 
@@ -307,7 +338,11 @@ export function normalizeCallArgs(rawArgs: unknown[]): NormalizedCallArgs {
     maxTokens: typeof rawArgs[7] === 'number' ? rawArgs[7] : undefined,
     isLocal: Boolean(rawArgs[8]),
     contextWindow: typeof rawArgs[9] === 'number' ? rawArgs[9] : undefined,
-    thinkingFormat: rawArgs[10] === 'qwen' ? 'qwen' : undefined,
+    thinkingFormat: normalizeThinkingFormat(rawArgs[10]),
+    modelBehavior: normalizeCallModelBehavior(
+      rawArgs[11],
+      normalizeThinkingFormat(rawArgs[10]),
+    ),
   };
 }
 
@@ -323,6 +358,10 @@ export function normalizeStreamCallArgs(
     const isLocalIndex = maxTokensIndex + 1;
     const contextWindowIndex = maxTokensIndex + 2;
     const thinkingFormatIndex = maxTokensIndex + 3;
+    const modelBehaviorIndex = maxTokensIndex + 4;
+    const thinkingFormat = normalizeThinkingFormat(
+      rawArgs[thinkingFormatIndex],
+    );
     return {
       provider: rawArgs[0],
       baseUrl: String(rawArgs[1] || ''),
@@ -345,8 +384,11 @@ export function normalizeStreamCallArgs(
         typeof rawArgs[contextWindowIndex] === 'number'
           ? rawArgs[contextWindowIndex]
           : undefined,
-      thinkingFormat:
-        rawArgs[thinkingFormatIndex] === 'qwen' ? 'qwen' : undefined,
+      thinkingFormat,
+      modelBehavior: normalizeCallModelBehavior(
+        rawArgs[modelBehaviorIndex],
+        thinkingFormat,
+      ),
     };
   }
 
@@ -358,6 +400,8 @@ export function normalizeStreamCallArgs(
   const isLocalIndex = maxTokensIndex + 1;
   const contextWindowIndex = maxTokensIndex + 2;
   const thinkingFormatIndex = maxTokensIndex + 3;
+  const modelBehaviorIndex = maxTokensIndex + 4;
+  const thinkingFormat = normalizeThinkingFormat(rawArgs[thinkingFormatIndex]);
   return {
     provider: undefined,
     baseUrl: String(rawArgs[0] || ''),
@@ -379,7 +423,10 @@ export function normalizeStreamCallArgs(
       typeof rawArgs[contextWindowIndex] === 'number'
         ? rawArgs[contextWindowIndex]
         : undefined,
-    thinkingFormat:
-      rawArgs[thinkingFormatIndex] === 'qwen' ? 'qwen' : undefined,
+    thinkingFormat,
+    modelBehavior: normalizeCallModelBehavior(
+      rawArgs[modelBehaviorIndex],
+      thinkingFormat,
+    ),
   };
 }

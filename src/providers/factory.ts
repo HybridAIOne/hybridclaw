@@ -4,6 +4,7 @@ import { anthropicProvider } from './anthropic.js';
 import { huggingfaceProvider } from './huggingface.js';
 import { hybridAIProvider } from './hybridai.js';
 import { getLocalModelInfo } from './local-discovery.js';
+import { resolveLocalBackendFromEndpointModel } from './local-endpoints.js';
 import { ollamaProvider } from './local-ollama.js';
 import {
   llamacppProvider,
@@ -98,6 +99,12 @@ function resolvePrefixedProvider(model: string, prefix: string): AIProvider {
   const provider = PROVIDER_BY_MODEL_PREFIX.get(prefix);
   if (provider) return provider;
 
+  const endpointBackend = resolveLocalBackendFromEndpointModel(model);
+  if (endpointBackend) {
+    const endpointProvider = KNOWN_PROVIDER_BY_ID.get(endpointBackend);
+    if (endpointProvider) return endpointProvider;
+  }
+
   if (KNOWN_PROVIDER_BY_ID.has(prefix as AIProviderId)) return hybridAIProvider;
 
   throw new Error(
@@ -106,6 +113,11 @@ function resolvePrefixedProvider(model: string, prefix: string): AIProvider {
 }
 
 function resolveBareModelProvider(model: string): AIProvider {
+  const endpointBackend = resolveLocalBackendFromEndpointModel(model);
+  if (endpointBackend) {
+    const provider = KNOWN_PROVIDER_BY_ID.get(endpointBackend);
+    if (provider) return provider;
+  }
   const localBackend = getLocalModelInfo(model)?.backend;
   if (localBackend) {
     const provider = KNOWN_PROVIDER_BY_ID.get(localBackend);

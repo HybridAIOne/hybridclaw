@@ -32,6 +32,30 @@ hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://
 hybridclaw auth login local vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
 ```
 
+## Multiple vLLM Endpoints
+
+Use `--name` to configure additional endpoints of the same backend type. The
+endpoint name becomes the model prefix:
+
+```bash
+hybridclaw auth login local vllm Qwen/Qwen3.6-27B-FP8 --name haigpu1 --base-url http://haigpu1:8000 --api-key qwen-secret --thinking-format qwen
+hybridclaw auth login local vllm mistralai/Mistral-7B-Instruct-v0.3 --name haigpu2 --base-url http://haigpu2:8000 --api-key mistral-secret --no-default
+```
+
+Then select or route models by endpoint name:
+
+```text
+/model set haigpu1/Qwen/Qwen3.6-27B-FP8
+/config set auxiliaryModels.compression.provider vllm
+/config set auxiliaryModels.compression.model haigpu2/mistralai/Mistral-7B-Instruct-v0.3
+```
+
+Named endpoints are stored in `local.endpoints[]` with `name`, `type`,
+`enabled`, `baseUrl`, optional `apiKey`, and optional `modelBehavior`. Use
+`modelBehavior.thinkingFormat: "qwen"` for Qwen thinking markup handling. API
+keys provided through the CLI are stored in the encrypted runtime secret store
+and referenced from config.
+
 For host-served local backends, restart the gateway with `--sandbox=host` so
 the runtime can reach those local endpoints directly.
 
@@ -44,6 +68,6 @@ the runtime can reach those local endpoints directly.
 - Interactive onboarding can skip remote-provider auth completely when you plan
   to use a local backend only.
 - For longer agent sessions, `16k` context is a minimum and `32k` is safer.
-- The TUI and Discord model pickers come from the live gateway model list, so
-  restart the gateway after enabling a new backend or loading a different
-  local model.
+- The TUI, web chat, and Discord model pickers come from the live gateway model
+  list, so restart the gateway after enabling a new backend or loading a
+  different local model.

@@ -1,5 +1,9 @@
 import type { ChatMessage } from '../types/api.js';
-import type { ContainerOutput, MediaContextItem } from '../types/container.js';
+import type {
+  AddressEnvelope,
+  ContainerOutput,
+  MediaContextItem,
+} from '../types/container.js';
 import type {
   EscalationTarget,
   PendingApproval,
@@ -16,6 +20,7 @@ export interface ExecutorRequest {
   executorModeOverride?: 'host' | 'container';
   model?: string;
   agentId?: string;
+  addressEnvelope?: AddressEnvelope;
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
   skipContainerSystemPrompt?: boolean;

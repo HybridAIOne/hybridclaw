@@ -8,6 +8,7 @@ import {
   stripProviderPrefix,
 } from '../../container/shared/model-names.js';
 import { pluralize } from '../utils/text-format.js';
+import { findLocalEndpointByName } from './local-endpoints.js';
 
 export {
   formatHybridAIModelForCatalog,
@@ -25,6 +26,13 @@ export function formatModelForDisplay(model: string): string {
     return normalized;
   }
   if (hasKnownNonHybridProviderPrefix(normalized)) {
+    return normalized;
+  }
+  const slashIndex = normalized.indexOf('/');
+  if (
+    slashIndex > 0 &&
+    findLocalEndpointByName(normalized.slice(0, slashIndex))
+  ) {
     return normalized;
   }
   return `${HYBRIDAI_MODEL_PREFIX}${normalized}`;

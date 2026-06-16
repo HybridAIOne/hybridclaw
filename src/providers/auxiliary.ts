@@ -350,7 +350,7 @@ async function resolveContextFromModel(params: {
     providerMethod: resolved.providerMethod,
     baseUrl: resolved.baseUrl,
     apiKey: resolved.apiKey,
-    model,
+    model: resolved.model || model,
     chatbotId: resolved.chatbotId,
     enableRag: resolved.enableRag,
     requestHeaders: resolved.requestHeaders,
@@ -1034,9 +1034,10 @@ async function callHybridAITextModel(
       model: stripHybridAIModelPrefix(context.model),
       chatbot_id: context.chatbotId,
       messages,
-      tools: options.tools,
-      tool_choice: 'auto',
       enable_rag: context.enableRag,
+      ...(options.tools.length > 0
+        ? { tools: options.tools, tool_choice: 'auto' }
+        : {}),
       ...(context.maxTokens ? { max_tokens: context.maxTokens } : {}),
     },
     options,
@@ -1301,10 +1302,12 @@ async function callCodexTextModel(
     stream: true,
     instructions: instructions || 'You are Codex, a coding assistant.',
     input: messages.flatMap(convertMessageToCodexInput),
-    tools: convertToolsToCodexTools(options.tools),
-    tool_choice: 'auto',
-    parallel_tool_calls: true,
   };
+  if (options.tools.length > 0) {
+    body.tools = convertToolsToCodexTools(options.tools);
+    body.tool_choice = 'auto';
+    body.parallel_tool_calls = true;
+  }
 
   const response = await fetch(`${context.baseUrl}/responses`, {
     method: 'POST',
@@ -1454,9 +1457,11 @@ async function callOllamaTextModel(
       role: message.role,
       content: contentToText(message.content),
     })),
-    tools: options.tools,
     stream: false,
   };
+  if (options.tools.length > 0) {
+    body.tools = options.tools;
+  }
   const ollamaOptions: Record<string, unknown> = {
     ...(rawOptions || {}),
   };

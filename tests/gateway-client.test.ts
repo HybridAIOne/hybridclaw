@@ -4,7 +4,7 @@ async function importGatewayClient() {
   vi.resetModules();
   vi.doMock('../src/config/config.js', () => ({
     GATEWAY_API_TOKEN: '',
-    GATEWAY_BASE_URL: 'http://gateway.test',
+    GATEWAY_CLIENT_BASE_URL: 'http://gateway.test',
   }));
   return import('../src/gateway/gateway-client.js');
 }

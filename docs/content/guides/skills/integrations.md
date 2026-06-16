@@ -1,6 +1,6 @@
 ---
 title: Integrations & Utilities
-description: 1Password, Stripe, Google Ads, GA4, Firecrawl, Sokosumi, Google Workspace, and utility skills.
+description: 1Password, Stripe, Mailchimp, Google Ads, GA4, Firecrawl, Sokosumi, Google Workspace, and utility skills.
 sidebar_position: 9
 ---
 
@@ -93,6 +93,52 @@ keys as environment variables.
 - **CLI not authenticated** — run `stripe login` to connect your account.
 - **"No such customer"** — you may be looking in test mode while the customer
   is in live mode (or vice versa). Confirm with `stripe config --list`.
+
+---
+
+## mailchimp
+
+Operate Mailchimp Marketing audiences, campaigns, reports, automations,
+journeys, and Mailchimp Transactional/Mandrill email through SecretRef-backed
+gateway requests.
+
+**Prerequisites** — Mailchimp Marketing API credentials and data-center prefix
+for Marketing API work; a Transactional/Mandrill API key for transactional
+email workflows.
+
+```bash
+hybridclaw secret set MAILCHIMP_MARKETING_BASIC_AUTH "<base64-user-colon-api-key>"
+hybridclaw env set MAILCHIMP_SERVER_PREFIX us21
+hybridclaw secret set MANDRILL_API_KEY "<mandrill-api-key>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with credential checks and read-only audience, campaign, report, automation, or journey queries before planning writes.
+>
+> Use OAuth metadata when setup uses `MAILCHIMP_MARKETING_OAUTH_TOKEN`; it returns the account-specific API endpoint and data-center prefix.
+>
+> Audience mutations, bulk plans, campaign schedule/send, and Mandrill sends require an approval plan and explicit operator approval.
+>
+> Keep subscriber PII out of summaries where possible; use subscriber hashes for lookup and archive/tag operations when practical.
+
+> 🎯 **Try it yourself**
+>
+> `Check whether Mailchimp Marketing credentials are configured and list my audiences`
+>
+> `Summarize the last campaign report and call out opens, clicks, unsubscribes, and bounces`
+>
+> `Prepare an approval plan to tag these subscribers as newsletter:active without executing it`
+>
+> `Review the journey configuration for our onboarding automation`
+
+**Troubleshooting**
+
+- **401 or 403** — verify the API token, user role, Transactional
+  provisioning, and `MAILCHIMP_SERVER_PREFIX`.
+- **429** — report the upstream rate-limit guidance and avoid retry loops.
+- **Credential uncertainty** — use the helper's `credential-check` path rather
+  than inspecting local files or environment variables from the agent sandbox.
 
 ---
 

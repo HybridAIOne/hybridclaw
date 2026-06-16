@@ -54,6 +54,7 @@ import {
 import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
 import { getErrorMessage } from '../../lib/error-message';
 import { useDebouncedValue } from '../../lib/use-debounced-value';
+import { findAgentMentions } from './agent-mention-display';
 import {
   type ChatHistoryUiData,
   chatHistoryQueryKey,
@@ -79,7 +80,7 @@ const EMPTY_MESSAGES: ChatUiMessage[] = [];
 const EMPTY_MODELS: ChatModel[] = [];
 const ERROR_BANNER_VISIBLE_MS = 5000;
 const ERROR_BANNER_FADE_MS = 200;
-const BOOTSTRAP_HATCHING_KICKOFF = 'Start hatching.';
+const BOOTSTRAP_AUTOSTART_THINKING_ID = 'bootstrap-autostart-thinking';
 const BOOTSTRAP_AUTOSTART_REFETCH_MS = 1500;
 type RecentChatScope = 'user' | 'all';
 
@@ -219,15 +220,6 @@ export function ChatPage() {
     });
   }, [queryClient, auth.token, userId, getSessionId]);
 
-  const stream = useChatStream({
-    token: auth.token,
-    userId,
-    getSessionId,
-    setError,
-    refreshRecent,
-    onSessionIdCorrection: handleSessionIdCorrection,
-    onModelResolved: setSelectedModelId,
-  });
   const chatApiReady = isAuthReadyForApi(auth);
 
   const appStatusQuery = useQuery({
@@ -312,10 +304,40 @@ export function ChatPage() {
       (agentsQuery.data ?? []).map((agent) => ({
         id: agent.id,
         name: agent.name,
+        imageUrl: agent.imageUrl ?? null,
       })),
     [agentsQuery.data],
   );
+  const resolveAddressedAgentPresentation = useCallback(
+    (content: string) => {
+      const mentions = findAgentMentions(content);
+      for (const mention of mentions) {
+        const agent = agentOptions.find(
+          (option) => option.id.toLowerCase() === mention.agentId.toLowerCase(),
+        );
+        if (!agent) continue;
+        return {
+          agentId: agent.id,
+          displayName: agent.name ?? agent.id,
+          imageUrl: agent.imageUrl ?? null,
+        };
+      }
+      return null;
+    },
+    [agentOptions],
+  );
   const modelOptions = modelsQuery.data?.models ?? EMPTY_MODELS;
+
+  const stream = useChatStream({
+    token: auth.token,
+    userId,
+    getSessionId,
+    setError,
+    refreshRecent,
+    onSessionIdCorrection: handleSessionIdCorrection,
+    onModelResolved: setSelectedModelId,
+    resolveAddressedAgentPresentation,
+  });
 
   useEffect(() => {
     const message = errorState.message;
@@ -350,6 +372,20 @@ export function ChatPage() {
   });
 
   const messages = historyQuery.data?.messages ?? EMPTY_MESSAGES;
+  const isBootstrapAutostartStarting =
+    historyQuery.data?.bootstrapAutostart?.status === 'starting';
+  const visibleMessages = useMemo<ChatUiMessage[]>(() => {
+    if (!isBootstrapAutostartStarting) return messages;
+    return [
+      ...messages,
+      {
+        id: BOOTSTRAP_AUTOSTART_THINKING_ID,
+        role: 'thinking',
+        content: '',
+        sessionId,
+      },
+    ];
+  }, [isBootstrapAutostartStarting, messages, sessionId]);
   const branchFamilies =
     historyQuery.data?.branchFamilies ?? EMPTY_BRANCH_FAMILIES;
   const effectiveAgentId =
@@ -690,11 +726,13 @@ export function ChatPage() {
 
   const ensureSwitchHistory = useCallback(
     async (resolvedSessionId: string) => {
+      const queryKey = chatHistoryQueryKey(auth.token, resolvedSessionId);
       return queryClient
-        .ensureQueryData({
-          queryKey: chatHistoryQueryKey(auth.token, resolvedSessionId),
+        .fetchQuery({
+          queryKey,
           queryFn: () =>
             loadChatHistoryUi(auth.token, resolvedSessionId, userId),
+          staleTime: 0,
         })
         .catch((err: unknown) => {
           console.warn(
@@ -738,16 +776,27 @@ export function ChatPage() {
         void queryClient.invalidateQueries({
           queryKey: chatContextQueryKey(auth.token, resolvedSessionId),
         });
-        const shouldStartHatching =
+        const shouldAwaitGatewayHatching =
           commandArgs[0] === 'agent' &&
           commandArgs[1] === 'switch' &&
           switchHistory?.bootstrapAutostart?.fileName === 'BOOTSTRAP.md' &&
-          switchHistory.bootstrapAutostart.status !== 'completed';
-        if (shouldStartHatching) {
+          (switchHistory.bootstrapAutostart.status === 'idle' ||
+            switchHistory.bootstrapAutostart.status === 'starting');
+        if (shouldAwaitGatewayHatching) {
+          queryClient.setQueryData<ChatHistoryUiData>(
+            chatHistoryQueryKey(auth.token, resolvedSessionId),
+            (prev) =>
+              prev
+                ? {
+                    ...prev,
+                    bootstrapAutostart: {
+                      status: 'starting',
+                      fileName: 'BOOTSTRAP.md',
+                    },
+                  }
+                : prev,
+          );
           jumpToBottom();
-          void stream.sendMessage(BOOTSTRAP_HATCHING_KICKOFF, [], {
-            hideUser: true,
-          });
         }
         refreshRecent();
         onAccepted(value);
@@ -765,7 +814,6 @@ export function ChatPage() {
       queryClient,
       refreshRecent,
       setError,
-      stream.sendMessage,
       stream.isActive,
       switchToSession,
       userId,
@@ -906,7 +954,7 @@ export function ChatPage() {
     [branchFamilies, handleOpenSession],
   );
 
-  const isEmpty = messages.length === 0;
+  const isEmpty = visibleMessages.length === 0;
   const isSwitchingSession = historyQuery.isFetching;
 
   const sidebarProps = {
@@ -998,7 +1046,7 @@ export function ChatPage() {
           ) : (
             <div className={css.messageArea} ref={messageAreaRef}>
               <div className={css.messageList} ref={messageListRef}>
-                {messages.map((msg) =>
+                {visibleMessages.map((msg) =>
                   editingId === msg.id && msg.role !== 'thinking' ? (
                     <div key={msg.id} className={css.messageBlock}>
                       <EditInline

@@ -49,7 +49,7 @@ describe('ensureHostRuntimeReady', () => {
         installRoot,
       }),
     ).toThrow(
-      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Reinstall HybridClaw.',
+      `hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Run \`node ${path.join(installRoot, 'scripts', 'postinstall-container.mjs')}\` to install them; installs that skip lifecycle scripts (--ignore-scripts, pnpm) miss this step.`,
     );
   });
 
@@ -59,10 +59,7 @@ describe('ensureHostRuntimeReady', () => {
       path.join(installRoot, 'package.json'),
       '{"name":"@hybridaione/hybridclaw"}',
     );
-    fs.writeFileSync(
-      path.join(installRoot, '.git'),
-      'gitdir: ./.git/worktrees/dev\n',
-    );
+    fs.mkdirSync(path.join(installRoot, 'src'), { recursive: true });
     fs.mkdirSync(path.join(installRoot, 'container', 'dist'), {
       recursive: true,
     });
@@ -129,6 +126,52 @@ describe('ensureHostRuntimeReady', () => {
         exports: {
           '.': {
             require: './dist/cjs/index.js',
+          },
+        },
+      }),
+    );
+
+    const { ensureHostRuntimeReady } = await import(
+      '../src/infra/host-runtime-setup.ts'
+    );
+
+    expect(
+      ensureHostRuntimeReady({
+        commandName: 'hybridclaw tui',
+        installRoot,
+      }),
+    ).toEqual({
+      command: process.execPath,
+      args: [path.join(installRoot, 'container', 'dist', 'index.js')],
+    });
+  });
+
+  test('accepts hoisted container dependencies whose exports map hides package.json', async () => {
+    const installRoot = createTempDir();
+    fs.writeFileSync(
+      path.join(installRoot, 'package.json'),
+      '{"name":"@hybridaione/hybridclaw"}',
+    );
+    fs.mkdirSync(path.join(installRoot, 'container', 'dist'), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(installRoot, 'container', 'dist', 'index.js'),
+      '',
+    );
+    writeContainerPackage(installRoot, {
+      dompurify: '^3.4.7',
+    });
+    const hoistedDir = path.join(installRoot, 'node_modules', 'dompurify');
+    fs.mkdirSync(hoistedDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(hoistedDir, 'package.json'),
+      JSON.stringify({
+        name: 'dompurify',
+        version: '3.4.7',
+        exports: {
+          '.': {
+            default: './dist/purify.cjs.js',
           },
         },
       }),

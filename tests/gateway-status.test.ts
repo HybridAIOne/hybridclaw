@@ -709,16 +709,23 @@ test('getGatewayAdminModels tags each row with its providerHealth key', async ()
     const actual = await vi.importActual<
       typeof import('../src/providers/model-catalog.js')
     >('../src/providers/model-catalog.js');
+    const modelList = [
+      'gpt-4.1-mini', // bare slug = HybridAI passthrough
+      'openai-codex/gpt-5', // openai-codex/ prefix maps to providerHealth key 'codex'
+      'openrouter/anthropic/claude-sonnet-4',
+      'gemini/gemini-2.5-pro',
+      'ollama/llama-3.1',
+      'haigpu2/google/gemma-4-e4b-it',
+    ];
     return {
       ...actual,
       refreshAvailableModelCatalogs: vi.fn(async () => {}),
-      getAvailableModelList: vi.fn(() => [
-        'gpt-4.1-mini', // bare slug = HybridAI passthrough
-        'openai-codex/gpt-5', // openai-codex/ prefix maps to providerHealth key 'codex'
-        'openrouter/anthropic/claude-sonnet-4',
-        'gemini/gemini-2.5-pro',
-        'ollama/llama-3.1',
-      ]),
+      getAvailableModelList: vi.fn((provider?: string) => {
+        if (provider === 'ollama') return ['ollama/llama-3.1'];
+        if (provider === 'vllm') return ['haigpu2/google/gemma-4-e4b-it'];
+        if (provider === 'lmstudio' || provider === 'llamacpp') return [];
+        return modelList;
+      }),
     };
   });
 
@@ -737,6 +744,7 @@ test('getGatewayAdminModels tags each row with its providerHealth key', async ()
   expect(byId['openrouter/anthropic/claude-sonnet-4']).toBe('openrouter');
   expect(byId['gemini/gemini-2.5-pro']).toBe('gemini');
   expect(byId['ollama/llama-3.1']).toBe('ollama');
+  expect(byId['haigpu2/google/gemma-4-e4b-it']).toBe('vllm');
 });
 
 test('getGatewayAdminModels treats hybridai-prefixed models as HybridAI without warning', async () => {
@@ -865,6 +873,7 @@ test('getGatewayStatus includes the current WhatsApp pairing QR text', async () 
     getWhatsAppPairingState: vi.fn(() => ({
       pairingQrText: '▄▄\n██',
       updatedAt: '2026-04-08T10:00:00.000Z',
+      error: null,
     })),
   }));
 
@@ -881,6 +890,7 @@ test('getGatewayStatus includes the current WhatsApp pairing QR text', async () 
     jid: null,
     pairingQrText: '▄▄\n██',
     pairingUpdatedAt: '2026-04-08T10:00:00.000Z',
+    pairingError: null,
   });
 });
 
@@ -1022,6 +1032,68 @@ test('status command includes the current session agent', async () => {
   expect(result.text).toContain(
     `CWD: ${path.resolve(agentWorkspaceDir('research'))}`,
   );
+});
+
+test('status command reports proxy mode for HybridAI proxy agents', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({
+    id: 'proxy-support',
+    model: 'openai-codex/gpt-5.3-codex',
+    proxy: {
+      kind: 'hybridai',
+      baseUrl: 'https://hybridai.one',
+      chatbotId: '051df245-3f6e-459e-a890-c7e28e094a71',
+      apiKey: { source: 'store', id: 'HYBRIDAI_API_KEY' },
+      conversationScope: 'user',
+    },
+  });
+
+  await handleGatewayCommand({
+    sessionId: 'session-status-proxy-agent',
+    guildId: null,
+    channelId: 'channel-status-proxy-agent',
+    args: ['agent', 'switch', 'proxy-support'],
+  });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-proxy-agent',
+    guildId: null,
+    channelId: 'channel-status-proxy-agent',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Status');
+  expect(result.text).toContain('Mode: HybridAI proxy');
+  expect(result.text).toContain('Agent: proxy-support');
+  expect(result.text).toContain('Upstream: https://hybridai.one');
+  expect(result.text).toContain(
+    'Chatbot: 051df245-3f6e-459e-a890-c7e28e094a71',
+  );
+  expect(result.text).toContain('Conversation scope: user');
+  expect(result.text).not.toContain('Model:');
+  expect(result.text).not.toContain('Tokens:');
+  expect(result.text).not.toContain('Cache:');
+  expect(result.text).not.toContain('Context:');
+  expect(result.text).not.toContain('CWD:');
+  expect(result.text).not.toContain('Runtime:');
+  expect(result.text).not.toContain('Sandbox:');
+  expect(result.text).not.toContain('RAG:');
+  expect(result.text).not.toContain('Ralph:');
 });
 
 test('status command labels Codex app-server turn runtime separately from sandbox', async () => {
@@ -3733,6 +3805,22 @@ test('model info shows global, agent, and session scopes', async () => {
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
+    config.local.endpoints = [
+      {
+        name: 'haigpu2',
+        type: 'vllm',
+        enabled: true,
+        baseUrl: 'http://haigpu2:8000/v1',
+        apiKey: '',
+      },
+    ];
+    config.auxiliaryModels.compression.provider = 'vllm';
+    config.auxiliaryModels.compression.model = 'haigpu2/google/gemma-4-e4b-it';
+    config.auxiliaryModels.second_opinion = {
+      provider: 'openai-codex',
+      model: 'openai-codex/gpt-5.5',
+      maxTokens: 1200,
+    };
   });
   vi.resetModules();
 
@@ -3778,6 +3866,13 @@ test('model info shows global, agent, and session scopes', async () => {
   expect(result.text).toContain('Global model: hybridai/gpt-5');
   expect(result.text).toContain('Agent model: hybridai/gpt-5-mini');
   expect(result.text).toContain('Session model: hybridai/gpt-5-nano');
+  expect(result.text).toContain('Aux models:\n');
+  expect(result.text).toContain(
+    '- compression: haigpu2/google/gemma-4-e4b-it',
+  );
+  expect(result.text).toContain(
+    '- second_opinion: openai-codex/gpt-5.5 (max 1.2k)',
+  );
   expect(result.text).toContain('Known metadata: yes');
   expect(result.text).toContain('Pricing: dynamic pricing unavailable');
   expect(result.text).toContain(

@@ -499,6 +499,7 @@ describe('AppSidebar', () => {
     expect(screen.getByText('HybridClaw')).toBeDefined();
     expect(screen.getByText('Admin console')).toBeDefined();
     expect(screen.getByText('Overview')).toBeDefined();
+    expect(screen.getByText('A2A')).toBeDefined();
     expect(screen.getByText('Runtime')).toBeDefined();
     expect(screen.getByText('Configuration')).toBeDefined();
   });

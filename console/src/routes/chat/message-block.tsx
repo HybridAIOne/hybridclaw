@@ -1,5 +1,6 @@
 import {
   memo,
+  type ReactNode,
   startTransition,
   useCallback,
   useEffect,
@@ -18,18 +19,10 @@ import { ThumbsDown, ThumbsUp } from '../../components/icons';
 import { type ApprovalAction, copyToClipboard } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { renderMarkdown } from '../../lib/markdown';
+import { findAgentMentions } from './agent-mention-display';
+import { ApprovalCard } from './approval-card';
 import css from './chat-page.module.css';
 import type { ChatUiMessage } from './chat-ui-message';
-
-const APPROVAL_BUTTONS: ReadonlyArray<{
-  label: string;
-  action: ApprovalAction;
-}> = [
-  { label: 'Allow once', action: 'once' },
-  { label: 'Allow always', action: 'all' },
-  { label: 'Allow session', action: 'session' },
-  { label: 'Allow agent', action: 'agent' },
-];
 
 const STREAM_MARKDOWN_RENDER_INTERVAL_MS = 120;
 
@@ -418,11 +411,12 @@ export const MessageBlock = memo(function MessageBlock(props: {
     });
   }, [msg.artifacts]);
 
+  const isApproval = msg.role === 'approval';
+  const shouldRenderApprovalCard = isApproval && Boolean(msg.pendingApproval);
   const isMarkdownMessage =
     msg.role === 'assistant' ||
-    msg.role === 'approval' ||
     msg.role === 'command' ||
-    Boolean(msg.pendingApproval);
+    (isApproval && !shouldRenderApprovalCard);
   const renderedHtml = useRenderedMarkdown(
     msg.content,
     isMarkdownMessage,
@@ -438,7 +432,11 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
   if (msg.role === 'thinking') {
     return (
-      <div className={css.thinking}>
+      <div
+        className={css.thinking}
+        role="status"
+        aria-label="Assistant is thinking"
+      >
         <span className={css.thinkingDot} />
         <span className={css.thinkingDot} />
         <span className={css.thinkingDot} />
@@ -448,7 +446,6 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
   const isUser = msg.role === 'user';
   const isAssistant = msg.role === 'assistant';
-  const isApproval = msg.role === 'approval' || Boolean(msg.pendingApproval);
   const shouldRenderBubble =
     isUser ||
     msg.content.trim().length > 0 ||
@@ -469,6 +466,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
     css.bubble,
     isUser && css.bubbleUser,
     (isAssistant || isApproval) && css.bubbleAssistant,
+    isApproval && css.bubbleApproval,
     msg.role === 'system' && css.bubbleSystem,
     msg.role === 'command' && css.bubbleCommand,
   );
@@ -490,51 +488,28 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
       {shouldRenderBubble ? (
         <div className={bubbleClass}>
-          {isMarkdownMessage ? (
+          {shouldRenderApprovalCard && msg.pendingApproval ? (
+            <ApprovalCard
+              approval={msg.pendingApproval}
+              busy={props.approvalBusy}
+              onAction={props.onApprovalAction}
+            />
+          ) : isMarkdownMessage ? (
             <div
               ref={markdownRef}
               className={css.markdownContent}
               // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
               dangerouslySetInnerHTML={{ __html: renderedHtml }}
             />
+          ) : isUser ? (
+            <UserMessageContent
+              content={msg.content}
+              presentation={msg.addressedAgentPresentation}
+              token={token}
+            />
           ) : (
             msg.content
           )}
-
-          {isApproval && msg.pendingApproval ? (
-            <div className={css.approvalActions}>
-              {APPROVAL_BUTTONS.map((btn) => (
-                <Button
-                  key={btn.action}
-                  variant="outline"
-                  size="sm"
-                  className={css.approvalAllow}
-                  disabled={props.approvalBusy}
-                  onClick={() =>
-                    props.onApprovalAction(
-                      btn.action,
-                      msg.pendingApproval?.approvalId ?? '',
-                    )
-                  }
-                >
-                  {btn.label}
-                </Button>
-              ))}
-              <Button
-                variant="danger"
-                size="sm"
-                disabled={props.approvalBusy}
-                onClick={() =>
-                  props.onApprovalAction(
-                    'deny',
-                    msg.pendingApproval?.approvalId ?? '',
-                  )
-                }
-              >
-                Deny
-              </Button>
-            </div>
-          ) : null}
         </div>
       ) : null}
 
@@ -683,6 +658,59 @@ export const MessageBlock = memo(function MessageBlock(props: {
     </div>
   );
 });
+
+function UserMessageContent(props: {
+  content: string;
+  presentation?: ChatMessage['addressedAgentPresentation'];
+  token: string;
+}) {
+  const mentions = findAgentMentions(props.content);
+  if (mentions.length === 0) return props.content;
+
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const [i, mention] of mentions.entries()) {
+    if (mention.index > last)
+      parts.push(props.content.slice(last, mention.index));
+    const presentation =
+      props.presentation?.agentId?.toLowerCase() ===
+      mention.agentId.toLowerCase()
+        ? props.presentation
+        : null;
+    parts.push(
+      <UserAgentMentionPill
+        key={`${mention.index}-${i}`}
+        mention={mention.mention}
+        imageUrl={presentation?.imageUrl ?? null}
+        token={props.token}
+      />,
+    );
+    last = mention.index + mention.mention.length;
+  }
+  if (last < props.content.length) parts.push(props.content.slice(last));
+
+  return <>{parts}</>;
+}
+
+function UserAgentMentionPill(props: {
+  mention: string;
+  imageUrl?: string | null;
+  token: string;
+}) {
+  const avatarUrl = useAuthenticatedImageUrl({
+    token: props.token,
+    imageUrl: props.imageUrl,
+  });
+
+  return (
+    <span className={css.userAgentMentionPill}>
+      {avatarUrl ? (
+        <img className={css.userAgentMentionAvatar} src={avatarUrl} alt="" />
+      ) : null}
+      <span>{props.mention}</span>
+    </span>
+  );
+}
 
 export function EditInline(props: {
   initial: string;

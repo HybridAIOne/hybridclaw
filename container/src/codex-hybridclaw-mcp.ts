@@ -145,6 +145,7 @@ function applyContext(context: CodexMcpContext | null): void {
     context.chatbotId || '',
     context.requestHeaders,
     context.maxTokens,
+    context.modelBehavior,
     context.debugModelResponses === true,
   );
   setTaskModelPolicies(context.taskModels);

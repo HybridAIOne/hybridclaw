@@ -600,6 +600,32 @@ export function ConfigPage() {
                       </Field>
                     )}
                   />
+                  <FormField
+                    name="ops.gatewayBaseUrl"
+                    render={({ field }) => (
+                      <Field>
+                        <FieldLabel>Gateway public URL</FieldLabel>
+                        <Input {...field} />
+                        <FieldDescription>
+                          Externally reachable URL used for webhooks and public
+                          callbacks.
+                        </FieldDescription>
+                      </Field>
+                    )}
+                  />
+                  <FormField
+                    name="ops.gatewayInternalBaseUrl"
+                    render={({ field }) => (
+                      <Field>
+                        <FieldLabel>Gateway internal URL</FieldLabel>
+                        <Input {...field} />
+                        <FieldDescription>
+                          Local URL used by TUI, containers, and host-side
+                          gateway clients.
+                        </FieldDescription>
+                      </Field>
+                    )}
+                  />
                 </FieldGroup>
               </FieldSet>
             </Card>

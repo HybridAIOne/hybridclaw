@@ -1,10 +1,4 @@
 import path from 'node:path';
-import { resolveBorderlineAnomalyWithTraceJudge } from './anomaly-trace-judge.js';
-import {
-  type ApprovalPrelude,
-  type ToolApprovalEvaluation,
-  TrustedAgentApprovalRuntime,
-} from './approval-policy.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import {
   cleanupAllBrowserSessions,
@@ -35,7 +29,11 @@ import {
   shouldRetryWithoutNativeMedia,
 } from './native-media.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
-import { callRoutedModel, callRoutedModelStream } from './providers/router.js';
+import {
+  callRoutedModel,
+  callRoutedModelStream,
+  estimateRoutedPromptOverheadTokens,
+} from './providers/router.js';
 import {
   isHybridAIEmptyVisibleCompletion,
   ProviderRequestError,
@@ -58,6 +56,7 @@ import {
   advanceStalledTurnCount,
   MAX_STALLED_MODEL_TURNS,
   shouldRetryEmptyFinalResponse,
+  shouldRetryEmptyVisibleCompletion,
 } from './stalled-turns.js';
 import {
   collapseSystemMessages,
@@ -73,6 +72,16 @@ import {
   readChatCompletionUsageTokens,
   recordPerformanceSample,
 } from './token-usage.js';
+import {
+  type ApprovalPrelude,
+  approvalRuntime,
+  buildApprovalDeniedToolExecution,
+  buildApprovalRequiredToolExecution,
+  buildPendingApproval,
+  createToolApprovalResolver,
+  emitApprovalProgress,
+  type ToolApprovalEvaluation,
+} from './tool-approval.js';
 import { parseToolArgsJson } from './tool-args.js';
 import { validateStructuredToolCalls } from './tool-call-validation.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
@@ -114,7 +123,6 @@ import {
   type ContainerInput,
   type ContainerOutput,
   type EscalationTarget,
-  type PendingApproval,
   TASK_MODEL_KEYS,
   type ToolCall,
   type ToolDefinition,
@@ -150,6 +158,8 @@ const DEFAULT_RALPH_MAX_EXTRA_ITERATIONS = Number.isFinite(
     ? -1
     : Math.max(0, Math.min(64, RAW_DEFAULT_RALPH_MAX_EXTRA_ITERATIONS))
   : 0;
+const EMPTY_VISIBLE_COMPLETION_RETRY_PROMPT =
+  'Your last model response had no visible text and did not request a tool. Continue the task now. Reply with a visible answer, or request the next tool call if more work is needed.';
 
 function applyRuntimeEnv(runtimeEnv: ContainerInput['runtimeEnv']): void {
   for (const [name, value] of Object.entries(runtimeEnv || {})) {
@@ -159,17 +169,6 @@ function applyRuntimeEnv(runtimeEnv: ContainerInput['runtimeEnv']): void {
   }
 }
 
-const approvalRuntime = new TrustedAgentApprovalRuntime();
-approvalRuntime.setApprovalRuleHookEmitter((event) =>
-  emitRuntimeEvent({
-    event: event.hook,
-    kind: event.kind,
-    approvalRule: event.ruleName,
-    toolName: event.toolName,
-    ...(event.actionKey ? { actionKey: event.actionKey } : {}),
-    ...(event.decision ? { decision: event.decision } : {}),
-  }),
-);
 let cachedSelectedSkillPath: string | null = null;
 
 /** Auth material received once via stdin, held in memory for the agent lifetime. */
@@ -396,13 +395,6 @@ function emitStreamThinkingDelta(delta: string): void {
 
 function emitStreamActivity(): void {
   console.error('[stream-activity]');
-}
-
-function emitApprovalProgress(approval: PendingApproval): void {
-  const payload = Buffer.from(JSON.stringify(approval), 'utf-8').toString(
-    'base64',
-  );
-  console.error(`[approval] ${payload}`);
 }
 
 function latestUserPrompt(messages: ChatMessage[]): string {
@@ -775,6 +767,7 @@ async function callHybridAIWithRetry(params: {
   debugModelResponses?: boolean;
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ContainerInput['modelBehavior'];
   thinkingFormat?: 'qwen';
 }): Promise<ChatCompletionResponse> {
   const {
@@ -796,6 +789,7 @@ async function callHybridAIWithRetry(params: {
     debugModelResponses,
     isLocal,
     contextWindow,
+    modelBehavior,
     thinkingFormat,
   } = params;
   let attempt = 0;
@@ -840,6 +834,7 @@ async function callHybridAIWithRetry(params: {
             debugModelResponses,
             isLocal,
             contextWindow,
+            modelBehavior,
             thinkingFormat,
           });
         } catch (streamErr) {
@@ -864,6 +859,7 @@ async function callHybridAIWithRetry(params: {
             debugModelResponses,
             isLocal,
             contextWindow,
+            modelBehavior,
             thinkingFormat,
           });
         }
@@ -884,6 +880,7 @@ async function callHybridAIWithRetry(params: {
           debugModelResponses,
           isLocal,
           contextWindow,
+          modelBehavior,
           thinkingFormat,
         });
       }
@@ -935,6 +932,7 @@ interface ProcessRequestParams {
   codexRuntime?: ContainerInput['codexRuntime'];
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ContainerInput['modelBehavior'];
   thinkingFormat?: 'qwen';
   model: string;
   chatbotId: string;
@@ -997,6 +995,7 @@ async function processRequest(
     codexRuntime,
     isLocal,
     contextWindow,
+    modelBehavior,
     thinkingFormat,
     model,
     chatbotId,
@@ -1049,9 +1048,25 @@ async function processRequest(
   const maxStalledTurns = resolveMaxStalledTurns(ralphMaxExtraIterations);
   let ralphExtraIterations = 0;
   let stalledTurns = 0;
+  let emptyVisibleCompletionRetries = 0;
   let latestVisibleAssistantText: string | null = null;
   let compactionRetries = 0;
   const tokenEstimateCache = createTokenEstimateCache();
+  const promptOverheadTokens = estimateRoutedPromptOverheadTokens({
+    provider,
+    providerMethod,
+    baseUrl,
+    apiKey,
+    model,
+    chatbotId,
+    enableRag,
+    requestHeaders,
+    isLocal,
+    contextWindow,
+    modelBehavior,
+    thinkingFormat,
+    tools,
+  });
   const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
 
   if (provider === 'openai-codex' && codexRuntime === 'app-server') {
@@ -1082,6 +1097,7 @@ async function processRequest(
       chatbotId,
       requestHeaders,
       maxTokens,
+      modelBehavior,
       debugModelResponses,
       gatewayBaseUrl,
       gatewayApiToken,
@@ -1104,60 +1120,30 @@ async function processRequest(
     return output;
   }
 
-  const resolveToolApproval = async (input: {
-    toolName: string;
-    argsJson: string;
-  }): Promise<ToolApprovalEvaluation> => {
-    const approvalEvaluatedAt = new Date();
-    let evaluation = approvalRuntime.evaluateToolCall({
-      toolName: input.toolName,
-      argsJson: input.argsJson,
-      latestUserPrompt: effectiveUserPrompt,
-      channelId,
-      escalationTarget,
-      now: approvalEvaluatedAt,
-    });
-    const resolved = await resolveBorderlineAnomalyWithTraceJudge({
-      evaluation,
-      toolName: input.toolName,
-      argsJson: input.argsJson,
-      latestUserPrompt: effectiveUserPrompt,
-      taskModels,
-      fallbackContext: {
-        provider,
-        providerMethod,
-        baseUrl,
-        apiKey,
-        model,
-        chatbotId,
-        requestHeaders,
-        isLocal,
-        contextWindow,
-        thinkingFormat,
-        debugModelResponses,
-      },
-    });
-    if (resolved.response) {
+  const resolveToolApproval = createToolApprovalResolver({
+    latestUserPrompt: effectiveUserPrompt,
+    channelId,
+    escalationTarget,
+    taskModels,
+    fallbackContext: {
+      provider,
+      providerMethod,
+      baseUrl,
+      apiKey,
+      model,
+      chatbotId,
+      requestHeaders,
+      isLocal,
+      contextWindow,
+      modelBehavior,
+      thinkingFormat,
+      debugModelResponses,
+    },
+    onModelResponse: (response) => {
       tokenUsage.modelCalls += 1;
-      accumulateApiUsage(tokenUsage, resolved.response);
-    }
-    const traceJudge = resolved.evaluation.anomaly?.traceJudge;
-    if (evaluation.anomaly?.tuple && traceJudge) {
-      approvalRuntime.recordAnomalyTraceJudgeResult(
-        evaluation.anomaly.tuple,
-        traceJudge,
-      );
-      evaluation = approvalRuntime.evaluateToolCall({
-        toolName: input.toolName,
-        argsJson: input.argsJson,
-        latestUserPrompt: effectiveUserPrompt,
-        channelId,
-        escalationTarget,
-        now: approvalEvaluatedAt,
-      });
-    }
-    return evaluation;
-  };
+      accumulateApiUsage(tokenUsage, response);
+    },
+  });
 
   if (approvedToolCall) {
     const approval = await resolveToolApproval({
@@ -1166,54 +1152,24 @@ async function processRequest(
     });
     if (approval.decision === 'required') {
       const prompt = approvalRuntime.formatApprovalRequest(approval);
+      const pendingApproval = buildPendingApproval(
+        approval,
+        prompt,
+        approvedToolCall.toolName,
+      );
       return {
         status: 'success',
         result: prompt,
         toolsUsed: [approvedToolCall.toolName],
         toolExecutions: [
-          {
-            name: approvedToolCall.toolName,
-            arguments: approvedToolCall.argsJson,
-            result: prompt,
-            durationMs: 0,
-            isError: false,
-            blocked: true,
-            blockedReason: approval.reason,
-            approvalTier: approval.tier,
-            approvalBaseTier: approval.baseTier,
-            autonomyLevel: approval.autonomyLevel,
-            stakes: approval.stakes,
-            stakesScore: approval.stakesScore,
-            anomaly: approval.anomaly,
-            escalationRoute: approval.escalationRoute,
-            escalationTarget: approval.escalationTarget,
-            approvalDecision: approval.decision,
-            approvalActionKey: approval.actionKey,
-            approvalIntent: approval.intent,
-            approvalReason: approval.reason,
-            approvalRequestId: approval.requestId,
-            approvalExpiresAt: approval.expiresAtMs,
-          },
+          buildApprovalRequiredToolExecution({
+            toolName: approvedToolCall.toolName,
+            argsJson: approvedToolCall.argsJson,
+            prompt,
+            approval,
+          }),
         ],
-        pendingApproval: approval.requestId
-          ? {
-              approvalId: approval.requestId,
-              prompt,
-              intent: approval.intent,
-              reason: approval.reason,
-              allowSession: !approval.pinned,
-              allowAgent: !approval.pinned,
-              allowAll: !approval.pinned,
-              expiresAt:
-                typeof approval.expiresAtMs === 'number' &&
-                Number.isFinite(approval.expiresAtMs)
-                  ? approval.expiresAtMs
-                  : null,
-              ...(approval.escalationTarget
-                ? { escalationTarget: approval.escalationTarget }
-                : {}),
-            }
-          : undefined,
+        pendingApproval,
         tokenUsage: finalizeTokenUsage(tokenUsage),
         effectiveUserPrompt,
       };
@@ -1267,6 +1223,7 @@ async function processRequest(
     const guardResult = applyContextGuard({
       history,
       contextWindowTokens: contextWindow,
+      promptOverheadTokens,
       config: contextGuard,
       cache: tokenEstimateCache,
     });
@@ -1315,6 +1272,7 @@ async function processRequest(
               requestHeaders,
               isLocal,
               contextWindow,
+              modelBehavior,
               thinkingFormat,
             },
             messages: summaryMessages,
@@ -1352,10 +1310,8 @@ async function processRequest(
       continue;
     }
 
-    const estimatedPromptTokensForCall = estimateMessageTokens(
-      history,
-      tokenEstimateCache,
-    );
+    const estimatedPromptTokensForCall =
+      estimateMessageTokens(history, tokenEstimateCache) + promptOverheadTokens;
     tokenUsage.modelCalls += 1;
     tokenUsage.estimatedPromptTokens += estimatedPromptTokensForCall;
 
@@ -1387,6 +1343,7 @@ async function processRequest(
         debugModelResponses,
         isLocal,
         contextWindow,
+        modelBehavior,
         thinkingFormat,
       });
     } catch (err) {
@@ -1486,28 +1443,36 @@ async function processRequest(
       }
     }
 
-    const assistantMessage: ChatMessage = {
-      role: 'assistant',
-      content: choice.message.content,
-    };
-
-    if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
-      assistantMessage.tool_calls = choice.message.tool_calls;
-    }
-
-    history.push(assistantMessage);
-    const visibleAssistantText = stripRalphChoiceTags(choice.message.content);
-    if (visibleAssistantText) {
-      latestVisibleAssistantText = visibleAssistantText;
-    }
+    const branchChoice = parseRalphChoice(choice.message.content);
     if (
       provider === 'hybridai' &&
-      parseRalphChoice(choice.message.content) === null &&
+      branchChoice === null &&
       isHybridAIEmptyVisibleCompletion(response)
     ) {
       console.error(
         `[model] empty completion provider=hybridai model=${model} debug=${summarizeHybridAICompletionForDebug(response)}`,
       );
+      if (
+        shouldRetryEmptyVisibleCompletion({
+          retryCount: emptyVisibleCompletionRetries,
+        })
+      ) {
+        emptyVisibleCompletionRetries += 1;
+        stalledTurns = advanceStalledTurnCount({
+          current: stalledTurns,
+          toolCalls: 0,
+          successfulToolCalls: 0,
+        });
+        history.push({
+          role: 'user',
+          content: EMPTY_VISIBLE_COMPLETION_RETRY_PROMPT,
+        });
+        console.error(
+          `[model] retrying empty HybridAI completion retry=${emptyVisibleCompletionRetries}`,
+        );
+        continue;
+      }
+
       const failed: ContainerOutput = {
         status: 'error',
         result: null,
@@ -1526,9 +1491,24 @@ async function processRequest(
       });
       return failed;
     }
+    emptyVisibleCompletionRetries = 0;
+
+    const assistantMessage: ChatMessage = {
+      role: 'assistant',
+      content: choice.message.content,
+    };
+
+    if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
+      assistantMessage.tool_calls = choice.message.tool_calls;
+    }
+
+    history.push(assistantMessage);
+    const visibleAssistantText = stripRalphChoiceTags(choice.message.content);
+    if (visibleAssistantText) {
+      latestVisibleAssistantText = visibleAssistantText;
+    }
     if (toolCalls.length === 0) {
       if (ralphEnabled) {
-        const branchChoice = parseRalphChoice(choice.message.content);
         if (branchChoice === 'STOP') {
           collectRequestedArtifacts({
             artifacts,
@@ -1753,56 +1733,21 @@ async function processRequest(
 
       if (approval.decision === 'required') {
         toolsUsed.push(toolName);
-        if (!approval.requestId) {
-          throw new Error(
-            'Approval-required tool call is missing a request id.',
-          );
-        }
         const prompt = approvalRuntime.formatApprovalRequest(approval);
-        const pendingApproval: PendingApproval = {
-          approvalId: approval.requestId,
+        const pendingApproval = buildPendingApproval(
+          approval,
           prompt,
-          intent: approval.intent,
-          reason: approval.reason,
-          allowSession: !approval.pinned,
-          allowAgent: !approval.pinned,
-          allowAll: !approval.pinned,
-          expiresAt:
-            typeof approval.expiresAtMs === 'number' &&
-            Number.isFinite(approval.expiresAtMs)
-              ? approval.expiresAtMs
-              : null,
-          ...(approval.escalationTarget
-            ? { escalationTarget: approval.escalationTarget }
-            : {}),
-        };
+          toolName,
+        );
         emitApprovalProgress(pendingApproval);
-        toolExecutions.push({
-          name: toolName,
-          arguments: call.function.arguments,
-          result: prompt,
-          durationMs: 0,
-          isError: false,
-          blocked: true,
-          blockedReason: approval.reason,
-          approvalTier: approval.tier,
-          approvalBaseTier: approval.baseTier,
-          autonomyLevel: approval.autonomyLevel,
-          stakes: approval.stakes,
-          stakesScore: approval.stakesScore,
-          anomaly: approval.anomaly,
-          escalationRoute: approval.escalationRoute,
-          escalationTarget: approval.escalationTarget,
-          approvalDecision: approval.decision,
-          approvalActionKey: approval.actionKey,
-          approvalIntent: approval.intent,
-          approvalReason: approval.reason,
-          approvalRequestId: approval.requestId,
-          approvalExpiresAt: approval.expiresAtMs,
-          approvalAllowSession: !approval.pinned,
-          approvalAllowAgent: !approval.pinned,
-          approvalAllowAll: !approval.pinned,
-        });
+        toolExecutions.push(
+          buildApprovalRequiredToolExecution({
+            toolName,
+            argsJson: call.function.arguments,
+            prompt,
+            approval,
+          }),
+        );
         const waitingForApproval: ContainerOutput = {
           status: 'success',
           result: prompt,
@@ -1824,31 +1769,14 @@ async function processRequest(
       if (approval.decision === 'denied') {
         toolsUsed.push(toolName);
         const denialText = `Approval denied: ${approval.reason}`;
-        toolExecutions.push({
-          name: toolName,
-          arguments: call.function.arguments,
-          result: denialText,
-          durationMs: 0,
-          isError: true,
-          blocked: true,
-          blockedReason: approval.reason,
-          approvalTier: approval.tier,
-          approvalBaseTier: approval.baseTier,
-          autonomyLevel: approval.autonomyLevel,
-          stakes: approval.stakes,
-          stakesScore: approval.stakesScore,
-          anomaly: approval.anomaly,
-          escalationRoute: approval.escalationRoute,
-          escalationTarget: approval.escalationTarget,
-          approvalDecision: approval.decision,
-          approvalActionKey: approval.actionKey,
-          approvalIntent: approval.intent,
-          approvalReason: approval.reason,
-          approvalRequestId: approval.requestId,
-          approvalExpiresAt: approval.expiresAtMs,
-          approvalAllowSession: !approval.pinned,
-          approvalAllowAgent: !approval.pinned,
-        });
+        toolExecutions.push(
+          buildApprovalDeniedToolExecution({
+            toolName,
+            argsJson: call.function.arguments,
+            denialText,
+            approval,
+          }),
+        );
         const denied: ContainerOutput = {
           status: 'success',
           result: denialText,
@@ -2014,6 +1942,7 @@ async function main(): Promise<void> {
     firstInput.chatbotId,
     storedRequestHeaders,
     firstInput.maxTokens,
+    firstInput.modelBehavior,
     firstInput.debugModelResponses === true,
   );
   setProviderCredentials(firstInput.providerCredentials);
@@ -2063,6 +1992,7 @@ async function main(): Promise<void> {
       codexRuntime: firstInput.codexRuntime,
       isLocal: firstInput.isLocal,
       contextWindow: firstInput.contextWindow,
+      modelBehavior: firstInput.modelBehavior,
       thinkingFormat: firstInput.thinkingFormat,
       model: firstInput.model,
       chatbotId: firstInput.chatbotId,
@@ -2105,6 +2035,7 @@ async function main(): Promise<void> {
         codexRuntime: firstInput.codexRuntime,
         isLocal: firstInput.isLocal,
         contextWindow: firstInput.contextWindow,
+        modelBehavior: firstInput.modelBehavior,
         thinkingFormat: firstInput.thinkingFormat,
         model: firstInput.model,
         chatbotId: firstInput.chatbotId,
@@ -2200,6 +2131,7 @@ async function main(): Promise<void> {
       input.chatbotId,
       requestHeaders,
       input.maxTokens,
+      input.modelBehavior,
       input.debugModelResponses === true,
     );
     setProviderCredentials(input.providerCredentials);
@@ -2254,6 +2186,7 @@ async function main(): Promise<void> {
       codexRuntime: input.codexRuntime,
       isLocal: input.isLocal,
       contextWindow: input.contextWindow,
+      modelBehavior: input.modelBehavior,
       thinkingFormat: input.thinkingFormat,
       model: input.model,
       chatbotId: input.chatbotId,
@@ -2295,6 +2228,7 @@ async function main(): Promise<void> {
         codexRuntime: input.codexRuntime,
         isLocal: input.isLocal,
         contextWindow: input.contextWindow,
+        modelBehavior: input.modelBehavior,
         thinkingFormat: input.thinkingFormat,
         model: input.model,
         chatbotId: input.chatbotId,

@@ -16,11 +16,13 @@ import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
 import { DashboardPage } from './routes/dashboard';
+import { DistillPage } from './routes/distill';
 import { EmailPage } from './routes/email';
 import { FleetTopologyPage } from './routes/fleet-topology';
 import { GatewayPage } from './routes/gateway';
 import { HarnessEvolutionPage } from './routes/harness-evolution';
 import { JobsPage } from './routes/jobs';
+import { LogsPage } from './routes/logs';
 import { McpPage } from './routes/mcp';
 import { ModelsPage } from './routes/models';
 import { OutputGuardPage } from './routes/output-guard';
@@ -140,6 +142,12 @@ const gatewayRoute = createRoute({
   component: GatewayPage,
 });
 
+const logsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/logs',
+  component: LogsPage,
+});
+
 const fleetTopologyRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/fleet-topology',
@@ -198,6 +206,12 @@ const harnessEvolutionRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/harness-evolution',
   component: HarnessEvolutionPage,
+});
+
+const distillRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/distill',
+  component: DistillPage,
 });
 
 const mcpRoute = createRoute({
@@ -268,6 +282,7 @@ const routeTree = rootRoute.addChildren([
     agentScoreboardRoute,
     terminalRoute,
     gatewayRoute,
+    logsRoute,
     fleetTopologyRoute,
     sessionsRoute,
     channelsRoute,
@@ -277,6 +292,7 @@ const routeTree = rootRoute.addChildren([
     schedulerRoute,
     jobsRoute,
     harnessEvolutionRoute,
+    distillRoute,
     mcpRoute,
     auditRoute,
     skillsRoute,

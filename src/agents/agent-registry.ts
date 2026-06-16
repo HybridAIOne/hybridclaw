@@ -33,6 +33,7 @@ import {
   cloneAgentA2AConfig,
   cloneAgentBudgetConfig,
   cloneAgentCv,
+  cloneAgentProxyConfig,
   cloneAgentWebSearchConfig,
   DEFAULT_AGENT_ID,
   normalizeAgentA2AConfig,
@@ -40,6 +41,7 @@ import {
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   normalizeAgentIdentityFields,
+  normalizeAgentProxyConfig,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
@@ -74,6 +76,7 @@ let registry: Map<string, AgentConfig>;
 let registryInitialized: boolean;
 let registryDbBacked: boolean;
 let lastConfigFingerprint: string;
+let lastDatabaseFingerprint: string;
 
 function resetRegistryState(): void {
   configuredDefaults = {};
@@ -85,6 +88,7 @@ function resetRegistryState(): void {
   registryInitialized = false;
   registryDbBacked = false;
   lastConfigFingerprint = '';
+  lastDatabaseFingerprint = '';
 }
 
 resetRegistryState();
@@ -210,6 +214,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   const webSearch = normalizeAgentWebSearchConfig(
     (value as { webSearch?: unknown }).webSearch,
   );
+  const proxy = normalizeAgentProxyConfig((value as { proxy?: unknown }).proxy);
   const budget = normalizeAgentBudgetConfig(
     (value as { budget?: unknown }).budget,
   );
@@ -232,6 +237,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...(escalationTarget ? { escalationTarget } : {}),
     ...(a2a ? { a2a } : {}),
     ...(webSearch ? { webSearch } : {}),
+    ...(proxy ? { proxy } : {}),
     ...(budget ? { budget } : {}),
   };
 }
@@ -275,6 +281,11 @@ function fingerprintWebSearch(webSearch: AgentConfig['webSearch']): string {
   ].join(':');
 }
 
+function fingerprintProxy(proxy: AgentConfig['proxy']): string {
+  const clone = cloneAgentProxyConfig(proxy);
+  return clone ? fingerprintString(JSON.stringify(clone)) : '';
+}
+
 function fingerprintBudget(budget: AgentConfig['budget']): string {
   if (!budget) return '';
   return budget.unit === 'tokens'
@@ -310,6 +321,7 @@ function fingerprintAgent(agent: AgentConfig): string {
         .sort(),
     ),
     fingerprintWebSearch(agent.webSearch),
+    fingerprintProxy(agent.proxy),
     fingerprintBudget(agent.budget),
   ].join('|');
 }
@@ -328,6 +340,15 @@ function fingerprintAgentsConfig(params: {
       : '',
     ...params.list.map(fingerprintAgent),
   ].join('\n');
+}
+
+function fingerprintAgents(agents: AgentConfig[]): string {
+  return agents.map(fingerprintAgent).join('\n');
+}
+
+function fingerprintDatabaseAgents(): string {
+  if (!isDatabaseInitialized()) return '';
+  return fingerprintAgents(dbListAgents());
 }
 
 function normalizeAgentsConfig(config: AgentsConfig | undefined): {
@@ -405,6 +426,7 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ...(agent.webSearch
       ? { webSearch: cloneAgentWebSearchConfig(agent.webSearch) }
       : {}),
+    ...(agent.proxy ? { proxy: cloneAgentProxyConfig(agent.proxy) } : {}),
     ...(agent.budget ? { budget: cloneAgentBudgetConfig(agent.budget) } : {}),
   };
 }
@@ -436,6 +458,7 @@ function rebuildRegistryFromDatabase(options?: { validate?: boolean }): void {
   if (options?.validate !== false) {
     validateAgentOrgChart(Array.from(registry.values()));
   }
+  lastDatabaseFingerprint = fingerprintAgents(Array.from(registry.values()));
 }
 
 function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
@@ -459,6 +482,7 @@ function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
     cv: cloneAgentCv(agent.cv),
     escalationTarget: agent.escalationTarget,
     a2a: cloneAgentA2AConfig(agent.a2a),
+    proxy: cloneAgentProxyConfig(agent.proxy),
     budget: cloneAgentBudgetConfig(agent.budget),
     webSearch: cloneAgentWebSearchConfig(agent.webSearch),
   };
@@ -517,10 +541,23 @@ function agentWorkspaceDirByWorkspaceName(workspaceName: string): string {
 
 function ensureRegistryCurrent(): void {
   const normalized = normalizeAgentsConfig(getRuntimeConfig().agents);
+  const databaseFingerprint = registryDbBacked
+    ? fingerprintDatabaseAgents()
+    : '';
+  const databaseChanged =
+    registryInitialized &&
+    registryDbBacked &&
+    databaseFingerprint !== lastDatabaseFingerprint;
   const shouldReload =
     !registryInitialized ||
     normalized.fingerprint !== lastConfigFingerprint ||
     (!registryDbBacked && isDatabaseInitialized());
+  if (!shouldReload && databaseChanged) {
+    rebuildRegistryFromDatabase();
+    registryInitialized = true;
+    registryDbBacked = true;
+    return;
+  }
   if (!shouldReload) return;
   initAgentRegistry({
     defaultAgentId: normalized.defaultAgentId,

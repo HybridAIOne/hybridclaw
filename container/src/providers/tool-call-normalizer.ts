@@ -705,6 +705,48 @@ function extractLiquidToolCalls(content: string): {
     : { content, toolCalls: [] };
 }
 
+function findTopLevelSeparator(text: string, separator: string): number {
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+  const stack: string[] = [];
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '{' || char === '[' || char === '(') {
+      stack.push(char);
+      continue;
+    }
+    if (
+      (char === '}' && stack.at(-1) === '{') ||
+      (char === ']' && stack.at(-1) === '[') ||
+      (char === ')' && stack.at(-1) === '(')
+    ) {
+      stack.pop();
+      continue;
+    }
+    if (char === separator && stack.length === 0) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
 function parseLiquidToolCallList(payload: string): ToolCall[] {
   const trimmed = payload.trim();
   if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) {
@@ -754,25 +796,25 @@ function parseLiquidToolCall(segment: string): ToolCall | null {
 function splitTopLevelSegments(text: string, separator: string): string[] {
   const segments: string[] = [];
   let current = '';
-  let inString = false;
+  let quote: '"' | "'" | null = null;
   let escaped = false;
   const stack: string[] = [];
 
   for (const char of text) {
-    if (inString) {
+    if (quote) {
       current += char;
       if (escaped) {
         escaped = false;
       } else if (char === '\\') {
         escaped = true;
-      } else if (char === '"') {
-        inString = false;
+      } else if (char === quote) {
+        quote = null;
       }
       continue;
     }
 
-    if (char === '"') {
-      inString = true;
+    if (char === '"' || char === "'") {
+      quote = char;
       current += char;
       continue;
     }
@@ -809,45 +851,7 @@ function splitTopLevelSegments(text: string, separator: string): string[] {
 }
 
 function findTopLevelAssignmentOperator(text: string): number {
-  let inString = false;
-  let escaped = false;
-  const stack: string[] = [];
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-    if (char === '{' || char === '[' || char === '(') {
-      stack.push(char);
-      continue;
-    }
-    if (
-      (char === '}' && stack.at(-1) === '{') ||
-      (char === ']' && stack.at(-1) === '[') ||
-      (char === ')' && stack.at(-1) === '(')
-    ) {
-      stack.pop();
-      continue;
-    }
-    if (char === '=' && stack.length === 0) {
-      return index;
-    }
-  }
-
-  return -1;
+  return findTopLevelSeparator(text, '=');
 }
 
 function parseTextToolCalls(
@@ -928,12 +932,6 @@ export function resolveToolCallTextParser(
     .toLowerCase();
   if (!normalizedModel) return null;
 
-  if (normalizedModel.includes('qwen3') && normalizedModel.includes('coder')) {
-    return 'qwen3_coder';
-  }
-  if (normalizedModel.includes('qwen') || normalizedModel.includes('qwq')) {
-    return 'qwen';
-  }
   if (
     normalizedModel.includes('mistral') ||
     normalizedModel.includes('ministral') ||

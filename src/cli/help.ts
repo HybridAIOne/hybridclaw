@@ -19,6 +19,7 @@ export function printMainUsage(): void {
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, Slack, Telegram, Signal, Threema, WhatsApp, Email)
+  coworker   Distill a human's source material into a coworker agent
   browser    Manage persistent browser profiles for agent web automation
   browser-pool
              Check managed browser pool health
@@ -201,7 +202,7 @@ export function printLocalUsage(): void {
 
 Commands:
   hybridclaw local status
-  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
+  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
 
 Use Instead:
   hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] ...
@@ -214,6 +215,7 @@ Examples:
   hybridclaw local configure llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
   hybridclaw local configure ollama llama3.2
   hybridclaw local configure vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
+  hybridclaw local configure vllm google/gemma-4-e4b-it --name haigpu2 --base-url http://haigpu2:8000 --api-key secret --no-default
 
 Notes:
   - \`hybridclaw local ...\` is deprecated and will be removed in a future release.
@@ -221,6 +223,8 @@ Notes:
   - Ollama URLs are normalized to omit \`/v1\`.
   - When a model id is provided, \`configure\` also sets \`hybridai.defaultModel\` to that local model by default.
     Use \`--no-default\` to leave the global default model unchanged.
+  - Use \`--name <endpoint>\` to configure another endpoint of the same backend type. Named models use \`<endpoint>/<model>\`, for example \`haigpu2/google/gemma-4-e4b-it\`.
+  - Use \`--thinking-format qwen\` to attach explicit model-behavior flags to a backend or named endpoint.
   - When no model id is provided, \`configure\` only enables the backend so you can browse models later with \`/model list <backend>\`.`);
 }
 
@@ -871,6 +875,7 @@ export function printAgentUsage(): void {
 
 Commands:
   hybridclaw agent list
+  hybridclaw agent create <id> [--name <name>] [--model <model>] [--workspace <path-or-id>] [--activate]
   hybridclaw agent config <json|--json <json>> [--activate]
   hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
   hybridclaw agent inspect <file.claw>
@@ -880,6 +885,8 @@ Commands:
 
 Notes:
   - \`list\` prints registered agents in a script-friendly tab-separated format.
+  - \`create\` registers a new agent and fills missing bootstrap files in its managed workspace.
+  - Use \`--workspace\` with \`create\` to attach an existing managed workspace path such as \`~/.hybridclaw/data/agents/ben/workspace\`, or a managed workspace id.
   - \`config\` upserts an agent from a quoted JSON payload. The payload may be an agent object directly, or \`{"agent": {...}, "markdown": {"IDENTITY.md": "..."}}\`.
   - \`config\` writes \`markdown\` or \`files\` entries as top-level \`.md\` files in the agent workspace, overwriting existing files.
   - \`config\` imports \`imageAsset\` URLs or local file paths into the agent workspace \`assets/\` directory.
@@ -905,6 +912,47 @@ Notes:
   - Legacy aliases remain accepted: \`pack\` maps to \`export\`, and \`unpack\` maps to \`install\`.`);
 }
 
+export function printCoworkerUsage(): void {
+  console.log(`Usage: hybridclaw coworker <command>
+
+Distill a real person's source material (chat exports, emails, transcripts,
+docs, interviews) into a hireable coworker agent: persona into the existing
+identity files (IDENTITY.md / SOUL.md / USER.md / CV.md) plus a generated
+work-module skill, with per-claim source citations.
+
+Commands:
+  hybridclaw coworker distill --alias <alias> [--name "<display name>"] --source <path> [...]
+      Run the pipeline: ingest -> analyse -> build -> merge -> correct.
+      Flags: --role <role> --relationship <rel> --tag <tag> --match-alias <name|email>
+             --kind <auto|slack-export|email-mbox|transcript|chat-jsonl|markdown|text|interview>
+             --agent <agent-id> --resume <run-id> --holdout <0..0.5> --fictional
+  hybridclaw coworker consent record --alias <alias> --granted-by <who> --method <how> --statement "<text>"
+  hybridclaw coworker consent show|revoke --alias <alias>
+      Recorded consent artefact; required before distilling a real, named human.
+  hybridclaw coworker sources add --alias <alias> [--kind <kind>] <path> [...]
+      Add source material to the corpus without starting a full run.
+  hybridclaw coworker interview --alias <alias> [--audience subject|colleague] [--count <n>] [--out <file>]
+      Generate a gap-driven questionnaire targeting under-evidenced dimensions.
+  hybridclaw coworker status --alias <alias> [--id <run-id>]
+  hybridclaw coworker correct --alias <alias> --note "<correction>" [--scope persona|work|both]
+      Record a conversational correction; promoted on the next run.
+  hybridclaw coworker review list|resolve --alias <alias> [--id <review-id> --keep standing|incoming|both]
+      Conflicting evidence is surfaced here, never silently merged.
+  hybridclaw coworker eval --alias <alias>
+      Leakage scan over generated files + held-out fidelity prompts.
+  hybridclaw coworker export --alias <alias> [--out <dir>] [--host claude-code|codex|openclaw|hybridclaw] [--include-corpus]
+  hybridclaw coworker import --alias <alias> --bundle <dir>
+  hybridclaw coworker forget --alias <alias> --confirm
+      Right-to-be-forgotten: removes corpus, persona, work module, runs, and
+      their revision snapshots; the erasure event stays in the audit trail.
+
+Notes:
+  - Distilling a real, named human is blocked until consent is recorded.
+  - Every generated claim cites corpus document ids; unsupported claims are
+    flagged in the run REPORT.md instead of written into the persona.
+  - Run records live under the agent workspace at runtime/distill/<run-id>/.`);
+}
+
 export function printHelpUsage(): void {
   console.log(`Usage: hybridclaw help <topic>
 
@@ -917,6 +965,7 @@ Topics:
   tui         Help for terminal client
   onboarding  Help for onboarding flow
   channels    Help for channel setup helpers
+  coworker    Help for human-distillation coworker commands
   migrate     Help for agent-home migration
   openclaw    Help for OpenClaw migration
   hermes      Help for Hermes Agent migration
@@ -1005,6 +1054,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'channels':
       printChannelsUsage();
+      return true;
+    case 'coworker':
+      printCoworkerUsage();
       return true;
     case 'config':
       printConfigUsage();

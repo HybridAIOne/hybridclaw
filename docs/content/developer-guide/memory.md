@@ -15,6 +15,7 @@ problems:
 - `session_summary` compresses older current-session history
 - semantic memory stores query-recallable interaction summaries
 - canonical memory preserves cross-session and cross-channel continuity
+- cloud memory sync shares installation- and company-scoped memory through the HybridAI cloud when configured
 
 On a normal turn, HybridClaw does not inject every stored artifact wholesale.
 Some layers are loaded through the static bootstrap prompt, some are appended
@@ -203,6 +204,31 @@ Important properties:
 If a user talks to the same agent in Discord, web chat, and TUI, this is the
 layer that helps those sessions remember each other.
 
+### Cloud Memory Sync
+
+Cloud memory sync is an optional layer that shares memory across HybridClaw
+installations through the HybridAI cloud. It activates only when
+`HYBRIDAI_API_KEY`, `HYBRIDAI_BASE_URL`, and `HYBRIDAI_CHATBOT_ID` are all
+configured; `HYBRIDAI_BASE_URL` must use HTTPS. When any of these are missing,
+the layer stays disabled and nothing leaves the host.
+
+When enabled, each sync:
+
+- uploads the agent's `MEMORY.md`, `USER.md`, and recent daily notes (up to the last `14` `memory/YYYY-MM-DD.md` files) to the HybridAI memory sync endpoint
+- receives back shared memory files scoped to `installation` (this HybridClaw install) or `company` (the whole organization)
+- caches the shared files in the agent workspace under `.hybridclaw/cloud-memory.json`
+
+Cached shared memory is injected into prompt assembly alongside the local
+bootstrap files, with per-file truncation. Syncs run when a conversation
+context is built (rate-limited to once per minute per agent) and periodically
+every five minutes from the gateway; periodic runs are serialized so cycles
+never overlap. If the cloud reports the feature disabled for the chatbot, the
+local cache is cleared.
+
+In the admin console agent file editor, shared installation and company memory
+files appear under a separate "Shared memory" group. They are read-only caches:
+edits, saves, and revision history are intentionally unavailable there.
+
 ## Normal Turn Lifecycle
 
 The built-in path for a successful turn is roughly:
@@ -305,7 +331,7 @@ The values below describe the built-in defaults in the current codebase.
 | prompt recall hard cap | `12` memories | `buildPromptMemoryContext()` clamps prompt injection to at most `memory.semanticPromptHardCap` memories |
 | low-level recall hard cap | `50` memories | lower-level semantic recall API maximum for non-prompt callers |
 | embedding provider | `hashed` | `memory.embedding.provider` selects the semantic vector source: the built-in hashed fallback or a local Transformers.js model |
-| Transformers.js model | `onnx-community/embeddinggemma-300m-ONNX` | `memory.embedding.model` controls the Hugging Face model id when the Transformers.js provider is enabled |
+| Transformers.js model | configured model id | `memory.embedding.model` controls the Hugging Face model id when the Transformers.js provider is enabled |
 | Transformers.js revision | `75a84c732f1884df76bec365346230e32f582c82` | `memory.embedding.revision` pins the exact Hugging Face model revision downloaded on first use |
 | Transformers.js dtype | `q8` | `memory.embedding.dtype` selects the local ONNX quantization variant (`fp32`, `q8`, or `q4`) |
 | query prep mode | `no-stopwords` | `memory.queryMode` can keep the raw query or strip common stopwords before recall |

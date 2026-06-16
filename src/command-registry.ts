@@ -75,6 +75,7 @@ interface LocalSessionHelpPresentation {
 const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'agent',
   'auth',
+  'aux',
   'bot',
   'btw',
   'config',
@@ -211,6 +212,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   auth: {
     command: '/auth status <provider>',
     description: 'Show local provider auth and config status',
+  },
+  aux: {
+    command: '/aux test <task> <prompt> [--max-tokens <n>]',
+    description: 'Run a configured auxiliary model task on demand',
   },
   bot: {
     command: '/bot [info|list|set <id|name>|clear]',
@@ -417,6 +422,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'btw':
       return ['btw', ...parts.slice(1)];
+
+    case 'aux':
+      return parts.length > 1 ? ['aux', ...parts.slice(1)] : ['aux'];
 
     case 'second-opinion':
       return ['second-opinion', ...parts.slice(1)];
@@ -707,6 +715,30 @@ function buildSlashCommandCatalogDefinitions(
           name: 'question',
           description: 'The side question to answer',
           required: true,
+        },
+      ],
+    },
+    {
+      name: 'aux',
+      description: 'Run a configured auxiliary model task on demand',
+      tuiOnly: true,
+      localSurfaces: ['tui', 'web'],
+      tuiMenu: {
+        label: '/aux test <task> <prompt>',
+        insertText: '/aux test ',
+      },
+      tuiMenuEntries: [
+        {
+          id: 'aux-test',
+          label: '/aux test <task> <prompt>',
+          insertText: '/aux test ',
+          description: 'Run a configured auxiliary model task',
+        },
+        {
+          id: 'aux-list',
+          label: '/aux list',
+          insertText: '/aux list',
+          description: 'List triggerable auxiliary text tasks',
         },
       ],
     },

@@ -6,9 +6,15 @@ sidebar_position: 1
 
 # Skills Catalog
 
-HybridClaw ships **73 bundled skills** across ten categories. Each page below
-covers every skill in its category with prerequisites, install commands,
-tips & tricks, ready-to-try example prompts, and troubleshooting.
+HybridClaw ships **76 bundled skills**. The pages below cover the main
+user-facing catalog groups with prerequisites, install commands, tips &
+tricks, ready-to-try example prompts, and troubleshooting.
+
+The strongest part of the catalog is the production business skill set: CRM,
+marketing, analytics, finance, cloud, office, and operations workflows use
+helper scripts, fixtures, eval scenarios, targeted tests, credential
+boundaries, and approval tiers. `Qwen/Qwen3.6-27B-FP8` is the small-model
+validation baseline for that path.
 
 For CLI management commands see [Bundled Skills](../bundled-skills.md); for
 resolution rules and runtime internals see
@@ -32,13 +38,13 @@ For production package requirements see
 |---|---|---|
 | Office | pdf, xlsx, docx, pptx, office-workflows | [Office Skills](./office.md) |
 | Development | code-review, gh-issues, github-pr-workflow, salesforce, skill-creator, warehouse-sql | [Development Skills](./development.md) |
-| Infrastructure, Production Ops, Smart Home & Energy | hetzner-cloud, hetzner-dns, hetzner-storage-box, mittwald, t-cloud-public, zabbix, shelly, homematic, fronius, alexa, blink, hue | [Development Skills](./development.md#hetzner-devops) |
+| Infrastructure, Production Ops, Smart Home & Energy | hetzner-cloud, hetzner-dns, hetzner-storage-box, mittwald, t-cloud-public, zabbix, shelly, homematic, fronius, byd-battery, alexa, blink, hue | [Development Skills](./development.md#hetzner-devops) |
 | Communication | brand-voice, discord, channel-catchup, fax-send | [Communication Skills](./communication.md) |
 | Apple | apple-calendar, apple-music, apple-passwords | [Apple Skills](./apple.md) |
-| Productivity | feature-planning, project-manager, trello | [Productivity Skills](./productivity.md) |
+| Productivity | feature-planning, human-distill, project-manager, trello | [Productivity Skills](./productivity.md) |
 | Memory & Knowledge | llm-wiki, notion, obsidian, personality, zettelkasten | [Memory & Knowledge Skills](./memory-knowledge.md) |
 | Publishing | diagram, excalidraw, hermes3000-writing, image-generation, manim-video, video-generation, video.from-script, wordpress, write-blog-post | [Publishing Skills](./publishing.md) |
-| Integrations & Utilities | 1password, stripe, download-platform-invoices, airtable, fastbill, hubspot, lexware-office, firecrawl, ga4, google-ads, heygen, sokosumi, gog, google-workspace, current-time, hybridclaw-help, iss-position, search.web, search.news, search.images | [Integrations & Utilities](./integrations.md) |
+| Integrations & Utilities | 1password, stripe, mailchimp, download-platform-invoices, airtable, fastbill, hubspot, lexware-office, firecrawl, ga4, google-ads, heygen, sokosumi, gog, google-workspace, current-time, hybridclaw-help, iss-position, search.web, search.news, search.images | [Integrations & Utilities](./integrations.md) |
 | Security & Privacy | distil-pii-redactor | [Integrations & Utilities](./integrations.md#distil-pii-redactor) |
 
 ## Evaluating Example Prompts

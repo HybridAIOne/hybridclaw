@@ -29,6 +29,7 @@ import {
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import { runImageGenerate } from './image-generation.js';
 import type { McpClientManager } from './mcp/client-manager.js';
+import type { ModelBehavior } from './model-behavior.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   type RuntimeProvider,
@@ -810,6 +811,7 @@ export function setModelContext(
   chatbotId: string,
   requestHeaders?: Record<string, string>,
   maxTokens?: number,
+  modelBehavior?: ModelBehavior,
   debugModelResponses = false,
 ): void {
   currentModelProvider = resolveRuntimeProviderContext(provider, model);
@@ -832,6 +834,7 @@ export function setModelContext(
     chatbotId,
     requestHeaders,
     currentModelMaxTokens,
+    modelBehavior,
     debugModelResponses,
   );
 }
@@ -2788,6 +2791,21 @@ async function executeToolInternal(
     case 'edit': {
       let tempDirToCleanup: string | null = null;
       try {
+        const oldText =
+          typeof args.old === 'string'
+            ? args.old
+            : typeof args.old_text === 'string'
+              ? args.old_text
+              : '';
+        const newText =
+          typeof args.new === 'string'
+            ? args.new
+            : typeof args.new_text === 'string'
+              ? args.new_text
+              : '';
+        if (!oldText) {
+          return failTool('Error: old text is required for edit');
+        }
         let content = '';
         let filePath = '';
         let sandboxPath = '';
@@ -2809,7 +2827,7 @@ async function executeToolInternal(
 
         const count = args.count || 1;
         for (let i = 0; i < count; i++) {
-          const idx = content.indexOf(args.old);
+          const idx = content.indexOf(oldText);
           if (idx === -1) {
             if (i === 0)
               return failTool(`Error: Text not found in ${args.path}`);
@@ -2817,8 +2835,8 @@ async function executeToolInternal(
           }
           content =
             content.slice(0, idx) +
-            args.new +
-            content.slice(idx + args.old.length);
+            newText +
+            content.slice(idx + oldText.length);
         }
 
         fs.writeFileSync(filePath, content);
@@ -3953,6 +3971,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           path: { type: 'string', description: 'Path to the file to edit' },
           old: { type: 'string', description: 'Text to find and replace' },
           new: { type: 'string', description: 'Replacement text' },
+          old_text: {
+            type: 'string',
+            description: 'Alias for old; text to find and replace',
+          },
+          new_text: {
+            type: 'string',
+            description: 'Alias for new; replacement text',
+          },
           count: {
             type: 'number',
             description: 'Number of replacements (default: 1)',

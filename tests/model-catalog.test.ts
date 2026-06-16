@@ -276,6 +276,75 @@ test('available model catalog merges the current default model with discovered l
   );
 });
 
+test('available model catalog includes named local endpoints in local and backend filters', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.llamacpp.enabled = false;
+    config.local.backends.vllm.enabled = false;
+    config.local.endpoints = [
+      {
+        name: 'haigpu1',
+        type: 'vllm',
+        enabled: true,
+        baseUrl: 'http://haigpu1:8000/v1',
+        apiKey: '',
+      },
+      {
+        name: 'haigpu2',
+        type: 'vllm',
+        enabled: true,
+        baseUrl: 'http://haigpu2:8000/v1',
+        apiKey: '',
+      },
+    ];
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === 'http://haigpu1:8000/v1/models') {
+        return new Response(
+          JSON.stringify({
+            data: [{ id: 'Qwen/Qwen3.6-27B-FP8', max_model_len: 131_072 }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url === 'http://haigpu2:8000/v1/models') {
+        return new Response(
+          JSON.stringify({
+            data: [{ id: 'google/gemma-4-e4b-it', max_model_len: 32_768 }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }),
+  );
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs();
+
+  expect(catalog.getAvailableModelList('local')).toEqual([
+    'haigpu1/Qwen/Qwen3.6-27B-FP8',
+    'haigpu2/google/gemma-4-e4b-it',
+  ]);
+  expect(catalog.getAvailableModelList('vllm')).toEqual([
+    'haigpu1/Qwen/Qwen3.6-27B-FP8',
+    'haigpu2/google/gemma-4-e4b-it',
+  ]);
+  expect(
+    catalog.getModelCatalogMetadata('haigpu2/google/gemma-4-e4b-it'),
+  ).toMatchObject({
+    known: true,
+    contextWindow: 32_768,
+    pricingUsdPerToken: { input: 0, output: 0 },
+  });
+});
+
 test('available model catalog prefixes HybridAI provider-family models', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

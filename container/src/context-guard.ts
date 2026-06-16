@@ -70,6 +70,7 @@ function updateMessageContent(
 export function applyContextGuard(params: {
   history: ChatMessage[];
   contextWindowTokens?: number;
+  promptOverheadTokens?: number;
   config?: Partial<ContextGuardConfig>;
   cache?: TokenEstimateCache;
 }): ContextGuardResult {
@@ -101,7 +102,14 @@ export function applyContextGuard(params: {
     };
   }
 
-  let totalTokens = estimateMessageTokens(params.history, params.cache);
+  const promptOverheadTokens = Math.max(
+    0,
+    Math.floor(params.promptOverheadTokens || 0),
+  );
+  const tier3BudgetTokens =
+    promptOverheadTokens > 0 ? contextWindowTokens : overflowBudgetTokens;
+  let totalTokens =
+    estimateMessageTokens(params.history, params.cache) + promptOverheadTokens;
   let truncatedToolResults = 0;
   let compactedToolResults = 0;
 
@@ -137,6 +145,6 @@ export function applyContextGuard(params: {
     overflowBudgetTokens,
     truncatedToolResults,
     compactedToolResults,
-    tier3Triggered: totalTokens > overflowBudgetTokens,
+    tier3Triggered: totalTokens > tier3BudgetTokens,
   };
 }

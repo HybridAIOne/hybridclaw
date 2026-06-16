@@ -10,6 +10,9 @@ interface WorkerSignatureTaskModel {
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: {
+    thinkingFormat?: string;
+  };
   thinkingFormat?: string;
   model: string;
   chatbotId?: string;
@@ -25,6 +28,10 @@ export interface WorkerSignatureInput {
   baseUrl: string;
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
+  modelBehavior?: {
+    thinkingFormat?: string;
+  };
+  thinkingFormat?: string;
   browserProvider?: string;
   browserAllowPrivateNetwork?: boolean;
   taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
@@ -65,6 +72,9 @@ function normalizeTaskModel(
     isLocal: input.isLocal === true,
     contextWindow:
       typeof input.contextWindow === 'number' ? input.contextWindow : null,
+    modelBehavior: {
+      thinkingFormat: String(input.modelBehavior?.thinkingFormat || '').trim(),
+    },
     thinkingFormat: String(input.thinkingFormat || '').trim(),
     model: String(input.model || '').trim(),
     chatbotId: String(input.chatbotId || '').trim(),
@@ -129,6 +139,10 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
       .replace(/\/+$/g, ''),
     apiKey: String(input.apiKey || ''),
     requestHeaders: normalizedHeaders,
+    modelBehavior: {
+      thinkingFormat: String(input.modelBehavior?.thinkingFormat || '').trim(),
+    },
+    thinkingFormat: String(input.thinkingFormat || '').trim(),
     browserProvider: String(input.browserProvider || '').trim(),
     browserAllowPrivateNetwork: input.browserAllowPrivateNetwork === true,
     taskModels,

@@ -61,6 +61,7 @@ function makeHarness(initialMessages: ChatUiMessage[] = []) {
 
   return {
     wrapper,
+    queryClient,
     get messages(): ChatUiMessage[] {
       return (
         queryClient.getQueryData<ChatHistoryUiData>(
@@ -122,6 +123,7 @@ describe('useChatStream', () => {
           status: 'ok',
           assistantMessageId: 'assistant-1',
           result: 'Approval requested',
+          messageRole: 'approval',
         };
       },
     );
@@ -158,6 +160,64 @@ describe('useChatStream', () => {
     });
   });
 
+  it('adds addressed presentation to optimistic mentioned user messages', async () => {
+    const harness = makeHarness();
+    let resolveStream!: (result: ChatStreamResult) => void;
+    requestChatStreamMock.mockReturnValue(
+      new Promise<ChatStreamResult>((resolve) => {
+        resolveStream = resolve;
+      }),
+    );
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+          resolveAddressedAgentPresentation: (content) =>
+            content.includes('@stephan')
+              ? {
+                  agentId: 'stephan',
+                  displayName: 'Stephan Noller',
+                  imageUrl: '/api/agent-avatar?agentId=stephan',
+                }
+              : null,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    let sendPromise!: Promise<boolean>;
+    await act(async () => {
+      sendPromise = result.current.sendMessage('@stephan Läuft bei dir?', []);
+    });
+
+    const user = harness.messages.find((msg) => msg.role === 'user');
+    expect(user).toMatchObject({
+      content: '@stephan Läuft bei dir?',
+      addressedAgentPresentation: {
+        agentId: 'stephan',
+        displayName: 'Stephan Noller',
+        imageUrl: '/api/agent-avatar?agentId=stephan',
+      },
+    });
+
+    await act(async () => {
+      resolveStream({
+        status: 'ok',
+        sessionId: SESSION_ID,
+        userMessageId: 'server-user-1',
+        assistantMessageId: 'assistant-1',
+        result: 'Answer',
+        messageRole: 'assistant',
+      });
+      await sendPromise;
+    });
+  });
+
   it('backfills the created user message by local id instead of matching on content', async () => {
     const harness = makeHarness([
       {
@@ -189,6 +249,7 @@ describe('useChatStream', () => {
           userMessageId: 'server-user-2',
           assistantMessageId: 'assistant-2',
           result: 'Answer',
+          messageRole: 'assistant',
           assistantPresentation: {
             agentId: 'charly',
             displayName: 'Charly',
@@ -243,6 +304,93 @@ describe('useChatStream', () => {
     });
   });
 
+  it('keeps finalized routed user messages unchanged', async () => {
+    const harness = makeHarness();
+
+    requestChatStreamMock.mockResolvedValue({
+      status: 'ok',
+      sessionId: SESSION_ID,
+      userMessageId: 'server-user-1',
+      assistantMessageId: 'assistant-1',
+      result: 'Answer',
+      messageRole: 'assistant',
+      addressEnvelope: { to: 'research', from: 'main' },
+      assistantPresentation: {
+        agentId: 'research',
+        displayName: 'Research Agent',
+        imageUrl: '/api/agent-avatar?agentId=research',
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('summarize this', []);
+    });
+
+    const user = harness.messages.find((msg) => msg.role === 'user');
+
+    expect(user).toMatchObject({
+      content: 'summarize this',
+      rawContent: 'summarize this',
+      replayRequest: {
+        content: 'summarize this',
+        media: [],
+      },
+      addressedAgentPresentation: {
+        agentId: 'research',
+        displayName: 'Research Agent',
+        imageUrl: '/api/agent-avatar?agentId=research',
+      },
+    });
+  });
+
+  it('does not duplicate an existing addressed mention on finalize', async () => {
+    const harness = makeHarness();
+
+    requestChatStreamMock.mockResolvedValue({
+      status: 'ok',
+      sessionId: SESSION_ID,
+      userMessageId: 'server-user-1',
+      assistantMessageId: 'assistant-1',
+      result: 'Answer',
+      messageRole: 'assistant',
+      addressEnvelope: { to: 'research', from: 'main' },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('@research summarize this', []);
+    });
+
+    const user = harness.messages.find((msg) => msg.role === 'user');
+
+    expect(user?.content).toBe('@research summarize this');
+  });
+
   it('allocates a separate local id for the streamed assistant message', async () => {
     const harness = makeHarness();
 
@@ -262,6 +410,7 @@ describe('useChatStream', () => {
           userMessageId: 'server-user-1',
           assistantMessageId: 'assistant-1',
           result: 'Answer',
+          messageRole: 'assistant',
         };
       },
     );
@@ -304,7 +453,7 @@ describe('useChatStream', () => {
       userMessageId: 'server-user-1',
       assistantMessageId: null,
       result: 'Session agent set to `research` (model: `gpt-5`).',
-      commandResult: true,
+      messageRole: 'command',
       toolsUsed: [],
     });
 
@@ -349,6 +498,45 @@ describe('useChatStream', () => {
     });
   });
 
+  it('invalidates the agent selector list after creating an agent from chat', async () => {
+    const harness = makeHarness();
+    harness.queryClient.setQueryData(
+      ['agents-list', TOKEN],
+      [{ id: 'main', name: 'Main Agent' }],
+    );
+
+    requestChatStreamMock.mockResolvedValue({
+      status: 'success',
+      sessionId: SESSION_ID,
+      userMessageId: 'server-user-1',
+      assistantMessageId: null,
+      result: 'Agent: nova',
+      messageRole: 'command',
+      toolsUsed: [],
+    });
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('/agent create nova', []);
+    });
+
+    expect(
+      harness.queryClient.getQueryState(['agents-list', TOKEN])?.isInvalidated,
+    ).toBe(true);
+  });
+
   it('renders no bubble for a slash command that produces no visible output', async () => {
     const harness = makeHarness();
 
@@ -358,7 +546,7 @@ describe('useChatStream', () => {
       userMessageId: 'server-user-1',
       assistantMessageId: null,
       result: '',
-      commandResult: true,
+      messageRole: 'command',
       toolsUsed: [],
     });
 
@@ -424,7 +612,7 @@ describe('useChatStream', () => {
     expect(harness.messages.some((msg) => msg.role === 'command')).toBe(false);
   });
 
-  it('keeps a plain model reply as an assistant message when commandResult is absent', async () => {
+  it('keeps a plain model reply as an assistant message', async () => {
     const harness = makeHarness();
 
     requestChatStreamMock.mockImplementation(
@@ -439,6 +627,7 @@ describe('useChatStream', () => {
           userMessageId: 'server-user-1',
           assistantMessageId: 'assistant-1',
           result: 'A normal answer',
+          messageRole: 'assistant',
         };
       },
     );
@@ -479,6 +668,7 @@ describe('useChatStream', () => {
       userMessageId: 'server-user-1',
       assistantMessageId: 'assistant-1',
       result: 'Answer',
+      messageRole: 'assistant',
       model: 'hybridai/grok-4.20-0309-non-reasoning',
     });
 
@@ -595,6 +785,7 @@ describe('useChatStream', () => {
         userMessageId: 'server-user-1',
         assistantMessageId: 'assistant-1',
         result: 'Answer',
+        messageRole: 'assistant',
       });
       await firstSend;
     });
@@ -610,6 +801,7 @@ describe('useChatStream', () => {
         userMessageId: 'server-user-1',
         assistantMessageId: 'assistant-1',
         result: 'Answer',
+        messageRole: 'assistant',
       }),
     );
 
@@ -684,6 +876,7 @@ describe('useChatStream', () => {
         userMessageId: 'server-user-1',
         assistantMessageId: 'assistant-1',
         result: 'Reply from A',
+        messageRole: 'assistant',
       });
       await sendPromise;
     });

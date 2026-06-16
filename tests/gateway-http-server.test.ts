@@ -985,6 +985,55 @@ async function importFreshHealth(options?: {
       ],
     }),
   );
+  const getGatewayAdminA2ATrust = vi.fn(() => ({
+    identity: {
+      instanceId: 'local-dev',
+      publicKeyFingerprint: 'local-fingerprint',
+      publicKeyJwk: { kty: 'OKP', crv: 'Ed25519', x: 'local-key' },
+    },
+    peers: [],
+    pairingRequests: [],
+  }));
+  const upsertGatewayAdminA2ATrustPeer = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
+  const revokeGatewayAdminA2ATrustPeer = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
+  const deleteGatewayAdminA2ATrustPeer = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
+  const startGatewayAdminA2APairing = vi.fn(async () => ({
+    ...getGatewayAdminA2ATrust(),
+    proposal: {
+      peerId: 'peer-prod',
+      agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      deliveryUrl: 'https://peer.example.com/a2a',
+      publicKeyFingerprint: 'peer-fingerprint',
+      name: 'Peer',
+    },
+    remoteNotification: {
+      status: 'sent' as const,
+      url: 'https://peer.example.com/a2a/pairing/requests',
+      error: null,
+    },
+  }));
+  const previewGatewayAdminA2APairing = vi.fn(async () => ({
+    proposal: {
+      peerId: 'peer-prod',
+      agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      deliveryUrl: 'https://peer.example.com/a2a',
+      publicKeyFingerprint: 'peer-fingerprint',
+      publicKeyJwk: { kty: 'OKP', crv: 'Ed25519', x: 'peer-key' },
+      name: 'Peer',
+    },
+  }));
+  const approveGatewayAdminA2APairingRequest = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
+  const declineGatewayAdminA2APairingRequest = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
   const getGatewayAdminPlugins = vi.fn(async () => ({
     totals: {
       totalPlugins: 2,
@@ -1204,6 +1253,20 @@ async function importFreshHealth(options?: {
         workspace: null,
         workspacePath: '/tmp/main/workspace',
         markdownFiles: mainAdminAgentMarkdownFiles,
+      },
+    ],
+  }));
+  const getGatewayAdminHybridAIBots = vi.fn(async () => ({
+    bots: [
+      {
+        id: 'bot-support',
+        name: 'Support Bot',
+        description: 'Handles support requests',
+        model: 'gpt-5',
+      },
+      {
+        id: 'bot-research',
+        name: 'Research Bot',
       },
     ],
   }));
@@ -1541,6 +1604,13 @@ async function importFreshHealth(options?: {
       skills?: string[] | null;
       chatbotId?: string | null;
       enableRag?: boolean | null;
+      proxy?: {
+        kind: 'hybridai';
+        baseUrl: string;
+        chatbotId: string;
+        apiKey: { source: 'store'; id: string };
+        conversationScope?: 'channel' | 'user';
+      } | null;
       workspace?: string | null;
     }) => ({
       agent: {
@@ -1551,6 +1621,7 @@ async function importFreshHealth(options?: {
         chatbotId: payload.chatbotId || null,
         enableRag:
           typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
+        ...(payload.proxy ? { proxy: payload.proxy } : {}),
         workspace: payload.workspace || null,
         workspacePath: '/tmp/main/workspace',
         markdownFiles: mainAdminAgentMarkdownFiles,
@@ -1566,6 +1637,13 @@ async function importFreshHealth(options?: {
         skills?: string[] | null;
         chatbotId?: string | null;
         enableRag?: boolean | null;
+        proxy?: {
+          kind: 'hybridai';
+          baseUrl: string;
+          chatbotId: string;
+          apiKey: { source: 'store'; id: string };
+          conversationScope?: 'channel' | 'user';
+        } | null;
         workspace?: string | null;
       },
     ) => ({
@@ -1577,6 +1655,7 @@ async function importFreshHealth(options?: {
         chatbotId: payload.chatbotId || null,
         enableRag:
           typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
+        ...(payload.proxy ? { proxy: payload.proxy } : {}),
         workspace: payload.workspace || null,
         workspacePath: `/tmp/${agentId}/workspace`,
         markdownFiles:
@@ -1789,6 +1868,12 @@ async function importFreshHealth(options?: {
     };
   });
   vi.doMock('../src/logger.js', () => ({
+    getLoggerRuntimeState: () => ({
+      configuredLevel: 'info',
+      effectiveLevel: 'info',
+      forcedLevel: null,
+    }),
+    syncLoggerLevelFromRuntimeConfig: vi.fn(),
     logger: {
       debug: loggerDebug,
       error: loggerError,
@@ -1841,8 +1926,11 @@ async function importFreshHealth(options?: {
     GatewayRequestError,
   }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
+    approveGatewayAdminA2APairingRequest,
     createGatewayAdminAgent,
     createGatewayAdminSkill,
+    declineGatewayAdminA2APairingRequest,
+    deleteGatewayAdminA2ATrustPeer,
     deleteGatewayAdminAgent,
     deleteGatewayAdminSession,
     ensureGatewayBootstrapAutostart,
@@ -1850,10 +1938,12 @@ async function importFreshHealth(options?: {
     getGatewayAgentList,
     getGatewayAgents,
     getGatewayAdminAgents,
+    getGatewayAdminHybridAIBots,
     getGatewayAdminAgentMarkdownFile,
     getGatewayAdminAgentMarkdownRevision,
     getGatewayAdminApprovals,
     getGatewayAdminA2AInbox,
+    getGatewayAdminA2ATrust,
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
@@ -1882,6 +1972,7 @@ async function importFreshHealth(options?: {
     getGatewayStatus,
     handleGatewayCommand,
     reconnectGatewayAdminTunnel,
+    previewGatewayAdminA2APairing,
     readSystemPromptMessage,
     renderGatewayCommand,
     resolveGatewayChatbotId,
@@ -1889,6 +1980,7 @@ async function importFreshHealth(options?: {
     removeGatewayAdminMcpServer,
     restoreGatewayAdminAgentMarkdownRevision,
     restoreGatewayAdminTeamStructureRevision,
+    revokeGatewayAdminA2ATrustPeer,
     saveGatewayAdminConfig,
     saveGatewayAdminSlackWebhookTarget,
     saveGatewayAdminAgentMarkdownFile,
@@ -1897,8 +1989,10 @@ async function importFreshHealth(options?: {
     saveGatewayAdminPolicyRule,
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
+    startGatewayAdminA2APairing,
     updateGatewayAdminAgent,
     uploadGatewayAdminSkillZip,
+    upsertGatewayAdminA2ATrustPeer,
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
   }));
@@ -2007,12 +2101,21 @@ async function importFreshHealth(options?: {
     getGatewayAdminEmailMessage,
     getGatewayAgents,
     getGatewayAdminAgents,
+    getGatewayAdminHybridAIBots,
     getGatewayAdminAgentMarkdownFile,
     getGatewayAdminAgentMarkdownRevision,
     getGatewayAdminTeamStructure,
     getGatewayAdminTeamStructureRevision,
     getGatewayAdminApprovals,
     getGatewayAdminA2AInbox,
+    getGatewayAdminA2ATrust,
+    previewGatewayAdminA2APairing,
+    upsertGatewayAdminA2ATrustPeer,
+    revokeGatewayAdminA2ATrustPeer,
+    deleteGatewayAdminA2ATrustPeer,
+    startGatewayAdminA2APairing,
+    approveGatewayAdminA2APairingRequest,
+    declineGatewayAdminA2APairingRequest,
     saveGatewayAdminPolicyDefault,
     saveGatewayAdminPolicyLanHttpAccess,
     applyGatewayAdminPolicyPreset,
@@ -4173,7 +4276,6 @@ describe('gateway HTTP server', () => {
 
     expect(state.ensureGatewayBootstrapAutostart).toHaveBeenCalledWith({
       sessionId: 's1',
-      allowExistingSessionMessages: true,
     });
     expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2, {
       operatorUserId: 'web',
@@ -5011,6 +5113,55 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('denies scoped admin sessions without the required route action', async () => {
+    const authSecret = 'admin-rbac-deny-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          actions: ['admin.overview.read'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.refreshRuntimeSecretsFromEnv).not.toHaveBeenCalled();
+    expect(state.reloadRuntimeConfig).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Forbidden.' });
+  });
+
+  test('allows scoped admin sessions with a matching wildcard route action', async () => {
+    const authSecret = 'admin-rbac-allow-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          scope: 'admin.config:*',
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.refreshRuntimeSecretsFromEnv).toHaveBeenCalledTimes(1);
+    expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
+    expect(res.statusCode).toBe(200);
+  });
+
   test('returns admin secret metadata without cleartext values', async () => {
     const authSecret = 'secret-list-auth-secret';
     const state = await importFreshHealth({ authSecret });
@@ -5435,6 +5586,92 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('allows admin A2A trust upserts', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/a2a/trust',
+      body: JSON.stringify({
+        peerId: 'peer-prod',
+        publicKeyFingerprint:
+          'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO_',
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.upsertGatewayAdminA2ATrustPeer).toHaveBeenCalledWith(
+      {
+        peerId: 'peer-prod',
+        publicKeyFingerprint:
+          'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO_',
+      },
+      'admin-console',
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('starts admin A2A pairing from the console endpoint', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/a2a/pairing',
+      body: JSON.stringify({
+        peerUrl: 'https://peer.example.com',
+        notifyPeer: true,
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.startGatewayAdminA2APairing).toHaveBeenCalledWith(
+      {
+        peerUrl: 'https://peer.example.com',
+        notifyPeer: true,
+      },
+      'admin-console',
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      proposal: { peerId: 'peer-prod' },
+      remoteNotification: { status: 'sent' },
+    });
+  });
+
+  test('previews admin A2A pairing before trust approval', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/a2a/pairing/preview',
+      body: JSON.stringify({
+        canonicalInstanceId: 'peer-prod',
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.previewGatewayAdminA2APairing).toHaveBeenCalledWith({
+      canonicalInstanceId: 'peer-prod',
+    });
+    expect(state.startGatewayAdminA2APairing).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      proposal: {
+        peerId: 'peer-prod',
+        publicKeyFingerprint: 'peer-fingerprint',
+      },
+    });
+  });
+
   test('returns live admin email mailbox metadata for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/admin/email' });
@@ -5649,6 +5886,45 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('returns admin log file metadata and selected tail', async () => {
+    const dataDir = makeTempDataDir();
+    const logPath = path.join(dataDir, 'gateway', 'gateway.log');
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.writeFileSync(
+      logPath,
+      'first line\nsecond line\nthird \x1b[32mline\x1b[39m\n',
+      'utf8',
+    );
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      url: '/api/admin/logs?file=gateway&tailBytes=28',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode, res.body).toBe(200);
+    const payload = JSON.parse(res.body) as {
+      files: Array<{ id: string; exists: boolean; path: string }>;
+      selected: { fileId: string; content: string; truncated: boolean };
+    };
+    expect(payload.files).toContainEqual(
+      expect.objectContaining({
+        id: 'gateway',
+        exists: true,
+        path: logPath,
+      }),
+    );
+    expect(payload.selected).toEqual(
+      expect.objectContaining({
+        fileId: 'gateway',
+        content: 'third line\n',
+        truncated: true,
+      }),
+    );
+  });
+
   test('returns admin agents for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/admin/agents' });
@@ -5691,6 +5967,53 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('returns HybridAI bots for authorized admin API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/hybridai/bots?baseUrl=https%3A%2F%2Fuser%3Apass%40hybridai.one%2F%3Fdebug%3D1%23token',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminHybridAIBots).toHaveBeenCalledWith({
+      baseUrl: 'https://hybridai.one',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      bots: [
+        {
+          id: 'bot-support',
+          name: 'Support Bot',
+          description: 'Handles support requests',
+          model: 'gpt-5',
+        },
+        {
+          id: 'bot-research',
+          name: 'Research Bot',
+        },
+      ],
+    });
+  });
+
+  test('rejects non-HTTPS HybridAI bot base URLs', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/hybridai/bots?baseUrl=http%3A%2F%2Fhybridai.one',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminHybridAIBots).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'baseUrl must use HTTPS.',
+    });
+  });
+
   test('returns 404 for admin agent routes with a blank decoded agent id segment', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/admin/agents/%20' });
@@ -5730,6 +6053,7 @@ describe('gateway HTTP server', () => {
       skills: ['draft-outline', 'copy-edit'],
       chatbotId: undefined,
       enableRag: undefined,
+      proxy: undefined,
       role: undefined,
       reportsTo: undefined,
       delegatesTo: undefined,
@@ -5815,6 +6139,7 @@ describe('gateway HTTP server', () => {
       skills: null,
       chatbotId: undefined,
       enableRag: undefined,
+      proxy: undefined,
       role: undefined,
       reportsTo: undefined,
       delegatesTo: undefined,
@@ -5849,6 +6174,87 @@ describe('gateway HTTP server', () => {
           },
         ],
       },
+    });
+  });
+
+  test('passes HybridAI proxy config through admin agent update requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/agents/writer',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: {
+        proxy: {
+          kind: 'hybridai',
+          baseUrl: 'https://user:pass@hybridai.example.com///?debug=true#token',
+          chatbotId: 'support-bot',
+          apiKey: '<secret:HYBRIDAI_PROXY_KEY>',
+          conversationScope: 'user',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.updateGatewayAdminAgent).toHaveBeenCalledWith('writer', {
+      name: undefined,
+      model: undefined,
+      skills: undefined,
+      chatbotId: undefined,
+      enableRag: undefined,
+      proxy: {
+        kind: 'hybridai',
+        baseUrl: 'https://hybridai.example.com',
+        chatbotId: 'support-bot',
+        apiKey: { source: 'store', id: 'HYBRIDAI_PROXY_KEY' },
+        conversationScope: 'user',
+      },
+      role: undefined,
+      reportsTo: undefined,
+      delegatesTo: undefined,
+      peers: undefined,
+      workspace: undefined,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).agent.proxy).toEqual({
+      kind: 'hybridai',
+      baseUrl: 'https://hybridai.example.com',
+      chatbotId: 'support-bot',
+      apiKey: { source: 'store', id: 'HYBRIDAI_PROXY_KEY' },
+      conversationScope: 'user',
+    });
+  });
+
+  test('rejects non-HTTPS HybridAI proxy URLs in admin agent updates', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/agents/writer',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: {
+        proxy: {
+          kind: 'hybridai',
+          baseUrl: 'http://hybridai.example.com',
+          chatbotId: 'support-bot',
+          apiKey: '<secret:HYBRIDAI_PROXY_KEY>',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.updateGatewayAdminAgent).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'proxy.baseUrl must use HTTPS.',
     });
   });
 
@@ -6725,6 +7131,76 @@ describe('gateway HTTP server', () => {
     expect(socket.write).not.toHaveBeenCalled();
   });
 
+  test('rejects terminal websocket upgrades for scoped sessions without stream access', async () => {
+    const authSecret = 'terminal-rbac-deny-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        headers: {
+          cookie: makeSessionCookie(authSecret, {
+            sessionId: 'admin-session-1',
+            actor: 'admin-user',
+            actions: ['admin.audit.read'],
+          }),
+        },
+        noAuth: true,
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).not.toHaveBeenCalled();
+    expect(String(socket.write.mock.calls[0]?.[0] || '')).toContain(
+      '403 Forbidden',
+    );
+  });
+
+  test('allows terminal websocket upgrades for scoped sessions with terminal wildcard access', async () => {
+    const authSecret = 'terminal-rbac-allow-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        headers: {
+          cookie: makeSessionCookie(authSecret, {
+            sessionId: 'admin-session-1',
+            actor: 'admin-user',
+            scope: 'admin.terminal:*',
+          }),
+        },
+        noAuth: true,
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).toHaveBeenCalledWith(
+      expect.anything(),
+      socket,
+      expect.any(Buffer),
+      expect.any(URL),
+      expect.objectContaining({
+        hasSessionAuth: true,
+        hasRequestAuth: false,
+        validateToken: expect.any(Function),
+      }),
+    );
+    expect(socket.write).not.toHaveBeenCalled();
+  });
+
   test('allows terminal websocket upgrades to authenticate with a first-frame token', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
     const socket = {
@@ -7200,6 +7676,88 @@ describe('gateway HTTP server', () => {
       workspacePath: '/tmp/writer/workspace',
       rules: [],
     });
+  });
+
+  test('downloads and deletes admin distill corpus documents', async () => {
+    const dataDir = makeTempDataDir();
+    const subjectDir = path.join(
+      dataDir,
+      'agents',
+      'maya',
+      'workspace',
+      'distill',
+      'maya',
+    );
+    const corpusPath = path.join(subjectDir, 'corpus', 'documents.jsonl');
+    fs.mkdirSync(path.dirname(corpusPath), { recursive: true });
+    fs.writeFileSync(
+      path.join(subjectDir, 'subject.json'),
+      `${JSON.stringify({
+        version: 1,
+        alias: 'maya',
+        displayName: 'Maya Lindqvist',
+        realPerson: false,
+        personalityTags: [],
+        matchAliases: ['maya@example.com'],
+        createdAt: '2026-06-10T10:00:00.000Z',
+      })}\n`,
+      'utf-8',
+    );
+    fs.writeFileSync(
+      corpusPath,
+      `${JSON.stringify({
+        id: 'doc_abc123abc123',
+        subject: 'maya',
+        source: 'markdown',
+        origin: '/uploads/memo.md',
+        author: 'Maya Lindqvist',
+        authoredBySubject: true,
+        content: '# Memo\n\nBoring options win.',
+        wordCount: 4,
+        weight: 0.9,
+        holdout: false,
+        maskedThirdParties: 0,
+        ingestedAt: '2026-06-10T10:02:00.000Z',
+        runId: 'dst_1',
+      })}\n`,
+      'utf-8',
+    );
+
+    const state = await importFreshHealth({ dataDir });
+    const downloadReq = makeRequest({
+      url: '/api/admin/distill/corpus/doc_abc123abc123?alias=maya',
+    });
+    const downloadRes = makeResponse();
+
+    state.handler(downloadReq as never, downloadRes as never);
+    await waitForResponse(downloadRes, (next) => next.writableEnded);
+
+    expect(downloadRes.statusCode).toBe(200);
+    expect(downloadRes.headers['Content-Type']).toBe(
+      'text/plain; charset=utf-8',
+    );
+    expect(downloadRes.headers['Content-Disposition']).toContain(
+      'attachment; filename="doc_abc123abc123-markdown.txt"',
+    );
+    expect(downloadRes.headers['X-Content-Type-Options']).toBe('nosniff');
+    expect(downloadRes.body).toContain('Boring options win');
+
+    const deleteReq = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/distill/corpus/doc_abc123abc123?alias=maya',
+    });
+    const deleteRes = makeResponse();
+
+    state.handler(deleteReq as never, deleteRes as never);
+    await waitForResponse(deleteRes, (next) => next.writableEnded);
+
+    expect(deleteRes.statusCode).toBe(200);
+    expect(JSON.parse(deleteRes.body).subject).toMatchObject({
+      alias: 'maya',
+      corpusDocuments: 0,
+      corpus: [],
+    });
+    expect(fs.readFileSync(corpusPath, 'utf-8')).toBe('');
   });
 
   test('returns admin tools for authorized API requests', async () => {
@@ -7684,7 +8242,7 @@ describe('gateway HTTP server', () => {
     const body = JSON.parse(res.body);
     expect(body).toMatchObject({
       status: 'success',
-      commandResult: true,
+      messageRole: 'command',
       sessionId: 'session-secret-cli-guard',
     });
     expect(body.result).toContain('did not run or send');
@@ -7954,7 +8512,7 @@ describe('gateway HTTP server', () => {
         type: 'result',
         result: expect.objectContaining({
           status: 'success',
-          commandResult: true,
+          messageRole: 'command',
           sessionId: 'session-secret-cli-guard-stream',
           result: expect.stringContaining('/secret set API_TOKEN <value>'),
         }),
@@ -8050,11 +8608,11 @@ describe('gateway HTTP server', () => {
 
     // No visible output -> empty result (the web console renders no bubble for
     // it) rather than a "Done." placeholder. Success is still signalled by
-    // status, and the flag still marks it as command output.
+    // status, and messageRole still marks it as command output.
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
       result: '',
-      commandResult: true,
+      messageRole: 'command',
       sessionId: 'session-web-empty',
     });
     expect(state.loggerDebug).toHaveBeenCalledWith(
@@ -8099,6 +8657,7 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
+      messageRole: 'command',
       result: '**Pending Approval**\nI need approval before continuing.',
       sessionId: 'session-web-approve',
     });
@@ -8145,6 +8704,7 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
+      messageRole: 'command',
       result: expect.stringContaining('/approve'),
       sessionId: 'session-web-approve',
     });
@@ -8216,6 +8776,7 @@ describe('gateway HTTP server', () => {
         type: 'result',
         result: expect.objectContaining({
           status: 'success',
+          messageRole: 'approval',
           sessionId: 'session-web-approve',
           pendingApproval: {
             approvalId: 'be945bbf',
@@ -8228,6 +8789,69 @@ describe('gateway HTTP server', () => {
             allowAll: true,
             expiresAt: 1_710_000_000_000,
           },
+        }),
+      },
+    ]);
+
+    await pendingApprovals.clearPendingApproval('session-web-approve');
+  });
+
+  test('does not mark /approve yes assistant output as command output on the web chat stream path', async () => {
+    const state = await importFreshHealth();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval('session-web-approve', {
+      approvalId: 'approve-123',
+      prompt: 'I need approval before continuing.',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-web',
+    });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Onboarding complete — BOOTSTRAP.md deleted.',
+      sessionId: 'session-web-approve',
+      toolsUsed: ['delete', 'read'],
+      artifacts: [],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-approve',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/approve yes',
+        stream: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-approve',
+        content: 'yes approve-123',
+      }),
+    );
+    const events = res.body
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(events).toEqual([
+      {
+        type: 'result',
+        result: expect.objectContaining({
+          status: 'success',
+          messageRole: 'assistant',
+          result:
+            'Onboarding complete — BOOTSTRAP.md deleted.\n*Tools: delete, read*',
+          sessionId: 'session-web-approve',
         }),
       },
     ]);
@@ -8304,7 +8928,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(state.handleGatewayMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -8348,7 +8972,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(state.handleGatewayMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -8420,7 +9044,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(400);
@@ -12386,7 +13010,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(res.statusCode).toBe(404);
     expect(JSON.parse(res.body)).toEqual({

@@ -56,6 +56,19 @@ describe('parseModel', () => {
     expect(parsed.displayName).toBe('Claude Haiku 4.5');
   });
 
+  it('groups named vLLM endpoint ids under the vLLM rail provider', () => {
+    const parsed = parseModel(
+      model({
+        id: 'haigpu2/google/gemma-4-e4b-it',
+        provider: 'vllm',
+        backend: 'vllm',
+      }),
+    );
+    expect(parsed.provider).toBe('vLLM');
+    expect(parsed.groupLabel).toBe('vLLM · Google');
+    expect(parsed.displayName).toBe('Gemma 4 E4b It');
+  });
+
   it('strips Anthropic date-stamp suffixes from displayName', () => {
     const parsed = parseModel(
       model({

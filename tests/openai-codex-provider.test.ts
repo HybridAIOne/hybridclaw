@@ -49,21 +49,27 @@ describe('OpenAI Codex provider', () => {
   test('uses top-level output_text when output is empty', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              id: 'resp_1',
-              model: 'gpt-5.4',
-              output: [],
-              output_text: 'Created llm-wiki',
-            }),
-            {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            },
-          ),
-      ),
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.tools).toBeUndefined();
+        expect(body.tool_choice).toBeUndefined();
+        expect(body.parallel_tool_calls).toBeUndefined();
+        return new Response(
+          JSON.stringify({
+            id: 'resp_1',
+            model: 'gpt-5.4',
+            output: [],
+            output_text: 'Created llm-wiki',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }),
     );
 
     const result = await callOpenAICodexProvider(baseArgs);

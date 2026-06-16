@@ -60,6 +60,7 @@ interface RunCodexAppServerTurnParams {
   chatbotId?: string;
   requestHeaders?: Record<string, string>;
   maxTokens?: number;
+  modelBehavior?: ContainerInput['modelBehavior'];
   debugModelResponses?: boolean;
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
@@ -403,6 +404,7 @@ export function buildCodexMcpContextPayloads(
     | 'chatbotId'
     | 'requestHeaders'
     | 'maxTokens'
+    | 'modelBehavior'
     | 'debugModelResponses'
     | 'gatewayBaseUrl'
     | 'gatewayApiToken'
@@ -425,6 +427,7 @@ export function buildCodexMcpContextPayloads(
       model: params.model,
       chatbotId: params.chatbotId,
       maxTokens: params.maxTokens,
+      modelBehavior: params.modelBehavior,
       debugModelResponses: params.debugModelResponses,
       channelId: params.channelId,
       configuredDiscordChannels: params.configuredDiscordChannels,

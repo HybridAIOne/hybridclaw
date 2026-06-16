@@ -9,12 +9,24 @@ describe('buildApprovalCommand', () => {
     expect(buildApprovalCommand('session', 'approve-1')).toBe(
       '/approve session approve-1',
     );
+    expect(buildApprovalCommand('agent', 'approve-1')).toBe(
+      '/approve agent approve-1',
+    );
     expect(buildApprovalCommand('all', 'approve-1')).toBe(
       '/approve all approve-1',
     );
     expect(buildApprovalCommand('deny', 'approve-1')).toBe(
       '/approve no approve-1',
     );
+  });
+
+  it('omits the id only when none is available', () => {
+    expect(buildApprovalCommand('once', '  ')).toBe('/approve yes');
+  });
+
+  it('rejects approval ids with whitespace', () => {
+    expect(buildApprovalCommand('once', 'approve 1')).toBeNull();
+    expect(buildApprovalCommand('deny', 'approve\n1')).toBeNull();
   });
 });
 

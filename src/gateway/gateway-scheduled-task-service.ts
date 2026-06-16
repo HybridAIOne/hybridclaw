@@ -32,6 +32,7 @@ import {
   resumeConfigJob,
 } from '../scheduler/scheduler.js';
 import type { SessionResetPolicy } from '../session/session-reset.js';
+import { isRecord } from '../utils/type-guards.js';
 import type { ProactiveMessagePayload } from './fullauto-runtime.js';
 import {
   prepareSessionAutoReset,
@@ -42,10 +43,6 @@ import type {
   GatewayAdminSchedulerJob,
   GatewayAdminSchedulerResponse,
 } from './gateway-types.js';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function isRunOnceScheduleKind(
   kind: RuntimeSchedulerJob['schedule']['kind'],

@@ -39,7 +39,7 @@ import {
   DISCORD_GUILDS,
   DISCORD_SEND_ALLOWED_CHANNEL_IDS,
   GATEWAY_API_TOKEN,
-  GATEWAY_BASE_URL,
+  GATEWAY_CLIENT_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
@@ -58,7 +58,6 @@ import {
 } from '../config/config.js';
 import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
-import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
@@ -93,7 +92,10 @@ import {
   readOutput,
   writeInput,
 } from './ipc.js';
-import { consumeModelResponseDebugFileLine } from './model-response-debug.js';
+import {
+  consumeModelResponseDebugFileLine,
+  isModelResponseDebugEnabled,
+} from './model-response-debug.js';
 import {
   consumeCollapsedStreamDebugLine,
   createStreamDebugState,
@@ -760,7 +762,7 @@ function getOrSpawnContainer(
     '-e',
     `HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT=${params.workspaceDisplayRootOverride?.trim() || CONTAINER_WORKSPACE_ROOT}`,
     '-e',
-    `HYBRIDCLAW_GATEWAY_URL=${remapHostBaseUrlForContainer(GATEWAY_BASE_URL)}`,
+    `HYBRIDCLAW_GATEWAY_URL=${remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL)}`,
     '-e',
     `HYBRIDCLAW_GATEWAY_TOKEN=${GATEWAY_API_TOKEN || ''}`,
     '-e',
@@ -953,7 +955,14 @@ function getOrSpawnContainer(
     entry.terminalError = formatWarmRunnerTerminalError(
       entry,
       'Container runtime',
-      { code, signal },
+      {
+        code,
+        signal,
+        // The sandbox image bakes its own node_modules; the host-side
+        // bootstrap script cannot repair it.
+        repairHint:
+          'The sandbox image is missing this package; rebuild it with `npm run build:container` (or pull a fresh image) and restart the gateway.',
+      },
     );
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ container: containerName }, message);
@@ -1004,6 +1013,7 @@ async function runContainerInner(
     enableRag,
     model = HYBRIDAI_MODEL,
     agentId = DEFAULT_AGENT_ID,
+    addressEnvelope,
     channelId = '',
     ralphMaxIterations,
     fullAutoEnabled,
@@ -1041,6 +1051,7 @@ async function runContainerInner(
     chatbotId: modelRuntime.chatbotId,
     sessionModel: modelRuntime.model || model,
   });
+  const runtimeModel = modelRuntime.model || model;
   const storedRuntimeEnv = readStoredRuntimeEnv();
   const googleWorkspaceRuntimeEnv =
     await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
@@ -1095,16 +1106,18 @@ async function runContainerInner(
     apiKey: modelRuntime.apiKey,
     baseUrl: remapHostBaseUrlForContainer(modelRuntime.baseUrl),
     provider: modelRuntime.provider,
+    addressEnvelope,
     providerMethod: modelRuntime.providerMethod,
     requestHeaders: modelRuntime.requestHeaders,
     isLocal: modelRuntime.isLocal,
     contextWindow: modelRuntime.contextWindow,
+    modelBehavior: modelRuntime.modelBehavior,
     thinkingFormat: modelRuntime.thinkingFormat,
-    gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_BASE_URL),
+    gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL),
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
-    model,
+    model: runtimeModel,
     codexRuntime,
     ralphMaxIterations,
     fullAutoEnabled,
@@ -1112,9 +1125,9 @@ async function runContainerInner(
     scheduleSideEffectsEnabled,
     skipContainerSystemPrompt,
     streamTextDeltas: Boolean(onTextDelta),
-    debugModelResponses: process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1',
+    debugModelResponses: isModelResponseDebugEnabled(),
     maxTokens: resolveExecutorMaxTokens({
-      model,
+      model: runtimeModel,
       discoveredMaxTokens: modelRuntime.maxTokens,
     }),
     channelId,
@@ -1161,6 +1174,8 @@ async function runContainerInner(
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
+    modelBehavior: input.modelBehavior,
+    thinkingFormat: input.thinkingFormat,
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     taskModels: input.taskModels,

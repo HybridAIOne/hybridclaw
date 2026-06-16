@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  hasImmediateProactiveDeliveryPath,
   hasQueuedProactiveDeliveryPath,
   isDiscordChannelId,
   isEmailAddress,
+  isLocalProactivePullChannelId,
   isSupportedProactiveChannelId,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
@@ -52,6 +54,36 @@ describe('proactive delivery helpers', () => {
     expect(isSupportedProactiveChannelId('120363401234567890@g.us')).toBe(true);
     expect(isSupportedProactiveChannelId('tui')).toBe(true);
     expect(isSupportedProactiveChannelId('smoke')).toBe(false);
+  });
+
+  test('distinguishes local pull queues from immediate delivery paths', () => {
+    expect(isLocalProactivePullChannelId('tui')).toBe(true);
+    expect(isLocalProactivePullChannelId('  tui  ')).toBe(true);
+    expect(isLocalProactivePullChannelId('123456789012345678')).toBe(false);
+
+    expect(
+      hasImmediateProactiveDeliveryPath({
+        channel_id: 'tui',
+      }),
+    ).toBe(false);
+
+    expect(
+      hasImmediateProactiveDeliveryPath({
+        channel_id: '123456789012345678',
+      }),
+    ).toBe(true);
+
+    expect(
+      hasImmediateProactiveDeliveryPath({
+        channel_id: 'ops@example.com',
+      }),
+    ).toBe(true);
+
+    expect(
+      hasImmediateProactiveDeliveryPath({
+        channel_id: 'smoke',
+      }),
+    ).toBe(false);
   });
 
   test('recognizes email proactive delivery ids', () => {

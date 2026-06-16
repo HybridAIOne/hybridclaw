@@ -61,6 +61,11 @@ import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
+import {
+  collectModelLookupCandidates,
+  matchesModelFamily,
+} from '../providers/model-lookup.js';
+import { isGpt5ModelId } from '../providers/model-metadata.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { maybeAutoTitleSession } from '../session/session-title.js';
@@ -85,10 +90,16 @@ import type { CanonicalSessionContext } from '../types/session.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
+import { parseJsonObject } from '../utils/json-object.js';
 import {
   ensureBootstrapFiles,
   resolveStartupBootstrapFile,
 } from '../workspace.js';
+import {
+  getActiveThreadAgentId,
+  resolveAgentAddressing,
+  setActiveThreadAgentId,
+} from './agent-addressing.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
@@ -145,6 +156,7 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
+import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
 import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
@@ -166,17 +178,6 @@ function resolveTurnRuntimeAuditLabel(
     : 'hybridclaw';
 }
 
-function parseToolResultObject(result: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(result) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 function persistSpeechTranscriptsToScopedMemory(params: {
   sessionId: string;
   skillName: string | null;
@@ -187,7 +188,7 @@ function persistSpeechTranscriptsToScopedMemory(params: {
     : 'skill:speech-to-text';
   for (const execution of params.toolExecutions) {
     if (execution.name !== 'audio_transcribe' || execution.isError) continue;
-    const payload = parseToolResultObject(execution.result);
+    const payload = parseJsonObject(execution.result);
     if (!payload || payload.success !== true) continue;
     if (typeof payload.action === 'string' && payload.action !== 'transcribe') {
       continue;
@@ -629,16 +630,37 @@ function captureGatewayChatResultError(params: {
   });
 }
 
-function buildBootstrapChatTurnPrompt(fileName: 'BOOTSTRAP.md'): string {
+function isGpt5OnboardingModelId(modelId: string): boolean {
+  return collectModelLookupCandidates(modelId).some(
+    (candidate) =>
+      isGpt5ModelId(candidate) || matchesModelFamily(candidate, 'gpt-5'),
+  );
+}
+
+function buildGpt5OnboardingPromptInjection(): string[] {
   return [
+    'If you have the basic info about the user and a valid email address, proceed to send the welcome message. Do not display the draft to the user first, but send without asking.',
+  ];
+}
+
+function buildBootstrapChatTurnPrompt(params: {
+  fileName: 'BOOTSTRAP.md';
+  model: string;
+}): string {
+  const lines = [
     'Hatching mode is active for this agent.',
-    `A startup instruction file (${fileName}) exists and is already loaded in the system context.`,
-    'Do not answer this as a normal chat turn.',
-    `Follow ${fileName} now: introduce yourself, begin onboarding, and ask the first few useful customization questions.`,
-    'Use the user message below only as the signal that the user is present.',
+    `A startup instruction file (${params.fileName}) exists and is already loaded in the system context.`,
+    'Continue the in-progress hatching conversation using the full chat history above.',
+    'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
+    `Keep following ${params.fileName}: acknowledge the user's latest reply and ask only the next useful customization question.`,
+    'If the user has not answered the previous questions yet, briefly point back to them instead of asking a fresh set.',
     'Do not ask a generic "what can I do for you?" question.',
-    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
-  ].join('\n');
+    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${params.fileName} explicitly requires it.`,
+  ];
+  if (isGpt5OnboardingModelId(params.model)) {
+    lines.push('', ...buildGpt5OnboardingPromptInjection());
+  }
+  return lines.join('\n');
 }
 
 function shouldInjectBootstrapChatTurnPrompt(params: {
@@ -729,13 +751,120 @@ async function handleGatewayMessageInner(
     sessionKey: session.session_key,
     mainSessionKey: session.main_session_key,
   });
+  const fanoutSource = source.includes('.fanout');
+  const shouldUpdateActiveAgent =
+    source !== 'fullauto' &&
+    !fanoutSource &&
+    !isGoalContinuationSource(source) &&
+    resolveSessionResetChannelKind(req.channelId) !== 'scheduler' &&
+    resolveSessionResetChannelKind(req.channelId) !== 'heartbeat';
+  const addressed = resolveAgentAddressing({
+    content: req.content,
+    currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
+    fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
+  });
+  if (addressed.kind === 'error') {
+    return attachSessionIdentity({
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: addressed.message,
+    });
+  }
+  if (addressed.kind === 'fanout') {
+    if (addressed.agentIds.length === 0) {
+      return attachSessionIdentity({
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: `No agents are available for @${addressed.alias}.`,
+        addressEnvelope: addressed.envelope,
+      });
+    }
+    const outputs: string[] = [];
+    try {
+      for (const targetAgentId of addressed.agentIds) {
+        const childEnvelope = {
+          ...addressed.envelope,
+          to: targetAgentId,
+        };
+        let childText: string;
+        try {
+          const childResult = await handleGatewayMessageInner({
+            ...req,
+            content: addressed.content,
+            agentId: targetAgentId,
+            addressEnvelope: childEnvelope,
+            source: `${source}.fanout`,
+            onTextDelta: undefined,
+            onThinkingDelta: undefined,
+            onToolProgress: undefined,
+            onApprovalProgress: undefined,
+          });
+          childText =
+            childResult.result ||
+            childResult.error ||
+            (childResult.status === 'success' ? '(no reply)' : 'failed');
+        } catch (error) {
+          // One unhealthy agent must not abort the rest of the fanout.
+          childText = `failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`;
+        }
+        outputs.push(`@${targetAgentId}: ${childText}`);
+      }
+    } finally {
+      session = memoryService.getOrCreateSession(
+        req.sessionId,
+        req.guildId,
+        req.channelId,
+        session.agent_id || DEFAULT_AGENT_ID,
+        { forceNewCurrent: shouldForceNewTuiSession(req) },
+      );
+    }
+    return attachSessionIdentity({
+      status: 'success',
+      result: outputs.join('\n\n'),
+      toolsUsed: [],
+      agentId: session.agent_id || DEFAULT_AGENT_ID,
+      addressEnvelope: addressed.envelope,
+      assistantPresentation: getGatewayAssistantPresentationForMessageAgent(
+        session.agent_id || DEFAULT_AGENT_ID,
+      ),
+    });
+  }
+  if (addressed.kind === 'agent') {
+    req.content = addressed.content;
+    req.agentId = addressed.agentId;
+    req.addressEnvelope = addressed.envelope;
+    if (shouldUpdateActiveAgent) {
+      setActiveThreadAgentId(session, addressed.agentId);
+    }
+  } else if (req.agentId?.trim()) {
+    if (shouldUpdateActiveAgent) {
+      setActiveThreadAgentId(session, req.agentId.trim());
+    }
+    req.addressEnvelope ??= {
+      to: req.agentId.trim(),
+      from: session.agent_id || DEFAULT_AGENT_ID,
+    };
+  } else {
+    const activeAgentId = getActiveThreadAgentId(session);
+    if (activeAgentId) {
+      req.agentId = activeAgentId;
+      req.addressEnvelope = {
+        to: activeAgentId,
+        from: session.agent_id || DEFAULT_AGENT_ID,
+      };
+    }
+  }
   const cliSecretSetCommand = detectCliSecretSetCommand(req.content);
   if (cliSecretSetCommand) {
     return attachSessionIdentity({
       status: 'success',
       result: renderCliSecretSetCommandWarning(cliSecretSetCommand),
       toolsUsed: [],
-      commandResult: true,
+      messageRole: 'command',
     });
   }
   if (source !== 'fullauto') {
@@ -768,15 +897,6 @@ async function handleGatewayMessageInner(
   const resolvedAgent = resolveAgentConfig(agentId);
   let model = resolvedModel;
   let chatbotId = resolvedChatbotId;
-  let chatbotResolution = await resolveGatewayChatbotId({
-    model,
-    chatbotId,
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId,
-    trigger: 'chat',
-  });
-  chatbotId = chatbotResolution.chatbotId;
   const channelType =
     resolveChannelType(req) || resolveSessionResetChannelKind(req.channelId);
   const channel =
@@ -859,6 +979,33 @@ async function handleGatewayMessageInner(
       req.sessionId = session.id;
     }
   }
+  const proxy = resolvedAgent.proxy;
+  if (proxy) {
+    try {
+      const result = await forwardGatewayMessageToProxyAgent({
+        req,
+        agent: { ...resolvedAgent, proxy },
+        runId,
+        abortSignal: activeGatewayRequest.signal,
+      });
+      return attachSessionIdentity({
+        ...result,
+        assistantPresentation:
+          getGatewayAssistantPresentationForMessageAgent(agentId),
+      });
+    } finally {
+      activeGatewayRequest.release();
+    }
+  }
+  let chatbotResolution = await resolveGatewayChatbotId({
+    model,
+    chatbotId,
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    agentId,
+    trigger: 'chat',
+  });
+  chatbotId = chatbotResolution.chatbotId;
   const sessionContext = buildSessionContext({
     source: {
       channelKind: channelType || channel?.kind,
@@ -1073,6 +1220,7 @@ async function handleGatewayMessageInner(
       const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
+        messageRole: 'assistant',
         agentId,
         model,
         provider,
@@ -1277,6 +1425,7 @@ async function handleGatewayMessageInner(
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
+      messageRole: 'assistant',
       toolsUsed: [],
       agentId,
       model,
@@ -1485,7 +1634,10 @@ async function handleGatewayMessageInner(
         startupBootstrapFile === 'BOOTSTRAP.md' ? startupBootstrapFile : null,
     })
   ) {
-    agentUserContent = `${buildBootstrapChatTurnPrompt('BOOTSTRAP.md')}\n\nUser message:\n${agentUserContent}`;
+    agentUserContent = `${buildBootstrapChatTurnPrompt({
+      fileName: 'BOOTSTRAP.md',
+      model,
+    })}\n\nUser message:\n${agentUserContent}`;
   }
   if (pluginManager?.hasMiddleware('pre_send')) {
     const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {
@@ -1547,6 +1699,7 @@ async function handleGatewayMessageInner(
       const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
+        messageRole: 'assistant',
         toolsUsed: [],
         pluginsUsed,
         agentId,
@@ -1684,6 +1837,7 @@ async function handleGatewayMessageInner(
       executorModeOverride: req.executorModeOverride,
       model,
       agentId,
+      addressEnvelope: req.addressEnvelope,
       workspacePathOverride: req.workspacePathOverride,
       workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
       skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
@@ -2151,10 +2305,12 @@ async function handleGatewayMessageInner(
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
+      messageRole: output.pendingApproval ? 'approval' : 'assistant',
       toolsUsed: output.toolsUsed || [],
       pluginsUsed,
       skillUsed: observedSkillName ?? undefined,
       agentId,
+      addressEnvelope: req.addressEnvelope,
       model,
       provider,
       memoryCitations: output.memoryCitations,

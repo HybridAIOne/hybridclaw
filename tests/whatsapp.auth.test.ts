@@ -123,6 +123,34 @@ test('clears a stale WhatsApp auth lock owned by a dead pid', async () => {
   killSpy.mockRestore();
 });
 
+test('clears a stale WhatsApp auth lock from a previous same-pid process lifetime', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-14T14:25:00.000Z'));
+  vi.spyOn(process, 'uptime').mockReturnValue(60);
+
+  const authDir = makeTempAuthDir();
+  const lockPath = whatsappAuthLockPath(authDir);
+  fs.writeFileSync(
+    lockPath,
+    JSON.stringify({
+      pid: process.pid,
+      startedAt: '2026-04-14T15:18:38.265Z',
+      purpose: 'runtime',
+    }),
+    'utf-8',
+  );
+
+  const releaseLock = await acquireWhatsAppAuthLock(authDir, {
+    purpose: 'fresh',
+    timeoutMs: 0,
+  });
+  const parsed = JSON.parse(fs.readFileSync(lockPath, 'utf-8')) as {
+    purpose?: unknown;
+  };
+  expect(parsed.purpose).toBe('fresh');
+  releaseLock();
+});
+
 test('reset clears auth files and leaves the auth directory ready for re-pairing', async () => {
   const authDir = makeTempAuthDir();
   fs.writeFileSync(path.join(authDir, 'creds.json'), '{"stale":true}', 'utf-8');

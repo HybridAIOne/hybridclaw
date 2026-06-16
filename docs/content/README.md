@@ -27,6 +27,25 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
+- HybridClaw v0.24.4 adds admin Logs page controls for switching logging Off,
+  On, or Debug while persisting runtime config and reloading the gateway from
+  the console.
+- Log inspection gives the detail viewer more room, keeps selected paths
+  visible, strips ANSI color codes, aligns mid-file tails, and shows full local
+  dates in formatted timestamps.
+- GPT-5-family hatching prompts direct the agent to send the welcome message
+  once basic user info and a valid email address are available.
+- Admin console native dropdowns apply the first selected option immediately
+  after browser-style input and change events.
+- HybridAI Cloud launches hosted HybridClaw environments from
+  [hybridclaw.io](https://hybridclaw.io) when teams want the fastest managed
+  path instead of preparing local infrastructure first.
+- Multi-agent workflows span local agents, hosted HybridAI proxy agents, and
+  trusted peer HybridClaw instances through explicit addressing, A2A pairing,
+  inbound envelopes, and admin-visible trust.
+- Encrypted runtime secrets and SecretRefs keep raw credentials out of model
+  context; tools receive scoped credential material at execution time instead
+  of asking the LLM to handle API keys or passwords.
 - Native `image_generate` and `video_generate` tools produce managed media
   artifacts through configured image and video providers.
 - Bundled skills cover Airtable, FastBill, Firecrawl, Fronius, HeyGen,
@@ -34,7 +53,15 @@ doc at once, start from [For Agents](./agents.md).
 - Threema Gateway Basic mode is available for outbound operator messaging in
   DACH-regulated or privacy-sensitive deployments.
 - A2A federation includes JSON-RPC Agent Card inbound delivery, signed
-  delegation bearer tokens, and a public-key trust ledger.
+  delegation bearer tokens, operator pairing, and a public-key trust ledger.
+- Human distillation turns consented source material into cited coworker-agent
+  personas with reversible merges, leakage/fidelity evals, and multi-host
+  export bundles.
+- Named local endpoints let operators run multiple Ollama, LM Studio,
+  llama.cpp, or vLLM servers side by side, including Qwen and Gemma behavior
+  hints for local models.
+- HybridAI proxy agents forward selected agents to hosted HybridAI chatbots
+  while keeping gateway channel routing and SecretRef-backed upstream auth.
 - Browser automation supports local Playwright profiles, Camofox profiles, and
   Browser Use Cloud sessions with SecretRef-gated credential fills.
 - Trace-judge eval gates and behavioral anomaly reranking give tool-call and
@@ -59,6 +86,9 @@ doc at once, start from [For Agents](./agents.md).
   portals, Google Ads, cloud providers, and DATEV handoff flows.
 - The `warehouse-sql` skill reviews and runs read-only natural-language SQL
   against cached warehouse schemas.
+- The `mailchimp` skill covers Mailchimp Marketing audiences, campaigns,
+  reports, automations, journeys, and Transactional/Mandrill sends with
+  approval-gated writes.
 - Signal joins the channel catalog with a full `signal-cli` daemon setup guide,
   private-by-default DM policy, group controls, and admin QR linking.
 - `.confidential.yml` rules can redact NDA-class business data before model
@@ -102,6 +132,8 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Fast Paths
 
+- Want the fastest managed launch? Start at
+  [hybridclaw.io](https://hybridclaw.io).
 - Need to install HybridClaw quickly? Go to
   [Installation](./getting-started/installation.md).
 - Need the shortest path to a running gateway and chat UI? Go to

@@ -1,8 +1,18 @@
+import {
+  Select,
+  SelectContent,
+  SelectIcon,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/select';
+import { useAgentAvatarUrl } from './agent-avatar-url';
 import css from './chat-page.module.css';
 
 export interface AgentSwitchOption {
   id: string;
   name?: string | null;
+  imageUrl?: string | null;
 }
 
 function ChevronGlyph() {
@@ -27,36 +37,71 @@ function ChevronGlyph() {
 export function AgentSwitchSelect(props: {
   agents: AgentSwitchOption[];
   selectedAgentId: string;
+  token?: string;
   disabled?: boolean;
   onSwitch: (agentId: string) => void;
 }) {
   if (props.agents.length === 0) return null;
+  const selectedAgent = props.agents.find(
+    (agent) => agent.id === props.selectedAgentId,
+  );
+  const selectedLabel =
+    selectedAgent?.name?.trim() || selectedAgent?.id || 'Agent';
 
   return (
-    <span
-      className={css.composerPill}
-      data-disabled={props.disabled ? '' : undefined}
+    <Select
+      value={props.selectedAgentId}
+      disabled={props.disabled}
+      onValueChange={(agentId) => {
+        if (!agentId || agentId === props.selectedAgentId) return;
+        props.onSwitch(agentId);
+      }}
     >
-      <select
-        className={css.agentSelect}
-        value={props.selectedAgentId}
-        disabled={props.disabled}
+      <SelectTrigger
+        className={css.composerPill}
         aria-label="Switch agent"
-        onChange={(event) => {
-          const nextAgentId = event.target.value;
-          if (!nextAgentId || nextAgentId === props.selectedAgentId) return;
-          props.onSwitch(nextAgentId);
-        }}
+        disabled={props.disabled}
       >
+        <SelectValue>{selectedLabel}</SelectValue>
+        <SelectIcon className={css.composerPillChevron}>
+          <ChevronGlyph />
+        </SelectIcon>
+      </SelectTrigger>
+      <SelectContent className={css.agentSelectPopup}>
         {props.agents.map((agent) => (
-          <option key={agent.id} value={agent.id}>
-            {agent.name?.trim() || agent.id}
-          </option>
+          <SelectItem
+            key={agent.id}
+            value={agent.id}
+            textValue={agent.name?.trim() || agent.id}
+            className={css.agentSelectItem}
+          >
+            <AgentSelectAvatar agent={agent} token={props.token} />
+            <span className={css.agentSelectItemText}>
+              {agent.name?.trim() || agent.id}
+            </span>
+          </SelectItem>
         ))}
-      </select>
-      <span aria-hidden="true" className={css.composerPillChevron}>
-        <ChevronGlyph />
-      </span>
-    </span>
+      </SelectContent>
+    </Select>
   );
+}
+
+function AgentSelectAvatar(props: {
+  agent: AgentSwitchOption;
+  token?: string;
+}) {
+  const imageUrl = props.agent.imageUrl?.trim();
+  const avatar = useAgentAvatarUrl({
+    token: props.token ?? '',
+    imageUrl,
+  });
+
+  if (avatar.objectUrl) {
+    return (
+      <img className={css.agentSelectAvatar} src={avatar.objectUrl} alt="" />
+    );
+  }
+  return imageUrl ? (
+    <span className={css.agentSelectAvatarLoading} aria-hidden="true" />
+  ) : null;
 }

@@ -117,6 +117,11 @@ saved revision history directly.
 - `hybridai.maxTokens` for the default completion output budget; the shipped
   default is `4096`; you can change it live with
   `hybridclaw config set hybridai.maxTokens <n>`
+- `local.endpoints[]` for additional named local model endpoints. Each entry
+  has `name`, `type` (`ollama`, `lmstudio`, `llamacpp`, or `vllm`), `enabled`,
+  `baseUrl`, optional `apiKey`, and optional `modelBehavior`; named models use
+  `<name>/<model-id>`, for example `haigpu2/mistralai/Mistral-7B-Instruct-v0.3`.
+  `modelBehavior` currently supports `thinkingFormat: "qwen"`.
 - `codex.baseUrl`, `codex.turnRuntime`, and `codex.models` for first-class
   Codex provider behavior. `codex.turnRuntime` accepts `hybridclaw` for the
   standard HybridClaw tool loop or `app-server` for the native Codex app-server
@@ -156,6 +161,10 @@ saved revision history directly.
   an immediate local consolidation run
 - `agents.defaultAgentId` for the default agent used by new requests and fresh
   web sessions when no agent is pinned explicitly
+- `agents.list[].proxy` for agents that forward their turns to a hosted
+  HybridAI chatbot instead of running the local agent loop. Proxy agents
+  require `kind: "hybridai"`, an HTTPS `baseUrl`, `chatbotId`, and a
+  SecretRef-backed `apiKey`; `conversationScope` can be `channel` or `user`.
 - `agents.list[].webSearch.searxngBaseUrl` and
   `agents.list[].webSearch.searxngBearerTokenRef` override the global SearXNG
   instance and bearer SecretRef for a specific agent
@@ -381,6 +390,10 @@ For the local speech and fallback workflow, see
 ## Secrets And Trust
 
 Keep runtime secrets in the encrypted `~/.hybridclaw/credentials.json` store.
+When a tool or channel uses a SecretRef, the model sees the requested action,
+secret name, and approval context, not the raw credential value. The gateway
+resolves the secret at the execution boundary and injects it only into the
+scoped request or channel adapter that needs it.
 Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
 `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`,
 `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`,

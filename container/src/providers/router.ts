@@ -1,5 +1,6 @@
 import { getProviderContextError } from '../../shared/provider-context.js';
 import { extractResponseTextContent } from '../../shared/response-text.js';
+import type { ModelBehavior } from '../model-behavior.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -23,6 +24,7 @@ import {
 import {
   callLocalOpenAICompatProvider,
   callLocalOpenAICompatProviderStream,
+  estimateLocalOpenAICompatPromptOverheadTokens,
 } from './local-openai-compat.js';
 import {
   callOpenAICodexProvider,
@@ -51,6 +53,7 @@ export interface RoutedModelContext {
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ModelBehavior;
   thinkingFormat?: 'qwen';
   debugModelResponses?: boolean;
 }
@@ -65,6 +68,10 @@ export interface RoutedModelStreamCallParams extends RoutedModelCallParams {
   onTextDelta: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
   onActivity?: () => void;
+}
+
+export interface RoutedPromptOverheadParams extends RoutedModelContext {
+  tools?: ToolDefinition[];
 }
 
 export interface RoutedVisionCallParams extends RoutedModelContext {
@@ -94,6 +101,7 @@ function buildCallArgs(params: RoutedModelCallParams): NormalizedCallArgs {
     maxTokens: params.maxTokens,
     isLocal: Boolean(params.isLocal),
     contextWindow: params.contextWindow,
+    modelBehavior: params.modelBehavior,
     thinkingFormat: params.thinkingFormat,
   };
 }
@@ -143,6 +151,18 @@ export async function callProviderModelStream(
     return callLocalOpenAICompatProviderStream(args);
   }
   return callHybridAIProviderStream(args);
+}
+
+export function estimateRoutedPromptOverheadTokens(
+  params: RoutedPromptOverheadParams,
+): number {
+  if (!isOpenAICompatRuntimeProvider(params.provider)) return 0;
+  return estimateLocalOpenAICompatPromptOverheadTokens({
+    provider: params.provider,
+    model: params.model,
+    tools: params.tools,
+    modelBehavior: params.modelBehavior,
+  });
 }
 
 export async function callRoutedModel(
@@ -259,6 +279,7 @@ export async function callVisionProviderModel(
     requestHeaders: params.requestHeaders,
     isLocal: params.isLocal,
     contextWindow: params.contextWindow,
+    modelBehavior: params.modelBehavior,
     thinkingFormat: params.thinkingFormat,
     debugModelResponses: params.debugModelResponses,
     messages: buildVisionMessages(params),

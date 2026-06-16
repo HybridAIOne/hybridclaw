@@ -1,6 +1,7 @@
 import os from 'node:os';
 
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
 import {
   type HistoryOptimizationStats,
   optimizeHistoryMessagesForPrompt,
@@ -149,6 +150,9 @@ export function buildConversationContext(params: {
     blockedTools,
     currentUserContent,
   } = params;
+  if (promptMode !== 'none') {
+    scheduleCloudMemorySync(agentId);
+  }
   const mergedBlockedTools = mergeBlockedToolNames({ explicit: blockedTools });
   const skills = loadSkills(
     agentId,

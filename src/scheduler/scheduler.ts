@@ -1,3 +1,4 @@
+import { isRecord } from '../utils/type-guards.js';
 /**
  * Scheduler — timer-based, arms for exact next-fire time.
  *
@@ -160,10 +161,6 @@ function defaultConfigJobMeta(): ConfigJobMeta {
     disabled: false,
     oneShotCompleted: false,
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeConfigJobMeta(value: unknown): ConfigJobMeta {

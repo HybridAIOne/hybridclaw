@@ -9,6 +9,7 @@ import type {
   ToolExecution,
 } from './execution.js';
 import type { MemoryCitation } from './memory.js';
+import type { ModelBehavior } from './model-behavior.js';
 import type {
   ContextGuardConfig,
   McpServerConfig,
@@ -32,6 +33,12 @@ export interface MediaContextItem {
 }
 
 export type { WebSearchConfig } from '../../container/shared/web-search-config.js';
+
+export interface AddressEnvelope {
+  to: string | string[];
+  from?: string | null;
+  fanoutAlias?: 'team' | 'all';
+}
 
 export interface ProviderCredential {
   apiKey?: string;
@@ -69,12 +76,14 @@ export interface ContainerInput {
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ModelBehavior;
   thinkingFormat?: 'qwen';
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
   browserProvider?: string;
   browserAllowPrivateNetwork?: boolean;
   model: string;
+  addressEnvelope?: AddressEnvelope;
   codexRuntime?: CodexTurnRuntime;
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;

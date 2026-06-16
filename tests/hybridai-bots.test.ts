@@ -208,6 +208,57 @@ test('fetchHybridAIBots applies a request timeout', async () => {
   );
 });
 
+test('fetchHybridAIBots scopes cached bot lists by base URL', async () => {
+  process.env.HOME = os.homedir();
+  process.env.HYBRIDAI_API_KEY = 'hai-bot-test';
+
+  const fetchSpy = vi.fn(async (url: string) => {
+    const id = url.startsWith('https://hybridai.one')
+      ? 'official-bot'
+      : 'custom-bot';
+    return new Response(JSON.stringify({ data: [{ id, name: id }] }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+  });
+  vi.stubGlobal('fetch', fetchSpy);
+
+  const { fetchHybridAIBots } = await importFreshBots();
+
+  await expect(
+    fetchHybridAIBots({
+      baseUrl: 'https://hybridai.one/',
+      cacheTtlMs: 60_000,
+    }),
+  ).resolves.toMatchObject([{ id: 'official-bot' }]);
+  await expect(
+    fetchHybridAIBots({
+      baseUrl: 'https://hybridai.one',
+      cacheTtlMs: 60_000,
+    }),
+  ).resolves.toMatchObject([{ id: 'official-bot' }]);
+  await expect(
+    fetchHybridAIBots({
+      baseUrl: 'https://custom.hybridai.example.com',
+      cacheTtlMs: 60_000,
+    }),
+  ).resolves.toMatchObject([{ id: 'custom-bot' }]);
+  await expect(
+    fetchHybridAIBots({
+      baseUrl: 'https://custom.hybridai.example.com/',
+      cacheTtlMs: 60_000,
+    }),
+  ).resolves.toMatchObject([{ id: 'custom-bot' }]);
+
+  expect(fetchSpy).toHaveBeenCalledTimes(2);
+  expect(fetchSpy.mock.calls.map(([url]) => url)).toEqual([
+    'https://hybridai.one/api/v1/bot-management/bots',
+    'https://custom.hybridai.example.com/api/v1/bot-management/bots',
+  ]);
+});
+
 test('fetchHybridAIAccountChatbotId reads the current user id from /bot-management/me', async () => {
   process.env.HOME = os.homedir();
   process.env.HYBRIDAI_API_KEY = 'hai-bot-test';

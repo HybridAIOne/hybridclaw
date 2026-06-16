@@ -29,6 +29,7 @@ import {
 } from './gateway-service.js';
 import type {
   GatewayChatResult,
+  GatewayChatResultMessageRole,
   GatewayCommandResult,
 } from './gateway-types.js';
 import {
@@ -51,6 +52,7 @@ export interface HandledTextChannelApprovalResult {
   pendingApproval?: NonNullable<GatewayChatResult['pendingApproval']>;
   text: string | null;
   artifacts: ArtifactMetadata[];
+  messageRole: GatewayChatResultMessageRole;
 }
 
 export function resolveTextChannelSlashCommands(
@@ -149,6 +151,7 @@ export async function handleTextChannelApprovalCommand(params: {
         sessionId,
         text: 'No pending approval request for you in this session.',
         artifacts: [],
+        messageRole: 'command',
       };
     }
     return {
@@ -157,6 +160,7 @@ export async function handleTextChannelApprovalCommand(params: {
       approvalId: pending.approvalId,
       text: formatInfo('Pending Approval', pending.prompt),
       artifacts: [],
+      messageRole: 'command',
     };
   }
 
@@ -167,6 +171,7 @@ export async function handleTextChannelApprovalCommand(params: {
       sessionId,
       text: APPROVE_TEXT_CHANNEL_USAGE,
       artifacts: [],
+      messageRole: 'command',
     };
   }
 
@@ -177,6 +182,7 @@ export async function handleTextChannelApprovalCommand(params: {
         sessionId,
         text: 'No pending approval request for you in this session.',
         artifacts: [],
+        messageRole: 'command',
       };
     }
     if (!approvalId || approvalId !== pending.approvalId) {
@@ -185,6 +191,7 @@ export async function handleTextChannelApprovalCommand(params: {
         sessionId,
         text: 'No matching pending approval request for this session.',
         artifacts: [],
+        messageRole: 'command',
       };
     }
     if (
@@ -208,6 +215,7 @@ export async function handleTextChannelApprovalCommand(params: {
         sessionId,
         text: 'This approval only supports `/approve yes [approval_id]`, `/approve session [approval_id]`, or `/approve no [approval_id]`.',
         artifacts: [],
+        messageRole: 'command',
       };
     }
 
@@ -220,6 +228,7 @@ export async function handleTextChannelApprovalCommand(params: {
         sessionId,
         text: 'Session trust is unavailable for this approval.',
         artifacts: [],
+        messageRole: 'command',
       };
     }
     if (
@@ -231,6 +240,7 @@ export async function handleTextChannelApprovalCommand(params: {
         sessionId,
         text: 'Agent trust is unavailable for this approval.',
         artifacts: [],
+        messageRole: 'command',
       };
     }
     if (
@@ -242,6 +252,7 @@ export async function handleTextChannelApprovalCommand(params: {
         sessionId,
         text: 'Workspace allowlist trust is unavailable for this approval.',
         artifacts: [],
+        messageRole: 'command',
       };
     }
 
@@ -261,6 +272,7 @@ export async function handleTextChannelApprovalCommand(params: {
           text: pending.commandAction.denyText || 'Request denied.',
         }),
         artifacts: [],
+        messageRole: 'command',
       };
     }
 
@@ -274,7 +286,7 @@ export async function handleTextChannelApprovalCommand(params: {
       });
     }
 
-    const commandResult = await handleGatewayCommand({
+    const gatewayCommandResult = await handleGatewayCommand({
       sessionId,
       guildId,
       channelId,
@@ -284,11 +296,12 @@ export async function handleTextChannelApprovalCommand(params: {
     });
     return {
       handled: true,
-      sessionId: commandResult.sessionId || sessionId,
-      sessionKey: commandResult.sessionKey,
-      mainSessionKey: commandResult.mainSessionKey,
-      text: renderTextChannelCommandResult(commandResult),
+      sessionId: gatewayCommandResult.sessionId || sessionId,
+      sessionKey: gatewayCommandResult.sessionKey,
+      mainSessionKey: gatewayCommandResult.mainSessionKey,
+      text: renderTextChannelCommandResult(gatewayCommandResult),
       artifacts: [],
+      messageRole: 'command',
     };
   }
 
@@ -298,6 +311,7 @@ export async function handleTextChannelApprovalCommand(params: {
       sessionId,
       text: 'No pending approval request for this session.',
       artifacts: [],
+      messageRole: 'command',
     };
   }
 
@@ -325,6 +339,7 @@ export async function handleTextChannelApprovalCommand(params: {
         approvalResult.error || 'Unknown error',
       ),
       artifacts: [],
+      messageRole: 'assistant',
     };
   }
 
@@ -338,6 +353,7 @@ export async function handleTextChannelApprovalCommand(params: {
       mainSessionKey: approvalResult.mainSessionKey,
       text: null,
       artifacts: approvalResult.artifacts || [],
+      messageRole: 'assistant',
     };
   }
 
@@ -351,6 +367,7 @@ export async function handleTextChannelApprovalCommand(params: {
       mainSessionKey: approvalResult.mainSessionKey,
       text: null,
       artifacts: approvalResult.artifacts || [],
+      messageRole: 'assistant',
     };
   }
 
@@ -379,6 +396,7 @@ export async function handleTextChannelApprovalCommand(params: {
       pendingApproval: approvalResult.pendingApproval,
       text: formatInfo('Pending Approval', resultText),
       artifacts: approvalResult.artifacts || [],
+      messageRole: 'approval',
     };
   }
 
@@ -390,5 +408,6 @@ export async function handleTextChannelApprovalCommand(params: {
     mainSessionKey: approvalResult.mainSessionKey,
     text: resultText,
     artifacts: approvalResult.artifacts || [],
+    messageRole: 'assistant',
   };
 }

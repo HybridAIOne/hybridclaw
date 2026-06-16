@@ -11,6 +11,14 @@ import {
 } from '../../container/shared/workspace-time.js';
 import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
 import {
+  approveIncomingA2APairingRequest,
+  declineIncomingA2APairingRequest,
+  fetchA2APairingProposal,
+  listIncomingA2APairingRequests,
+  type StartA2APairingResult,
+  startA2APairing,
+} from '../a2a/pairing.js';
+import {
   type A2AThreadSummary,
   listA2AThreadEnvelopes,
   listA2AThreads,
@@ -119,6 +127,10 @@ import {
   parseLowerArg,
 } from '../command-parsing.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
+import {
+  AuxCommandUsageError,
+  runAuxCommand,
+} from '../commands/aux-command.js';
 import { runBtwSideQuestion } from '../commands/btw-command.js';
 import { runPolicyCommand } from '../commands/policy-command.js';
 import { runSecondOpinionCommand } from '../commands/second-opinion-command.js';
@@ -134,6 +146,7 @@ import {
   FULLAUTO_NEVER_APPROVE_TOOLS,
   GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
+  GATEWAY_CLIENT_BASE_URL,
   HUGGINGFACE_API_KEY,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_ENABLE_RAG,
@@ -167,6 +180,7 @@ import {
   isGoogleOAuthSpecifier,
   makeGoogleOAuthSecretRef,
   normalizeHttpRequestAuthRuleUrlPrefix,
+  type RuntimeAuxiliaryModelPolicyConfig,
   type RuntimeConfig,
   type RuntimeHttpRequestAuthRule,
   type RuntimeHttpRequestAuthRuleSecret,
@@ -204,6 +218,10 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
+import {
+  type CloudMemoryContextFile,
+  loadCloudMemoryContextFiles,
+} from '../memory/cloud-memory.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { runMemoryConsolidation } from '../memory/consolidation-runner.js';
 import {
@@ -280,6 +298,7 @@ import {
   removeHttpSecretRouteFromWorkspacePolicy,
   restoreHttpSecretRoutePolicySnapshot,
 } from '../policy/secret-route-policy.js';
+import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { discoverCodexModels } from '../providers/codex-discovery.js';
 import {
   modelRequiresChatbotId,
@@ -418,6 +437,10 @@ import {
   WORKSPACE_BOOTSTRAP_FILES,
 } from '../workspace.js';
 import {
+  resolveAgentAddressing,
+  setActiveThreadAgentId,
+} from './agent-addressing.js';
+import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
@@ -481,6 +504,10 @@ import {
 } from './gateway-tunnel-service.js';
 import {
   type GatewayAdminA2AInboxResponse,
+  type GatewayAdminA2APairingDecisionRequest,
+  type GatewayAdminA2APairingPreviewResponse,
+  type GatewayAdminA2APairingStartRequest,
+  type GatewayAdminA2APairingStartResponse,
   type GatewayAdminA2AThreadMessage,
   type GatewayAdminA2AThreadSummary,
   type GatewayAdminA2ATrustPeer,
@@ -505,6 +532,7 @@ import {
   type GatewayAdminEmailFolderResponse,
   type GatewayAdminEmailMailboxResponse,
   type GatewayAdminEmailMessageResponse,
+  type GatewayAdminHybridAIBotsResponse,
   type GatewayAdminJobCard,
   type GatewayAdminJobCardEdge,
   type GatewayAdminJobsContextResponse,
@@ -577,19 +605,50 @@ const GATEWAY_PROCESS_STARTED_AT = new Date().toISOString();
 const MAX_HISTORY_MESSAGES = 40;
 const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
+const BOOTSTRAP_PRELUDE_MAX_TOKENS = 48;
+const BOOTSTRAP_PRELUDE_TIMEOUT_MS = 1500;
 const activeBootstrapAutostartSessions = new Set<string>();
 const assistantPresentationImagePathCache = new Map<string, string | null>();
 const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
 const ADMIN_AGENT_MARKDOWN_MAX_REVISIONS = 50;
 const ADMIN_AGENT_MARKDOWN_REVISIONS_DIRNAME = 'markdown-revisions';
-const ADMIN_AGENT_MARKDOWN_FILES = [
+const ADMIN_AGENT_LOCAL_MARKDOWN_FILES = [
   ...WORKSPACE_BOOTSTRAP_FILES,
   'CV.md',
+] as const;
+const ADMIN_AGENT_SHARED_MEMORY_FILES = [
+  {
+    name: 'Instance Memory.md',
+    displayName: 'Instance Memory',
+    scope: 'installation',
+    cloudPath: '/MEMORY.md',
+  },
+  {
+    name: 'Organization Memory.md',
+    displayName: 'Organization Memory',
+    scope: 'company',
+    cloudPath: '/MEMORY.md',
+  },
+] as const;
+const ADMIN_AGENT_MARKDOWN_FILES = [
+  ...ADMIN_AGENT_LOCAL_MARKDOWN_FILES,
+  ...ADMIN_AGENT_SHARED_MEMORY_FILES.map((file) => file.name),
 ] as const;
 const ADMIN_AGENT_MARKDOWN_FILE_SET = new Set<string>(
   ADMIN_AGENT_MARKDOWN_FILES,
 );
+const ADMIN_AGENT_LOCAL_MARKDOWN_FILE_SET = new Set<string>(
+  ADMIN_AGENT_LOCAL_MARKDOWN_FILES,
+);
+const ADMIN_AGENT_SHARED_MEMORY_FILE_BY_NAME = new Map<
+  string,
+  (typeof ADMIN_AGENT_SHARED_MEMORY_FILES)[number]
+>(ADMIN_AGENT_SHARED_MEMORY_FILES.map((file) => [file.name, file]));
 type AdminAgentMarkdownFileName = (typeof ADMIN_AGENT_MARKDOWN_FILES)[number];
+type AdminAgentLocalMarkdownFileName =
+  (typeof ADMIN_AGENT_LOCAL_MARKDOWN_FILES)[number];
+type AdminAgentSharedMemoryFile =
+  (typeof ADMIN_AGENT_SHARED_MEMORY_FILES)[number];
 type GatewayAdminAgentMarkdownFileStats = Pick<
   GatewayAdminAgentMarkdownFile,
   'exists' | 'updatedAt' | 'sizeBytes'
@@ -599,7 +658,7 @@ type GatewayAdminAgentMarkdownFileState = GatewayAdminAgentMarkdownFileStats & {
 };
 type StoredAdminAgentMarkdownRevisionMetadata =
   GatewayAdminAgentMarkdownRevision & {
-    fileName: AdminAgentMarkdownFileName;
+    fileName: AdminAgentLocalMarkdownFileName;
   };
 type StoredAdminAgentMarkdownRevision =
   StoredAdminAgentMarkdownRevisionMetadata & {
@@ -613,9 +672,70 @@ function buildBootstrapAutostartPrompt(
     `A startup instruction file (${fileName}) exists for this agent.`,
     'This is an internal kickoff turn, not a user-authored message.',
     `Follow the ${fileName} instructions now and begin the conversation proactively.`,
-    'Send a concise first message to the user.',
+    fileName === 'BOOTSTRAP.md'
+      ? 'Onboarding should be conversational: do not dump a form or checklist, ask only a few useful questions at a time, and let the user answer naturally.'
+      : 'Send a concise first message to the user.',
     `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
   ].join(' ');
+}
+
+function normalizeBootstrapPrelude(raw: string): string | null {
+  const firstLine = raw
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!firstLine) return null;
+  const cleaned = firstLine
+    .replace(/^[-*•\d.)\s]+/u, '')
+    .replace(/^["'`“”]+|["'`“”]+$/gu, '')
+    .trim();
+  if (!cleaned) return null;
+  if (/\b(hidden|internal|kickoff|system prompt)\b/iu.test(cleaned)) {
+    return null;
+  }
+  return cleaned;
+}
+
+async function generateBootstrapPrelude(params: {
+  agentId: string;
+  fileName: 'BOOTSTRAP.md' | 'OPENING.md';
+  model: string;
+  chatbotId: string | null;
+}): Promise<string | null> {
+  try {
+    const result = await callAuxiliaryModel({
+      task: 'compression',
+      agentId: params.agentId,
+      fallbackModel: params.model,
+      fallbackChatbotId: params.chatbotId ?? undefined,
+      fallbackEnableRag: false,
+      tools: [],
+      maxTokens: BOOTSTRAP_PRELUDE_MAX_TOKENS,
+      timeoutMs: BOOTSTRAP_PRELUDE_TIMEOUT_MS,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Write exactly one short first-person startup line for a newly hatching personal AI agent. Make it conversational and alive, not corporate. Do not ask onboarding questions yet. Do not use markdown, quotes, or explanations.',
+        },
+        {
+          role: 'user',
+          content:
+            params.fileName === 'BOOTSTRAP.md'
+              ? 'Generate a brief coming-to-life line before onboarding starts.'
+              : 'Generate a brief opening line before the agent starts.',
+        },
+      ],
+    });
+    return normalizeBootstrapPrelude(result.content);
+  } catch (error) {
+    logger.debug(
+      { agentId: params.agentId, fileName: params.fileName, error },
+      'Failed to generate bootstrap prelude with auxiliary model',
+    );
+    return null;
+  }
 }
 
 function getBootstrapAutostartMarkerKey(agentId: string): string {
@@ -640,7 +760,7 @@ let lastWarnedGatewayRequestLoggingValue: string | null = null;
 
 export function isGatewayRequestLoggingEnabled(): boolean {
   const raw = String(process.env[GATEWAY_LOG_REQUESTS_ENV] || '').trim();
-  if (!raw) return false;
+  if (!raw) return getRuntimeConfig().ops.logRequests === true;
   if (raw === GATEWAY_REQUEST_LOG_ENABLED_VALUE) {
     lastWarnedGatewayRequestLoggingValue = null;
     return true;
@@ -1171,6 +1291,28 @@ function normalizeGatewayAdminAgentMarkdownFileName(
   return normalized as AdminAgentMarkdownFileName;
 }
 
+function isGatewayAdminLocalMarkdownFileName(
+  fileName: AdminAgentMarkdownFileName,
+): fileName is AdminAgentLocalMarkdownFileName {
+  return ADMIN_AGENT_LOCAL_MARKDOWN_FILE_SET.has(fileName);
+}
+
+function normalizeGatewayAdminAgentLocalMarkdownFileName(
+  value: string,
+): AdminAgentLocalMarkdownFileName {
+  const fileName = normalizeGatewayAdminAgentMarkdownFileName(value);
+  if (!isGatewayAdminLocalMarkdownFileName(fileName)) {
+    throw new Error(`Shared markdown file "${fileName}" is read-only.`);
+  }
+  return fileName;
+}
+
+function getGatewayAdminSharedMemoryFileSpec(
+  fileName: AdminAgentMarkdownFileName,
+): AdminAgentSharedMemoryFile | null {
+  return ADMIN_AGENT_SHARED_MEMORY_FILE_BY_NAME.get(fileName) || null;
+}
+
 function resolveGatewayAdminAgentMarkdownFile(params: {
   agentId: string;
   fileName: string;
@@ -1178,18 +1320,23 @@ function resolveGatewayAdminAgentMarkdownFile(params: {
   agent: AgentConfig;
   resolvedAgent: AgentConfig;
   fileName: AdminAgentMarkdownFileName;
+  sharedMemoryFile: AdminAgentSharedMemoryFile | null;
   workspacePath: string;
   filePath: string;
 } {
   const agent = getGatewayAdminAgentConfig(params.agentId);
   const fileName = normalizeGatewayAdminAgentMarkdownFileName(params.fileName);
+  const sharedMemoryFile = getGatewayAdminSharedMemoryFileSpec(fileName);
   const resolvedAgent = resolveAgentConfig(agent.id);
   const workspacePath = path.resolve(agentWorkspaceDir(resolvedAgent.id));
-  const filePath = path.join(workspacePath, fileName);
+  const filePath = sharedMemoryFile
+    ? `cloud-memory://${sharedMemoryFile.scope}${sharedMemoryFile.cloudPath}`
+    : path.join(workspacePath, fileName);
   return {
     agent,
     resolvedAgent,
     fileName,
+    sharedMemoryFile,
     workspacePath,
     filePath,
   };
@@ -1221,11 +1368,59 @@ function getGatewayAdminAgentMarkdownFileStats(
   }
 }
 
+function getGatewayAdminSharedMemoryFile(
+  agentId: string,
+  spec: AdminAgentSharedMemoryFile,
+): CloudMemoryContextFile | null {
+  return (
+    loadCloudMemoryContextFiles(agentId).find(
+      (file) => file.scope === spec.scope && file.name === spec.cloudPath,
+    ) || null
+  );
+}
+
+function getGatewayAdminSharedMemoryFileStats(
+  agentId: string,
+  spec: AdminAgentSharedMemoryFile,
+): GatewayAdminAgentMarkdownFileStats {
+  const file = getGatewayAdminSharedMemoryFile(agentId, spec);
+  if (!file) {
+    return {
+      exists: false,
+      updatedAt: null,
+      sizeBytes: null,
+    };
+  }
+  return {
+    exists: true,
+    updatedAt: null,
+    sizeBytes: Buffer.byteLength(file.content, 'utf-8'),
+  };
+}
+
 function mapGatewayAdminAgentMarkdownFile(params: {
+  agentId: string;
   workspacePath: string;
   fileName: AdminAgentMarkdownFileName;
   stats?: GatewayAdminAgentMarkdownFileStats;
 }): GatewayAdminAgentMarkdownFile {
+  const sharedMemoryFile = getGatewayAdminSharedMemoryFileSpec(params.fileName);
+  if (sharedMemoryFile) {
+    const stats =
+      params.stats ??
+      getGatewayAdminSharedMemoryFileStats(params.agentId, sharedMemoryFile);
+    return {
+      name: sharedMemoryFile.name,
+      displayName: sharedMemoryFile.displayName,
+      path: `cloud-memory://${sharedMemoryFile.scope}${sharedMemoryFile.cloudPath}`,
+      scope: sharedMemoryFile.scope,
+      cloudPath: sharedMemoryFile.cloudPath,
+      readOnly: true,
+      exists: stats.exists,
+      updatedAt: stats.updatedAt,
+      sizeBytes: stats.sizeBytes,
+    };
+  }
   const filePath = path.join(params.workspacePath, params.fileName);
   const stats = params.stats ?? getGatewayAdminAgentMarkdownFileStats(filePath);
   return {
@@ -1239,7 +1434,7 @@ function mapGatewayAdminAgentMarkdownFile(params: {
 
 function getGatewayAdminAgentMarkdownFilePresenceStats(
   workspacePath: string,
-): Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFileStats> {
+): Record<AdminAgentLocalMarkdownFileName, GatewayAdminAgentMarkdownFileStats> {
   const entriesByName = new Map<string, fs.Dirent>();
   try {
     for (const entry of fs.readdirSync(workspacePath, {
@@ -1254,7 +1449,7 @@ function getGatewayAdminAgentMarkdownFilePresenceStats(
     }
   }
 
-  return ADMIN_AGENT_MARKDOWN_FILES.reduce(
+  return ADMIN_AGENT_LOCAL_MARKDOWN_FILES.reduce(
     (statsByName, fileName) => {
       const entry = entriesByName.get(fileName);
       statsByName[fileName] = {
@@ -1265,7 +1460,7 @@ function getGatewayAdminAgentMarkdownFilePresenceStats(
       return statsByName;
     },
     {} as Record<
-      AdminAgentMarkdownFileName,
+      AdminAgentLocalMarkdownFileName,
       GatewayAdminAgentMarkdownFileStats
     >,
   );
@@ -1277,7 +1472,10 @@ function mapGatewayAdminAgent(
     resolvedAgent?: AgentConfig;
     workspacePath?: string;
     markdownFileStats?: Partial<
-      Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFileStats>
+      Record<
+        AdminAgentLocalMarkdownFileName,
+        GatewayAdminAgentMarkdownFileStats
+      >
     >;
     markdownFileOverrides?: Partial<
       Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFile>
@@ -1295,6 +1493,9 @@ function mapGatewayAdminAgent(
     chatbotId: resolved.chatbotId || null,
     enableRag:
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
+    ...(resolved.proxy
+      ? { proxy: mapGatewayAdminAgentProxyConfig(resolved.proxy) }
+      : {}),
     role: resolved.role || null,
     reportsTo: resolved.reportsTo || null,
     delegatesTo: Array.isArray(resolved.delegatesTo)
@@ -1307,11 +1508,33 @@ function mapGatewayAdminAgent(
       (fileName) =>
         options?.markdownFileOverrides?.[fileName] ||
         mapGatewayAdminAgentMarkdownFile({
+          agentId: resolved.id,
           workspacePath,
           fileName,
-          stats: options?.markdownFileStats?.[fileName],
+          stats: isGatewayAdminLocalMarkdownFileName(fileName)
+            ? options?.markdownFileStats?.[fileName]
+            : undefined,
         }),
     ),
+  };
+}
+
+function mapGatewayAdminAgentProxyConfig(
+  proxy: AgentConfig['proxy'],
+): GatewayAdminAgent['proxy'] {
+  if (!proxy) return null;
+  if (proxy.apiKey.source !== 'store') return null;
+  return {
+    kind: 'hybridai',
+    baseUrl: proxy.baseUrl,
+    chatbotId: proxy.chatbotId,
+    apiKey: {
+      source: 'store',
+      id: proxy.apiKey.id,
+    },
+    ...(proxy.conversationScope
+      ? { conversationScope: proxy.conversationScope }
+      : {}),
   };
 }
 
@@ -1336,6 +1559,27 @@ function readGatewayAdminAgentMarkdownFileState(
   return {
     ...stats,
     content: fs.readFileSync(filePath, 'utf-8'),
+  };
+}
+
+function readGatewayAdminSharedMemoryFileState(
+  agentId: string,
+  spec: AdminAgentSharedMemoryFile,
+): GatewayAdminAgentMarkdownFileState {
+  const file = getGatewayAdminSharedMemoryFile(agentId, spec);
+  if (!file) {
+    return {
+      exists: false,
+      updatedAt: null,
+      sizeBytes: null,
+      content: '',
+    };
+  }
+  return {
+    exists: true,
+    updatedAt: null,
+    sizeBytes: Buffer.byteLength(file.content, 'utf-8'),
+    content: file.content,
   };
 }
 
@@ -1380,8 +1624,14 @@ function buildGatewayAdminAgentMarkdownFileResponse(params: {
 }): GatewayAdminAgentMarkdownFileResponse {
   const fileState =
     params.fileState ??
-    readGatewayAdminAgentMarkdownFileState(params.resolved.filePath);
+    (params.resolved.sharedMemoryFile
+      ? readGatewayAdminSharedMemoryFileState(
+          params.resolved.resolvedAgent.id,
+          params.resolved.sharedMemoryFile,
+        )
+      : readGatewayAdminAgentMarkdownFileState(params.resolved.filePath));
   const mappedFile = mapGatewayAdminAgentMarkdownFile({
+    agentId: params.resolved.resolvedAgent.id,
     workspacePath: params.resolved.workspacePath,
     fileName: params.resolved.fileName,
     stats: fileState,
@@ -1406,17 +1656,20 @@ function buildGatewayAdminAgentMarkdownFileResponse(params: {
       content: fileState.content,
       revisions:
         params.revisions ??
-        listGatewayAdminAgentMarkdownRevisions({
-          workspacePath: params.resolved.workspacePath,
-          fileName: params.resolved.fileName,
-        }),
+        (params.resolved.sharedMemoryFile
+          ? []
+          : listGatewayAdminAgentMarkdownRevisions({
+              workspacePath: params.resolved.workspacePath,
+              fileName: params.resolved
+                .fileName as AdminAgentLocalMarkdownFileName,
+            })),
     },
   };
 }
 
 function getGatewayAdminAgentMarkdownRevisionDir(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
 }): string {
   return path.join(
     path.dirname(params.workspacePath),
@@ -1426,7 +1679,7 @@ function getGatewayAdminAgentMarkdownRevisionDir(params: {
 }
 
 function buildGatewayAdminAgentMarkdownRevision(params: {
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
   content: string;
   source: GatewayAdminAgentMarkdownRevision['source'];
 }): StoredAdminAgentMarkdownRevision {
@@ -1464,7 +1717,7 @@ function getGatewayAdminAgentMarkdownRevisionContentPath(
 
 function writeGatewayAdminAgentMarkdownRevision(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
   content: string;
   source: GatewayAdminAgentMarkdownRevision['source'];
 }): GatewayAdminAgentMarkdownRevision {
@@ -1518,7 +1771,9 @@ function readGatewayAdminAgentMarkdownRevisionMetadataRecord(
     }
     return {
       id: parsed.id,
-      fileName: normalizeGatewayAdminAgentMarkdownFileName(parsed.fileName),
+      fileName: normalizeGatewayAdminAgentLocalMarkdownFileName(
+        parsed.fileName,
+      ),
       createdAt: parsed.createdAt,
       sizeBytes: parsed.sizeBytes,
       sha256: parsed.sha256,
@@ -1602,7 +1857,7 @@ function compareGatewayAdminAgentMarkdownRevisionEntries(
 
 function listGatewayAdminAgentMarkdownRevisionEntries(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
 }): { revisionDir: string; entries: string[] } {
   const revisionDir = getGatewayAdminAgentMarkdownRevisionDir(params);
   let entries: string[];
@@ -1628,7 +1883,7 @@ function listGatewayAdminAgentMarkdownRevisionEntries(params: {
 
 function trimGatewayAdminAgentMarkdownRevisions(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
 }): void {
   const { revisionDir, entries } =
     listGatewayAdminAgentMarkdownRevisionEntries(params);
@@ -1655,7 +1910,7 @@ function trimGatewayAdminAgentMarkdownRevisions(params: {
 
 function listGatewayAdminAgentMarkdownRevisions(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
 }): GatewayAdminAgentMarkdownRevision[] {
   const { revisionDir, entries } =
     listGatewayAdminAgentMarkdownRevisionEntries(params);
@@ -1707,7 +1962,7 @@ function normalizeGatewayAdminAgentMarkdownRevisionId(value: string): string {
 
 function getGatewayAdminAgentMarkdownRevisionRecord(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
   revisionId: string;
 }): StoredAdminAgentMarkdownRevision {
   const revisionId = normalizeGatewayAdminAgentMarkdownRevisionId(
@@ -3697,6 +3952,58 @@ function formatConfiguredAgentModel(
   return model ? formatModelForDisplay(model) : '(none)';
 }
 
+function formatAuxiliaryModelPolicy(
+  policy: RuntimeAuxiliaryModelPolicyConfig,
+): string {
+  if (policy.provider === 'disabled') return 'disabled';
+
+  const configuredModel = policy.model.trim();
+  const formattedMaxTokens =
+    policy.maxTokens > 0
+      ? ` (max ${formatCompactNumber(policy.maxTokens)})`
+      : '';
+
+  if (!configuredModel) {
+    const label =
+      policy.provider === 'auto' ? 'auto' : `${policy.provider} default`;
+    return `${label}${formattedMaxTokens}`;
+  }
+
+  if (policy.provider === 'auto') {
+    return `${formatModelForDisplay(configuredModel)}${formattedMaxTokens}`;
+  }
+
+  try {
+    return `${formatModelForDisplay(
+      normalizeAuxiliaryProviderModel({
+        provider: policy.provider,
+        model: configuredModel,
+      }),
+    )}${formattedMaxTokens}`;
+  } catch {
+    return `${formatModelForDisplay(configuredModel)}${formattedMaxTokens}`;
+  }
+}
+
+function formatAuxiliaryModelLines(config: RuntimeConfig): string[] {
+  const configuredAuxiliaryModels = Object.entries(
+    config.auxiliaryModels,
+  ).filter(([, policy]) => {
+    return policy.provider !== 'auto' || policy.model.trim() !== '';
+  });
+
+  if (configuredAuxiliaryModels.length === 0) {
+    return ['Aux models: auto'];
+  }
+
+  return [
+    'Aux models:',
+    ...configuredAuxiliaryModels.map(([task, policy]) => {
+      return `- ${task}: ${formatAuxiliaryModelPolicy(policy)}`;
+    }),
+  ];
+}
+
 function enableFullAutoCommand(params: {
   session: Session;
   req: GatewayCommandRequest;
@@ -4241,6 +4548,7 @@ export async function getGatewayStatus(
       ...whatsappAuth,
       pairingQrText: whatsappPairing.pairingQrText,
       pairingUpdatedAt: whatsappPairing.updatedAt,
+      pairingError: whatsappPairing.error,
     },
     providerHealth,
     localBackends,
@@ -4429,6 +4737,23 @@ export function getGatewayAdminAgents(): GatewayAdminAgentsResponse {
   };
 }
 
+export async function getGatewayAdminHybridAIBots(options?: {
+  baseUrl?: string;
+}): Promise<GatewayAdminHybridAIBotsResponse> {
+  const bots = await fetchHybridAIBots({
+    baseUrl: options?.baseUrl,
+    cacheTtlMs: BOT_CACHE_TTL,
+  });
+  return {
+    bots: bots.map((bot) => ({
+      id: bot.id,
+      name: bot.name,
+      ...(bot.description ? { description: bot.description } : {}),
+      ...(bot.model ? { model: bot.model } : {}),
+    })),
+  };
+}
+
 function mapGatewayAdminTeamStructureRevision(
   revision: ReturnType<
     typeof listRegisteredAgentTeamStructureRevisions
@@ -4487,9 +4812,17 @@ export function getGatewayAdminAgentMarkdownRevision(params: {
   revisionId: string;
 }): GatewayAdminAgentMarkdownRevisionResponse {
   const resolved = resolveGatewayAdminAgentMarkdownFile(params);
+  if (resolved.sharedMemoryFile) {
+    throw new Error(
+      `Shared markdown file "${resolved.fileName}" does not have local revisions.`,
+    );
+  }
+  const fileName = normalizeGatewayAdminAgentLocalMarkdownFileName(
+    resolved.fileName,
+  );
   const revision = getGatewayAdminAgentMarkdownRevisionRecord({
     workspacePath: resolved.workspacePath,
-    fileName: resolved.fileName,
+    fileName,
     revisionId: params.revisionId,
   });
   return {
@@ -4521,6 +4854,14 @@ export function saveGatewayAdminAgentMarkdownFile(params: {
     params.content,
   );
   const resolved = resolveGatewayAdminAgentMarkdownFile(params);
+  if (resolved.sharedMemoryFile) {
+    throw new Error(
+      `Shared markdown file "${resolved.fileName}" is read-only.`,
+    );
+  }
+  const fileName = normalizeGatewayAdminAgentLocalMarkdownFileName(
+    resolved.fileName,
+  );
   const currentState = readGatewayAdminAgentMarkdownFileState(
     resolved.filePath,
   );
@@ -4533,7 +4874,7 @@ export function saveGatewayAdminAgentMarkdownFile(params: {
   if (currentState.exists) {
     writeGatewayAdminAgentMarkdownRevision({
       workspacePath: resolved.workspacePath,
-      fileName: resolved.fileName,
+      fileName,
       content: currentState.content,
       source: 'save',
     });
@@ -4560,9 +4901,17 @@ export function restoreGatewayAdminAgentMarkdownRevision(params: {
   revisionId: string;
 }): GatewayAdminAgentMarkdownFileResponse {
   const resolved = resolveGatewayAdminAgentMarkdownFile(params);
+  if (resolved.sharedMemoryFile) {
+    throw new Error(
+      `Shared markdown file "${resolved.fileName}" is read-only.`,
+    );
+  }
+  const fileName = normalizeGatewayAdminAgentLocalMarkdownFileName(
+    resolved.fileName,
+  );
   const revision = getGatewayAdminAgentMarkdownRevisionRecord({
     workspacePath: resolved.workspacePath,
-    fileName: resolved.fileName,
+    fileName,
     revisionId: params.revisionId,
   });
   const nextSizeBytes = assertGatewayAdminAgentMarkdownContentSize(
@@ -4581,7 +4930,7 @@ export function restoreGatewayAdminAgentMarkdownRevision(params: {
   if (currentState.exists) {
     writeGatewayAdminAgentMarkdownRevision({
       workspacePath: resolved.workspacePath,
-      fileName: resolved.fileName,
+      fileName,
       content: currentState.content,
       source: 'restore',
     });
@@ -4645,6 +4994,7 @@ export function createGatewayAdminAgent(params: {
   skills?: string[] | null;
   chatbotId?: string | null;
   enableRag?: boolean | null;
+  proxy?: AgentConfig['proxy'] | null;
   role?: string | null;
   reportsTo?: string | null;
   delegatesTo?: string[] | null;
@@ -4662,6 +5012,7 @@ export function createGatewayAdminAgent(params: {
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
       : {}),
+    ...(params.proxy !== undefined ? { proxy: params.proxy ?? undefined } : {}),
     ...buildGatewayAdminAgentOrgChartPatch(params),
     ...(params.workspace?.trim() ? { workspace: params.workspace.trim() } : {}),
   });
@@ -4678,6 +5029,7 @@ export function updateGatewayAdminAgent(
     skills?: string[] | null;
     chatbotId?: string | null;
     enableRag?: boolean | null;
+    proxy?: AgentConfig['proxy'] | null;
     role?: string | null;
     reportsTo?: string | null;
     delegatesTo?: string[] | null;
@@ -4709,6 +5061,7 @@ export function updateGatewayAdminAgent(
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
       : {}),
+    ...(params.proxy !== undefined ? { proxy: params.proxy ?? undefined } : {}),
     ...buildGatewayAdminAgentOrgChartPatch(params),
   });
   return {
@@ -5504,15 +5857,18 @@ export function getGatewayAdminA2ATrust(): GatewayAdminA2ATrustResponse {
       publicKeyJwk: identity.publicKeyJwk,
     },
     peers: listA2ATrustedPublicKeyPeers().map(mapA2ATrustPeer),
+    pairingRequests: listIncomingA2APairingRequests(),
   };
 }
 
 export function revokeGatewayAdminA2ATrustPeer(params: {
   peerId: string;
   reason?: string;
+  actor?: string;
 }): GatewayAdminA2ATrustResponse {
   revokeA2ATrustedPublicKeyPeer(params.peerId, {
     reason: params.reason,
+    actor: params.actor,
   });
   return getGatewayAdminA2ATrust();
 }
@@ -5538,6 +5894,7 @@ function normalizeOptionalA2AStringInput(
 
 export function upsertGatewayAdminA2ATrustPeer(
   input: GatewayAdminA2ATrustUpsertRequest,
+  actor?: string,
 ): GatewayAdminA2ATrustResponse {
   upsertA2ATrustedPublicKeyPeer({
     peerId: normalizeA2AStringInput(input.peerId, 'peerId'),
@@ -5555,14 +5912,132 @@ export function upsertGatewayAdminA2ATrustPeer(
     ),
     publicKeyJwk: input.publicKeyJwk,
     reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    actor,
   });
   return getGatewayAdminA2ATrust();
 }
 
 export function deleteGatewayAdminA2ATrustPeer(params: {
   peerId: string;
+  actor?: string;
 }): GatewayAdminA2ATrustResponse {
-  deleteA2ATrustedPublicKeyPeer(params.peerId);
+  deleteA2ATrustedPublicKeyPeer(params.peerId, { actor: params.actor });
+  return getGatewayAdminA2ATrust();
+}
+
+function normalizeOptionalA2ABooleanInput(
+  value: unknown,
+  label: string,
+): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'boolean') {
+    throw new GatewayRequestError(400, `Expected boolean \`${label}\`.`);
+  }
+  return value;
+}
+
+function resolveGatewayA2APublicBaseUrl(): string | null {
+  const tunnelStatus = getGatewayAdminTunnelStatus();
+  return (
+    tunnelStatus.publicUrl ||
+    getRuntimeConfig().deployment.public_url.trim() ||
+    null
+  );
+}
+
+function mapA2APairingStartResponse(
+  result: StartA2APairingResult,
+): GatewayAdminA2APairingStartResponse {
+  const trust = getGatewayAdminA2ATrust();
+  return {
+    ...trust,
+    proposal: {
+      peerId: result.proposal.peerId,
+      agentCardUrl: result.proposal.agentCardUrl,
+      deliveryUrl: result.proposal.deliveryUrl,
+      publicKeyFingerprint: result.proposal.publicKeyFingerprint,
+      name: result.proposal.name,
+    },
+    remoteNotification: result.remoteNotification,
+  };
+}
+
+function resolvePairingTargetInput(input: GatewayAdminA2APairingStartRequest): {
+  peerUrl?: string;
+  canonicalId?: string;
+} {
+  const peerUrl = normalizeOptionalA2AStringInput(input.peerUrl, 'peerUrl');
+  const canonicalId =
+    normalizeOptionalA2AStringInput(input.canonicalId, 'canonicalId') ||
+    normalizeOptionalA2AStringInput(
+      input.canonicalInstanceId,
+      'canonicalInstanceId',
+    );
+  if (!peerUrl && !canonicalId) {
+    throw new GatewayRequestError(
+      400,
+      'Expected `peerUrl`, `canonicalId`, or `canonicalInstanceId`.',
+    );
+  }
+  return { peerUrl, canonicalId };
+}
+
+export async function startGatewayAdminA2APairing(
+  input: GatewayAdminA2APairingStartRequest,
+  actor?: string,
+): Promise<GatewayAdminA2APairingStartResponse> {
+  const { peerUrl, canonicalId } = resolvePairingTargetInput(input);
+  const notifyPeer =
+    normalizeOptionalA2ABooleanInput(input.notifyPeer, 'notifyPeer') ?? true;
+  const result = await startA2APairing({
+    peerUrl,
+    canonicalId,
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    notifyPeer,
+    actor,
+    localBaseUrl: notifyPeer ? resolveGatewayA2APublicBaseUrl() : null,
+  });
+  return mapA2APairingStartResponse(result);
+}
+
+export async function previewGatewayAdminA2APairing(
+  input: GatewayAdminA2APairingStartRequest,
+): Promise<GatewayAdminA2APairingPreviewResponse> {
+  const { peerUrl, canonicalId } = resolvePairingTargetInput(input);
+  const proposal = await fetchA2APairingProposal({ peerUrl, canonicalId });
+  return {
+    proposal: {
+      peerId: proposal.peerId,
+      agentCardUrl: proposal.agentCardUrl,
+      deliveryUrl: proposal.deliveryUrl,
+      publicKeyFingerprint: proposal.publicKeyFingerprint,
+      publicKeyJwk: proposal.publicKeyJwk,
+      name: proposal.name,
+    },
+  };
+}
+
+export function approveGatewayAdminA2APairingRequest(
+  input: GatewayAdminA2APairingDecisionRequest,
+  actor?: string,
+): GatewayAdminA2ATrustResponse {
+  approveIncomingA2APairingRequest({
+    requestId: normalizeA2AStringInput(input.requestId, 'requestId'),
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    actor,
+  });
+  return getGatewayAdminA2ATrust();
+}
+
+export function declineGatewayAdminA2APairingRequest(
+  input: GatewayAdminA2APairingDecisionRequest,
+  actor?: string,
+): GatewayAdminA2ATrustResponse {
+  declineIncomingA2APairingRequest({
+    requestId: normalizeA2AStringInput(input.requestId, 'requestId'),
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    actor,
+  });
   return getGatewayAdminA2ATrust();
 }
 
@@ -5852,10 +6327,26 @@ const MODEL_PROVIDER_KEY_BY_PREFIX: Array<[string, GatewayModelProviderKey]> = [
 // Bare slugs (no `provider/` prefix) are HybridAI passthroughs by gateway
 // convention — that's what `runtimeConfig.hybridai.defaultModel` carries and
 // what `/model set <slug>` resolves through.
-function resolveModelProviderKey(modelId: string): GatewayModelProviderKey {
+function resolveModelProviderKey(
+  modelId: string,
+  options: {
+    localBackend?: GatewayModelProviderKey | null;
+    localEndpoints?: RuntimeConfig['local']['endpoints'];
+    providerHint?: GatewayModelProviderKey | null;
+  } = {},
+): GatewayModelProviderKey {
+  const endpointPrefix = modelId.trim().split('/', 1)[0]?.trim() ?? '';
+  const localEndpoint = options.localEndpoints?.find(
+    (endpoint) => endpoint.enabled === true && endpoint.name === endpointPrefix,
+  );
+  if (localEndpoint) return localEndpoint.type;
   const normalized = modelId.trim().toLowerCase();
   for (const [prefix, key] of MODEL_PROVIDER_KEY_BY_PREFIX) {
     if (normalized.startsWith(prefix)) return key;
+  }
+  if (options.localBackend) return options.localBackend;
+  if (options.providerHint && normalized.includes('/')) {
+    return options.providerHint;
   }
   // A `/`-bearing slug that didn't match any known prefix means a new provider
   // landed in the catalog without an entry here; surface it instead of silently
@@ -5914,9 +6405,27 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     keyof NonNullable<GatewayAdminModelsResponse['providerStatus']>,
     number
   >();
+  const localProviderHints = new Map<string, GatewayModelProviderKey>();
+  for (const provider of ['ollama', 'lmstudio', 'llamacpp', 'vllm'] as const) {
+    for (const modelId of getAvailableModelList(provider)) {
+      if (!localProviderHints.has(modelId)) {
+        localProviderHints.set(modelId, provider);
+      }
+    }
+  }
 
   const providerKeyByModel = new Map(
-    modelIds.map((id) => [id, resolveModelProviderKey(id)] as const),
+    modelIds.map(
+      (id) =>
+        [
+          id,
+          resolveModelProviderKey(id, {
+            localBackend: getLocalModelInfo(id)?.backend || null,
+            localEndpoints: runtimeConfig.local.endpoints,
+            providerHint: localProviderHints.get(id) || null,
+          }),
+        ] as const,
+    ),
   );
   for (const providerKey of providerKeyByModel.values()) {
     modelCountByProvider.set(
@@ -7006,10 +7515,11 @@ export async function ensureGatewayBootstrapAutostart(params: {
     if (getMemoryValue(session.id, markerKey)) {
       return;
     }
+    const markerStartedAt = new Date().toISOString();
     setMemoryValue(session.id, markerKey, {
       status: 'started',
       fileName: bootstrapFile,
-      at: new Date().toISOString(),
+      at: markerStartedAt,
     });
 
     const startedAt = Date.now();
@@ -7172,6 +7682,37 @@ export async function ensureGatewayBootstrapAutostart(params: {
       });
     }
 
+    const storeBootstrapAssistantMessage = (content: string): number => {
+      const assistantMessageId = memoryService.storeMessage({
+        sessionId: session.id,
+        userId: 'assistant',
+        username: null,
+        role: 'assistant',
+        content,
+        agentId: resolved.agentId,
+      });
+      appendSessionTranscript(resolved.agentId, {
+        sessionId: session.id,
+        channelId,
+        role: 'assistant',
+        userId: 'assistant',
+        username: null,
+        content,
+      });
+      return assistantMessageId;
+    };
+    const preludeText = await generateBootstrapPrelude({
+      agentId: resolved.agentId,
+      fileName: bootstrapFile,
+      model: resolved.model,
+      chatbotId,
+    });
+    const hasPrelude = Boolean(preludeText);
+    if (preludeText) {
+      storeBootstrapAssistantMessage(preludeText);
+    }
+    const baseAssistantMessages = hasPrelude ? 1 : 0;
+
     recordAuditEvent({
       sessionId: session.id,
       runId,
@@ -7278,7 +7819,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
           reason: output.status === 'success' ? 'empty' : 'error',
           stats: {
             userMessages: 0,
-            assistantMessages: 0,
+            assistantMessages: baseAssistantMessages,
             toolCalls: (output.toolExecutions || []).length,
             durationMs: Date.now() - startedAt,
           },
@@ -7287,22 +7828,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       return;
     }
 
-    const assistantMessageId = memoryService.storeMessage({
-      sessionId: session.id,
-      userId: 'assistant',
-      username: null,
-      role: 'assistant',
-      content: resultText,
-      agentId: resolved.agentId,
-    });
-    appendSessionTranscript(resolved.agentId, {
-      sessionId: session.id,
-      channelId,
-      role: 'assistant',
-      userId: 'assistant',
-      username: null,
-      content: resultText,
-    });
+    const assistantMessageId = storeBootstrapAssistantMessage(resultText);
     setMemoryValue(session.id, markerKey, {
       status: 'completed',
       assistantMessageId,
@@ -7325,7 +7851,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         reason: 'normal',
         stats: {
           userMessages: 0,
-          assistantMessages: 1,
+          assistantMessages: baseAssistantMessages + 1,
           toolCalls: (output.toolExecutions || []).length,
           durationMs: Date.now() - startedAt,
         },
@@ -7366,7 +7892,6 @@ export function getGatewayBootstrapAutostartState(params: {
     typeof marker?.status === 'string'
       ? marker.status.trim().toLowerCase()
       : '';
-
   return {
     status:
       markerStatus === 'started'
@@ -7444,10 +7969,14 @@ export function getGatewayHistory(
 
 export function getGatewayAgentList(): GatewayAgentListResponse {
   return {
-    agents: listAgents().map((agent) => ({
-      id: agent.id,
-      name: agent.name || null,
-    })),
+    agents: listAgents().map((agent) => {
+      const presentation = getGatewayAssistantPresentationForAgent(agent.id);
+      return {
+        id: agent.id,
+        name: agent.name || null,
+        ...(presentation.imageUrl ? { imageUrl: presentation.imageUrl } : {}),
+      };
+    }),
   };
 }
 
@@ -7539,7 +8068,7 @@ function nextDelegationSessionId(
   const safeParent = parentSessionId
     .replace(/[^a-zA-Z0-9:_-]/g, '-')
     .slice(0, 48);
-  const nonce = Math.random().toString(36).slice(2, 8);
+  const nonce = randomUUID();
   return `delegate:d${nextDepth}:${safeParent}:${Date.now()}:${nonce}`;
 }
 
@@ -8525,7 +9054,7 @@ export function enqueueDelegationBatchFromSideEffects(params: {
           .filter(Boolean)
           .join(', ') || undefined;
 
-  const jobId = `${parentSessionId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+  const jobId = `${parentSessionId}:${Date.now()}:${randomUUID()}`;
   enqueueDelegation({
     id: jobId,
     run: async () => {
@@ -8931,6 +9460,69 @@ export async function handleGatewayCommand(
 
       case 'agent': {
         const sub = parseLowerArg(req.args, 1);
+        const switchToAgent = (
+          targetAgent: AgentConfig,
+        ): GatewayCommandResult => {
+          updateSessionAgent(session.id, targetAgent.id);
+          setActiveThreadAgentId(session, targetAgent.id);
+          const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
+          ensureBootstrapFiles(targetAgent.id);
+          const startupBootstrapFile = resolveStartupBootstrapFile(
+            targetAgent.id,
+          );
+          void ensureGatewayBootstrapAutostart({
+            sessionId: session.id,
+            channelId: req.channelId,
+            userId: req.userId,
+            username: req.username,
+            agentId: targetAgent.id,
+            allowExistingSessionMessages: true,
+          }).catch((error) => {
+            logger.warn(
+              { sessionId: session.id, agentId: targetAgent.id, error },
+              'Failed to start agent hatching after switch',
+            );
+          });
+          const hatchingSuffix =
+            startupBootstrapFile === 'BOOTSTRAP.md'
+              ? ' Hatching will start automatically from `BOOTSTRAP.md`.'
+              : startupBootstrapFile === 'OPENING.md'
+                ? ' Opening will start automatically from `OPENING.md`.'
+                : '';
+          return plainCommand(
+            `Session agent set to \`${targetAgent.id}\` (model: \`${formatModelForDisplay(model)}\`).${hatchingSuffix}`,
+          );
+        };
+
+        if (
+          sub &&
+          ![
+            'info',
+            'current',
+            'list',
+            'switch',
+            'model',
+            'create',
+            'install',
+          ].includes(sub)
+        ) {
+          const rawTarget = req.args.slice(1).join(' ').trim();
+          const handle = rawTarget.replace(/^@+/, '').replace(/\s+/g, '-');
+          const resolution = resolveAgentAddressing({
+            content: `@${handle}`,
+            currentAgentId: resolveSessionAgentId(session),
+            fromAgentId: resolveSessionAgentId(session),
+          });
+          if (resolution.kind === 'agent') {
+            const targetAgent = findAgentConfig(resolution.agentId);
+            if (targetAgent) return switchToAgent(targetAgent);
+          }
+          if (resolution.kind === 'error') {
+            return badCommand('Agent Not Found', resolution.message);
+          }
+          return badCommand('Usage', 'Usage: `agent <name>`');
+        }
+
         if (!sub || sub === 'info' || sub === 'current') {
           const currentAgentId = resolveSessionAgentId(session);
           const agent = resolveAgentConfig(currentAgentId);
@@ -8980,24 +9572,7 @@ export async function handleGatewayCommand(
               `Agent \`${targetAgentId}\` was not found.`,
             );
           }
-          updateSessionAgent(session.id, targetAgent.id);
-          const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
-          void ensureGatewayBootstrapAutostart({
-            sessionId: session.id,
-            channelId: req.channelId,
-            userId: req.userId,
-            username: req.username,
-            agentId: targetAgent.id,
-            allowExistingSessionMessages: true,
-          }).catch((error) => {
-            logger.warn(
-              { sessionId: session.id, agentId: targetAgent.id, error },
-              'Failed to start agent hatching after switch',
-            );
-          });
-          return plainCommand(
-            `Session agent set to \`${targetAgent.id}\` (model: \`${formatModelForDisplay(model)}\`). Hatching will start automatically if \`BOOTSTRAP.md\` is active.`,
-          );
+          return switchToAgent(targetAgent);
         }
 
         if (sub === 'model') {
@@ -9435,6 +10010,20 @@ export async function handleGatewayCommand(
         }
       }
 
+      case 'aux': {
+        try {
+          return infoCommand(
+            'Auxiliary Model',
+            await runAuxCommand(session, req.args.slice(1)),
+          );
+        } catch (error) {
+          return badCommand(
+            error instanceof AuxCommandUsageError ? 'Usage' : 'Aux Failed',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+
       case 'second-opinion': {
         try {
           return infoCommand(
@@ -9660,6 +10249,7 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
               `Session model: ${sessionOverride}`,
+              ...formatAuxiliaryModelLines(getRuntimeConfig()),
               `Known metadata: ${metadata.known ? 'yes' : 'no'}`,
               `Context window: ${metadata.contextWindow == null ? 'unknown' : formatCompactNumber(metadata.contextWindow)}`,
               `Max output tokens: ${metadata.maxTokens == null ? 'unknown' : formatCompactNumber(metadata.maxTokens)}`,
@@ -11046,9 +11636,25 @@ export async function handleGatewayCommand(
 
       case 'status': {
         const status = await getGatewayStatus();
-        const delegationStatus = delegationQueueStatus();
         const commitShort = resolveGitCommitShort();
         const runtime = resolveSessionRuntimeTarget(session);
+        const activeAgent = resolveAgentConfig(runtime.agentId);
+        if (activeAgent.proxy) {
+          const proxyScope = activeAgent.proxy.conversationScope ?? 'channel';
+          const lines = [
+            `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
+            '🔁 Mode: HybridAI proxy',
+            `🤖 Agent: ${runtime.agentId}`,
+            `🌐 Upstream: ${activeAgent.proxy.baseUrl}`,
+            `💬 Chatbot: ${activeAgent.proxy.chatbotId}`,
+            `🧵 Conversation scope: ${proxyScope}`,
+            `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
+            `📊 Gateway: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions}`,
+          ];
+          return infoCommand('Status', lines.join('\n'));
+        }
+
+        const delegationStatus = delegationQueueStatus();
         const containerImageStatus =
           status.sandbox?.mode === 'container' && status.sandbox.image
             ? await resolveContainerImageStatus(status.sandbox.image)
@@ -11700,7 +12306,7 @@ export async function handleGatewayCommand(
           args: req.args.slice(1),
           channelId: req.channelId,
           dataDir: DATA_DIR,
-          gatewayBaseUrl: GATEWAY_BASE_URL,
+          gatewayBaseUrl: GATEWAY_CLIENT_BASE_URL,
           webApiToken: WEB_API_TOKEN,
           gatewayApiToken: GATEWAY_API_TOKEN,
           effectiveAgentId: runtime.agentId,

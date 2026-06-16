@@ -6,6 +6,7 @@ import {
 import {
   callLocalOpenAICompatProvider,
   callLocalOpenAICompatProviderStream,
+  estimateLocalOpenAICompatPromptOverheadTokens,
 } from '../container/src/providers/local-openai-compat.js';
 import { normalizeOpenRouterRuntimeModelName } from '../container/src/providers/shared.js';
 import type { ChatMessage, ToolDefinition } from '../container/src/types.js';
@@ -66,6 +67,30 @@ afterEach(() => {
 });
 
 describe('local container providers', () => {
+  test('Gemma models do not add prompt tool overhead', () => {
+    expect(
+      estimateLocalOpenAICompatPromptOverheadTokens({
+        provider: 'vllm',
+        model: 'vllm/google/gemma-4-e4b-it',
+        tools,
+      }),
+    ).toBe(0);
+    expect(
+      estimateLocalOpenAICompatPromptOverheadTokens({
+        provider: 'vllm',
+        model: 'vllm/google/embeddinggemma-300m',
+        tools,
+      }),
+    ).toBe(0);
+    expect(
+      estimateLocalOpenAICompatPromptOverheadTokens({
+        provider: 'vllm',
+        model: 'vllm/example/plain-model',
+        tools,
+      }),
+    ).toBe(0);
+  });
+
   test('Ollama provider builds native /api/chat requests and extracts data URI images', async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body || '{}')) as Record<
@@ -75,6 +100,7 @@ describe('local container providers', () => {
       const messages = body.messages as Array<Record<string, unknown>>;
       expect(body.model).toBe('llava:7b');
       expect(body.stream).toBe(false);
+      expect(body.tools).toEqual(tools);
       expect(body.options).toEqual({ num_predict: 64 });
       expect(messages[0]?.images).toEqual(['ZmFrZQ==']);
       return new Response(
@@ -131,14 +157,19 @@ describe('local container providers', () => {
     const deltas: string[] = [];
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        makeNdjsonResponse([
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.tools).toBeUndefined();
+        return makeNdjsonResponse([
           '{"model":"deepseek-r1","message":{"role":"assistant","content":"<think>plan"},"done":false}\n',
           '{"model":"deepseek-r1","message":{"role":"assistant","content":"</think>Hello"},"done":false}\n',
           '{"model":"deepseek-r1","message":{"role":"assistant","content":" world"},"done":false}\n',
           '{"model":"deepseek-r1","done":true,"done_reason":"stop","prompt_eval_count":10,"eval_count":4}\n',
-        ]),
-      ),
+        ]);
+      }),
     );
 
     const result = await callOllamaProviderStream({
@@ -458,6 +489,8 @@ describe('local container providers', () => {
         string,
         unknown
       >;
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
       const messages = body.messages as Array<Record<string, unknown>>;
       expect(messages).toEqual([
         { role: 'user', content: 'hello' },
@@ -534,6 +567,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { thinkingFormat: 'qwen' },
       thinkingFormat: 'qwen',
     });
 
@@ -546,6 +580,8 @@ describe('local container providers', () => {
         string,
         unknown
       >;
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
       const messages = body.messages as Array<Record<string, unknown>>;
       expect(messages).toEqual([
         { role: 'user', content: 'hello' },
@@ -627,12 +663,185 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBe('ok');
   });
 
+  test('vLLM Gemma provider uses native tools', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('google/gemma-4-e4b-it');
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
+      const messages = body.messages as Array<Record<string, unknown>>;
+      expect(messages.some((message) => message.role === 'tool')).toBe(true);
+      expect(messages[1]?.role).toBe('assistant');
+      expect(messages[1]?.tool_calls).toEqual([
+        {
+          id: '',
+          type: 'function',
+          function: {
+            name: 'shell',
+            arguments: '{"command":"pwd"}',
+          },
+        },
+      ]);
+      expect(messages[2]).toMatchObject({
+        role: 'tool',
+        content: '{"ok":true}',
+        tool_call_id: '',
+      });
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'google/gemma-4-e4b-it',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'ok',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const args = {
+      provider: 'vllm',
+      baseUrl: 'http://haigpu2:8000/v1',
+      apiKey: '',
+      model: 'vllm/google/gemma-4-e4b-it',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: [
+        { role: 'user', content: 'run pwd' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: '',
+              type: 'function',
+              function: {
+                name: 'shell',
+                arguments: '{"command":"pwd"}',
+              },
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          content: '{"ok":true}',
+          tool_call_id: '',
+        },
+      ],
+      tools,
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    } satisfies Parameters<typeof callLocalOpenAICompatProvider>[0];
+
+    const result = await callLocalOpenAICompatProvider(args);
+
+    expect(result.choices[0]?.message.content).toBe('ok');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body || '{}'),
+    ) as Record<string, unknown>;
+    const messages = body.messages as Array<Record<string, unknown>>;
+    expect(messages.some((message) => message.role === 'tool')).toBe(true);
+    expect(messages[1]).toHaveProperty('tool_calls');
+  });
+
+  test('vLLM provider surfaces native tool config errors without retry', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error:
+              '"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set',
+          }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      callLocalOpenAICompatProvider({
+        provider: 'vllm',
+        baseUrl: 'http://plain-vllm:8000/v1',
+        apiKey: '',
+        model: 'vllm/example/plain-model',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: undefined,
+        messages: baseMessages,
+        tools,
+        maxTokens: 128,
+        isLocal: true,
+        contextWindow: 32_768,
+      }),
+    ).rejects.toThrow('enable-auto-tool-choice');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body || '{}'),
+    ) as Record<string, unknown>;
+    expect(body.tools).toEqual(tools);
+    expect(body.tool_choice).toBe('auto');
+  });
+
+  test('vLLM Gemma stream uses native tools', async () => {
+    const deltas: string[] = [];
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('google/gemma-4-e4b-it');
+      expect(body.stream).toBe(true);
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
+      return makeEventStreamResponse([
+        'data: {"id":"resp_1","model":"google/gemma-4-e4b-it","choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+        'data: [DONE]\n\n',
+      ]);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callLocalOpenAICompatProviderStream({
+      provider: 'vllm',
+      baseUrl: 'http://haigpu2-stream:8000/v1',
+      apiKey: '',
+      model: 'vllm/google/gemma-4-e4b-it',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools,
+      onTextDelta: (delta) => deltas.push(delta),
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(deltas).toEqual(['ok']);
+    expect(result.choices[0]?.message.content).toBe('ok');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   test('Qwen-compatible local provider collapses multiple system messages into one', async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body || '{}')) as Record<
         string,
         unknown
       >;
+      expect(body.tools).toBeUndefined();
+      expect(body.tool_choice).toBeUndefined();
       const messages = body.messages as Array<Record<string, unknown>>;
       expect(messages).toEqual([
         {
@@ -681,6 +890,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { thinkingFormat: 'qwen' },
       thinkingFormat: 'qwen',
     });
 
@@ -948,6 +1158,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { thinkingFormat: 'qwen' },
       thinkingFormat: 'qwen',
     });
 
@@ -999,6 +1210,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { thinkingFormat: 'qwen' },
       thinkingFormat: 'qwen',
     });
 
@@ -1125,6 +1337,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { thinkingFormat: 'qwen' },
       thinkingFormat: 'qwen',
     });
 
@@ -1157,6 +1370,7 @@ describe('local container providers', () => {
         maxTokens: 128,
         isLocal: true,
         contextWindow: 32_768,
+        modelBehavior: { thinkingFormat: 'qwen' },
         thinkingFormat: 'qwen',
       }),
     ).rejects.toThrow('No user query found in messages.');
