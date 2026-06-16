@@ -151,6 +151,12 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
       }
     | undefined;
   const userMessage = request?.messages?.at(-1);
+  const systemMessage = request?.messages?.find(
+    (message) => message.role === 'system',
+  );
+  expect(systemMessage?.content).toContain(
+    'If the user has already asked you to perform an action',
+  );
   expect(userMessage?.role).toBe('user');
   expect(userMessage?.content).toContain(
     'Hatching mode is active for this agent.',
@@ -164,6 +170,13 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
   expect(userMessage?.content).toContain(
     'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
   );
+  expect(userMessage?.content).toContain(
+    'perform any concrete requested action or required onboarding file update',
+  );
+  expect(userMessage?.content).toContain(
+    'call the message tool with action="send"',
+  );
+  expect(userMessage?.content).toContain('do not post only a draft in chat');
   expect(userMessage?.content).toContain('User message:\nHi');
   expect(
     request?.messages?.some((message) => message.content === 'agent result'),

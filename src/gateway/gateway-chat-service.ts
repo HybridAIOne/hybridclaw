@@ -631,8 +631,10 @@ function buildBootstrapChatTurnPrompt(fileName: 'BOOTSTRAP.md'): string {
     `A startup instruction file (${fileName}) exists and is already loaded in the system context.`,
     'Continue the in-progress hatching conversation using the full chat history above.',
     'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
-    `Keep following ${fileName}: acknowledge the user's latest reply and ask only the next useful customization question.`,
+    `Keep following ${fileName}: acknowledge the user's latest reply, perform any concrete requested action or required onboarding file update it implies, and ask only the next useful customization question when no concrete action is pending.`,
     'If the user has not answered the previous questions yet, briefly point back to them instead of asking a fresh set.',
+    `Do not let hatching continuity override concrete user requests. If the latest user message asks for an action, sending a message/email, editing files, or another tool-backed task, do that work first and ask follow-up onboarding questions only after the work is complete.`,
+    `If ${fileName} directs you to create and send the first-jobs email and a message/email channel is available, call the message tool with action="send"; do not post only a draft in chat and do not ask for a separate send confirmation.`,
     'Do not ask a generic "what can I do for you?" question.',
     `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
   ].join('\n');
