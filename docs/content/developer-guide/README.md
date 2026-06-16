@@ -21,8 +21,13 @@ These pages focus on how HybridClaw is built and operated under the hood.
   linked-identity boundaries
 - [Secret Threat Model](./threat-model.md) for credential-adjacent feature
   review, model-leakage paths, and PR checklist expectations
-- [ISO 27001 Control Matrix](./iso27001-control-matrix.md) for Annex A evidence
-  mapping, repo-visible gaps, and next evidence to collect
+- [ISO/IEC 27001 Control Matrix](./iso27001-control-matrix.md) for Annex A
+  evidence mapping, repo-visible gaps, TISAX fit, and next evidence to collect
+- [ISO/IEC 42001 AIMS Readiness](./iso42001-aims-readiness.md) for AI
+  management-system scope, gap mapping, and implementation work items
+- [ISO/IEC 42001 Evidence Templates](./iso42001-aims-evidence-templates.md)
+  for AI system inventory, AI risk, impact assessment, provider review, eval,
+  incident, and management review records
 - [Admin Access Control](./admin-access-control.md) for scoped admin role
   bundles, session claims, and access-review evidence
 - [Identity](./identity.md) for canonical user/agent IDs, authority boundaries,

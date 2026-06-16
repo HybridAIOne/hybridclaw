@@ -260,6 +260,22 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
         path: 'developer-guide/session-routing.md',
       },
       { title: 'Secret Threat Model', path: 'developer-guide/threat-model.md' },
+      {
+        title: 'ISO/IEC 27001 Control Matrix',
+        path: 'developer-guide/iso27001-control-matrix.md',
+      },
+      {
+        title: 'ISO/IEC 42001 AIMS Readiness',
+        path: 'developer-guide/iso42001-aims-readiness.md',
+      },
+      {
+        title: 'ISO/IEC 42001 Evidence Templates',
+        path: 'developer-guide/iso42001-aims-evidence-templates.md',
+      },
+      {
+        title: 'Admin Access Control',
+        path: 'developer-guide/admin-access-control.md',
+      },
     ],
   },
   {
