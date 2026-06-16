@@ -215,13 +215,11 @@ function ModelSourceControl(props: {
             { value: 'model', label: 'other model' },
           ]}
           onChange={(provider) => {
-            const nextProvider =
-              provider as AdminOutputGuardModelConfig['provider'];
             const nextModel =
-              nextProvider === 'model'
+              provider === 'model'
                 ? props.value.model || props.defaultOtherModelId
                 : '';
-            props.onChange(modelConfigDefaults(nextProvider, nextModel));
+            props.onChange(modelConfigDefaults(provider, nextModel));
           }}
         />
         {props.value.provider === 'model' ? (
@@ -444,7 +442,7 @@ export function OutputGuardPage() {
                     onChange={(mode) =>
                       setProfile((current) => ({
                         ...current,
-                        mode: mode as AdminOutputGuardProfile['mode'],
+                        mode,
                       }))
                     }
                   />

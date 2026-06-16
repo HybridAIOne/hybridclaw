@@ -26,6 +26,7 @@ import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
 
 const LOG_TAIL_BYTES = 128 * 1024;
+const CONFIG_STALE_TIME_MS = 30_000;
 type LoggingMode = 'off' | 'on' | 'debug';
 const LOGGING_MODE_OPTIONS: Array<{
   value: LoggingMode;
@@ -36,6 +37,18 @@ const LOGGING_MODE_OPTIONS: Array<{
   { value: 'on', label: 'On' },
   { value: 'debug', label: 'Debug' },
 ];
+const LOGGING_MODE_SETTINGS = {
+  off: { logLevel: 'silent', logRequests: false, debugModelResponses: false },
+  on: { logLevel: 'info', logRequests: false, debugModelResponses: false },
+  debug: { logLevel: 'debug', logRequests: true, debugModelResponses: true },
+} satisfies Record<
+  LoggingMode,
+  {
+    logLevel: AdminConfig['ops']['logLevel'];
+    logRequests: boolean;
+    debugModelResponses: boolean;
+  }
+>;
 
 function formatBytes(value: number | null): string {
   if (value == null) return 'missing';
@@ -62,10 +75,9 @@ function loggingModeFromState(
   state?: AdminLoggingState,
 ): LoggingMode {
   const effectiveLevel = state?.effectiveLevel ?? config?.ops.logLevel;
-  if (effectiveLevel === 'silent') return 'off';
+  if (effectiveLevel === LOGGING_MODE_SETTINGS.off.logLevel) return 'off';
   if (
-    effectiveLevel === 'debug' ||
-    effectiveLevel === 'trace' ||
+    effectiveLevel === LOGGING_MODE_SETTINGS.debug.logLevel ||
     state?.logRequests.effective === true ||
     state?.debugModelResponses.effective === true ||
     config?.ops.logRequests === true ||
@@ -91,14 +103,12 @@ function loggingModeDescription(
 }
 
 function applyLoggingMode(config: AdminConfig, mode: LoggingMode): AdminConfig {
-  const debug = mode === 'debug';
+  const settings = LOGGING_MODE_SETTINGS[mode];
   return {
     ...config,
     ops: {
       ...config.ops,
-      logLevel: mode === 'off' ? 'silent' : debug ? 'debug' : 'info',
-      logRequests: debug,
-      debugModelResponses: debug,
+      ...settings,
     },
   };
 }
@@ -124,6 +134,7 @@ export function LogsPage() {
     queryKey: ['config', auth.token],
     queryFn: () => fetchConfig(auth.token),
     refetchOnWindowFocus: false,
+    staleTime: CONFIG_STALE_TIME_MS,
   });
   const loggingState = logsQuery.data?.logging;
   const loggingMode = loggingModeFromState(
@@ -214,11 +225,7 @@ export function LogsPage() {
               configQuery.isFetching ||
               loggingMutation.isPending
             }
-            onChange={(mode) => {
-              if (mode === 'off' || mode === 'on' || mode === 'debug') {
-                loggingMutation.mutate(mode);
-              }
-            }}
+            onChange={(mode) => loggingMutation.mutate(mode)}
           />
         </CardContent>
       </Card>

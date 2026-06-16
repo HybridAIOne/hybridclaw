@@ -13,6 +13,9 @@ const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const reloadGatewayMock = vi.fn();
 const saveConfigMock = vi.fn();
 const useAuthMock = vi.fn();
+type AdminConfigOverrides = Partial<Omit<AdminConfig, 'ops'>> & {
+  ops?: Partial<AdminConfig['ops']>;
+};
 
 vi.mock('../api/client', () => ({
   fetchAdminLogs: () => fetchAdminLogsMock(),
@@ -25,52 +28,8 @@ vi.mock('../auth', () => ({
   useAuth: () => useAuthMock(),
 }));
 
-function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
+function makeConfig(overrides: AdminConfigOverrides = {}): AdminConfig {
   const base = {
-    version: 1,
-    security: {
-      trustModelAccepted: false,
-      trustModelAcceptedAt: '',
-      trustModelVersion: '',
-      trustModelAcceptedBy: '',
-      confidentialRedactionEnabled: false,
-    },
-    hybridai: {
-      baseUrl: 'https://hybridai.one',
-      defaultModel: 'gpt-5',
-      defaultChatbotId: '',
-      maxTokens: 4096,
-      enableRag: true,
-      models: ['gpt-5'],
-    },
-    channelInstructions: {
-      discord: '',
-      discord_webhook: '',
-      msteams: '',
-      slack: '',
-      slack_webhook: '',
-      signal: '',
-      telegram: '',
-      threema: '',
-      voice: '',
-      whatsapp: '',
-      email: '',
-      imessage: '',
-    },
-    container: {
-      sandboxMode: 'container',
-      image: '',
-      memory: '2g',
-      memorySwap: '2g',
-      cpus: '2',
-      network: 'none',
-      timeoutMs: 300000,
-      binds: [],
-      additionalMounts: '',
-      maxOutputBytes: 100000,
-      maxConcurrent: 2,
-      persistBashState: false,
-    },
     ops: {
       healthHost: '127.0.0.1',
       healthPort: 9090,
@@ -82,36 +41,6 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       logLevel: 'info',
       logRequests: false,
       debugModelResponses: false,
-    },
-    browser: {
-      provider: 'local',
-      local: {
-        profileDir: '',
-        headed: false,
-      },
-      camofox: {
-        profileDir: '',
-        headed: false,
-      },
-      managedCloud: {
-        endpointUrl: 'http://127.0.0.1:8787',
-        poolTokenRef: undefined,
-        defaultTenantId: '',
-        pricing: {
-          actionUsd: 0,
-        },
-      },
-      browserUseCloud: {
-        apiKeyRef: undefined,
-        projectId: '',
-        profileId: '',
-        region: '',
-        keepAlive: false,
-        pricing: {
-          browserUsdPerMinute: 0,
-          actionUsd: 0,
-        },
-      },
     },
   } as unknown as AdminConfig;
 
@@ -279,6 +208,45 @@ describe('LogsPage', () => {
     );
   });
 
+  it('does not show manually configured trace logging as debug mode', async () => {
+    const config = makeConfig({ ops: { logLevel: 'trace' } });
+    fetchConfigMock.mockResolvedValueOnce({
+      path: '/tmp/config.json',
+      config,
+    });
+    fetchAdminLogsMock.mockResolvedValueOnce({
+      ...makeLogs(),
+      logging: {
+        configuredLevel: 'trace',
+        effectiveLevel: 'trace',
+        forcedLevel: null,
+        logRequests: {
+          configured: false,
+          envEnabled: false,
+          effective: false,
+        },
+        debugModelResponses: {
+          configured: false,
+          envEnabled: false,
+          effective: false,
+        },
+      },
+    });
+
+    renderLogsPage();
+
+    const description = await screen.findByText('Current mode: on');
+    const loggingCard = description.closest('[data-slot="card"]');
+    expect(loggingCard).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        within(loggingCard as HTMLElement)
+          .getByRole('button', { name: 'On' })
+          .getAttribute('aria-pressed'),
+      ).toBe('true'),
+    );
+  });
+
   it('jumps to the end of the selected log after loading', async () => {
     const scrollTopSetter = vi.fn();
     const scrollTopDescriptor = Object.getOwnPropertyDescriptor(
@@ -321,7 +289,6 @@ describe('LogsPage', () => {
   it('saves off logging mode to config and reloads the gateway', async () => {
     const config = makeConfig({
       ops: {
-        ...makeConfig().ops,
         logLevel: 'debug',
         logRequests: true,
         debugModelResponses: true,
