@@ -639,7 +639,6 @@ function isGpt5OnboardingModelId(modelId: string): boolean {
 
 function buildGpt5OnboardingPromptInjection(): string[] {
   return [
-    '## GPT-5 Onboarding Prompt Injection',
     'If you have the basic info about the user and a valid email address, proceed to send the welcome message. Do not display the draft to the user first, but send without asking.',
   ];
 }
