@@ -110,7 +110,6 @@ export function LogsPage() {
                   >
                     <div className="session-row-main">
                       <strong>{file.label}</strong>
-                      <small className="session-row-meta">{file.path}</small>
                     </div>
                     <span className="session-row-time">
                       {fileStatusLabel(file)}
