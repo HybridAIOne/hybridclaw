@@ -4,55 +4,20 @@ import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
-const { runAgentMock, sendToEmailMock } = vi.hoisted(() => ({
+const { runAgentMock } = vi.hoisted(() => ({
   runAgentMock: vi.fn(),
-  sendToEmailMock: vi.fn(async () => {}),
 }));
 
 vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
 }));
 
-vi.mock('../src/channels/email/runtime.js', () => ({
-  sendToEmail: sendToEmailMock,
-}));
-
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-context-refs-',
   cleanup: () => {
     runAgentMock.mockReset();
-    sendToEmailMock.mockClear();
   },
 });
-
-function completedOnboardingUserMarkdown(): string {
-  return [
-    '# USER.md - About Your Human',
-    '',
-    '- **Name:** Ben',
-    '- **What to call them:** Ben',
-    '- **Email:** ben@example.com',
-    '- **Primary work / activity:** AI product engineering',
-    '- **HybridClaw goals:** coding, operations, and communication support',
-    '- **Important tools and platforms:** GitHub, email, Discord',
-    '- **Preferred working style:** brief status updates with concrete next steps',
-    '',
-    '## Suggested First Jobs',
-    '',
-    '- Review GitHub pull requests and follow CI to green.',
-    '- Draft weekly HybridClaw progress updates.',
-    '- Summarize important email and Discord threads.',
-    '',
-    '## First Jobs Email',
-    '',
-    '- **Status:** drafted in chat',
-    '- **Recipient:** ben@example.com',
-    '- **Subject:** Your first HybridClaw engineering workflows',
-    '- **Delivery:** not sent',
-    '- **Last handled:**',
-    '',
-  ].join('\n');
-}
 
 test('handleGatewayMessage expands context references only for llm-facing paths', async () => {
   setupHome();
@@ -232,63 +197,6 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
       (content) => !content.includes('Hatching mode is active'),
     ),
   ).toBe(true);
-});
-
-test('handleGatewayMessage auto-sends first jobs email after hatching artifacts are written', async () => {
-  setupHome();
-
-  const { DEFAULT_AGENT_ID } = await import('../src/agents/agent-types.ts');
-  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
-  const { initDatabase } = await import('../src/memory/db.ts');
-  const { handleGatewayMessage } = await import(
-    '../src/gateway/gateway-chat-service.ts'
-  );
-
-  initDatabase({ quiet: true });
-  const workspacePath = agentWorkspaceDir(DEFAULT_AGENT_ID);
-  runAgentMock.mockImplementation(async () => {
-    fs.writeFileSync(
-      path.join(workspacePath, 'USER.md'),
-      completedOnboardingUserMarkdown(),
-      'utf-8',
-    );
-    return {
-      status: 'success',
-      result:
-        'Here is the first-jobs email draft.\n\n[Subject: Your first HybridClaw engineering workflows]\n\nHi Ben...',
-      toolsUsed: [],
-      toolExecutions: [],
-    };
-  });
-
-  const result = await handleGatewayMessage({
-    sessionId: 'session-onboarding-auto-email',
-    guildId: null,
-    channelId: 'web',
-    userId: 'user-1',
-    username: 'user',
-    content: 'Sounds good',
-    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
-    chatbotId: 'bot-1',
-  });
-
-  expect(result.status).toBe('success');
-  expect(sendToEmailMock).toHaveBeenCalledWith(
-    'ben@example.com',
-    expect.stringContaining('Review GitHub pull requests and follow CI to green.'),
-    expect.objectContaining({
-      subject: 'Your first HybridClaw engineering workflows',
-    }),
-  );
-  expect(result.result).toContain(
-    'I sent the first-jobs email to ben@example.com.',
-  );
-  const userMarkdown = fs.readFileSync(
-    path.join(workspacePath, 'USER.md'),
-    'utf-8',
-  );
-  expect(userMarkdown).toContain('- **Status:** sent');
-  expect(fs.existsSync(path.join(workspacePath, 'BOOTSTRAP.md'))).toBe(false);
 });
 
 test('handleGatewayMessage keeps explicit skill expansion when skill args inject context', async () => {

@@ -588,27 +588,6 @@ export function ensureWorkspaceNodeModulesLink(
   }
 }
 
-export function markWorkspaceOnboardingComplete(agentId: string): void {
-  const wsDir = agentWorkspaceDir(agentId);
-  fs.mkdirSync(path.join(wsDir, WORKSPACE_STATE_DIRNAME), { recursive: true });
-  const statePath = resolveWorkspaceStatePath(wsDir);
-  const state = readWorkspaceOnboardingState(statePath);
-  const now = new Date().toISOString();
-  const bootstrapPath = path.join(wsDir, 'BOOTSTRAP.md');
-  if (fs.existsSync(bootstrapPath)) {
-    fs.unlinkSync(bootstrapPath);
-    logger.debug(
-      { agentId, path: bootstrapPath },
-      'Removed BOOTSTRAP.md after onboarding completion',
-    );
-  }
-  writeWorkspaceOnboardingState(statePath, {
-    ...state,
-    bootstrapSeededAt: state.bootstrapSeededAt || now,
-    onboardingCompletedAt: state.onboardingCompletedAt || now,
-  });
-}
-
 /**
  * Ensure workspace has bootstrap files, copying from templates if missing.
  */
