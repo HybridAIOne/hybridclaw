@@ -69,12 +69,24 @@ export function AuthProvider(props: { children: ReactNode }) {
 
         if (health.webAuthConfigured) {
           if (!initialToken.trim()) {
-            setState({
-              status: 'prompt',
-              token: '',
-              gatewayStatus: null,
-              error: null,
-            });
+            try {
+              const gatewayStatus = await validateToken('');
+              if (cancelled) return;
+              setState({
+                status: 'ready',
+                token: '',
+                gatewayStatus,
+                error: null,
+              });
+            } catch (error) {
+              if (cancelled) return;
+              setState({
+                status: 'prompt',
+                token: '',
+                gatewayStatus: null,
+                error: error instanceof Error ? error.message : null,
+              });
+            }
             return;
           }
 

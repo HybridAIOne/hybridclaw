@@ -2,6 +2,67 @@
 
 ## Unreleased
 
+## [0.24.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.4) - 2026-06-16
+
+### Added
+
+- **Admin logging modes**: The admin Logs page can switch logging Off, On, or
+  Debug from the console, persist the runtime config, reload the gateway, and
+  keep selected log tails pinned to the newest content after load or refresh.
+
+### Changed
+
+- **Admin Logs readability**: The Logs page gives the detail panel more room,
+  avoids duplicate path display, keeps the selected path visible in metadata,
+  strips ANSI color from tails, aligns mid-file tails, and shows full local
+  dates in formatted timestamps.
+- **Runtime logging config**: Request logging and model-response debug capture
+  are controlled through `ops.logRequests` and `ops.debugModelResponses` while
+  preserving environment and CLI startup overrides.
+
+### Fixed
+
+- **Admin dropdown selection**: Controlled native selects now apply the first
+  chosen option immediately by marking fields touched through React
+  change/blur handling instead of wrapper-level native listeners.
+- **GPT-5 onboarding email send**: GPT-5-family hatching prompts now tell the
+  agent to send the welcome message once basic user info and a valid email
+  address are present, without showing a draft or asking for another
+  confirmation.
+- **Logging mode save feedback**: The Logs page checks gateway reload
+  responses before reporting logging mode updates as saved and refreshes the
+  effective runtime state after save.
+
+## [0.24.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.3) - 2026-06-15
+
+### Changed
+
+- **Hatching conversation flow**: Agent hatching now stays conversational and
+  uses a tailored first-email subject instead of a fixed default. Web chat
+  reflects gateway-owned hatching autostart with a thinking state and refreshed
+  history instead of injecting a hidden kickoff message from the browser.
+
+### Fixed
+
+- **Confidential audit metadata**: Confidential masking and rehydration now
+  write metadata-only audit events with redaction counts, class summaries, and
+  surface names while keeping raw secret and client values out of the audit
+  wire log.
+- **Codex model discovery recovery**: Codex model discovery force-refreshes
+  stale credentials after authorization failures, can re-import the Codex CLI
+  auth store when refresh requires relogin, and avoids caching empty model
+  lists after rejected credentials.
+- **Hatching chat continuity**: Switched-agent hatching turns now keep the full
+  prior chat history in context, avoid repeating onboarding after the prelude,
+  and reload browser history so gateway-authored hatching messages appear
+  immediately.
+- **Legacy audit user actors**: Structured audit queries canonicalize legacy
+  plain user ids as local user actors and validate the normalized actor before
+  indexing.
+- **Container edit compatibility**: The container `edit` tool accepts
+  model-generated `old_text` and `new_text` aliases in addition to the primary
+  replacement fields.
+
 ## [0.24.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.2) - 2026-06-14
 
 ### Added

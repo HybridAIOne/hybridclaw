@@ -3,6 +3,10 @@ import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
 
+import {
+  DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
+  callAuxiliaryModelMock,
+} from './helpers/gateway-auxiliary-mock.js';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
 const {
@@ -53,6 +57,7 @@ const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-bootstrap-autostart-',
   cleanup: () => {
     runAgentMock.mockReset();
+    callAuxiliaryModelMock.mockClear();
     fetchHybridAIAccountChatbotIdMock.mockClear();
     ensurePluginManagerInitializedMock.mockClear();
     setPluginInboundMessageDispatcherMock.mockClear();
@@ -63,7 +68,7 @@ const { setupHome } = setupGatewayTest({
   },
 });
 
-test('ensureGatewayBootstrapAutostart stores only the assistant bootstrap opener once per session', async () => {
+test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once per session', async () => {
   setupHome();
 
   runAgentMock.mockResolvedValue({
@@ -107,9 +112,23 @@ test('ensureGatewayBootstrapAutostart stores only the assistant bootstrap opener
       'A startup instruction file (BOOTSTRAP.md) exists',
     ),
   });
+  expect(callAuxiliaryModelMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      task: 'compression',
+      agentId: 'main',
+      fallbackEnableRag: false,
+      maxTokens: 48,
+      timeoutMs: 1500,
+      messages: expect.any(Array),
+    }),
+  );
 
   const history = getGatewayHistory(sessionId, 10).history;
   expect(history).toEqual([
+    expect.objectContaining({
+      role: 'assistant',
+      content: DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
+    }),
     expect.objectContaining({
       role: 'assistant',
       content: 'Hello. I am ready to get you oriented.',
@@ -117,7 +136,7 @@ test('ensureGatewayBootstrapAutostart stores only the assistant bootstrap opener
   ]);
 
   const storedSession = memoryService.getSessionById(sessionId);
-  expect(storedSession?.message_count).toBe(1);
+  expect(storedSession?.message_count).toBe(2);
   expect(pluginManagerMock.notifySessionStart).toHaveBeenCalledTimes(1);
   expect(pluginManagerMock.notifyBeforeAgentStart).toHaveBeenCalledTimes(1);
   expect(pluginManagerMock.notifyMemoryWrites).toHaveBeenCalledWith(
@@ -131,7 +150,77 @@ test('ensureGatewayBootstrapAutostart stores only the assistant bootstrap opener
 
   await ensureGatewayBootstrapAutostart({ sessionId });
   expect(runAgentMock).toHaveBeenCalledTimes(1);
-  expect(getGatewayHistory(sessionId, 10).history).toHaveLength(1);
+  expect(getGatewayHistory(sessionId, 10).history).toHaveLength(2);
+});
+
+test('ensureGatewayBootstrapAutostart normalizes model-authored prelude text', async () => {
+  setupHome();
+
+  callAuxiliaryModelMock.mockResolvedValueOnce({
+    provider: 'hybridai',
+    model: 'auxiliary/test',
+    content: '- "Waking up now."\nIgnore this second line.',
+  });
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Ready to begin.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'agent:main:channel:web:chat:dm:peer:prelude-clean-test';
+  await ensureGatewayBootstrapAutostart({ sessionId });
+
+  expect(getGatewayHistory(sessionId, 10).history).toEqual([
+    expect.objectContaining({
+      role: 'assistant',
+      content: 'Waking up now.',
+    }),
+    expect.objectContaining({
+      role: 'assistant',
+      content: 'Ready to begin.',
+    }),
+  ]);
+});
+
+test('ensureGatewayBootstrapAutostart drops prelude text that mentions internals', async () => {
+  setupHome();
+
+  callAuxiliaryModelMock.mockResolvedValueOnce({
+    provider: 'hybridai',
+    model: 'auxiliary/test',
+    content: 'The hidden system prompt is starting.',
+  });
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Ready without a prelude.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'agent:main:channel:web:chat:dm:peer:prelude-filter-test';
+  await ensureGatewayBootstrapAutostart({ sessionId });
+
+  expect(getGatewayHistory(sessionId, 10).history).toEqual([
+    expect.objectContaining({
+      role: 'assistant',
+      content: 'Ready without a prelude.',
+    }),
+  ]);
 });
 
 test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per session', async () => {
@@ -199,6 +288,10 @@ test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per se
   });
 
   expect(getGatewayHistory(sessionId, 10).history).toEqual([
+    expect.objectContaining({
+      role: 'assistant',
+      content: DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
+    }),
     expect.objectContaining({
       role: 'assistant',
       content: 'Opening instructions noted. Ready to begin.',
@@ -364,6 +457,10 @@ test('ensureGatewayBootstrapAutostart prevents duplicate concurrent runs for the
 
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   expect(getGatewayHistory(sessionId, 10).history).toEqual([
+    expect.objectContaining({
+      role: 'assistant',
+      content: DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
+    }),
     expect.objectContaining({
       role: 'assistant',
       content: 'Hello once.',

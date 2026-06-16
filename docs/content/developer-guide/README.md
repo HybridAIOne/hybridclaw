@@ -21,6 +21,10 @@ These pages focus on how HybridClaw is built and operated under the hood.
   linked-identity boundaries
 - [Secret Threat Model](./threat-model.md) for credential-adjacent feature
   review, model-leakage paths, and PR checklist expectations
+- [ISO 27001 Control Matrix](./iso27001-control-matrix.md) for Annex A evidence
+  mapping, repo-visible gaps, and next evidence to collect
+- [Admin Access Control](./admin-access-control.md) for scoped admin role
+  bundles, session claims, and access-review evidence
 - [Identity](./identity.md) for canonical user/agent IDs, authority boundaries,
   and discovery records
 - [Workflows](./workflows.md) for declarative YAML workflow schema and validation rules

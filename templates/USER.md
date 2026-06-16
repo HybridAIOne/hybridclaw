@@ -35,7 +35,7 @@ _(After hatching, keep a short list of practical jobs the user may want HybridCl
 
 - **Status:** pending
 - **Recipient:**
-- **Subject:** Ways I can help with HybridClaw
+- **Subject:**
 - **Delivery:** not sent
 - **Last handled:**
 

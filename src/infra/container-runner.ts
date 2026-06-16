@@ -58,7 +58,6 @@ import {
 } from '../config/config.js';
 import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
-import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
@@ -93,7 +92,10 @@ import {
   readOutput,
   writeInput,
 } from './ipc.js';
-import { consumeModelResponseDebugFileLine } from './model-response-debug.js';
+import {
+  consumeModelResponseDebugFileLine,
+  isModelResponseDebugEnabled,
+} from './model-response-debug.js';
 import {
   consumeCollapsedStreamDebugLine,
   createStreamDebugState,
@@ -1123,7 +1125,7 @@ async function runContainerInner(
     scheduleSideEffectsEnabled,
     skipContainerSystemPrompt,
     streamTextDeltas: Boolean(onTextDelta),
-    debugModelResponses: process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1',
+    debugModelResponses: isModelResponseDebugEnabled(),
     maxTokens: resolveExecutorMaxTokens({
       model: runtimeModel,
       discoveredMaxTokens: modelRuntime.maxTokens,

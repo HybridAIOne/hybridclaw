@@ -1182,6 +1182,8 @@ export interface RuntimeConfig {
     gatewayApiToken: string;
     dbPath: string;
     logLevel: LogLevel;
+    logRequests: boolean;
+    debugModelResponses: boolean;
   };
   observability: {
     enabled: boolean;
@@ -1945,6 +1947,8 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     gatewayApiToken: '',
     dbPath: DEFAULT_DB_PATH,
     logLevel: 'info',
+    logRequests: false,
+    debugModelResponses: false,
   },
   observability: {
     enabled: true,
@@ -7999,6 +8003,11 @@ function normalizeRuntimeConfig(
       }),
       dbPath: normalizedDbPath,
       logLevel: normalizeLogLevel(rawOps.logLevel, defaultOps.logLevel),
+      logRequests: normalizeBoolean(rawOps.logRequests, defaultOps.logRequests),
+      debugModelResponses: normalizeBoolean(
+        rawOps.debugModelResponses,
+        defaultOps.debugModelResponses,
+      ),
     },
     observability: {
       enabled: normalizeBoolean(

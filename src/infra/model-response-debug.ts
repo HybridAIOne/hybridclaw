@@ -1,16 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
   GATEWAY_DEBUG_MODEL_RESPONSES_ENV,
   GATEWAY_MODEL_RESPONSE_DEBUG_PATH,
 } from '../gateway/gateway-lifecycle.js';
+import { logger } from '../logger.js';
 
 const MODEL_RESPONSE_DEBUG_FILE_RE =
   /^\[model-response-debug-file\]\s+([A-Za-z0-9+/=]+)$/;
 const LAST_PROMPT_FILE_RE = /^\[last-prompt-file\]\s+([A-Za-z0-9+/=]+)$/;
 const LAST_PROMPT_PATH = path.join(DATA_DIR, 'last_prompt.jsonl');
 const ensuredDebugDirs = new Set<string>();
+const MODEL_RESPONSE_DEBUG_ENABLED_VALUE = '1';
+let lastWarnedModelResponseDebugValue: string | null = null;
 
 function ensureDebugDir(filePath: string): void {
   const dir = path.dirname(filePath);
@@ -19,8 +23,27 @@ function ensureDebugDir(filePath: string): void {
   ensuredDebugDirs.add(dir);
 }
 
-function isModelResponseDebugEnabled(): boolean {
-  return process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1';
+export function isModelResponseDebugEnabled(): boolean {
+  const raw = String(
+    process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] || '',
+  ).trim();
+  if (!raw) return getRuntimeConfig().ops.debugModelResponses === true;
+  if (raw === MODEL_RESPONSE_DEBUG_ENABLED_VALUE) {
+    lastWarnedModelResponseDebugValue = null;
+    return true;
+  }
+  if (raw !== lastWarnedModelResponseDebugValue) {
+    logger.warn(
+      {
+        envVar: GATEWAY_DEBUG_MODEL_RESPONSES_ENV,
+        expectedValue: MODEL_RESPONSE_DEBUG_ENABLED_VALUE,
+        value: raw,
+      },
+      'Ignoring invalid gateway model response debug env value',
+    );
+    lastWarnedModelResponseDebugValue = raw;
+  }
+  return false;
 }
 
 export function consumeModelResponseDebugFileLine(line: string): boolean {

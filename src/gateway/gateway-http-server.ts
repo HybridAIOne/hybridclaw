@@ -93,7 +93,7 @@ import {
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
-import { logger } from '../logger.js';
+import { logger, syncLoggerLevelFromRuntimeConfig } from '../logger.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { normalizeMimeType } from '../media/mime-utils.js';
 import {
@@ -108,7 +108,11 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
-import { isAdminActionAllowed } from '../security/admin-rbac.js';
+import {
+  type AdminRbacAction,
+  isAdminActionAllowed,
+  resolveAdminRbacAction,
+} from '../security/admin-rbac.js';
 import { createSecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
 import { hardenSecretRef } from '../security/secret-refs.js';
@@ -2045,6 +2049,7 @@ function hasApiAuth(
   opts?: {
     allowLocalWebSession?: boolean;
     allowQueryToken?: boolean;
+    allowSessionCookie?: boolean;
     requireSameOrigin?: boolean;
   },
 ): boolean {
@@ -2053,6 +2058,13 @@ function hasApiAuth(
   if (opts?.allowQueryToken && url && hasQueryToken(url)) return true;
 
   if (hasBearerToken(authHeader, WEB_API_TOKEN)) return true;
+  if (
+    opts?.allowSessionCookie &&
+    hasSessionAuth(req) &&
+    (!opts.requireSameOrigin || hasSameGatewayOrigin(req))
+  ) {
+    return true;
+  }
   if (
     opts?.allowLocalWebSession &&
     isLocalWebSessionAllowed(req) &&
@@ -2134,6 +2146,30 @@ function resolveAdminSecretAuditContext(
   };
 }
 
+function shouldDeferAdminRbacToHandler(action: AdminRbacAction): boolean {
+  return action.startsWith('secret.');
+}
+
+function isAdminRouteActionAllowed(
+  req: IncomingMessage,
+  action: AdminRbacAction,
+): boolean {
+  return isAdminActionAllowed(getSessionAuthPayload(req), action);
+}
+
+function enforceAdminRouteRbac(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  method: string,
+): boolean {
+  const action = resolveAdminRbacAction(pathname, method);
+  if (!action || shouldDeferAdminRbacToHandler(action)) return true;
+  if (isAdminRouteActionAllowed(req, action)) return true;
+  sendJson(res, 403, { error: 'Forbidden.' });
+  return false;
+}
+
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   const authHeader = req.headers.authorization || '';
   if (hasBearerToken(authHeader, WEB_API_TOKEN)) {
@@ -2180,8 +2216,9 @@ function sendWebTokenBootstrap(
   });
   res.end(
     `<!DOCTYPE html><html><body><script>` +
-      `localStorage.setItem('hybridclaw_token',${escapedToken});` +
-      `if (${escapedUserId}) localStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
+      `sessionStorage.setItem('hybridclaw_token',${escapedToken});` +
+      `localStorage.removeItem('hybridclaw_token');` +
+      `if (${escapedUserId}) sessionStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
       `window.location.replace(${escapedRedirect});` +
       `</script></body></html>`,
   );
@@ -3479,7 +3516,12 @@ function handleApiAgentAvatar(
   res: ServerResponse,
   url: URL,
 ): void {
-  if (!hasApiAuth(req, url, { allowLocalWebSession: true })) {
+  if (
+    !hasApiAuth(req, url, {
+      allowLocalWebSession: true,
+      allowSessionCookie: true,
+    })
+  ) {
     sendJson(res, 401, {
       error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
     });
@@ -3917,6 +3959,7 @@ function handleApiConfigReload(res: ServerResponse): void {
   try {
     refreshRuntimeSecretsFromEnv();
     reloadRuntimeConfig('admin-api');
+    syncLoggerLevelFromRuntimeConfig('admin-api');
   } catch (error) {
     sendJson(res, 500, {
       error:
@@ -6498,6 +6541,7 @@ async function handleApiArtifact(
     !hasApiAuth(req, url, {
       allowLocalWebSession: true,
       allowQueryToken: true,
+      allowSessionCookie: true,
     })
   ) {
     sendJson(res, 401, {
@@ -6794,19 +6838,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       try {
         const payload = verifyLaunchToken(token);
         setSessionCookie(res, payload);
-        // Respond with a small HTML page that stores the WEB_API_TOKEN in
-        // localStorage before redirecting.  This lets the console make
-        // Bearer-authenticated API calls without ever showing the manual
-        // token prompt.  The token never appears in the URL (avoiding
-        // leaks via browser history, referrer headers, or server logs).
-        if (WEB_API_TOKEN) {
-          sendWebTokenBootstrap(res, {
-            redirectTo,
-            userId: normalizeOptionalString(payload.sub) || undefined,
-          });
-        } else {
-          sendRedirect(res, 302, redirectTo);
-        }
+        sendRedirect(res, 302, redirectTo);
       } catch {
         sendText(res, 401, 'Unauthorized. Invalid or expired auth token.');
       }
@@ -6911,8 +6943,9 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
       if (
         !hasApiAuth(req, url, {
-          allowQueryToken: pathname === '/api/events',
+          allowQueryToken: false,
           allowLocalWebSession: true,
+          allowSessionCookie: true,
           requireSameOrigin: method !== 'GET',
         })
       ) {
@@ -6920,6 +6953,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         sendJson(res, 401, {
           error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
         });
+        return;
+      }
+
+      if (!enforceAdminRouteRbac(req, res, pathname, method)) {
         return;
       }
 
@@ -7531,6 +7568,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       !requestAuthenticated
     ) {
       writeUpgradeError(socket, 401, 'Unauthorized');
+      return;
+    }
+
+    const terminalStreamAction = resolveAdminRbacAction(url.pathname, 'GET');
+    if (
+      terminalStreamAction &&
+      !isAdminRouteActionAllowed(req, terminalStreamAction)
+    ) {
+      writeUpgradeError(socket, 403, 'Forbidden');
       return;
     }
 

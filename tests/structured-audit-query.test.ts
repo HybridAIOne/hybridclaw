@@ -158,6 +158,52 @@ test('structured audit writes and reads the unified actor surface', async () => 
   );
 });
 
+test('structured audit indexes legacy plain user IDs as local actors', async () => {
+  setupHome();
+
+  const { logger } = await import('../src/logger.ts');
+  const warnSpy = vi.spyOn(logger, 'warn');
+  const {
+    getRecentStructuredAuditForSession,
+    initDatabase,
+    logStructuredAuditEvent,
+  } = await import('../src/memory/db.ts');
+
+  initDatabase({ quiet: true });
+  logStructuredAuditEvent({
+    version: '2.0',
+    seq: 1,
+    timestamp: '2026-06-15T19:39:39.803Z',
+    runId: 'turn_1781552379747_23e4e59e',
+    sessionId: 'session-legacy-local-user',
+    event: {
+      type: 'session.start',
+      userId: 'web-user-b903d512',
+      channel: 'web',
+    },
+    _prevHash: 'prev-local-user',
+    _hash: 'hash-local-user',
+  } satisfies WireRecord);
+
+  const [entry] = getRecentStructuredAuditForSession(
+    'session-legacy-local-user',
+    10,
+  );
+  expect(entry?.actor_type).toBe('user');
+  expect(entry?.actor_id).toBe('web-user-b903d512@local');
+  expect(JSON.parse(entry?.payload || '{}')).toEqual(
+    expect.objectContaining({
+      userId: 'web-user-b903d512',
+    }),
+  );
+  expect(JSON.parse(entry?.payload || '{}')).not.toHaveProperty('actor');
+  expect(
+    warnSpy.mock.calls.some(
+      (call) => call[1] === 'Structured audit event has invalid actor fields',
+    ),
+  ).toBe(false);
+});
+
 test('migrateV43 backfills structured audit actors from legacy payload fields', async () => {
   const homeDir = setupHome();
   const dbPath = path.join(homeDir, 'hybridclaw.db');
@@ -215,6 +261,21 @@ test('migrateV43 backfills structured audit actors from legacy payload fields', 
         'prev-legacy-actor',
       );
 
+      insertLegacy.run(
+        'session-legacy-local-user',
+        1,
+        'session.start',
+        '2026-06-15T19:39:39.803Z',
+        'run-legacy-local-user',
+        null,
+        JSON.stringify({
+          type: 'session.start',
+          userId: 'web-user-b903d512',
+        }),
+        'hash-legacy-local-user',
+        'prev-legacy-local-user',
+      );
+
       insertWithActorColumns.run(
         'session-partial-actor',
         1,
@@ -258,6 +319,13 @@ test('migrateV43 backfills structured audit actors from legacy payload fields', 
     }),
   );
   expect(JSON.parse(entry?.payload || '{}')).not.toHaveProperty('actor');
+
+  const [localEntry] = getRecentStructuredAuditForSession(
+    'session-legacy-local-user',
+    10,
+  );
+  expect(localEntry?.actor_type).toBe('user');
+  expect(localEntry?.actor_id).toBe('web-user-b903d512@local');
 
   const [partialEntry] = getRecentStructuredAuditForSession(
     'session-partial-actor',

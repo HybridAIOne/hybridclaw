@@ -369,6 +369,21 @@ describe('config reload integration', () => {
     expect(cfg.ops.healthPort).toBe(9090);
   });
 
+  it('normalizes persisted logging flags', () => {
+    writeConfig({
+      ops: {
+        logLevel: 'debug',
+        logRequests: true,
+        debugModelResponses: true,
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+    expect(cfg.ops.logLevel).toBe('debug');
+    expect(cfg.ops.logRequests).toBe(true);
+    expect(cfg.ops.debugModelResponses).toBe(true);
+  });
+
   it('reloadRuntimeConfig accepts container.persistBashState=false', () => {
     writeConfig({
       container: { persistBashState: false },
