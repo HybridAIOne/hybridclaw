@@ -5156,6 +5156,30 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
   });
 
+  test('allows scoped admin sessions with a matching role bundle action', async () => {
+    const authSecret = 'admin-rbac-role-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          role: 'admin.config_manager',
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.refreshRuntimeSecretsFromEnv).toHaveBeenCalledTimes(1);
+    expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
+    expect(res.statusCode).toBe(200);
+  });
+
   test('returns admin secret metadata without cleartext values', async () => {
     const authSecret = 'secret-list-auth-secret';
     const state = await importFreshHealth({ authSecret });
