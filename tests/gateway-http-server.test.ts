@@ -5113,6 +5113,55 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('denies scoped admin sessions without the required route action', async () => {
+    const authSecret = 'admin-rbac-deny-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          actions: ['admin.overview.read'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.refreshRuntimeSecretsFromEnv).not.toHaveBeenCalled();
+    expect(state.reloadRuntimeConfig).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Forbidden.' });
+  });
+
+  test('allows scoped admin sessions with a matching wildcard route action', async () => {
+    const authSecret = 'admin-rbac-allow-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          scope: 'admin.config:*',
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.refreshRuntimeSecretsFromEnv).toHaveBeenCalledTimes(1);
+    expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
+    expect(res.statusCode).toBe(200);
+  });
+
   test('returns admin secret metadata without cleartext values', async () => {
     const authSecret = 'secret-list-auth-secret';
     const state = await importFreshHealth({ authSecret });
@@ -7076,6 +7125,76 @@ describe('gateway HTTP server', () => {
       expect.objectContaining({
         hasSessionAuth: false,
         hasRequestAuth: true,
+        validateToken: expect.any(Function),
+      }),
+    );
+    expect(socket.write).not.toHaveBeenCalled();
+  });
+
+  test('rejects terminal websocket upgrades for scoped sessions without stream access', async () => {
+    const authSecret = 'terminal-rbac-deny-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        headers: {
+          cookie: makeSessionCookie(authSecret, {
+            sessionId: 'admin-session-1',
+            actor: 'admin-user',
+            actions: ['admin.audit.read'],
+          }),
+        },
+        noAuth: true,
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).not.toHaveBeenCalled();
+    expect(String(socket.write.mock.calls[0]?.[0] || '')).toContain(
+      '403 Forbidden',
+    );
+  });
+
+  test('allows terminal websocket upgrades for scoped sessions with terminal wildcard access', async () => {
+    const authSecret = 'terminal-rbac-allow-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        headers: {
+          cookie: makeSessionCookie(authSecret, {
+            sessionId: 'admin-session-1',
+            actor: 'admin-user',
+            scope: 'admin.terminal:*',
+          }),
+        },
+        noAuth: true,
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).toHaveBeenCalledWith(
+      expect.anything(),
+      socket,
+      expect.any(Buffer),
+      expect.any(URL),
+      expect.objectContaining({
+        hasSessionAuth: true,
+        hasRequestAuth: false,
         validateToken: expect.any(Function),
       }),
     );

@@ -108,7 +108,11 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
-import { isAdminActionAllowed } from '../security/admin-rbac.js';
+import {
+  type AdminRbacAction,
+  isAdminActionAllowed,
+  resolveAdminRbacAction,
+} from '../security/admin-rbac.js';
 import { createSecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
 import { hardenSecretRef } from '../security/secret-refs.js';
@@ -2132,6 +2136,30 @@ function resolveAdminSecretAuditContext(
     actor: resolveAdminSessionActor(sessionPayload),
     sourceIp: req.socket.remoteAddress || null,
   };
+}
+
+function shouldDeferAdminRbacToHandler(action: AdminRbacAction): boolean {
+  return action.startsWith('secret.');
+}
+
+function isAdminRouteActionAllowed(
+  req: IncomingMessage,
+  action: AdminRbacAction,
+): boolean {
+  return isAdminActionAllowed(getSessionAuthPayload(req), action);
+}
+
+function enforceAdminRouteRbac(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  method: string,
+): boolean {
+  const action = resolveAdminRbacAction(pathname, method);
+  if (!action || shouldDeferAdminRbacToHandler(action)) return true;
+  if (isAdminRouteActionAllowed(req, action)) return true;
+  sendJson(res, 403, { error: 'Forbidden.' });
+  return false;
 }
 
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
@@ -6902,6 +6930,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         return;
       }
 
+      if (!enforceAdminRouteRbac(req, res, pathname, method)) {
+        return;
+      }
+
       void (async () => {
         try {
           if (pathname === '/api/events' && method === 'GET') {
@@ -7510,6 +7542,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       !requestAuthenticated
     ) {
       writeUpgradeError(socket, 401, 'Unauthorized');
+      return;
+    }
+
+    const terminalStreamAction = resolveAdminRbacAction(url.pathname, 'GET');
+    if (
+      terminalStreamAction &&
+      !isAdminRouteActionAllowed(req, terminalStreamAction)
+    ) {
+      writeUpgradeError(socket, 403, 'Forbidden');
       return;
     }
 
