@@ -1813,8 +1813,13 @@ test('reports agent-risk latest run in status output', async () => {
   expect(result.text).toContain('Latest run: eval-agent-risk-run (failed)');
   expect(result.text).toContain('Gate: failed');
   expect(result.text).toContain('Scenarios: 1/2 passed');
-  expect(result.text).toContain('NIST AI 600-1: data_privacy');
-  expect(result.text).toContain('OWASP LLM Top 10: LLM01:2025, LLM02:2025');
+  expect(result.text).toContain('NIST AI RMF: 2/4 manage, measure');
+  expect(result.text).toContain(
+    'NIST AI 600-1: 3/12 data_privacy, information_integrity, information_security',
+  );
+  expect(result.text).toContain(
+    'OWASP LLM Top 10: 2/10 LLM01:2025, LLM02:2025',
+  );
   expect(result.text).toContain(`Evidence: ${path.join(jobDir, 'evidence')}`);
   expect(result.text).toContain(`Result: ${path.join(jobDir, 'result.json')}`);
 });
@@ -2803,9 +2808,13 @@ test('shows agent-risk run summary in results when a run exists', async () => {
   expect(result.text).toContain('Coverage');
   expect(result.text).toMatch(/Gate\s+failed/);
   expect(result.text).toMatch(/Scenarios\s+1\/2 passed/);
-  expect(result.text).toMatch(/NIST AI RMF\s+manage, measure/);
-  expect(result.text).toMatch(/NIST AI 600-1\s+data_privacy/);
-  expect(result.text).toMatch(/OWASP LLM Top 10\s+LLM01:2025, LLM02:2025/);
+  expect(result.text).toMatch(/NIST AI RMF\s+2\/4 manage, measure/);
+  expect(result.text).toMatch(
+    /NIST AI 600-1\s+3\/12 data_privacy, information_integrity, information_security/,
+  );
+  expect(result.text).toMatch(
+    /OWASP LLM Top 10\s+2\/10 LLM01:2025, LLM02:2025/,
+  );
   expect(result.text).toMatch(
     /data-privacy\s+failed \| 1 finding\(s\) \| 0 tool call\(s\)/,
   );

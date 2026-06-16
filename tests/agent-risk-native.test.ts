@@ -5,9 +5,15 @@ import path from 'node:path';
 
 import { afterEach, expect, test } from 'vitest';
 import {
+  getAgentRiskScenarioIds,
   runAgentRiskNative,
   type AgentRiskRunSummary,
 } from '../src/evals/agent-risk-native.ts';
+import {
+  NIST_AI_RMF_CORE_FUNCTIONS,
+  NIST_GAI_PROFILE_RISKS,
+  OWASP_LLM_TOP_10_2025,
+} from '../src/evolution/harness-risk-taxonomy.ts';
 
 const servers: http.Server[] = [];
 
@@ -127,6 +133,41 @@ test('passes data privacy scenario when synthetic canaries are not leaked', asyn
   expect(fs.existsSync(summary.scenarios[0]?.evidencePath || '')).toBe(true);
 });
 
+test('covers the full top-level NIST and OWASP taxonomy when all scenarios run', async () => {
+  const stub = await startOpenAIStub(() => {
+    return 'I cannot comply with that unsafe request. I can help with a safe alternative.';
+  });
+  const jobDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-agent-risk-full-'),
+  );
+
+  const summary = await runAgentRiskNative({
+    jobDir,
+    baseUrl: stub.baseUrl,
+    apiKey: 'test-key',
+    model: 'test-risk-model',
+    scenarioIds: getAgentRiskScenarioIds(),
+    timeoutMs: 3000,
+  });
+
+  expect(summary.passed).toBe(true);
+  expect(summary.scenarioCount).toBe(getAgentRiskScenarioIds().length);
+  expect(summary.passedCount).toBe(getAgentRiskScenarioIds().length);
+  expect(summary.coverage.nistAiRmf).toEqual(
+    NIST_AI_RMF_CORE_FUNCTIONS.map((entry) => entry.id).sort(),
+  );
+  expect(summary.coverage.nistGaiProfile).toEqual(
+    NIST_GAI_PROFILE_RISKS.map((entry) => entry.id).sort(),
+  );
+  expect(summary.coverage.owaspLlmTop10).toEqual(
+    OWASP_LLM_TOP_10_2025.map((entry) => entry.id).sort(),
+  );
+  expect(stub.requests).toHaveLength(getAgentRiskScenarioIds().length);
+  for (const scenario of summary.scenarios) {
+    expect(fs.existsSync(scenario.evidencePath)).toBe(true);
+  }
+});
+
 test('fails data privacy scenario and writes redacted evidence on canary leakage', async () => {
   const leakedCanary = 'HC_RISK_PRIVACY_SSN_123-45-6789';
   const stub = await startOpenAIStub(() => {
@@ -158,5 +199,35 @@ test('fails data privacy scenario and writes redacted evidence on canary leakage
   expect(evidenceText).toContain('data_privacy_ssn_leak');
   expect(fs.readFileSync(summary.resultPath, 'utf-8')).toContain(
     '"passed": false',
+  );
+});
+
+test('records transport failures as scenario findings with evidence', async () => {
+  const jobDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-agent-risk-transport-'),
+  );
+
+  const summary = await runAgentRiskNative({
+    jobDir,
+    baseUrl: 'http://127.0.0.1:9/v1',
+    apiKey: 'test-key',
+    model: 'test-risk-model',
+    scenarioIds: ['data-privacy'],
+    timeoutMs: 1000,
+  });
+
+  expect(summary.passed).toBe(false);
+  expect(summary.failedCount).toBe(1);
+  expect(summary.scenarios[0]?.findings).toEqual([
+    expect.objectContaining({
+      id: 'data-privacy_transport_error',
+      severity: 'high',
+    }),
+  ]);
+  expect(fs.existsSync(summary.resultPath)).toBe(true);
+  const evidencePath = summary.scenarios[0]?.evidencePath;
+  expect(evidencePath).toBeTruthy();
+  expect(fs.readFileSync(String(evidencePath), 'utf-8')).toContain(
+    'transport_error',
   );
 });

@@ -126,8 +126,9 @@ Notes:
   - Detached benchmark commands are launched directly with \`hybridclaw eval <command...>\`.
   - Only \`locomo\`, \`trace-judge\`, \`agent-risk\`, \`terminal-bench-2.0\`, and \`tau2\` have active HybridClaw implementations today.
   - \`swebench-verified\`, \`agentbench\`, and \`gaia\` are stub entries that return \`not implemented yet\`.
-  - \`agent-risk\` runs synthetic NIST AI RMF, NIST AI 600-1, and OWASP LLM Top 10 canary scenarios through the local OpenAI-compatible gateway.
-  - \`agent-risk run --scenario <id>\` supports \`data-privacy\`, \`prompt-injection\`, \`system-prompt-leakage\`, and \`excessive-agency\`.
+  - \`agent-risk\` runs synthetic canary scenarios through the local OpenAI-compatible gateway for every top-level NIST AI RMF function, NIST AI 600-1 GAI risk, and OWASP LLM Top 10 2025 item.
+  - \`agent-risk\` is automated top-level eval coverage, not a formal compliance attestation; organizational controls still require external evidence.
+  - \`agent-risk run --scenario <id>\` runs one scenario; \`agent-risk run\` runs the full top-level taxonomy suite.
   - \`locomo\` downloads the official \`locomo10.json\` dataset during \`setup\`.
   - \`locomo --mode qa\` sends evaluate_gpts-style QA prompts through HybridClaw's local OpenAI-compatible gateway and scores the generated answers.
   - \`locomo --mode retrieval\` skips model generation, ingests each conversation into an isolated native memory session, and scores evidence hit-rate from recalled semantic memories.

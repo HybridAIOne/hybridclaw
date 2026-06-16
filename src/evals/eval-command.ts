@@ -4,6 +4,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MAX_CONCURRENT_CONTAINERS } from '../config/config.js';
 import { isContainerMaxConcurrentExplicit } from '../config/runtime-config.js';
+import {
+  NIST_AI_RMF_CORE_FUNCTIONS,
+  NIST_GAI_PROFILE_RISKS,
+  OWASP_LLM_TOP_10_2025,
+} from '../evolution/harness-risk-taxonomy.js';
 import type { GatewayCommandResult } from '../gateway/gateway-types.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
 import { logger } from '../logger.js';
@@ -455,12 +460,14 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
     starter: [
       '/eval agent-risk run',
       '/eval agent-risk run --scenario data-privacy',
-      '/eval agent-risk run --scenario prompt-injection',
-      '/eval agent-risk run --scenario system-prompt-leakage',
-      '/eval agent-risk run --scenario excessive-agency',
+      '/eval agent-risk run --scenario supply-chain-vetting',
+      '/eval agent-risk run --scenario poisoned-retrieval',
+      '/eval agent-risk run --scenario unbounded-consumption',
     ],
     notes: [
-      'Runs synthetic canary scenarios through the local OpenAI-compatible gateway and fails if private canaries leak, injected instructions are followed, hidden policy markers are disclosed, or high-impact client tools are called without approval.',
+      'Runs synthetic canary scenarios through the local OpenAI-compatible gateway for every top-level NIST AI RMF function, NIST AI 600-1 GAI risk, and OWASP LLM Top 10 2025 item.',
+      'This is automated top-level eval coverage, not a formal compliance attestation; organizational controls still require external evidence.',
+      'The gate fails if canaries leak, injected instructions are followed, unsafe content is generated, high-impact tools are called without approval, or resource-bounding prompts produce excessive output.',
       'Evidence is written under the run job directory with synthetic canaries redacted and hashed.',
       'Scenario tags map to NIST AI RMF functions, NIST AI 600-1 GAI risks, and OWASP LLM Top 10 2025 IDs.',
     ],
@@ -1445,6 +1452,15 @@ function formatTerminalBenchTokenUsage(
     return `${formatIntegerValue(tokenUsage.estimatedTotalTokens)} estimated (${formatIntegerValue(tokenUsage.estimatedPromptTokens)} prompt / ${formatIntegerValue(tokenUsage.estimatedCompletionTokens)} completion)`;
   }
   return null;
+}
+
+function formatAgentRiskCoverageValue(
+  covered: string[] | null | undefined,
+  totalEntries: readonly { id: string }[],
+): string | null {
+  if (!covered) return null;
+  const uniqueCovered = Array.from(new Set(covered)).sort();
+  return `${uniqueCovered.length}/${totalEntries.length} ${uniqueCovered.join(', ') || 'none'}`;
 }
 
 export function listEvalRunMetas(dataDir: string): EvalRunMeta[] {
@@ -3743,9 +3759,9 @@ function renderManagedSuiteStatus(
             ? [
                 `Gate: ${latestAgentRiskSummary.passed ? 'passed' : 'failed'}`,
                 `Scenarios: ${latestAgentRiskSummary.passedCount}/${latestAgentRiskSummary.scenarioCount} passed`,
-                `NIST AI RMF: ${latestAgentRiskSummary.coverage.nistAiRmf.join(', ') || 'none'}`,
-                `NIST AI 600-1: ${latestAgentRiskSummary.coverage.nistGaiProfile.join(', ') || 'none'}`,
-                `OWASP LLM Top 10: ${latestAgentRiskSummary.coverage.owaspLlmTop10.join(', ') || 'none'}`,
+                `NIST AI RMF: ${formatAgentRiskCoverageValue(latestAgentRiskSummary.coverage.nistAiRmf, NIST_AI_RMF_CORE_FUNCTIONS) || 'none'}`,
+                `NIST AI 600-1: ${formatAgentRiskCoverageValue(latestAgentRiskSummary.coverage.nistGaiProfile, NIST_GAI_PROFILE_RISKS) || 'none'}`,
+                `OWASP LLM Top 10: ${formatAgentRiskCoverageValue(latestAgentRiskSummary.coverage.owaspLlmTop10, OWASP_LLM_TOP_10_2025) || 'none'}`,
                 `Evidence: ${latestAgentRiskSummary.evidenceDir}`,
                 `Result: ${latestAgentRiskSummary.resultPath}`,
               ]
@@ -4150,9 +4166,27 @@ function renderManagedSuiteResults(
       ],
     ]);
     const coverageSection = renderKeyValueSection('Coverage', [
-      ['NIST AI RMF', agentRiskSummary?.coverage.nistAiRmf.join(', ')],
-      ['NIST AI 600-1', agentRiskSummary?.coverage.nistGaiProfile.join(', ')],
-      ['OWASP LLM Top 10', agentRiskSummary?.coverage.owaspLlmTop10.join(', ')],
+      [
+        'NIST AI RMF',
+        formatAgentRiskCoverageValue(
+          agentRiskSummary?.coverage.nistAiRmf,
+          NIST_AI_RMF_CORE_FUNCTIONS,
+        ),
+      ],
+      [
+        'NIST AI 600-1',
+        formatAgentRiskCoverageValue(
+          agentRiskSummary?.coverage.nistGaiProfile,
+          NIST_GAI_PROFILE_RISKS,
+        ),
+      ],
+      [
+        'OWASP LLM Top 10',
+        formatAgentRiskCoverageValue(
+          agentRiskSummary?.coverage.owaspLlmTop10,
+          OWASP_LLM_TOP_10_2025,
+        ),
+      ],
     ]);
     const scenarioSection = renderKeyValueSection(
       'Scenarios',
