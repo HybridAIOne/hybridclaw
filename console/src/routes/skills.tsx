@@ -560,11 +560,7 @@ export function SkillsPage() {
                 { value: 'form', label: 'Form', activeTone: 'is-on' },
                 { value: 'zip', label: 'Upload ZIP', activeTone: 'is-on' },
               ]}
-              onChange={(value) => {
-                if (value === 'form' || value === 'zip') {
-                  setCreateMode(value);
-                }
-              }}
+              onChange={(value) => setCreateMode(value)}
             />
 
             {createMode === 'zip' ? (

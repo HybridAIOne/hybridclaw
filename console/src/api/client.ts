@@ -23,6 +23,7 @@ import type {
   AdminChannelTransport,
   AdminCommandResult,
   AdminConfig,
+  AdminConfigReloadResponse,
   AdminConfigResponse,
   AdminCreateSkillPayload,
   AdminDistillConsentPayload,
@@ -642,14 +643,11 @@ export function declineA2APairingRequest(
 
 export function reloadGateway(
   token: string,
-): Promise<{ status: 'ok'; message: string }> {
-  return requestJson<{ status: 'ok'; message: string }>(
-    '/api/admin/config/reload',
-    {
-      token,
-      method: 'POST',
-    },
-  );
+): Promise<AdminConfigReloadResponse> {
+  return requestJson<AdminConfigReloadResponse>('/api/admin/config/reload', {
+    token,
+    method: 'POST',
+  });
 }
 
 export function startAdminTerminal(

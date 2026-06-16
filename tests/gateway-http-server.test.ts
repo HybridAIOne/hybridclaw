@@ -1868,6 +1868,12 @@ async function importFreshHealth(options?: {
     };
   });
   vi.doMock('../src/logger.js', () => ({
+    getLoggerRuntimeState: () => ({
+      configuredLevel: 'info',
+      effectiveLevel: 'info',
+      forcedLevel: null,
+    }),
+    syncLoggerLevelFromRuntimeConfig: vi.fn(),
     logger: {
       debug: loggerDebug,
       error: loggerError,
@@ -5993,17 +5999,21 @@ describe('gateway HTTP server', () => {
     const dataDir = makeTempDataDir();
     const logPath = path.join(dataDir, 'gateway', 'gateway.log');
     fs.mkdirSync(path.dirname(logPath), { recursive: true });
-    fs.writeFileSync(logPath, 'first line\nsecond line\nthird line\n', 'utf8');
+    fs.writeFileSync(
+      logPath,
+      'first line\nsecond line\nthird \x1b[32mline\x1b[39m\n',
+      'utf8',
+    );
     const state = await importFreshHealth({ dataDir });
     const req = makeRequest({
-      url: '/api/admin/logs?file=gateway&tailBytes=11',
+      url: '/api/admin/logs?file=gateway&tailBytes=28',
     });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
     await waitForResponse(res, (next) => next.writableEnded);
 
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     const payload = JSON.parse(res.body) as {
       files: Array<{ id: string; exists: boolean; path: string }>;
       selected: { fileId: string; content: string; truncated: boolean };

@@ -977,6 +977,55 @@ test('handleGatewayMessage stores redacted request logs when enabled', async () 
   );
 });
 
+test('handleGatewayMessage stores request logs when enabled in runtime config', async () => {
+  const homeDir = setupHome();
+  fs.mkdirSync(`${homeDir}/.hybridclaw`, { recursive: true });
+  fs.writeFileSync(
+    `${homeDir}/.hybridclaw/config.json`,
+    `${JSON.stringify({ ops: { logRequests: true } }, null, 2)}\n`,
+    'utf-8',
+  );
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'done',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { DB_PATH } = await import('../src/config/config.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayMessage({
+    sessionId: 'session-request-log-config',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: 'hello from config logging',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+
+  const inspect = new Database(DB_PATH, { readonly: true });
+  const rowCount = inspect
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM request_log
+       WHERE session_id = ?`,
+    )
+    .get('session-request-log-config') as { count: number };
+  inspect.close();
+
+  expect(rowCount.count).toBe(1);
+});
+
 test('handleGatewayMessage skips request logs when request logging is disabled', async () => {
   setupHome();
 

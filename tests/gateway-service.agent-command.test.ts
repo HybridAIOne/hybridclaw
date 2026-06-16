@@ -150,20 +150,22 @@ test('agent switch starts active BOOTSTRAP hatching in a reused session', async 
       'A startup instruction file (BOOTSTRAP.md) exists',
     ),
   });
-  expect(getGatewayHistory(sessionId, 10).history).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        role: 'assistant',
-        agent_id: 'research',
-        content: DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
-      }),
-      expect.objectContaining({
-        role: 'assistant',
-        agent_id: 'research',
-        content: 'Hi. I am hatching now.',
-      }),
-    ]),
-  );
+  await vi.waitFor(() => {
+    expect(getGatewayHistory(sessionId, 10).history).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'assistant',
+          agent_id: 'research',
+          content: DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
+        }),
+        expect.objectContaining({
+          role: 'assistant',
+          agent_id: 'research',
+          content: 'Hi. I am hatching now.',
+        }),
+      ]),
+    );
+  });
 });
 
 test('agent switch omits hatching hint when BOOTSTRAP is not active', async () => {

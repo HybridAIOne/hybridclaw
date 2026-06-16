@@ -760,7 +760,7 @@ let lastWarnedGatewayRequestLoggingValue: string | null = null;
 
 export function isGatewayRequestLoggingEnabled(): boolean {
   const raw = String(process.env[GATEWAY_LOG_REQUESTS_ENV] || '').trim();
-  if (!raw) return false;
+  if (!raw) return getRuntimeConfig().ops.logRequests === true;
   if (raw === GATEWAY_REQUEST_LOG_ENABLED_VALUE) {
     lastWarnedGatewayRequestLoggingValue = null;
     return true;

@@ -1,7 +1,16 @@
-import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
-import { fetchAdminLogs } from '../api/client';
-import type { AdminLogFile } from '../api/types';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  fetchAdminLogs,
+  fetchConfig,
+  reloadGateway,
+  saveConfig,
+} from '../api/client';
+import type {
+  AdminConfig,
+  AdminLogFile,
+  AdminLoggingState,
+} from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import {
@@ -11,10 +20,35 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
-import { BooleanPill, PageHeader } from '../components/ui';
+import { useToast } from '../components/toast';
+import { BooleanPill, PageHeader, SegmentedToggle } from '../components/ui';
+import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
 
 const LOG_TAIL_BYTES = 128 * 1024;
+const CONFIG_STALE_TIME_MS = 30_000;
+type LoggingMode = 'off' | 'on' | 'debug';
+const LOGGING_MODE_OPTIONS: Array<{
+  value: LoggingMode;
+  label: string;
+  activeTone?: 'is-on' | 'is-off';
+}> = [
+  { value: 'off', label: 'Off', activeTone: 'is-off' },
+  { value: 'on', label: 'On' },
+  { value: 'debug', label: 'Debug' },
+];
+const LOGGING_MODE_SETTINGS = {
+  off: { logLevel: 'silent', logRequests: false, debugModelResponses: false },
+  on: { logLevel: 'info', logRequests: false, debugModelResponses: false },
+  debug: { logLevel: 'debug', logRequests: true, debugModelResponses: true },
+} satisfies Record<
+  LoggingMode,
+  {
+    logLevel: AdminConfig['ops']['logLevel'];
+    logRequests: boolean;
+    debugModelResponses: boolean;
+  }
+>;
 
 function formatBytes(value: number | null): string {
   if (value == null) return 'missing';
@@ -36,9 +70,55 @@ function fileStatusLabel(file: AdminLogFile): string {
   return 'readable';
 }
 
+function loggingModeFromState(
+  config: AdminConfig | null,
+  state?: AdminLoggingState,
+): LoggingMode {
+  const effectiveLevel = state?.effectiveLevel ?? config?.ops.logLevel;
+  if (effectiveLevel === LOGGING_MODE_SETTINGS.off.logLevel) return 'off';
+  if (
+    effectiveLevel === LOGGING_MODE_SETTINGS.debug.logLevel ||
+    state?.logRequests.effective === true ||
+    state?.debugModelResponses.effective === true ||
+    config?.ops.logRequests === true ||
+    config?.ops.debugModelResponses === true
+  ) {
+    return 'debug';
+  }
+  return 'on';
+}
+
+function loggingModeDescription(
+  mode: LoggingMode,
+  state?: AdminLoggingState,
+): string {
+  if (!state) return `Current mode: ${mode}`;
+  if (state.forcedLevel) {
+    return `Current mode: ${mode} (forced by runtime)`;
+  }
+  if (state.logRequests.envEnabled || state.debugModelResponses.envEnabled) {
+    return `Current mode: ${mode} (enabled by runtime flag)`;
+  }
+  return `Current mode: ${mode}`;
+}
+
+function applyLoggingMode(config: AdminConfig, mode: LoggingMode): AdminConfig {
+  const settings = LOGGING_MODE_SETTINGS[mode];
+  return {
+    ...config,
+    ops: {
+      ...config.ops,
+      ...settings,
+    },
+  };
+}
+
 export function LogsPage() {
   const auth = useAuth();
+  const queryClient = useQueryClient();
+  const toast = useToast();
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const logViewerRef = useRef<HTMLPreElement | null>(null);
 
   const logsQuery = useQuery({
     queryKey: ['admin-logs', auth.token, selectedFileId],
@@ -47,24 +127,66 @@ export function LogsPage() {
         fileId: selectedFileId,
         tailBytes: LOG_TAIL_BYTES,
       }),
+    placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: false,
+  });
+  const configQuery = useQuery({
+    queryKey: ['config', auth.token],
+    queryFn: () => fetchConfig(auth.token),
+    refetchOnWindowFocus: false,
+    staleTime: CONFIG_STALE_TIME_MS,
+  });
+  const loggingState = logsQuery.data?.logging;
+  const loggingMode = loggingModeFromState(
+    configQuery.data?.config ?? null,
+    loggingState,
+  );
+  const loggingMutation = useMutation({
+    mutationFn: async (mode: LoggingMode) => {
+      const current = configQuery.data?.config;
+      if (!current) throw new Error('Runtime config has not loaded yet.');
+      const saved = await saveConfig(
+        auth.token,
+        applyLoggingMode(current, mode),
+      );
+      const reload = await reloadGateway(auth.token);
+      if (reload.status !== 'ok') {
+        throw new Error(reload.message || 'Gateway reload failed.');
+      }
+      return saved;
+    },
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['config', auth.token], payload);
+      toast.success('Logging mode saved.');
+      void logsQuery.refetch();
+    },
+    onError: (error) => {
+      toast.error('Logging mode update failed', getErrorMessage(error));
+    },
   });
 
   const files = logsQuery.data?.files || [];
+  const selectedLog = logsQuery.data?.selected;
   const selectedFile = useMemo(() => {
-    const selectedId = logsQuery.data?.selected?.fileId || selectedFileId;
+    const selectedId = selectedLog?.fileId || selectedFileId;
     return (
       files.find((file) => file.id === selectedId) ||
       files.find((file) => file.readable) ||
       files[0] ||
       null
     );
-  }, [files, logsQuery.data?.selected?.fileId, selectedFileId]);
+  }, [files, selectedLog?.fileId, selectedFileId]);
 
   useEffect(() => {
     if (!selectedFile || selectedFile.id === selectedFileId) return;
     setSelectedFileId(selectedFile.id);
   }, [selectedFile, selectedFileId]);
+
+  useEffect(() => {
+    const logViewer = logViewerRef.current;
+    if (!logViewer || !selectedLog) return;
+    logViewer.scrollTop = logViewer.scrollHeight;
+  }, [selectedLog]);
 
   return (
     <div className="page-stack">
@@ -81,6 +203,32 @@ export function LogsPage() {
           </Button>
         }
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Logging</CardTitle>
+          <CardDescription>
+            {configQuery.data
+              ? loggingModeDescription(loggingMode, loggingState)
+              : configQuery.isError
+                ? 'Runtime config unavailable.'
+                : 'Loading runtime config...'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SegmentedToggle
+            ariaLabel="Logging mode"
+            value={loggingMode}
+            options={LOGGING_MODE_OPTIONS}
+            disabled={
+              !configQuery.data ||
+              configQuery.isFetching ||
+              loggingMutation.isPending
+            }
+            onChange={(mode) => loggingMutation.mutate(mode)}
+          />
+        </CardContent>
+      </Card>
 
       <div className="two-column-grid logs-layout">
         <Card>
@@ -110,7 +258,6 @@ export function LogsPage() {
                   >
                     <div className="session-row-main">
                       <strong>{file.label}</strong>
-                      <small className="session-row-meta">{file.path}</small>
                     </div>
                     <span className="session-row-time">
                       {fileStatusLabel(file)}
@@ -165,16 +312,15 @@ export function LogsPage() {
                 </div>
                 {selectedFile.error ? (
                   <div className="empty-state error">{selectedFile.error}</div>
-                ) : logsQuery.data?.selected ? (
+                ) : selectedLog ? (
                   <>
-                    {logsQuery.data.selected.truncated ? (
+                    {selectedLog.truncated ? (
                       <p className="muted-copy">
-                        Showing the last{' '}
-                        {formatBytes(logsQuery.data.selected.tailBytes)}.
+                        Showing the last {formatBytes(selectedLog.tailBytes)}.
                       </p>
                     ) : null}
-                    <pre className="log-viewer">
-                      {logsQuery.data.selected.content || '(empty log file)'}
+                    <pre className="log-viewer" ref={logViewerRef}>
+                      {selectedLog.content || '(empty log file)'}
                     </pre>
                   </>
                 ) : (
