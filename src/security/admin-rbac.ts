@@ -107,6 +107,11 @@ const ADMIN_READ_ACTIONS = [
   'admin.jobs.read',
 ] as const satisfies readonly AdminRbacAction[];
 
+const ADMIN_AUDITOR_ACTIONS = [
+  ...ADMIN_READ_ACTIONS,
+  'secret.list_metadata',
+] as const satisfies readonly AdminRbacAction[];
+
 export const ADMIN_RBAC_ROLE_ACTIONS = {
   'admin.viewer': ADMIN_READ_ACTIONS,
   'admin.operator': [
@@ -169,6 +174,54 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
     'admin.terminal.stream',
   ],
   'admin.full': ADMIN_RBAC_ACTIONS,
+  'admin:owner': ADMIN_RBAC_ACTIONS,
+  'admin:operator': [
+    ...ADMIN_AUDITOR_ACTIONS,
+    'admin.tunnel.reconnect',
+    'admin.team.write',
+    'admin.agents.write',
+    'admin.models.write',
+    'admin.sessions.delete',
+    'admin.email.delete',
+    'admin.scheduler.write',
+    'admin.scheduler.delete',
+    'admin.channels.write',
+    'admin.channels.delete',
+    'admin.mcp.write',
+    'admin.mcp.delete',
+    'admin.config.reload',
+    'admin.browser_pool.start',
+    'admin.webhook_targets.write',
+    'admin.a2a.write',
+    'admin.a2a.delete',
+    'admin.fleet.write',
+    'admin.fleet.delete',
+    'admin.signal.write',
+    'admin.policy.write',
+    'admin.policy.delete',
+    'admin.output_guard.write',
+    'admin.output_guard.preview',
+    'admin.distill.write',
+    'admin.distill.delete',
+    'admin.skills.write',
+    'admin.skills.unblock',
+    'admin.skills.upload',
+    'admin.jobs.write',
+    'admin.jobs.delete',
+    'admin.terminal.start',
+    'admin.terminal.stop',
+    'admin.terminal.stream',
+    'admin.gateway.restart',
+  ],
+  'admin:auditor': ADMIN_AUDITOR_ACTIONS,
+  'admin:secret-manager': ADMIN_SECRET_RBAC_ACTIONS,
+} as const satisfies Record<string, readonly AdminRbacAction[]>;
+
+export const ADMIN_RBAC_ROLE_BUNDLES = {
+  'admin:auditor': ADMIN_RBAC_ROLE_ACTIONS['admin:auditor'],
+  'admin:operator': ADMIN_RBAC_ROLE_ACTIONS['admin:operator'],
+  'admin:owner': ADMIN_RBAC_ROLE_ACTIONS['admin:owner'],
+  'admin:secret-manager': ADMIN_RBAC_ROLE_ACTIONS['admin:secret-manager'],
 } as const satisfies Record<string, readonly AdminRbacAction[]>;
 
 export type AdminRbacRole = keyof typeof ADMIN_RBAC_ROLE_ACTIONS;
@@ -205,9 +258,9 @@ function isAdminRbacRole(value: string): value is AdminRbacRole {
 
 export function collectAdminRoleClaims(
   payload: Record<string, unknown> | null,
-): Set<string> | null {
-  if (!payload) return null;
+): Set<string> {
   const roles = new Set<string>();
+  if (!payload) return roles;
   addStringClaims(roles, readClaimValue(payload, 'role'), /[,\s]+/);
   addStringClaims(roles, readClaimValue(payload, 'roles'), /[,\s]+/);
   return roles;
@@ -221,17 +274,14 @@ export function collectAdminActionClaims(
 
   addStringClaims(claims, readClaimValue(payload, 'actions'), /[,\s]+/);
 
-  for (const role of collectAdminRoleClaims(payload) || []) {
+  for (const role of collectAdminRoleClaims(payload)) {
     if (!isAdminRbacRole(role)) continue;
     for (const action of ADMIN_RBAC_ROLE_ACTIONS[role]) {
       claims.add(action);
     }
   }
 
-  const scope = readClaimValue(payload, 'scope');
-  if (typeof scope === 'string') {
-    addStringClaims(claims, scope, /\s+/);
-  }
+  addStringClaims(claims, readClaimValue(payload, 'scope'), /\s+/);
 
   return claims;
 }
