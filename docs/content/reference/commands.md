@@ -14,7 +14,7 @@ hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--debug-mode
 hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--system-prompt=<parts|none>] [--tools=full|none] [--no-tools] [--sandbox=container|host]
 hybridclaw gateway stop
 hybridclaw gateway status
-hybridclaw gateway sessions [active|clear-active]
+hybridclaw gateway sessions [active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]
 hybridclaw gateway bot info
 hybridclaw gateway voice info
 hybridclaw gateway voice call <number>
@@ -671,7 +671,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/schedule add|list|remove|toggle ...` | local and chat channels | Manage scheduled tasks for the session |
 | `/secret [list|set|show|unset|route]` | local TUI/web | Manage encrypted secrets and HTTP auth routes |
 | `/second-opinion [compare|validate|fact-check]` | local and chat channels | Ask a stronger configured model to compare, validate, or fact-check |
-| `/sessions [active|clear-active]` | local and chat channels | Inspect or clear active session tracking |
+| `/sessions [active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]` | local and chat channels | Inspect active session tracking or prune old persisted sessions |
 | `/show [all|thinking|tools|none]` | local and chat channels | Control thinking/tool activity visibility |
 | `/skill ...` or `/<skill>` | local TUI/web | Manage skills or explicitly invoke one skill |
 | `/status` | local and chat channels | Show runtime, session, and agent status |
