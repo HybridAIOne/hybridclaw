@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+## [0.24.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.4) - 2026-06-16
+
+### Added
+
+- **Admin logging modes**: The admin Logs page can switch logging Off, On, or
+  Debug from the console, persist the runtime config, reload the gateway, and
+  keep selected log tails pinned to the newest content after load or refresh.
+
+### Changed
+
+- **Admin Logs readability**: The Logs page gives the detail panel more room,
+  avoids duplicate path display, keeps the selected path visible in metadata,
+  strips ANSI color from tails, aligns mid-file tails, and shows full local
+  dates in formatted timestamps.
+- **Runtime logging config**: Request logging and model-response debug capture
+  are controlled through `ops.logRequests` and `ops.debugModelResponses` while
+  preserving environment and CLI startup overrides.
+
+### Fixed
+
+- **Admin dropdown selection**: Controlled native selects now apply the first
+  chosen option immediately by marking fields touched through React
+  change/blur handling instead of wrapper-level native listeners.
+- **GPT-5 onboarding email send**: GPT-5-family hatching prompts now tell the
+  agent to send the welcome message once basic user info and a valid email
+  address are present, without showing a draft or asking for another
+  confirmation.
+- **Logging mode save feedback**: The Logs page checks gateway reload
+  responses before reporting logging mode updates as saved and refreshes the
+  effective runtime state after save.
+
 ## [0.24.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.3) - 2026-06-15
 
 ### Changed

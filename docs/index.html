@@ -886,40 +886,40 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest release: v0.24.2</div>
+    <div class="section-label">Latest release: v0.24.4</div>
     <h2 class="section-title">Current release highlights</h2>
-    <p class="section-desc">HybridClaw v0.24.2 is a patch release focused on operator log visibility, WhatsApp auth-lock recovery, and a simpler electron-builder desktop DMG packaging path.</p>
+    <p class="section-desc">HybridClaw v0.24.4 is a patch release focused on admin logging controls, clearer Logs page output, GPT-5 onboarding email guidance, and reliable admin dropdown selection.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4dc;</div>
-      <h3>Admin logs</h3>
-      <p>The admin console includes a Logs route for inspecting configured gateway and model-response debug log files without shell access to the host.</p>
+      <div class="feature-icon">&#x1f39b;</div>
+      <h3>Log modes</h3>
+      <p>The admin Logs page can switch logging Off, On, or Debug, persist runtime config, reload the gateway, and refresh the effective logging state.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f50d;</div>
-      <h3>Log tails</h3>
-      <p>Log inspection shows file status, size, modified time, and capped tail content through the gateway API, including a refresh control for active diagnosis.</p>
+      <h3>Log readability</h3>
+      <p>Log tails stay pinned to the newest content, align cleanly when the tail starts mid-file, strip ANSI color codes, and show full local dates.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4f1;</div>
-      <h3>WhatsApp locks</h3>
-      <p>WhatsApp auth locking clears stale same-PID lock files from earlier process lifetimes before reconnect, linking, or reset flows try to acquire a fresh lock.</p>
+      <div class="feature-icon">&#x2709;</div>
+      <h3>Onboarding email</h3>
+      <p>GPT-5-family hatching prompts direct the agent to send the welcome message once the user profile includes basic info and a valid email address.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4e6;</div>
-      <h3>Desktop DMGs</h3>
-      <p>macOS desktop builds use <code>electron-builder --mac dir zip dmg</code> directly, removing the custom DMG script path and the extra <code>appdmg</code> dependency.</p>
+      <div class="feature-icon">&#x2705;</div>
+      <h3>Admin dropdowns</h3>
+      <p>Controlled native selects in the admin console apply the first selected option immediately after browser-style input and change events.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4bf;</div>
-      <h3>Release assets</h3>
-      <p>The desktop release guide documents the expected app bundle, ZIP, block map, and DMG outputs plus the signing, notarization, stapling, and upload order.</p>
+      <div class="feature-icon">&#x1f5c2;</div>
+      <h3>Log layout</h3>
+      <p>The Logs page gives the detail viewer more room, avoids duplicate path display, and keeps the selected log path visible in metadata.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f6e1;</div>
-      <h3>Packaging baseline</h3>
-      <p>The dependency policy baseline reflects the Electron packaging lockfile, keeping release checks aligned with the current desktop build chain.</p>
+      <div class="feature-icon">&#x1f9ea;</div>
+      <h3>Regression coverage</h3>
+      <p>Backend and console tests cover logging mode config, gateway reload behavior, model-response debug capture, log formatting, and native select handling.</p>
     </div>
   </div>
 </section>
