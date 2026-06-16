@@ -88,6 +88,7 @@ import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { parseJsonObject } from '../utils/json-object.js';
 import {
   ensureBootstrapFiles,
+  markWorkspaceOnboardingComplete,
   resolveStartupBootstrapFile,
 } from '../workspace.js';
 import {
@@ -150,6 +151,7 @@ import {
   firstNumber,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { maybeSendOnboardingFirstJobsEmail } from './onboarding-email.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
 import {
@@ -649,6 +651,15 @@ function shouldInjectBootstrapChatTurnPrompt(params: {
   if (params.promptMode === 'none') return false;
   if (params.userContent.trim().startsWith('/')) return false;
   return true;
+}
+
+function appendGatewayNotice(resultText: string, notice: string): string {
+  const trimmedNotice = notice.trim();
+  if (!trimmedNotice) return resultText;
+  const trimmedResult = resultText.trimEnd();
+  if (!trimmedResult) return trimmedNotice;
+  if (trimmedResult.includes(trimmedNotice)) return trimmedResult;
+  return `${trimmedResult}\n\n${trimmedNotice}`;
 }
 
 export async function handleGatewayMessage(
@@ -2167,6 +2178,46 @@ async function handleGatewayMessageInner(
           'Plugin output guard pipeline failed; allowing original output',
         );
       }
+    }
+    const onboardingEmailResult = await maybeSendOnboardingFirstJobsEmail({
+      workspacePath,
+      agentName: resolvedAgent.name || resolvedAgent.id,
+      startupBootstrapFile,
+      toolExecutions,
+      pendingApproval: Boolean(output.pendingApproval),
+    });
+    if (onboardingEmailResult.status !== 'skipped') {
+      recordAuditEvent({
+        sessionId: req.sessionId,
+        runId,
+        event: {
+          type: 'onboarding.first_jobs_email',
+          status: onboardingEmailResult.status,
+          recipient: onboardingEmailResult.recipient,
+          subject: onboardingEmailResult.subject,
+          delivery: onboardingEmailResult.delivery,
+        },
+      });
+      if (
+        onboardingEmailResult.status === 'sent' ||
+        onboardingEmailResult.status === 'failed'
+      ) {
+        resultText = appendGatewayNotice(
+          resultText,
+          onboardingEmailResult.notice,
+        );
+      }
+      if (onboardingEmailResult.status === 'failed') {
+        logger.warn(
+          {
+            sessionId: req.sessionId,
+            agentId,
+            recipient: onboardingEmailResult.recipient,
+          },
+          'Automatic onboarding first-jobs email send failed',
+        );
+      }
+      markWorkspaceOnboardingComplete(agentId);
     }
     const memoryCitations = extractMemoryCitations(
       resultText,
