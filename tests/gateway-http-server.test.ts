@@ -42,6 +42,7 @@ function makeTempDocsDir(options?: {
   const extensibilityDir = path.join(contentDocsDir, 'extensibility');
   const guidesDir = path.join(contentDocsDir, 'guides');
   const developerGuideDir = path.join(contentDocsDir, 'developer-guide');
+  const internalDir = path.join(contentDocsDir, 'internal');
   const referenceDir = path.join(contentDocsDir, 'reference');
   const consoleDistDir = path.join(root, 'console', 'dist');
   fs.mkdirSync(docsDir, { recursive: true });
@@ -51,6 +52,7 @@ function makeTempDocsDir(options?: {
   fs.mkdirSync(extensibilityDir, { recursive: true });
   fs.mkdirSync(guidesDir, { recursive: true });
   fs.mkdirSync(developerGuideDir, { recursive: true });
+  fs.mkdirSync(internalDir, { recursive: true });
   fs.mkdirSync(referenceDir, { recursive: true });
   fs.mkdirSync(consoleDistDir, { recursive: true });
   fs.writeFileSync(path.join(docsDir, 'index.html'), '<h1>Docs</h1>', 'utf8');
@@ -191,6 +193,31 @@ function makeTempDocsDir(options?: {
     'utf8',
   );
   fs.writeFileSync(
+    path.join(internalDir, 'roadmap.md'),
+    [
+      '---',
+      'title: Agent, That Really Works - Roadmap',
+      'description: Internal product roadmap. Not linked from public docs navigation.',
+      '---',
+      '',
+      '# Agent, That Really Works - Roadmap',
+      '',
+      'Private roadmap detail for issue links.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(internalDir, 'approval-rule-pipeline.md'),
+    [
+      '# Approval Rule Pipeline',
+      '',
+      'Internal approval pipeline implementation notes.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
     path.join(guidesDir, 'heading-order.md'),
     [
       '---',
@@ -269,6 +296,55 @@ function makeTempDocsDir(options?: {
       'Built-in tools and external tool surfaces live here.',
       '',
     ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(contentDocsDir, 'navigation.json'),
+    `${JSON.stringify(
+      {
+        sections: [
+          {
+            title: 'Overview',
+            pages: [{ title: 'HybridClaw Docs', path: 'README.md' }],
+          },
+          {
+            title: 'Getting Started',
+            pages: [
+              { title: 'Getting Started', path: 'getting-started/README.md' },
+            ],
+          },
+          {
+            title: 'Channels',
+            pages: [{ title: 'Channels', path: 'channels/README.md' }],
+          },
+          {
+            title: 'Guides',
+            pages: [
+              { title: 'Guides', path: 'guides/README.md' },
+              { title: 'Heading Order', path: 'guides/heading-order.md' },
+            ],
+          },
+          {
+            title: 'Extensibility',
+            pages: [
+              { title: 'Extensibility', path: 'extensibility/README.md' },
+            ],
+          },
+          {
+            title: 'Developer Guide',
+            pages: [
+              { title: 'Developer Guide', path: 'developer-guide/README.md' },
+            ],
+          },
+          {
+            title: 'Reference',
+            pages: [{ title: 'Reference', path: 'reference/README.md' }],
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
     'utf8',
   );
   return root;
@@ -3714,10 +3790,40 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('href="#getting-started"');
     expect(res.body).toContain('data-doc-copy-markdown');
     expect(res.body).toContain('href="/docs/README.md"');
-    expect(res.body).not.toContain(
+    expect(res.body).toContain(
       'class="docs-sidebar-link is-active" href="/docs"',
     );
-    expect(res.body).not.toContain('><span>HybridClaw Docs</span></a>');
+    expect(res.body).toContain('><span>HybridClaw Docs</span></a>');
+  });
+
+  test('hides internal docs from navigation and search while preserving direct links', async () => {
+    const state = await importFreshHealth();
+    const indexReq = makeRequest({ url: '/docs' });
+    const indexRes = makeResponse();
+
+    state.handler(indexReq as never, indexRes as never);
+
+    expect(indexRes.statusCode).toBe(200);
+    expect(indexRes.body).not.toContain('<summary>Internal</summary>');
+    expect(indexRes.body).not.toContain('href="/docs/internal/roadmap"');
+    expect(indexRes.body).not.toContain('Agent, That Really Works - Roadmap');
+
+    const searchReq = makeRequest({ url: '/docs?search=approval' });
+    const searchRes = makeResponse();
+    state.handler(searchReq as never, searchRes as never);
+
+    expect(searchRes.statusCode).toBe(200);
+    expect(searchRes.body).not.toContain(
+      'href="/docs/internal/approval-rule-pipeline"',
+    );
+
+    const directReq = makeRequest({ url: '/docs/internal/roadmap' });
+    const directRes = makeResponse();
+    state.handler(directReq as never, directRes as never);
+
+    expect(directRes.statusCode).toBe(200);
+    expect(directRes.body).toContain('Agent, That Really Works - Roadmap');
+    expect(directRes.body).not.toContain('<summary>Internal</summary>');
   });
 
   test('redirects legacy /development docs routes to /docs', async () => {

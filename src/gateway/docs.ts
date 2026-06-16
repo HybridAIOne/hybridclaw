@@ -8,6 +8,11 @@ import { resolveInstallPath } from '../infra/install-root.js';
 
 const SITE_DIR = resolveInstallPath('docs');
 const DEVELOPMENT_DOCS_DIR = resolveInstallPath('docs', 'content');
+const DEVELOPMENT_DOCS_NAVIGATION_PATH = resolveInstallPath(
+  'docs',
+  'content',
+  'navigation.json',
+);
 const GITHUB_REPO_URL = 'https://github.com/HybridAIOne/hybridclaw';
 const DISCORD_URL = 'https://discord.gg/jsVW4vJw27';
 const SEARCH_RESULT_LIMIT = 10;
@@ -139,6 +144,21 @@ type DevelopmentDocSearchEntry = {
   markdownPath: string;
   parentTitle: string;
   routePath: string;
+};
+
+type DevelopmentDocsNavigationPage = {
+  children: DevelopmentDocsNavigationPage[];
+  path: string;
+  title: string;
+};
+
+type DevelopmentDocsNavigationSection = {
+  pages: DevelopmentDocsNavigationPage[];
+  title: string;
+};
+
+type DevelopmentDocsNavigationManifest = {
+  sections: DevelopmentDocsNavigationSection[];
 };
 
 type SidebarNode = {
@@ -554,6 +574,127 @@ function readDevelopmentDoc(relativePath: string): DevelopmentDocPage | null {
   };
 }
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseNavigationPage(
+  raw: unknown,
+  context: string,
+): DevelopmentDocsNavigationPage {
+  if (!isJsonObject(raw)) {
+    throw new Error(`Invalid docs navigation page at ${context}`);
+  }
+
+  const title = typeof raw.title === 'string' ? raw.title.trim() : '';
+  const requestedPath = typeof raw.path === 'string' ? raw.path.trim() : '';
+  if (!title || !requestedPath) {
+    throw new Error(`Invalid docs navigation page at ${context}`);
+  }
+
+  const normalizedPath =
+    normalizeRequestedDevelopmentDocRelativePath(requestedPath);
+  if (!normalizedPath) {
+    throw new Error(
+      `Invalid docs navigation path at ${context}: ${requestedPath}`,
+    );
+  }
+
+  const rawChildren = raw.children;
+  const children = Array.isArray(rawChildren)
+    ? rawChildren.map((child, index) =>
+        parseNavigationPage(child, `${context}.children[${index}]`),
+      )
+    : [];
+
+  return {
+    children,
+    path: normalizedPath,
+    title,
+  };
+}
+
+function readDevelopmentDocsNavigationManifest(): DevelopmentDocsNavigationManifest {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(
+      fs.readFileSync(DEVELOPMENT_DOCS_NAVIGATION_PATH, 'utf8'),
+    ) as unknown;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid docs navigation manifest: ${message}`);
+  }
+
+  if (!isJsonObject(parsed) || !Array.isArray(parsed.sections)) {
+    throw new Error(
+      'Invalid docs navigation manifest: sections must be an array',
+    );
+  }
+
+  return {
+    sections: parsed.sections.map((rawSection, sectionIndex) => {
+      if (!isJsonObject(rawSection)) {
+        throw new Error(
+          `Invalid docs navigation section at sections[${sectionIndex}]`,
+        );
+      }
+
+      const title =
+        typeof rawSection.title === 'string' ? rawSection.title.trim() : '';
+      if (!title || !Array.isArray(rawSection.pages)) {
+        throw new Error(
+          `Invalid docs navigation section at sections[${sectionIndex}]`,
+        );
+      }
+
+      return {
+        pages: rawSection.pages.map((rawPage, pageIndex) =>
+          parseNavigationPage(
+            rawPage,
+            `sections[${sectionIndex}].pages[${pageIndex}]`,
+          ),
+        ),
+        title,
+      };
+    }),
+  };
+}
+
+function flattenNavigationPages(
+  pages: DevelopmentDocsNavigationPage[],
+): DevelopmentDocsNavigationPage[] {
+  return pages.flatMap((page) => [
+    page,
+    ...flattenNavigationPages(page.children),
+  ]);
+}
+
+function resolveNavigationDocs(
+  manifest: DevelopmentDocsNavigationManifest,
+  docsByRelativePath: Map<string, DevelopmentDocPage>,
+): DevelopmentDocPage[] {
+  const seen = new Set<string>();
+  const navigationDocs: DevelopmentDocPage[] = [];
+
+  for (const navPage of manifest.sections.flatMap((section) =>
+    flattenNavigationPages(section.pages),
+  )) {
+    if (seen.has(navPage.path)) continue;
+    seen.add(navPage.path);
+
+    const page = docsByRelativePath.get(navPage.path);
+    if (!page) {
+      throw new Error(
+        `Docs navigation references missing page: ${navPage.path}`,
+      );
+    }
+
+    navigationDocs.push({ ...page, title: navPage.title });
+  }
+
+  return navigationDocs;
+}
+
 function collectDevelopmentDocPaths(
   rootDir: string,
   currentDir = rootDir,
@@ -612,14 +753,28 @@ function buildDevelopmentDocsSnapshot(
   const docsByRelativePath = new Map(
     docs.map((entry) => [entry.relativePath, entry] as const),
   );
+  const navigationManifest = readDevelopmentDocsNavigationManifest();
+  const navigationDocs = resolveNavigationDocs(
+    navigationManifest,
+    docsByRelativePath,
+  );
   const readCategoryMetadataCached = createCategoryMetadataReader();
+  const rootMeta = readCategoryMetadataCached('') || {};
+  const rootLabel =
+    typeof rootMeta.label === 'string' && rootMeta.label.trim()
+      ? rootMeta.label.trim()
+      : 'Development';
   const snapshot: DevelopmentDocsSnapshot = {
     cachedAt: Date.now(),
     docs,
     docsByRelativePath,
     readCategoryMetadataCached,
-    searchEntries: buildSearchIndex(docs),
-    sidebarTree: buildSidebarTree(docs, readCategoryMetadataCached),
+    searchEntries: buildSearchIndex(navigationDocs),
+    sidebarTree: buildSidebarTree(
+      navigationManifest,
+      docsByRelativePath,
+      rootLabel,
+    ),
   };
   developmentDocsSnapshotCache = snapshot;
   return snapshot;
@@ -713,106 +868,56 @@ function rewriteRelativeHref(
 }
 
 function buildSidebarTree(
-  docs: DevelopmentDocPage[],
-  readCategoryMetadataCached: CategoryMetadataReader,
+  manifest: DevelopmentDocsNavigationManifest,
+  docsByRelativePath: Map<string, DevelopmentDocPage>,
+  rootLabel: string,
 ): SidebarNode {
-  const rootMeta = readCategoryMetadataCached('') || {};
   const root: SidebarNode = {
     children: [],
     description: '',
     isPage: false,
-    label:
-      typeof rootMeta.label === 'string' && rootMeta.label.trim()
-        ? rootMeta.label.trim()
-        : 'Development',
+    label: rootLabel,
     pathKey: '',
-    position: typeof rootMeta.position === 'number' ? rootMeta.position : 1,
+    position: 1,
     routePath: null,
   };
 
-  const ensureSidebarGroup = (
-    parent: SidebarNode,
-    pathKey: string,
-    label: string,
-    position: number | null,
+  const buildPageNode = (
+    navPage: DevelopmentDocsNavigationPage,
+    index: number,
   ): SidebarNode => {
-    let group = parent.children.find(
-      (entry) => !entry.isPage && entry.pathKey === pathKey,
-    );
-    if (group) return group;
-    group = {
-      children: [],
-      description: '',
-      isPage: false,
-      label,
-      pathKey,
-      position,
-      routePath: null,
-    };
-    parent.children.push(group);
-    return group;
-  };
-
-  for (const page of docs) {
-    if (page.relativePath === 'README.md') continue;
-
-    const parts = page.relativePath.split('/');
-    const promotedGroup = getPromotedSidebarGroup(page.relativePath);
-    let cursor = root;
-    let currentPath = '';
-    let directorySegments = parts.slice(0, -1);
-
-    if (promotedGroup) {
-      cursor = ensureSidebarGroup(
-        root,
-        promotedGroup.pathKey,
-        promotedGroup.label,
-        promotedGroup.position,
-      );
-      currentPath = promotedGroup.pathKey;
-      const promotedDepth = promotedGroup.pathKey.split('/').length;
-      directorySegments = directorySegments.slice(promotedDepth);
-    }
-
-    for (const segment of directorySegments) {
-      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-      const categoryMeta = readCategoryMetadataCached(currentPath) || {};
-      const label =
-        typeof categoryMeta.label === 'string' && categoryMeta.label.trim()
-          ? categoryMeta.label.trim()
-          : humanizeSegment(segment);
-      cursor = ensureSidebarGroup(
-        cursor,
-        currentPath,
-        label,
-        typeof categoryMeta.position === 'number'
-          ? categoryMeta.position
-          : null,
+    const page = docsByRelativePath.get(navPage.path);
+    if (!page) {
+      throw new Error(
+        `Docs navigation references missing page: ${navPage.path}`,
       );
     }
 
-    cursor.children.push({
-      children: [],
+    return {
+      children: navPage.children.map((child, childIndex) =>
+        buildPageNode(child, childIndex),
+      ),
       description: page.description,
       isPage: true,
-      label: page.title,
-      pathKey: page.relativePath,
-      position: page.sidebarPosition,
+      label: navPage.title,
+      pathKey: navPage.path,
+      position: index,
       routePath: page.routePath,
-    });
-  }
-
-  const sortTree = (node: SidebarNode) => {
-    node.children.sort((left, right) => {
-      const leftPosition = left.position ?? Number.POSITIVE_INFINITY;
-      const rightPosition = right.position ?? Number.POSITIVE_INFINITY;
-      if (leftPosition !== rightPosition) return leftPosition - rightPosition;
-      if (left.isPage !== right.isPage) return left.isPage ? 1 : -1;
-      return left.label.localeCompare(right.label);
-    });
-    for (const child of node.children) sortTree(child);
+    };
   };
-  sortTree(root);
+
+  root.children = manifest.sections.map((section, sectionIndex) => ({
+    children: section.pages.map((page, pageIndex) =>
+      buildPageNode(page, pageIndex),
+    ),
+    description: '',
+    isPage: false,
+    label: section.title,
+    pathKey: `section:${sectionIndex}`,
+    position: sectionIndex,
+    routePath: null,
+  }));
+
   return root;
 }
 
@@ -820,9 +925,11 @@ function sidebarNodeContainsRoute(
   node: SidebarNode,
   currentRoutePath: string,
 ): boolean {
-  if (node.isPage) return node.routePath === currentRoutePath;
-  return node.children.some((child) =>
-    sidebarNodeContainsRoute(child, currentRoutePath),
+  return (
+    (node.isPage && node.routePath === currentRoutePath) ||
+    node.children.some((child) =>
+      sidebarNodeContainsRoute(child, currentRoutePath),
+    )
   );
 }
 
@@ -834,7 +941,13 @@ function renderSidebarNode(
   if (node.isPage) {
     const isActive = node.routePath === currentRoutePath;
     const topClass = isRootLevel ? ' docs-sidebar-link-top' : '';
-    return `<a class="docs-sidebar-link${topClass}${isActive ? ' is-active' : ''}" href="${escapeHtml(node.routePath || DOCS_ROUTE)}"${isActive ? ' aria-current="page"' : ''}><span>${escapeHtml(node.label)}</span></a>`;
+    const link = `<a class="docs-sidebar-link${topClass}${isActive ? ' is-active' : ''}" href="${escapeHtml(node.routePath || DOCS_ROUTE)}"${isActive ? ' aria-current="page"' : ''}><span>${escapeHtml(node.label)}</span></a>`;
+    if (node.children.length === 0) return link;
+
+    const childrenMarkup = node.children
+      .map((child) => renderSidebarNode(child, currentRoutePath, false))
+      .join('');
+    return `${link}<div class="docs-sidebar-group-items">${childrenMarkup}</div>`;
   }
 
   const hasActiveDescendant = sidebarNodeContainsRoute(node, currentRoutePath);
