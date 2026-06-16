@@ -1,10 +1,10 @@
 ---
-title: ISO 27001 Control Matrix
-description: Working ISO/IEC 27001:2022 Annex A evidence and gap matrix for HybridClaw.
+title: ISO/IEC 27001 Control Matrix
+description: Working ISO/IEC 27001:2022 and ISO/IEC 27001:2022/Amd 1:2024 evidence and gap matrix for HybridClaw.
 sidebar_position: 8
 ---
 
-# ISO 27001 Control Matrix
+# ISO/IEC 27001 Control Matrix
 
 This is a working compliance support artifact, not a certification claim. It
 maps repo-visible HybridClaw evidence to ISO/IEC 27001:2022 Annex A control
@@ -12,6 +12,21 @@ areas and highlights the biggest evidence gaps an auditor would ask about.
 
 Control intent is paraphrased. Use the purchased ISO standard for normative
 control wording.
+
+## Standard Reference Check
+
+- Reviewed against the ISO-published current reference
+  [ISO/IEC 27001:2022](https://www.iso.org/standard/27001) on 2026-06-16.
+- ISO lists ISO/IEC 27001:2022 as published, Edition 3, publication date
+  2022-10. ISO also lists ISO/IEC 27001:2022/Amd 1:2024 for climate-action
+  changes.
+- This matrix maps the ISO/IEC 27001:2022 Annex A control areas. It is not a
+  complete management-system clause checklist; add clauses 4-10, including the
+  amendment-driven climate context check, before treating the package as
+  audit-ready.
+- Short form "ISO 27001" is used only in headings and navigation when brevity
+  helps. Evidence and certification claims should use the full reference
+  "ISO/IEC 27001:2022".
 
 ## Scope And Assumptions
 
@@ -30,9 +45,28 @@ control wording.
 - File and line references are from the checkout reviewed on the date above and
   should be refreshed after substantive edits.
 
+## TISAX Fit
+
+TISAX is worth preparing for only if automotive customers, suppliers, or
+partners ask for it. It is not an ISO certificate and should not replace the
+ISO/IEC 27001 path for general enterprise procurement.
+
+Use this ISO/IEC 27001 matrix as a foundation for TISAX evidence, then maintain
+a separate VDA ISA self-assessment because ENX runs TISAX as an assessment and
+exchange mechanism around the VDA ISA catalogue. ENX describes the ISA as an
+information-security requirements catalogue based on key aspects of
+ISO/IEC 27001, and its downloads page says ISA 6 is the basis for TISAX
+assessments ordered after 2024-04-01. TISAX readiness still needs:
+
+- ENX participant registration and assessment scope records.
+- Selected assessment objectives, protection needs, and assessment level.
+- VDA ISA 6.x self-assessment with maturity-level evidence.
+- Audit-provider selection, corrective action plan records, and exchange
+  release decisions.
+
 ## Immediate Gap Register
 
-| ID | Priority | Annex A refs | Gap | Repo evidence | Next evidence or control |
+| ID | Priority | ISO refs | Gap | Repo evidence | Next evidence or control |
 | --- | --- | --- | --- | --- | --- |
 | G-001 | P0 | A.5.1, A.5.8, A.5.35, A.5.36 | No ISO evidence package: no visible Statement of Applicability, ISMS risk register, asset inventory, control owners, review cadence, or effectiveness evidence. | Runtime security docs exist in [`SECURITY.md`](../../../SECURITY.md) and [`TRUST_MODEL.md`](../../../TRUST_MODEL.md). Repo search only found generic "risk register" examples, not an ISMS register. | Create an ISMS evidence folder with SoA, risk register, asset/data inventory, control owner table, evidence calendar, and review sign-off trail. |
 | G-002 | P0 | A.5.15, A.5.16, A.5.18, A.8.2, A.8.3 | Admin RBAC now has route-level actions and code-backed role bundles for scoped sessions, but the ISO gap remains until sessions and tokens are issued through a documented workflow and periodic access reviews exist. | Broad bearer credentials are still accepted for compatibility in [`src/gateway/gateway-http-server.ts:2046`](../../../src/gateway/gateway-http-server.ts). Scoped admin action names, route mapping, and role bundles live in [`src/security/admin-rbac.ts`](../../../src/security/admin-rbac.ts). Role intent and review evidence are documented in [`Admin Access Control`](./admin-access-control.md). | Issue scoped sessions with role claims, record approval/expiration evidence, run quarterly access reviews, and reduce broad bearer-token use to break-glass paths. |
@@ -44,6 +78,7 @@ control wording.
 | G-008 | P2 | A.5.24, A.5.25, A.5.26, A.5.27, A.5.29, A.5.30, A.8.14 | Incident response and business continuity are documented as emergency steps, but not as an exercised program. | Incident steps are in [`SECURITY.md`](../../../SECURITY.md) and [`TRUST_MODEL.md`](../../../TRUST_MODEL.md). | Add severity definitions, escalation contacts, tabletop records, backup/restore tests, RTO/RPO targets, and post-incident review templates. |
 | G-009 | P2 | A.5.17, A.8.24 | Runtime secret encryption is strong, but key custody and rotation policy are not ISO-ready. | Runtime secrets use a master key from env, mounted secret, or local fallback in [`src/security/runtime-secrets.ts:330`](../../../src/security/runtime-secrets.ts), with AES-256-GCM in [`src/security/runtime-secrets.ts:378`](../../../src/security/runtime-secrets.ts). | Define KMS/HSM or mounted-secret guidance, rotation cadence, recovery procedure, break-glass controls, and key-access audit evidence. |
 | G-010 | P2 | A.8.6, A.8.16, A.8.20, A.8.21 | Abuse controls and operational monitoring need runtime evidence. Code has request-size limits and container constraints, but no repo-visible global API throttling, alert thresholds, or capacity plan. | JSON body limits are enforced in [`src/gateway/gateway-http-utils.ts:12`](../../../src/gateway/gateway-http-utils.ts). Container isolation is documented in [`SECURITY.md`](../../../SECURITY.md). | Add production rate-limit policy, capacity metrics, alerting runbooks, and gateway abuse-event audit coverage. |
+| G-011 | P2 | Clauses 4-10, ISO/IEC 27001:2022/Amd 1:2024 | This matrix is Annex A focused and does not yet prove current management-system clause coverage, including the climate-context consideration introduced by the 2024 amendment. | The review date and standard reference are documented above, but no clause-by-clause checklist exists. | Add an ISMS clause checklist covering context, interested parties, scope, leadership, planning, support, operation, performance evaluation, improvement, and the amendment-driven climate question. |
 
 ## Annex A Coverage Matrix
 

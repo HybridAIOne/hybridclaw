@@ -1,6 +1,6 @@
 ---
 title: Admin Access Control
-description: Admin RBAC role bundles, session claims, and ISO 27001 access-review evidence.
+description: Admin RBAC role bundles, session claims, and ISO/IEC 27001:2022 access-review evidence.
 sidebar_position: 9
 ---
 
