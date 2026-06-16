@@ -170,13 +170,12 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
   expect(userMessage?.content).toContain(
     'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
   );
-  expect(userMessage?.content).toContain(
-    'perform any concrete requested action or required onboarding file update',
+  expect(userMessage?.content).not.toContain(
+    '## GPT-5 Onboarding Prompt Injection',
   );
-  expect(userMessage?.content).toContain(
+  expect(userMessage?.content).not.toContain(
     'call the message tool with action="send"',
   );
-  expect(userMessage?.content).toContain('do not post only a draft in chat');
   expect(userMessage?.content).toContain('User message:\nHi');
   expect(
     request?.messages?.some((message) => message.content === 'agent result'),
@@ -197,6 +196,57 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
       (content) => !content.includes('Hatching mode is active'),
     ),
   ).toBe(true);
+});
+
+test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-mini', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'agent result',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+
+  initDatabase({ quiet: true });
+  ensureBootstrapFiles('research');
+
+  await handleGatewayMessage({
+    sessionId: 'session-gpt5-hatching',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    agentId: 'research',
+    content: 'Hi',
+    model: 'hybridai/gpt-5.4-mini',
+    chatbotId: 'bot-1',
+  });
+
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | {
+        messages?: Array<{ content: string; role: string }>;
+      }
+    | undefined;
+  const userMessage = request?.messages?.at(-1);
+
+  expect(userMessage?.role).toBe('user');
+  expect(userMessage?.content).toContain(
+    '## GPT-5 Onboarding Prompt Injection',
+  );
+  expect(userMessage?.content).toContain(
+    'call the message tool with action="send"',
+  );
+  expect(userMessage?.content).toContain(
+    'Do not stop after drafting the email in chat.',
+  );
+  expect(userMessage?.content).toContain('User message:\nHi');
 });
 
 test('handleGatewayMessage keeps explicit skill expansion when skill args inject context', async () => {
