@@ -3826,6 +3826,229 @@ function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
 }
 
+const SESSION_PRUNE_USAGE =
+  'Usage: `sessions prune --older-than <duration> [--dry-run|--confirm]`';
+const SESSION_PRUNE_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+const SESSION_PRUNE_SAMPLE_LIMIT = 20;
+
+interface SessionPruneOptions {
+  olderThanMs: number;
+  olderThanLabel: string;
+  confirm: boolean;
+}
+
+interface SessionPrunePlan {
+  candidates: Array<{
+    session: Session;
+    lastActiveMs: number;
+  }>;
+  cutoffMs: number;
+  invalidTimestampSkipped: number;
+  protectedSkipped: number;
+}
+
+function normalizeSessionPruneDuration(
+  raw: string,
+): { label: string; ms: number } | null {
+  const normalized = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '');
+  const match = /^(\d+)(h|hour|hours|d|day|days|w|week|weeks)$/.exec(
+    normalized,
+  );
+  if (!match) return null;
+
+  const count = Number.parseInt(match[1], 10);
+  if (!Number.isSafeInteger(count) || count <= 0) return null;
+
+  const unit = match[2];
+  if (unit === 'h' || unit === 'hour' || unit === 'hours') {
+    return { label: `${count}h`, ms: count * 60 * 60 * 1000 };
+  }
+  if (unit === 'd' || unit === 'day' || unit === 'days') {
+    return { label: `${count}d`, ms: count * 24 * 60 * 60 * 1000 };
+  }
+  return { label: `${count}w`, ms: count * 7 * 24 * 60 * 60 * 1000 };
+}
+
+function parseSessionPruneOptions(
+  args: string[],
+): { options: SessionPruneOptions } | { error: string } {
+  let olderThan: { label: string; ms: number } | null = null;
+  let confirm = false;
+  let dryRun = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = String(args[index] || '').trim();
+    if (!arg) continue;
+
+    if (arg === '--confirm') {
+      confirm = true;
+      continue;
+    }
+    if (arg === '--dry-run') {
+      dryRun = true;
+      continue;
+    }
+
+    let olderThanRaw: string | null = null;
+    if (arg.startsWith('--older-than=')) {
+      olderThanRaw = arg.slice('--older-than='.length);
+    } else if (arg === '--older-than') {
+      const next = String(args[index + 1] || '').trim();
+      const afterNext = String(args[index + 2] || '').trim();
+      if (next && /^\d+$/.test(next) && /^[a-zA-Z]+$/.test(afterNext)) {
+        olderThanRaw = `${next}${afterNext}`;
+        index += 2;
+      } else {
+        olderThanRaw = next;
+        index += 1;
+      }
+    }
+
+    if (olderThanRaw != null) {
+      const parsed = normalizeSessionPruneDuration(olderThanRaw);
+      if (!parsed) {
+        return {
+          error:
+            'Invalid `--older-than` value. Use a duration like `90d`, `12w`, or `48h`.',
+        };
+      }
+      olderThan = parsed;
+      continue;
+    }
+
+    return { error: `Unknown sessions prune option: ${arg}` };
+  }
+
+  if (!olderThan) {
+    return { error: 'Missing required `--older-than <duration>` option.' };
+  }
+  if (olderThan.ms < SESSION_PRUNE_MIN_AGE_MS) {
+    return { error: '`--older-than` must be at least 24h.' };
+  }
+  if (confirm && dryRun) {
+    return { error: 'Use either `--dry-run` or `--confirm`, not both.' };
+  }
+
+  return {
+    options: {
+      olderThanMs: olderThan.ms,
+      olderThanLabel: olderThan.label,
+      confirm,
+    },
+  };
+}
+
+function getSessionPruneProtectionReason(
+  session: Session,
+  params: {
+    activeSessionIds: Set<string>;
+    currentSessionId: string;
+  },
+): string | null {
+  if (session.id === params.currentSessionId) return 'current session';
+  if (params.activeSessionIds.has(session.id)) return 'active sandbox session';
+  if (session.full_auto_enabled) return 'full-auto session';
+  if (
+    session.id.startsWith('scheduler:') ||
+    session.channel_id === 'scheduler'
+  ) {
+    return 'scheduler session';
+  }
+  return null;
+}
+
+function buildSessionPrunePlan(params: {
+  activeSessionIds: Set<string>;
+  currentSessionId: string;
+  nowMs: number;
+  olderThanMs: number;
+  sessions: Session[];
+}): SessionPrunePlan {
+  const cutoffMs = params.nowMs - params.olderThanMs;
+  const candidates: SessionPrunePlan['candidates'] = [];
+  let invalidTimestampSkipped = 0;
+  let protectedSkipped = 0;
+
+  for (const session of params.sessions) {
+    const lastActiveMs = parseTimestamp(session.last_active)?.getTime();
+    if (!Number.isFinite(lastActiveMs)) {
+      invalidTimestampSkipped += 1;
+      continue;
+    }
+    if ((lastActiveMs as number) > cutoffMs) continue;
+
+    if (
+      getSessionPruneProtectionReason(session, {
+        activeSessionIds: params.activeSessionIds,
+        currentSessionId: params.currentSessionId,
+      })
+    ) {
+      protectedSkipped += 1;
+      continue;
+    }
+
+    candidates.push({
+      session,
+      lastActiveMs: lastActiveMs as number,
+    });
+  }
+
+  candidates.sort((left, right) => {
+    const byLastActive = left.lastActiveMs - right.lastActiveMs;
+    if (byLastActive !== 0) return byLastActive;
+    return left.session.id.localeCompare(right.session.id);
+  });
+
+  return {
+    candidates,
+    cutoffMs,
+    invalidTimestampSkipped,
+    protectedSkipped,
+  };
+}
+
+function formatSessionPruneSample(plan: SessionPrunePlan): string[] {
+  if (plan.candidates.length === 0) return [];
+  const shown = plan.candidates.slice(0, SESSION_PRUNE_SAMPLE_LIMIT);
+  return [
+    '',
+    'Oldest matched sessions:',
+    ...shown.map(
+      ({ session }) =>
+        `- ${session.id} — ${formatCompactNumber(session.message_count)} msgs, last: ${formatDisplayTimestamp(session.last_active)}`,
+    ),
+    ...(plan.candidates.length > shown.length
+      ? [
+          `...and ${formatCompactNumber(plan.candidates.length - shown.length)} more.`,
+        ]
+      : []),
+  ];
+}
+
+function formatSessionPrunePlanLines(
+  plan: SessionPrunePlan,
+  options: SessionPruneOptions,
+): string[] {
+  return [
+    `Older than: ${options.olderThanLabel}`,
+    `Cutoff: before ${formatDisplayTimestamp(new Date(plan.cutoffMs).toISOString())}`,
+    `Matched: ${formatCompactNumber(plan.candidates.length)} session${plan.candidates.length === 1 ? '' : 's'}`,
+    ...(plan.protectedSkipped > 0
+      ? [
+          `Protected skipped: ${formatCompactNumber(plan.protectedSkipped)} active/current/full-auto/scheduler session${plan.protectedSkipped === 1 ? '' : 's'}`,
+        ]
+      : []),
+    ...(plan.invalidTimestampSkipped > 0
+      ? [
+          `Invalid timestamps skipped: ${formatCompactNumber(plan.invalidTimestampSkipped)}`,
+        ]
+      : []),
+  ];
+}
+
 function normalizeSecretRouteHeader(raw: string | undefined): string {
   const header = String(raw || 'Authorization').trim();
   if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(header)) {
@@ -11844,10 +12067,108 @@ export async function handleGatewayCommand(
             ].join('\n'),
           );
         }
+        if (sub === 'prune') {
+          const parsed = parseSessionPruneOptions(req.args.slice(2));
+          if ('error' in parsed) {
+            return badCommand(
+              'Usage',
+              `${parsed.error}\n${SESSION_PRUNE_USAGE}`,
+            );
+          }
+
+          const activeSessionIds = new Set(getActiveExecutorSessionIds());
+          const plan = buildSessionPrunePlan({
+            activeSessionIds,
+            currentSessionId: session.id,
+            nowMs: Date.now(),
+            olderThanMs: parsed.options.olderThanMs,
+            sessions: getAllSessions(),
+          });
+          const lines = formatSessionPrunePlanLines(plan, parsed.options);
+
+          if (!parsed.options.confirm) {
+            return infoCommand(
+              'Sessions Prune Dry Run',
+              [
+                ...lines,
+                '',
+                'No sessions were deleted.',
+                `Run \`sessions prune --older-than ${parsed.options.olderThanLabel} --confirm\` to delete matched sessions.`,
+                ...formatSessionPruneSample(plan),
+              ].join('\n'),
+            );
+          }
+
+          let deleted = 0;
+          let deletedMessages = 0;
+          let deletedTasks = 0;
+          let deletedSemanticMemories = 0;
+          let deletedUsageEvents = 0;
+          let deletedAuditEntries = 0;
+          let deletedApprovalEntries = 0;
+
+          for (const { session: targetSession } of plan.candidates) {
+            const result = deleteGatewayAdminSession(targetSession.id);
+            if (!result.deleted) continue;
+            deleted += 1;
+            deletedMessages += result.deletedMessages;
+            deletedTasks += result.deletedTasks;
+            deletedSemanticMemories += result.deletedSemanticMemories;
+            deletedUsageEvents += result.deletedUsageEvents;
+            deletedAuditEntries +=
+              result.deletedAuditEntries + result.deletedStructuredAuditEntries;
+            deletedApprovalEntries += result.deletedApprovalEntries;
+          }
+
+          recordAuditEvent({
+            sessionId: session.id,
+            runId: makeAuditRunId('cmd'),
+            event: {
+              type: 'session.prune',
+              source: 'command',
+              olderThan: parsed.options.olderThanLabel,
+              cutoff: new Date(plan.cutoffMs).toISOString(),
+              matchedCount: plan.candidates.length,
+              deletedCount: deleted,
+              protectedSkipped: plan.protectedSkipped,
+              invalidTimestampSkipped: plan.invalidTimestampSkipped,
+              deletedRows: {
+                messages: deletedMessages,
+                tasks: deletedTasks,
+                semanticMemories: deletedSemanticMemories,
+                usageEvents: deletedUsageEvents,
+                auditEntries: deletedAuditEntries,
+                approvals: deletedApprovalEntries,
+              },
+              userId: boundAuditActorField(req.userId),
+              username: boundAuditActorField(req.username),
+            },
+          });
+
+          return infoCommand(
+            'Pruned Sessions',
+            [
+              ...lines,
+              '',
+              `Deleted: ${formatCompactNumber(deleted)} session${deleted === 1 ? '' : 's'}`,
+              `Deleted rows: ${[
+                `${formatCompactNumber(deletedMessages)} messages`,
+                `${formatCompactNumber(deletedTasks)} tasks`,
+                `${formatCompactNumber(deletedSemanticMemories)} semantic memories`,
+                `${formatCompactNumber(deletedUsageEvents)} usage events`,
+                `${formatCompactNumber(deletedAuditEntries)} audit entries`,
+                `${formatCompactNumber(deletedApprovalEntries)} approvals`,
+              ].join(', ')}`,
+            ].join('\n'),
+          );
+        }
         if (sub) {
           return badCommand(
             'Usage',
-            'Usage: `sessions`, `sessions active`, or `sessions clear-active`',
+            `Usage: \`sessions\`, \`sessions active\`, \`sessions clear-active\`, or ${SESSION_PRUNE_USAGE.replace(
+              'Usage: ',
+              '',
+            )}`,
           );
         }
         const sessions = getAllSessions();
