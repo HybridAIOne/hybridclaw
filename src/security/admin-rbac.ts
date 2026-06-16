@@ -112,7 +112,10 @@ export function collectAdminActionClaims(
   return claims;
 }
 
-function hasWildcardClaim(claims: Set<string>, action: AdminRbacAction): boolean {
+function hasWildcardClaim(
+  claims: Set<string>,
+  action: AdminRbacAction,
+): boolean {
   if (claims.has('*')) return true;
   const segments = action.split('.');
   while (segments.length > 0) {
