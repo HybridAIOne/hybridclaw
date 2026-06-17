@@ -66,8 +66,8 @@ doc at once, start from [For Agents](./agents.md).
   Browser Use Cloud sessions with SecretRef-gated credential fills.
 - Trace-judge eval gates and behavioral anomaly reranking give tool-call and
   skill-trace review a deterministic test path.
-- Harness evolution runs eval-driven coworker workspace improvement loops with
-  F12 manifests, seed-delta reporting, and admin inspection.
+- Harness evolution runs SkillOpt-style coworker workspace improvement loops
+  with change manifests, seed-delta reporting, and admin inspection.
 - `/second-opinion` compares or validates answers with a stronger configured
   model while honoring confidentiality, context, and agent-budget limits.
 - Web chat renders slash-command results distinctly and records persisted

@@ -6,6 +6,7 @@ import {
   collectAdminActionClaims,
   collectAdminRoleClaims,
   isAdminActionAllowed,
+  resolveAdminRbacAction,
 } from '../src/security/admin-rbac.js';
 
 describe('admin RBAC role bundles', () => {
@@ -99,5 +100,26 @@ describe('admin RBAC role bundles', () => {
       'admin:owner',
       'admin:secret-manager',
     ]);
+  });
+
+  test('maps harness evolution run control to write permission', () => {
+    expect(resolveAdminRbacAction('/api/admin/harness-evolution', 'GET')).toBe(
+      'admin.harness_evolution.read',
+    );
+    expect(resolveAdminRbacAction('/api/admin/harness-evolution', 'POST')).toBe(
+      'admin.harness_evolution.write',
+    );
+    expect(
+      isAdminActionAllowed(
+        { role: 'admin.operator' },
+        'admin.harness_evolution.write',
+      ),
+    ).toBe(true);
+    expect(
+      isAdminActionAllowed(
+        { role: 'admin.viewer' },
+        'admin.harness_evolution.write',
+      ),
+    ).toBe(false);
   });
 });

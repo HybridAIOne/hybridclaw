@@ -18,6 +18,7 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.hybridai.bots.read',
   'admin.agent_scoreboard.read',
   'admin.harness_evolution.read',
+  'admin.harness_evolution.write',
   'admin.models.read',
   'admin.models.write',
   'admin.sessions.read',
@@ -117,6 +118,7 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
   'admin.operator': [
     ...ADMIN_READ_ACTIONS,
     'admin.tunnel.reconnect',
+    'admin.harness_evolution.write',
     'admin.sessions.delete',
     'admin.scheduler.write',
     'admin.scheduler.delete',
@@ -178,6 +180,7 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
   'admin:operator': [
     ...ADMIN_AUDITOR_ACTIONS,
     'admin.tunnel.reconnect',
+    'admin.harness_evolution.write',
     'admin.team.write',
     'admin.agents.write',
     'admin.models.write',
@@ -371,6 +374,9 @@ export function resolveAdminRbacAction(
   }
   if (pathname === '/api/admin/harness-evolution' && method === 'GET') {
     return 'admin.harness_evolution.read';
+  }
+  if (pathname === '/api/admin/harness-evolution' && method === 'POST') {
+    return 'admin.harness_evolution.write';
   }
   if (pathname === '/api/admin/models') {
     if (method === 'GET') return 'admin.models.read';

@@ -2086,9 +2086,58 @@ export interface AdminHarnessEvolutionMetrics {
   totalCostUsd: number;
 }
 
+export interface AdminHarnessEvolutionRoundStages {
+  rollout: {
+    status: 'completed';
+    artifactPath: string;
+    cleanedArtifactPath: string;
+    taskCount: number;
+    rolloutCount: number;
+  };
+  reflect: {
+    status: 'completed';
+    artifactPath: string;
+    failureCount: number;
+  };
+  aggregateSelect: {
+    status: 'completed';
+    proposedEditCount: number;
+    selectedEditCount: number;
+    maxEdits: number;
+  };
+  update: {
+    status: 'applied' | 'skipped';
+    manifestPath: string;
+    appliedEditCount: number;
+  };
+  gate: {
+    status: 'accepted' | 'rejected' | 'dry_run' | 'skipped';
+    artifactPath: string | null;
+    cleanedArtifactPath: string | null;
+    previousBestPassAt1: number;
+    candidatePassAt1: number;
+  };
+  memory: {
+    status: 'updated';
+    optimizerMemoryPath: string;
+    rejectedEditCount: number;
+  };
+}
+
 export interface AdminHarnessEvolutionRound {
   round: number;
   metrics: AdminHarnessEvolutionMetrics;
+  selectionGate?: {
+    mode: 'held_out_suite' | 'task_split' | 'shared_suite' | 'dry_run';
+    accepted: boolean;
+    reason: string;
+    previousBestPassAt1: number;
+    candidatePassAt1: number;
+    trainTaskCount: number;
+    selectionTaskCount: number;
+    rejectedEditCount: number;
+    selectionMetrics: AdminHarnessEvolutionMetrics;
+  };
   attributionScore: number;
   editsPerSurface: Record<string, number>;
   manifestPath: string;
@@ -2106,6 +2155,7 @@ export interface AdminHarnessEvolutionRound {
   };
   improvedBest: boolean;
   gitCommit: string | null;
+  stages?: AdminHarnessEvolutionRoundStages;
 }
 
 export interface AdminHarnessEvolutionSeedDelta {
@@ -2138,6 +2188,9 @@ export interface AdminHarnessEvolutionRun {
   };
   seedDelta: AdminHarnessEvolutionSeedDelta;
   summaryPath: string;
+  bestHarnessPath?: string;
+  rejectedEditsPath?: string;
+  optimizerMemoryPath?: string;
 }
 
 export interface AdminHarnessEvolutionRunListEntry {
@@ -2160,8 +2213,64 @@ export interface AdminHarnessEvolutionResponse {
   runs: AdminHarnessEvolutionRunListEntry[];
 }
 
+export interface AdminHarnessEvolutionStarterSuites {
+  trainSuitePath: string;
+  selectionSuitePath: string;
+  verifierPath: string;
+}
+
+export interface AdminHarnessEvolutionSuiteBuilderTask {
+  id: string;
+  command: string;
+  split: 'train' | 'selection';
+  timeoutMs?: number;
+}
+
+export interface AdminHarnessEvolutionSuiteBuilderPayload {
+  targetRoot: string;
+  suiteId?: string;
+  suiteName?: string;
+  costBudgetUsd?: number;
+  tasks: AdminHarnessEvolutionSuiteBuilderTask[];
+}
+
+export interface AdminHarnessEvolutionRunPayload {
+  targetRoot: string;
+  suitePath: string;
+  selectionSuitePath?: string;
+  rounds?: number;
+  rolloutsPerTask?: number;
+  maxEditsPerRound?: number;
+  freshSeed?: boolean;
+  dryRun?: boolean;
+  commit?: boolean;
+}
+
 export interface AdminHarnessEvolutionRunResponse {
   run: AdminHarnessEvolutionRun;
+  targetRoot?: string;
+  runs?: AdminHarnessEvolutionRunListEntry[];
+}
+
+export interface AdminHarnessEvolutionInitResponse
+  extends AdminHarnessEvolutionResponse {
+  starterSuites?: AdminHarnessEvolutionStarterSuites;
+}
+
+export interface AdminHarnessEvolutionStarterSuitesResponse
+  extends AdminHarnessEvolutionResponse {
+  starterSuites: AdminHarnessEvolutionStarterSuites;
+}
+
+export interface AdminHarnessEvolutionSuiteBuilderResponse
+  extends AdminHarnessEvolutionResponse {
+  starterSuites: AdminHarnessEvolutionStarterSuites;
+}
+
+export interface AdminHarnessEvolutionStartResponse
+  extends AdminHarnessEvolutionRunResponse {
+  targetRoot: string;
+  runs: AdminHarnessEvolutionRunListEntry[];
 }
 
 export interface AdminHarnessEvolutionManifestEntry {

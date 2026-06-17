@@ -8,10 +8,15 @@ import {
   calculateEvolutionMetrics,
   initializeHarnessWorkspace,
   listHarnessEvolutionRuns,
+  loadEvolutionEvalSuite,
+  parseHarnessEvolutionSuiteBuilderInput,
   renderEvolutionChart,
   resolveHarnessSurfacePath,
   runHarnessEvolutionLoop,
   validateBashOnlySeed,
+  writeHarnessEvolutionSuiteBuilder,
+  writeHarnessEvolutionSpreadsheetBenchExample,
+  writeHarnessEvolutionStarterSuites,
   writeHarnessSurfaceFile,
 } from '../src/evolution/harness-evolution.ts';
 
@@ -47,6 +52,142 @@ describe('harness evolution', () => {
     expect(validateBashOnlySeed(targetRoot)).toMatchObject({ ok: true });
     expect(fs.existsSync(path.join(targetRoot, 'system_prompt.md'))).toBe(true);
     expect(fs.existsSync(path.join(targetRoot, 'long_term_memory'))).toBe(true);
+  });
+
+  test('writes starter train and selection suites for the admin console', async () => {
+    const targetRoot = makeTempDir();
+    initializeHarnessWorkspace(targetRoot);
+
+    const starterSuites = writeHarnessEvolutionStarterSuites(targetRoot);
+    const trainSuite = loadEvolutionEvalSuite(starterSuites.trainSuitePath);
+    const selectionSuite = loadEvolutionEvalSuite(
+      starterSuites.selectionSuitePath,
+    );
+
+    expect(fs.existsSync(starterSuites.verifierPath)).toBe(true);
+    expect(trainSuite.tasks[0]?.command).toContain(starterSuites.verifierPath);
+    expect(selectionSuite.tasks[0]?.command).toContain(
+      starterSuites.verifierPath,
+    );
+
+    const result = await runHarnessEvolutionLoop({
+      targetRoot,
+      suitePath: starterSuites.trainSuitePath,
+      selectionSuitePath: starterSuites.selectionSuitePath,
+      runId: 'starter-suite',
+      rounds: 1,
+      rolloutsPerTask: 1,
+      freshSeed: true,
+      dryRun: true,
+    });
+
+    expect(result.suite.sourcePath).toBe(starterSuites.trainSuitePath);
+    expect(result.rounds[0]?.metrics.rolloutCount).toBe(1);
+  });
+
+  test('writes user-authored train and selection suites from command rows', async () => {
+    const targetRoot = makeTempDir();
+    initializeHarnessWorkspace(targetRoot);
+    const verifierPath = path.join(targetRoot, 'verifier.mjs');
+    fs.writeFileSync(
+      verifierPath,
+      "if (process.argv[2] !== process.env.HYBRIDCLAW_EVOLUTION_TARGET_ROOT) process.exit(4);\n",
+      'utf-8',
+    );
+
+    const starterSuites = writeHarnessEvolutionSuiteBuilder(
+      targetRoot,
+      parseHarnessEvolutionSuiteBuilderInput({
+        suiteName: 'Custom suite',
+        costBudgetUsd: 0.02,
+        tasks: [
+          {
+            id: 'train-smoke',
+            split: 'train',
+            command: `${JSON.stringify(process.execPath)} ${JSON.stringify(verifierPath)} {targetRoot}`,
+          },
+          {
+            id: 'selection-smoke',
+            split: 'selection',
+            command: `${JSON.stringify(process.execPath)} ${JSON.stringify(verifierPath)} {targetRoot}`,
+          },
+        ],
+      }),
+    );
+
+    expect(path.basename(starterSuites.trainSuitePath)).toBe(
+      'custom-suite-train.json',
+    );
+    expect(path.basename(starterSuites.selectionSuitePath)).toBe(
+      'custom-suite-selection.json',
+    );
+    const result = await runHarnessEvolutionLoop({
+      targetRoot,
+      suitePath: starterSuites.trainSuitePath,
+      selectionSuitePath: starterSuites.selectionSuitePath,
+      runId: 'custom-suite',
+      rounds: 1,
+      rolloutsPerTask: 1,
+      freshSeed: true,
+      dryRun: true,
+    });
+
+    expect(result.rounds[0]?.metrics.passAt1).toBe(1);
+    expect(result.rounds[0]?.stages.rollout.rolloutCount).toBe(1);
+    expect(fs.existsSync(result.optimizerMemoryPath)).toBe(true);
+  });
+
+  test('writes a SpreadsheetBench-style formula example suite', async () => {
+    const targetRoot = makeTempDir();
+    initializeHarnessWorkspace(targetRoot);
+
+    const starterSuites =
+      writeHarnessEvolutionSpreadsheetBenchExample(targetRoot);
+    const trainSuite = loadEvolutionEvalSuite(starterSuites.trainSuitePath);
+    const selectionSuite = loadEvolutionEvalSuite(
+      starterSuites.selectionSuitePath,
+    );
+
+    expect(trainSuite.tasks[0]?.id).toBe('spreadsheet-formula-train');
+    expect(selectionSuite.tasks[0]?.command).toContain('selection');
+    expect(fs.existsSync(starterSuites.verifierPath)).toBe(true);
+
+    const failing = await runHarnessEvolutionLoop({
+      targetRoot,
+      suitePath: starterSuites.trainSuitePath,
+      selectionSuitePath: starterSuites.selectionSuitePath,
+      runId: 'spreadsheetbench-missing-memory',
+      rounds: 1,
+      rolloutsPerTask: 1,
+      freshSeed: true,
+      dryRun: true,
+    });
+    expect(failing.rounds[0]?.metrics.passAt1).toBe(0);
+
+    fs.writeFileSync(
+      path.join(
+        targetRoot,
+        'long_term_memory',
+        'spreadsheet-formula-repair.md',
+      ),
+      [
+        'Derive spreadsheet formulas from headers.',
+        'Write formulas instead of hard-coded constants.',
+        'Verify recalculation on held-out or changed rows.',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const passing = await runHarnessEvolutionLoop({
+      targetRoot,
+      suitePath: starterSuites.trainSuitePath,
+      selectionSuitePath: starterSuites.selectionSuitePath,
+      runId: 'spreadsheetbench-has-memory',
+      rounds: 1,
+      rolloutsPerTask: 1,
+      dryRun: true,
+    });
+    expect(passing.rounds[0]?.metrics.passAt1).toBe(1);
   });
 
   test('rejects pre-fitted fresh seeds', () => {
@@ -181,11 +322,12 @@ describe('harness evolution', () => {
 
     expect(result.bestRound).toBe(2);
     expect(result.bestPassAt1).toBe(1);
+    expect(result.rounds[0]?.stages.aggregateSelect.maxEdits).toBe(4);
     expect(fs.existsSync(result.summaryPath)).toBe(true);
     expect(listHarnessEvolutionRuns(targetRoot).runs[0]?.runId).toBe(
       result.runId,
     );
-    expect(renderEvolutionChart(result)).toContain('Round | pass@1');
+    expect(renderEvolutionChart(result)).toContain('selection pass@1');
   });
 
   test('stops evolution rounds when the suite cost budget is exceeded', async () => {
@@ -250,6 +392,9 @@ describe('harness evolution', () => {
       outcomesByRound: [
         [{ taskId: 'task-a', rollout: 1, success: false, tokens: 1 }],
       ],
+      selectionOutcomesByRound: [
+        [{ taskId: 'task-a', rollout: 1, success: true, tokens: 1 }],
+      ],
       evolveAgent: async (request) => ({
         edits: [
           {
@@ -273,12 +418,61 @@ describe('harness evolution', () => {
       provider: 'test',
       model: 'test-model',
     });
+    expect(result.rounds[0]?.selectionGate).toMatchObject({
+      accepted: true,
+      candidatePassAt1: 1,
+    });
     expect(
       fs.readFileSync(
         path.join(targetRoot, 'long_term_memory', 'task-a.md'),
         'utf-8',
       ),
     ).toContain('stderr evidence');
+  });
+
+  test('rejects and rolls back candidate edits that fail selection gate', async () => {
+    const cwd = makeTempDir();
+    const targetRoot = path.join(cwd, 'agent-a');
+    initializeHarnessWorkspace(targetRoot);
+    const suitePath = writeSuite(cwd);
+
+    const result = await runHarnessEvolutionLoop({
+      targetRoot,
+      suitePath,
+      runId: 'selection-reject',
+      rounds: 1,
+      freshSeed: true,
+      outcomesByRound: [
+        [{ taskId: 'task-a', rollout: 1, success: false, tokens: 1 }],
+      ],
+      selectionOutcomesByRound: [
+        [{ taskId: 'task-a', rollout: 1, success: false, tokens: 1 }],
+      ],
+      editsByRound: [
+        [
+          {
+            surface: 'long_term_memory',
+            relativePath: 'long_term_memory/task-a.md',
+            content: 'Remember task A requires stderr review.\n',
+            prediction: 'task-a selection pass improves',
+            verifier: 'hybridclaw eval demo-suite run --task task-a',
+            rollbackScope: 'long_term_memory/task-a.md',
+          },
+        ],
+      ],
+    });
+
+    expect(result.rounds[0]?.selectionGate).toMatchObject({
+      accepted: false,
+      rejectedEditCount: 1,
+    });
+    expect(
+      fs.existsSync(path.join(targetRoot, 'long_term_memory', 'task-a.md')),
+    ).toBe(false);
+    const rejected = JSON.parse(
+      fs.readFileSync(result.rejectedEditsPath, 'utf-8'),
+    ) as { rejectedEdits: Array<{ path: string }> };
+    expect(rejected.rejectedEdits[0]?.path).toBe('long_term_memory/task-a.md');
   });
 
   test('reports seed delta for in-place production coworker evolution', async () => {
