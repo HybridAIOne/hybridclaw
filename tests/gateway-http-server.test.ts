@@ -2309,6 +2309,64 @@ useCleanMocks({
   suspendedSessions: [],
 });
 
+async function createAndRedeemMobileChatQr(params: {
+  state: Awaited<ReturnType<typeof importFreshHealth>>;
+  sessionId: string;
+  userId?: string;
+  baseUrl?: string;
+  continueNoAuth?: boolean;
+}): Promise<{
+  createRes: ReturnType<typeof makeResponse>;
+  payload: { launchUrl: string; expiresAt?: string; qrSvg?: string };
+  continueReq: ReturnType<typeof makeRequest>;
+  continueRes: ReturnType<typeof makeResponse>;
+  sessionCookie: string;
+}> {
+  const userId = params.userId || 'web-user-a';
+  const createReq = makeRequest({
+    method: 'POST',
+    url: '/api/chat/mobile-qr',
+    headers: {
+      authorization: 'Bearer web-token',
+    },
+    body: {
+      userId,
+      sessionId: params.sessionId,
+      baseUrl: params.baseUrl || 'https://example.test/chat',
+    },
+  });
+  const createRes = makeResponse();
+
+  params.state.handler(createReq as never, createRes as never);
+  await waitForResponse(createRes, (next) => next.writableEnded);
+
+  const payload = JSON.parse(createRes.body) as {
+    launchUrl: string;
+    expiresAt?: string;
+    qrSvg?: string;
+  };
+  const continueUrl = new URL(payload.launchUrl);
+  const continueReq = makeRequest({
+    url: `${continueUrl.pathname}${continueUrl.search}`,
+    ...(params.continueNoAuth ? { noAuth: true } : {}),
+  });
+  const continueRes = makeResponse();
+
+  params.state.handler(continueReq as never, continueRes as never);
+  await waitForResponse(continueRes, (next) => next.writableEnded);
+
+  return {
+    createRes,
+    payload,
+    continueReq,
+    continueRes,
+    sessionCookie: getCookiePair(
+      getSetCookieHeader(continueRes),
+      'hybridclaw_session',
+    ),
+  };
+}
+
 describe('gateway HTTP server', () => {
   test('starts the HTTP server and serves the health endpoint without auth', async () => {
     const state = await importFreshHealth();
@@ -5143,45 +5201,20 @@ describe('gateway HTTP server', () => {
   });
 
   test('creates and redeems mobile chat QR handoffs once', async () => {
-    const state = await importFreshHealth({ webApiToken: 'web-token' });
-    const sessionId = 'agent:main:channel:web:chat:dm:peer:1234567890abcdef';
-    const createReq = makeRequest({
-      method: 'POST',
-      url: '/api/chat/mobile-qr',
-      headers: {
-        authorization: 'Bearer web-token',
-      },
-      body: {
-        userId: 'web-user-a',
-        sessionId,
-        baseUrl: 'https://example.test/chat',
-      },
+    const state = await importFreshHealth({
+      authSecret: 'mobile-qr-auth-secret',
+      webApiToken: 'web-token',
     });
-    const createRes = makeResponse();
-
-    state.handler(createReq as never, createRes as never);
-    await waitForResponse(createRes, (next) => next.writableEnded);
+    const sessionId = 'agent:main:channel:web:chat:dm:peer:1234567890abcdef';
+    const { createRes, payload, continueReq, continueRes } =
+      await createAndRedeemMobileChatQr({ state, sessionId });
 
     expect(createRes.statusCode).toBe(200);
-    const payload = JSON.parse(createRes.body) as {
-      launchUrl: string;
-      expiresAt: string;
-      qrSvg: string;
-    };
     expect(payload.launchUrl).toMatch(
       /^https:\/\/example\.test\/chat\/continue\?token=/,
     );
     expect(payload.expiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(payload.qrSvg).toContain('<svg');
-
-    const continueUrl = new URL(payload.launchUrl);
-    const continueReq = makeRequest({
-      url: `${continueUrl.pathname}${continueUrl.search}`,
-    });
-    const continueRes = makeResponse();
-
-    state.handler(continueReq as never, continueRes as never);
-    await waitForResponse(continueRes, (next) => next.writableEnded);
 
     expect(continueRes.statusCode).toBe(200);
     expect(continueRes.body).toContain(
@@ -5193,6 +5226,12 @@ describe('gateway HTTP server', () => {
     expect(continueRes.body).toContain(
       `window.location.replace("/chat/${encodeURIComponent(sessionId)}");`,
     );
+    expect(continueRes.headers['Set-Cookie']).toEqual(
+      expect.stringContaining('hybridclaw_session='),
+    );
+    expect(continueRes.headers['Set-Cookie']).toEqual(
+      expect.stringContaining('HttpOnly'),
+    );
 
     const replayRes = makeResponse();
     state.handler(continueReq as never, replayRes as never);
@@ -5200,6 +5239,68 @@ describe('gateway HTTP server', () => {
 
     expect(replayRes.statusCode).toBe(401);
     expect(replayRes.body).toBe('Mobile launch QR code is invalid or expired.');
+  });
+
+  test('rejects protected mobile chat QR creation when auth secret is missing', async () => {
+    const state = await importFreshHealth({
+      runningInsideContainer: true,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/mobile-qr',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
+      body: {
+        userId: 'web-user-a',
+        sessionId: 'agent:main:channel:web:chat:dm:peer:1234567890abcdef',
+        baseUrl: 'https://example.test/chat',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(500);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Mobile launch QR code cannot establish a web session because HybridClaw auth secret is not configured.',
+    });
+  });
+
+  test('mobile chat QR handoff establishes session auth before redirecting to chat in Docker', async () => {
+    const state = await importFreshHealth({
+      authSecret: 'mobile-qr-docker-auth-secret',
+      runningInsideContainer: true,
+      webApiToken: 'web-token',
+    });
+    const sessionId = 'agent:main:channel:web:chat:dm:peer:1234567890abcdef';
+    const { continueRes, sessionCookie } = await createAndRedeemMobileChatQr({
+      state,
+      sessionId,
+      continueNoAuth: true,
+    });
+
+    expect(continueRes.statusCode).toBe(200);
+    expect(sessionCookie).toMatch(/^hybridclaw_session=.+/);
+    expect(continueRes.body).toContain(
+      `window.location.replace("/chat/${encodeURIComponent(sessionId)}");`,
+    );
+
+    const chatReq = makeRequest({
+      url: `/chat/${encodeURIComponent(sessionId)}`,
+      headers: { cookie: sessionCookie },
+      noAuth: true,
+    });
+    const chatRes = makeResponse();
+
+    state.handler(chatReq as never, chatRes as never);
+
+    expect(chatRes.statusCode).toBe(200);
+    expect(chatRes.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(chatRes.body).toContain('<h1>Admin</h1>');
   });
 
   test('rejects expired mobile chat QR handoff tokens', async () => {

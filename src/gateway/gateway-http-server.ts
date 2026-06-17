@@ -144,6 +144,7 @@ import {
   getSessionAuthPayload,
   hasLocalWebSessionAuth,
   hasSessionAuth,
+  hasSharedAuthSecret,
   safeEqualToken,
   setLocalWebSessionCookie,
   setSessionCookie,
@@ -1609,6 +1610,7 @@ const MOBILE_LAUNCH_TOKEN_MAX_ENTRIES = 10_000;
 type MobileLaunchTokenEntry = {
   userId: string;
   sessionId: string;
+  authPayload: Record<string, unknown>;
   expiresAt: number;
 };
 const mobileLaunchTokens = new Map<string, MobileLaunchTokenEntry>();
@@ -2219,6 +2221,7 @@ function evictOldestMobileLaunchTokens(): void {
 function createMobileLaunchToken(params: {
   userId: string;
   sessionId: string;
+  authPayload: Record<string, unknown>;
 }): string {
   cleanupExpiredMobileLaunchTokens();
   evictOldestMobileLaunchTokens();
@@ -2226,6 +2229,7 @@ function createMobileLaunchToken(params: {
   mobileLaunchTokens.set(token, {
     userId: params.userId,
     sessionId: params.sessionId,
+    authPayload: params.authPayload,
     expiresAt: Date.now() + MOBILE_LAUNCH_TTL_MS,
   });
   return token;
@@ -2235,6 +2239,7 @@ function resolveMobileLaunchToken(token: string):
   | {
       userId: string;
       sessionId: string;
+      authPayload: Record<string, unknown>;
     }
   | undefined {
   cleanupExpiredMobileLaunchTokens();
@@ -2249,6 +2254,7 @@ function resolveMobileLaunchToken(token: string):
   return {
     userId: entry.userId,
     sessionId: entry.sessionId,
+    authPayload: entry.authPayload,
   };
 }
 
@@ -3572,7 +3578,22 @@ async function handleApiChatMobileQr(
     return;
   }
 
-  const token = createMobileLaunchToken({ userId, sessionId });
+  const redirectPath = `/chat/${encodeURIComponent(sessionId)}`;
+  const mobileSessionCookieRequired =
+    requiresSessionAuth(redirectPath) || Boolean(WEB_API_TOKEN);
+  if (mobileSessionCookieRequired && !hasSharedAuthSecret()) {
+    sendJson(res, 500, {
+      error:
+        'Mobile launch QR code cannot establish a web session because HybridClaw auth secret is not configured.',
+    });
+    return;
+  }
+
+  const token = createMobileLaunchToken({
+    userId,
+    sessionId,
+    authPayload: getSessionAuthPayload(req) ?? { sub: userId },
+  });
   const launchUrl = buildMobileLaunchUrl({
     origin: resolveRequestOrigin(req, body.baseUrl),
     token,
@@ -3594,9 +3615,25 @@ function handleChatMobileContinue(res: ServerResponse, url: URL): void {
 
   const escapedUserId = escapeInlineScriptValue(launch.userId);
   const escapedSessionId = escapeInlineScriptValue(launch.sessionId);
-  const escapedRedirect = escapeInlineScriptValue(
-    `/chat/${encodeURIComponent(launch.sessionId)}`,
-  );
+  const redirectPath = `/chat/${encodeURIComponent(launch.sessionId)}`;
+  const mobileSessionCookieRequired =
+    requiresSessionAuth(redirectPath) || Boolean(WEB_API_TOKEN);
+  try {
+    setSessionCookie(res, launch.authPayload);
+  } catch (err) {
+    logger.warn({ err }, 'Failed to establish mobile launch web session');
+    // WEB_API_TOKEN means mobile has no bearer-token path, so the session
+    // cookie is required.
+    if (mobileSessionCookieRequired) {
+      sendText(
+        res,
+        500,
+        'Mobile launch QR code could not establish a web session.',
+      );
+      return;
+    }
+  }
+  const escapedRedirect = escapeInlineScriptValue(redirectPath);
   res.writeHead(200, {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
