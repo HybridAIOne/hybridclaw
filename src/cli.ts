@@ -2037,6 +2037,13 @@ export async function main(
       await runTraceJudgeNativeCli(subargs);
       break;
     }
+    case '__eval-agent-risk-native': {
+      const { runAgentRiskNativeCli } = await import(
+        './evals/agent-risk-native.js'
+      );
+      await runAgentRiskNativeCli(subargs);
+      break;
+    }
     case 'tui':
       await launchTui(subargs);
       break;
