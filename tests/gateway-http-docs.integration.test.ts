@@ -190,6 +190,9 @@ describe('gateway docs HTTP integration', () => {
         `/docs/${section}`,
       );
     }
+    expect(html).not.toContain('/docs/internal');
+    expect(html).not.toContain('<summary>Internal</summary>');
+    expect(html).not.toContain('Agent, That Really Works');
     expect(html).toContain('<summary>Tutorials</summary>');
     expect(html).toContain('<summary>Skills</summary>');
     expect(html.indexOf('<summary>Skills</summary>')).toBeLessThan(
