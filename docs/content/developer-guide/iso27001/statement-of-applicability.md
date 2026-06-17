@@ -6,7 +6,7 @@ sidebar_position: 2
 
 # Statement of Applicability
 
-Review date: 2026-06-16.
+Review date: 2026-06-17.
 
 This SoA uses grouped Annex A control areas to match the public control matrix.
 The purchased ISO standard remains the normative source for individual control
@@ -29,8 +29,8 @@ wording.
 | A.8.4 Source-code access | Yes | Engineering Owner | Partial | CI workflows, PR template | Branch protection and repository permission review evidence is external. |
 | A.8.5 Secure authentication | Yes | Access Owner | Partial | HttpOnly session cookies, no browser token persistence, [Access-Control Matrix](./access-control-matrix.md) | Remote MFA/SSO evidence remains operator-owned. |
 | A.8.6 Capacity management | Yes | Operations Owner | Partial | Request-size limits, container resource docs | Production metrics and thresholds need operating records. |
-| A.8.7 Malware protection | Yes | Operations Owner | Partial | Docker isolation, npm install controls | Runner/endpoint malware evidence is external. |
-| A.8.8 Technical vulnerabilities | Yes | Engineering Owner | Partial | Dependency audit workflow | SAST/secret scanning evidence and SLAs need completion. |
+| A.8.7 Malware protection | Yes | Operations Owner | Partial | Docker isolation, npm install controls, secret scan workflow | Runner/endpoint malware evidence is external. |
+| A.8.8 Technical vulnerabilities | Yes | Engineering Owner | Partial | Dependency audit workflow, CodeQL SAST, secret scan workflow | Vulnerability SLAs, triage ownership, remediation tracking, and exception records need completion. |
 | A.8.9 Configuration management | Yes | Operations Owner | Partial | `config.example.json`, `.hybridclaw/policy.yaml` | Production drift review evidence is external. |
 | A.8.10-A.8.12 Deletion, masking, DLP | Yes | Data Owner | Partial | Confidential filter, audit leak scanner | Retention/deletion procedure needs operator execution records. |
 | A.8.13-A.8.14 Backup and redundancy | Yes | Operations Owner | Operator evidence | `TRUST_MODEL.md` responsibility assignment | Backup/restore tests are external. |
@@ -40,6 +40,6 @@ wording.
 | A.8.19 Software installation | Yes | Engineering Owner | Partial | npm release-age and lockfile policy | Host install policy evidence is external. |
 | A.8.20-A.8.23 Network controls | Yes | Operations Owner | Partial | Container isolation, mount allowlists | Production network diagrams and firewall reviews are external. |
 | A.8.24 Cryptography | Yes | Security Owner | Partial | Runtime secrets AES-256-GCM docs/source | KMS/key custody records are external. |
-| A.8.25-A.8.29 Secure development | Yes | Engineering Owner | Partial | Threat-model guidance, CI tests | Security test traceability and release sign-off need records. |
+| A.8.25-A.8.29 Secure development | Yes | Engineering Owner | Partial | Threat-model guidance, CI tests, CodeQL SAST, secret scan workflow | Security test traceability, DAST or pen-test evidence where applicable, and release sign-off need records. |
 | A.8.30 Outsourced development | Conditional | People Owner | Operator evidence | [Control Owners](./control-owners.md) | Contractor evidence required only when used. |
 | A.8.31-A.8.34 Environment separation, change, test info, audit testing | Yes | Engineering Owner | Partial | CI separation, PR validation | Production environment and change-approval evidence is external. |

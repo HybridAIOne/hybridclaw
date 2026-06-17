@@ -6,7 +6,7 @@ sidebar_position: 3
 
 # Risk Register
 
-Review date: 2026-06-16.
+Review date: 2026-06-17.
 
 Scoring uses `Low`, `Medium`, and `High` until the operator adopts a formal
 likelihood/impact scale.
@@ -19,7 +19,7 @@ likelihood/impact scale.
 | R-004 | Local audit logs could be deleted or altered by host compromise. | Audit wire logs, SQLite audit tables | Hash chaining, verify command | High | Add off-host/WORM export and alerting. | Audit Owner | 2026-07-15 | Open |
 | R-005 | Data retention/deletion obligations could be missed. | Session transcripts, memory DB, uploaded media | Trust model assigns operator responsibility | High | Define retention schedule and deletion workflow with tests. | Data Owner | 2026-07-15 | Open |
 | R-006 | Supplier or model-provider terms may not match data handling needs. | Provider APIs, channel providers, registries | Supplier register created | Medium | Complete DPA/security review and exit plan per supplier. | Supplier Owner | 2026-07-31 | Open |
-| R-007 | Container or package supply-chain compromise could affect runtime integrity. | npm packages, Docker image, GHCR | npm lockfiles, release-age policy, audit signatures | Medium | Enable image SBOM/provenance and SAST/secret scanning. | Engineering Owner | 2026-07-15 | Open |
+| R-007 | Container or package supply-chain compromise could affect runtime integrity. | npm packages, Docker image, GHCR | npm lockfiles, release-age policy, audit signatures, image SBOM/provenance, CodeQL SAST, tracked secret scan | Medium | Define vulnerability SLAs, remediation tracking, exception handling, and release security sign-off. | Engineering Owner | 2026-07-15 | In progress |
 | R-008 | Incident response may be slow without exercised roles and contact paths. | Gateway runtime, data stores, credentials | SECURITY incident steps | Medium | Run tabletop, record severity matrix, contacts, and post-incident template. | Incident Owner | 2026-07-31 | Open |
 | R-009 | Secret-store master key loss or disclosure could affect credential access. | Runtime secret store | AES-256-GCM, local permission controls | High | Define key custody, rotation, recovery, and break-glass process. | Security Owner | 2026-07-15 | Open |
 | R-010 | Insufficient monitoring could delay abuse or capacity detection. | Gateway API, containers, channels | Request-size limits, resource constraints | Medium | Define rate limits, metrics, thresholds, and alert response. | Operations Owner | 2026-07-31 | Open |

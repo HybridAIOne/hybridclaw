@@ -6,7 +6,7 @@ sidebar_position: 8
 
 # Audit And Monitoring Matrix
 
-Review date: 2026-06-16.
+Review date: 2026-06-17.
 
 | Event/source | Source location | Integrity control | Retention | Alerting | Status |
 | --- | --- | --- | --- | --- | --- |
@@ -16,7 +16,9 @@ Review date: 2026-06-16.
 | Admin route access | Admin API + RBAC checks | HTTP status and selected audit records | Operator-defined | Needs privileged-action catalog | Partial |
 | Gateway/runtime logs | Structured logger output | Host log controls | Operator-defined | Operator-defined | Partial |
 | Dependency audit | GitHub Actions dependency workflow | CI logs | GitHub retention | GitHub notifications | Partial |
-| Container/image provenance | Release workflow | SBOM/provenance when enabled | Registry/GitHub retention | Registry/GitHub notifications | Open |
+| CodeQL SAST | GitHub Actions security scan workflow | Code-scanning alert records | GitHub retention | GitHub code-scanning alerts | Implemented |
+| Secret scan | GitHub Actions security scan workflow | CI logs | GitHub retention | Failed workflow on findings | Implemented |
+| Container/image provenance | Main and release image workflows | BuildKit provenance and SBOM attestations | Registry/GitHub retention | Registry/GitHub notifications | Implemented |
 | Off-host security sink | SIEM/WORM/object storage | External append-only control | Security retention policy | SIEM alerts | Open |
 
 ## Required Operating Evidence
@@ -26,4 +28,6 @@ Review date: 2026-06-16.
 - Off-host retention configuration and restoration/export test.
 - Alert rules for secret mutation failures, denied approvals, gateway restart,
   and audit verification failure.
+- Vulnerability and scan-finding triage records with owner, SLA, exception, and
+  remediation evidence.
 - Incident linkage showing how audit evidence is preserved during response.

@@ -25,7 +25,7 @@ requirements and control wording.
 
 ## Scope And Assumptions
 
-- Review date: 2026-06-16.
+- Review date: 2026-06-17.
 - Scope: this repository, bundled docs, provider routing, model selection,
   agent orchestration, tool approvals, sandbox execution, memory, skills,
   output guards, audit logs, and developer workflows.
@@ -43,6 +43,27 @@ requirements and control wording.
   [ISO/IEC 27001 control matrix](./iso27001-control-matrix.md). The security
   management system should carry shared controls such as access control,
   supplier governance, logging, incident response, and secure development.
+
+## Readiness Snapshot
+
+Current ISO/IEC 42001 AIMS evidence readiness is **46%**.
+
+This is a planning score, not an audit or certification claim. It is calculated
+from the 12 grouped AIMS areas below with these weights:
+
+| Status | Weight | Count | Weighted points |
+| --- | --- | ---: | ---: |
+| `Evidence` | 1.00 | 1 | 1.00 |
+| `Partial` | 0.50 | 9 | 4.50 |
+| `Gap` | 0.00 | 2 | 0.00 |
+| **Total** |  | **12** | **5.50 / 12 = 46%** |
+
+The repo has strong product-control evidence for human oversight, sandboxing,
+provider routing, memory/session boundaries, audit logs, output guards, release
+image attestations, CodeQL SAST, and secret scanning. The remaining gap is
+management-system evidence: approved AI policy, formal AIMS scope, AI system
+inventory, AI risk register, impact assessments, provider/model reviews,
+evaluation acceptance records, and AIMS management reviews.
 
 ## Product AI System Scope
 
@@ -62,14 +83,14 @@ these AI-relevant subsystems:
 
 | ID | Priority | AIMS area | Gap | Repo evidence | Next evidence or control |
 | --- | --- | --- | --- | --- | --- |
-| AIMS-001 | P0 | AIMS scope, context, and interested parties | No visible AIMS scope statement, interested-party register, or AI-specific applicability rationale. | This readiness document defines a starter product scope. The ISO/IEC 27001 matrix already defines security-scope assumptions. | Create an AIMS scope record with product boundaries, deployment modes, affected stakeholders, regulatory/customer obligations, exclusions, and owner approval. |
+| AIMS-001 | P0 | AIMS scope, context, and interested parties | A starter product scope is documented, but there is no approved AIMS scope statement, interested-party register, or AI-specific applicability rationale. | This readiness document defines a starter product scope. The ISO/IEC 27001 matrix already defines security-scope assumptions. | Create an AIMS scope record with product boundaries, deployment modes, affected stakeholders, regulatory/customer obligations, exclusions, and owner approval. |
 | AIMS-002 | P0 | AI policy and objectives | No approved AI policy, measurable AI objectives, or management review cadence is visible. | Security posture is documented in [`SECURITY.md`](../../../SECURITY.md) and [`TRUST_MODEL.md`](../../../TRUST_MODEL.md). | Add an AI policy covering responsible use, human oversight, data handling, transparency, safety/security, evaluation, incident handling, and continual improvement. |
-| AIMS-003 | P0 | AI system inventory | There is no central AI system inventory for HybridClaw subsystems, providers, model classes, tools, data stores, and user-impacting decisions. | Provider and subsystem code is visible across `src/`, `container/src/`, and docs. | Maintain the inventory template in [ISO/IEC 42001 Evidence Templates](./iso42001-aims-evidence-templates.md) with owner, purpose, data categories, model/provider, risk tier, and evidence links. |
-| AIMS-004 | P0 | AI risk management | AI-specific risks are spread across security docs and tests, but no AIMS risk register links risks to treatments, residual risk, owners, and review status. | Prompt and secret risks are documented in [`docs/content/developer-guide/threat-model.md`](./threat-model.md), [`SECURITY.md`](../../../SECURITY.md), and approval docs. | Create an AI risk register covering prompt injection, excessive agency, model/provider drift, memory leakage, unsafe tool use, hallucinated facts, privacy leakage, and unbounded consumption. |
-| AIMS-005 | P0 | AI impact assessment | No repeatable impact assessment exists for new AI features, providers, skills, or high-impact deployment contexts. | PR template requires risk notes and validation, but not AI impact fields. | Add an AI impact assessment template for new model routes, autonomous tools, memory changes, output guards, and customer-impacting workflows. |
+| AIMS-003 | P0 | AI system inventory | Starter inventory rows exist, but there is no approved central AI system inventory for HybridClaw subsystems, providers, model classes, tools, data stores, and user-impacting decisions. | Provider and subsystem code is visible across `src/`, `container/src/`, and docs. Starter rows are in [ISO/IEC 42001 Evidence Templates](./iso42001-aims-evidence-templates.md). | Maintain the inventory template with owner, purpose, data categories, model/provider, risk tier, review date, decision, and evidence links. |
+| AIMS-004 | P0 | AI risk management | Starter risk rows exist, but no approved AIMS risk register links risks to treatments, residual risk, owners, and review status. | Prompt and secret risks are documented in [`docs/content/developer-guide/threat-model.md`](./threat-model.md), [`SECURITY.md`](../../../SECURITY.md), and approval docs. Starter rows are in [ISO/IEC 42001 Evidence Templates](./iso42001-aims-evidence-templates.md). | Create an AI risk register covering prompt injection, excessive agency, model/provider drift, memory leakage, unsafe tool use, hallucinated facts, privacy leakage, and unbounded consumption. |
+| AIMS-005 | P0 | AI impact assessment | An impact-assessment template exists, but no required workflow exists for new AI features, providers, skills, or high-impact deployment contexts. | PR template requires risk notes and validation, but not AI impact fields. The impact template is in [ISO/IEC 42001 Evidence Templates](./iso42001-aims-evidence-templates.md). | Add AI impact assessment fields to the PR template and require completed assessments for new model routes, autonomous tools, memory changes, output guards, and customer-impacting workflows. |
 | AIMS-006 | P1 | Data governance for AI | Data categories are documented in security terms, but not as an AI data lifecycle covering source, purpose, retention, quality, provenance, consent, and deletion. | Memory and session docs describe storage boundaries. Confidential filtering is documented in [`SECURITY.md`](../../../SECURITY.md). | Add an AI data register for prompts, tool results, transcripts, memory, embeddings, provider payloads, eval fixtures, logs, and generated artifacts. |
 | AIMS-007 | P1 | Model and supplier governance | Provider integrations exist, but there is no model/provider approval register, review cadence, DPA/security review status, or model-change monitoring evidence. | Provider code and model selection docs exist. | Add a provider and model review record with data processing, hosting location, retention, safety features, rate limits, fallback behavior, and deprecation plan. |
-| AIMS-008 | P1 | Human oversight and authority boundaries | Runtime approvals exist, but there is no AIMS-level statement of which decisions require human approval, interruption, escalation, or denial. | Approval policy and traffic-light tiers are documented in [`docs/content/developer-guide/approvals.md`](./approvals.md). | Map AI action categories to required human oversight, escalation owner, approval evidence, and denied-action logging. |
+| AIMS-008 | P1 | Human oversight and authority boundaries | Runtime approvals exist, but there is no AIMS-level action-to-oversight matrix stating which decisions require approval, interruption, escalation, or denial. | Approval policy and traffic-light tiers are documented in [`docs/content/developer-guide/approvals.md`](./approvals.md). | Map AI action categories to required human oversight, escalation owner, approval evidence, and denied-action logging. |
 | AIMS-009 | P1 | AI evaluation and acceptance criteria | Tests exist, but there is no AI behavior acceptance framework for model/provider changes, prompt changes, tool autonomy, output guards, and memory behavior. | Vitest suites cover many runtime boundaries; trace and eval modules exist in [`src/distill/`](../../../src/distill) and [`src/session/session-trace-export.ts`](../../../src/session/session-trace-export.ts). | Define eval suites, adversarial prompts, regression thresholds, release gates, and sign-off records for AI behavior changes. |
 | AIMS-010 | P1 | AI monitoring and incident management | Audit logs exist, but AI-specific incident categories, monitoring thresholds, escalation paths, and post-incident reviews are not documented. | Hash-chained audit and leak scanning are documented in [`SECURITY.md`](../../../SECURITY.md). | Add AI incident categories for unsafe action, data leak, provider outage, model regression, policy bypass, memory contamination, and high-cost runaway behavior. |
 | AIMS-011 | P2 | Transparency and user communication | Product trust docs exist, but no standard disclosure template explains AI limitations, model/provider routing, data persistence, and human approval boundaries for customers. | [`TRUST_MODEL.md`](../../../TRUST_MODEL.md) provides operator acceptance language. | Add customer-facing AI transparency text and support-response language for hosted or enterprise deployments. |
@@ -86,8 +107,8 @@ these AI-relevant subsystems:
 | Data governance | Partial | Memory, session routing, redaction, and runtime secrets are documented. | AI data lifecycle records for prompt payloads, memory, transcripts, embeddings, eval fixtures, and provider data processing. |
 | Provider and supplier management | Partial | Provider integrations and model selection logic are implemented. | Supplier/model approval records, DPA/security review, data residency, retention, availability, fallback, and exit plan. |
 | Human oversight | Evidence | Green/yellow/red approval tiers, red-tier approvals, and admin approval surfaces exist. | AIMS-level mapping from AI action type to oversight requirement and evidence retention. |
-| Operational control | Partial | Container sandbox, mount allowlists, policy hooks, and audit trails exist. | AIMS operating procedure that ties controls to AI risks and production evidence. |
-| Evaluation and validation | Partial | Automated tests and trace/eval modules exist. | AI behavior acceptance criteria, eval suites, prompt/model-change gates, and signed release evidence. |
+| Operational control | Partial | Container sandbox, mount allowlists, policy hooks, audit trails, image SBOM/provenance, CodeQL SAST, and secret scanning exist. | AIMS operating procedure that ties controls to AI risks and production evidence. |
+| Evaluation and validation | Partial | Automated tests, security scans, and trace/eval modules exist. | AI behavior acceptance criteria, eval suites, prompt/model-change gates, and signed release evidence. |
 | Monitoring and incident response | Partial | Audit logs, approvals, leak scan, and incident guidance exist. | AI incident taxonomy, monitoring thresholds, alert evidence, post-incident review, and corrective-action tracking. |
 | Transparency and communication | Partial | Trust model explains operator responsibilities and stored data. | Customer-facing AI disclosure, limitations, appeal/escalation path, and hosted-service data-use statement. |
 | Continual improvement | Gap | Development workflow and CI exist. | Recurring AIMS reviews, metrics, corrective actions, and improvement records. |
@@ -119,8 +140,8 @@ Create these artifacts before treating HybridClaw as ISO/IEC 42001 audit-ready:
 
 These are the highest-value product changes that would improve the AIMS case:
 
-1. Add a repo-visible AI system inventory and risk register seeded from the
-   tables in this document.
+1. Promote the starter AI system inventory and risk rows into approved records
+   with owners, review dates, residual-risk decisions, and evidence links.
 2. Add AI impact assessment fields to the PR template for provider routing,
    model selection, tool autonomy, memory, output guard, and prompt changes.
 3. Define AI behavior eval suites for prompt injection, excessive agency,
