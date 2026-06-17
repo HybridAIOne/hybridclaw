@@ -144,6 +144,7 @@ import {
   getSessionAuthPayload,
   hasLocalWebSessionAuth,
   hasSessionAuth,
+  hasSharedAuthSecret,
   safeEqualToken,
   setLocalWebSessionCookie,
   setSessionCookie,
@@ -2257,15 +2258,6 @@ function resolveMobileLaunchToken(token: string):
   };
 }
 
-function resolveMobileLaunchAuthPayload(
-  req: IncomingMessage,
-  userId: string,
-): Record<string, unknown> {
-  const sessionPayload = getSessionAuthPayload(req);
-  if (sessionPayload) return sessionPayload;
-  return { sub: userId };
-}
-
 function normalizePublicBaseUrl(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
@@ -3586,10 +3578,21 @@ async function handleApiChatMobileQr(
     return;
   }
 
+  const redirectPath = `/chat/${encodeURIComponent(sessionId)}`;
+  const mobileSessionCookieRequired =
+    requiresSessionAuth(redirectPath) || Boolean(WEB_API_TOKEN);
+  if (mobileSessionCookieRequired && !hasSharedAuthSecret()) {
+    sendJson(res, 500, {
+      error:
+        'Mobile launch QR code cannot establish a web session because HybridClaw auth secret is not configured.',
+    });
+    return;
+  }
+
   const token = createMobileLaunchToken({
     userId,
     sessionId,
-    authPayload: resolveMobileLaunchAuthPayload(req, userId),
+    authPayload: getSessionAuthPayload(req) ?? { sub: userId },
   });
   const launchUrl = buildMobileLaunchUrl({
     origin: resolveRequestOrigin(req, body.baseUrl),
@@ -3613,11 +3616,15 @@ function handleChatMobileContinue(res: ServerResponse, url: URL): void {
   const escapedUserId = escapeInlineScriptValue(launch.userId);
   const escapedSessionId = escapeInlineScriptValue(launch.sessionId);
   const redirectPath = `/chat/${encodeURIComponent(launch.sessionId)}`;
+  const mobileSessionCookieRequired =
+    requiresSessionAuth(redirectPath) || Boolean(WEB_API_TOKEN);
   try {
     setSessionCookie(res, launch.authPayload);
   } catch (err) {
     logger.warn({ err }, 'Failed to establish mobile launch web session');
-    if (requiresSessionAuth(redirectPath) || WEB_API_TOKEN) {
+    // WEB_API_TOKEN means mobile has no bearer-token path, so the session
+    // cookie is required.
+    if (mobileSessionCookieRequired) {
       sendText(
         res,
         500,
