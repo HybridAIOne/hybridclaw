@@ -356,7 +356,6 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
 );
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
-const LOCAL_TOKEN_BOOTSTRAP_PARAM = '__hybridclaw_token_bootstrapped';
 
 const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -1998,9 +1997,7 @@ function extractHostnameFromHostHeader(
 }
 
 function isLocalWebSessionAllowed(req: IncomingMessage): boolean {
-  return (
-    !WEB_API_TOKEN && isLoopbackHost(HEALTH_HOST) && isLoopbackWebRequest(req)
-  );
+  return isLoopbackHost(HEALTH_HOST) && isLoopbackWebRequest(req);
 }
 
 function isLoopbackWebRequest(req: IncomingMessage): boolean {
@@ -2009,15 +2006,6 @@ function isLoopbackWebRequest(req: IncomingMessage): boolean {
     isLoopbackSocketAddress(req.socket.remoteAddress) &&
     !hasForwardingHeaders(req) &&
     Boolean(requestHost && isLoopbackHost(requestHost))
-  );
-}
-
-function shouldBootstrapLocalWebToken(req: IncomingMessage, url: URL): boolean {
-  return (
-    Boolean(WEB_API_TOKEN) &&
-    isConsoleSpaPath(url.pathname) &&
-    !url.searchParams.has(LOCAL_TOKEN_BOOTSTRAP_PARAM) &&
-    isLoopbackWebRequest(req)
   );
 }
 
@@ -2049,6 +2037,7 @@ function hasApiAuth(
   opts?: {
     allowLocalWebSession?: boolean;
     allowQueryToken?: boolean;
+    allowSessionCookie?: boolean;
     requireSameOrigin?: boolean;
   },
 ): boolean {
@@ -2057,6 +2046,13 @@ function hasApiAuth(
   if (opts?.allowQueryToken && url && hasQueryToken(url)) return true;
 
   if (hasBearerToken(authHeader, WEB_API_TOKEN)) return true;
+  if (
+    opts?.allowSessionCookie &&
+    hasSessionAuth(req) &&
+    (!opts.requireSameOrigin || hasSameGatewayOrigin(req))
+  ) {
+    return true;
+  }
   if (
     opts?.allowLocalWebSession &&
     isLocalWebSessionAllowed(req) &&
@@ -2188,39 +2184,6 @@ function dispatchWebhookRoute(
 function sendText(res: ServerResponse, statusCode: number, text: string): void {
   res.writeHead(statusCode, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end(text);
-}
-
-function sendWebTokenBootstrap(
-  res: ServerResponse,
-  params: {
-    redirectTo: string;
-    userId?: string;
-  },
-): void {
-  const escapedToken = escapeInlineScriptValue(WEB_API_TOKEN);
-  const escapedRedirect = escapeInlineScriptValue(params.redirectTo);
-  const escapedUserId = escapeInlineScriptValue(params.userId || '');
-  res.writeHead(200, {
-    'Content-Type': 'text/html; charset=utf-8',
-    'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'",
-    'X-Content-Type-Options': 'nosniff',
-  });
-  res.end(
-    `<!DOCTYPE html><html><body><script>` +
-      `localStorage.setItem('hybridclaw_token',${escapedToken});` +
-      `if (${escapedUserId}) localStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
-      `window.location.replace(${escapedRedirect});` +
-      `</script></body></html>`,
-  );
-}
-
-function sendLocalWebTokenBootstrap(res: ServerResponse, url: URL): void {
-  const redirectUrl = new URL(url);
-  redirectUrl.searchParams.set(LOCAL_TOKEN_BOOTSTRAP_PARAM, '1');
-  sendWebTokenBootstrap(res, {
-    redirectTo: `${redirectUrl.pathname}${redirectUrl.search}`,
-  });
 }
 
 function sendRedirect(
@@ -2850,11 +2813,21 @@ function serveConsoleFile(
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
   const mimeType = SITE_MIME_TYPES[ext] || 'application/octet-stream';
+  const isIndex = filePath.endsWith('index.html');
   res.writeHead(200, {
     'Content-Type': mimeType,
-    'Cache-Control': filePath.endsWith('index.html')
+    'Cache-Control': isIndex
       ? 'no-cache'
       : 'public, max-age=31536000, immutable',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    ...(isIndex
+      ? {
+          'Content-Security-Policy':
+            "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss:",
+        }
+      : {}),
   });
   res.end(fs.readFileSync(filePath));
   return true;
@@ -3507,7 +3480,12 @@ function handleApiAgentAvatar(
   res: ServerResponse,
   url: URL,
 ): void {
-  if (!hasApiAuth(req, url, { allowLocalWebSession: true })) {
+  if (
+    !hasApiAuth(req, url, {
+      allowLocalWebSession: true,
+      allowSessionCookie: true,
+    })
+  ) {
     sendJson(res, 401, {
       error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
     });
@@ -5155,6 +5133,7 @@ async function hybridAIFetch(
 
 async function handleApiAdminEmailConfigFetch(
   res: ServerResponse,
+  url: URL,
 ): Promise<void> {
   let apiKey: string;
   try {
@@ -5206,7 +5185,28 @@ async function handleApiAdminEmailConfigFetch(
     return;
   }
 
-  const activeHandle = handles.find((h) => h.status === 'active') || handles[0];
+  const requestedHandleId = (url.searchParams.get('handleId') || '').trim();
+  const activeHandle = requestedHandleId
+    ? handles.find(
+        (h) => h.id === requestedHandleId || h.handle === requestedHandleId,
+      )
+    : handles.find((h) => h.status === 'active') || handles[0];
+
+  if (requestedHandleId && !activeHandle) {
+    res.setHeader('Cache-Control', 'no-store');
+    sendJson(res, 404, {
+      handles,
+      credentials: null,
+      error: `No HybridAI agent handle found for ${requestedHandleId}.`,
+    });
+    return;
+  }
+  if (!activeHandle) {
+    res.setHeader('Cache-Control', 'no-store');
+    sendJson(res, 200, { handles, credentials: null });
+    return;
+  }
+
   const handleId = activeHandle.id || activeHandle.handle;
 
   if (!handleId) {
@@ -6505,6 +6505,7 @@ async function handleApiArtifact(
     !hasApiAuth(req, url, {
       allowLocalWebSession: true,
       allowQueryToken: true,
+      allowSessionCookie: true,
     })
   ) {
     sendJson(res, 401, {
@@ -6801,19 +6802,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       try {
         const payload = verifyLaunchToken(token);
         setSessionCookie(res, payload);
-        // Respond with a small HTML page that stores the WEB_API_TOKEN in
-        // localStorage before redirecting.  This lets the console make
-        // Bearer-authenticated API calls without ever showing the manual
-        // token prompt.  The token never appears in the URL (avoiding
-        // leaks via browser history, referrer headers, or server logs).
-        if (WEB_API_TOKEN) {
-          sendWebTokenBootstrap(res, {
-            redirectTo,
-            userId: normalizeOptionalString(payload.sub) || undefined,
-          });
-        } else {
-          sendRedirect(res, 302, redirectTo);
-        }
+        sendRedirect(res, 302, redirectTo);
       } catch {
         sendText(res, 401, 'Unauthorized. Invalid or expired auth token.');
       }
@@ -6918,8 +6907,9 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
       if (
         !hasApiAuth(req, url, {
-          allowQueryToken: pathname === '/api/events',
+          allowQueryToken: false,
           allowLocalWebSession: true,
+          allowSessionCookie: true,
           requireSameOrigin: method !== 'GET',
         })
       ) {
@@ -7157,7 +7147,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             pathname === '/api/admin/email-config/fetch' &&
             method === 'GET'
           ) {
-            await handleApiAdminEmailConfigFetch(res);
+            await handleApiAdminEmailConfigFetch(res, url);
             return;
           }
           if (pathname === '/api/admin/audit' && method === 'GET') {
@@ -7459,11 +7449,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
-      return;
-    }
-
-    if (shouldBootstrapLocalWebToken(req, url)) {
-      sendLocalWebTokenBootstrap(res, url);
       return;
     }
 

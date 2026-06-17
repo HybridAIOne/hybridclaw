@@ -484,6 +484,27 @@ export interface AdminChannelsResponse {
   channels: AdminChannelEntry[];
 }
 
+export interface AdminStoredSecretRef {
+  source: 'store';
+  id: string;
+}
+
+export interface AdminEmailAccountConfig {
+  agentId: string;
+  imapHost: string;
+  imapPort: number;
+  imapSecure: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  address: string;
+  password?: string | AdminStoredSecretRef;
+  pollIntervalMs: number;
+  folders: string[];
+  allowFrom: string[];
+  mediaMaxMb: number;
+}
+
 export interface AdminConfig {
   version: number;
   security: {
@@ -737,6 +758,7 @@ export interface AdminConfig {
     allowFrom: string[];
     textChunkLimit: number;
     mediaMaxMb: number;
+    accounts?: AdminEmailAccountConfig[];
   };
   container: {
     sandboxMode: 'container' | 'host';

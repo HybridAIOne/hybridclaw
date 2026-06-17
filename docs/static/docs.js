@@ -1,3 +1,5 @@
+import docsNavigationManifest from '../content/navigation.json' with { type: 'json' };
+
 const DOCS_BASE_PATH = '/docs';
 const LEGACY_DOCS_BASE_PATH = '/development';
 const GITHUB_REPO_URL = 'https://github.com/HybridAIOne/hybridclaw';
@@ -41,250 +43,23 @@ const LEGACY_DOC_PREFIX_REWRITES = [
   { from: 'guides/tutorials/', to: 'tutorials/' },
 ];
 
-export const DEVELOPMENT_DOCS_SECTIONS = [
-  {
-    title: 'Overview',
-    pages: [
-      { title: 'HybridClaw Docs', path: 'README.md' },
-      {
-        title: 'Manifesto',
-        path: 'manifesto.md',
-      },
-    ],
-  },
-  {
-    title: 'Getting Started',
-    pages: [
-      { title: 'Getting Started', path: 'getting-started/README.md' },
-      { title: 'Installation', path: 'getting-started/installation.md' },
-      { title: 'Quick Start', path: 'getting-started/quickstart.md' },
-      { title: 'Authentication', path: 'getting-started/authentication.md' },
-      {
-        title: 'Connect Your First Channel',
-        path: 'getting-started/first-channel.md',
-      },
-    ],
-  },
-  {
-    title: 'Channels',
-    pages: [
-      { title: 'Channels', path: 'channels/README.md' },
-      { title: 'Overview', path: 'channels/overview.md' },
-      { title: 'Discord', path: 'channels/discord.md' },
-      { title: 'Slack', path: 'channels/slack.md' },
-      { title: 'Slack Incoming Webhook', path: 'channels/slack-webhook.md' },
-      {
-        title: 'Discord Incoming Webhook',
-        path: 'channels/discord-webhook.md',
-      },
-      { title: 'Telegram', path: 'channels/telegram.md' },
-      { title: 'Threema', path: 'channels/threema.md' },
-      { title: 'Email', path: 'channels/email.md' },
-      { title: 'WhatsApp', path: 'channels/whatsapp.md' },
-      { title: 'iMessage', path: 'channels/imessage.md' },
-      { title: 'Microsoft Teams', path: 'channels/msteams.md' },
-      { title: 'Admin Console', path: 'channels/admin-console.md' },
-      {
-        title: 'Local Config And Secrets',
-        path: 'channels/local-config-and-secrets.md',
-      },
-      {
-        title: 'Policies And Allowlists',
-        path: 'channels/policies-and-allowlists.md',
-      },
-    ],
-  },
-  {
-    title: 'Guides',
-    pages: [
-      { title: 'Guides', path: 'guides/README.md' },
-      { title: 'Hatching Task Ideas', path: 'guides/hatching-task-ideas.md' },
-      { title: 'Bundled Skills', path: 'guides/bundled-skills.md' },
-      { title: 'Local Providers', path: 'guides/local-providers.md' },
-      { title: 'Remote Access', path: 'guides/remote-access.md' },
-      { title: 'Office Dependencies', path: 'guides/office-dependencies.md' },
-      { title: 'TUI MCP', path: 'guides/tui-mcp.md' },
-      { title: 'Twilio Voice', path: 'guides/twilio-voice.md' },
-      { title: 'Voice TTS', path: 'guides/voice-tts.md' },
-    ],
-  },
-  {
-    title: 'Skills',
-    pages: [
-      { title: 'Overview', path: 'guides/skills/README.md' },
-      { title: 'Office', path: 'guides/skills/office.md' },
-      { title: 'Development', path: 'guides/skills/development.md' },
-      { title: 'Communication', path: 'guides/skills/communication.md' },
-      { title: 'Apple', path: 'guides/skills/apple.md' },
-      { title: 'Productivity', path: 'guides/skills/productivity.md' },
-      {
-        title: 'Memory & Knowledge',
-        path: 'guides/skills/memory-knowledge.md',
-      },
-      { title: 'Publishing', path: 'guides/skills/publishing.md' },
-      {
-        title: 'Integrations & Utilities',
-        path: 'guides/skills/integrations.md',
-      },
-    ],
-  },
-  {
-    title: 'Tutorials',
-    pages: [
-      { title: 'Overview', path: 'tutorials/README.md' },
-      {
-        title: 'Morning Competitor Briefing',
-        path: 'tutorials/morning-competitor-briefing.md',
-      },
-      {
-        title: 'Customer Feedback Digest',
-        path: 'tutorials/customer-feedback-digest.md',
-      },
-      {
-        title: 'Team Telegram Deal Desk',
-        path: 'tutorials/team-telegram-deal-desk.md',
-      },
-      {
-        title: 'Forwarded Lead Triage Inbox',
-        path: 'tutorials/forwarded-lead-triage.md',
-      },
-      {
-        title: 'WhatsApp Lead Follow-Up Copilot',
-        path: 'tutorials/whatsapp-lead-follow-up.md',
-      },
-      {
-        title: 'Daily Pipeline Standup In Slack',
-        path: 'tutorials/daily-pipeline-standup.md',
-      },
-      {
-        title: 'Post-Demo Follow-Up Pack',
-        path: 'tutorials/post-demo-follow-up-pack.md',
-      },
-      {
-        title: 'Proposal Generator From Discovery Notes',
-        path: 'tutorials/proposal-generator.md',
-      },
-      {
-        title: 'Campaign Pulse Digest From CSV Exports',
-        path: 'tutorials/campaign-pulse-digest.md',
-      },
-      {
-        title: 'Weekly Content Calendar With HybridClaw',
-        path: 'tutorials/weekly-content-calendar.md',
-      },
-      {
-        title: 'Release Launch Kit For X, LinkedIn, And Newsletter',
-        path: 'tutorials/release-launch-kit.md',
-      },
-      {
-        title: 'Newsletter Engine With Substack Sections And Notes',
-        path: 'tutorials/newsletter-engine.md',
-      },
-      {
-        title: 'Founder-Led Feature Explainer Videos',
-        path: 'tutorials/feature-explainer-videos.md',
-      },
-      {
-        title: 'Mini Feature Manual From A One-Line Brief',
-        path: 'tutorials/mini-feature-manual.md',
-      },
-      {
-        title: 'Developer Relations Engine For GitHub And X',
-        path: 'tutorials/devrel-engine.md',
-      },
-      {
-        title: 'Webinar Prep And Nachfassen Machine',
-        path: 'tutorials/webinar-machine.md',
-      },
-      {
-        title: 'Collect Invoices And Receipts From Email And Web Platforms',
-        path: 'tutorials/invoice-receipt-collector.md',
-      },
-      {
-        title: 'Check If A Document Adheres To Our Brand Guidelines',
-        path: 'tutorials/brand-guidelines-check.md',
-      },
-    ],
-  },
-  {
-    title: 'Extensibility',
-    pages: [
-      { title: 'Extensibility', path: 'extensibility/README.md' },
-      { title: 'Adaptive Skills', path: 'extensibility/adaptive-skills.md' },
-      { title: 'Agent Packages', path: 'extensibility/agent-packages.md' },
-      {
-        title: 'Memory Plugins',
-        path: 'extensibility/memory-plugins.md',
-        children: [
-          {
-            title: 'ByteRover Memory Plugin',
-            path: 'extensibility/byterover-memory-plugin.md',
-          },
-          {
-            title: 'GBrain Plugin',
-            path: 'extensibility/gbrain-plugin.md',
-          },
-          {
-            title: 'Honcho Memory Plugin',
-            path: 'extensibility/honcho-memory-plugin.md',
-          },
-          {
-            title: 'Mem0 Memory Plugin',
-            path: 'extensibility/mem0-memory-plugin.md',
-          },
-          {
-            title: 'MemPalace Memory Plugin',
-            path: 'extensibility/mempalace-memory-plugin.md',
-          },
-          {
-            title: 'QMD Memory Plugin',
-            path: 'extensibility/qmd-memory-plugin.md',
-          },
-        ],
-      },
-      { title: 'OTEL Plugin', path: 'extensibility/otel-plugin.md' },
-      { title: 'Plugins', path: 'extensibility/plugins.md' },
-      { title: 'Skills', path: 'extensibility/skills.md' },
-    ],
-  },
-  {
-    title: 'Developer Guide',
-    pages: [
-      { title: 'Developer Guide', path: 'developer-guide/README.md' },
-      { title: 'Architecture', path: 'developer-guide/architecture.md' },
-      { title: 'Runtime', path: 'developer-guide/runtime.md' },
-      { title: 'Approvals', path: 'developer-guide/approvals.md' },
-      { title: 'Memory', path: 'developer-guide/memory.md' },
-      {
-        title: 'Session Routing',
-        path: 'developer-guide/session-routing.md',
-      },
-      { title: 'Secret Threat Model', path: 'developer-guide/threat-model.md' },
-    ],
-  },
-  {
-    title: 'Reference',
-    pages: [
-      { title: 'Reference', path: 'reference/README.md' },
-      { title: 'Commands', path: 'reference/commands.md' },
-      { title: 'Configuration', path: 'reference/configuration.md' },
-      { title: 'Diagnostics', path: 'reference/diagnostics.md' },
-      { title: 'FAQ', path: 'reference/faq.md' },
-      { title: 'Model Selection', path: 'reference/model-selection.md' },
-      { title: 'Tools', path: 'reference/tools/README.md' },
-      { title: 'Web Search Tool', path: 'reference/tools/web-search.md' },
-    ],
-  },
-];
+export const DEVELOPMENT_DOCS_SECTIONS = docsNavigationManifest.sections;
+
+function flattenNavigationPages(pages) {
+  return pages.flatMap((page) => [
+    page,
+    ...flattenNavigationPages(page.children || []),
+  ]);
+}
 
 const DOCS_BY_PATH = new Map(
   DEVELOPMENT_DOCS_SECTIONS.flatMap((section) =>
-    section.pages.map((page) => [page.path, page]),
+    flattenNavigationPages(section.pages).map((page) => [page.path, page]),
   ),
 );
 const KNOWN_DOC_PATHS = new Set(DOCS_BY_PATH.keys());
 const DOCS_SEARCH_ENTRIES = DEVELOPMENT_DOCS_SECTIONS.flatMap((section) =>
-  section.pages.map((page) => ({
+  flattenNavigationPages(section.pages).map((page) => ({
     label: page.title,
     parentTitle: section.title,
     path: page.path,

@@ -108,6 +108,7 @@ describe('runtime config secret refs', () => {
       WEB_API_TOKEN: 'web-token-from-store',
       GATEWAY_API_TOKEN: 'gateway-token-from-store',
       EMAIL_PASSWORD: 'email-app-password',
+      SALES_EMAIL_PASSWORD: 'sales-email-password',
       IMESSAGE_PASSWORD: 'bluebubbles-password',
       TWILIO_AUTH_TOKEN: 'twilio-auth-token',
       VLLM_API_KEY: 'vllm-token-from-store',
@@ -127,6 +128,21 @@ describe('runtime config secret refs', () => {
       const email = config.email as Record<string, unknown>;
       email.enabled = true;
       email.password = { source: 'store', id: 'EMAIL_PASSWORD' };
+      email.accounts = [
+        {
+          agentId: 'sales',
+          address: 'sales@example.com',
+          imapHost: 'imap.example.com',
+          imapPort: 993,
+          imapSecure: true,
+          smtpHost: 'smtp.example.com',
+          smtpPort: 587,
+          smtpSecure: false,
+          password: { source: 'store', id: 'SALES_EMAIL_PASSWORD' },
+          folders: ['INBOX'],
+          allowFrom: ['lead@example.com'],
+        },
+      ];
 
       const voice = config.voice as Record<string, unknown>;
       voice.enabled = true;
@@ -148,9 +164,90 @@ describe('runtime config secret refs', () => {
     expect(config.ops.webApiToken).toBe('web-token-from-store');
     expect(config.ops.gatewayApiToken).toBe('gateway-token-from-store');
     expect(config.email.password).toBe('email-app-password');
+    expect(config.email.accounts[0]?.password).toBe('sales-email-password');
     expect(config.imessage.password).toBe('bluebubbles-password');
     expect(config.voice.twilio.authToken).toBe('twilio-auth-token');
     expect(config.local.backends.vllm.apiKey).toBe('vllm-token-from-store');
+  });
+
+  test('preserves email account password refs during config writes', async () => {
+    const homeDir = makeTempHome();
+    const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
+    runtimeSecrets.saveRuntimeSecrets({
+      SALES_EMAIL_PASSWORD: 'sales-email-password',
+    });
+    writeRawRuntimeConfig(homeDir, (config) => {
+      const email = config.email as Record<string, unknown>;
+      email.enabled = true;
+      email.imapHost = 'imap.example.com';
+      email.smtpHost = 'smtp.example.com';
+      email.accounts = [
+        {
+          agentId: 'sales',
+          address: 'sales@example.com',
+          password: { source: 'store', id: 'SALES_EMAIL_PASSWORD' },
+          folders: ['INBOX'],
+          allowFrom: ['lead@example.com'],
+        },
+      ];
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.email.pollIntervalMs = 60_000;
+    });
+
+    const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+    const saved = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      email?: { accounts?: Array<{ password?: unknown }> };
+    };
+    expect(saved.email?.accounts?.[0]?.password).toEqual({
+      source: 'store',
+      id: 'SALES_EMAIL_PASSWORD',
+    });
+  });
+
+  test('preserves newly submitted email account password refs during config writes', async () => {
+    const homeDir = makeTempHome();
+    const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
+    runtimeSecrets.saveRuntimeSecrets({
+      SUPPORT_EMAIL_PASSWORD: 'support-email-password',
+    });
+    writeRawRuntimeConfig(homeDir, (config) => {
+      const email = config.email as Record<string, unknown>;
+      email.enabled = true;
+      email.imapHost = 'imap.example.com';
+      email.smtpHost = 'smtp.example.com';
+      email.accounts = [];
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+    const next = runtimeConfig.getRuntimeConfig() as unknown as Record<
+      string,
+      unknown
+    >;
+    const email = next.email as Record<string, unknown>;
+    email.accounts = [
+      {
+        agentId: 'support',
+        address: 'support@example.com',
+        password: { source: 'store', id: 'SUPPORT_EMAIL_PASSWORD' },
+        folders: ['INBOX'],
+        allowFrom: ['customer@example.com'],
+      },
+    ];
+    runtimeConfig.saveRuntimeConfig(
+      next as unknown as Parameters<typeof runtimeConfig.saveRuntimeConfig>[0],
+    );
+
+    const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+    const saved = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      email?: { accounts?: Array<{ password?: unknown }> };
+    };
+    expect(saved.email?.accounts?.[0]?.password).toEqual({
+      source: 'store',
+      id: 'SUPPORT_EMAIL_PASSWORD',
+    });
   });
 
   test('canonicalizes legacy browser cloud env refs to stored refs', async () => {
@@ -306,6 +403,31 @@ describe('runtime config secret refs', () => {
 
     expect(() => runtimeConfig.reloadRuntimeConfig('test')).toThrow(
       /email\.password references stored secret EMAIL_PASSWORD but it is not set/,
+    );
+  });
+
+  test('throws on reload when email account password secret ref is unresolved', async () => {
+    const homeDir = makeTempHome();
+    writeRawRuntimeConfig(homeDir, (config) => {
+      const email = config.email as Record<string, unknown>;
+      email.enabled = true;
+      email.imapHost = 'imap.example.com';
+      email.smtpHost = 'smtp.example.com';
+      email.accounts = [
+        {
+          agentId: 'sales',
+          address: 'sales@example.com',
+          password: { source: 'store', id: 'SALES_EMAIL_PASSWORD' },
+          folders: ['INBOX'],
+          allowFrom: ['lead@example.com'],
+        },
+      ];
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+
+    expect(() => runtimeConfig.reloadRuntimeConfig('test')).toThrow(
+      /email\.accounts\[0\]\.password references stored secret SALES_EMAIL_PASSWORD but it is not set/,
     );
   });
 });

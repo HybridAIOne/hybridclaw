@@ -263,21 +263,20 @@ export async function requestJson<T>(
 }
 
 export function readStoredToken(): string {
-  const search = new URLSearchParams(window.location.search);
-  const queryToken = (search.get('token') || '').trim();
-  if (queryToken) {
-    window.localStorage.setItem(TOKEN_STORAGE_KEY, queryToken);
-    removeSearchParam(LOCAL_TOKEN_BOOTSTRAP_PARAM);
-    return queryToken;
-  }
-  removeSearchParam(LOCAL_TOKEN_BOOTSTRAP_PARAM);
-  return window.localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+  removeSearchParams(['token', LOCAL_TOKEN_BOOTSTRAP_PARAM]);
+  clearStoredToken();
+  return '';
 }
 
-function removeSearchParam(name: string): void {
+function removeSearchParams(names: string[]): void {
   const url = new URL(window.location.href);
-  if (!url.searchParams.has(name)) return;
-  url.searchParams.delete(name);
+  let changed = false;
+  for (const name of names) {
+    if (!url.searchParams.has(name)) continue;
+    url.searchParams.delete(name);
+    changed = true;
+  }
+  if (!changed) return;
   window.history.replaceState(
     window.history.state,
     '',
@@ -286,18 +285,18 @@ function removeSearchParam(name: string): void {
 }
 
 export function storeToken(token: string): void {
-  window.localStorage.setItem(TOKEN_STORAGE_KEY, token.trim());
+  void token;
+  clearStoredToken();
 }
 
 export function clearStoredToken(): void {
+  window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
 }
 
 export function adminEventsUrl(token: string): string {
-  const trimmed = token.trim();
-  if (!trimmed) return '/api/events';
-  const params = new URLSearchParams({ token: trimmed });
-  return `/api/events?${params.toString()}`;
+  void token;
+  return '/api/events';
 }
 
 export function validateToken(token: string): Promise<GatewayStatus> {
@@ -994,8 +993,18 @@ export function startBrowserPool(
   );
 }
 
-export function fetchEmailConfig(token: string): Promise<unknown> {
-  return requestJson<unknown>('/api/admin/email-config/fetch', { token });
+export function fetchEmailConfig(
+  token: string,
+  options: { handleId?: string | null } = {},
+): Promise<unknown> {
+  const query = new URLSearchParams();
+  const handleId = String(options.handleId || '').trim();
+  if (handleId) query.set('handleId', handleId);
+  const queryString = query.toString();
+  const suffix = queryString ? `?${queryString}` : '';
+  return requestJson<unknown>(`/api/admin/email-config/fetch${suffix}`, {
+    token,
+  });
 }
 
 export function saveConfig(

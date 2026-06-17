@@ -42,6 +42,7 @@ function makeTempDocsDir(options?: {
   const extensibilityDir = path.join(contentDocsDir, 'extensibility');
   const guidesDir = path.join(contentDocsDir, 'guides');
   const developerGuideDir = path.join(contentDocsDir, 'developer-guide');
+  const internalDir = path.join(contentDocsDir, 'internal');
   const referenceDir = path.join(contentDocsDir, 'reference');
   const consoleDistDir = path.join(root, 'console', 'dist');
   fs.mkdirSync(docsDir, { recursive: true });
@@ -51,6 +52,7 @@ function makeTempDocsDir(options?: {
   fs.mkdirSync(extensibilityDir, { recursive: true });
   fs.mkdirSync(guidesDir, { recursive: true });
   fs.mkdirSync(developerGuideDir, { recursive: true });
+  fs.mkdirSync(internalDir, { recursive: true });
   fs.mkdirSync(referenceDir, { recursive: true });
   fs.mkdirSync(consoleDistDir, { recursive: true });
   fs.writeFileSync(path.join(docsDir, 'index.html'), '<h1>Docs</h1>', 'utf8');
@@ -191,6 +193,31 @@ function makeTempDocsDir(options?: {
     'utf8',
   );
   fs.writeFileSync(
+    path.join(internalDir, 'roadmap.md'),
+    [
+      '---',
+      'title: Agent, That Really Works - Roadmap',
+      'description: Internal product roadmap. Not linked from public docs navigation.',
+      '---',
+      '',
+      '# Agent, That Really Works - Roadmap',
+      '',
+      'Private roadmap detail for issue links.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(internalDir, 'approval-rule-pipeline.md'),
+    [
+      '# Approval Rule Pipeline',
+      '',
+      'Internal approval pipeline implementation notes.',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
     path.join(guidesDir, 'heading-order.md'),
     [
       '---',
@@ -269,6 +296,55 @@ function makeTempDocsDir(options?: {
       'Built-in tools and external tool surfaces live here.',
       '',
     ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(contentDocsDir, 'navigation.json'),
+    `${JSON.stringify(
+      {
+        sections: [
+          {
+            title: 'Overview',
+            pages: [{ title: 'HybridClaw Docs', path: 'README.md' }],
+          },
+          {
+            title: 'Getting Started',
+            pages: [
+              { title: 'Getting Started', path: 'getting-started/README.md' },
+            ],
+          },
+          {
+            title: 'Channels',
+            pages: [{ title: 'Channels', path: 'channels/README.md' }],
+          },
+          {
+            title: 'Guides',
+            pages: [
+              { title: 'Guides', path: 'guides/README.md' },
+              { title: 'Heading Order', path: 'guides/heading-order.md' },
+            ],
+          },
+          {
+            title: 'Extensibility',
+            pages: [
+              { title: 'Extensibility', path: 'extensibility/README.md' },
+            ],
+          },
+          {
+            title: 'Developer Guide',
+            pages: [
+              { title: 'Developer Guide', path: 'developer-guide/README.md' },
+            ],
+          },
+          {
+            title: 'Reference',
+            pages: [{ title: 'Reference', path: 'reference/README.md' }],
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
     'utf8',
   );
   return root;
@@ -2297,7 +2373,7 @@ describe('gateway HTTP server', () => {
     expect(getSetCookieHeader(res)).toContain('SameSite=Strict');
   });
 
-  test('bootstraps WEB_API_TOKEN into localStorage for loopback console pages', async () => {
+  test('issues a local web-session cookie for loopback console pages when WEB_API_TOKEN is configured', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
     const req = makeRequest({
       url: '/admin',
@@ -2309,22 +2385,19 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
 
     expect(res.statusCode).toBe(200);
-    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
-    expect(res.headers['Cache-Control']).toBe('no-store');
-    expect(res.body).toContain(
-      'localStorage.setItem(\'hybridclaw_token\',"web-token")',
-    );
-    expect(res.body).toContain(
-      'window.location.replace("/admin?__hybridclaw_token_bootstrapped=1")',
-    );
+    expect(res.body).toBe('<h1>Admin</h1>');
+    expect(res.body).not.toContain('web-token');
+    expect(getSetCookieHeader(res)).toContain('hybridclaw_local_session=');
+    expect(getSetCookieHeader(res)).toContain('HttpOnly');
+    expect(getSetCookieHeader(res)).toContain('SameSite=Strict');
   });
 
-  test('serves console index after local WEB_API_TOKEN bootstrap marker', async () => {
+  test('serves console index with defensive headers', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
 
     for (const pathname of ['/admin', '/agents']) {
       const req = makeRequest({
-        url: `${pathname}?__hybridclaw_token_bootstrapped=1`,
+        url: pathname,
         headers: { host: 'localhost:9090' },
         noAuth: true,
       });
@@ -2335,10 +2408,15 @@ describe('gateway HTTP server', () => {
       expect(res.statusCode).toBe(200);
       expect(res.body).toBe('<h1>Admin</h1>');
       expect(res.body).not.toContain('web-token');
+      expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
+      expect(res.headers['Referrer-Policy']).toBe('no-referrer');
+      expect(res.headers['Content-Security-Policy']).toContain(
+        "default-src 'self'",
+      );
     }
   });
 
-  test('bootstraps WEB_API_TOKEN into localStorage for loopback agents SPA', async () => {
+  test('does not expose WEB_API_TOKEN in the loopback agents SPA', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
     const req = makeRequest({
       url: '/agents',
@@ -2350,12 +2428,9 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toContain(
-      'localStorage.setItem(\'hybridclaw_token\',"web-token")',
-    );
-    expect(res.body).toContain(
-      'window.location.replace("/agents?__hybridclaw_token_bootstrapped=1")',
-    );
+    expect(res.body).toBe('<h1>Admin</h1>');
+    expect(res.body).not.toContain('web-token');
+    expect(getSetCookieHeader(res)).toContain('hybridclaw_local_session=');
   });
 
   test('does not bootstrap WEB_API_TOKEN for non-loopback request hosts', async () => {
@@ -2557,13 +2632,103 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('allows API requests with a signed session cookie when WEB_API_TOKEN is configured', async () => {
+    const authSecret = 'api-session-auth-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: '/api/status',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          role: 'admin.viewer',
+        }),
+        host: 'example.test',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual(
+      expect.objectContaining({ status: 'ok' }),
+    );
+  });
+
+  test('requires same-origin headers for signed session cookie API mutations', async () => {
+    const authSecret = 'api-session-origin-auth-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'web-token',
+    });
+    const cookie = makeSessionCookie(authSecret, {
+      sessionId: 'admin-session-1',
+      actor: 'admin-user',
+      role: 'admin.config_manager',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie,
+        host: 'example.test',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(state.reloadRuntimeConfig).not.toHaveBeenCalled();
+  });
+
+  test('allows signed session cookie API mutations with matching origin', async () => {
+    const authSecret = 'api-session-mutation-auth-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          role: 'admin.config_manager',
+        }),
+        host: 'example.test',
+        origin: 'http://example.test',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
+  });
+
   test('rejects forwarded loopback headers from unauthenticated external sockets', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
       url: '/api/status',
       headers: { 'x-forwarded-for': '127.0.0.1' },
-      remoteAddress: '203.0.113.10',
       noAuth: true,
+      remoteAddress: '203.0.113.10',
     });
     const res = makeResponse();
 
@@ -3625,10 +3790,40 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('href="#getting-started"');
     expect(res.body).toContain('data-doc-copy-markdown');
     expect(res.body).toContain('href="/docs/README.md"');
-    expect(res.body).not.toContain(
+    expect(res.body).toContain(
       'class="docs-sidebar-link is-active" href="/docs"',
     );
-    expect(res.body).not.toContain('><span>HybridClaw Docs</span></a>');
+    expect(res.body).toContain('><span>HybridClaw Docs</span></a>');
+  });
+
+  test('hides internal docs from navigation and search while preserving direct links', async () => {
+    const state = await importFreshHealth();
+    const indexReq = makeRequest({ url: '/docs' });
+    const indexRes = makeResponse();
+
+    state.handler(indexReq as never, indexRes as never);
+
+    expect(indexRes.statusCode).toBe(200);
+    expect(indexRes.body).not.toContain('<summary>Internal</summary>');
+    expect(indexRes.body).not.toContain('href="/docs/internal/roadmap"');
+    expect(indexRes.body).not.toContain('Agent, That Really Works - Roadmap');
+
+    const searchReq = makeRequest({ url: '/docs?search=approval' });
+    const searchRes = makeResponse();
+    state.handler(searchReq as never, searchRes as never);
+
+    expect(searchRes.statusCode).toBe(200);
+    expect(searchRes.body).not.toContain(
+      'href="/docs/internal/approval-rule-pipeline"',
+    );
+
+    const directReq = makeRequest({ url: '/docs/internal/roadmap' });
+    const directRes = makeResponse();
+    state.handler(directReq as never, directRes as never);
+
+    expect(directRes.statusCode).toBe(200);
+    expect(directRes.body).toContain('Agent, That Really Works - Roadmap');
+    expect(directRes.body).not.toContain('<summary>Internal</summary>');
   });
 
   test('redirects legacy /development docs routes to /docs', async () => {
@@ -4069,7 +4264,7 @@ describe('gateway HTTP server', () => {
     expect(res.body).toBe('Unauthorized. Invalid or expired auth token.');
   });
 
-  test('/auth/callback returns HTML with localStorage script when WEB_API_TOKEN is set', async () => {
+  test('/auth/callback redirects with a session cookie when WEB_API_TOKEN is set', async () => {
     const authSecret = 'health-secret';
     const launchToken = signAuthPayload(
       {
@@ -4089,21 +4284,19 @@ describe('gateway HTTP server', () => {
 
     state.handler(req as never, res as never);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
-    expect(res.body).toContain('localStorage.setItem');
-    expect(res.body).toContain('hybridclaw_token');
-    expect(res.body).toContain('hybridclaw_user_id');
-    expect(res.body).toContain('my-web-token');
-    expect(res.body).toContain('user-1');
-    expect(res.body).toContain('window.location.replace("/admin")');
-    // Session cookie should still be set
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/admin');
+    expect(res.body).not.toContain('my-web-token');
+    expect(res.body).not.toContain('hybridclaw_token');
     expect(res.headers['Set-Cookie']).toEqual(
       expect.stringContaining('hybridclaw_session='),
     );
+    expect(res.headers['Set-Cookie']).toEqual(
+      expect.stringContaining('HttpOnly'),
+    );
   });
 
-  test('/auth/callback includes CSP and X-Content-Type-Options headers when WEB_API_TOKEN is set', async () => {
+  test('/auth/callback does not render token-bearing HTML when WEB_API_TOKEN is set', async () => {
     const authSecret = 'health-secret';
     const launchToken = signAuthPayload(
       {
@@ -4123,15 +4316,14 @@ describe('gateway HTTP server', () => {
 
     state.handler(req as never, res as never);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.headers['Content-Security-Policy']).toBe(
-      "default-src 'none'; script-src 'unsafe-inline'",
-    );
-    expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/admin');
     expect(res.headers['Cache-Control']).toBe('no-store');
+    expect(res.headers['Content-Security-Policy']).toBeUndefined();
+    expect(res.body).toBe('');
   });
 
-  test('/auth/callback escapes angle brackets in WEB_API_TOKEN to prevent script injection', async () => {
+  test('/auth/callback never reflects WEB_API_TOKEN characters into the response body', async () => {
     const authSecret = 'health-secret';
     const launchToken = signAuthPayload(
       {
@@ -4151,11 +4343,11 @@ describe('gateway HTTP server', () => {
 
     state.handler(req as never, res as never);
 
-    expect(res.statusCode).toBe(200);
-    // Raw `<` must not appear inside the <script> block payload
-    expect(res.body).not.toMatch(/<script>.*<(?!\/script>).*<\/script>/s);
-    // The escaped form should be present instead
-    expect(res.body).toContain('\\u003c');
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/admin');
+    expect(res.body).not.toContain('token-with-');
+    expect(res.body).not.toContain('<script>');
+    expect(res.body).toBe('');
   });
 
   test('/auth/callback returns 302 redirect when WEB_API_TOKEN is not set', async () => {
@@ -4200,7 +4392,7 @@ describe('gateway HTTP server', () => {
     expect(res.headers.Location).toBe('/chat');
   });
 
-  test('/auth/callback respects a valid next query parameter (HTML localStorage redirect)', async () => {
+  test('/auth/callback respects a valid next query parameter when WEB_API_TOKEN is set', async () => {
     const authSecret = 'health-secret';
     const launchToken = signAuthPayload(
       {
@@ -4220,8 +4412,9 @@ describe('gateway HTTP server', () => {
 
     state.handler(req as never, res as never);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toContain('window.location.replace("/dashboard")');
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/dashboard');
+    expect(res.body).toBe('');
   });
 
   test('/auth/callback ignores protocol-relative next param to prevent open redirect', async () => {
@@ -5162,6 +5355,75 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
   });
 
+  test('allows scoped admin sessions with a matching role bundle action', async () => {
+    const authSecret = 'admin-rbac-role-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          role: 'admin.config_manager',
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.refreshRuntimeSecretsFromEnv).toHaveBeenCalledTimes(1);
+    expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('allows scoped admin sessions through ISO role bundle aliases', async () => {
+    const authSecret = 'admin-rbac-iso-role-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/api/admin/audit',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          roles: ['admin:auditor'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(state.getGatewayAdminAudit).toHaveBeenCalledTimes(1);
+  });
+
+  test('denies scoped admin sessions when a role bundle lacks the route action', async () => {
+    const authSecret = 'admin-rbac-role-deny-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/config',
+      body: {},
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          roles: ['admin:auditor'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(403);
+  });
+
   test('returns admin secret metadata without cleartext values', async () => {
     const authSecret = 'secret-list-auth-secret';
     const state = await importFreshHealth({ authSecret });
@@ -5687,6 +5949,120 @@ describe('gateway HTTP server', () => {
       address: 'agent@example.com',
       defaultFolder: 'INBOX',
     });
+  });
+
+  test('fetches HybridAI mailbox credentials for a requested handle', async () => {
+    const previousApiKey = process.env.HYBRIDAI_API_KEY;
+    process.env.HYBRIDAI_API_KEY = 'hai-test-token';
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'https://hybridai.one/api/v1/agent-handles/') {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({
+            handles: [
+              { id: 'main-bot', handle: 'main', status: 'active' },
+              { id: 'support-bot', handle: 'support', status: 'active' },
+            ],
+          }),
+        };
+      }
+      if (
+        url ===
+        'https://hybridai.one/api/v1/agent-handles/support-bot/mailbox/credentials'
+      ) {
+        expect(init?.method).toBe('POST');
+        expect((init?.headers as Record<string, string>).Authorization).toBe(
+          'Bearer hai-test-token',
+        );
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({
+            email: 'support@example.com',
+            password: 'support-password',
+            imap_host: 'imap.example.com',
+            imap_port: 993,
+            smtp_host: 'smtp.example.com',
+            smtp_port: 587,
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const state = await importFreshHealth();
+      const req = makeRequest({
+        url: '/api/admin/email-config/fetch?handleId=support-bot',
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await settle();
+
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toMatchObject({
+        handleId: 'support-bot',
+        credentials: {
+          email: 'support@example.com',
+          imap_host: 'imap.example.com',
+        },
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      if (previousApiKey === undefined) {
+        delete process.env.HYBRIDAI_API_KEY;
+      } else {
+        process.env.HYBRIDAI_API_KEY = previousApiKey;
+      }
+    }
+  });
+
+  test('does not fetch HybridAI mailbox credentials for an unknown handle', async () => {
+    const previousApiKey = process.env.HYBRIDAI_API_KEY;
+    process.env.HYBRIDAI_API_KEY = 'hai-test-token';
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://hybridai.one/api/v1/agent-handles/') {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({
+            handles: [{ id: 'main-bot', handle: 'main', status: 'active' }],
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const state = await importFreshHealth();
+      const req = makeRequest({
+        url: '/api/admin/email-config/fetch?handleId=support-bot',
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await settle();
+
+      expect(res.statusCode).toBe(404);
+      expect(JSON.parse(res.body)).toMatchObject({
+        credentials: null,
+        error: 'No HybridAI agent handle found for support-bot.',
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previousApiKey === undefined) {
+        delete process.env.HYBRIDAI_API_KEY;
+      } else {
+        process.env.HYBRIDAI_API_KEY = previousApiKey;
+      }
+    }
   });
 
   test('rejects unauthorized requests for live admin email mailbox metadata', async () => {
@@ -8157,13 +8533,61 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('allows query-token auth for SSE admin events', async () => {
+  test('rejects query-token auth for SSE admin events', async () => {
     const state = await importFreshHealth({
       webApiToken: 'web-token',
     });
     const req = makeRequest({
       url: '/api/events?token=web-token',
+      noAuth: true,
       remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('allows signed session cookie auth for SSE admin events', async () => {
+    const authSecret = 'sse-session-auth-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: '/api/events',
+      noAuth: true,
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          role: 'admin.viewer',
+        }),
+      },
+      remoteAddress: '203.0.113.10',
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('event: overview');
+  });
+
+  test('allows cookie-authenticated SSE admin events', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const req = makeRequest({
+      url: '/api/events',
+      headers: { cookie, host: 'localhost:9090' },
+      noAuth: true,
     });
     const res = makeResponse();
 
