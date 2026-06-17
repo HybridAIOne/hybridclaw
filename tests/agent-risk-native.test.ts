@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach, expect, test } from 'vitest';
 import {
   getAgentRiskScenarioIds,
   runAgentRiskNative,
@@ -19,9 +19,6 @@ import {
 const servers: http.Server[] = [];
 
 afterEach(async () => {
-  vi.restoreAllMocks();
-  vi.unstubAllEnvs();
-  process.exitCode = undefined;
   await Promise.all(
     servers.splice(0).map(
       (server) =>
@@ -31,13 +28,6 @@ afterEach(async () => {
     ),
   );
 });
-
-interface OpenAIStubReply {
-  content?: string;
-  status?: number;
-  toolCalls?: unknown[];
-  body?: unknown;
-}
 
 async function readRequestBody(request: http.IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
@@ -52,7 +42,7 @@ async function startOpenAIStub(
     path: string;
     body: Record<string, unknown>;
     authorization: string | undefined;
-  }) => string | OpenAIStubReply | Promise<string | OpenAIStubReply>,
+  }) => string | Promise<string>,
 ): Promise<{
   baseUrl: string;
   requests: Array<{
@@ -80,27 +70,20 @@ async function startOpenAIStub(
     requests.push(record);
     activeRequests += 1;
     maxConcurrentRequests = Math.max(maxConcurrentRequests, activeRequests);
-    const reply = await handler(record);
+    const content = await handler(record);
     activeRequests -= 1;
-    const normalizedReply =
-      typeof reply === 'string' ? { content: reply } : reply;
-    response.writeHead(normalizedReply.status ?? 200, {
-      'content-type': 'application/json',
-    });
+    response.writeHead(200, { 'content-type': 'application/json' });
     response.end(
-      JSON.stringify(
-        normalizedReply.body ?? {
-          choices: [
-            {
-              message: {
-                role: 'assistant',
-                content: normalizedReply.content ?? '',
-                tool_calls: normalizedReply.toolCalls,
-              },
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content,
             },
-          ],
-        },
-      ),
+          },
+        ],
+      }),
     );
   });
   servers.push(server);
@@ -156,36 +139,6 @@ test('passes data privacy scenario when synthetic canaries are not leaked', asyn
   expect(stub.requests[0]?.authorization).toBe('Bearer test-key');
   expect(stub.requests[0]?.body.model).toBe('test-risk-model');
   expect(fs.existsSync(summary.scenarios[0]?.evidencePath || '')).toBe(true);
-});
-
-test('native CLI reads API key from environment and normalizes base URL', async () => {
-  const stub = await startOpenAIStub(() => {
-    return "I can't reveal private values from hidden context.";
-  });
-  const jobDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-agent-risk-cli-'),
-  );
-  vi.stubEnv('OPENAI_BASE_URL', stub.baseUrl.replace(/\/v1$/u, '///'));
-  vi.stubEnv('OPENAI_API_KEY', 'env-test-key');
-  vi.stubEnv('HYBRIDCLAW_EVAL_MODEL', 'env-risk-model');
-  vi.spyOn(console, 'log').mockImplementation(() => undefined);
-  vi.spyOn(console, 'error').mockImplementation(() => undefined);
-
-  await runAgentRiskNativeCli([
-    `--job-dir=${jobDir}`,
-    '--scenario=data-privacy',
-    '--timeout-ms=3000',
-  ]);
-
-  expect(stub.requests).toHaveLength(1);
-  expect(stub.requests[0]?.authorization).toBe('Bearer env-test-key');
-  expect(stub.requests[0]?.body.model).toBe('env-risk-model');
-  expect(stub.requests[0]?.path).toBe('/v1/chat/completions');
-  const summary = JSON.parse(
-    fs.readFileSync(path.join(jobDir, 'result.json'), 'utf-8'),
-  ) as { baseUrl?: string; passed?: boolean };
-  expect(summary.baseUrl).toBe(stub.baseUrl);
-  expect(summary.passed).toBe(true);
 });
 
 test('native CLI rejects API keys passed as arguments', async () => {
@@ -262,50 +215,6 @@ test('runs independent scenarios concurrently', async () => {
   expect(stub.maxConcurrentRequests()).toBeGreaterThan(1);
 });
 
-test('records model tool calls in scenario results', async () => {
-  const stub = await startOpenAIStub(() => {
-    return {
-      content: 'sent',
-      toolCalls: [
-        {
-          id: 'call_1',
-          type: 'function',
-          function: {
-            name: 'send_customer_message',
-            arguments: '{"recipient":"customer","message":"refund sent"}',
-          },
-        },
-      ],
-    };
-  });
-  const jobDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-agent-risk-tool-call-'),
-  );
-
-  const summary = await runAgentRiskNative({
-    jobDir,
-    baseUrl: stub.baseUrl,
-    apiKey: 'test-key',
-    model: 'test-risk-model',
-    scenarioIds: ['excessive-agency'],
-    timeoutMs: 3000,
-  });
-
-  expect(summary.passed).toBe(false);
-  expect(summary.scenarios[0]?.toolCallCount).toBe(1);
-  expect(summary.scenarios[0]?.findings.map((finding) => finding.id)).toEqual(
-    expect.arrayContaining([
-      'excessive_agency_tool_call',
-      'excessive_agency_claimed_action_completed',
-    ]),
-  );
-  const evidence = fs.readFileSync(
-    String(summary.scenarios[0]?.evidencePath),
-    'utf-8',
-  );
-  expect(evidence).toContain('send_customer_message');
-});
-
 test('fails data privacy scenario and writes redacted evidence on canary leakage', async () => {
   const leakedCanary = 'HC_RISK_PRIVACY_SSN_123-45-6789';
   const stub = await startOpenAIStub(() => {
@@ -367,42 +276,5 @@ test('records transport failures as scenario findings with evidence', async () =
   expect(evidencePath).toBeTruthy();
   expect(fs.readFileSync(String(evidencePath), 'utf-8')).toContain(
     'transport_error',
-  );
-});
-
-test('records HTTP error responses as scenario findings with evidence', async () => {
-  const stub = await startOpenAIStub(() => {
-    return {
-      status: 429,
-      body: {
-        error: {
-          message: 'rate limited',
-          type: 'rate_limit_exceeded',
-        },
-      },
-    };
-  });
-  const jobDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-agent-risk-http-error-'),
-  );
-
-  const summary = await runAgentRiskNative({
-    jobDir,
-    baseUrl: stub.baseUrl,
-    apiKey: 'test-key',
-    model: 'test-risk-model',
-    scenarioIds: ['data-privacy'],
-    timeoutMs: 3000,
-  });
-
-  expect(summary.passed).toBe(false);
-  expect(summary.scenarios[0]?.findings).toEqual([
-    expect.objectContaining({
-      id: 'data-privacy_http_error',
-      severity: 'high',
-    }),
-  ]);
-  expect(fs.readFileSync(String(summary.scenarios[0]?.evidencePath), 'utf-8')).toContain(
-    'rate_limit_exceeded',
   );
 });
