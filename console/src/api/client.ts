@@ -51,6 +51,8 @@ import type {
   AdminLanHttpAccessMode,
   AdminLogsResponse,
   AdminMcpConfig,
+  AdminMcpOAuthStartResponse,
+  AdminMcpOAuthStatusResponse,
   AdminMcpResponse,
   AdminModelsResponse,
   AdminOutputGuardPreviewResponse,
@@ -1234,6 +1236,39 @@ export function deleteMcpServer(
   return requestJson<AdminMcpResponse>(`/api/admin/mcp?${params.toString()}`, {
     token,
     method: 'DELETE',
+  });
+}
+
+export function startMcpOAuth(
+  token: string,
+  name: string,
+): Promise<AdminMcpOAuthStartResponse> {
+  return requestJson<AdminMcpOAuthStartResponse>('/api/admin/mcp/oauth/start', {
+    token,
+    method: 'POST',
+    body: { name },
+  });
+}
+
+export function fetchMcpOAuthStatus(
+  token: string,
+  name: string,
+): Promise<AdminMcpOAuthStatusResponse> {
+  const params = new URLSearchParams({ name });
+  return requestJson<AdminMcpOAuthStatusResponse>(
+    `/api/admin/mcp/oauth/status?${params.toString()}`,
+    { token },
+  );
+}
+
+export function logoutMcpOAuth(
+  token: string,
+  name: string,
+): Promise<AdminMcpResponse> {
+  return requestJson<AdminMcpResponse>('/api/admin/mcp/oauth/logout', {
+    token,
+    method: 'POST',
+    body: { name },
   });
 }
 

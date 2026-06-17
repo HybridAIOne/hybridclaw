@@ -4,6 +4,9 @@ import {
   GATEWAY_CLIENT_BASE_URL,
 } from '../config/config.js';
 import {
+  type GatewayAdminMcpOAuthStartResponse,
+  type GatewayAdminMcpOAuthStatusResponse,
+  type GatewayAdminMcpResponse,
   type GatewayAdminSkillsResponse,
   type GatewayAdminSuspendedSession,
   type GatewayChatApprovalEvent,
@@ -338,6 +341,69 @@ export async function saveGatewayAdminSkillEnabled(params: {
       ...authHeaders(),
     },
     body: JSON.stringify(params),
+  });
+}
+
+export async function fetchGatewayAdminMcp(): Promise<GatewayAdminMcpResponse> {
+  return requestJson<GatewayAdminMcpResponse>('/api/admin/mcp', {
+    method: 'GET',
+    headers: authHeaders(),
+  });
+}
+
+export async function saveGatewayAdminMcpServer(params: {
+  name: string;
+  config: unknown;
+}): Promise<GatewayAdminMcpResponse> {
+  return requestJson<GatewayAdminMcpResponse>('/api/admin/mcp', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(params),
+  });
+}
+
+export async function startGatewayMcpOAuth(
+  name: string,
+): Promise<GatewayAdminMcpOAuthStartResponse> {
+  return requestJson<GatewayAdminMcpOAuthStartResponse>(
+    '/api/admin/mcp/oauth/start',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(),
+      },
+      body: JSON.stringify({ name }),
+    },
+  );
+}
+
+export async function fetchGatewayMcpOAuthStatus(
+  name: string,
+): Promise<GatewayAdminMcpOAuthStatusResponse> {
+  const params = new URLSearchParams({ name });
+  return requestJson<GatewayAdminMcpOAuthStatusResponse>(
+    `/api/admin/mcp/oauth/status?${params.toString()}`,
+    {
+      method: 'GET',
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function logoutGatewayMcpOAuth(
+  name: string,
+): Promise<GatewayAdminMcpResponse> {
+  return requestJson<GatewayAdminMcpResponse>('/api/admin/mcp/oauth/logout', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ name }),
   });
 }
 

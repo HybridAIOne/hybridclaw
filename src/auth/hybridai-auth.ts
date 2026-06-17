@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import readline from 'node:readline/promises';
 
 import {
@@ -12,6 +11,7 @@ import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import { tryOpenUrlInBrowser } from '../utils/open-url.js';
 import { promptForSecretInput } from '../utils/secret-prompt.js';
 
 export interface HybridAIAuthStatus {
@@ -168,32 +168,6 @@ async function validateApiKey(
   return { ok: true };
 }
 
-function getOpenCommand(url: string): { cmd: string; args: string[] } | null {
-  if (process.platform === 'darwin') return { cmd: 'open', args: [url] };
-  if (process.platform === 'win32') {
-    return { cmd: 'cmd', args: ['/c', 'start', '', url] };
-  }
-  if (process.platform === 'linux') return { cmd: 'xdg-open', args: [url] };
-  return null;
-}
-
-async function tryOpenUrl(url: string): Promise<boolean> {
-  const openCommand = getOpenCommand(url);
-  if (!openCommand) return false;
-
-  return new Promise((resolve) => {
-    const child = spawn(openCommand.cmd, openCommand.args, {
-      stdio: 'ignore',
-      detached: true,
-    });
-    child.once('error', () => resolve(false));
-    child.once('spawn', () => {
-      child.unref();
-      resolve(true);
-    });
-  });
-}
-
 async function promptYesNo(
   rl: readline.Interface,
   question: string,
@@ -244,7 +218,7 @@ async function loginWithApiKeyPrompt(options: {
       if (
         await promptYesNo(rl, 'Open the login page in your browser now?', true)
       ) {
-        const opened = await tryOpenUrl(loginUrl);
+        const opened = await tryOpenUrlInBrowser(loginUrl);
         if (!opened) {
           console.log('Could not auto-open browser. Open the link manually.');
         }

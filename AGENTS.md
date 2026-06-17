@@ -327,7 +327,13 @@ Skill resolution order (first match wins):
    }
    ```
 2. Tools are auto-discovered at startup and merged into the tool namespace.
-3. Test with `hybridclaw` running in dev mode.
+3. Remote `http`/`sse` servers can set `"auth": "oauth"`; the gateway runs the
+   OAuth 2.1 flow (`src/mcp/mcp-oauth.ts`), stores credentials in the
+   encrypted runtime secret store (`~/.hybridclaw/credentials.json`, one
+   `MCP_OAUTH_*` entry per server), and injects a fresh `Authorization` header
+   per turn. Connect via `/mcp login <name>`, the TUI `/mcp add` wizard, or the
+   console MCP page.
+4. Test with `hybridclaw` running in dev mode.
 
 ### 7.4 Modifying Approval Policy
 
