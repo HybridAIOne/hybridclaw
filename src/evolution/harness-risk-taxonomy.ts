@@ -188,41 +188,17 @@ export function parseAgentRiskReferences(value: unknown): AgentRiskReferences {
   const riskRecord = readNestedRiskRecord(value);
   return {
     nistAiRmf: normalizeRiskList(
-      readFirst(riskRecord, [
-        'nistAiRmf',
-        'nistAIRMF',
-        'nist_ai_rmf',
-        'aiRmf',
-        'rmf',
-      ]),
+      readFirst(riskRecord, ['nistAiRmf']),
       RMF_LOOKUP,
       'NIST AI RMF',
     ),
     nistGaiProfile: normalizeRiskList(
-      readFirst(riskRecord, [
-        'nistGaiProfile',
-        'nistGAIProfile',
-        'nist_gai_profile',
-        'nistGai',
-        'nistGAI',
-        'nist_gai',
-        'gaiRisks',
-        'gai',
-      ]),
+      readFirst(riskRecord, ['nistGaiProfile']),
       GAI_LOOKUP,
       'NIST GAI Profile',
     ),
     owaspLlmTop10: normalizeRiskList(
-      readFirst(riskRecord, [
-        'owaspLlmTop10',
-        'owaspLLMTop10',
-        'owasp_llm_top_10',
-        'owaspLlm',
-        'owaspLLM',
-        'llmTop10',
-        'genAiTop10',
-        'owasp',
-      ]),
+      readFirst(riskRecord, ['owaspLlmTop10']),
       OWASP_LOOKUP,
       'OWASP LLM Top 10',
     ),
@@ -300,7 +276,7 @@ function buildLookup<Id extends string>(
 function readNestedRiskRecord(
   record: Record<string, unknown>,
 ): Record<string, unknown> {
-  const nested = readFirst(record, ['risks', 'risk', 'riskTags', 'agentRisks']);
+  const nested = readFirst(record, ['risks', 'riskReferences']);
   return isRecord(nested) ? nested : record;
 }
 

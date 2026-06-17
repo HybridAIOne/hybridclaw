@@ -22,6 +22,7 @@ import {
   parseNonNegativeInteger,
   parsePositiveInteger,
 } from '../utils/number-normalization.js';
+import { AGENT_RISK_RESULT_SCHEMA_VERSION } from './agent-risk-native.js';
 import {
   buildDefaultEvalProfile,
   describeEvalProfile,
@@ -53,6 +54,7 @@ import {
   LOCOMO_DATASET_FILENAME,
   LOCOMO_SETUP_MARKER,
 } from './locomo-types.js';
+import { normalizeOpenAIBaseUrl } from './openai-url.js';
 import type { TraceJudgeCriterionMetrics } from './trace-judge-native.js';
 
 type EvalSuiteId =
@@ -514,12 +516,6 @@ function errorResult(title: string, text: string): GatewayCommandResult {
   return { kind: 'error', title, text };
 }
 
-function buildOpenAIBaseUrl(gatewayBaseUrl: string): string {
-  const trimmed = gatewayBaseUrl.trim().replace(/\/+$/, '');
-  if (!trimmed) return 'http://127.0.0.1:9090/v1';
-  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
-}
-
 function buildEvalEnvironment(params: {
   gatewayBaseUrl: string;
   webApiToken: string;
@@ -538,7 +534,7 @@ function buildEvalEnvironment(params: {
   const baseModel = params.effectiveModel.trim() || 'hybridai/gpt-4.1-mini';
   const profiledModel = encodeEvalProfileModel(baseModel, params.profile);
   return {
-    baseUrl: buildOpenAIBaseUrl(params.gatewayBaseUrl),
+    baseUrl: normalizeOpenAIBaseUrl(params.gatewayBaseUrl),
     apiKey: token,
     model: profiledModel.includes(EVAL_MODEL_PROFILE_MARKER)
       ? profiledModel
@@ -2195,11 +2191,15 @@ function readLocomoNativeSummary(
   }
 }
 
-function readTraceJudgeJobDir(meta: EvalRunMeta): string | null {
-  if (meta.suiteId !== 'trace-judge' || meta.operation !== 'run') {
+function readSuiteRunJobDir(meta: EvalRunMeta, suiteId: string): string | null {
+  if (meta.suiteId !== suiteId || meta.operation !== 'run') {
     return null;
   }
-  return path.join(path.dirname(meta.stdoutPath), 'trace-judge');
+  return path.join(path.dirname(meta.stdoutPath), suiteId);
+}
+
+function readTraceJudgeJobDir(meta: EvalRunMeta): string | null {
+  return readSuiteRunJobDir(meta, 'trace-judge');
 }
 
 function readTraceJudgeNativeSummary(
@@ -2261,10 +2261,7 @@ function readTraceJudgeNativeSummary(
 }
 
 function readAgentRiskJobDir(meta: EvalRunMeta): string | null {
-  if (meta.suiteId !== 'agent-risk' || meta.operation !== 'run') {
-    return null;
-  }
-  return path.join(path.dirname(meta.stdoutPath), 'agent-risk');
+  return readSuiteRunJobDir(meta, 'agent-risk');
 }
 
 function readAgentRiskNativeSummary(
@@ -2279,6 +2276,9 @@ function readAgentRiskNativeSummary(
       string,
       unknown
     >;
+    if (parsed.schemaVersion !== AGENT_RISK_RESULT_SCHEMA_VERSION) {
+      return null;
+    }
     const scenarios = Array.isArray(parsed.scenarios)
       ? parsed.scenarios
           .map((scenario): AgentRiskNativeScenarioSummary | null => {

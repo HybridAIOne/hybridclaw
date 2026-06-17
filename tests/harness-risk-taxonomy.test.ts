@@ -114,6 +114,22 @@ describe('harness risk taxonomy', () => {
     });
   });
 
+  test('ignores noncanonical risk field names', () => {
+    expect(
+      parseAgentRiskReferences({
+        risks: {
+          rmf: ['govern'],
+          gai: ['data_privacy'],
+          owasp: ['LLM01'],
+        },
+      }),
+    ).toEqual({
+      nistAiRmf: [],
+      nistGaiProfile: [],
+      owaspLlmTop10: [],
+    });
+  });
+
   test('rejects suites that require OWASP coverage but miss agent risks', () => {
     const cwd = makeTempDir();
     const suitePath = writeRiskSuite(cwd, {

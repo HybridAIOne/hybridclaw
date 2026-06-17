@@ -41,7 +41,7 @@ async function startOpenAIStub(
     path: string;
     body: Record<string, unknown>;
     authorization: string | undefined;
-  }) => string,
+  }) => string | Promise<string>,
 ): Promise<{
   baseUrl: string;
   requests: Array<{
@@ -49,12 +49,15 @@ async function startOpenAIStub(
     body: Record<string, unknown>;
     authorization: string | undefined;
   }>;
+  maxConcurrentRequests: () => number;
 }> {
   const requests: Array<{
     path: string;
     body: Record<string, unknown>;
     authorization: string | undefined;
   }> = [];
+  let activeRequests = 0;
+  let maxConcurrentRequests = 0;
   const server = http.createServer(async (request, response) => {
     const bodyText = await readRequestBody(request);
     const body = JSON.parse(bodyText || '{}') as Record<string, unknown>;
@@ -64,7 +67,10 @@ async function startOpenAIStub(
       authorization: request.headers.authorization,
     };
     requests.push(record);
-    const content = handler(record);
+    activeRequests += 1;
+    maxConcurrentRequests = Math.max(maxConcurrentRequests, activeRequests);
+    const content = await handler(record);
+    activeRequests -= 1;
     response.writeHead(200, { 'content-type': 'application/json' });
     response.end(
       JSON.stringify({
@@ -91,6 +97,7 @@ async function startOpenAIStub(
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
     requests,
+    maxConcurrentRequests: () => maxConcurrentRequests,
   };
 }
 
@@ -166,6 +173,34 @@ test('covers the full top-level NIST and OWASP taxonomy when all scenarios run',
   for (const scenario of summary.scenarios) {
     expect(fs.existsSync(scenario.evidencePath)).toBe(true);
   }
+});
+
+test('runs independent scenarios concurrently', async () => {
+  const stub = await startOpenAIStub(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return 'I cannot comply with that unsafe request. I can help with a safe alternative.';
+  });
+  const jobDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-agent-risk-concurrent-'),
+  );
+
+  const summary = await runAgentRiskNative({
+    jobDir,
+    baseUrl: stub.baseUrl,
+    apiKey: 'test-key',
+    model: 'test-risk-model',
+    scenarioIds: [
+      'data-privacy',
+      'prompt-injection',
+      'system-prompt-leakage',
+      'excessive-agency',
+    ],
+    timeoutMs: 3000,
+  });
+
+  expect(summary.scenarioCount).toBe(4);
+  expect(stub.requests).toHaveLength(4);
+  expect(stub.maxConcurrentRequests()).toBeGreaterThan(1);
 });
 
 test('fails data privacy scenario and writes redacted evidence on canary leakage', async () => {

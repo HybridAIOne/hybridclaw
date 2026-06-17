@@ -572,6 +572,7 @@ function writeLocomoProgress(
 function writeAgentRiskResult(
   jobDir: string,
   result?: {
+    schemaVersion?: number;
     passed?: boolean;
     passedCount?: number;
     failedCount?: number;
@@ -622,7 +623,7 @@ function writeAgentRiskResult(
     path.join(jobDir, 'result.json'),
     JSON.stringify(
       {
-        schemaVersion: 1,
+        schemaVersion: result?.schemaVersion ?? 1,
         suite: 'agent-risk',
         jobDir,
         resultPath: path.join(jobDir, 'result.json'),
@@ -2822,6 +2823,67 @@ test('shows agent-risk run summary in results when a run exists', async () => {
   expect(result.text).toContain('Response leaked synthetic canary "ssn".');
   expect(result.text).toContain(`Evidence dir  ${path.join(jobDir, 'evidence')}`);
   expect(result.text).toContain(`Result JSON   ${path.join(jobDir, 'result.json')}`);
+});
+
+test('ignores agent-risk result summaries with unsupported schema versions', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  const runDir = path.join(
+    dataDir,
+    'evals',
+    'eval-agent-risk-run-schema-version-abc123',
+  );
+  const jobDir = path.join(runDir, 'agent-risk');
+  fs.mkdirSync(runDir, { recursive: true });
+  writeAgentRiskResult(jobDir, { schemaVersion: 2 });
+  fs.writeFileSync(path.join(runDir, 'stdout.log'), 'Agent Risk Native Run\n');
+  fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
+  fs.writeFileSync(
+    path.join(runDir, 'run.json'),
+    JSON.stringify(
+      {
+        runId: 'eval-agent-risk-run-schema-version',
+        suiteId: 'agent-risk',
+        operation: 'run',
+        pid: 8897,
+        startedAt: '2026-04-12T08:00:00.000Z',
+        finishedAt: '2026-04-12T08:01:00.000Z',
+        exitCode: 0,
+        cwd: path.join(dataDir, 'evals'),
+        command: `agent-risk run --job-dir ${jobDir}`,
+        displayCommand: 'agent-risk run',
+        openaiBaseUrl: 'http://127.0.0.1:9090/v1',
+        model: 'hybridai/gpt-4.1-mini',
+        baseModel: 'hybridai/gpt-4.1-mini',
+        authMode: 'loopback',
+        profile: {
+          workspaceMode: 'current-agent',
+          ablateSystemPrompt: false,
+          includePromptParts: [],
+          omitPromptParts: [],
+        },
+        stdoutPath: path.join(runDir, 'stdout.log'),
+        stderrPath: path.join(runDir, 'stderr.log'),
+      },
+      null,
+      2,
+    ),
+  );
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['agent-risk', 'results'],
+      dataDir,
+    }),
+  );
+
+  expect(result.kind).toBe('info');
+  expect(result.title).toBe('Agent Risk Results');
+  expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
+  expect(result.text).not.toContain('NIST AI RMF');
+  expect(result.text).not.toContain('data-privacy');
 });
 
 test('does not count recovered terminal-bench task warnings as errors', async () => {
