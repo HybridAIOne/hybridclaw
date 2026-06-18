@@ -1396,9 +1396,11 @@ function parsePositiveHarnessInteger(value: string, label: string): number {
 interface HarnessEvolutionFlags {
   target: string;
   suite: string;
+  selectionSuite: string;
   summary: string;
   rounds?: number;
   rolloutsPerTask?: number;
+  maxEditsPerRound?: number;
   freshSeed: boolean;
   dryRun: boolean;
   commit: boolean;
@@ -1408,6 +1410,7 @@ function parseHarnessEvolutionFlags(args: string[]): HarnessEvolutionFlags {
   const flags: HarnessEvolutionFlags = {
     target: '',
     suite: '',
+    selectionSuite: '',
     summary: '',
     freshSeed: false,
     dryRun: false,
@@ -1425,6 +1428,16 @@ function parseHarnessEvolutionFlags(args: string[]): HarnessEvolutionFlags {
     if (suiteFlag) {
       flags.suite = suiteFlag.value;
       index = suiteFlag.nextIndex;
+      continue;
+    }
+    const selectionSuiteFlag = parseHarnessEvolutionValueFlag(
+      args,
+      index,
+      '--selection-suite',
+    );
+    if (selectionSuiteFlag) {
+      flags.selectionSuite = selectionSuiteFlag.value;
+      index = selectionSuiteFlag.nextIndex;
       continue;
     }
     const summaryFlag = parseHarnessEvolutionValueFlag(
@@ -1447,6 +1460,19 @@ function parseHarnessEvolutionFlags(args: string[]): HarnessEvolutionFlags {
     if (kFlag) {
       flags.rolloutsPerTask = parsePositiveHarnessInteger(kFlag.value, '--k');
       index = kFlag.nextIndex;
+      continue;
+    }
+    const maxEditsFlag = parseHarnessEvolutionValueFlag(
+      args,
+      index,
+      '--max-edits',
+    );
+    if (maxEditsFlag) {
+      flags.maxEditsPerRound = parsePositiveHarnessInteger(
+        maxEditsFlag.value,
+        '--max-edits',
+      );
+      index = maxEditsFlag.nextIndex;
       continue;
     }
     if (arg === '--fresh-seed') {
@@ -1529,9 +1555,11 @@ async function handleHarnessEvolutionCommand(args: string[]): Promise<void> {
       suitePath: flags.suite,
       rounds: flags.rounds,
       rolloutsPerTask: flags.rolloutsPerTask,
+      maxEditsPerRound: flags.maxEditsPerRound,
       freshSeed: flags.freshSeed,
       dryRun: flags.dryRun,
       commit: flags.commit,
+      selectionSuitePath: flags.selectionSuite || undefined,
     });
     console.log(renderEvolutionChart(result));
     console.log(`Summary: ${result.summaryPath}`);

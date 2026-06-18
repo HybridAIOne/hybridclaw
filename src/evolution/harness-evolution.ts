@@ -18,6 +18,7 @@ import {
 export const HARNESS_EVOLUTION_SCHEMA_VERSION = 1;
 export const DEFAULT_EVOLUTION_ROUNDS = 10;
 export const DEFAULT_ROLLOUTS_PER_TASK = 3;
+export const DEFAULT_SKILLOPT_MAX_EDITS_PER_ROUND = 4;
 const DEFAULT_SYSTEM_PROMPT =
   'You are a bash-only agent. Use shell commands to solve eval tasks.\n';
 const DEFAULT_TOOLS_YAML = 'tools: []\n';
@@ -175,6 +176,7 @@ export interface EvolutionEvalTask {
   command?: string;
   timeoutMs?: number;
   riskReferences: AgentRiskReferences;
+  split?: 'train' | 'selection' | 'test';
 }
 
 export interface EvolutionEvalSuite {
@@ -225,6 +227,56 @@ export interface EvolutionSeedDelta {
   notes: string[];
 }
 
+export interface SkillOptSelectionGate {
+  mode: 'held_out_suite' | 'task_split' | 'shared_suite' | 'dry_run';
+  accepted: boolean;
+  reason: string;
+  previousBestPassAt1: number;
+  candidatePassAt1: number;
+  trainTaskCount: number;
+  selectionTaskCount: number;
+  rejectedEditCount: number;
+  selectionMetrics: EvolutionMetrics;
+}
+
+export interface SkillOptRoundStages {
+  rollout: {
+    status: 'completed';
+    artifactPath: string;
+    cleanedArtifactPath: string;
+    taskCount: number;
+    rolloutCount: number;
+  };
+  reflect: {
+    status: 'completed';
+    artifactPath: string;
+    failureCount: number;
+  };
+  aggregateSelect: {
+    status: 'completed';
+    proposedEditCount: number;
+    selectedEditCount: number;
+    maxEdits: number;
+  };
+  update: {
+    status: 'applied' | 'skipped';
+    manifestPath: string;
+    appliedEditCount: number;
+  };
+  gate: {
+    status: 'accepted' | 'rejected' | 'dry_run' | 'skipped';
+    artifactPath: string | null;
+    cleanedArtifactPath: string | null;
+    previousBestPassAt1: number;
+    candidatePassAt1: number;
+  };
+  memory: {
+    status: 'updated';
+    optimizerMemoryPath: string;
+    rejectedEditCount: number;
+  };
+}
+
 export interface F12HarnessManifestEntry {
   id: string;
   round: number;
@@ -250,6 +302,7 @@ export interface F12HarnessManifest {
 export interface EvolutionRoundResult {
   round: number;
   metrics: EvolutionMetrics;
+  selectionGate: SkillOptSelectionGate;
   attributionScore: number;
   editsPerSurface: Record<HarnessSurface, number>;
   manifestPath: string;
@@ -257,6 +310,7 @@ export interface EvolutionRoundResult {
   evolveAgent: EvolutionRoundAgentResult;
   improvedBest: boolean;
   gitCommit: string | null;
+  stages: SkillOptRoundStages;
 }
 
 export interface EvolutionRunResult {
@@ -269,6 +323,9 @@ export interface EvolutionRunResult {
   costGate: EvolutionCostGate;
   seedDelta: EvolutionSeedDelta;
   summaryPath: string;
+  bestHarnessPath: string;
+  rejectedEditsPath: string;
+  optimizerMemoryPath: string;
 }
 
 export interface F12HarnessEdit {
@@ -304,6 +361,9 @@ export interface EvolveAgentRunRequest {
   suite: EvolutionEvalSuite;
   outcomes: EvolutionTaskOutcome[];
   seedDelta: EvolutionSeedDelta;
+  maxEditsPerRound: number;
+  rejectedEdits: SkillOptRejectedEdit[];
+  optimizerMemory: string;
 }
 
 export interface EvolveAgentRunResult {
@@ -323,15 +383,28 @@ export interface HarnessEvolutionLoopOptions {
   suitePath: string;
   rounds?: number;
   rolloutsPerTask?: number;
+  maxEditsPerRound?: number;
   freshSeed?: boolean;
   dryRun?: boolean;
   commit?: boolean;
   runId?: string;
+  selectionSuitePath?: string;
   reportPath?: string;
   outcomesByRound?: EvolutionTaskOutcome[][];
+  selectionOutcomesByRound?: EvolutionTaskOutcome[][];
   disconfirmedEntryIdsByRound?: string[][];
   editsByRound?: F12HarnessEdit[][];
   evolveAgent?: EvolveAgentRunner;
+}
+
+export interface SkillOptRejectedEdit {
+  round: number;
+  path: string;
+  surface: HarnessSurface;
+  prediction: string;
+  verifier: string;
+  reason: string;
+  rejectedAt: string;
 }
 
 export interface HarnessEvolutionRunListEntry {
@@ -352,6 +425,26 @@ export interface HarnessEvolutionRunListEntry {
 export interface HarnessEvolutionAdminState {
   targetRoot: string;
   runs: HarnessEvolutionRunListEntry[];
+}
+
+export interface HarnessEvolutionStarterSuites {
+  trainSuitePath: string;
+  selectionSuitePath: string;
+  verifierPath: string;
+}
+
+export interface HarnessEvolutionSuiteBuilderTask {
+  id: string;
+  command: string;
+  split: 'train' | 'selection';
+  timeoutMs?: number;
+}
+
+export interface HarnessEvolutionSuiteBuilderInput {
+  suiteId?: string;
+  suiteName?: string;
+  costBudgetUsd?: number;
+  tasks: HarnessEvolutionSuiteBuilderTask[];
 }
 
 export function initializeHarnessWorkspace(targetRoot: string): void {
@@ -382,6 +475,387 @@ export function initializeHarnessWorkspace(targetRoot: string): void {
       stdio: 'ignore',
     });
   }
+}
+
+function shellQuoteArg(value: string): string {
+  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+}
+
+export function writeHarnessEvolutionStarterSuites(
+  targetRoot: string,
+): HarnessEvolutionStarterSuites {
+  const root = path.resolve(targetRoot);
+  fs.mkdirSync(path.join(root, 'evals'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'verifier'), { recursive: true });
+  const verifierPath = path.join(root, 'verifier', 'check-starter-memory.mjs');
+  const trainSuitePath = path.join(root, 'evals', 'train-suite.json');
+  const selectionSuitePath = path.join(root, 'evals', 'selection-suite.json');
+  if (!fs.existsSync(verifierPath)) {
+    fs.writeFileSync(
+      verifierPath,
+      `import fs from 'node:fs';
+import path from 'node:path';
+
+const targetRoot = process.argv[2];
+const memoryPath = path.join(targetRoot, 'long_term_memory', 'starter-debugging.md');
+const text = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf-8') : '';
+
+if (!/stderr/i.test(text)) {
+  console.error('expected long_term_memory/starter-debugging.md to mention stderr');
+  process.exit(1);
+}
+`,
+      'utf-8',
+    );
+  }
+  const command = `${shellQuoteArg(process.execPath)} ${shellQuoteArg(verifierPath)} ${shellQuoteArg(root)}`;
+  if (!fs.existsSync(trainSuitePath)) {
+    fs.writeFileSync(
+      trainSuitePath,
+      `${JSON.stringify(
+        {
+          id: 'starter-stderr-train',
+          name: 'Starter stderr memory train',
+          costBudgetUsd: 0.05,
+          tasks: [
+            {
+              id: 'remember-stderr-train',
+              command,
+              timeoutMs: 30_000,
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    );
+  }
+  if (!fs.existsSync(selectionSuitePath)) {
+    fs.writeFileSync(
+      selectionSuitePath,
+      `${JSON.stringify(
+        {
+          id: 'starter-stderr-selection',
+          name: 'Starter stderr memory selection',
+          costBudgetUsd: 0.05,
+          tasks: [
+            {
+              id: 'remember-stderr-selection',
+              command,
+              timeoutMs: 30_000,
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    );
+  }
+  return { trainSuitePath, selectionSuitePath, verifierPath };
+}
+
+export function writeHarnessEvolutionSpreadsheetBenchExample(
+  targetRoot: string,
+): HarnessEvolutionStarterSuites {
+  const root = path.resolve(targetRoot);
+  const exampleDir = path.join(root, 'evals', 'spreadsheetbench-style');
+  fs.mkdirSync(exampleDir, { recursive: true });
+  fs.mkdirSync(path.join(root, 'verifier'), { recursive: true });
+
+  const trainFixturePath = path.join(exampleDir, 'train-orders.csv');
+  const selectionFixturePath = path.join(exampleDir, 'selection-orders.csv');
+  const verifierPath = path.join(
+    root,
+    'verifier',
+    'check-spreadsheetbench-formula.mjs',
+  );
+  const trainSuitePath = path.join(
+    root,
+    'evals',
+    'spreadsheetbench-formula-train.json',
+  );
+  const selectionSuitePath = path.join(
+    root,
+    'evals',
+    'spreadsheetbench-formula-selection.json',
+  );
+
+  writeFileIfMissing(
+    trainFixturePath,
+    `${[
+      'order_id,quantity,unit_price,discount_pct,tax_rate,final_total',
+      'A-1001,4,19.5,0.10,0.07,',
+      'A-1002,2,250,0.05,0.07,',
+      'A-1003,11,7.25,0,0.07,',
+    ].join('\n')}\n`,
+  );
+  writeFileIfMissing(
+    selectionFixturePath,
+    `${[
+      'order_id,quantity,unit_price,discount_pct,tax_rate,final_total',
+      'B-4401,9,12.75,0.15,0.0825,',
+      'B-4402,1,999.99,0.20,0.0825,',
+      'B-4403,17,3.4,0.05,0.0825,',
+      'B-4404,5,120,0,0.0825,',
+    ].join('\n')}\n`,
+  );
+  writeFileIfMissing(
+    verifierPath,
+    `import fs from 'node:fs';
+import path from 'node:path';
+
+const targetRoot = process.argv[2];
+const split = process.argv[3] || 'train';
+const fixturePath = path.join(
+  targetRoot,
+  'evals',
+  'spreadsheetbench-style',
+  split === 'selection' ? 'selection-orders.csv' : 'train-orders.csv',
+);
+const memoryPath = path.join(
+  targetRoot,
+  'long_term_memory',
+  'spreadsheet-formula-repair.md',
+);
+const memory = fs.existsSync(memoryPath)
+  ? fs.readFileSync(memoryPath, 'utf-8')
+  : '';
+
+function fail(message) {
+  console.error(message);
+  process.exit(1);
+}
+
+if (!fs.existsSync(fixturePath)) {
+  fail('SpreadsheetBench-style fixture is missing: ' + fixturePath);
+}
+
+const [headerLine, ...rows] = fs
+  .readFileSync(fixturePath, 'utf-8')
+  .trim()
+  .split(/\\r?\\n/u);
+const headers = headerLine.split(',');
+for (const column of [
+  'quantity',
+  'unit_price',
+  'discount_pct',
+  'tax_rate',
+  'final_total',
+]) {
+  if (!headers.includes(column)) {
+    fail('SpreadsheetBench-style fixture is missing column: ' + column);
+  }
+}
+
+const requiredPatterns = [
+  [/formula/i, 'write formulas, not pasted answers'],
+  [/header/i, 'derive formulas from column headers'],
+  [/constant|hard.?cod/i, 'avoid hard-coded constants'],
+  [/hidden|held.?out|changed rows|selection/i, 'verify on held-out rows'],
+  [/recalculate|recalc|verify/i, 'verify recalculation after edits'],
+];
+const missing = requiredPatterns
+  .filter(([pattern]) => !pattern.test(memory))
+  .map(([, label]) => label);
+
+if (missing.length > 0) {
+  fail(
+    [
+      'SpreadsheetBench-style formula task failed.',
+      'Add long_term_memory/spreadsheet-formula-repair.md with reusable spreadsheet procedure notes.',
+      'Missing: ' + missing.join('; '),
+      'Rows in this split: ' + rows.length,
+    ].join('\\n'),
+  );
+}
+
+if (/A-1001|A-1002|A-1003/u.test(memory)) {
+  fail('Spreadsheet memory appears overfit to train order IDs.');
+}
+
+console.log(
+  'SpreadsheetBench-style formula procedure present for ' +
+    split +
+    ' split with ' +
+    rows.length +
+    ' rows.',
+);
+`,
+  );
+
+  const command = `${shellQuoteArg(process.execPath)} ${shellQuoteArg(verifierPath)} {targetRoot}`;
+  fs.writeFileSync(
+    trainSuitePath,
+    `${JSON.stringify(
+      {
+        id: 'spreadsheetbench-formula-train',
+        name: 'SpreadsheetBench-style formula train',
+        costBudgetUsd: 0.05,
+        tasks: [
+          {
+            id: 'spreadsheet-formula-train',
+            command: `${command} train`,
+            timeoutMs: 30_000,
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    'utf-8',
+  );
+  fs.writeFileSync(
+    selectionSuitePath,
+    `${JSON.stringify(
+      {
+        id: 'spreadsheetbench-formula-selection',
+        name: 'SpreadsheetBench-style formula selection',
+        costBudgetUsd: 0.05,
+        tasks: [
+          {
+            id: 'spreadsheet-formula-selection',
+            command: `${command} selection`,
+            timeoutMs: 30_000,
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    'utf-8',
+  );
+
+  return { trainSuitePath, selectionSuitePath, verifierPath };
+}
+
+function writeFileIfMissing(filePath: string, content: string): void {
+  if (fs.existsSync(filePath)) return;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, 'utf-8');
+}
+
+export function parseHarnessEvolutionSuiteBuilderInput(
+  value: unknown,
+): HarnessEvolutionSuiteBuilderInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Suite builder payload must be a JSON object.');
+  }
+  const record = value as Record<string, unknown>;
+  const tasksValue = record.tasks;
+  if (!Array.isArray(tasksValue)) {
+    throw new Error('Suite builder payload must include a tasks array.');
+  }
+  return {
+    suiteId: readString(record.suiteId),
+    suiteName: readString(record.suiteName),
+    costBudgetUsd: readNumber(record.costBudgetUsd),
+    tasks: tasksValue.map(parseSuiteBuilderTask),
+  };
+}
+
+function parseSuiteBuilderTask(
+  value: unknown,
+  index: number,
+): HarnessEvolutionSuiteBuilderTask {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`Suite builder task ${index + 1} must be a JSON object.`);
+  }
+  const record = value as Record<string, unknown>;
+  const id = readString(record.id);
+  const command = readString(record.command);
+  const split = readString(record.split);
+  if (!id) throw new Error(`Suite builder task ${index + 1} is missing id.`);
+  if (!command) {
+    throw new Error(`Suite builder task ${index + 1} is missing command.`);
+  }
+  if (split !== 'train' && split !== 'selection') {
+    throw new Error(
+      `Suite builder task ${index + 1} split must be train or selection.`,
+    );
+  }
+  return {
+    id,
+    command,
+    split,
+    timeoutMs: readNumber(record.timeoutMs),
+  };
+}
+
+export function writeHarnessEvolutionSuiteBuilder(
+  targetRoot: string,
+  input: HarnessEvolutionSuiteBuilderInput,
+): HarnessEvolutionStarterSuites {
+  const root = path.resolve(targetRoot);
+  const suiteId = normalizeId(input.suiteId || input.suiteName || 'custom');
+  const safeSuiteId = suiteId || 'custom';
+  const suiteName = input.suiteName?.trim() || 'Custom harness eval';
+  const trainTasks = input.tasks
+    .filter((task) => task.split === 'train')
+    .map(materializeSuiteBuilderTask);
+  const selectionTasks = input.tasks
+    .filter((task) => task.split === 'selection')
+    .map(materializeSuiteBuilderTask);
+  if (trainTasks.length === 0) {
+    throw new Error('Add at least one train task command.');
+  }
+  if (selectionTasks.length === 0) {
+    throw new Error('Add at least one selection task command.');
+  }
+
+  fs.mkdirSync(path.join(root, 'evals'), { recursive: true });
+  const trainSuitePath = path.join(root, 'evals', `${safeSuiteId}-train.json`);
+  const selectionSuitePath = path.join(
+    root,
+    'evals',
+    `${safeSuiteId}-selection.json`,
+  );
+  const costBudgetUsd = input.costBudgetUsd;
+  fs.writeFileSync(
+    trainSuitePath,
+    `${JSON.stringify(
+      {
+        id: `${safeSuiteId}-train`,
+        name: `${suiteName} train`,
+        ...(costBudgetUsd === undefined ? {} : { costBudgetUsd }),
+        tasks: trainTasks,
+      },
+      null,
+      2,
+    )}\n`,
+    'utf-8',
+  );
+  fs.writeFileSync(
+    selectionSuitePath,
+    `${JSON.stringify(
+      {
+        id: `${safeSuiteId}-selection`,
+        name: `${suiteName} selection`,
+        ...(costBudgetUsd === undefined ? {} : { costBudgetUsd }),
+        tasks: selectionTasks,
+      },
+      null,
+      2,
+    )}\n`,
+    'utf-8',
+  );
+  return {
+    trainSuitePath,
+    selectionSuitePath,
+    verifierPath: '',
+  };
+}
+
+function materializeSuiteBuilderTask(
+  task: HarnessEvolutionSuiteBuilderTask,
+): Record<string, unknown> {
+  const id = normalizeId(task.id) || 'task';
+  return {
+    id,
+    command: task.command.trim(),
+    ...(task.timeoutMs === undefined ? {} : { timeoutMs: task.timeoutMs }),
+  };
 }
 
 export function validateHarnessWorkspace(
@@ -766,6 +1240,9 @@ async function resolveEvolutionEdits(params: {
   suite: EvolutionEvalSuite;
   outcomes: EvolutionTaskOutcome[];
   seedDelta: EvolutionSeedDelta;
+  maxEditsPerRound: number;
+  rejectedEdits: SkillOptRejectedEdit[];
+  optimizerMemory: string;
   dryRun: boolean;
   providedEdits?: F12HarnessEdit[];
   evolveAgent: EvolveAgentRunner;
@@ -819,6 +1296,9 @@ async function resolveEvolutionEdits(params: {
     suite: params.suite,
     outcomes: params.outcomes,
     seedDelta: params.seedDelta,
+    maxEditsPerRound: params.maxEditsPerRound,
+    rejectedEdits: params.rejectedEdits,
+    optimizerMemory: params.optimizerMemory,
   });
   return {
     edits: result.edits,
@@ -840,6 +1320,7 @@ function buildEvolveAgentPrompt(request: EvolveAgentRunRequest): string {
     `Round: ${request.round}`,
     `Target root: ${request.targetRoot}`,
     `Suite: ${request.suite.name} (${request.suite.id})`,
+    `Edit budget: at most ${request.maxEditsPerRound} bounded edit(s).`,
     `Seed delta: ${JSON.stringify(request.seedDelta, null, 2)}`,
     '',
     'Tool contract:',
@@ -856,6 +1337,14 @@ function buildEvolveAgentPrompt(request: EvolveAgentRunRequest): string {
     '```json',
     JSON.stringify(failedOutcomes.slice(0, 20), null, 2),
     '```',
+    '',
+    'Rejected edit feedback:',
+    '```json',
+    JSON.stringify(request.rejectedEdits.slice(-20), null, 2),
+    '```',
+    '',
+    'Optimizer meta skill memory:',
+    request.optimizerMemory,
     '',
     'F11.4 debugger report:',
     request.report,
@@ -950,6 +1439,102 @@ export function writeHarnessSurfaceFile(params: {
   return entry;
 }
 
+function setManifestEntriesConfirmed(
+  manifestPath: string,
+  confirmed: boolean,
+): void {
+  const manifest = readHarnessEvolutionManifest(manifestPath);
+  for (const entry of manifest.entries) {
+    entry.confirmed = confirmed;
+  }
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+function exportHarnessSnapshot(targetRoot: string, exportRoot: string): void {
+  fs.rmSync(exportRoot, { recursive: true, force: true });
+  fs.mkdirSync(exportRoot, { recursive: true });
+  for (const surface of HARNESS_SURFACES) {
+    const sourcePath = path.join(targetRoot, surface.relativePath);
+    const destinationPath = path.join(exportRoot, surface.relativePath);
+    if (!fs.existsSync(sourcePath)) continue;
+    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+    if (surface.kind === 'directory') {
+      fs.cpSync(sourcePath, destinationPath, { recursive: true });
+    } else {
+      fs.copyFileSync(sourcePath, destinationPath);
+    }
+  }
+}
+
+function writeRejectedEdits(
+  rejectedEditsPath: string,
+  rejectedEdits: SkillOptRejectedEdit[],
+): void {
+  fs.writeFileSync(
+    rejectedEditsPath,
+    `${JSON.stringify({ rejectedEdits }, null, 2)}\n`,
+    'utf-8',
+  );
+}
+
+function updateOptimizerMemory(params: {
+  previous: string;
+  round: number;
+  trainMetrics: EvolutionMetrics;
+  selectionGate: SkillOptSelectionGate;
+  proposedEditCount: number;
+  selectedEditCount: number;
+  rejectedEditCount: number;
+  manifestEntries: F12HarnessManifestEntry[];
+}): string {
+  const kept = params.selectionGate.accepted ? 'kept' : 'rejected';
+  const editSummary =
+    params.manifestEntries.length === 0
+      ? 'No bounded edits were applied.'
+      : params.manifestEntries
+          .map(
+            (entry) =>
+              `- ${entry.surface}:${entry.path} predicted "${entry.prediction}"`,
+          )
+          .join('\n');
+  const nextBlock = [
+    `## Round ${params.round}`,
+    `- Train pass@1: ${formatNumber(params.trainMetrics.passAt1)}`,
+    `- Selection pass@1: ${formatNumber(params.selectionGate.candidatePassAt1)} (${kept})`,
+    `- Proposed edits: ${params.proposedEditCount}; selected edits: ${params.selectedEditCount}; rejected buffer size: ${params.rejectedEditCount}`,
+    '- Evidence-backed edit notes:',
+    editSummary,
+  ].join('\n');
+  const base = params.previous.includes('No rounds have completed yet.')
+    ? '# SkillOpt Optimizer Memory\n'
+    : params.previous.trimEnd();
+  return `${base}\n\n${nextBlock}\n`;
+}
+
+function makeSelectionGate(params: {
+  mode: SkillOptSelectionGate['mode'];
+  accepted: boolean;
+  reason: string;
+  previousBestPassAt1: number;
+  candidatePassAt1: number;
+  trainTaskCount: number;
+  selectionTaskCount: number;
+  rejectedEditCount: number;
+  selectionMetrics: EvolutionMetrics;
+}): SkillOptSelectionGate {
+  return {
+    mode: params.mode,
+    accepted: params.accepted,
+    reason: params.reason,
+    previousBestPassAt1: params.previousBestPassAt1,
+    candidatePassAt1: params.candidatePassAt1,
+    trainTaskCount: params.trainTaskCount,
+    selectionTaskCount: params.selectionTaskCount,
+    rejectedEditCount: params.rejectedEditCount,
+    selectionMetrics: params.selectionMetrics,
+  };
+}
+
 export async function runHarnessEvolutionLoop(
   options: HarnessEvolutionLoopOptions,
 ): Promise<EvolutionRunResult> {
@@ -964,9 +1549,25 @@ export async function runHarnessEvolutionLoop(
     DEFAULT_ROLLOUTS_PER_TASK,
     'rolloutsPerTask',
   );
+  const maxEditsPerRound = positiveInteger(
+    options.maxEditsPerRound,
+    DEFAULT_SKILLOPT_MAX_EDITS_PER_ROUND,
+    'maxEditsPerRound',
+  );
   validateReportPathOption(options.reportPath, rounds);
   const runId = options.runId || makeRunId();
   const suite = loadEvolutionEvalSuite(options.suitePath);
+  const selectionSuiteOption = options.selectionSuitePath
+    ? loadEvolutionEvalSuite(options.selectionSuitePath)
+    : undefined;
+  const {
+    trainSuite,
+    selectionSuite,
+    mode: selectionMode,
+  } = resolveSkillOptSuites({
+    suite,
+    selectionSuite: selectionSuiteOption,
+  });
 
   const workspaceValidation = options.freshSeed
     ? validateBashOnlySeed(targetRoot)
@@ -982,28 +1583,40 @@ export async function runHarnessEvolutionLoop(
   const runDir = path.join(targetRoot, 'runs', runId);
   fs.mkdirSync(runDir, { recursive: true });
   const bestPath = path.join(targetRoot, 'H_best.json');
+  const bestHarnessPath = path.join(runDir, 'best-harness');
+  const rejectedEditsPath = path.join(runDir, 'rejected-edits.json');
+  const optimizerMemoryPath = path.join(runDir, 'optimizer-memory.md');
+  const rejectedEdits: SkillOptRejectedEdit[] = [];
+  let optimizerMemory =
+    '# SkillOpt Optimizer Memory\n\nNo rounds have completed yet.\n';
   let bestPassAt1 = readBestPassAt1(bestPath);
   let bestRound: number | null = null;
   const roundResults: EvolutionRoundResult[] = [];
   let runCostUsd = 0;
+  exportHarnessSnapshot(targetRoot, bestHarnessPath);
+  writeRejectedEdits(rejectedEditsPath, rejectedEdits);
+  fs.writeFileSync(optimizerMemoryPath, optimizerMemory, 'utf-8');
 
   for (let round = 1; round <= rounds; round += 1) {
     const roundDir = path.join(runDir, `round-${round}`);
     fs.mkdirSync(roundDir, { recursive: true });
+    const rolloutsPath = path.join(roundDir, 'rollouts.json');
+    const cleanedRolloutsPath = path.join(roundDir, 'cleaned-rollouts.json');
     const outcomes =
       options.outcomesByRound?.[round - 1] ||
       (await runSuiteRollouts({
-        suite,
+        suite: trainSuite,
         rolloutsPerTask,
+        targetRoot,
       }));
     const cleanedOutcomes = cleanOutcomes(outcomes);
     fs.writeFileSync(
-      path.join(roundDir, 'rollouts.json'),
+      rolloutsPath,
       `${JSON.stringify(outcomes, null, 2)}\n`,
       'utf-8',
     );
     fs.writeFileSync(
-      path.join(roundDir, 'cleaned-rollouts.json'),
+      cleanedRolloutsPath,
       `${JSON.stringify(cleanedOutcomes, null, 2)}\n`,
       'utf-8',
     );
@@ -1032,7 +1645,7 @@ export async function runHarnessEvolutionLoop(
     if (!fs.existsSync(reportPath)) {
       fs.writeFileSync(
         reportPath,
-        buildDistilledDebuggerReport(suite, round, cleanedOutcomes),
+        buildDistilledDebuggerReport(trainSuite, round, cleanedOutcomes),
         'utf-8',
       );
     }
@@ -1045,16 +1658,23 @@ export async function runHarnessEvolutionLoop(
       manifestPath,
       reportPath,
       report: debuggerReport,
-      suite,
+      suite: trainSuite,
       outcomes: cleanedOutcomes,
       seedDelta,
+      maxEditsPerRound,
+      rejectedEdits,
+      optimizerMemory,
       dryRun: Boolean(options.dryRun),
       providedEdits: options.editsByRound
         ? options.editsByRound[round - 1] || []
         : undefined,
       evolveAgent: options.evolveAgent || runEvolveAgent,
     });
-    const edits = orderEvolutionEdits(evolveAgent.edits);
+    const edits = orderEvolutionEdits(evolveAgent.edits).slice(
+      0,
+      maxEditsPerRound,
+    );
+    const proposedEditCount = evolveAgent.edits.length;
     const editsPerSurface = zeroEditsPerSurface();
     const manifestEntries: F12HarnessManifestEntry[] = [];
     if (!options.dryRun) {
@@ -1073,14 +1693,111 @@ export async function runHarnessEvolutionLoop(
     writeHarnessManifest(manifestPath, targetRoot, manifestEntries);
 
     const metrics = calculateEvolutionMetrics(cleanedOutcomes);
-    runCostUsd += metrics.totalCostUsd;
-    const improvedBest = metrics.passAt1 > bestPassAt1;
+    let selectionMetrics = metrics;
+    let selectionRolloutsPath: string | null = null;
+    let cleanedSelectionRolloutsPath: string | null = null;
+    let selectionGate = makeSelectionGate({
+      mode: options.dryRun ? 'dry_run' : selectionMode,
+      accepted: false,
+      reason: options.dryRun
+        ? 'dry run records rollout metrics without applying edits'
+        : 'no candidate edits were proposed',
+      previousBestPassAt1: bestPassAt1,
+      candidatePassAt1: metrics.passAt1,
+      trainTaskCount: trainSuite.tasks.length,
+      selectionTaskCount: selectionSuite.tasks.length,
+      rejectedEditCount: 0,
+      selectionMetrics,
+    });
+
+    if (!options.dryRun && edits.length > 0) {
+      selectionRolloutsPath = path.join(roundDir, 'selection-rollouts.json');
+      cleanedSelectionRolloutsPath = path.join(
+        roundDir,
+        'cleaned-selection-rollouts.json',
+      );
+      const selectionOutcomes =
+        options.selectionOutcomesByRound?.[round - 1] ||
+        (selectionMode === 'shared_suite'
+          ? options.outcomesByRound?.[round - 1]
+          : undefined) ||
+        (await runSuiteRollouts({
+          suite: selectionSuite,
+          rolloutsPerTask,
+          targetRoot,
+        }));
+      const cleanedSelectionOutcomes = cleanOutcomes(selectionOutcomes);
+      fs.writeFileSync(
+        selectionRolloutsPath,
+        `${JSON.stringify(selectionOutcomes, null, 2)}\n`,
+        'utf-8',
+      );
+      fs.writeFileSync(
+        cleanedSelectionRolloutsPath,
+        `${JSON.stringify(cleanedSelectionOutcomes, null, 2)}\n`,
+        'utf-8',
+      );
+      selectionMetrics = calculateEvolutionMetrics(cleanedSelectionOutcomes);
+      const accepted = selectionMetrics.passAt1 > bestPassAt1;
+      selectionGate = makeSelectionGate({
+        mode: selectionMode,
+        accepted,
+        reason: accepted
+          ? 'candidate improved the selection gate'
+          : 'candidate did not improve the selection gate',
+        previousBestPassAt1: bestPassAt1,
+        candidatePassAt1: selectionMetrics.passAt1,
+        trainTaskCount: trainSuite.tasks.length,
+        selectionTaskCount: selectionSuite.tasks.length,
+        rejectedEditCount: accepted ? 0 : manifestEntries.length,
+        selectionMetrics,
+      });
+      if (accepted) {
+        setManifestEntriesConfirmed(manifestPath, true);
+      } else {
+        applyAttributionRollback({
+          targetRoot,
+          previousManifestPath: manifestPath,
+          disconfirmedEntryIds: manifestEntries.map((entry) => entry.id),
+        });
+        for (const entry of manifestEntries) {
+          rejectedEdits.push({
+            round,
+            path: entry.path,
+            surface: entry.surface,
+            prediction: entry.prediction,
+            verifier: entry.verifier,
+            reason: selectionGate.reason,
+            rejectedAt: new Date().toISOString(),
+          });
+        }
+        writeRejectedEdits(rejectedEditsPath, rejectedEdits);
+      }
+    }
+
+    runCostUsd +=
+      metrics.totalCostUsd +
+      (selectionMetrics === metrics ? 0 : selectionMetrics.totalCostUsd);
+    const improvedBest =
+      selectionGate.accepted ||
+      (Boolean(options.dryRun) && selectionMetrics.passAt1 > bestPassAt1);
     if (improvedBest) {
-      bestPassAt1 = metrics.passAt1;
+      bestPassAt1 = selectionMetrics.passAt1;
       bestRound = round;
+      exportHarnessSnapshot(targetRoot, bestHarnessPath);
       fs.writeFileSync(
         bestPath,
-        `${JSON.stringify({ runId, round, passAt1: bestPassAt1 }, null, 2)}\n`,
+        `${JSON.stringify(
+          {
+            runId,
+            round,
+            passAt1: bestPassAt1,
+            selectionMode: selectionGate.mode,
+            bestHarnessPath,
+          },
+          null,
+          2,
+        )}\n`,
         'utf-8',
       );
     }
@@ -1089,9 +1806,21 @@ export async function runHarnessEvolutionLoop(
       options.commit && !options.dryRun
         ? commitEvolutionRound(targetRoot, round, runId)
         : null;
+    optimizerMemory = updateOptimizerMemory({
+      previous: optimizerMemory,
+      round,
+      trainMetrics: metrics,
+      selectionGate,
+      selectedEditCount: edits.length,
+      proposedEditCount,
+      rejectedEditCount: rejectedEdits.length,
+      manifestEntries,
+    });
+    fs.writeFileSync(optimizerMemoryPath, optimizerMemory, 'utf-8');
     const roundResult: EvolutionRoundResult = {
       round,
       metrics,
+      selectionGate,
       attributionScore,
       editsPerSurface,
       manifestPath,
@@ -1099,6 +1828,50 @@ export async function runHarnessEvolutionLoop(
       evolveAgent: evolveAgent.roundResult,
       improvedBest,
       gitCommit,
+      stages: {
+        rollout: {
+          status: 'completed',
+          artifactPath: rolloutsPath,
+          cleanedArtifactPath: cleanedRolloutsPath,
+          taskCount: trainSuite.tasks.length,
+          rolloutCount: cleanedOutcomes.length,
+        },
+        reflect: {
+          status: 'completed',
+          artifactPath: reportPath,
+          failureCount: cleanedOutcomes.filter((outcome) => !outcome.success)
+            .length,
+        },
+        aggregateSelect: {
+          status: 'completed',
+          proposedEditCount,
+          selectedEditCount: edits.length,
+          maxEdits: maxEditsPerRound,
+        },
+        update: {
+          status: manifestEntries.length > 0 ? 'applied' : 'skipped',
+          manifestPath,
+          appliedEditCount: manifestEntries.length,
+        },
+        gate: {
+          status: options.dryRun
+            ? 'dry_run'
+            : edits.length === 0
+              ? 'skipped'
+              : selectionGate.accepted
+                ? 'accepted'
+                : 'rejected',
+          artifactPath: selectionRolloutsPath,
+          cleanedArtifactPath: cleanedSelectionRolloutsPath,
+          previousBestPassAt1: selectionGate.previousBestPassAt1,
+          candidatePassAt1: selectionGate.candidatePassAt1,
+        },
+        memory: {
+          status: 'updated',
+          optimizerMemoryPath,
+          rejectedEditCount: rejectedEdits.length,
+        },
+      },
     };
     roundResults.push(roundResult);
     fs.writeFileSync(
@@ -1116,13 +1889,19 @@ export async function runHarnessEvolutionLoop(
   const result: EvolutionRunResult = {
     runId,
     targetRoot,
-    suite,
+    suite: {
+      ...suite,
+      tasks: suite.tasks,
+    },
     rounds: roundResults,
     bestPassAt1,
     bestRound,
     costGate,
     seedDelta,
     summaryPath,
+    bestHarnessPath,
+    rejectedEditsPath,
+    optimizerMemoryPath,
   };
   fs.writeFileSync(
     summaryPath,
@@ -1138,19 +1917,25 @@ export function renderEvolutionChart(result: EvolutionRunResult): string {
     `Harness evolution run ${result.runId}`,
     `Target: ${result.targetRoot}`,
     `Suite: ${result.suite.name} (${result.suite.tasks.length} tasks)`,
-    'Round | pass@1 | Succ/Mtok | attribution | edits',
+    'Round | train pass@1 | selection pass@1 | gate | edits',
   ];
   for (const round of result.rounds) {
     const edits = Object.entries(round.editsPerSurface)
       .filter(([, count]) => count > 0)
       .map(([surface, count]) => `${surface}:${count}`)
       .join(', ');
+    const gate =
+      round.selectionGate.mode === 'dry_run'
+        ? 'dry-run'
+        : round.selectionGate.accepted
+          ? 'accepted'
+          : 'rejected';
     lines.push(
       [
         round.round.toString().padStart(5),
-        formatNumber(round.metrics.passAt1).padStart(6),
-        formatNumber(round.metrics.succPerMtok).padStart(9),
-        formatNumber(round.attributionScore).padStart(11),
+        formatNumber(round.metrics.passAt1).padStart(12),
+        formatNumber(round.selectionGate.candidatePassAt1).padStart(16),
+        gate.padStart(8),
         edits || 'none',
       ].join(' | '),
     );
@@ -1159,6 +1944,8 @@ export function renderEvolutionChart(result: EvolutionRunResult): string {
   lines.push(
     `Best: ${result.bestRound === null ? 'none' : `round ${result.bestRound}`} pass@1=${formatNumber(result.bestPassAt1)}`,
   );
+  lines.push(`Best harness: ${result.bestHarnessPath}`);
+  lines.push(`Rejected edit buffer: ${result.rejectedEditsPath}`);
   if (!result.costGate.ok && result.costGate.reason) {
     lines.push(`Cost gate: failed (${result.costGate.reason})`);
   } else if (result.costGate.budgetUsd !== null) {
@@ -1346,6 +2133,84 @@ function parseEvalTask(task: unknown, index: number): EvolutionEvalTask {
     command: readString(record.command),
     timeoutMs: readNumber(record.timeoutMs),
     riskReferences: parseAgentRiskReferences(record),
+    split: parseTaskSplit(record.split ?? record.phase ?? record.subset),
+  };
+}
+
+function parseTaskSplit(value: unknown): EvolutionEvalTask['split'] {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'train' ||
+    normalized === 'selection' ||
+    normalized === 'test'
+  ) {
+    return normalized;
+  }
+  throw new Error(`Unsupported eval task split: ${value}`);
+}
+
+function makeSuiteWithTasks(
+  suite: EvolutionEvalSuite,
+  tasks: EvolutionEvalTask[],
+  suffix: string,
+): EvolutionEvalSuite {
+  const riskCoverage = calculateHarnessRiskCoverage(
+    tasks,
+    suite.riskCoverageRequirements,
+  );
+  return {
+    ...suite,
+    id: `${suite.id}-${suffix}`,
+    name: `${suite.name} (${suffix})`,
+    tasks,
+    riskCoverage,
+  };
+}
+
+function resolveSkillOptSuites(params: {
+  suite: EvolutionEvalSuite;
+  selectionSuite?: EvolutionEvalSuite;
+}): {
+  trainSuite: EvolutionEvalSuite;
+  selectionSuite: EvolutionEvalSuite;
+  mode: SkillOptSelectionGate['mode'];
+} {
+  if (params.selectionSuite) {
+    return {
+      trainSuite: params.suite,
+      selectionSuite: params.selectionSuite,
+      mode: 'held_out_suite',
+    };
+  }
+
+  const trainTasks = params.suite.tasks.filter(
+    (task) => task.split !== 'selection' && task.split !== 'test',
+  );
+  const selectionTasks = params.suite.tasks.filter(
+    (task) => task.split === 'selection',
+  );
+  if (selectionTasks.length > 0) {
+    if (trainTasks.length === 0) {
+      throw new Error(
+        'Eval suite split declares selection tasks but no train tasks.',
+      );
+    }
+    return {
+      trainSuite: makeSuiteWithTasks(params.suite, trainTasks, 'train'),
+      selectionSuite: makeSuiteWithTasks(
+        params.suite,
+        selectionTasks,
+        'selection',
+      ),
+      mode: 'task_split',
+    };
+  }
+
+  return {
+    trainSuite: params.suite,
+    selectionSuite: params.suite,
+    mode: 'shared_suite',
   };
 }
 
@@ -1511,6 +2376,7 @@ function summarizeFailedOutcomes(outcomes: EvolutionTaskOutcome[]): string[] {
 function runSuiteRollouts(params: {
   suite: EvolutionEvalSuite;
   rolloutsPerTask: number;
+  targetRoot: string;
 }): Promise<EvolutionTaskOutcome[]> {
   const missingCommand = params.suite.tasks.find((task) => !task.command);
   if (missingCommand) {
@@ -1518,17 +2384,22 @@ function runSuiteRollouts(params: {
       `Eval task "${missingCommand.id}" is missing command; harness evolution requires concrete eval commands or test-provided outcomes.`,
     );
   }
-  return runCommandBackedOutcomes(params.suite, params.rolloutsPerTask);
+  return runCommandBackedOutcomes(
+    params.suite,
+    params.rolloutsPerTask,
+    params.targetRoot,
+  );
 }
 
 function runCommandBackedOutcomes(
   suite: EvolutionEvalSuite,
   rolloutsPerTask: number,
+  targetRoot: string,
 ): Promise<EvolutionTaskOutcome[]> {
   const outcomes: Array<Promise<EvolutionTaskOutcome>> = [];
   for (const task of suite.tasks) {
     for (let rollout = 1; rollout <= rolloutsPerTask; rollout += 1) {
-      outcomes.push(runCommandBackedOutcome(suite, task, rollout));
+      outcomes.push(runCommandBackedOutcome(suite, task, rollout, targetRoot));
     }
   }
   return Promise.all(outcomes);
@@ -1538,8 +2409,11 @@ function runCommandBackedOutcome(
   suite: EvolutionEvalSuite,
   task: EvolutionEvalTask,
   rollout: number,
+  targetRoot: string,
 ): Promise<EvolutionTaskOutcome> {
-  const commandParts = splitCommand(task.command || '');
+  const commandParts = splitCommand(task.command || '').map((part) =>
+    part.replaceAll('{targetRoot}', targetRoot),
+  );
   const executable = commandParts[0];
   if (!executable) {
     throw new Error(`Eval task "${task.id}" is missing command.`);
@@ -1558,6 +2432,7 @@ function runCommandBackedOutcome(
         HYBRIDCLAW_EVOLUTION_TASK_ID: task.id,
         HYBRIDCLAW_EVOLUTION_ROLLOUT: String(rollout),
         HYBRIDCLAW_EVOLUTION_SUITE_ID: suite.id,
+        HYBRIDCLAW_EVOLUTION_TARGET_ROOT: targetRoot,
       },
     });
     const timeout = setTimeout(() => {

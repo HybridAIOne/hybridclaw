@@ -462,6 +462,197 @@ code {
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
 }
 
+.harness-setup-grid {
+  align-items: stretch;
+}
+
+.harness-control-grid {
+  align-items: start;
+}
+
+.harness-settings-form,
+.harness-field {
+  display: grid;
+  gap: 8px;
+}
+
+.harness-settings-form {
+  gap: 14px;
+}
+
+.harness-field span {
+  color: var(--foreground);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.harness-field small {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.harness-field input,
+.harness-field textarea {
+  width: 100%;
+}
+
+.harness-field textarea {
+  min-height: 82px;
+  resize: vertical;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+}
+
+.harness-suite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--panel-muted);
+}
+
+.harness-suite-actions span {
+  flex: 1 1 280px;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.harness-suite-builder {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.harness-suite-builder-header {
+  display: grid;
+  gap: 4px;
+}
+
+.harness-suite-builder-header span {
+  color: var(--muted-foreground);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.harness-settings-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.harness-toggle-row,
+.harness-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.harness-toggle-row label {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted-foreground);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.harness-action-row {
+  justify-content: flex-end;
+}
+
+.harness-setup-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--muted-foreground);
+  line-height: 1.55;
+}
+
+.harness-command-block {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--code-bg);
+  color: var(--editor-foreground);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.harness-output-list {
+  display: grid;
+  gap: 12px;
+}
+
+.harness-output-list div {
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--panel-muted);
+}
+
+.harness-output-list strong {
+  font-size: 0.9rem;
+}
+
+.harness-output-list span {
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.harness-stage-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.harness-stage-item {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--panel-muted);
+}
+
+.harness-stage-item strong {
+  font-size: 0.78rem;
+}
+
+.harness-stage-item span {
+  color: var(--foreground);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.harness-stage-item small {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .skills-review-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -3373,6 +3564,14 @@ th {
     border-right: none;
     border-bottom: 1px solid var(--line);
   }
+
+  .harness-settings-row {
+    grid-template-columns: 1fr;
+  }
+
+  .harness-stage-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 780px) {
@@ -3382,6 +3581,10 @@ th {
 
   .login-card {
     padding: 18px;
+  }
+
+  .harness-stage-grid {
+    grid-template-columns: 1fr;
   }
 
   .page-content {

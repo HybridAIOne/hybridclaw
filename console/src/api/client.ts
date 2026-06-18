@@ -40,9 +40,15 @@ import type {
   AdminEmailMessageResponse,
   AdminFleetTopologyResponse,
   AdminFleetTopologyUpsertRequest,
+  AdminHarnessEvolutionInitResponse,
   AdminHarnessEvolutionManifestResponse,
   AdminHarnessEvolutionResponse,
+  AdminHarnessEvolutionRunPayload,
   AdminHarnessEvolutionRunResponse,
+  AdminHarnessEvolutionStarterSuitesResponse,
+  AdminHarnessEvolutionStartResponse,
+  AdminHarnessEvolutionSuiteBuilderPayload,
+  AdminHarnessEvolutionSuiteBuilderResponse,
   AdminHybridAIBot,
   AdminHybridAIBotsResponse,
   AdminInteractionResponse,
@@ -1555,6 +1561,79 @@ export function fetchHarnessEvolutionManifest(
   return requestJson<AdminHarnessEvolutionManifestResponse>(
     `/api/admin/harness-evolution?${params.toString()}`,
     { token },
+  );
+}
+
+export function initializeHarnessEvolutionTarget(
+  token: string,
+  targetRoot: string,
+): Promise<AdminHarnessEvolutionInitResponse> {
+  return requestJson<AdminHarnessEvolutionInitResponse>(
+    '/api/admin/harness-evolution',
+    {
+      token,
+      method: 'POST',
+      body: { action: 'init', targetRoot },
+    },
+  );
+}
+
+export function createHarnessEvolutionStarterSuites(
+  token: string,
+  targetRoot: string,
+): Promise<AdminHarnessEvolutionStarterSuitesResponse> {
+  return requestJson<AdminHarnessEvolutionStarterSuitesResponse>(
+    '/api/admin/harness-evolution',
+    {
+      token,
+      method: 'POST',
+      body: { action: 'starter_suites', targetRoot },
+    },
+  );
+}
+
+export function createHarnessEvolutionSpreadsheetExample(
+  token: string,
+  targetRoot: string,
+): Promise<AdminHarnessEvolutionStarterSuitesResponse> {
+  return requestJson<AdminHarnessEvolutionStarterSuitesResponse>(
+    '/api/admin/harness-evolution',
+    {
+      token,
+      method: 'POST',
+      body: { action: 'spreadsheetbench_example', targetRoot },
+    },
+  );
+}
+
+export function createHarnessEvolutionSuites(
+  token: string,
+  payload: AdminHarnessEvolutionSuiteBuilderPayload,
+): Promise<AdminHarnessEvolutionSuiteBuilderResponse> {
+  return requestJson<AdminHarnessEvolutionSuiteBuilderResponse>(
+    '/api/admin/harness-evolution',
+    {
+      token,
+      method: 'POST',
+      body: {
+        action: 'write_suites',
+        ...payload,
+      },
+    },
+  );
+}
+
+export function startHarnessEvolutionRun(
+  token: string,
+  payload: AdminHarnessEvolutionRunPayload,
+): Promise<AdminHarnessEvolutionStartResponse> {
+  return requestJson<AdminHarnessEvolutionStartResponse>(
+    '/api/admin/harness-evolution',
+    {
+      token,
+      method: 'POST',
+      body: { action: 'run', ...payload },
+    },
   );
 }
 

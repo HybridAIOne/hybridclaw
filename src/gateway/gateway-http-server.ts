@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import {
   EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE,
@@ -6485,19 +6486,80 @@ async function handleApiAdaptiveSkills(
   sendJson(res, 404, { error: 'Not Found' });
 }
 
+function readHarnessEvolutionString(
+  body: Record<string, unknown>,
+  key: string,
+): string {
+  const value = body[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function readHarnessEvolutionOptionalString(
+  body: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = readHarnessEvolutionString(body, key);
+  return value || undefined;
+}
+
+function readHarnessEvolutionPositiveInteger(
+  body: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  const value = body[key];
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = parsePositiveInteger(value);
+  if (parsed === null) {
+    throw new GatewayRequestError(400, `${key} must be a positive integer.`);
+  }
+  return parsed;
+}
+
+function readHarnessEvolutionBoolean(
+  body: Record<string, unknown>,
+  key: string,
+): boolean | undefined {
+  const value = body[key];
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  throw new GatewayRequestError(400, `${key} must be true or false.`);
+}
+
+function expandHarnessEvolutionPath(value: string): string {
+  if (value === '~') return os.homedir();
+  if (value.startsWith(`~${path.sep}`) || value.startsWith('~/')) {
+    return path.join(os.homedir(), value.slice(2));
+  }
+  return value;
+}
+
 async function handleApiAdminHarnessEvolution(
+  req: IncomingMessage,
   res: ServerResponse,
+  method: string,
   url: URL,
 ): Promise<void> {
   const targetRoot = (url.searchParams.get('targetRoot') || '').trim();
   const summaryPath = (url.searchParams.get('summaryPath') || '').trim();
   const manifestPath = (url.searchParams.get('manifestPath') || '').trim();
-  if (!targetRoot) {
-    sendJson(res, 400, { error: 'Missing targetRoot query parameter.' });
+  const requestBody = method === 'POST' ? await readJsonBody(req) : {};
+  const requestRecord =
+    requestBody && typeof requestBody === 'object'
+      ? (requestBody as Record<string, unknown>)
+      : {};
+  const requestTargetRoot =
+    targetRoot || readHarnessEvolutionString(requestRecord, 'targetRoot');
+  if (!requestTargetRoot) {
+    sendJson(res, 400, { error: 'Missing targetRoot.' });
     return;
   }
 
-  const root = path.resolve(targetRoot);
+  const root = path.resolve(expandHarnessEvolutionPath(requestTargetRoot));
   if (!(await isAllowedHarnessEvolutionRoot(root))) {
     sendJson(res, 403, {
       error:
@@ -6507,6 +6569,100 @@ async function handleApiAdminHarnessEvolution(
   }
   try {
     const evolution = await import('../evolution/harness-evolution.js');
+    if (method === 'POST') {
+      const action = readHarnessEvolutionString(requestRecord, 'action');
+      if (action === 'init') {
+        evolution.initializeHarnessWorkspace(root);
+        const starterSuites =
+          evolution.writeHarnessEvolutionStarterSuites(root);
+        sendJson(res, 201, {
+          targetRoot: root,
+          starterSuites,
+          runs: evolution.listHarnessEvolutionRuns(root).runs,
+        });
+        return;
+      }
+      if (action === 'starter_suites') {
+        evolution.initializeHarnessWorkspace(root);
+        const starterSuites =
+          evolution.writeHarnessEvolutionStarterSuites(root);
+        sendJson(res, 201, {
+          targetRoot: root,
+          starterSuites,
+          runs: evolution.listHarnessEvolutionRuns(root).runs,
+        });
+        return;
+      }
+      if (action === 'spreadsheetbench_example') {
+        evolution.initializeHarnessWorkspace(root);
+        const starterSuites =
+          evolution.writeHarnessEvolutionSpreadsheetBenchExample(root);
+        sendJson(res, 201, {
+          targetRoot: root,
+          starterSuites,
+          runs: evolution.listHarnessEvolutionRuns(root).runs,
+        });
+        return;
+      }
+      if (action === 'write_suites') {
+        evolution.initializeHarnessWorkspace(root);
+        const starterSuites = evolution.writeHarnessEvolutionSuiteBuilder(
+          root,
+          evolution.parseHarnessEvolutionSuiteBuilderInput(requestRecord),
+        );
+        sendJson(res, 201, {
+          targetRoot: root,
+          starterSuites,
+          runs: evolution.listHarnessEvolutionRuns(root).runs,
+        });
+        return;
+      }
+      if (action === 'run') {
+        const suitePath = readHarnessEvolutionString(
+          requestRecord,
+          'suitePath',
+        );
+        if (!suitePath) {
+          sendJson(res, 400, { error: 'suitePath is required.' });
+          return;
+        }
+        const selectionSuitePath = readHarnessEvolutionOptionalString(
+          requestRecord,
+          'selectionSuitePath',
+        );
+        const result = await evolution.runHarnessEvolutionLoop({
+          targetRoot: root,
+          suitePath: expandHarnessEvolutionPath(suitePath),
+          selectionSuitePath: selectionSuitePath
+            ? expandHarnessEvolutionPath(selectionSuitePath)
+            : undefined,
+          rounds: readHarnessEvolutionPositiveInteger(requestRecord, 'rounds'),
+          rolloutsPerTask: readHarnessEvolutionPositiveInteger(
+            requestRecord,
+            'rolloutsPerTask',
+          ),
+          maxEditsPerRound: readHarnessEvolutionPositiveInteger(
+            requestRecord,
+            'maxEditsPerRound',
+          ),
+          freshSeed:
+            readHarnessEvolutionBoolean(requestRecord, 'freshSeed') ?? false,
+          dryRun: readHarnessEvolutionBoolean(requestRecord, 'dryRun') ?? false,
+          commit: readHarnessEvolutionBoolean(requestRecord, 'commit') ?? false,
+        });
+        sendJson(res, 201, {
+          run: result,
+          targetRoot: root,
+          runs: evolution.listHarnessEvolutionRuns(root).runs,
+        });
+        return;
+      }
+      sendJson(res, 400, {
+        error:
+          'Expected harness evolution action `init`, `starter_suites`, `spreadsheetbench_example`, `write_suites`, or `run`.',
+      });
+      return;
+    }
     if (manifestPath) {
       await assertPathInsideRoot(root, manifestPath);
       sendJson(res, 200, {
@@ -7155,8 +7311,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiAdminAgentScoreboard(res);
             return;
           }
-          if (pathname === '/api/admin/harness-evolution' && method === 'GET') {
-            await handleApiAdminHarnessEvolution(res, url);
+          if (
+            pathname === '/api/admin/harness-evolution' &&
+            (method === 'GET' || method === 'POST')
+          ) {
+            await handleApiAdminHarnessEvolution(req, res, method, url);
             return;
           }
           if (

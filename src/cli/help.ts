@@ -15,7 +15,7 @@ export function printMainUsage(): void {
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   eval       Run local eval recipes or launch detached benchmark commands
   harness-evolve
-             Run R10a harness-evolution workspace and loop helpers
+             Run SkillOpt-style harness optimization helpers
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, Slack, Telegram, Signal, Threema, WhatsApp, Email)
@@ -43,19 +43,21 @@ export function printHarnessEvolutionUsage(): void {
 Commands:
   hybridclaw harness-evolve init --target <dir>
   hybridclaw harness-evolve validate-seed --target <dir>
-  hybridclaw harness-evolve run --target <dir> --suite <suite.json> [--rounds N] [--k N] [--fresh-seed] [--dry-run] [--commit]
+  hybridclaw harness-evolve run --target <dir> --suite <suite.json> [--selection-suite <suite.json>] [--rounds N] [--k N] [--max-edits N] [--fresh-seed] [--dry-run] [--commit]
   hybridclaw harness-evolve status --summary <runs/.../summary.json>
   hybridclaw harness-evolve contract
 
 Notes:
   - Target coworker workspaces expose seven editable surfaces:
     system_prompt.md, tools.yaml, tools/, middleware/, sub_agents/, config/, long_term_memory/.
+  - selection-suite provides the held-out gate. Without it, tasks marked split: "selection" are held out; otherwise the suite is reused as a shared gate.
+  - max-edits is the bounded textual learning rate for each optimizer round.
   - Fresh evolution refuses non-minimal seeds; production coworkers can use run without --fresh-seed.
   - Suites may tag tasks with risks.nistAiRmf, risks.nistGaiProfile, and risks.owaspLlmTop10,
     then require coverage with riskCoverage.requireNistAiRmfCore,
     requireNistGaiProfile, or requireOwaspLlmTop10.
   - contract prints the evolve-agent system prompt and tool schema for host orchestration.
-  - Round artifacts and F12 manifests are written under target runs/.`);
+  - Round artifacts and change manifests are written under target runs/.`);
 }
 
 export function printGatewayUsage(): void {

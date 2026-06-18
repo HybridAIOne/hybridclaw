@@ -167,10 +167,11 @@ hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals
 
 ## Harness Evolution Workflows
 
-`hybridclaw harness-evolve` runs controlled eval-driven evolution loops against
-one target coworker workspace. It initializes or validates a bash-only seed,
-runs a command-backed eval suite, asks the evolve-agent for F12-governed edits,
-and records round summaries plus manifests for review.
+`hybridclaw harness-evolve` runs controlled SkillOpt-style optimization loops
+against one target coworker workspace. It initializes or validates a bash-only
+seed, runs a command-backed eval suite, asks the evolve-agent for bounded,
+verifiable edits, keeps candidates only when a selection gate improves, and
+records round summaries plus change manifests for review.
 
 ```bash
 hybridclaw harness-evolve init --target /tmp/hc-evolve-agent
@@ -178,9 +179,11 @@ hybridclaw harness-evolve validate-seed --target /tmp/hc-evolve-agent
 hybridclaw harness-evolve contract
 hybridclaw harness-evolve run \
   --target /tmp/hc-evolve-agent \
-  --suite /tmp/hc-evals/scenarios.json \
+  --suite /tmp/hc-evals/train.json \
+  --selection-suite /tmp/hc-evals/selection.json \
   --rounds 2 \
   --k 1 \
+  --max-edits 4 \
   --fresh-seed
 hybridclaw harness-evolve status --summary /tmp/hc-evolve-agent/runs/<run-id>/summary.json
 ```
@@ -191,10 +194,19 @@ hybridclaw harness-evolve status --summary /tmp/hc-evolve-agent/runs/<run-id>/su
   `evals/scenarios.json`
 - each task command is split into argv and run without a shell; wrap pipes,
   redirects, and multi-command checks in a script file
+- commands can use `{targetRoot}` as an argv placeholder and receive
+  `HYBRIDCLAW_EVOLUTION_TARGET_ROOT` in the environment
+- `--selection-suite` is the held-out gate. Without it, tasks marked
+  `split: "selection"` are held out; otherwise the same suite is reused as a
+  shared gate
+- `--max-edits` caps each round's bounded text update
 - `--dry-run` exercises eval execution and summaries without applying edits
 - `--commit` creates Git commits for confirmed rounds in a Git-backed target
   workspace
-- the admin console reads completed runs from `/admin/harness-evolution` when
+- the admin console can initialize targets, create starter suites, build
+  train/selection suites from command rows, generate a SpreadsheetBench-style
+  formula task, start runs, and inspect completed runs from
+  `/admin/harness-evolution` when
   `HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS` allowlists the target root
 
 See [Harness Evolution](../developer-guide/harness-evolution.md) for an example

@@ -8,9 +8,17 @@ sidebar_position: 9
 
 Harness evolution is a local, eval-driven loop for improving one coworker
 workspace at a time. It starts from a minimal bash-only seed or an existing
-workspace, runs an eval suite, distills failures into an F11.4-style debugger
-report, asks the evolve-agent for F12-governed edits, applies only allowed
-workspace edits, and records the result for review.
+workspace, runs an eval suite, distills failures into a debugger report, asks
+the evolve-agent for bounded, verifiable edits, applies only allowed workspace
+edits, keeps a candidate only when a selection gate improves, and records the
+result for review.
+
+The workflow is inspired by
+[SkillOpt](https://microsoft.github.io/SkillOpt/): keep the target agent fixed,
+treat the coworker harness as the trainable artifact, use rollout evidence to
+propose bounded text edits, and validate changes before promoting them.
+HybridClaw stores those steps as local run artifacts so operators can inspect
+and roll back edits.
 
 Use it when you want to measure whether changes to memory, tools, middleware,
 sub-agents, config, or prompts actually improve task success. Do not use it as
@@ -22,7 +30,7 @@ captures behavior you are willing to optimize for.
 The highest-value use case is a recurring workflow failure:
 
 > This agent keeps failing this task. Encode the task as an eval, run
-> harness-evolve against a copy of the agent workspace, inspect the F12
+> harness-evolve against a copy of the agent workspace, inspect the change
 > manifest, then promote only the useful edits.
 
 Use the harness differently depending on the target:
@@ -72,15 +80,46 @@ hybridclaw harness-evolve contract
 ```bash
 hybridclaw harness-evolve run \
   --target /tmp/hc-evolve-agent \
-  --suite /tmp/hc-evals/scenarios.json \
+  --suite /tmp/hc-evals/train.json \
+  --selection-suite /tmp/hc-evals/selection.json \
   --rounds 2 \
   --k 1 \
+  --max-edits 4 \
   --fresh-seed
 ```
 
 Add `--dry-run` to test eval execution, metrics, summaries, and admin display
 without applying evolve-agent edits. Add `--commit` only when the target
 workspace is a Git checkout and you want one commit per confirmed round.
+
+In the admin console, `/admin/harness-evolution` can generate starter suites
+for a target workspace. Click **Create starter suites** to write
+`evals/train-suite.json`, `evals/selection-suite.json`, and
+`verifier/check-starter-memory.mjs` into the target, then start from those
+filled-in paths.
+
+For real workflows, use **Build train and selection suites** on the same page.
+Paste one command per line for the train split and one command per line for the
+selection split, then click **Save suites and fill fields**. Lines can be plain
+commands or `task-id: command` entries. The page writes JSON suite files under
+`evals/` and fills both suite path inputs. Commands can include `{targetRoot}`
+as an argv placeholder; the runner replaces it with the selected target
+workspace path and also sets `HYBRIDCLAW_EVOLUTION_TARGET_ROOT`.
+
+Click **Create SpreadsheetBench example** for a concrete spreadsheet-oriented
+demo. It writes a SpreadsheetBench-style formula-repair task with train and
+selection CSV fixtures, suite JSON files, and
+`verifier/check-spreadsheetbench-formula.mjs`. The verifier fails until the
+target harness contains reusable spreadsheet procedure memory such as deriving
+formulas from headers, writing formulas instead of constants, and verifying on
+held-out rows. It is a local example inspired by the public SkillOpt
+spreadsheet experiments, not a vendored copy of Microsoft benchmark data.
+
+`--selection-suite` provides the held-out gate. If you omit it, tasks with
+`"split": "selection"` in the main suite are held out. If neither is present,
+the same suite is reused as a shared gate, which is useful for smoke tests but
+does not provide true held-out selection. `--max-edits` is the textual learning
+rate: it caps how many bounded edits the optimizer may apply in one round.
 
 ## Eval Suite Format
 
@@ -100,6 +139,13 @@ belong in a script file.
   "tasks": [
     {
       "id": "remember-stderr",
+      "split": "train",
+      "command": "node /tmp/hc-evals/check-memory.mjs /tmp/hc-evolve-agent",
+      "timeoutMs": 30000
+    },
+    {
+      "id": "remember-stderr-selection",
+      "split": "selection",
       "command": "node /tmp/hc-evals/check-memory.mjs /tmp/hc-evolve-agent",
       "timeoutMs": 30000
     }
@@ -114,6 +160,17 @@ run, the command also receives these environment variables:
 - `HYBRIDCLAW_EVOLUTION_TASK_ID`
 - `HYBRIDCLAW_EVOLUTION_ROLLOUT`
 - `HYBRIDCLAW_EVOLUTION_SUITE_ID`
+- `HYBRIDCLAW_EVOLUTION_TARGET_ROOT`
+
+Use `{targetRoot}` in a command when the target path should be passed as an
+argument without hard-coding one machine's directory:
+
+```json
+{
+  "id": "selection-smoke",
+  "command": "node verifier/check-selection.mjs {targetRoot}"
+}
+```
 
 ## Minimal Example Suite
 
@@ -152,6 +209,13 @@ cat > /tmp/hc-evals/scenarios.json <<'EOF'
   "tasks": [
     {
       "id": "remember-stderr",
+      "split": "train",
+      "command": "node /tmp/hc-evals/check-memory.mjs /tmp/hc-evolve-agent",
+      "timeoutMs": 30000
+    },
+    {
+      "id": "remember-stderr-selection",
+      "split": "selection",
       "command": "node /tmp/hc-evals/check-memory.mjs /tmp/hc-evolve-agent",
       "timeoutMs": 30000
     }
@@ -166,6 +230,7 @@ hybridclaw harness-evolve run \
   --suite /tmp/hc-evals/scenarios.json \
   --rounds 2 \
   --k 1 \
+  --max-edits 4 \
   --fresh-seed
 ```
 
@@ -177,8 +242,36 @@ hybridclaw harness-evolve status --summary <summaryPath>
 
 Check the status output for `pass@1`, `Succ/Mtok`, `Seed delta`, per-surface
 edits, and the evolve-agent source. The run directory also contains
-`evolve-agent-output.md`, distilled debugger reports, per-round manifests, and
+`evolve-agent-output.md`, distilled debugger reports, per-round manifests,
+cleaned rollout artifacts, `optimizer-memory.md`, `rejected-edits.json`, and
 the summary JSON.
+
+## Example: SpreadsheetBench-Style Formula Repair
+
+The admin console can generate a spreadsheet task that mirrors the shape of
+SkillOpt's SpreadsheetBench examples without bundling external benchmark data.
+Open `/admin/harness-evolution`, set a target workspace, and click **Create
+SpreadsheetBench example**.
+
+The target receives:
+
+- `evals/spreadsheetbench-formula-train.json`
+- `evals/spreadsheetbench-formula-selection.json`
+- `evals/spreadsheetbench-style/train-orders.csv`
+- `evals/spreadsheetbench-style/selection-orders.csv`
+- `verifier/check-spreadsheetbench-formula.mjs`
+
+The generated verifier checks whether the target harness has reusable
+spreadsheet procedure memory in
+`long_term_memory/spreadsheet-formula-repair.md`. The memory must tell the
+agent to derive formulas from headers, write formulas instead of hard-coded
+constants, and verify recalculation on held-out or changed rows. The selection
+split uses a different fixture so accepted edits need to generalize beyond the
+train rows.
+
+This is a good first demo because the failure is clear, the verifier is cheap,
+and the expected improvement belongs in the harness rather than in product
+code.
 
 ## Example: Improve PDF Creation
 
@@ -247,23 +340,29 @@ hybridclaw harness-evolve run \
   --fresh-seed
 ```
 
-Inspect the F12 manifest before promoting any edit. The harness can improve
+Inspect the change manifest before promoting any edit. The harness can improve
 workspace instructions and helper tools, but product code changes still need
 normal review and tests.
 
 ## Admin Console
 
-The admin console can inspect completed harness evolution runs through
-`/admin/harness-evolution`. The API is allowlist-gated. Set
-`HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS` to a comma-separated list of target roots
-that the gateway may read:
+The admin console can initialize targets, start SkillOpt-style optimization
+runs, and inspect completed runs through `/admin/harness-evolution`. The API is
+allowlist-gated. Set `HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS` to a comma-separated
+list of target roots that the gateway may read and write:
 
 ```bash
 HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS=/tmp/hc-evolve-agent hybridclaw gateway restart
 ```
 
-The page shows run summaries, round metrics, pass@1 trajectory, seed delta,
-evolve-agent source, and F12 manifest entries.
+The page exposes the same run settings as the CLI: target workspace, train
+suite, optional selection suite, rounds, rollouts per task, max edits per round,
+fresh-seed mode, dry-run mode, and per-round commits. It also shows run
+summaries, train and selection scores, gate decisions, starting-state
+differences, edit source, SkillOpt stage telemetry, optimizer memory, and
+change manifest entries. Accepted candidates are exported under the run's
+`best-harness/`; rejected candidates are recorded in `rejected-edits.json` and
+rolled back from the target harness.
 
 ## Candidate External Benchmarks
 
