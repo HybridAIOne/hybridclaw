@@ -418,6 +418,74 @@ test('bot info works even when the session model is not HybridAI', async () => {
   expect(result.text).toContain('Model: openai-codex/gpt-5.4');
 });
 
+test('bot clear clears configured default chatbot so account fallback can resolve user bot', async () => {
+  setupHome();
+
+  vi.doMock('../src/providers/hybridai-bots.ts', () => ({
+    HybridAIBotFetchError: class HybridAIBotFetchError extends Error {},
+    fetchHybridAIAccountChatbotId: vi.fn(async () => 'user-fallback'),
+    fetchHybridAIBots: vi.fn(async () => [
+      {
+        id: 'bot-research',
+        name: 'Research Bot',
+        model: 'gpt-4o-mini',
+      },
+    ]),
+  }));
+
+  const {
+    getOrCreateSession,
+    initDatabase,
+    updateSessionChatbot,
+    updateSessionModel,
+  } = await import('../src/memory/db.ts');
+  const { getRuntimeConfig, updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  initDatabase({ quiet: true });
+  updateRuntimeConfig((draft) => {
+    draft.hybridai.defaultChatbotId = 'bot-research';
+  });
+
+  const sessionId = 'session-bot-clear-default';
+  getOrCreateSession(sessionId, null, 'channel-bot-clear-default');
+  updateSessionModel(sessionId, 'openai-codex/gpt-5.4');
+  updateSessionChatbot(sessionId, null);
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const clearResult = await handleGatewayCommand({
+    sessionId,
+    guildId: null,
+    channelId: 'channel-bot-clear-default',
+    args: ['bot', 'clear'],
+  });
+
+  expect(clearResult).toMatchObject({
+    kind: 'plain',
+    text: 'Chatbot cleared for this session and default HybridAI chatbot cleared. HybridAI account fallback will be used when required.',
+  });
+  expect(getRuntimeConfig().hybridai.defaultChatbotId).toBe('');
+
+  const infoResult = await handleGatewayCommand({
+    sessionId,
+    guildId: null,
+    channelId: 'channel-bot-clear-default',
+    args: ['bot', 'info'],
+  });
+
+  expect(infoResult).toMatchObject({
+    kind: 'info',
+    title: 'Bot Info',
+  });
+  if (infoResult.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${infoResult.kind}`);
+  }
+  expect(infoResult.text).toContain('Chatbot: Not set');
+  expect(infoResult.text).not.toContain('Research Bot');
+});
+
 test('bot list returns a short message when HybridAI is unreachable', async () => {
   setupHome();
 
