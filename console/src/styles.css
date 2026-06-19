@@ -1238,7 +1238,7 @@ code {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 18px;
-  align-items: center;
+  align-items: start;
 }
 
 .skill-detail-icon {
