@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminAdaptiveSkillAmendmentsResponse,
@@ -36,6 +37,19 @@ const saveSkillPackageFileMock =
   >();
 const saveSkillEnabledMock = vi.fn();
 const useAuthMock = vi.fn();
+
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({
+    to,
+    children,
+    ...rest
+  }: { to: string; children: ReactNode } & Record<string, unknown>) => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
+  ),
+  useParams: () => ({}),
+}));
 
 vi.mock('../api/client', () => ({
   fetchSkills: () => fetchSkillsMock(),

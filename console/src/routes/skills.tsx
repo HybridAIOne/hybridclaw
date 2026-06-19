@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { useDeferredValue, useState } from 'react';
 import {
   applyAdaptiveSkillAmendment,
@@ -939,12 +940,12 @@ export function SkillsPage() {
                     return (
                       <tr key={skill.name}>
                         <td>
-                          <a
+                          <Link
                             className="table-link-button"
-                            href={skillDetailPath(skill.name)}
+                            to={skillDetailPath(skill.name)}
                           >
                             {skill.name}
-                          </a>
+                          </Link>
                           <small>{displayDescription}</small>
                           {skill.blocked && firstGuardFinding ? (
                             <small className="row-status-note-danger">
@@ -1128,12 +1129,12 @@ export function SkillsPage() {
                   {sortedHealthMetrics.map((metrics) => (
                     <tr key={metrics.skill_name}>
                       <td>
-                        <a
+                        <Link
                           className="table-link-button"
-                          href={skillDetailPath(metrics.skill_name)}
+                          to={skillDetailPath(metrics.skill_name)}
                         >
                           {metrics.skill_name}
-                        </a>
+                        </Link>
                         <small>
                           Window ending{' '}
                           {formatDateTime(metrics.window_ended_at)}
@@ -1202,12 +1203,12 @@ export function SkillsPage() {
                 {stagedAmendments.map((amendment) => (
                   <div className="list-row" key={amendment.id}>
                     <div>
-                      <a
+                      <Link
                         className="table-link-button"
-                        href={skillDetailPath(amendment.skill_name)}
+                        to={skillDetailPath(amendment.skill_name)}
                       >
                         {amendment.skill_name}
-                      </a>
+                      </Link>
                       <small>
                         {formatAmendmentStatus(amendment)} ·{' '}
                         {formatAmendmentTiming(amendment)} · guard{' '}

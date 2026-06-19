@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from '@tanstack/react-router';
+import { Link, useParams } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchSkillPackageFile,
@@ -450,7 +450,7 @@ export function SkillDetailView(props: { skillName: string }) {
       <div className="page-stack">
         <Button
           variant="ghost"
-          render={<a href="/admin/skills">Back to skills</a>}
+          render={<Link to="/admin/skills">Back to skills</Link>}
         />
         <Card>
           <CardContent>
@@ -468,7 +468,7 @@ export function SkillDetailView(props: { skillName: string }) {
       <div className="page-stack">
         <Button
           variant="ghost"
-          render={<a href="/admin/skills">Back to skills</a>}
+          render={<Link to="/admin/skills">Back to skills</Link>}
         />
         <Card>
           <CardContent>
@@ -496,7 +496,7 @@ export function SkillDetailView(props: { skillName: string }) {
       <div className="skill-detail-back-row">
         <Button
           variant="ghost"
-          render={<a href="/admin/skills">Back to skills</a>}
+          render={<Link to="/admin/skills">Back to skills</Link>}
         />
       </div>
 
