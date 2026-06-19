@@ -51,6 +51,23 @@ function mutatesAgentList(content: string): boolean {
   );
 }
 
+function parseAgentSwitchTarget(content: string): string | null {
+  const parts = content.trim().split(/\s+/);
+  const command = parts[0]?.replace(/^\/+/, '').toLowerCase();
+  if (command !== 'agent' && command !== 'agents') return null;
+  if (parts[1]?.toLowerCase() !== 'switch') return null;
+  const target = parts[2]?.trim();
+  return target && !/\s/.test(target) ? target : null;
+}
+
+function isAgentSwitchSuccess(text: string): boolean {
+  return /^Session agent set to\b/i.test(text.trim());
+}
+
+function commandStartsBootstrapAutostart(text: string): boolean {
+  return /\bBOOTSTRAP\.md\b/i.test(text);
+}
+
 export interface UseChatStreamReturn {
   /** Returns true when a new send was started, false when rejected due to an active run. */
   sendMessage: (
@@ -354,6 +371,40 @@ export function useChatStream(
         });
 
         refreshRecent();
+        const switchedAgentId =
+          finalRole === 'command' && isAgentSwitchSuccess(finalText)
+            ? parseAgentSwitchTarget(content)
+            : null;
+        if (switchedAgentId) {
+          const switchedSessionId = result.sessionId ?? targetSessionId;
+          const switchedHistoryKey = chatHistoryQueryKey(
+            token,
+            switchedSessionId,
+          );
+          queryClient.setQueryData<ChatHistoryUiData>(
+            switchedHistoryKey,
+            (prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                agentId: switchedAgentId,
+                bootstrapAutostart: commandStartsBootstrapAutostart(finalText)
+                  ? {
+                      status: 'starting',
+                      fileName: 'BOOTSTRAP.md',
+                    }
+                  : prev.bootstrapAutostart,
+              };
+            },
+          );
+          void queryClient.invalidateQueries({
+            queryKey: switchedHistoryKey,
+            refetchType: 'none',
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ['chat-context', token, switchedSessionId],
+          });
+        }
         if (finalRole === 'command' && mutatesAgentList(content)) {
           void queryClient.invalidateQueries({
             queryKey: ['agents-list', token],
