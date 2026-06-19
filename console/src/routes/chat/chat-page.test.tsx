@@ -28,6 +28,7 @@ import type {
 import type {
   AdminCommandResult,
   AdminModelsResponse,
+  AdminSkillsResponse,
   AgentListItem,
   DeleteSessionResult,
   GatewayStatus,
@@ -84,6 +85,8 @@ const fetchAgentAvatarBlobMock =
 const fetchAgentListMock = vi.fn<(token: string) => Promise<AgentListItem[]>>();
 const fetchModelsMock =
   vi.fn<(token: string) => Promise<AdminModelsResponse>>();
+const fetchSkillsMock =
+  vi.fn<(token: string) => Promise<AdminSkillsResponse>>();
 const useAuthMock = vi.fn();
 const sendMessageMock = vi.fn();
 const stopRequestMock = vi.fn();
@@ -129,6 +132,7 @@ vi.mock('../../api/client', () => ({
     deleteChatSessionMock(token, sessionId),
   fetchAgentList: (token: string) => fetchAgentListMock(token),
   fetchModels: (token: string) => fetchModelsMock(token),
+  fetchSkills: (token: string) => fetchSkillsMock(token),
 }));
 
 vi.mock('../../auth', () => ({
@@ -248,11 +252,17 @@ describe('ChatPage', () => {
     fetchAgentAvatarBlobMock.mockReset();
     fetchAgentListMock.mockReset();
     fetchModelsMock.mockReset();
+    fetchSkillsMock.mockReset();
     fetchModelsMock.mockResolvedValue({
       defaultModel: 'gpt-5',
       providerStatus: {},
       models: [],
     } as AdminModelsResponse);
+    fetchSkillsMock.mockResolvedValue({
+      extraDirs: [],
+      disabled: [],
+      skills: [],
+    });
     useAuthMock.mockReset();
     sendMessageMock.mockReset();
     stopRequestMock.mockReset();

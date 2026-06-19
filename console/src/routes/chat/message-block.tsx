@@ -380,6 +380,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
   onRegenerate: (message: ChatMessage) => void;
   onRate?: (message: ChatMessage, rating: ResponseRatingValue | null) => void;
   ratingBusy?: boolean;
+  skillInvocationTargets?: ReadonlyMap<string, string>;
   onApprovalAction: (action: ApprovalAction, approvalId: string) => void;
   approvalBusy: boolean;
   branchInfo: { current: number; total: number } | null;
@@ -507,6 +508,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
             <UserMessageContent
               content={msg.content}
               presentation={msg.addressedAgentPresentation}
+              skillInvocationTargets={props.skillInvocationTargets}
               token={token}
             />
           ) : (
@@ -664,6 +666,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
 function UserMessageContent(props: {
   content: string;
   presentation?: ChatMessage['addressedAgentPresentation'];
+  skillInvocationTargets?: ReadonlyMap<string, string>;
   token: string;
 }) {
   const mentions = findAgentMentions(props.content);
@@ -676,6 +679,7 @@ function UserMessageContent(props: {
         props.content.slice(last, mention.index),
         `text-${i}`,
         last === 0,
+        props.skillInvocationTargets,
       );
     const presentation =
       props.presentation?.agentId?.toLowerCase() ===
@@ -698,6 +702,7 @@ function UserMessageContent(props: {
       props.content.slice(last),
       'text-tail',
       last === 0,
+      props.skillInvocationTargets,
     );
 
   return <>{parts}</>;
@@ -708,16 +713,18 @@ function appendUserTextSegment(
   content: string,
   keyPrefix: string,
   linkLeadingSkillCommand: boolean,
+  skillInvocationTargets?: ReadonlyMap<string, string>,
 ) {
   if (!content) return;
-  if (!linkLeadingSkillCommand) {
+  if (!linkLeadingSkillCommand || !skillInvocationTargets) {
     parts.push(content);
     return;
   }
 
   const match = LEADING_SKILL_COMMAND_RE.exec(content);
   const skillName = match?.[1] ?? '';
-  if (!match || !skillName) {
+  const targetSkillName = skillInvocationTargets.get(skillName.toLowerCase());
+  if (!match || !skillName || !targetSkillName) {
     parts.push(content);
     return;
   }
@@ -726,7 +733,7 @@ function appendUserTextSegment(
   parts.push(
     <a
       className={css.userSkillCommandLink}
-      href={`/admin/skills/${encodeURIComponent(skillName)}`}
+      href={`/admin/skills/${encodeURIComponent(targetSkillName)}`}
       key={`${keyPrefix}-skill-command`}
     >
       {command}

@@ -107,6 +107,7 @@ describe('MessageBlock artifacts', () => {
         approvalBusy={false}
         branchInfo={null}
         onBranchNav={vi.fn()}
+        skillInvocationTargets={new Map([['blink', 'blink']])}
       />,
     );
 
@@ -116,6 +117,32 @@ describe('MessageBlock artifacts', () => {
     );
 
     expect(link.getAttribute('href')).toBe('/admin/skills/blink');
+    expect(bubble.classList.contains(css.bubbleUser)).toBe(true);
+  });
+
+  it('does not link a leading regular slash command to a skill page', () => {
+    const content = '/agent create bob1 --model gpt-5';
+    render(
+      <MessageBlock
+        message={makeMessage([], { role: 'user', content })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+        skillInvocationTargets={new Map([['blink', 'blink']])}
+      />,
+    );
+
+    const bubble = screen.getByText(
+      (_text, element) => element?.textContent === content,
+    );
+
+    expect(screen.queryByRole('link', { name: '/agent' })).toBeNull();
     expect(bubble.classList.contains(css.bubbleUser)).toBe(true);
   });
 

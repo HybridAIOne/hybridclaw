@@ -618,12 +618,6 @@ export function SkillDetailView(props: { skillName: string }) {
             <p>{skill.shortDescription || skill.description}</p>
           </div>
           <div className="skill-detail-status-row">
-            <BooleanPill
-              value={skill.enabled && skill.available && !skill.blocked}
-              trueLabel="enabled"
-              falseLabel={skill.blocked ? 'blocked' : 'disabled'}
-              falseTone={skill.blocked ? 'danger' : 'default'}
-            />
             {!skill.blocked ? (
               <label className="skill-detail-enable-control">
                 <Switch
