@@ -240,6 +240,8 @@ import {
   getGatewayAdminModels,
   getGatewayAdminOverview,
   getGatewayAdminSessions,
+  getGatewayAdminSkillPackageFile,
+  getGatewayAdminSkillPackageFiles,
   getGatewayAdminSkills,
   getGatewayAdminStatistics,
   getGatewayAdminTeamStructure,
@@ -269,6 +271,7 @@ import {
   saveGatewayAdminPolicyDefault,
   saveGatewayAdminPolicyLanHttpAccess,
   saveGatewayAdminPolicyRule,
+  saveGatewayAdminSkillPackageFile,
   saveGatewayAdminSlackWebhookTarget,
   setGatewayAdminSkillEnabled,
   startGatewayAdminA2APairing,
@@ -6162,6 +6165,96 @@ async function handleApiAdminSkills(
   );
 }
 
+function sendApiAdminSkillPackageError(
+  res: ServerResponse,
+  error: unknown,
+): void {
+  const message = error instanceof Error ? error.message : String(error);
+  sendJson(res, error instanceof GatewayRequestError ? error.statusCode : 400, {
+    error: message,
+  });
+}
+
+async function handleApiAdminSkillPackageFiles(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const method = req.method || 'GET';
+  const segments = url.pathname.split('/').filter(Boolean);
+  const skillName = segments[3] ? decodeApiPathSegment(segments[3]).trim() : '';
+  const hasFilesPrefix = segments[4] === 'files';
+  const action = segments[5] || '';
+
+  if (!skillName || !hasFilesPrefix) {
+    sendJson(res, 404, { error: 'Not Found' });
+    return;
+  }
+
+  if (segments.length === 5) {
+    if (method !== 'GET') {
+      sendMethodNotAllowed(res);
+      return;
+    }
+    try {
+      sendJson(res, 200, getGatewayAdminSkillPackageFiles(skillName));
+    } catch (error) {
+      sendApiAdminSkillPackageError(res, error);
+    }
+    return;
+  }
+
+  if (segments.length === 6 && action === 'content') {
+    const filePath = url.searchParams.get('path') || '';
+    if (!filePath) {
+      sendJson(res, 400, { error: 'Missing skill file path.' });
+      return;
+    }
+
+    if (method === 'GET') {
+      try {
+        sendJson(
+          res,
+          200,
+          getGatewayAdminSkillPackageFile({ skillName, path: filePath }),
+        );
+      } catch (error) {
+        sendApiAdminSkillPackageError(res, error);
+      }
+      return;
+    }
+
+    if (method === 'PUT') {
+      try {
+        const body = (await readJsonBody(req)) as { content?: unknown };
+        if (typeof body.content !== 'string') {
+          throw new GatewayRequestError(
+            400,
+            'Expected string `content` in request body.',
+          );
+        }
+        sendJson(
+          res,
+          200,
+          saveGatewayAdminSkillPackageFile({
+            skillName,
+            path: filePath,
+            content: body.content,
+          }),
+        );
+      } catch (error) {
+        sendApiAdminSkillPackageError(res, error);
+      }
+      return;
+    }
+
+    sendMethodNotAllowed(res);
+    return;
+  }
+
+  sendJson(res, 404, { error: 'Not Found' });
+}
+
 async function handleApiAdminSkillUnblock(
   req: IncomingMessage,
   res: ServerResponse,
@@ -7398,6 +7491,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/skills/upload') {
             await handleApiAdminSkillUpload(req, res);
+            return;
+          }
+          if (pathname.startsWith('/api/admin/skills/')) {
+            await handleApiAdminSkillPackageFiles(req, res, url);
             return;
           }
           if (pathname === '/api/admin/jobs/context' && method === 'GET') {

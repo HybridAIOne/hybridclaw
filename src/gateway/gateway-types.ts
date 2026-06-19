@@ -31,6 +31,7 @@ import type {
 } from '../mcp/mcp-oauth.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type {
+  SkillInstallSpec,
   SkillManifestConfigVariable,
   SkillManifestDeclaredCredential,
 } from '../skills/skills.js';
@@ -1500,11 +1501,64 @@ export interface GatewayAdminApprovalsResponse {
 
 export type GatewayAdminSkillGuardFinding = Omit<SkillGuardFinding, 'match'>;
 
+export interface GatewayAdminSkillPrompt {
+  prompt: string;
+  kind: 'try-it' | 'conversation';
+  turnIndex?: number;
+  conversationId?: string;
+}
+
+export interface GatewayAdminSkillScreenshot {
+  src: string;
+  alt: string;
+  title?: string;
+}
+
+export interface GatewayAdminSkillDocs {
+  title: string;
+  sourcePath: string;
+  sourceHref: string;
+  tutorialMarkdown: string;
+  examplePrompts: GatewayAdminSkillPrompt[];
+  screenshots: GatewayAdminSkillScreenshot[];
+}
+
+export type GatewayAdminSkillPackageEntryKind =
+  | 'directory'
+  | 'file'
+  | 'symlink'
+  | 'other';
+
+export interface GatewayAdminSkillPackageFile {
+  path: string;
+  name: string;
+  kind: GatewayAdminSkillPackageEntryKind;
+  sizeBytes: number | null;
+  updatedAt: string | null;
+  editable: boolean;
+  previewable: boolean;
+}
+
+export interface GatewayAdminSkillPackageFilesResponse {
+  skillName: string;
+  rootPath: string;
+  files: GatewayAdminSkillPackageFile[];
+}
+
+export interface GatewayAdminSkillPackageFileResponse {
+  skillName: string;
+  rootPath: string;
+  file: GatewayAdminSkillPackageFile & {
+    content: string | null;
+  };
+}
+
 export interface GatewayAdminSkill {
   name: string;
   description: string;
   category: string;
   shortDescription?: string;
+  developer: string;
   source: string;
   available: boolean;
   enabled: boolean;
@@ -1515,10 +1569,18 @@ export interface GatewayAdminSkill {
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
+  capabilities: string[];
+  supportedChannels: string[];
+  requires: {
+    bins: string[];
+    env: string[];
+  };
   tags: string[];
   relatedSkills: string[];
+  install: SkillInstallSpec[];
   credentials: SkillManifestDeclaredCredential[];
   configVariables: SkillManifestConfigVariable[];
+  docs?: GatewayAdminSkillDocs;
 }
 
 export interface GatewayAdminSkillsResponse {

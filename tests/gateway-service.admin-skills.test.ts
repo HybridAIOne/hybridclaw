@@ -103,6 +103,108 @@ test('createGatewayAdminSkill stages outside skills/ before publishing the skill
   ).toEqual([]);
 });
 
+test('skill package file admin APIs list, read, and save package files', async () => {
+  setupProjectCwd();
+
+  const {
+    createGatewayAdminSkill,
+    getGatewayAdminSkillPackageFile,
+    getGatewayAdminSkillPackageFiles,
+    saveGatewayAdminSkillPackageFile,
+  } = await import('../src/gateway/gateway-service.ts');
+
+  createGatewayAdminSkill({
+    name: 'my-skill',
+    description: 'A test skill.',
+    category: 'memory',
+    body: '# My Skill\n\nUse this skill for testing.',
+    files: [{ path: 'scripts/run.mjs', content: 'console.log("ok");\n' }],
+  });
+
+  const files = getGatewayAdminSkillPackageFiles('my-skill');
+  expect(files.files).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        path: 'SKILL.md',
+        kind: 'file',
+        editable: true,
+        previewable: true,
+      }),
+      expect.objectContaining({
+        path: 'scripts',
+        kind: 'directory',
+        editable: false,
+        previewable: false,
+      }),
+      expect.objectContaining({
+        path: 'scripts/run.mjs',
+        kind: 'file',
+        editable: true,
+        previewable: true,
+      }),
+    ]),
+  );
+
+  expect(
+    getGatewayAdminSkillPackageFile({
+      skillName: 'my-skill',
+      path: 'scripts/run.mjs',
+    }).file.content,
+  ).toBe('console.log("ok");\n');
+
+  const saved = saveGatewayAdminSkillPackageFile({
+    skillName: 'my-skill',
+    path: 'scripts/run.mjs',
+    content: 'console.log("updated");\n',
+  });
+  expect(saved.file.content).toBe('console.log("updated");\n');
+  expect(
+    getGatewayAdminSkillPackageFile({
+      skillName: 'my-skill',
+      path: 'scripts/run.mjs',
+    }).file.content,
+  ).toBe('console.log("updated");\n');
+});
+
+test('skill package file admin APIs reject traversal and symlink escapes', async () => {
+  const { projectDir, managedSkillsDir } = setupProjectCwd();
+
+  const { GatewayRequestError } = await import(
+    '../src/errors/gateway-request-error.ts'
+  );
+  const { createGatewayAdminSkill, getGatewayAdminSkillPackageFile } =
+    await import('../src/gateway/gateway-service.ts');
+
+  createGatewayAdminSkill({
+    name: 'my-skill',
+    description: 'A test skill.',
+    category: 'memory',
+    body: '# My Skill\n\nUse this skill for testing.',
+  });
+
+  const outsideFile = path.join(projectDir, 'outside.txt');
+  fs.writeFileSync(outsideFile, 'outside\n', 'utf-8');
+  fs.symlinkSync(
+    outsideFile,
+    path.join(managedSkillsDir, 'my-skill', 'outside-link.txt'),
+  );
+
+  for (const unsafePath of ['../outside.txt', 'outside-link.txt']) {
+    try {
+      getGatewayAdminSkillPackageFile({
+        skillName: 'my-skill',
+        path: unsafePath,
+      });
+      throw new Error(`Expected ${unsafePath} to be rejected.`);
+    } catch (error) {
+      expect(error).toBeInstanceOf(GatewayRequestError);
+      expect((error as InstanceType<typeof GatewayRequestError>).statusCode).toBe(
+        400,
+      );
+    }
+  }
+});
+
 test('createGatewayAdminSkill preserves a competing skill when the final rename loses the race', async () => {
   const { managedSkillsDir } = setupProjectCwd();
 
@@ -346,6 +448,60 @@ test('unblockGatewayAdminSkill records scanner bypass marker for a blocked skill
       guardSkippedReason: expect.stringContaining('blocked'),
     }),
   );
+});
+
+test('getGatewayAdminSkills includes detail metadata for admin skill pages', async () => {
+  setupProjectCwd();
+
+  const { getGatewayAdminSkills } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = getGatewayAdminSkills();
+  const pdfSkill = result.skills.find((skill) => skill.name === 'pdf');
+  const posthogSkill = result.skills.find((skill) => skill.name === 'posthog');
+  const onePasswordSkill = result.skills.find(
+    (skill) => skill.name === '1password',
+  );
+
+  expect(pdfSkill).toEqual(
+    expect.objectContaining({
+      developer: 'HybridClaw',
+      docs: expect.objectContaining({
+        sourcePath: 'guides/skills/office.md',
+        sourceHref: '/docs/guides/skills/office#pdf',
+        tutorialMarkdown: expect.stringContaining('Extract text'),
+        screenshots: [],
+        examplePrompts: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'try-it',
+            prompt: expect.stringContaining('Quarterly Report'),
+          }),
+        ]),
+      }),
+    }),
+  );
+  expect(posthogSkill).toEqual(
+    expect.objectContaining({
+      requires: { bins: ['node'], env: [] },
+      credentials: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'posthog-project-token',
+          secretRef: { source: 'store', id: 'POSTHOG_PROJECT_TOKEN' },
+        }),
+      ]),
+      configVariables: expect.arrayContaining([
+        expect.objectContaining({ env: 'POSTHOG_HOST' }),
+      ]),
+    }),
+  );
+  expect(onePasswordSkill?.install).toEqual([
+    expect.objectContaining({
+      id: 'op',
+      kind: 'brew',
+      formula: '1password-cli',
+      bins: ['op'],
+    }),
+  ]);
 });
 
 test('unblockGatewayAdminSkill reports user-correctable unblock errors as bad requests', async () => {

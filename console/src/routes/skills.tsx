@@ -48,6 +48,7 @@ import {
   formatRelativeTime,
 } from '../lib/format';
 import { compareBoolean, compareNumber, compareText } from '../lib/sort';
+import { skillDetailPath } from './skill-detail';
 
 const DEFAULT_SKILL_CATEGORIES = [
   'agents',
@@ -523,12 +524,13 @@ export function SkillsPage() {
         actions={
           <>
             <Input
-              className="compact-search"
+              className="compact-search skills-header-search"
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
               placeholder="Filter skills"
             />
             <Button
+              className="skills-header-button"
               variant="ghost"
               type="button"
               onClick={() => {
@@ -937,13 +939,12 @@ export function SkillsPage() {
                     return (
                       <tr key={skill.name}>
                         <td>
-                          <button
-                            type="button"
+                          <a
                             className="table-link-button"
-                            onClick={() => setSelectedSkillName(skill.name)}
+                            href={skillDetailPath(skill.name)}
                           >
                             {skill.name}
-                          </button>
+                          </a>
                           <small>{displayDescription}</small>
                           {skill.blocked && firstGuardFinding ? (
                             <small className="row-status-note-danger">
@@ -1127,15 +1128,12 @@ export function SkillsPage() {
                   {sortedHealthMetrics.map((metrics) => (
                     <tr key={metrics.skill_name}>
                       <td>
-                        <button
-                          type="button"
+                        <a
                           className="table-link-button"
-                          onClick={() =>
-                            setSelectedSkillName(metrics.skill_name)
-                          }
+                          href={skillDetailPath(metrics.skill_name)}
                         >
                           {metrics.skill_name}
-                        </button>
+                        </a>
                         <small>
                           Window ending{' '}
                           {formatDateTime(metrics.window_ended_at)}
@@ -1204,15 +1202,12 @@ export function SkillsPage() {
                 {stagedAmendments.map((amendment) => (
                   <div className="list-row" key={amendment.id}>
                     <div>
-                      <button
-                        type="button"
+                      <a
                         className="table-link-button"
-                        onClick={() =>
-                          setSelectedSkillName(amendment.skill_name)
-                        }
+                        href={skillDetailPath(amendment.skill_name)}
                       >
                         {amendment.skill_name}
-                      </button>
+                      </a>
                       <small>
                         {formatAmendmentStatus(amendment)} ·{' '}
                         {formatAmendmentTiming(amendment)} · guard{' '}

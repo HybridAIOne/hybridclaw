@@ -5,9 +5,12 @@ import type {
   AdminAdaptiveSkillHealthMetric,
   AdminAdaptiveSkillHealthResponse,
   AdminSkill,
+  AdminSkillPackageFileResponse,
+  AdminSkillPackageFilesResponse,
   AdminSkillsResponse,
 } from '../api/types';
 import { renderWithProviders } from '../test-utils';
+import { SkillDetailView } from './skill-detail';
 import { SkillsPage } from './skills';
 
 const fetchSkillsMock = vi.fn<() => Promise<AdminSkillsResponse>>();
@@ -15,6 +18,22 @@ const fetchHealthMock =
   vi.fn<() => Promise<AdminAdaptiveSkillHealthResponse>>();
 const fetchAmendmentsMock =
   vi.fn<() => Promise<AdminAdaptiveSkillAmendmentsResponse>>();
+const fetchSkillPackageFilesMock =
+  vi.fn<() => Promise<AdminSkillPackageFilesResponse>>();
+const fetchSkillPackageFileMock =
+  vi.fn<
+    (
+      token: string,
+      payload: { skillName: string; path: string },
+    ) => Promise<AdminSkillPackageFileResponse>
+  >();
+const saveSkillPackageFileMock =
+  vi.fn<
+    (
+      token: string,
+      payload: { skillName: string; path: string; content: string },
+    ) => Promise<AdminSkillPackageFileResponse>
+  >();
 const saveSkillEnabledMock = vi.fn();
 const useAuthMock = vi.fn();
 
@@ -23,6 +42,15 @@ vi.mock('../api/client', () => ({
   fetchAdaptiveSkillHealth: () => fetchHealthMock(),
   fetchAdaptiveSkillAmendments: () => fetchAmendmentsMock(),
   fetchAdaptiveSkillAmendmentHistory: () => fetchAmendmentsMock(),
+  fetchSkillPackageFiles: () => fetchSkillPackageFilesMock(),
+  fetchSkillPackageFile: (
+    token: string,
+    payload: { skillName: string; path: string },
+  ) => fetchSkillPackageFileMock(token, payload),
+  saveSkillPackageFile: (
+    token: string,
+    payload: { skillName: string; path: string; content: string },
+  ) => saveSkillPackageFileMock(token, payload),
   saveSkillEnabled: (
     token: string,
     payload: { name: string; enabled: boolean },
@@ -43,6 +71,7 @@ function makeSkill(overrides: Partial<AdminSkill> = {}): AdminSkill {
     name: 'pdf',
     description: 'Create and read PDF files.',
     category: 'office',
+    developer: 'HybridClaw',
     source: 'bundled',
     available: true,
     enabled: true,
@@ -50,14 +79,39 @@ function makeSkill(overrides: Partial<AdminSkill> = {}): AdminSkill {
     userInvocable: true,
     disableModelInvocation: false,
     always: false,
+    capabilities: [],
+    supportedChannels: ['discord', 'tui'],
+    requires: { bins: [], env: [] },
     tags: [],
     relatedSkills: [],
+    install: [],
+    credentials: [],
+    configVariables: [],
     ...overrides,
   };
 }
 
 function makeResponse(skills: AdminSkill[]): AdminSkillsResponse {
   return { extraDirs: [], disabled: [], skills };
+}
+
+function makeSkillFileResponse(
+  content = '# PDF skill\n',
+): AdminSkillPackageFileResponse {
+  return {
+    skillName: 'pdf',
+    rootPath: '/skills/pdf',
+    file: {
+      path: 'SKILL.md',
+      name: 'SKILL.md',
+      kind: 'file',
+      sizeBytes: content.length,
+      updatedAt: '2026-06-19T10:00:00.000Z',
+      editable: true,
+      previewable: true,
+      content,
+    },
+  };
 }
 
 function makeHealthMetric(
@@ -90,11 +144,21 @@ describe('SkillsPage', () => {
     fetchSkillsMock.mockReset();
     fetchHealthMock.mockReset();
     fetchAmendmentsMock.mockReset();
+    fetchSkillPackageFilesMock.mockReset();
+    fetchSkillPackageFileMock.mockReset();
+    saveSkillPackageFileMock.mockReset();
     saveSkillEnabledMock.mockReset();
     useAuthMock.mockReset();
     useAuthMock.mockReturnValue({ token: 'test-token' });
     fetchHealthMock.mockResolvedValue({ metrics: [] });
     fetchAmendmentsMock.mockResolvedValue({ amendments: [] });
+    fetchSkillPackageFilesMock.mockResolvedValue({
+      skillName: 'pdf',
+      rootPath: '/skills/pdf',
+      files: [],
+    });
+    fetchSkillPackageFileMock.mockResolvedValue(makeSkillFileResponse());
+    saveSkillPackageFileMock.mockResolvedValue(makeSkillFileResponse());
   });
 
   it('renders the catalog and filters by the search Input', async () => {
@@ -119,6 +183,150 @@ describe('SkillsPage', () => {
       expect(screen.queryByText('pdf')).toBeNull();
     });
     expect(screen.getByText('memory')).toBeTruthy();
+  });
+
+  it('links installed skills to their detail pages', async () => {
+    fetchSkillsMock.mockResolvedValue(makeResponse([makeSkill()]));
+
+    renderWithProviders(<SkillsPage />);
+
+    const link = await screen.findByRole('link', { name: 'pdf' });
+    expect(link.getAttribute('href')).toBe('/admin/skills/pdf');
+  });
+
+  it('renders skill detail metadata, docs, and example prompts', async () => {
+    fetchSkillsMock.mockResolvedValue(
+      makeResponse([
+        makeSkill({
+          install: [
+            {
+              id: 'node',
+              kind: 'node',
+              label: 'Install Node.js',
+              bins: ['node'],
+            },
+          ],
+          credentials: [
+            {
+              id: 'pdf-api-token',
+              kind: 'api_key',
+              required: true,
+              secretRef: { source: 'store', id: 'PDF_API_TOKEN' },
+              scope: 'PDF service',
+              howToObtain: 'Create a token.',
+            },
+          ],
+          configVariables: [
+            {
+              id: 'pdf-host',
+              env: 'PDF_HOST',
+              required: false,
+              scope: 'PDF API host',
+              howToObtain: 'Set the host.',
+            },
+          ],
+          capabilities: ['document-processing'],
+          requires: { bins: ['node'], env: ['PDF_HOST'] },
+          tags: ['office'],
+          relatedSkills: ['docx'],
+          docs: {
+            title: 'pdf',
+            sourcePath: 'guides/skills/office.md',
+            sourceHref: '/docs/guides/skills/office#pdf',
+            tutorialMarkdown: '## pdf\n\nRender and inspect PDFs.',
+            screenshots: [
+              {
+                src: '/docs/guides/skills/assets/pdf-preview.png',
+                alt: 'PDF workflow preview',
+                title: 'PDF preview',
+              },
+            ],
+            examplePrompts: [
+              {
+                kind: 'try-it',
+                prompt: 'Create a one-page PDF titled "Quarterly Report"',
+              },
+            ],
+          },
+        }),
+      ]),
+    );
+
+    renderWithProviders(<SkillDetailView skillName="pdf" />);
+
+    expect(await screen.findByRole('heading', { name: 'pdf' })).toBeTruthy();
+    expect(screen.getByText('HybridClaw')).toBeTruthy();
+    expect(screen.getByAltText('PDF workflow preview')).toHaveProperty(
+      'src',
+      expect.stringContaining('/docs/guides/skills/assets/pdf-preview.png'),
+    );
+    expect(screen.getByText('PDF preview')).toBeTruthy();
+    expect(screen.getByText('capability: document-processing')).toBeTruthy();
+    expect(screen.getByText('bin: node')).toBeTruthy();
+    expect(screen.getByText('Install Node.js')).toBeTruthy();
+    expect(screen.getByText('PDF_API_TOKEN')).toBeTruthy();
+    expect(screen.getByText('PDF_HOST')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tutorial' }));
+    expect(screen.getByText('Render and inspect PDFs.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Prompts' }));
+    expect(
+      screen.getByText('Create a one-page PDF titled "Quarterly Report"'),
+    ).toBeTruthy();
+  });
+
+  it('previews installed skill package files', async () => {
+    fetchSkillsMock.mockResolvedValue(makeResponse([makeSkill()]));
+    fetchSkillPackageFilesMock.mockResolvedValue({
+      skillName: 'pdf',
+      rootPath: '/skills/pdf',
+      files: [
+        {
+          path: 'references',
+          name: 'references',
+          kind: 'directory',
+          sizeBytes: null,
+          updatedAt: '2026-06-19T10:00:00.000Z',
+          editable: false,
+          previewable: false,
+        },
+        {
+          path: 'SKILL.md',
+          name: 'SKILL.md',
+          kind: 'file',
+          sizeBytes: 12,
+          updatedAt: '2026-06-19T10:00:00.000Z',
+          editable: true,
+          previewable: true,
+        },
+        {
+          path: 'icon.png',
+          name: 'icon.png',
+          kind: 'file',
+          sizeBytes: 1024,
+          updatedAt: '2026-06-19T10:00:00.000Z',
+          editable: false,
+          previewable: false,
+        },
+      ],
+    });
+    fetchSkillPackageFileMock.mockResolvedValue(
+      makeSkillFileResponse('# PDF\n'),
+    );
+    saveSkillPackageFileMock.mockResolvedValue(
+      makeSkillFileResponse('# Updated PDF\n'),
+    );
+
+    renderWithProviders(<SkillDetailView skillName="pdf" />);
+
+    expect(await screen.findByText('/skills/pdf')).toBeTruthy();
+    expect(screen.getByText('icon.png')).toBeTruthy();
+    const editor = (await screen.findByLabelText(
+      'Edit SKILL.md',
+    )) as HTMLTextAreaElement;
+    expect(editor.value).toBe('# PDF\n');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
   });
 
   it('toggling a skill calls saveSkillEnabled with the inverted value', async () => {

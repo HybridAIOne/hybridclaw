@@ -1661,6 +1661,49 @@ async function importFreshHealth(options?: {
     channelDisabled: {},
     skills: [],
   }));
+  const getGatewayAdminSkillPackageFiles = vi.fn(() => ({
+    skillName: 'pdf',
+    rootPath: '/skills/pdf',
+    files: [
+      {
+        path: 'SKILL.md',
+        name: 'SKILL.md',
+        kind: 'file',
+        sizeBytes: 12,
+        updatedAt: '2026-06-19T10:00:00.000Z',
+        editable: true,
+        previewable: true,
+      },
+    ],
+  }));
+  const getGatewayAdminSkillPackageFile = vi.fn(() => ({
+    skillName: 'pdf',
+    rootPath: '/skills/pdf',
+    file: {
+      path: 'SKILL.md',
+      name: 'SKILL.md',
+      kind: 'file',
+      sizeBytes: 12,
+      updatedAt: '2026-06-19T10:00:00.000Z',
+      editable: true,
+      previewable: true,
+      content: '# PDF\n',
+    },
+  }));
+  const saveGatewayAdminSkillPackageFile = vi.fn(() => ({
+    skillName: 'pdf',
+    rootPath: '/skills/pdf',
+    file: {
+      path: 'SKILL.md',
+      name: 'SKILL.md',
+      kind: 'file',
+      sizeBytes: 14,
+      updatedAt: '2026-06-19T10:01:00.000Z',
+      editable: true,
+      previewable: true,
+      content: '# Updated\n',
+    },
+  }));
   const deleteGatewayAdminSession = vi.fn(() => ({
     deleted: true,
     sessionId: 's1',
@@ -2037,6 +2080,8 @@ async function importFreshHealth(options?: {
     getGatewayAdminOverview,
     getGatewayAdminSessions,
     getGatewayAdminAgentScoreboard,
+    getGatewayAdminSkillPackageFile,
+    getGatewayAdminSkillPackageFiles,
     getGatewayAdminSkills,
     getGatewayAdminStatistics,
     getGatewayAdminTools,
@@ -2063,6 +2108,7 @@ async function importFreshHealth(options?: {
     saveGatewayAdminPolicyDefault,
     saveGatewayAdminPolicyLanHttpAccess,
     saveGatewayAdminPolicyRule,
+    saveGatewayAdminSkillPackageFile,
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
     startGatewayAdminA2APairing,
@@ -2204,6 +2250,8 @@ async function importFreshHealth(options?: {
     getGatewayAdminMcp,
     getGatewayAdminAudit,
     getGatewayAdminSkills,
+    getGatewayAdminSkillPackageFile,
+    getGatewayAdminSkillPackageFiles,
     getGatewayAdminAgentScoreboard,
     getGatewayAdminJobsContext,
     getBoardBudgetSummaries,
@@ -2235,6 +2283,7 @@ async function importFreshHealth(options?: {
     GatewayRequestError,
     setGatewayAdminSkillEnabled,
     uploadGatewayAdminSkillZip,
+    saveGatewayAdminSkillPackageFile,
     handleGatewayMessage,
     handleGatewayCommand,
     getGatewaySessionContextUsage,
@@ -8304,6 +8353,55 @@ describe('gateway HTTP server', () => {
       channelDisabled: {},
       skills: [],
     });
+  });
+
+  test('routes admin skill package file list, read, and save requests', async () => {
+    const state = await importFreshHealth();
+
+    const listReq = makeRequest({ url: '/api/admin/skills/pdf/files' });
+    const listRes = makeResponse();
+    state.handler(listReq as never, listRes as never);
+    await settle();
+
+    expect(state.getGatewayAdminSkillPackageFiles).toHaveBeenCalledWith('pdf');
+    expect(listRes.statusCode).toBe(200);
+    expect(JSON.parse(listRes.body)).toEqual(
+      expect.objectContaining({
+        skillName: 'pdf',
+        rootPath: '/skills/pdf',
+      }),
+    );
+
+    const readReq = makeRequest({
+      url: '/api/admin/skills/pdf/files/content?path=SKILL.md',
+    });
+    const readRes = makeResponse();
+    state.handler(readReq as never, readRes as never);
+    await settle();
+
+    expect(state.getGatewayAdminSkillPackageFile).toHaveBeenCalledWith({
+      skillName: 'pdf',
+      path: 'SKILL.md',
+    });
+    expect(readRes.statusCode).toBe(200);
+    expect(JSON.parse(readRes.body).file.content).toBe('# PDF\n');
+
+    const saveReq = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/skills/pdf/files/content?path=SKILL.md',
+      body: { content: '# Updated\n' },
+    });
+    const saveRes = makeResponse();
+    state.handler(saveReq as never, saveRes as never);
+    await settle();
+
+    expect(state.saveGatewayAdminSkillPackageFile).toHaveBeenCalledWith({
+      skillName: 'pdf',
+      path: 'SKILL.md',
+      content: '# Updated\n',
+    });
+    expect(saveRes.statusCode).toBe(200);
+    expect(JSON.parse(saveRes.body).file.content).toBe('# Updated\n');
   });
 
   test('creates admin skills for authorized API requests', async () => {
