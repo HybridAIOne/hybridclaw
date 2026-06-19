@@ -503,12 +503,13 @@ test('getGatewayAdminSkills includes detail metadata for admin skill pages', asy
       bins: ['op'],
     }),
   ]);
-  expect(blinkSkill?.logoUrl).toMatch(/^data:image\/svg\+xml;base64,/);
-  expect(
-    Buffer.from(blinkSkill?.logoUrl?.split(',')[1] || '', 'base64').toString(
-      'utf-8',
-    ),
-  ).toContain('Blink skill logo');
+  expect(blinkSkill?.logoUrl).toMatch(/^data:image\/webp;base64,/);
+  const blinkLogoBytes = Buffer.from(
+    blinkSkill?.logoUrl?.split(',')[1] || '',
+    'base64',
+  );
+  expect(blinkLogoBytes.subarray(0, 4).toString('ascii')).toBe('RIFF');
+  expect(blinkLogoBytes.subarray(8, 12).toString('ascii')).toBe('WEBP');
 });
 
 test('unblockGatewayAdminSkill reports user-correctable unblock errors as bad requests', async () => {
