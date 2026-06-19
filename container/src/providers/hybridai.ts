@@ -1,3 +1,4 @@
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
 import type { ChatCompletionResponse, ToolCall } from '../types.js';
 import {
@@ -40,6 +41,40 @@ interface StreamChunkPayload {
   model?: string;
   usage?: ChatCompletionResponse['usage'];
   choices?: StreamChoiceChunk[];
+}
+
+const HYBRIDCLAW_SIGNATURE_PATH = '/v1/chat/completions';
+
+function hybridclawAuthSecret(): string {
+  return String(process.env.HYBRIDCLAW_AUTH_SECRET || '').trim();
+}
+
+function buildHybridClawSignatureHeaders(
+  args: NormalizedCallArgs,
+  bodyText: string,
+): Record<string, string> {
+  const secret = hybridclawAuthSecret();
+  if (!secret) return {};
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const nonce = randomUUID();
+  const bodyHash = createHash('sha256').update(bodyText, 'utf8').digest('hex');
+  const signaturePayload = [
+    'POST',
+    HYBRIDCLAW_SIGNATURE_PATH,
+    bodyHash,
+    timestamp,
+    nonce,
+  ].join('\n');
+  const signature = createHmac('sha256', secret)
+    .update(signaturePayload, 'utf8')
+    .digest('hex');
+  return {
+    'X-HybridClaw-Session-Id': String(args.sessionId || ''),
+    'X-HybridClaw-Agent-Id': String(args.agentId || ''),
+    'X-HybridClaw-Timestamp': timestamp,
+    'X-HybridClaw-Nonce': nonce,
+    'X-HybridClaw-Signature': signature,
+  };
 }
 
 function buildHybridAIRequestBody(
@@ -119,6 +154,7 @@ export async function callHybridAIProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
   const body = buildHybridAIRequestBody(args);
+  const bodyText = JSON.stringify(body);
   if (args.debugModelResponses) {
     logLastPrompt({
       sessionId: args.sessionId,
@@ -134,8 +170,11 @@ export async function callHybridAIProvider(
   }
   const response = await fetch(`${args.baseUrl}/v1/chat/completions`, {
     method: 'POST',
-    headers: buildRequestHeaders(args.apiKey, args.requestHeaders),
-    body: JSON.stringify(body),
+    headers: {
+      ...buildRequestHeaders(args.apiKey, args.requestHeaders),
+      ...buildHybridClawSignatureHeaders(args, bodyText),
+    },
+    body: bodyText,
   });
 
   if (!response.ok) {
@@ -165,6 +204,7 @@ export async function callHybridAIProviderStream(
       include_usage: true,
     },
   };
+  const bodyText = JSON.stringify(body);
   if (args.debugModelResponses) {
     logLastPrompt({
       sessionId: args.sessionId,
@@ -184,8 +224,9 @@ export async function callHybridAIProviderStream(
     headers: {
       ...buildRequestHeaders(args.apiKey, args.requestHeaders),
       Accept: 'text/event-stream, application/x-ndjson, application/json',
+      ...buildHybridClawSignatureHeaders(args, bodyText),
     },
-    body: JSON.stringify(body),
+    body: bodyText,
   });
 
   if (!response.ok) {
