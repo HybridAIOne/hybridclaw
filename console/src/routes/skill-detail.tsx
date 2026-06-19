@@ -66,13 +66,19 @@ function formatConfigVariableRequirement(
   return `${variable.env}${variable.required ? ' · required' : ''}`;
 }
 
-function formatPromptKind(
-  prompt: NonNullable<AdminSkill['docs']>['examplePrompts'][number],
-): string {
-  if (prompt.kind === 'conversation' && prompt.turnIndex) {
-    return `conversation turn ${prompt.turnIndex}`;
-  }
-  return prompt.kind === 'conversation' ? 'conversation' : 'try it';
+function buildSkillPromptCommand(skillName: string, prompt: string): string {
+  const trimmedPrompt = prompt.trim();
+  if (!trimmedPrompt) return `/${skillName}`;
+  return trimmedPrompt.startsWith('/')
+    ? trimmedPrompt
+    : `/${skillName} ${trimmedPrompt}`;
+}
+
+function skillPromptChatHref(skillName: string, prompt: string): string {
+  const query = new URLSearchParams({
+    prompt: buildSkillPromptCommand(skillName, prompt),
+  });
+  return `/chat?${query.toString()}`;
 }
 
 function ChipList(props: { values: string[]; empty: string }) {
@@ -582,9 +588,15 @@ export function SkillDetailView(props: { skillName: string }) {
                     className="skill-prompt-row"
                     key={`${prompt.kind}-${prompt.conversationId ?? 'single'}-${prompt.turnIndex ?? prompt.prompt}`}
                   >
-                    <span className="status-pill">
-                      {formatPromptKind(prompt)}
-                    </span>
+                    <a
+                      aria-label={`Try it: ${buildSkillPromptCommand(skill.name, prompt.prompt)}`}
+                      className="skill-prompt-try-button"
+                      href={skillPromptChatHref(skill.name, prompt.prompt)}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Try it
+                    </a>
                     <code>{prompt.prompt}</code>
                   </div>
                 ))

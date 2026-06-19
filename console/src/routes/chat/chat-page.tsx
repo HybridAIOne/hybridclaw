@@ -128,6 +128,10 @@ export function ChatPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const userId = useRef(readStoredUserId()).current;
+  const initialComposerPrompt = useMemo(
+    () => new URLSearchParams(window.location.search).get('prompt') || '',
+    [],
+  );
 
   const [errorState, setErrorState] = useState({ message: '', version: 0 });
   const error = errorState.message;
@@ -1115,6 +1119,7 @@ export function ChatPage() {
             models={modelOptions}
             selectedModelId={selectedModelId}
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
+            initialValue={initialComposerPrompt}
           />
         </div>
         <Dialog

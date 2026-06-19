@@ -234,6 +234,7 @@ describe('ChatPage', () => {
       __testRouter: TestRouter;
     };
     routerModule.__testRouter.reset();
+    window.history.replaceState(null, '', '/chat/session-a');
 
     fetchAppStatusMock.mockReset();
     fetchChatRecentMock.mockReset();
@@ -415,6 +416,29 @@ describe('ChatPage', () => {
       expect(fetchChatHistoryMock).toHaveBeenCalledWith(
         'test-token',
         'session-b',
+      ),
+    );
+  });
+
+  it('prefills the composer from the prompt search param', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/chat?prompt=%2F1password+List+all+items+in+my+%22Development%22+vault',
+    );
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [],
+    });
+
+    renderChatPage();
+
+    const input = (await screen.findByLabelText(
+      'Message input',
+    )) as HTMLTextAreaElement;
+    await waitFor(() =>
+      expect(input.value).toBe(
+        '/1password List all items in my "Development" vault',
       ),
     );
   });

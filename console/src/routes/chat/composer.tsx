@@ -71,6 +71,7 @@ export function Composer(props: {
   models?: ModelSwitchEntry[];
   selectedModelId?: string;
   onModelSwitch?: (modelId: string) => void;
+  initialValue?: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -83,6 +84,7 @@ export function Composer(props: {
   const [panelMode, setPanelMode] = useState<SlashPanelMode>('closed');
   const [lastQuery, setLastQuery] = useState('');
   const [composerValue, setComposerValue] = useState('');
+  const appliedInitialValueRef = useRef<string | null>(null);
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestSeqRef = useRef(0);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -144,12 +146,29 @@ export function Composer(props: {
     wasStreamingRef.current = props.isStreaming;
   }, [props.isStreaming]);
 
-  const resize = () => {
+  const resize = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = '36px';
     ta.style.height = `${Math.max(36, Math.min(ta.scrollHeight, 180))}px`;
-  };
+  }, []);
+
+  useEffect(() => {
+    const nextValue = props.initialValue?.trim() || '';
+    if (appliedInitialValueRef.current === nextValue) return;
+    appliedInitialValueRef.current = nextValue;
+    if (!nextValue) return;
+
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.value = nextValue;
+    ta.setSelectionRange(nextValue.length, nextValue.length);
+    setComposerValue(nextValue);
+    setPanelMode('closed');
+    suggestSeqRef.current += 1;
+    resize();
+    ta.focus();
+  }, [props.initialValue, resize]);
 
   // The fetch itself can't be aborted, so the seq bump is what makes a
   // late-resolving response a no-op.

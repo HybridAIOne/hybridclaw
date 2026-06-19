@@ -274,6 +274,13 @@ describe('SkillsPage', () => {
     expect(
       screen.getByText('Create a one-page PDF titled "Quarterly Report"'),
     ).toBeTruthy();
+    const tryLink = screen.getByRole('link', {
+      name: 'Try it: /pdf Create a one-page PDF titled "Quarterly Report"',
+    });
+    expect(tryLink.getAttribute('href')).toBe(
+      '/chat?prompt=%2Fpdf+Create+a+one-page+PDF+titled+%22Quarterly+Report%22',
+    );
+    expect(tryLink.getAttribute('target')).toBe('_blank');
   });
 
   it('previews installed skill package files', async () => {
