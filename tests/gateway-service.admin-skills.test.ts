@@ -462,6 +462,7 @@ test('getGatewayAdminSkills includes detail metadata for admin skill pages', asy
   const onePasswordSkill = result.skills.find(
     (skill) => skill.name === '1password',
   );
+  const blinkSkill = result.skills.find((skill) => skill.name === 'blink');
 
   expect(pdfSkill).toEqual(
     expect.objectContaining({
@@ -502,6 +503,12 @@ test('getGatewayAdminSkills includes detail metadata for admin skill pages', asy
       bins: ['op'],
     }),
   ]);
+  expect(blinkSkill?.logoUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+  expect(
+    Buffer.from(blinkSkill?.logoUrl?.split(',')[1] || '', 'base64').toString(
+      'utf-8',
+    ),
+  ).toContain('Blink skill logo');
 });
 
 test('unblockGatewayAdminSkill reports user-correctable unblock errors as bad requests', async () => {

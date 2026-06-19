@@ -1256,6 +1256,12 @@ code {
   font-weight: 750;
 }
 
+.skill-detail-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .skill-detail-title {
   display: grid;
   gap: 10px;

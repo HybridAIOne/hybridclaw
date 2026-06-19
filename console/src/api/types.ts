@@ -1695,6 +1695,7 @@ export interface AdminSkill {
   description: string;
   category: string;
   shortDescription?: string;
+  logoUrl?: string;
   developer: string;
   source: string;
   available: boolean;

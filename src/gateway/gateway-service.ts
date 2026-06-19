@@ -7262,11 +7262,13 @@ function mapGatewayAdminSkillBase(
   | 'blockedReason'
   | 'guardFindings'
 > {
+  const logoUrl = resolveGatewayAdminSkillLogoUrl(skill);
   return {
     name: skill.name,
     description: skill.description,
     category: skill.category,
     shortDescription: skill.metadata.hybridclaw.shortDescription,
+    ...(logoUrl ? { logoUrl } : {}),
     developer: getGatewayAdminSkillDeveloper(skill.source),
     source: String(skill.source),
     userInvocable: skill.userInvocable,
@@ -7317,6 +7319,54 @@ function sanitizeGatewayAdminSkillGuardFindings(
 
 const ADMIN_SKILL_PACKAGE_MAX_FILE_BYTES = 512 * 1024;
 const ADMIN_SKILL_PACKAGE_MAX_ENTRIES = 1000;
+const ADMIN_SKILL_LOGO_MAX_BYTES = 64 * 1024;
+const ADMIN_SKILL_LOGO_MIME_BY_EXTENSION = new Map([
+  ['.svg', 'image/svg+xml'],
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.webp', 'image/webp'],
+]);
+
+function resolveGatewayAdminSkillLogoUrl(
+  skill: SkillCatalogEntry | BlockedSkillCatalogEntry,
+): string | undefined {
+  const rawLogoPath = skill.metadata.hybridclaw.logoPath?.trim();
+  if (!rawLogoPath) return undefined;
+
+  let relativePath: string;
+  try {
+    relativePath = normalizeGatewayAdminSkillFilePath(rawLogoPath);
+  } catch {
+    return undefined;
+  }
+
+  const mimeType = ADMIN_SKILL_LOGO_MIME_BY_EXTENSION.get(
+    path.extname(relativePath).toLowerCase(),
+  );
+  if (!mimeType) return undefined;
+
+  try {
+    const rootPath = fs.realpathSync(skill.baseDir);
+    const filePath = path.resolve(rootPath, relativePath);
+    if (!isPathWithin(rootPath, filePath) || !fs.existsSync(filePath)) {
+      return undefined;
+    }
+
+    const realPath = safeRealPath(filePath);
+    if (!isPathWithin(rootPath, realPath)) return undefined;
+
+    const stats = fs.lstatSync(filePath);
+    if (!stats.isFile() || stats.size > ADMIN_SKILL_LOGO_MAX_BYTES) {
+      return undefined;
+    }
+
+    const content = fs.readFileSync(filePath);
+    return `data:${mimeType};base64,${content.toString('base64')}`;
+  } catch {
+    return undefined;
+  }
+}
 
 function isPathWithin(root: string, target: string): boolean {
   const relative = path.relative(root, target);

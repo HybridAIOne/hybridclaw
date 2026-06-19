@@ -1558,6 +1558,7 @@ export interface GatewayAdminSkill {
   description: string;
   category: string;
   shortDescription?: string;
+  logoUrl?: string;
   developer: string;
   source: string;
   available: boolean;

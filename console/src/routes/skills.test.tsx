@@ -226,6 +226,7 @@ describe('SkillsPage', () => {
     fetchSkillsMock.mockResolvedValue(
       makeResponse([
         makeSkill({
+          logoUrl: 'data:image/svg+xml;base64,PHN2Zy8+',
           install: [
             {
               id: 'node',
@@ -283,6 +284,10 @@ describe('SkillsPage', () => {
     renderWithProviders(<SkillDetailView skillName="pdf" />);
 
     expect(await screen.findByRole('heading', { name: 'pdf' })).toBeTruthy();
+    expect(screen.getByAltText('pdf logo')).toHaveProperty(
+      'src',
+      'data:image/svg+xml;base64,PHN2Zy8+',
+    );
     expect(screen.getByText('HybridClaw')).toBeTruthy();
     expect(screen.getByAltText('PDF workflow preview')).toHaveProperty(
       'src',

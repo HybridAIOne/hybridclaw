@@ -501,8 +501,15 @@ export function SkillDetailView(props: { skillName: string }) {
       </div>
 
       <section className="skill-detail-hero">
-        <div className="skill-detail-icon" aria-hidden="true">
-          {skill.name.slice(0, 1).toUpperCase()}
+        <div
+          className="skill-detail-icon"
+          aria-hidden={skill.logoUrl ? undefined : true}
+        >
+          {skill.logoUrl ? (
+            <img src={skill.logoUrl} alt={`${skill.name} logo`} />
+          ) : (
+            skill.name.slice(0, 1).toUpperCase()
+          )}
         </div>
         <div className="skill-detail-title">
           <div>
