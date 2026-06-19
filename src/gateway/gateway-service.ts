@@ -1500,6 +1500,7 @@ function mapGatewayAdminAgent(
   return {
     id: resolved.id,
     name: resolved.name || null,
+    emptyChatHeader: resolved.emptyChatHeader || null,
     model: resolveAgentModel(resolved) || null,
     skills: Array.isArray(resolved.skills) ? [...resolved.skills] : null,
     chatbotId: resolved.chatbotId || null,
@@ -8370,6 +8371,9 @@ export function getGatewayAgentList(): GatewayAgentListResponse {
         id: agent.id,
         name: agent.name || null,
         ...(presentation.imageUrl ? { imageUrl: presentation.imageUrl } : {}),
+        ...(agent.emptyChatHeader
+          ? { emptyChatHeader: agent.emptyChatHeader }
+          : {}),
       };
     }),
   };

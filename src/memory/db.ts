@@ -162,7 +162,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 44;
+export const DATABASE_SCHEMA_VERSION = 45;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -216,6 +216,7 @@ type AgentRow = {
   name: string | null;
   display_name: string | null;
   image_asset: string | null;
+  empty_chat_header: string | null;
   model: string | null;
   skills: string | null;
   chatbot_id: string | null;
@@ -565,6 +566,15 @@ function agentProxyNeedMigration(database: Database.Database): boolean {
   return (
     tableExists(database, 'agents') &&
     !columnExists(database, 'agents', 'proxy')
+  );
+}
+
+function agentEmptyChatHeaderNeedMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'agents') &&
+    !columnExists(database, 'agents', 'empty_chat_header')
   );
 }
 
@@ -1406,6 +1416,7 @@ function migrateV6(
         name TEXT,
         display_name TEXT,
         image_asset TEXT,
+        empty_chat_header TEXT,
         model TEXT,
         skills TEXT,
         chatbot_id TEXT,
@@ -3074,6 +3085,20 @@ function migrateV44(
   recordMigration(database, 44, 'Persist per-agent proxy backend metadata');
 }
 
+function migrateV45(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'empty_chat_header',
+    ddl: 'empty_chat_header TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 45, 'Persist per-agent empty chat header');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3185,6 +3210,9 @@ function runMigrations(
   }
   if (currentVersion < 44 || agentProxyNeedMigration(database)) {
     migrateV44(database, opts);
+  }
+  if (currentVersion < 45 || agentEmptyChatHeaderNeedMigration(database)) {
+    migrateV45(database, opts);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -3625,6 +3653,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const name = row.name?.trim() || '';
   const displayName = row.display_name?.trim() || '';
   const imageAsset = row.image_asset?.trim() || '';
+  const emptyChatHeader = row.empty_chat_header?.trim() || '';
   const model = parseAgentModelConfig(row.model);
   const skills = parseAgentSkillsConfig(row.skills);
   const chatbotId = row.chatbot_id?.trim() || '';
@@ -3645,6 +3674,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(name ? { name } : {}),
     ...(displayName ? { displayName } : {}),
     ...(imageAsset ? { imageAsset } : {}),
+    ...(emptyChatHeader ? { emptyChatHeader } : {}),
     ...(model ? { model } : {}),
     ...(skills !== undefined ? { skills } : {}),
     ...(chatbotId ? { chatbotId } : {}),
@@ -3665,7 +3695,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, canonical_id, owner_user_id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, created_at, updated_at';
+  'id, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -3700,6 +3730,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const normalizedName = agent.name?.trim() || null;
   const normalizedDisplayName = agent.displayName?.trim() || null;
   const normalizedImageAsset = agent.imageAsset?.trim() || null;
+  const normalizedEmptyChatHeader = agent.emptyChatHeader?.trim() || null;
   const normalizedModel = serializeAgentModelConfig(agent.model);
   const normalizedSkills = serializeAgentSkillsConfig(agent.skills);
   const normalizedChatbotId = agent.chatbotId?.trim() || null;
@@ -3765,6 +3796,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        name,
        display_name,
        image_asset,
+       empty_chat_header,
        model,
        skills,
        chatbot_id,
@@ -3781,13 +3813,14 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        proxy,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        canonical_id = excluded.canonical_id,
        owner_user_id = excluded.owner_user_id,
        name = excluded.name,
        display_name = excluded.display_name,
        image_asset = excluded.image_asset,
+       empty_chat_header = excluded.empty_chat_header,
        model = excluded.model,
        skills = excluded.skills,
        chatbot_id = excluded.chatbot_id,
@@ -3810,6 +3843,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedName,
     normalizedDisplayName,
     normalizedImageAsset,
+    normalizedEmptyChatHeader,
     normalizedModel,
     normalizedSkills,
     normalizedChatbotId,

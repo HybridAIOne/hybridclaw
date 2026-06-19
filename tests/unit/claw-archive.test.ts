@@ -224,6 +224,7 @@ describe('.claw archive support', () => {
           name: 'Main Agent',
           displayName: 'Captain Claw',
           imageAsset: 'avatars/main.png',
+          emptyChatHeader: 'Ready to chart the course?',
           model: 'gpt-5-mini',
           skills: ['custom-skill'],
           enableRag: false,
@@ -266,6 +267,7 @@ describe('.claw archive support', () => {
           name: 'Main Agent',
           displayName: 'Captain Claw',
           imageAsset: 'avatars/main.png',
+          emptyChatHeader: 'Ready to chart the course?',
           model: 'gpt-5-mini',
           skills: ['custom-skill'],
           enableRag: false,
@@ -300,6 +302,7 @@ describe('.claw archive support', () => {
     expect(inspection.manifest.presentation).toEqual({
       displayName: 'Captain Claw',
       imageAsset: 'avatars/main.png',
+      emptyChatHeader: 'Ready to chart the course?',
     });
     expect(inspection.manifest.agent?.model).toBe('gpt-5-mini');
     expect(inspection.manifest.agent?.skills).toEqual(['custom-skill']);
@@ -337,6 +340,7 @@ describe('.claw archive support', () => {
       name: 'Main Agent',
       displayName: 'Captain Claw',
       imageAsset: 'avatars/main.png',
+      emptyChatHeader: 'Ready to chart the course?',
       skills: ['custom-skill'],
     });
     expect(

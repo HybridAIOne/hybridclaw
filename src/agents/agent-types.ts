@@ -70,6 +70,7 @@ export interface AgentConfig {
   name?: string;
   displayName?: string;
   imageAsset?: string;
+  emptyChatHeader?: string;
   model?: AgentModelConfig;
   skills?: string[];
   workspace?: string;
@@ -152,10 +153,12 @@ export function normalizeAgentIdentityFields(params: {
 export function buildOptionalAgentPresentation(
   displayName?: string | null,
   imageAsset?: string | null,
-): Pick<AgentConfig, 'displayName' | 'imageAsset'> {
+  emptyChatHeader?: string | null,
+): Pick<AgentConfig, 'displayName' | 'imageAsset' | 'emptyChatHeader'> {
   return {
     ...(displayName ? { displayName } : {}),
     ...(imageAsset ? { imageAsset } : {}),
+    ...(emptyChatHeader ? { emptyChatHeader } : {}),
   };
 }
 
