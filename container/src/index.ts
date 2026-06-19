@@ -750,7 +750,6 @@ async function executePreparedToolCall(
 
 async function callHybridAIWithRetry(params: {
   sessionId?: string;
-  agentId?: string;
   provider?: ContainerInput['provider'];
   providerMethod?: string;
   baseUrl: string;
@@ -773,7 +772,6 @@ async function callHybridAIWithRetry(params: {
 }): Promise<ChatCompletionResponse> {
   const {
     sessionId,
-    agentId,
     provider,
     providerMethod,
     baseUrl,
@@ -821,7 +819,6 @@ async function callHybridAIWithRetry(params: {
             provider,
             providerMethod,
             sessionId,
-            agentId,
             baseUrl,
             apiKey,
             model,
@@ -850,7 +847,6 @@ async function callHybridAIWithRetry(params: {
             provider,
             providerMethod,
             sessionId,
-            agentId,
             baseUrl,
             apiKey,
             model,
@@ -872,7 +868,6 @@ async function callHybridAIWithRetry(params: {
           provider,
           providerMethod,
           sessionId,
-          agentId,
           baseUrl,
           apiKey,
           model,
@@ -929,7 +924,6 @@ async function callHybridAIWithRetry(params: {
  */
 interface ProcessRequestParams {
   sessionId: string;
-  agentId?: string;
   messages: ChatMessage[];
   apiKey: string;
   baseUrl: string;
@@ -993,7 +987,6 @@ async function processRequest(
 ): Promise<ContainerOutput> {
   const {
     sessionId,
-    agentId,
     messages,
     apiKey,
     baseUrl,
@@ -1327,7 +1320,6 @@ async function processRequest(
     try {
       response = await callHybridAIWithRetry({
         sessionId,
-        agentId,
         provider,
         providerMethod,
         baseUrl,
@@ -1992,7 +1984,6 @@ async function main(): Promise<void> {
   } else {
     firstOutput = await processRequest({
       sessionId: firstInput.sessionId,
-      agentId: firstInput.agentId,
       messages: firstMessagesForRequest,
       apiKey: storedApiKey,
       baseUrl: firstInput.baseUrl,
@@ -2036,7 +2027,6 @@ async function main(): Promise<void> {
         injectSkillCacheHint(firstRetryMessages);
       firstOutput = await processRequest({
         sessionId: firstInput.sessionId,
-        agentId: firstInput.agentId,
         messages: firstRetryMessagesWithSkillCache,
         apiKey: storedApiKey,
         baseUrl: firstInput.baseUrl,
@@ -2188,7 +2178,6 @@ async function main(): Promise<void> {
 
     let output = await processRequest({
       sessionId: input.sessionId,
-      agentId: input.agentId,
       messages: messagesForRequestWithSkillCache,
       apiKey,
       baseUrl: input.baseUrl,
@@ -2231,7 +2220,6 @@ async function main(): Promise<void> {
       const retryMessagesWithSkillCache = injectSkillCacheHint(retryMessages);
       output = await processRequest({
         sessionId: input.sessionId,
-        agentId: input.agentId,
         messages: retryMessagesWithSkillCache,
         apiKey,
         baseUrl: input.baseUrl,
