@@ -283,6 +283,28 @@ describe('SkillsPage', () => {
     expect(tryLink.getAttribute('target')).toBe('_blank');
   });
 
+  it('enables a disabled skill from the detail page', async () => {
+    fetchSkillsMock.mockResolvedValue(
+      makeResponse([makeSkill({ enabled: false })]),
+    );
+    saveSkillEnabledMock.mockResolvedValue(
+      makeResponse([makeSkill({ enabled: true })]),
+    );
+
+    renderWithProviders(<SkillDetailView skillName="pdf" />);
+
+    const toggle = await screen.findByRole('switch', { name: 'Enable pdf' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByText('Enable')).toBeTruthy();
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(saveSkillEnabledMock).toHaveBeenCalledTimes(1));
+    expect(saveSkillEnabledMock).toHaveBeenCalledWith('test-token', {
+      name: 'pdf',
+      enabled: true,
+    });
+  });
+
   it('previews installed skill package files', async () => {
     fetchSkillsMock.mockResolvedValue(makeResponse([makeSkill()]));
     fetchSkillPackageFilesMock.mockResolvedValue({

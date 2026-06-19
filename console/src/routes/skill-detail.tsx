@@ -5,6 +5,7 @@ import {
   fetchSkillPackageFile,
   fetchSkillPackageFiles,
   fetchSkills,
+  saveSkillEnabled,
   saveSkillPackageFile,
 } from '../api/client';
 import type { AdminSkill, AdminSkillPackageFile } from '../api/types';
@@ -18,6 +19,7 @@ import {
   CardTitle,
 } from '../components/card';
 import { ChevronLeft, ChevronRight } from '../components/icons';
+import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { BooleanPill, SegmentedToggle } from '../components/ui';
@@ -413,10 +415,22 @@ function SkillPackageFileBrowser(props: { skillName: string }) {
 
 export function SkillDetailView(props: { skillName: string }) {
   const auth = useAuth();
+  const queryClient = useQueryClient();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<SkillDetailTab>('description');
   const skillsQuery = useQuery({
     queryKey: ['skills', auth.token],
     queryFn: () => fetchSkills(auth.token),
+  });
+  const toggleMutation = useMutation({
+    mutationFn: (payload: { name: string; enabled: boolean }) =>
+      saveSkillEnabled(auth.token, payload),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['skills', auth.token], payload);
+    },
+    onError: (error) => {
+      toast.error('Toggle failed', getErrorMessage(error));
+    },
   });
 
   const skill = skillsQuery.data?.skills.find(
@@ -502,9 +516,40 @@ export function SkillDetailView(props: { skillName: string }) {
               falseLabel={skill.blocked ? 'blocked' : 'disabled'}
               falseTone={skill.blocked ? 'danger' : 'default'}
             />
+            {!skill.blocked ? (
+              <label className="skill-detail-enable-control">
+                <Switch
+                  checked={skill.enabled}
+                  aria-label={`${skill.enabled ? 'Disable' : 'Enable'} ${skill.name}`}
+                  disabled={
+                    toggleMutation.isPending ||
+                    (!skill.available && !skill.enabled)
+                  }
+                  onCheckedChange={(enabled) => {
+                    if (enabled && !skill.available) return;
+                    toggleMutation.mutate({
+                      name: skill.name,
+                      enabled,
+                    });
+                  }}
+                />
+                <span>
+                  {toggleMutation.isPending
+                    ? 'Saving...'
+                    : skill.enabled
+                      ? 'Enabled'
+                      : 'Enable'}
+                </span>
+              </label>
+            ) : null}
             <span className="status-pill">{skill.category}</span>
             <span className="status-pill">{skill.source}</span>
           </div>
+          {!skill.blocked && !skill.available ? (
+            <p className="skill-detail-status-note">
+              {skill.missing.join(', ') || 'missing requirements'}
+            </p>
+          ) : null}
         </div>
       </section>
 

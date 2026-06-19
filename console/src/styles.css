@@ -1270,6 +1270,27 @@ code {
   align-items: center;
 }
 
+.skill-detail-enable-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-bg);
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.skill-detail-status-note {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
 .skill-detail-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
