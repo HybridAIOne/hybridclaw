@@ -93,6 +93,32 @@ describe('MessageBlock artifacts', () => {
     expect(bubble.classList.contains(css.bubbleUser)).toBe(true);
   });
 
+  it('links a leading user skill slash command to the skill detail page', () => {
+    const content = '/blink List my Blink cameras and summarize events';
+    render(
+      <MessageBlock
+        message={makeMessage([], { role: 'user', content })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    const link = screen.getByRole('link', { name: '/blink' });
+    const bubble = screen.getByText(
+      (_text, element) => element?.textContent === content,
+    );
+
+    expect(link.getAttribute('href')).toBe('/admin/skills/blink');
+    expect(bubble.classList.contains(css.bubbleUser)).toBe(true);
+  });
+
   it('renders a leading user agent mention as a pill with its avatar', async () => {
     fetchAgentAvatarBlobMock.mockResolvedValue(
       new Blob(['avatar'], { type: 'image/png' }),

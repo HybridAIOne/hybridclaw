@@ -97,6 +97,8 @@ const CHECK_ICON =
 // `</>` code glyph shown before the language name.
 const CODE_ICON =
   '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 7-5 5 5 5"/><path d="m15 7 5 5-5 5"/><path d="m13.5 5-3 14"/></svg>';
+const LEADING_SKILL_COMMAND_RE =
+  /^\/([A-Za-z0-9][A-Za-z0-9._-]*)(?=$|[\s:.,!?;)\]}])/u;
 
 // Attach a hover-revealed copy button to each <pre> in a code block. The
 // markdown is injected via dangerouslySetInnerHTML, so React owns that subtree
@@ -665,13 +667,16 @@ function UserMessageContent(props: {
   token: string;
 }) {
   const mentions = findAgentMentions(props.content);
-  if (mentions.length === 0) return props.content;
-
   const parts: ReactNode[] = [];
   let last = 0;
   for (const [i, mention] of mentions.entries()) {
     if (mention.index > last)
-      parts.push(props.content.slice(last, mention.index));
+      appendUserTextSegment(
+        parts,
+        props.content.slice(last, mention.index),
+        `text-${i}`,
+        last === 0,
+      );
     const presentation =
       props.presentation?.agentId?.toLowerCase() ===
       mention.agentId.toLowerCase()
@@ -687,9 +692,48 @@ function UserMessageContent(props: {
     );
     last = mention.index + mention.mention.length;
   }
-  if (last < props.content.length) parts.push(props.content.slice(last));
+  if (last < props.content.length)
+    appendUserTextSegment(
+      parts,
+      props.content.slice(last),
+      'text-tail',
+      last === 0,
+    );
 
   return <>{parts}</>;
+}
+
+function appendUserTextSegment(
+  parts: ReactNode[],
+  content: string,
+  keyPrefix: string,
+  linkLeadingSkillCommand: boolean,
+) {
+  if (!content) return;
+  if (!linkLeadingSkillCommand) {
+    parts.push(content);
+    return;
+  }
+
+  const match = LEADING_SKILL_COMMAND_RE.exec(content);
+  const skillName = match?.[1] ?? '';
+  if (!match || !skillName) {
+    parts.push(content);
+    return;
+  }
+
+  const command = match[0];
+  parts.push(
+    <a
+      className={css.userSkillCommandLink}
+      href={`/admin/skills/${encodeURIComponent(skillName)}`}
+      key={`${keyPrefix}-skill-command`}
+    >
+      {command}
+    </a>,
+  );
+  const rest = content.slice(command.length);
+  if (rest) parts.push(rest);
 }
 
 function UserAgentMentionPill(props: {
