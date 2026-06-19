@@ -44,7 +44,7 @@ import {
   DialogTitle,
 } from '../components/dialog';
 import { Field, FieldLabel } from '../components/field';
-import { ChevronLeft, ChevronRight } from '../components/icons';
+import { Check, ChevronLeft, ChevronRight } from '../components/icons';
 import { Input } from '../components/input';
 import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
@@ -901,7 +901,10 @@ export function SkillDetailView(props: { skillName: string }) {
                         </div>
                         <div className="skill-credential-actions">
                           {status === 'set' ? (
-                            <BooleanPill value trueLabel="set" />
+                            <span className="boolean-pill is-on skill-credential-set-pill">
+                              <Check className="skill-credential-set-icon" />
+                              set
+                            </span>
                           ) : status === 'missing' ? (
                             <BooleanPill
                               value={false}

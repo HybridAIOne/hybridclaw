@@ -1691,6 +1691,12 @@ code {
   gap: 8px;
 }
 
+.skill-credential-set-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.8;
+}
+
 .skill-secret-dialog-form {
   display: grid;
   gap: 12px;
