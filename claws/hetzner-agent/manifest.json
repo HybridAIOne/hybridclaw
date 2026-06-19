@@ -1,0 +1,19 @@
+{
+  "formatVersion": 1,
+  "name": "Hetzner Agent",
+  "id": "hetzner-agent",
+  "description": "Operate your Hetzner Cloud servers, DNS zones, and Storage Boxes from chat. Reads by default; confirms every change and shows cost first.",
+  "author": "HybridAI",
+  "version": "0.1.0",
+  "createdAt": "2026-06-19T12:00:00Z",
+  "presentation": {
+    "displayName": "Hetzner Agent",
+    "imageAsset": "assets/hetzner.png"
+  },
+  "agent": {
+    "skills": ["hetzner-cloud", "hetzner-dns", "hetzner-storage-box"]
+  },
+  "skills": {
+    "bundled": ["hetzner-cloud", "hetzner-dns", "hetzner-storage-box"]
+  }
+}
