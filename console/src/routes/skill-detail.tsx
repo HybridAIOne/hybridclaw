@@ -474,7 +474,6 @@ export function SkillDetailView(props: { skillName: string }) {
   const [activeTab, setActiveTab] = useState<SkillDetailTab>('description');
   const [overwriteSecretTarget, setOverwriteSecretTarget] = useState<{
     name: string;
-    wasSet: boolean;
   } | null>(null);
   const [deleteSecretTarget, setDeleteSecretTarget] = useState<string | null>(
     null,
@@ -516,12 +515,10 @@ export function SkillDetailView(props: { skillName: string }) {
     return queryClient.invalidateQueries({ queryKey: ['admin', 'secrets'] });
   }, [queryClient]);
   const overwriteSecretMutation = useMutation({
-    mutationFn: (payload: { name: string; value: string; wasSet: boolean }) =>
+    mutationFn: (payload: { name: string; value: string }) =>
       overwriteAdminSecret(auth.token, payload.name, payload.value),
     onSuccess: async (_, payload) => {
-      toast.success(
-        payload.wasSet ? `Rotated ${payload.name}.` : `Set ${payload.name}.`,
-      );
+      toast.success(`Set ${payload.name}.`);
       setOverwriteSecretTarget(null);
       await invalidateSecrets();
     },
@@ -917,17 +914,16 @@ export function SkillDetailView(props: { skillName: string }) {
                           )}
                           {canSetCredential ? (
                             <Button
-                              aria-label={`${status === 'set' ? 'Rotate' : 'Set'} ${secretName}`}
+                              aria-label={`Set ${secretName}`}
                               onClick={() =>
                                 setOverwriteSecretTarget({
                                   name: secretName,
-                                  wasSet: status === 'set',
                                 })
                               }
                               size="sm"
                               variant="outline"
                             >
-                              {status === 'set' ? 'Rotate' : 'Set'}
+                              Set
                             </Button>
                           ) : null}
                           {canDeleteCredential ? (
@@ -1006,7 +1002,6 @@ export function SkillDetailView(props: { skillName: string }) {
           overwriteSecretMutation.mutate({
             name: overwriteSecretTarget.name,
             value,
-            wasSet: overwriteSecretTarget.wasSet,
           });
         }}
         pending={overwriteSecretMutation.isPending}
