@@ -178,7 +178,7 @@ describe('SkillsPage', () => {
   it('renders the catalog and filters by the search Input', async () => {
     fetchSkillsMock.mockResolvedValue(
       makeResponse([
-        makeSkill({ name: 'pdf', description: 'PDF tools.' }),
+        makeSkill({ name: 'pdf', description: 'PDF tools.', enabled: false }),
         makeSkill({ name: 'memory', description: 'Memory utilities.' }),
       ]),
     );
@@ -197,6 +197,20 @@ describe('SkillsPage', () => {
       expect(screen.queryByText('pdf')).toBeNull();
     });
     expect(screen.getByText('memory')).toBeTruthy();
+
+    fireEvent.change(filter, { target: { value: '' } });
+    await waitFor(() => {
+      expect(screen.getByText('pdf')).toBeTruthy();
+    });
+
+    fireEvent.click(
+      screen.getByRole('switch', { name: 'Show enabled skills only' }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByText('pdf')).toBeNull();
+    });
+    expect(screen.getByText('memory')).toBeTruthy();
+    expect(screen.getByText('1 skill visible')).toBeTruthy();
   });
 
   it('links installed skills to their detail pages', async () => {
@@ -383,10 +397,9 @@ describe('SkillsPage', () => {
     renderWithProviders(<SkillsPage />);
 
     await screen.findByText('pdf');
-    const toggles = screen.getAllByRole('switch');
-    expect(toggles).toHaveLength(1);
-    expect(toggles[0].getAttribute('aria-checked')).toBe('true');
-    fireEvent.click(toggles[0]);
+    const toggle = screen.getByRole('switch', { name: 'pdf status' });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(toggle);
 
     await waitFor(() => expect(saveSkillEnabledMock).toHaveBeenCalledTimes(1));
     expect(saveSkillEnabledMock).toHaveBeenCalledWith('test-token', {

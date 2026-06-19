@@ -22,6 +22,7 @@ import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -287,6 +288,7 @@ export function SkillsPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [filter, setFilter] = useState('');
+  const [enabledOnly, setEnabledOnly] = useState(false);
   const [selectedSkillName, setSelectedSkillName] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [createMode, setCreateMode] = useState<'form' | 'zip'>('form');
@@ -449,6 +451,7 @@ export function SkillsPage() {
   });
 
   const filteredSkills = (skillsQuery.data?.skills || []).filter((skill) => {
+    if (enabledOnly && !skill.enabled) return false;
     const haystack = [
       skill.name,
       skill.category,
@@ -878,6 +881,17 @@ export function SkillsPage() {
           <CardDescription>
             {`${sortedInstalledSkills.length} skill${sortedInstalledSkills.length === 1 ? '' : 's'} visible`}
           </CardDescription>
+          <CardAction>
+            <label className="skills-enabled-filter">
+              <Switch
+                checked={enabledOnly}
+                aria-label="Show enabled skills only"
+                size="sm"
+                onCheckedChange={setEnabledOnly}
+              />
+              <span>Enabled only</span>
+            </label>
+          </CardAction>
         </CardHeader>
         <CardContent>
           {skillsQuery.isLoading ? (
