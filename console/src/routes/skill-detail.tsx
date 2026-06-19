@@ -741,15 +741,19 @@ export function SkillDetailView(props: { skillName: string }) {
                     className="skill-prompt-row"
                     key={`${prompt.kind}-${prompt.conversationId ?? 'single'}-${prompt.turnIndex ?? prompt.prompt}`}
                   >
-                    <a
+                    <Button
                       aria-label={`Try it: ${buildSkillPromptCommand(skill.name, prompt.prompt)}`}
-                      className="skill-prompt-try-button"
-                      href={skillPromptChatHref(skill.name, prompt.prompt)}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Try it
-                    </a>
+                      render={
+                        <a
+                          href={skillPromptChatHref(skill.name, prompt.prompt)}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Try it
+                        </a>
+                      }
+                      size="sm"
+                    />
                     <code>{prompt.prompt}</code>
                   </div>
                 ))

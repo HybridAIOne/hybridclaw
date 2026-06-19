@@ -1612,35 +1612,6 @@ code {
   background: var(--panel-bg);
 }
 
-.skill-prompt-try-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 40px;
-  min-width: 96px;
-  padding: 9px 16px;
-  border: 1px solid var(--primary);
-  border-radius: var(--radius-sm);
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-size: 0.92rem;
-  font-weight: 750;
-  line-height: 1;
-  text-decoration: none;
-  box-shadow: var(--shadow-raised);
-}
-
-.skill-prompt-try-button:hover,
-.skill-prompt-try-button:focus {
-  background: color-mix(in srgb, var(--primary) 88%, var(--text));
-  border-color: color-mix(in srgb, var(--primary) 88%, var(--text));
-}
-
-.skill-prompt-try-button:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  outline-offset: 2px;
-}
-
 .skill-prompt-row code {
   white-space: normal;
   overflow-wrap: anywhere;
