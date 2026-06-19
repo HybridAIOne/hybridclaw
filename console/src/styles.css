@@ -1647,6 +1647,66 @@ code {
   line-height: 1.45;
 }
 
+.skill-credential-list {
+  display: grid;
+  gap: 12px;
+}
+
+.skill-credential-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg);
+}
+
+.skill-credential-body {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.skill-credential-body strong,
+.skill-credential-body small,
+.skill-credential-fingerprint {
+  overflow-wrap: anywhere;
+}
+
+.skill-credential-body small {
+  color: var(--muted-foreground);
+}
+
+.skill-credential-fingerprint {
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+}
+
+.skill-credential-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.skill-secret-dialog-form {
+  display: grid;
+  gap: 12px;
+}
+
+.skill-secret-dialog-note {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.error-text {
+  color: var(--danger);
+}
+
 .skill-detail-list-row {
   display: grid;
   gap: 4px;
@@ -1671,8 +1731,13 @@ code {
 
 @media (max-width: 760px) {
   .skill-detail-hero,
-  .skill-prompt-row {
+  .skill-prompt-row,
+  .skill-credential-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .skill-credential-actions {
+    justify-content: flex-start;
   }
 
   .skill-detail-title h1 {

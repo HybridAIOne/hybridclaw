@@ -1,14 +1,30 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  fetchAdminSecrets,
   fetchSkillPackageFile,
   fetchSkillPackageFiles,
   fetchSkills,
+  overwriteAdminSecret,
   saveSkillEnabled,
   saveSkillPackageFile,
+  unsetAdminSecret,
 } from '../api/client';
-import type { AdminSkill, AdminSkillPackageFile } from '../api/types';
+import type {
+  AdminSecretEntry,
+  AdminSecretsResponse,
+  AdminSkill,
+  AdminSkillPackageFile,
+} from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import {
@@ -18,13 +34,24 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/dialog';
+import { Field, FieldLabel } from '../components/field';
 import { ChevronLeft, ChevronRight } from '../components/icons';
+import { Input } from '../components/input';
 import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { BooleanPill, SegmentedToggle } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
-import { formatDateTime } from '../lib/format';
+import { formatDateTime, formatRelativeTime } from '../lib/format';
 import { renderMarkdown } from '../lib/markdown';
 
 type SkillDetailTab = 'description' | 'tutorial' | 'prompts';
@@ -60,6 +87,33 @@ function formatCredentialRequirement(
   credential: AdminSkill['credentials'][number],
 ): string {
   return `${credential.id} · ${credential.kind}${credential.required ? ' · required' : ''}`;
+}
+
+function formatSecretLength(entry: AdminSecretEntry): string {
+  return entry.length === null ? 'unknown length' : `${entry.length} bytes`;
+}
+
+function formatSecretFingerprint(entry: AdminSecretEntry): string {
+  return entry.fingerprint
+    ? `sha256:${entry.fingerprint.sha256_prefix}`
+    : 'no fingerprint';
+}
+
+function formatSecretRotatedAt(entry: AdminSecretEntry): string {
+  return entry.last_rotated_at
+    ? formatRelativeTime(entry.last_rotated_at)
+    : 'never';
+}
+
+function makeUnsetSecretEntry(name: string): AdminSecretEntry {
+  return {
+    name,
+    state: 'unset',
+    created_at: null,
+    last_rotated_at: null,
+    length: null,
+    fingerprint: null,
+  };
 }
 
 function formatConfigVariableRequirement(
@@ -418,6 +472,13 @@ export function SkillDetailView(props: { skillName: string }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<SkillDetailTab>('description');
+  const [overwriteSecretTarget, setOverwriteSecretTarget] = useState<{
+    name: string;
+    wasSet: boolean;
+  } | null>(null);
+  const [deleteSecretTarget, setDeleteSecretTarget] = useState<string | null>(
+    null,
+  );
   const skillsQuery = useQuery({
     queryKey: ['skills', auth.token],
     queryFn: () => fetchSkills(auth.token),
@@ -436,6 +497,49 @@ export function SkillDetailView(props: { skillName: string }) {
   const skill = skillsQuery.data?.skills.find(
     (entry) => entry.name === props.skillName,
   );
+  const secretQuery = useQuery<AdminSecretsResponse, Error>({
+    queryKey: ['admin', 'secrets', auth.token],
+    queryFn: () => fetchAdminSecrets(auth.token),
+    retry: false,
+    enabled: (skill?.credentials.length ?? 0) > 0,
+  });
+  const secretEntriesByName = useMemo(() => {
+    return new Map(
+      (secretQuery.data?.secrets || []).map((entry) => [entry.name, entry]),
+    );
+  }, [secretQuery.data?.secrets]);
+  const canOverwriteSecret =
+    secretQuery.data?.actions.includes('secret.overwrite') ?? false;
+  const canDeleteSecret =
+    secretQuery.data?.actions.includes('secret.unset') ?? false;
+  const invalidateSecrets = useCallback(() => {
+    return queryClient.invalidateQueries({ queryKey: ['admin', 'secrets'] });
+  }, [queryClient]);
+  const overwriteSecretMutation = useMutation({
+    mutationFn: (payload: { name: string; value: string; wasSet: boolean }) =>
+      overwriteAdminSecret(auth.token, payload.name, payload.value),
+    onSuccess: async (_, payload) => {
+      toast.success(
+        payload.wasSet ? `Rotated ${payload.name}.` : `Set ${payload.name}.`,
+      );
+      setOverwriteSecretTarget(null);
+      await invalidateSecrets();
+    },
+    onError: (error) => {
+      toast.error('Secret save failed', getErrorMessage(error));
+    },
+  });
+  const deleteSecretMutation = useMutation({
+    mutationFn: (name: string) => unsetAdminSecret(auth.token, name),
+    onSuccess: async (_, name) => {
+      toast.success(`Deleted ${name}.`);
+      setDeleteSecretTarget(null);
+      await invalidateSecrets();
+    },
+    onError: (error) => {
+      toast.error('Secret delete failed', getErrorMessage(error));
+    },
+  });
 
   if (skillsQuery.isLoading) {
     return (
@@ -724,17 +828,121 @@ export function SkillDetailView(props: { skillName: string }) {
             {skill.credentials.length === 0 ? (
               <p className="supporting-text">No credentials declared.</p>
             ) : (
-              <div className="skill-detail-list">
-                {skill.credentials.map((credential) => (
-                  <div className="skill-detail-list-row" key={credential.id}>
-                    <strong>{formatCredentialRequirement(credential)}</strong>
-                    <small>{credential.secretRef.id}</small>
-                    {credential.scope ? (
-                      <small>{credential.scope}</small>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
+              <>
+                {secretQuery.isLoading ? (
+                  <p className="supporting-text">
+                    Checking runtime secret store...
+                  </p>
+                ) : null}
+                {secretQuery.isError ? (
+                  <p className="supporting-text error-text">
+                    Secret metadata unavailable:{' '}
+                    {getErrorMessage(secretQuery.error)}
+                  </p>
+                ) : null}
+                <div className="skill-credential-list">
+                  {skill.credentials.map((credential) => {
+                    const secretName = credential.secretRef.id;
+                    const isStoreSecret =
+                      credential.secretRef.source === 'store';
+                    const secretEntry =
+                      secretEntriesByName.get(secretName) ||
+                      makeUnsetSecretEntry(secretName);
+                    const status = !isStoreSecret
+                      ? 'external'
+                      : secretQuery.isLoading
+                        ? 'checking'
+                        : secretQuery.isError
+                          ? 'unknown'
+                          : secretEntry.state === 'set'
+                            ? 'set'
+                            : 'missing';
+                    const canSetCredential =
+                      isStoreSecret &&
+                      canOverwriteSecret &&
+                      status !== 'checking' &&
+                      status !== 'unknown';
+                    const canDeleteCredential =
+                      isStoreSecret && canDeleteSecret && status === 'set';
+
+                    return (
+                      <div className="skill-credential-row" key={credential.id}>
+                        <div className="skill-credential-body">
+                          <strong>
+                            {formatCredentialRequirement(credential)}
+                          </strong>
+                          <small>{secretName}</small>
+                          {credential.scope ? (
+                            <small>{credential.scope}</small>
+                          ) : null}
+                          {status === 'set' ? (
+                            <>
+                              <small>
+                                {formatSecretLength(secretEntry)} · rotated{' '}
+                                {formatSecretRotatedAt(secretEntry)}
+                              </small>
+                              <code className="skill-credential-fingerprint">
+                                {formatSecretFingerprint(secretEntry)}
+                              </code>
+                            </>
+                          ) : status === 'missing' ? (
+                            <small>
+                              Missing from the runtime secret store.
+                            </small>
+                          ) : status === 'checking' ? (
+                            <small>Checking the runtime secret store.</small>
+                          ) : status === 'external' ? (
+                            <small>
+                              Secret source: {credential.secretRef.source}
+                            </small>
+                          ) : (
+                            <small>Stored status could not be checked.</small>
+                          )}
+                        </div>
+                        <div className="skill-credential-actions">
+                          {status === 'set' ? (
+                            <BooleanPill value trueLabel="set" />
+                          ) : status === 'missing' ? (
+                            <BooleanPill
+                              value={false}
+                              trueLabel="set"
+                              falseLabel="missing"
+                              falseTone="danger"
+                            />
+                          ) : (
+                            <span className="status-pill">{status}</span>
+                          )}
+                          {canSetCredential ? (
+                            <Button
+                              aria-label={`${status === 'set' ? 'Rotate' : 'Set'} ${secretName}`}
+                              onClick={() =>
+                                setOverwriteSecretTarget({
+                                  name: secretName,
+                                  wasSet: status === 'set',
+                                })
+                              }
+                              size="sm"
+                              variant="outline"
+                            >
+                              {status === 'set' ? 'Rotate' : 'Set'}
+                            </Button>
+                          ) : null}
+                          {canDeleteCredential ? (
+                            <Button
+                              aria-label={`Delete ${secretName}`}
+                              onClick={() => setDeleteSecretTarget(secretName)}
+                              size="sm"
+                              variant="danger"
+                            >
+                              Delete
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
@@ -786,7 +994,153 @@ export function SkillDetailView(props: { skillName: string }) {
           </CardContent>
         </Card>
       ) : null}
+
+      <SkillSecretValueDialog
+        name={overwriteSecretTarget?.name ?? null}
+        onClose={() => setOverwriteSecretTarget(null)}
+        onSubmit={(value) => {
+          if (!overwriteSecretTarget) return;
+          overwriteSecretMutation.mutate({
+            name: overwriteSecretTarget.name,
+            value,
+            wasSet: overwriteSecretTarget.wasSet,
+          });
+        }}
+        pending={overwriteSecretMutation.isPending}
+      />
+      <SkillSecretDeleteDialog
+        name={deleteSecretTarget}
+        onClose={() => setDeleteSecretTarget(null)}
+        onConfirm={() => {
+          if (deleteSecretTarget) {
+            deleteSecretMutation.mutate(deleteSecretTarget);
+          }
+        }}
+        pending={deleteSecretMutation.isPending}
+      />
     </div>
+  );
+}
+
+function SkillSecretValueDialog(props: {
+  name: string | null;
+  onClose: () => void;
+  onSubmit: (value: string) => void;
+  pending: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
+  const noteId = useId();
+  const open = props.name !== null;
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const value = inputRef.current?.value || '';
+    if (!value.trim()) return;
+    props.onSubmit(value);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          if (inputRef.current) inputRef.current.value = '';
+          props.onClose();
+        }
+      }}
+    >
+      <DialogContent
+        role="dialog"
+        size="default"
+        preventCloseOnOutsideClick={props.pending}
+      >
+        <DialogHeader>
+          <DialogTitle>
+            Set value for <code>{props.name}</code>
+          </DialogTitle>
+          <DialogDescription>
+            The value is sent to the gateway and immediately discarded from this
+            form. The stored value cannot be read back.
+          </DialogDescription>
+        </DialogHeader>
+        <form className="skill-secret-dialog-form" onSubmit={handleSubmit}>
+          <Field>
+            <FieldLabel htmlFor={inputId}>New value</FieldLabel>
+            <Input
+              id={inputId}
+              ref={inputRef}
+              type="password"
+              autoComplete="new-password"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              required
+              aria-describedby={noteId}
+              disabled={props.pending}
+            />
+            <p id={noteId} className="skill-secret-dialog-note">
+              Pasted values are not echoed. Once submitted, the value lives only
+              in the runtime secret store.
+            </p>
+          </Field>
+          <DialogFooter>
+            <DialogClose className="ghost-button" disabled={props.pending}>
+              Cancel
+            </DialogClose>
+            <Button type="submit" disabled={props.pending}>
+              {props.pending ? 'Saving...' : 'Save value'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SkillSecretDeleteDialog(props: {
+  name: string | null;
+  onClose: () => void;
+  onConfirm: () => void;
+  pending: boolean;
+}) {
+  return (
+    <Dialog
+      open={props.name !== null}
+      onOpenChange={(next) => {
+        if (!next) props.onClose();
+      }}
+    >
+      <DialogContent
+        role="alertdialog"
+        size="default"
+        preventCloseOnOutsideClick={props.pending}
+      >
+        <DialogHeader>
+          <DialogTitle>
+            Delete <code>{props.name}</code>?
+          </DialogTitle>
+          <DialogDescription>
+            The stored value will be removed from the runtime secret store.
+            Skills that depend on this secret will fail until a new value is
+            set.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose className="ghost-button" disabled={props.pending}>
+            Cancel
+          </DialogClose>
+          <Button
+            type="button"
+            variant="danger"
+            disabled={props.pending}
+            onClick={props.onConfirm}
+          >
+            {props.pending ? 'Deleting...' : 'Delete secret'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

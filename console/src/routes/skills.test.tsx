@@ -5,6 +5,8 @@ import type {
   AdminAdaptiveSkillAmendmentsResponse,
   AdminAdaptiveSkillHealthMetric,
   AdminAdaptiveSkillHealthResponse,
+  AdminSecretMutationResponse,
+  AdminSecretsResponse,
   AdminSkill,
   AdminSkillPackageFileResponse,
   AdminSkillPackageFilesResponse,
@@ -36,6 +38,20 @@ const saveSkillPackageFileMock =
     ) => Promise<AdminSkillPackageFileResponse>
   >();
 const saveSkillEnabledMock = vi.fn();
+const fetchAdminSecretsMock =
+  vi.fn<(token: string) => Promise<AdminSecretsResponse>>();
+const overwriteAdminSecretMock =
+  vi.fn<
+    (
+      token: string,
+      name: string,
+      value: string,
+    ) => Promise<AdminSecretMutationResponse>
+  >();
+const unsetAdminSecretMock =
+  vi.fn<
+    (token: string, name: string) => Promise<AdminSecretMutationResponse>
+  >();
 const useAuthMock = vi.fn();
 
 vi.mock('@tanstack/react-router', () => ({
@@ -69,6 +85,11 @@ vi.mock('../api/client', () => ({
     token: string,
     payload: { name: string; enabled: boolean },
   ) => saveSkillEnabledMock(token, payload),
+  fetchAdminSecrets: (token: string) => fetchAdminSecretsMock(token),
+  overwriteAdminSecret: (token: string, name: string, value: string) =>
+    overwriteAdminSecretMock(token, name, value),
+  unsetAdminSecret: (token: string, name: string) =>
+    unsetAdminSecretMock(token, name),
   createSkill: vi.fn(),
   unblockSkill: vi.fn(),
   uploadSkillZip: vi.fn(),
@@ -128,6 +149,17 @@ function makeSkillFileResponse(
   };
 }
 
+function makeSecretsResponse(
+  overrides: Partial<AdminSecretsResponse> = {},
+): AdminSecretsResponse {
+  return {
+    secrets: [],
+    total: 0,
+    actions: ['secret.list_metadata', 'secret.overwrite', 'secret.unset'],
+    ...overrides,
+  };
+}
+
 function makeHealthMetric(
   overrides: Partial<AdminAdaptiveSkillHealthMetric> = {},
 ): AdminAdaptiveSkillHealthMetric {
@@ -162,6 +194,9 @@ describe('SkillsPage', () => {
     fetchSkillPackageFileMock.mockReset();
     saveSkillPackageFileMock.mockReset();
     saveSkillEnabledMock.mockReset();
+    fetchAdminSecretsMock.mockReset();
+    overwriteAdminSecretMock.mockReset();
+    unsetAdminSecretMock.mockReset();
     useAuthMock.mockReset();
     useAuthMock.mockReturnValue({ token: 'test-token' });
     fetchHealthMock.mockResolvedValue({ metrics: [] });
@@ -173,6 +208,27 @@ describe('SkillsPage', () => {
     });
     fetchSkillPackageFileMock.mockResolvedValue(makeSkillFileResponse());
     saveSkillPackageFileMock.mockResolvedValue(makeSkillFileResponse());
+    fetchAdminSecretsMock.mockResolvedValue(makeSecretsResponse());
+    overwriteAdminSecretMock.mockResolvedValue({
+      secret: {
+        name: 'PDF_API_TOKEN',
+        state: 'set',
+        created_at: '2026-06-19T10:00:00.000Z',
+        last_rotated_at: '2026-06-19T10:00:00.000Z',
+        length: 10,
+        fingerprint: { length: 10, sha256_prefix: 'abc123def456' },
+      },
+    });
+    unsetAdminSecretMock.mockResolvedValue({
+      secret: {
+        name: 'PDF_API_TOKEN',
+        state: 'unset',
+        created_at: null,
+        last_rotated_at: null,
+        length: null,
+        fingerprint: null,
+      },
+    });
   });
 
   it('renders the catalog and filters by the search Input', async () => {
@@ -297,7 +353,7 @@ describe('SkillsPage', () => {
     expect(screen.getByText('capability: document-processing')).toBeTruthy();
     expect(screen.getByText('bin: node')).toBeTruthy();
     expect(screen.getByText('Install Node.js')).toBeTruthy();
-    expect(screen.getByText('PDF_API_TOKEN')).toBeTruthy();
+    expect(await screen.findByText('PDF_API_TOKEN')).toBeTruthy();
     expect(screen.getByText('PDF_HOST')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Tutorial' }));
@@ -314,6 +370,82 @@ describe('SkillsPage', () => {
       '/chat?prompt=%2Fpdf+Create+a+one-page+PDF+titled+%22Quarterly+Report%22',
     );
     expect(tryLink.getAttribute('target')).toBe('_blank');
+  });
+
+  it('shows credential secret state and can set or delete values', async () => {
+    fetchSkillsMock.mockResolvedValue(
+      makeResponse([
+        makeSkill({
+          credentials: [
+            {
+              id: 'pdf-api-token',
+              kind: 'api_key',
+              required: true,
+              secretRef: { source: 'store', id: 'PDF_API_TOKEN' },
+              scope: 'PDF service',
+            },
+            {
+              id: 'pdf-password',
+              kind: 'api_key',
+              required: false,
+              secretRef: { source: 'store', id: 'PDF_PASSWORD' },
+              scope: 'PDF password',
+            },
+          ],
+        }),
+      ]),
+    );
+    fetchAdminSecretsMock.mockResolvedValue(
+      makeSecretsResponse({
+        secrets: [
+          {
+            name: 'PDF_API_TOKEN',
+            state: 'set',
+            created_at: '2026-06-19T10:00:00.000Z',
+            last_rotated_at: '2026-06-19T10:00:00.000Z',
+            length: 24,
+            fingerprint: { length: 24, sha256_prefix: 'abc123def456' },
+          },
+        ],
+        total: 1,
+      }),
+    );
+
+    renderWithProviders(<SkillDetailView skillName="pdf" />);
+
+    expect(await screen.findByText('PDF_API_TOKEN')).toBeTruthy();
+    expect(await screen.findByText('sha256:abc123def456')).toBeTruthy();
+    expect(screen.getByText('PDF_PASSWORD')).toBeTruthy();
+    expect(
+      screen.getByText('Missing from the runtime secret store.'),
+    ).toBeTruthy();
+    expect(fetchAdminSecretsMock).toHaveBeenCalledWith('test-token');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set PDF_PASSWORD' }));
+    fireEvent.change(screen.getByLabelText('New value'), {
+      target: { value: 'new-secret-value' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save value' }));
+
+    await waitFor(() =>
+      expect(overwriteAdminSecretMock).toHaveBeenCalledWith(
+        'test-token',
+        'PDF_PASSWORD',
+        'new-secret-value',
+      ),
+    );
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Delete PDF_API_TOKEN' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete secret' }));
+
+    await waitFor(() =>
+      expect(unsetAdminSecretMock).toHaveBeenCalledWith(
+        'test-token',
+        'PDF_API_TOKEN',
+      ),
+    );
   });
 
   it('enables a disabled skill from the detail page', async () => {
