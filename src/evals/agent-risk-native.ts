@@ -8,6 +8,7 @@ import {
   NIST_GAI_PROFILE_RISKS,
   OWASP_LLM_TOP_10_2025,
 } from '../evolution/harness-risk-taxonomy.js';
+import { HYBRIDCLAW_USER_AGENT } from '../providers/user-agent.js';
 import { normalizeOpenAIBaseUrl } from './openai-url.js';
 
 export type AgentRiskScenarioId =
@@ -1396,6 +1397,7 @@ async function callScenario(
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${options.apiKey}`,
+        'User-Agent': HYBRIDCLAW_USER_AGENT,
       },
       body: JSON.stringify(body),
       signal: controller.signal,

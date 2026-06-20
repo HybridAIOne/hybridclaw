@@ -249,7 +249,9 @@ test('provider factory resolves HybridAI runtime credentials', async () => {
     apiKey: 'hai-provider-test',
     chatbotId: 'bot_123',
     enableRag: false,
-    requestHeaders: {},
+    requestHeaders: {
+      'User-Agent': expect.stringMatching(/^hybridclaw\/\d+\.\d+\.\d+/),
+    },
     agentId: 'main',
   });
 });

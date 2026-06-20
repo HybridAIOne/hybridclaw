@@ -1,5 +1,6 @@
 import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
 import type { ChatCompletionResponse, ToolCall } from '../types.js';
+import { HYBRIDCLAW_USER_AGENT } from '../user-agent.js';
 import {
   buildRequestHeaders,
   emitRawSseLineDebug,
@@ -63,6 +64,19 @@ function buildHybridAIRequestBody(
     request.max_tokens = Math.floor(args.maxTokens);
   }
   return request;
+}
+
+function buildHybridAIRequestHeaders(
+  args: NormalizedCallArgs,
+  extraHeaders?: Record<string, string>,
+): Record<string, string> {
+  return {
+    ...buildRequestHeaders(args.apiKey, {
+      'User-Agent': HYBRIDCLAW_USER_AGENT,
+      ...(args.requestHeaders || {}),
+    }),
+    ...(extraHeaders || {}),
+  };
 }
 
 function parseStreamPayloadLine(rawLine: string): string | null {
@@ -134,7 +148,7 @@ export async function callHybridAIProvider(
   }
   const response = await fetch(`${args.baseUrl}/v1/chat/completions`, {
     method: 'POST',
-    headers: buildRequestHeaders(args.apiKey, args.requestHeaders),
+    headers: buildHybridAIRequestHeaders(args),
     body: JSON.stringify(body),
   });
 
@@ -181,10 +195,9 @@ export async function callHybridAIProviderStream(
 
   const response = await fetch(`${args.baseUrl}/v1/chat/completions`, {
     method: 'POST',
-    headers: {
-      ...buildRequestHeaders(args.apiKey, args.requestHeaders),
+    headers: buildHybridAIRequestHeaders(args, {
       Accept: 'text/event-stream, application/x-ndjson, application/json',
-    },
+    }),
     body: JSON.stringify(body),
   });
 

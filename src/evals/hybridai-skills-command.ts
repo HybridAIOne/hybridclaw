@@ -6,6 +6,7 @@ import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { deleteSessionData, isDatabaseInitialized } from '../memory/db.js';
+import { HYBRIDCLAW_USER_AGENT } from '../providers/user-agent.js';
 import { parseSessionKey } from '../session/session-key.js';
 import { DEFAULT_SKILL_SUPPORTED_CHANNELS } from '../skills/skill-manifest.js';
 import { resolveObservedSkillName, type Skill } from '../skills/skills.js';
@@ -1088,6 +1089,7 @@ async function executeLiveTurn(
     headers: {
       'content-type': 'application/json',
       authorization: `Bearer ${env.apiKey}`,
+      'user-agent': HYBRIDCLAW_USER_AGENT,
     },
     body: JSON.stringify(body),
   });
