@@ -241,7 +241,10 @@ test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-m
     'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool.',
   );
   expect(userMessage?.content).toContain(
-    'Include concrete first tasks, copy-paste prompt ideas, and available channel setup links.',
+    'Follow the short welcome email template in BOOTSTRAP.md',
+  );
+  expect(userMessage?.content).toContain(
+    '3 concrete first tasks, 2 or 3 copy-paste prompt ideas',
   );
   expect(userMessage?.content).toContain(
     'Do not ask for separate confirmation.',

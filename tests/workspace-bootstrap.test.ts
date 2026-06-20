@@ -239,6 +239,10 @@ describe('workspace bootstrap lifecycle', () => {
     expect(bootstrapMarkdown).toContain('Web chat is already working');
     expect(bootstrapMarkdown).toContain('/admin/channels#discord');
     expect(bootstrapMarkdown).toContain('/admin/channels#telegram');
+    expect(bootstrapMarkdown).toContain(
+      'Follow the short welcome email template',
+    );
+    expect(bootstrapMarkdown).toContain('Exactly 3 concrete first tasks');
     expect(bootstrapMarkdown).toContain('copy-paste prompt ideas');
 
     const files = workspace.loadBootstrapFiles('agent-test');

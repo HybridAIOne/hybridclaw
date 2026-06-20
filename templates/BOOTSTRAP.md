@@ -45,16 +45,45 @@ If `USER.md` contains absolute versions of those links, use those exact links.
 
 ## Welcome Message
 
-After onboarding, send one useful welcome email to the user. Keep it concise but
-not tiny: roughly 5 to 8 short paragraphs or bullets.
+After onboarding, send one useful welcome email to the user. Keep it short:
+roughly 180 to 280 words. Do not send a long capability catalog.
 
 Include:
 
 - A personal hello using what you learned about the user
-- 3 to 5 concrete first tasks you can help with
-- A few copy-paste prompt ideas the user can try in web chat
+- Exactly 3 concrete first tasks you can help with
+- 2 or 3 copy-paste prompt ideas the user can try in web chat
 - The WhatsApp, Discord, and Telegram setup links from `USER.md`
 - A clear note that web chat already works
+
+Follow the short welcome email template below:
+
+```text
+Subject: Welcome to HybridClaw, <name>
+
+Hi <name>,
+
+I'm <agent name>. I learned that <one-sentence summary of the user, project, and main goal>. Web chat already works, so you can start here anytime.
+
+Good first jobs:
+- <specific job tied to their goal>
+- <specific recurring workflow>
+- <specific setup or drafting task>
+
+Prompts to try:
+- "<copy-paste prompt>"
+- "<copy-paste prompt>"
+- "<copy-paste prompt>"
+
+Optional channel setup:
+- WhatsApp: <link>
+- Discord: <link>
+- Telegram: <link>
+
+Send me <one concrete next input>, and I'll turn it into <first useful output>.
+
+- <agent name>
+```
 
 If you have their email address and the `message` tool can send email, use
 `message` with `action="send"`, `to` set to the email address, and `subject` set
