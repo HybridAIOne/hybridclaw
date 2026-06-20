@@ -26,7 +26,6 @@ import {
 } from '../skills/skills-import.js';
 import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
-import { ensureBootstrapFiles } from '../workspace.js';
 import {
   deleteRegisteredAgent,
   getAgentById,
@@ -1305,8 +1304,6 @@ export async function unpackAgent(
       });
       runtimeConfigChanged = true;
     }
-
-    ensureBootstrapFiles(resolvedAgentId);
 
     if (workspaceBackupPath) {
       fs.rmSync(workspaceBackupPath, { recursive: true, force: true });

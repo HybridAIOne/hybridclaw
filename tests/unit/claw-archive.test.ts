@@ -381,6 +381,74 @@ describe('.claw archive support', () => {
     ).toBe(true);
   });
 
+  test('unpack does not synthesize missing bootstrap files', async () => {
+    const homeDir = makeTempDir('hybridclaw-claw-home-');
+    const cwd = makeTempDir('hybridclaw-claw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+    process.chdir(cwd);
+
+    const { initDatabase } = await import('../../src/memory/db.js');
+    const { initAgentRegistry } = await import(
+      '../../src/agents/agent-registry.js'
+    );
+    const { unpackAgent } = await import('../../src/agents/claw-archive.js');
+
+    initDatabase({ quiet: true });
+    initAgentRegistry({
+      list: [{ id: 'main', name: 'Main Agent' }],
+    });
+
+    const archivePath = path.join(cwd, 'minimal-install.claw');
+    await writeZipArchive(archivePath, [
+      {
+        name: 'manifest.json',
+        content: JSON.stringify(
+          {
+            formatVersion: 1,
+            name: 'Minimal Install Agent',
+            id: 'minimal-install-agent',
+          },
+          null,
+          2,
+        ),
+      },
+      {
+        name: 'workspace/SOUL.md',
+        content: '# Soul\n',
+      },
+      {
+        name: 'workspace/notes/readme.md',
+        content: '# Read Me\n',
+      },
+    ]);
+
+    const unpacked = await unpackAgent(archivePath, {
+      yes: true,
+      homeDir,
+      cwd,
+    });
+
+    expect(
+      fs.readFileSync(path.join(unpacked.workspacePath, 'SOUL.md'), 'utf-8'),
+    ).toBe('# Soul\n');
+    expect(
+      fs.readFileSync(
+        path.join(unpacked.workspacePath, 'notes', 'readme.md'),
+        'utf-8',
+      ),
+    ).toBe('# Read Me\n');
+    expect(
+      fs.existsSync(path.join(unpacked.workspacePath, 'BOOTSTRAP.md')),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(unpacked.workspacePath, 'IDENTITY.md')),
+    ).toBe(false);
+    expect(fs.existsSync(path.join(unpacked.workspacePath, 'USER.md'))).toBe(
+      false,
+    );
+  });
+
   test('unpack installs manifest skill imports into the agent workspace', async () => {
     const homeDir = makeTempDir('hybridclaw-claw-home-');
     const cwd = makeTempDir('hybridclaw-claw-cwd-');
