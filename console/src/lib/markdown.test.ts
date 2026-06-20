@@ -178,6 +178,38 @@ describe('renderMarkdown', () => {
     );
   });
 
+  it('linkifies bare local app routes', () => {
+    const html = renderMarkdown(
+      'WhatsApp: /admin/channels#whatsapp\nChat: /chat\nDocs: /docs/',
+    );
+
+    expect(html).toContain(
+      '<a href="/admin/channels#whatsapp">/admin/channels#whatsapp</a>',
+    );
+    expect(html).toContain('<a href="/chat">/chat</a>');
+    expect(html).toContain('<a href="/docs/">/docs/</a>');
+    expect(html).not.toContain('target="_blank">/admin');
+  });
+
+  it('does not linkify arbitrary local paths or code spans', () => {
+    const html = renderMarkdown(
+      'File: /Users/ben/project\nCode: `/admin/channels#whatsapp`',
+    );
+
+    expect(html).not.toContain('href="/Users');
+    expect(html).not.toContain('href="/admin/channels#whatsapp"');
+    expect(html).toContain('<code>/admin/channels#whatsapp</code>');
+  });
+
+  it('does not rewrite existing local markdown links', () => {
+    const html = renderMarkdown('[Set up WhatsApp](/admin/channels#whatsapp)');
+
+    expect(html).toContain(
+      '<a href="/admin/channels#whatsapp">Set up WhatsApp</a>',
+    );
+    expect(html).not.toContain('href="/admin/channels#whatsapp)">');
+  });
+
   it('allows mailto links but strips disallowed schemes like ftp and data', () => {
     expect(renderMarkdown('[mail](mailto:a@b.com)')).toContain(
       'href="mailto:a@b.com"',

@@ -42,6 +42,29 @@ describe('appendHatchingChannelSetupLinks', () => {
     expect(result).toBe(resultText);
   });
 
+  test('normalizes plain setup paths already in the response', () => {
+    const result = appendHatchingChannelSetupLinks({
+      resultText: [
+        'I sent the welcome email.',
+        '',
+        'WhatsApp: /admin/channels#whatsapp',
+        'Discord: /admin/channels#discord',
+        'Telegram: /admin/channels#telegram',
+      ].join('\n'),
+      hatchingCompletion: {
+        completed: true,
+        updated: true,
+        reason: 'message sent',
+      },
+    });
+
+    expect(result).toContain('[Set up WhatsApp](/admin/channels#whatsapp)');
+    expect(result).toContain('[Set up Discord](/admin/channels#discord)');
+    expect(result).toContain('[Set up Telegram](/admin/channels#telegram)');
+    expect(result).not.toContain('WhatsApp: /admin/channels#whatsapp');
+    expect(result.match(/admin\/channels#whatsapp/g)).toHaveLength(1);
+  });
+
   test('does not append channel setup links for fallback hatching completion', () => {
     const result = appendHatchingChannelSetupLinks({
       resultText: 'Still learning.',

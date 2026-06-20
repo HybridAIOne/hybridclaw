@@ -54,16 +54,75 @@ const CHAT_MARKDOWN_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedSchemesAppliedToAttributes: ['href'],
   allowProtocolRelative: false,
   transformTags: {
-    a: sanitizeHtml.simpleTransform(
-      'a',
-      {
-        rel: 'noopener noreferrer',
-        target: '_blank',
-      },
-      true,
-    ),
+    a: (_tagName, attribs) => {
+      const href = typeof attribs.href === 'string' ? attribs.href : '';
+      if (isKnownLocalAppHref(href)) {
+        return { tagName: 'a', attribs };
+      }
+      return {
+        tagName: 'a',
+        attribs: {
+          ...attribs,
+          rel: 'noopener noreferrer',
+          target: '_blank',
+        },
+      };
+    },
   },
 };
+
+const BARE_LOCAL_APP_ROUTE_RE =
+  /(^|[\s>])((?:\/(?:admin|chat|docs)(?=$|[/?#\s<`.,;:!?)])(?:[/?#][^\s<`]*)?))/g;
+
+function isKnownLocalAppHref(href: string): boolean {
+  return /^\/(?:admin|chat|docs)(?:$|[/?#])/.test(href);
+}
+
+function splitTrailingPunctuation(value: string): {
+  href: string;
+  trailing: string;
+} {
+  let href = value;
+  let trailing = '';
+  while (/[.,;:!?)]$/.test(href)) {
+    trailing = `${href.at(-1)}${trailing}`;
+    href = href.slice(0, -1);
+  }
+  return { href, trailing };
+}
+
+function linkifyBareLocalAppRoutesInSegment(segment: string): string {
+  return segment.replace(
+    BARE_LOCAL_APP_ROUTE_RE,
+    (_match, prefix: string, rawHref: string) => {
+      const { href, trailing } = splitTrailingPunctuation(rawHref);
+      if (!href) return `${prefix}${rawHref}`;
+      return `${prefix}[${href}](${href})${trailing}`;
+    },
+  );
+}
+
+function linkifyBareLocalAppRoutes(markdown: string): string {
+  const lines = markdown.split('\n');
+  let inFence = false;
+  return lines
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) {
+        inFence = !inFence;
+        return line;
+      }
+      if (inFence) return line;
+      return line
+        .split(/(`[^`]*`)/g)
+        .map((segment) =>
+          segment.startsWith('`') && segment.endsWith('`')
+            ? segment
+            : linkifyBareLocalAppRoutesInSegment(segment),
+        )
+        .join('');
+    })
+    .join('\n');
+}
 
 function createMarked(highlight: boolean): Marked {
   const instance = new Marked({ async: false, breaks: true, gfm: true });
@@ -104,7 +163,7 @@ export function renderMarkdown(
 
   const instance =
     options?.highlight === false ? markdownPlain : markdownHighlighted;
-  const rendered = instance.parse(normalized);
+  const rendered = instance.parse(linkifyBareLocalAppRoutes(normalized));
 
   return sanitizeHtml(
     typeof rendered === 'string' ? rendered : String(rendered || ''),

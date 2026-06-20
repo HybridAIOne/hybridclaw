@@ -23,6 +23,24 @@ const HATCHING_CHANNEL_SETUP_LINKS = [
   '- [Set up Telegram](/admin/channels#telegram)',
 ].join('\n');
 
+const HATCHING_CHANNEL_LINKS = [
+  {
+    name: 'WhatsApp',
+    path: '/admin/channels#whatsapp',
+    markdown: '[Set up WhatsApp](/admin/channels#whatsapp)',
+  },
+  {
+    name: 'Discord',
+    path: '/admin/channels#discord',
+    markdown: '[Set up Discord](/admin/channels#discord)',
+  },
+  {
+    name: 'Telegram',
+    path: '/admin/channels#telegram',
+    markdown: '[Set up Telegram](/admin/channels#telegram)',
+  },
+] as const;
+
 function parseJsonObject(value: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(value);
@@ -106,12 +124,18 @@ export function appendHatchingChannelSetupLinks(params: {
   ) {
     return params.resultText;
   }
-  if (
-    params.resultText.includes('/admin/channels#whatsapp') &&
-    params.resultText.includes('/admin/channels#discord') &&
-    params.resultText.includes('/admin/channels#telegram')
-  ) {
-    return params.resultText;
+  let resultText = params.resultText;
+  for (const link of HATCHING_CHANNEL_LINKS) {
+    const escapedPath = link.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    resultText = resultText.replace(
+      new RegExp(`-?\\s*${link.name}:\\s+\`?${escapedPath}\`?`, 'g'),
+      `- ${link.markdown}`,
+    );
   }
-  return `${params.resultText.trimEnd()}\n\n${HATCHING_CHANNEL_SETUP_LINKS}`;
+  if (
+    HATCHING_CHANNEL_LINKS.every((link) => resultText.includes(link.markdown))
+  ) {
+    return resultText;
+  }
+  return `${resultText.trimEnd()}\n\n${HATCHING_CHANNEL_SETUP_LINKS}`;
 }
