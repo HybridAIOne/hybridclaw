@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.25.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.2) - 2026-06-20
+
+### Fixed
+
+- **Cloud chat write authentication**: Cookie-authenticated browser writes now
+  accept browser-confirmed same-origin fetch metadata, restoring cloud chat
+  prompts, slash commands, agent changes, and model changes behind the
+  TLS-terminating proxy.
+
 ## [0.25.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.1) - 2026-06-20
 
 ### Fixed
