@@ -118,6 +118,7 @@ interface WorkspaceOnboardingState {
   version: typeof WORKSPACE_STATE_VERSION;
   bootstrapSeededAt?: string;
   onboardingCompletedAt?: string;
+  hatchingTurnsWithoutMessage?: number;
 }
 
 function resolveWorkspaceStatePath(wsDir: string): string {
@@ -146,6 +147,7 @@ function readWorkspaceOnboardingState(
     const parsed = JSON.parse(raw) as {
       bootstrapSeededAt?: unknown;
       onboardingCompletedAt?: unknown;
+      hatchingTurnsWithoutMessage?: unknown;
     };
     if (!parsed || typeof parsed !== 'object') {
       return { version: WORKSPACE_STATE_VERSION };
@@ -159,6 +161,12 @@ function readWorkspaceOnboardingState(
       onboardingCompletedAt:
         typeof parsed.onboardingCompletedAt === 'string'
           ? parsed.onboardingCompletedAt
+          : undefined,
+      hatchingTurnsWithoutMessage:
+        typeof parsed.hatchingTurnsWithoutMessage === 'number' &&
+        Number.isFinite(parsed.hatchingTurnsWithoutMessage) &&
+        parsed.hatchingTurnsWithoutMessage >= 0
+          ? Math.floor(parsed.hatchingTurnsWithoutMessage)
           : undefined,
     };
   } catch (error) {
@@ -294,33 +302,6 @@ function shouldLoadBootstrapContextFile(params: {
   }
 }
 
-function isWorkspaceFileCustomized(
-  wsDir: string,
-  filename: (typeof WORKSPACE_BOOTSTRAP_FILES)[number],
-): boolean {
-  const filePath = path.join(wsDir, filename);
-  if (!fs.existsSync(filePath)) return false;
-  try {
-    return (
-      normalizeBootstrapComparisonText(fs.readFileSync(filePath, 'utf-8')) !==
-      normalizeBootstrapComparisonText(readTemplateFile(filename))
-    );
-  } catch (error) {
-    logger.warn(
-      { wsDir, file: filename, error },
-      'Failed to compare workspace file against template',
-    );
-    return false;
-  }
-}
-
-function hasWorkspaceUserContent(wsDir: string): boolean {
-  if (fs.existsSync(path.join(wsDir, 'memory'))) return true;
-  if (fs.existsSync(path.join(wsDir, '.git'))) return true;
-  if (fs.existsSync(path.join(wsDir, '.session-transcripts'))) return true;
-  return isWorkspaceFileCustomized(wsDir, 'MEMORY.md');
-}
-
 function readUserMarkdown(wsDir: string): string | null {
   const userPath = path.join(wsDir, 'USER.md');
   if (!fs.existsSync(userPath)) return null;
@@ -330,22 +311,6 @@ function readUserMarkdown(wsDir: string): string | null {
     logger.warn({ wsDir, error }, 'Failed to read USER.md');
     return null;
   }
-}
-
-function readMarkdownSection(content: string, title: string): string {
-  const body: string[] = [];
-  let inSection = false;
-
-  for (const line of content.split(/\r?\n/)) {
-    if (/^##\s+/.test(line)) {
-      if (inSection) break;
-      inSection = line.trim().toLowerCase() === `## ${title.toLowerCase()}`;
-      continue;
-    }
-    if (inSection) body.push(line);
-  }
-
-  return body.join('\n');
 }
 
 function replaceMarkdownSection(
@@ -423,16 +388,7 @@ function replaceMarkdownField(
   );
 }
 
-function sectionHasSuggestedFirstJobs(section: string): boolean {
-  return section.split(/\r?\n/).some((line) => {
-    const trimmed = line.trim();
-    return (
-      /^(?:-\s+|\d+[.)]\s+)\S/.test(trimmed) &&
-      !trimmed.includes('After hatching') &&
-      !trimmed.includes('practical jobs')
-    );
-  });
-}
+const HATCHING_NO_MESSAGE_TURN_LIMIT = 3;
 
 function cleanMarkdownInline(value: string | undefined): string {
   return String(value || '')
@@ -441,104 +397,15 @@ function cleanMarkdownInline(value: string | undefined): string {
     .trim();
 }
 
-function extractSuggestedFirstJobsFromEmail(content: string): string[] {
-  const jobs: string[] = [];
-  for (const line of content.split(/\r?\n/)) {
-    const candidate = line.replace(/^\s*(?:[-*]|\d+[.)])\s+/, '').trim();
-    if (!candidate) continue;
-    if (
-      /^(?:you'?re|your main tools|for release posts|the default tone|the preferred structure)\b/i.test(
-        candidate,
-      )
-    ) {
-      continue;
-    }
-    if (
-      !/\b(?:draft|write|review|triage|summari[sz]e|prepare|monitor|polish|release|post|launch|changelog|update|support|follow)\b/i.test(
-        candidate,
-      )
-    ) {
-      continue;
-    }
-    jobs.push(candidate.replace(/[.。]\s*$/, '.'));
-    if (jobs.length >= 8) break;
-  }
-  return [...new Set(jobs)];
-}
-
-function buildFallbackFirstJobs(emailContent: string | undefined): string[] {
-  const extracted = extractSuggestedFirstJobsFromEmail(emailContent || '');
-  if (extracted.length > 0) return extracted;
-  return [
-    'Draft and polish updates based on the onboarding context.',
-    'Turn recurring work into concise summaries, next steps, and ready-to-review drafts.',
-  ];
-}
-
-export function completeHatchingAfterFirstJobsEmail(params: {
+function completeHatchingByRemovingBootstrap(params: {
   agentId: string;
-  recipient: string;
-  subject?: string;
-  content?: string;
-  handledAt?: string;
+  reason: string;
+  statePatch?: Partial<WorkspaceOnboardingState>;
 }): { completed: boolean; updated: boolean; reason: string } {
-  const recipient = cleanMarkdownInline(params.recipient);
-  if (!/[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/.test(recipient)) {
-    return {
-      completed: false,
-      updated: false,
-      reason: 'recipient is not an email address',
-    };
-  }
-
   const wsDir = agentWorkspaceDir(params.agentId);
   const bootstrapPath = path.join(wsDir, 'BOOTSTRAP.md');
   if (!fs.existsSync(bootstrapPath)) {
     return { completed: false, updated: false, reason: 'BOOTSTRAP.md absent' };
-  }
-
-  const userPath = path.join(wsDir, 'USER.md');
-  const originalUser = readUserMarkdown(wsDir);
-  if (!originalUser) {
-    return { completed: false, updated: false, reason: 'USER.md absent' };
-  }
-
-  const handledAt =
-    cleanMarkdownInline(params.handledAt) || new Date().toISOString();
-  const subject = cleanMarkdownInline(params.subject) || 'First jobs email';
-  let nextUser = replaceMarkdownField(originalUser, 'Email', recipient, {
-    onlyIfMissing: true,
-  });
-
-  const suggestedJobs = readMarkdownSection(nextUser, 'Suggested First Jobs');
-  if (!sectionHasSuggestedFirstJobs(suggestedJobs)) {
-    nextUser = replaceMarkdownSection(
-      nextUser,
-      'Suggested First Jobs',
-      buildFallbackFirstJobs(params.content).map((job) => `- ${job}`),
-    );
-  }
-
-  nextUser = replaceMarkdownSection(nextUser, 'First Jobs Email', [
-    '- **Status:** sent',
-    `- **Recipient:** ${recipient}`,
-    `- **Subject:** ${subject}`,
-    `- **Delivery:** email`,
-    `- **Last handled:** ${handledAt}`,
-  ]);
-
-  let updated = false;
-  if (nextUser !== originalUser) {
-    fs.writeFileSync(userPath, nextUser, 'utf-8');
-    updated = true;
-  }
-
-  if (!hasCompletedHatchingArtifacts(wsDir)) {
-    return {
-      completed: false,
-      updated,
-      reason: 'hatching artifacts are still incomplete',
-    };
   }
 
   const statePath = resolveWorkspaceStatePath(wsDir);
@@ -547,174 +414,116 @@ export function completeHatchingAfterFirstJobsEmail(params: {
     fs.unlinkSync(bootstrapPath);
     writeWorkspaceOnboardingState(statePath, {
       ...state,
+      ...params.statePatch,
       version: WORKSPACE_STATE_VERSION,
       onboardingCompletedAt:
         state.onboardingCompletedAt || new Date().toISOString(),
+      hatchingTurnsWithoutMessage: 0,
     });
   } catch (error) {
     logger.warn(
       { agentId: params.agentId, path: bootstrapPath, error },
-      'Failed to complete hatching after first jobs email',
+      'Failed to complete hatching',
     );
-    return { completed: false, updated, reason: 'cleanup failed' };
+    return { completed: false, updated: false, reason: 'cleanup failed' };
   }
 
-  return { completed: true, updated, reason: 'first jobs email sent' };
+  return { completed: true, updated: true, reason: params.reason };
 }
 
-function hasKnownUserEmail(wsDir: string): boolean {
-  const content = readUserMarkdown(wsDir);
-  if (!content) return false;
-  try {
-    const emailLine = content.match(/^\s*-\s*\*\*Email:\*\*\s*(.+)$/im);
-    const candidate = (emailLine?.[1] || '').trim();
-    if (
-      !candidate ||
-      /\b(?:pending|unknown|to be determined|tbd|none)\b/i.test(candidate)
-    ) {
-      return false;
+export function completeHatchingAfterMessageSend(params: {
+  agentId: string;
+  recipient?: string;
+  subject?: string;
+  handledAt?: string;
+}): { completed: boolean; updated: boolean; reason: string } {
+  const recipient = cleanMarkdownInline(params.recipient);
+  const recipientIsEmail = /[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/.test(recipient);
+  const wsDir = agentWorkspaceDir(params.agentId);
+  const userPath = path.join(wsDir, 'USER.md');
+  const originalUser = readUserMarkdown(wsDir);
+
+  let updated = false;
+  if (originalUser && recipientIsEmail) {
+    const handledAt =
+      cleanMarkdownInline(params.handledAt) || new Date().toISOString();
+    const subject = cleanMarkdownInline(params.subject) || 'First jobs email';
+    let nextUser = replaceMarkdownField(originalUser, 'Email', recipient, {
+      onlyIfMissing: true,
+    });
+    nextUser = replaceMarkdownSection(nextUser, 'First Jobs Email', [
+      '- **Status:** sent',
+      `- **Recipient:** ${recipient}`,
+      `- **Subject:** ${subject}`,
+      `- **Delivery:** email`,
+      `- **Last handled:** ${handledAt}`,
+    ]);
+    if (nextUser !== originalUser) {
+      fs.writeFileSync(userPath, nextUser, 'utf-8');
+      updated = true;
     }
-    return /[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/.test(candidate);
+  }
+
+  const completion = completeHatchingByRemovingBootstrap({
+    agentId: params.agentId,
+    reason: 'message sent',
+  });
+  return { ...completion, updated: completion.updated || updated };
+}
+
+export function recordHatchingTurnWithoutMessage(params: { agentId: string }): {
+  completed: boolean;
+  updated: boolean;
+  reason: string;
+  turnsWithoutMessage: number;
+} {
+  const wsDir = agentWorkspaceDir(params.agentId);
+  const bootstrapPath = path.join(wsDir, 'BOOTSTRAP.md');
+  if (!fs.existsSync(bootstrapPath)) {
+    return {
+      completed: false,
+      updated: false,
+      reason: 'BOOTSTRAP.md absent',
+      turnsWithoutMessage: 0,
+    };
+  }
+
+  const statePath = resolveWorkspaceStatePath(wsDir);
+  const state = readWorkspaceOnboardingState(statePath);
+  const turnsWithoutMessage = (state.hatchingTurnsWithoutMessage || 0) + 1;
+  if (turnsWithoutMessage >= HATCHING_NO_MESSAGE_TURN_LIMIT) {
+    const completion = completeHatchingByRemovingBootstrap({
+      agentId: params.agentId,
+      reason: `no message sent after ${HATCHING_NO_MESSAGE_TURN_LIMIT} hatching turns`,
+    });
+    return { ...completion, turnsWithoutMessage };
+  }
+
+  try {
+    writeWorkspaceOnboardingState(statePath, {
+      ...state,
+      version: WORKSPACE_STATE_VERSION,
+      hatchingTurnsWithoutMessage: turnsWithoutMessage,
+    });
   } catch (error) {
-    logger.warn({ wsDir, error }, 'Failed to parse USER.md email');
-    return false;
-  }
-}
-
-function hasSuggestedFirstJobs(wsDir: string): boolean {
-  const content = readUserMarkdown(wsDir);
-  if (!content) return false;
-  const section = readMarkdownSection(content, 'Suggested First Jobs');
-  return sectionHasSuggestedFirstJobs(section);
-}
-
-function hasHandledFirstJobsEmail(wsDir: string): boolean {
-  const content = readUserMarkdown(wsDir);
-  if (!content) return false;
-  const section = readMarkdownSection(content, 'First Jobs Email');
-  const statusLine = section.match(/^\s*-\s*\*\*Status:\*\*\s*(.+)$/im);
-  const candidate = (statusLine?.[1] || '').trim();
-  return (
-    !!candidate &&
-    !/\b(?:pending|unknown|to be determined|tbd|none)\b/i.test(candidate)
-  );
-}
-
-function hasCompletedHatchingArtifacts(wsDir: string): boolean {
-  return (
-    hasKnownUserEmail(wsDir) &&
-    hasSuggestedFirstJobs(wsDir) &&
-    hasHandledFirstJobsEmail(wsDir)
-  );
-}
-
-function readBootstrapReferenceTimestampMs(params: {
-  wsDir: string;
-  state: WorkspaceOnboardingState;
-}): number | null {
-  const seededAt = Date.parse(String(params.state.bootstrapSeededAt || ''));
-  if (Number.isFinite(seededAt)) return seededAt;
-
-  try {
-    const stat = fs.statSync(path.join(params.wsDir, 'BOOTSTRAP.md'));
-    return Number.isFinite(stat.mtimeMs) ? stat.mtimeMs : null;
-  } catch {
-    return null;
-  }
-}
-
-function hasPathChangedAfter(referenceMs: number, targetPath: string): boolean {
-  try {
-    return fs.statSync(targetPath).mtimeMs > referenceMs;
-  } catch {
-    return false;
-  }
-}
-
-function hasOnboardingEvidenceAfterBootstrap(params: {
-  wsDir: string;
-  state: WorkspaceOnboardingState;
-}): boolean {
-  const referenceMs = readBootstrapReferenceTimestampMs(params);
-  if (referenceMs == null) return false;
-
-  const transcriptPath = path.join(params.wsDir, '.session-transcripts');
-  if (hasPathChangedAfter(referenceMs, transcriptPath)) return true;
-
-  const customizedFiles: Array<(typeof WORKSPACE_BOOTSTRAP_FILES)[number]> = [
-    'USER.md',
-    'MEMORY.md',
-    'IDENTITY.md',
-  ];
-  for (const filename of customizedFiles) {
-    if (!isWorkspaceFileCustomized(params.wsDir, filename)) continue;
-    if (hasPathChangedAfter(referenceMs, path.join(params.wsDir, filename))) {
-      return true;
-    }
-  }
-
-  const contentDirs = ['memory', '.git'];
-  for (const dirname of contentDirs) {
-    if (hasPathChangedAfter(referenceMs, path.join(params.wsDir, dirname))) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function hasInteractiveOnboardingEvidenceAfterBootstrap(params: {
-  wsDir: string;
-  state: WorkspaceOnboardingState;
-}): boolean {
-  const referenceMs = readBootstrapReferenceTimestampMs(params);
-  if (referenceMs == null) return false;
-
-  const interactiveDirs = ['.session-transcripts', 'memory', '.git'];
-  for (const dirname of interactiveDirs) {
-    if (hasPathChangedAfter(referenceMs, path.join(params.wsDir, dirname))) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function looksLikeCompletedWorkspace(
-  wsDir: string,
-  bootstrapExists: boolean,
-  state: WorkspaceOnboardingState,
-): boolean {
-  const customizedIdentity = isWorkspaceFileCustomized(wsDir, 'IDENTITY.md');
-  const customizedUser = isWorkspaceFileCustomized(wsDir, 'USER.md');
-  const userContentPresent = hasWorkspaceUserContent(wsDir);
-  const hatchingArtifactsComplete = hasCompletedHatchingArtifacts(wsDir);
-  const customizedBootstrap =
-    bootstrapExists && isWorkspaceFileCustomized(wsDir, 'BOOTSTRAP.md');
-
-  if (!bootstrapExists) {
-    return (
-      hatchingArtifactsComplete &&
-      (customizedIdentity || customizedUser || userContentPresent)
+    logger.warn(
+      { agentId: params.agentId, error },
+      'Failed to record hatching turn without message send',
     );
+    return {
+      completed: false,
+      updated: false,
+      reason: 'counter update failed',
+      turnsWithoutMessage,
+    };
   }
 
-  if (
-    customizedBootstrap &&
-    !hasInteractiveOnboardingEvidenceAfterBootstrap({ wsDir, state })
-  ) {
-    return false;
-  }
-
-  if (!hasOnboardingEvidenceAfterBootstrap({ wsDir, state })) {
-    return false;
-  }
-
-  return (
-    hatchingArtifactsComplete &&
-    (customizedIdentity || customizedUser) &&
-    userContentPresent
-  );
+  return {
+    completed: false,
+    updated: true,
+    reason: `hatching turn ${turnsWithoutMessage}/${HATCHING_NO_MESSAGE_TURN_LIMIT} without message`,
+    turnsWithoutMessage,
+  };
 }
 
 /**
@@ -831,38 +640,26 @@ export function ensureBootstrapFiles(
   if (bootstrapExists) {
     refreshLegacyDefaultBootstrapIfNeeded({ agentId, bootstrapPath, state });
   }
-  if (bootstrapExists && !state.bootstrapSeededAt) {
-    markState({ bootstrapSeededAt: nowIso() });
-  }
 
-  const shouldCompleteOnboarding =
-    Boolean(state.onboardingCompletedAt) ||
-    looksLikeCompletedWorkspace(wsDir, bootstrapExists, state);
-
-  if (shouldCompleteOnboarding) {
+  if (state.onboardingCompletedAt) {
     if (bootstrapExists) {
       fs.unlinkSync(bootstrapPath);
       bootstrapExists = false;
       logger.debug(
         { agentId, path: bootstrapPath },
-        'Removed stale BOOTSTRAP.md',
+        'Removed completed BOOTSTRAP.md',
       );
     }
-    if (!state.onboardingCompletedAt) {
-      markState({ onboardingCompletedAt: nowIso() });
+  } else if (bootstrapExists) {
+    if (!state.bootstrapSeededAt) {
+      markState({ bootstrapSeededAt: nowIso() });
     }
-  }
-
-  if (
-    !state.onboardingCompletedAt &&
-    state.bootstrapSeededAt &&
-    !bootstrapExists &&
-    hasCompletedHatchingArtifacts(wsDir)
-  ) {
-    markState({ onboardingCompletedAt: nowIso() });
-  }
-
-  if (!state.onboardingCompletedAt && !bootstrapExists) {
+  } else if (state.bootstrapSeededAt || !workspaceInitialized) {
+    markState({
+      onboardingCompletedAt: nowIso(),
+      hatchingTurnsWithoutMessage: 0,
+    });
+  } else {
     const templatePath = path.join(TEMPLATES_DIR, 'BOOTSTRAP.md');
     if (fs.existsSync(templatePath)) {
       fs.copyFileSync(templatePath, bootstrapPath);
@@ -1135,31 +932,7 @@ export function isBootstrapping(agentId: string): boolean {
   const state = readWorkspaceOnboardingState(statePath);
   if (state.onboardingCompletedAt) return false;
 
-  const bootstrapPath = path.join(wsDir, 'BOOTSTRAP.md');
-  const bootstrapExists = fs.existsSync(bootstrapPath);
-  if (!bootstrapExists) return false;
-
-  if (!looksLikeCompletedWorkspace(wsDir, true, state)) {
-    return true;
-  }
-
-  try {
-    fs.unlinkSync(bootstrapPath);
-    writeWorkspaceOnboardingState(statePath, {
-      ...state,
-      version: WORKSPACE_STATE_VERSION,
-      onboardingCompletedAt:
-        state.onboardingCompletedAt || new Date().toISOString(),
-    });
-  } catch (error) {
-    logger.warn(
-      { agentId, path: bootstrapPath, error },
-      'Failed to clean up stale BOOTSTRAP.md while checking bootstrapping state',
-    );
-    return true;
-  }
-
-  return false;
+  return fs.existsSync(path.join(wsDir, 'BOOTSTRAP.md'));
 }
 
 export function resolveStartupBootstrapFile(

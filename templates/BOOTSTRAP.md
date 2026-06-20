@@ -125,9 +125,13 @@ Then create and send a tailored "first jobs" email:
 - Treat ordinary email sending as an external action. The first hatching
   greeting email is the exception: send it directly once the user has provided
   their email address during onboarding.
-- Do not delete `BOOTSTRAP.md` until `USER.md` has a non-pending email address,
-  suggested first jobs, and a non-pending `First Jobs Email` status.
+- Hatching completion is observed by the host. A successful `message` send while
+  this file is active completes hatching and the host removes `BOOTSTRAP.md`.
+- If no message can be sent, keep the conversation useful and concise. The host
+  will stop hatching after a few turns rather than looping forever.
 
 ## When You're Done
 
-Delete this file. You do not need the hatching script anymore.
+You do not need to infer completion from file contents. If you finish without a
+message send, delete this file yourself; otherwise the host removes it after the
+send succeeds.

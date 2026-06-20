@@ -10,6 +10,7 @@ const makeTempDir = useTempDir();
 function readWorkspaceState(workspaceDir: string): {
   bootstrapSeededAt?: string;
   onboardingCompletedAt?: string;
+  hatchingTurnsWithoutMessage?: number;
 } {
   const statePath = path.join(
     workspaceDir,
@@ -19,6 +20,7 @@ function readWorkspaceState(workspaceDir: string): {
   return JSON.parse(fs.readFileSync(statePath, 'utf-8')) as {
     bootstrapSeededAt?: string;
     onboardingCompletedAt?: string;
+    hatchingTurnsWithoutMessage?: number;
   };
 }
 
@@ -378,7 +380,7 @@ describe('workspace bootstrap lifecycle', () => {
     expect(workspace.hasActionableHeartbeatFile('agent-test')).toBe(true);
   });
 
-  test('removes stale BOOTSTRAP.md when the workspace already looks completed', async () => {
+  test('keeps BOOTSTRAP.md until a deterministic completion signal', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
     vi.stubEnv('HOME', homeDir);
@@ -411,13 +413,13 @@ describe('workspace bootstrap lifecycle', () => {
 
     workspace.ensureBootstrapFiles('agent-test');
 
-    expect(fs.existsSync(bootstrapPath)).toBe(false);
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
     const state = readWorkspaceState(workspaceDir);
     expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
-    expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.onboardingCompletedAt).toBeUndefined();
   });
 
-  test('removes stale BOOTSTRAP.md after identity setup once transcripts exist', async () => {
+  test('removes BOOTSTRAP.md after a successful hatching message send', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
     vi.stubEnv('HOME', homeDir);
@@ -451,12 +453,21 @@ describe('workspace bootstrap lifecycle', () => {
       'utf-8',
     );
 
-    workspace.ensureBootstrapFiles('agent-test');
+    const completion = workspace.completeHatchingAfterMessageSend({
+      agentId: 'agent-test',
+      recipient: 'ben@example.com',
+      subject: 'Welcome',
+    });
 
+    expect(completion).toMatchObject({
+      completed: true,
+      reason: 'message sent',
+    });
     expect(fs.existsSync(bootstrapPath)).toBe(false);
     const state = readWorkspaceState(workspaceDir);
     expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
     expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.hatchingTurnsWithoutMessage).toBe(0);
   });
 
   test('keeps BOOTSTRAP.md while the first jobs email is still pending', async () => {
@@ -550,6 +561,51 @@ describe('workspace bootstrap lifecycle', () => {
     const state = readWorkspaceState(workspaceDir);
     expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
     expect(state.onboardingCompletedAt).toBeUndefined();
+  });
+
+  test('removes BOOTSTRAP.md after three hatching turns without a message send', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+    expect(
+      workspace.recordHatchingTurnWithoutMessage({ agentId: 'agent-test' }),
+    ).toMatchObject({
+      completed: false,
+      turnsWithoutMessage: 1,
+    });
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+    expect(
+      workspace.recordHatchingTurnWithoutMessage({ agentId: 'agent-test' }),
+    ).toMatchObject({
+      completed: false,
+      turnsWithoutMessage: 2,
+    });
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+    expect(
+      workspace.recordHatchingTurnWithoutMessage({ agentId: 'agent-test' }),
+    ).toMatchObject({
+      completed: true,
+      reason: 'no message sent after 3 hatching turns',
+      turnsWithoutMessage: 3,
+    });
+
+    expect(fs.existsSync(bootstrapPath)).toBe(false);
+    const state = readWorkspaceState(workspaceDir);
+    expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.hatchingTurnsWithoutMessage).toBe(0);
   });
 
   test('symlinks workspace node_modules to the container app deps when absent', async () => {
@@ -720,7 +776,7 @@ describe('workspace bootstrap lifecycle', () => {
     expect(state.onboardingCompletedAt).toBeUndefined();
   });
 
-  test('removes a package-provided custom BOOTSTRAP.md after onboarding updates the workspace', async () => {
+  test('keeps a package-provided custom BOOTSTRAP.md until a deterministic completion signal', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
     vi.stubEnv('HOME', homeDir);
@@ -760,9 +816,9 @@ describe('workspace bootstrap lifecycle', () => {
 
     workspace.ensureBootstrapFiles('agent-test');
 
-    expect(fs.existsSync(bootstrapPath)).toBe(false);
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
     const state = readWorkspaceState(workspaceDir);
     expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
-    expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.onboardingCompletedAt).toBeUndefined();
   });
 });

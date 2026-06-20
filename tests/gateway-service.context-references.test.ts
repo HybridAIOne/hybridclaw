@@ -308,11 +308,11 @@ test('handleGatewayMessage completes hatching after the first jobs email send', 
             to: 'ben@example.com',
             subject: 'HybridClaw release support is ready',
             content: [
-              'Hi Ben,',
+              '你好 Ben,',
               '',
-              'I can help with these first jobs:',
-              '- Draft technical HybridClaw release posts.',
-              '- Review pull requests and summarize CI status.',
+              '我可以先帮你做这些事：',
+              '- 起草 HybridClaw 发布帖。',
+              '- 检查 PR 并总结 CI 状态。',
             ].join('\n'),
           }),
           result: JSON.stringify({
@@ -375,7 +375,7 @@ test('handleGatewayMessage completes hatching after the first jobs email send', 
   expect(userMarkdown).toContain(
     '- **Subject:** HybridClaw release support is ready',
   );
-  expect(userMarkdown).toContain('- Draft technical HybridClaw release posts.');
+  expect(userMarkdown).not.toContain('- 起草 HybridClaw 发布帖。');
 
   await handleGatewayMessage({
     sessionId: 'session-onboarding-email-complete',
@@ -394,6 +394,86 @@ test('handleGatewayMessage completes hatching after the first jobs email send', 
   ).toBe('gpt-5.5');
   expect(
     (runAgentMock.mock.calls[1]?.[0] as { model?: string } | undefined)?.model,
+  ).toBe('gpt-5-mini');
+});
+
+test('handleGatewayMessage completes hatching after three turns without a message send', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Still learning.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  updateRuntimeConfig((draft) => {
+    draft.hybridai.defaultModel = 'gpt-5-mini';
+    draft.hybridai.onboardingModel = 'gpt-5.5';
+  });
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+
+  initDatabase({ quiet: true });
+  ensureBootstrapFiles('research');
+
+  const workspaceDir = agentWorkspaceDir('research');
+  const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+  const statePath = path.join(
+    workspaceDir,
+    '.hybridclaw',
+    'workspace-state.json',
+  );
+  expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+  for (const content of ['First hatching turn.', 'Second turn.', 'Third turn.']) {
+    await handleGatewayMessage({
+      sessionId: 'session-onboarding-no-message-fallback',
+      guildId: null,
+      channelId: 'web',
+      userId: 'user-1',
+      username: 'user',
+      agentId: 'research',
+      content,
+      chatbotId: 'bot-1',
+    });
+  }
+
+  expect(fs.existsSync(bootstrapPath)).toBe(false);
+  expect(JSON.parse(fs.readFileSync(statePath, 'utf-8'))).toMatchObject({
+    hatchingTurnsWithoutMessage: 0,
+  });
+
+  await handleGatewayMessage({
+    sessionId: 'session-onboarding-no-message-fallback',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    agentId: 'research',
+    content: 'Post hatching.',
+    chatbotId: 'bot-1',
+  });
+
+  expect(runAgentMock).toHaveBeenCalledTimes(4);
+  expect(
+    (runAgentMock.mock.calls[0]?.[0] as { model?: string } | undefined)?.model,
+  ).toBe('gpt-5.5');
+  expect(
+    (runAgentMock.mock.calls[1]?.[0] as { model?: string } | undefined)?.model,
+  ).toBe('gpt-5.5');
+  expect(
+    (runAgentMock.mock.calls[2]?.[0] as { model?: string } | undefined)?.model,
+  ).toBe('gpt-5.5');
+  expect(
+    (runAgentMock.mock.calls[3]?.[0] as { model?: string } | undefined)?.model,
   ).toBe('gpt-5-mini');
 });
 

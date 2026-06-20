@@ -1,10 +1,12 @@
 import type { ToolExecution } from '../types/execution.js';
-import { completeHatchingAfterFirstJobsEmail } from '../workspace.js';
+import {
+  completeHatchingAfterMessageSend,
+  recordHatchingTurnWithoutMessage,
+} from '../workspace.js';
 
 type MessageSend = {
-  recipient: string;
+  recipient?: string;
   subject?: string;
-  content?: string;
 };
 
 function parseJsonObject(value: string): Record<string, unknown> | null {
@@ -22,10 +24,10 @@ function readString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function firstEmailCandidate(...values: unknown[]): string {
+function firstRecipientCandidate(...values: unknown[]): string {
   for (const value of values) {
     const candidate = readString(value);
-    if (/[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/.test(candidate)) return candidate;
+    if (candidate) return candidate;
   }
   return '';
 }
@@ -47,13 +49,12 @@ function readSuccessfulMessageSend(
   const result = parseJsonObject(execution.result);
   if (result && result.ok === false) return null;
 
-  const recipient = firstEmailCandidate(
+  const recipient = firstRecipientCandidate(
     args.to,
     args.channelId,
     args.target,
     result?.channelId,
   );
-  if (!recipient) return null;
 
   const content = readString(args.content);
   const subject =
@@ -64,28 +65,33 @@ function readSuccessfulMessageSend(
   return {
     recipient,
     subject,
-    content,
   };
 }
 
-export function completeBootstrapAfterFirstJobsEmailTool(params: {
+export function recordBootstrapHatchingTurnResult(params: {
   agentId: string;
   bootstrapFile: 'BOOTSTRAP.md' | 'OPENING.md' | null;
   toolExecutions: ToolExecution[];
   handledAt?: string;
-}): { completed: boolean; updated: boolean; reason: string } | null {
+}): {
+  completed: boolean;
+  updated: boolean;
+  reason: string;
+  turnsWithoutMessage?: number;
+} | null {
   if (params.bootstrapFile !== 'BOOTSTRAP.md') return null;
 
   const send = params.toolExecutions
     .map(readSuccessfulMessageSend)
     .find((candidate): candidate is MessageSend => Boolean(candidate));
-  if (!send) return null;
+  if (!send) {
+    return recordHatchingTurnWithoutMessage({ agentId: params.agentId });
+  }
 
-  return completeHatchingAfterFirstJobsEmail({
+  return completeHatchingAfterMessageSend({
     agentId: params.agentId,
     recipient: send.recipient,
     subject: send.subject,
-    content: send.content,
     handledAt: params.handledAt,
   });
 }
