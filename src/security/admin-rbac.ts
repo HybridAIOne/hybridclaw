@@ -270,6 +270,13 @@ export function collectAdminActionClaims(
   payload: Record<string, unknown> | null,
 ): Set<string> | null {
   if (!payload) return null;
+  const hasRbacClaims =
+    Object.hasOwn(payload, 'actions') ||
+    Object.hasOwn(payload, 'scope') ||
+    Object.hasOwn(payload, 'role') ||
+    Object.hasOwn(payload, 'roles');
+  if (!hasRbacClaims) return null;
+
   const claims = new Set<string>();
 
   addStringClaims(claims, readClaimValue(payload, 'actions'), /[,\s]+/);
@@ -305,10 +312,8 @@ export function isAdminActionAllowed(
 ): boolean {
   if (!payload) return true;
   const claims = collectAdminActionClaims(payload);
-  return (
-    claims?.has(action) === true ||
-    (claims ? hasWildcardClaim(claims, action) : false)
-  );
+  if (!claims) return true;
+  return claims.has(action) === true || hasWildcardClaim(claims, action);
 }
 
 function actionForReadWriteDelete(

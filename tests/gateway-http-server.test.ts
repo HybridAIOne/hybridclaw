@@ -2829,6 +2829,70 @@ describe('gateway HTTP server', () => {
     expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
   });
 
+  test('allows signed session cookie API mutations with forwarded public origin', async () => {
+    const authSecret = 'api-session-forwarded-origin-auth-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          role: 'admin.config_manager',
+        }),
+        host: '127.0.0.1:9090',
+        origin: 'https://u-example.sbx.hybridai.one',
+        'x-forwarded-host': 'u-example.sbx.hybridai.one',
+        'x-forwarded-proto': 'https',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
+  });
+
+  test('rejects signed session cookie mutations with mismatched forwarded origin', async () => {
+    const authSecret = 'api-session-forwarded-origin-mismatch-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          role: 'admin.config_manager',
+        }),
+        host: '127.0.0.1:9090',
+        origin: 'https://evil.example.test',
+        'x-forwarded-host': 'u-example.sbx.hybridai.one',
+        'x-forwarded-proto': 'https',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(state.reloadRuntimeConfig).not.toHaveBeenCalled();
+  });
+
   test('rejects forwarded loopback headers from unauthenticated external sockets', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -5481,6 +5545,30 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual({ error: 'Forbidden.' });
   });
 
+  test('allows unscoped HybridAI sessions as full admin sessions', async () => {
+    const authSecret = 'admin-rbac-unscoped-auth-secret';
+    const state = await importFreshHealth({ authSecret, webApiToken: 'web' });
+    const req = makeRequest({
+      url: '/api/admin/skills',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          sub: 'user-1',
+        }),
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(state.getGatewayAdminSkills).toHaveBeenCalledTimes(1);
+  });
+
   test('allows scoped admin sessions with a matching wildcard route action', async () => {
     const authSecret = 'admin-rbac-allow-auth-secret';
     const state = await importFreshHealth({ authSecret });
@@ -5632,7 +5720,7 @@ describe('gateway HTTP server', () => {
     expect(res.body).not.toContain('super-secret');
   });
 
-  test('denies admin secret metadata sessions without action claims', async () => {
+  test('denies scoped admin secret metadata sessions without secret action claims', async () => {
     const authSecret = 'secret-list-deny-auth-secret';
     const state = await importFreshHealth({ authSecret });
     const req = makeRequest({
@@ -5641,6 +5729,7 @@ describe('gateway HTTP server', () => {
         cookie: makeSessionCookie(authSecret, {
           sessionId: 'admin-session-1',
           actor: 'admin-user',
+          actions: ['admin.overview.read'],
         }),
       },
     });

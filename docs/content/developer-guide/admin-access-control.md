@@ -10,8 +10,10 @@ HybridClaw admin access has two compatibility modes:
 
 - Legacy bearer tokens (`WEB_API_TOKEN` and `GATEWAY_API_TOKEN`) are treated as
   broad admin credentials.
-- Scoped admin sessions are restricted by the `actions`, `scope`, `role`, and
-  `roles` claims in the signed session payload.
+- HybridAI-launched sessions without RBAC claims are treated as full admin
+  sessions for compatibility.
+- Scoped admin sessions are restricted only when the signed session payload
+  includes `actions`, `scope`, `role`, or `roles` claims.
 
 Browser admin surfaces prefer HttpOnly session cookies. If a bearer token must
 be entered manually, the console stores it in `sessionStorage` for the current
