@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.25.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.1) - 2026-06-20
+
+### Fixed
+
+- **HybridAI cloud admin sessions**: HybridAI-launched sessions without scoped
+  RBAC claims are treated as full admin sessions for compatibility, explicit
+  scoped sessions remain restricted, and cookie-authenticated admin mutations
+  respect forwarded public origins behind the cloud proxy.
+
 ## [0.25.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.0) - 2026-06-20
 
 ### Added
