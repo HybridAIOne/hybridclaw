@@ -90,6 +90,47 @@ test('agent create seeds bootstrap workspace files and explains hatching trigger
   );
 });
 
+test('agent create seeds BOOTSTRAP.md when runtime metadata exists first', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+
+  initDatabase({ quiet: true });
+
+  const workspacePath = agentWorkspaceDir('bob');
+  fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspacePath, '.hybridclaw', 'cloud-memory.json'),
+    '{}\n',
+    'utf-8',
+  );
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-agent-create-runtime-metadata',
+    guildId: null,
+    channelId: 'web',
+    args: ['agent', 'create', 'bob'],
+  });
+
+  expect(result.kind).toBe('info');
+  expect(fs.existsSync(path.join(workspacePath, 'BOOTSTRAP.md'))).toBe(true);
+  const statePath = path.join(
+    workspacePath,
+    '.hybridclaw',
+    'workspace-state.json',
+  );
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf-8')) as {
+    bootstrapSeededAt?: string;
+    onboardingCompletedAt?: string;
+  };
+  expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+  expect(state.onboardingCompletedAt).toBeUndefined();
+});
+
 test('agent switch starts active BOOTSTRAP hatching in a reused session', async () => {
   setupHome();
 

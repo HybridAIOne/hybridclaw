@@ -240,6 +240,32 @@ describe('workspace bootstrap lifecycle', () => {
     expect(files.some((file) => file.name === 'TASK_IDEAS.md')).toBe(false);
   });
 
+  test('seeds BOOTSTRAP.md when only runtime metadata exists first', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    fs.mkdirSync(path.join(workspaceDir, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceDir, '.hybridclaw', 'cloud-memory.json'),
+      '{}\n',
+      'utf-8',
+    );
+
+    const result = workspace.ensureBootstrapFiles('agent-test');
+
+    expect(result.workspaceInitialized).toBe(true);
+    expect(fs.existsSync(path.join(workspaceDir, 'BOOTSTRAP.md'))).toBe(true);
+    const state = readWorkspaceState(workspaceDir);
+    expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.onboardingCompletedAt).toBeUndefined();
+  });
+
   test('refreshes legacy default hatching bootstrap instructions', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');

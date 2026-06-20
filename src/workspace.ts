@@ -128,7 +128,12 @@ function isWorkspaceEffectivelyEmpty(wsDir: string): boolean {
   try {
     const entries = fs
       .readdirSync(wsDir)
-      .filter((entry) => entry !== '.DS_Store' && entry !== 'Thumbs.db');
+      .filter(
+        (entry) =>
+          entry !== '.DS_Store' &&
+          entry !== 'Thumbs.db' &&
+          entry !== WORKSPACE_STATE_DIRNAME,
+      );
     return entries.length === 0;
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
