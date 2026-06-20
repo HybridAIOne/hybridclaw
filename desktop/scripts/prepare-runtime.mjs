@@ -1,15 +1,21 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+const RUNTIME_CACHE_VERSION = 2;
 const currentFile = fileURLToPath(import.meta.url);
 const scriptsDir = path.dirname(currentFile);
 const desktopDir = path.resolve(scriptsDir, '..');
 const repoRoot = path.resolve(desktopDir, '..');
 const runtimeBinDir = path.join(desktopDir, 'build', 'runtime-bin');
 const runtimeDepsDir = path.join(desktopDir, 'build', 'runtime-deps');
+const runtimeCacheManifestPath = path.join(
+  runtimeDepsDir,
+  '.hybridclaw-runtime-cache.json',
+);
 const rootNodeModulesSource = path.join(repoRoot, 'node_modules');
 const rootNodeModulesTarget = path.join(runtimeDepsDir, 'root-node_modules');
 const containerNodeModulesSource = path.join(
@@ -22,6 +28,19 @@ const containerNodeModulesTarget = path.join(
   'container-node_modules',
 );
 const bundledNodePath = path.join(runtimeBinDir, 'node');
+const runtimeTarget = {
+  platform:
+    process.env.HYBRIDCLAW_DESKTOP_TARGET_PLATFORM ||
+    process.env.npm_config_platform ||
+    process.platform,
+  arch:
+    process.env.HYBRIDCLAW_DESKTOP_TARGET_ARCH ||
+    process.env.npm_config_arch ||
+    process.arch,
+};
+const runtimeCacheDisabled = ['0', 'false', 'off'].includes(
+  String(process.env.HYBRIDCLAW_DESKTOP_RUNTIME_CACHE || '').toLowerCase(),
+);
 
 function readDependencyTree(cwd) {
   const result = spawnSync(
@@ -115,15 +134,18 @@ function matchesConstraint(values, current) {
   return positives.length === 0 || positives.includes(current);
 }
 
-async function shouldIncludePackage(packagePath) {
+export async function shouldIncludePackage(
+  packagePath,
+  target = runtimeTarget,
+) {
   const packageJsonPath = path.join(packagePath, 'package.json');
 
   try {
     const raw = await fs.readFile(packageJsonPath, 'utf8');
     const parsed = JSON.parse(raw);
     return (
-      matchesConstraint(parsed.os, process.platform) &&
-      matchesConstraint(parsed.cpu, process.arch)
+      matchesConstraint(parsed.os, target.platform) &&
+      matchesConstraint(parsed.cpu, target.arch)
     );
   } catch {
     return true;
@@ -132,34 +154,80 @@ async function shouldIncludePackage(packagePath) {
 
 /** Packages excluded from the runtime bundle (browser-only / unused). */
 const EXCLUDED_PACKAGES = new Set(['onnxruntime-web']);
+const EXCLUDED_SCOPES = new Set(['@types']);
 
 /**
  * Directory basenames stripped from every copied package to shed test fixtures
  * and other files that aren't needed at runtime.
  */
-const STRIPPED_DIRS = new Set(['test', 'tests', '__tests__']);
+const STRIPPED_DIRS = new Set([
+  '.github',
+  '__tests__',
+  'benchmark',
+  'benchmarks',
+  'coverage',
+  'example',
+  'examples',
+  'test',
+  'tests',
+]);
+const STRIPPED_FILE_SUFFIXES = [
+  '.d.ts',
+  '.d.cts',
+  '.d.mts',
+  '.js.map',
+  '.cjs.map',
+  '.mjs.map',
+  '.map',
+  '.tsbuildinfo',
+];
 
-function shouldCopyEntry(src) {
+function isDirectPackageChild(src, packagePath) {
+  return path.dirname(src) === packagePath;
+}
+
+function shouldCopyOnnxRuntimeEntry(src, packagePath, target) {
+  const relativePath = path.relative(packagePath, src);
+  if (!relativePath) return true;
+
+  const parts = relativePath.split(path.sep);
+  if (parts[0] !== 'bin' || parts[1] !== 'napi-v3') return true;
+
+  if (parts.length <= 2) return true;
+  if (parts[2] !== target.platform) return false;
+
+  if (parts.length === 3) return true;
+  return parts[3] === target.arch;
+}
+
+export function shouldCopyEntry(src, packagePath, target = runtimeTarget) {
   const base = path.basename(src);
-  if (base.endsWith('.js.map')) return false;
+  if (STRIPPED_FILE_SUFFIXES.some((suffix) => base.endsWith(suffix))) {
+    return false;
+  }
   if (STRIPPED_DIRS.has(base)) {
-    // Only strip when the directory sits directly inside a package (so the
-    // grandparent is either `node_modules` or a scoped-package directory like
-    // `@scope`). Never strip test dirs inside deeply-nested paths, which may
-    // be runtime-required.
-    const grandparent = path.basename(path.dirname(path.dirname(src)));
-    if (grandparent === 'node_modules' || grandparent.startsWith('@')) {
+    // Only strip top-level package dirs. Deeply nested directories can be
+    // runtime data for some packages.
+    if (isDirectPackageChild(src, packagePath)) {
       return false;
     }
+  }
+  if (getPackageName(packagePath) === 'onnxruntime-node') {
+    return shouldCopyOnnxRuntimeEntry(src, packagePath, target);
   }
   return true;
 }
 
-function isExcludedPackage(packagePath) {
+function getPackageName(packagePath) {
   const name = path.basename(packagePath);
   const parent = path.basename(path.dirname(packagePath));
-  const fullName = parent.startsWith('@') ? `${parent}/${name}` : name;
-  return EXCLUDED_PACKAGES.has(fullName);
+  return parent.startsWith('@') ? `${parent}/${name}` : name;
+}
+
+export function isExcludedPackage(packagePath) {
+  const fullName = getPackageName(packagePath);
+  const scope = fullName.startsWith('@') ? fullName.split('/')[0] : '';
+  return EXCLUDED_PACKAGES.has(fullName) || EXCLUDED_SCOPES.has(scope);
 }
 
 async function copyPackageDir(sourceDir, targetDir, packagePath) {
@@ -172,7 +240,7 @@ async function copyPackageDir(sourceDir, targetDir, packagePath) {
   await fs.cp(packagePath, targetPath, {
     recursive: true,
     dereference: true,
-    filter: shouldCopyEntry,
+    filter: (src) => shouldCopyEntry(src, packagePath),
   });
 }
 
@@ -224,7 +292,99 @@ async function stageInstalledNodeModules(sourceDir, targetDir) {
   }
 }
 
+async function readOptionalFileDigest(filePath) {
+  try {
+    const buffer = await fs.readFile(filePath);
+    return createHash('sha256').update(buffer).digest('hex');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function readFileIdentity(filePath) {
+  const stats = await fs.stat(filePath);
+  return {
+    path: filePath,
+    size: stats.size,
+    mtimeMs: stats.mtimeMs,
+  };
+}
+
+async function buildRuntimeCacheKey() {
+  const files = [
+    path.join(repoRoot, 'package.json'),
+    path.join(repoRoot, 'package-lock.json'),
+    path.join(repoRoot, 'npm-shrinkwrap.json'),
+    path.join(repoRoot, 'container', 'package.json'),
+    path.join(repoRoot, 'container', 'package-lock.json'),
+    path.join(repoRoot, 'container', 'npm-shrinkwrap.json'),
+    path.join(desktopDir, 'package.json'),
+    currentFile,
+  ];
+  const fileDigests = [];
+
+  for (const filePath of files) {
+    fileDigests.push({
+      path: path.relative(repoRoot, filePath),
+      sha256: await readOptionalFileDigest(filePath),
+    });
+  }
+
+  const payload = {
+    version: RUNTIME_CACHE_VERSION,
+    target: runtimeTarget,
+    node: {
+      version: process.version,
+      executable: await readFileIdentity(process.execPath),
+    },
+    files: fileDigests,
+  };
+
+  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+async function runtimeStageIsCurrent(cacheKey) {
+  try {
+    const raw = await fs.readFile(runtimeCacheManifestPath, 'utf8');
+    const manifest = JSON.parse(raw);
+    if (manifest.cacheKey !== cacheKey) return false;
+
+    await fs.access(bundledNodePath);
+    await fs.access(rootNodeModulesTarget);
+    await fs.access(containerNodeModulesTarget);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function writeRuntimeCacheManifest(cacheKey) {
+  await fs.mkdir(runtimeDepsDir, { recursive: true });
+  await fs.writeFile(
+    runtimeCacheManifestPath,
+    `${JSON.stringify(
+      {
+        cacheKey,
+        generatedAt: new Date().toISOString(),
+        target: runtimeTarget,
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
+}
+
 async function main() {
+  const cacheKey = await buildRuntimeCacheKey();
+  if (!runtimeCacheDisabled && (await runtimeStageIsCurrent(cacheKey))) {
+    console.log(
+      `Desktop runtime cache is current for ${runtimeTarget.platform}/${runtimeTarget.arch}.`,
+    );
+    return;
+  }
+
   await fs.access(rootNodeModulesSource);
   await fs.access(containerNodeModulesSource);
 
@@ -241,9 +401,12 @@ async function main() {
     containerNodeModulesSource,
     containerNodeModulesTarget,
   );
+  await writeRuntimeCacheManifest(cacheKey);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === currentFile) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}
