@@ -2790,6 +2790,13 @@ function normalizeAgentConfig(
       allowEmpty: true,
     },
   );
+  const emptyChatHeader = normalizeString(
+    value.emptyChatHeader,
+    fallback?.emptyChatHeader ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
   const model = normalizeAgentModelConfig(value.model, fallback?.model);
   const workspace = normalizeString(
     value.workspace,
@@ -2867,7 +2874,7 @@ function normalizeAgentConfig(
     id,
     ...identityFields,
     ...(name ? { name } : {}),
-    ...buildOptionalAgentPresentation(displayName, imageAsset),
+    ...buildOptionalAgentPresentation(displayName, imageAsset, emptyChatHeader),
     ...(model ? { model } : {}),
     ...(skills !== undefined ? { skills } : {}),
     ...(workspace ? { workspace } : {}),

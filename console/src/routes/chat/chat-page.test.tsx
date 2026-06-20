@@ -1630,6 +1630,25 @@ describe('ChatPage', () => {
     expect(fetchAppStatusMock).not.toHaveBeenCalled();
   });
 
+  it('uses the active agent empty chat header when configured', async () => {
+    fetchAgentListMock.mockResolvedValue([
+      {
+        id: 'main',
+        name: 'Assistant',
+        emptyChatHeader: 'Ready to tune the research engine?',
+      },
+      { id: 'charly', name: 'Charly' },
+    ]);
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [],
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Ready to tune the research engine?'));
+  });
+
   it('collapses to the icon rail and exposes an Expand trigger that re-opens it', async () => {
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',

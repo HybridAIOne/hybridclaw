@@ -998,7 +998,8 @@ export async function packAgent(
       : {}),
     createdAt: options.createdAt ?? new Date().toISOString(),
     ...(normalizeString(resolved.displayName) ||
-    normalizeString(resolved.imageAsset)
+    normalizeString(resolved.imageAsset) ||
+    normalizeString(resolved.emptyChatHeader)
       ? {
           presentation: {
             ...(normalizeString(resolved.displayName)
@@ -1006,6 +1007,9 @@ export async function packAgent(
               : {}),
             ...(normalizeString(resolved.imageAsset)
               ? { imageAsset: normalizeString(resolved.imageAsset) }
+              : {}),
+            ...(normalizeString(resolved.emptyChatHeader)
+              ? { emptyChatHeader: normalizeString(resolved.emptyChatHeader) }
               : {}),
           },
         }
@@ -1245,6 +1249,9 @@ export async function unpackAgent(
         : {}),
       ...(manifest.presentation?.imageAsset
         ? { imageAsset: manifest.presentation.imageAsset }
+        : {}),
+      ...(manifest.presentation?.emptyChatHeader
+        ? { emptyChatHeader: manifest.presentation.emptyChatHeader }
         : {}),
       ...(manifest.agent?.model ? { model: manifest.agent.model } : {}),
       ...(manifest.agent?.skills !== undefined

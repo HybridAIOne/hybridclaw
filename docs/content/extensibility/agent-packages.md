@@ -109,10 +109,11 @@ payload can update only markdown without clearing the model, bot binding, skill
 allowlist, or RAG setting. Passing an empty value for a supported agent field
 clears that field.
 
-When `imageAsset` is an `http`/`https` URL or a local file path, `agent config`
-imports the image into the target workspace `assets/` directory and stores that
-workspace-relative path in the agent registry. Existing workspace-relative
-`imageAsset` paths are preserved as provided.
+`emptyChatHeader` sets the heading shown when the agent is selected in an empty
+chat. When `imageAsset` is an `http`/`https` URL or a local file path, `agent
+config` imports the image into the target workspace `assets/` directory and
+stores that workspace-relative path in the agent registry. Existing
+workspace-relative `imageAsset` paths are preserved as provided.
 
 Use `.claw` archives instead when you need portability, arbitrary workspace
 files, bundled workspace skills, bundled home plugins, or install-time external
@@ -246,6 +247,7 @@ interface ClawManifest {
   presentation?: {
     displayName?: string;
     imageAsset?: string;
+    emptyChatHeader?: string;
   };
 
   agent?: {

@@ -397,11 +397,12 @@ for the same archive flows against a running gateway.
 pin an agent explicitly.
 
 `agent config` is the JSON provisioning path for generated agents. It upserts
-agent metadata directly, can overwrite top-level workspace markdown files, and
-imports `imageAsset` URLs or local file paths into the agent workspace:
+agent metadata directly, can overwrite top-level workspace markdown files, can
+set the empty-chat `emptyChatHeader`, and imports `imageAsset` URLs or local
+file paths into the agent workspace:
 
 ```bash
-hybridclaw agent config '{"id":"felix","model":"gpt-5.4-mini","imageAsset":"https://example.com/felix.jpg","markdown":{"IDENTITY.md":"# Felix\n"}}' --activate
+hybridclaw agent config '{"id":"felix","model":"gpt-5.4-mini","emptyChatHeader":"Ready to clear the support queue?","imageAsset":"https://example.com/felix.jpg","markdown":{"IDENTITY.md":"# Felix\n"}}' --activate
 ```
 
 Proxy agents use the same command with a per-agent `proxy` object:

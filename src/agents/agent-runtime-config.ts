@@ -33,6 +33,7 @@ function sameAgentConfig(a: AgentConfig | undefined, b: AgentConfig): boolean {
     a.name === b.name &&
     a.displayName === b.displayName &&
     a.imageAsset === b.imageAsset &&
+    a.emptyChatHeader === b.emptyChatHeader &&
     sameModelConfig(a.model, b.model) &&
     sameStringArray(a.skills, b.skills) &&
     a.workspace === b.workspace &&

@@ -1071,6 +1071,7 @@ export interface AdminAgentProxyConfig {
 export interface AdminAgent {
   id: string;
   name: string | null;
+  emptyChatHeader?: string | null;
   model: string | null;
   skills: string[] | null;
   chatbotId: string | null;
@@ -1260,6 +1261,7 @@ export interface AgentListItem {
   id: string;
   name: string | null;
   imageUrl?: string | null;
+  emptyChatHeader?: string | null;
 }
 
 export interface AgentListResponse {
