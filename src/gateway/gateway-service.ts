@@ -397,10 +397,12 @@ import {
   getAgentScoreboard,
   getObservedAgentSkillCount,
 } from '../skills/agent-scoreboard.js';
+import { loadSkillDocsCatalog } from '../skills/skill-docs.js';
 import {
   type BlockedSkillCatalogEntry,
   loadSkillCatalog,
   loadSkillCatalogs,
+  resolveExplicitSkillInvocation,
   resolveManagedCommunitySkillsDir,
   type SkillCatalogEntry,
   SkillGuardUnblockInputError,
@@ -561,6 +563,10 @@ import {
   type GatewayAdminPolicyState,
   type GatewayAdminSession,
   type GatewayAdminSkill,
+  type GatewayAdminSkillInvocationsResponse,
+  type GatewayAdminSkillPackageFile,
+  type GatewayAdminSkillPackageFileResponse,
+  type GatewayAdminSkillPackageFilesResponse,
   type GatewayAdminSkillsResponse,
   type GatewayAdminSlackWebhookTargetRequest,
   type GatewayAdminStatisticsChannelRow,
@@ -625,6 +631,8 @@ const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
 const BOOTSTRAP_PRELUDE_MAX_TOKENS = 48;
 const BOOTSTRAP_PRELUDE_TIMEOUT_MS = 1500;
+const OPENING_AUTOSTART_MAX_TOKENS = 512;
+const OPENING_AUTOSTART_TIMEOUT_MS = 5000;
 const activeBootstrapAutostartSessions = new Set<string>();
 const assistantPresentationImagePathCache = new Map<string, string | null>();
 const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
@@ -751,6 +759,53 @@ async function generateBootstrapPrelude(params: {
     logger.debug(
       { agentId: params.agentId, fileName: params.fileName, error },
       'Failed to generate bootstrap prelude with auxiliary model',
+    );
+    return null;
+  }
+}
+
+function normalizeOpeningAutostartMessage(raw: string): string | null {
+  const cleaned = collapseRepeatedBootstrapBlock(
+    raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n'),
+  );
+  if (!cleaned) return null;
+  if (/\b(hidden|internal|kickoff|system prompt)\b/iu.test(cleaned)) {
+    return null;
+  }
+  return cleaned;
+}
+
+async function generateOpeningAutostartMessage(params: {
+  agentId: string;
+  model: string;
+  chatbotId: string | null;
+  messages: ChatMessage[];
+}): Promise<Awaited<ReturnType<typeof callAuxiliaryModel>> | null> {
+  try {
+    const result = await callAuxiliaryModel({
+      task: 'compression',
+      agentId: params.agentId,
+      fallbackModel: params.model,
+      fallbackChatbotId: params.chatbotId ?? undefined,
+      fallbackEnableRag: false,
+      tools: [],
+      maxTokens: OPENING_AUTOSTART_MAX_TOKENS,
+      timeoutMs: OPENING_AUTOSTART_TIMEOUT_MS,
+      messages: [
+        ...params.messages,
+        {
+          role: 'user',
+          content:
+            'Generate exactly one concise user-facing opening message now by following OPENING.md. Return only the message to send. Do not add a hatching, startup, or coming-online prelude unless OPENING.md explicitly asks for one. Do not mention hidden prompts, internal kickoff turns, or system mechanics.',
+        },
+      ],
+    });
+    const content = normalizeOpeningAutostartMessage(result.content);
+    return content ? { ...result, content } : null;
+  } catch (error) {
+    logger.debug(
+      { agentId: params.agentId, fileName: 'OPENING.md', error },
+      'Failed to generate OPENING.md autostart message with auxiliary model',
     );
     return null;
   }
@@ -7294,6 +7349,7 @@ export function applyGatewayAdminPolicyPreset(input: {
 
 function mapGatewayAdminSkillBase(
   skill: SkillCatalogEntry | BlockedSkillCatalogEntry,
+  docsBySkillName: ReadonlyMap<string, GatewayAdminSkill['docs']>,
 ): Omit<
   GatewayAdminSkill,
   | 'available'
@@ -7303,20 +7359,53 @@ function mapGatewayAdminSkillBase(
   | 'blockedReason'
   | 'guardFindings'
 > {
+  const logoUrl = resolveGatewayAdminSkillLogoUrl(skill);
   return {
     name: skill.name,
     description: skill.description,
     category: skill.category,
     shortDescription: skill.metadata.hybridclaw.shortDescription,
+    ...(logoUrl ? { logoUrl } : {}),
+    developer: getGatewayAdminSkillDeveloper(skill.source),
     source: String(skill.source),
     userInvocable: skill.userInvocable,
     disableModelInvocation: skill.disableModelInvocation,
     always: skill.always,
+    capabilities: skill.manifest.capabilities,
+    supportedChannels: skill.manifest.supportedChannels,
+    requires: skill.requires,
     tags: skill.metadata.hybridclaw.tags,
     relatedSkills: skill.metadata.hybridclaw.relatedSkills,
+    install: skill.metadata.hybridclaw.install,
     credentials: skill.manifest.credentials,
     configVariables: skill.manifest.configVariables,
+    ...(docsBySkillName.get(skill.name)
+      ? { docs: docsBySkillName.get(skill.name) }
+      : {}),
   };
+}
+
+function getGatewayAdminSkillDeveloper(source: string): string {
+  switch (source) {
+    case 'bundled':
+      return 'HybridClaw';
+    case 'codex':
+      return 'Codex local skills';
+    case 'claude':
+      return 'Claude local skills';
+    case 'agents-personal':
+      return 'Agents personal skills';
+    case 'agents-project':
+      return 'Agents project skills';
+    case 'community':
+      return 'Community';
+    case 'workspace':
+      return 'Workspace';
+    case 'extra':
+      return 'Extra skill directory';
+    default:
+      return source;
+  }
 }
 
 function sanitizeGatewayAdminSkillGuardFindings(
@@ -7325,17 +7414,464 @@ function sanitizeGatewayAdminSkillGuardFindings(
   return findings.map(({ match: _match, ...finding }) => finding);
 }
 
+const ADMIN_SKILL_PACKAGE_MAX_FILE_BYTES = 512 * 1024;
+const ADMIN_SKILL_PACKAGE_MAX_ENTRIES = 1000;
+const ADMIN_SKILL_LOGO_MAX_BYTES = 64 * 1024;
+const ADMIN_SKILL_INVOCATION_DEFAULT_LIMIT = 8;
+const ADMIN_SKILL_INVOCATION_MAX_LIMIT = 25;
+const ADMIN_SKILL_INVOCATION_SESSION_SCAN_LIMIT = 200;
+const ADMIN_SKILL_INVOCATION_MESSAGE_SCAN_LIMIT = 120;
+const ADMIN_SKILL_INVOCATION_TEXT_LIMIT = 6000;
+const ADMIN_SKILL_LOGO_MIME_BY_EXTENSION = new Map([
+  ['.svg', 'image/svg+xml'],
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.webp', 'image/webp'],
+]);
+
+function resolveGatewayAdminSkillLogoUrl(
+  skill: SkillCatalogEntry | BlockedSkillCatalogEntry,
+): string | undefined {
+  const rawLogoPath = skill.metadata.hybridclaw.logoPath?.trim();
+  if (!rawLogoPath) return undefined;
+
+  let relativePath: string;
+  try {
+    relativePath = normalizeGatewayAdminSkillFilePath(rawLogoPath);
+  } catch {
+    return undefined;
+  }
+
+  const mimeType = ADMIN_SKILL_LOGO_MIME_BY_EXTENSION.get(
+    path.extname(relativePath).toLowerCase(),
+  );
+  if (!mimeType) return undefined;
+
+  try {
+    const rootPath = fs.realpathSync(skill.baseDir);
+    const filePath = path.resolve(rootPath, relativePath);
+    if (!isPathWithin(rootPath, filePath) || !fs.existsSync(filePath)) {
+      return undefined;
+    }
+
+    const realPath = safeRealPath(filePath);
+    if (!isPathWithin(rootPath, realPath)) return undefined;
+
+    const stats = fs.lstatSync(filePath);
+    if (!stats.isFile() || stats.size > ADMIN_SKILL_LOGO_MAX_BYTES) {
+      return undefined;
+    }
+
+    const content = fs.readFileSync(filePath);
+    return `data:${mimeType};base64,${content.toString('base64')}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function isPathWithin(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return (
+    relative === '' ||
+    (!relative.startsWith('..') && !path.isAbsolute(relative))
+  );
+}
+
+function safeRealPath(target: string): string {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return path.resolve(target);
+  }
+}
+
+function normalizeGatewayAdminSkillFilePath(value: string): string {
+  const rawPath = value.replace(/\\/g, '/').trim();
+  if (!rawPath || rawPath.startsWith('/')) {
+    throw new GatewayRequestError(400, `Unsafe skill file path: ${value}`);
+  }
+
+  const relativePath = path.posix.normalize(rawPath);
+  if (
+    relativePath === '.' ||
+    relativePath.startsWith('../') ||
+    relativePath.includes('/../') ||
+    relativePath.endsWith('/..')
+  ) {
+    throw new GatewayRequestError(400, `Unsafe skill file path: ${value}`);
+  }
+  return relativePath;
+}
+
+function resolveGatewayAdminSkillPackage(skillName: string): {
+  skill: SkillCatalogEntry;
+  rootPath: string;
+} {
+  const normalizedName = skillName.trim();
+  if (!normalizedName) {
+    throw new GatewayRequestError(400, 'Missing skill name.');
+  }
+
+  const skill = loadSkillCatalog().find(
+    (entry) => entry.name === normalizedName,
+  );
+  if (!skill) {
+    throw new GatewayRequestError(404, `Skill "${normalizedName}" not found.`);
+  }
+
+  if (!fs.existsSync(skill.baseDir)) {
+    throw new GatewayRequestError(
+      404,
+      `Skill package directory for "${normalizedName}" does not exist.`,
+    );
+  }
+
+  const rootPath = fs.realpathSync(skill.baseDir);
+  return { skill, rootPath };
+}
+
+function resolveGatewayAdminSkillPackageFile(params: {
+  skillName: string;
+  relativePath: string;
+}): {
+  skill: SkillCatalogEntry;
+  rootPath: string;
+  relativePath: string;
+  filePath: string;
+  stats: fs.Stats;
+} {
+  const { skill, rootPath } = resolveGatewayAdminSkillPackage(params.skillName);
+  const relativePath = normalizeGatewayAdminSkillFilePath(params.relativePath);
+  const filePath = path.resolve(rootPath, relativePath);
+  if (!isPathWithin(rootPath, filePath)) {
+    throw new GatewayRequestError(
+      400,
+      `Unsafe skill file path: ${relativePath}`,
+    );
+  }
+  if (!fs.existsSync(filePath)) {
+    throw new GatewayRequestError(
+      404,
+      `Skill file "${relativePath}" not found.`,
+    );
+  }
+
+  const realPath = safeRealPath(filePath);
+  if (!isPathWithin(rootPath, realPath)) {
+    throw new GatewayRequestError(
+      400,
+      `Skill file "${relativePath}" resolves outside the skill package.`,
+    );
+  }
+
+  return {
+    skill,
+    rootPath,
+    relativePath,
+    filePath,
+    stats: fs.lstatSync(filePath),
+  };
+}
+
+function isLikelyTextFile(filePath: string): boolean {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const sample = Buffer.alloc(4096);
+    const bytesRead = fs.readSync(fd, sample, 0, sample.length, 0);
+    if (bytesRead === 0) return true;
+    const chunk = sample.subarray(0, bytesRead);
+    if (chunk.includes(0)) return false;
+    let controlBytes = 0;
+    for (const byte of chunk) {
+      if (byte < 9 || (byte > 13 && byte < 32)) controlBytes += 1;
+    }
+    return controlBytes / chunk.length <= 0.3;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function mapGatewayAdminSkillPackageFile(params: {
+  relativePath: string;
+  stats: fs.Stats;
+  filePath?: string;
+}): GatewayAdminSkillPackageFile {
+  const kind = params.stats.isDirectory()
+    ? 'directory'
+    : params.stats.isFile()
+      ? 'file'
+      : params.stats.isSymbolicLink()
+        ? 'symlink'
+        : 'other';
+  const canReadText =
+    kind === 'file' &&
+    params.filePath !== undefined &&
+    params.stats.size <= ADMIN_SKILL_PACKAGE_MAX_FILE_BYTES &&
+    isLikelyTextFile(params.filePath);
+  return {
+    path: params.relativePath,
+    name: path.posix.basename(params.relativePath),
+    kind,
+    sizeBytes: kind === 'directory' ? null : params.stats.size,
+    updatedAt: Number.isFinite(params.stats.mtimeMs)
+      ? params.stats.mtime.toISOString()
+      : null,
+    editable: canReadText,
+    previewable: canReadText,
+  };
+}
+
+function assertGatewayAdminSkillPackageTextFile(
+  file: GatewayAdminSkillPackageFile,
+): void {
+  if (file.kind !== 'file') {
+    throw new GatewayRequestError(
+      400,
+      `Skill package path "${file.path}" is not a file.`,
+    );
+  }
+  if (!file.previewable || !file.editable) {
+    throw new GatewayRequestError(
+      400,
+      `Skill file "${file.path}" is not a supported text file or exceeds the ${ADMIN_SKILL_PACKAGE_MAX_FILE_BYTES}-byte editor limit.`,
+    );
+  }
+}
+
+export function getGatewayAdminSkillPackageFiles(
+  skillName: string,
+): GatewayAdminSkillPackageFilesResponse {
+  const { skill, rootPath } = resolveGatewayAdminSkillPackage(skillName);
+  const files: GatewayAdminSkillPackageFile[] = [];
+  const pendingDirs: string[] = [''];
+
+  while (pendingDirs.length > 0) {
+    const relativeDir = pendingDirs.pop() || '';
+    const absoluteDir = path.join(rootPath, relativeDir);
+    const entries = fs
+      .readdirSync(absoluteDir, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const entry of entries) {
+      if (files.length >= ADMIN_SKILL_PACKAGE_MAX_ENTRIES) {
+        throw new GatewayRequestError(
+          400,
+          `Skill package contains more than ${ADMIN_SKILL_PACKAGE_MAX_ENTRIES} entries and cannot be browsed in the admin editor.`,
+        );
+      }
+
+      const relativePath = relativeDir
+        ? path.posix.join(relativeDir, entry.name)
+        : entry.name;
+      const filePath = path.join(rootPath, relativePath);
+      const stats = fs.lstatSync(filePath);
+      const mapped = mapGatewayAdminSkillPackageFile({
+        relativePath,
+        stats,
+        filePath,
+      });
+      files.push(mapped);
+      if (mapped.kind === 'directory') {
+        pendingDirs.push(relativePath);
+      }
+    }
+  }
+
+  files.sort((left, right) => {
+    if (left.kind === 'directory' && right.kind !== 'directory') return -1;
+    if (left.kind !== 'directory' && right.kind === 'directory') return 1;
+    return left.path.localeCompare(right.path);
+  });
+
+  return {
+    skillName: skill.name,
+    rootPath,
+    files,
+  };
+}
+
+export function getGatewayAdminSkillPackageFile(params: {
+  skillName: string;
+  path: string;
+}): GatewayAdminSkillPackageFileResponse {
+  const resolved = resolveGatewayAdminSkillPackageFile({
+    skillName: params.skillName,
+    relativePath: params.path,
+  });
+  const file = mapGatewayAdminSkillPackageFile({
+    relativePath: resolved.relativePath,
+    stats: resolved.stats,
+    filePath: resolved.filePath,
+  });
+  assertGatewayAdminSkillPackageTextFile(file);
+
+  return {
+    skillName: resolved.skill.name,
+    rootPath: resolved.rootPath,
+    file: {
+      ...file,
+      content: fs.readFileSync(resolved.filePath, 'utf-8'),
+    },
+  };
+}
+
+function clampAdminSkillInvocationLimit(value?: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return ADMIN_SKILL_INVOCATION_DEFAULT_LIMIT;
+  }
+  return Math.max(
+    1,
+    Math.min(Math.floor(value), ADMIN_SKILL_INVOCATION_MAX_LIMIT),
+  );
+}
+
+function trimAdminSkillInvocationText(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= ADMIN_SKILL_INVOCATION_TEXT_LIMIT) return trimmed;
+  return `${trimmed.slice(0, ADMIN_SKILL_INVOCATION_TEXT_LIMIT - 3).trimEnd()}...`;
+}
+
+export function getGatewayAdminSkillInvocations(
+  skillName: string,
+  options?: { limit?: number },
+): GatewayAdminSkillInvocationsResponse {
+  const normalizedName = skillName.trim();
+  if (!normalizedName) {
+    throw new GatewayRequestError(400, 'Missing skill name.');
+  }
+
+  const catalog = loadSkillCatalogs();
+  const skill = catalog.available.find(
+    (entry) => entry.name === normalizedName,
+  );
+  if (!skill) {
+    const blockedSkill = catalog.blocked.find(
+      (entry) => entry.name === normalizedName,
+    );
+    if (blockedSkill) {
+      return { skillName: blockedSkill.name, invocations: [] };
+    }
+    throw new GatewayRequestError(404, `Skill "${normalizedName}" not found.`);
+  }
+
+  const limit = clampAdminSkillInvocationLimit(options?.limit);
+  const invocations: GatewayAdminSkillInvocationsResponse['invocations'] = [];
+  const invocationSkill = { ...skill, location: skill.filePath };
+  const sessions = getAllSessions({
+    limit: ADMIN_SKILL_INVOCATION_SESSION_SCAN_LIMIT,
+    warnLabel: 'admin-skill-invocations',
+  });
+
+  for (const session of sessions) {
+    const messages = getRecentMessages(
+      session.id,
+      ADMIN_SKILL_INVOCATION_MESSAGE_SCAN_LIMIT,
+    );
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role !== 'user') continue;
+      const invocation = resolveExplicitSkillInvocation(message.content, [
+        invocationSkill,
+      ]);
+      if (!invocation || invocation.skill.name !== skill.name) continue;
+
+      let assistantMessage: (typeof messages)[number] | null = null;
+      for (
+        let nextIndex = index + 1;
+        nextIndex < messages.length;
+        nextIndex += 1
+      ) {
+        const candidate = messages[nextIndex];
+        if (!candidate) continue;
+        if (candidate.role === 'user') break;
+        if (candidate.role === 'assistant') {
+          assistantMessage = candidate;
+          break;
+        }
+      }
+
+      invocations.push({
+        sessionId: message.session_id,
+        userMessageId: message.id,
+        assistantMessageId: assistantMessage?.id ?? null,
+        username: message.username,
+        createdAt: message.created_at,
+        responseCreatedAt: assistantMessage?.created_at ?? null,
+        userPrompt: trimAdminSkillInvocationText(message.content),
+        skillInput: trimAdminSkillInvocationText(invocation.args),
+        response: assistantMessage
+          ? trimAdminSkillInvocationText(assistantMessage.content)
+          : null,
+      });
+    }
+  }
+
+  invocations.sort((left, right) => {
+    const createdCompare = right.createdAt.localeCompare(left.createdAt);
+    return createdCompare || right.userMessageId - left.userMessageId;
+  });
+
+  return {
+    skillName: skill.name,
+    invocations: invocations.slice(0, limit),
+  };
+}
+
+export function saveGatewayAdminSkillPackageFile(params: {
+  skillName: string;
+  path: string;
+  content: string;
+}): GatewayAdminSkillPackageFileResponse {
+  const sizeBytes = Buffer.byteLength(params.content, 'utf-8');
+  if (sizeBytes > ADMIN_SKILL_PACKAGE_MAX_FILE_BYTES) {
+    throw new GatewayRequestError(
+      400,
+      `Skill file content exceeds the ${ADMIN_SKILL_PACKAGE_MAX_FILE_BYTES}-byte editor limit.`,
+    );
+  }
+
+  const resolved = resolveGatewayAdminSkillPackageFile({
+    skillName: params.skillName,
+    relativePath: params.path,
+  });
+  const currentFile = mapGatewayAdminSkillPackageFile({
+    relativePath: resolved.relativePath,
+    stats: resolved.stats,
+    filePath: resolved.filePath,
+  });
+  assertGatewayAdminSkillPackageTextFile(currentFile);
+
+  fs.writeFileSync(resolved.filePath, params.content, 'utf-8');
+  const nextStats = fs.lstatSync(resolved.filePath);
+  const nextFile = mapGatewayAdminSkillPackageFile({
+    relativePath: resolved.relativePath,
+    stats: nextStats,
+    filePath: resolved.filePath,
+  });
+
+  return {
+    skillName: resolved.skill.name,
+    rootPath: resolved.rootPath,
+    file: {
+      ...nextFile,
+      content: params.content,
+    },
+  };
+}
+
 export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
   const runtimeConfig = getRuntimeConfig();
   const catalog = loadSkillCatalogs();
+  const docsBySkillName = loadSkillDocsCatalog();
   const availableSkills = catalog.available.map((skill) => ({
-    ...mapGatewayAdminSkillBase(skill),
+    ...mapGatewayAdminSkillBase(skill, docsBySkillName),
     available: skill.available,
     enabled: skill.enabled,
     missing: skill.missing,
   }));
   const blockedSkills = catalog.blocked.map((skill) => ({
-    ...mapGatewayAdminSkillBase(skill),
+    ...mapGatewayAdminSkillBase(skill, docsBySkillName),
     available: false,
     enabled: false,
     blocked: true,
@@ -8149,6 +8685,143 @@ export async function ensureGatewayBootstrapAutostart(params: {
       });
       return assistantMessageId;
     };
+    if (bootstrapFile === 'OPENING.md') {
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'agent.start',
+          provider: 'auxiliary',
+          model: resolved.model,
+          scheduledTaskCount: 0,
+          promptMessages: messages.length,
+          systemPrompt: readSystemPromptMessage(messages),
+          dynamicContext: readDynamicContextMessage(messages),
+        },
+      });
+
+      const openingResult = await generateOpeningAutostartMessage({
+        agentId: resolved.agentId,
+        model: resolved.model,
+        chatbotId,
+        messages,
+      });
+
+      const usagePayload = buildTokenUsageAuditPayload(
+        messages,
+        openingResult?.content,
+      );
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'model.usage',
+          provider: openingResult?.provider ?? 'auxiliary',
+          model: openingResult?.model ?? resolved.model,
+          runtime: 'auxiliary',
+          durationMs: Date.now() - startedAt,
+          toolCallCount: 0,
+          ...usagePayload,
+        },
+      });
+
+      if (!openingResult) {
+        deleteMemoryValue(session.id, markerKey);
+        recordAuditEvent({
+          sessionId: session.id,
+          runId,
+          event: {
+            type: 'turn.end',
+            turnIndex,
+            finishReason: 'empty',
+          },
+        });
+        recordAuditEvent({
+          sessionId: session.id,
+          runId,
+          event: {
+            type: 'session.end',
+            reason: 'empty',
+            stats: {
+              userMessages: 0,
+              assistantMessages: 0,
+              toolCalls: 0,
+              durationMs: Date.now() - startedAt,
+            },
+          },
+        });
+        return;
+      }
+
+      enqueueTokenUsage({
+        sessionId: session.id,
+        agentId: resolved.agentId,
+        model: openingResult.model,
+        inputTokens:
+          openingResult.usage?.inputTokens ||
+          firstNumber([usagePayload.promptTokens]) ||
+          0,
+        outputTokens:
+          openingResult.usage?.outputTokens ||
+          firstNumber([usagePayload.completionTokens]) ||
+          0,
+        totalTokens:
+          openingResult.usage?.totalTokens ||
+          firstNumber([usagePayload.totalTokens]) ||
+          0,
+        toolCalls: 0,
+        costUsd:
+          openingResult.usage?.costUsd ??
+          (await resolveUsageCostUsdAfterMetadataRefresh({
+            model: openingResult.model,
+            tokenUsage: undefined,
+            usage: usagePayload,
+          })),
+        auditRunId: runId,
+      });
+      if (pluginManager) {
+        await pluginManager.notifyMemoryWrites({
+          sessionId: session.id,
+          agentId: resolved.agentId,
+          channelId,
+          toolExecutions: [],
+        });
+      }
+
+      const assistantMessageId = storeBootstrapAssistantMessage(
+        openingResult.content,
+      );
+      setMemoryValue(session.id, markerKey, {
+        status: 'completed',
+        assistantMessageId,
+        completedAt: new Date().toISOString(),
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'turn.end',
+          turnIndex,
+          finishReason: 'completed',
+        },
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'session.end',
+          reason: 'normal',
+          stats: {
+            userMessages: 0,
+            assistantMessages: 1,
+            toolCalls: 0,
+            durationMs: Date.now() - startedAt,
+          },
+        },
+      });
+      return;
+    }
+
     const preludeText = await generateBootstrapPrelude({
       agentId: resolved.agentId,
       fileName: bootstrapFile,

@@ -28,6 +28,7 @@ const ARTIFACT_DISCOVERY_IGNORED_DIRS = new Set([
   '.synced-skills',
   'node_modules',
 ]);
+const ARTIFACT_DISCOVERY_IGNORED_ROOT_DIRS = new Set(['skills']);
 
 export function inferArtifactMimeType(filePath: string): string {
   const normalized = String(filePath || '').replace(/\\/g, '/');
@@ -71,6 +72,12 @@ export function discoverArtifactsSince(
 
       if (entry.isDirectory()) {
         if (ARTIFACT_DISCOVERY_IGNORED_DIRS.has(entry.name)) continue;
+        if (
+          currentDir === resolvedRoot &&
+          ARTIFACT_DISCOVERY_IGNORED_ROOT_DIRS.has(entry.name)
+        ) {
+          continue;
+        }
         walk(absolutePath);
         continue;
       }

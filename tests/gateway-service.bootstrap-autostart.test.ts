@@ -347,11 +347,10 @@ test('ensureGatewayBootstrapAutostart drops prelude text that mentions internals
 test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per session', async () => {
   setupHome();
 
-  runAgentMock.mockResolvedValue({
-    status: 'success',
-    result: 'Opening instructions noted. Ready to begin.',
-    toolsUsed: [],
-    toolExecutions: [],
+  callAuxiliaryModelMock.mockResolvedValueOnce({
+    provider: 'hybridai',
+    model: 'auxiliary/test',
+    content: 'Why did the computer go to therapy?\nIt had too many unresolved issues.',
   });
 
   const { initDatabase } = await import('../src/memory/db.ts');
@@ -388,39 +387,45 @@ test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per se
   const sessionId = 'agent:main:channel:web:chat:dm:peer:boot-md-test';
   await ensureGatewayBootstrapAutostart({ sessionId });
 
-  expect(runAgentMock).toHaveBeenCalledTimes(1);
-  const request = runAgentMock.mock.calls[0]?.[0] as
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(1);
+  const request = callAuxiliaryModelMock.mock.calls[0]?.[0] as
     | {
         messages?: Array<{ role: string; content: string }>;
-        chatbotId?: string;
+        fallbackChatbotId?: string;
+        maxTokens?: number;
+        timeoutMs?: number;
       }
     | undefined;
-  expect(request?.chatbotId).toBe('user-bootstrap');
+  expect(request?.fallbackChatbotId).toBe('user-bootstrap');
+  expect(request?.maxTokens).toBe(512);
+  expect(request?.timeoutMs).toBe(5000);
   expect(
     request?.messages?.some((message) =>
       message.content.includes('## OPENING.md'),
     ),
   ).toBe(true);
+  expect(
+    request?.messages?.some((message) =>
+      message.content.includes('A startup instruction file (OPENING.md) exists'),
+    ),
+  ).toBe(true);
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
-    content: expect.stringContaining(
-      'A startup instruction file (OPENING.md) exists',
-    ),
+    content: expect.stringContaining('Generate exactly one concise'),
   });
 
   expect(getGatewayHistory(sessionId, 10).history).toEqual([
     expect.objectContaining({
       role: 'assistant',
-      content: DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
-    }),
-    expect.objectContaining({
-      role: 'assistant',
-      content: 'Opening instructions noted. Ready to begin.',
+      content:
+        'Why did the computer go to therapy?\nIt had too many unresolved issues.',
     }),
   ]);
 
   await ensureGatewayBootstrapAutostart({ sessionId });
-  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(1);
 });
 
 test('ensureGatewayBootstrapAutostart can hatch a selected agent in an existing session', async () => {

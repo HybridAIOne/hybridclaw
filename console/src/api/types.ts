@@ -1695,6 +1695,8 @@ export interface AdminSkill {
   description: string;
   category: string;
   shortDescription?: string;
+  logoUrl?: string;
+  developer: string;
   source: string;
   available: boolean;
   enabled: boolean;
@@ -1712,13 +1714,114 @@ export interface AdminSkill {
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
+  capabilities: string[];
+  supportedChannels: string[];
+  requires: {
+    bins: string[];
+    env: string[];
+  };
   tags: string[];
   relatedSkills: string[];
+  install: Array<{
+    id?: string;
+    kind: 'brew' | 'uv' | 'npm' | 'node' | 'go' | 'download';
+    label?: string;
+    bins?: string[];
+    formula?: string;
+    package?: string;
+    module?: string;
+    url?: string;
+    path?: string;
+    chmod?: string;
+  }>;
+  credentials: Array<{
+    id: string;
+    kind: string;
+    required: boolean;
+    secretRef: {
+      source: string;
+      id: string;
+    };
+    scope?: string;
+    howToObtain?: string;
+  }>;
+  configVariables: Array<{
+    id: string;
+    env: string;
+    required: boolean;
+    scope?: string;
+    howToObtain?: string;
+  }>;
+  docs?: {
+    title: string;
+    sourcePath: string;
+    sourceHref: string;
+    tutorialMarkdown: string;
+    screenshots: Array<{
+      src: string;
+      alt: string;
+      title?: string;
+    }>;
+    examplePrompts: Array<{
+      prompt: string;
+      kind: 'try-it' | 'conversation';
+      turnIndex?: number;
+      conversationId?: string;
+    }>;
+  };
+}
+
+export type AdminSkillPackageEntryKind =
+  | 'directory'
+  | 'file'
+  | 'symlink'
+  | 'other';
+
+export interface AdminSkillPackageFile {
+  path: string;
+  name: string;
+  kind: AdminSkillPackageEntryKind;
+  sizeBytes: number | null;
+  updatedAt: string | null;
+  editable: boolean;
+  previewable: boolean;
+}
+
+export interface AdminSkillPackageFilesResponse {
+  skillName: string;
+  rootPath: string;
+  files: AdminSkillPackageFile[];
+}
+
+export interface AdminSkillPackageFileResponse {
+  skillName: string;
+  rootPath: string;
+  file: AdminSkillPackageFile & {
+    content: string | null;
+  };
+}
+
+export interface AdminSkillInvocation {
+  sessionId: string;
+  userMessageId: number;
+  assistantMessageId: number | null;
+  username: string | null;
+  createdAt: string;
+  responseCreatedAt: string | null;
+  userPrompt: string;
+  skillInput: string;
+  response: string | null;
+}
+
+export interface AdminSkillInvocationsResponse {
+  skillName: string;
+  invocations: AdminSkillInvocation[];
 }
 
 export interface AdminSkillsResponse {
   extraDirs: string[];
   disabled: string[];
+  channelDisabled?: Record<string, string[]>;
   skills: AdminSkill[];
 }
 

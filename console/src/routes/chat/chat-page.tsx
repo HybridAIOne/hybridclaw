@@ -29,6 +29,7 @@ import {
   deleteSession as deleteChatSession,
   fetchAgentList,
   fetchModels,
+  fetchSkills,
 } from '../../api/client';
 import type { ChatModel } from '../../api/types';
 import { isAuthReadyForApi, useAuth } from '../../auth';
@@ -128,6 +129,10 @@ export function ChatPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const userId = useRef(readStoredUserId()).current;
+  const initialComposerPrompt = useMemo(
+    () => new URLSearchParams(window.location.search).get('prompt') || '',
+    [],
+  );
 
   const [errorState, setErrorState] = useState({ message: '', version: 0 });
   const error = errorState.message;
@@ -246,6 +251,13 @@ export function ChatPage() {
     staleTime: 30_000,
     enabled: chatApiReady,
   });
+  const skillsQuery = useQuery({
+    queryKey: ['skills', auth.token],
+    queryFn: () => fetchSkills(auth.token),
+    staleTime: 60_000,
+    retry: false,
+    enabled: chatApiReady,
+  });
 
   // /model set is session-scoped on the gateway, so re-seed the local selection
   // to the gateway default whenever the session changes. We don't know what
@@ -308,6 +320,13 @@ export function ChatPage() {
       })),
     [agentsQuery.data],
   );
+  const skillInvocationTargets = useMemo(() => {
+    return new Map(
+      (skillsQuery.data?.skills ?? [])
+        .filter((skill) => skill.userInvocable)
+        .map((skill) => [skill.name.toLowerCase(), skill.name]),
+    );
+  }, [skillsQuery.data?.skills]);
   const resolveAddressedAgentPresentation = useCallback(
     (content: string) => {
       const mentions = findAgentMentions(content);
@@ -1071,6 +1090,7 @@ export function ChatPage() {
                         ratingMutation.isPending &&
                         ratingMutation.variables?.message.id === msg.id
                       }
+                      skillInvocationTargets={skillInvocationTargets}
                       onApprovalAction={handleApprovalAction}
                       approvalBusy={approvalBusy}
                       branchInfo={branchInfoMap.get(msg.id) ?? null}
@@ -1115,6 +1135,7 @@ export function ChatPage() {
             models={modelOptions}
             selectedModelId={selectedModelId}
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
+            initialValue={initialComposerPrompt}
           />
         </div>
         <Dialog

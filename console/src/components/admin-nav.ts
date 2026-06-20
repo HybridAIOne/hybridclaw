@@ -14,5 +14,9 @@ const ALL_NAV_ITEMS: ReadonlyArray<AdminNavItemSummary> =
 export function resolveCurrentAdminNavItem(
   pathname: string,
 ): AdminNavItemSummary {
+  if (pathname.startsWith('/admin/skills/')) {
+    return { to: '/admin/skills', label: 'Skill' };
+  }
+
   return ALL_NAV_ITEMS.find((item) => item.to === pathname) ?? ALL_NAV_ITEMS[0];
 }
