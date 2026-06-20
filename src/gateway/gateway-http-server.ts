@@ -2028,17 +2028,10 @@ function requestUsesHttps(req: IncomingMessage): boolean {
   return (req.socket as { encrypted?: boolean }).encrypted === true;
 }
 
-function resolveRequestOriginForAuth(req: IncomingMessage): string | null {
-  const host = String(req.headers.host || '').trim();
-  if (!host) return null;
-  const protocol = requestUsesHttps(req) ? 'https' : 'http';
-  return `${protocol}://${host}`;
-}
-
 function hasSameGatewayOrigin(req: IncomingMessage): boolean {
   const origin = String(req.headers.origin || '').trim();
   if (!origin) return false;
-  return origin === resolveRequestOriginForAuth(req);
+  return origin === resolveRequestOrigin(req);
 }
 
 function hasApiAuth(

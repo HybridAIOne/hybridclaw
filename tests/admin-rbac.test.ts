@@ -23,6 +23,17 @@ describe('admin RBAC role bundles', () => {
     expect(isAdminActionAllowed(null, 'admin.config.write')).toBe(true);
   });
 
+  test('keeps unscoped HybridAI session claims fully authorized', () => {
+    const payload = {
+      sub: 'user-1',
+      sessionId: 'admin-session-1',
+    };
+
+    expect(collectAdminActionClaims(payload)).toBeNull();
+    expect(isAdminActionAllowed(payload, 'admin.skills.read')).toBe(true);
+    expect(isAdminActionAllowed(payload, 'admin.gateway.shutdown')).toBe(true);
+  });
+
   test('expands config manager role claims into route actions', () => {
     const payload = { role: 'admin.config_manager' };
     const claims = collectAdminActionClaims(payload);
