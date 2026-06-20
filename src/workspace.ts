@@ -209,6 +209,11 @@ const LEGACY_DEFAULT_BOOTSTRAP_MARKERS = [
   'Use the hatching task ideas guide in the docs website when available',
   'docs/content/guides/hatching-task-ideas.md',
 ] as const;
+const LEGACY_EMPTY_HEARTBEAT_TEXTS = [
+  '# HEARTBEAT.md\n\n# No recurring heartbeat tasks yet.',
+  '# HEARTBEAT.md\n\nNo recurring heartbeat tasks yet.',
+  '# No recurring heartbeat tasks yet.',
+] as const;
 
 function refreshLegacyDefaultBootstrapIfNeeded(params: {
   agentId: string;
@@ -283,6 +288,48 @@ function normalizeBootstrapComparisonText(content: string): string {
   return content.replace(/\r\n/g, '\n').trim();
 }
 
+function isEmptyHeartbeatContext(content: string): boolean {
+  const normalized = normalizeBootstrapComparisonText(content);
+  if (!normalized) return true;
+
+  try {
+    if (
+      normalized ===
+      normalizeBootstrapComparisonText(readTemplateFile('HEARTBEAT.md'))
+    ) {
+      return true;
+    }
+  } catch (error) {
+    logger.warn(
+      { file: 'HEARTBEAT.md', error },
+      'Failed to compare heartbeat context against template',
+    );
+  }
+
+  if (
+    LEGACY_EMPTY_HEARTBEAT_TEXTS.some(
+      (legacy) => normalized === normalizeBootstrapComparisonText(legacy),
+    )
+  ) {
+    return true;
+  }
+
+  const meaningfulLines = normalized
+    .split('\n')
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^#+\s*/, '')
+        .trim(),
+    )
+    .filter(Boolean)
+    .filter((line) => line !== 'HEARTBEAT.md');
+  return (
+    meaningfulLines.length === 1 &&
+    /^no recurring heartbeat tasks yet\.?$/i.test(meaningfulLines[0] || '')
+  );
+}
+
 function shouldLoadBootstrapContextFile(params: {
   name: (typeof WORKSPACE_BOOTSTRAP_FILES)[number];
   content: string;
@@ -290,19 +337,7 @@ function shouldLoadBootstrapContextFile(params: {
   const content = normalizeBootstrapComparisonText(params.content);
   if (!content) return false;
   if (params.name !== 'HEARTBEAT.md') return true;
-
-  try {
-    return (
-      content !==
-      normalizeBootstrapComparisonText(readTemplateFile(params.name))
-    );
-  } catch (error) {
-    logger.warn(
-      { file: params.name, error },
-      'Failed to compare heartbeat context against template',
-    );
-    return true;
-  }
+  return !isEmptyHeartbeatContext(content);
 }
 
 function readUserMarkdown(wsDir: string): string | null {

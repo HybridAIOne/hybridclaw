@@ -387,6 +387,30 @@ describe('workspace bootstrap lifecycle', () => {
     expect(workspace.hasActionableHeartbeatFile('agent-test')).toBe(false);
   });
 
+  test('does not treat legacy empty HEARTBEAT.md defaults as actionable', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const heartbeatPath = path.join(workspaceDir, 'HEARTBEAT.md');
+    fs.writeFileSync(
+      heartbeatPath,
+      '# HEARTBEAT.md\n\n# No recurring heartbeat tasks yet.\n',
+      'utf-8',
+    );
+
+    const files = workspace.loadStaticBootstrapFiles('agent-test');
+    expect(files.some((file) => file.name === 'HEARTBEAT.md')).toBe(false);
+    expect(workspace.hasActionableHeartbeatFile('agent-test')).toBe(false);
+  });
+
   test('loads customized HEARTBEAT.md into bootstrap context', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
