@@ -91,4 +91,33 @@ describe('provider prompt debug logging', () => {
       expect.stringContaining('[last-prompt-file]'),
     );
   });
+  test('sends HybridClaw user agent on HybridAI requests', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const headers = init?.headers as Record<string, string>;
+
+        expect(headers['User-Agent']).toMatch(/^hybridclaw\/\d+\.\d+\.\d+/);
+
+        return new Response(
+          JSON.stringify({
+            id: 'chatcmpl_1',
+            model: 'gpt-4.1-mini',
+            choices: [
+              {
+                message: { role: 'assistant', content: 'ok' },
+                finish_reason: 'stop',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }),
+    );
+
+    await callHybridAIProvider(makeArgs());
+  });
 });
