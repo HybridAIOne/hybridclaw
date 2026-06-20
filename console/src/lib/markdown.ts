@@ -102,6 +102,12 @@ function linkifyBareLocalAppRoutesInSegment(segment: string): string {
   );
 }
 
+function linkifyLocalAppRouteCodeSpan(segment: string): string | null {
+  if (!segment.startsWith('`') || !segment.endsWith('`')) return null;
+  const href = segment.slice(1, -1);
+  return isKnownLocalAppHref(href) ? `[${href}](${href})` : null;
+}
+
 function linkifyBareLocalAppRoutes(markdown: string): string {
   const lines = markdown.split('\n');
   let inFence = false;
@@ -114,11 +120,13 @@ function linkifyBareLocalAppRoutes(markdown: string): string {
       if (inFence) return line;
       return line
         .split(/(`[^`]*`)/g)
-        .map((segment) =>
-          segment.startsWith('`') && segment.endsWith('`')
+        .map((segment) => {
+          const linkedCodeSpan = linkifyLocalAppRouteCodeSpan(segment);
+          if (linkedCodeSpan) return linkedCodeSpan;
+          return segment.startsWith('`') && segment.endsWith('`')
             ? segment
-            : linkifyBareLocalAppRoutesInSegment(segment),
-        )
+            : linkifyBareLocalAppRoutesInSegment(segment);
+        })
         .join('');
     })
     .join('\n');

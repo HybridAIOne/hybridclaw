@@ -193,12 +193,21 @@ describe('renderMarkdown', () => {
 
   it('does not linkify arbitrary local paths or code spans', () => {
     const html = renderMarkdown(
-      'File: /Users/ben/project\nCode: `/admin/channels#whatsapp`',
+      'File: /Users/ben/project\nCode: `/Users/ben/project`',
     );
 
     expect(html).not.toContain('href="/Users');
     expect(html).not.toContain('href="/admin/channels#whatsapp"');
-    expect(html).toContain('<code>/admin/channels#whatsapp</code>');
+    expect(html).toContain('<code>/Users/ben/project</code>');
+  });
+
+  it('linkifies known local app routes inside inline code spans', () => {
+    const html = renderMarkdown('WhatsApp: `/admin/channels#whatsapp`');
+
+    expect(html).toContain(
+      '<a href="/admin/channels#whatsapp">/admin/channels#whatsapp</a>',
+    );
+    expect(html).not.toContain('<code>/admin/channels#whatsapp</code>');
   });
 
   it('does not rewrite existing local markdown links', () => {
