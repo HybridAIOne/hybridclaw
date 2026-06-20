@@ -8,8 +8,36 @@ const currentFile = fileURLToPath(import.meta.url);
 const scriptsDir = path.dirname(currentFile);
 const desktopDir = path.resolve(scriptsDir, '..');
 const buildDir = path.join(desktopDir, 'build');
+const macIconInputs = [
+  path.join(desktopDir, '..', 'docs', 'static', 'apple-touch-icon.png'),
+  path.join(desktopDir, 'scripts', 'generate-mac-icon.swift'),
+];
+const macIconOutputs = [
+  path.join(buildDir, 'icon.png'),
+  path.join(buildDir, 'icon.icns'),
+  path.join(buildDir, 'background.png'),
+  path.join(buildDir, 'background@2x.png'),
+  path.join(buildDir, 'icon-source.png'),
+];
+
+function latestMtime(paths) {
+  return Math.max(...paths.map((target) => fs.statSync(target).mtimeMs));
+}
+
+function macIconAssetsAreCurrent() {
+  try {
+    return latestMtime(macIconOutputs) >= latestMtime(macIconInputs);
+  } catch {
+    return false;
+  }
+}
 
 if (process.platform === 'darwin') {
+  if (macIconAssetsAreCurrent()) {
+    console.log('Desktop icon assets are current.');
+    process.exit(0);
+  }
+
   const result = spawnSync('swift', ['scripts/generate-mac-icon.swift'], {
     cwd: desktopDir,
     stdio: 'inherit',
