@@ -485,6 +485,78 @@ test('ensureGatewayBootstrapAutostart can hatch a selected agent in an existing 
   );
 });
 
+test('ensureGatewayBootstrapAutostart reruns after same agent id is recreated with fresh BOOTSTRAP', async () => {
+  setupHome();
+
+  runAgentMock
+    .mockResolvedValueOnce({
+      status: 'success',
+      result: 'First hatching.',
+      toolsUsed: [],
+      toolExecutions: [],
+    })
+    .mockResolvedValueOnce({
+      status: 'success',
+      result: 'Fresh hatching after reinstall.',
+      toolsUsed: [],
+      toolExecutions: [],
+    });
+
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+  const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({ id: 'research' });
+  ensureBootstrapFiles('research');
+
+  const sessionId = 'agent:main:channel:web:chat:dm:peer:reinstall-bootstrap';
+  await ensureGatewayBootstrapAutostart({
+    sessionId,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    agentId: 'research',
+  });
+
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+
+  fs.rmSync(path.dirname(agentWorkspaceDir('research')), {
+    recursive: true,
+    force: true,
+  });
+  ensureBootstrapFiles('research');
+
+  await ensureGatewayBootstrapAutostart({
+    sessionId,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    agentId: 'research',
+    allowExistingSessionMessages: true,
+  });
+
+  expect(runAgentMock).toHaveBeenCalledTimes(2);
+  expect(getGatewayHistory(sessionId, 10).history).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        role: 'assistant',
+        content: 'First hatching.',
+      }),
+      expect.objectContaining({
+        role: 'assistant',
+        content: 'Fresh hatching after reinstall.',
+      }),
+    ]),
+  );
+});
+
 test('ensureGatewayBootstrapAutostart ignores BOOT.md even when it is customized', async () => {
   setupHome();
 

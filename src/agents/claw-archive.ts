@@ -11,6 +11,10 @@ import {
 } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import {
+  deleteMemoryValuesByKey,
+  deleteMemoryValuesByKeyPrefix,
+} from '../memory/db.js';
+import {
   type InstallPluginResult,
   installPlugin,
   type PluginInstallCommandRunner,
@@ -48,6 +52,8 @@ import { safeExtractZip, scanClawArchive } from './claw-security.js';
 const MANIFEST_FILE_NAME = 'manifest.json';
 const SKILL_MANIFEST_FILE = 'SKILL.md';
 const PLUGIN_MANIFEST_FILE = 'hybridclaw.plugin.yaml';
+const GATEWAY_BOOTSTRAP_AUTOSTART_MARKER_PREFIX =
+  'gateway.bootstrap_autostart.v1';
 
 interface ArchivedFile {
   absolutePath: string;
@@ -175,6 +181,7 @@ export interface UninstallAgentResult {
   workspacePath: string;
   removedAgentRoot: boolean;
   removedRegistration: boolean;
+  removedBootstrapAutostartMarkers: number;
 }
 
 export interface UninstallAgentOptions {
@@ -1428,11 +1435,16 @@ export function uninstallAgent(
   const removedRegistration = existingAgent
     ? deleteRegisteredAgent(normalizedAgentId)
     : false;
+  const bootstrapAutostartMarkerKey = `${GATEWAY_BOOTSTRAP_AUTOSTART_MARKER_PREFIX}.${normalizedAgentId}`;
+  const removedBootstrapAutostartMarkers =
+    deleteMemoryValuesByKey(bootstrapAutostartMarkerKey) +
+    deleteMemoryValuesByKeyPrefix(`${bootstrapAutostartMarkerKey}.`);
   return {
     agentId: normalizedAgentId,
     agentRootPath,
     workspacePath,
     removedAgentRoot: agentRootExists,
     removedRegistration,
+    removedBootstrapAutostartMarkers,
   };
 }

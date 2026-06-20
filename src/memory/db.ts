@@ -4077,6 +4077,30 @@ export function deleteMemoryValue(sessionId: string, key: string): boolean {
   return result.changes > 0;
 }
 
+export function deleteMemoryValuesByKey(key: string): number {
+  const normalizedKey = normalizeMemoryKvKey(key);
+  if (!normalizedKey) return 0;
+  const result = db
+    .prepare(
+      `DELETE FROM kv_store
+       WHERE key = ?`,
+    )
+    .run(normalizedKey);
+  return result.changes;
+}
+
+export function deleteMemoryValuesByKeyPrefix(prefix: string): number {
+  const normalizedPrefix = normalizeMemoryKvKey(prefix);
+  if (!normalizedPrefix) return 0;
+  const result = db
+    .prepare(
+      `DELETE FROM kv_store
+       WHERE substr(key, 1, ?) = ?`,
+    )
+    .run(normalizedPrefix.length, normalizedPrefix);
+  return result.changes;
+}
+
 export function listMemoryValues(
   sessionId: string,
   prefix?: string,

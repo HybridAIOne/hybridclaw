@@ -753,8 +753,38 @@ async function generateBootstrapPrelude(params: {
   }
 }
 
-function getBootstrapAutostartMarkerKey(agentId: string): string {
-  return `${BOOTSTRAP_AUTOSTART_MARKER_KEY}.${agentId}`;
+function getBootstrapAutostartMarker(params: {
+  agentId: string;
+  fileName: 'BOOTSTRAP.md' | 'OPENING.md';
+}): { key: string; fileFingerprint: string } {
+  const filePath = path.join(
+    agentWorkspaceDir(params.agentId),
+    params.fileName,
+  );
+  let fileFingerprint = 'missing';
+  try {
+    const stat = fs.statSync(filePath);
+    fileFingerprint = createHash('sha256')
+      .update(
+        [
+          params.fileName,
+          String(stat.size),
+          String(Math.floor(stat.mtimeMs)),
+          String(Math.floor(stat.ctimeMs)),
+        ].join(':'),
+      )
+      .digest('hex')
+      .slice(0, 16);
+  } catch (error) {
+    logger.warn(
+      { agentId: params.agentId, fileName: params.fileName, error },
+      'Failed to fingerprint startup bootstrap file',
+    );
+  }
+  return {
+    key: `${BOOTSTRAP_AUTOSTART_MARKER_KEY}.${params.agentId}.${params.fileName}.${fileFingerprint}`,
+    fileFingerprint,
+  };
 }
 
 function getBootstrapAutostartLockKey(
@@ -7912,7 +7942,11 @@ export async function ensureGatewayBootstrapAutostart(params: {
   const context = resolveBootstrapAutostartContext(params);
   if (!context) return;
   const { channelId, session, resolved, bootstrapFile } = context;
-  const markerKey = getBootstrapAutostartMarkerKey(resolved.agentId);
+  const marker = getBootstrapAutostartMarker({
+    agentId: resolved.agentId,
+    fileName: bootstrapFile,
+  });
+  const markerKey = marker.key;
   const lockKey = getBootstrapAutostartLockKey(session.id, resolved.agentId);
   if (activeBootstrapAutostartSessions.has(lockKey)) {
     return;
@@ -7924,6 +7958,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     const claimed = claimMemoryValue(session.id, markerKey, {
       status: 'started',
       fileName: bootstrapFile,
+      fileFingerprint: marker.fileFingerprint,
       at: markerStartedAt,
     });
     if (!claimed) return;
@@ -8259,6 +8294,8 @@ export async function ensureGatewayBootstrapAutostart(params: {
     const assistantMessageId = storeBootstrapAssistantMessage(resultText);
     setMemoryValue(session.id, markerKey, {
       status: 'completed',
+      fileName: bootstrapFile,
+      fileFingerprint: marker.fileFingerprint,
       assistantMessageId,
       completedAt: new Date().toISOString(),
     });
@@ -8311,7 +8348,10 @@ export function getGatewayBootstrapAutostartState(params: {
 
   const marker = getMemoryValue(
     session.id,
-    getBootstrapAutostartMarkerKey(resolved.agentId),
+    getBootstrapAutostartMarker({
+      agentId: resolved.agentId,
+      fileName: bootstrapFile,
+    }).key,
   ) as {
     status?: unknown;
     fileName?: unknown;

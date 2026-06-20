@@ -975,7 +975,9 @@ describe('.claw archive support', () => {
     vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
     process.chdir(cwd);
 
-    const { initDatabase } = await import('../../src/memory/db.js');
+    const { initDatabase, listMemoryValues, setMemoryValue } = await import(
+      '../../src/memory/db.js'
+    );
     const { getAgentById, initAgentRegistry } = await import(
       '../../src/agents/agent-registry.js'
     );
@@ -1004,6 +1006,23 @@ describe('.claw archive support', () => {
       '{"name":"Writer Agent"}\n',
       'utf-8',
     );
+    setMemoryValue('session-a', 'gateway.bootstrap_autostart.v1.writer', {
+      status: 'completed',
+    });
+    setMemoryValue(
+      'session-b',
+      'gateway.bootstrap_autostart.v1.writer.BOOTSTRAP.md.abc123',
+      {
+        status: 'completed',
+      },
+    );
+    setMemoryValue(
+      'session-c',
+      'gateway.bootstrap_autostart.v1.writer2.BOOTSTRAP.md.keep',
+      {
+        status: 'completed',
+      },
+    );
 
     expect(getAgentById('writer')).toMatchObject({ id: 'writer' });
     expect(fs.existsSync(agentRootPath)).toBe(true);
@@ -1016,9 +1035,17 @@ describe('.claw archive support', () => {
       workspacePath,
       removedAgentRoot: true,
       removedRegistration: true,
+      removedBootstrapAutostartMarkers: 2,
     });
     expect(getAgentById('writer')).toBeNull();
     expect(fs.existsSync(agentRootPath)).toBe(false);
+    expect(listMemoryValues('session-a')).toEqual([]);
+    expect(listMemoryValues('session-b')).toEqual([]);
+    expect(listMemoryValues('session-c')).toEqual([
+      expect.objectContaining({
+        key: 'gateway.bootstrap_autostart.v1.writer2.BOOTSTRAP.md.keep',
+      }),
+    ]);
   });
 
   test('uninstall rejects the main agent', async () => {

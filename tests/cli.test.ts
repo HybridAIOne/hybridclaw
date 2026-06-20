@@ -454,6 +454,7 @@ async function importFreshCli(options?: {
     workspacePath: string;
     removedAgentRoot: boolean;
     removedRegistration: boolean;
+    removedBootstrapAutostartMarkers: number;
   };
   fetchMock?: (input: string | URL | Request, init?: RequestInit) => unknown;
   agentListResult?: Array<{
@@ -926,6 +927,7 @@ async function importFreshCli(options?: {
         workspacePath: `/tmp/.hybridclaw/data/agents/${agentId}/workspace`,
         removedAgentRoot: true,
         removedRegistration: true,
+        removedBootstrapAutostartMarkers: 0,
       }
     );
   });
