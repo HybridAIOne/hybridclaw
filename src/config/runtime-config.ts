@@ -144,9 +144,10 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 30;
+export const CONFIG_VERSION = 31;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
+export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
   'This is a live phone call. Produce plain spoken text only.',
@@ -1021,6 +1022,7 @@ export interface RuntimeConfig {
   hybridai: {
     baseUrl: string;
     defaultModel: string;
+    onboardingModel: string;
     defaultChatbotId: string;
     maxTokens: number;
     enableRag: boolean;
@@ -1683,6 +1685,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   hybridai: {
     baseUrl: 'https://hybridai.one',
     defaultModel: DEFAULT_HYBRIDAI_MODEL,
+    onboardingModel: DEFAULT_HYBRIDAI_ONBOARDING_MODEL,
     defaultChatbotId: '',
     maxTokens: 4_096,
     enableRag: true,
@@ -7283,6 +7286,11 @@ function normalizeRuntimeConfig(
         rawHybridAi.defaultModel,
         DEFAULT_RUNTIME_CONFIG.hybridai.defaultModel,
         { allowEmpty: false },
+      ),
+      onboardingModel: normalizeString(
+        rawHybridAi.onboardingModel,
+        DEFAULT_RUNTIME_CONFIG.hybridai.onboardingModel,
+        { allowEmpty: true },
       ),
       defaultChatbotId: hybridDefaultChatbotId,
       maxTokens: normalizeInteger(

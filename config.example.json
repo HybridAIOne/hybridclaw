@@ -1,5 +1,5 @@
 {
-  "version": 30,
+  "version": 31,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -310,6 +310,7 @@
   "hybridai": {
     "baseUrl": "https://hybridai.one",
     "defaultModel": "gpt-4.1-mini",
+    "onboardingModel": "",
     "defaultChatbotId": "",
     "maxTokens": 4096,
     "enableRag": true,

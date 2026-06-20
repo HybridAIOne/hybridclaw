@@ -420,6 +420,7 @@ export let EMAIL_MEDIA_MAX_MB = 20;
 
 export let HYBRIDAI_BASE_URL = 'https://hybridai.one';
 export let HYBRIDAI_MODEL = 'gpt-4.1-mini';
+export let HYBRIDAI_ONBOARDING_MODEL = '';
 export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
@@ -990,6 +991,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     config.hybridai.baseUrl,
   );
   HYBRIDAI_MODEL = config.hybridai.defaultModel;
+  HYBRIDAI_ONBOARDING_MODEL = config.hybridai.onboardingModel;
   HYBRIDAI_CHATBOT_ID =
     process.env.HYBRIDAI_CHATBOT_ID?.trim() ||
     '' ||

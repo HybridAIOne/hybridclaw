@@ -142,6 +142,7 @@ import {
   resolveChannelType,
   resolveGatewayChatbotId,
   resolveMediaToolPolicy,
+  resolveOnboardingTurnModel,
   resolveSessionAutoResetPolicy,
   shouldForceNewTuiSession,
 } from './gateway-service.js';
@@ -997,38 +998,6 @@ async function handleGatewayMessageInner(
       activeGatewayRequest.release();
     }
   }
-  let chatbotResolution = await resolveGatewayChatbotId({
-    model,
-    chatbotId,
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId,
-    trigger: 'chat',
-  });
-  chatbotId = chatbotResolution.chatbotId;
-  const sessionContext = buildSessionContext({
-    source: {
-      channelKind: channelType || channel?.kind,
-      chatId: req.channelId,
-      chatType:
-        channelType === 'heartbeat' || channelType === 'scheduler'
-          ? 'system'
-          : req.guildId
-            ? 'channel'
-            : 'dm',
-      userId: req.userId,
-      userName: req.username ?? undefined,
-      guildId: req.guildId,
-    },
-    agentId,
-    sessionId: session.id,
-    sessionKey: session.session_key,
-    mainSessionKey: session.main_session_key,
-  });
-  const showMode = normalizeSessionShowMode(session.show_mode);
-  const shouldEmitTools = sessionShowModeShowsTools(showMode);
-  const enableRag = req.enableRag ?? session.enable_rag === 1;
-  let provider = resolveModelProvider(model);
   let media = normalizeMediaContextItems(req.media);
   const workspacePath = path.resolve(
     req.workspacePathOverride || agentWorkspaceDir(agentId),
@@ -1082,6 +1051,44 @@ async function handleGatewayMessageInner(
       'Cleared session history after workspace reset',
     );
   }
+  model = resolveOnboardingTurnModel({
+    bootstrapFile: startupBootstrapFile,
+    model,
+  });
+  const onboardingModelPinned =
+    startupBootstrapFile === 'BOOTSTRAP.md' && model !== resolvedModel;
+  let provider = resolveModelProvider(model);
+  let chatbotResolution = await resolveGatewayChatbotId({
+    model,
+    chatbotId,
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    agentId,
+    trigger: 'chat',
+  });
+  chatbotId = chatbotResolution.chatbotId;
+  const sessionContext = buildSessionContext({
+    source: {
+      channelKind: channelType || channel?.kind,
+      chatId: req.channelId,
+      chatType:
+        channelType === 'heartbeat' || channelType === 'scheduler'
+          ? 'system'
+          : req.guildId
+            ? 'channel'
+            : 'dm',
+      userId: req.userId,
+      userName: req.username ?? undefined,
+      guildId: req.guildId,
+    },
+    agentId,
+    sessionId: session.id,
+    sessionKey: session.session_key,
+    mainSessionKey: session.main_session_key,
+  });
+  const showMode = normalizeSessionShowMode(session.show_mode);
+  const shouldEmitTools = sessionShowModeShowsTools(showMode);
+  const enableRag = req.enableRag ?? session.enable_rag === 1;
   const audioPrelude = await prependAudioTranscriptionsToUserContent({
     content: req.content,
     media,
@@ -1141,7 +1148,8 @@ async function handleGatewayMessageInner(
   const explicitModelPinned = Boolean(
     req.model?.trim() ||
       session.model?.trim() ||
-      resolveAgentModel(resolvedAgent),
+      resolveAgentModel(resolvedAgent) ||
+      onboardingModelPinned,
   );
   let routingExecutionNotice: string | null = null;
   if (pluginManager?.hasMiddleware('routing')) {
@@ -1263,6 +1271,14 @@ async function handleGatewayMessageInner(
     } else {
       effectiveUserTurnContentExpanded = routingOutcome.userContent;
     }
+  }
+  const postRoutingModel = resolveOnboardingTurnModel({
+    bootstrapFile: startupBootstrapFile,
+    model,
+  });
+  if (postRoutingModel !== model) {
+    model = postRoutingModel;
+    provider = resolveModelProvider(model);
   }
   if (model !== resolvedModel) {
     chatbotResolution = await resolveGatewayChatbotId({

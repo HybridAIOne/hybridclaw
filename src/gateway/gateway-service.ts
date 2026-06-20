@@ -151,6 +151,7 @@ import {
   HYBRIDAI_BASE_URL,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
+  HYBRIDAI_ONBOARDING_MODEL,
   IMESSAGE_PASSWORD,
   MISTRAL_API_KEY,
   MissingRequiredEnvVarError,
@@ -760,6 +761,16 @@ function getBootstrapAutostartLockKey(
 ): string {
   return `${sessionId}:${agentId}`;
 }
+
+export function resolveOnboardingTurnModel(params: {
+  bootstrapFile: 'BOOTSTRAP.md' | 'OPENING.md' | null | undefined;
+  model: string;
+}): string {
+  if (params.bootstrapFile !== 'BOOTSTRAP.md') return params.model;
+  const onboardingModel = HYBRIDAI_ONBOARDING_MODEL.trim();
+  return onboardingModel || params.model;
+}
+
 const REQUEST_LOG_SENSITIVE_KEY_RE =
   /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
 const REQUEST_LOG_INLINE_SECRET_RE =
@@ -7911,7 +7922,11 @@ export async function ensureGatewayBootstrapAutostart(params: {
     });
     const workspacePath = path.resolve(agentWorkspaceDir(resolved.agentId));
     const enableRag = session.enable_rag === 1;
-    const provider = resolveModelProvider(resolved.model);
+    const model = resolveOnboardingTurnModel({
+      bootstrapFile,
+      model: resolved.model,
+    });
+    const provider = resolveModelProvider(model);
     const turnIndex = Math.max(1, session.message_count + 1);
 
     recordAuditEvent({
@@ -7922,7 +7937,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         userId: normalizedUserId,
         channel: channelId,
         cwd: workspacePath,
-        model: resolved.model,
+        model,
         source: BOOTSTRAP_AUTOSTART_SOURCE,
       },
     });
@@ -7940,7 +7955,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     });
 
     const chatbotResolution = await resolveGatewayChatbotId({
-      model: resolved.model,
+      model,
       chatbotId: resolved.chatbotId,
       sessionId: session.id,
       channelId,
@@ -7949,7 +7964,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     });
     const chatbotId = chatbotResolution.chatbotId;
 
-    if (modelRequiresChatbotId(resolved.model) && !chatbotId) {
+    if (modelRequiresChatbotId(model) && !chatbotId) {
       deleteMemoryValue(session.id, markerKey);
       const error =
         chatbotResolution.error ||
@@ -7959,7 +7974,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
           sessionId: session.id,
           channelId,
           agentId: resolved.agentId,
-          model: resolved.model,
+          model,
           sessionChatbotId: session.chatbot_id ?? null,
           fallbackSource: chatbotResolution.source,
         },
@@ -8009,7 +8024,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         'Bootstrap kickoff turn. Start the conversation proactively with a concise user-facing opening message.',
       runtimeInfo: {
         chatbotId,
-        model: resolved.model,
+        model,
         defaultModel: HYBRIDAI_MODEL,
         channelType: channelId,
         channelId,
@@ -8044,7 +8059,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         userId: normalizedUserId,
         agentId: resolved.agentId,
         channelId,
-        model: resolved.model || undefined,
+        model: model || undefined,
       });
     }
 
@@ -8070,7 +8085,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     const preludeText = await generateBootstrapPrelude({
       agentId: resolved.agentId,
       fileName: bootstrapFile,
-      model: resolved.model,
+      model,
       chatbotId,
     });
     const hasPrelude = Boolean(preludeText);
@@ -8085,7 +8100,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       event: {
         type: 'agent.start',
         provider,
-        model: resolved.model,
+        model,
         scheduledTaskCount: 0,
         promptMessages: messages.length,
         systemPrompt: readSystemPromptMessage(messages),
@@ -8098,7 +8113,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       messages,
       chatbotId,
       enableRag,
-      model: resolved.model,
+      model,
       agentId: resolved.agentId,
       channelId,
       ralphMaxIterations: resolveSessionRalphIterations(session),
@@ -8134,8 +8149,8 @@ export async function ensureGatewayBootstrapAutostart(params: {
       event: {
         type: 'model.usage',
         provider,
-        model: resolved.model,
-        runtime: resolveTurnRuntimeAuditLabel(resolved.model, output),
+        model,
+        runtime: resolveTurnRuntimeAuditLabel(model, output),
         codexRuntime: output.codexRuntime || null,
         durationMs: Date.now() - startedAt,
         toolCallCount: (output.toolExecutions || []).length,
@@ -8145,13 +8160,13 @@ export async function ensureGatewayBootstrapAutostart(params: {
     enqueueTokenUsage({
       sessionId: session.id,
       agentId: resolved.agentId,
-      model: resolved.model,
+      model,
       inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
       outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
       totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
       toolCalls: (output.toolExecutions || []).length,
       costUsd: await resolveUsageCostUsdAfterMetadataRefresh({
-        model: resolved.model,
+        model,
         tokenUsage: output.tokenUsage,
         usage: usagePayload,
       }),

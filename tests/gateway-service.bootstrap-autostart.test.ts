@@ -153,6 +153,84 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(getGatewayHistory(sessionId, 10).history).toHaveLength(2);
 });
 
+test('ensureGatewayBootstrapAutostart uses regular model when onboarding model is empty', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Default model hatching.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  updateRuntimeConfig((draft) => {
+    draft.hybridai.defaultModel = 'gpt-5-mini';
+    draft.hybridai.onboardingModel = '';
+  });
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { ensureGatewayBootstrapAutostart } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'agent:main:channel:web:chat:dm:peer:bootstrap-empty-model';
+  await ensureGatewayBootstrapAutostart({ sessionId });
+
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | {
+        model?: string;
+      }
+    | undefined;
+  expect(request?.model).toBe('gpt-5-mini');
+});
+
+test('ensureGatewayBootstrapAutostart uses configured onboarding model for BOOTSTRAP.md', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Strong model hatching.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  updateRuntimeConfig((draft) => {
+    draft.hybridai.defaultModel = 'gpt-5-mini';
+    draft.hybridai.onboardingModel = 'gpt-5.5';
+  });
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { ensureGatewayBootstrapAutostart } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const sessionId =
+    'agent:main:channel:web:chat:dm:peer:bootstrap-onboarding-model';
+  await ensureGatewayBootstrapAutostart({ sessionId });
+
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | {
+        model?: string;
+      }
+    | undefined;
+  expect(request?.model).toBe('gpt-5.5');
+  expect(callAuxiliaryModelMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      fallbackModel: 'gpt-5.5',
+    }),
+  );
+});
+
 test('ensureGatewayBootstrapAutostart normalizes model-authored prelude text', async () => {
   setupHome();
 
