@@ -8967,15 +8967,6 @@ describe('gateway HTTP server', () => {
 
   test('uses the signed session subject for web chat requests', async () => {
     const authSecret = 'health-secret';
-    const sessionToken = signAuthPayload(
-      {
-        exp: Math.floor(Date.now() / 1000) + 60,
-        iat: Math.floor(Date.now() / 1000),
-        sub: 'user-1',
-        typ: 'session',
-      },
-      authSecret,
-    );
     const state = await importFreshHealth({ authSecret });
     state.handleGatewayCommand.mockResolvedValueOnce({
       kind: 'info',
@@ -8987,8 +8978,15 @@ describe('gateway HTTP server', () => {
       method: 'POST',
       url: '/api/chat',
       headers: {
-        cookie: `hybridclaw_session=${sessionToken}`,
+        cookie: makeSessionCookie(authSecret, {
+          sub: 'user-1',
+        }),
+        host: '127.0.0.1:9090',
+        origin: 'https://u-example.sbx.hybridai.one',
+        'sec-fetch-site': 'same-origin',
       },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
       body: {
         sessionId: 'session-web-slash',
         channelId: 'web',
@@ -9809,15 +9807,6 @@ describe('gateway HTTP server', () => {
 
   test('uses the signed session subject for /api/command web requests', async () => {
     const authSecret = 'health-secret';
-    const sessionToken = signAuthPayload(
-      {
-        exp: Math.floor(Date.now() / 1000) + 60,
-        iat: Math.floor(Date.now() / 1000),
-        sub: 'user-1',
-        typ: 'session',
-      },
-      authSecret,
-    );
     const state = await importFreshHealth({ authSecret });
     state.handleGatewayCommand.mockResolvedValueOnce({
       kind: 'plain',
@@ -9828,8 +9817,15 @@ describe('gateway HTTP server', () => {
       method: 'POST',
       url: '/api/command',
       headers: {
-        cookie: `hybridclaw_session=${sessionToken}`,
+        cookie: makeSessionCookie(authSecret, {
+          sub: 'user-1',
+        }),
+        host: '127.0.0.1:9090',
+        origin: 'https://u-example.sbx.hybridai.one',
+        'sec-fetch-site': 'same-origin',
       },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
       body: {
         sessionId: 'session-web-command',
         channelId: 'web',

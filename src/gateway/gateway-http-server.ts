@@ -2031,7 +2031,16 @@ function requestUsesHttps(req: IncomingMessage): boolean {
 function hasSameGatewayOrigin(req: IncomingMessage): boolean {
   const origin = String(req.headers.origin || '').trim();
   if (!origin) return false;
-  return origin === resolveRequestOrigin(req);
+  if (origin === resolveRequestOrigin(req)) return true;
+
+  // Browsers set this header from the actual page/request relationship. It
+  // keeps cookie-backed writes working behind TLS-terminating proxies even
+  // when the backend cannot reconstruct the public origin exactly.
+  return (
+    String(req.headers['sec-fetch-site'] || '')
+      .trim()
+      .toLowerCase() === 'same-origin'
+  );
 }
 
 function hasApiAuth(
