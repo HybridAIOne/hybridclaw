@@ -240,7 +240,7 @@ describe('workspace bootstrap lifecycle', () => {
     expect(files.some((file) => file.name === 'TASK_IDEAS.md')).toBe(false);
   });
 
-  test('seeds BOOTSTRAP.md when only runtime metadata exists first', async () => {
+  test('seeds BOOTSTRAP.md for explicit new-agent bootstrap even when workspace exists first', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
     vi.stubEnv('HOME', homeDir);
@@ -250,16 +250,18 @@ describe('workspace bootstrap lifecycle', () => {
     const ipc = await import('../src/infra/ipc.js');
 
     const workspaceDir = ipc.agentWorkspaceDir('agent-test');
-    fs.mkdirSync(path.join(workspaceDir, '.hybridclaw'), { recursive: true });
+    fs.mkdirSync(workspaceDir, { recursive: true });
     fs.writeFileSync(
-      path.join(workspaceDir, '.hybridclaw', 'cloud-memory.json'),
-      '{}\n',
+      path.join(workspaceDir, 'preexisting-note.md'),
+      '# Preexisting Note\n',
       'utf-8',
     );
 
-    const result = workspace.ensureBootstrapFiles('agent-test');
+    const result = workspace.ensureBootstrapFiles('agent-test', {
+      seedOneTimeBootstrap: true,
+    });
 
-    expect(result.workspaceInitialized).toBe(true);
+    expect(result.workspaceInitialized).toBe(false);
     expect(fs.existsSync(path.join(workspaceDir, 'BOOTSTRAP.md'))).toBe(true);
     const state = readWorkspaceState(workspaceDir);
     expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);

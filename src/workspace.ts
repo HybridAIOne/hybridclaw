@@ -108,6 +108,10 @@ export interface ResetWorkspaceResult {
   removed: boolean;
 }
 
+export interface EnsureBootstrapFilesOptions {
+  seedOneTimeBootstrap?: boolean;
+}
+
 export interface WorkspaceNodeModulesLinkOptions {
   allowMissingSource?: boolean;
   replaceExistingSymlink?: boolean;
@@ -128,12 +132,7 @@ function isWorkspaceEffectivelyEmpty(wsDir: string): boolean {
   try {
     const entries = fs
       .readdirSync(wsDir)
-      .filter(
-        (entry) =>
-          entry !== '.DS_Store' &&
-          entry !== 'Thumbs.db' &&
-          entry !== WORKSPACE_STATE_DIRNAME,
-      );
+      .filter((entry) => entry !== '.DS_Store' && entry !== 'Thumbs.db');
     return entries.length === 0;
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
@@ -613,6 +612,7 @@ export function ensureWorkspaceNodeModulesLink(
  */
 export function ensureBootstrapFiles(
   agentId: string,
+  options: EnsureBootstrapFilesOptions = {},
 ): EnsureBootstrapFilesResult {
   const wsDir = agentWorkspaceDir(agentId);
   const workspaceInitialized =
@@ -658,7 +658,10 @@ export function ensureBootstrapFiles(
     if (!state.bootstrapSeededAt) {
       markState({ bootstrapSeededAt: nowIso() });
     }
-  } else if (state.bootstrapSeededAt || !workspaceInitialized) {
+  } else if (
+    state.bootstrapSeededAt ||
+    (!workspaceInitialized && !options.seedOneTimeBootstrap)
+  ) {
     markState({
       onboardingCompletedAt: nowIso(),
       hatchingTurnsWithoutMessage: 0,

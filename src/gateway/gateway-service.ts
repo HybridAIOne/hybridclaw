@@ -10138,7 +10138,7 @@ export async function handleGatewayCommand(
             ...(modelName ? { model: modelName } : {}),
           });
           const workspacePath = path.resolve(agentWorkspaceDir(created.id));
-          ensureBootstrapFiles(created.id);
+          ensureBootstrapFiles(created.id, { seedOneTimeBootstrap: true });
           return infoCommand(
             'Agent Created',
             [

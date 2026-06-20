@@ -90,7 +90,7 @@ test('agent create seeds bootstrap workspace files and explains hatching trigger
   );
 });
 
-test('agent create seeds BOOTSTRAP.md when runtime metadata exists first', async () => {
+test('agent create seeds BOOTSTRAP.md when workspace directory exists first', async () => {
   setupHome();
 
   const { initDatabase } = await import('../src/memory/db.ts');
@@ -102,10 +102,10 @@ test('agent create seeds BOOTSTRAP.md when runtime metadata exists first', async
   initDatabase({ quiet: true });
 
   const workspacePath = agentWorkspaceDir('bob');
-  fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+  fs.mkdirSync(workspacePath, { recursive: true });
   fs.writeFileSync(
-    path.join(workspacePath, '.hybridclaw', 'cloud-memory.json'),
-    '{}\n',
+    path.join(workspacePath, 'preexisting-note.md'),
+    '# Preexisting Note\n',
     'utf-8',
   );
 
