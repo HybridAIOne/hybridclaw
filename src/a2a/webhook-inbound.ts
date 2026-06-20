@@ -17,9 +17,10 @@ import { resolveA2AAgentId } from './identity.js';
 import { acceptA2AInboundEnvelope } from './inbound-pipeline.js';
 import {
   A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE,
-  type A2ATrustedWebhookPeer as A2AWebhookInboundPeer,
-  getA2ATrustedWebhookPeer as getA2AWebhookInboundPeer,
-  listA2ATrustedWebhookPeers as listA2AWebhookInboundPeers,
+  type A2ATrustedWebhookPeer,
+  type F7TrustedWebhookPeer,
+  getF7TrustedWebhookPeer as getA2AWebhookInboundPeer,
+  listF7TrustedWebhookPeers as listA2AWebhookInboundPeers,
   normalizeA2APeerId,
   type UpsertA2ATrustedWebhookPeerInput as UpsertA2AWebhookInboundPeerInput,
   upsertA2ATrustedWebhookPeer as upsertA2AWebhookInboundPeer,
@@ -43,8 +44,11 @@ export type A2AWebhookInboundDownstreamDisposition =
   | 'rejected'
   | 'rate_limited'
   | 'error';
+export type A2AWebhookInboundPeer =
+  | A2ATrustedWebhookPeer
+  | F7TrustedWebhookPeer;
 
-export type { A2AWebhookInboundPeer, UpsertA2AWebhookInboundPeerInput };
+export type { UpsertA2AWebhookInboundPeerInput };
 export {
   getA2AWebhookInboundPeer,
   listA2AWebhookInboundPeers,
@@ -91,8 +95,20 @@ function readHeader(
   return raw || '';
 }
 
+function webhookConfig(peer: A2AWebhookInboundPeer) {
+  return 'webhook' in peer
+    ? peer.webhook
+    : {
+        secretRef: peer.secretRef,
+        signatureHeader: peer.signatureHeader,
+        version: peer.version,
+        replayWindowMs: peer.replayWindowMs,
+        rateLimitPerMinute: peer.rateLimitPerMinute,
+      };
+}
+
 function shouldRateLimit(peer: A2AWebhookInboundPeer, nowMs: number): boolean {
-  const limit = peer.rateLimitPerMinute;
+  const limit = webhookConfig(peer).rateLimitPerMinute;
   const bucket = rateLimitBuckets.get(peer.peerId);
   if (!bucket || nowMs - bucket.windowStartedAtMs >= 60_000) {
     rateLimitBuckets.set(peer.peerId, {
@@ -123,9 +139,10 @@ function decodeWebhookEnvelope(
   }
   const record = parsed as Record<string, unknown>;
   const version = record.version;
-  if (version !== undefined && version !== peer.version) {
+  const expectedVersion = webhookConfig(peer).version;
+  if (version !== undefined && version !== expectedVersion) {
     throw new A2AEnvelopeValidationError([
-      `version must be ${peer.version} when provided`,
+      `version must be ${expectedVersion} when provided`,
     ]);
   }
   const { version: _version, ...envelope } = record;
@@ -144,7 +161,7 @@ function auditSecretEscape(params: {
     event: {
       type: 'secret.unsafe_escape',
       skill: 'a2a.webhook-inbound',
-      secretRef: params.peer.secretRef,
+      secretRef: webhookConfig(params.peer).secretRef,
       sinkKind: 'hmac',
       host: params.peer.peerId,
       selector: null,
@@ -158,7 +175,8 @@ function resolveInboundSecret(params: {
   sessionId: string;
   runId: string;
 }): string {
-  const secret = resolveSecretInputUnsafe(params.peer.secretRef, {
+  const secretRef = webhookConfig(params.peer).secretRef;
+  const secret = resolveSecretInputUnsafe(secretRef, {
     path: 'a2a.webhook.inbound.secretRef',
     required: true,
     reason: 'verify inbound webhook envelope',
@@ -172,7 +190,7 @@ function resolveInboundSecret(params: {
   });
   if (!secret) {
     throw new Error(
-      `a2a.webhook.inbound.secretRef resolved to an empty secret for ${params.peer.secretRef.source}:${params.peer.secretRef.id}`,
+      `a2a.webhook.inbound.secretRef resolved to an empty secret for ${secretRef.source}:${secretRef.id}`,
     );
   }
   return secret;
@@ -387,7 +405,7 @@ export function acceptA2AWebhookInboundEnvelope(params: {
     body: params.rawBody,
     secret,
     nowMs,
-    replayWindowMs: peer.replayWindowMs,
+    replayWindowMs: webhookConfig(peer).replayWindowMs,
   });
   if (!signatureOk) {
     recordInboundAudit({
@@ -528,7 +546,10 @@ export async function handleA2AWebhookInbound(
     const result = acceptA2AWebhookInboundEnvelope({
       peerId,
       rawBody,
-      signatureHeader: readHeader(req.headers, peer.signatureHeader),
+      signatureHeader: readHeader(
+        req.headers,
+        webhookConfig(peer).signatureHeader,
+      ),
       peer,
     });
     sendJson(res, result.statusCode, result.body);
