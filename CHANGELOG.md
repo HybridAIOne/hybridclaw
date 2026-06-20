@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- **Langfuse skill**: LLM observability and evaluation based on the official
+  Langfuse skill (`github.com/langfuse/skills`, MIT). Reads traces, observations,
+  sessions, scores, prompts, datasets, models, and metrics, and creates scores,
+  comments, datasets, dataset items, and prompt versions through the
+  gateway-proxied `langfuse.cjs` helper. Auth uses a SecretRef-backed
+  `Authorization: Basic <secret:LANGFUSE_BASIC_AUTH>` header with a
+  `LANGFUSE_HOST` config variable; reads are green and writes are grant-gated.
+  Bundles the upstream reference docs (instrumentation, prompt migration, error
+  analysis, judge calibration, SDK upgrade, CI/CD) plus Langfuse documentation
+  lookup (llms.txt / markdown / search-docs).
+
 ## [0.25.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.2) - 2026-06-20
 
 ### Fixed
