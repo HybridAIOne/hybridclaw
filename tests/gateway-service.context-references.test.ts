@@ -360,7 +360,7 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
   const workspaceDir = agentWorkspaceDir('research');
   expect(fs.existsSync(path.join(workspaceDir, 'BOOTSTRAP.md'))).toBe(true);
 
-  await handleGatewayMessage({
+  const result = await handleGatewayMessage({
     sessionId: 'session-onboarding-email-complete',
     guildId: null,
     channelId: 'web',
@@ -372,6 +372,11 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
     chatbotId: 'bot-1',
   });
 
+  expect(result.status).toBe('success');
+  expect(result.result).toContain('Optional channel setup:');
+  expect(result.result).toContain('/admin/channels#whatsapp');
+  expect(result.result).toContain('/admin/channels#discord');
+  expect(result.result).toContain('/admin/channels#telegram');
   expect(fs.existsSync(path.join(workspaceDir, 'BOOTSTRAP.md'))).toBe(false);
   const userMarkdown = fs.readFileSync(
     path.join(workspaceDir, 'USER.md'),

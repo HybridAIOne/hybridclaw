@@ -593,7 +593,10 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { initializeGoalContinuationRunner } from './goal-continuation-runner.js';
-import { recordBootstrapHatchingTurnResult } from './hatching-completion.js';
+import {
+  appendHatchingChannelSetupLinks,
+  recordBootstrapHatchingTurnResult,
+} from './hatching-completion.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -8219,6 +8222,10 @@ export async function ensureGatewayBootstrapAutostart(params: {
       output.status === 'success'
         ? normalizeBootstrapAutostartResult(output)
         : '';
+    const resultTextWithHatchingLinks = appendHatchingChannelSetupLinks({
+      resultText,
+      hatchingCompletion,
+    });
 
     const usagePayload = buildTokenUsageAuditPayload(
       messages,
@@ -8263,7 +8270,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       enqueueTokenUsage(event);
     }
 
-    if (output.status !== 'success' || !resultText) {
+    if (output.status !== 'success' || !resultTextWithHatchingLinks) {
       deleteMemoryValue(session.id, markerKey);
       recordAuditEvent({
         sessionId: session.id,
@@ -8291,7 +8298,9 @@ export async function ensureGatewayBootstrapAutostart(params: {
       return;
     }
 
-    const assistantMessageId = storeBootstrapAssistantMessage(resultText);
+    const assistantMessageId = storeBootstrapAssistantMessage(
+      resultTextWithHatchingLinks,
+    );
     setMemoryValue(session.id, markerKey, {
       status: 'completed',
       fileName: bootstrapFile,

@@ -9,6 +9,20 @@ type MessageSend = {
   subject?: string;
 };
 
+export type BootstrapHatchingTurnResult = {
+  completed: boolean;
+  updated: boolean;
+  reason: string;
+  turnsWithoutMessage?: number;
+};
+
+const HATCHING_CHANNEL_SETUP_LINKS = [
+  'Optional channel setup:',
+  '- WhatsApp: `/admin/channels#whatsapp`',
+  '- Discord: `/admin/channels#discord`',
+  '- Telegram: `/admin/channels#telegram`',
+].join('\n');
+
 function parseJsonObject(value: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(value);
@@ -64,12 +78,7 @@ export function recordBootstrapHatchingTurnResult(params: {
   bootstrapFile: 'BOOTSTRAP.md' | 'OPENING.md' | null;
   toolExecutions: ToolExecution[];
   handledAt?: string;
-}): {
-  completed: boolean;
-  updated: boolean;
-  reason: string;
-  turnsWithoutMessage?: number;
-} | null {
+}): BootstrapHatchingTurnResult | null {
   if (params.bootstrapFile !== 'BOOTSTRAP.md') return null;
 
   const send = params.toolExecutions
@@ -85,4 +94,24 @@ export function recordBootstrapHatchingTurnResult(params: {
     subject: send.subject,
     handledAt: params.handledAt,
   });
+}
+
+export function appendHatchingChannelSetupLinks(params: {
+  resultText: string;
+  hatchingCompletion: BootstrapHatchingTurnResult | null;
+}): string {
+  if (
+    !params.hatchingCompletion?.completed ||
+    params.hatchingCompletion.reason !== 'message sent'
+  ) {
+    return params.resultText;
+  }
+  if (
+    params.resultText.includes('/admin/channels#whatsapp') &&
+    params.resultText.includes('/admin/channels#discord') &&
+    params.resultText.includes('/admin/channels#telegram')
+  ) {
+    return params.resultText;
+  }
+  return `${params.resultText.trimEnd()}\n\n${HATCHING_CHANNEL_SETUP_LINKS}`;
 }

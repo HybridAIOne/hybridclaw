@@ -156,7 +156,10 @@ import {
   firstNumber,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
-import { recordBootstrapHatchingTurnResult } from './hatching-completion.js';
+import {
+  appendHatchingChannelSetupLinks,
+  recordBootstrapHatchingTurnResult,
+} from './hatching-completion.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
 import {
@@ -2229,6 +2232,10 @@ async function handleGatewayMessageInner(
         );
       }
     }
+    resultText = appendHatchingChannelSetupLinks({
+      resultText,
+      hatchingCompletion,
+    });
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex,
