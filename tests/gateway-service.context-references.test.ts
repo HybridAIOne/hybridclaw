@@ -171,7 +171,7 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
     'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
   );
   expect(userMessage?.content).not.toContain(
-    'If the user has introduced themselves and given an email address, send one short welcome message with the message tool.',
+    'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool.',
   );
   expect(userMessage?.content).not.toContain(
     'call the message tool with action="send"',
@@ -238,7 +238,10 @@ test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-m
 
   expect(userMessage?.role).toBe('user');
   expect(userMessage?.content).toContain(
-    'If the user has introduced themselves and given an email address, send one short welcome message with the message tool.',
+    'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool.',
+  );
+  expect(userMessage?.content).toContain(
+    'Include concrete first tasks, copy-paste prompt ideas, and available channel setup links.',
   );
   expect(userMessage?.content).toContain(
     'Do not ask for separate confirmation.',

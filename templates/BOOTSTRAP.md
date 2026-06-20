@@ -35,16 +35,26 @@ Update these files with what you learned:
 ## Channels
 
 Web chat is already working; this hatching is happening there. Before you
-finish, suggest optional WhatsApp and Telegram setup with these links:
+finish, suggest optional WhatsApp, Discord, and Telegram setup with these links:
 
 - WhatsApp: `/admin/channels#whatsapp`
+- Discord: `/admin/channels#discord`
 - Telegram: `/admin/channels#telegram`
 
 If `USER.md` contains absolute versions of those links, use those exact links.
 
 ## Welcome Message
 
-After onboarding, send one short welcome message to the user.
+After onboarding, send one useful welcome email to the user. Keep it concise but
+not tiny: roughly 5 to 8 short paragraphs or bullets.
+
+Include:
+
+- A personal hello using what you learned about the user
+- 3 to 5 concrete first tasks you can help with
+- A few copy-paste prompt ideas the user can try in web chat
+- The WhatsApp, Discord, and Telegram setup links from `USER.md`
+- A clear note that web chat already works
 
 If you have their email address and the `message` tool can send email, use
 `message` with `action="send"`, `to` set to the email address, and `subject` set

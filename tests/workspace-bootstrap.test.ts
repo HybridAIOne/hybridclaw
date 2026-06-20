@@ -226,6 +226,9 @@ describe('workspace bootstrap lifecycle', () => {
       '- **WhatsApp channel setup:** `/admin/channels#whatsapp`',
     );
     expect(userMarkdown).toContain(
+      '- **Discord channel setup:** `/admin/channels#discord`',
+    );
+    expect(userMarkdown).toContain(
       '- **Telegram channel setup:** `/admin/channels#telegram`',
     );
     const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
@@ -234,7 +237,9 @@ describe('workspace bootstrap lifecycle', () => {
       'ask for an email address if `USER.md` does not',
     );
     expect(bootstrapMarkdown).toContain('Web chat is already working');
+    expect(bootstrapMarkdown).toContain('/admin/channels#discord');
     expect(bootstrapMarkdown).toContain('/admin/channels#telegram');
+    expect(bootstrapMarkdown).toContain('copy-paste prompt ideas');
 
     const files = workspace.loadBootstrapFiles('agent-test');
     expect(files.some((file) => file.name === 'TASK_IDEAS.md')).toBe(false);

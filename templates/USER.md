@@ -25,6 +25,7 @@ _(The canonical base URL lives in runtime config at `deployment.public_url`; pro
 
 - **Agent chat:** `/chat`
 - **WhatsApp channel setup:** `/admin/channels#whatsapp`
+- **Discord channel setup:** `/admin/channels#discord`
 - **Telegram channel setup:** `/admin/channels#telegram`
 - **Documentation:** `/docs/`
 

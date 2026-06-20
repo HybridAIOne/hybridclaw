@@ -641,7 +641,7 @@ function isGpt5OnboardingModelId(modelId: string): boolean {
 
 function buildGpt5OnboardingPromptInjection(): string[] {
   return [
-    'If the user has introduced themselves and given an email address, send one short welcome message with the message tool. Set action="send", to=<email>, and subject=<specific subject>. Do not ask for separate confirmation.',
+    'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool. Include concrete first tasks, copy-paste prompt ideas, and available channel setup links. Set action="send", to=<email>, and subject=<specific subject>. Do not ask for separate confirmation.',
   ];
 }
 
