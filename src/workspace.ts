@@ -22,7 +22,6 @@ export const WORKSPACE_BOOTSTRAP_FILES = [
   'TOOLS.md',
   'MEMORY.md',
   'HEARTBEAT.md',
-  'TASK_IDEAS.md',
   'BOOTSTRAP.md',
   'OPENING.md',
   'BOOT.md',
@@ -447,11 +446,11 @@ export function completeHatchingAfterMessageSend(params: {
   if (originalUser && recipientIsEmail) {
     const handledAt =
       cleanMarkdownInline(params.handledAt) || new Date().toISOString();
-    const subject = cleanMarkdownInline(params.subject) || 'First jobs email';
+    const subject = cleanMarkdownInline(params.subject) || 'Welcome';
     let nextUser = replaceMarkdownField(originalUser, 'Email', recipient, {
       onlyIfMissing: true,
     });
-    nextUser = replaceMarkdownSection(nextUser, 'First Jobs Email', [
+    nextUser = replaceMarkdownSection(nextUser, 'Welcome Message', [
       '- **Status:** sent',
       `- **Recipient:** ${recipient}`,
       `- **Subject:** ${subject}`,

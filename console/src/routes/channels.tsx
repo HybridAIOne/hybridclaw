@@ -3478,12 +3478,9 @@ export function ChannelsPage() {
     const firstCatalogEntry = catalog[0];
     if (!firstCatalogEntry) return;
     setSelectedKind((current) => {
-      if (
-        window.location.hash === '#whatsapp' &&
-        catalog.some((entry) => entry.kind === 'whatsapp')
-      ) {
-        return 'whatsapp';
-      }
+      const hashKind = window.location.hash.replace(/^#/, '');
+      const hashEntry = catalog.find((entry) => entry.kind === hashKind);
+      if (hashEntry) return hashEntry.kind;
       if (current && catalog.some((entry) => entry.kind === current)) {
         return current;
       }
@@ -3492,11 +3489,10 @@ export function ChannelsPage() {
   }, [catalog]);
 
   useEffect(() => {
-    if (selectedKind !== 'whatsapp' || window.location.hash !== '#whatsapp') {
-      return;
-    }
+    const hashKind = window.location.hash.replace(/^#/, '');
+    if (!selectedKind || selectedKind !== hashKind) return;
     window.setTimeout(() => {
-      const target = document.getElementById('whatsapp');
+      const target = document.getElementById(selectedKind);
       if (typeof target?.scrollIntoView === 'function') {
         target.scrollIntoView({ block: 'start' });
       }
@@ -3604,10 +3600,7 @@ export function ChannelsPage() {
         </Card>
 
         <Form form={form} onSubmit={() => saveMutation.mutate(draft)}>
-          <Card
-            id={selectedChannel?.kind === 'whatsapp' ? 'whatsapp' : undefined}
-            variant="muted"
-          >
+          <Card id={selectedChannel?.kind} variant="muted">
             <CardHeader>
               <CardTitle>
                 {selectedChannel

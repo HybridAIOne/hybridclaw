@@ -21,17 +21,14 @@ _(What do they care about? What projects are they working on? What annoys them? 
 
 ## Helpful Links
 
-_(The canonical base URL lives in runtime config at `deployment.public_url`; provisioning may mirror derived absolute URLs here. Include available links in the first jobs email, and do not invent missing cloud URLs.)_
+_(The canonical base URL lives in runtime config at `deployment.public_url`; provisioning may mirror derived absolute URLs here. Relative admin paths are usable in web chat. Do not invent missing cloud URLs.)_
 
-- **Agent chat:**
-- **WhatsApp channel setup:**
-- **Documentation:**
+- **Agent chat:** `/chat`
+- **WhatsApp channel setup:** `/admin/channels#whatsapp`
+- **Telegram channel setup:** `/admin/channels#telegram`
+- **Documentation:** `/docs/`
 
-## Suggested First Jobs
-
-_(After hatching, keep a short list of practical jobs the user may want HybridClaw to do based on their goals, tools, and `TASK_IDEAS.md`.)_
-
-## First Jobs Email
+## Welcome Message
 
 - **Status:** pending
 - **Recipient:**

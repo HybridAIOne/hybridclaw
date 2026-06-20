@@ -171,7 +171,7 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
     'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
   );
   expect(userMessage?.content).not.toContain(
-    'If you have the basic info about the user and a valid email address, proceed to send the welcome message.',
+    'If the user has introduced themselves and given an email address, send one short welcome message with the message tool.',
   );
   expect(userMessage?.content).not.toContain(
     'call the message tool with action="send"',
@@ -238,10 +238,10 @@ test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-m
 
   expect(userMessage?.role).toBe('user');
   expect(userMessage?.content).toContain(
-    'If you have the basic info about the user and a valid email address, proceed to send the welcome message.',
+    'If the user has introduced themselves and given an email address, send one short welcome message with the message tool.',
   );
   expect(userMessage?.content).toContain(
-    'Do not display the draft to the user first, but send without asking.',
+    'Do not ask for separate confirmation.',
   );
   expect(userMessage?.content).toContain('User message:\nHi');
 });
@@ -292,13 +292,13 @@ test('handleGatewayMessage uses configured onboarding model while BOOTSTRAP.md i
   expect(request?.model).toBe('gpt-5.5');
 });
 
-test('handleGatewayMessage completes hatching after the first jobs email send', async () => {
+test('handleGatewayMessage completes hatching after the welcome message send', async () => {
   setupHome();
 
   runAgentMock
     .mockResolvedValueOnce({
       status: 'success',
-      result: 'I sent the first jobs email.',
+      result: 'I sent the welcome message.',
       toolsUsed: ['message'],
       toolExecutions: [
         {
@@ -310,9 +310,7 @@ test('handleGatewayMessage completes hatching after the first jobs email send', 
             content: [
               '你好 Ben,',
               '',
-              '我可以先帮你做这些事：',
-              '- 起草 HybridClaw 发布帖。',
-              '- 检查 PR 并总结 CI 状态。',
+              'Welcome to HybridClaw. I am ready to help with release posts and PR review.',
             ].join('\n'),
           }),
           result: JSON.stringify({
@@ -375,7 +373,7 @@ test('handleGatewayMessage completes hatching after the first jobs email send', 
   expect(userMarkdown).toContain(
     '- **Subject:** HybridClaw release support is ready',
   );
-  expect(userMarkdown).not.toContain('- 起草 HybridClaw 发布帖。');
+  expect(userMarkdown).toContain('## Welcome Message');
 
   await handleGatewayMessage({
     sessionId: 'session-onboarding-email-complete',

@@ -1420,6 +1420,24 @@ describe('ChannelsPage', () => {
     });
   });
 
+  it('selects Telegram settings from the telegram hash fragment', async () => {
+    window.history.replaceState(null, '', '/admin/channels#telegram');
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /Telegram/i });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'Telegram settings' }),
+      ).toBeTruthy();
+    });
+  });
+
   it('does not show email as active when the password is not configured', async () => {
     fetchConfigMock.mockResolvedValue({
       path: '/tmp/config.json',
