@@ -83,6 +83,7 @@ const ERROR_BANNER_VISIBLE_MS = 5000;
 const ERROR_BANNER_FADE_MS = 200;
 const BOOTSTRAP_AUTOSTART_THINKING_ID = 'bootstrap-autostart-thinking';
 const BOOTSTRAP_AUTOSTART_REFETCH_MS = 1500;
+const DEFAULT_EMPTY_CHAT_HEADER = 'Ready to claw through your to-do list?';
 type RecentChatScope = 'user' | 'all';
 
 function buildBranchInfoMap(
@@ -317,6 +318,7 @@ export function ChatPage() {
         id: agent.id,
         name: agent.name,
         imageUrl: agent.imageUrl ?? null,
+        emptyChatHeader: agent.emptyChatHeader ?? null,
       })),
     [agentsQuery.data],
   );
@@ -408,10 +410,14 @@ export function ChatPage() {
   const branchFamilies =
     historyQuery.data?.branchFamilies ?? EMPTY_BRANCH_FAMILIES;
   const effectiveAgentId =
-    selectedAgentId ??
-    historyQuery.data?.agentId?.trim().toLowerCase() ??
-    appStatusQuery.data?.defaultAgentId?.trim().toLowerCase() ??
+    selectedAgentId?.trim().toLowerCase() ||
+    historyQuery.data?.agentId?.trim().toLowerCase() ||
+    appStatusQuery.data?.defaultAgentId?.trim().toLowerCase() ||
     DEFAULT_AGENT_ID;
+  const emptyChatHeader =
+    agentOptions
+      .find((agent) => agent.id.toLowerCase() === effectiveAgentId)
+      ?.emptyChatHeader?.trim() || DEFAULT_EMPTY_CHAT_HEADER;
 
   const deleteSessionMutation = useMutation({
     mutationFn: (targetSessionId: string) =>
@@ -1058,9 +1064,7 @@ export function ChatPage() {
           ) : null}
           {isEmpty ? (
             <div className={css.emptyState}>
-              <h1 className={css.greeting}>
-                Ready to claw through your to-do list?
-              </h1>
+              <h1 className={css.greeting}>{emptyChatHeader}</h1>
             </div>
           ) : (
             <div className={css.messageArea} ref={messageAreaRef}>

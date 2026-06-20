@@ -677,6 +677,9 @@ test('legacy agents without org-chart fields load cleanly after migration v26', 
   expect(columns.some((column) => column.name === 'reports_to')).toBe(true);
   expect(columns.some((column) => column.name === 'delegates_to')).toBe(true);
   expect(columns.some((column) => column.name === 'peers')).toBe(true);
+  expect(columns.some((column) => column.name === 'empty_chat_header')).toBe(
+    true,
+  );
 
   const userVersion = migratedDb.pragma('user_version', { simple: true });
   expect(userVersion).toBeGreaterThanOrEqual(26);

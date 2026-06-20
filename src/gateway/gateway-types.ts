@@ -834,6 +834,7 @@ export interface GatewayAgentListItem {
   id: string;
   name: string | null;
   imageUrl?: string;
+  emptyChatHeader?: string;
 }
 
 export interface GatewayAgentListResponse {
@@ -1207,6 +1208,7 @@ export interface GatewayAdminAgentProxyConfig {
 export interface GatewayAdminAgent {
   id: string;
   name: string | null;
+  emptyChatHeader: string | null;
   model: string | null;
   skills: string[] | null;
   chatbotId: string | null;

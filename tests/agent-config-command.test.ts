@@ -33,6 +33,8 @@ test('agent config command accepts direct JSON and overwrites markdown files', a
     JSON.stringify({
       id: 'felix',
       name: 'Felix',
+      displayName: 'Felix Support',
+      emptyChatHeader: 'Ready to clear the support queue?',
       model: 'gpt-5.4-mini',
       chatbotId: 'bot-felix',
       enableRag: true,
@@ -53,6 +55,8 @@ test('agent config command accepts direct JSON and overwrites markdown files', a
   expect(getAgentById('felix')).toMatchObject({
     id: 'felix',
     name: 'Felix',
+    displayName: 'Felix Support',
+    emptyChatHeader: 'Ready to clear the support queue?',
     model: 'gpt-5.4-mini',
     chatbotId: 'bot-felix',
     enableRag: true,

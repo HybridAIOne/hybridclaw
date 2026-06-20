@@ -184,6 +184,14 @@ function applyAgentConfigFieldUpdates(
     if (imageAsset) next.imageAsset = imageAsset;
     else delete next.imageAsset;
   }
+  if (Object.hasOwn(updates, 'emptyChatHeader')) {
+    const emptyChatHeader = normalizeOptionalStringField(
+      'emptyChatHeader',
+      updates.emptyChatHeader,
+    );
+    if (emptyChatHeader) next.emptyChatHeader = emptyChatHeader;
+    else delete next.emptyChatHeader;
+  }
   if (Object.hasOwn(updates, 'model')) {
     const model = normalizeModelConfig(updates.model);
     if (model) next.model = model;
