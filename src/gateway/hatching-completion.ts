@@ -18,9 +18,9 @@ export type BootstrapHatchingTurnResult = {
 
 const HATCHING_CHANNEL_SETUP_LINKS = [
   'Optional channel setup:',
-  '- WhatsApp: `/admin/channels#whatsapp`',
-  '- Discord: `/admin/channels#discord`',
-  '- Telegram: `/admin/channels#telegram`',
+  '- [Set up WhatsApp](/admin/channels#whatsapp)',
+  '- [Set up Discord](/admin/channels#discord)',
+  '- [Set up Telegram](/admin/channels#telegram)',
 ].join('\n');
 
 function parseJsonObject(value: string): Record<string, unknown> | null {

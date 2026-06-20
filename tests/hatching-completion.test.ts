@@ -14,9 +14,10 @@ describe('appendHatchingChannelSetupLinks', () => {
 
     expect(result).toContain('I sent the welcome email.');
     expect(result).toContain('Optional channel setup:');
-    expect(result).toContain('/admin/channels#whatsapp');
-    expect(result).toContain('/admin/channels#discord');
-    expect(result).toContain('/admin/channels#telegram');
+    expect(result).toContain('[Set up WhatsApp](/admin/channels#whatsapp)');
+    expect(result).toContain('[Set up Discord](/admin/channels#discord)');
+    expect(result).toContain('[Set up Telegram](/admin/channels#telegram)');
+    expect(result).not.toContain('`/admin/channels#whatsapp`');
   });
 
   test('does not duplicate channel setup links already in the response', () => {
@@ -24,9 +25,9 @@ describe('appendHatchingChannelSetupLinks', () => {
       'I sent the welcome email.',
       '',
       'Optional channel setup:',
-      '- WhatsApp: `/admin/channels#whatsapp`',
-      '- Discord: `/admin/channels#discord`',
-      '- Telegram: `/admin/channels#telegram`',
+      '- [Set up WhatsApp](/admin/channels#whatsapp)',
+      '- [Set up Discord](/admin/channels#discord)',
+      '- [Set up Telegram](/admin/channels#telegram)',
     ].join('\n');
 
     const result = appendHatchingChannelSetupLinks({

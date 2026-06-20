@@ -37,12 +37,13 @@ Update these files with what you learned:
 Web chat is already working; this hatching is happening there. Before you
 finish, suggest optional WhatsApp, Discord, and Telegram setup with these links:
 
-- WhatsApp: `/admin/channels#whatsapp`
-- Discord: `/admin/channels#discord`
-- Telegram: `/admin/channels#telegram`
+- [Set up WhatsApp](/admin/channels#whatsapp)
+- [Set up Discord](/admin/channels#discord)
+- [Set up Telegram](/admin/channels#telegram)
 
 If `USER.md` contains absolute versions of those links, use those exact links.
-Post these setup links in the hatching chat, not in the welcome email.
+Post these setup links as Markdown links in the hatching chat, not in the
+welcome email.
 
 ## Welcome Message
 

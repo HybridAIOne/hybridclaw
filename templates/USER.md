@@ -23,11 +23,11 @@ _(What do they care about? What projects are they working on? What annoys them? 
 
 _(The canonical base URL lives in runtime config at `deployment.public_url`; provisioning may mirror derived absolute URLs here. Relative admin paths are usable in web chat. Do not invent missing cloud URLs.)_
 
-- **Agent chat:** `/chat`
-- **WhatsApp channel setup:** `/admin/channels#whatsapp`
-- **Discord channel setup:** `/admin/channels#discord`
-- **Telegram channel setup:** `/admin/channels#telegram`
-- **Documentation:** `/docs/`
+- **Agent chat:** [Open chat](/chat)
+- **WhatsApp channel setup:** [Set up WhatsApp](/admin/channels#whatsapp)
+- **Discord channel setup:** [Set up Discord](/admin/channels#discord)
+- **Telegram channel setup:** [Set up Telegram](/admin/channels#telegram)
+- **Documentation:** [Open docs](/docs/)
 
 ## Welcome Message
 

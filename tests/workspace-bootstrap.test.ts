@@ -223,13 +223,13 @@ describe('workspace bootstrap lifecycle', () => {
     const userMarkdown = fs.readFileSync(userPath, 'utf-8');
     expect(userMarkdown).toContain('## Welcome Message');
     expect(userMarkdown).toContain(
-      '- **WhatsApp channel setup:** `/admin/channels#whatsapp`',
+      '- **WhatsApp channel setup:** [Set up WhatsApp](/admin/channels#whatsapp)',
     );
     expect(userMarkdown).toContain(
-      '- **Discord channel setup:** `/admin/channels#discord`',
+      '- **Discord channel setup:** [Set up Discord](/admin/channels#discord)',
     );
     expect(userMarkdown).toContain(
-      '- **Telegram channel setup:** `/admin/channels#telegram`',
+      '- **Telegram channel setup:** [Set up Telegram](/admin/channels#telegram)',
     );
     const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
     const bootstrapMarkdown = fs.readFileSync(bootstrapPath, 'utf-8');
@@ -240,7 +240,7 @@ describe('workspace bootstrap lifecycle', () => {
     expect(bootstrapMarkdown).toContain('/admin/channels#discord');
     expect(bootstrapMarkdown).toContain('/admin/channels#telegram');
     expect(bootstrapMarkdown).toContain(
-      'Post these setup links in the hatching chat, not in the welcome email.',
+      'Post these setup links as Markdown links in the hatching chat',
     );
     expect(bootstrapMarkdown).toContain(
       'Follow the short welcome email template',

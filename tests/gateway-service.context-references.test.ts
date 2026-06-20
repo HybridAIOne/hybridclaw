@@ -247,7 +247,7 @@ test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-m
     '3 concrete first tasks, 2 or 3 copy-paste prompt ideas',
   );
   expect(userMessage?.content).toContain(
-    'Do not include channel setup links in the email; post those links in the hatching chat.',
+    'Do not include channel setup links in the email; post those links as Markdown links in the hatching chat.',
   );
   expect(userMessage?.content).toContain(
     'Do not ask for separate confirmation.',
@@ -374,9 +374,14 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
 
   expect(result.status).toBe('success');
   expect(result.result).toContain('Optional channel setup:');
-  expect(result.result).toContain('/admin/channels#whatsapp');
-  expect(result.result).toContain('/admin/channels#discord');
-  expect(result.result).toContain('/admin/channels#telegram');
+  expect(result.result).toContain(
+    '[Set up WhatsApp](/admin/channels#whatsapp)',
+  );
+  expect(result.result).toContain('[Set up Discord](/admin/channels#discord)');
+  expect(result.result).toContain(
+    '[Set up Telegram](/admin/channels#telegram)',
+  );
+  expect(result.result).not.toContain('`/admin/channels#whatsapp`');
   expect(fs.existsSync(path.join(workspaceDir, 'BOOTSTRAP.md'))).toBe(false);
   const userMarkdown = fs.readFileSync(
     path.join(workspaceDir, 'USER.md'),
