@@ -240,10 +240,14 @@ describe('workspace bootstrap lifecycle', () => {
     expect(bootstrapMarkdown).toContain('/admin/channels#discord');
     expect(bootstrapMarkdown).toContain('/admin/channels#telegram');
     expect(bootstrapMarkdown).toContain(
+      'Post these setup links in the hatching chat, not in the welcome email.',
+    );
+    expect(bootstrapMarkdown).toContain(
       'Follow the short welcome email template',
     );
     expect(bootstrapMarkdown).toContain('Exactly 3 concrete first tasks');
     expect(bootstrapMarkdown).toContain('copy-paste prompt ideas');
+    expect(bootstrapMarkdown).not.toContain('Optional channel setup:');
 
     const files = workspace.loadBootstrapFiles('agent-test');
     expect(files.some((file) => file.name === 'TASK_IDEAS.md')).toBe(false);

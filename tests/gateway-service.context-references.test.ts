@@ -247,6 +247,9 @@ test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-m
     '3 concrete first tasks, 2 or 3 copy-paste prompt ideas',
   );
   expect(userMessage?.content).toContain(
+    'Do not include channel setup links in the email; post those links in the hatching chat.',
+  );
+  expect(userMessage?.content).toContain(
     'Do not ask for separate confirmation.',
   );
   expect(userMessage?.content).toContain('User message:\nHi');

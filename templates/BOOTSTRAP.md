@@ -42,6 +42,7 @@ finish, suggest optional WhatsApp, Discord, and Telegram setup with these links:
 - Telegram: `/admin/channels#telegram`
 
 If `USER.md` contains absolute versions of those links, use those exact links.
+Post these setup links in the hatching chat, not in the welcome email.
 
 ## Welcome Message
 
@@ -53,7 +54,6 @@ Include:
 - A personal hello using what you learned about the user
 - Exactly 3 concrete first tasks you can help with
 - 2 or 3 copy-paste prompt ideas the user can try in web chat
-- The WhatsApp, Discord, and Telegram setup links from `USER.md`
 - A clear note that web chat already works
 
 Follow the short welcome email template below:
@@ -75,11 +75,6 @@ Prompts to try:
 - "<copy-paste prompt>"
 - "<copy-paste prompt>"
 
-Optional channel setup:
-- WhatsApp: <link>
-- Discord: <link>
-- Telegram: <link>
-
 Send me <one concrete next input>, and I'll turn it into <first useful output>.
 
 - <agent name>
@@ -90,7 +85,8 @@ If you have their email address and the `message` tool can send email, use
 to a specific subject. Do not ask for a second confirmation.
 
 After the send succeeds, note it in `USER.md` under `Welcome Message`, then tell
-the user briefly that you sent it.
+the user briefly in chat that you sent it. Include the WhatsApp, Discord, and
+Telegram setup links in that chat reply if you have not already posted them.
 
 ## When You Are Done
 

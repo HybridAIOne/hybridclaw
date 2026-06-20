@@ -641,7 +641,7 @@ function isGpt5OnboardingModelId(modelId: string): boolean {
 
 function buildGpt5OnboardingPromptInjection(): string[] {
   return [
-    'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool. Follow the short welcome email template in BOOTSTRAP.md: 3 concrete first tasks, 2 or 3 copy-paste prompt ideas, available channel setup links, and one concrete next step. Set action="send", to=<email>, and subject=<specific subject>. Do not ask for separate confirmation.',
+    'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool. Follow the short welcome email template in BOOTSTRAP.md: 3 concrete first tasks, 2 or 3 copy-paste prompt ideas, and one concrete next step. Do not include channel setup links in the email; post those links in the hatching chat. Set action="send", to=<email>, and subject=<specific subject>. Do not ask for separate confirmation.',
   ];
 }
 
