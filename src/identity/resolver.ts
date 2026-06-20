@@ -304,7 +304,7 @@ export class DnsIdentityResolverBackend implements IdentityResolverBackend {
     const recordName = `_hybridclaw-id.${idHash}.${this.zone}`;
     let records: readonly string[][];
     try {
-      // TODO(F7.4): pair DNS discovery with public-key format validation and
+      // TODO: pair DNS discovery with public-key format validation and
       // DNSSEC or out-of-band key verification before TOFU trust decisions.
       records = await this.lookupTxt(recordName);
     } catch (error) {
