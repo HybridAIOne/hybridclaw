@@ -32,11 +32,6 @@ function firstRecipientCandidate(...values: unknown[]): string {
   return '';
 }
 
-function parseSubjectFromContent(content: string): string {
-  const match = content.match(/^\s*\[Subject:\s*([^\]\n]+)\]/i);
-  return match?.[1]?.trim() || '';
-}
-
 function readSuccessfulMessageSend(
   execution: ToolExecution,
 ): MessageSend | null {
@@ -56,11 +51,7 @@ function readSuccessfulMessageSend(
     result?.channelId,
   );
 
-  const content = readString(args.content);
-  const subject =
-    readString(args.subject) ||
-    parseSubjectFromContent(content) ||
-    readString(result?.subject);
+  const subject = readString(args.subject) || readString(result?.subject);
 
   return {
     recipient,

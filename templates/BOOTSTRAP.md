@@ -103,8 +103,7 @@ Then create and send a tailored "first jobs" email:
    links instead of guessing.
 5. If an email-sending channel or tool is available, send the email directly
    with `message` using `action="send"`, `to` set to the user email address, and
-   `content` beginning with `[Subject: <your tailored subject>]`. Use the same
-   chosen subject when updating `USER.md`. Do not show the draft in chat first
+   `subject` set to the tailored subject. Do not show the draft in chat first
    and do not ask for a separate send confirmation; the user gave their email
    during hatching so this first greeting is part of onboarding.
 6. After the send succeeds, update `USER.md` under `First Jobs Email` with
