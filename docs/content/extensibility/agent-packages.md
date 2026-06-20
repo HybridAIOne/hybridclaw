@@ -422,13 +422,13 @@ reuses one readline session for the whole export flow.
 5. picks the agent id from `--id`, then `manifest.id`, then sanitized
    `manifest.name`
 6. registers the agent in the normal agent registry
-7. copies `workspace/` into the agent workspace path
-8. restores bundled skills into `workspace/skills/`
+7. copies `workspace/` into the agent workspace path without adding missing
+   bootstrap templates
+8. restores manifest-declared bundled skills into `workspace/skills/`
 9. installs manifest-declared skill imports into `workspace/skills/`
-10. installs bundled plugins with the normal plugin installer
+10. installs manifest-declared bundled plugins with the normal plugin installer
 11. merges packaged skill config and validated bundled-plugin overrides into
    runtime config
-12. calls `ensureBootstrapFiles()` to fill any missing templates
 
 Use `--force` to replace an existing agent workspace or reinstall bundled
 plugins during import. Use `--skip-externals` to skip manifest-declared skill

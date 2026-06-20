@@ -909,7 +909,7 @@ Notes:
   - Use \`--plugins active\` to bundle only enabled home plugins, \`--plugins all\` to bundle all installed home plugins, or \`--plugins some --plugin <id>\` to bundle a selected subset.
   - Interactive export defaults to \`--skills ask\` and \`--plugins ask\`; non-interactive export defaults to \`--skills all\` and \`--plugins active\`.
   - \`inspect\` validates the archive manifest and prints a summary without extracting files.
-  - \`install\` validates ZIP safety, confirms the manifest, registers the agent, restores bundled content, installs manifest-declared skill imports into the agent workspace, and fills missing bootstrap files.
+  - \`install\` validates ZIP safety, confirms the manifest, registers the agent, restores archived workspace content, and installs only manifest-declared bundled content or imports.
   - \`install official:<agent-dir>\` downloads a packaged agent from \`HybridAIOne/claws\` on GitHub before installing it.
   - \`install github:owner/repo/<agent-dir>\` resolves the packaged agent from a GitHub claws repo; use \`github:owner/repo/<ref>/<agent-dir>\` to pin a ref.
   - Direct \`https://.../*.claw\` URLs download the archive before installing it.
