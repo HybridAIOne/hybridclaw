@@ -400,6 +400,7 @@ import {
   type BlockedSkillCatalogEntry,
   loadSkillCatalog,
   loadSkillCatalogs,
+  resolveExplicitSkillInvocation,
   resolveManagedCommunitySkillsDir,
   type SkillCatalogEntry,
   SkillGuardUnblockInputError,
@@ -560,6 +561,7 @@ import {
   type GatewayAdminPolicyState,
   type GatewayAdminSession,
   type GatewayAdminSkill,
+  type GatewayAdminSkillInvocationsResponse,
   type GatewayAdminSkillPackageFile,
   type GatewayAdminSkillPackageFileResponse,
   type GatewayAdminSkillPackageFilesResponse,
@@ -7320,6 +7322,11 @@ function sanitizeGatewayAdminSkillGuardFindings(
 const ADMIN_SKILL_PACKAGE_MAX_FILE_BYTES = 512 * 1024;
 const ADMIN_SKILL_PACKAGE_MAX_ENTRIES = 1000;
 const ADMIN_SKILL_LOGO_MAX_BYTES = 64 * 1024;
+const ADMIN_SKILL_INVOCATION_DEFAULT_LIMIT = 8;
+const ADMIN_SKILL_INVOCATION_MAX_LIMIT = 25;
+const ADMIN_SKILL_INVOCATION_SESSION_SCAN_LIMIT = 200;
+const ADMIN_SKILL_INVOCATION_MESSAGE_SCAN_LIMIT = 120;
+const ADMIN_SKILL_INVOCATION_TEXT_LIMIT = 6000;
 const ADMIN_SKILL_LOGO_MIME_BY_EXTENSION = new Map([
   ['.svg', 'image/svg+xml'],
   ['.png', 'image/png'],
@@ -7611,6 +7618,108 @@ export function getGatewayAdminSkillPackageFile(params: {
       ...file,
       content: fs.readFileSync(resolved.filePath, 'utf-8'),
     },
+  };
+}
+
+function clampAdminSkillInvocationLimit(value?: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return ADMIN_SKILL_INVOCATION_DEFAULT_LIMIT;
+  }
+  return Math.max(
+    1,
+    Math.min(Math.floor(value), ADMIN_SKILL_INVOCATION_MAX_LIMIT),
+  );
+}
+
+function trimAdminSkillInvocationText(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= ADMIN_SKILL_INVOCATION_TEXT_LIMIT) return trimmed;
+  return `${trimmed.slice(0, ADMIN_SKILL_INVOCATION_TEXT_LIMIT - 3).trimEnd()}...`;
+}
+
+export function getGatewayAdminSkillInvocations(
+  skillName: string,
+  options?: { limit?: number },
+): GatewayAdminSkillInvocationsResponse {
+  const normalizedName = skillName.trim();
+  if (!normalizedName) {
+    throw new GatewayRequestError(400, 'Missing skill name.');
+  }
+
+  const catalog = loadSkillCatalogs();
+  const skill = catalog.available.find(
+    (entry) => entry.name === normalizedName,
+  );
+  if (!skill) {
+    const blockedSkill = catalog.blocked.find(
+      (entry) => entry.name === normalizedName,
+    );
+    if (blockedSkill) {
+      return { skillName: blockedSkill.name, invocations: [] };
+    }
+    throw new GatewayRequestError(404, `Skill "${normalizedName}" not found.`);
+  }
+
+  const limit = clampAdminSkillInvocationLimit(options?.limit);
+  const invocations: GatewayAdminSkillInvocationsResponse['invocations'] = [];
+  const invocationSkill = { ...skill, location: skill.filePath };
+  const sessions = getAllSessions({
+    limit: ADMIN_SKILL_INVOCATION_SESSION_SCAN_LIMIT,
+    warnLabel: 'admin-skill-invocations',
+  });
+
+  for (const session of sessions) {
+    const messages = getRecentMessages(
+      session.id,
+      ADMIN_SKILL_INVOCATION_MESSAGE_SCAN_LIMIT,
+    );
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role !== 'user') continue;
+      const invocation = resolveExplicitSkillInvocation(message.content, [
+        invocationSkill,
+      ]);
+      if (!invocation || invocation.skill.name !== skill.name) continue;
+
+      let assistantMessage: (typeof messages)[number] | null = null;
+      for (
+        let nextIndex = index + 1;
+        nextIndex < messages.length;
+        nextIndex += 1
+      ) {
+        const candidate = messages[nextIndex];
+        if (!candidate) continue;
+        if (candidate.role === 'user') break;
+        if (candidate.role === 'assistant') {
+          assistantMessage = candidate;
+          break;
+        }
+      }
+
+      invocations.push({
+        sessionId: message.session_id,
+        userMessageId: message.id,
+        assistantMessageId: assistantMessage?.id ?? null,
+        username: message.username,
+        createdAt: message.created_at,
+        responseCreatedAt: assistantMessage?.created_at ?? null,
+        userPrompt: trimAdminSkillInvocationText(message.content),
+        skillInput: trimAdminSkillInvocationText(invocation.args),
+        response: assistantMessage
+          ? trimAdminSkillInvocationText(assistantMessage.content)
+          : null,
+      });
+    }
+  }
+
+  invocations.sort((left, right) => {
+    const createdCompare = right.createdAt.localeCompare(left.createdAt);
+    return createdCompare || right.userMessageId - left.userMessageId;
+  });
+
+  return {
+    skillName: skill.name,
+    invocations: invocations.slice(0, limit),
   };
 }
 

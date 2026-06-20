@@ -69,6 +69,7 @@ import type {
   AdminSecretMutationResponse,
   AdminSecretsResponse,
   AdminSession,
+  AdminSkillInvocationsResponse,
   AdminSkillPackageFileResponse,
   AdminSkillPackageFilesResponse,
   AdminSkillsResponse,
@@ -1470,6 +1471,16 @@ export function fetchSkillPackageFiles(
 ): Promise<AdminSkillPackageFilesResponse> {
   return requestJson<AdminSkillPackageFilesResponse>(
     `/api/admin/skills/${encodeURIComponent(skillName)}/files`,
+    { token },
+  );
+}
+
+export function fetchSkillInvocations(
+  token: string,
+  skillName: string,
+): Promise<AdminSkillInvocationsResponse> {
+  return requestJson<AdminSkillInvocationsResponse>(
+    `/api/admin/skills/${encodeURIComponent(skillName)}/invocations`,
     { token },
   );
 }

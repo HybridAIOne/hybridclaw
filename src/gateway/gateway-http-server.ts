@@ -240,6 +240,7 @@ import {
   getGatewayAdminModels,
   getGatewayAdminOverview,
   getGatewayAdminSessions,
+  getGatewayAdminSkillInvocations,
   getGatewayAdminSkillPackageFile,
   getGatewayAdminSkillPackageFiles,
   getGatewayAdminSkills,
@@ -6183,11 +6184,33 @@ async function handleApiAdminSkillPackageFiles(
   const method = req.method || 'GET';
   const segments = url.pathname.split('/').filter(Boolean);
   const skillName = segments[3] ? decodeApiPathSegment(segments[3]).trim() : '';
+  const hasInvocationsPrefix = segments[4] === 'invocations';
   const hasFilesPrefix = segments[4] === 'files';
   const action = segments[5] || '';
 
-  if (!skillName || !hasFilesPrefix) {
+  if (!skillName || (!hasInvocationsPrefix && !hasFilesPrefix)) {
     sendJson(res, 404, { error: 'Not Found' });
+    return;
+  }
+
+  if (segments.length === 5 && hasInvocationsPrefix) {
+    if (method !== 'GET') {
+      sendMethodNotAllowed(res);
+      return;
+    }
+    const parsedLimit = Number.parseInt(
+      url.searchParams.get('limit') || '',
+      10,
+    );
+    try {
+      sendJson(
+        res,
+        200,
+        getGatewayAdminSkillInvocations(skillName, { limit: parsedLimit }),
+      );
+    } catch (error) {
+      sendApiAdminSkillPackageError(res, error);
+    }
     return;
   }
 

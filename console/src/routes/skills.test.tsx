@@ -8,6 +8,7 @@ import type {
   AdminSecretMutationResponse,
   AdminSecretsResponse,
   AdminSkill,
+  AdminSkillInvocationsResponse,
   AdminSkillPackageFileResponse,
   AdminSkillPackageFilesResponse,
   AdminSkillsResponse,
@@ -23,6 +24,10 @@ const fetchAmendmentsMock =
   vi.fn<() => Promise<AdminAdaptiveSkillAmendmentsResponse>>();
 const fetchSkillPackageFilesMock =
   vi.fn<() => Promise<AdminSkillPackageFilesResponse>>();
+const fetchSkillInvocationsMock =
+  vi.fn<
+    (token: string, skillName: string) => Promise<AdminSkillInvocationsResponse>
+  >();
 const fetchSkillPackageFileMock =
   vi.fn<
     (
@@ -73,6 +78,8 @@ vi.mock('../api/client', () => ({
   fetchAdaptiveSkillAmendments: () => fetchAmendmentsMock(),
   fetchAdaptiveSkillAmendmentHistory: () => fetchAmendmentsMock(),
   fetchSkillPackageFiles: () => fetchSkillPackageFilesMock(),
+  fetchSkillInvocations: (token: string, skillName: string) =>
+    fetchSkillInvocationsMock(token, skillName),
   fetchSkillPackageFile: (
     token: string,
     payload: { skillName: string; path: string },
@@ -191,6 +198,7 @@ describe('SkillsPage', () => {
     fetchHealthMock.mockReset();
     fetchAmendmentsMock.mockReset();
     fetchSkillPackageFilesMock.mockReset();
+    fetchSkillInvocationsMock.mockReset();
     fetchSkillPackageFileMock.mockReset();
     saveSkillPackageFileMock.mockReset();
     saveSkillEnabledMock.mockReset();
@@ -205,6 +213,10 @@ describe('SkillsPage', () => {
       skillName: 'pdf',
       rootPath: '/skills/pdf',
       files: [],
+    });
+    fetchSkillInvocationsMock.mockResolvedValue({
+      skillName: 'pdf',
+      invocations: [],
     });
     fetchSkillPackageFileMock.mockResolvedValue(makeSkillFileResponse());
     saveSkillPackageFileMock.mockResolvedValue(makeSkillFileResponse());
@@ -468,6 +480,45 @@ describe('SkillsPage', () => {
       name: 'pdf',
       enabled: true,
     });
+  });
+
+  it('renders recent skill invocations collapsed by default', async () => {
+    fetchSkillsMock.mockResolvedValue(makeResponse([makeSkill()]));
+    fetchSkillInvocationsMock.mockResolvedValue({
+      skillName: 'pdf',
+      invocations: [
+        {
+          sessionId: 'session-1',
+          userMessageId: 10,
+          assistantMessageId: 11,
+          username: 'alice',
+          createdAt: '2026-06-20T10:00:00.000Z',
+          responseCreatedAt: '2026-06-20T10:00:01.000Z',
+          userPrompt: '/pdf Create a one-page PDF',
+          skillInput: 'Create a one-page PDF',
+          response: 'Created the PDF.',
+        },
+      ],
+    });
+
+    renderWithProviders(<SkillDetailView skillName="pdf" />);
+
+    expect(await screen.findByText('Recent invocations')).toBeTruthy();
+    const promptMatches = await screen.findAllByText(
+      '/pdf Create a one-page PDF',
+    );
+    const summaryText = promptMatches.find((element) =>
+      element.classList.contains('skill-invocation-summary-main'),
+    );
+    if (!summaryText) throw new Error('Expected invocation summary text.');
+    const row = summaryText.closest('details') as HTMLDetailsElement;
+    expect(row.open).toBe(false);
+
+    fireEvent.click(summaryText);
+
+    expect(row.open).toBe(true);
+    expect(screen.getByText('Created the PDF.')).toBeTruthy();
+    expect(fetchSkillInvocationsMock).toHaveBeenCalledWith('test-token', 'pdf');
   });
 
   it('previews installed skill package files', async () => {

@@ -1618,6 +1618,83 @@ code {
   line-height: 1.45;
 }
 
+.skill-invocation-list {
+  display: grid;
+  gap: 10px;
+}
+
+.skill-invocation-row {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg);
+}
+
+.skill-invocation-row summary {
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.skill-invocation-row summary::marker {
+  color: var(--muted-foreground);
+}
+
+.skill-invocation-summary-main {
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-invocation-summary-meta {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-invocation-detail {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-muted);
+}
+
+.skill-invocation-detail section {
+  display: grid;
+  gap: 6px;
+}
+
+.skill-invocation-detail h4,
+.skill-invocation-detail pre {
+  margin: 0;
+}
+
+.skill-invocation-detail h4 {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.skill-invocation-detail pre {
+  overflow-x: auto;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg);
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .skill-credential-list {
   display: grid;
   gap: 12px;

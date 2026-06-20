@@ -166,6 +166,70 @@ test('skill package file admin APIs list, read, and save package files', async (
   ).toBe('console.log("updated");\n');
 });
 
+test('skill invocation admin API returns recent direct skill prompts with responses', async () => {
+  setupProjectCwd();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { createGatewayAdminSkill, getGatewayAdminSkillInvocations } =
+    await import('../src/gateway/gateway-service.ts');
+
+  initDatabase({ quiet: true });
+  createGatewayAdminSkill({
+    name: 'report-skill',
+    description: 'Build reports.',
+    category: 'office',
+    userInvocable: true,
+    body: '# Report Skill\n\nBuild reports.',
+  });
+
+  const matchingSession = memoryService.getOrCreateSession(
+    'session-report',
+    null,
+    'web',
+  );
+  memoryService.storeTurn({
+    sessionId: matchingSession.id,
+    user: {
+      userId: 'user-1',
+      username: 'alice',
+      content: '/report-skill Build a weekly report',
+    },
+    assistant: {
+      content: 'Built the weekly report.',
+    },
+  });
+
+  const unrelatedSession = memoryService.getOrCreateSession(
+    'session-agent',
+    null,
+    'web',
+  );
+  memoryService.storeTurn({
+    sessionId: unrelatedSession.id,
+    user: {
+      userId: 'user-1',
+      username: 'alice',
+      content: '/agent create bob1',
+    },
+    assistant: {
+      content: 'Created an agent.',
+    },
+  });
+
+  const result = getGatewayAdminSkillInvocations('report-skill');
+
+  expect(result.skillName).toBe('report-skill');
+  expect(result.invocations).toHaveLength(1);
+  expect(result.invocations[0]).toMatchObject({
+    sessionId: matchingSession.id,
+    username: 'alice',
+    userPrompt: '/report-skill Build a weekly report',
+    skillInput: 'Build a weekly report',
+    response: 'Built the weekly report.',
+  });
+});
+
 test('skill package file admin APIs reject traversal and symlink escapes', async () => {
   const { projectDir, managedSkillsDir } = setupProjectCwd();
 

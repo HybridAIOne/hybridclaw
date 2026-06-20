@@ -11,6 +11,7 @@ import {
 } from 'react';
 import {
   fetchAdminSecrets,
+  fetchSkillInvocations,
   fetchSkillPackageFile,
   fetchSkillPackageFiles,
   fetchSkills,
@@ -23,6 +24,7 @@ import type {
   AdminSecretEntry,
   AdminSecretsResponse,
   AdminSkill,
+  AdminSkillInvocation,
   AdminSkillPackageFile,
 } from '../api/types';
 import { useAuth } from '../auth';
@@ -251,6 +253,77 @@ function getSkillFileDocumentKey(
 ): string | null {
   if (!skillName || !filePath) return null;
   return `${skillName}:${filePath}`;
+}
+
+function SkillInvocationHistory(props: { skillName: string }) {
+  const auth = useAuth();
+  const invocationsQuery = useQuery({
+    queryKey: ['skill-invocations', auth.token, props.skillName],
+    queryFn: () => fetchSkillInvocations(auth.token, props.skillName),
+    refetchOnWindowFocus: false,
+  });
+  const invocations = invocationsQuery.data?.invocations || [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Recent invocations</CardTitle>
+        <CardDescription>
+          Recent user prompts and responses for this skill.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {invocationsQuery.isError ? (
+          <div className="empty-state error">
+            {getErrorMessage(invocationsQuery.error)}
+          </div>
+        ) : invocationsQuery.isLoading ? (
+          <div className="empty-state">Loading recent invocations...</div>
+        ) : invocations.length === 0 ? (
+          <div className="empty-state">No recent invocations found.</div>
+        ) : (
+          <div className="skill-invocation-list">
+            {invocations.map((invocation) => (
+              <SkillInvocationRow
+                invocation={invocation}
+                key={`${invocation.sessionId}-${invocation.userMessageId}`}
+              />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SkillInvocationRow(props: { invocation: AdminSkillInvocation }) {
+  const invocation = props.invocation;
+  const responseText = invocation.response || 'No assistant response recorded.';
+
+  return (
+    <details className="skill-invocation-row">
+      <summary>
+        <span className="skill-invocation-summary-main">
+          {invocation.userPrompt}
+        </span>
+        <span className="skill-invocation-summary-meta">
+          {formatDateTime(invocation.createdAt)}
+          {invocation.username ? ` · ${invocation.username}` : ''}
+          {invocation.skillInput ? ` · ${invocation.skillInput}` : ''}
+        </span>
+      </summary>
+      <div className="skill-invocation-detail">
+        <section>
+          <h4>User prompt</h4>
+          <pre>{invocation.userPrompt}</pre>
+        </section>
+        <section>
+          <h4>Response</h4>
+          <pre>{responseText}</pre>
+        </section>
+      </div>
+    </details>
+  );
 }
 
 function SkillPackageFileBrowser(props: { skillName: string }) {
@@ -756,6 +829,8 @@ export function SkillDetailView(props: { skillName: string }) {
           )}
         </CardContent>
       </Card>
+
+      <SkillInvocationHistory skillName={skill.name} />
 
       {skill.available && !skill.blocked ? (
         <SkillPackageFileBrowser skillName={skill.name} />

@@ -1553,6 +1553,23 @@ export interface GatewayAdminSkillPackageFileResponse {
   };
 }
 
+export interface GatewayAdminSkillInvocation {
+  sessionId: string;
+  userMessageId: number;
+  assistantMessageId: number | null;
+  username: string | null;
+  createdAt: string;
+  responseCreatedAt: string | null;
+  userPrompt: string;
+  skillInput: string;
+  response: string | null;
+}
+
+export interface GatewayAdminSkillInvocationsResponse {
+  skillName: string;
+  invocations: GatewayAdminSkillInvocation[];
+}
+
 export interface GatewayAdminSkill {
   name: string;
   description: string;

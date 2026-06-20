@@ -1801,6 +1801,23 @@ export interface AdminSkillPackageFileResponse {
   };
 }
 
+export interface AdminSkillInvocation {
+  sessionId: string;
+  userMessageId: number;
+  assistantMessageId: number | null;
+  username: string | null;
+  createdAt: string;
+  responseCreatedAt: string | null;
+  userPrompt: string;
+  skillInput: string;
+  response: string | null;
+}
+
+export interface AdminSkillInvocationsResponse {
+  skillName: string;
+  invocations: AdminSkillInvocation[];
+}
+
 export interface AdminSkillsResponse {
   extraDirs: string[];
   disabled: string[];
