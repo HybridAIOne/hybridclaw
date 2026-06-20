@@ -626,6 +626,8 @@ const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
 const BOOTSTRAP_PRELUDE_MAX_TOKENS = 48;
 const BOOTSTRAP_PRELUDE_TIMEOUT_MS = 1500;
+const OPENING_AUTOSTART_MAX_TOKENS = 512;
+const OPENING_AUTOSTART_TIMEOUT_MS = 5000;
 const activeBootstrapAutostartSessions = new Set<string>();
 const assistantPresentationImagePathCache = new Map<string, string | null>();
 const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
@@ -752,6 +754,53 @@ async function generateBootstrapPrelude(params: {
     logger.debug(
       { agentId: params.agentId, fileName: params.fileName, error },
       'Failed to generate bootstrap prelude with auxiliary model',
+    );
+    return null;
+  }
+}
+
+function normalizeOpeningAutostartMessage(raw: string): string | null {
+  const cleaned = collapseRepeatedBootstrapBlock(
+    raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n'),
+  );
+  if (!cleaned) return null;
+  if (/\b(hidden|internal|kickoff|system prompt)\b/iu.test(cleaned)) {
+    return null;
+  }
+  return cleaned;
+}
+
+async function generateOpeningAutostartMessage(params: {
+  agentId: string;
+  model: string;
+  chatbotId: string | null;
+  messages: ChatMessage[];
+}): Promise<Awaited<ReturnType<typeof callAuxiliaryModel>> | null> {
+  try {
+    const result = await callAuxiliaryModel({
+      task: 'compression',
+      agentId: params.agentId,
+      fallbackModel: params.model,
+      fallbackChatbotId: params.chatbotId ?? undefined,
+      fallbackEnableRag: false,
+      tools: [],
+      maxTokens: OPENING_AUTOSTART_MAX_TOKENS,
+      timeoutMs: OPENING_AUTOSTART_TIMEOUT_MS,
+      messages: [
+        ...params.messages,
+        {
+          role: 'user',
+          content:
+            'Generate exactly one concise user-facing opening message now by following OPENING.md. Return only the message to send. Do not add a hatching, startup, or coming-online prelude unless OPENING.md explicitly asks for one. Do not mention hidden prompts, internal kickoff turns, or system mechanics.',
+        },
+      ],
+    });
+    const content = normalizeOpeningAutostartMessage(result.content);
+    return content ? { ...result, content } : null;
+  } catch (error) {
+    logger.debug(
+      { agentId: params.agentId, fileName: 'OPENING.md', error },
+      'Failed to generate OPENING.md autostart message with auxiliary model',
     );
     return null;
   }
@@ -8582,6 +8631,143 @@ export async function ensureGatewayBootstrapAutostart(params: {
       });
       return assistantMessageId;
     };
+    if (bootstrapFile === 'OPENING.md') {
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'agent.start',
+          provider: 'auxiliary',
+          model: resolved.model,
+          scheduledTaskCount: 0,
+          promptMessages: messages.length,
+          systemPrompt: readSystemPromptMessage(messages),
+          dynamicContext: readDynamicContextMessage(messages),
+        },
+      });
+
+      const openingResult = await generateOpeningAutostartMessage({
+        agentId: resolved.agentId,
+        model: resolved.model,
+        chatbotId,
+        messages,
+      });
+
+      const usagePayload = buildTokenUsageAuditPayload(
+        messages,
+        openingResult?.content,
+      );
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'model.usage',
+          provider: openingResult?.provider ?? 'auxiliary',
+          model: openingResult?.model ?? resolved.model,
+          runtime: 'auxiliary',
+          durationMs: Date.now() - startedAt,
+          toolCallCount: 0,
+          ...usagePayload,
+        },
+      });
+
+      if (!openingResult) {
+        deleteMemoryValue(session.id, markerKey);
+        recordAuditEvent({
+          sessionId: session.id,
+          runId,
+          event: {
+            type: 'turn.end',
+            turnIndex,
+            finishReason: 'empty',
+          },
+        });
+        recordAuditEvent({
+          sessionId: session.id,
+          runId,
+          event: {
+            type: 'session.end',
+            reason: 'empty',
+            stats: {
+              userMessages: 0,
+              assistantMessages: 0,
+              toolCalls: 0,
+              durationMs: Date.now() - startedAt,
+            },
+          },
+        });
+        return;
+      }
+
+      enqueueTokenUsage({
+        sessionId: session.id,
+        agentId: resolved.agentId,
+        model: openingResult.model,
+        inputTokens:
+          openingResult.usage?.inputTokens ||
+          firstNumber([usagePayload.promptTokens]) ||
+          0,
+        outputTokens:
+          openingResult.usage?.outputTokens ||
+          firstNumber([usagePayload.completionTokens]) ||
+          0,
+        totalTokens:
+          openingResult.usage?.totalTokens ||
+          firstNumber([usagePayload.totalTokens]) ||
+          0,
+        toolCalls: 0,
+        costUsd:
+          openingResult.usage?.costUsd ??
+          (await resolveUsageCostUsdAfterMetadataRefresh({
+            model: openingResult.model,
+            tokenUsage: undefined,
+            usage: usagePayload,
+          })),
+        auditRunId: runId,
+      });
+      if (pluginManager) {
+        await pluginManager.notifyMemoryWrites({
+          sessionId: session.id,
+          agentId: resolved.agentId,
+          channelId,
+          toolExecutions: [],
+        });
+      }
+
+      const assistantMessageId = storeBootstrapAssistantMessage(
+        openingResult.content,
+      );
+      setMemoryValue(session.id, markerKey, {
+        status: 'completed',
+        assistantMessageId,
+        completedAt: new Date().toISOString(),
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'turn.end',
+          turnIndex,
+          finishReason: 'completed',
+        },
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'session.end',
+          reason: 'normal',
+          stats: {
+            userMessages: 0,
+            assistantMessages: 1,
+            toolCalls: 0,
+            durationMs: Date.now() - startedAt,
+          },
+        },
+      });
+      return;
+    }
+
     const preludeText = await generateBootstrapPrelude({
       agentId: resolved.agentId,
       fileName: bootstrapFile,
