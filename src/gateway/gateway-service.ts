@@ -235,6 +235,7 @@ import {
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { runMemoryConsolidation } from '../memory/consolidation-runner.js';
 import {
+  claimMemoryValue,
   countStructuredAuditEntries,
   createFreshSessionInstance,
   deleteMemoryValue,
@@ -7907,15 +7908,13 @@ export async function ensureGatewayBootstrapAutostart(params: {
   activeBootstrapAutostartSessions.add(lockKey);
 
   try {
-    if (getMemoryValue(session.id, markerKey)) {
-      return;
-    }
     const markerStartedAt = new Date().toISOString();
-    setMemoryValue(session.id, markerKey, {
+    const claimed = claimMemoryValue(session.id, markerKey, {
       status: 'started',
       fileName: bootstrapFile,
       at: markerStartedAt,
     });
+    if (!claimed) return;
 
     const startedAt = Date.now();
     const runId = makeAuditRunId('bootstrap');

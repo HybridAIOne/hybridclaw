@@ -4046,6 +4046,24 @@ export function setMemoryValue(
   ).run(sessionId, normalizedKey, valueBlob, now);
 }
 
+export function claimMemoryValue(
+  sessionId: string,
+  key: string,
+  value: unknown,
+): boolean {
+  const normalizedKey = normalizeMemoryKvKey(key);
+  if (!normalizedKey) return false;
+  const valueBlob = serializeMemoryKvValue(value);
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `INSERT OR IGNORE INTO kv_store (agent_id, key, value, version, updated_at)
+       VALUES (?, ?, ?, 1, ?)`,
+    )
+    .run(sessionId, normalizedKey, valueBlob, now);
+  return result.changes > 0;
+}
+
 export function deleteMemoryValue(sessionId: string, key: string): boolean {
   const normalizedKey = normalizeMemoryKvKey(key);
   if (!normalizedKey) return false;

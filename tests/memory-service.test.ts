@@ -8,6 +8,7 @@ import {
   addKnowledgeEntity,
   addKnowledgeRelation,
   appendCanonicalMessages,
+  claimMemoryValue,
   DATABASE_SCHEMA_VERSION,
   decaySemanticMemories,
   deleteMemoryValue,
@@ -560,6 +561,26 @@ describe.sequential('structured memory DB', () => {
     expect(deleteMemoryValue('s-kv', 'release.codename')).toBe(true);
     expect(deleteMemoryValue('s-kv', 'release.codename')).toBe(false);
     expect(getMemoryValue('s-kv', 'release.codename')).toBeNull();
+  });
+
+  test('claims key-value memory only when the key is absent', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+    getOrCreateSession('s-kv-claim', null, 'channel-kv');
+
+    expect(
+      claimMemoryValue('s-kv-claim', 'bootstrap.autostart.main', {
+        status: 'started',
+      }),
+    ).toBe(true);
+    expect(
+      claimMemoryValue('s-kv-claim', 'bootstrap.autostart.main', {
+        status: 'second-start',
+      }),
+    ).toBe(false);
+    expect(getMemoryValue('s-kv-claim', 'bootstrap.autostart.main')).toEqual({
+      status: 'started',
+    });
   });
 });
 
