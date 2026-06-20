@@ -498,6 +498,45 @@ describe('useChatStream', () => {
     });
   });
 
+  it('syncs cached session agent and bootstrap status after typed agent switch commands', async () => {
+    const harness = makeHarness();
+
+    requestChatStreamMock.mockResolvedValue({
+      status: 'success',
+      sessionId: SESSION_ID,
+      userMessageId: 'server-user-1',
+      assistantMessageId: null,
+      result:
+        'Session agent set to `research` (model: `gpt-5`). Hatching will start automatically from `BOOTSTRAP.md`.',
+      messageRole: 'command',
+      toolsUsed: [],
+    });
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('/agent switch research', []);
+    });
+
+    const session = harness.readSession(SESSION_ID);
+    expect(session?.agentId).toBe('research');
+    expect(session?.bootstrapAutostart).toEqual({
+      status: 'starting',
+      fileName: 'BOOTSTRAP.md',
+    });
+  });
+
   it('invalidates the agent selector list after creating an agent from chat', async () => {
     const harness = makeHarness();
     harness.queryClient.setQueryData(

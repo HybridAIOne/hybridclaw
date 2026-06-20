@@ -268,6 +268,49 @@ test('ensureGatewayBootstrapAutostart normalizes model-authored prelude text', a
   ]);
 });
 
+test('ensureGatewayBootstrapAutostart collapses duplicate bootstrap opener blocks', async () => {
+  setupHome();
+
+  const opener = [
+    'Hi — I’m coming online for the first time, and I’ll keep this quick.',
+    '',
+    'To get useful fast, tell me just a few things in plain language:',
+    '- what I should call you',
+    '- what you do or work on',
+    '- the tools or systems you live in most',
+    '- what you want me to take off your plate first',
+    '',
+    'If you want follow-up notes by email, include that too. If you’re not sure, a loose answer is fine.',
+  ].join('\n');
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: `${opener}\n${opener}`,
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'agent:main:channel:web:chat:dm:peer:dedupe-test';
+  await ensureGatewayBootstrapAutostart({ sessionId });
+
+  expect(getGatewayHistory(sessionId, 10).history).toEqual([
+    expect.objectContaining({
+      role: 'assistant',
+      content: DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
+    }),
+    expect.objectContaining({
+      role: 'assistant',
+      content: opener,
+    }),
+  ]);
+});
+
 test('ensureGatewayBootstrapAutostart drops prelude text that mentions internals', async () => {
   setupHome();
 

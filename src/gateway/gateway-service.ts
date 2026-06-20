@@ -236,6 +236,7 @@ import {
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { runMemoryConsolidation } from '../memory/consolidation-runner.js';
 import {
+  claimMemoryValue,
   countStructuredAuditEntries,
   createFreshSessionInstance,
   deleteMemoryValue,
@@ -882,7 +883,7 @@ export function readSystemPromptMessage(
   messages: ChatMessage[],
 ): string | null {
   const firstMessage = messages[0];
-  if (!firstMessage || firstMessage.role !== 'system') return null;
+  if (firstMessage?.role !== 'system') return null;
   return typeof firstMessage.content === 'string' && firstMessage.content.trim()
     ? firstMessage.content
     : null;
@@ -7819,7 +7820,36 @@ function normalizeBootstrapAutostartResult(
       toolExecutions: output.toolExecutions || [],
     }),
   );
-  return String(normalized.result || '').trim();
+  return collapseRepeatedBootstrapBlock(String(normalized.result || '').trim());
+}
+
+function trimEmptyEdges(lines: string[]): string[] {
+  let start = 0;
+  let end = lines.length;
+  while (start < end && !lines[start]?.trim()) start += 1;
+  while (end > start && !lines[end - 1]?.trim()) end -= 1;
+  return lines.slice(start, end);
+}
+
+function sameBootstrapLines(left: string[], right: string[]): boolean {
+  if (left.length === 0 || left.length !== right.length) return false;
+  return left.every(
+    (line, index) => line.trimEnd() === right[index]?.trimEnd(),
+  );
+}
+
+function collapseRepeatedBootstrapBlock(text: string): string {
+  const normalized = text.replace(/\r\n/g, '\n').trim();
+  if (!normalized) return '';
+  const lines = normalized.split('\n');
+  for (let split = 1; split < lines.length; split += 1) {
+    const left = trimEmptyEdges(lines.slice(0, split));
+    const right = trimEmptyEdges(lines.slice(split));
+    if (sameBootstrapLines(left, right)) {
+      return left.join('\n').trim();
+    }
+  }
+  return normalized;
 }
 
 function resolveBootstrapAutostartContext(params: {
@@ -7889,15 +7919,13 @@ export async function ensureGatewayBootstrapAutostart(params: {
   activeBootstrapAutostartSessions.add(lockKey);
 
   try {
-    if (getMemoryValue(session.id, markerKey)) {
-      return;
-    }
     const markerStartedAt = new Date().toISOString();
-    setMemoryValue(session.id, markerKey, {
+    const claimed = claimMemoryValue(session.id, markerKey, {
       status: 'started',
       fileName: bootstrapFile,
       at: markerStartedAt,
     });
+    if (!claimed) return;
 
     const startedAt = Date.now();
     const runId = makeAuditRunId('bootstrap');
@@ -10323,7 +10351,20 @@ export async function handleGatewayCommand(
 
         if (sub === 'clear' || sub === 'auto') {
           const previousBotId = session.chatbot_id;
+          const previousDefaultChatbotId =
+            getRuntimeConfig().hybridai.defaultChatbotId.trim();
           updateSessionChatbot(session.id, null);
+          if (previousDefaultChatbotId) {
+            updateRuntimeConfig(
+              (draft) => {
+                draft.hybridai.defaultChatbotId = '';
+              },
+              {
+                route: 'gateway.command.bot.clear',
+                source: 'gateway',
+              },
+            );
+          }
           recordAuditEvent({
             sessionId: session.id,
             runId: makeAuditRunId('cmd'),
@@ -10331,13 +10372,18 @@ export async function handleGatewayCommand(
               type: 'bot.clear',
               source: 'command',
               previousBotId,
-              changed: previousBotId !== null,
+              previousDefaultChatbotId,
+              clearedDefaultChatbotId: Boolean(previousDefaultChatbotId),
+              changed:
+                previousBotId !== null || Boolean(previousDefaultChatbotId),
               userId: boundAuditActorField(req.userId),
               username: boundAuditActorField(req.username),
             },
           });
           return plainCommand(
-            'Chatbot cleared for this session. HybridAI account fallback will be used when required.',
+            previousDefaultChatbotId
+              ? 'Chatbot cleared for this session and default HybridAI chatbot cleared. HybridAI account fallback will be used when required.'
+              : 'Chatbot cleared for this session. HybridAI account fallback will be used when required.',
           );
         }
 
