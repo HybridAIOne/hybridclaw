@@ -12,6 +12,8 @@ import {
   DATABASE_SCHEMA_VERSION,
   decaySemanticMemories,
   deleteMemoryValue,
+  deleteMemoryValuesByKey,
+  deleteMemoryValuesByKeyPrefix,
   forgetSemanticMemory,
   forkSessionBranch,
   getAnyChatbotId,
@@ -561,6 +563,22 @@ describe.sequential('structured memory DB', () => {
     expect(deleteMemoryValue('s-kv', 'release.codename')).toBe(true);
     expect(deleteMemoryValue('s-kv', 'release.codename')).toBe(false);
     expect(getMemoryValue('s-kv', 'release.codename')).toBeNull();
+
+    setMemoryValue('s-kv', 'agent.marker', 'current');
+    setMemoryValue('s-other-kv', 'agent.marker', 'other');
+    setMemoryValue('s-kv', 'agent.marker.detail', 'current detail');
+    setMemoryValue('s-kv', 'agent.marker2', 'keep');
+
+    expect(deleteMemoryValuesByKey('agent.marker')).toBe(2);
+    expect(getMemoryValue('s-kv', 'agent.marker')).toBeNull();
+    expect(getMemoryValue('s-other-kv', 'agent.marker')).toBeNull();
+    expect(getMemoryValue('s-kv', 'agent.marker.detail')).toBe(
+      'current detail',
+    );
+
+    expect(deleteMemoryValuesByKeyPrefix('agent.marker.')).toBe(1);
+    expect(getMemoryValue('s-kv', 'agent.marker.detail')).toBeNull();
+    expect(getMemoryValue('s-kv', 'agent.marker2')).toBe('keep');
   });
 
   test('claims key-value memory only when the key is absent', () => {

@@ -67,6 +67,9 @@ Examples:
   `huggingface/...` model, a `gemini/...` model, a `deepseek/...` model, a
   `xai/...` model, a `kilo/...` model, or a local backend model such as
   `ollama/...`
+- `hybridai.onboardingModel` is optional and defaults to an empty string. When
+  set, active `BOOTSTRAP.md` hatching turns use that model. When empty,
+  onboarding follows the normal session, agent, and global model hierarchy
 - `/agent model <name>` sets the persistent model for the current session agent
 - `/model set <name>` is a session-only override
 - `/model clear` removes the session override and falls back to the agent or

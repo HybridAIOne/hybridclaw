@@ -142,6 +142,7 @@ import {
   resolveChannelType,
   resolveGatewayChatbotId,
   resolveMediaToolPolicy,
+  resolveOnboardingTurnModel,
   resolveSessionAutoResetPolicy,
   shouldForceNewTuiSession,
 } from './gateway-service.js';
@@ -155,6 +156,10 @@ import {
   firstNumber,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import {
+  appendHatchingChannelSetupLinks,
+  recordBootstrapHatchingTurnResult,
+} from './hatching-completion.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
 import {
@@ -639,7 +644,7 @@ function isGpt5OnboardingModelId(modelId: string): boolean {
 
 function buildGpt5OnboardingPromptInjection(): string[] {
   return [
-    'If you have the basic info about the user and a valid email address, proceed to send the welcome message. Do not display the draft to the user first, but send without asking.',
+    'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool. Follow the short welcome email template in BOOTSTRAP.md: 3 concrete first tasks, 2 or 3 copy-paste prompt ideas, and one concrete next step. Do not include channel setup links in the email; post those links as Markdown links in the hatching chat. Set action="send", to=<email>, and subject=<specific subject>. Do not ask for separate confirmation.',
   ];
 }
 
@@ -997,38 +1002,6 @@ async function handleGatewayMessageInner(
       activeGatewayRequest.release();
     }
   }
-  let chatbotResolution = await resolveGatewayChatbotId({
-    model,
-    chatbotId,
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId,
-    trigger: 'chat',
-  });
-  chatbotId = chatbotResolution.chatbotId;
-  const sessionContext = buildSessionContext({
-    source: {
-      channelKind: channelType || channel?.kind,
-      chatId: req.channelId,
-      chatType:
-        channelType === 'heartbeat' || channelType === 'scheduler'
-          ? 'system'
-          : req.guildId
-            ? 'channel'
-            : 'dm',
-      userId: req.userId,
-      userName: req.username ?? undefined,
-      guildId: req.guildId,
-    },
-    agentId,
-    sessionId: session.id,
-    sessionKey: session.session_key,
-    mainSessionKey: session.main_session_key,
-  });
-  const showMode = normalizeSessionShowMode(session.show_mode);
-  const shouldEmitTools = sessionShowModeShowsTools(showMode);
-  const enableRag = req.enableRag ?? session.enable_rag === 1;
-  let provider = resolveModelProvider(model);
   let media = normalizeMediaContextItems(req.media);
   const workspacePath = path.resolve(
     req.workspacePathOverride || agentWorkspaceDir(agentId),
@@ -1082,6 +1055,44 @@ async function handleGatewayMessageInner(
       'Cleared session history after workspace reset',
     );
   }
+  model = resolveOnboardingTurnModel({
+    bootstrapFile: startupBootstrapFile,
+    model,
+  });
+  const onboardingModelPinned =
+    startupBootstrapFile === 'BOOTSTRAP.md' && model !== resolvedModel;
+  let provider = resolveModelProvider(model);
+  let chatbotResolution = await resolveGatewayChatbotId({
+    model,
+    chatbotId,
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    agentId,
+    trigger: 'chat',
+  });
+  chatbotId = chatbotResolution.chatbotId;
+  const sessionContext = buildSessionContext({
+    source: {
+      channelKind: channelType || channel?.kind,
+      chatId: req.channelId,
+      chatType:
+        channelType === 'heartbeat' || channelType === 'scheduler'
+          ? 'system'
+          : req.guildId
+            ? 'channel'
+            : 'dm',
+      userId: req.userId,
+      userName: req.username ?? undefined,
+      guildId: req.guildId,
+    },
+    agentId,
+    sessionId: session.id,
+    sessionKey: session.session_key,
+    mainSessionKey: session.main_session_key,
+  });
+  const showMode = normalizeSessionShowMode(session.show_mode);
+  const shouldEmitTools = sessionShowModeShowsTools(showMode);
+  const enableRag = req.enableRag ?? session.enable_rag === 1;
   const audioPrelude = await prependAudioTranscriptionsToUserContent({
     content: req.content,
     media,
@@ -1141,7 +1152,8 @@ async function handleGatewayMessageInner(
   const explicitModelPinned = Boolean(
     req.model?.trim() ||
       session.model?.trim() ||
-      resolveAgentModel(resolvedAgent),
+      resolveAgentModel(resolvedAgent) ||
+      onboardingModelPinned,
   );
   let routingExecutionNotice: string | null = null;
   if (pluginManager?.hasMiddleware('routing')) {
@@ -1263,6 +1275,14 @@ async function handleGatewayMessageInner(
     } else {
       effectiveUserTurnContentExpanded = routingOutcome.userContent;
     }
+  }
+  const postRoutingModel = resolveOnboardingTurnModel({
+    bootstrapFile: startupBootstrapFile,
+    model,
+  });
+  if (postRoutingModel !== model) {
+    model = postRoutingModel;
+    provider = resolveModelProvider(model);
   }
   if (model !== resolvedModel) {
     chatbotResolution = await resolveGatewayChatbotId({
@@ -1869,6 +1889,24 @@ async function handleGatewayMessageInner(
       media,
     );
     const toolExecutions = output.toolExecutions || [];
+    const hatchingCompletion = recordBootstrapHatchingTurnResult({
+      agentId,
+      bootstrapFile: startupBootstrapFile,
+      toolExecutions,
+    });
+    if (hatchingCompletion) {
+      logger.info(
+        {
+          sessionId: req.sessionId,
+          agentId,
+          completed: hatchingCompletion.completed,
+          updated: hatchingCompletion.updated,
+          reason: hatchingCompletion.reason,
+          turnsWithoutMessage: hatchingCompletion.turnsWithoutMessage,
+        },
+        'Processed hatching completion signal',
+      );
+    }
     await routeEscalationApproval({
       approval: output.pendingApproval,
       agentId: resolvedAgent.id,
@@ -2194,6 +2232,10 @@ async function handleGatewayMessageInner(
         );
       }
     }
+    resultText = appendHatchingChannelSetupLinks({
+      resultText,
+      hatchingCompletion,
+    });
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex,

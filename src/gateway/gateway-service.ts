@@ -151,6 +151,7 @@ import {
   HYBRIDAI_BASE_URL,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
+  HYBRIDAI_ONBOARDING_MODEL,
   IMESSAGE_PASSWORD,
   MISTRAL_API_KEY,
   MissingRequiredEnvVarError,
@@ -598,6 +599,10 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { initializeGoalContinuationRunner } from './goal-continuation-runner.js';
+import {
+  appendHatchingChannelSetupLinks,
+  recordBootstrapHatchingTurnResult,
+} from './hatching-completion.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -806,8 +811,38 @@ async function generateOpeningAutostartMessage(params: {
   }
 }
 
-function getBootstrapAutostartMarkerKey(agentId: string): string {
-  return `${BOOTSTRAP_AUTOSTART_MARKER_KEY}.${agentId}`;
+function getBootstrapAutostartMarker(params: {
+  agentId: string;
+  fileName: 'BOOTSTRAP.md' | 'OPENING.md';
+}): { key: string; fileFingerprint: string } {
+  const filePath = path.join(
+    agentWorkspaceDir(params.agentId),
+    params.fileName,
+  );
+  let fileFingerprint = 'missing';
+  try {
+    const stat = fs.statSync(filePath);
+    fileFingerprint = createHash('sha256')
+      .update(
+        [
+          params.fileName,
+          String(stat.size),
+          String(Math.floor(stat.mtimeMs)),
+          String(Math.floor(stat.ctimeMs)),
+        ].join(':'),
+      )
+      .digest('hex')
+      .slice(0, 16);
+  } catch (error) {
+    logger.warn(
+      { agentId: params.agentId, fileName: params.fileName, error },
+      'Failed to fingerprint startup bootstrap file',
+    );
+  }
+  return {
+    key: `${BOOTSTRAP_AUTOSTART_MARKER_KEY}.${params.agentId}.${params.fileName}.${fileFingerprint}`,
+    fileFingerprint,
+  };
 }
 
 function getBootstrapAutostartLockKey(
@@ -816,6 +851,16 @@ function getBootstrapAutostartLockKey(
 ): string {
   return `${sessionId}:${agentId}`;
 }
+
+export function resolveOnboardingTurnModel(params: {
+  bootstrapFile: 'BOOTSTRAP.md' | 'OPENING.md' | null | undefined;
+  model: string;
+}): string {
+  if (params.bootstrapFile !== 'BOOTSTRAP.md') return params.model;
+  const onboardingModel = HYBRIDAI_ONBOARDING_MODEL.trim();
+  return onboardingModel || params.model;
+}
+
 const REQUEST_LOG_SENSITIVE_KEY_RE =
   /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
 const REQUEST_LOG_INLINE_SECRET_RE =
@@ -8437,7 +8482,11 @@ export async function ensureGatewayBootstrapAutostart(params: {
   const context = resolveBootstrapAutostartContext(params);
   if (!context) return;
   const { channelId, session, resolved, bootstrapFile } = context;
-  const markerKey = getBootstrapAutostartMarkerKey(resolved.agentId);
+  const marker = getBootstrapAutostartMarker({
+    agentId: resolved.agentId,
+    fileName: bootstrapFile,
+  });
+  const markerKey = marker.key;
   const lockKey = getBootstrapAutostartLockKey(session.id, resolved.agentId);
   if (activeBootstrapAutostartSessions.has(lockKey)) {
     return;
@@ -8449,6 +8498,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     const claimed = claimMemoryValue(session.id, markerKey, {
       status: 'started',
       fileName: bootstrapFile,
+      fileFingerprint: marker.fileFingerprint,
       at: markerStartedAt,
     });
     if (!claimed) return;
@@ -8476,7 +8526,11 @@ export async function ensureGatewayBootstrapAutostart(params: {
     });
     const workspacePath = path.resolve(agentWorkspaceDir(resolved.agentId));
     const enableRag = session.enable_rag === 1;
-    const provider = resolveModelProvider(resolved.model);
+    const model = resolveOnboardingTurnModel({
+      bootstrapFile,
+      model: resolved.model,
+    });
+    const provider = resolveModelProvider(model);
     const turnIndex = Math.max(1, session.message_count + 1);
 
     recordAuditEvent({
@@ -8487,7 +8541,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         userId: normalizedUserId,
         channel: channelId,
         cwd: workspacePath,
-        model: resolved.model,
+        model,
         source: BOOTSTRAP_AUTOSTART_SOURCE,
       },
     });
@@ -8505,7 +8559,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     });
 
     const chatbotResolution = await resolveGatewayChatbotId({
-      model: resolved.model,
+      model,
       chatbotId: resolved.chatbotId,
       sessionId: session.id,
       channelId,
@@ -8514,7 +8568,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     });
     const chatbotId = chatbotResolution.chatbotId;
 
-    if (modelRequiresChatbotId(resolved.model) && !chatbotId) {
+    if (modelRequiresChatbotId(model) && !chatbotId) {
       deleteMemoryValue(session.id, markerKey);
       const error =
         chatbotResolution.error ||
@@ -8524,7 +8578,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
           sessionId: session.id,
           channelId,
           agentId: resolved.agentId,
-          model: resolved.model,
+          model,
           sessionChatbotId: session.chatbot_id ?? null,
           fallbackSource: chatbotResolution.source,
         },
@@ -8574,7 +8628,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         'Bootstrap kickoff turn. Start the conversation proactively with a concise user-facing opening message.',
       runtimeInfo: {
         chatbotId,
-        model: resolved.model,
+        model,
         defaultModel: HYBRIDAI_MODEL,
         channelType: channelId,
         channelId,
@@ -8609,7 +8663,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         userId: normalizedUserId,
         agentId: resolved.agentId,
         channelId,
-        model: resolved.model || undefined,
+        model: model || undefined,
       });
     }
 
@@ -8772,7 +8826,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     const preludeText = await generateBootstrapPrelude({
       agentId: resolved.agentId,
       fileName: bootstrapFile,
-      model: resolved.model,
+      model,
       chatbotId,
     });
     const hasPrelude = Boolean(preludeText);
@@ -8787,7 +8841,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       event: {
         type: 'agent.start',
         provider,
-        model: resolved.model,
+        model,
         scheduledTaskCount: 0,
         promptMessages: messages.length,
         systemPrompt: readSystemPromptMessage(messages),
@@ -8800,7 +8854,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       messages,
       chatbotId,
       enableRag,
-      model: resolved.model,
+      model,
       agentId: resolved.agentId,
       channelId,
       ralphMaxIterations: resolveSessionRalphIterations(session),
@@ -8812,6 +8866,24 @@ export async function ensureGatewayBootstrapAutostart(params: {
       scheduledTasks: [],
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
+    const hatchingCompletion = recordBootstrapHatchingTurnResult({
+      agentId: resolved.agentId,
+      bootstrapFile,
+      toolExecutions: output.toolExecutions || [],
+    });
+    if (hatchingCompletion) {
+      logger.info(
+        {
+          sessionId: session.id,
+          agentId: resolved.agentId,
+          completed: hatchingCompletion.completed,
+          updated: hatchingCompletion.updated,
+          reason: hatchingCompletion.reason,
+          turnsWithoutMessage: hatchingCompletion.turnsWithoutMessage,
+        },
+        'Processed bootstrap hatching completion signal',
+      );
+    }
     if (pluginManager) {
       await pluginManager.notifyMemoryWrites({
         sessionId: session.id,
@@ -8824,6 +8896,10 @@ export async function ensureGatewayBootstrapAutostart(params: {
       output.status === 'success'
         ? normalizeBootstrapAutostartResult(output)
         : '';
+    const resultTextWithHatchingLinks = appendHatchingChannelSetupLinks({
+      resultText,
+      hatchingCompletion,
+    });
 
     const usagePayload = buildTokenUsageAuditPayload(
       messages,
@@ -8836,8 +8912,8 @@ export async function ensureGatewayBootstrapAutostart(params: {
       event: {
         type: 'model.usage',
         provider,
-        model: resolved.model,
-        runtime: resolveTurnRuntimeAuditLabel(resolved.model, output),
+        model,
+        runtime: resolveTurnRuntimeAuditLabel(model, output),
         codexRuntime: output.codexRuntime || null,
         durationMs: Date.now() - startedAt,
         toolCallCount: (output.toolExecutions || []).length,
@@ -8847,13 +8923,13 @@ export async function ensureGatewayBootstrapAutostart(params: {
     enqueueTokenUsage({
       sessionId: session.id,
       agentId: resolved.agentId,
-      model: resolved.model,
+      model,
       inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
       outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
       totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
       toolCalls: (output.toolExecutions || []).length,
       costUsd: await resolveUsageCostUsdAfterMetadataRefresh({
-        model: resolved.model,
+        model,
         tokenUsage: output.tokenUsage,
         usage: usagePayload,
       }),
@@ -8868,7 +8944,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       enqueueTokenUsage(event);
     }
 
-    if (output.status !== 'success' || !resultText) {
+    if (output.status !== 'success' || !resultTextWithHatchingLinks) {
       deleteMemoryValue(session.id, markerKey);
       recordAuditEvent({
         sessionId: session.id,
@@ -8896,9 +8972,13 @@ export async function ensureGatewayBootstrapAutostart(params: {
       return;
     }
 
-    const assistantMessageId = storeBootstrapAssistantMessage(resultText);
+    const assistantMessageId = storeBootstrapAssistantMessage(
+      resultTextWithHatchingLinks,
+    );
     setMemoryValue(session.id, markerKey, {
       status: 'completed',
+      fileName: bootstrapFile,
+      fileFingerprint: marker.fileFingerprint,
       assistantMessageId,
       completedAt: new Date().toISOString(),
     });
@@ -8951,7 +9031,10 @@ export function getGatewayBootstrapAutostartState(params: {
 
   const marker = getMemoryValue(
     session.id,
-    getBootstrapAutostartMarkerKey(resolved.agentId),
+    getBootstrapAutostartMarker({
+      agentId: resolved.agentId,
+      fileName: bootstrapFile,
+    }).key,
   ) as {
     status?: unknown;
     fileName?: unknown;
@@ -10781,7 +10864,7 @@ export async function handleGatewayCommand(
             ...(modelName ? { model: modelName } : {}),
           });
           const workspacePath = path.resolve(agentWorkspaceDir(created.id));
-          ensureBootstrapFiles(created.id);
+          ensureBootstrapFiles(created.id, { seedOneTimeBootstrap: true });
           return infoCommand(
             'Agent Created',
             [
