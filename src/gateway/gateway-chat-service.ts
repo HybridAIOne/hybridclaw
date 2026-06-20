@@ -156,6 +156,7 @@ import {
   firstNumber,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { completeBootstrapAfterFirstJobsEmailTool } from './hatching-email-completion.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
 import {
@@ -1885,6 +1886,23 @@ async function handleGatewayMessageInner(
       media,
     );
     const toolExecutions = output.toolExecutions || [];
+    const hatchingEmailCompletion = completeBootstrapAfterFirstJobsEmailTool({
+      agentId,
+      bootstrapFile: startupBootstrapFile,
+      toolExecutions,
+    });
+    if (hatchingEmailCompletion) {
+      logger.info(
+        {
+          sessionId: req.sessionId,
+          agentId,
+          completed: hatchingEmailCompletion.completed,
+          updated: hatchingEmailCompletion.updated,
+          reason: hatchingEmailCompletion.reason,
+        },
+        'Processed hatching first jobs email completion',
+      );
+    }
     await routeEscalationApproval({
       approval: output.pendingApproval,
       agentId: resolvedAgent.id,

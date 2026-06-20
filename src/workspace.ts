@@ -348,6 +348,220 @@ function readMarkdownSection(content: string, title: string): string {
   return body.join('\n');
 }
 
+function replaceMarkdownSection(
+  content: string,
+  title: string,
+  nextBody: string[],
+): string {
+  const lines = content.split(/\r?\n/);
+  const nextLines: string[] = [];
+  let inSection = false;
+  let replaced = false;
+
+  for (const line of lines) {
+    if (/^##\s+/.test(line)) {
+      if (inSection) {
+        nextLines.push(...nextBody, '', line);
+        inSection = false;
+        replaced = true;
+        continue;
+      }
+      inSection = line.trim().toLowerCase() === `## ${title.toLowerCase()}`;
+    }
+
+    if (!inSection) {
+      nextLines.push(line);
+    } else if (/^##\s+/.test(line)) {
+      nextLines.push(line);
+    }
+  }
+
+  if (inSection) {
+    nextLines.push(...nextBody, '');
+    replaced = true;
+  }
+
+  if (!replaced) {
+    nextLines.push('', `## ${title}`, '', ...nextBody, '');
+  }
+
+  return `${nextLines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd()}\n`;
+}
+
+function replaceMarkdownField(
+  content: string,
+  fieldName: string,
+  nextValue: string,
+  options: { onlyIfMissing?: boolean } = {},
+): string {
+  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const fieldPattern = new RegExp(
+    `^(\\s*-\\s*\\*\\*${escaped}:\\*\\*[ \\t]*)([^\\r\\n]*)$`,
+    'im',
+  );
+  const existing = content.match(fieldPattern)?.[2]?.trim() || '';
+  if (
+    options.onlyIfMissing &&
+    existing &&
+    !/\b(?:pending|unknown|to be determined|tbd|none)\b/i.test(existing)
+  ) {
+    return content;
+  }
+  if (fieldPattern.test(content)) {
+    return content.replace(
+      fieldPattern,
+      (_match, prefix: string) =>
+        `${prefix}${/[ \t]$/.test(prefix) ? '' : ' '}${nextValue}`,
+    );
+  }
+  return content.replace(
+    /^(-\s+\*\*What to call them:\*\*.*)$/im,
+    `$1\n- **${fieldName}:** ${nextValue}`,
+  );
+}
+
+function sectionHasSuggestedFirstJobs(section: string): boolean {
+  return section.split(/\r?\n/).some((line) => {
+    const trimmed = line.trim();
+    return (
+      /^(?:-\s+|\d+[.)]\s+)\S/.test(trimmed) &&
+      !trimmed.includes('After hatching') &&
+      !trimmed.includes('practical jobs')
+    );
+  });
+}
+
+function cleanMarkdownInline(value: string | undefined): string {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/[<>]/g, '')
+    .trim();
+}
+
+function extractSuggestedFirstJobsFromEmail(content: string): string[] {
+  const jobs: string[] = [];
+  for (const line of content.split(/\r?\n/)) {
+    const candidate = line.replace(/^\s*(?:[-*]|\d+[.)])\s+/, '').trim();
+    if (!candidate) continue;
+    if (
+      /^(?:you'?re|your main tools|for release posts|the default tone|the preferred structure)\b/i.test(
+        candidate,
+      )
+    ) {
+      continue;
+    }
+    if (
+      !/\b(?:draft|write|review|triage|summari[sz]e|prepare|monitor|polish|release|post|launch|changelog|update|support|follow)\b/i.test(
+        candidate,
+      )
+    ) {
+      continue;
+    }
+    jobs.push(candidate.replace(/[.。]\s*$/, '.'));
+    if (jobs.length >= 8) break;
+  }
+  return [...new Set(jobs)];
+}
+
+function buildFallbackFirstJobs(emailContent: string | undefined): string[] {
+  const extracted = extractSuggestedFirstJobsFromEmail(emailContent || '');
+  if (extracted.length > 0) return extracted;
+  return [
+    'Draft and polish updates based on the onboarding context.',
+    'Turn recurring work into concise summaries, next steps, and ready-to-review drafts.',
+  ];
+}
+
+export function completeHatchingAfterFirstJobsEmail(params: {
+  agentId: string;
+  recipient: string;
+  subject?: string;
+  content?: string;
+  handledAt?: string;
+}): { completed: boolean; updated: boolean; reason: string } {
+  const recipient = cleanMarkdownInline(params.recipient);
+  if (!/[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/.test(recipient)) {
+    return {
+      completed: false,
+      updated: false,
+      reason: 'recipient is not an email address',
+    };
+  }
+
+  const wsDir = agentWorkspaceDir(params.agentId);
+  const bootstrapPath = path.join(wsDir, 'BOOTSTRAP.md');
+  if (!fs.existsSync(bootstrapPath)) {
+    return { completed: false, updated: false, reason: 'BOOTSTRAP.md absent' };
+  }
+
+  const userPath = path.join(wsDir, 'USER.md');
+  const originalUser = readUserMarkdown(wsDir);
+  if (!originalUser) {
+    return { completed: false, updated: false, reason: 'USER.md absent' };
+  }
+
+  const handledAt =
+    cleanMarkdownInline(params.handledAt) || new Date().toISOString();
+  const subject = cleanMarkdownInline(params.subject) || 'First jobs email';
+  let nextUser = replaceMarkdownField(originalUser, 'Email', recipient, {
+    onlyIfMissing: true,
+  });
+
+  const suggestedJobs = readMarkdownSection(nextUser, 'Suggested First Jobs');
+  if (!sectionHasSuggestedFirstJobs(suggestedJobs)) {
+    nextUser = replaceMarkdownSection(
+      nextUser,
+      'Suggested First Jobs',
+      buildFallbackFirstJobs(params.content).map((job) => `- ${job}`),
+    );
+  }
+
+  nextUser = replaceMarkdownSection(nextUser, 'First Jobs Email', [
+    '- **Status:** sent',
+    `- **Recipient:** ${recipient}`,
+    `- **Subject:** ${subject}`,
+    `- **Delivery:** email`,
+    `- **Last handled:** ${handledAt}`,
+  ]);
+
+  let updated = false;
+  if (nextUser !== originalUser) {
+    fs.writeFileSync(userPath, nextUser, 'utf-8');
+    updated = true;
+  }
+
+  if (!hasCompletedHatchingArtifacts(wsDir)) {
+    return {
+      completed: false,
+      updated,
+      reason: 'hatching artifacts are still incomplete',
+    };
+  }
+
+  const statePath = resolveWorkspaceStatePath(wsDir);
+  const state = readWorkspaceOnboardingState(statePath);
+  try {
+    fs.unlinkSync(bootstrapPath);
+    writeWorkspaceOnboardingState(statePath, {
+      ...state,
+      version: WORKSPACE_STATE_VERSION,
+      onboardingCompletedAt:
+        state.onboardingCompletedAt || new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.warn(
+      { agentId: params.agentId, path: bootstrapPath, error },
+      'Failed to complete hatching after first jobs email',
+    );
+    return { completed: false, updated, reason: 'cleanup failed' };
+  }
+
+  return { completed: true, updated, reason: 'first jobs email sent' };
+}
+
 function hasKnownUserEmail(wsDir: string): boolean {
   const content = readUserMarkdown(wsDir);
   if (!content) return false;
@@ -371,14 +585,7 @@ function hasSuggestedFirstJobs(wsDir: string): boolean {
   const content = readUserMarkdown(wsDir);
   if (!content) return false;
   const section = readMarkdownSection(content, 'Suggested First Jobs');
-  return section.split(/\r?\n/).some((line) => {
-    const trimmed = line.trim();
-    return (
-      /^(?:-\s+|\d+[.)]\s+)\S/.test(trimmed) &&
-      !trimmed.includes('After hatching') &&
-      !trimmed.includes('practical jobs')
-    );
-  });
+  return sectionHasSuggestedFirstJobs(section);
 }
 
 function hasHandledFirstJobsEmail(wsDir: string): boolean {

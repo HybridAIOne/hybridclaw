@@ -593,6 +593,7 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { initializeGoalContinuationRunner } from './goal-continuation-runner.js';
+import { completeBootstrapAfterFirstJobsEmailTool } from './hatching-email-completion.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -8153,6 +8154,23 @@ export async function ensureGatewayBootstrapAutostart(params: {
       scheduledTasks: [],
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
+    const hatchingEmailCompletion = completeBootstrapAfterFirstJobsEmailTool({
+      agentId: resolved.agentId,
+      bootstrapFile,
+      toolExecutions: output.toolExecutions || [],
+    });
+    if (hatchingEmailCompletion) {
+      logger.info(
+        {
+          sessionId: session.id,
+          agentId: resolved.agentId,
+          completed: hatchingEmailCompletion.completed,
+          updated: hatchingEmailCompletion.updated,
+          reason: hatchingEmailCompletion.reason,
+        },
+        'Processed bootstrap hatching first jobs email completion',
+      );
+    }
     if (pluginManager) {
       await pluginManager.notifyMemoryWrites({
         sessionId: session.id,
