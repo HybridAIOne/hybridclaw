@@ -30,6 +30,7 @@ import { PluginsPage } from './routes/plugins';
 import { SchedulerPage } from './routes/scheduler';
 import { SecretsPage } from './routes/secrets';
 import { SessionsPage } from './routes/sessions';
+import { SkillsDetailPage } from './routes/skill-detail';
 import { SkillsPage } from './routes/skills';
 import { StatisticsPage } from './routes/statistics';
 import { ToolsPage } from './routes/tools';
@@ -236,6 +237,12 @@ const skillsRoute = createRoute({
   component: SkillsPage,
 });
 
+const skillDetailRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/skills/$skillName',
+  component: SkillsDetailPage,
+});
+
 const pluginsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/plugins',
@@ -296,6 +303,7 @@ const routeTree = rootRoute.addChildren([
     mcpRoute,
     auditRoute,
     skillsRoute,
+    skillDetailRoute,
     pluginsRoute,
     outputGuardRoute,
     toolsRoute,

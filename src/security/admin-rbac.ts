@@ -516,6 +516,11 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/admin/skills/upload' && method === 'POST') {
     return 'admin.skills.upload';
   }
+  if (isPathOrChild(pathname, '/api/admin/skills')) {
+    if (method === 'GET') return 'admin.skills.read';
+    if (method === 'PUT') return 'admin.skills.write';
+    return null;
+  }
   if (
     pathname === '/api/admin/jobs/context' ||
     pathname === '/api/admin/jobs/budgets' ||

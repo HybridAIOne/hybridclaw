@@ -28,6 +28,7 @@ import type {
 import type {
   AdminCommandResult,
   AdminModelsResponse,
+  AdminSkillsResponse,
   AgentListItem,
   DeleteSessionResult,
   GatewayStatus,
@@ -84,6 +85,8 @@ const fetchAgentAvatarBlobMock =
 const fetchAgentListMock = vi.fn<(token: string) => Promise<AgentListItem[]>>();
 const fetchModelsMock =
   vi.fn<(token: string) => Promise<AdminModelsResponse>>();
+const fetchSkillsMock =
+  vi.fn<(token: string) => Promise<AdminSkillsResponse>>();
 const useAuthMock = vi.fn();
 const sendMessageMock = vi.fn();
 const stopRequestMock = vi.fn();
@@ -129,6 +132,7 @@ vi.mock('../../api/client', () => ({
     deleteChatSessionMock(token, sessionId),
   fetchAgentList: (token: string) => fetchAgentListMock(token),
   fetchModels: (token: string) => fetchModelsMock(token),
+  fetchSkills: (token: string) => fetchSkillsMock(token),
 }));
 
 vi.mock('../../auth', () => ({
@@ -234,6 +238,7 @@ describe('ChatPage', () => {
       __testRouter: TestRouter;
     };
     routerModule.__testRouter.reset();
+    window.history.replaceState(null, '', '/chat/session-a');
 
     fetchAppStatusMock.mockReset();
     fetchChatRecentMock.mockReset();
@@ -247,11 +252,17 @@ describe('ChatPage', () => {
     fetchAgentAvatarBlobMock.mockReset();
     fetchAgentListMock.mockReset();
     fetchModelsMock.mockReset();
+    fetchSkillsMock.mockReset();
     fetchModelsMock.mockResolvedValue({
       defaultModel: 'gpt-5',
       providerStatus: {},
       models: [],
     } as AdminModelsResponse);
+    fetchSkillsMock.mockResolvedValue({
+      extraDirs: [],
+      disabled: [],
+      skills: [],
+    });
     useAuthMock.mockReset();
     sendMessageMock.mockReset();
     stopRequestMock.mockReset();
@@ -415,6 +426,29 @@ describe('ChatPage', () => {
       expect(fetchChatHistoryMock).toHaveBeenCalledWith(
         'test-token',
         'session-b',
+      ),
+    );
+  });
+
+  it('prefills the composer from the prompt search param', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/chat?prompt=%2F1password+List+all+items+in+my+%22Development%22+vault',
+    );
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [],
+    });
+
+    renderChatPage();
+
+    const input = (await screen.findByLabelText(
+      'Message input',
+    )) as HTMLTextAreaElement;
+    await waitFor(() =>
+      expect(input.value).toBe(
+        '/1password List all items in my "Development" vault',
       ),
     );
   });

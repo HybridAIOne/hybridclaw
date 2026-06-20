@@ -235,6 +235,7 @@ metadata:
   hybridclaw:
     category: Knowledge Base
     short_description: Concise metadata summary.
+    logo_path: assets/logo.svg
     tags:
       - metadata
       - parser
@@ -261,6 +262,7 @@ Validate metadata parsing.
     expect(skill?.metadata.hybridclaw.shortDescription).toBe(
       'Concise metadata summary.',
     );
+    expect(skill?.metadata.hybridclaw.logoPath).toBe('assets/logo.svg');
     expect(skill?.metadata.hybridclaw.tags).toEqual(['metadata', 'parser']);
   });
 

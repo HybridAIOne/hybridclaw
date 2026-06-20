@@ -69,6 +69,9 @@ import type {
   AdminSecretMutationResponse,
   AdminSecretsResponse,
   AdminSession,
+  AdminSkillInvocationsResponse,
+  AdminSkillPackageFileResponse,
+  AdminSkillPackageFilesResponse,
   AdminSkillsResponse,
   AdminStatisticsResponse,
   AdminTeamStructureResponse,
@@ -1460,6 +1463,50 @@ export function unblockSkill(
     method: 'POST',
     body: { name: skillName },
   });
+}
+
+export function fetchSkillPackageFiles(
+  token: string,
+  skillName: string,
+): Promise<AdminSkillPackageFilesResponse> {
+  return requestJson<AdminSkillPackageFilesResponse>(
+    `/api/admin/skills/${encodeURIComponent(skillName)}/files`,
+    { token },
+  );
+}
+
+export function fetchSkillInvocations(
+  token: string,
+  skillName: string,
+): Promise<AdminSkillInvocationsResponse> {
+  return requestJson<AdminSkillInvocationsResponse>(
+    `/api/admin/skills/${encodeURIComponent(skillName)}/invocations`,
+    { token },
+  );
+}
+
+export function fetchSkillPackageFile(
+  token: string,
+  params: { skillName: string; path: string },
+): Promise<AdminSkillPackageFileResponse> {
+  return requestJson<AdminSkillPackageFileResponse>(
+    `/api/admin/skills/${encodeURIComponent(params.skillName)}/files/content?path=${encodeURIComponent(params.path)}`,
+    { token },
+  );
+}
+
+export function saveSkillPackageFile(
+  token: string,
+  params: { skillName: string; path: string; content: string },
+): Promise<AdminSkillPackageFileResponse> {
+  return requestJson<AdminSkillPackageFileResponse>(
+    `/api/admin/skills/${encodeURIComponent(params.skillName)}/files/content?path=${encodeURIComponent(params.path)}`,
+    {
+      token,
+      method: 'PUT',
+      body: { content: params.content },
+    },
+  );
 }
 
 export function fetchPlugins(token: string): Promise<AdminPluginsResponse> {

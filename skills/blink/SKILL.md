@@ -42,6 +42,7 @@ metadata:
   hybridclaw:
     category: home-automation
     short_description: "Blink camera, video doorbell, motion clip, and guarded privacy-control workflows."
+    logo_path: logo.webp
     tags:
       - blink
       - camera

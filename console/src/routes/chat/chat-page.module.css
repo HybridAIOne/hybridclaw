@@ -629,6 +629,18 @@ aside[data-state="collapsed"] .chatSidebarContent {
   flex: 0 0 auto;
 }
 
+.userSkillCommandLink {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.18em;
+}
+
+.userSkillCommandLink:hover {
+  text-decoration-thickness: 2px;
+}
+
 .bubbleAssistant {
   background: var(--card);
   color: var(--card-foreground);

@@ -16,6 +16,13 @@ describe('resolveCurrentAdminNavItem', () => {
     });
   });
 
+  it('resolves skill detail routes to the singular page title', () => {
+    expect(resolveCurrentAdminNavItem('/admin/skills/blink')).toMatchObject({
+      to: '/admin/skills',
+      label: 'Skill',
+    });
+  });
+
   it('falls back to the first nav item when no match is found', () => {
     expect(resolveCurrentAdminNavItem('/admin/unknown')).toMatchObject({
       to: '/admin',

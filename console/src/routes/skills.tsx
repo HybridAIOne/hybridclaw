@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { useDeferredValue, useState } from 'react';
 import {
   applyAdaptiveSkillAmendment,
@@ -21,6 +22,7 @@ import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -48,6 +50,7 @@ import {
   formatRelativeTime,
 } from '../lib/format';
 import { compareBoolean, compareNumber, compareText } from '../lib/sort';
+import { skillDetailPath } from './skill-detail';
 
 const DEFAULT_SKILL_CATEGORIES = [
   'agents',
@@ -285,6 +288,7 @@ export function SkillsPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [filter, setFilter] = useState('');
+  const [enabledOnly, setEnabledOnly] = useState(false);
   const [selectedSkillName, setSelectedSkillName] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [createMode, setCreateMode] = useState<'form' | 'zip'>('form');
@@ -447,6 +451,7 @@ export function SkillsPage() {
   });
 
   const filteredSkills = (skillsQuery.data?.skills || []).filter((skill) => {
+    if (enabledOnly && !skill.enabled) return false;
     const haystack = [
       skill.name,
       skill.category,
@@ -523,12 +528,13 @@ export function SkillsPage() {
         actions={
           <>
             <Input
-              className="compact-search"
+              className="compact-search skills-header-search"
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
               placeholder="Filter skills"
             />
             <Button
+              className="skills-header-button"
               variant="ghost"
               type="button"
               onClick={() => {
@@ -875,6 +881,17 @@ export function SkillsPage() {
           <CardDescription>
             {`${sortedInstalledSkills.length} skill${sortedInstalledSkills.length === 1 ? '' : 's'} visible`}
           </CardDescription>
+          <CardAction>
+            <label className="skills-enabled-filter">
+              <Switch
+                checked={enabledOnly}
+                aria-label="Show enabled skills only"
+                size="sm"
+                onCheckedChange={setEnabledOnly}
+              />
+              <span>Enabled only</span>
+            </label>
+          </CardAction>
         </CardHeader>
         <CardContent>
           {skillsQuery.isLoading ? (
@@ -937,13 +954,12 @@ export function SkillsPage() {
                     return (
                       <tr key={skill.name}>
                         <td>
-                          <button
-                            type="button"
+                          <Link
                             className="table-link-button"
-                            onClick={() => setSelectedSkillName(skill.name)}
+                            to={skillDetailPath(skill.name)}
                           >
                             {skill.name}
-                          </button>
+                          </Link>
                           <small>{displayDescription}</small>
                           {skill.blocked && firstGuardFinding ? (
                             <small className="row-status-note-danger">
@@ -1127,15 +1143,12 @@ export function SkillsPage() {
                   {sortedHealthMetrics.map((metrics) => (
                     <tr key={metrics.skill_name}>
                       <td>
-                        <button
-                          type="button"
+                        <Link
                           className="table-link-button"
-                          onClick={() =>
-                            setSelectedSkillName(metrics.skill_name)
-                          }
+                          to={skillDetailPath(metrics.skill_name)}
                         >
                           {metrics.skill_name}
-                        </button>
+                        </Link>
                         <small>
                           Window ending{' '}
                           {formatDateTime(metrics.window_ended_at)}
@@ -1204,15 +1217,12 @@ export function SkillsPage() {
                 {stagedAmendments.map((amendment) => (
                   <div className="list-row" key={amendment.id}>
                     <div>
-                      <button
-                        type="button"
+                      <Link
                         className="table-link-button"
-                        onClick={() =>
-                          setSelectedSkillName(amendment.skill_name)
-                        }
+                        to={skillDetailPath(amendment.skill_name)}
                       >
                         {amendment.skill_name}
-                      </button>
+                      </Link>
                       <small>
                         {formatAmendmentStatus(amendment)} ·{' '}
                         {formatAmendmentTiming(amendment)} · guard{' '}
