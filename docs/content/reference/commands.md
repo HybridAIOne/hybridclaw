@@ -26,6 +26,7 @@ hybridclaw gateway reset [yes|no]
 hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]
 hybridclaw eval locomo [setup|run|status|stop|results|logs]
 hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
+hybridclaw eval agent-risk [run|status|stop|results|logs]
 hybridclaw eval tau2 [setup|run|status|stop|results]
 hybridclaw eval hybridai-skills [setup|list|run|results]
 hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
@@ -99,6 +100,8 @@ hybridclaw eval locomo run --mode retrieval --matrix rerank --budget 4000
 hybridclaw eval locomo run --mode retrieval --matrix tokenizer --budget 4000
 hybridclaw eval locomo run --mode retrieval --matrix embedding --budget 4000
 hybridclaw eval trace-judge run
+hybridclaw eval agent-risk run
+hybridclaw eval agent-risk run --scenario data-privacy
 hybridclaw eval trace-judge run --live --model "$HYBRIDCLAW_EVAL_MODEL"
 hybridclaw eval trace-judge run --criterion risk
 hybridclaw eval tau2 setup
@@ -114,7 +117,11 @@ hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals
 ```
 
 - local-only surface from CLI, TUI, or embedded web chat; it is not intended for Discord, Teams, WhatsApp, email, or other remote chat channels
-- managed suites today: `locomo`, `trace-judge`, `tau2`, `terminal-bench-2.0`, and `hybridai-skills`
+- managed suites today: `locomo`, `trace-judge`, `agent-risk`, `tau2`, `terminal-bench-2.0`, and `hybridai-skills`
+- `agent-risk` runs synthetic canary scenarios through the local
+  OpenAI-compatible gateway for every top-level NIST AI RMF function, NIST AI
+  600-1 GAI risk, and OWASP LLM Top 10 2025 item. It is automated eval
+  coverage, not a formal compliance attestation.
 - `trace-judge` evaluates the judge against a packaged 150-example labeled dataset of `(trace, criteria, expected verdict)` records across `risk`, `leak`, `brand-voice`, `tool-use`, and `task-completion` criteria. Results include macro precision, recall, and F1 per criterion type plus the overall gate status. The default `run` uses a deterministic offline judge fixture that parses the prepared judge prompt and returns JSON through the same judge result parser used by live mode; `run --live --model <judge-model>` measures the actual configured judge model.
 - CI runs `npm run eval:trace-judge:gate` after build to block prompt-preparation, parser, metric, and dataset regressions without live secrets. PR runs execute `npm run eval:trace-judge:gate:live` when both `HYBRIDAI_API_KEY` and `HYBRIDAI_CHATBOT_ID` are available; otherwise they are explicitly harness-only. Pushes to `main` require both live credentials and fail before promotion when either secret is missing. With those secrets present, CI runs `npm run eval:trace-judge:gate:live` against the configured judge model (`HYBRIDCLAW_TRACE_JUDGE_EVAL_MODEL`, or `hybridai/gpt-4.1-mini` by default) and blocks promotion when judge precision, recall, or F1 regresses below the configured threshold.
 - add a new judge criterion by adding examples to `src/evals/trace-judge-eval-dataset.ts` with a stable `criterionType`, clear criteria text, representative traces for `pass`, `partial`, and `fail`, and then running `npm run eval:trace-judge:gate` after `npm run build`. Keep each criterion balanced enough that precision, recall, and F1 are meaningful.
@@ -659,7 +666,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/goal [condition|status|pause|resume|clear]` | local and chat channels | Set a completion condition and keep working until judged complete or paused |
 | `/help` or `/h` | local and chat channels | Show slash-command help |
 | `/info` | TUI | Show bot, model, and runtime status together |
-| `/mcp [list|add|toggle|remove|reconnect]` | local and chat channels | Manage runtime MCP servers |
+| `/mcp [list|add|toggle|remove|reconnect|login|logout|status]` | local and chat channels | Manage runtime MCP servers and OAuth login state |
 | `/memory inspect [sessionId]` | local TUI/web | Inspect built-in memory layers |
 | `/memory query <query>` | local TUI/web | Preview prompt-time memory attachment |
 | `/model [info|list|set|clear|default|select]` | local and chat channels | Inspect or set session/default models |

@@ -32,7 +32,7 @@ skip the interactive onboarding step:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh \
-  | bash -s -- --version 0.24.2 --no-onboarding
+  | bash -s -- --version 0.25.0 --no-onboarding
 ```
 
 For automation, preview the plan with `--dry-run` (changes nothing), run

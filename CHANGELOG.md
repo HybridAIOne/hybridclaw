@@ -2,6 +2,103 @@
 
 ## Unreleased
 
+## [0.25.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.0) - 2026-06-20
+
+### Added
+
+- **Improved onboarding experience**: First-run hatching has a dedicated
+  `hybridai.onboardingModel` override, runtime-aware bootstrap context,
+  stronger welcome-email guidance, preserved setup links in chat, direct
+  Markdown links for local setup routes, completion tracking after the first
+  email, and duplicate-autostart protection. New agents receive the bootstrap
+  file at creation time, reinstalled agents can hatch again when appropriate,
+  and completed agents can show tailored empty-chat headers without restarting
+  onboarding.
+- **Remote MCP OAuth**: Remote `http` and `sse` MCP servers can opt into
+  `"auth": "oauth"` with gateway-managed OAuth 2.1 discovery, PKCE, dynamic
+  client registration, encrypted token storage, automatic refresh, and guided
+  setup in both the TUI and admin console. Added `/mcp login`, `/mcp logout`,
+  and `/mcp status` flows for local and chat channels.
+- **Admin skill detail pages**: `/admin/skills` now opens dedicated detail
+  pages with parsed docs, tool/prompt/dependency metadata, package logos,
+  credential status, write-only secret management, enable/disable controls,
+  example prompt launchers, recent invocations, and guarded text-file editing
+  for installed skill packages.
+- **Per-agent email mailboxes**: Built-in IMAP/SMTP email supports
+  `email.accounts[]` so separate mailbox credentials can route inbound mail to
+  specific agents, send replies from the mailbox that received the thread, and
+  prefer the active agent's mailbox for agent-initiated sends.
+- **Agent-risk eval harness**: Added `/eval agent-risk` and
+  `hybridclaw eval agent-risk` with synthetic canary scenarios covering every
+  top-level NIST AI RMF function, NIST AI 600-1 GAI risk, and OWASP LLM Top 10
+  2025 item. The gate writes redacted evidence artifacts and supports focused
+  scenario runs.
+- **Admin access control evidence**: Added scoped admin RBAC role bundles,
+  route-level action enforcement for scoped sessions, terminal stream
+  authorization checks, admin access-control docs, and ISO/IEC 27001 evidence
+  records for access review, control ownership, monitoring, suppliers, risk,
+  asset/data inventory, signoff, and evidence cadence.
+- **ISO/IEC 42001 readiness docs**: Added an AI management-system readiness
+  matrix and reusable evidence templates for HybridClaw AI subsystem inventory,
+  risk, impact, lifecycle, monitoring, and human oversight records.
+- **PostHog business skill**: Added a bundled `posthog` skill for guarded
+  event capture, person-property updates, private person reads, feature flag
+  reads and test evaluation, Query API/HogQL reads, approval plans, and
+  missing-secret diagnostics through the gateway HTTP proxy.
+- **Guarded session pruning**: Added `sessions prune --older-than <duration>`
+  with dry-run default, explicit `--confirm`, protected-session skips, minimum
+  retention, and structured `session.prune` audit events.
+- **Supply-chain security workflow**: Added BuildKit provenance and SBOM
+  attestations for Docker builds, a pinned Security Scan workflow with CodeQL
+  and tracked secret scanning, and `npm run security:secret-scan` for local
+  verification.
+
+### Changed
+
+- **Agent package installs**: `.claw` installs restore only archived workspace
+  files plus manifest-declared bundled/imported assets. Default bootstrap
+  templates are seeded by agent creation, not by package install, preserving
+  the package author's exact workspace file set.
+- **Admin browser auth**: Browser admin auth uses signed HttpOnly session
+  cookies for callback flows, keeps manual fallback tokens tab-scoped, removes
+  EventSource query-token auth, and keeps broad bearer-token API compatibility
+  for existing operators.
+- **MCP and docs navigation**: Docs navigation now comes from a shared
+  `docs/content/navigation.json` manifest used by the static docs app and
+  gateway docs renderer, keeping internal docs direct-linkable but absent from
+  sidebar and search unless explicitly listed.
+- **HybridAI request identity**: Gateway, container, and eval HybridAI calls
+  include a versioned `hybridclaw/<version>` user agent for upstream
+  diagnostics.
+- **Homepage and docs positioning**: The homepage, docs shell, setup docs, and
+  release facts were refreshed around current managed-cloud, distillation,
+  A2A, proxy-agent, channel, business-skill, admin, and security capabilities.
+
+### Fixed
+
+- **Hatching and opening-message reliability**: Bootstrap autostarts use an
+  atomic cross-process claim, GPT-5-family hatching is guided to send the
+  welcome email once required user details are present, duplicated bootstrap
+  blocks are collapsed, `OPENING.md` autostart produces one assistant message,
+  and setup links remain visible in chat after the welcome email.
+- **HybridAI onboarding bot fallback**: Agent/model controls stay in sync after
+  `/agent switch`, `/bot clear` clears both session and configured default bot
+  state, and HybridAI default-user fallback can resolve the user's bot without
+  stale default-chatbot reuse.
+- **Mobile chat QR handoff**: QR continuation tokens preserve web-session auth
+  and set the signed session cookie before redirecting to the target chat, so
+  cloud/container deployments open the intended session instead of bouncing to
+  login.
+- **Named local model selection**: The model switcher shows local route labels
+  in row subtitles and search text, so duplicate-looking entries such as
+  default `vLLM` and named `haigpu1` Qwen routes are distinguishable.
+- **Skill admin polish**: Skill detail navigation stays inside the admin app,
+  skill-only slash commands link back to detail pages, package assets are not
+  surfaced as generic chat artifacts, credential overwrite labels are clearer,
+  set credentials show checkmarks, and Blink uses the official logo asset.
+- **Secret-scan eval fixtures**: Agent-risk eval canaries were renamed to avoid
+  secret-shaped false positives while preserving the intended leakage tests.
+
 ## [0.24.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.4) - 2026-06-16
 
 ### Added

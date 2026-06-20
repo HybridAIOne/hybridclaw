@@ -16,6 +16,13 @@ HybridClaw onboarding walks through:
 4. pasting the API key back into the CLI or skipping remote auth for a local backend
 5. saving the default bot/model plus encrypted runtime secrets
 
+Agent hatching starts after the gateway and chat surface are running. A fresh
+agent uses its `BOOTSTRAP.md` to ask about the user's work, keep setup links in
+chat, write first-job suggestions, and send a short welcome email when an email
+route is available. Managed deployments can set `hybridai.onboardingModel` so
+that hatching uses a stronger first-run model before normal model routing takes
+over.
+
 Run it explicitly with:
 
 ```bash
@@ -94,6 +101,8 @@ Use `/admin/channels` for transport setup, per-channel instructions, and
 managed channel secrets, and `/admin/agents` when you need to edit an agent's
 allowlisted workspace markdown files, inspect saved revisions, or restore an
 earlier version.
+Use `/admin/skills` to inspect installed skill documentation, dependencies,
+credentials, example prompts, and editable package text files.
 Use `/admin/statistics` for activity and cost trends, and
 `/admin/agent-scoreboard` to review observed skill scores, reliability, timing,
 and CV links.

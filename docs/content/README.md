@@ -27,16 +27,27 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
-- HybridClaw v0.24.4 adds admin Logs page controls for switching logging Off,
-  On, or Debug while persisting runtime config and reloading the gateway from
-  the console.
-- Log inspection gives the detail viewer more room, keeps selected paths
-  visible, strips ANSI color codes, aligns mid-file tails, and shows full local
-  dates in formatted timestamps.
-- GPT-5-family hatching prompts direct the agent to send the welcome message
-  once basic user info and a valid email address are available.
-- Admin console native dropdowns apply the first selected option immediately
-  after browser-style input and change events.
+- HybridClaw v0.25.0 centers first-run hatching: onboarding can use a
+  dedicated model, keeps setup links visible in chat, records first-job ideas,
+  sends the welcome email when an email route is available, and avoids duplicate
+  bootstrap starts.
+- Remote MCP servers can use gateway-managed OAuth 2.1 with guided setup in
+  the TUI and web console, encrypted token storage, automatic refresh, and
+  `/mcp login|logout|status` commands.
+- Admin skill detail pages show docs, prompts, dependencies, logos, credential
+  status, recent invocations, enable controls, example prompt launchers, and a
+  guarded package text-file editor.
+- Built-in email supports per-agent mailboxes through `email.accounts[]`, so
+  inbound threads and outbound replies stay tied to the right agent address.
+- The `agent-risk` eval gate covers top-level NIST AI RMF, NIST AI 600-1, and
+  OWASP LLM Top 10 2025 scenarios with redacted evidence artifacts.
+- Admin RBAC role bundles, route-level scoped action enforcement, ISO/IEC
+  27001 evidence docs, ISO/IEC 42001 readiness docs, SBOM/provenance
+  attestations, CodeQL, and secret scanning improve governance evidence.
+- The bundled `posthog` business skill covers guarded event capture,
+  person-property updates, feature flag reads/tests, and HogQL reads.
+- `sessions prune --older-than <duration>` gives operators an auditable,
+  dry-run-first way to clean old persisted session history.
 - HybridAI Cloud launches hosted HybridClaw environments from
   [hybridclaw.io](https://hybridclaw.io) when teams want the fastest managed
   path instead of preparing local infrastructure first.

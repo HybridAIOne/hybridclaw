@@ -17,7 +17,7 @@ A few notable categories:
 - office workflows: `pdf`, `xlsx`, `docx`, `pptx`, `office-workflows`
 - planning, coworker creation, and engineering: `project-manager`, `feature-planning`, `human-distill`, `code-review`, `code-simplification`, `gh-issues`, `warehouse-sql`
 - visual explainers, image, video, and speech: `diagram`, `manim-video`, `excalidraw`, `image-generation`, `video-generation`, `video.from-script`, `speech.transcribe`, `speech.detect-language`
-- platform integrations: `github-pr-workflow`, `notion`, `trello`, `stripe`, `mailchimp`, `download-platform-invoices`, `wordpress`, `gog`, `google-workspace`, `google-ads`, `ga4`, `airtable`, `fastbill`, `hubspot`, `lexware-office`, `firecrawl`, `heygen`, `hermes3000-writing`, `discord`
+- platform integrations: `github-pr-workflow`, `notion`, `trello`, `stripe`, `mailchimp`, `posthog`, `download-platform-invoices`, `wordpress`, `gog`, `google-workspace`, `google-ads`, `ga4`, `airtable`, `fastbill`, `hubspot`, `lexware-office`, `firecrawl`, `heygen`, `hermes3000-writing`, `discord`
 - infrastructure, production ops, home automation, and energy monitoring: `hetzner-cloud`, `hetzner-dns`, `hetzner-storage-box`, `mittwald`, `t-cloud-public`, `zabbix`, `shelly`, `homematic`, `fronius`, `byd-battery`, `alexa`, `blink`, `hue`, `warehouse-sql`
 - security and privacy: `distil-pii-redactor`
 - knowledge workflows: `llm-wiki`, `obsidian`, `zettelkasten`
@@ -43,7 +43,8 @@ personal/project skills by category and shows missing dependencies inline.
 Skills can be disabled globally or per channel kind (`discord`, `msteams`,
 `whatsapp`, `email`) through `hybridclaw skill enable|disable ...` or the
 TUI `/skill config` screen. The admin `Skills` page uses the same category
-metadata for filtering, review, and local skill authoring.
+metadata for filtering, review, local skill authoring, credential status,
+example prompts, and package text-file edits.
 
 If the scanner blocks an imported or workspace skill, review
 `hybridclaw skill list blocked` before taking action. `hybridclaw skill unblock
