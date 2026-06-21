@@ -846,6 +846,7 @@
     <div class="hero-install-note">Prerequisites: Node.js 22+. The installer checks Node, installs the CLI, checks Docker, and can run onboarding. Docker provides full container isolation, while containerized deployments can switch to host sandbox mode. Manual npm install is still supported.</div>
   </div>
   <div class="hero-cta">
+    <a href="https://github.com/HybridAIOne/hybridclaw/releases/download/v0.25.2/HybridClaw-0.25.2-arm64.dmg" class="btn btn-primary">Download Apple Desktop App</a>
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
     <a href="/hybridclaw/docs/" class="btn btn-secondary">Read Docs</a>
     <a href="#comparison" class="btn btn-secondary">See Comparison</a>
@@ -888,11 +889,16 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest release: v0.25.0</div>
+    <div class="section-label">Latest release: v0.25.2</div>
     <h2 class="section-title">Current release highlights</h2>
-    <p class="section-desc">HybridClaw v0.25.0 focuses on a smoother first-run hatching experience, OAuth-backed MCP setup, richer skill administration, per-agent email routing, risk evals, and stronger governance evidence.</p>
+    <p class="section-desc">HybridClaw v0.25.2 ships a signed and notarized Apple Desktop App for Apple Silicon Macs, plus a smoother first-run hatching experience, OAuth-backed MCP setup, richer skill administration, per-agent email routing, risk evals, and stronger governance evidence.</p>
   </div>
   <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f5a5;</div>
+      <h3>Apple Desktop App</h3>
+      <p>Download the signed Apple Silicon DMG from GitHub Releases, drag <code>HybridClaw.app</code> into <code>/Applications</code>, and launch the local gateway, chat, agents, and admin surfaces from a native macOS window.</p>
+    </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f9ed;</div>
       <h3>Guided hatching</h3>
@@ -1658,6 +1664,10 @@
   <!-- LOCAL panel -->
   <div class="qs-panel active" id="qs-local">
     <div class="features-grid">
+      <div class="feature-card">
+        <h3 style="color: var(--accent-1);">Apple Desktop App</h3>
+        <p>On Apple Silicon Macs, download <a href="https://github.com/HybridAIOne/hybridclaw/releases/download/v0.25.2/HybridClaw-0.25.2-arm64.dmg">HybridClaw-0.25.2-arm64.dmg</a>, open it, and drag <code>HybridClaw.app</code> into <code>/Applications</code>.</p>
+      </div>
       <div class="feature-card">
         <h3 style="color: var(--accent-1);">1. Install CLI</h3>
         <p><code>curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash</code></p>

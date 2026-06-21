@@ -69,7 +69,15 @@ HybridClaw on HybridAI Cloud in a few minutes at
 
 Fastest managed launch: [HybridClaw on HybridAI Cloud](https://hybridclaw.io).
 
-Linux/macOS one-line installer:
+Apple Desktop App for macOS:
+
+- Download the signed and notarized Apple Silicon DMG:
+  [HybridClaw-0.25.2-arm64.dmg](https://github.com/HybridAIOne/hybridclaw/releases/download/v0.25.2/HybridClaw-0.25.2-arm64.dmg)
+- Open the DMG, drag `HybridClaw.app` into `/Applications`, and launch it.
+- The desktop app starts the local gateway and opens the chat, agents, and
+  admin surfaces in a native macOS window.
+
+Linux/macOS CLI one-line installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash
@@ -98,7 +106,7 @@ After the gateway starts, open:
 | TUI | `hybridclaw tui` | Terminal chat, approvals, status, resume |
 | OpenAI-compatible API | `http://127.0.0.1:9090/v1/chat/completions` | Local evals and compatible clients |
 
-For signed macOS desktop builds, use the
+For signed macOS desktop builds and future architectures, use the
 [GitHub Releases](https://github.com/HybridAIOne/hybridclaw/releases/latest)
 page.
 

@@ -27,7 +27,9 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
-- HybridClaw v0.25.0 centers first-run hatching: onboarding can use a
+- HybridClaw v0.25.2 ships a signed and notarized Apple Desktop App for Apple
+  Silicon Macs.
+- First-run hatching can use a
   dedicated model, keeps setup links visible in chat, records first-job ideas,
   sends the welcome email when an email route is available, and avoids duplicate
   bootstrap starts.
