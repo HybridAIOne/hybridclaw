@@ -1,0 +1,83 @@
+[
+  {
+    "id": "langfuse-01",
+    "category": "read-traces",
+    "prompt": "Pull the last 50 traces for user alice and flag any with errors.",
+    "expectedOperation": "list-traces",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "langfuse-02",
+    "category": "read-observations",
+    "prompt": "Show the slowest LLM generations from the last hour.",
+    "expectedOperation": "list-observations",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "langfuse-03",
+    "category": "read-sessions",
+    "prompt": "List recent conversation sessions so I can review one.",
+    "expectedOperation": "list-sessions",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "langfuse-04",
+    "category": "read-scores",
+    "prompt": "What evaluation scores were recorded this week and what is the average?",
+    "expectedOperation": "list-scores",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "langfuse-05",
+    "category": "read-metrics",
+    "prompt": "Give me daily trace volume and token cost as metrics for the last 7 days.",
+    "expectedOperation": "metrics",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "langfuse-06",
+    "category": "read-prompts",
+    "prompt": "Show me the production prompts we have in Langfuse.",
+    "expectedOperation": "list-prompts",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "langfuse-07",
+    "category": "read-datasets",
+    "prompt": "List the evaluation datasets and their items.",
+    "expectedOperation": "list-datasets",
+    "secondaryOperations": ["list-dataset-items"],
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "langfuse-08",
+    "category": "write-score",
+    "prompt": "Record a quality score of 0.8 on this trace after reviewing it.",
+    "expectedOperation": "create-score",
+    "expectedTier": "amber",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "langfuse-09",
+    "category": "write-dataset",
+    "prompt": "Add this failing example as a new dataset test case.",
+    "expectedOperation": "create-dataset-item",
+    "expectedTier": "amber",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "langfuse-10",
+    "category": "write-prompt",
+    "prompt": "Publish a new version of the summarizer prompt with this updated text.",
+    "expectedOperation": "create-prompt",
+    "expectedTier": "amber",
+    "costMeasurement": { "system": "UsageTotals" }
+  }
+]

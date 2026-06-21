@@ -29,6 +29,7 @@ ALLOWED_FRONTMATTER_KEYS = {
     "always",
     "requires",
     "credentials",
+    "config_variables",
     "metadata",
     "license",
     "allowed-tools",
