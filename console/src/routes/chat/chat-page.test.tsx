@@ -49,7 +49,15 @@ const fetchChatRecentMock =
     ) => Promise<ChatRecentResponse>
   >();
 const fetchChatHistoryMock =
-  vi.fn<(token: string, sessionId: string) => Promise<ChatHistoryResponse>>();
+  vi.fn<
+    (
+      token: string,
+      sessionId: string,
+      limit?: number,
+      userId?: string,
+      agentId?: string,
+    ) => Promise<ChatHistoryResponse>
+  >();
 const fetchChatContextMock =
   vi.fn<(token: string, sessionId: string) => Promise<ChatContextResponse>>();
 const deleteChatSessionMock =
@@ -103,8 +111,13 @@ vi.mock('../../api/chat', () => ({
     query?: string,
     scope?: 'user' | 'all',
   ) => fetchChatRecentMock(token, userId, channelId, limit, query, scope),
-  fetchChatHistory: (token: string, sessionId: string) =>
-    fetchChatHistoryMock(token, sessionId),
+  fetchChatHistory: (
+    token: string,
+    sessionId: string,
+    limit?: number,
+    userId?: string,
+    agentId?: string,
+  ) => fetchChatHistoryMock(token, sessionId, limit, userId, agentId),
   fetchChatContext: (token: string, sessionId: string) =>
     fetchChatContextMock(token, sessionId),
   createChatMobileQr: (
@@ -426,6 +439,9 @@ describe('ChatPage', () => {
       expect(fetchChatHistoryMock).toHaveBeenCalledWith(
         'test-token',
         'session-b',
+        80,
+        'web-user-1',
+        undefined,
       ),
     );
   });
@@ -449,6 +465,37 @@ describe('ChatPage', () => {
     await waitFor(() =>
       expect(input.value).toBe(
         '/1password List all items in my "Development" vault',
+      ),
+    );
+  });
+
+  it('mints a session and loads history for a launch agent query param', async () => {
+    const routerModule = (await import(
+      '@tanstack/react-router'
+    )) as unknown as {
+      __testRouter: TestRouter;
+    };
+    routerModule.__testRouter.setSessionId(null);
+    window.history.replaceState(null, '', '/chat?agent=assistant');
+    fetchChatHistoryMock.mockImplementation(async (_token, sessionId) => ({
+      sessionId,
+      agentId: 'assistant',
+      history: [],
+    }));
+
+    renderChatPage();
+
+    await waitFor(() =>
+      expect(routerModule.__testRouter.lastTo).toBe('/chat/$sessionId'),
+    );
+    expect(routerModule.__testRouter.lastReplace).toBe(true);
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
+        80,
+        'web-user-1',
+        'assistant',
       ),
     );
   });
@@ -845,8 +892,8 @@ describe('ChatPage', () => {
 
     expect(fetchChatHistoryMock).toHaveBeenCalledTimes(2);
     expect(fetchChatHistoryMock.mock.calls).toEqual([
-      ['test-token', 'session-a'],
-      ['test-token', 'session-b'],
+      ['test-token', 'session-a', 80, 'web-user-1', undefined],
+      ['test-token', 'session-b', 80, 'web-user-1', undefined],
     ]);
   });
 
@@ -895,6 +942,9 @@ describe('ChatPage', () => {
       expect(fetchChatHistoryMock).toHaveBeenCalledWith(
         'test-token',
         'session-b',
+        80,
+        'web-user-1',
+        undefined,
       ),
     );
   });
@@ -950,6 +1000,9 @@ describe('ChatPage', () => {
       expect(fetchChatHistoryMock).toHaveBeenCalledWith(
         'test-token',
         'session-search',
+        80,
+        'web-user-1',
+        undefined,
       ),
     );
   });
@@ -1567,6 +1620,9 @@ describe('ChatPage', () => {
       expect(fetchChatHistoryMock).toHaveBeenCalledWith(
         'test-token',
         'session-branch',
+        80,
+        'web-user-1',
+        undefined,
       ),
     );
     await waitFor(() =>

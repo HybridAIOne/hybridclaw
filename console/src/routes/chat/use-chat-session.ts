@@ -18,7 +18,7 @@ export interface UseChatSessionReturn {
    */
   switchToSession: (id: string, opts?: { replace?: boolean }) => Promise<void>;
   startFreshChat: () => void;
-  ensureSessionForSend: () => void;
+  ensureSessionForSend: () => string;
   handleSessionIdCorrection: (serverSessionId: string) => void;
 }
 
@@ -72,12 +72,13 @@ export function useChatSession(): UseChatSessionReturn {
     void navigate({ to: '/chat' });
   }, [navigate]);
 
-  const ensureSessionForSend = useCallback(() => {
-    if (sessionIdRef.current) return;
+  const ensureSessionForSend = useCallback((): string => {
+    if (sessionIdRef.current) return sessionIdRef.current;
     const newId = generateWebSessionId();
     draftSessionIdRef.current = newId;
     sessionIdRef.current = newId;
     void navigateToSession(newId, { replace: true });
+    return newId;
   }, [navigateToSession]);
 
   const handleSessionIdCorrection = useCallback(

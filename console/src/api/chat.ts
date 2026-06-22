@@ -46,12 +46,14 @@ export function fetchChatHistory(
   sessionId: string,
   limit = 80,
   userId?: string,
+  agentId?: string,
 ): Promise<ChatHistoryResponse> {
   const params = new URLSearchParams({
     sessionId,
     limit: String(limit),
   });
   if (userId) params.set('userId', userId);
+  if (agentId?.trim()) params.set('agentId', agentId.trim());
   return requestJson<ChatHistoryResponse>(`/api/history?${params.toString()}`, {
     token,
   });

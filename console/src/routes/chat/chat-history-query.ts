@@ -111,7 +111,8 @@ export async function loadChatHistoryUi(
   token: string,
   sessionId: string,
   userId?: string,
+  agentId?: string,
 ): Promise<ChatHistoryUiData> {
-  const raw = await fetchChatHistory(token, sessionId, 80, userId);
+  const raw = await fetchChatHistory(token, sessionId, 80, userId, agentId);
   return buildChatHistoryUiData(raw, sessionId);
 }
