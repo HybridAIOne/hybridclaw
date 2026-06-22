@@ -1,161 +1,178 @@
 ---
 title: Quick Start
-description: Launch the gateway, TUI, and built-in web surfaces after onboarding.
+description: Go from nothing to a working system — a running gateway and your first answered message — in a few minutes.
 sidebar_position: 3
 ---
 
 # Quick Start
 
-## Onboarding
+The goal of this page is a **working system**: a running gateway and your first
+answered message. There are two paths.
 
-HybridClaw onboarding walks through:
+- **HybridAI Cloud** — fastest; you are already running. See
+  [Fastest Path: HybridAI Cloud](#fastest-path-hybridai-cloud).
+- **Local / self-hosted** — a few numbered steps. See
+  [Local / Self-Hosted: Zero To Working](#local--self-hosted-zero-to-working).
 
-1. accepting `TRUST_MODEL.md`
-2. choosing HybridAI auth or a local-only setup
-3. opening HybridAI registration/login in the browser when needed
-4. pasting the API key back into the CLI or skipping remote auth for a local backend
-5. saving the default bot/model plus encrypted runtime secrets
+Both paths meet at [Send Your First Message](#send-your-first-message).
 
-Agent hatching starts after the gateway and chat surface are running. A fresh
-agent uses its `BOOTSTRAP.md` to ask about the user's work, keep setup links in
-chat, write first-job suggestions, and send a short welcome email when an email
-route is available. Managed deployments can set `hybridai.onboardingModel` so
-that hatching uses a stronger first-run model before normal model routing takes
-over.
+## Fastest Path: HybridAI Cloud
 
-Run it explicitly with:
+If you started from [HybridAI Cloud](https://hybridclaw.io) (see
+[Installation](./installation.md#launch-on-hybridai-cloud)), there is nothing to
+install or configure:
+
+- a default model is already selected
+- the gateway is already running
+- you land directly in web chat at `/chat`
+
+You already have a working system. Skip ahead to
+[Send Your First Message](#send-your-first-message), then
+[Where To Go Next](#where-to-go-next).
+
+## Local / Self-Hosted: Zero To Working
+
+The path is: **onboard → start the gateway → confirm it is healthy → open
+chat**. Get one clean conversation working first; add channels, sandboxes, and
+remote access afterward.
+
+First install the CLI — see [Installation](./installation.md). You need Node.js
+22 and npm, plus Docker if you want the default container sandbox.
+
+### 1. Onboard
 
 ```bash
 hybridclaw onboarding
 ```
 
-If you plan to run only on Ollama, LM Studio, llama.cpp, or vLLM, onboarding
-can skip the remote-provider steps and you can configure the backend later with
-`hybridclaw auth login local <backend> [model-id] ...`.
+Follow the prompts: accept `TRUST_MODEL.md`, choose HybridAI auth or a
+local-only setup, and save a default model. On first run a fresh agent also
+introduces itself, keeps your setup links in chat, and suggests first jobs (see
+[Agents](../agents.md)).
 
-If onboarding finds invalid JSON in `~/.hybridclaw/config.json`, it can offer
-to restore the last known-good saved config snapshot or roll back to a tracked
-revision before continuing.
+- **Cloud / managed providers:** sign in to HybridAI or pick another provider.
+  You can add more providers anytime — see [Authentication](./authentication.md).
+- **Local-only (Ollama, LM Studio, llama.cpp, vLLM):** you can skip the
+  remote-provider steps and configure a backend later with
+  `hybridclaw auth login local <backend> [model-id]`.
 
-## Start The Gateway
+If onboarding finds invalid JSON in `~/.hybridclaw/config.json`, it can restore
+the last known-good snapshot or roll back to a tracked revision before
+continuing.
+
+### 2. Start the gateway
 
 ```bash
 hybridclaw gateway
 ```
 
-Common variants:
+The gateway is the backbone — the chat UI, agents, and channels all run on it.
+
+Variants you may need later: `hybridclaw gateway start --foreground` to watch
+logs, and `--sandbox=host` for stdio MCP servers that depend on host binaries
+such as `docker`, `node`, or `npx`.
+
+### 3. Confirm it is healthy
 
 ```bash
-hybridclaw gateway start --foreground
-hybridclaw gateway start --foreground --sandbox=host
+hybridclaw gateway status
+hybridclaw doctor
 ```
 
-Use `--sandbox=host` for stdio MCP servers that depend on host binaries such
-as `docker`, `node`, or `npx`.
+`gateway status` reports the running gateway with its active sandbox and runtime
+metadata (in container mode it also shows the image name, version, and short
+id). `doctor` flags common config and credential problems. Both clean → you are
+ready.
 
-Use `hybridclaw gateway status` to confirm the active sandbox and runtime
-metadata. In container mode it also shows the configured image name, resolved
-version, and short image id.
+### 4. Open chat
 
-## Start The TUI
+With the gateway running locally, open either surface:
 
-In a second terminal:
+- **Web chat:** `http://127.0.0.1:9090/chat`
+- **Terminal UI:** `hybridclaw tui`
 
-```bash
-hybridclaw tui
-```
+If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt; if
+it is set, `/chat`, `/agents`, and `/admin` reuse the same token. The
+[desktop app](./installation.md#install-the-apple-desktop-app) opens this chat
+surface automatically.
 
-The local TUI shows a startup banner before the first prompt, opens an
-interactive approval picker for pending approvals, and prints a resumable
-session summary with `hybridclaw tui --resume <sessionId>` on exit.
+## Send Your First Message
 
-## Open The Built-In Web Surfaces
-
-With the gateway running locally:
-
-- chat UI: `http://127.0.0.1:9090/chat`
-- agent/session dashboard: `http://127.0.0.1:9090/agents`
-- admin console: `http://127.0.0.1:9090/admin`
-- statistics: `http://127.0.0.1:9090/admin/statistics`
-- agent scoreboard: `http://127.0.0.1:9090/admin/agent-scoreboard`
-- docs: `http://127.0.0.1:9090/docs`
-
-If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt. If
-it is set, `/chat`, `/agents`, and `/admin` all reuse the same token gate.
-For access from another machine, keep the gateway on loopback and follow
-[Remote Access](../guides/remote-access.md).
-
-Before exposing the gateway beyond localhost, choose the right runtime shape in
-[Local vs Cloud Setup](./local-vs-cloud.md). That guide covers when a public
-URL is required, how to configure local-only, tunneled, and cloud deployments,
-and how to switch between them.
-
-The `/chat` sidebar keeps recent conversations and can search session titles
-with contextual snippets, so you can jump back into older browser sessions
-without scrolling through the default recent list.
-The chat header also shows a live context-usage ring. Use `/context` for the
-full context snapshot, and use `/compact` when the ring shows that a long
-session is approaching its model window.
-
-Use `/admin/channels` for transport setup, per-channel instructions, and
-managed channel secrets, and `/admin/agents` when you need to edit an agent's
-allowlisted workspace markdown files, inspect saved revisions, or restore an
-earlier version.
-Use `/admin/skills` to inspect installed skill documentation, dependencies,
-credentials, example prompts, and editable package text files.
-Use `/admin/statistics` for activity and cost trends, and
-`/admin/agent-scoreboard` to review observed skill scores, reliability, timing,
-and CV links.
-
-## Open The Desktop Wrapper From Source
-
-From a source checkout, the macOS desktop wrapper builds the runtime and opens
-the same local chat surface in an Electron window:
-
-```bash
-npm install
-npm run desktop
-```
-
-The app reuses an existing local gateway when one is already listening on
-`http://127.0.0.1:9090`; otherwise it starts the bundled gateway. The app menu
-links to the admin console.
-
-## Ground A Prompt With Files Or Repo Context
-
-- Web chat accepts uploads and pasted clipboard files or images before send.
-- TUI queues a copied local file or clipboard image with `/paste` or `Ctrl-V`.
-- Inline prompt references supported in chat are `@file:path[:start-end]`,
-  `@folder:path`, `@diff`, `@staged`, `@git:<count>`, and
-  `@url:https://...`.
-
-Examples:
+Try a prompt that exercises the model and file grounding:
 
 ```text
-Summarize @file:README.md and compare it with @url:https://example.com/spec
+Summarize @file:README.md in 5 bullets.
+```
+
+You have a working system when:
+
+- the bot/model name shows in the chat header (or the TUI banner)
+- the reply streams back with no auth or model error
+- if a tool needs approval, the approval picker appears
+
+Grounding references work in any prompt: `@file:path[:start-end]`,
+`@folder:path`, `@diff`, `@staged`, `@git:<count>`, and `@url:https://...`. Web
+chat also accepts uploads and pasted images; the TUI queues a copied file or
+clipboard image with `/paste` or `Ctrl-V`. For example:
+
+```text
 Explain this change using @diff and @file:src/gateway/gateway-service.ts:900-1040
 ```
 
-## Channel Integrations
+The chat header shows a live context-usage ring. Use `/context` for the full
+snapshot, `/compact` when a long session nears the model window, and `/model` to
+switch models.
 
-The gateway auto-connects configured channels:
+## If Something's Wrong
 
-- Slack when `slack.enabled` is true, `SLACK_BOT_TOKEN` is saved, and
-  `SLACK_APP_TOKEN` is saved
-- Slack Incoming Webhook when `slackWebhook.enabled` is true and the default
-  webhook target has a stored SecretRef
-- Microsoft Teams when `msteams.enabled` is true and
-  `MSTEAMS_APP_PASSWORD` is saved
-- Discord when `DISCORD_TOKEN` is set
-- Telegram when `telegram.enabled` is true and `TELEGRAM_BOT_TOKEN` is set
-- Signal when `signal.enabled` is true and a reachable `signal-cli` compatible
-  daemon plus account are configured
-- Email when `email.enabled` is true and an email password is configured,
-  typically through the stored `EMAIL_PASSWORD` secret
-- WhatsApp when linked auth exists under `~/.hybridclaw/credentials/whatsapp`
-- iMessage when `imessage.enabled` is true and either local Messages access or
-  remote BlueBubbles credentials are configured
+Start with diagnostics:
 
-For the setup commands and step-by-step flows, start with
-[Connect Your First Channel](./first-channel.md) or go straight to
-[Channels Overview](../channels/overview.md).
+```bash
+hybridclaw doctor
+```
+
+Common cases:
+
+- **Empty reply or model error** → check provider auth with
+  `hybridclaw auth status <provider>` (see [Authentication](./authentication.md)).
+- **Chat will not load / cannot reach the gateway** → `hybridclaw gateway status`,
+  then `hybridclaw gateway restart --foreground`.
+- **Config broke after a manual edit** → re-run `hybridclaw onboarding` and let
+  it restore the last known-good snapshot.
+- **Cannot resume a session** → `hybridclaw tui --resume <sessionId>` (the TUI
+  prints the id in its exit summary).
+
+Full reference: [Diagnostics](../reference/diagnostics.md).
+
+## Where To Go Next
+
+With one conversation working, expand the system:
+
+- [Connect Your First Channel](./first-channel.md) — Slack, Discord, Telegram,
+  Signal, WhatsApp, email, and more, with a private first-rollout checklist.
+- [Local vs Cloud Setup](./local-vs-cloud.md) — when you need a public URL,
+  tunneling, or a cloud deployment, and how to switch between modes.
+- [Remote Access](../guides/remote-access.md) — reach the gateway from your
+  other devices over SSH or Tailscale without exposing it publicly.
+
+Other built-in surfaces on the running gateway (`http://127.0.0.1:9090`):
+
+- `/agents` — agent and session dashboard; the `/chat` sidebar also searches
+  past sessions by title
+- `/admin` — channels, agents, and skills, plus saved-revision editing
+- `/admin/statistics` and `/admin/agent-scoreboard` — activity, cost, and skill
+  scores
+- `/docs` — these docs, served locally
+
+## Command Cheat Sheet
+
+| Command | Purpose |
+| --- | --- |
+| `hybridclaw onboarding` | First-run setup: trust model, auth, default model |
+| `hybridclaw gateway` | Start the gateway (the backbone) |
+| `hybridclaw gateway status` | Confirm it is running; show sandbox and runtime |
+| `hybridclaw gateway restart --foreground` | Restart and watch logs |
+| `hybridclaw tui` | Open the terminal chat UI |
+| `hybridclaw tui --resume <sessionId>` | Resume a previous TUI session |
+| `hybridclaw doctor` | Diagnose config and credential problems |
+| `hybridclaw auth login` / `auth status` | Add a provider / check provider auth |
