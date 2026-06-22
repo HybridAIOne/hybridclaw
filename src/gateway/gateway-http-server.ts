@@ -2298,6 +2298,20 @@ function resolveRequestOrigin(
   return `${proto}://${host}`;
 }
 
+function resolveA2AAgentCardOrigin(req: IncomingMessage): string | null {
+  const configuredPublicUrl = getRuntimeConfig().deployment.public_url.trim();
+  if (configuredPublicUrl) {
+    const origin = normalizePublicBaseUrl(configuredPublicUrl);
+    if (origin) return origin;
+    logger.warn(
+      { publicUrl: configuredPublicUrl },
+      'Invalid deployment.public_url for A2A Agent Card',
+    );
+    return null;
+  }
+  return resolveRequestOrigin(req);
+}
+
 function buildMobileLaunchUrl(params: {
   origin: string;
   token: string;
@@ -7066,7 +7080,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       getRuntimeConfig().voice.webhookPath,
     );
     if (pathname === '/.well-known/agent.json' && method === 'GET') {
-      const origin = resolveRequestOrigin(req);
+      const origin = resolveA2AAgentCardOrigin(req);
+      if (!origin) {
+        sendJson(res, 500, {
+          error: 'deployment.public_url must be an HTTP(S) URL.',
+        });
+        return;
+      }
       const trust = resolveA2AAgentCardPeerTrust({
         authorization: req.headers.authorization || '',
         audience: new URL('/.well-known/agent.json', origin).toString(),
