@@ -690,7 +690,7 @@ export async function fetchAgentList(token: string): Promise<AgentListItem[]> {
   });
   const localAgents = payload.agents.map((agent) => ({
     ...agent,
-    source: agent.source ?? ({ type: 'local' } as const),
+    source: { type: 'local' } as const,
   }));
   const remoteAgents = (payload.remotePeers ?? []).flatMap((peer) =>
     peer.agents.map((agent) => ({
@@ -699,7 +699,6 @@ export async function fetchAgentList(token: string): Promise<AgentListItem[]> {
         type: 'remote' as const,
         peerId: peer.peerId,
         instanceId: peer.instanceId,
-        label: peer.label,
       },
     })),
   );

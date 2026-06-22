@@ -1,5 +1,5 @@
-const AGENT_ADDRESS_PATTERN =
-  '[A-Za-z0-9._-]+(?:@[A-Za-z0-9._-]+@[A-Za-z0-9._-]+)?';
+import { AGENT_ADDRESS_PATTERN } from './agent-address-pattern';
+
 const MENTION_BOUNDARY = String.raw`(?=$|[\s:.,!?;)\]}])`;
 const LEADING_AGENT_MENTION_RE = new RegExp(
   `^@(${AGENT_ADDRESS_PATTERN})${MENTION_BOUNDARY}`,

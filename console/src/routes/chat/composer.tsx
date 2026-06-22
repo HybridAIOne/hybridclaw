@@ -16,6 +16,7 @@ import { Popover, PopoverAnchor } from '../../components/popover';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { pluralize } from '../../lib/format';
+import { AGENT_ADDRESS_PATTERN } from './agent-address-pattern';
 import { preloadAgentAvatarUrl, useAgentAvatarUrl } from './agent-avatar-url';
 import {
   type AgentSwitchOption,
@@ -40,8 +41,6 @@ interface AgentMentionContext {
   query: string;
 }
 
-const AGENT_ADDRESS_PATTERN =
-  '[A-Za-z0-9._-]+(?:@[A-Za-z0-9._-]+@[A-Za-z0-9._-]+)?';
 const AGENT_MENTION_QUERY_PATTERN = '[A-Za-z0-9._-]*(?:@[A-Za-z0-9._-]*){0,2}';
 const AGENT_MENTION_CONTEXT_RE = new RegExp(
   `(?:^|[\\s([{])@(${AGENT_MENTION_QUERY_PATTERN})$`,

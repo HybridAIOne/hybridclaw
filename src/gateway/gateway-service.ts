@@ -9123,6 +9123,18 @@ export function getGatewayHistory(
 }
 
 const REMOTE_AGENT_CARD_LIST_TIMEOUT_MS = 2500;
+const REMOTE_AGENT_CARD_LIST_CACHE_TTL_MS = 30_000;
+
+type RemoteAgentListTrustPeer = ReturnType<
+  typeof listA2ATrustedPublicKeyPeers
+>[number];
+
+let remoteAgentListCache: {
+  key: string;
+  peers: GatewayRemoteAgentListPeer[];
+  expiresAt: number;
+  refresh: Promise<GatewayRemoteAgentListPeer[]> | null;
+} | null = null;
 
 function getGatewayLocalAgentListItems(): GatewayAgentListResponse['agents'] {
   return listAgents().map((agent) => {
@@ -9171,42 +9183,55 @@ function mapRemoteAgentCardAgents(params: {
         id: parsed.id,
         name: name || null,
       });
-    } catch {}
+    } catch (error) {
+      logger.debug(
+        { err: error, peerId: params.peerId, agentId: id },
+        'Skipped malformed trusted peer Agent Card agent id',
+      );
+    }
   }
 
   return mapped.sort((left, right) => left.id.localeCompare(right.id));
 }
 
-function fetchA2AAgentCardForList(agentCardUrl: string): Promise<A2AAgentCard> {
-  const fetchImpl: typeof fetch = async (input, init) => {
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      REMOTE_AGENT_CARD_LIST_TIMEOUT_MS,
-    );
-    try {
-      return await fetch(input, {
-        ...init,
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
-  };
+async function fetchWithTimeout(
+  input: Parameters<typeof fetch>[0],
+  init: Parameters<typeof fetch>[1],
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
+function fetchA2AAgentCardForList(agentCardUrl: string): Promise<A2AAgentCard> {
   return fetchA2AAgentCard({
     agentCardUrl,
-    fetchImpl,
+    fetchImpl: (input, init) =>
+      fetchWithTimeout(input, init, REMOTE_AGENT_CARD_LIST_TIMEOUT_MS),
     now: new Date(),
   });
 }
 
-async function getGatewayRemoteAgentListPeers(): Promise<
-  GatewayRemoteAgentListPeer[]
-> {
-  const peers = listA2ATrustedPublicKeyPeers().filter(
-    (peer) => peer.status === 'trusted' && peer.agentCardUrl,
-  );
+function remoteAgentListCacheKey(peers: RemoteAgentListTrustPeer[]): string {
+  return peers
+    .map(
+      (peer) =>
+        `${peer.peerId}\0${peer.agentCardUrl}\0${peer.publicKeyFingerprint}`,
+    )
+    .join('\n');
+}
+
+async function fetchGatewayRemoteAgentListPeers(
+  peers: RemoteAgentListTrustPeer[],
+): Promise<GatewayRemoteAgentListPeer[]> {
   const remotePeers = await Promise.all(
     peers.map(async (peer): Promise<GatewayRemoteAgentListPeer | null> => {
       try {
@@ -9224,7 +9249,6 @@ async function getGatewayRemoteAgentListPeers(): Promise<
         return {
           peerId: peer.peerId,
           instanceId,
-          label: instanceId,
           agentCardUrl: peer.agentCardUrl,
           agents,
         };
@@ -9240,7 +9264,76 @@ async function getGatewayRemoteAgentListPeers(): Promise<
 
   return remotePeers
     .filter((peer): peer is GatewayRemoteAgentListPeer => peer !== null)
-    .sort((left, right) => left.label.localeCompare(right.label));
+    .sort((left, right) => left.instanceId.localeCompare(right.instanceId));
+}
+
+function refreshGatewayRemoteAgentListPeers(
+  key: string,
+  peers: RemoteAgentListTrustPeer[],
+): Promise<GatewayRemoteAgentListPeer[]> {
+  const previous =
+    remoteAgentListCache?.key === key ? remoteAgentListCache : null;
+  const refresh = fetchGatewayRemoteAgentListPeers(peers)
+    .then((remotePeers) => {
+      remoteAgentListCache = {
+        key,
+        peers: remotePeers,
+        expiresAt: Date.now() + REMOTE_AGENT_CARD_LIST_CACHE_TTL_MS,
+        refresh: null,
+      };
+      return remotePeers;
+    })
+    .catch((error) => {
+      if (remoteAgentListCache?.key === key) {
+        remoteAgentListCache = {
+          key,
+          peers: previous?.peers ?? [],
+          expiresAt: previous?.expiresAt ?? 0,
+          refresh: null,
+        };
+      }
+      throw error;
+    });
+
+  remoteAgentListCache = {
+    key,
+    peers: previous?.peers ?? [],
+    expiresAt: previous?.expiresAt ?? 0,
+    refresh,
+  };
+  return refresh;
+}
+
+async function getGatewayRemoteAgentListPeers(): Promise<
+  GatewayRemoteAgentListPeer[]
+> {
+  const peers = listA2ATrustedPublicKeyPeers().filter(
+    (peer) => peer.status === 'trusted' && peer.agentCardUrl,
+  );
+  if (peers.length === 0) {
+    remoteAgentListCache = null;
+    return [];
+  }
+
+  const key = remoteAgentListCacheKey(peers);
+  const cached =
+    remoteAgentListCache?.key === key ? remoteAgentListCache : null;
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) return cached.peers;
+  if (cached?.refresh) {
+    return cached.expiresAt > 0 ? cached.peers : cached.refresh;
+  }
+  if (cached) {
+    void refreshGatewayRemoteAgentListPeers(key, peers).catch((error) => {
+      logger.debug(
+        { err: error },
+        'Failed to refresh cached trusted peer Agent Card list',
+      );
+    });
+    return cached.peers;
+  }
+
+  return refreshGatewayRemoteAgentListPeers(key, peers);
 }
 
 export async function getGatewayAgentList(): Promise<GatewayAgentListResponse> {

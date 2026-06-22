@@ -6,6 +6,7 @@ import {
   clearStoredToken,
   dispatchAuthRequired,
   fetchAdminHybridAIBots,
+  fetchAgentList,
   isLoopbackHostnameForTest,
   readStoredToken,
   registerDistillAgent,
@@ -177,6 +178,45 @@ describe('client command helpers', () => {
 
   it('does not embed tokens into the admin events stream URL', () => {
     expect(adminEventsUrl('test-token')).toBe('/api/events');
+  });
+
+  it('maps local and remote agent list sources', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          agents: [{ id: 'main', name: 'Assistant' }],
+          remotePeers: [
+            {
+              peerId: 'inst-peer',
+              instanceId: 'inst-peer',
+              agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+              agents: [{ id: 'remote@team@inst-peer', name: 'Remote' }],
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    await expect(fetchAgentList('test-token')).resolves.toEqual([
+      {
+        id: 'main',
+        name: 'Assistant',
+        source: { type: 'local' },
+      },
+      {
+        id: 'remote@team@inst-peer',
+        name: 'Remote',
+        source: {
+          type: 'remote',
+          peerId: 'inst-peer',
+          instanceId: 'inst-peer',
+        },
+      },
+    ]);
   });
 
   it('reloads local chat surfaces instead of prompting when auth expires', () => {

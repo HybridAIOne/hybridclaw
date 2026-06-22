@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+import type { AgentListItemSource } from '../../api/types';
 import { Server as ServerIcon } from '../../components/icons';
 import {
   Select,
@@ -18,14 +20,7 @@ export interface AgentSwitchOption {
   id: string;
   name?: string | null;
   imageUrl?: string | null;
-  source?:
-    | { type: 'local' }
-    | {
-        type: 'remote';
-        peerId: string;
-        instanceId: string;
-        label: string;
-      };
+  source?: AgentListItemSource;
 }
 
 function ChevronGlyph() {
@@ -54,22 +49,32 @@ export function AgentSwitchSelect(props: {
   disabled?: boolean;
   onSwitch: (agent: AgentSwitchOption) => void;
 }) {
-  if (props.agents.length === 0) return null;
   const selectedAgent = props.agents.find(
     (agent) => agent.id === props.selectedAgentId,
   );
   const selectedLabel =
     selectedAgent?.name?.trim() || selectedAgent?.id || 'Agent';
-  const localAgents = props.agents.filter(
-    (agent) => agent.source?.type !== 'remote',
-  );
-  const remoteGroups = new Map<string, AgentSwitchOption[]>();
-  for (const agent of props.agents) {
-    if (agent.source?.type !== 'remote') continue;
-    const label = agent.source.label || agent.source.instanceId;
-    remoteGroups.set(label, [...(remoteGroups.get(label) ?? []), agent]);
-  }
-  const hasRemoteAgents = remoteGroups.size > 0;
+  const { localAgents, remoteGroups } = useMemo(() => {
+    const localAgents = props.agents.filter(
+      (agent) => agent.source?.type !== 'remote',
+    );
+    const groupedRemoteAgents = new Map<string, AgentSwitchOption[]>();
+    for (const agent of props.agents) {
+      if (agent.source?.type !== 'remote') continue;
+      const label = agent.source.instanceId;
+      groupedRemoteAgents.set(label, [
+        ...(groupedRemoteAgents.get(label) ?? []),
+        agent,
+      ]);
+    }
+    return {
+      localAgents,
+      remoteGroups: [...groupedRemoteAgents.entries()],
+    };
+  }, [props.agents]);
+  const hasRemoteAgents = remoteGroups.length > 0;
+
+  if (props.agents.length === 0) return null;
 
   return (
     <Select
@@ -108,7 +113,7 @@ export function AgentSwitchSelect(props: {
             <AgentSelectItem key={agent.id} agent={agent} token={props.token} />
           ))
         )}
-        {[...remoteGroups.entries()].map(([label, agents]) => (
+        {remoteGroups.map(([label, agents]) => (
           <SelectGroup key={label}>
             <SelectGroupLabel className={css.remoteAgentGroupLabel}>
               <ServerIcon

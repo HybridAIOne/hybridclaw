@@ -213,20 +213,22 @@ test('agent list includes agents from trusted peer Agent Cards', async () => {
   });
 
   const result = await getGatewayAgentList();
+  const cachedResult = await getGatewayAgentList();
 
   expect(fetchMock).toHaveBeenCalledWith(
     agentCardUrl,
     expect.objectContaining({ method: 'GET' }),
   );
+  expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(result.remotePeers).toEqual([
     {
       peerId: 'inst-peer',
       instanceId: 'inst-peer',
-      label: 'inst-peer',
       agentCardUrl,
       agents: [{ id: 'remote@team@inst-peer', name: 'Remote Research' }],
     },
   ]);
+  expect(cachedResult.remotePeers).toEqual(result.remotePeers);
 });
 
 test('@team fans out with child to fields without making the last agent sticky', async () => {

@@ -840,7 +840,6 @@ export interface GatewayAgentListItem {
 export interface GatewayRemoteAgentListPeer {
   peerId: string;
   instanceId: string;
-  label: string;
   agentCardUrl: string;
   agents: GatewayAgentListItem[];
 }
