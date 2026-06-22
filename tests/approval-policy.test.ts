@@ -1032,6 +1032,51 @@ autonomy:
     expect(fs.existsSync(pendingStorePath)).toBe(false);
   });
 
+  test('actual workspace root BOOTSTRAP.md delete is allowed in host mode', async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-bootstrap-workspace-'),
+    );
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    vi.resetModules();
+
+    const { TrustedAgentApprovalRuntime: HostModeApprovalRuntime } =
+      await import('../container/src/approval-policy.js');
+    const pendingStorePath = tempTrustStorePath('bootstrap-host-pending');
+    const runtime = new HostModeApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+      tempTrustStorePath('bootstrap-host-agent-trust'),
+      tempTrustStorePath('bootstrap-host-all-trust'),
+      tempTrustStorePath('bootstrap-host-legacy-trust'),
+      undefined,
+      pendingStorePath,
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'delete',
+      argsJson: JSON.stringify({
+        path: path.join(workspaceRoot, 'BOOTSTRAP.md'),
+      }),
+      latestUserPrompt: 'Finish onboarding',
+    });
+
+    expect(evaluation.tier).toBe('green');
+    expect(evaluation.decision).toBe('auto');
+    expect(evaluation.actionKey).toBe('delete:bootstrap');
+    expect(evaluation.reason).toContain('one-time onboarding file');
+    expect(fs.existsSync(pendingStorePath)).toBe(false);
+
+    const nested = runtime.evaluateToolCall({
+      toolName: 'delete',
+      argsJson: JSON.stringify({
+        path: path.join(workspaceRoot, 'memory', 'BOOTSTRAP.md'),
+      }),
+      latestUserPrompt: 'Delete a workspace file',
+    });
+    expect(nested.tier).toBe('red');
+    expect(nested.decision).toBe('required');
+    expect(nested.reason).toBe('deletion is destructive');
+  });
+
   test('other delete calls still require approval', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
@@ -1042,7 +1087,11 @@ autonomy:
       tempTrustStorePath('delete-pending'),
     );
 
-    for (const deletePath of ['notes.md', 'memory/BOOTSTRAP.md']) {
+    for (const deletePath of [
+      'notes.md',
+      'memory/BOOTSTRAP.md',
+      '/BOOTSTRAP.md',
+    ]) {
       const evaluation = runtime.evaluateToolCall({
         toolName: 'delete',
         argsJson: JSON.stringify({ path: deletePath }),
