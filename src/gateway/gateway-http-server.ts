@@ -2338,6 +2338,22 @@ function isConsoleSpaPath(pathname: string): boolean {
   );
 }
 
+function resolveConsolePageTitle(pathname: string): string {
+  if (pathname === '/chat' || pathname.startsWith('/chat/')) {
+    return 'HybridClaw Chat';
+  }
+
+  if (pathname === '/agents' || pathname.startsWith('/agents/')) {
+    return 'HybridClaw Agents';
+  }
+
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+    return 'HybridClaw Admin';
+  }
+
+  return 'HybridClaw';
+}
+
 function isLocalWebSurfacePath(pathname: string): boolean {
   return (
     isConsoleSpaPath(pathname) ||
@@ -2839,6 +2855,9 @@ function serveStatic(url: URL, res: ServerResponse): boolean {
 function serveConsoleFile(
   filePath: string | null,
   res: ServerResponse,
+  options?: {
+    title?: string;
+  },
 ): boolean {
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
@@ -2859,6 +2878,14 @@ function serveConsoleFile(
         }
       : {}),
   });
+  if (isIndex && options?.title) {
+    const html = fs
+      .readFileSync(filePath, 'utf-8')
+      .replace(/<title>.*?<\/title>/, `<title>${options.title}</title>`);
+    res.end(html);
+    return true;
+  }
+
   res.end(fs.readFileSync(filePath));
   return true;
 }
@@ -2867,10 +2894,13 @@ function serveConsoleAsset(pathname: string, res: ServerResponse): boolean {
   return serveConsoleFile(resolveStaticFile(CONSOLE_DIST_DIR, pathname), res);
 }
 
-function serveConsoleIndex(res: ServerResponse): boolean {
+function serveConsoleIndex(pathname: string, res: ServerResponse): boolean {
   return serveConsoleFile(
     resolveStaticFile(CONSOLE_DIST_DIR, '/index.html'),
     res,
+    {
+      title: resolveConsolePageTitle(pathname),
+    },
   );
 }
 
@@ -7769,7 +7799,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         proxyToVite(req, res, '/');
         return;
       }
-      if (serveConsoleIndex(res)) return;
+      if (serveConsoleIndex(pathname, res)) return;
       sendText(
         res,
         503,
