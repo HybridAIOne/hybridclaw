@@ -1855,6 +1855,10 @@ code {
   justify-items: end;
 }
 
+.tunnel-action-button {
+  width: 128px;
+}
+
 .tunnel-config-grid {
   margin-top: 18px;
   grid-template-columns: minmax(180px, 0.35fr) minmax(280px, 1fr) auto;
@@ -4050,6 +4054,10 @@ th {
 
   .tunnel-config-actions {
     flex-direction: column;
+  }
+
+  .tunnel-action-button {
+    width: 100%;
   }
 
   .output-guard-model-source-control {

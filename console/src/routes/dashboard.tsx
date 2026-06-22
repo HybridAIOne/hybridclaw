@@ -335,17 +335,18 @@ function TunnelStatusPanel(props: {
             )}
           </div>
           <div className="tunnel-action-stack">
-            <button
+            <Button
               type="button"
-              className="primary-button button-with-spinner"
+              className="tunnel-action-button"
               onClick={props.onReconnect}
+              loading={props.reconnectPending}
               disabled={reconnectDisabled}
             >
               {props.reconnectPending ? (
                 <span className="button-spinner" aria-hidden="true" />
               ) : null}
               {props.reconnectPending ? 'Reconnecting' : 'Reconnect'}
-            </button>
+            </Button>
           </div>
         </div>
         <div className="tunnel-config-grid">
@@ -397,6 +398,7 @@ function TunnelStatusPanel(props: {
             {providerCanStart ? (
               <Button
                 type="button"
+                className="tunnel-action-button"
                 variant={tunnelActionVariant}
                 onClick={handleTunnelAction}
                 loading={tunnelActionLoading}
