@@ -151,8 +151,47 @@ describe('Composer', () => {
       within(listbox).getByRole('option', { name: 'Remote Research' }),
     );
 
-    expect(getTextarea().value).toBe('@remote@team@inst-peer ');
+    const textarea = getTextarea();
+    await waitFor(() => expect(document.activeElement).toBe(textarea));
+    expect(textarea.value).toBe('@remote@team@inst-peer ');
+    expect(textarea.selectionStart).toBe('@remote@team@inst-peer '.length);
     expect(onAgentSwitch).not.toHaveBeenCalled();
+  });
+
+  it('places the caret after the inserted remote address before existing text', async () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'remote@team@inst-peer',
+          name: 'Remote Research',
+          source: {
+            type: 'remote',
+            peerId: 'inst-peer',
+            instanceId: 'inst-peer',
+          },
+        },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: 'summarize this' } });
+
+    fireEvent.click(screen.getByLabelText('Switch agent'));
+    fireEvent.click(
+      within(screen.getByRole('listbox')).getByRole('option', {
+        name: 'Remote Research',
+      }),
+    );
+
+    expect(textarea.value).toBe('@remote@team@inst-peer summarize this');
+    await waitFor(() => {
+      expect(document.activeElement).toBe(textarea);
+      expect(textarea.selectionStart).toBe('@remote@team@inst-peer '.length);
+    });
+    expect(
+      document.querySelector(`.${css.composerOverlayCaret}`),
+    ).not.toBeNull();
   });
 
   it('does not render persistent agent mention chips', () => {
