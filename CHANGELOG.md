@@ -30,9 +30,15 @@
   Silicon DMG, and the desktop wrapper captures gateway startup logs, recent
   child output, spawn failures, and early exits so packaged app launch failures
   are diagnosable.
+- **Dependency maintenance**: Remediated npm audit dependencies, upgraded
+  Nodemailer to 9.0.0, refreshed dependency policy baselines, and clarified the
+  dependency lockfile update workflow for future maintenance.
 
 ### Fixed
 
+- **A2A Agent Card public URL**: The A2A Agent Card advertises the configured
+  public deployment URL when present, and invalid `deployment.public_url` values
+  fail closed instead of falling back to an internal request origin.
 - **MCP server startup isolation**: A single MCP server that fails to connect or
   disconnect is logged and skipped instead of aborting the whole chat turn, and
   unchanged failed server configs are not retried every turn.

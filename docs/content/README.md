@@ -31,6 +31,10 @@ doc at once, start from [For Agents](./agents.md).
   and evaluation workflows through guarded gateway-proxied tools.
 - The Apple desktop wrapper records gateway startup logs and recent child
   output so packaged app launch failures are easier to diagnose.
+- A2A Agent Cards advertise the configured public deployment URL and fail closed
+  when that URL is invalid.
+- Dependency maintenance remediates npm audit findings, upgrades Nodemailer to
+  9.0.0, and documents the lockfile update workflow.
 - MCP startup tolerates one failing server without aborting the whole chat turn,
   and workspace bootstrap skips empty heartbeat defaults.
 - First-run hatching can use a

@@ -891,7 +891,7 @@
   <div class="section-center">
     <div class="section-label">Latest release: v0.25.3</div>
     <h2 class="section-title">Current release highlights</h2>
-    <p class="section-desc">HybridClaw v0.25.3 adds the bundled Langfuse skill, Apple desktop release diagnostics, MCP startup failure isolation, and cleaner workspace bootstrap context.</p>
+    <p class="section-desc">HybridClaw v0.25.3 adds the bundled Langfuse skill, A2A public URL hardening, Apple desktop release diagnostics, dependency maintenance, MCP startup failure isolation, and cleaner workspace bootstrap context.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
@@ -915,14 +915,14 @@
       <p>Workspace startup context skips default empty <code>HEARTBEAT.md</code> templates and legacy no-task placeholders so agents receive less bootstrap noise.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x2709;&#xfe0f;</div>
-      <h3>Per-agent mailboxes</h3>
-      <p>Built-in IMAP/SMTP email can route separate mailbox credentials to separate agents, keep inbound threads on the right agent, and reply from the mailbox that received the message.</p>
+      <div class="feature-icon">&#x1f517;</div>
+      <h3>A2A public URL</h3>
+      <p>Agent Cards advertise the configured public deployment URL when present and fail closed when <code>deployment.public_url</code> is invalid.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f9ea;</div>
-      <h3>Agent-risk evals</h3>
-      <p>The <code>agent-risk</code> gate covers top-level NIST AI RMF, NIST AI 600-1, and OWASP LLM Top 10 scenarios with redacted evidence artifacts.</p>
+      <div class="feature-icon">&#x1f512;</div>
+      <h3>Dependency hygiene</h3>
+      <p>npm audit remediation, Nodemailer 9.0.0, refreshed dependency policy baselines, and clearer lockfile update guidance tighten release maintenance.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
