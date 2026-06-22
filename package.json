@@ -114,7 +114,7 @@
     "@opentelemetry/sdk-node": "0.218.0",
     "@sentry/node": "10.56.0",
     "@slack/bolt": "4.7.3",
-    "@whiskeysockets/baileys": "7.0.0-rc11",
+    "@whiskeysockets/baileys": "7.0.0-rc13",
     "ajv": "8.20.0",
     "amaro": "1.1.10",
     "better-sqlite3": "12.10.0",
