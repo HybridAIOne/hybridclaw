@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## [0.25.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.4) - 2026-06-22
+
+### Added
+
+- **Remote agents in chat**: Trusted A2A peer agents now appear in the chat
+  agent selector, grouped by remote instance. Selecting a remote agent inserts
+  its canonical address and sends the message through the A2A delivery path.
+- **Admin tunnel controls**: The admin dashboard now exposes public tunnel
+  configuration, current tunnel health, and managed tunnel start, reconnect,
+  and stop actions with validation, pending states, errors, and audit events.
+
+### Changed
+
+- **Console loading state**: Replaced the initial auth-check card with a
+  branded, accessible HybridClaw loading screen and reduced-motion-aware
+  progress treatment.
+
+### Fixed
+
+- **Console browser titles**: Chat and Agents routes now receive route-specific
+  page titles from both the gateway-served HTML and client-side navigation,
+  instead of showing the admin title outside admin pages.
+- **Remote A2A delivery**: Queued remote A2A envelopes are canonicalized before
+  persistence and audit recording so sender and recipient ids stay normalized.
+- **Remote selector and tunnel polish**: Remote agent groups use a server icon,
+  admin tunnel action buttons align and reflect start, stop, and reconnect
+  states consistently, and revision tokens for config/team changes are opaque.
+
 ## [0.25.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.3) - 2026-06-22
 
 ### Added
