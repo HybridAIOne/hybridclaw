@@ -13,6 +13,7 @@ const fetchStatisticsMock = vi.fn();
 const fetchTunnelConfigMock = vi.fn();
 const reconnectTunnelMock = vi.fn();
 const saveTunnelConfigMock = vi.fn();
+const stopTunnelMock = vi.fn();
 const navigateMock = vi.fn();
 const useAuthMock = vi.fn();
 const useLiveEventsMock = vi.fn();
@@ -23,6 +24,7 @@ vi.mock('../api/client', () => ({
   fetchTunnelConfig: (...args: unknown[]) => fetchTunnelConfigMock(...args),
   reconnectTunnel: (...args: unknown[]) => reconnectTunnelMock(...args),
   saveTunnelConfig: (...args: unknown[]) => saveTunnelConfigMock(...args),
+  stopTunnel: (...args: unknown[]) => stopTunnelMock(...args),
 }));
 
 vi.mock('../auth', () => ({
@@ -161,6 +163,7 @@ describe('DashboardPage', () => {
       (_token: string, payload: AdminTunnelConfigResponse['config']) =>
         Promise.resolve(makeTunnelConfigResponse(payload)),
     );
+    stopTunnelMock.mockReset();
     navigateMock.mockReset();
     useAuthMock.mockReset();
     useLiveEventsMock.mockReset();
@@ -352,6 +355,71 @@ describe('DashboardPage', () => {
         })
       ).getAttribute('href'),
     ).toBe('https://next.ngrok-free.dev');
+  });
+
+  it('shows stop for a running managed tunnel and stops it from the dashboard', async () => {
+    fetchOverviewMock.mockResolvedValue(
+      makeOverview(
+        makeTunnelStatus({
+          provider: 'ngrok',
+          publicUrl: 'https://running.ngrok-free.dev',
+          state: 'up',
+          health: 'healthy',
+          reconnectSupported: true,
+        }),
+      ),
+    );
+    fetchTunnelConfigMock.mockResolvedValue(
+      makeTunnelConfigResponse({
+        provider: 'ngrok',
+        publicUrl: '',
+      }),
+    );
+    stopTunnelMock.mockResolvedValue(
+      makeTunnelStatus({
+        provider: 'ngrok',
+        publicUrl: null,
+        state: 'down',
+        health: 'down',
+        reconnectSupported: true,
+      }),
+    );
+
+    renderDashboardPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+
+    await waitFor(() => {
+      expect(stopTunnelMock).toHaveBeenCalledWith('test-token');
+    });
+    expect(await screen.findByText('not configured')).toBeTruthy();
+  });
+
+  it('shows a spinner action while a managed tunnel is starting', async () => {
+    fetchOverviewMock.mockResolvedValue(
+      makeOverview(
+        makeTunnelStatus({
+          provider: 'ngrok',
+          publicUrl: null,
+          state: 'starting',
+          health: 'reconnecting',
+          reconnectSupported: true,
+        }),
+      ),
+    );
+    fetchTunnelConfigMock.mockResolvedValue(
+      makeTunnelConfigResponse({
+        provider: 'ngrok',
+        publicUrl: '',
+      }),
+    );
+
+    renderDashboardPage();
+
+    const button = await screen.findByRole('button', { name: 'Starting' });
+
+    expect(button.getAttribute('aria-busy')).toBe('true');
+    expect(button.querySelector('.button-spinner')).toBeTruthy();
   });
 
   it('does not repeat the same tunnel and reconnect error', async () => {

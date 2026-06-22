@@ -7,6 +7,7 @@ import {
   fetchTunnelConfig,
   reconnectTunnel,
   saveTunnelConfig,
+  stopTunnel,
 } from '../api/client';
 import type {
   AdminOverview,
@@ -238,23 +239,34 @@ function TunnelStatusPanel(props: {
   configDraft: TunnelConfigDraft;
   savedConfigDraft: TunnelConfigDraft | null;
   configSavePending: boolean;
+  configStartPending: boolean;
   configSaveError: string | null;
   reconnectPending: boolean;
   reconnectError: string | null;
+  stopPending: boolean;
+  stopError: string | null;
   onConfigDraftChange: (draft: TunnelConfigDraft) => void;
   onSaveConfig: () => void;
   onSaveConfigAndStart: () => void;
   onReconnect: () => void;
+  onStop: () => void;
 }) {
   const { tunnel } = props;
   const publicUrl = tunnel.publicUrl || 'not configured';
   const reconnectDisabled =
-    props.reconnectPending || !tunnel.reconnectSupported;
+    props.reconnectPending || props.stopPending || !tunnel.reconnectSupported;
   const normalizedTunnelError = tunnel.lastError?.trim() || null;
   const normalizedReconnectError = props.reconnectError?.trim() || null;
+  const normalizedStopError = props.stopError?.trim() || null;
   const distinctReconnectError =
     props.reconnectError && normalizedReconnectError !== normalizedTunnelError
       ? props.reconnectError
+      : null;
+  const distinctStopError =
+    props.stopError &&
+    normalizedStopError !== normalizedTunnelError &&
+    normalizedStopError !== normalizedReconnectError
+      ? props.stopError
       : null;
   const configDirty = props.savedConfigDraft
     ? !isSameTunnelDraft(props.configDraft, props.savedConfigDraft)
@@ -270,8 +282,40 @@ function TunnelStatusPanel(props: {
   const configBusy =
     !props.configLoaded || props.configPending || props.configSavePending;
   const saveDisabled = configBusy || !configDirty || Boolean(publicUrlError);
+  const currentProvider = normalizeTunnelProvider(tunnel.provider);
+  const tunnelMatchesDraftProvider =
+    currentProvider === props.configDraft.provider;
+  const tunnelRunning =
+    !configDirty && tunnelMatchesDraftProvider && tunnel.state === 'up';
+  const tunnelStarting =
+    !configDirty &&
+    tunnelMatchesDraftProvider &&
+    (tunnel.state === 'starting' || tunnel.state === 'reconnecting');
+  const startPending = props.configStartPending || props.reconnectPending;
+  const tunnelActionLoading =
+    startPending || props.stopPending || tunnelStarting;
+  const tunnelActionLabel = props.stopPending
+    ? 'Stopping'
+    : startPending || tunnelStarting
+      ? 'Starting'
+      : tunnelRunning
+        ? 'Stop'
+        : configDirty
+          ? 'Save & start'
+          : 'Start';
   const startDisabled =
-    configBusy || props.reconnectPending || Boolean(publicUrlError);
+    configBusy ||
+    props.reconnectPending ||
+    props.stopPending ||
+    Boolean(publicUrlError);
+  const stopDisabled =
+    configBusy || props.reconnectPending || props.stopPending;
+  const tunnelActionDisabled = tunnelRunning ? stopDisabled : startDisabled;
+  const tunnelActionVariant =
+    tunnelRunning || props.stopPending ? 'danger' : 'default';
+  const handleTunnelAction = tunnelRunning
+    ? props.onStop
+    : props.onSaveConfigAndStart;
 
   return (
     <Card>
@@ -345,7 +389,7 @@ function TunnelStatusPanel(props: {
               type="button"
               variant="outline"
               onClick={props.onSaveConfig}
-              loading={props.configSavePending && !props.reconnectPending}
+              loading={props.configSavePending && !props.configStartPending}
               disabled={saveDisabled}
             >
               Save
@@ -353,11 +397,15 @@ function TunnelStatusPanel(props: {
             {providerCanStart ? (
               <Button
                 type="button"
-                onClick={props.onSaveConfigAndStart}
-                loading={props.configSavePending || props.reconnectPending}
-                disabled={startDisabled}
+                variant={tunnelActionVariant}
+                onClick={handleTunnelAction}
+                loading={tunnelActionLoading}
+                disabled={tunnelActionDisabled}
               >
-                {configDirty ? 'Save & start' : 'Start'}
+                {tunnelActionLoading ? (
+                  <span className="button-spinner" aria-hidden="true" />
+                ) : null}
+                {tunnelActionLabel}
               </Button>
             ) : null}
           </div>
@@ -396,6 +444,9 @@ function TunnelStatusPanel(props: {
           <p className="supporting-text tunnel-error">
             {distinctReconnectError}
           </p>
+        ) : null}
+        {distinctStopError ? (
+          <p className="supporting-text tunnel-error">{distinctStopError}</p>
         ) : null}
         {props.configSaveError ? (
           <p className="supporting-text tunnel-error">
@@ -446,6 +497,15 @@ export function DashboardPage() {
       );
     },
   });
+  const stopMutation = useMutation({
+    mutationFn: () => stopTunnel(auth.token),
+    onSuccess: (tunnel) => {
+      queryClient.setQueryData<AdminOverview>(
+        ['overview', auth.token],
+        (current) => (current ? { ...current, tunnel } : current),
+      );
+    },
+  });
   const saveTunnelConfigMutation = useMutation({
     mutationFn: async (variables: {
       draft: TunnelConfigDraft;
@@ -481,6 +541,9 @@ export function DashboardPage() {
 
   const overview = live.overview || overviewQuery.data;
   const status = live.status || overview?.status || auth.gatewayStatus;
+  const tunnelStartPending =
+    saveTunnelConfigMutation.isPending &&
+    saveTunnelConfigMutation.variables?.start === true;
   const effectiveTunnelConfigDraft = tunnelConfigDraft ??
     savedTunnelDraft ?? {
       provider: normalizeTunnelProvider(overview?.tunnel.provider),
@@ -589,6 +652,7 @@ export function DashboardPage() {
         configDraft={effectiveTunnelConfigDraft}
         savedConfigDraft={savedTunnelDraft}
         configSavePending={saveTunnelConfigMutation.isPending}
+        configStartPending={tunnelStartPending}
         configSaveError={
           saveTunnelConfigMutation.isError
             ? getErrorMessage(saveTunnelConfigMutation.error)
@@ -599,6 +663,10 @@ export function DashboardPage() {
           reconnectMutation.isError
             ? getErrorMessage(reconnectMutation.error)
             : null
+        }
+        stopPending={stopMutation.isPending}
+        stopError={
+          stopMutation.isError ? getErrorMessage(stopMutation.error) : null
         }
         onConfigDraftChange={setTunnelConfigDraft}
         onSaveConfig={() =>
@@ -614,6 +682,7 @@ export function DashboardPage() {
           })
         }
         onReconnect={() => reconnectMutation.mutate()}
+        onStop={() => stopMutation.mutate()}
       />
 
       <Card>

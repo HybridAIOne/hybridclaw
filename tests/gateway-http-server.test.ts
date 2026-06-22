@@ -865,6 +865,16 @@ async function importFreshHealth(options?: {
     lastCheckedAt: null,
     nextReconnectAt: null,
   };
+  const stopTunnelStatus = {
+    provider: 'ngrok',
+    publicUrl: null,
+    state: 'down' as const,
+    health: 'down' as const,
+    reconnectSupported: true,
+    lastError: null,
+    lastCheckedAt: null,
+    nextReconnectAt: null,
+  };
   const tunnelConfigResponse = {
     config: {
       mode: 'local' as const,
@@ -883,6 +893,7 @@ async function importFreshHealth(options?: {
     tunnel: reconnectTunnelStatus,
   }));
   const reconnectGatewayAdminTunnel = vi.fn(async () => reconnectTunnelStatus);
+  const stopGatewayAdminTunnel = vi.fn(async () => stopTunnelStatus);
   const getGatewayAdminStatistics = vi.fn(
     (params?: { days?: number | string }) => {
       const raw =
@@ -2159,6 +2170,7 @@ async function importFreshHealth(options?: {
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
     startGatewayAdminA2APairing,
+    stopGatewayAdminTunnel,
     updateGatewayAdminAgent,
     uploadGatewayAdminSkillZip,
     upsertGatewayAdminA2ATrustPeer,
@@ -2267,6 +2279,8 @@ async function importFreshHealth(options?: {
     saveGatewayAdminTunnelConfig,
     reconnectTunnelStatus,
     reconnectGatewayAdminTunnel,
+    stopTunnelStatus,
+    stopGatewayAdminTunnel,
     deleteGatewayAdminEmailMessage,
     getGatewayAdminEmailFolder,
     getGatewayAdminEmailMailbox,
@@ -6176,6 +6190,24 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       tunnel: state.reconnectTunnelStatus,
+    });
+  });
+
+  test('stops the admin tunnel for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/tunnel/stop',
+      method: 'POST',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.stopGatewayAdminTunnel).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      tunnel: state.stopTunnelStatus,
     });
   });
 

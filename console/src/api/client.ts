@@ -356,6 +356,17 @@ export async function reconnectTunnel(
   return payload.tunnel;
 }
 
+export async function stopTunnel(token: string): Promise<AdminTunnelStatus> {
+  const payload = await requestJson<{ tunnel: AdminTunnelStatus }>(
+    '/api/admin/tunnel/stop',
+    {
+      token,
+      method: 'POST',
+    },
+  );
+  return payload.tunnel;
+}
+
 export function fetchStatistics(
   token: string,
   days?: number,

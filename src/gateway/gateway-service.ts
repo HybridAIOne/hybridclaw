@@ -518,6 +518,7 @@ import {
   getGatewayAdminTunnelStatus,
   reconnectGatewayAdminTunnel,
   saveGatewayAdminTunnelConfig,
+  stopGatewayAdminTunnel,
 } from './gateway-tunnel-service.js';
 import {
   type GatewayAdminA2AInboxResponse,
@@ -624,6 +625,7 @@ export {
   getGatewayAdminTunnelConfig,
   reconnectGatewayAdminTunnel,
   saveGatewayAdminTunnelConfig,
+  stopGatewayAdminTunnel,
 };
 
 initializeGoalContinuationRunner();

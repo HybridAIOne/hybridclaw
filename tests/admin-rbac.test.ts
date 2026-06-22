@@ -124,5 +124,8 @@ describe('admin RBAC role bundles', () => {
     expect(resolveAdminRbacAction('/api/admin/tunnel/reconnect', 'POST')).toBe(
       'admin.tunnel.reconnect',
     );
+    expect(resolveAdminRbacAction('/api/admin/tunnel/stop', 'POST')).toBe(
+      'admin.tunnel.stop',
+    );
   });
 });

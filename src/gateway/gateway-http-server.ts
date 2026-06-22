@@ -279,6 +279,7 @@ import {
   setGatewayAdminSkillEnabled,
   startGatewayAdminA2APairing,
   startGatewayAdminMcpOAuth,
+  stopGatewayAdminTunnel,
   unblockGatewayAdminSkill,
   updateGatewayAdminAgent,
   uploadGatewayAdminSkillZip,
@@ -4158,6 +4159,10 @@ async function handleApiAdminTunnelReconnect(
   sendJson(res, 200, { tunnel: await reconnectGatewayAdminTunnel() });
 }
 
+async function handleApiAdminTunnelStop(res: ServerResponse): Promise<void> {
+  sendJson(res, 200, { tunnel: await stopGatewayAdminTunnel() });
+}
+
 async function handleApiAdminTunnelConfig(
   req: IncomingMessage,
   res: ServerResponse,
@@ -7287,6 +7292,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/tunnel/reconnect' && method === 'POST') {
             await handleApiAdminTunnelReconnect(res);
+            return;
+          }
+          if (pathname === '/api/admin/tunnel/reconnect') {
+            sendMethodNotAllowed(res);
+            return;
+          }
+          if (pathname === '/api/admin/tunnel/stop' && method === 'POST') {
+            await handleApiAdminTunnelStop(res);
+            return;
+          }
+          if (pathname === '/api/admin/tunnel/stop') {
+            sendMethodNotAllowed(res);
             return;
           }
           if (pathname === '/api/admin/statistics' && method === 'GET') {

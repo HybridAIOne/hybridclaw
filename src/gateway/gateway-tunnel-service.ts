@@ -29,6 +29,7 @@ import type {
 let managedProvider: TunnelProvider | null = null;
 let managedProviderKey: string | null = null;
 let reconnectInFlight: Promise<GatewayAdminTunnelStatus> | null = null;
+let stopInFlight: Promise<GatewayAdminTunnelStatus> | null = null;
 
 const TUNNEL_PROVIDER_META = {
   cloudflare: {
@@ -351,8 +352,48 @@ export async function reconnectGatewayAdminTunnel(): Promise<GatewayAdminTunnelS
   }
 }
 
+export async function stopGatewayAdminTunnel(): Promise<GatewayAdminTunnelStatus> {
+  const before = getGatewayAdminTunnelStatus();
+  recordAuditEvent({
+    sessionId: DEFAULT_TUNNEL_AUDIT_SESSION_ID,
+    runId: makeAuditRunId('tunnel-admin'),
+    event: {
+      type: 'tunnel.manual_stop',
+      provider: before.provider ?? 'none',
+      public_url: before.publicUrl,
+      state: before.state,
+    },
+  });
+
+  const provider = getManagedTunnelProvider();
+  if (!provider) {
+    throw new GatewayRequestError(
+      409,
+      'Manual stop is only supported for managed tunnel providers.',
+    );
+  }
+
+  if (stopInFlight) {
+    return stopInFlight;
+  }
+
+  const operation = (async () => {
+    await provider.stop();
+    return getGatewayAdminTunnelStatus();
+  })();
+  stopInFlight = operation;
+  try {
+    return await operation;
+  } finally {
+    if (stopInFlight === operation) {
+      stopInFlight = null;
+    }
+  }
+}
+
 export function resetGatewayAdminTunnelForTests(): void {
   managedProvider = null;
   managedProviderKey = null;
   reconnectInFlight = null;
+  stopInFlight = null;
 }

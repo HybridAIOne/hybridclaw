@@ -572,6 +572,52 @@ test('admin tunnel reconnect audits the action and restarts cloudflare', async (
   });
 });
 
+test('admin tunnel stop audits the action and stops ngrok', async () => {
+  let status: TunnelStatus = {
+    ...downStatus,
+    running: true,
+    public_url: 'https://running.example.test',
+    state: 'up',
+  };
+  const provider: TunnelProvider = {
+    status: vi.fn(() => status),
+    stop: vi.fn(async () => {
+      status = { ...downStatus };
+    }),
+    start: vi.fn(async () => ({ public_url: 'https://new.example.test' })),
+  };
+  const service = await importService({
+    config: makeRuntimeConfig({
+      mode: 'local',
+      public_url: '',
+      tunnel: {
+        provider: 'ngrok',
+        health_check_interval_ms: 45_000,
+      },
+    }),
+    provider,
+  });
+
+  await expect(service.stopGatewayAdminTunnel()).resolves.toMatchObject({
+    provider: 'ngrok',
+    publicUrl: null,
+    health: 'down',
+  });
+
+  expect(provider.stop).toHaveBeenCalledTimes(1);
+  expect(provider.start).not.toHaveBeenCalled();
+  expect(service.recordAuditEvent).toHaveBeenCalledWith({
+    sessionId: 'system:tunnel',
+    runId: 'tunnel-admin-run',
+    event: {
+      type: 'tunnel.manual_stop',
+      provider: 'ngrok',
+      public_url: 'https://running.example.test',
+      state: 'up',
+    },
+  });
+});
+
 test('admin tunnel reconnect serializes concurrent calls', async () => {
   let resolveStop!: () => void;
   const stopGate = new Promise<void>((resolve) => {
@@ -653,6 +699,33 @@ test('unsupported tunnel reconnect is still audited before returning conflict', 
     runId: 'tunnel-admin-run',
     event: {
       type: 'tunnel.manual_reconnect',
+      provider: 'manual',
+      public_url: null,
+      state: 'down',
+    },
+  });
+});
+
+test('unsupported tunnel stop is still audited before returning conflict', async () => {
+  const service = await importService({
+    config: makeRuntimeConfig({
+      mode: 'local',
+      public_url: '',
+      tunnel: {
+        provider: 'manual',
+        health_check_interval_ms: 30_000,
+      },
+    }),
+  });
+
+  await expect(service.stopGatewayAdminTunnel()).rejects.toMatchObject({
+    statusCode: 409,
+  });
+  expect(service.recordAuditEvent).toHaveBeenCalledWith({
+    sessionId: 'system:tunnel',
+    runId: 'tunnel-admin-run',
+    event: {
+      type: 'tunnel.manual_stop',
       provider: 'manual',
       public_url: null,
       state: 'down',

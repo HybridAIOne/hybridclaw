@@ -10,6 +10,7 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.tunnel.read',
   'admin.tunnel.write',
   'admin.tunnel.reconnect',
+  'admin.tunnel.stop',
   'admin.statistics.read',
   'admin.logs.read',
   'admin.team.read',
@@ -120,6 +121,7 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
   'admin.operator': [
     ...ADMIN_READ_ACTIONS,
     'admin.tunnel.reconnect',
+    'admin.tunnel.stop',
     'admin.sessions.delete',
     'admin.scheduler.write',
     'admin.scheduler.delete',
@@ -183,6 +185,7 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
     ...ADMIN_AUDITOR_ACTIONS,
     'admin.tunnel.write',
     'admin.tunnel.reconnect',
+    'admin.tunnel.stop',
     'admin.team.write',
     'admin.agents.write',
     'admin.models.write',
@@ -360,6 +363,9 @@ export function resolveAdminRbacAction(
   }
   if (pathname === '/api/admin/tunnel/reconnect' && method === 'POST') {
     return 'admin.tunnel.reconnect';
+  }
+  if (pathname === '/api/admin/tunnel/stop' && method === 'POST') {
+    return 'admin.tunnel.stop';
   }
   if (pathname === '/api/admin/statistics' && method === 'GET') {
     return 'admin.statistics.read';
