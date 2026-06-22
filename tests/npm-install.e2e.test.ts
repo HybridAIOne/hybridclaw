@@ -246,7 +246,7 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     });
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('<title>HybridClaw Admin</title>');
+    expect(html).toContain('<title>HybridClaw Chat</title>');
   });
 
   test('/admin serves the console (host mode, no container auth)', async () => {
