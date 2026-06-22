@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.25.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.3) - 2026-06-22
+
 ### Added
 
 - **Langfuse skill**: LLM observability and evaluation based on the official
@@ -18,12 +20,25 @@
 ### Changed
 
 - **Quick Start guide**: Rewrote the getting-started quickstart into a
-  zero-to-working funnel — a fast HybridAI Cloud path (model preselected,
-  already in web chat) and a numbered local path (onboard → start gateway →
-  confirm healthy with `gateway status` / `doctor` → open chat → send a first
+  zero-to-working funnel -- a fast HybridAI Cloud path (model preselected,
+  already in web chat) and a numbered local path (onboard -> start gateway ->
+  confirm healthy with `gateway status` / `doctor` -> open chat -> send a first
   message) with explicit success signals, a troubleshooting block, and a command
   cheat sheet. Relocated the per-channel startup auto-connect conditions into the
   Channels overview.
+- **Apple desktop release**: README and docs point at the signed/notarized Apple
+  Silicon DMG, and the desktop wrapper captures gateway startup logs, recent
+  child output, spawn failures, and early exits so packaged app launch failures
+  are diagnosable.
+
+### Fixed
+
+- **MCP server startup isolation**: A single MCP server that fails to connect or
+  disconnect is logged and skipped instead of aborting the whole chat turn, and
+  unchanged failed server configs are not retried every turn.
+- **Empty heartbeat context**: Workspace bootstrap context skips the default
+  empty `HEARTBEAT.md` template and legacy "no recurring heartbeat tasks"
+  placeholders, avoiding noise in agent startup context.
 
 ## [0.25.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.2) - 2026-06-20
 
@@ -35,6 +50,12 @@
   TLS-terminating proxy.
 
 ## [0.25.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.1) - 2026-06-20
+
+### Changed
+
+- **Desktop packaging**: Desktop build commands rebuild the app before
+  packaging, reuse current icon/runtime stages, cache the staged Node runtime,
+  and strip non-runtime dependency files from packaged desktop bundles.
 
 ### Fixed
 

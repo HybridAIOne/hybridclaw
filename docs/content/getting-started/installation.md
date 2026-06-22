@@ -32,7 +32,7 @@ skip the interactive onboarding step:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh \
-  | bash -s -- --version 0.25.2 --no-onboarding
+  | bash -s -- --version 0.25.3 --no-onboarding
 ```
 
 For automation, preview the plan with `--dry-run` (changes nothing), run
@@ -144,10 +144,10 @@ Until then, most macOS users should stick to npm or the Nix flake.
 ## Install The Apple Desktop App
 
 Signed and notarized macOS desktop builds are distributed as GitHub Release
-assets. For HybridClaw v0.25.2 on Apple Silicon, download:
+assets. For HybridClaw v0.25.3 on Apple Silicon, download:
 
 ```text
-https://github.com/HybridAIOne/hybridclaw/releases/download/v0.25.2/HybridClaw-0.25.2-arm64.dmg
+https://github.com/HybridAIOne/hybridclaw/releases/download/v0.25.3/HybridClaw-0.25.3-arm64.dmg
 ```
 
 Open the DMG, drag `HybridClaw.app` into `/Applications`, and launch it. For

@@ -846,7 +846,7 @@
     <div class="hero-install-note">Prerequisites: Node.js 22+. The installer checks Node, installs the CLI, checks Docker, and can run onboarding. Docker provides full container isolation, while containerized deployments can switch to host sandbox mode. Manual npm install is still supported.</div>
   </div>
   <div class="hero-cta">
-    <a href="https://github.com/HybridAIOne/hybridclaw/releases/download/v0.25.2/HybridClaw-0.25.2-arm64.dmg" class="btn btn-primary">Download Apple Desktop App</a>
+    <a href="https://github.com/HybridAIOne/hybridclaw/releases/download/v0.25.3/HybridClaw-0.25.3-arm64.dmg" class="btn btn-primary">Download Apple Desktop App</a>
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
     <a href="/hybridclaw/docs/" class="btn btn-secondary">Read Docs</a>
     <a href="#comparison" class="btn btn-secondary">See Comparison</a>
@@ -889,30 +889,30 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest release: v0.25.2</div>
+    <div class="section-label">Latest release: v0.25.3</div>
     <h2 class="section-title">Current release highlights</h2>
-    <p class="section-desc">HybridClaw v0.25.2 ships a signed and notarized Apple Desktop App for Apple Silicon Macs, plus a smoother first-run hatching experience, OAuth-backed MCP setup, richer skill administration, per-agent email routing, risk evals, and stronger governance evidence.</p>
+    <p class="section-desc">HybridClaw v0.25.3 adds the bundled Langfuse skill, Apple desktop release diagnostics, MCP startup failure isolation, and cleaner workspace bootstrap context.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
+      <div class="feature-icon">&#x1f50d;</div>
+      <h3>Langfuse skill</h3>
+      <p>Read traces, observations, sessions, scores, prompts, datasets, models, and metrics, and create guarded scores, comments, datasets, dataset items, and prompt versions.</p>
+    </div>
+    <div class="feature-card">
       <div class="feature-icon">&#x1f5a5;</div>
       <h3>Apple Desktop App</h3>
-      <p>Download the signed Apple Silicon DMG from GitHub Releases, drag <code>HybridClaw.app</code> into <code>/Applications</code>, and launch the local gateway, chat, agents, and admin surfaces from a native macOS window.</p>
+      <p>Download the signed Apple Silicon DMG from GitHub Releases, with desktop gateway startup logs and recent child output available for packaged app launch diagnostics.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f9ed;</div>
-      <h3>Guided hatching</h3>
-      <p>First-run onboarding can use a dedicated model, keeps setup links visible in chat, records first-job ideas, sends the welcome email when available, and avoids duplicate bootstrap starts.</p>
+      <div class="feature-icon">&#x1f9e9;</div>
+      <h3>MCP resilience</h3>
+      <p>A single MCP server that fails to connect or disconnect is logged and skipped instead of aborting the whole chat turn or retrying unchanged failures every turn.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f510;</div>
-      <h3>MCP OAuth</h3>
-      <p>Remote MCP servers can use gateway-managed OAuth 2.1 with guided setup in the TUI and web console, encrypted token storage, refresh, and <code>/mcp login</code> commands.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f9f0;</div>
-      <h3>Skill admin</h3>
-      <p>Skill detail pages show docs, prompts, dependencies, logos, credential status, recent invocations, enable controls, example launchers, and guarded package text-file edits.</p>
+      <div class="feature-icon">&#x1f4dd;</div>
+      <h3>Cleaner bootstrap</h3>
+      <p>Workspace startup context skips default empty <code>HEARTBEAT.md</code> templates and legacy no-task placeholders so agents receive less bootstrap noise.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x2709;&#xfe0f;</div>
@@ -1666,7 +1666,7 @@
     <div class="features-grid">
       <div class="feature-card">
         <h3 style="color: var(--accent-1);">Apple Desktop App</h3>
-        <p>On Apple Silicon Macs, download <a href="https://github.com/HybridAIOne/hybridclaw/releases/download/v0.25.2/HybridClaw-0.25.2-arm64.dmg">HybridClaw-0.25.2-arm64.dmg</a>, open it, and drag <code>HybridClaw.app</code> into <code>/Applications</code>.</p>
+        <p>On Apple Silicon Macs, download <a href="https://github.com/HybridAIOne/hybridclaw/releases/download/v0.25.3/HybridClaw-0.25.3-arm64.dmg">HybridClaw-0.25.3-arm64.dmg</a>, open it, and drag <code>HybridClaw.app</code> into <code>/Applications</code>.</p>
       </div>
       <div class="feature-card">
         <h3 style="color: var(--accent-1);">1. Install CLI</h3>
