@@ -40,23 +40,34 @@ interface AgentMentionContext {
   query: string;
 }
 
-const AGENT_MENTION_TOKEN_RE = /@([A-Za-z0-9._-]+)(?=$|[\s:])/gu;
+const AGENT_ADDRESS_PATTERN =
+  '[A-Za-z0-9._-]+(?:@[A-Za-z0-9._-]+@[A-Za-z0-9._-]+)?';
+const AGENT_MENTION_QUERY_PATTERN = '[A-Za-z0-9._-]*(?:@[A-Za-z0-9._-]*){0,2}';
+const AGENT_MENTION_CONTEXT_RE = new RegExp(
+  `(?:^|[\\s([{])@(${AGENT_MENTION_QUERY_PATTERN})$`,
+  'u',
+);
+const AGENT_MENTION_TOKEN_RE = new RegExp(
+  `@(${AGENT_ADDRESS_PATTERN})(?=$|[\\s:])`,
+  'gu',
+);
+const LEADING_AGENT_ADDRESS_RE = new RegExp(
+  `^@${AGENT_ADDRESS_PATTERN}(?=$|[\\s:])\\s*`,
+  'u',
+);
 
 function getAgentMentionContext(
   value: string,
   cursor: number,
 ): AgentMentionContext | null {
   const beforeCursor = value.slice(0, cursor);
-  const atIndex = beforeCursor.lastIndexOf('@');
-  if (atIndex === -1) return null;
-
-  const beforeAt = atIndex === 0 ? '' : value[atIndex - 1];
-  if (beforeAt && !/[\s([{]/u.test(beforeAt)) return null;
-
-  const query = value.slice(atIndex + 1, cursor);
-  if (!/^[A-Za-z0-9._-]*$/u.test(query)) return null;
-
-  return { tokenStart: atIndex, query };
+  const match = AGENT_MENTION_CONTEXT_RE.exec(beforeCursor);
+  if (!match) return null;
+  const query = match[1] ?? '';
+  return {
+    tokenStart: beforeCursor.length - query.length - 1,
+    query,
+  };
 }
 
 export function Composer(props: {
@@ -172,18 +183,18 @@ export function Composer(props: {
 
   // The fetch itself can't be aborted, so the seq bump is what makes a
   // late-resolving response a no-op.
-  const cancelPendingFetch = () => {
+  const cancelPendingFetch = useCallback(() => {
     if (suggestTimerRef.current) {
       clearTimeout(suggestTimerRef.current);
       suggestTimerRef.current = null;
     }
     suggestSeqRef.current += 1;
-  };
+  }, []);
 
-  const closePanel = () => {
+  const closePanel = useCallback(() => {
     cancelPendingFetch();
     setPanelMode('closed');
-  };
+  }, [cancelPendingFetch]);
 
   const fetchSuggestions = useCallback(
     async (query: string) => {
@@ -324,6 +335,29 @@ export function Composer(props: {
     resize();
     ta.focus();
   };
+
+  const insertAgentAddress = useCallback(
+    (agentId: string) => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const mention = `@${agentId}`;
+      const value = ta.value;
+      const leadingMention = LEADING_AGENT_ADDRESS_RE.exec(value);
+      if (!value.trim()) {
+        ta.value = `${mention} `;
+      } else if (leadingMention) {
+        ta.value = `${mention} ${value.slice(leadingMention[0].length).trimStart()}`;
+      } else {
+        ta.value = `${mention} ${value.trimStart()}`;
+      }
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+      setComposerValue(ta.value);
+      closePanel();
+      resize();
+      ta.focus();
+    },
+    [closePanel, resize],
+  );
 
   const submit = () => {
     if (props.isStreaming) {
@@ -520,7 +554,13 @@ export function Composer(props: {
                 selectedAgentId={selectedAgentId}
                 token={props.token}
                 disabled={props.isStreaming}
-                onSwitch={(agentId) => props.onAgentSwitch?.(agentId)}
+                onSwitch={(agent) => {
+                  if (agent.source?.type === 'remote') {
+                    insertAgentAddress(agent.id);
+                    return;
+                  }
+                  props.onAgentSwitch?.(agent.id);
+                }}
               />
               <ModelSwitchSelect
                 models={modelOptions}

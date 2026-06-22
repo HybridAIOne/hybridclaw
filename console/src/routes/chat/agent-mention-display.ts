@@ -1,10 +1,12 @@
+const AGENT_ADDRESS_PATTERN =
+  '[A-Za-z0-9._-]+(?:@[A-Za-z0-9._-]+@[A-Za-z0-9._-]+)?';
 const MENTION_BOUNDARY = String.raw`(?=$|[\s:.,!?;)\]}])`;
 const LEADING_AGENT_MENTION_RE = new RegExp(
-  `^@([A-Za-z0-9._-]+)${MENTION_BOUNDARY}`,
+  `^@(${AGENT_ADDRESS_PATTERN})${MENTION_BOUNDARY}`,
   'u',
 );
 const AGENT_MENTION_RE = new RegExp(
-  `@([A-Za-z0-9._-]+)${MENTION_BOUNDARY}`,
+  `@(${AGENT_ADDRESS_PATTERN})${MENTION_BOUNDARY}`,
   'gu',
 );
 

@@ -35,6 +35,32 @@ test('resolves a single mention to an agent address envelope', async () => {
   });
 });
 
+test('resolves a leading canonical agent identity to a remote address envelope', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { resolveAgentAddressing } = await import(
+    '../src/gateway/agent-addressing.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const resolved = resolveAgentAddressing({
+    content: '@Remote.Agent@Team_1@Inst-B: check this',
+    currentAgentId: 'main',
+  });
+
+  expect(resolved).toMatchObject({
+    kind: 'remote',
+    canonicalId: 'remote.agent@team_1@inst-b',
+    content: 'check this',
+    envelope: {
+      to: 'remote.agent@team_1@inst-b',
+      from: 'main',
+    },
+  });
+});
+
 test('ambiguous handles prefer F10 peers before delegates and global matches', async () => {
   setupHome();
 

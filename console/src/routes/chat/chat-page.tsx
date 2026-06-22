@@ -319,6 +319,7 @@ export function ChatPage() {
         name: agent.name,
         imageUrl: agent.imageUrl ?? null,
         emptyChatHeader: agent.emptyChatHeader ?? null,
+        source: agent.source,
       })),
     [agentsQuery.data],
   );

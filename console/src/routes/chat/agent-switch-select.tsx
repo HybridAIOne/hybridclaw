@@ -1,8 +1,12 @@
 import {
   Select,
   SelectContent,
+  SelectGroup,
+  SelectGroupLabel,
   SelectIcon,
   SelectItem,
+  SelectItemBody,
+  SelectItemSubtitle,
   SelectTrigger,
   SelectValue,
 } from '../../components/select';
@@ -13,6 +17,14 @@ export interface AgentSwitchOption {
   id: string;
   name?: string | null;
   imageUrl?: string | null;
+  source?:
+    | { type: 'local' }
+    | {
+        type: 'remote';
+        peerId: string;
+        instanceId: string;
+        label: string;
+      };
 }
 
 function ChevronGlyph() {
@@ -39,7 +51,7 @@ export function AgentSwitchSelect(props: {
   selectedAgentId: string;
   token?: string;
   disabled?: boolean;
-  onSwitch: (agentId: string) => void;
+  onSwitch: (agent: AgentSwitchOption) => void;
 }) {
   if (props.agents.length === 0) return null;
   const selectedAgent = props.agents.find(
@@ -47,6 +59,16 @@ export function AgentSwitchSelect(props: {
   );
   const selectedLabel =
     selectedAgent?.name?.trim() || selectedAgent?.id || 'Agent';
+  const localAgents = props.agents.filter(
+    (agent) => agent.source?.type !== 'remote',
+  );
+  const remoteGroups = new Map<string, AgentSwitchOption[]>();
+  for (const agent of props.agents) {
+    if (agent.source?.type !== 'remote') continue;
+    const label = agent.source.label || agent.source.instanceId;
+    remoteGroups.set(label, [...(remoteGroups.get(label) ?? []), agent]);
+  }
+  const hasRemoteAgents = remoteGroups.size > 0;
 
   return (
     <Select
@@ -54,7 +76,8 @@ export function AgentSwitchSelect(props: {
       disabled={props.disabled}
       onValueChange={(agentId) => {
         if (!agentId || agentId === props.selectedAgentId) return;
-        props.onSwitch(agentId);
+        const agent = props.agents.find((option) => option.id === agentId);
+        if (agent) props.onSwitch(agent);
       }}
     >
       <SelectTrigger
@@ -68,21 +91,58 @@ export function AgentSwitchSelect(props: {
         </SelectIcon>
       </SelectTrigger>
       <SelectContent className={css.agentSelectPopup}>
-        {props.agents.map((agent) => (
-          <SelectItem
-            key={agent.id}
-            value={agent.id}
-            textValue={agent.name?.trim() || agent.id}
-            className={css.agentSelectItem}
-          >
-            <AgentSelectAvatar agent={agent} token={props.token} />
-            <span className={css.agentSelectItemText}>
-              {agent.name?.trim() || agent.id}
-            </span>
-          </SelectItem>
+        {hasRemoteAgents ? (
+          <SelectGroup>
+            <SelectGroupLabel>Local</SelectGroupLabel>
+            {localAgents.map((agent) => (
+              <AgentSelectItem
+                key={agent.id}
+                agent={agent}
+                token={props.token}
+              />
+            ))}
+          </SelectGroup>
+        ) : (
+          localAgents.map((agent) => (
+            <AgentSelectItem key={agent.id} agent={agent} token={props.token} />
+          ))
+        )}
+        {[...remoteGroups.entries()].map(([label, agents]) => (
+          <SelectGroup key={label}>
+            <SelectGroupLabel>{label}</SelectGroupLabel>
+            {agents.map((agent) => (
+              <AgentSelectItem
+                key={agent.id}
+                agent={agent}
+                token={props.token}
+              />
+            ))}
+          </SelectGroup>
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+function AgentSelectItem(props: { agent: AgentSwitchOption; token?: string }) {
+  const label = props.agent.name?.trim() || props.agent.id;
+  const isRemote = props.agent.source?.type === 'remote';
+  return (
+    <SelectItem
+      value={props.agent.id}
+      textValue={label}
+      className={css.agentSelectItem}
+    >
+      <AgentSelectAvatar agent={props.agent} token={props.token} />
+      {isRemote ? (
+        <SelectItemBody>
+          <span className={css.agentSelectItemText}>{label}</span>
+          <SelectItemSubtitle>{props.agent.id}</SelectItemSubtitle>
+        </SelectItemBody>
+      ) : (
+        <span className={css.agentSelectItemText}>{label}</span>
+      )}
+    </SelectItem>
   );
 }
 

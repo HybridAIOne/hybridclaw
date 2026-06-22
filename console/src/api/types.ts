@@ -1262,10 +1262,27 @@ export interface AgentListItem {
   name: string | null;
   imageUrl?: string | null;
   emptyChatHeader?: string | null;
+  source?:
+    | { type: 'local' }
+    | {
+        type: 'remote';
+        peerId: string;
+        instanceId: string;
+        label: string;
+      };
+}
+
+export interface RemoteAgentListPeer {
+  peerId: string;
+  instanceId: string;
+  label: string;
+  agentCardUrl: string;
+  agents: AgentListItem[];
 }
 
 export interface AgentListResponse {
   agents: AgentListItem[];
+  remotePeers?: RemoteAgentListPeer[];
 }
 
 export interface JobAgent {

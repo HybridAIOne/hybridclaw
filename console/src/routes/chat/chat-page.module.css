@@ -1536,7 +1536,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .agentSelectPopup {
-  width: min(280px, calc(100vw - 16px));
+  width: min(380px, calc(100vw - 16px));
   height: auto;
   max-height: min(360px, calc(100vh - 32px));
 }

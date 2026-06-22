@@ -3735,8 +3735,8 @@ async function handleApiAgents(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAgents());
 }
 
-function handleApiAgentList(res: ServerResponse): void {
-  sendJson(res, 200, getGatewayAgentList());
+async function handleApiAgentList(res: ServerResponse): Promise<void> {
+  sendJson(res, 200, await getGatewayAgentList());
 }
 
 function handleApiAdminJobsContext(res: ServerResponse): void {
@@ -7600,7 +7600,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/agents/list' && method === 'GET') {
-            handleApiAgentList(res);
+            await handleApiAgentList(res);
             return;
           }
           if (pathname === '/api/proactive/pull' && method === 'GET') {
