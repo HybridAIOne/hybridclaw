@@ -159,7 +159,8 @@ test('leading canonical remote addresses queue A2A chat without local executor d
   expect(listA2AOutboxItems()).toMatchObject([
     {
       envelope: {
-        sender_agent_id: 'main',
+        sender_agent_id: expect.stringMatching(/^main@local@inst-/),
+        sender_instance_id: expect.stringMatching(/^inst-/),
         recipient_agent_id: 'remote@team@peer-instance',
         thread_id: 'session-remote-canonical-agent',
         intent: 'chat',
