@@ -23,11 +23,13 @@ const BASE_EMAIL_CONFIG = {
   smtpPort: 587,
   smtpSecure: false,
   address: 'agent@example.com',
+  password: 'email-app-password',
   pollIntervalMs: 30000,
   folders: ['INBOX'],
   allowFrom: ['boss@example.com'],
   textChunkLimit: 50000,
   mediaMaxMb: 20,
+  accounts: [],
 };
 
 const inboundDataDirs: string[] = [];
@@ -206,6 +208,31 @@ describe('email inbound parsing', () => {
     if (result) {
       await cleanupEmailInboundMedia(result.media);
       expect(fs.existsSync(result.media[0]?.path || '')).toBe(true);
+    }
+  });
+
+  test('builds inbound session key for the supplied agent', async () => {
+    const { cleanupEmailInboundMedia, processInboundEmail } =
+      await importEmailInboundModule();
+    const result = await processInboundEmail(
+      buildMultipartEmail({
+        from: 'Boss <boss@example.com>',
+        messageId: '<msg-agent@example.com>',
+        subject: 'Pipeline',
+        text: 'Please review.',
+      }),
+      BASE_EMAIL_CONFIG,
+      'sales@example.com',
+      'sales',
+    );
+
+    expect(result?.agentId).toBe('sales');
+    expect(result?.sessionId).toBe(
+      'agent:sales:channel:email:chat:dm:peer:boss%40example.com',
+    );
+
+    if (result) {
+      await cleanupEmailInboundMedia(result.media);
     }
   });
 
@@ -920,6 +947,358 @@ describe('email runtime', () => {
     );
   });
 
+  test('routes inbound account messages to mapped agents and replies from that account', async () => {
+    const accounts = [
+      {
+        ...BASE_EMAIL_CONFIG,
+        agentId: 'sales',
+        address: 'sales@example.com',
+        password: 'sales-password',
+        allowFrom: ['lead@example.com'],
+      },
+      {
+        ...BASE_EMAIL_CONFIG,
+        agentId: 'support',
+        address: 'support@example.com',
+        password: 'support-password',
+        allowFrom: ['customer@example.com'],
+      },
+    ];
+
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_PASSWORD: '',
+      EMAIL_TEXT_CHUNK_LIMIT: 50_000,
+      getConfigSnapshot: () => ({
+        email: {
+          ...BASE_EMAIL_CONFIG,
+          address: '',
+          password: '',
+          accounts,
+        },
+      }),
+    }));
+
+    const transports: Array<{
+      options: unknown;
+      sendMail: ReturnType<typeof vi.fn>;
+    }> = [];
+    const createTransport = vi.fn((options: unknown) => {
+      const transport = {
+        options,
+        close: vi.fn(async () => {}),
+        verify: vi.fn(async () => {}),
+        sendMail: vi.fn(async () => ({
+          accepted: ['customer@example.com'],
+          rejected: [],
+          pending: [],
+          messageId: '<reply@example.com>',
+        })),
+      };
+      transports.push(transport);
+      return transport;
+    });
+    const append = vi.fn(async () => ({
+      destination: 'Sent',
+      uid: 101,
+    }));
+    const list = vi.fn(async () => [
+      { path: 'Sent', name: 'Sent', flags: new Set<string>() },
+    ]);
+    const search = vi.fn(async () => []);
+    const callbacks = new Map<
+      string,
+      (
+        messages: Array<{ folder: string; raw: Buffer; uid: number }>,
+      ) => Promise<void>
+    >();
+    const processInboundEmail = vi.fn(
+      async (
+        _raw: Buffer,
+        _config: unknown,
+        _selfAddress: string,
+        agentId: string,
+      ) => ({
+        sessionId: `agent:${agentId}:channel:email:chat:dm:peer:customer%40example.com`,
+        agentId,
+        guildId: null,
+        channelId: 'customer@example.com',
+        userId: 'customer@example.com',
+        username: 'Customer',
+        content: 'Need help',
+        media: [],
+        senderAddress: 'customer@example.com',
+        senderName: 'Customer',
+        subject: 'Support',
+        threadContext: null,
+      }),
+    );
+
+    vi.doMock('nodemailer', () => ({
+      default: {
+        createTransport,
+      },
+    }));
+    vi.doMock('imapflow', () => ({
+      ImapFlow: class {
+        mailbox = { path: 'Sent' };
+        connect = vi.fn(async () => {});
+        logout = vi.fn(async () => {});
+        close = vi.fn(() => {});
+        list = list;
+        getMailboxLock = vi.fn(async (folder: string) => ({
+          path: folder,
+          release: vi.fn(),
+        }));
+        search = search;
+        append = append;
+      },
+    }));
+    vi.doMock('../src/channels/email/connection.ts', () => ({
+      createEmailConnectionManager: vi.fn(
+        (
+          config: { address: string },
+          _password: string,
+          callback: (
+            messages: Array<{ folder: string; raw: Buffer; uid: number }>,
+          ) => Promise<void>,
+        ) => {
+          callbacks.set(config.address, callback);
+          return {
+            start: vi.fn(async () => {}),
+            stop: vi.fn(async () => {}),
+          };
+        },
+      ),
+    }));
+    vi.doMock('../src/channels/email/inbound.ts', () => ({
+      cleanupEmailInboundMedia: vi.fn(async () => {}),
+      processInboundEmail,
+    }));
+
+    const { createEmailRuntime } = await import(
+      '../src/channels/email/runtime.js'
+    );
+    const runtime = createEmailRuntime();
+    const handled = vi.fn(async (...args) => {
+      const reply = args[7];
+      const context = args[8];
+      expect(context.accountAddress).toBe('support@example.com');
+      expect(context.agentId).toBe('support');
+      await reply('Support reply');
+    });
+
+    await runtime.initEmail(handled);
+    await callbacks.get('support@example.com')?.([
+      {
+        folder: 'INBOX',
+        raw: Buffer.from('raw'),
+        uid: 1,
+      },
+    ]);
+
+    expect(processInboundEmail).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      expect.objectContaining({
+        address: 'support@example.com',
+        agentId: 'support',
+      }),
+      'support@example.com',
+      'support',
+    );
+    expect(handled).toHaveBeenCalledWith(
+      'agent:support:channel:email:chat:dm:peer:customer%40example.com',
+      null,
+      'customer@example.com',
+      'customer@example.com',
+      'Customer',
+      'Need help',
+      [],
+      expect.any(Function),
+      expect.objectContaining({
+        accountAddress: 'support@example.com',
+        agentId: 'support',
+      }),
+    );
+    expect(transports).toHaveLength(2);
+    const supportTransport = transports.find(
+      (transport) =>
+        (transport.options as { auth?: { user?: string } }).auth?.user ===
+        'support@example.com',
+    );
+    expect(supportTransport?.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 'support@example.com',
+        to: 'customer@example.com',
+        text: 'Support reply',
+      }),
+    );
+  });
+
+  test('polls the top-level mailbox as the default agent alongside additional agent mailboxes', async () => {
+    const accounts = [
+      {
+        ...BASE_EMAIL_CONFIG,
+        agentId: 'support',
+        address: 'support@example.com',
+        password: 'support-password',
+      },
+    ];
+
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_PASSWORD: '',
+      EMAIL_TEXT_CHUNK_LIMIT: 50_000,
+      getConfigSnapshot: () => ({
+        email: {
+          ...BASE_EMAIL_CONFIG,
+          address: 'main@example.com',
+          password: 'main-password',
+          accounts,
+        },
+      }),
+    }));
+
+    const transports: Array<{ authUser?: string }> = [];
+    const createTransport = vi.fn(
+      (options: { auth?: { user?: string } }) => {
+        transports.push({ authUser: options.auth?.user });
+        return {
+          close: vi.fn(async () => {}),
+          verify: vi.fn(async () => {}),
+        };
+      },
+    );
+    const connections: Array<{
+      address: string;
+      agentId: string;
+      password: string;
+    }> = [];
+
+    vi.doMock('nodemailer', () => ({
+      default: {
+        createTransport,
+      },
+    }));
+    vi.doMock('../src/channels/email/connection.ts', () => ({
+      createEmailConnectionManager: vi.fn(
+        (
+          config: { address: string; agentId: string },
+          password: string,
+        ) => {
+          connections.push({
+            address: config.address,
+            agentId: config.agentId,
+            password,
+          });
+          return {
+            start: vi.fn(async () => {}),
+            stop: vi.fn(async () => {}),
+          };
+        },
+      ),
+    }));
+    vi.doMock('../src/channels/email/inbound.ts', () => ({
+      cleanupEmailInboundMedia: vi.fn(async () => {}),
+      processInboundEmail: vi.fn(),
+    }));
+
+    const { createEmailRuntime } = await import(
+      '../src/channels/email/runtime.js'
+    );
+    const runtime = createEmailRuntime();
+
+    await runtime.initEmail(vi.fn());
+
+    expect(connections).toEqual([
+      {
+        address: 'main@example.com',
+        agentId: 'main',
+        password: 'main-password',
+      },
+      {
+        address: 'support@example.com',
+        agentId: 'support',
+        password: 'support-password',
+      },
+    ]);
+    expect(transports.map((transport) => transport.authUser)).toEqual([
+      'main@example.com',
+      'support@example.com',
+    ]);
+  });
+
+  test('lets an explicit main-agent mailbox override the top-level mailbox', async () => {
+    const accounts = [
+      {
+        ...BASE_EMAIL_CONFIG,
+        agentId: 'main',
+        address: 'main-agent-row@example.com',
+        password: 'row-password',
+      },
+    ];
+
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_PASSWORD: '',
+      EMAIL_TEXT_CHUNK_LIMIT: 50_000,
+      getConfigSnapshot: () => ({
+        email: {
+          ...BASE_EMAIL_CONFIG,
+          address: 'main@example.com',
+          password: 'main-password',
+          accounts,
+        },
+      }),
+    }));
+
+    const connections: Array<{ address: string; agentId: string }> = [];
+
+    vi.doMock('nodemailer', () => ({
+      default: {
+        createTransport: vi.fn(() => ({
+          close: vi.fn(async () => {}),
+          verify: vi.fn(async () => {}),
+        })),
+      },
+    }));
+    vi.doMock('../src/channels/email/connection.ts', () => ({
+      createEmailConnectionManager: vi.fn(
+        (config: { address: string; agentId: string }) => {
+          connections.push({
+            address: config.address,
+            agentId: config.agentId,
+          });
+          return {
+            start: vi.fn(async () => {}),
+            stop: vi.fn(async () => {}),
+          };
+        },
+      ),
+    }));
+    vi.doMock('../src/channels/email/inbound.ts', () => ({
+      cleanupEmailInboundMedia: vi.fn(async () => {}),
+      processInboundEmail: vi.fn(),
+    }));
+
+    const { createEmailRuntime } = await import(
+      '../src/channels/email/runtime.js'
+    );
+    const runtime = createEmailRuntime();
+
+    await runtime.initEmail(vi.fn());
+
+    expect(connections).toEqual([
+      {
+        address: 'main-agent-row@example.com',
+        agentId: 'main',
+      },
+    ]);
+  });
+
   test('aborts in-flight handlers during shutdown', async () => {
     vi.doMock('../src/config/config.ts', () => ({
       APP_VERSION: '0.7.1',
@@ -971,6 +1350,7 @@ describe('email runtime', () => {
       cleanupEmailInboundMedia,
       processInboundEmail: vi.fn(async () => ({
         sessionId: 'email:boss@example.com',
+        agentId: 'main',
         guildId: null,
         channelId: 'boss@example.com',
         userId: 'boss@example.com',
@@ -1078,6 +1458,7 @@ describe('email runtime', () => {
         const id = raw.toString('utf8');
         return {
           sessionId: 'email:boss@example.com',
+          agentId: 'main',
           guildId: null,
           channelId: 'boss@example.com',
           userId: 'boss@example.com',

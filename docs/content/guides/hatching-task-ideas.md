@@ -130,7 +130,7 @@ dry task list.
 
 ## Email Suggestion Template
 
-Subject: Ways I can help with HybridClaw
+Subject: [A short subject tailored to the user's work and goals]
 
 Hi [Name],
 

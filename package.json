@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.24.0",
+  "version": "0.25.2",
   "type": "module",
   "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
   "repository": {
@@ -78,14 +78,15 @@
     "test:install-e2e": "vitest run --configLoader runner --project install-e2e",
     "test:console": "npm --workspace console run test",
     "audit:signatures": "node ./scripts/audit-signatures.mjs",
+    "security:secret-scan": "node ./scripts/secret-scan.mjs",
     "deps:policy": "node ./scripts/check-dependency-policy.mjs",
     "deps:update-lockfile": "npm update --package-lock-only && npm --prefix container update --package-lock-only && node ./scripts/sync-shrinkwraps.mjs",
     "deps:verify": "npm ci --ignore-scripts --no-audit --fund=false && npm --prefix container ci --ignore-scripts --no-audit --fund=false && npm run audit:signatures",
     "eval:trace-judge:gate": "HYBRIDCLAW_DATA_DIR=/tmp/hybridclaw-trace-judge-gate HYBRIDCLAW_DISABLE_CONFIG_WATCHER=1 node -e \"import('./dist/evals/trace-judge-native.js').then((m)=>m.runTraceJudgeNativeGate()).catch((err)=>{console.error(err);process.exitCode=1})\"",
     "eval:trace-judge:gate:live": "HYBRIDCLAW_DATA_DIR=/tmp/hybridclaw-trace-judge-live-gate HYBRIDCLAW_DISABLE_CONFIG_WATCHER=1 node -e \"import('./dist/evals/trace-judge-native.js').then((m)=>m.runTraceJudgeNativeGate({live:true})).catch((err)=>{console.error(err);process.exitCode=1})\"",
     "desktop": "npm run build:desktop && npm --workspace desktop run start",
-    "desktop:mac": "npm run build:desktop && npm --workspace desktop run dist:mac",
-    "desktop:linux": "npm run build:desktop && npm --workspace desktop run dist:linux",
+    "desktop:mac": "npm run build && npm --workspace desktop run dist:mac",
+    "desktop:linux": "npm run build && npm --workspace desktop run dist:linux",
     "test:live": "vitest run --configLoader runner --project live --passWithNoTests",
     "setup": "npm --prefix container install",
     "dev": "tsx src/cli.ts gateway",
@@ -113,7 +114,7 @@
     "@opentelemetry/sdk-node": "0.218.0",
     "@sentry/node": "10.56.0",
     "@slack/bolt": "4.7.3",
-    "@whiskeysockets/baileys": "7.0.0-rc11",
+    "@whiskeysockets/baileys": "7.0.0-rc13",
     "ajv": "8.20.0",
     "amaro": "1.1.10",
     "better-sqlite3": "12.10.0",
@@ -129,7 +130,7 @@
     "mailparser": "3.9.9",
     "marked": "17.0.4",
     "node-pty": "1.1.0",
-    "nodemailer": "8.0.10",
+    "nodemailer": "9.0.0",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.5.207",
     "pino": "9.14.0",
@@ -150,7 +151,7 @@
     "@types/better-sqlite3": "7.6.13",
     "@types/mailparser": "3.4.6",
     "@types/node": "22.19.15",
-    "@types/nodemailer": "7.0.11",
+    "@types/nodemailer": "8.0.1",
     "@types/sanitize-html": "2.16.1",
     "@types/yauzl": "2.10.3",
     "@types/yazl": "3.3.1",
@@ -160,15 +161,12 @@
     "typescript": "5.9.3",
     "vitest": "4.1.8"
   },
-  "optionalDependencies": {
-    "appdmg": "0.6.6"
-  },
   "overrides": {
     "undici": "6.24.1",
     "lodash": "4.18.1",
     "uuid": "11.1.1",
     "vite": "8.0.14",
-    "nodemailer": "8.0.10",
+    "nodemailer": "9.0.0",
     "shell-quote": "1.8.4",
     "tmp": "0.2.7"
   }

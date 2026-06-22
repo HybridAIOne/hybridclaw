@@ -234,7 +234,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
     const { agentWorkspaceDir } = await import('../infra/ipc.js');
     const { ensureBootstrapFiles } = await import('../workspace.js');
     const workspacePath = path.resolve(agentWorkspaceDir(saved.id));
-    ensureBootstrapFiles(saved.id);
+    ensureBootstrapFiles(saved.id, { seedOneTimeBootstrap: true });
 
     console.log(`Created agent ${saved.id}.`);
     console.log(`Workspace: ${workspacePath}`);

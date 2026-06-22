@@ -10,6 +10,11 @@ export const LOG_LEVELS = [
 
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
+export interface AdminConfigReloadResponse {
+  status: string;
+  message?: string;
+}
+
 export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
@@ -158,6 +163,7 @@ export interface GatewayStatus {
     jid: string | null;
     pairingQrText: string | null;
     pairingUpdatedAt: string | null;
+    pairingError: string | null;
   };
   providerHealth?: Record<
     string,
@@ -478,6 +484,27 @@ export interface AdminChannelsResponse {
   channels: AdminChannelEntry[];
 }
 
+export interface AdminStoredSecretRef {
+  source: 'store';
+  id: string;
+}
+
+export interface AdminEmailAccountConfig {
+  agentId: string;
+  imapHost: string;
+  imapPort: number;
+  imapSecure: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  address: string;
+  password?: string | AdminStoredSecretRef;
+  pollIntervalMs: number;
+  folders: string[];
+  allowFrom: string[];
+  mediaMaxMb: number;
+}
+
 export interface AdminConfig {
   version: number;
   security: {
@@ -731,6 +758,7 @@ export interface AdminConfig {
     allowFrom: string[];
     textChunkLimit: number;
     mediaMaxMb: number;
+    accounts?: AdminEmailAccountConfig[];
   };
   container: {
     sandboxMode: 'container' | 'host';
@@ -803,9 +831,12 @@ export interface AdminConfig {
     healthPort: number;
     webApiToken: string;
     gatewayBaseUrl: string;
+    gatewayInternalBaseUrl: string;
     gatewayApiToken: string;
     dbPath: string;
     logLevel: LogLevel;
+    logRequests?: boolean;
+    debugModelResponses?: boolean;
   };
   [key: string]: unknown;
 }
@@ -813,6 +844,47 @@ export interface AdminConfig {
 export interface AdminConfigResponse {
   path: string;
   config: AdminConfig;
+}
+
+export interface AdminLogFile {
+  id: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  readable: boolean;
+  sizeBytes: number | null;
+  mtime: string | null;
+  description: string;
+  error: string | null;
+}
+
+export interface AdminLogTail {
+  fileId: string;
+  content: string;
+  tailBytes: number;
+  truncated: boolean;
+}
+
+export interface AdminLoggingState {
+  configuredLevel: LogLevel;
+  effectiveLevel: LogLevel;
+  forcedLevel: LogLevel | null;
+  logRequests: {
+    configured: boolean;
+    envEnabled: boolean;
+    effective: boolean;
+  };
+  debugModelResponses: {
+    configured: boolean;
+    envEnabled: boolean;
+    effective: boolean;
+  };
+}
+
+export interface AdminLogsResponse {
+  files: AdminLogFile[];
+  selected: AdminLogTail | null;
+  logging?: AdminLoggingState;
 }
 
 export interface AdminBrowserPoolHealthResponse {
@@ -999,6 +1071,7 @@ export interface AdminAgentProxyConfig {
 export interface AdminAgent {
   id: string;
   name: string | null;
+  emptyChatHeader?: string | null;
   model: string | null;
   skills: string[] | null;
   chatbotId: string | null;
@@ -1188,6 +1261,7 @@ export interface AgentListItem {
   id: string;
   name: string | null;
   imageUrl?: string | null;
+  emptyChatHeader?: string | null;
 }
 
 export interface AgentListResponse {
@@ -1276,7 +1350,17 @@ export interface AdminMcpConfig {
   cwd?: string;
   url?: string;
   headers?: Record<string, string>;
+  auth?: 'oauth';
   enabled?: boolean;
+}
+
+export type AdminMcpAuthState = 'connected' | 'expired' | 'unauthorized';
+
+export interface AdminMcpAuthStatus {
+  method: 'oauth' | 'none';
+  state?: AdminMcpAuthState;
+  expiresAt?: number | null;
+  scope?: string;
 }
 
 export interface AdminMcpServer {
@@ -1284,10 +1368,23 @@ export interface AdminMcpServer {
   enabled: boolean;
   summary: string;
   config: AdminMcpConfig;
+  auth: AdminMcpAuthStatus;
 }
 
 export interface AdminMcpResponse {
   servers: AdminMcpServer[];
+}
+
+export interface AdminMcpOAuthStartResponse {
+  serverName: string;
+  authorizationUrl: string;
+  state: string;
+  expiresAt: number;
+}
+
+export interface AdminMcpOAuthStatusResponse {
+  name: string;
+  auth: AdminMcpAuthStatus;
 }
 
 export interface AdminAuditEntry {
@@ -1600,6 +1697,8 @@ export interface AdminSkill {
   description: string;
   category: string;
   shortDescription?: string;
+  logoUrl?: string;
+  developer: string;
   source: string;
   available: boolean;
   enabled: boolean;
@@ -1617,13 +1716,114 @@ export interface AdminSkill {
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
+  capabilities: string[];
+  supportedChannels: string[];
+  requires: {
+    bins: string[];
+    env: string[];
+  };
   tags: string[];
   relatedSkills: string[];
+  install: Array<{
+    id?: string;
+    kind: 'brew' | 'uv' | 'npm' | 'node' | 'go' | 'download';
+    label?: string;
+    bins?: string[];
+    formula?: string;
+    package?: string;
+    module?: string;
+    url?: string;
+    path?: string;
+    chmod?: string;
+  }>;
+  credentials: Array<{
+    id: string;
+    kind: string;
+    required: boolean;
+    secretRef: {
+      source: string;
+      id: string;
+    };
+    scope?: string;
+    howToObtain?: string;
+  }>;
+  configVariables: Array<{
+    id: string;
+    env: string;
+    required: boolean;
+    scope?: string;
+    howToObtain?: string;
+  }>;
+  docs?: {
+    title: string;
+    sourcePath: string;
+    sourceHref: string;
+    tutorialMarkdown: string;
+    screenshots: Array<{
+      src: string;
+      alt: string;
+      title?: string;
+    }>;
+    examplePrompts: Array<{
+      prompt: string;
+      kind: 'try-it' | 'conversation';
+      turnIndex?: number;
+      conversationId?: string;
+    }>;
+  };
+}
+
+export type AdminSkillPackageEntryKind =
+  | 'directory'
+  | 'file'
+  | 'symlink'
+  | 'other';
+
+export interface AdminSkillPackageFile {
+  path: string;
+  name: string;
+  kind: AdminSkillPackageEntryKind;
+  sizeBytes: number | null;
+  updatedAt: string | null;
+  editable: boolean;
+  previewable: boolean;
+}
+
+export interface AdminSkillPackageFilesResponse {
+  skillName: string;
+  rootPath: string;
+  files: AdminSkillPackageFile[];
+}
+
+export interface AdminSkillPackageFileResponse {
+  skillName: string;
+  rootPath: string;
+  file: AdminSkillPackageFile & {
+    content: string | null;
+  };
+}
+
+export interface AdminSkillInvocation {
+  sessionId: string;
+  userMessageId: number;
+  assistantMessageId: number | null;
+  username: string | null;
+  createdAt: string;
+  responseCreatedAt: string | null;
+  userPrompt: string;
+  skillInput: string;
+  response: string | null;
+}
+
+export interface AdminSkillInvocationsResponse {
+  skillName: string;
+  invocations: AdminSkillInvocation[];
 }
 
 export interface AdminSkillsResponse {
   extraDirs: string[];
   disabled: string[];
+  channelDisabled?: Record<string, string[]>;
   skills: AdminSkill[];
 }
 

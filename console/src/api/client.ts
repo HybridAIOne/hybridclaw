@@ -23,6 +23,7 @@ import type {
   AdminChannelTransport,
   AdminCommandResult,
   AdminConfig,
+  AdminConfigReloadResponse,
   AdminConfigResponse,
   AdminCreateSkillPayload,
   AdminDistillConsentPayload,
@@ -48,7 +49,10 @@ import type {
   AdminInteractionResumeResponse,
   AdminJobsContextResponse,
   AdminLanHttpAccessMode,
+  AdminLogsResponse,
   AdminMcpConfig,
+  AdminMcpOAuthStartResponse,
+  AdminMcpOAuthStatusResponse,
   AdminMcpResponse,
   AdminModelsResponse,
   AdminOutputGuardPreviewResponse,
@@ -65,6 +69,9 @@ import type {
   AdminSecretMutationResponse,
   AdminSecretsResponse,
   AdminSession,
+  AdminSkillInvocationsResponse,
+  AdminSkillPackageFileResponse,
+  AdminSkillPackageFilesResponse,
   AdminSkillsResponse,
   AdminStatisticsResponse,
   AdminTeamStructureResponse,
@@ -261,21 +268,20 @@ export async function requestJson<T>(
 }
 
 export function readStoredToken(): string {
-  const search = new URLSearchParams(window.location.search);
-  const queryToken = (search.get('token') || '').trim();
-  if (queryToken) {
-    window.localStorage.setItem(TOKEN_STORAGE_KEY, queryToken);
-    removeSearchParam(LOCAL_TOKEN_BOOTSTRAP_PARAM);
-    return queryToken;
-  }
-  removeSearchParam(LOCAL_TOKEN_BOOTSTRAP_PARAM);
-  return window.localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+  removeSearchParams(['token', LOCAL_TOKEN_BOOTSTRAP_PARAM]);
+  clearStoredToken();
+  return '';
 }
 
-function removeSearchParam(name: string): void {
+function removeSearchParams(names: string[]): void {
   const url = new URL(window.location.href);
-  if (!url.searchParams.has(name)) return;
-  url.searchParams.delete(name);
+  let changed = false;
+  for (const name of names) {
+    if (!url.searchParams.has(name)) continue;
+    url.searchParams.delete(name);
+    changed = true;
+  }
+  if (!changed) return;
   window.history.replaceState(
     window.history.state,
     '',
@@ -284,18 +290,18 @@ function removeSearchParam(name: string): void {
 }
 
 export function storeToken(token: string): void {
-  window.localStorage.setItem(TOKEN_STORAGE_KEY, token.trim());
+  void token;
+  clearStoredToken();
 }
 
 export function clearStoredToken(): void {
+  window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
 }
 
 export function adminEventsUrl(token: string): string {
-  const trimmed = token.trim();
-  if (!trimmed) return '/api/events';
-  const params = new URLSearchParams({ token: trimmed });
-  return `/api/events?${params.toString()}`;
+  void token;
+  return '/api/events';
 }
 
 export function validateToken(token: string): Promise<GatewayStatus> {
@@ -339,6 +345,20 @@ export function fetchStatistics(
       : '';
   return requestJson<AdminStatisticsResponse>(
     `/api/admin/statistics${search}`,
+    { token },
+  );
+}
+
+export function fetchAdminLogs(
+  token: string,
+  params?: { fileId?: string | null; tailBytes?: number },
+): Promise<AdminLogsResponse> {
+  const query = new URLSearchParams();
+  if (params?.fileId) query.set('file', params.fileId);
+  if (params?.tailBytes) query.set('tailBytes', String(params.tailBytes));
+  const suffix = query.toString();
+  return requestJson<AdminLogsResponse>(
+    suffix ? `/api/admin/logs?${suffix}` : '/api/admin/logs',
     { token },
   );
 }
@@ -613,14 +633,11 @@ export function declineA2APairingRequest(
 
 export function reloadGateway(
   token: string,
-): Promise<{ status: 'ok'; message: string }> {
-  return requestJson<{ status: 'ok'; message: string }>(
-    '/api/admin/config/reload',
-    {
-      token,
-      method: 'POST',
-    },
-  );
+): Promise<AdminConfigReloadResponse> {
+  return requestJson<AdminConfigReloadResponse>('/api/admin/config/reload', {
+    token,
+    method: 'POST',
+  });
 }
 
 export function startAdminTerminal(
@@ -981,8 +998,18 @@ export function startBrowserPool(
   );
 }
 
-export function fetchEmailConfig(token: string): Promise<unknown> {
-  return requestJson<unknown>('/api/admin/email-config/fetch', { token });
+export function fetchEmailConfig(
+  token: string,
+  options: { handleId?: string | null } = {},
+): Promise<unknown> {
+  const query = new URLSearchParams();
+  const handleId = String(options.handleId || '').trim();
+  if (handleId) query.set('handleId', handleId);
+  const queryString = query.toString();
+  const suffix = queryString ? `?${queryString}` : '';
+  return requestJson<unknown>(`/api/admin/email-config/fetch${suffix}`, {
+    token,
+  });
 }
 
 export function saveConfig(
@@ -1215,6 +1242,39 @@ export function deleteMcpServer(
   });
 }
 
+export function startMcpOAuth(
+  token: string,
+  name: string,
+): Promise<AdminMcpOAuthStartResponse> {
+  return requestJson<AdminMcpOAuthStartResponse>('/api/admin/mcp/oauth/start', {
+    token,
+    method: 'POST',
+    body: { name },
+  });
+}
+
+export function fetchMcpOAuthStatus(
+  token: string,
+  name: string,
+): Promise<AdminMcpOAuthStatusResponse> {
+  const params = new URLSearchParams({ name });
+  return requestJson<AdminMcpOAuthStatusResponse>(
+    `/api/admin/mcp/oauth/status?${params.toString()}`,
+    { token },
+  );
+}
+
+export function logoutMcpOAuth(
+  token: string,
+  name: string,
+): Promise<AdminMcpResponse> {
+  return requestJson<AdminMcpResponse>('/api/admin/mcp/oauth/logout', {
+    token,
+    method: 'POST',
+    body: { name },
+  });
+}
+
 export function fetchAudit(
   token: string,
   params: {
@@ -1403,6 +1463,50 @@ export function unblockSkill(
     method: 'POST',
     body: { name: skillName },
   });
+}
+
+export function fetchSkillPackageFiles(
+  token: string,
+  skillName: string,
+): Promise<AdminSkillPackageFilesResponse> {
+  return requestJson<AdminSkillPackageFilesResponse>(
+    `/api/admin/skills/${encodeURIComponent(skillName)}/files`,
+    { token },
+  );
+}
+
+export function fetchSkillInvocations(
+  token: string,
+  skillName: string,
+): Promise<AdminSkillInvocationsResponse> {
+  return requestJson<AdminSkillInvocationsResponse>(
+    `/api/admin/skills/${encodeURIComponent(skillName)}/invocations`,
+    { token },
+  );
+}
+
+export function fetchSkillPackageFile(
+  token: string,
+  params: { skillName: string; path: string },
+): Promise<AdminSkillPackageFileResponse> {
+  return requestJson<AdminSkillPackageFileResponse>(
+    `/api/admin/skills/${encodeURIComponent(params.skillName)}/files/content?path=${encodeURIComponent(params.path)}`,
+    { token },
+  );
+}
+
+export function saveSkillPackageFile(
+  token: string,
+  params: { skillName: string; path: string; content: string },
+): Promise<AdminSkillPackageFileResponse> {
+  return requestJson<AdminSkillPackageFileResponse>(
+    `/api/admin/skills/${encodeURIComponent(params.skillName)}/files/content?path=${encodeURIComponent(params.path)}`,
+    {
+      token,
+      method: 'PUT',
+      body: { content: params.content },
+    },
+  );
 }
 
 export function fetchPlugins(token: string): Promise<AdminPluginsResponse> {

@@ -73,7 +73,6 @@ import {
 } from './gateway/gateway-lifecycle.js';
 import type { GatewayStatus } from './gateway/gateway-types.js';
 import type { DockerAccessIssueKind } from './infra/container-setup.js';
-import { logger } from './logger.js';
 import { runtimeSecretsPath } from './security/runtime-secrets.js';
 import { sleep } from './utils/sleep.js';
 
@@ -163,7 +162,7 @@ function getConfigApi(): ConfigApi {
 }
 
 function getGatewayBaseUrl(): string {
-  return getConfigApi().GATEWAY_BASE_URL;
+  return getConfigApi().GATEWAY_CLIENT_BASE_URL;
 }
 
 function resolveInstallRoot(): string {
@@ -540,6 +539,7 @@ async function resolveTuiPreflightSandboxMode(): Promise<SandboxModeOverride | n
       return health.sandbox.mode === 'host' ? 'host' : null;
     }
   } catch (err) {
+    const { logger } = await import('./logger.js');
     logger.debug(
       { err },
       'TUI preflight gateway health lookup failed; falling back to authenticated status.',
@@ -881,10 +881,9 @@ async function runGatewayForeground(
     process.env[GATEWAY_TOOLS_MODE_ENV] = toolsMode;
   }
   if (debug || debugModelResponses) {
-    process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
-    const { forceLoggerLevel } = await import('./logger.js');
-    forceLoggerLevel('debug');
-    console.log(`${commandName}: forcing gateway log level to debug.`);
+    const { setLoggerStartupLevel } = await import('./logger.js');
+    setLoggerStartupLevel('debug');
+    console.log(`${commandName}: setting startup log level to debug.`);
   }
   const foregroundGatewayPid = registerForegroundGatewayPid(commandName);
   await ensureRuntimeContainer(commandName, true, sandboxMode);
@@ -2036,6 +2035,13 @@ export async function main(
         './evals/trace-judge-native.js'
       );
       await runTraceJudgeNativeCli(subargs);
+      break;
+    }
+    case '__eval-agent-risk-native': {
+      const { runAgentRiskNativeCli } = await import(
+        './evals/agent-risk-native.js'
+      );
+      await runAgentRiskNativeCli(subargs);
       break;
     }
     case 'tui':

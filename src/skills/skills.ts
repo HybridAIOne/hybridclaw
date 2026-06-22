@@ -96,6 +96,7 @@ interface SkillCandidate {
   metadata: {
     hybridclaw: {
       shortDescription?: string;
+      logoPath?: string;
       tags: string[];
       relatedSkills: string[];
       install: SkillInstallSpec[];
@@ -121,6 +122,7 @@ export interface Skill {
   metadata: {
     hybridclaw: {
       shortDescription?: string;
+      logoPath?: string;
       tags: string[];
       relatedSkills: string[];
       install: SkillInstallSpec[];
@@ -532,6 +534,7 @@ function resolveCompatibleMetadataRecord(
 
 function normalizeCompatibleMetadata(raw: Record<string, unknown>): {
   shortDescription?: string;
+  logoPath?: string;
   tags: string[];
   relatedSkills: string[];
   install: SkillInstallSpec[];
@@ -544,8 +547,16 @@ function normalizeCompatibleMetadata(raw: Record<string, unknown>): {
         ? record.shortDescription
         : null;
   const shortDescription = rawShortDescription?.trim() || undefined;
+  const rawLogoPath =
+    typeof record.logo_path === 'string'
+      ? record.logo_path
+      : typeof record.logoPath === 'string'
+        ? record.logoPath
+        : null;
+  const logoPath = rawLogoPath?.trim() || undefined;
   return {
     ...(shortDescription ? { shortDescription } : {}),
+    ...(logoPath ? { logoPath } : {}),
     tags: normalizeStringList(record.tags),
     relatedSkills: Array.from(
       new Set([
@@ -726,6 +737,7 @@ function parseRequiresFromFrontmatter(
 
 function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
   shortDescription?: string;
+  logoPath?: string;
   tags: string[];
   relatedSkills: string[];
   install: SkillInstallSpec[];
@@ -749,6 +761,12 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
           ?.inline ||
           metadataLookup.compatibleSectionFields.get('shortDescription')
             ?.inline ||
+          '',
+      ) || undefined,
+    logoPath:
+      stripQuotes(
+        metadataLookup.compatibleSectionFields.get('logo_path')?.inline ||
+          metadataLookup.compatibleSectionFields.get('logoPath')?.inline ||
           '',
       ) || undefined,
     tags: parseSectionStringList(
@@ -1723,6 +1741,7 @@ export interface SkillCatalogEntry {
   metadata: {
     hybridclaw: {
       shortDescription?: string;
+      logoPath?: string;
       tags: string[];
       relatedSkills: string[];
       install: SkillInstallSpec[];

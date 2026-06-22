@@ -1,13 +1,20 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminAdaptiveSkillAmendmentsResponse,
   AdminAdaptiveSkillHealthMetric,
   AdminAdaptiveSkillHealthResponse,
+  AdminSecretMutationResponse,
+  AdminSecretsResponse,
   AdminSkill,
+  AdminSkillInvocationsResponse,
+  AdminSkillPackageFileResponse,
+  AdminSkillPackageFilesResponse,
   AdminSkillsResponse,
 } from '../api/types';
 import { renderWithProviders } from '../test-utils';
+import { SkillDetailView } from './skill-detail';
 import { SkillsPage } from './skills';
 
 const fetchSkillsMock = vi.fn<() => Promise<AdminSkillsResponse>>();
@@ -15,18 +22,81 @@ const fetchHealthMock =
   vi.fn<() => Promise<AdminAdaptiveSkillHealthResponse>>();
 const fetchAmendmentsMock =
   vi.fn<() => Promise<AdminAdaptiveSkillAmendmentsResponse>>();
+const fetchSkillPackageFilesMock =
+  vi.fn<() => Promise<AdminSkillPackageFilesResponse>>();
+const fetchSkillInvocationsMock =
+  vi.fn<
+    (token: string, skillName: string) => Promise<AdminSkillInvocationsResponse>
+  >();
+const fetchSkillPackageFileMock =
+  vi.fn<
+    (
+      token: string,
+      payload: { skillName: string; path: string },
+    ) => Promise<AdminSkillPackageFileResponse>
+  >();
+const saveSkillPackageFileMock =
+  vi.fn<
+    (
+      token: string,
+      payload: { skillName: string; path: string; content: string },
+    ) => Promise<AdminSkillPackageFileResponse>
+  >();
 const saveSkillEnabledMock = vi.fn();
+const fetchAdminSecretsMock =
+  vi.fn<(token: string) => Promise<AdminSecretsResponse>>();
+const overwriteAdminSecretMock =
+  vi.fn<
+    (
+      token: string,
+      name: string,
+      value: string,
+    ) => Promise<AdminSecretMutationResponse>
+  >();
+const unsetAdminSecretMock =
+  vi.fn<
+    (token: string, name: string) => Promise<AdminSecretMutationResponse>
+  >();
 const useAuthMock = vi.fn();
+
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({
+    to,
+    children,
+    ...rest
+  }: { to: string; children: ReactNode } & Record<string, unknown>) => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
+  ),
+  useParams: () => ({}),
+}));
 
 vi.mock('../api/client', () => ({
   fetchSkills: () => fetchSkillsMock(),
   fetchAdaptiveSkillHealth: () => fetchHealthMock(),
   fetchAdaptiveSkillAmendments: () => fetchAmendmentsMock(),
   fetchAdaptiveSkillAmendmentHistory: () => fetchAmendmentsMock(),
+  fetchSkillPackageFiles: () => fetchSkillPackageFilesMock(),
+  fetchSkillInvocations: (token: string, skillName: string) =>
+    fetchSkillInvocationsMock(token, skillName),
+  fetchSkillPackageFile: (
+    token: string,
+    payload: { skillName: string; path: string },
+  ) => fetchSkillPackageFileMock(token, payload),
+  saveSkillPackageFile: (
+    token: string,
+    payload: { skillName: string; path: string; content: string },
+  ) => saveSkillPackageFileMock(token, payload),
   saveSkillEnabled: (
     token: string,
     payload: { name: string; enabled: boolean },
   ) => saveSkillEnabledMock(token, payload),
+  fetchAdminSecrets: (token: string) => fetchAdminSecretsMock(token),
+  overwriteAdminSecret: (token: string, name: string, value: string) =>
+    overwriteAdminSecretMock(token, name, value),
+  unsetAdminSecret: (token: string, name: string) =>
+    unsetAdminSecretMock(token, name),
   createSkill: vi.fn(),
   unblockSkill: vi.fn(),
   uploadSkillZip: vi.fn(),
@@ -43,6 +113,7 @@ function makeSkill(overrides: Partial<AdminSkill> = {}): AdminSkill {
     name: 'pdf',
     description: 'Create and read PDF files.',
     category: 'office',
+    developer: 'HybridClaw',
     source: 'bundled',
     available: true,
     enabled: true,
@@ -50,14 +121,50 @@ function makeSkill(overrides: Partial<AdminSkill> = {}): AdminSkill {
     userInvocable: true,
     disableModelInvocation: false,
     always: false,
+    capabilities: [],
+    supportedChannels: ['discord', 'tui'],
+    requires: { bins: [], env: [] },
     tags: [],
     relatedSkills: [],
+    install: [],
+    credentials: [],
+    configVariables: [],
     ...overrides,
   };
 }
 
 function makeResponse(skills: AdminSkill[]): AdminSkillsResponse {
   return { extraDirs: [], disabled: [], skills };
+}
+
+function makeSkillFileResponse(
+  content = '# PDF skill\n',
+): AdminSkillPackageFileResponse {
+  return {
+    skillName: 'pdf',
+    rootPath: '/skills/pdf',
+    file: {
+      path: 'SKILL.md',
+      name: 'SKILL.md',
+      kind: 'file',
+      sizeBytes: content.length,
+      updatedAt: '2026-06-19T10:00:00.000Z',
+      editable: true,
+      previewable: true,
+      content,
+    },
+  };
+}
+
+function makeSecretsResponse(
+  overrides: Partial<AdminSecretsResponse> = {},
+): AdminSecretsResponse {
+  return {
+    secrets: [],
+    total: 0,
+    actions: ['secret.list_metadata', 'secret.overwrite', 'secret.unset'],
+    ...overrides,
+  };
 }
 
 function makeHealthMetric(
@@ -90,17 +197,56 @@ describe('SkillsPage', () => {
     fetchSkillsMock.mockReset();
     fetchHealthMock.mockReset();
     fetchAmendmentsMock.mockReset();
+    fetchSkillPackageFilesMock.mockReset();
+    fetchSkillInvocationsMock.mockReset();
+    fetchSkillPackageFileMock.mockReset();
+    saveSkillPackageFileMock.mockReset();
     saveSkillEnabledMock.mockReset();
+    fetchAdminSecretsMock.mockReset();
+    overwriteAdminSecretMock.mockReset();
+    unsetAdminSecretMock.mockReset();
     useAuthMock.mockReset();
     useAuthMock.mockReturnValue({ token: 'test-token' });
     fetchHealthMock.mockResolvedValue({ metrics: [] });
     fetchAmendmentsMock.mockResolvedValue({ amendments: [] });
+    fetchSkillPackageFilesMock.mockResolvedValue({
+      skillName: 'pdf',
+      rootPath: '/skills/pdf',
+      files: [],
+    });
+    fetchSkillInvocationsMock.mockResolvedValue({
+      skillName: 'pdf',
+      invocations: [],
+    });
+    fetchSkillPackageFileMock.mockResolvedValue(makeSkillFileResponse());
+    saveSkillPackageFileMock.mockResolvedValue(makeSkillFileResponse());
+    fetchAdminSecretsMock.mockResolvedValue(makeSecretsResponse());
+    overwriteAdminSecretMock.mockResolvedValue({
+      secret: {
+        name: 'PDF_API_TOKEN',
+        state: 'set',
+        created_at: '2026-06-19T10:00:00.000Z',
+        last_rotated_at: '2026-06-19T10:00:00.000Z',
+        length: 10,
+        fingerprint: { length: 10, sha256_prefix: 'abc123def456' },
+      },
+    });
+    unsetAdminSecretMock.mockResolvedValue({
+      secret: {
+        name: 'PDF_API_TOKEN',
+        state: 'unset',
+        created_at: null,
+        last_rotated_at: null,
+        length: null,
+        fingerprint: null,
+      },
+    });
   });
 
   it('renders the catalog and filters by the search Input', async () => {
     fetchSkillsMock.mockResolvedValue(
       makeResponse([
-        makeSkill({ name: 'pdf', description: 'PDF tools.' }),
+        makeSkill({ name: 'pdf', description: 'PDF tools.', enabled: false }),
         makeSkill({ name: 'memory', description: 'Memory utilities.' }),
       ]),
     );
@@ -119,6 +265,313 @@ describe('SkillsPage', () => {
       expect(screen.queryByText('pdf')).toBeNull();
     });
     expect(screen.getByText('memory')).toBeTruthy();
+
+    fireEvent.change(filter, { target: { value: '' } });
+    await waitFor(() => {
+      expect(screen.getByText('pdf')).toBeTruthy();
+    });
+
+    fireEvent.click(
+      screen.getByRole('switch', { name: 'Show enabled skills only' }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByText('pdf')).toBeNull();
+    });
+    expect(screen.getByText('memory')).toBeTruthy();
+    expect(screen.getByText('1 skill visible')).toBeTruthy();
+  });
+
+  it('links installed skills to their detail pages', async () => {
+    fetchSkillsMock.mockResolvedValue(makeResponse([makeSkill()]));
+
+    renderWithProviders(<SkillsPage />);
+
+    const link = await screen.findByRole('link', { name: 'pdf' });
+    expect(link.getAttribute('href')).toBe('/admin/skills/pdf');
+  });
+
+  it('renders skill detail metadata, docs, and example prompts', async () => {
+    fetchSkillsMock.mockResolvedValue(
+      makeResponse([
+        makeSkill({
+          logoUrl: 'data:image/svg+xml;base64,PHN2Zy8+',
+          install: [
+            {
+              id: 'node',
+              kind: 'node',
+              label: 'Install Node.js',
+              bins: ['node'],
+            },
+          ],
+          credentials: [
+            {
+              id: 'pdf-api-token',
+              kind: 'api_key',
+              required: true,
+              secretRef: { source: 'store', id: 'PDF_API_TOKEN' },
+              scope: 'PDF service',
+              howToObtain: 'Create a token.',
+            },
+          ],
+          configVariables: [
+            {
+              id: 'pdf-host',
+              env: 'PDF_HOST',
+              required: false,
+              scope: 'PDF API host',
+              howToObtain: 'Set the host.',
+            },
+          ],
+          capabilities: ['document-processing'],
+          requires: { bins: ['node'], env: ['PDF_HOST'] },
+          tags: ['office'],
+          relatedSkills: ['docx'],
+          docs: {
+            title: 'pdf',
+            sourcePath: 'guides/skills/office.md',
+            sourceHref: '/docs/guides/skills/office#pdf',
+            tutorialMarkdown: '## pdf\n\nRender and inspect PDFs.',
+            screenshots: [
+              {
+                src: '/docs/guides/skills/assets/pdf-preview.png',
+                alt: 'PDF workflow preview',
+                title: 'PDF preview',
+              },
+            ],
+            examplePrompts: [
+              {
+                kind: 'try-it',
+                prompt: 'Create a one-page PDF titled "Quarterly Report"',
+              },
+            ],
+          },
+        }),
+      ]),
+    );
+
+    renderWithProviders(<SkillDetailView skillName="pdf" />);
+
+    expect(await screen.findByRole('heading', { name: 'pdf' })).toBeTruthy();
+    expect(screen.getByAltText('pdf logo')).toHaveProperty(
+      'src',
+      'data:image/svg+xml;base64,PHN2Zy8+',
+    );
+    expect(screen.getByText('HybridClaw')).toBeTruthy();
+    expect(screen.getByAltText('PDF workflow preview')).toHaveProperty(
+      'src',
+      expect.stringContaining('/docs/guides/skills/assets/pdf-preview.png'),
+    );
+    expect(screen.getByText('PDF preview')).toBeTruthy();
+    expect(screen.getByText('capability: document-processing')).toBeTruthy();
+    expect(screen.getByText('bin: node')).toBeTruthy();
+    expect(screen.getByText('Install Node.js')).toBeTruthy();
+    expect(await screen.findByText('PDF_API_TOKEN')).toBeTruthy();
+    expect(screen.getByText('PDF_HOST')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tutorial' }));
+    expect(screen.getByText('Render and inspect PDFs.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Prompts' }));
+    expect(
+      screen.getByText('Create a one-page PDF titled "Quarterly Report"'),
+    ).toBeTruthy();
+    const tryLink = screen.getByRole('link', {
+      name: 'Try it: /pdf Create a one-page PDF titled "Quarterly Report"',
+    });
+    expect(tryLink.getAttribute('href')).toBe(
+      '/chat?prompt=%2Fpdf+Create+a+one-page+PDF+titled+%22Quarterly+Report%22',
+    );
+    expect(tryLink.getAttribute('target')).toBe('_blank');
+  });
+
+  it('shows credential secret state and can set or delete values', async () => {
+    fetchSkillsMock.mockResolvedValue(
+      makeResponse([
+        makeSkill({
+          credentials: [
+            {
+              id: 'pdf-api-token',
+              kind: 'api_key',
+              required: true,
+              secretRef: { source: 'store', id: 'PDF_API_TOKEN' },
+              scope: 'PDF service',
+            },
+            {
+              id: 'pdf-password',
+              kind: 'api_key',
+              required: false,
+              secretRef: { source: 'store', id: 'PDF_PASSWORD' },
+              scope: 'PDF password',
+            },
+          ],
+        }),
+      ]),
+    );
+    fetchAdminSecretsMock.mockResolvedValue(
+      makeSecretsResponse({
+        secrets: [
+          {
+            name: 'PDF_API_TOKEN',
+            state: 'set',
+            created_at: '2026-06-19T10:00:00.000Z',
+            last_rotated_at: '2026-06-19T10:00:00.000Z',
+            length: 24,
+            fingerprint: { length: 24, sha256_prefix: 'abc123def456' },
+          },
+        ],
+        total: 1,
+      }),
+    );
+
+    renderWithProviders(<SkillDetailView skillName="pdf" />);
+
+    expect(await screen.findByText('PDF_API_TOKEN')).toBeTruthy();
+    expect(await screen.findByText('sha256:abc123def456')).toBeTruthy();
+    expect(screen.getByText('PDF_PASSWORD')).toBeTruthy();
+    expect(
+      screen.getByText('Missing from the runtime secret store.'),
+    ).toBeTruthy();
+    expect(fetchAdminSecretsMock).toHaveBeenCalledWith('test-token');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set PDF_PASSWORD' }));
+    fireEvent.change(screen.getByLabelText('New value'), {
+      target: { value: 'new-secret-value' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save value' }));
+
+    await waitFor(() =>
+      expect(overwriteAdminSecretMock).toHaveBeenCalledWith(
+        'test-token',
+        'PDF_PASSWORD',
+        'new-secret-value',
+      ),
+    );
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Delete PDF_API_TOKEN' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete secret' }));
+
+    await waitFor(() =>
+      expect(unsetAdminSecretMock).toHaveBeenCalledWith(
+        'test-token',
+        'PDF_API_TOKEN',
+      ),
+    );
+  });
+
+  it('enables a disabled skill from the detail page', async () => {
+    fetchSkillsMock.mockResolvedValue(
+      makeResponse([makeSkill({ enabled: false })]),
+    );
+    saveSkillEnabledMock.mockResolvedValue(
+      makeResponse([makeSkill({ enabled: true })]),
+    );
+
+    renderWithProviders(<SkillDetailView skillName="pdf" />);
+
+    const toggle = await screen.findByRole('switch', { name: 'Enable pdf' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByText('Enable')).toBeTruthy();
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(saveSkillEnabledMock).toHaveBeenCalledTimes(1));
+    expect(saveSkillEnabledMock).toHaveBeenCalledWith('test-token', {
+      name: 'pdf',
+      enabled: true,
+    });
+  });
+
+  it('renders recent skill invocations collapsed by default', async () => {
+    fetchSkillsMock.mockResolvedValue(makeResponse([makeSkill()]));
+    fetchSkillInvocationsMock.mockResolvedValue({
+      skillName: 'pdf',
+      invocations: [
+        {
+          sessionId: 'session-1',
+          userMessageId: 10,
+          assistantMessageId: 11,
+          username: 'alice',
+          createdAt: '2026-06-20T10:00:00.000Z',
+          responseCreatedAt: '2026-06-20T10:00:01.000Z',
+          userPrompt: '/pdf Create a one-page PDF',
+          skillInput: 'Create a one-page PDF',
+          response: 'Created the PDF.',
+        },
+      ],
+    });
+
+    renderWithProviders(<SkillDetailView skillName="pdf" />);
+
+    expect(await screen.findByText('Recent invocations')).toBeTruthy();
+    const promptMatches = await screen.findAllByText(
+      '/pdf Create a one-page PDF',
+    );
+    const summaryText = promptMatches.find((element) =>
+      element.classList.contains('skill-invocation-summary-main'),
+    );
+    if (!summaryText) throw new Error('Expected invocation summary text.');
+    const row = summaryText.closest('details') as HTMLDetailsElement;
+    expect(row.open).toBe(false);
+
+    fireEvent.click(summaryText);
+
+    expect(row.open).toBe(true);
+    expect(screen.getByText('Created the PDF.')).toBeTruthy();
+    expect(fetchSkillInvocationsMock).toHaveBeenCalledWith('test-token', 'pdf');
+  });
+
+  it('previews installed skill package files', async () => {
+    fetchSkillsMock.mockResolvedValue(makeResponse([makeSkill()]));
+    fetchSkillPackageFilesMock.mockResolvedValue({
+      skillName: 'pdf',
+      rootPath: '/skills/pdf',
+      files: [
+        {
+          path: 'references',
+          name: 'references',
+          kind: 'directory',
+          sizeBytes: null,
+          updatedAt: '2026-06-19T10:00:00.000Z',
+          editable: false,
+          previewable: false,
+        },
+        {
+          path: 'SKILL.md',
+          name: 'SKILL.md',
+          kind: 'file',
+          sizeBytes: 12,
+          updatedAt: '2026-06-19T10:00:00.000Z',
+          editable: true,
+          previewable: true,
+        },
+        {
+          path: 'icon.png',
+          name: 'icon.png',
+          kind: 'file',
+          sizeBytes: 1024,
+          updatedAt: '2026-06-19T10:00:00.000Z',
+          editable: false,
+          previewable: false,
+        },
+      ],
+    });
+    fetchSkillPackageFileMock.mockResolvedValue(
+      makeSkillFileResponse('# PDF\n'),
+    );
+    saveSkillPackageFileMock.mockResolvedValue(
+      makeSkillFileResponse('# Updated PDF\n'),
+    );
+
+    renderWithProviders(<SkillDetailView skillName="pdf" />);
+
+    expect(await screen.findByText('/skills/pdf')).toBeTruthy();
+    expect(screen.getByText('icon.png')).toBeTruthy();
+    const editor = (await screen.findByLabelText(
+      'Edit SKILL.md',
+    )) as HTMLTextAreaElement;
+    expect(editor.value).toBe('# PDF\n');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
   });
 
   it('toggling a skill calls saveSkillEnabled with the inverted value', async () => {
@@ -132,10 +585,9 @@ describe('SkillsPage', () => {
     renderWithProviders(<SkillsPage />);
 
     await screen.findByText('pdf');
-    const toggles = screen.getAllByRole('switch');
-    expect(toggles).toHaveLength(1);
-    expect(toggles[0].getAttribute('aria-checked')).toBe('true');
-    fireEvent.click(toggles[0]);
+    const toggle = screen.getByRole('switch', { name: 'pdf status' });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(toggle);
 
     await waitFor(() => expect(saveSkillEnabledMock).toHaveBeenCalledTimes(1));
     expect(saveSkillEnabledMock).toHaveBeenCalledWith('test-token', {

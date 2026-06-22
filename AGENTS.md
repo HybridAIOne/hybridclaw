@@ -264,6 +264,13 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
   `await import()` and static `import` for the same module in production paths.
 - **Dependencies:** root `package.json` is for gateway/CLI deps. Container-only
   deps go in `container/package.json`. Never add container deps to root.
+- When changing npm dependencies, update every generated dependency artifact in
+  the same change: the relevant `package-lock.json`, matching
+  `npm-shrinkwrap.json`, and the approved lockfile hashes in
+  `scripts/dependency-policy-baseline.json`. Use `npm run deps:update-lockfile`
+  when practical, or copy the updated lockfile to its shrinkwrap pair and
+  update the baseline hash after reviewing the lockfile diff. Run
+  `npm run deps:policy` before handing off.
 
 ### Git Discipline
 
@@ -327,7 +334,13 @@ Skill resolution order (first match wins):
    }
    ```
 2. Tools are auto-discovered at startup and merged into the tool namespace.
-3. Test with `hybridclaw` running in dev mode.
+3. Remote `http`/`sse` servers can set `"auth": "oauth"`; the gateway runs the
+   OAuth 2.1 flow (`src/mcp/mcp-oauth.ts`), stores credentials in the
+   encrypted runtime secret store (`~/.hybridclaw/credentials.json`, one
+   `MCP_OAUTH_*` entry per server), and injects a fresh `Authorization` header
+   per turn. Connect via `/mcp login <name>`, the TUI `/mcp add` wizard, or the
+   console MCP page.
+4. Test with `hybridclaw` running in dev mode.
 
 ### 7.4 Modifying Approval Policy
 

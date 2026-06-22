@@ -11,6 +11,7 @@ import type {
   ResolvedModelRuntimeCredentials,
   ResolveProviderRuntimeParams,
 } from './types.js';
+import { HYBRIDCLAW_USER_AGENT } from './user-agent.js';
 
 function normalizeChatbotId(chatbotId: string | undefined): string {
   return String(chatbotId || '').trim();
@@ -30,7 +31,9 @@ async function resolveHybridAIRuntimeCredentials(
     baseUrl: HYBRIDAI_BASE_URL,
     chatbotId,
     enableRag,
-    requestHeaders: {},
+    requestHeaders: {
+      'User-Agent': HYBRIDCLAW_USER_AGENT,
+    },
     agentId,
     contextWindow:
       getDiscoveredHybridAIModelContextWindow(params.model) ?? undefined,

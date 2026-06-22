@@ -1,4 +1,5 @@
 import type { AdminConfig } from '../api/types';
+import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { pluralize } from '../lib/format';
 
 export type ChannelKind =
@@ -382,14 +383,51 @@ function describeEmail(
   options: ChannelCatalogOptions,
 ): ChannelCatalogItem {
   const passwordConfigured = options.emailPasswordConfigured === true;
+  const defaultMailboxAddress = String(config.email.address || '').trim();
+  const accounts = Array.isArray(config.email.accounts)
+    ? config.email.accounts
+    : [];
+  const configuredAccounts = accounts.filter(
+    (account) => account.address || account.agentId,
+  );
+  const defaultMailboxOverridden =
+    defaultMailboxAddress.length > 0 &&
+    configuredAccounts.some((account) => {
+      const accountAgentId = String(account.agentId || '').trim();
+      const accountAddress = String(account.address || '').trim();
+      return (
+        !accountAgentId ||
+        accountAgentId === DEFAULT_AGENT_ID ||
+        accountAddress.toLowerCase() === defaultMailboxAddress.toLowerCase()
+      );
+    });
+  const mailboxCount =
+    configuredAccounts.length +
+    (defaultMailboxAddress && !defaultMailboxOverridden ? 1 : 0);
+  const activeAccount = accounts.some((account) => {
+    const password = account.password;
+    const passwordRefConfigured =
+      typeof password === 'string'
+        ? password.trim().length > 0
+        : Boolean(password?.id);
+    return (
+      passwordRefConfigured &&
+      !!account.agentId &&
+      !!account.address &&
+      !!account.imapHost &&
+      !!account.smtpHost
+    );
+  });
   const active =
     config.email.enabled &&
-    passwordConfigured &&
-    !!config.email.address &&
-    !!config.email.imapHost &&
-    !!config.email.smtpHost;
+    (activeAccount ||
+      (passwordConfigured &&
+        !!config.email.address &&
+        !!config.email.imapHost &&
+        !!config.email.smtpHost));
   const configured =
     active ||
+    configuredAccounts.length > 0 ||
     !!config.email.address ||
     !!config.email.imapHost ||
     !!config.email.smtpHost ||
@@ -403,7 +441,10 @@ function describeEmail(
   return {
     kind: 'email',
     label: 'Email',
-    summary: config.email.address || 'No mailbox address configured yet',
+    summary:
+      mailboxCount > 0
+        ? `${mailboxCount} mailbox${mailboxCount === 1 ? '' : 'es'}`
+        : config.email.address || 'No mailbox address configured yet',
     statusTone,
     statusLabel:
       statusTone === 'active'

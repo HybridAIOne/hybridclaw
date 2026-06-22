@@ -57,6 +57,7 @@ const gateway = new GatewayRuntime({
       process.env.GATEWAY_BASE_URL ||
       undefined,
   ),
+  logPath: path.join(app.getPath('logs'), 'gateway.log'),
   packaged: app.isPackaged,
   processEnv: process.env,
   processExecPath: process.execPath,

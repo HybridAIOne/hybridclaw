@@ -170,8 +170,8 @@ jobs:
           context: ./container
           target: runtime
           push: true
-          provenance: false
-          sbom: false
+          provenance: mode=max
+          sbom: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ needs.validate.outputs.labels }}
@@ -258,8 +258,8 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          provenance: false
-          sbom: false
+          provenance: mode=max
+          sbom: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ needs.validate.outputs.labels }}

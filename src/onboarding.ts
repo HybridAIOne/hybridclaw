@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
@@ -50,6 +49,7 @@ import {
 } from './security/runtime-secrets.js';
 import { bootstrapRuntimeSecrets } from './security/runtime-secrets-bootstrap.js';
 import type { HybridAIBot } from './types/hybridai.js';
+import { tryOpenUrlInBrowser } from './utils/open-url.js';
 import { promptForSecretInput } from './utils/secret-prompt.js';
 
 interface ApiKeyValidationResult {
@@ -269,31 +269,6 @@ function extractApiKeyFromInput(raw: string): string | null {
 
   if (trimmed.startsWith('hai-')) return trimmed;
   return null;
-}
-
-function getOpenCommand(url: string): { cmd: string; args: string[] } | null {
-  if (process.platform === 'darwin') return { cmd: 'open', args: [url] };
-  if (process.platform === 'win32')
-    return { cmd: 'cmd', args: ['/c', 'start', '', url] };
-  if (process.platform === 'linux') return { cmd: 'xdg-open', args: [url] };
-  return null;
-}
-
-async function tryOpenUrl(url: string): Promise<boolean> {
-  const openCommand = getOpenCommand(url);
-  if (!openCommand) return false;
-
-  return new Promise((resolve) => {
-    const child = spawn(openCommand.cmd, openCommand.args, {
-      stdio: 'ignore',
-      detached: true,
-    });
-    child.once('error', () => resolve(false));
-    child.once('spawn', () => {
-      child.unref();
-      resolve(true);
-    });
-  });
 }
 
 async function validateApiKey(
@@ -1058,7 +1033,7 @@ async function runHybridAIApiKeyOnboarding(params: {
       ICON_PERSON,
     );
     if (openRegister) {
-      const opened = await tryOpenUrl(registerPageUrl);
+      const opened = await tryOpenUrlInBrowser(registerPageUrl);
       if (!opened) {
         printWarn('Could not auto-open browser. Open the link manually.');
       }
@@ -1090,7 +1065,7 @@ async function runHybridAIApiKeyOnboarding(params: {
     ICON_AUTH,
   );
   if (openLogin) {
-    const opened = await tryOpenUrl(loginUrl);
+    const opened = await tryOpenUrlInBrowser(loginUrl);
     if (!opened) {
       printWarn('Could not auto-open browser. Open the link manually.');
     }

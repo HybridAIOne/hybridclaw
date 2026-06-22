@@ -1,5 +1,6 @@
 import {
-  getCodexAuthStatus,
+  CodexAuthError,
+  type CodexResolvedCredentials,
   resolveCodexCredentials,
 } from '../auth/codex-auth.js';
 import { logger } from '../logger.js';
@@ -12,6 +13,7 @@ import {
 } from './utils.js';
 
 const CODEX_MODEL_PREFIX = 'openai-codex/';
+const CODEX_DISCOVERY_TIMEOUT_MS = 5_000;
 const CODEX_SUPPLEMENTAL_MODELS = [
   'openai-codex/gpt-5.1-codex-max',
   'openai-codex/gpt-5.1-codex-mini',
@@ -134,22 +136,40 @@ const buildEmptyCodexDiscoveryState = (): CodexDiscoveryState => ({
   maxTokensByModel: new Map(),
 });
 
+function createHttpStatusError(status: number): Error & { httpStatus: number } {
+  const err = new Error(`HTTP ${status}`) as Error & { httpStatus: number };
+  err.httpStatus = status;
+  return err;
+}
+
+function isCodexReloginError(error: unknown): boolean {
+  return error instanceof CodexAuthError && error.reloginRequired;
+}
+
+function isCodexAuthDiscoveryFailure(error: unknown): boolean {
+  const status = (error as { httpStatus?: unknown } | null)?.httpStatus;
+  const httpStatus =
+    typeof status === 'number' && Number.isFinite(status) ? status : null;
+  return httpStatus === 401 || httpStatus === 403 || isCodexReloginError(error);
+}
+
 export function createCodexDiscoveryStore(): CodexDiscoveryStore {
   const discoveryStore = createDiscoveryStore(buildEmptyCodexDiscoveryState());
 
-  async function fetchCodexModels(): Promise<CodexDiscoveryState> {
-    const credentials = await resolveCodexCredentials();
+  async function fetchCodexModels(
+    credentials?: CodexResolvedCredentials,
+  ): Promise<CodexDiscoveryState> {
+    const resolvedCredentials =
+      credentials ?? (await resolveCodexCredentials());
     const url = new URL(
-      `${normalizeBaseUrl(process.env.HYBRIDCLAW_CODEX_BASE_URL || credentials.baseUrl)}/models`,
+      `${normalizeBaseUrl(process.env.HYBRIDCLAW_CODEX_BASE_URL || resolvedCredentials.baseUrl)}/models`,
     );
     url.searchParams.set('client_version', CODEX_CLIENT_VERSION);
     const response = await fetch(url, {
-      headers: credentials.headers,
-      signal: AbortSignal.timeout(5_000),
+      headers: resolvedCredentials.headers,
+      signal: AbortSignal.timeout(CODEX_DISCOVERY_TIMEOUT_MS),
     });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
+    if (!response.ok) throw createHttpStatusError(response.status);
 
     const payload = (await response.json()) as unknown;
     const data = readCodexModelEntries(payload);
@@ -186,18 +206,37 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
     };
   }
 
-  async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
-    const auth = getCodexAuthStatus();
-    if (!auth.authenticated || auth.reloginRequired) {
-      discoveryStore.replaceState(buildEmptyCodexDiscoveryState(), {
-        skipCache: true,
+  async function fetchCodexModelsWithAuthRetry(): Promise<CodexDiscoveryState> {
+    const credentials = await resolveCodexCredentials({
+      allowCodexCliImportFallback: true,
+    });
+    try {
+      return await fetchCodexModels(credentials);
+    } catch (error) {
+      if (!isCodexAuthDiscoveryFailure(error)) throw error;
+      const refreshedCredentials = await resolveCodexCredentials({
+        allowCodexCliImportFallback: true,
+        forceRefresh: true,
       });
-      return [];
+      return await fetchCodexModels(refreshedCredentials);
     }
+  }
 
-    const state = await discoveryStore.discover(fetchCodexModels, {
+  async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
+    const state = await discoveryStore.discover(fetchCodexModelsWithAuthRetry, {
       force: opts?.force,
       onError: (err, staleState) => {
+        if (isCodexAuthDiscoveryFailure(err)) {
+          logger.debug(
+            { err },
+            'Codex model discovery skipped because credentials were rejected',
+          );
+          return {
+            _tag: 'update',
+            state: buildEmptyCodexDiscoveryState(),
+            skipCache: true,
+          };
+        }
         logger.warn({ err }, 'Codex model discovery failed');
         return staleState;
       },

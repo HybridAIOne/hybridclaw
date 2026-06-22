@@ -1,5 +1,5 @@
 {
-  "version": 30,
+  "version": 31,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -304,11 +304,13 @@
     "folders": ["INBOX"],
     "allowFrom": [],
     "textChunkLimit": 50000,
-    "mediaMaxMb": 20
+    "mediaMaxMb": 20,
+    "accounts": []
   },
   "hybridai": {
     "baseUrl": "https://hybridai.one",
     "defaultModel": "gpt-4.1-mini",
+    "onboardingModel": "",
     "defaultChatbotId": "",
     "maxTokens": 4096,
     "enableRag": true,
@@ -513,6 +515,12 @@
       "command": "npx",
       "args": ["-y", "@playwright/mcp@latest"],
       "enabled": false
+    },
+    "linear": {
+      "transport": "http",
+      "url": "https://mcp.linear.app/mcp",
+      "auth": "oauth",
+      "enabled": false
     }
   },
   "web": {
@@ -581,7 +589,9 @@
     "gatewayBaseUrl": "http://127.0.0.1:9090",
     "gatewayApiToken": "",
     "dbPath": "~/.hybridclaw/data/hybridclaw.db",
-    "logLevel": "info"
+    "logLevel": "info",
+    "logRequests": false,
+    "debugModelResponses": false
   },
   "observability": {
     "enabled": true,

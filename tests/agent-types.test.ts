@@ -15,10 +15,15 @@ import {
 
 test('buildOptionalAgentPresentation includes only populated presentation fields', () => {
   expect(
-    buildOptionalAgentPresentation('Charly', 'avatars/charly.png'),
+    buildOptionalAgentPresentation(
+      'Charly',
+      'avatars/charly.png',
+      'Ready for field notes?',
+    ),
   ).toEqual({
     displayName: 'Charly',
     imageAsset: 'avatars/charly.png',
+    emptyChatHeader: 'Ready for field notes?',
   });
   expect(buildOptionalAgentPresentation('', '')).toEqual({});
   expect(

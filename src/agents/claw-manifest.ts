@@ -28,6 +28,7 @@ export interface ClawPluginExternalRef {
 export interface ClawPresentation {
   displayName?: string;
   imageAsset?: string;
+  emptyChatHeader?: string;
 }
 
 export interface ClawManifest {
@@ -101,6 +102,7 @@ function normalizePresentation(value: unknown): ClawPresentation | undefined {
 
   const displayName = normalizeString(value.displayName);
   const imageAsset = normalizeString(value.imageAsset);
+  const emptyChatHeader = normalizeString(value.emptyChatHeader);
   if (
     imageAsset &&
     (path.isAbsolute(imageAsset) ||
@@ -112,10 +114,11 @@ function normalizePresentation(value: unknown): ClawPresentation | undefined {
     );
   }
 
-  if (!displayName && !imageAsset) return undefined;
+  if (!displayName && !imageAsset && !emptyChatHeader) return undefined;
   return {
     ...(displayName ? { displayName } : {}),
     ...(imageAsset ? { imageAsset } : {}),
+    ...(emptyChatHeader ? { emptyChatHeader } : {}),
   };
 }
 

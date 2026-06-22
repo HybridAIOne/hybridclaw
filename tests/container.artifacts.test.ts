@@ -49,3 +49,23 @@ test('discovers recently created artifact files under the workspace root', () =>
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('ignores mirrored skill package assets under the workspace skills root', () => {
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-artifacts-'),
+  );
+  try {
+    const createdAtMs = Date.now();
+    const skillDir = path.join(tempDir, 'skills', 'blink');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'logo.webp'), 'webp payload');
+
+    const artifacts = discoverArtifactsSince(tempDir, {
+      modifiedAfterMs: createdAtMs - 1_000,
+    });
+
+    expect(artifacts).toEqual([]);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

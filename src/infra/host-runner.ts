@@ -27,7 +27,7 @@ import {
   CONTEXT_GUARD_OVERFLOW_RATIO,
   CONTEXT_GUARD_PER_RESULT_SHARE,
   GATEWAY_API_TOKEN,
-  GATEWAY_BASE_URL,
+  GATEWAY_CLIENT_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
@@ -46,8 +46,8 @@ import {
 } from '../config/config.js';
 import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
-import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
+import { resolveMcpServersForRuntime } from '../mcp/mcp-oauth.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
@@ -82,7 +82,10 @@ import {
   readOutput,
   writeInput,
 } from './ipc.js';
-import { consumeModelResponseDebugFileLine } from './model-response-debug.js';
+import {
+  consumeModelResponseDebugFileLine,
+  isModelResponseDebugEnabled,
+} from './model-response-debug.js';
 import {
   consumeCollapsedStreamDebugLine,
   createStreamDebugState,
@@ -118,6 +121,7 @@ import { computeWorkerSignature } from './worker-signature.js';
 
 const HOST_CAPACITY_WAIT_MS = 15_000;
 const HOST_CAPACITY_POLL_MS = 100;
+
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 
 function resolveExecutorMaxTokens(params: {
@@ -178,7 +182,7 @@ function resolveHostAgentBrowserBinary(): string | undefined {
 
 function buildHostGatewayRuntimeEnv(): Record<string, string> {
   return {
-    HYBRIDCLAW_GATEWAY_URL: GATEWAY_BASE_URL,
+    HYBRIDCLAW_GATEWAY_URL: GATEWAY_CLIENT_BASE_URL,
     HYBRIDCLAW_GATEWAY_TOKEN: GATEWAY_API_TOKEN || '',
   };
 }
@@ -938,6 +942,7 @@ async function runHostProcessInner(
 
   const startTime = Date.now();
   const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
+  const mcpServers = await resolveMcpServersForRuntime(MCP_SERVERS);
   const existingEntry = pool.get(sessionId);
   const selectedCodexRuntime =
     modelRuntime.provider === 'openai-codex' ? CODEX_RUNTIME : 'hybridclaw';
@@ -959,7 +964,7 @@ async function runHostProcessInner(
     contextWindow: modelRuntime.contextWindow,
     modelBehavior: modelRuntime.modelBehavior,
     thinkingFormat: modelRuntime.thinkingFormat,
-    gatewayBaseUrl: GATEWAY_BASE_URL,
+    gatewayBaseUrl: GATEWAY_CLIENT_BASE_URL,
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
@@ -971,7 +976,7 @@ async function runHostProcessInner(
     scheduleSideEffectsEnabled,
     skipContainerSystemPrompt,
     streamTextDeltas: Boolean(onTextDelta),
-    debugModelResponses: process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1',
+    debugModelResponses: isModelResponseDebugEnabled(),
     maxTokens: resolveExecutorMaxTokens({
       model: runtimeModel,
       discoveredMaxTokens: modelRuntime.maxTokens,
@@ -997,7 +1002,7 @@ async function runHostProcessInner(
     media,
     audioTranscriptsPrepended,
     pluginTools,
-    mcpServers: MCP_SERVERS,
+    mcpServers,
     taskModels,
     runtimeEnv,
     contextGuard: {

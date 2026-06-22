@@ -61,6 +61,7 @@ function makeHarness(initialMessages: ChatUiMessage[] = []) {
 
   return {
     wrapper,
+    queryClient,
     get messages(): ChatUiMessage[] {
       return (
         queryClient.getQueryData<ChatHistoryUiData>(
@@ -303,7 +304,7 @@ describe('useChatStream', () => {
     });
   });
 
-  it('adds display attribution to finalized addressed user messages', async () => {
+  it('keeps finalized routed user messages unchanged', async () => {
     const harness = makeHarness();
 
     requestChatStreamMock.mockResolvedValue({
@@ -341,7 +342,7 @@ describe('useChatStream', () => {
     const user = harness.messages.find((msg) => msg.role === 'user');
 
     expect(user).toMatchObject({
-      content: '@research summarize this',
+      content: 'summarize this',
       rawContent: 'summarize this',
       replayRequest: {
         content: 'summarize this',
@@ -495,6 +496,84 @@ describe('useChatStream', () => {
         media: [],
       },
     });
+  });
+
+  it('syncs cached session agent and bootstrap status after typed agent switch commands', async () => {
+    const harness = makeHarness();
+
+    requestChatStreamMock.mockResolvedValue({
+      status: 'success',
+      sessionId: SESSION_ID,
+      userMessageId: 'server-user-1',
+      assistantMessageId: null,
+      result:
+        'Session agent set to `research` (model: `gpt-5`). Hatching will start automatically from `BOOTSTRAP.md`.',
+      messageRole: 'command',
+      toolsUsed: [],
+    });
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('/agent switch research', []);
+    });
+
+    const session = harness.readSession(SESSION_ID);
+    expect(session?.agentId).toBe('research');
+    expect(session?.bootstrapAutostart).toEqual({
+      status: 'starting',
+      fileName: 'BOOTSTRAP.md',
+    });
+  });
+
+  it('invalidates the agent selector list after creating an agent from chat', async () => {
+    const harness = makeHarness();
+    harness.queryClient.setQueryData(
+      ['agents-list', TOKEN],
+      [{ id: 'main', name: 'Main Agent' }],
+    );
+
+    requestChatStreamMock.mockResolvedValue({
+      status: 'success',
+      sessionId: SESSION_ID,
+      userMessageId: 'server-user-1',
+      assistantMessageId: null,
+      result: 'Agent: nova',
+      messageRole: 'command',
+      toolsUsed: [],
+    });
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('/agent create nova', []);
+    });
+
+    expect(
+      harness.queryClient.getQueryState(['agents-list', TOKEN])?.isInvalidated,
+    ).toBe(true);
   });
 
   it('renders no bubble for a slash command that produces no visible output', async () => {

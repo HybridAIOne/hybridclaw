@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AUTH_REQUIRED_EVENT,
+  adminEventsUrl,
   buildWebCommandRequestBody,
+  clearStoredToken,
   dispatchAuthRequired,
   fetchAdminHybridAIBots,
   isLoopbackHostnameForTest,
@@ -9,6 +11,7 @@ import {
   registerDistillAgent,
   setAuthReloadHandlerForTest,
   setRuntimeSecret,
+  storeToken,
   TOKEN_STORAGE_KEY,
   unblockSkill,
   updateAdminAgent,
@@ -126,19 +129,54 @@ describe('client command helpers', () => {
     });
   });
 
-  it('removes the local token bootstrap marker after reading stored auth', () => {
+  it('clears legacy browser-stored tokens and URL auth params', () => {
     window.localStorage.clear();
-    window.localStorage.setItem(TOKEN_STORAGE_KEY, 'stored-token');
+    window.sessionStorage.setItem(TOKEN_STORAGE_KEY, 'stored-token');
     window.history.pushState(
       null,
       '',
-      '/admin?__hybridclaw_token_bootstrapped=1&view=models#top',
+      '/admin?token=query-token&__hybridclaw_token_bootstrapped=1&view=models#top',
     );
 
-    expect(readStoredToken()).toBe('stored-token');
+    expect(readStoredToken()).toBe('');
+    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.location.pathname).toBe('/admin');
     expect(window.location.search).toBe('?view=models');
     expect(window.location.hash).toBe('#top');
+  });
+
+  it('removes query tokens from the URL without persisting them', () => {
+    window.history.pushState(null, '', '/admin?token=query-token&view=models');
+
+    expect(readStoredToken()).toBe('');
+    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+    expect(window.location.search).toBe('?view=models');
+  });
+
+  it('clears legacy localStorage tokens without migrating them', () => {
+    window.localStorage.setItem(TOKEN_STORAGE_KEY, 'legacy-token');
+
+    expect(readStoredToken()).toBe('');
+    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+  });
+
+  it('does not persist manual tokens in browser storage', () => {
+    storeToken(' manual-token ');
+
+    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+
+    clearStoredToken();
+
+    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+  });
+
+  it('does not embed tokens into the admin events stream URL', () => {
+    expect(adminEventsUrl('test-token')).toBe('/api/events');
   });
 
   it('reloads local chat surfaces instead of prompting when auth expires', () => {
@@ -149,12 +187,12 @@ describe('client command helpers', () => {
       events.push(event as CustomEvent);
     };
     window.addEventListener(AUTH_REQUIRED_EVENT, listener);
-    window.localStorage.setItem(TOKEN_STORAGE_KEY, 'stale-token');
+    window.sessionStorage.setItem(TOKEN_STORAGE_KEY, 'stale-token');
     window.history.pushState(null, '', '/chat/sess_20260514_135843_6136cbbb');
 
     dispatchAuthRequired('Unauthorized.');
 
-    expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(reload).toHaveBeenCalledTimes(1);
     expect(events).toHaveLength(0);
 

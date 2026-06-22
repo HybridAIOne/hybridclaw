@@ -151,23 +151,23 @@ export function MetricCard(props: {
   return <div className="metric-card">{content}</div>;
 }
 
-export function SegmentedToggle(props: {
+export function SegmentedToggle<Value extends string>(props: {
   ariaLabel: string;
-  value: string;
+  value: Value;
   className?: string;
   options: Array<{
-    value: string;
+    value: Value;
     label: string;
     activeTone?: 'is-on' | 'is-off';
   }>;
-  onChange: (value: string) => void;
+  onChange: (value: Value) => void;
   disabled?: boolean;
   size?: 'sm' | 'default';
 }) {
   return (
     <ToggleGroup
       value={props.value}
-      onValueChange={props.onChange}
+      onValueChange={(value) => props.onChange(value as Value)}
       ariaLabel={props.ariaLabel}
       className={props.className}
       disabled={props.disabled}

@@ -51,6 +51,9 @@ Notes:
   - Target coworker workspaces expose seven editable surfaces:
     system_prompt.md, tools.yaml, tools/, middleware/, sub_agents/, config/, long_term_memory/.
   - Fresh evolution refuses non-minimal seeds; production coworkers can use run without --fresh-seed.
+  - Suites may tag tasks with risks.nistAiRmf, risks.nistGaiProfile, and risks.owaspLlmTop10,
+    then require coverage with riskCoverage.requireNistAiRmfCore,
+    requireNistGaiProfile, or requireOwaspLlmTop10.
   - contract prints the evolve-agent system prompt and tool schema for host orchestration.
   - Round artifacts and F12 manifests are written under target runs/.`);
 }
@@ -64,7 +67,7 @@ Commands:
   hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--system-prompt=<parts|none>] [--tools=full|none] [--no-tools] [--sandbox=container|host]
   hybridclaw gateway stop
   hybridclaw gateway status
-  hybridclaw gateway sessions [active|clear-active]
+  hybridclaw gateway sessions [active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]
   hybridclaw gateway bot info
   hybridclaw gateway voice [info|call <e164-number>]
   hybridclaw gateway show [all|thinking|tools|none]
@@ -75,6 +78,8 @@ Commands:
 export function printEvalUsage(): void {
   console.log(`Usage: hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]
        hybridclaw eval locomo [setup|run|status|stop|results|logs]
+       hybridclaw eval trace-judge [run|status|stop|results|logs]
+       hybridclaw eval agent-risk [run|status|stop|results|logs]
        hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
        hybridclaw eval tau2 [setup|run|status|stop|results]
        hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
@@ -101,6 +106,9 @@ Examples:
   hybridclaw eval locomo run --mode retrieval --matrix rerank --budget 4000
   hybridclaw eval locomo run --mode retrieval --matrix tokenizer --budget 4000
   hybridclaw eval locomo run --mode retrieval --matrix embedding --budget 4000
+  hybridclaw eval trace-judge run
+  hybridclaw eval agent-risk run
+  hybridclaw eval agent-risk run --scenario data-privacy
   hybridclaw eval tau2
   hybridclaw eval tau2 setup
   hybridclaw eval terminal-bench-2.0 setup
@@ -116,8 +124,11 @@ Examples:
 Notes:
   - This is a local-only command. It is not intended for remote chat channels.
   - Detached benchmark commands are launched directly with \`hybridclaw eval <command...>\`.
-  - Only \`locomo\`, \`terminal-bench-2.0\`, and \`tau2\` have active HybridClaw implementations today.
+  - Only \`locomo\`, \`trace-judge\`, \`agent-risk\`, \`terminal-bench-2.0\`, and \`tau2\` have active HybridClaw implementations today.
   - \`swebench-verified\`, \`agentbench\`, and \`gaia\` are stub entries that return \`not implemented yet\`.
+  - \`agent-risk\` runs synthetic canary scenarios through the local OpenAI-compatible gateway for every top-level NIST AI RMF function, NIST AI 600-1 GAI risk, and OWASP LLM Top 10 2025 item.
+  - \`agent-risk\` is automated top-level eval coverage, not a formal compliance attestation; organizational controls still require external evidence.
+  - \`agent-risk run --scenario <id>\` runs one scenario; \`agent-risk run\` runs the full top-level taxonomy suite.
   - \`locomo\` downloads the official \`locomo10.json\` dataset during \`setup\`.
   - \`locomo --mode qa\` sends evaluate_gpts-style QA prompts through HybridClaw's local OpenAI-compatible gateway and scores the generated answers.
   - \`locomo --mode retrieval\` skips model generation, ingests each conversation into an isolated native memory session, and scores evidence hit-rate from recalled semantic memories.
@@ -178,7 +189,7 @@ Interactive slash commands inside TUI:
   /reset [yes|no]
   /schedule add "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
   /secret list   /secret set <name> <value>   /secret show <name>   /secret unset <name>   /secret route ...
-  /sessions [active|clear-active]
+  /sessions [active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]
   /show [all|thinking|tools|none]
   /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|unblock <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
   /status
@@ -898,7 +909,7 @@ Notes:
   - Use \`--plugins active\` to bundle only enabled home plugins, \`--plugins all\` to bundle all installed home plugins, or \`--plugins some --plugin <id>\` to bundle a selected subset.
   - Interactive export defaults to \`--skills ask\` and \`--plugins ask\`; non-interactive export defaults to \`--skills all\` and \`--plugins active\`.
   - \`inspect\` validates the archive manifest and prints a summary without extracting files.
-  - \`install\` validates ZIP safety, confirms the manifest, registers the agent, restores bundled content, installs manifest-declared skill imports into the agent workspace, and fills missing bootstrap files.
+  - \`install\` validates ZIP safety, confirms the manifest, registers the agent, restores archived workspace content, and installs only manifest-declared bundled content or imports.
   - \`install official:<agent-dir>\` downloads a packaged agent from \`HybridAIOne/claws\` on GitHub before installing it.
   - \`install github:owner/repo/<agent-dir>\` resolves the packaged agent from a GitHub claws repo; use \`github:owner/repo/<ref>/<agent-dir>\` to pin a ref.
   - Direct \`https://.../*.claw\` URLs download the archive before installing it.

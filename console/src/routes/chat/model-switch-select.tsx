@@ -67,6 +67,7 @@ export interface ParsedModel {
   groupLabel: string;
   providerRank: number;
   vendorRank: number;
+  routeLabel: string | null;
   shortName: string;
   displayName: string;
   vendor: string | null;
@@ -414,6 +415,18 @@ function inferVendor(name: string): string | null {
   return VENDOR_BY_PREFIX.find(([prefix]) => n.startsWith(prefix))?.[1] ?? null;
 }
 
+function routeLabelForLocalModel(
+  parts: string[],
+  entry: ModelSwitchEntry,
+): string | null {
+  if (!entry.backend || parts.length < 2) return null;
+  const route = parts[0]?.trim();
+  if (!route) return null;
+  return route.toLowerCase() === entry.backend
+    ? pretty(entry.backend, PROVIDER_LABELS)
+    : route;
+}
+
 export function parseModel(entry: ModelSwitchEntry): ParsedModel {
   const id = entry.id;
   const parts = id.split('/');
@@ -438,12 +451,14 @@ export function parseModel(entry: ModelSwitchEntry): ParsedModel {
   const groupLabel = vendor ? `${provider} · ${vendor}` : provider;
   const providerRank = PROVIDER_RANK[provider as KnownProvider] ?? 50;
   const vendorRank = vendor ? (VENDOR_ORDER[vendor] ?? 50) : 0;
+  const routeLabel = routeLabelForLocalModel(parts, entry);
 
   return {
     id,
     groupLabel,
     providerRank,
     vendorRank,
+    routeLabel,
     shortName,
     displayName: prettifyModelName(shortName),
     vendor,
@@ -471,6 +486,7 @@ function formatSubtitle(model: ParsedModel): string | null {
   const familyLabel =
     family && family !== model.shortName ? prettifyModelName(family) : null;
   const parts = [
+    model.routeLabel,
     model.meta.parameterSize?.trim() || null,
     familyLabel && familyLabel !== model.displayName ? familyLabel : null,
     model.vendor,
@@ -486,6 +502,7 @@ function modelMatchesQuery(model: ParsedModel, query: string): boolean {
     model.shortName,
     model.displayName,
     model.provider,
+    model.routeLabel ?? '',
     model.vendor ?? '',
     model.groupLabel,
   ]
@@ -539,7 +556,12 @@ export function ModelSwitchSelect(props: {
       compareGroupRank(a.head, b.head),
     );
     for (const group of ordered) {
-      group.items.sort((a, b) => a.shortName.localeCompare(b.shortName));
+      group.items.sort(
+        (a, b) =>
+          a.shortName.localeCompare(b.shortName) ||
+          (a.routeLabel ?? '').localeCompare(b.routeLabel ?? '') ||
+          a.id.localeCompare(b.id),
+      );
     }
     return ordered;
   }, [parsed, query, railFilter]);
@@ -625,7 +647,9 @@ export function ModelSwitchSelect(props: {
                   <SelectItem
                     key={model.id}
                     value={model.id}
-                    textValue={`${model.displayName} ${model.groupLabel}`}
+                    textValue={`${model.displayName} ${model.groupLabel} ${
+                      model.routeLabel ?? ''
+                    }`}
                   >
                     <span aria-hidden="true" className={chrome.itemLogo}>
                       <VendorIcon

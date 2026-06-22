@@ -1,6 +1,12 @@
 import type { SkillConfigChannelKind } from '../channels/channel.js';
-import { GATEWAY_API_TOKEN, GATEWAY_BASE_URL } from '../config/config.js';
 import {
+  GATEWAY_API_TOKEN,
+  GATEWAY_CLIENT_BASE_URL,
+} from '../config/config.js';
+import {
+  type GatewayAdminMcpOAuthStartResponse,
+  type GatewayAdminMcpOAuthStatusResponse,
+  type GatewayAdminMcpResponse,
   type GatewayAdminSkillsResponse,
   type GatewayAdminSuspendedSession,
   type GatewayChatApprovalEvent,
@@ -41,7 +47,7 @@ export { renderGatewayCommand };
 export type GatewayChatRequest = GatewayChatRequestBody;
 
 function gatewayUrl(pathname: string): string {
-  const base = GATEWAY_BASE_URL.replace(/\/+$/, '');
+  const base = GATEWAY_CLIENT_BASE_URL.replace(/\/+$/, '');
   const path = pathname.startsWith('/') ? pathname : `/${pathname}`;
   return `${base}${path}`;
 }
@@ -57,7 +63,9 @@ async function requestJson<T>(pathname: string, init: RequestInit): Promise<T> {
     response = await fetch(gatewayUrl(pathname), init);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`Gateway request failed (${GATEWAY_BASE_URL}): ${detail}`);
+    throw new Error(
+      `Gateway request failed (${GATEWAY_CLIENT_BASE_URL}): ${detail}`,
+    );
   }
 
   const payload = await response.json().catch(() => ({}));
@@ -333,6 +341,69 @@ export async function saveGatewayAdminSkillEnabled(params: {
       ...authHeaders(),
     },
     body: JSON.stringify(params),
+  });
+}
+
+export async function fetchGatewayAdminMcp(): Promise<GatewayAdminMcpResponse> {
+  return requestJson<GatewayAdminMcpResponse>('/api/admin/mcp', {
+    method: 'GET',
+    headers: authHeaders(),
+  });
+}
+
+export async function saveGatewayAdminMcpServer(params: {
+  name: string;
+  config: unknown;
+}): Promise<GatewayAdminMcpResponse> {
+  return requestJson<GatewayAdminMcpResponse>('/api/admin/mcp', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(params),
+  });
+}
+
+export async function startGatewayMcpOAuth(
+  name: string,
+): Promise<GatewayAdminMcpOAuthStartResponse> {
+  return requestJson<GatewayAdminMcpOAuthStartResponse>(
+    '/api/admin/mcp/oauth/start',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(),
+      },
+      body: JSON.stringify({ name }),
+    },
+  );
+}
+
+export async function fetchGatewayMcpOAuthStatus(
+  name: string,
+): Promise<GatewayAdminMcpOAuthStatusResponse> {
+  const params = new URLSearchParams({ name });
+  return requestJson<GatewayAdminMcpOAuthStatusResponse>(
+    `/api/admin/mcp/oauth/status?${params.toString()}`,
+    {
+      method: 'GET',
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function logoutGatewayMcpOAuth(
+  name: string,
+): Promise<GatewayAdminMcpResponse> {
+  return requestJson<GatewayAdminMcpResponse>('/api/admin/mcp/oauth/logout', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ name }),
   });
 }
 

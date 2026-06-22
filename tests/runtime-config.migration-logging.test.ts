@@ -217,6 +217,38 @@ describe('runtime config migration logging', () => {
     expect(stored.mcpServers.demo.url).toBe('https://example.com/mcp');
   });
 
+  it('preserves auth: oauth on remote MCP servers and drops it for stdio', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.mcpServers = {
+        remote: {
+          transport: 'http',
+          url: 'https://example.com/mcp',
+          auth: 'oauth',
+          enabled: true,
+        },
+        local: {
+          transport: 'stdio',
+          command: 'node',
+          enabled: true,
+        },
+      };
+      (config.mcpServers.local as Record<string, unknown>).auth = 'oauth';
+    });
+
+    await importFreshRuntimeConfig(homeDir);
+
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
+    ) as RuntimeConfig;
+
+    expect(stored.mcpServers.remote.auth).toBe('oauth');
+    expect(stored.mcpServers.local.auth).toBeUndefined();
+  });
+
   it('normalizes plugin config entries and drops invalid rows on startup', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {

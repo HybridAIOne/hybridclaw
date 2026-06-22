@@ -146,6 +146,7 @@ export function Field({
   touched: touchedProp,
   validate: validateProp,
   onBlur,
+  onChange,
   ...props
 }: FieldProps) {
   // Auto-wire when nested under a `<FormField>` — match its generated id
@@ -293,34 +294,28 @@ export function Field({
     onBlur?.(event);
   };
 
-  // Native `input` and `change` events bubble out of form controls, so we
-  // can centralise "user has interacted with this field" detection on the
-  // wrapper. `input` fires on every keystroke; `change` fires for selects,
-  // radios, and native checkboxes that don't emit `input`.
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const el = wrapperRef.current;
-    if (!el) return;
-    const touch = () => setInternalTouched(true);
-    el.addEventListener('input', touch);
-    el.addEventListener('change', touch);
-    return () => {
-      el.removeEventListener('input', touch);
-      el.removeEventListener('change', touch);
-    };
-  }, []);
+  // Keep touched-state updates on React change/blur only. Native select
+  // controls can emit an input event before change; touching the wrapper on
+  // input can re-render a controlled select with the old value before its own
+  // onChange sees the new selection.
+  const handleChange: NonNullable<ComponentProps<'div'>['onChange']> = (
+    event,
+  ) => {
+    setInternalTouched(true);
+    onChange?.(event);
+  };
 
   return (
     <FieldContext.Provider value={ctx}>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: this div is a layout container; the onBlur listens for bubbled focusout from descendant controls to drive touched-detection, not direct interactivity. */}
       <div
-        ref={wrapperRef}
         data-slot="field"
         data-orientation={orientation}
         data-invalid={exposedInvalid || undefined}
         data-disabled={disabled || undefined}
         className={cx(styles.field, orientationClass[orientation], className)}
         onBlur={handleBlur}
+        onChange={handleChange}
         {...props}
       />
     </FieldContext.Provider>

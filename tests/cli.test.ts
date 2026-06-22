@@ -454,6 +454,7 @@ async function importFreshCli(options?: {
     workspacePath: string;
     removedAgentRoot: boolean;
     removedRegistration: boolean;
+    removedBootstrapAutostartMarkers: number;
   };
   fetchMock?: (input: string | URL | Request, init?: RequestInit) => unknown;
   agentListResult?: Array<{
@@ -926,6 +927,7 @@ async function importFreshCli(options?: {
         workspacePath: `/tmp/.hybridclaw/data/agents/${agentId}/workspace`,
         removedAgentRoot: true,
         removedRegistration: true,
+        removedBootstrapAutostartMarkers: 0,
       }
     );
   });
@@ -1253,6 +1255,7 @@ async function importFreshCli(options?: {
       APP_VERSION: '0.4.1',
       DATA_DIR: '/tmp/hybridclaw-data',
       GATEWAY_BASE_URL: 'http://127.0.0.1:9090',
+      GATEWAY_CLIENT_BASE_URL: 'http://127.0.0.1:9090',
       MissingRequiredEnvVarError,
       ensureGatewayApiTokenPersisted: vi.fn(() => 'gateway-token'),
       getResolvedSandboxMode: vi.fn(() => options?.sandboxMode || 'host'),

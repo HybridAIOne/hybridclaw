@@ -11,7 +11,6 @@ import type {
 import { buildApprovalSummary, nextMsgId } from '../../lib/chat-helpers';
 import { requestChatStream } from '../../lib/chat-stream';
 import { getErrorMessage } from '../../lib/error-message';
-import { addAgentAttribution } from './agent-mention-display';
 import {
   type ChatHistoryUiData,
   chatHistoryQueryKey,
@@ -40,6 +39,33 @@ interface UseChatStreamOptions {
   resolveAddressedAgentPresentation?: (
     content: string,
   ) => AssistantPresentation | null;
+}
+
+function mutatesAgentList(content: string): boolean {
+  const parts = content.trim().split(/\s+/);
+  const command = parts[0]?.replace(/^\/+/, '').toLowerCase();
+  const subcommand = parts[1]?.toLowerCase();
+  return (
+    (command === 'agent' || command === 'agents') &&
+    (subcommand === 'create' || subcommand === 'install')
+  );
+}
+
+function parseAgentSwitchTarget(content: string): string | null {
+  const parts = content.trim().split(/\s+/);
+  const command = parts[0]?.replace(/^\/+/, '').toLowerCase();
+  if (command !== 'agent' && command !== 'agents') return null;
+  if (parts[1]?.toLowerCase() !== 'switch') return null;
+  const target = parts[2]?.trim();
+  return target && !/\s/.test(target) ? target : null;
+}
+
+function isAgentSwitchSuccess(text: string): boolean {
+  return /^Session agent set to\b/i.test(text.trim());
+}
+
+function commandStartsBootstrapAutostart(text: string): boolean {
+  return /\bBOOTSTRAP\.md\b/i.test(text);
 }
 
 export interface UseChatStreamReturn {
@@ -317,7 +343,6 @@ export function useChatStream(
             if (userMsgId && m.id === userMsgId && m.role === 'user') {
               return {
                 ...m,
-                content: addAgentAttribution(m.content, addressedAgentId),
                 addressedAgentPresentation: addressedAgentId
                   ? (result.assistantPresentation ?? null)
                   : null,
@@ -346,6 +371,45 @@ export function useChatStream(
         });
 
         refreshRecent();
+        const switchedAgentId =
+          finalRole === 'command' && isAgentSwitchSuccess(finalText)
+            ? parseAgentSwitchTarget(content)
+            : null;
+        if (switchedAgentId) {
+          const switchedSessionId = result.sessionId ?? targetSessionId;
+          const switchedHistoryKey = chatHistoryQueryKey(
+            token,
+            switchedSessionId,
+          );
+          queryClient.setQueryData<ChatHistoryUiData>(
+            switchedHistoryKey,
+            (prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                agentId: switchedAgentId,
+                bootstrapAutostart: commandStartsBootstrapAutostart(finalText)
+                  ? {
+                      status: 'starting',
+                      fileName: 'BOOTSTRAP.md',
+                    }
+                  : prev.bootstrapAutostart,
+              };
+            },
+          );
+          void queryClient.invalidateQueries({
+            queryKey: switchedHistoryKey,
+            refetchType: 'none',
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ['chat-context', token, switchedSessionId],
+          });
+        }
+        if (finalRole === 'command' && mutatesAgentList(content)) {
+          void queryClient.invalidateQueries({
+            queryKey: ['agents-list', token],
+          });
+        }
       } catch (err) {
         if (req.renderFrame) cancelAnimationFrame(req.renderFrame);
         const errorText = getErrorMessage(err);
@@ -379,6 +443,7 @@ export function useChatStream(
       onSessionIdCorrection,
       onModelResolved,
       resolveAddressedAgentPresentation,
+      queryClient,
       setError,
       refreshRecent,
     ],
