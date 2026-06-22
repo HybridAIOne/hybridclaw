@@ -4,6 +4,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 
 import { describe, expect, test, vi } from 'vitest';
+import type { RuntimeConfig } from '../src/config/runtime-config.ts';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const DEFAULT_WEB_SESSION_ID = 'agent:main:channel:web:chat:dm:peer:default';
@@ -540,6 +541,7 @@ async function importFreshHealth(options?: {
   authSecret?: string;
   hybridAiBaseUrl?: string;
   runningInsideContainer?: boolean;
+  runtimeConfigPatch?: (config: RuntimeConfig) => void;
   mediaUploadQuotaDecision?: {
     allowed: boolean;
     remainingBytes: number;
@@ -1069,6 +1071,18 @@ async function importFreshHealth(options?: {
     },
     peers: [],
     pairingRequests: [],
+  }));
+  const getGatewayA2AAgentCard = vi.fn((origin: string) => ({
+    name: 'HybridClaw',
+    version: '0.0.0-test',
+    url: new URL('/a2a', origin).toString(),
+    capabilities: {
+      messageSend: true,
+      tasksSend: true,
+      streaming: false,
+    },
+    agents: [],
+    skills: [],
   }));
   const upsertGatewayAdminA2ATrustPeer = vi.fn(() =>
     getGatewayAdminA2ATrust(),
@@ -1981,8 +1995,19 @@ async function importFreshHealth(options?: {
     const actual = await vi.importActual<
       typeof import('../src/config/runtime-config.js')
     >('../src/config/runtime-config.js');
+    if (!options?.runtimeConfigPatch) {
+      return {
+        ...actual,
+        reloadRuntimeConfig,
+      };
+    }
+    const runtimeConfig = JSON.parse(
+      JSON.stringify(actual.getRuntimeConfig()),
+    ) as RuntimeConfig;
+    options.runtimeConfigPatch(runtimeConfig);
     return {
       ...actual,
+      getRuntimeConfig: vi.fn(() => runtimeConfig),
       reloadRuntimeConfig,
     };
   });
@@ -2056,6 +2081,7 @@ async function importFreshHealth(options?: {
     GatewayRequestError,
     getGatewayAgentList,
     getGatewayAgents,
+    getGatewayA2AAgentCard,
     getGatewayAdminAgents,
     getGatewayAdminHybridAIBots,
     getGatewayAdminAgentMarkdownFile,
@@ -2231,6 +2257,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminApprovals,
     getGatewayAdminA2AInbox,
     getGatewayAdminA2ATrust,
+    getGatewayA2AAgentCard,
     previewGatewayAdminA2APairing,
     upsertGatewayAdminA2ATrustPeer,
     revokeGatewayAdminA2ATrustPeer,
@@ -4295,6 +4322,33 @@ describe('gateway HTTP server', () => {
       expect(aboutRes.headers['Content-Type']).toBe('text/html; charset=utf-8');
       expect(aboutRes.body).toContain('<h1>Docs</h1>');
     }
+  });
+
+  test('serves the A2A Agent Card from the configured public deployment URL', async () => {
+    const state = await importFreshHealth({
+      runtimeConfigPatch: (config) => {
+        config.deployment.mode = 'cloud';
+        config.deployment.public_url = 'https://u-public.sbx.hybridai.one';
+        config.deployment.tunnel.provider = 'manual';
+      },
+    });
+    const req = makeRequest({
+      url: '/.well-known/agent.json',
+      headers: { host: '172.19.0.11:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      url: 'https://u-public.sbx.hybridai.one/a2a',
+    });
+    expect(state.getGatewayA2AAgentCard).toHaveBeenCalledWith(
+      'https://u-public.sbx.hybridai.one',
+      expect.objectContaining({ peerTrustLevel: 'public' }),
+    );
   });
 
   test('serves /chat, /agents, and /admin without a session cookie outside Docker', async () => {

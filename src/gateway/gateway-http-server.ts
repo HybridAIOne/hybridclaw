@@ -2298,6 +2298,13 @@ function resolveRequestOrigin(
   return `${proto}://${host}`;
 }
 
+function resolveA2AAgentCardOrigin(req: IncomingMessage): string {
+  return (
+    normalizePublicBaseUrl(getRuntimeConfig().deployment.public_url) ||
+    resolveRequestOrigin(req)
+  );
+}
+
 function buildMobileLaunchUrl(params: {
   origin: string;
   token: string;
@@ -7066,7 +7073,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       getRuntimeConfig().voice.webhookPath,
     );
     if (pathname === '/.well-known/agent.json' && method === 'GET') {
-      const origin = resolveRequestOrigin(req);
+      const origin = resolveA2AAgentCardOrigin(req);
       const trust = resolveA2AAgentCardPeerTrust({
         authorization: req.headers.authorization || '',
         audience: new URL('/.well-known/agent.json', origin).toString(),
