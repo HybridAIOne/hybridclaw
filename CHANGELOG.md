@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## [0.25.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.5) - 2026-06-22
+
+### Fixed
+
+- **Remote agent mentions**: Selecting a remote agent in chat now places the
+  caret after the inserted address and keeps the styled composer overlay caret
+  aligned with the real textarea selection.
+- **Streaming text deltas**: Container streaming now emits visible model text
+  deltas live instead of buffering answer text until the model turn completes.
+- **Host bootstrap cleanup**: Host-mode approval policy now recognizes the
+  actual workspace-root `BOOTSTRAP.md` path as one-time onboarding cleanup while
+  keeping nested or rootless delete calls approval-gated.
+
 ## [0.25.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.4) - 2026-06-22
 
 ### Added
