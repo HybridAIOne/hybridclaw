@@ -1316,7 +1316,6 @@ async function processRequest(
     tokenUsage.estimatedPromptTokens += estimatedPromptTokensForCall;
 
     let response: Awaited<ReturnType<typeof callHybridAIWithRetry>>;
-    const modelCallTextDeltas: string[] = [];
     try {
       response = await callHybridAIWithRetry({
         sessionId,
@@ -1331,9 +1330,7 @@ async function processRequest(
         history,
         tools,
         onTextDelta: streamTextDeltas
-          ? (delta) => {
-              if (delta) modelCallTextDeltas.push(delta);
-            }
+          ? (delta) => emitStreamDelta(delta)
           : undefined,
         onThinkingDelta: streamTextDeltas
           ? (delta) => emitStreamThinkingDelta(delta)
@@ -1437,12 +1434,6 @@ async function processRequest(
       });
       return failed;
     }
-    if (toolCalls.length === 0) {
-      for (const delta of modelCallTextDeltas) {
-        emitStreamDelta(delta);
-      }
-    }
-
     const branchChoice = parseRalphChoice(choice.message.content);
     if (
       provider === 'hybridai' &&
