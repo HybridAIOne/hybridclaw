@@ -151,8 +151,10 @@ describe('Composer', () => {
       within(listbox).getByRole('option', { name: 'Remote Research' }),
     );
 
-    expect(getTextarea().value).toBe('@remote@team@inst-peer ');
-    expect(getTextarea().selectionStart).toBe('@remote@team@inst-peer '.length);
+    const textarea = getTextarea();
+    await waitFor(() => expect(document.activeElement).toBe(textarea));
+    expect(textarea.value).toBe('@remote@team@inst-peer ');
+    expect(textarea.selectionStart).toBe('@remote@team@inst-peer '.length);
     expect(onAgentSwitch).not.toHaveBeenCalled();
   });
 
@@ -183,7 +185,13 @@ describe('Composer', () => {
     );
 
     expect(textarea.value).toBe('@remote@team@inst-peer summarize this');
-    expect(textarea.selectionStart).toBe('@remote@team@inst-peer '.length);
+    await waitFor(() => {
+      expect(document.activeElement).toBe(textarea);
+      expect(textarea.selectionStart).toBe('@remote@team@inst-peer '.length);
+    });
+    expect(
+      document.querySelector(`.${css.composerOverlayCaret}`),
+    ).not.toBeNull();
   });
 
   it('does not render persistent agent mention chips', () => {
