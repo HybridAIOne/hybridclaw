@@ -329,6 +329,30 @@ export interface AdminModelUsageRow extends AdminUsageSummary {
 
 export type AdminTunnelHealth = 'healthy' | 'reconnecting' | 'down';
 
+export type AdminTunnelProvider =
+  | 'cloudflare'
+  | 'manual'
+  | 'ngrok'
+  | 'ssh'
+  | 'tailscale';
+
+export interface AdminTunnelConfig {
+  mode: 'cloud' | 'local';
+  provider: AdminTunnelProvider | (string & {}) | null;
+  publicUrl: string;
+  healthCheckIntervalMs: number;
+}
+
+export interface AdminTunnelConfigInput {
+  provider: AdminTunnelProvider;
+  publicUrl: string;
+}
+
+export interface AdminTunnelConfigResponse {
+  config: AdminTunnelConfig;
+  tunnel: AdminTunnelStatus;
+}
+
 export interface AdminTunnelStatus {
   provider: string | null;
   publicUrl: string | null;

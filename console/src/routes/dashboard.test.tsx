@@ -1,28 +1,28 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
-  AdminConfig,
   AdminOverview,
+  AdminTunnelConfigResponse,
   AdminTunnelStatus,
 } from '../api/types';
 import { renderWithProviders } from '../test-utils';
 import { DashboardPage } from './dashboard';
 
-const fetchConfigMock = vi.fn();
 const fetchOverviewMock = vi.fn();
 const fetchStatisticsMock = vi.fn();
+const fetchTunnelConfigMock = vi.fn();
 const reconnectTunnelMock = vi.fn();
-const saveConfigMock = vi.fn();
+const saveTunnelConfigMock = vi.fn();
 const navigateMock = vi.fn();
 const useAuthMock = vi.fn();
 const useLiveEventsMock = vi.fn();
 
 vi.mock('../api/client', () => ({
-  fetchConfig: (...args: unknown[]) => fetchConfigMock(...args),
   fetchOverview: (...args: unknown[]) => fetchOverviewMock(...args),
   fetchStatistics: (...args: unknown[]) => fetchStatisticsMock(...args),
+  fetchTunnelConfig: (...args: unknown[]) => fetchTunnelConfigMock(...args),
   reconnectTunnel: (...args: unknown[]) => reconnectTunnelMock(...args),
-  saveConfig: (...args: unknown[]) => saveConfigMock(...args),
+  saveTunnelConfig: (...args: unknown[]) => saveTunnelConfigMock(...args),
 }));
 
 vi.mock('../auth', () => ({
@@ -103,29 +103,26 @@ function makeOverview(
   };
 }
 
-function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
+function makeTunnelConfigResponse(
+  overrides: Partial<AdminTunnelConfigResponse['config']> = {},
+): AdminTunnelConfigResponse {
   return {
-    version: 1,
-    deployment: {
+    config: {
       mode: 'local',
-      public_url: '',
-      tunnel: {
-        provider: 'manual',
-        health_check_interval_ms: 30000,
-      },
+      provider: 'manual',
+      publicUrl: '',
+      healthCheckIntervalMs: 30_000,
+      ...overrides,
     },
-    ops: {
-      healthHost: '127.0.0.1',
-      healthPort: 9090,
-      webApiToken: '',
-      gatewayBaseUrl: 'http://127.0.0.1:9090',
-      gatewayInternalBaseUrl: 'http://127.0.0.1:9090',
-      gatewayApiToken: '',
-      dbPath: '',
-      logLevel: 'info',
-    },
-    ...overrides,
-  } as AdminConfig;
+    tunnel: makeTunnelStatus({
+      provider: overrides.provider ?? 'manual',
+      publicUrl: overrides.publicUrl || null,
+      reconnectSupported:
+        overrides.provider === 'ngrok' ||
+        overrides.provider === 'tailscale' ||
+        overrides.provider === 'cloudflare',
+    }),
+  };
 }
 
 function renderDashboardPage(): void {
@@ -134,11 +131,6 @@ function renderDashboardPage(): void {
 
 describe('DashboardPage', () => {
   beforeEach(() => {
-    fetchConfigMock.mockReset();
-    fetchConfigMock.mockResolvedValue({
-      path: '/tmp/config.json',
-      config: makeConfig(),
-    });
     fetchOverviewMock.mockReset();
     fetchStatisticsMock.mockReset();
     fetchStatisticsMock.mockResolvedValue({
@@ -161,10 +153,13 @@ describe('DashboardPage', () => {
       trend: [],
       channels: [],
     });
+    fetchTunnelConfigMock.mockReset();
+    fetchTunnelConfigMock.mockResolvedValue(makeTunnelConfigResponse());
     reconnectTunnelMock.mockReset();
-    saveConfigMock.mockReset();
-    saveConfigMock.mockImplementation((_token: string, config: AdminConfig) =>
-      Promise.resolve({ path: '/tmp/config.json', config }),
+    saveTunnelConfigMock.mockReset();
+    saveTunnelConfigMock.mockImplementation(
+      (_token: string, payload: AdminTunnelConfigResponse['config']) =>
+        Promise.resolve(makeTunnelConfigResponse(payload)),
     );
     navigateMock.mockReset();
     useAuthMock.mockReset();
@@ -256,23 +251,61 @@ describe('DashboardPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
-      expect(saveConfigMock).toHaveBeenCalledWith(
-        'test-token',
-        expect.objectContaining({
-          deployment: expect.objectContaining({
-            mode: 'local',
-            public_url:
-              'https://unreinforced-ching-asthmatically.ngrok-free.dev',
-            tunnel: expect.objectContaining({ provider: 'manual' }),
-          }),
-          ops: expect.objectContaining({
-            gatewayBaseUrl:
-              'https://unreinforced-ching-asthmatically.ngrok-free.dev',
-          }),
-        }),
-      );
+      expect(saveTunnelConfigMock).toHaveBeenCalledWith('test-token', {
+        provider: 'manual',
+        publicUrl: 'https://unreinforced-ching-asthmatically.ngrok-free.dev',
+      });
     });
     expect(reconnectTunnelMock).not.toHaveBeenCalled();
+  });
+
+  it('disables saving invalid public tunnel URLs', async () => {
+    fetchOverviewMock.mockResolvedValue(
+      makeOverview(
+        makeTunnelStatus({
+          provider: 'manual',
+          publicUrl: null,
+          state: 'down',
+          health: 'down',
+          reconnectSupported: false,
+        }),
+      ),
+    );
+
+    renderDashboardPage();
+
+    fireEvent.change(await screen.findByLabelText('Public URL'), {
+      target: { value: 'not a url' },
+    });
+
+    expect(
+      await screen.findByText('Public URL must be a valid URL.'),
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(saveTunnelConfigMock).not.toHaveBeenCalled();
+  });
+
+  it('warns when the configured public tunnel URL uses HTTP', async () => {
+    fetchOverviewMock.mockResolvedValue(makeOverview());
+
+    renderDashboardPage();
+
+    fireEvent.change(await screen.findByLabelText('Public URL'), {
+      target: { value: 'http://public.example.test' },
+    });
+
+    expect(
+      await screen.findByText(
+        'Public tunnel URL uses HTTP. HTTPS is recommended.',
+      ),
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 
   it('saves managed ngrok config and starts the tunnel from the dashboard', async () => {
@@ -285,19 +318,12 @@ describe('DashboardPage', () => {
         }),
       ),
     );
-    fetchConfigMock.mockResolvedValue({
-      path: '/tmp/config.json',
-      config: makeConfig({
-        deployment: {
-          mode: 'local',
-          public_url: 'https://old.ngrok-free.dev',
-          tunnel: {
-            provider: 'manual',
-            health_check_interval_ms: 30000,
-          },
-        },
+    fetchTunnelConfigMock.mockResolvedValue(
+      makeTunnelConfigResponse({
+        provider: 'manual',
+        publicUrl: 'https://old.ngrok-free.dev',
       }),
-    });
+    );
     reconnectTunnelMock.mockResolvedValue(
       makeTunnelStatus({
         provider: 'ngrok',
@@ -313,16 +339,10 @@ describe('DashboardPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save & start' }));
 
     await waitFor(() => {
-      expect(saveConfigMock).toHaveBeenCalledWith(
-        'test-token',
-        expect.objectContaining({
-          deployment: expect.objectContaining({
-            mode: 'local',
-            public_url: '',
-            tunnel: expect.objectContaining({ provider: 'ngrok' }),
-          }),
-        }),
-      );
+      expect(saveTunnelConfigMock).toHaveBeenCalledWith('test-token', {
+        provider: 'ngrok',
+        publicUrl: '',
+      });
       expect(reconnectTunnelMock).toHaveBeenCalledWith('test-token');
     });
     expect(

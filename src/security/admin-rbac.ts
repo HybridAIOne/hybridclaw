@@ -7,6 +7,8 @@ export const ADMIN_SECRET_RBAC_ACTIONS = [
 export const ADMIN_RBAC_ACTIONS = [
   ...ADMIN_SECRET_RBAC_ACTIONS,
   'admin.overview.read',
+  'admin.tunnel.read',
+  'admin.tunnel.write',
   'admin.tunnel.reconnect',
   'admin.statistics.read',
   'admin.logs.read',
@@ -78,6 +80,7 @@ export type AdminRbacAction = (typeof ADMIN_RBAC_ACTIONS)[number];
 
 const ADMIN_READ_ACTIONS = [
   'admin.overview.read',
+  'admin.tunnel.read',
   'admin.statistics.read',
   'admin.logs.read',
   'admin.team.read',
@@ -145,6 +148,7 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
   ],
   'admin.config_manager': [
     ...ADMIN_READ_ACTIONS,
+    'admin.tunnel.write',
     'admin.config.write',
     'admin.config.reload',
     'admin.models.write',
@@ -177,6 +181,7 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
   'admin:owner': ADMIN_RBAC_ACTIONS,
   'admin:operator': [
     ...ADMIN_AUDITOR_ACTIONS,
+    'admin.tunnel.write',
     'admin.tunnel.reconnect',
     'admin.team.write',
     'admin.agents.write',
@@ -346,6 +351,11 @@ export function resolveAdminRbacAction(
   if (pathname.startsWith('/api/admin/secrets/')) {
     if (method === 'PUT') return 'secret.overwrite';
     if (method === 'DELETE') return 'secret.unset';
+    return null;
+  }
+  if (pathname === '/api/admin/tunnel') {
+    if (method === 'GET') return 'admin.tunnel.read';
+    if (method === 'PUT') return 'admin.tunnel.write';
     return null;
   }
   if (pathname === '/api/admin/tunnel/reconnect' && method === 'POST') {

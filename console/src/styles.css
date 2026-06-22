@@ -1876,6 +1876,7 @@ code {
 .tunnel-config-actions {
   display: flex;
   justify-content: end;
+  grid-column: 3;
   gap: 8px;
 }
 
@@ -1887,6 +1888,11 @@ code {
 .tunnel-error {
   margin-top: 14px;
   color: var(--danger);
+}
+
+.tunnel-warning {
+  margin-top: 14px;
+  color: var(--tone-review);
 }
 
 .selectable-row {
@@ -3995,6 +4001,7 @@ th {
   }
 
   .tunnel-config-actions {
+    grid-column: auto;
     justify-content: start;
   }
 

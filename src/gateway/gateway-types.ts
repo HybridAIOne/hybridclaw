@@ -19,6 +19,7 @@ import type { SlackWebhookSendResult } from '../channels/slack-webhook/delivery.
 import type {
   MSTeamsReplyStyle,
   RuntimeConfig,
+  RuntimeDeploymentMode,
   RuntimeDeploymentTunnelProvider,
   RuntimeDiscordChannelConfig,
   RuntimeMSTeamsChannelConfig,
@@ -653,6 +654,18 @@ export interface GatewayAdminTunnelStatus {
   lastError: string | null;
   lastCheckedAt: string | null;
   nextReconnectAt: string | null;
+}
+
+export interface GatewayAdminTunnelConfig {
+  mode: RuntimeDeploymentMode;
+  provider: RuntimeDeploymentTunnelProvider | null;
+  publicUrl: string;
+  healthCheckIntervalMs: number;
+}
+
+export interface GatewayAdminTunnelConfigResponse {
+  config: GatewayAdminTunnelConfig;
+  tunnel: GatewayAdminTunnelStatus;
 }
 
 export interface GatewayAdminOverview {

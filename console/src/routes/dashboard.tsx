@@ -1,16 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  fetchConfig,
   fetchOverview,
   fetchStatistics,
+  fetchTunnelConfig,
   reconnectTunnel,
-  saveConfig,
+  saveTunnelConfig,
 } from '../api/client';
 import type {
-  AdminConfig,
   AdminOverview,
+  AdminTunnelConfig,
+  AdminTunnelProvider,
   AdminTunnelStatus,
 } from '../api/types';
 import { useAuth } from '../auth';
@@ -73,15 +74,55 @@ const RECENT_SESSION_DEFAULT_DIRECTIONS = {
   lastActive: 'desc',
 } as const;
 
-const TUNNEL_PROVIDER_OPTIONS = [
-  { value: 'manual', label: 'Manual URL' },
-  { value: 'ngrok', label: 'ngrok' },
-  { value: 'tailscale', label: 'Tailscale Funnel' },
-  { value: 'cloudflare', label: 'Cloudflare Tunnel' },
-  { value: 'ssh', label: 'SSH tunnel' },
-] as const;
+const TUNNEL_PROVIDER_META = {
+  manual: {
+    label: 'Manual URL',
+    managed: false,
+    usesConfiguredPublicUrl: true,
+    requiresPublicUrl: false,
+  },
+  ngrok: {
+    label: 'ngrok',
+    managed: true,
+    usesConfiguredPublicUrl: false,
+    requiresPublicUrl: false,
+  },
+  tailscale: {
+    label: 'Tailscale Funnel',
+    managed: true,
+    usesConfiguredPublicUrl: false,
+    requiresPublicUrl: false,
+  },
+  cloudflare: {
+    label: 'Cloudflare Tunnel',
+    managed: true,
+    usesConfiguredPublicUrl: true,
+    requiresPublicUrl: true,
+  },
+  ssh: {
+    label: 'SSH tunnel',
+    managed: false,
+    usesConfiguredPublicUrl: true,
+    requiresPublicUrl: false,
+  },
+} as const satisfies Record<
+  AdminTunnelProvider,
+  {
+    label: string;
+    managed: boolean;
+    usesConfiguredPublicUrl: boolean;
+    requiresPublicUrl: boolean;
+  }
+>;
 
-type TunnelProvider = (typeof TUNNEL_PROVIDER_OPTIONS)[number]['value'];
+const TUNNEL_PROVIDER_OPTIONS = Object.entries(TUNNEL_PROVIDER_META).map(
+  ([value, meta]) => ({
+    value: value as AdminTunnelProvider,
+    label: meta.label,
+  }),
+);
+
+type TunnelProvider = AdminTunnelProvider;
 
 interface TunnelConfigDraft {
   provider: TunnelProvider;
@@ -115,13 +156,14 @@ function tunnelStatusDotClass(health: AdminTunnelStatus['health']): string {
   return 'status-dot status-dot-danger';
 }
 
+function isTunnelProvider(value: string): value is TunnelProvider {
+  return Object.hasOwn(TUNNEL_PROVIDER_META, value);
+}
+
 function normalizeTunnelProvider(
   value: string | null | undefined,
 ): TunnelProvider {
-  if (value === 'ngrok') return 'ngrok';
-  if (value === 'tailscale') return 'tailscale';
-  if (value === 'cloudflare') return 'cloudflare';
-  if (value === 'ssh') return 'ssh';
+  if (value && isTunnelProvider(value)) return value;
   return 'manual';
 }
 
@@ -135,25 +177,19 @@ function normalizeTunnelUrl(value: string): string {
   }
 }
 
-function tunnelDraftFromConfig(config: AdminConfig): TunnelConfigDraft {
+function tunnelDraftFromConfig(config: AdminTunnelConfig): TunnelConfigDraft {
   return {
-    provider: normalizeTunnelProvider(config.deployment.tunnel.provider),
-    publicUrl: config.deployment.public_url || '',
+    provider: normalizeTunnelProvider(config.provider),
+    publicUrl: config.publicUrl || '',
   };
 }
 
 function isManagedTunnelProvider(provider: TunnelProvider): boolean {
-  return (
-    provider === 'ngrok' ||
-    provider === 'tailscale' ||
-    provider === 'cloudflare'
-  );
+  return TUNNEL_PROVIDER_META[provider].managed;
 }
 
 function usesConfiguredPublicUrl(provider: TunnelProvider): boolean {
-  return (
-    provider === 'manual' || provider === 'ssh' || provider === 'cloudflare'
-  );
+  return TUNNEL_PROVIDER_META[provider].usesConfiguredPublicUrl;
 }
 
 function isSameTunnelDraft(left: TunnelConfigDraft, right: TunnelConfigDraft) {
@@ -163,50 +199,36 @@ function isSameTunnelDraft(left: TunnelConfigDraft, right: TunnelConfigDraft) {
   );
 }
 
-function applyTunnelDraft(
-  config: AdminConfig,
-  draft: TunnelConfigDraft,
-): AdminConfig {
-  const publicUrl = usesConfiguredPublicUrl(draft.provider)
-    ? normalizeTunnelUrl(draft.publicUrl)
-    : '';
-  return {
-    ...config,
-    deployment: {
-      ...config.deployment,
-      mode: 'local',
-      public_url: publicUrl,
-      tunnel: {
-        ...config.deployment.tunnel,
-        provider: draft.provider,
-      },
-    },
-    ops: {
-      ...config.ops,
-      ...(publicUrl ? { gatewayBaseUrl: publicUrl } : {}),
-    },
-  };
+function getTunnelUrlValidation(draft: TunnelConfigDraft): string | null {
+  const meta = TUNNEL_PROVIDER_META[draft.provider];
+  if (!meta.usesConfiguredPublicUrl) return null;
+  const publicUrl = draft.publicUrl.trim();
+  if (!publicUrl) {
+    return meta.requiresPublicUrl
+      ? 'Public URL is required for Cloudflare Tunnel.'
+      : null;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(publicUrl);
+  } catch {
+    return 'Public URL must be a valid URL.';
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return 'Public URL must use http:// or https://.';
+  }
+  return null;
 }
 
-function tunnelStatusFromDraft(
-  current: AdminTunnelStatus,
-  draft: TunnelConfigDraft,
-): AdminTunnelStatus {
-  const publicUrl = usesConfiguredPublicUrl(draft.provider)
-    ? normalizeTunnelUrl(draft.publicUrl) || null
-    : null;
-  const manualProvider = !isManagedTunnelProvider(draft.provider);
-  const state = manualProvider && publicUrl ? 'up' : 'down';
-  return {
-    ...current,
-    provider: draft.provider,
-    publicUrl,
-    state,
-    health: state === 'up' ? 'healthy' : 'down',
-    reconnectSupported: isManagedTunnelProvider(draft.provider),
-    lastError: null,
-    nextReconnectAt: null,
-  };
+function usesHttpTunnelUrl(draft: TunnelConfigDraft): boolean {
+  if (!usesConfiguredPublicUrl(draft.provider)) return false;
+  try {
+    return new URL(draft.publicUrl.trim()).protocol === 'http:';
+  } catch {
+    return false;
+  }
 }
 
 function TunnelStatusPanel(props: {
@@ -241,20 +263,15 @@ function TunnelStatusPanel(props: {
     props.configDraft.provider,
   );
   const providerCanStart = isManagedTunnelProvider(props.configDraft.provider);
-  const publicUrlMissing =
-    props.configDraft.provider === 'cloudflare' &&
-    !normalizeTunnelUrl(props.configDraft.publicUrl);
-  const saveDisabled =
-    !props.configLoaded ||
-    props.configPending ||
-    props.configSavePending ||
-    !configDirty;
+  const publicUrlError = getTunnelUrlValidation(props.configDraft);
+  const publicUrlWarning = usesHttpTunnelUrl(props.configDraft)
+    ? 'Public tunnel URL uses HTTP. HTTPS is recommended.'
+    : null;
+  const configBusy =
+    !props.configLoaded || props.configPending || props.configSavePending;
+  const saveDisabled = configBusy || !configDirty || Boolean(publicUrlError);
   const startDisabled =
-    !props.configLoaded ||
-    props.configPending ||
-    props.configSavePending ||
-    props.reconnectPending ||
-    publicUrlMissing;
+    configBusy || props.reconnectPending || Boolean(publicUrlError);
 
   return (
     <Card>
@@ -345,6 +362,12 @@ function TunnelStatusPanel(props: {
             ) : null}
           </div>
         </div>
+        {publicUrlError ? (
+          <p className="supporting-text tunnel-error">{publicUrlError}</p>
+        ) : null}
+        {publicUrlWarning ? (
+          <p className="supporting-text tunnel-warning">{publicUrlWarning}</p>
+        ) : null}
         <div className="tunnel-detail-grid">
           <div className="tunnel-detail">
             <span>Provider</span>
@@ -400,22 +423,20 @@ export function DashboardPage() {
     queryFn: () => fetchStatistics(auth.token, 30),
     staleTime: 60_000,
   });
-  const configQuery = useQuery({
-    queryKey: ['config', auth.token],
-    queryFn: () => fetchConfig(auth.token),
+  const tunnelConfigQuery = useQuery({
+    queryKey: ['tunnel-config', auth.token],
+    queryFn: () => fetchTunnelConfig(auth.token),
     staleTime: 30_000,
   });
   const savedTunnelDraft = useMemo(
     () =>
-      configQuery.data ? tunnelDraftFromConfig(configQuery.data.config) : null,
-    [configQuery.data],
+      tunnelConfigQuery.data
+        ? tunnelDraftFromConfig(tunnelConfigQuery.data.config)
+        : null,
+    [tunnelConfigQuery.data],
   );
   const [tunnelConfigDraft, setTunnelConfigDraft] =
     useState<TunnelConfigDraft | null>(null);
-  useEffect(() => {
-    if (!savedTunnelDraft) return;
-    setTunnelConfigDraft((current) => current ?? savedTunnelDraft);
-  }, [savedTunnelDraft]);
   const reconnectMutation = useMutation({
     mutationFn: () => reconnectTunnel(auth.token),
     onSuccess: (tunnel) => {
@@ -430,31 +451,31 @@ export function DashboardPage() {
       draft: TunnelConfigDraft;
       start: boolean;
     }) => {
-      const currentConfig = configQuery.data?.config;
-      if (!currentConfig) {
-        throw new Error('Runtime config is not loaded.');
-      }
-      const nextConfig = applyTunnelDraft(currentConfig, variables.draft);
-      const payload = await saveConfig(auth.token, nextConfig);
+      const payload = await saveTunnelConfig(auth.token, {
+        provider: variables.draft.provider,
+        publicUrl: usesConfiguredPublicUrl(variables.draft.provider)
+          ? normalizeTunnelUrl(variables.draft.publicUrl)
+          : '',
+      });
       const tunnel =
         variables.start && isManagedTunnelProvider(variables.draft.provider)
           ? await reconnectTunnel(auth.token)
           : null;
-      return { payload, tunnel, draft: variables.draft };
+      return { payload, tunnel };
     },
-    onSuccess: ({ payload, tunnel, draft }) => {
-      queryClient.setQueryData(['config', auth.token], payload);
-      setTunnelConfigDraft(tunnelDraftFromConfig(payload.config));
-      queryClient.setQueryData<AdminOverview>(
-        ['overview', auth.token],
-        (current) =>
-          current
-            ? {
-                ...current,
-                tunnel: tunnel ?? tunnelStatusFromDraft(current.tunnel, draft),
-              }
-            : current,
-      );
+    onSuccess: ({ payload, tunnel }) => {
+      queryClient.setQueryData(['tunnel-config', auth.token], payload);
+      setTunnelConfigDraft(null);
+      if (tunnel) {
+        queryClient.setQueryData<AdminOverview>(
+          ['overview', auth.token],
+          (current) => (current ? { ...current, tunnel } : current),
+        );
+        return;
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ['overview', auth.token],
+      });
     },
   });
 
@@ -563,8 +584,8 @@ export function DashboardPage() {
 
       <TunnelStatusPanel
         tunnel={overview.tunnel}
-        configLoaded={Boolean(configQuery.data)}
-        configPending={configQuery.isLoading}
+        configLoaded={Boolean(tunnelConfigQuery.data)}
+        configPending={tunnelConfigQuery.isLoading}
         configDraft={effectiveTunnelConfigDraft}
         savedConfigDraft={savedTunnelDraft}
         configSavePending={saveTunnelConfigMutation.isPending}

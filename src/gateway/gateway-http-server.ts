@@ -248,6 +248,7 @@ import {
   getGatewayAdminTeamStructure,
   getGatewayAdminTeamStructureRevision,
   getGatewayAdminTools,
+  getGatewayAdminTunnelConfig,
   getGatewayAgentList,
   getGatewayAgents,
   getGatewayBootstrapAutostartState,
@@ -274,6 +275,7 @@ import {
   saveGatewayAdminPolicyRule,
   saveGatewayAdminSkillPackageFile,
   saveGatewayAdminSlackWebhookTarget,
+  saveGatewayAdminTunnelConfig,
   setGatewayAdminSkillEnabled,
   startGatewayAdminA2APairing,
   startGatewayAdminMcpOAuth,
@@ -4156,6 +4158,19 @@ async function handleApiAdminTunnelReconnect(
   sendJson(res, 200, { tunnel: await reconnectGatewayAdminTunnel() });
 }
 
+async function handleApiAdminTunnelConfig(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if ((req.method || 'GET') === 'GET') {
+    sendJson(res, 200, getGatewayAdminTunnelConfig());
+    return;
+  }
+
+  const body = await readJsonBody(req);
+  sendJson(res, 200, saveGatewayAdminTunnelConfig(body));
+}
+
 function handleApiAdminStatistics(res: ServerResponse, url: URL): void {
   const daysRaw = url.searchParams.get('days') ?? undefined;
   sendJson(res, 200, getGatewayAdminStatistics({ days: daysRaw }));
@@ -7256,6 +7271,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/admin/secrets') {
+            sendMethodNotAllowed(res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/tunnel' &&
+            (method === 'GET' || method === 'PUT')
+          ) {
+            await handleApiAdminTunnelConfig(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/tunnel') {
             sendMethodNotAllowed(res);
             return;
           }
