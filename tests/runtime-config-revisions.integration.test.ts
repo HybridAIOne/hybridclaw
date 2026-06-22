@@ -87,7 +87,7 @@ describe('runtime config revisions integration', () => {
       route: 'cli.config.set:discord.prefix',
       source: 'internal',
     });
-    expect(revisions[0]?.md5).toMatch(/^[a-f0-9]{32}$/);
+    expect(revisions[0]?.md5).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('sanitizes stack-derived routes when no explicit route metadata is provided', () => {
