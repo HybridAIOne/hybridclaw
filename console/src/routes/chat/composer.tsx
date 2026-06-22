@@ -340,20 +340,23 @@ export function Composer(props: {
       const ta = textareaRef.current;
       if (!ta) return;
       const mention = `@${agentId}`;
+      const insertedPrefix = `${mention} `;
       const value = ta.value;
       const leadingMention = LEADING_AGENT_ADDRESS_RE.exec(value);
+      let nextValue: string;
       if (!value.trim()) {
-        ta.value = `${mention} `;
+        nextValue = insertedPrefix;
       } else if (leadingMention) {
-        ta.value = `${mention} ${value.slice(leadingMention[0].length).trimStart()}`;
+        nextValue = `${insertedPrefix}${value.slice(leadingMention[0].length).trimStart()}`;
       } else {
-        ta.value = `${mention} ${value.trimStart()}`;
+        nextValue = `${insertedPrefix}${value.trimStart()}`;
       }
-      ta.setSelectionRange(ta.value.length, ta.value.length);
+      ta.value = nextValue;
       setComposerValue(ta.value);
       closePanel();
       resize();
       ta.focus();
+      ta.setSelectionRange(insertedPrefix.length, insertedPrefix.length);
     },
     [closePanel, resize],
   );
