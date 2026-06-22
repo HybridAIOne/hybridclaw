@@ -9,7 +9,6 @@ import {
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
-import { sha256Hex } from '../utils/hash.js';
 import type { AgentConfig } from './agent-types.js';
 import {
   type AgentTeamStructureDiff,
@@ -45,10 +44,11 @@ function revisionNextContent(params: {
   revision: RuntimeConfigRevision;
   revisions: RuntimeConfigRevision[];
   currentContent: string;
+  currentMd5: string | null;
 }): string | null {
   if (!params.revision.replacedByMd5) return null;
-  // Runtime revisions link forward by storing the content fingerprint that replaced this revision.
-  if (sha256Hex(params.currentContent) === params.revision.replacedByMd5) {
+  // Runtime revisions link forward by storing the revision token that replaced this revision.
+  if (params.currentMd5 === params.revision.replacedByMd5) {
     return params.currentContent;
   }
   const nextRevision = params.revisions.find(
@@ -61,6 +61,7 @@ function summarizeRevision(params: {
   revision: RuntimeConfigRevision;
   revisions: RuntimeConfigRevision[];
   currentContent: string;
+  currentMd5: string | null;
 }): AgentTeamStructureRevisionSummary {
   const snapshot = parseAgentTeamStructureSnapshot(params.revision.content);
   const nextContent = revisionNextContent(params);
@@ -106,6 +107,7 @@ export function listAgentTeamStructureRevisions(
       revision,
       revisions: history.revisions,
       currentContent,
+      currentMd5: history.state?.md5 ?? null,
     }),
   );
 }
@@ -127,8 +129,7 @@ export function getAgentTeamStructureRevision(
     history.state?.content ??
     serializeAgentTeamStructure(currentAgents, { validate: false });
   const nextContent =
-    revision.replacedByMd5 &&
-    sha256Hex(currentContent) === revision.replacedByMd5
+    revision.replacedByMd5 && history.state?.md5 === revision.replacedByMd5
       ? currentContent
       : history.nextRevision?.content;
   const snapshot = parseAgentTeamStructureSnapshot(revision.content);
