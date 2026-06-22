@@ -30,6 +30,10 @@ function readSharedSecret(): string {
   return (process.env.HYBRIDCLAW_AUTH_SECRET || '').trim();
 }
 
+export function hasSharedAuthSecret(): boolean {
+  return Boolean(readSharedSecret());
+}
+
 function parseSignedToken(token: string): ParsedToken | null {
   const trimmed = token.trim();
   if (!trimmed) return null;

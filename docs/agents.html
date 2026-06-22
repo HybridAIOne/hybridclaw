@@ -1354,7 +1354,9 @@
     const urlParams = new URLSearchParams(window.location.search);
     const queryToken = urlParams.get('token') || '';
     const LOCAL_TOKEN_BOOTSTRAP_PARAM = '__hybridclaw_token_bootstrapped';
-    let apiToken = queryToken || localStorage.getItem('hybridclaw_token') || '';
+    const legacyToken = localStorage.getItem('hybridclaw_token') || '';
+    let apiToken =
+      queryToken || sessionStorage.getItem('hybridclaw_token') || legacyToken;
     const savedOutputState = loadOpenOutputState();
 
     const FILTERS = [
@@ -1377,11 +1379,23 @@
     };
 
     if (queryToken) {
-      localStorage.setItem('hybridclaw_token', queryToken);
+      sessionStorage.setItem('hybridclaw_token', queryToken);
+      localStorage.removeItem('hybridclaw_token');
+      urlParams.delete('token');
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${window.location.pathname}${
+          urlParams.toString() ? `?${urlParams.toString()}` : ''
+        }${window.location.hash}`,
+      );
+    } else if (legacyToken) {
+      sessionStorage.setItem('hybridclaw_token', legacyToken);
+      localStorage.removeItem('hybridclaw_token');
     }
 
     function hasStoredWebToken() {
-      return Boolean((localStorage.getItem('hybridclaw_token') || '').trim());
+      return Boolean((sessionStorage.getItem('hybridclaw_token') || '').trim());
     }
 
     function localWebSurfacePath(path) {
@@ -2195,10 +2209,11 @@
         setAppVersion('');
         const message = error instanceof Error ? error.message : String(error);
         if (/401|unauthorized/i.test(message)) {
+          sessionStorage.removeItem('hybridclaw_token');
           localStorage.removeItem('hybridclaw_token');
           apiToken = '';
           setConnectionState('is-offline', 'Token required');
-          showNotice('Gateway requires WEB_API_TOKEN. Reuse the same token flow as /chat with ?token=... or localStorage.hybridclaw_token.');
+          showNotice('Gateway requires WEB_API_TOKEN. Sign in again or enter a token for this browser tab.');
         } else {
           setConnectionState('is-offline', 'Gateway unavailable');
           showNotice(`Agent/session data unavailable: ${message}`);
@@ -2231,8 +2246,7 @@
 
     function connectAgentStream() {
       // Future backend hook:
-      // const params = apiToken ? `?token=${encodeURIComponent(apiToken)}` : '';
-      // const stream = new EventSource(`/api/agents/stream${params}`);
+      // const stream = new EventSource('/api/agents/stream');
       // stream.addEventListener('agents', (event) => { ... });
       // stream.addEventListener('status', (event) => { ... });
       // return stream;

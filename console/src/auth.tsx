@@ -69,6 +69,20 @@ export function AuthProvider(props: { children: ReactNode }) {
 
         if (health.webAuthConfigured) {
           if (!initialToken.trim()) {
+            try {
+              const gatewayStatus = await validateToken('');
+              if (cancelled) return;
+              setState({
+                status: 'ready',
+                token: '',
+                gatewayStatus,
+                error: null,
+              });
+              return;
+            } catch {
+              if (cancelled) return;
+            }
+
             setState({
               status: 'prompt',
               token: '',
@@ -246,9 +260,7 @@ export function AuthProvider(props: { children: ReactNode }) {
 }
 
 export function isAuthReadyForApi(auth: AuthContextValue): boolean {
-  if (auth.status !== 'ready') return false;
-  if (auth.gatewayStatus.webAuthConfigured !== true) return true;
-  return auth.token.trim().length > 0;
+  return auth.status === 'ready';
 }
 
 export function useAuth(): AuthContextValue {

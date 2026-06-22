@@ -31,3 +31,31 @@ test('discovery store caches error fallbacks until the TTL expires', async () =>
   expect(fetchFreshState).toHaveBeenCalledTimes(2);
   expect(onError).toHaveBeenCalledTimes(2);
 });
+
+test('discovery store can skip caching an error fallback', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-04-27T12:00:00Z'));
+
+  const store = createDiscoveryStore({ models: [] as string[] }, 60_000);
+  const fetchFreshState = vi.fn(async () => {
+    throw new Error('provider unavailable');
+  });
+  const onError = vi.fn((_err: unknown, staleState: { models: string[] }) => ({
+    _tag: 'update' as const,
+    state: {
+      ...staleState,
+      models: ['uncached-fallback'],
+    },
+    skipCache: true,
+  }));
+
+  await expect(store.discover(fetchFreshState, { onError })).resolves.toEqual({
+    models: ['uncached-fallback'],
+  });
+  await expect(store.discover(fetchFreshState, { onError })).resolves.toEqual({
+    models: ['uncached-fallback'],
+  });
+
+  expect(fetchFreshState).toHaveBeenCalledTimes(2);
+  expect(onError).toHaveBeenCalledTimes(2);
+});

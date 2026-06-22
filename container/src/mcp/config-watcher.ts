@@ -45,12 +45,25 @@ export class McpConfigWatcher {
 
     for (const name of Object.keys(previous)) {
       if (nextNames.has(name)) continue;
-      await this.manager.removeClient(name);
+      // Tearing down one server must not abort the whole apply.
+      try {
+        await this.manager.removeClient(name);
+      } catch (error) {
+        this.logServerFailure('disconnect', name, error);
+      }
     }
 
     for (const [name, config] of Object.entries(nextConfig)) {
-      if (!configsEqual(previous[name], config)) {
+      if (configsEqual(previous[name], config)) continue;
+      // A single MCP server failing to connect (e.g. an expired OAuth token
+      // answering the initial POST with 401/invalid_token) must NOT reject
+      // applyConfig — that rejection propagates up through syncMcpConfig into
+      // the chat turn and crashes it, taking down ALL chat for the agent.
+      // Log and skip the bad server so the turn proceeds with the rest.
+      try {
         await this.manager.replaceClient(name, config);
+      } catch (error) {
+        this.logServerFailure('connect', name, error);
       }
     }
 
@@ -62,5 +75,14 @@ export class McpConfigWatcher {
   stop(): void {
     this.lastConfig = {};
     this.lastHash = stableHash('{}');
+  }
+
+  private logServerFailure(
+    phase: 'connect' | 'disconnect',
+    name: string,
+    error: unknown,
+  ): void {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`[mcp:${name}] failed to ${phase}: ${detail}`);
   }
 }

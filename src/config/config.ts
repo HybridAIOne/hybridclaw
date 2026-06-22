@@ -420,6 +420,7 @@ export let EMAIL_MEDIA_MAX_MB = 20;
 
 export let HYBRIDAI_BASE_URL = 'https://hybridai.one';
 export let HYBRIDAI_MODEL = 'gpt-4.1-mini';
+export let HYBRIDAI_ONBOARDING_MODEL = '';
 export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
@@ -538,6 +539,7 @@ export let HEALTH_HOST = '127.0.0.1';
 export let HEALTH_PORT = 9090;
 export let WEB_API_TOKEN = '';
 export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
+export let GATEWAY_CLIENT_BASE_URL = 'http://127.0.0.1:9090';
 const GATEWAY_API_TOKEN_LOCK_STALE_MS = 10_000;
 const GATEWAY_API_TOKEN_LOCK_TIMEOUT_MS = 5_000;
 const GATEWAY_API_TOKEN_LOCK_RETRY_MS = 25;
@@ -989,6 +991,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     config.hybridai.baseUrl,
   );
   HYBRIDAI_MODEL = config.hybridai.defaultModel;
+  HYBRIDAI_ONBOARDING_MODEL = config.hybridai.onboardingModel;
   HYBRIDAI_CHATBOT_ID =
     process.env.HYBRIDAI_CHATBOT_ID?.trim() ||
     '' ||
@@ -1105,6 +1108,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     readRuntimeSecretValue(['WEB_API_TOKEN'], 'WEB_API_TOKEN', storedSecrets) ||
     config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
+  GATEWAY_CLIENT_BASE_URL = config.ops.gatewayInternalBaseUrl;
   gatewayApiTokenUsesGeneratedFallback = false;
   GATEWAY_API_TOKEN =
     readRuntimeSecretValue(

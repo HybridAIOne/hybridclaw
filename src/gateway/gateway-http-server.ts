@@ -93,7 +93,7 @@ import {
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
-import { logger } from '../logger.js';
+import { logger, syncLoggerLevelFromRuntimeConfig } from '../logger.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { normalizeMimeType } from '../media/mime-utils.js';
 import {
@@ -108,7 +108,11 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
-import { isAdminActionAllowed } from '../security/admin-rbac.js';
+import {
+  type AdminRbacAction,
+  isAdminActionAllowed,
+  resolveAdminRbacAction,
+} from '../security/admin-rbac.js';
 import { createSecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
 import { hardenSecretRef } from '../security/secret-refs.js';
@@ -140,6 +144,7 @@ import {
   getSessionAuthPayload,
   hasLocalWebSessionAuth,
   hasSessionAuth,
+  hasSharedAuthSecret,
   safeEqualToken,
   setLocalWebSessionCookie,
   setSessionCookie,
@@ -156,7 +161,7 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
-import { serveDocs } from './docs.js';
+import { escapeHtml, serveDocs } from './docs.js';
 import {
   getGatewayAdminSecrets,
   overwriteGatewayAdminSecret,
@@ -186,6 +191,7 @@ import {
   readRequestBody,
   sendJson,
 } from './gateway-http-utils.js';
+import { getGatewayAdminLogs } from './gateway-log-service.js';
 import {
   getGatewayAdminPlugins,
   handleGatewayPluginWebhook,
@@ -203,6 +209,7 @@ import { handleApiSecretInject } from './gateway-secret-injection.js';
 import {
   applyGatewayAdminPolicyPreset,
   approveGatewayAdminA2APairingRequest,
+  completeGatewayMcpOAuthCallback,
   createGatewayAdminAgent,
   createGatewayAdminSkill,
   declineGatewayAdminA2APairingRequest,
@@ -229,9 +236,13 @@ import {
   getGatewayAdminHybridAIBots,
   getGatewayAdminJobsContext,
   getGatewayAdminMcp,
+  getGatewayAdminMcpOAuthStatus,
   getGatewayAdminModels,
   getGatewayAdminOverview,
   getGatewayAdminSessions,
+  getGatewayAdminSkillInvocations,
+  getGatewayAdminSkillPackageFile,
+  getGatewayAdminSkillPackageFiles,
   getGatewayAdminSkills,
   getGatewayAdminStatistics,
   getGatewayAdminTeamStructure,
@@ -246,6 +257,7 @@ import {
   getGatewaySessionContextUsage,
   getGatewayStatus,
   handleGatewayCommand,
+  logoutGatewayAdminMcpOAuth,
   previewGatewayAdminA2APairing,
   reconnectGatewayAdminTunnel,
   removeGatewayAdminChannel,
@@ -260,9 +272,11 @@ import {
   saveGatewayAdminPolicyDefault,
   saveGatewayAdminPolicyLanHttpAccess,
   saveGatewayAdminPolicyRule,
+  saveGatewayAdminSkillPackageFile,
   saveGatewayAdminSlackWebhookTarget,
   setGatewayAdminSkillEnabled,
   startGatewayAdminA2APairing,
+  startGatewayAdminMcpOAuth,
   unblockGatewayAdminSkill,
   updateGatewayAdminAgent,
   uploadGatewayAdminSkillZip,
@@ -351,7 +365,6 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
 );
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
-const LOCAL_TOKEN_BOOTSTRAP_PARAM = '__hybridclaw_token_bootstrapped';
 
 const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -1605,6 +1618,7 @@ const MOBILE_LAUNCH_TOKEN_MAX_ENTRIES = 10_000;
 type MobileLaunchTokenEntry = {
   userId: string;
   sessionId: string;
+  authPayload: Record<string, unknown>;
   expiresAt: number;
 };
 const mobileLaunchTokens = new Map<string, MobileLaunchTokenEntry>();
@@ -1993,9 +2007,7 @@ function extractHostnameFromHostHeader(
 }
 
 function isLocalWebSessionAllowed(req: IncomingMessage): boolean {
-  return (
-    !WEB_API_TOKEN && isLoopbackHost(HEALTH_HOST) && isLoopbackWebRequest(req)
-  );
+  return isLoopbackHost(HEALTH_HOST) && isLoopbackWebRequest(req);
 }
 
 function isLoopbackWebRequest(req: IncomingMessage): boolean {
@@ -2004,15 +2016,6 @@ function isLoopbackWebRequest(req: IncomingMessage): boolean {
     isLoopbackSocketAddress(req.socket.remoteAddress) &&
     !hasForwardingHeaders(req) &&
     Boolean(requestHost && isLoopbackHost(requestHost))
-  );
-}
-
-function shouldBootstrapLocalWebToken(req: IncomingMessage, url: URL): boolean {
-  return (
-    Boolean(WEB_API_TOKEN) &&
-    isConsoleSpaPath(url.pathname) &&
-    !url.searchParams.has(LOCAL_TOKEN_BOOTSTRAP_PARAM) &&
-    isLoopbackWebRequest(req)
   );
 }
 
@@ -2025,17 +2028,19 @@ function requestUsesHttps(req: IncomingMessage): boolean {
   return (req.socket as { encrypted?: boolean }).encrypted === true;
 }
 
-function resolveRequestOriginForAuth(req: IncomingMessage): string | null {
-  const host = String(req.headers.host || '').trim();
-  if (!host) return null;
-  const protocol = requestUsesHttps(req) ? 'https' : 'http';
-  return `${protocol}://${host}`;
-}
-
 function hasSameGatewayOrigin(req: IncomingMessage): boolean {
   const origin = String(req.headers.origin || '').trim();
   if (!origin) return false;
-  return origin === resolveRequestOriginForAuth(req);
+  if (origin === resolveRequestOrigin(req)) return true;
+
+  // Browsers set this header from the actual page/request relationship. It
+  // keeps cookie-backed writes working behind TLS-terminating proxies even
+  // when the backend cannot reconstruct the public origin exactly.
+  return (
+    String(req.headers['sec-fetch-site'] || '')
+      .trim()
+      .toLowerCase() === 'same-origin'
+  );
 }
 
 function hasApiAuth(
@@ -2044,6 +2049,7 @@ function hasApiAuth(
   opts?: {
     allowLocalWebSession?: boolean;
     allowQueryToken?: boolean;
+    allowSessionCookie?: boolean;
     requireSameOrigin?: boolean;
   },
 ): boolean {
@@ -2052,6 +2058,13 @@ function hasApiAuth(
   if (opts?.allowQueryToken && url && hasQueryToken(url)) return true;
 
   if (hasBearerToken(authHeader, WEB_API_TOKEN)) return true;
+  if (
+    opts?.allowSessionCookie &&
+    hasSessionAuth(req) &&
+    (!opts.requireSameOrigin || hasSameGatewayOrigin(req))
+  ) {
+    return true;
+  }
   if (
     opts?.allowLocalWebSession &&
     isLocalWebSessionAllowed(req) &&
@@ -2133,6 +2146,30 @@ function resolveAdminSecretAuditContext(
   };
 }
 
+function shouldDeferAdminRbacToHandler(action: AdminRbacAction): boolean {
+  return action.startsWith('secret.');
+}
+
+function isAdminRouteActionAllowed(
+  req: IncomingMessage,
+  action: AdminRbacAction,
+): boolean {
+  return isAdminActionAllowed(getSessionAuthPayload(req), action);
+}
+
+function enforceAdminRouteRbac(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  method: string,
+): boolean {
+  const action = resolveAdminRbacAction(pathname, method);
+  if (!action || shouldDeferAdminRbacToHandler(action)) return true;
+  if (isAdminRouteActionAllowed(req, action)) return true;
+  sendJson(res, 403, { error: 'Forbidden.' });
+  return false;
+}
+
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   const authHeader = req.headers.authorization || '';
   if (hasBearerToken(authHeader, WEB_API_TOKEN)) {
@@ -2159,39 +2196,6 @@ function dispatchWebhookRoute(
 function sendText(res: ServerResponse, statusCode: number, text: string): void {
   res.writeHead(statusCode, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end(text);
-}
-
-function sendWebTokenBootstrap(
-  res: ServerResponse,
-  params: {
-    redirectTo: string;
-    userId?: string;
-  },
-): void {
-  const escapedToken = escapeInlineScriptValue(WEB_API_TOKEN);
-  const escapedRedirect = escapeInlineScriptValue(params.redirectTo);
-  const escapedUserId = escapeInlineScriptValue(params.userId || '');
-  res.writeHead(200, {
-    'Content-Type': 'text/html; charset=utf-8',
-    'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'",
-    'X-Content-Type-Options': 'nosniff',
-  });
-  res.end(
-    `<!DOCTYPE html><html><body><script>` +
-      `localStorage.setItem('hybridclaw_token',${escapedToken});` +
-      `if (${escapedUserId}) localStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
-      `window.location.replace(${escapedRedirect});` +
-      `</script></body></html>`,
-  );
-}
-
-function sendLocalWebTokenBootstrap(res: ServerResponse, url: URL): void {
-  const redirectUrl = new URL(url);
-  redirectUrl.searchParams.set(LOCAL_TOKEN_BOOTSTRAP_PARAM, '1');
-  sendWebTokenBootstrap(res, {
-    redirectTo: `${redirectUrl.pathname}${redirectUrl.search}`,
-  });
 }
 
 function sendRedirect(
@@ -2227,6 +2231,7 @@ function evictOldestMobileLaunchTokens(): void {
 function createMobileLaunchToken(params: {
   userId: string;
   sessionId: string;
+  authPayload: Record<string, unknown>;
 }): string {
   cleanupExpiredMobileLaunchTokens();
   evictOldestMobileLaunchTokens();
@@ -2234,6 +2239,7 @@ function createMobileLaunchToken(params: {
   mobileLaunchTokens.set(token, {
     userId: params.userId,
     sessionId: params.sessionId,
+    authPayload: params.authPayload,
     expiresAt: Date.now() + MOBILE_LAUNCH_TTL_MS,
   });
   return token;
@@ -2243,6 +2249,7 @@ function resolveMobileLaunchToken(token: string):
   | {
       userId: string;
       sessionId: string;
+      authPayload: Record<string, unknown>;
     }
   | undefined {
   cleanupExpiredMobileLaunchTokens();
@@ -2257,6 +2264,7 @@ function resolveMobileLaunchToken(token: string):
   return {
     userId: entry.userId,
     sessionId: entry.sessionId,
+    authPayload: entry.authPayload,
   };
 }
 
@@ -2288,6 +2296,20 @@ function resolveRequestOrigin(
   const proto = requestUsesHttps(req) ? 'https' : 'http';
   const host = forwardedHost || req.headers.host || `127.0.0.1:${HEALTH_PORT}`;
   return `${proto}://${host}`;
+}
+
+function resolveA2AAgentCardOrigin(req: IncomingMessage): string | null {
+  const configuredPublicUrl = getRuntimeConfig().deployment.public_url.trim();
+  if (configuredPublicUrl) {
+    const origin = normalizePublicBaseUrl(configuredPublicUrl);
+    if (origin) return origin;
+    logger.warn(
+      { publicUrl: configuredPublicUrl },
+      'Invalid deployment.public_url for A2A Agent Card',
+    );
+    return null;
+  }
+  return resolveRequestOrigin(req);
 }
 
 function buildMobileLaunchUrl(params: {
@@ -2821,11 +2843,21 @@ function serveConsoleFile(
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
   const mimeType = SITE_MIME_TYPES[ext] || 'application/octet-stream';
+  const isIndex = filePath.endsWith('index.html');
   res.writeHead(200, {
     'Content-Type': mimeType,
-    'Cache-Control': filePath.endsWith('index.html')
+    'Cache-Control': isIndex
       ? 'no-cache'
       : 'public, max-age=31536000, immutable',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    ...(isIndex
+      ? {
+          'Content-Security-Policy':
+            "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss:",
+        }
+      : {}),
   });
   res.end(fs.readFileSync(filePath));
   return true;
@@ -3478,7 +3510,12 @@ function handleApiAgentAvatar(
   res: ServerResponse,
   url: URL,
 ): void {
-  if (!hasApiAuth(req, url, { allowLocalWebSession: true })) {
+  if (
+    !hasApiAuth(req, url, {
+      allowLocalWebSession: true,
+      allowSessionCookie: true,
+    })
+  ) {
     sendJson(res, 401, {
       error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
     });
@@ -3565,7 +3602,22 @@ async function handleApiChatMobileQr(
     return;
   }
 
-  const token = createMobileLaunchToken({ userId, sessionId });
+  const redirectPath = `/chat/${encodeURIComponent(sessionId)}`;
+  const mobileSessionCookieRequired =
+    requiresSessionAuth(redirectPath) || Boolean(WEB_API_TOKEN);
+  if (mobileSessionCookieRequired && !hasSharedAuthSecret()) {
+    sendJson(res, 500, {
+      error:
+        'Mobile launch QR code cannot establish a web session because HybridClaw auth secret is not configured.',
+    });
+    return;
+  }
+
+  const token = createMobileLaunchToken({
+    userId,
+    sessionId,
+    authPayload: getSessionAuthPayload(req) ?? { sub: userId },
+  });
   const launchUrl = buildMobileLaunchUrl({
     origin: resolveRequestOrigin(req, body.baseUrl),
     token,
@@ -3587,9 +3639,25 @@ function handleChatMobileContinue(res: ServerResponse, url: URL): void {
 
   const escapedUserId = escapeInlineScriptValue(launch.userId);
   const escapedSessionId = escapeInlineScriptValue(launch.sessionId);
-  const escapedRedirect = escapeInlineScriptValue(
-    `/chat/${encodeURIComponent(launch.sessionId)}`,
-  );
+  const redirectPath = `/chat/${encodeURIComponent(launch.sessionId)}`;
+  const mobileSessionCookieRequired =
+    requiresSessionAuth(redirectPath) || Boolean(WEB_API_TOKEN);
+  try {
+    setSessionCookie(res, launch.authPayload);
+  } catch (err) {
+    logger.warn({ err }, 'Failed to establish mobile launch web session');
+    // WEB_API_TOKEN means mobile has no bearer-token path, so the session
+    // cookie is required.
+    if (mobileSessionCookieRequired) {
+      sendText(
+        res,
+        500,
+        'Mobile launch QR code could not establish a web session.',
+      );
+      return;
+    }
+  }
+  const escapedRedirect = escapeInlineScriptValue(redirectPath);
   res.writeHead(200, {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -3916,6 +3984,7 @@ function handleApiConfigReload(res: ServerResponse): void {
   try {
     refreshRuntimeSecretsFromEnv();
     reloadRuntimeConfig('admin-api');
+    syncLoggerLevelFromRuntimeConfig('admin-api');
   } catch (error) {
     sendJson(res, 500, {
       error:
@@ -3930,6 +3999,26 @@ function handleApiConfigReload(res: ServerResponse): void {
     status: 'ok',
     message: 'Gateway reloaded.',
   });
+}
+
+async function handleApiAdminLogs(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  try {
+    sendJson(
+      res,
+      200,
+      await getGatewayAdminLogs({
+        fileId: url.searchParams.get('file'),
+        tailBytes: url.searchParams.get('tailBytes'),
+      }),
+    );
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
@@ -5105,6 +5194,7 @@ async function hybridAIFetch(
 
 async function handleApiAdminEmailConfigFetch(
   res: ServerResponse,
+  url: URL,
 ): Promise<void> {
   let apiKey: string;
   try {
@@ -5156,7 +5246,28 @@ async function handleApiAdminEmailConfigFetch(
     return;
   }
 
-  const activeHandle = handles.find((h) => h.status === 'active') || handles[0];
+  const requestedHandleId = (url.searchParams.get('handleId') || '').trim();
+  const activeHandle = requestedHandleId
+    ? handles.find(
+        (h) => h.id === requestedHandleId || h.handle === requestedHandleId,
+      )
+    : handles.find((h) => h.status === 'active') || handles[0];
+
+  if (requestedHandleId && !activeHandle) {
+    res.setHeader('Cache-Control', 'no-store');
+    sendJson(res, 404, {
+      handles,
+      credentials: null,
+      error: `No HybridAI agent handle found for ${requestedHandleId}.`,
+    });
+    return;
+  }
+  if (!activeHandle) {
+    res.setHeader('Cache-Control', 'no-store');
+    sendJson(res, 200, { handles, credentials: null });
+    return;
+  }
+
   const handleId = activeHandle.id || activeHandle.handle;
 
   if (!handleId) {
@@ -5330,6 +5441,100 @@ async function handleApiAdminMcp(
       config: body.config,
     }),
   );
+}
+
+async function handleApiAdminMcpOAuth(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const pathname = url.pathname;
+  if (pathname === '/api/admin/mcp/oauth/status') {
+    const name = (url.searchParams.get('name') || '').trim();
+    sendJson(res, 200, getGatewayAdminMcpOAuthStatus(name));
+    return;
+  }
+  const body = (await readJsonBody(req)) as { name?: unknown };
+  const name = String(body.name || '').trim();
+  if (pathname === '/api/admin/mcp/oauth/start') {
+    sendJson(
+      res,
+      200,
+      await startGatewayAdminMcpOAuth({
+        name,
+        requestBaseUrl: resolveRequestOrigin(req),
+      }),
+    );
+    return;
+  }
+  sendJson(res, 200, logoutGatewayAdminMcpOAuth(name));
+}
+
+function sendMcpOAuthCallbackPage(
+  res: ServerResponse,
+  status: number,
+  title: string,
+  detail: string,
+  opts?: { autoClose?: boolean },
+): void {
+  // window.close() only works for script-opened tabs (the console's
+  // window.open); for manually opened tabs it is a silent no-op.
+  const autoClose = opts?.autoClose
+    ? '<script>setTimeout(function(){window.close()},1500)</script>'
+    : '';
+  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(
+    `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>` +
+      '<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#101418;color:#e8eaed}main{max-width:28rem;padding:2rem;text-align:center}h1{font-size:1.25rem}p{color:#9aa0a6}</style>' +
+      `</head><body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p></main>${autoClose}</body></html>`,
+  );
+}
+
+async function handleApiMcpOAuthCallback(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const error = (url.searchParams.get('error') || '').trim();
+  if (error) {
+    const description = (
+      url.searchParams.get('error_description') || ''
+    ).trim();
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'MCP authorization failed',
+      description || error,
+    );
+    return;
+  }
+  const state = (url.searchParams.get('state') || '').trim();
+  const code = (url.searchParams.get('code') || '').trim();
+  if (!state || !code) {
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'MCP authorization failed',
+      'The callback is missing the authorization code or state parameter.',
+    );
+    return;
+  }
+  try {
+    const result = await completeGatewayMcpOAuthCallback({ state, code });
+    sendMcpOAuthCallbackPage(
+      res,
+      200,
+      `Connected to ${result.serverName}`,
+      'Authorization complete. You can close this tab and return to HybridClaw.',
+      { autoClose: true },
+    );
+  } catch (err) {
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'MCP authorization failed',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }
 
 function handleApiAdminAudit(res: ServerResponse, url: URL): void {
@@ -5977,6 +6182,118 @@ async function handleApiAdminSkills(
   );
 }
 
+function sendApiAdminSkillPackageError(
+  res: ServerResponse,
+  error: unknown,
+): void {
+  const message = error instanceof Error ? error.message : String(error);
+  sendJson(res, error instanceof GatewayRequestError ? error.statusCode : 400, {
+    error: message,
+  });
+}
+
+async function handleApiAdminSkillPackageFiles(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const method = req.method || 'GET';
+  const segments = url.pathname.split('/').filter(Boolean);
+  const skillName = segments[3] ? decodeApiPathSegment(segments[3]).trim() : '';
+  const hasInvocationsPrefix = segments[4] === 'invocations';
+  const hasFilesPrefix = segments[4] === 'files';
+  const action = segments[5] || '';
+
+  if (!skillName || (!hasInvocationsPrefix && !hasFilesPrefix)) {
+    sendJson(res, 404, { error: 'Not Found' });
+    return;
+  }
+
+  if (segments.length === 5 && hasInvocationsPrefix) {
+    if (method !== 'GET') {
+      sendMethodNotAllowed(res);
+      return;
+    }
+    const parsedLimit = Number.parseInt(
+      url.searchParams.get('limit') || '',
+      10,
+    );
+    try {
+      sendJson(
+        res,
+        200,
+        getGatewayAdminSkillInvocations(skillName, { limit: parsedLimit }),
+      );
+    } catch (error) {
+      sendApiAdminSkillPackageError(res, error);
+    }
+    return;
+  }
+
+  if (segments.length === 5) {
+    if (method !== 'GET') {
+      sendMethodNotAllowed(res);
+      return;
+    }
+    try {
+      sendJson(res, 200, getGatewayAdminSkillPackageFiles(skillName));
+    } catch (error) {
+      sendApiAdminSkillPackageError(res, error);
+    }
+    return;
+  }
+
+  if (segments.length === 6 && action === 'content') {
+    const filePath = url.searchParams.get('path') || '';
+    if (!filePath) {
+      sendJson(res, 400, { error: 'Missing skill file path.' });
+      return;
+    }
+
+    if (method === 'GET') {
+      try {
+        sendJson(
+          res,
+          200,
+          getGatewayAdminSkillPackageFile({ skillName, path: filePath }),
+        );
+      } catch (error) {
+        sendApiAdminSkillPackageError(res, error);
+      }
+      return;
+    }
+
+    if (method === 'PUT') {
+      try {
+        const body = (await readJsonBody(req)) as { content?: unknown };
+        if (typeof body.content !== 'string') {
+          throw new GatewayRequestError(
+            400,
+            'Expected string `content` in request body.',
+          );
+        }
+        sendJson(
+          res,
+          200,
+          saveGatewayAdminSkillPackageFile({
+            skillName,
+            path: filePath,
+            content: body.content,
+          }),
+        );
+      } catch (error) {
+        sendApiAdminSkillPackageError(res, error);
+      }
+      return;
+    }
+
+    sendMethodNotAllowed(res);
+    return;
+  }
+
+  sendJson(res, 404, { error: 'Not Found' });
+}
+
 async function handleApiAdminSkillUnblock(
   req: IncomingMessage,
   res: ServerResponse,
@@ -6455,6 +6772,7 @@ async function handleApiArtifact(
     !hasApiAuth(req, url, {
       allowLocalWebSession: true,
       allowQueryToken: true,
+      allowSessionCookie: true,
     })
   ) {
     sendJson(res, 401, {
@@ -6751,19 +7069,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       try {
         const payload = verifyLaunchToken(token);
         setSessionCookie(res, payload);
-        // Respond with a small HTML page that stores the WEB_API_TOKEN in
-        // localStorage before redirecting.  This lets the console make
-        // Bearer-authenticated API calls without ever showing the manual
-        // token prompt.  The token never appears in the URL (avoiding
-        // leaks via browser history, referrer headers, or server logs).
-        if (WEB_API_TOKEN) {
-          sendWebTokenBootstrap(res, {
-            redirectTo,
-            userId: normalizeOptionalString(payload.sub) || undefined,
-          });
-        } else {
-          sendRedirect(res, 302, redirectTo);
-        }
+        sendRedirect(res, 302, redirectTo);
       } catch {
         sendText(res, 401, 'Unauthorized. Invalid or expired auth token.');
       }
@@ -6774,7 +7080,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       getRuntimeConfig().voice.webhookPath,
     );
     if (pathname === '/.well-known/agent.json' && method === 'GET') {
-      const origin = resolveRequestOrigin(req);
+      const origin = resolveA2AAgentCardOrigin(req);
+      if (!origin) {
+        sendJson(res, 500, {
+          error: 'deployment.public_url must be an HTTP(S) URL.',
+        });
+        return;
+      }
       const trust = resolveA2AAgentCardPeerTrust({
         authorization: req.headers.authorization || '',
         audience: new URL('/.well-known/agent.json', origin).toString(),
@@ -6854,6 +7166,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         });
         return;
       }
+      if (pathname === '/api/mcp/oauth/callback' && method === 'GET') {
+        // Public by design: the OAuth provider redirects the user's browser
+        // here without gateway credentials. The flow is bound to a
+        // single-use `state` nonce validated by the pending-flow registry.
+        void handleApiMcpOAuthCallback(res, url).catch((err: unknown) => {
+          if (res.writableEnded) return;
+          sendJson(res, 500, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        return;
+      }
       if (pathname === '/api/agent-avatar' && method === 'GET') {
         try {
           handleApiAgentAvatar(req, res, url);
@@ -6868,8 +7192,9 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
       if (
         !hasApiAuth(req, url, {
-          allowQueryToken: pathname === '/api/events',
+          allowQueryToken: false,
           allowLocalWebSession: true,
+          allowSessionCookie: true,
           requireSameOrigin: method !== 'GET',
         })
       ) {
@@ -6877,6 +7202,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         sendJson(res, 401, {
           error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
         });
+        return;
+      }
+
+      if (!enforceAdminRouteRbac(req, res, pathname, method)) {
         return;
       }
 
@@ -6936,6 +7265,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/statistics' && method === 'GET') {
             handleApiAdminStatistics(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/logs' && method === 'GET') {
+            await handleApiAdminLogs(res, url);
             return;
           }
           if (
@@ -7020,6 +7353,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (
+            ((pathname === '/api/admin/mcp/oauth/start' ||
+              pathname === '/api/admin/mcp/oauth/logout') &&
+              method === 'POST') ||
+            (pathname === '/api/admin/mcp/oauth/status' && method === 'GET')
+          ) {
+            await handleApiAdminMcpOAuth(req, res, url);
+            return;
+          }
+          if (
             pathname === '/api/admin/config' &&
             (method === 'GET' || method === 'PUT')
           ) {
@@ -7099,7 +7441,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             pathname === '/api/admin/email-config/fetch' &&
             method === 'GET'
           ) {
-            await handleApiAdminEmailConfigFetch(res);
+            await handleApiAdminEmailConfigFetch(res, url);
             return;
           }
           if (pathname === '/api/admin/audit' && method === 'GET') {
@@ -7194,6 +7536,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/skills/upload') {
             await handleApiAdminSkillUpload(req, res);
+            return;
+          }
+          if (pathname.startsWith('/api/admin/skills/')) {
+            await handleApiAdminSkillPackageFiles(req, res, url);
             return;
           }
           if (pathname === '/api/admin/jobs/context' && method === 'GET') {
@@ -7404,11 +7750,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
-    if (shouldBootstrapLocalWebToken(req, url)) {
-      sendLocalWebTokenBootstrap(res, url);
-      return;
-    }
-
     if (isLocalWebSurfacePath(pathname)) {
       if (!WEB_API_TOKEN && !isLoopbackHost(HEALTH_HOST)) {
         sendText(
@@ -7484,6 +7825,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       !requestAuthenticated
     ) {
       writeUpgradeError(socket, 401, 'Unauthorized');
+      return;
+    }
+
+    const terminalStreamAction = resolveAdminRbacAction(url.pathname, 'GET');
+    if (
+      terminalStreamAction &&
+      !isAdminRouteActionAllowed(req, terminalStreamAction)
+    ) {
+      writeUpgradeError(socket, 403, 'Forbidden');
       return;
     }
 

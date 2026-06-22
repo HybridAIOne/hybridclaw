@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { makeAuditRunId } from '../audit/audit-events.js';
 import { HYBRIDAI_MODEL } from '../config/config.js';
 import { logger } from '../logger.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
@@ -156,12 +157,18 @@ async function runAgentInner(
   const confidentialRuleSet = isConfidentialRedactionEnabled()
     ? withResolvedSecretLeakRules(sessionId, getConfidentialRuleSet())
     : null;
+  const confidentialAuditRunId = makeAuditRunId('secret-redaction');
   const confidential = confidentialRuleSet
-    ? createConfidentialRuntimeContext(confidentialRuleSet)
+    ? createConfidentialRuntimeContext(confidentialRuleSet, {
+        audit: { sessionId, runId: confidentialAuditRunId },
+      })
     : createConfidentialRuntimeContext({ rules: [], sourcePath: null });
   const confidentialLeakMiddleware =
     createConfidentialLeakMiddlewareSkill(confidentialRuleSet);
-  const dehydratedMessages = confidential.dehydrate(preparedMessages);
+  const dehydratedMessages = confidential.dehydrate(
+    preparedMessages,
+    'agent.messages',
+  );
   const output = await executor.exec({
     ...params,
     sessionId,
@@ -181,17 +188,19 @@ async function runAgentInner(
     blockedTools,
     onTextDelta: confidentialLeakMiddleware
       ? undefined
-      : confidential.wrapDelta(params.onTextDelta),
+      : confidential.wrapDelta(params.onTextDelta, 'agent.text_delta'),
     onThinkingDelta: confidentialLeakMiddleware
       ? undefined
-      : confidential.wrapDelta(params.onThinkingDelta),
+      : confidential.wrapDelta(params.onThinkingDelta, 'agent.thinking_delta'),
     onToolProgress: confidential.wrapEvent(
       params.onToolProgress,
       TOOL_PROGRESS_REHYDRATE_FIELDS,
+      'agent.tool_progress',
     ),
     onApprovalProgress: confidential.wrapEvent(
       params.onApprovalProgress,
       PENDING_APPROVAL_REHYDRATE_FIELDS,
+      'agent.approval_progress',
     ),
   });
   if (!confidential.enabled) return output;
@@ -200,20 +209,27 @@ async function runAgentInner(
       confidential.rehydrateFields(
         execution,
         TOOL_EXECUTION_REHYDRATE_FIELDS,
+        'agent.tool_executions',
       ) ?? execution,
   );
   const rehydratedPendingApproval = confidential.rehydrateFields(
     output.pendingApproval,
     PENDING_APPROVAL_REHYDRATE_FIELDS,
+    'agent.pending_approval',
   );
   const rehydratedOutput: ContainerOutput = {
     ...output,
     result: output.result
-      ? confidential.rehydrate(output.result)
+      ? confidential.rehydrate(output.result, 'agent.result')
       : output.result,
-    error: output.error ? confidential.rehydrate(output.error) : output.error,
+    error: output.error
+      ? confidential.rehydrate(output.error, 'agent.error')
+      : output.error,
     effectiveUserPrompt: output.effectiveUserPrompt
-      ? confidential.rehydrate(output.effectiveUserPrompt)
+      ? confidential.rehydrate(
+          output.effectiveUserPrompt,
+          'agent.effective_user_prompt',
+        )
       : output.effectiveUserPrompt,
     toolExecutions: rehydratedToolExecutions ?? output.toolExecutions,
     pendingApproval: rehydratedPendingApproval ?? output.pendingApproval,

@@ -11,6 +11,8 @@ export interface McpServerConfig {
   cwd?: string;
   url?: string;
   headers?: Record<string, string>;
+  /** OAuth is handled by the gateway, which injects `headers.Authorization`. */
+  auth?: 'oauth';
   enabled?: boolean;
 }
 

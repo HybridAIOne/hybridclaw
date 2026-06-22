@@ -2946,6 +2946,23 @@ export class TrustedAgentApprovalRuntime {
 
     if (lowerTool === 'delete') {
       const rawPath = normalizeText(args.path);
+      if (normalizePathValue(rawPath) === 'BOOTSTRAP.md') {
+        return {
+          tier: 'green',
+          actionKey: 'delete:bootstrap',
+          intent: 'delete `BOOTSTRAP.md`',
+          consequenceIfDenied:
+            'BOOTSTRAP.md will remain for future hatching checks.',
+          reason:
+            'BOOTSTRAP.md is a one-time onboarding file removed after bootstrapping',
+          commandPreview: normalizePreview(rawPath || 'BOOTSTRAP.md'),
+          pathHints: rawPath ? [rawPath] : ['BOOTSTRAP.md'],
+          hostHints: [],
+          writeIntent: false,
+          promotableRed: false,
+          stickyYellow: false,
+        };
+      }
       const key = rawPath
         ? `delete:${primaryPathKey(rawPath)}`
         : 'delete:unknown';

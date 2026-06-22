@@ -6,6 +6,7 @@ import { initDatabase } from '../memory/db.js';
 import { normalizeMemoryEmbeddingProviderKind } from '../memory/embeddings.js';
 import { memoryService } from '../memory/memory-service.js';
 import { normalizeMemoryRecallBackend } from '../memory/semantic-recall.js';
+import { HYBRIDCLAW_USER_AGENT } from '../providers/user-agent.js';
 import { buildSessionKey } from '../session/session-key.js';
 import type { Session } from '../types/session.js';
 import {
@@ -2916,6 +2917,7 @@ async function requestModelAnswer(params: {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${params.runtime.apiKey}`,
+        'User-Agent': HYBRIDCLAW_USER_AGENT,
       },
       body: JSON.stringify({
         model: params.model,

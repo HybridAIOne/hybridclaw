@@ -28,6 +28,7 @@ import type {
 import type {
   AdminCommandResult,
   AdminModelsResponse,
+  AdminSkillsResponse,
   AgentListItem,
   DeleteSessionResult,
   GatewayStatus,
@@ -84,6 +85,8 @@ const fetchAgentAvatarBlobMock =
 const fetchAgentListMock = vi.fn<(token: string) => Promise<AgentListItem[]>>();
 const fetchModelsMock =
   vi.fn<(token: string) => Promise<AdminModelsResponse>>();
+const fetchSkillsMock =
+  vi.fn<(token: string) => Promise<AdminSkillsResponse>>();
 const useAuthMock = vi.fn();
 const sendMessageMock = vi.fn();
 const stopRequestMock = vi.fn();
@@ -129,6 +132,7 @@ vi.mock('../../api/client', () => ({
     deleteChatSessionMock(token, sessionId),
   fetchAgentList: (token: string) => fetchAgentListMock(token),
   fetchModels: (token: string) => fetchModelsMock(token),
+  fetchSkills: (token: string) => fetchSkillsMock(token),
 }));
 
 vi.mock('../../auth', () => ({
@@ -234,6 +238,7 @@ describe('ChatPage', () => {
       __testRouter: TestRouter;
     };
     routerModule.__testRouter.reset();
+    window.history.replaceState(null, '', '/chat/session-a');
 
     fetchAppStatusMock.mockReset();
     fetchChatRecentMock.mockReset();
@@ -247,11 +252,17 @@ describe('ChatPage', () => {
     fetchAgentAvatarBlobMock.mockReset();
     fetchAgentListMock.mockReset();
     fetchModelsMock.mockReset();
+    fetchSkillsMock.mockReset();
     fetchModelsMock.mockResolvedValue({
       defaultModel: 'gpt-5',
       providerStatus: {},
       models: [],
     } as AdminModelsResponse);
+    fetchSkillsMock.mockResolvedValue({
+      extraDirs: [],
+      disabled: [],
+      skills: [],
+    });
     useAuthMock.mockReset();
     sendMessageMock.mockReset();
     stopRequestMock.mockReset();
@@ -419,6 +430,29 @@ describe('ChatPage', () => {
     );
   });
 
+  it('prefills the composer from the prompt search param', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/chat?prompt=%2F1password+List+all+items+in+my+%22Development%22+vault',
+    );
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [],
+    });
+
+    renderChatPage();
+
+    const input = (await screen.findByLabelText(
+      'Message input',
+    )) as HTMLTextAreaElement;
+    await waitFor(() =>
+      expect(input.value).toBe(
+        '/1password List all items in my "Development" vault',
+      ),
+    );
+  });
+
   it('syncs the agent dropdown from the active session history', async () => {
     fetchAgentListMock.mockResolvedValue([
       { id: 'main', name: 'Main Agent' },
@@ -522,7 +556,7 @@ describe('ChatPage', () => {
     });
   });
 
-  it('starts hidden hatching after switching to an agent with active BOOTSTRAP', async () => {
+  it('shows a hatching spinner after switching to an agent with active BOOTSTRAP', async () => {
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
       history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
@@ -539,11 +573,126 @@ describe('ChatPage', () => {
 
     await switchAgentOption('Charly');
 
-    await waitFor(() =>
-      expect(sendMessageMock).toHaveBeenCalledWith('Start hatching.', [], {
-        hideUser: true,
-      }),
-    );
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole('status', { name: 'Assistant is thinking' }),
+    ).not.toBeNull();
+  });
+
+  it('shows a hatching spinner while gateway autostart is starting', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+      bootstrapAutostart: {
+        status: 'starting',
+        fileName: 'BOOTSTRAP.md',
+      },
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+    expect(
+      await screen.findByRole('status', { name: 'Assistant is thinking' }),
+    ).not.toBeNull();
+  });
+
+  it('keeps the hatching spinner after the model-authored prelude while autostart is still running', async () => {
+    fetchChatHistoryMock
+      .mockResolvedValueOnce({
+        sessionId: 'session-a',
+        history: [
+          { id: 101, role: 'assistant', content: 'Opened session A' },
+          {
+            id: 102,
+            role: 'assistant',
+            content: "I'm coming online now.",
+          },
+        ],
+        bootstrapAutostart: {
+          status: 'starting',
+          fileName: 'BOOTSTRAP.md',
+        },
+      })
+      .mockResolvedValueOnce({
+        sessionId: 'session-a',
+        history: [
+          { id: 101, role: 'assistant', content: 'Opened session A' },
+          {
+            id: 102,
+            role: 'assistant',
+            content: "I'm coming online now.",
+          },
+          {
+            id: 103,
+            role: 'assistant',
+            content: 'What should I call you?',
+          },
+        ],
+        bootstrapAutostart: {
+          status: 'completed',
+          fileName: 'BOOTSTRAP.md',
+        },
+      });
+
+    renderChatPage();
+
+    expect(await screen.findByText("I'm coming online now.")).not.toBeNull();
+    expect(
+      screen.getByRole('status', { name: 'Assistant is thinking' }),
+    ).not.toBeNull();
+    await waitFor(() => expect(fetchChatHistoryMock).toHaveBeenCalledTimes(2), {
+      timeout: 2500,
+    });
+    expect(await screen.findByText('What should I call you?')).not.toBeNull();
+    expect(
+      screen.queryByRole('status', { name: 'Assistant is thinking' }),
+    ).toBeNull();
+  });
+
+  it('refreshes cached history after agent switch so gateway autostart messages appear', async () => {
+    fetchChatHistoryMock
+      .mockResolvedValueOnce({
+        sessionId: 'session-a',
+        history: [
+          {
+            id: 101,
+            role: 'assistant',
+            content: 'Opened session A',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        sessionId: 'session-a',
+        history: [
+          {
+            id: 101,
+            role: 'assistant',
+            content: 'Opened session A',
+          },
+          {
+            id: 102,
+            role: 'assistant',
+            agent_id: 'charly',
+            content: 'What should I call you?',
+          },
+        ],
+        bootstrapAutostart: {
+          status: 'completed',
+          fileName: 'BOOTSTRAP.md',
+        },
+      });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+    await waitFor(() => expect(fetchAgentListMock).toHaveBeenCalled());
+
+    await switchAgentOption('Charly');
+
+    await waitFor(() => expect(fetchChatHistoryMock).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('What should I call you?')).not.toBeNull();
+    expect(sendMessageMock).not.toHaveBeenCalled();
   });
 
   it('does not start hidden hatching when gateway autostart is already starting', async () => {
@@ -1479,6 +1628,25 @@ describe('ChatPage', () => {
 
     expect(await screen.findByText('Ready to claw through your to-do list?'));
     expect(fetchAppStatusMock).not.toHaveBeenCalled();
+  });
+
+  it('uses the active agent empty chat header when configured', async () => {
+    fetchAgentListMock.mockResolvedValue([
+      {
+        id: 'main',
+        name: 'Assistant',
+        emptyChatHeader: 'Ready to tune the research engine?',
+      },
+      { id: 'charly', name: 'Charly' },
+    ]);
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [],
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Ready to tune the research engine?'));
   });
 
   it('collapses to the icon rail and exposes an Expand trigger that re-opens it', async () => {

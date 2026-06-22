@@ -22,6 +22,7 @@ import { FleetTopologyPage } from './routes/fleet-topology';
 import { GatewayPage } from './routes/gateway';
 import { HarnessEvolutionPage } from './routes/harness-evolution';
 import { JobsPage } from './routes/jobs';
+import { LogsPage } from './routes/logs';
 import { McpPage } from './routes/mcp';
 import { ModelsPage } from './routes/models';
 import { OutputGuardPage } from './routes/output-guard';
@@ -29,6 +30,7 @@ import { PluginsPage } from './routes/plugins';
 import { SchedulerPage } from './routes/scheduler';
 import { SecretsPage } from './routes/secrets';
 import { SessionsPage } from './routes/sessions';
+import { SkillsDetailPage } from './routes/skill-detail';
 import { SkillsPage } from './routes/skills';
 import { StatisticsPage } from './routes/statistics';
 import { ToolsPage } from './routes/tools';
@@ -141,6 +143,12 @@ const gatewayRoute = createRoute({
   component: GatewayPage,
 });
 
+const logsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/logs',
+  component: LogsPage,
+});
+
 const fleetTopologyRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/fleet-topology',
@@ -229,6 +237,12 @@ const skillsRoute = createRoute({
   component: SkillsPage,
 });
 
+const skillDetailRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/skills/$skillName',
+  component: SkillsDetailPage,
+});
+
 const pluginsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/plugins',
@@ -275,6 +289,7 @@ const routeTree = rootRoute.addChildren([
     agentScoreboardRoute,
     terminalRoute,
     gatewayRoute,
+    logsRoute,
     fleetTopologyRoute,
     sessionsRoute,
     channelsRoute,
@@ -288,6 +303,7 @@ const routeTree = rootRoute.addChildren([
     mcpRoute,
     auditRoute,
     skillsRoute,
+    skillDetailRoute,
     pluginsRoute,
     outputGuardRoute,
     toolsRoute,

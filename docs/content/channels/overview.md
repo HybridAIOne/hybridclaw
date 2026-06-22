@@ -39,6 +39,33 @@ they save channel-specific runtime config, pairing state, or a transport token
 directly. Twilio voice is currently configured from `/admin/channels` or direct
 config edits because it also depends on public webhook and relay URL settings.
 
+## Auto-Connect Conditions
+
+On startup the gateway connects each channel that is enabled and has its
+required credentials saved:
+
+- **Discord** when `DISCORD_TOKEN` is set
+- **Slack** when `slack.enabled` is true and both `SLACK_BOT_TOKEN` and
+  `SLACK_APP_TOKEN` are saved
+- **Slack Incoming Webhook** when `slackWebhook.enabled` is true and the default
+  webhook target has a stored SecretRef
+- **Telegram** when `telegram.enabled` is true and `TELEGRAM_BOT_TOKEN` is set
+- **Signal** when `signal.enabled` is true and a reachable `signal-cli`
+  compatible daemon plus account are configured
+- **Email** when `email.enabled` is true and an email password is configured,
+  typically through the stored `EMAIL_PASSWORD` secret
+- **WhatsApp** when linked auth exists under
+  `~/.hybridclaw/credentials/whatsapp`
+- **iMessage** when `imessage.enabled` is true and either local Messages access
+  or remote BlueBubbles credentials are configured
+- **Microsoft Teams** when `msteams.enabled` is true and `MSTEAMS_APP_PASSWORD`
+  is saved
+
+Discord Incoming Webhook, Threema, Fax, and Twilio Voice activate from their own
+setup flows; see each transport's guide in the matrix above. If a channel does
+not come up, confirm it is enabled and its credentials are saved, then check
+[Diagnostics](../reference/diagnostics.md).
+
 ## Shared Setup Surfaces
 
 - [Admin Console](./admin-console.md) for browser-based channel setup and

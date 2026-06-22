@@ -114,6 +114,24 @@ describe('HybridAI empty completion guard', () => {
     ).toBe(true);
   });
 
+  test('detects whitespace-only content as an empty visible completion', () => {
+    expect(
+      isHybridAIEmptyVisibleCompletion({
+        id: 'resp_blank',
+        model: 'gpt-5-nano',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '   \n\t',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
   test('does not flag visible text or tool calls as empty completions', () => {
     expect(
       isHybridAIEmptyVisibleCompletion({

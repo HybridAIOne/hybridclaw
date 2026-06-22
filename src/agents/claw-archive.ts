@@ -11,6 +11,10 @@ import {
 } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import {
+  deleteMemoryValuesByKey,
+  deleteMemoryValuesByKeyPrefix,
+} from '../memory/db.js';
+import {
   type InstallPluginResult,
   installPlugin,
   type PluginInstallCommandRunner,
@@ -26,7 +30,6 @@ import {
 } from '../skills/skills-import.js';
 import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
-import { ensureBootstrapFiles } from '../workspace.js';
 import {
   deleteRegisteredAgent,
   getAgentById,
@@ -48,6 +51,8 @@ import { safeExtractZip, scanClawArchive } from './claw-security.js';
 const MANIFEST_FILE_NAME = 'manifest.json';
 const SKILL_MANIFEST_FILE = 'SKILL.md';
 const PLUGIN_MANIFEST_FILE = 'hybridclaw.plugin.yaml';
+const GATEWAY_BOOTSTRAP_AUTOSTART_MARKER_PREFIX =
+  'gateway.bootstrap_autostart.v1';
 
 interface ArchivedFile {
   absolutePath: string;
@@ -175,6 +180,7 @@ export interface UninstallAgentResult {
   workspacePath: string;
   removedAgentRoot: boolean;
   removedRegistration: boolean;
+  removedBootstrapAutostartMarkers: number;
 }
 
 export interface UninstallAgentOptions {
@@ -998,7 +1004,8 @@ export async function packAgent(
       : {}),
     createdAt: options.createdAt ?? new Date().toISOString(),
     ...(normalizeString(resolved.displayName) ||
-    normalizeString(resolved.imageAsset)
+    normalizeString(resolved.imageAsset) ||
+    normalizeString(resolved.emptyChatHeader)
       ? {
           presentation: {
             ...(normalizeString(resolved.displayName)
@@ -1006,6 +1013,9 @@ export async function packAgent(
               : {}),
             ...(normalizeString(resolved.imageAsset)
               ? { imageAsset: normalizeString(resolved.imageAsset) }
+              : {}),
+            ...(normalizeString(resolved.emptyChatHeader)
+              ? { emptyChatHeader: normalizeString(resolved.emptyChatHeader) }
               : {}),
           },
         }
@@ -1246,6 +1256,9 @@ export async function unpackAgent(
       ...(manifest.presentation?.imageAsset
         ? { imageAsset: manifest.presentation.imageAsset }
         : {}),
+      ...(manifest.presentation?.emptyChatHeader
+        ? { emptyChatHeader: manifest.presentation.emptyChatHeader }
+        : {}),
       ...(manifest.agent?.model ? { model: manifest.agent.model } : {}),
       ...(manifest.agent?.skills !== undefined
         ? { skills: manifest.agent.skills }
@@ -1305,8 +1318,6 @@ export async function unpackAgent(
       });
       runtimeConfigChanged = true;
     }
-
-    ensureBootstrapFiles(resolvedAgentId);
 
     if (workspaceBackupPath) {
       fs.rmSync(workspaceBackupPath, { recursive: true, force: true });
@@ -1428,11 +1439,16 @@ export function uninstallAgent(
   const removedRegistration = existingAgent
     ? deleteRegisteredAgent(normalizedAgentId)
     : false;
+  const bootstrapAutostartMarkerKey = `${GATEWAY_BOOTSTRAP_AUTOSTART_MARKER_PREFIX}.${normalizedAgentId}`;
+  const removedBootstrapAutostartMarkers =
+    deleteMemoryValuesByKey(bootstrapAutostartMarkerKey) +
+    deleteMemoryValuesByKeyPrefix(`${bootstrapAutostartMarkerKey}.`);
   return {
     agentId: normalizedAgentId,
     agentRootPath,
     workspacePath,
     removedAgentRoot: agentRootExists,
     removedRegistration,
+    removedBootstrapAutostartMarkers,
   };
 }

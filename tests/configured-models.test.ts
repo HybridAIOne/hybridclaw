@@ -95,6 +95,30 @@ describe('env var overrides', () => {
 });
 
 describe('configured model catalog', () => {
+  it('defaults the onboarding model override to empty', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+
+    const config = await importFreshConfig(homeDir);
+    const snapshot = config.getConfigSnapshot();
+
+    expect(config.HYBRIDAI_ONBOARDING_MODEL).toBe('');
+    expect(snapshot.hybridai.onboardingModel).toBe('');
+  });
+
+  it('preserves a configured onboarding model override', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.hybridai.onboardingModel = 'gpt-5.5';
+    });
+
+    const config = await importFreshConfig(homeDir);
+    const snapshot = config.getConfigSnapshot();
+
+    expect(config.HYBRIDAI_ONBOARDING_MODEL).toBe('gpt-5.5');
+    expect(snapshot.hybridai.onboardingModel).toBe('gpt-5.5');
+  });
+
   it('preserves provider model lists in the runtime config snapshot', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {

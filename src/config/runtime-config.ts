@@ -47,6 +47,7 @@ import {
   normalizeSlackWebhookUrl,
   SLACK_WEBHOOK_DEFAULT_TARGET,
 } from '../channels/slack-webhook/target.js';
+import { supportsMcpOAuth } from '../mcp/server-config.js';
 import type {
   MemoryEmbeddingDtype,
   MemoryEmbeddingProviderKind,
@@ -143,9 +144,10 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 30;
+export const CONFIG_VERSION = 31;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
+export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
   'This is a live phone call. Produce plain spoken text only.',
@@ -725,6 +727,23 @@ export interface RuntimeEmailConfig {
   allowFrom: string[];
   textChunkLimit: number;
   mediaMaxMb: number;
+  accounts: RuntimeEmailAccountConfig[];
+}
+
+export interface RuntimeEmailAccountConfig {
+  agentId: string;
+  imapHost: string;
+  imapPort: number;
+  imapSecure: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  address: string;
+  password: SecretInput;
+  pollIntervalMs: number;
+  folders: string[];
+  allowFrom: string[];
+  mediaMaxMb: number;
 }
 
 export interface RuntimeChannelInstructionsConfig {
@@ -1003,6 +1022,7 @@ export interface RuntimeConfig {
   hybridai: {
     baseUrl: string;
     defaultModel: string;
+    onboardingModel: string;
     defaultChatbotId: string;
     maxTokens: number;
     enableRag: boolean;
@@ -1161,9 +1181,12 @@ export interface RuntimeConfig {
     healthPort: number;
     webApiToken: string;
     gatewayBaseUrl: string;
+    gatewayInternalBaseUrl: string;
     gatewayApiToken: string;
     dbPath: string;
     logLevel: LogLevel;
+    logRequests: boolean;
+    debugModelResponses: boolean;
   };
   observability: {
     enabled: boolean;
@@ -1657,10 +1680,12 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     allowFrom: [],
     textChunkLimit: 50_000,
     mediaMaxMb: 20,
+    accounts: [],
   },
   hybridai: {
     baseUrl: 'https://hybridai.one',
     defaultModel: DEFAULT_HYBRIDAI_MODEL,
+    onboardingModel: DEFAULT_HYBRIDAI_ONBOARDING_MODEL,
     defaultChatbotId: '',
     maxTokens: 4_096,
     enableRag: true,
@@ -1922,9 +1947,12 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     healthPort: 9090,
     webApiToken: '',
     gatewayBaseUrl: 'http://127.0.0.1:9090',
+    gatewayInternalBaseUrl: 'http://127.0.0.1:9090',
     gatewayApiToken: '',
     dbPath: DEFAULT_DB_PATH,
     logLevel: 'info',
+    logRequests: false,
+    debugModelResponses: false,
   },
   observability: {
     enabled: true,
@@ -2765,6 +2793,13 @@ function normalizeAgentConfig(
       allowEmpty: true,
     },
   );
+  const emptyChatHeader = normalizeString(
+    value.emptyChatHeader,
+    fallback?.emptyChatHeader ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
   const model = normalizeAgentModelConfig(value.model, fallback?.model);
   const workspace = normalizeString(
     value.workspace,
@@ -2842,7 +2877,7 @@ function normalizeAgentConfig(
     id,
     ...identityFields,
     ...(name ? { name } : {}),
-    ...buildOptionalAgentPresentation(displayName, imageAsset),
+    ...buildOptionalAgentPresentation(displayName, imageAsset, emptyChatHeader),
     ...(model ? { model } : {}),
     ...(skills !== undefined ? { skills } : {}),
     ...(workspace ? { workspace } : {}),
@@ -2988,6 +3023,12 @@ function normalizeMcpServerConfig(value: unknown): McpServerConfig | null {
   const cwd = normalizeString(value.cwd, '', { allowEmpty: true });
   const url = normalizeString(value.url, '', { allowEmpty: true });
   const headers = normalizeStringRecord(value.headers);
+  const auth =
+    String(value.auth || '')
+      .trim()
+      .toLowerCase() === 'oauth' && supportsMcpOAuth(transport)
+      ? ('oauth' as const)
+      : undefined;
   const enabled = normalizeBoolean(value.enabled, true);
 
   if (transport === 'stdio' && !command) return null;
@@ -3001,6 +3042,7 @@ function normalizeMcpServerConfig(value: unknown): McpServerConfig | null {
     ...(cwd ? { cwd } : {}),
     ...(url ? { url } : {}),
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    ...(auth ? { auth } : {}),
     enabled,
   };
 }
@@ -3955,10 +3997,11 @@ function normalizeEmailConfig(
   fallback: RuntimeEmailConfig,
   opts?: {
     password?: unknown;
+    accountPasswords?: unknown[];
   },
 ): RuntimeEmailConfig {
   const raw = isRecord(value) ? value : {};
-  return {
+  const base = {
     enabled: normalizeBoolean(raw.enabled, fallback.enabled),
     imapHost: normalizeString(raw.imapHost, fallback.imapHost, {
       allowEmpty: true,
@@ -4008,6 +4051,112 @@ function normalizeEmailConfig(
       min: 1,
       max: 100,
     }),
+  };
+  const rawAccounts = Array.isArray(raw.accounts) ? raw.accounts : [];
+  return {
+    ...base,
+    accounts: rawAccounts
+      .map((account, index) =>
+        normalizeEmailAccountConfig(
+          account,
+          fallback.accounts[index],
+          base,
+          opts?.accountPasswords?.[index],
+        ),
+      )
+      .filter((account): account is RuntimeEmailAccountConfig =>
+        Boolean(account),
+      ),
+  };
+}
+
+function normalizeEmailAccountConfig(
+  value: unknown,
+  fallback: RuntimeEmailAccountConfig | undefined,
+  parent: Omit<RuntimeEmailConfig, 'accounts'>,
+  password: unknown,
+): RuntimeEmailAccountConfig | null {
+  if (!isRecord(value)) return null;
+  return {
+    agentId: normalizeString(
+      value.agentId,
+      fallback?.agentId ?? DEFAULT_AGENT_ID,
+      {
+        allowEmpty: false,
+      },
+    ),
+    imapHost: normalizeString(
+      value.imapHost,
+      fallback?.imapHost ?? parent.imapHost,
+      {
+        allowEmpty: true,
+      },
+    ),
+    imapPort: normalizeInteger(
+      value.imapPort,
+      fallback?.imapPort ?? parent.imapPort,
+      {
+        min: 1,
+        max: 65_535,
+      },
+    ),
+    imapSecure: normalizeBoolean(
+      value.imapSecure,
+      fallback?.imapSecure ?? parent.imapSecure,
+    ),
+    smtpHost: normalizeString(
+      value.smtpHost,
+      fallback?.smtpHost ?? parent.smtpHost,
+      {
+        allowEmpty: true,
+      },
+    ),
+    smtpPort: normalizeInteger(
+      value.smtpPort,
+      fallback?.smtpPort ?? parent.smtpPort,
+      {
+        min: 1,
+        max: 65_535,
+      },
+    ),
+    smtpSecure: normalizeBoolean(
+      value.smtpSecure,
+      fallback?.smtpSecure ?? parent.smtpSecure,
+    ),
+    address: normalizeString(value.address, fallback?.address ?? '', {
+      allowEmpty: true,
+    }),
+    password: normalizeString(
+      password ?? value.password,
+      typeof fallback?.password === 'string' ? fallback.password : '',
+      {
+        allowEmpty: true,
+      },
+    ),
+    pollIntervalMs: normalizeInteger(
+      value.pollIntervalMs,
+      fallback?.pollIntervalMs ?? parent.pollIntervalMs,
+      {
+        min: 1_000,
+        max: 3_600_000,
+      },
+    ),
+    folders: normalizeStringArray(
+      value.folders,
+      fallback?.folders ?? parent.folders,
+    ),
+    allowFrom: normalizeStringArray(
+      value.allowFrom,
+      fallback?.allowFrom ?? parent.allowFrom,
+    ),
+    mediaMaxMb: normalizeInteger(
+      value.mediaMaxMb,
+      fallback?.mediaMaxMb ?? parent.mediaMaxMb,
+      {
+        min: 1,
+        max: 100,
+      },
+    ),
   };
 }
 
@@ -5128,9 +5277,101 @@ function preserveSecretInputs(
     if (!isSecretRefInput(sourceValue)) continue;
     setSecretInputOnSource(serializable, secretPath, cloneConfig(sourceValue));
   }
+  preserveEmailAccountSecretInputs(serializable, source);
   preserveSlackWebhookSecretInputs(serializable, source);
   preserveDiscordWebhookSecretInputs(serializable, source);
   preserveLocalEndpointSecretInputs(serializable, source);
+}
+
+function preserveEmailAccountSecretInputs(
+  serializable: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  const sourceEmail = isRecord(source.email) ? source.email : null;
+  const sourceAccounts =
+    sourceEmail && Array.isArray(sourceEmail.accounts)
+      ? sourceEmail.accounts
+      : null;
+  if (!sourceAccounts) return;
+
+  const serializableEmail = isRecord(serializable.email)
+    ? serializable.email
+    : {};
+  serializable.email = serializableEmail;
+  const serializableAccounts = Array.isArray(serializableEmail.accounts)
+    ? serializableEmail.accounts
+    : [];
+  serializableEmail.accounts = serializableAccounts;
+
+  copyEmailAccountPasswordSecretRefs(sourceAccounts, serializableAccounts);
+}
+
+function copyEmailAccountPasswordSecretRefs(
+  sourceAccounts: unknown[],
+  targetAccounts: unknown[],
+  options: {
+    cloneExistingTarget?: boolean;
+    createMissingTarget?: boolean;
+  } = {},
+): void {
+  for (let index = 0; index < sourceAccounts.length; index += 1) {
+    const sourceAccount = sourceAccounts[index];
+    if (!isRecord(sourceAccount) || !isSecretRefInput(sourceAccount.password)) {
+      continue;
+    }
+
+    const target = targetAccounts[index];
+    if (!isRecord(target)) {
+      if (!options.createMissingTarget) continue;
+      targetAccounts[index] = {
+        password: cloneConfig(sourceAccount.password),
+      };
+      continue;
+    }
+
+    const nextTarget = options.cloneExistingTarget ? { ...target } : target;
+    nextTarget.password = cloneConfig(sourceAccount.password);
+    targetAccounts[index] = nextTarget;
+  }
+}
+
+function mergeSubmittedSecretInputs(
+  base: Record<string, unknown>,
+  submitted: unknown,
+): Record<string, unknown> {
+  const merged = cloneConfig(base);
+  if (!isRecord(submitted)) return merged;
+
+  for (const secretPath of SECRET_INPUT_PATHS) {
+    const submittedValue = getSecretInputFromSource(submitted, secretPath);
+    if (!isSecretRefInput(submittedValue)) continue;
+    setSecretInputOnSource(
+      merged,
+      secretPath,
+      cloneConfig(submittedValue) as SecretInput,
+    );
+  }
+
+  const submittedEmail = isRecord(submitted.email) ? submitted.email : null;
+  const submittedAccounts =
+    submittedEmail && Array.isArray(submittedEmail.accounts)
+      ? submittedEmail.accounts
+      : null;
+  if (!submittedAccounts) return merged;
+
+  const mergedEmail = isRecord(merged.email) ? merged.email : {};
+  merged.email = mergedEmail;
+  const mergedAccounts = Array.isArray(mergedEmail.accounts)
+    ? [...mergedEmail.accounts]
+    : [];
+  mergedEmail.accounts = mergedAccounts;
+
+  copyEmailAccountPasswordSecretRefs(submittedAccounts, mergedAccounts, {
+    cloneExistingTarget: true,
+    createMissingTarget: true,
+  });
+
+  return merged;
 }
 
 function resolveConfiguredSecretInput(
@@ -6484,6 +6725,18 @@ function normalizeRuntimeConfig(
       required: isSecretRefInput(rawEmail.password) && emailEnabled,
     },
   );
+  const rawEmailAccounts = Array.isArray(rawEmail.accounts)
+    ? rawEmail.accounts
+    : [];
+  const resolvedEmailAccountPasswords = rawEmailAccounts.map(
+    (rawAccount, index) => {
+      if (!isRecord(rawAccount)) return undefined;
+      return resolveConfiguredSecretInput(rawAccount.password, {
+        path: `email.accounts[${index}].password`,
+        required: isSecretRefInput(rawAccount.password) && emailEnabled,
+      });
+    },
+  );
   const rawVoiceTwilio = isRecord(rawVoice.twilio) ? rawVoice.twilio : {};
   const resolvedVoiceAuthToken = resolveConfiguredSecretInput(
     rawVoiceTwilio.authToken,
@@ -7032,6 +7285,7 @@ function normalizeRuntimeConfig(
     ),
     email: normalizeEmailConfig(rawEmail, DEFAULT_RUNTIME_CONFIG.email, {
       password: resolvedEmailPassword,
+      accountPasswords: resolvedEmailAccountPasswords,
     }),
     hybridai: {
       baseUrl: hybridBaseUrl,
@@ -7039,6 +7293,11 @@ function normalizeRuntimeConfig(
         rawHybridAi.defaultModel,
         DEFAULT_RUNTIME_CONFIG.hybridai.defaultModel,
         { allowEmpty: false },
+      ),
+      onboardingModel: normalizeString(
+        rawHybridAi.onboardingModel,
+        DEFAULT_RUNTIME_CONFIG.hybridai.onboardingModel,
+        { allowEmpty: true },
       ),
       defaultChatbotId: hybridDefaultChatbotId,
       maxTokens: normalizeInteger(
@@ -7758,11 +8017,20 @@ function normalizeRuntimeConfig(
         rawOps.gatewayBaseUrl,
         `http://127.0.0.1:${healthPort}`,
       ),
+      gatewayInternalBaseUrl: normalizeBaseUrl(
+        rawOps.gatewayInternalBaseUrl,
+        `http://127.0.0.1:${healthPort}`,
+      ),
       gatewayApiToken: normalizeString(resolvedGatewayApiToken, webApiToken, {
         allowEmpty: true,
       }),
       dbPath: normalizedDbPath,
       logLevel: normalizeLogLevel(rawOps.logLevel, defaultOps.logLevel),
+      logRequests: normalizeBoolean(rawOps.logRequests, defaultOps.logRequests),
+      debugModelResponses: normalizeBoolean(
+        rawOps.debugModelResponses,
+        defaultOps.debugModelResponses,
+      ),
     },
     observability: {
       enabled: normalizeBoolean(
@@ -8388,6 +8656,10 @@ export function getRuntimeConfig(): RuntimeConfig {
   return cloneConfig(currentConfig);
 }
 
+export function getRuntimeConfigSourceSnapshot(): Record<string, unknown> {
+  return cloneConfig(currentConfigSource);
+}
+
 export function getRuntimeConfigLoadError(): RuntimeConfigLoadError | null {
   return currentConfigLoadError ? { ...currentConfigLoadError } : null;
 }
@@ -8469,12 +8741,13 @@ export function saveRuntimeConfig(
     containerSandboxModeExplicit: sandboxModeExplicit,
     containerMaxConcurrentExplicit: maxConcurrentExplicit,
   };
+  const sourceConfig = mergeSubmittedSecretInputs(currentConfigSource, next);
   const nextSource = buildSerializableConfig(
     normalized,
     {
       omitImplicitSandboxMode: !sandboxModeExplicit,
     },
-    currentConfigSource,
+    sourceConfig,
   );
   writeConfigFile(
     normalized,
@@ -8482,7 +8755,7 @@ export function saveRuntimeConfig(
       omitImplicitSandboxMode: !sandboxModeExplicit,
     },
     meta,
-    currentConfigSource,
+    sourceConfig,
   );
   currentConfigSource = cloneConfig(nextSource);
   applyConfig(normalized);

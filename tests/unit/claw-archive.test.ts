@@ -224,6 +224,7 @@ describe('.claw archive support', () => {
           name: 'Main Agent',
           displayName: 'Captain Claw',
           imageAsset: 'avatars/main.png',
+          emptyChatHeader: 'Ready to chart the course?',
           model: 'gpt-5-mini',
           skills: ['custom-skill'],
           enableRag: false,
@@ -266,6 +267,7 @@ describe('.claw archive support', () => {
           name: 'Main Agent',
           displayName: 'Captain Claw',
           imageAsset: 'avatars/main.png',
+          emptyChatHeader: 'Ready to chart the course?',
           model: 'gpt-5-mini',
           skills: ['custom-skill'],
           enableRag: false,
@@ -300,6 +302,7 @@ describe('.claw archive support', () => {
     expect(inspection.manifest.presentation).toEqual({
       displayName: 'Captain Claw',
       imageAsset: 'avatars/main.png',
+      emptyChatHeader: 'Ready to chart the course?',
     });
     expect(inspection.manifest.agent?.model).toBe('gpt-5-mini');
     expect(inspection.manifest.agent?.skills).toEqual(['custom-skill']);
@@ -337,6 +340,7 @@ describe('.claw archive support', () => {
       name: 'Main Agent',
       displayName: 'Captain Claw',
       imageAsset: 'avatars/main.png',
+      emptyChatHeader: 'Ready to chart the course?',
       skills: ['custom-skill'],
     });
     expect(
@@ -379,6 +383,74 @@ describe('.claw archive support', () => {
             path.join(unpacked.workspacePath, 'skills', 'custom-skill'),
       ),
     ).toBe(true);
+  });
+
+  test('unpack does not synthesize missing bootstrap files', async () => {
+    const homeDir = makeTempDir('hybridclaw-claw-home-');
+    const cwd = makeTempDir('hybridclaw-claw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+    process.chdir(cwd);
+
+    const { initDatabase } = await import('../../src/memory/db.js');
+    const { initAgentRegistry } = await import(
+      '../../src/agents/agent-registry.js'
+    );
+    const { unpackAgent } = await import('../../src/agents/claw-archive.js');
+
+    initDatabase({ quiet: true });
+    initAgentRegistry({
+      list: [{ id: 'main', name: 'Main Agent' }],
+    });
+
+    const archivePath = path.join(cwd, 'minimal-install.claw');
+    await writeZipArchive(archivePath, [
+      {
+        name: 'manifest.json',
+        content: JSON.stringify(
+          {
+            formatVersion: 1,
+            name: 'Minimal Install Agent',
+            id: 'minimal-install-agent',
+          },
+          null,
+          2,
+        ),
+      },
+      {
+        name: 'workspace/SOUL.md',
+        content: '# Soul\n',
+      },
+      {
+        name: 'workspace/notes/readme.md',
+        content: '# Read Me\n',
+      },
+    ]);
+
+    const unpacked = await unpackAgent(archivePath, {
+      yes: true,
+      homeDir,
+      cwd,
+    });
+
+    expect(
+      fs.readFileSync(path.join(unpacked.workspacePath, 'SOUL.md'), 'utf-8'),
+    ).toBe('# Soul\n');
+    expect(
+      fs.readFileSync(
+        path.join(unpacked.workspacePath, 'notes', 'readme.md'),
+        'utf-8',
+      ),
+    ).toBe('# Read Me\n');
+    expect(
+      fs.existsSync(path.join(unpacked.workspacePath, 'BOOTSTRAP.md')),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(unpacked.workspacePath, 'IDENTITY.md')),
+    ).toBe(false);
+    expect(fs.existsSync(path.join(unpacked.workspacePath, 'USER.md'))).toBe(
+      false,
+    );
   });
 
   test('unpack installs manifest skill imports into the agent workspace', async () => {
@@ -975,7 +1047,9 @@ describe('.claw archive support', () => {
     vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
     process.chdir(cwd);
 
-    const { initDatabase } = await import('../../src/memory/db.js');
+    const { initDatabase, listMemoryValues, setMemoryValue } = await import(
+      '../../src/memory/db.js'
+    );
     const { getAgentById, initAgentRegistry } = await import(
       '../../src/agents/agent-registry.js'
     );
@@ -1004,6 +1078,23 @@ describe('.claw archive support', () => {
       '{"name":"Writer Agent"}\n',
       'utf-8',
     );
+    setMemoryValue('session-a', 'gateway.bootstrap_autostart.v1.writer', {
+      status: 'completed',
+    });
+    setMemoryValue(
+      'session-b',
+      'gateway.bootstrap_autostart.v1.writer.BOOTSTRAP.md.abc123',
+      {
+        status: 'completed',
+      },
+    );
+    setMemoryValue(
+      'session-c',
+      'gateway.bootstrap_autostart.v1.writer2.BOOTSTRAP.md.keep',
+      {
+        status: 'completed',
+      },
+    );
 
     expect(getAgentById('writer')).toMatchObject({ id: 'writer' });
     expect(fs.existsSync(agentRootPath)).toBe(true);
@@ -1016,9 +1107,17 @@ describe('.claw archive support', () => {
       workspacePath,
       removedAgentRoot: true,
       removedRegistration: true,
+      removedBootstrapAutostartMarkers: 2,
     });
     expect(getAgentById('writer')).toBeNull();
     expect(fs.existsSync(agentRootPath)).toBe(false);
+    expect(listMemoryValues('session-a')).toEqual([]);
+    expect(listMemoryValues('session-b')).toEqual([]);
+    expect(listMemoryValues('session-c')).toEqual([
+      expect.objectContaining({
+        key: 'gateway.bootstrap_autostart.v1.writer2.BOOTSTRAP.md.keep',
+      }),
+    ]);
   });
 
   test('uninstall rejects the main agent', async () => {

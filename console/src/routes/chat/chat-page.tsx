@@ -29,6 +29,7 @@ import {
   deleteSession as deleteChatSession,
   fetchAgentList,
   fetchModels,
+  fetchSkills,
 } from '../../api/client';
 import type { ChatModel } from '../../api/types';
 import { isAuthReadyForApi, useAuth } from '../../auth';
@@ -80,8 +81,9 @@ const EMPTY_MESSAGES: ChatUiMessage[] = [];
 const EMPTY_MODELS: ChatModel[] = [];
 const ERROR_BANNER_VISIBLE_MS = 5000;
 const ERROR_BANNER_FADE_MS = 200;
-const BOOTSTRAP_HATCHING_KICKOFF = 'Start hatching.';
+const BOOTSTRAP_AUTOSTART_THINKING_ID = 'bootstrap-autostart-thinking';
 const BOOTSTRAP_AUTOSTART_REFETCH_MS = 1500;
+const DEFAULT_EMPTY_CHAT_HEADER = 'Ready to claw through your to-do list?';
 type RecentChatScope = 'user' | 'all';
 
 function buildBranchInfoMap(
@@ -128,6 +130,10 @@ export function ChatPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const userId = useRef(readStoredUserId()).current;
+  const initialComposerPrompt = useMemo(
+    () => new URLSearchParams(window.location.search).get('prompt') || '',
+    [],
+  );
 
   const [errorState, setErrorState] = useState({ message: '', version: 0 });
   const error = errorState.message;
@@ -246,6 +252,13 @@ export function ChatPage() {
     staleTime: 30_000,
     enabled: chatApiReady,
   });
+  const skillsQuery = useQuery({
+    queryKey: ['skills', auth.token],
+    queryFn: () => fetchSkills(auth.token),
+    staleTime: 60_000,
+    retry: false,
+    enabled: chatApiReady,
+  });
 
   // /model set is session-scoped on the gateway, so re-seed the local selection
   // to the gateway default whenever the session changes. We don't know what
@@ -305,9 +318,17 @@ export function ChatPage() {
         id: agent.id,
         name: agent.name,
         imageUrl: agent.imageUrl ?? null,
+        emptyChatHeader: agent.emptyChatHeader ?? null,
       })),
     [agentsQuery.data],
   );
+  const skillInvocationTargets = useMemo(() => {
+    return new Map(
+      (skillsQuery.data?.skills ?? [])
+        .filter((skill) => skill.userInvocable)
+        .map((skill) => [skill.name.toLowerCase(), skill.name]),
+    );
+  }, [skillsQuery.data?.skills]);
   const resolveAddressedAgentPresentation = useCallback(
     (content: string) => {
       const mentions = findAgentMentions(content);
@@ -372,13 +393,31 @@ export function ChatPage() {
   });
 
   const messages = historyQuery.data?.messages ?? EMPTY_MESSAGES;
+  const isBootstrapAutostartStarting =
+    historyQuery.data?.bootstrapAutostart?.status === 'starting';
+  const visibleMessages = useMemo<ChatUiMessage[]>(() => {
+    if (!isBootstrapAutostartStarting) return messages;
+    return [
+      ...messages,
+      {
+        id: BOOTSTRAP_AUTOSTART_THINKING_ID,
+        role: 'thinking',
+        content: '',
+        sessionId,
+      },
+    ];
+  }, [isBootstrapAutostartStarting, messages, sessionId]);
   const branchFamilies =
     historyQuery.data?.branchFamilies ?? EMPTY_BRANCH_FAMILIES;
   const effectiveAgentId =
-    selectedAgentId ??
-    historyQuery.data?.agentId?.trim().toLowerCase() ??
-    appStatusQuery.data?.defaultAgentId?.trim().toLowerCase() ??
+    selectedAgentId?.trim().toLowerCase() ||
+    historyQuery.data?.agentId?.trim().toLowerCase() ||
+    appStatusQuery.data?.defaultAgentId?.trim().toLowerCase() ||
     DEFAULT_AGENT_ID;
+  const emptyChatHeader =
+    agentOptions
+      .find((agent) => agent.id.toLowerCase() === effectiveAgentId)
+      ?.emptyChatHeader?.trim() || DEFAULT_EMPTY_CHAT_HEADER;
 
   const deleteSessionMutation = useMutation({
     mutationFn: (targetSessionId: string) =>
@@ -712,11 +751,13 @@ export function ChatPage() {
 
   const ensureSwitchHistory = useCallback(
     async (resolvedSessionId: string) => {
+      const queryKey = chatHistoryQueryKey(auth.token, resolvedSessionId);
       return queryClient
-        .ensureQueryData({
-          queryKey: chatHistoryQueryKey(auth.token, resolvedSessionId),
+        .fetchQuery({
+          queryKey,
           queryFn: () =>
             loadChatHistoryUi(auth.token, resolvedSessionId, userId),
+          staleTime: 0,
         })
         .catch((err: unknown) => {
           console.warn(
@@ -760,16 +801,27 @@ export function ChatPage() {
         void queryClient.invalidateQueries({
           queryKey: chatContextQueryKey(auth.token, resolvedSessionId),
         });
-        const shouldStartHatching =
+        const shouldAwaitGatewayHatching =
           commandArgs[0] === 'agent' &&
           commandArgs[1] === 'switch' &&
           switchHistory?.bootstrapAutostart?.fileName === 'BOOTSTRAP.md' &&
-          switchHistory.bootstrapAutostart.status === 'idle';
-        if (shouldStartHatching) {
+          (switchHistory.bootstrapAutostart.status === 'idle' ||
+            switchHistory.bootstrapAutostart.status === 'starting');
+        if (shouldAwaitGatewayHatching) {
+          queryClient.setQueryData<ChatHistoryUiData>(
+            chatHistoryQueryKey(auth.token, resolvedSessionId),
+            (prev) =>
+              prev
+                ? {
+                    ...prev,
+                    bootstrapAutostart: {
+                      status: 'starting',
+                      fileName: 'BOOTSTRAP.md',
+                    },
+                  }
+                : prev,
+          );
           jumpToBottom();
-          void stream.sendMessage(BOOTSTRAP_HATCHING_KICKOFF, [], {
-            hideUser: true,
-          });
         }
         refreshRecent();
         onAccepted(value);
@@ -787,7 +839,6 @@ export function ChatPage() {
       queryClient,
       refreshRecent,
       setError,
-      stream.sendMessage,
       stream.isActive,
       switchToSession,
       userId,
@@ -928,7 +979,7 @@ export function ChatPage() {
     [branchFamilies, handleOpenSession],
   );
 
-  const isEmpty = messages.length === 0;
+  const isEmpty = visibleMessages.length === 0;
   const isSwitchingSession = historyQuery.isFetching;
 
   const sidebarProps = {
@@ -1013,14 +1064,12 @@ export function ChatPage() {
           ) : null}
           {isEmpty ? (
             <div className={css.emptyState}>
-              <h1 className={css.greeting}>
-                Ready to claw through your to-do list?
-              </h1>
+              <h1 className={css.greeting}>{emptyChatHeader}</h1>
             </div>
           ) : (
             <div className={css.messageArea} ref={messageAreaRef}>
               <div className={css.messageList} ref={messageListRef}>
-                {messages.map((msg) =>
+                {visibleMessages.map((msg) =>
                   editingId === msg.id && msg.role !== 'thinking' ? (
                     <div key={msg.id} className={css.messageBlock}>
                       <EditInline
@@ -1045,6 +1094,7 @@ export function ChatPage() {
                         ratingMutation.isPending &&
                         ratingMutation.variables?.message.id === msg.id
                       }
+                      skillInvocationTargets={skillInvocationTargets}
                       onApprovalAction={handleApprovalAction}
                       approvalBusy={approvalBusy}
                       branchInfo={branchInfoMap.get(msg.id) ?? null}
@@ -1089,6 +1139,7 @@ export function ChatPage() {
             models={modelOptions}
             selectedModelId={selectedModelId}
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
+            initialValue={initialComposerPrompt}
           />
         </div>
         <Dialog

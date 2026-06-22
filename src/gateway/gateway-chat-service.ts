@@ -61,6 +61,11 @@ import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
+import {
+  collectModelLookupCandidates,
+  matchesModelFamily,
+} from '../providers/model-lookup.js';
+import { isGpt5ModelId } from '../providers/model-metadata.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { maybeAutoTitleSession } from '../session/session-title.js';
@@ -137,6 +142,7 @@ import {
   resolveChannelType,
   resolveGatewayChatbotId,
   resolveMediaToolPolicy,
+  resolveOnboardingTurnModel,
   resolveSessionAutoResetPolicy,
   shouldForceNewTuiSession,
 } from './gateway-service.js';
@@ -150,6 +156,10 @@ import {
   firstNumber,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import {
+  appendHatchingChannelSetupLinks,
+  recordBootstrapHatchingTurnResult,
+} from './hatching-completion.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
 import {
@@ -625,16 +635,37 @@ function captureGatewayChatResultError(params: {
   });
 }
 
-function buildBootstrapChatTurnPrompt(fileName: 'BOOTSTRAP.md'): string {
+function isGpt5OnboardingModelId(modelId: string): boolean {
+  return collectModelLookupCandidates(modelId).some(
+    (candidate) =>
+      isGpt5ModelId(candidate) || matchesModelFamily(candidate, 'gpt-5'),
+  );
+}
+
+function buildGpt5OnboardingPromptInjection(): string[] {
   return [
+    'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool. Follow the short welcome email template in BOOTSTRAP.md: 3 concrete first tasks, 2 or 3 copy-paste prompt ideas, and one concrete next step. Do not include channel setup links in the email; post those links as Markdown links in the hatching chat. Set action="send", to=<email>, and subject=<specific subject>. Do not ask for separate confirmation.',
+  ];
+}
+
+function buildBootstrapChatTurnPrompt(params: {
+  fileName: 'BOOTSTRAP.md';
+  model: string;
+}): string {
+  const lines = [
     'Hatching mode is active for this agent.',
-    `A startup instruction file (${fileName}) exists and is already loaded in the system context.`,
-    'Do not answer this as a normal chat turn.',
-    `Follow ${fileName} now: introduce yourself, begin onboarding, and ask the first few useful customization questions.`,
-    'Use the user message below only as the signal that the user is present.',
+    `A startup instruction file (${params.fileName}) exists and is already loaded in the system context.`,
+    'Continue the in-progress hatching conversation using the full chat history above.',
+    'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
+    `Keep following ${params.fileName}: acknowledge the user's latest reply and ask only the next useful customization question.`,
+    'If the user has not answered the previous questions yet, briefly point back to them instead of asking a fresh set.',
     'Do not ask a generic "what can I do for you?" question.',
-    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
-  ].join('\n');
+    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${params.fileName} explicitly requires it.`,
+  ];
+  if (isGpt5OnboardingModelId(params.model)) {
+    lines.push('', ...buildGpt5OnboardingPromptInjection());
+  }
+  return lines.join('\n');
 }
 
 function shouldInjectBootstrapChatTurnPrompt(params: {
@@ -971,38 +1002,6 @@ async function handleGatewayMessageInner(
       activeGatewayRequest.release();
     }
   }
-  let chatbotResolution = await resolveGatewayChatbotId({
-    model,
-    chatbotId,
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId,
-    trigger: 'chat',
-  });
-  chatbotId = chatbotResolution.chatbotId;
-  const sessionContext = buildSessionContext({
-    source: {
-      channelKind: channelType || channel?.kind,
-      chatId: req.channelId,
-      chatType:
-        channelType === 'heartbeat' || channelType === 'scheduler'
-          ? 'system'
-          : req.guildId
-            ? 'channel'
-            : 'dm',
-      userId: req.userId,
-      userName: req.username ?? undefined,
-      guildId: req.guildId,
-    },
-    agentId,
-    sessionId: session.id,
-    sessionKey: session.session_key,
-    mainSessionKey: session.main_session_key,
-  });
-  const showMode = normalizeSessionShowMode(session.show_mode);
-  const shouldEmitTools = sessionShowModeShowsTools(showMode);
-  const enableRag = req.enableRag ?? session.enable_rag === 1;
-  let provider = resolveModelProvider(model);
   let media = normalizeMediaContextItems(req.media);
   const workspacePath = path.resolve(
     req.workspacePathOverride || agentWorkspaceDir(agentId),
@@ -1056,6 +1055,44 @@ async function handleGatewayMessageInner(
       'Cleared session history after workspace reset',
     );
   }
+  model = resolveOnboardingTurnModel({
+    bootstrapFile: startupBootstrapFile,
+    model,
+  });
+  const onboardingModelPinned =
+    startupBootstrapFile === 'BOOTSTRAP.md' && model !== resolvedModel;
+  let provider = resolveModelProvider(model);
+  let chatbotResolution = await resolveGatewayChatbotId({
+    model,
+    chatbotId,
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    agentId,
+    trigger: 'chat',
+  });
+  chatbotId = chatbotResolution.chatbotId;
+  const sessionContext = buildSessionContext({
+    source: {
+      channelKind: channelType || channel?.kind,
+      chatId: req.channelId,
+      chatType:
+        channelType === 'heartbeat' || channelType === 'scheduler'
+          ? 'system'
+          : req.guildId
+            ? 'channel'
+            : 'dm',
+      userId: req.userId,
+      userName: req.username ?? undefined,
+      guildId: req.guildId,
+    },
+    agentId,
+    sessionId: session.id,
+    sessionKey: session.session_key,
+    mainSessionKey: session.main_session_key,
+  });
+  const showMode = normalizeSessionShowMode(session.show_mode);
+  const shouldEmitTools = sessionShowModeShowsTools(showMode);
+  const enableRag = req.enableRag ?? session.enable_rag === 1;
   const audioPrelude = await prependAudioTranscriptionsToUserContent({
     content: req.content,
     media,
@@ -1115,7 +1152,8 @@ async function handleGatewayMessageInner(
   const explicitModelPinned = Boolean(
     req.model?.trim() ||
       session.model?.trim() ||
-      resolveAgentModel(resolvedAgent),
+      resolveAgentModel(resolvedAgent) ||
+      onboardingModelPinned,
   );
   let routingExecutionNotice: string | null = null;
   if (pluginManager?.hasMiddleware('routing')) {
@@ -1237,6 +1275,14 @@ async function handleGatewayMessageInner(
     } else {
       effectiveUserTurnContentExpanded = routingOutcome.userContent;
     }
+  }
+  const postRoutingModel = resolveOnboardingTurnModel({
+    bootstrapFile: startupBootstrapFile,
+    model,
+  });
+  if (postRoutingModel !== model) {
+    model = postRoutingModel;
+    provider = resolveModelProvider(model);
   }
   if (model !== resolvedModel) {
     chatbotResolution = await resolveGatewayChatbotId({
@@ -1608,7 +1654,10 @@ async function handleGatewayMessageInner(
         startupBootstrapFile === 'BOOTSTRAP.md' ? startupBootstrapFile : null,
     })
   ) {
-    agentUserContent = `${buildBootstrapChatTurnPrompt('BOOTSTRAP.md')}\n\nUser message:\n${agentUserContent}`;
+    agentUserContent = `${buildBootstrapChatTurnPrompt({
+      fileName: 'BOOTSTRAP.md',
+      model,
+    })}\n\nUser message:\n${agentUserContent}`;
   }
   if (pluginManager?.hasMiddleware('pre_send')) {
     const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {
@@ -1840,6 +1889,24 @@ async function handleGatewayMessageInner(
       media,
     );
     const toolExecutions = output.toolExecutions || [];
+    const hatchingCompletion = recordBootstrapHatchingTurnResult({
+      agentId,
+      bootstrapFile: startupBootstrapFile,
+      toolExecutions,
+    });
+    if (hatchingCompletion) {
+      logger.info(
+        {
+          sessionId: req.sessionId,
+          agentId,
+          completed: hatchingCompletion.completed,
+          updated: hatchingCompletion.updated,
+          reason: hatchingCompletion.reason,
+          turnsWithoutMessage: hatchingCompletion.turnsWithoutMessage,
+        },
+        'Processed hatching completion signal',
+      );
+    }
     await routeEscalationApproval({
       approval: output.pendingApproval,
       agentId: resolvedAgent.id,
@@ -2165,6 +2232,10 @@ async function handleGatewayMessageInner(
         );
       }
     }
+    resultText = appendHatchingChannelSetupLinks({
+      resultText,
+      hatchingCompletion,
+    });
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex,
