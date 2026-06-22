@@ -71,8 +71,8 @@ Fastest managed launch: [HybridClaw on HybridAI Cloud](https://hybridclaw.io).
 
 Apple Desktop App for macOS:
 
-- Download the signed and notarized Apple Silicon DMG:
-  [HybridClaw-0.25.3-arm64.dmg](https://github.com/HybridAIOne/hybridclaw/releases/download/v0.25.3/HybridClaw-0.25.3-arm64.dmg)
+- Download the signed and notarized Apple Silicon DMG from
+  [GitHub Releases](https://github.com/HybridAIOne/hybridclaw/releases/latest).
 - Open the DMG, drag `HybridClaw.app` into `/Applications`, and launch it.
 - The desktop app starts the local gateway and opens the chat, agents, and
   admin surfaces in a native macOS window.

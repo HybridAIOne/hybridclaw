@@ -26,10 +26,9 @@
   message) with explicit success signals, a troubleshooting block, and a command
   cheat sheet. Relocated the per-channel startup auto-connect conditions into the
   Channels overview.
-- **Apple desktop release**: README and docs point at the signed/notarized Apple
-  Silicon DMG, and the desktop wrapper captures gateway startup logs, recent
-  child output, spawn failures, and early exits so packaged app launch failures
-  are diagnosable.
+- **Apple desktop diagnostics**: The desktop wrapper captures gateway startup
+  logs, recent child output, spawn failures, and early exits so packaged app
+  launch failures are diagnosable.
 - **Dependency maintenance**: Remediated npm audit dependencies, upgraded
   Nodemailer to 9.0.0, refreshed dependency policy baselines, and clarified the
   dependency lockfile update workflow for future maintenance.
