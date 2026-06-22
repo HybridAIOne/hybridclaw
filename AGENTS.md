@@ -264,6 +264,13 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
   `await import()` and static `import` for the same module in production paths.
 - **Dependencies:** root `package.json` is for gateway/CLI deps. Container-only
   deps go in `container/package.json`. Never add container deps to root.
+- When changing npm dependencies, update every generated dependency artifact in
+  the same change: the relevant `package-lock.json`, matching
+  `npm-shrinkwrap.json`, and the approved lockfile hashes in
+  `scripts/dependency-policy-baseline.json`. Use `npm run deps:update-lockfile`
+  when practical, or copy the updated lockfile to its shrinkwrap pair and
+  update the baseline hash after reviewing the lockfile diff. Run
+  `npm run deps:policy` before handing off.
 
 ### Git Discipline
 
