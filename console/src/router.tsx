@@ -3,9 +3,11 @@ import {
   createRoute,
   createRouter,
   Outlet,
+  useRouterState,
 } from '@tanstack/react-router';
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { AppShell } from './components/app-shell';
+import { resolveBrowserTitle } from './lib/browser-title';
 import { A2AInboxPage } from './routes/a2a-inbox';
 import { A2ATrustPage } from './routes/a2a-trust';
 import { AgentsPage } from './routes/agent-scoreboard';
@@ -65,8 +67,29 @@ function optionalStringSearchValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function BrowserTitle() {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+
+  useEffect(() => {
+    document.title = resolveBrowserTitle(pathname);
+  }, [pathname]);
+
+  return null;
+}
+
+function RootRouteComponent() {
+  return (
+    <>
+      <BrowserTitle />
+      <Outlet />
+    </>
+  );
+}
+
 const rootRoute = createRootRoute({
-  component: () => <Outlet />,
+  component: RootRouteComponent,
 });
 
 function AppShellRouteComponent() {
