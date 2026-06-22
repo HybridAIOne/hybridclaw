@@ -514,8 +514,11 @@ import {
   parseTimestamp,
 } from './gateway-time.js';
 import {
+  getGatewayAdminTunnelConfig,
   getGatewayAdminTunnelStatus,
   reconnectGatewayAdminTunnel,
+  saveGatewayAdminTunnelConfig,
+  stopGatewayAdminTunnel,
 } from './gateway-tunnel-service.js';
 import {
   type GatewayAdminA2AInboxResponse,
@@ -618,7 +621,12 @@ import {
 } from './show-mode.js';
 import { handleSkillCommand } from './skill-commands.js';
 
-export { reconnectGatewayAdminTunnel };
+export {
+  getGatewayAdminTunnelConfig,
+  reconnectGatewayAdminTunnel,
+  saveGatewayAdminTunnelConfig,
+  stopGatewayAdminTunnel,
+};
 
 initializeGoalContinuationRunner();
 

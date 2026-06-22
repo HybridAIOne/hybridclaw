@@ -274,6 +274,14 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       maxConcurrent: 2,
       persistBashState: true,
     },
+    deployment: {
+      mode: 'local',
+      public_url: '',
+      tunnel: {
+        provider: 'manual',
+        health_check_interval_ms: 30000,
+      },
+    },
     ops: {
       healthHost: '127.0.0.1',
       healthPort: 3001,

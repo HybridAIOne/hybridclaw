@@ -6,6 +6,7 @@ import {
   collectAdminActionClaims,
   collectAdminRoleClaims,
   isAdminActionAllowed,
+  resolveAdminRbacAction,
 } from '../src/security/admin-rbac.js';
 
 describe('admin RBAC role bundles', () => {
@@ -38,6 +39,7 @@ describe('admin RBAC role bundles', () => {
     const payload = { role: 'admin.config_manager' };
     const claims = collectAdminActionClaims(payload);
 
+    expect(claims?.has('admin.tunnel.write')).toBe(true);
     expect(claims?.has('admin.config.reload')).toBe(true);
     expect(isAdminActionAllowed(payload, 'admin.config.reload')).toBe(true);
     expect(isAdminActionAllowed(payload, 'secret.overwrite')).toBe(false);
@@ -110,5 +112,20 @@ describe('admin RBAC role bundles', () => {
       'admin:owner',
       'admin:secret-manager',
     ]);
+  });
+
+  test('maps admin tunnel routes to scoped tunnel actions', () => {
+    expect(resolveAdminRbacAction('/api/admin/tunnel', 'GET')).toBe(
+      'admin.tunnel.read',
+    );
+    expect(resolveAdminRbacAction('/api/admin/tunnel', 'PUT')).toBe(
+      'admin.tunnel.write',
+    );
+    expect(resolveAdminRbacAction('/api/admin/tunnel/reconnect', 'POST')).toBe(
+      'admin.tunnel.reconnect',
+    );
+    expect(resolveAdminRbacAction('/api/admin/tunnel/stop', 'POST')).toBe(
+      'admin.tunnel.stop',
+    );
   });
 });

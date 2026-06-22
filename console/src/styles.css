@@ -1811,6 +1811,7 @@ code {
 }
 
 .tunnel-panel-grid,
+.tunnel-config-grid,
 .tunnel-detail-grid {
   display: grid;
   gap: 16px;
@@ -1854,6 +1855,35 @@ code {
   justify-items: end;
 }
 
+.tunnel-action-button {
+  width: 128px;
+}
+
+.tunnel-config-grid {
+  margin-top: 18px;
+  grid-template-columns: minmax(180px, 0.35fr) minmax(280px, 1fr) auto;
+  align-items: end;
+}
+
+.tunnel-control {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tunnel-control span {
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.tunnel-config-actions {
+  display: flex;
+  justify-content: end;
+  grid-column: 3;
+  gap: 8px;
+}
+
 .tunnel-detail-grid {
   margin-top: 16px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1862,6 +1892,11 @@ code {
 .tunnel-error {
   margin-top: 14px;
   color: var(--danger);
+}
+
+.tunnel-warning {
+  margin-top: 14px;
+  color: var(--tone-review);
 }
 
 .selectable-row {
@@ -4121,6 +4156,15 @@ th {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .tunnel-config-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tunnel-config-actions {
+    grid-column: auto;
+    justify-content: start;
+  }
+
   .jobs-board-layout {
     grid-template-columns: 1fr;
   }
@@ -4154,12 +4198,22 @@ th {
   }
 
   .tunnel-panel-grid,
+  .tunnel-config-grid,
   .tunnel-detail-grid {
     grid-template-columns: 1fr;
   }
 
-  .tunnel-action-stack {
+  .tunnel-action-stack,
+  .tunnel-config-actions {
     justify-items: stretch;
+  }
+
+  .tunnel-config-actions {
+    flex-direction: column;
+  }
+
+  .tunnel-action-button {
+    width: 100%;
   }
 
   .output-guard-model-source-control {

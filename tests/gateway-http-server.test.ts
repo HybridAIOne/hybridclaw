@@ -865,7 +865,35 @@ async function importFreshHealth(options?: {
     lastCheckedAt: null,
     nextReconnectAt: null,
   };
+  const stopTunnelStatus = {
+    provider: 'ngrok',
+    publicUrl: null,
+    state: 'down' as const,
+    health: 'down' as const,
+    reconnectSupported: true,
+    lastError: null,
+    lastCheckedAt: null,
+    nextReconnectAt: null,
+  };
+  const tunnelConfigResponse = {
+    config: {
+      mode: 'local' as const,
+      provider: 'manual',
+      publicUrl: 'https://public.example.test',
+      healthCheckIntervalMs: 30_000,
+    },
+    tunnel: reconnectTunnelStatus,
+  };
+  const getGatewayAdminTunnelConfig = vi.fn(() => tunnelConfigResponse);
+  const saveGatewayAdminTunnelConfig = vi.fn((value) => ({
+    config: {
+      ...tunnelConfigResponse.config,
+      ...value,
+    },
+    tunnel: reconnectTunnelStatus,
+  }));
   const reconnectGatewayAdminTunnel = vi.fn(async () => reconnectTunnelStatus);
+  const stopGatewayAdminTunnel = vi.fn(async () => stopTunnelStatus);
   const getGatewayAdminStatistics = vi.fn(
     (params?: { days?: number | string }) => {
       const raw =
@@ -2113,6 +2141,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminSkills,
     getGatewayAdminStatistics,
     getGatewayAdminTools,
+    getGatewayAdminTunnelConfig,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
@@ -2132,6 +2161,7 @@ async function importFreshHealth(options?: {
     revokeGatewayAdminA2ATrustPeer,
     saveGatewayAdminConfig,
     saveGatewayAdminSlackWebhookTarget,
+    saveGatewayAdminTunnelConfig,
     saveGatewayAdminAgentMarkdownFile,
     saveGatewayAdminPolicyDefault,
     saveGatewayAdminPolicyLanHttpAccess,
@@ -2140,6 +2170,7 @@ async function importFreshHealth(options?: {
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
     startGatewayAdminA2APairing,
+    stopGatewayAdminTunnel,
     updateGatewayAdminAgent,
     uploadGatewayAdminSkillZip,
     upsertGatewayAdminA2ATrustPeer,
@@ -2243,8 +2274,13 @@ async function importFreshHealth(options?: {
     recordGatewayAdminSecretMutationFailure,
     unsetGatewayAdminSecret,
     getGatewayAdminStatistics,
+    tunnelConfigResponse,
+    getGatewayAdminTunnelConfig,
+    saveGatewayAdminTunnelConfig,
     reconnectTunnelStatus,
     reconnectGatewayAdminTunnel,
+    stopTunnelStatus,
+    stopGatewayAdminTunnel,
     deleteGatewayAdminEmailMessage,
     getGatewayAdminEmailFolder,
     getGatewayAdminEmailMailbox,
@@ -6096,6 +6132,49 @@ describe('gateway HTTP server', () => {
     expect(res.body).not.toContain('bad-json-secret');
   });
 
+  test('returns admin tunnel config for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/tunnel' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminTunnelConfig).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual(state.tunnelConfigResponse);
+  });
+
+  test('saves admin tunnel config for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/tunnel',
+      method: 'PUT',
+      body: JSON.stringify({
+        provider: 'ngrok',
+        publicUrl: '',
+      }),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminTunnelConfig).toHaveBeenCalledWith({
+      provider: 'ngrok',
+      publicUrl: '',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      config: {
+        ...state.tunnelConfigResponse.config,
+        provider: 'ngrok',
+        publicUrl: '',
+      },
+      tunnel: state.reconnectTunnelStatus,
+    });
+  });
+
   test('reconnects the admin tunnel for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -6111,6 +6190,24 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       tunnel: state.reconnectTunnelStatus,
+    });
+  });
+
+  test('stops the admin tunnel for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/tunnel/stop',
+      method: 'POST',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.stopGatewayAdminTunnel).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      tunnel: state.stopTunnelStatus,
     });
   });
 

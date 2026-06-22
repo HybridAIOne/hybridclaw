@@ -79,6 +79,8 @@ import type {
   AdminTerminalStartResponse,
   AdminTerminalStopResponse,
   AdminToolsResponse,
+  AdminTunnelConfigInput,
+  AdminTunnelConfigResponse,
   AdminTunnelStatus,
   AgentListItem,
   AgentListResponse,
@@ -322,11 +324,41 @@ export function fetchOverview(token: string): Promise<AdminOverview> {
   return requestJson<AdminOverview>('/api/admin/overview', { token });
 }
 
+export function fetchTunnelConfig(
+  token: string,
+): Promise<AdminTunnelConfigResponse> {
+  return requestJson<AdminTunnelConfigResponse>('/api/admin/tunnel', {
+    token,
+  });
+}
+
+export function saveTunnelConfig(
+  token: string,
+  payload: AdminTunnelConfigInput,
+): Promise<AdminTunnelConfigResponse> {
+  return requestJson<AdminTunnelConfigResponse>('/api/admin/tunnel', {
+    token,
+    method: 'PUT',
+    body: payload,
+  });
+}
+
 export async function reconnectTunnel(
   token: string,
 ): Promise<AdminTunnelStatus> {
   const payload = await requestJson<{ tunnel: AdminTunnelStatus }>(
     '/api/admin/tunnel/reconnect',
+    {
+      token,
+      method: 'POST',
+    },
+  );
+  return payload.tunnel;
+}
+
+export async function stopTunnel(token: string): Promise<AdminTunnelStatus> {
+  const payload = await requestJson<{ tunnel: AdminTunnelStatus }>(
+    '/api/admin/tunnel/stop',
     {
       token,
       method: 'POST',
