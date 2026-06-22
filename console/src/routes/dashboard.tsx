@@ -1,9 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { fetchOverview, fetchStatistics, reconnectTunnel } from '../api/client';
-import type { AdminOverview, AdminTunnelStatus } from '../api/types';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  fetchConfig,
+  fetchOverview,
+  fetchStatistics,
+  reconnectTunnel,
+  saveConfig,
+} from '../api/client';
+import type {
+  AdminConfig,
+  AdminOverview,
+  AdminTunnelStatus,
+} from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
+import { Input } from '../components/input';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { ProviderHealthPanel } from '../components/provider-health';
 import {
   MetricCard,
@@ -59,6 +73,21 @@ const RECENT_SESSION_DEFAULT_DIRECTIONS = {
   lastActive: 'desc',
 } as const;
 
+const TUNNEL_PROVIDER_OPTIONS = [
+  { value: 'manual', label: 'Manual URL' },
+  { value: 'ngrok', label: 'ngrok' },
+  { value: 'tailscale', label: 'Tailscale Funnel' },
+  { value: 'cloudflare', label: 'Cloudflare Tunnel' },
+  { value: 'ssh', label: 'SSH tunnel' },
+] as const;
+
+type TunnelProvider = (typeof TUNNEL_PROVIDER_OPTIONS)[number]['value'];
+
+interface TunnelConfigDraft {
+  provider: TunnelProvider;
+  publicUrl: string;
+}
+
 const TREND_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
   month: 'short',
   day: 'numeric',
@@ -86,10 +115,113 @@ function tunnelStatusDotClass(health: AdminTunnelStatus['health']): string {
   return 'status-dot status-dot-danger';
 }
 
+function normalizeTunnelProvider(
+  value: string | null | undefined,
+): TunnelProvider {
+  if (value === 'ngrok') return 'ngrok';
+  if (value === 'tailscale') return 'tailscale';
+  if (value === 'cloudflare') return 'cloudflare';
+  if (value === 'ssh') return 'ssh';
+  return 'manual';
+}
+
+function normalizeTunnelUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  try {
+    return new URL(trimmed).toString().replace(/\/$/, '');
+  } catch {
+    return trimmed;
+  }
+}
+
+function tunnelDraftFromConfig(config: AdminConfig): TunnelConfigDraft {
+  return {
+    provider: normalizeTunnelProvider(config.deployment.tunnel.provider),
+    publicUrl: config.deployment.public_url || '',
+  };
+}
+
+function isManagedTunnelProvider(provider: TunnelProvider): boolean {
+  return (
+    provider === 'ngrok' ||
+    provider === 'tailscale' ||
+    provider === 'cloudflare'
+  );
+}
+
+function usesConfiguredPublicUrl(provider: TunnelProvider): boolean {
+  return (
+    provider === 'manual' || provider === 'ssh' || provider === 'cloudflare'
+  );
+}
+
+function isSameTunnelDraft(left: TunnelConfigDraft, right: TunnelConfigDraft) {
+  return (
+    left.provider === right.provider &&
+    normalizeTunnelUrl(left.publicUrl) === normalizeTunnelUrl(right.publicUrl)
+  );
+}
+
+function applyTunnelDraft(
+  config: AdminConfig,
+  draft: TunnelConfigDraft,
+): AdminConfig {
+  const publicUrl = usesConfiguredPublicUrl(draft.provider)
+    ? normalizeTunnelUrl(draft.publicUrl)
+    : '';
+  return {
+    ...config,
+    deployment: {
+      ...config.deployment,
+      mode: 'local',
+      public_url: publicUrl,
+      tunnel: {
+        ...config.deployment.tunnel,
+        provider: draft.provider,
+      },
+    },
+    ops: {
+      ...config.ops,
+      ...(publicUrl ? { gatewayBaseUrl: publicUrl } : {}),
+    },
+  };
+}
+
+function tunnelStatusFromDraft(
+  current: AdminTunnelStatus,
+  draft: TunnelConfigDraft,
+): AdminTunnelStatus {
+  const publicUrl = usesConfiguredPublicUrl(draft.provider)
+    ? normalizeTunnelUrl(draft.publicUrl) || null
+    : null;
+  const manualProvider = !isManagedTunnelProvider(draft.provider);
+  const state = manualProvider && publicUrl ? 'up' : 'down';
+  return {
+    ...current,
+    provider: draft.provider,
+    publicUrl,
+    state,
+    health: state === 'up' ? 'healthy' : 'down',
+    reconnectSupported: isManagedTunnelProvider(draft.provider),
+    lastError: null,
+    nextReconnectAt: null,
+  };
+}
+
 function TunnelStatusPanel(props: {
   tunnel: AdminTunnelStatus;
+  configLoaded: boolean;
+  configPending: boolean;
+  configDraft: TunnelConfigDraft;
+  savedConfigDraft: TunnelConfigDraft | null;
+  configSavePending: boolean;
+  configSaveError: string | null;
   reconnectPending: boolean;
   reconnectError: string | null;
+  onConfigDraftChange: (draft: TunnelConfigDraft) => void;
+  onSaveConfig: () => void;
+  onSaveConfigAndStart: () => void;
   onReconnect: () => void;
 }) {
   const { tunnel } = props;
@@ -102,6 +234,27 @@ function TunnelStatusPanel(props: {
     props.reconnectError && normalizedReconnectError !== normalizedTunnelError
       ? props.reconnectError
       : null;
+  const configDirty = props.savedConfigDraft
+    ? !isSameTunnelDraft(props.configDraft, props.savedConfigDraft)
+    : false;
+  const providerUsesPublicUrl = usesConfiguredPublicUrl(
+    props.configDraft.provider,
+  );
+  const providerCanStart = isManagedTunnelProvider(props.configDraft.provider);
+  const publicUrlMissing =
+    props.configDraft.provider === 'cloudflare' &&
+    !normalizeTunnelUrl(props.configDraft.publicUrl);
+  const saveDisabled =
+    !props.configLoaded ||
+    props.configPending ||
+    props.configSavePending ||
+    !configDirty;
+  const startDisabled =
+    !props.configLoaded ||
+    props.configPending ||
+    props.configSavePending ||
+    props.reconnectPending ||
+    publicUrlMissing;
 
   return (
     <Card>
@@ -134,6 +287,64 @@ function TunnelStatusPanel(props: {
             </button>
           </div>
         </div>
+        <div className="tunnel-config-grid">
+          <label className="tunnel-control">
+            <span>Provider</span>
+            <NativeSelect
+              value={props.configDraft.provider}
+              disabled={props.configPending || props.configSavePending}
+              onChange={(event) =>
+                props.onConfigDraftChange({
+                  ...props.configDraft,
+                  provider: normalizeTunnelProvider(event.target.value),
+                })
+              }
+            >
+              {TUNNEL_PROVIDER_OPTIONS.map((option) => (
+                <NativeSelectOption key={option.value} value={option.value}>
+                  {option.label}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </label>
+          {providerUsesPublicUrl ? (
+            <label className="tunnel-control">
+              <span>Public URL</span>
+              <Input
+                value={props.configDraft.publicUrl}
+                placeholder="https://example.ngrok-free.dev"
+                disabled={props.configPending || props.configSavePending}
+                onChange={(event) =>
+                  props.onConfigDraftChange({
+                    ...props.configDraft,
+                    publicUrl: event.target.value,
+                  })
+                }
+              />
+            </label>
+          ) : null}
+          <div className="tunnel-config-actions">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={props.onSaveConfig}
+              loading={props.configSavePending && !props.reconnectPending}
+              disabled={saveDisabled}
+            >
+              Save
+            </Button>
+            {providerCanStart ? (
+              <Button
+                type="button"
+                onClick={props.onSaveConfigAndStart}
+                loading={props.configSavePending || props.reconnectPending}
+                disabled={startDisabled}
+              >
+                {configDirty ? 'Save & start' : 'Start'}
+              </Button>
+            ) : null}
+          </div>
+        </div>
         <div className="tunnel-detail-grid">
           <div className="tunnel-detail">
             <span>Provider</span>
@@ -163,6 +374,11 @@ function TunnelStatusPanel(props: {
             {distinctReconnectError}
           </p>
         ) : null}
+        {props.configSaveError ? (
+          <p className="supporting-text tunnel-error">
+            {props.configSaveError}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -184,6 +400,22 @@ export function DashboardPage() {
     queryFn: () => fetchStatistics(auth.token, 30),
     staleTime: 60_000,
   });
+  const configQuery = useQuery({
+    queryKey: ['config', auth.token],
+    queryFn: () => fetchConfig(auth.token),
+    staleTime: 30_000,
+  });
+  const savedTunnelDraft = useMemo(
+    () =>
+      configQuery.data ? tunnelDraftFromConfig(configQuery.data.config) : null,
+    [configQuery.data],
+  );
+  const [tunnelConfigDraft, setTunnelConfigDraft] =
+    useState<TunnelConfigDraft | null>(null);
+  useEffect(() => {
+    if (!savedTunnelDraft) return;
+    setTunnelConfigDraft((current) => current ?? savedTunnelDraft);
+  }, [savedTunnelDraft]);
   const reconnectMutation = useMutation({
     mutationFn: () => reconnectTunnel(auth.token),
     onSuccess: (tunnel) => {
@@ -193,9 +425,46 @@ export function DashboardPage() {
       );
     },
   });
+  const saveTunnelConfigMutation = useMutation({
+    mutationFn: async (variables: {
+      draft: TunnelConfigDraft;
+      start: boolean;
+    }) => {
+      const currentConfig = configQuery.data?.config;
+      if (!currentConfig) {
+        throw new Error('Runtime config is not loaded.');
+      }
+      const nextConfig = applyTunnelDraft(currentConfig, variables.draft);
+      const payload = await saveConfig(auth.token, nextConfig);
+      const tunnel =
+        variables.start && isManagedTunnelProvider(variables.draft.provider)
+          ? await reconnectTunnel(auth.token)
+          : null;
+      return { payload, tunnel, draft: variables.draft };
+    },
+    onSuccess: ({ payload, tunnel, draft }) => {
+      queryClient.setQueryData(['config', auth.token], payload);
+      setTunnelConfigDraft(tunnelDraftFromConfig(payload.config));
+      queryClient.setQueryData<AdminOverview>(
+        ['overview', auth.token],
+        (current) =>
+          current
+            ? {
+                ...current,
+                tunnel: tunnel ?? tunnelStatusFromDraft(current.tunnel, draft),
+              }
+            : current,
+      );
+    },
+  });
 
   const overview = live.overview || overviewQuery.data;
   const status = live.status || overview?.status || auth.gatewayStatus;
+  const effectiveTunnelConfigDraft = tunnelConfigDraft ??
+    savedTunnelDraft ?? {
+      provider: normalizeTunnelProvider(overview?.tunnel.provider),
+      publicUrl: overview?.tunnel.publicUrl ?? '',
+    };
   const {
     sortedRows: recentSessions,
     sortState,
@@ -294,11 +563,34 @@ export function DashboardPage() {
 
       <TunnelStatusPanel
         tunnel={overview.tunnel}
+        configLoaded={Boolean(configQuery.data)}
+        configPending={configQuery.isLoading}
+        configDraft={effectiveTunnelConfigDraft}
+        savedConfigDraft={savedTunnelDraft}
+        configSavePending={saveTunnelConfigMutation.isPending}
+        configSaveError={
+          saveTunnelConfigMutation.isError
+            ? getErrorMessage(saveTunnelConfigMutation.error)
+            : null
+        }
         reconnectPending={reconnectMutation.isPending}
         reconnectError={
           reconnectMutation.isError
             ? getErrorMessage(reconnectMutation.error)
             : null
+        }
+        onConfigDraftChange={setTunnelConfigDraft}
+        onSaveConfig={() =>
+          saveTunnelConfigMutation.mutate({
+            draft: effectiveTunnelConfigDraft,
+            start: false,
+          })
+        }
+        onSaveConfigAndStart={() =>
+          saveTunnelConfigMutation.mutate({
+            draft: effectiveTunnelConfigDraft,
+            start: true,
+          })
         }
         onReconnect={() => reconnectMutation.mutate()}
       />

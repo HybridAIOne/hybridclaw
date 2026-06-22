@@ -1,20 +1,28 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AdminOverview, AdminTunnelStatus } from '../api/types';
+import type {
+  AdminConfig,
+  AdminOverview,
+  AdminTunnelStatus,
+} from '../api/types';
 import { renderWithProviders } from '../test-utils';
 import { DashboardPage } from './dashboard';
 
+const fetchConfigMock = vi.fn();
 const fetchOverviewMock = vi.fn();
 const fetchStatisticsMock = vi.fn();
 const reconnectTunnelMock = vi.fn();
+const saveConfigMock = vi.fn();
 const navigateMock = vi.fn();
 const useAuthMock = vi.fn();
 const useLiveEventsMock = vi.fn();
 
 vi.mock('../api/client', () => ({
+  fetchConfig: (...args: unknown[]) => fetchConfigMock(...args),
   fetchOverview: (...args: unknown[]) => fetchOverviewMock(...args),
   fetchStatistics: (...args: unknown[]) => fetchStatisticsMock(...args),
   reconnectTunnel: (...args: unknown[]) => reconnectTunnelMock(...args),
+  saveConfig: (...args: unknown[]) => saveConfigMock(...args),
 }));
 
 vi.mock('../auth', () => ({
@@ -95,12 +103,42 @@ function makeOverview(
   };
 }
 
+function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
+  return {
+    version: 1,
+    deployment: {
+      mode: 'local',
+      public_url: '',
+      tunnel: {
+        provider: 'manual',
+        health_check_interval_ms: 30000,
+      },
+    },
+    ops: {
+      healthHost: '127.0.0.1',
+      healthPort: 9090,
+      webApiToken: '',
+      gatewayBaseUrl: 'http://127.0.0.1:9090',
+      gatewayInternalBaseUrl: 'http://127.0.0.1:9090',
+      gatewayApiToken: '',
+      dbPath: '',
+      logLevel: 'info',
+    },
+    ...overrides,
+  } as AdminConfig;
+}
+
 function renderDashboardPage(): void {
   renderWithProviders(<DashboardPage />);
 }
 
 describe('DashboardPage', () => {
   beforeEach(() => {
+    fetchConfigMock.mockReset();
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
     fetchOverviewMock.mockReset();
     fetchStatisticsMock.mockReset();
     fetchStatisticsMock.mockResolvedValue({
@@ -124,6 +162,10 @@ describe('DashboardPage', () => {
       channels: [],
     });
     reconnectTunnelMock.mockReset();
+    saveConfigMock.mockReset();
+    saveConfigMock.mockImplementation((_token: string, config: AdminConfig) =>
+      Promise.resolve({ path: '/tmp/config.json', config }),
+    );
     navigateMock.mockReset();
     useAuthMock.mockReset();
     useLiveEventsMock.mockReset();
@@ -165,7 +207,7 @@ describe('DashboardPage', () => {
         .getByRole('link', { name: 'https://public.example.test' })
         .getAttribute('href'),
     ).toBe('https://public.example.test');
-    expect(screen.getByText('ngrok')).toBeTruthy();
+    expect(screen.getAllByText('ngrok').length).toBeGreaterThan(0);
     expect(screen.getByText('reconnecting')).toBeTruthy();
   });
 
@@ -189,6 +231,107 @@ describe('DashboardPage', () => {
         })
       ).getAttribute('href'),
     ).toBe('https://next.example.test');
+  });
+
+  it('saves a manually started public tunnel URL from the dashboard', async () => {
+    fetchOverviewMock.mockResolvedValue(
+      makeOverview(
+        makeTunnelStatus({
+          provider: 'manual',
+          publicUrl: null,
+          state: 'down',
+          health: 'down',
+          reconnectSupported: false,
+        }),
+      ),
+    );
+
+    renderDashboardPage();
+
+    fireEvent.change(await screen.findByLabelText('Public URL'), {
+      target: {
+        value: 'https://unreinforced-ching-asthmatically.ngrok-free.dev',
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(saveConfigMock).toHaveBeenCalledWith(
+        'test-token',
+        expect.objectContaining({
+          deployment: expect.objectContaining({
+            mode: 'local',
+            public_url:
+              'https://unreinforced-ching-asthmatically.ngrok-free.dev',
+            tunnel: expect.objectContaining({ provider: 'manual' }),
+          }),
+          ops: expect.objectContaining({
+            gatewayBaseUrl:
+              'https://unreinforced-ching-asthmatically.ngrok-free.dev',
+          }),
+        }),
+      );
+    });
+    expect(reconnectTunnelMock).not.toHaveBeenCalled();
+  });
+
+  it('saves managed ngrok config and starts the tunnel from the dashboard', async () => {
+    fetchOverviewMock.mockResolvedValue(
+      makeOverview(
+        makeTunnelStatus({
+          provider: 'manual',
+          publicUrl: 'https://old.ngrok-free.dev',
+          reconnectSupported: false,
+        }),
+      ),
+    );
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig({
+        deployment: {
+          mode: 'local',
+          public_url: 'https://old.ngrok-free.dev',
+          tunnel: {
+            provider: 'manual',
+            health_check_interval_ms: 30000,
+          },
+        },
+      }),
+    });
+    reconnectTunnelMock.mockResolvedValue(
+      makeTunnelStatus({
+        provider: 'ngrok',
+        publicUrl: 'https://next.ngrok-free.dev',
+      }),
+    );
+
+    renderDashboardPage();
+
+    fireEvent.change(await screen.findByLabelText('Provider'), {
+      target: { value: 'ngrok' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save & start' }));
+
+    await waitFor(() => {
+      expect(saveConfigMock).toHaveBeenCalledWith(
+        'test-token',
+        expect.objectContaining({
+          deployment: expect.objectContaining({
+            mode: 'local',
+            public_url: '',
+            tunnel: expect.objectContaining({ provider: 'ngrok' }),
+          }),
+        }),
+      );
+      expect(reconnectTunnelMock).toHaveBeenCalledWith('test-token');
+    });
+    expect(
+      (
+        await screen.findByRole('link', {
+          name: 'https://next.ngrok-free.dev',
+        })
+      ).getAttribute('href'),
+    ).toBe('https://next.ngrok-free.dev');
   });
 
   it('does not repeat the same tunnel and reconnect error', async () => {

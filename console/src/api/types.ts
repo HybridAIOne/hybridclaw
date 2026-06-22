@@ -826,6 +826,20 @@ export interface AdminConfig {
       screenshotMode: 'som' | 'vision' | 'ax';
     };
   };
+  deployment: {
+    mode: 'cloud' | 'local';
+    public_url: string;
+    tunnel: {
+      provider?:
+        | 'cloudflare'
+        | 'manual'
+        | 'ngrok'
+        | 'ssh'
+        | 'tailscale'
+        | (string & {});
+      health_check_interval_ms: number;
+    };
+  };
   ops: {
     healthHost: string;
     healthPort: number;
