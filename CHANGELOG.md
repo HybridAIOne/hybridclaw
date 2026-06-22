@@ -15,6 +15,16 @@
   analysis, judge calibration, SDK upgrade, CI/CD) plus Langfuse documentation
   lookup (llms.txt / markdown / search-docs).
 
+### Changed
+
+- **Quick Start guide**: Rewrote the getting-started quickstart into a
+  zero-to-working funnel — a fast HybridAI Cloud path (model preselected,
+  already in web chat) and a numbered local path (onboard → start gateway →
+  confirm healthy with `gateway status` / `doctor` → open chat → send a first
+  message) with explicit success signals, a troubleshooting block, and a command
+  cheat sheet. Relocated the per-channel startup auto-connect conditions into the
+  Channels overview.
+
 ## [0.25.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.2) - 2026-06-20
 
 ### Fixed
