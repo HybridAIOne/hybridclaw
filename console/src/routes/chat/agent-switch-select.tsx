@@ -1,3 +1,4 @@
+import { Server as ServerIcon } from '../../components/icons';
 import {
   Select,
   SelectContent,
@@ -109,7 +110,15 @@ export function AgentSwitchSelect(props: {
         )}
         {[...remoteGroups.entries()].map(([label, agents]) => (
           <SelectGroup key={label}>
-            <SelectGroupLabel>{label}</SelectGroupLabel>
+            <SelectGroupLabel className={css.remoteAgentGroupLabel}>
+              <ServerIcon
+                aria-hidden="true"
+                className={css.remoteAgentGroupIcon}
+                width={13}
+                height={13}
+              />
+              <span>{label}</span>
+            </SelectGroupLabel>
             {agents.map((agent) => (
               <AgentSelectItem
                 key={agent.id}

@@ -1545,6 +1545,17 @@ aside[data-state="collapsed"] .chatSidebarContent {
   min-height: 44px;
 }
 
+.remoteAgentGroupLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.remoteAgentGroupIcon {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
 .agentSelectItemText {
   min-width: 0;
   overflow: hidden;
