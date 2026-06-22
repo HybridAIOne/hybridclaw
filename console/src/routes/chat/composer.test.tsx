@@ -124,6 +124,37 @@ describe('Composer', () => {
     expect(onAgentSwitch).toHaveBeenCalledWith('charly');
   });
 
+  it('groups trusted remote agents and inserts a canonical mention when selected', async () => {
+    const onAgentSwitch = vi.fn();
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'remote@team@inst-peer',
+          name: 'Remote Research',
+          source: {
+            type: 'remote',
+            peerId: 'inst-peer',
+            instanceId: 'inst-peer',
+          },
+        },
+      ],
+      selectedAgentId: 'main',
+      onAgentSwitch,
+    });
+
+    fireEvent.click(screen.getByLabelText('Switch agent'));
+    const listbox = screen.getByRole('listbox');
+    expect(listbox.textContent).toContain('Local');
+    expect(listbox.textContent).toContain('inst-peer');
+    fireEvent.click(
+      within(listbox).getByRole('option', { name: 'Remote Research' }),
+    );
+
+    expect(getTextarea().value).toBe('@remote@team@inst-peer ');
+    expect(onAgentSwitch).not.toHaveBeenCalled();
+  });
+
   it('does not render persistent agent mention chips', () => {
     renderComposer({
       agents: [
@@ -179,6 +210,34 @@ describe('Composer', () => {
       ),
     );
     expect(fetchChatCommandsMock).not.toHaveBeenCalled();
+  });
+
+  it('suggests canonical remote agent mentions', async () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'remote@team@inst-peer',
+          name: 'Remote Research',
+          source: {
+            type: 'remote',
+            peerId: 'inst-peer',
+            instanceId: 'inst-peer',
+          },
+        },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: '@remote@te' } });
+
+    const panel = await screen.findByRole('listbox', { name: 'Agents' });
+    expect(panel.textContent).toContain('@remote@team@inst-peer');
+
+    fireEvent.keyDown(textarea, { key: 'Tab' });
+
+    expect(textarea.value).toBe('@remote@team@inst-peer ');
+    expect(screen.getByText('@remote@team@inst-peer')).not.toBeNull();
   });
 
   it('shows a neutral loading avatar until the agent image loads', async () => {

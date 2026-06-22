@@ -140,7 +140,11 @@ describe('A2A outbound adapter', () => {
     });
     expect(rpc.id).toBeUndefined();
     expect(decodeA2AJsonRpcRequest(rpc)).toEqual(
-      sampleA2AEnvelope('msg-a2a-1'),
+      expect.objectContaining({
+        ...sampleA2AEnvelope('msg-a2a-1'),
+        sender_agent_id: expect.stringMatching(/^main@local@inst-/),
+        sender_instance_id: expect.stringMatching(/^inst-/),
+      }),
     );
     const keyPair = a2a.getOrCreateA2ADelegationTokenKeyPair();
     const agentCardToken = requests[0]?.authorization.replace(/^Bearer /, '');

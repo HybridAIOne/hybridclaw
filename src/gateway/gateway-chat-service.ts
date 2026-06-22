@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { createA2AEnvelope } from '../a2a/envelope.js';
+import { sendMessage as sendA2AMessage } from '../a2a/runtime.js';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
 import type { MiddlewareEvent } from '../agent/middleware.js';
@@ -679,6 +681,14 @@ function shouldInjectBootstrapChatTurnPrompt(params: {
   return true;
 }
 
+function buildA2AChatThreadId(session: {
+  id: string;
+  session_key?: string | null;
+  main_session_key?: string | null;
+}): string {
+  return session.main_session_key || session.session_key || session.id;
+}
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
@@ -836,6 +846,67 @@ async function handleGatewayMessageInner(
       assistantPresentation: getGatewayAssistantPresentationForMessageAgent(
         session.agent_id || DEFAULT_AGENT_ID,
       ),
+    });
+  }
+  if (addressed.kind === 'remote') {
+    const content = addressed.content.trim();
+    if (!content) {
+      return attachSessionIdentity({
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: `Usage: @${addressed.canonicalId} <message>`,
+        messageRole: 'command',
+        addressEnvelope: addressed.envelope,
+      });
+    }
+
+    const senderAgentId =
+      typeof addressed.envelope.from === 'string' &&
+      addressed.envelope.from.trim()
+        ? addressed.envelope.from.trim()
+        : DEFAULT_AGENT_ID;
+    const envelope = createA2AEnvelope({
+      sender_agent_id: senderAgentId,
+      recipient_agent_id: addressed.canonicalId,
+      thread_id: buildA2AChatThreadId(session),
+      intent: 'chat',
+      content,
+    });
+    const confirmation = sendA2AMessage(envelope, {
+      actor: req.userId || req.username || 'web-user',
+      sessionId: req.sessionId,
+      auditRunId: runId,
+      peerDescriptor: {
+        transport: 'a2a',
+        canonicalId: addressed.canonicalId,
+      },
+      escalationTarget: resolveAgentEscalationTarget(senderAgentId),
+    });
+
+    if (confirmation.delivered === false) {
+      return attachSessionIdentity({
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: confirmation.failure_reason,
+        messageRole: 'command',
+        addressEnvelope: addressed.envelope,
+      });
+    }
+
+    const delivery =
+      confirmation.delivered === true ? 'Delivered' : 'Queued for delivery';
+    return attachSessionIdentity({
+      status: 'success',
+      result: [
+        `${delivery} to \`${confirmation.recipient_agent_id}\`.`,
+        `Message: \`${confirmation.message_id}\``,
+        `Thread: \`${confirmation.thread_id}\``,
+      ].join('\n'),
+      toolsUsed: [],
+      messageRole: 'command',
+      addressEnvelope: addressed.envelope,
     });
   }
   if (addressed.kind === 'agent') {

@@ -850,8 +850,16 @@ export interface GatewayAgentListItem {
   emptyChatHeader?: string;
 }
 
+export interface GatewayRemoteAgentListPeer {
+  peerId: string;
+  instanceId: string;
+  agentCardUrl: string;
+  agents: GatewayAgentListItem[];
+}
+
 export interface GatewayAgentListResponse {
   agents: GatewayAgentListItem[];
+  remotePeers?: GatewayRemoteAgentListPeer[];
 }
 
 export interface GatewayAdminJobAgent {

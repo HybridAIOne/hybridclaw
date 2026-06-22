@@ -720,7 +720,21 @@ export async function fetchAgentList(token: string): Promise<AgentListItem[]> {
   const payload = await requestJson<AgentListResponse>('/api/agents/list', {
     token,
   });
-  return payload.agents;
+  const localAgents = payload.agents.map((agent) => ({
+    ...agent,
+    source: { type: 'local' } as const,
+  }));
+  const remoteAgents = (payload.remotePeers ?? []).flatMap((peer) =>
+    peer.agents.map((agent) => ({
+      ...agent,
+      source: {
+        type: 'remote' as const,
+        peerId: peer.peerId,
+        instanceId: peer.instanceId,
+      },
+    })),
+  );
+  return [...localAgents, ...remoteAgents];
 }
 
 export async function fetchAdminAgents(token: string): Promise<AdminAgent[]> {

@@ -1295,15 +1295,32 @@ export interface AgentsOverviewResponse {
   sessions: AgentSessionCard[];
 }
 
+export type AgentListItemSource =
+  | { type: 'local' }
+  | {
+      type: 'remote';
+      peerId: string;
+      instanceId: string;
+    };
+
 export interface AgentListItem {
   id: string;
   name: string | null;
   imageUrl?: string | null;
   emptyChatHeader?: string | null;
+  source?: AgentListItemSource;
+}
+
+export interface RemoteAgentListPeer {
+  peerId: string;
+  instanceId: string;
+  agentCardUrl: string;
+  agents: AgentListItem[];
 }
 
 export interface AgentListResponse {
   agents: AgentListItem[];
+  remotePeers?: RemoteAgentListPeer[];
 }
 
 export interface JobAgent {

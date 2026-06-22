@@ -9,6 +9,7 @@ import {
   currentDateStampInTimezone,
   extractUserTimezone,
 } from '../../container/shared/workspace-time.js';
+import { fetchA2AAgentCard } from '../a2a/a2a-agent-card.js';
 import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
 import {
   approveIncomingA2APairingRequest,
@@ -213,6 +214,7 @@ import { summarizeCounts } from '../doctor/utils.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { handleGoalCommand } from '../goals/goal-command.js';
 import { pauseActiveGoalForSession } from '../goals/goal-runtime.js';
+import { parseAgentIdentity } from '../identity/agent-id.js';
 import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
@@ -445,6 +447,7 @@ import {
 } from '../utils/normalized-strings.js';
 import { sleep } from '../utils/sleep.js';
 import { formatDurationMs } from '../utils/text-format.js';
+import { isRecord } from '../utils/type-guards.js';
 import {
   ensureBootstrapFiles,
   resetWorkspace,
@@ -592,6 +595,7 @@ import {
   type GatewayHistorySummary,
   type GatewayModelProviderKey,
   type GatewayRecentChatSession,
+  type GatewayRemoteAgentListPeer,
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
@@ -9126,19 +9130,225 @@ export function getGatewayHistory(
   };
 }
 
-export function getGatewayAgentList(): GatewayAgentListResponse {
-  return {
-    agents: listAgents().map((agent) => {
-      const presentation = getGatewayAssistantPresentationForAgent(agent.id);
-      return {
-        id: agent.id,
-        name: agent.name || null,
-        ...(presentation.imageUrl ? { imageUrl: presentation.imageUrl } : {}),
-        ...(agent.emptyChatHeader
-          ? { emptyChatHeader: agent.emptyChatHeader }
-          : {}),
-      };
+const REMOTE_AGENT_CARD_LIST_TIMEOUT_MS = 2500;
+const REMOTE_AGENT_CARD_LIST_CACHE_TTL_MS = 30_000;
+
+type RemoteAgentListTrustPeer = ReturnType<
+  typeof listA2ATrustedPublicKeyPeers
+>[number];
+
+let remoteAgentListCache: {
+  key: string;
+  peers: GatewayRemoteAgentListPeer[];
+  expiresAt: number;
+  refresh: Promise<GatewayRemoteAgentListPeer[]> | null;
+} | null = null;
+
+function getGatewayLocalAgentListItems(): GatewayAgentListResponse['agents'] {
+  return listAgents().map((agent) => {
+    const presentation = getGatewayAssistantPresentationForAgent(agent.id);
+    return {
+      id: agent.id,
+      name: agent.name || null,
+      ...(presentation.imageUrl ? { imageUrl: presentation.imageUrl } : {}),
+      ...(agent.emptyChatHeader
+        ? { emptyChatHeader: agent.emptyChatHeader }
+        : {}),
+    };
+  });
+}
+
+function readRemoteAgentCardString(value: unknown, property: string): string {
+  if (!isRecord(value)) return '';
+  const candidate = value[property];
+  return typeof candidate === 'string' ? candidate.trim() : '';
+}
+
+function remoteAgentCardInstanceId(
+  card: A2AAgentCard,
+  fallback: string,
+): string {
+  const metadata = isRecord(card.hybridclaw) ? card.hybridclaw : {};
+  return readRemoteAgentCardString(metadata, 'instanceId') || fallback;
+}
+
+function mapRemoteAgentCardAgents(params: {
+  peerId: string;
+  agents: unknown;
+}): GatewayAgentListResponse['agents'] {
+  if (!Array.isArray(params.agents)) return [];
+  const peerInstanceId = params.peerId.toLowerCase();
+  const mapped: GatewayAgentListResponse['agents'] = [];
+
+  for (const entry of params.agents) {
+    const id = readRemoteAgentCardString(entry, 'id').toLowerCase();
+    if (!id) continue;
+    try {
+      const parsed = parseAgentIdentity(id);
+      if (parsed.instanceId !== peerInstanceId) continue;
+      const name = readRemoteAgentCardString(entry, 'name');
+      mapped.push({
+        id: parsed.id,
+        name: name || null,
+      });
+    } catch (error) {
+      logger.debug(
+        { err: error, peerId: params.peerId, agentId: id },
+        'Skipped malformed trusted peer Agent Card agent id',
+      );
+    }
+  }
+
+  return mapped.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+async function fetchWithTimeout(
+  input: Parameters<typeof fetch>[0],
+  init: Parameters<typeof fetch>[1],
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function fetchA2AAgentCardForList(agentCardUrl: string): Promise<A2AAgentCard> {
+  return fetchA2AAgentCard({
+    agentCardUrl,
+    fetchImpl: (input, init) =>
+      fetchWithTimeout(input, init, REMOTE_AGENT_CARD_LIST_TIMEOUT_MS),
+    now: new Date(),
+  });
+}
+
+function remoteAgentListCacheKey(peers: RemoteAgentListTrustPeer[]): string {
+  return peers
+    .map(
+      (peer) =>
+        `${peer.peerId}\0${peer.agentCardUrl}\0${peer.publicKeyFingerprint}`,
+    )
+    .join('\n');
+}
+
+async function fetchGatewayRemoteAgentListPeers(
+  peers: RemoteAgentListTrustPeer[],
+): Promise<GatewayRemoteAgentListPeer[]> {
+  const remotePeers = await Promise.all(
+    peers.map(async (peer): Promise<GatewayRemoteAgentListPeer | null> => {
+      try {
+        const card = await fetchA2AAgentCardForList(peer.agentCardUrl);
+        const cardInstanceId = remoteAgentCardInstanceId(card, peer.peerId);
+        const instanceId =
+          cardInstanceId.toLowerCase() === peer.peerId.toLowerCase()
+            ? cardInstanceId
+            : peer.peerId;
+        const agents = mapRemoteAgentCardAgents({
+          peerId: peer.peerId,
+          agents: card.agents,
+        });
+        if (agents.length === 0) return null;
+        return {
+          peerId: peer.peerId,
+          instanceId,
+          agentCardUrl: peer.agentCardUrl,
+          agents,
+        };
+      } catch (error) {
+        logger.warn(
+          { error, peerId: peer.peerId, agentCardUrl: peer.agentCardUrl },
+          'Failed to load trusted peer Agent Card for agent list',
+        );
+        return null;
+      }
     }),
+  );
+
+  return remotePeers
+    .filter((peer): peer is GatewayRemoteAgentListPeer => peer !== null)
+    .sort((left, right) => left.instanceId.localeCompare(right.instanceId));
+}
+
+function refreshGatewayRemoteAgentListPeers(
+  key: string,
+  peers: RemoteAgentListTrustPeer[],
+): Promise<GatewayRemoteAgentListPeer[]> {
+  const previous =
+    remoteAgentListCache?.key === key ? remoteAgentListCache : null;
+  const refresh = fetchGatewayRemoteAgentListPeers(peers)
+    .then((remotePeers) => {
+      remoteAgentListCache = {
+        key,
+        peers: remotePeers,
+        expiresAt: Date.now() + REMOTE_AGENT_CARD_LIST_CACHE_TTL_MS,
+        refresh: null,
+      };
+      return remotePeers;
+    })
+    .catch((error) => {
+      if (remoteAgentListCache?.key === key) {
+        remoteAgentListCache = {
+          key,
+          peers: previous?.peers ?? [],
+          expiresAt: previous?.expiresAt ?? 0,
+          refresh: null,
+        };
+      }
+      throw error;
+    });
+
+  remoteAgentListCache = {
+    key,
+    peers: previous?.peers ?? [],
+    expiresAt: previous?.expiresAt ?? 0,
+    refresh,
+  };
+  return refresh;
+}
+
+async function getGatewayRemoteAgentListPeers(): Promise<
+  GatewayRemoteAgentListPeer[]
+> {
+  const peers = listA2ATrustedPublicKeyPeers().filter(
+    (peer) => peer.status === 'trusted' && peer.agentCardUrl,
+  );
+  if (peers.length === 0) {
+    remoteAgentListCache = null;
+    return [];
+  }
+
+  const key = remoteAgentListCacheKey(peers);
+  const cached =
+    remoteAgentListCache?.key === key ? remoteAgentListCache : null;
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) return cached.peers;
+  if (cached?.refresh) {
+    return cached.expiresAt > 0 ? cached.peers : cached.refresh;
+  }
+  if (cached) {
+    void refreshGatewayRemoteAgentListPeers(key, peers).catch((error) => {
+      logger.debug(
+        { err: error },
+        'Failed to refresh cached trusted peer Agent Card list',
+      );
+    });
+    return cached.peers;
+  }
+
+  return refreshGatewayRemoteAgentListPeers(key, peers);
+}
+
+export async function getGatewayAgentList(): Promise<GatewayAgentListResponse> {
+  const remotePeers = await getGatewayRemoteAgentListPeers();
+  return {
+    agents: getGatewayLocalAgentListItems(),
+    ...(remotePeers.length > 0 ? { remotePeers } : {}),
   };
 }
 

@@ -301,10 +301,15 @@ describe('A2A runtime API', () => {
 
   test('does not audit outbound queued transport sends as delivered', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    const { listA2AOutboxItems } = await import('../src/a2a/a2a-outbound.ts');
     const audit = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
 
     initDatabase({ quiet: true });
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.agents.list = [{ id: 'main', owner: 'team', role: 'lead' }];
+    });
 
     const confirmation = runtime.sendMessage(
       {
@@ -332,6 +337,14 @@ describe('A2A runtime API', () => {
     });
     expect(runtime.inbox('remote@team@peer-instance')).toEqual([]);
 
+    const [outboxItem] = listA2AOutboxItems();
+    expect(outboxItem?.envelope).toMatchObject({
+      id: 'msg-queued-audit',
+      sender_agent_id: 'main@team@local-dev',
+      sender_instance_id: 'local-dev',
+      recipient_agent_id: 'remote@team@peer-instance',
+    });
+
     const wirePath = audit.getAuditWirePath('session-a2a-queued-audit');
     const records = fs
       .readFileSync(wirePath, 'utf-8')
@@ -342,6 +355,13 @@ describe('A2A runtime API', () => {
 
     expect(records.map((record) => record.event.type)).toEqual(['a2a.send']);
     expect(records[0].event.transport).toBe('a2a');
+    expect(records[0].event.envelope).toEqual(
+      expect.objectContaining({
+        messageId: 'msg-queued-audit',
+        senderAgentId: 'main@team@local-dev',
+        recipientAgentId: 'remote@team@peer-instance',
+      }),
+    );
     expect(
       audit.verifyAuditSessionChain('session-a2a-queued-audit'),
     ).toMatchObject({

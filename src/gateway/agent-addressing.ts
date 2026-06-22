@@ -1,10 +1,13 @@
 import { listAgents, peersOfAgent } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { parseAgentIdentity } from '../identity/agent-id.js';
 import { getMemoryValue, setMemoryValue } from '../memory/db.js';
 import type { Session } from '../types/session.js';
 import type { GatewayAddressEnvelope } from './gateway-types.js';
 
 const ACTIVE_AGENT_KEY_PREFIX = 'gateway.activeAgent:';
+const CANONICAL_AGENT_ADDRESS_RE =
+  /^\s*@([A-Za-z0-9][A-Za-z0-9._-]{0,127}@[A-Za-z0-9][A-Za-z0-9._-]{0,127}@[A-Za-z0-9][A-Za-z0-9._-]{0,127})(?::|\s|$)/u;
 const HANDLE_RE = /(^|[\s([{])@([A-Za-z0-9][A-Za-z0-9._-]{0,127})\b/gu;
 const SIMPLE_CONTEXT_REFERENCE_HANDLES = new Set(['diff', 'staged']);
 const VALUED_CONTEXT_REFERENCE_HANDLES = new Set([
@@ -27,6 +30,13 @@ export type AgentAddressResolution =
       kind: 'fanout';
       alias: 'team' | 'all';
       agentIds: string[];
+      handle: string;
+      content: string;
+      envelope: GatewayAddressEnvelope;
+    }
+  | {
+      kind: 'remote';
+      canonicalId: string;
       handle: string;
       content: string;
       envelope: GatewayAddressEnvelope;
@@ -135,6 +145,32 @@ export function resolveAgentAddressing(params: {
   const currentAgentId = params.currentAgentId?.trim() || DEFAULT_AGENT_ID;
   const fromAgentId = params.fromAgentId?.trim() || currentAgentId;
   const agents = listAgents();
+
+  const canonicalMatch = CANONICAL_AGENT_ADDRESS_RE.exec(content);
+  if (canonicalMatch) {
+    const handle = canonicalMatch[1] ?? '';
+    try {
+      const parsed = parseAgentIdentity(handle);
+      return {
+        kind: 'remote',
+        canonicalId: parsed.id,
+        handle,
+        content: content.slice(canonicalMatch[0].length).trimStart(),
+        envelope: {
+          to: parsed.id,
+          from: fromAgentId,
+        },
+      };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return {
+        kind: 'error',
+        handle,
+        content,
+        message: `Invalid canonical agent address @${handle}. ${detail}`,
+      };
+    }
+  }
 
   for (const match of content.matchAll(HANDLE_RE)) {
     if (!isLeadingHandle(content, match)) break;

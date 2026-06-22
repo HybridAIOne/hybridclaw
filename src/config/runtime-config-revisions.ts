@@ -1,9 +1,9 @@
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 
-import { md5Hex } from '../utils/hash.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 const CONFIG_REVISION_DB_PATH = path.join(
@@ -67,6 +67,7 @@ export interface RuntimeConfigRevisionDetailHistory {
 }
 
 export interface RuntimeConfigRevisionState {
+  md5: string;
   actor: string;
   route: string;
   source: string;
@@ -122,6 +123,7 @@ interface ConfigRevisionTrackedStateRow {
 }
 
 interface ConfigRevisionStateRow {
+  current_md5: string;
   current_content: string;
   actor: string;
   route: string;
@@ -229,6 +231,10 @@ function normalizeRevisionAssetType(
 ): RuntimeRevisionAssetType {
   if (isRuntimeRevisionAssetType(assetType)) return assetType;
   throw new Error(`Unsupported revision asset type: ${assetType}`);
+}
+
+function createRevisionFingerprint(): string {
+  return randomBytes(32).toString('hex');
 }
 
 function migrateRevisionDatabase(database: Database.Database): void {
@@ -357,6 +363,7 @@ function mapRevisionStateRow(
   row: ConfigRevisionStateRow,
 ): RuntimeConfigRevisionState {
   return {
+    md5: row.current_md5,
     actor: row.actor,
     route: row.route,
     source: row.source,
@@ -496,7 +503,15 @@ export function syncRuntimeAssetRevisionStateInOpenDatabase(
   }
 
   const content = observedFile?.content ?? fs.readFileSync(assetPath, 'utf-8');
-  const md5 = observedFile?.md5 ?? md5Hex(content);
+  if (state?.current_content === content) {
+    return {
+      changed: false,
+      previousMd5: state.current_md5,
+      currentMd5: state.current_md5,
+    };
+  }
+
+  const md5 = observedFile?.md5 ?? createRevisionFingerprint();
   if (!state) {
     database
       .prepare(
@@ -517,14 +532,6 @@ export function syncRuntimeAssetRevisionStateInOpenDatabase(
     return {
       changed: false,
       previousMd5: null,
-      currentMd5: md5,
-    };
-  }
-
-  if (state.current_md5 === md5) {
-    return {
-      changed: false,
-      previousMd5: state.current_md5,
       currentMd5: md5,
     };
   }
@@ -611,7 +618,7 @@ export function listRuntimeAssetRevisionHistory(
       .map((row) => mapRevisionRow(row));
     const state = database
       .prepare<[string, string], ConfigRevisionStateRow>(
-        `SELECT current_content, actor, route, source, updated_at
+        `SELECT current_md5, current_content, actor, route, source, updated_at
          FROM config_revision_state
          WHERE asset_type = ? AND config_path = ?`,
       )
@@ -640,7 +647,7 @@ export function getRuntimeAssetRevisionDetailHistory(
     const revision = revisionRow ? mapRevisionRow(revisionRow) : null;
     const stateRow = database
       .prepare<[string, string], ConfigRevisionStateRow>(
-        `SELECT current_content, actor, route, source, updated_at
+        `SELECT current_md5, current_content, actor, route, source, updated_at
          FROM config_revision_state
          WHERE asset_type = ? AND config_path = ?`,
       )
@@ -701,7 +708,7 @@ export function getRuntimeAssetRevisionState(
   return withRevisionDatabase((database) => {
     const row = database
       .prepare<[string, string], ConfigRevisionStateRow>(
-        `SELECT current_content, actor, route, source, updated_at
+        `SELECT current_md5, current_content, actor, route, source, updated_at
          FROM config_revision_state
          WHERE asset_type = ? AND config_path = ?`,
       )
@@ -717,7 +724,7 @@ export function listRuntimeAssetRevisionStates(
   const normalizedAssetType = normalizeRevisionAssetType(assetType);
   const assetPathPrefix = opts?.assetPathPrefix;
   return withRevisionDatabase((database) => {
-    const baseQuery = `SELECT config_path, current_content, actor, route, source, updated_at
+    const baseQuery = `SELECT config_path, current_md5, current_content, actor, route, source, updated_at
          FROM config_revision_state
          WHERE asset_type = ?`;
     if (assetPathPrefix) {

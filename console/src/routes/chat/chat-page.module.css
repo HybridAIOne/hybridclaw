@@ -1536,13 +1536,24 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .agentSelectPopup {
-  width: min(280px, calc(100vw - 16px));
+  width: min(380px, calc(100vw - 16px));
   height: auto;
   max-height: min(360px, calc(100vh - 32px));
 }
 
 .agentSelectItem {
   min-height: 44px;
+}
+
+.remoteAgentGroupLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.remoteAgentGroupIcon {
+  flex: 0 0 auto;
+  opacity: 0.85;
 }
 
 .agentSelectItemText {

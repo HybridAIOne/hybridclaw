@@ -126,6 +126,111 @@ test('unknown addressed chat turns fail before executor dispatch', async () => {
   expect(runAgentMock).not.toHaveBeenCalled();
 });
 
+test('leading canonical remote addresses queue A2A chat without local executor dispatch', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { listA2AOutboxItems } = await import('../src/a2a/a2a-outbound.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayMessage({
+    sessionId: 'session-remote-canonical-agent',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'User',
+    content: '@remote@team@peer-instance hello from chat',
+  });
+
+  expect(result.status).toBe('success');
+  expect(result.result).toContain(
+    'Queued for delivery to `remote@team@peer-instance`.',
+  );
+  expect(result.addressEnvelope).toEqual({
+    to: 'remote@team@peer-instance',
+    from: 'main',
+  });
+  expect(runAgentMock).not.toHaveBeenCalled();
+
+  expect(listA2AOutboxItems()).toMatchObject([
+    {
+      envelope: {
+        sender_agent_id: expect.stringMatching(/^main@local@inst-/),
+        sender_instance_id: expect.stringMatching(/^inst-/),
+        recipient_agent_id: 'remote@team@peer-instance',
+        thread_id: 'session-remote-canonical-agent',
+        intent: 'chat',
+        content: 'hello from chat',
+      },
+      identityResolution: {
+        status: 'unresolved',
+        canonicalId: 'remote@team@peer-instance',
+      },
+    },
+  ]);
+});
+
+test('agent list includes agents from trusted peer Agent Cards', async () => {
+  setupHome();
+
+  const agentCardUrl = 'https://peer.example.com/.well-known/agent.json';
+  const fetchMock = vi.fn(async () => {
+    return new Response(
+      JSON.stringify({
+        url: 'https://peer.example.com/a2a',
+        hybridclaw: { instanceId: 'inst-peer' },
+        agents: [
+          { id: 'remote@team@inst-peer', name: 'Remote Research' },
+          { id: 'other@team@inst-other', name: 'Wrong Instance' },
+          { id: 'not canonical', name: 'Invalid Agent' },
+        ],
+      }),
+      {
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { upsertA2ATrustedPublicKeyPeer } = await import(
+    '../src/a2a/trust-ledger.ts'
+  );
+  const { getGatewayAgentList } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertA2ATrustedPublicKeyPeer({
+    peerId: 'inst-peer',
+    agentCardUrl,
+    deliveryUrl: 'https://peer.example.com/a2a',
+    publicKeyFingerprint: 'A'.repeat(43),
+  });
+
+  const result = await getGatewayAgentList();
+  const cachedResult = await getGatewayAgentList();
+
+  expect(fetchMock).toHaveBeenCalledWith(
+    agentCardUrl,
+    expect.objectContaining({ method: 'GET' }),
+  );
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(result.remotePeers).toEqual([
+    {
+      peerId: 'inst-peer',
+      instanceId: 'inst-peer',
+      agentCardUrl,
+      agents: [{ id: 'remote@team@inst-peer', name: 'Remote Research' }],
+    },
+  ]);
+  expect(cachedResult.remotePeers).toEqual(result.remotePeers);
+});
+
 test('@team fans out with child to fields without making the last agent sticky', async () => {
   setupHome();
 
