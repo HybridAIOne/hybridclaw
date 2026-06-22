@@ -541,7 +541,7 @@ async function importFreshHealth(options?: {
   authSecret?: string;
   hybridAiBaseUrl?: string;
   runningInsideContainer?: boolean;
-  runtimeConfigPatch?: (config: RuntimeConfig) => void;
+  deploymentPublicUrl?: string;
   mediaUploadQuotaDecision?: {
     allowed: boolean;
     remainingBytes: number;
@@ -1995,7 +1995,7 @@ async function importFreshHealth(options?: {
     const actual = await vi.importActual<
       typeof import('../src/config/runtime-config.js')
     >('../src/config/runtime-config.js');
-    if (!options?.runtimeConfigPatch) {
+    if (options?.deploymentPublicUrl === undefined) {
       return {
         ...actual,
         reloadRuntimeConfig,
@@ -2004,7 +2004,9 @@ async function importFreshHealth(options?: {
     const runtimeConfig = JSON.parse(
       JSON.stringify(actual.getRuntimeConfig()),
     ) as RuntimeConfig;
-    options.runtimeConfigPatch(runtimeConfig);
+    runtimeConfig.deployment.mode = 'cloud';
+    runtimeConfig.deployment.public_url = options.deploymentPublicUrl;
+    runtimeConfig.deployment.tunnel.provider = 'manual';
     return {
       ...actual,
       getRuntimeConfig: vi.fn(() => runtimeConfig),
@@ -4326,11 +4328,7 @@ describe('gateway HTTP server', () => {
 
   test('serves the A2A Agent Card from the configured public deployment URL', async () => {
     const state = await importFreshHealth({
-      runtimeConfigPatch: (config) => {
-        config.deployment.mode = 'cloud';
-        config.deployment.public_url = 'https://u-public.sbx.hybridai.one';
-        config.deployment.tunnel.provider = 'manual';
-      },
+      deploymentPublicUrl: 'https://u-public.sbx.hybridai.one',
     });
     const req = makeRequest({
       url: '/.well-known/agent.json',
@@ -4348,6 +4346,54 @@ describe('gateway HTTP server', () => {
     expect(state.getGatewayA2AAgentCard).toHaveBeenCalledWith(
       'https://u-public.sbx.hybridai.one',
       expect.objectContaining({ peerTrustLevel: 'public' }),
+    );
+  });
+
+  test('serves the A2A Agent Card from request origin when public deployment URL is unset', async () => {
+    const state = await importFreshHealth({ deploymentPublicUrl: '' });
+    const req = makeRequest({
+      url: '/.well-known/agent.json',
+      headers: {
+        host: 'edge.example.test',
+        'x-forwarded-proto': 'https',
+      },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      url: 'https://edge.example.test/a2a',
+    });
+    expect(state.getGatewayA2AAgentCard).toHaveBeenCalledWith(
+      'https://edge.example.test',
+      expect.objectContaining({ peerTrustLevel: 'public' }),
+    );
+  });
+
+  test('rejects invalid configured public deployment URLs for the A2A Agent Card', async () => {
+    const state = await importFreshHealth({
+      deploymentPublicUrl: 'ftp://u-public.sbx.hybridai.one',
+    });
+    const req = makeRequest({
+      url: '/.well-known/agent.json',
+      headers: { host: '172.19.0.11:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(500);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'deployment.public_url must be an HTTP(S) URL.',
+    });
+    expect(state.getGatewayA2AAgentCard).not.toHaveBeenCalled();
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      { publicUrl: 'ftp://u-public.sbx.hybridai.one' },
+      'Invalid deployment.public_url for A2A Agent Card',
     );
   });
 
