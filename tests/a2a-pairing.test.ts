@@ -12,6 +12,11 @@ function peerPublicKeyJwk() {
   return pair.publicKey.export({ format: 'jwk' });
 }
 
+function peerDelegationPublicKeyPem() {
+  const pair = generateKeyPairSync('ed25519');
+  return pair.publicKey.export({ format: 'pem', type: 'spki' }).toString();
+}
+
 function makePairingRequest(params: {
   body: unknown;
   remoteAddress?: string;
@@ -54,15 +59,22 @@ describe('A2A operator pairing', () => {
 
     initDatabase({ quiet: true });
     const peerKey = peerPublicKeyJwk();
+    const delegationPublicKeyPem = peerDelegationPublicKeyPem();
     const fetchImpl = vi.fn(
       async (url: RequestInfo | URL, init?: RequestInit) => {
         if (String(url) === 'https://peer.example.com/.well-known/agent.json') {
           return Response.json({
             name: 'Peer Instance',
             url: 'https://peer.example.com/a2a',
+            agents: [{ id: 'remote@team@peer-prod' }],
             hybridclaw: {
               instanceId: 'peer-prod',
               publicKeyJwk: peerKey,
+              delegation: {
+                algorithm: 'Ed25519',
+                publicKeyPem: delegationPublicKeyPem,
+                senderAgentIds: ['remote@team@peer-prod'],
+              },
             },
           });
         }
@@ -93,6 +105,12 @@ describe('A2A operator pairing', () => {
       trustedAt: '2030-01-01T00:00:00.000Z',
       publicKeyFingerprint: trust.fingerprintA2APublicKey(peerKey),
     });
+    expect(
+      trust.getA2ATrustedA2APeerBySender('remote@team@peer-prod'),
+    ).toMatchObject({
+      senderAgentId: 'remote@team@peer-prod',
+      publicKeyPem: delegationPublicKeyPem,
+    });
     const overrideAudit = getRecentStructuredAuditForSession(
       'a2a:trust-ledger',
       10,
@@ -114,6 +132,7 @@ describe('A2A operator pairing', () => {
     initDatabase({ quiet: true });
     const publicKeyJwk = peerPublicKeyJwk();
     const publicKeyFingerprint = trust.fingerprintA2APublicKey(publicKeyJwk);
+    const delegationPublicKeyPem = peerDelegationPublicKeyPem();
 
     const request = pairing.createIncomingA2APairingRequest(
       {
@@ -122,6 +141,11 @@ describe('A2A operator pairing', () => {
         deliveryUrl: 'https://remote.example.com/a2a',
         publicKeyJwk,
         publicKeyFingerprint,
+        delegation: {
+          algorithm: 'Ed25519',
+          publicKeyPem: delegationPublicKeyPem,
+          senderAgentIds: ['remote@team@remote-prod'],
+        },
         requestedBy: 'remote-admin',
       },
       new Date('2030-01-01T00:00:00.000Z'),
@@ -145,6 +169,12 @@ describe('A2A operator pairing', () => {
     expect(trust.getA2ATrustedPublicKeyPeer('remote-prod')).toMatchObject({
       status: 'trusted',
       publicKeyFingerprint,
+    });
+    expect(
+      trust.getA2ATrustedA2APeerBySender('remote@team@remote-prod'),
+    ).toMatchObject({
+      senderAgentId: 'remote@team@remote-prod',
+      publicKeyPem: delegationPublicKeyPem,
     });
   });
 

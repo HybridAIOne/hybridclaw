@@ -1,5 +1,5 @@
 import type { JsonWebKey } from 'node:crypto';
-import { createHash } from 'node:crypto';
+import { createHash, createPublicKey } from 'node:crypto';
 import { resolveTxt } from 'node:dns/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
@@ -20,6 +20,7 @@ import {
 } from '../gateway/interactive-escalation.js';
 import { fetchA2AAgentCard } from './a2a-agent-card.js';
 import type { A2AAgentCard } from './a2a-json-rpc.js';
+import { classifyA2AAgentId } from './envelope.js';
 import {
   A2A_IDENTITY_DISCOVERY_ZONE_ENV,
   resolveA2AIdentity,
@@ -27,12 +28,15 @@ import {
 import { normalizePeerDescriptor } from './peer-descriptor.js';
 import {
   type A2APeerPublicKeyMaterial,
+  buildLocalA2AAgentCard,
   ensureA2AInstanceKeypair,
   extractA2APeerPublicKey,
   fingerprintA2APublicKey,
+  getA2ATrustedA2APeerBySender,
   getA2ATrustedPublicKeyPeer,
   normalizeA2APeerId,
   normalizePublicKeyFingerprint,
+  upsertA2ATrustedA2APeer,
   upsertA2ATrustedPublicKeyPeer,
 } from './trust-ledger.js';
 import { isA2AAllowedHttpUrl, isRecord } from './utils.js';
@@ -58,6 +62,13 @@ export type A2APairingRemoteNotificationStatus =
   | 'sent'
   | 'failed';
 
+export interface A2ADelegationTrustAdvertisement {
+  algorithm: 'Ed25519';
+  keyId: string;
+  publicKeyPem: string;
+  senderAgentIds: string[];
+}
+
 export interface A2APairingProposal {
   peerId: string;
   agentCardUrl: string;
@@ -65,6 +76,7 @@ export interface A2APairingProposal {
   publicKeyJwk: JsonWebKey;
   publicKeyFingerprint: string;
   name: string | null;
+  delegation: A2ADelegationTrustAdvertisement | null;
 }
 
 export interface A2AIncomingPairingRequest extends A2APairingProposal {
@@ -96,6 +108,7 @@ export interface StartA2APairingInput {
 export interface StartA2APairingResult {
   proposal: A2APairingProposal;
   trustedPeer: ReturnType<typeof upsertA2ATrustedPublicKeyPeer>;
+  trustedA2APeers: ReturnType<typeof upsertA2ATrustedA2APeer>[];
   remoteNotification: {
     status: A2APairingRemoteNotificationStatus;
     url: string | null;
@@ -158,6 +171,147 @@ function normalizeOptionalPairingString(
     );
   }
   return normalized;
+}
+
+function normalizeDelegationPublicKeyPem(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new GatewayRequestError(400, 'delegation.publicKeyPem is required.');
+  }
+  try {
+    const publicKey = createPublicKey(value);
+    if (publicKey.asymmetricKeyType !== 'ed25519') {
+      throw new Error('unsupported key type');
+    }
+    return publicKey.export({ format: 'pem', type: 'spki' }).toString();
+  } catch {
+    throw new GatewayRequestError(
+      400,
+      'delegation.publicKeyPem must be an Ed25519 public key.',
+    );
+  }
+}
+
+function delegationKeyIdForPublicKeyPem(publicKeyPem: string): string {
+  return createHash('sha256')
+    .update(publicKeyPem)
+    .digest('base64url')
+    .slice(0, 32);
+}
+
+function normalizeDelegationKeyId(
+  value: unknown,
+  publicKeyPem: string,
+): string {
+  const expected = delegationKeyIdForPublicKeyPem(publicKeyPem);
+  if (value === undefined || value === null || value === '') return expected;
+  const normalized = normalizeOptionalPairingString(
+    value,
+    'delegation.keyId',
+  );
+  if (!normalized) return expected;
+  if (normalized !== expected) {
+    throw new GatewayRequestError(
+      400,
+      'delegation.keyId does not match delegation.publicKeyPem.',
+    );
+  }
+  return normalized;
+}
+
+function normalizeDelegationSenderAgentIds(
+  value: unknown,
+  fallback: string[] = [],
+): string[] {
+  const rawValues = Array.isArray(value) ? value : fallback;
+  const normalized = new Set<string>();
+  for (const entry of rawValues) {
+    if (typeof entry !== 'string') {
+      throw new GatewayRequestError(
+        400,
+        'delegation.senderAgentIds must contain canonical agent ids.',
+      );
+    }
+    const candidate = entry.trim();
+    if (!candidate || classifyA2AAgentId(candidate) !== 'canonical') {
+      throw new GatewayRequestError(
+        400,
+        'delegation.senderAgentIds must contain canonical agent ids.',
+      );
+    }
+    normalized.add(candidate.toLowerCase());
+  }
+  return [...normalized].sort();
+}
+
+function extractAgentCardSenderAgentIds(card: A2AAgentCard): string[] {
+  if (!Array.isArray(card.agents)) return [];
+  const senderAgentIds: string[] = [];
+  for (const entry of card.agents) {
+    if (!isRecord(entry) || typeof entry.id !== 'string') continue;
+    const candidate = entry.id.trim();
+    if (candidate && classifyA2AAgentId(candidate) === 'canonical') {
+      senderAgentIds.push(candidate.toLowerCase());
+    }
+  }
+  return senderAgentIds;
+}
+
+function parseDelegationTrustAdvertisement(
+  value: unknown,
+  fallbackSenderAgentIds: string[] = [],
+): A2ADelegationTrustAdvertisement | null {
+  if (!isRecord(value)) return null;
+  if (value.algorithm !== undefined && value.algorithm !== 'Ed25519') {
+    throw new GatewayRequestError(
+      400,
+      'delegation.algorithm must be Ed25519.',
+    );
+  }
+  const publicKeyPem = normalizeDelegationPublicKeyPem(value.publicKeyPem);
+  const senderAgentIds = normalizeDelegationSenderAgentIds(
+    value.senderAgentIds,
+    fallbackSenderAgentIds,
+  );
+  if (senderAgentIds.length === 0) return null;
+  return {
+    algorithm: 'Ed25519',
+    keyId: normalizeDelegationKeyId(value.keyId, publicKeyPem),
+    publicKeyPem,
+    senderAgentIds,
+  };
+}
+
+function trustedA2APeerIdForSender(peerId: string, senderAgentId: string) {
+  const normalizedPeerId = normalizeA2APeerId(peerId);
+  const senderHash = createHash('sha256')
+    .update(senderAgentId)
+    .digest('base64url')
+    .slice(0, 16);
+  return `${normalizedPeerId.slice(0, 111)}.${senderHash}`;
+}
+
+function upsertDelegationTrustAdvertisement(
+  params: {
+    peerId: string;
+    delegation: A2ADelegationTrustAdvertisement | null;
+  },
+  now: Date,
+): ReturnType<typeof upsertA2ATrustedA2APeer>[] {
+  const { delegation } = params;
+  if (!delegation) return [];
+  return delegation.senderAgentIds.map((senderAgentId) => {
+    const existing = getA2ATrustedA2APeerBySender(senderAgentId);
+    return upsertA2ATrustedA2APeer(
+      {
+        peerId:
+          existing?.peerId ||
+          trustedA2APeerIdForSender(params.peerId, senderAgentId),
+        senderAgentId,
+        publicKeyPem: delegation.publicKeyPem,
+      },
+      now,
+    );
+  });
 }
 
 function deriveAgentCardUrl(peerUrl: string): string {
@@ -256,6 +410,7 @@ function parseStoredPairingRequest(
       publicKeyJwk: key.publicKeyJwk,
       publicKeyFingerprint: key.publicKeyFingerprint,
       name: typeof parsed.name === 'string' ? parsed.name : null,
+      delegation: parseDelegationTrustAdvertisement(parsed.delegation),
       requestedBy:
         typeof parsed.requestedBy === 'string' && parsed.requestedBy.trim()
           ? parsed.requestedBy.trim()
@@ -324,7 +479,8 @@ function promptPeerOperator(request: A2AIncomingPairingRequest): void {
       `Agent Card: ${request.agentCardUrl}`,
       `Delivery URL: ${request.deliveryUrl}`,
       `Fingerprint: ${request.publicKeyFingerprint}`,
-      'Approve this from /admin/a2a-trust to trust the peer public key.',
+      `A2A senders: ${request.delegation?.senderAgentIds.length || 0}`,
+      'Approve this from /admin/a2a-trust to trust the peer public key and advertised A2A senders.',
     ].join('\n'),
     userId: 'operator',
     modality: 'push',
@@ -412,6 +568,10 @@ export async function fetchA2APairingProposal(
     publicKeyJwk: key.publicKeyJwk,
     publicKeyFingerprint: key.publicKeyFingerprint,
     name: typeof card.name === 'string' && card.name.trim() ? card.name : null,
+    delegation: parseDelegationTrustAdvertisement(
+      isRecord(card.hybridclaw) ? card.hybridclaw.delegation : null,
+      extractAgentCardSenderAgentIds(card),
+    ),
   };
 }
 
@@ -487,6 +647,14 @@ async function notifyRemotePairingRequest(params: {
     localBaseUrl,
   ).toString();
   const identity = ensureA2AInstanceKeypair();
+  const localCard = buildLocalA2AAgentCard(localBaseUrl, {
+    peerTrustLevel: 'trusted',
+    peerId: params.proposal.peerId,
+  });
+  const delegation = parseDelegationTrustAdvertisement(
+    isRecord(localCard.hybridclaw) ? localCard.hybridclaw.delegation : null,
+    extractAgentCardSenderAgentIds(localCard),
+  );
   const pairingId = pairingIdFor({
     localPeerId: identity.instanceId,
     localPublicKeyFingerprint: identity.publicKeyFingerprint,
@@ -508,6 +676,11 @@ async function notifyRemotePairingRequest(params: {
         deliveryUrl: new URL('/a2a', localBaseUrl).toString(),
         publicKeyJwk: identity.publicKeyJwk,
         publicKeyFingerprint: identity.publicKeyFingerprint,
+        name:
+          typeof localCard.name === 'string' && localCard.name.trim()
+            ? localCard.name
+            : null,
+        delegation,
         pairingId,
         requestedBy: params.actor || null,
       }),
@@ -547,6 +720,13 @@ export async function startA2APairing(
     },
     now,
   );
+  const trustedA2APeers = upsertDelegationTrustAdvertisement(
+    {
+      peerId: proposal.peerId,
+      delegation: proposal.delegation,
+    },
+    now,
+  );
   const remoteNotification =
     input.notifyPeer === false
       ? { status: 'not_requested' as const, url: null, error: null }
@@ -564,9 +744,10 @@ export async function startA2APairing(
     agentCardUrl: proposal.agentCardUrl,
     deliveryUrl: proposal.deliveryUrl,
     publicKeyFingerprint: proposal.publicKeyFingerprint,
+    trustedA2ASenders: trustedA2APeers.map((peer) => peer.senderAgentId),
     remoteNotification,
   });
-  return { proposal, trustedPeer, remoteNotification };
+  return { proposal, trustedPeer, trustedA2APeers, remoteNotification };
 }
 
 export function listIncomingA2APairingRequests(): A2AIncomingPairingRequest[] {
@@ -623,6 +804,10 @@ export function createIncomingA2APairingRequest(
     return existing;
   }
   const timestamp = now.toISOString();
+  const delegation =
+    parseDelegationTrustAdvertisement(input.delegation) ||
+    existing?.delegation ||
+    null;
   const request: A2AIncomingPairingRequest = {
     schemaVersion: A2A_PAIRING_REQUEST_SCHEMA_VERSION,
     requestId,
@@ -640,6 +825,7 @@ export function createIncomingA2APairingRequest(
     publicKeyJwk: key.publicKeyJwk,
     publicKeyFingerprint: key.publicKeyFingerprint,
     name: normalizeOptionalPairingString(input.name, 'name'),
+    delegation,
     requestedBy: normalizeOptionalPairingString(
       input.requestedBy,
       'requestedBy',
@@ -705,6 +891,13 @@ export function approveIncomingA2APairingRequest(params: {
     },
     now,
   );
+  const trustedA2APeers = upsertDelegationTrustAdvertisement(
+    {
+      peerId: approved.peerId,
+      delegation: approved.delegation,
+    },
+    now,
+  );
   persistPairingRequest(approved);
   recordPairingAudit({
     type: 'a2a.pairing.approved',
@@ -713,6 +906,7 @@ export function approveIncomingA2APairingRequest(params: {
     peerId: approved.peerId,
     actor: approved.approvedBy,
     publicKeyFingerprint: approved.publicKeyFingerprint,
+    trustedA2ASenders: trustedA2APeers.map((peer) => peer.senderAgentId),
   });
   return approved;
 }
