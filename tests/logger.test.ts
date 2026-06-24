@@ -58,6 +58,7 @@ describe('logger forced level override', () => {
     loadedLoggerModule = null;
     delete process.env.HYBRIDCLAW_FORCE_LOG_LEVEL;
     delete process.env.HYBRIDCLAW_GATEWAY_LOG_FILE;
+    delete process.env.HYBRIDCLAW_GATEWAY_STDIO_TO_LOG;
     if (tempDir) {
       void fs.rm(tempDir, { recursive: true, force: true });
       tempDir = null;
@@ -159,6 +160,50 @@ describe('logger forced level override', () => {
     );
 
     expect(logText).toContain('foreground log mirror test');
+  });
+
+  it('does not open the gateway log file when stdout already mirrors it', async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hybridclaw-logger-'));
+    const logPath = path.join(tempDir, 'gateway.log');
+    process.env.HYBRIDCLAW_GATEWAY_LOG_FILE = logPath;
+    process.env.HYBRIDCLAW_GATEWAY_STDIO_TO_LOG = '1';
+
+    vi.doMock('../src/config/runtime-config.ts', () => ({
+      getRuntimeConfig: () => ({
+        ops: { logLevel: 'info' },
+      }),
+      onRuntimeConfigChange: vi.fn(),
+    }));
+
+    const { logger } = await importLoggerModule();
+
+    logger.info('stdio gateway log mirror test');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await expect(fs.stat(logPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('can enable the gateway log file mirror after logger initialization', async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hybridclaw-logger-'));
+    const logPath = path.join(tempDir, 'gateway.log');
+
+    vi.doMock('../src/config/runtime-config.ts', () => ({
+      getRuntimeConfig: () => ({
+        ops: { logLevel: 'info' },
+      }),
+      onRuntimeConfigChange: vi.fn(),
+    }));
+
+    const { enableGatewayLogFileMirror, logger } = await importLoggerModule();
+    enableGatewayLogFileMirror(logPath);
+
+    logger.info('late gateway log mirror test');
+
+    const logText = await waitForFileText(logPath, (text) =>
+      text.includes('late gateway log mirror test'),
+    );
+
+    expect(logText).toContain('late gateway log mirror test');
   });
 
   it('writes debug logs when the forced level is debug', async () => {

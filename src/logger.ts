@@ -45,11 +45,13 @@ function resolveForcedLogLevel():
 
 let forcedLevel = resolveForcedLogLevel();
 const initialLevel = forcedLevel || getRuntimeConfig().ops.logLevel;
-const gatewayLogFile = String(
-  process.env.HYBRIDCLAW_GATEWAY_LOG_FILE || '',
-).trim();
 const stdoutMirrorsGatewayLog =
   String(process.env.HYBRIDCLAW_GATEWAY_STDIO_TO_LOG || '').trim() === '1';
+const gatewayLogFile = stdoutMirrorsGatewayLog
+  ? ''
+  : String(process.env.HYBRIDCLAW_GATEWAY_LOG_FILE || '').trim();
+let loggerOutput: ReturnType<typeof pino.multistream> | null = null;
+let gatewayLogFileMirrorPath: string | null = null;
 
 function createPrettyDestination(
   prettyOptions: typeof LOGGER_PRETTY_OPTIONS,
@@ -81,6 +83,20 @@ function createPrettyDestination(
   });
 }
 
+function createGatewayLogFileDestination(
+  logFile: string,
+): NodeJS.WritableStream {
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  const fileStream = fs.createWriteStream(logFile, { flags: 'a' });
+  return createPrettyDestination(
+    {
+      ...LOGGER_PRETTY_OPTIONS,
+      colorize: false,
+    },
+    fileStream,
+  );
+}
+
 function createLogger() {
   const options = {
     errorKey: LOGGER_ERROR_KEY,
@@ -108,24 +124,41 @@ function createLogger() {
   ];
 
   if (gatewayLogFile) {
-    fs.mkdirSync(path.dirname(gatewayLogFile), { recursive: true });
-    const fileStream = fs.createWriteStream(gatewayLogFile, { flags: 'a' });
+    gatewayLogFileMirrorPath = path.resolve(gatewayLogFile);
     streams.push({
       level: 'trace',
-      stream: createPrettyDestination(
-        {
-          ...LOGGER_PRETTY_OPTIONS,
-          colorize: false,
-        },
-        fileStream,
-      ),
+      stream: createGatewayLogFileDestination(gatewayLogFile),
     });
   }
 
-  return pino(options, pino.multistream(streams));
+  loggerOutput = pino.multistream(streams);
+  return pino(options, loggerOutput);
 }
 
 export const logger = createLogger();
+
+export function enableGatewayLogFileMirror(logFile: string): void {
+  const trimmed = logFile.trim();
+  if (!trimmed) return;
+  const normalized = path.resolve(trimmed);
+  if (gatewayLogFileMirrorPath === normalized) return;
+  if (gatewayLogFileMirrorPath) {
+    logger.warn(
+      { configuredPath: gatewayLogFileMirrorPath, requestedPath: normalized },
+      'Gateway log file mirror already configured; ignoring new path',
+    );
+    return;
+  }
+  if (!loggerOutput) {
+    throw new Error('Logger output stream is not initialized.');
+  }
+
+  loggerOutput.add({
+    level: 'trace',
+    stream: createGatewayLogFileDestination(normalized),
+  });
+  gatewayLogFileMirrorPath = normalized;
+}
 
 if (forcedLevel) {
   logger.debug(
