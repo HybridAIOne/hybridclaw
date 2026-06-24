@@ -861,6 +861,8 @@ async function runGatewayForeground(
     delete process.env[GATEWAY_LOG_FILE_ENV];
   } else {
     process.env[GATEWAY_LOG_FILE_ENV] = GATEWAY_LOG_PATH;
+    const { enableGatewayLogFileMirror } = await import('./logger.js');
+    enableGatewayLogFileMirror(GATEWAY_LOG_PATH);
   }
   if (logRequests) {
     process.env[GATEWAY_LOG_REQUESTS_ENV] = '1';
