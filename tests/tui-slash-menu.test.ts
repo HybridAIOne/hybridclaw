@@ -55,6 +55,7 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/goal clear');
   expect(labels).toContain('/bot list');
   expect(labels).toContain('/agent install <source>');
+  expect(labels).toContain('/learn <source>');
   expect(labels).toContain('/plugin install <path|plugin-id|npm-spec>');
   expect(labels).toContain('/plugin reinstall <path|plugin-id|npm-spec>');
   expect(labels).toContain('/plugin check <plugin-id>');
@@ -73,6 +74,8 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/skill runs <name>');
   expect(labels).toContain('/skill install <skill> <dependency>');
   expect(labels).toContain('/skill setup <skill>');
+  expect(labels).toContain('/skill create-from <source>');
+  expect(labels).toContain('/skill amend <name> --apply');
   expect(labels).toContain('/skill learn <name> --apply');
   expect(labels).toContain('/skill history <name>');
   expect(labels).toContain('/skill sync <source>');

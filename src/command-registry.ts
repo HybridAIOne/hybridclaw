@@ -270,6 +270,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     command: '/help',
     description: 'Show this help',
   },
+  learn: {
+    command: '/learn [--name <name>] [--category <category>] <source>',
+    description: 'Stage a reusable skill proposal from source material',
+  },
   info: {
     command: '/info',
     description: 'Show current settings',
@@ -313,7 +317,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   skill: {
     command:
-      '/skill config|list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|unblock <name>|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
+      '/skill config|list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|unblock <name>|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|create-from <source>|amend <name> [--apply|--reject|--rollback]|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
     description:
       'Manage skill config, dependencies, health, runs, amendments, and imports',
   },
@@ -1376,6 +1380,25 @@ function buildSlashCommandCatalogDefinitions(
       tuiMenu: {
         aliases: ['h'],
       },
+    },
+    {
+      name: 'learn',
+      description: 'Stage a reusable skill proposal from source material',
+      tuiOnly: true,
+      tuiMenu: {
+        label: '/learn <source>',
+        insertText: '/learn ',
+        aliases: ['/learn [--name <name>] [--category <category>] <source>'],
+      },
+      options: [
+        {
+          kind: 'string',
+          name: 'source',
+          description:
+            'Notes, URL, local file, or local directory to learn from',
+          required: true,
+        },
+      ],
     },
     {
       name: 'auth',
@@ -2865,8 +2888,65 @@ function buildSlashCommandCatalogDefinitions(
         },
         {
           kind: 'subcommand',
-          name: 'learn',
+          name: 'create-from',
+          description:
+            'Stage a new skill proposal from notes, a URL, or a path',
+          tuiMenu: {
+            label: '/skill create-from <source>',
+            insertText: '/skill create-from ',
+            aliases: [
+              '/skill create-from [--name <name>] [--category <category>] <source>',
+              '/skill create-from --apply <proposal-id>',
+              '/skill create-from --reject <proposal-id>',
+            ],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description:
+                'Notes, URL, local file, or local directory to learn from',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'amend',
           description: 'Stage, apply, reject, or roll back a skill amendment',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name',
+              required: true,
+            },
+          ],
+          tuiMenuEntries: [
+            {
+              id: 'skill.amend.apply',
+              label: '/skill amend <name> --apply',
+              insertText: '/skill amend ',
+              description: 'Apply the latest staged amendment for a skill',
+            },
+            {
+              id: 'skill.amend.reject',
+              label: '/skill amend <name> --reject',
+              insertText: '/skill amend ',
+              description: 'Reject the latest staged amendment for a skill',
+            },
+            {
+              id: 'skill.amend.rollback',
+              label: '/skill amend <name> --rollback',
+              insertText: '/skill amend ',
+              description: 'Roll back the latest applied amendment for a skill',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'learn',
+          description: 'Compatibility alias for skill amend',
           options: [
             {
               kind: 'string',

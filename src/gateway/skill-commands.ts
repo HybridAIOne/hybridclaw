@@ -6,6 +6,7 @@ import {
   getRuntimeConfig,
   getRuntimeSkillScopeDisabledNames,
 } from '../config/runtime-config.js';
+import { parseSkillCreateFromArgs } from '../skills/skill-create-from-args.js';
 import {
   formatSkillAmendment,
   formatSkillHealthMetrics,
@@ -23,7 +24,7 @@ import type {
 import type { GatewayCommandResult } from './gateway-types.js';
 
 const SKILL_COMMAND_USAGE =
-  'Usage: `skill list [blocked]|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|unblock <name>|inspect <name>|inspect --all|runs <name>|install <source>|install <skill> <dependency>|upgrade <source>|uninstall <name>|revisions <name>|rollback <name> <revision-id>|setup <skill>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
+  'Usage: `skill list [blocked]|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|unblock <name>|inspect <name>|inspect --all|runs <name>|install <source>|install <skill> <dependency>|upgrade <source>|uninstall <name>|revisions <name>|rollback <name> <revision-id>|setup <skill>|create-from [--name <name>] [--category <category>] <source>|create-from --apply <proposal-id>|create-from --reject <proposal-id>|amend <name> [--apply|--reject|--rollback]|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
 
 interface SkillCommandContext {
   args: string[];
@@ -348,12 +349,73 @@ export async function handleSkillCommand(
     );
   }
 
-  if (sub === 'learn') {
+  if (sub === 'create-from') {
+    if (!isLocalSession(context)) {
+      return context.badCommand(
+        'Skill Create Restricted',
+        '`skill create-from` is only available from local TUI/web sessions.',
+      );
+    }
+    const parsed = parseSkillCreateFromArgs(context.args.slice(2), {
+      usageCommand: 'skill create-from',
+    });
+    if (!parsed.ok) {
+      return context.badCommand('Usage', parsed.message);
+    }
+
+    const authoringModule = await import('../skills/skill-authoring.js');
+    try {
+      if (parsed.action === 'apply') {
+        const proposal = authoringModule.applySkillCreationProposal(
+          parsed.proposalId,
+        );
+        return context.infoCommand(
+          'Skill Created',
+          authoringModule.formatSkillCreationProposal(proposal, {
+            commandPrefix: '/skill create-from',
+          }),
+        );
+      }
+      if (parsed.action === 'reject') {
+        const proposal = authoringModule.rejectSkillCreationProposal(
+          parsed.proposalId,
+        );
+        return context.infoCommand(
+          'Skill Proposal Rejected',
+          authoringModule.formatSkillCreationProposal(proposal, {
+            commandPrefix: '/skill create-from',
+          }),
+        );
+      }
+      if (parsed.action !== 'stage') {
+        throw new Error('Unexpected skill create-from action.');
+      }
+      const proposal = await authoringModule.stageSkillCreationFromSources({
+        sourceDescription: parsed.sourceDescription,
+        suggestedName: parsed.suggestedName,
+        category: parsed.category,
+        agentId: context.sessionAgentId,
+      });
+      return context.infoCommand(
+        'Skill Creation Proposal',
+        authoringModule.formatSkillCreationProposal(proposal, {
+          commandPrefix: '/skill create-from',
+        }),
+      );
+    } catch (err) {
+      return context.badCommand(
+        'Skill Create Failed',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  if (sub === 'learn' || sub === 'amend') {
     const skillName = parseIdArg(context.args, 2);
     if (!skillName) {
       return context.badCommand(
         'Usage',
-        'Usage: `skill learn <name> [--apply|--reject|--rollback]`',
+        `Usage: \`skill ${sub} <name> [--apply|--reject|--rollback]\``,
       );
     }
 
