@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## [0.25.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.6) - 2026-06-24
+
+### Added
+
+- **Launch-agent chat sessions**: `/chat?agent=<id>` links now mint a web chat
+  session, preselect the requested local agent, and pass that agent through the
+  history bootstrap path so the correct agent autostart runs for the new
+  session.
+
+### Fixed
+
+- **Foreground gateway logging**: `gateway start --foreground` restores
+  mirroring to the gateway log file even when the logger initializes before the
+  foreground command configures the log path, while avoiding duplicate file
+  streams when stdio is already redirected to the gateway log.
+
 ## [0.25.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.5) - 2026-06-22
 
 ### Fixed

@@ -2,7 +2,7 @@
   "name": "@hybridaione/hybridclaw-desktop",
   "productName": "HybridClaw",
   "private": true,
-  "version": "0.25.5",
+  "version": "0.25.6",
   "type": "module",
   "description": "macOS wrapper for the HybridClaw chat and admin web surfaces",
   "author": "HybridAI One",
