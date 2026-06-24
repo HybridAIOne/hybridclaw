@@ -368,6 +368,7 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
 );
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
+const HISTORY_AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -3496,19 +3497,33 @@ async function handleApiHistory(
     10,
   );
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
-  void ensureGatewayBootstrapAutostart({
-    sessionId,
-  }).catch((error) => {
-    logger.warn(
-      { sessionId, error },
-      'Failed to start gateway bootstrap autostart',
-    );
-  });
+  const rawAgentId = url.searchParams.get('agentId')?.trim() || '';
+  if (rawAgentId && !HISTORY_AGENT_ID_PATTERN.test(rawAgentId)) {
+    sendJson(res, 400, { error: 'Invalid `agentId` query parameter.' });
+    return;
+  }
+  const requestedAgentId = rawAgentId || undefined;
+  if (requestedAgentId && !getAgentById(requestedAgentId)) {
+    sendJson(res, 404, { error: 'Agent not found.' });
+    return;
+  }
   const operatorUserId = resolveGatewayRequestUserId({
     req,
     channelId: 'web',
     requestedUserId: url.searchParams.get('userId'),
     fallbackUserId: 'web',
+  });
+  void ensureGatewayBootstrapAutostart({
+    sessionId,
+    channelId: 'web',
+    userId: operatorUserId,
+    username: operatorUserId,
+    agentId: requestedAgentId,
+  }).catch((error) => {
+    logger.warn(
+      { sessionId, agentId: requestedAgentId ?? null, error },
+      'Failed to start gateway bootstrap autostart',
+    );
   });
   const historyPage = getGatewayHistory(sessionId, limit, {
     operatorUserId,
@@ -3518,6 +3533,8 @@ async function handleApiHistory(
   });
   const bootstrapAutostart = getGatewayBootstrapAutostartState({
     sessionId,
+    channelId: 'web',
+    agentId: requestedAgentId,
     allowExistingSessionMessages: true,
   });
   // These keys are returned only as chat-routing metadata for the web client.

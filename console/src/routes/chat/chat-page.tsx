@@ -86,6 +86,16 @@ const BOOTSTRAP_AUTOSTART_REFETCH_MS = 1500;
 const DEFAULT_EMPTY_CHAT_HEADER = 'Ready to claw through your to-do list?';
 type RecentChatScope = 'user' | 'all';
 
+const AGENT_QUERY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+function readLaunchAgentId(): string {
+  const value = new URLSearchParams(window.location.search)
+    .get('agent')
+    ?.trim();
+  if (!value) return '';
+  return AGENT_QUERY_ID_PATTERN.test(value) ? value : '';
+}
+
 function buildBranchInfoMap(
   messages: ChatUiMessage[],
   branchFamilies: Map<string, BranchVariant[]>,
@@ -134,6 +144,7 @@ export function ChatPage() {
     () => new URLSearchParams(window.location.search).get('prompt') || '',
     [],
   );
+  const launchAgentId = useMemo(readLaunchAgentId, []);
 
   const [errorState, setErrorState] = useState({ message: '', version: 0 });
   const error = errorState.message;
@@ -148,7 +159,9 @@ export function ChatPage() {
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [mobileQr, setMobileQr] = useState<ChatMobileQrResponse | null>(null);
   const [mobileQrBusy, setMobileQrBusy] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
+    launchAgentId || null,
+  );
   const [selectedModelId, setSelectedModelId] = useState('');
   const [recentChatScope, setRecentChatScope] =
     useState<RecentChatScope>('user');
@@ -156,6 +169,7 @@ export function ChatPage() {
     useState<ChatRecentSession | null>(null);
 
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
+  const launchAgentSessionIdRef = useRef<string | null>(null);
   const debouncedSessionSearchQuery = useDebouncedValue(
     sessionSearchQuery,
     160,
@@ -216,6 +230,16 @@ export function ChatPage() {
     handleSessionIdCorrection,
   } = useChatSession();
 
+  useEffect(() => {
+    if (!launchAgentId) return;
+    launchAgentSessionIdRef.current = ensureSessionForSend();
+  }, [ensureSessionForSend, launchAgentId]);
+
+  const requestedHistoryAgentId =
+    sessionId && launchAgentSessionIdRef.current === sessionId
+      ? launchAgentId
+      : '';
+
   const refreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: chatRecentQueryPrefix(auth.token, userId),
@@ -264,7 +288,7 @@ export function ChatPage() {
   // to the gateway default whenever the session changes. We don't know what
   // model the new session was last set to, so the default is the best guess
   // until the user picks again.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is intentionally a re-fire trigger, not read inside the body
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId intentionally resets the local model selection.
   useEffect(() => {
     const id = appStatusQuery.data?.defaultModel?.trim() ?? '';
     setSelectedModelId(id);
@@ -380,7 +404,13 @@ export function ChatPage() {
 
   const historyQuery = useQuery({
     queryKey: chatHistoryQueryKey(auth.token, sessionId),
-    queryFn: () => loadChatHistoryUi(auth.token, sessionId, userId),
+    queryFn: () =>
+      loadChatHistoryUi(
+        auth.token,
+        sessionId,
+        userId,
+        requestedHistoryAgentId || undefined,
+      ),
     enabled: chatApiReady && Boolean(sessionId),
     staleTime: Infinity,
   });
@@ -498,10 +528,13 @@ export function ChatPage() {
     if (id) setSelectedModelId(id);
   }, [contextQuery.data?.snapshot?.model]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is intentionally a re-fire trigger, not read inside the body
   useEffect(() => {
+    if (launchAgentId && launchAgentSessionIdRef.current === sessionId) {
+      setSelectedAgentId(launchAgentId);
+      return;
+    }
     setSelectedAgentId(null);
-  }, [sessionId]);
+  }, [launchAgentId, sessionId]);
 
   useEffect(() => {
     if (!historyQuery.error) return;

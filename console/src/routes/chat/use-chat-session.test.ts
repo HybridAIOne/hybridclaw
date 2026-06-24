@@ -93,11 +93,13 @@ describe('useChatSession', () => {
     const router = await getTestRouter();
     const { result } = setup();
 
+    let returned = '';
     act(() => {
-      result.current.ensureSessionForSend();
+      returned = result.current.ensureSessionForSend();
     });
 
     const minted = result.current.getSessionId();
+    expect(returned).toBe(minted);
     expect(minted).not.toBe('');
     expect(minted).toMatch(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/);
     expect(router.navigate).toHaveBeenCalledTimes(1);
@@ -110,11 +112,13 @@ describe('useChatSession', () => {
     router.setSessionId('session-existing');
     const { result } = setup();
 
+    let returned = '';
     act(() => {
-      result.current.ensureSessionForSend();
+      returned = result.current.ensureSessionForSend();
     });
 
     expect(router.navigate).not.toHaveBeenCalled();
+    expect(returned).toBe('session-existing');
     expect(result.current.getSessionId()).toBe('session-existing');
   });
 
