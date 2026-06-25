@@ -163,7 +163,10 @@ vi.mock('../../api/client', () => ({
     token: string,
     sessionId: string,
     options?: { onlyWithoutUserMessages?: boolean },
-  ) => deleteChatSessionMock(token, sessionId, options),
+  ) =>
+    options === undefined
+      ? deleteChatSessionMock(token, sessionId)
+      : deleteChatSessionMock(token, sessionId, options),
   fetchAgentList: (token: string) => fetchAgentListMock(token),
   fetchModels: (token: string) => fetchModelsMock(token),
   fetchSkills: (token: string) => fetchSkillsMock(token),
@@ -581,6 +584,62 @@ describe('ChatPage', () => {
         'web-user-1',
         undefined,
       ),
+    );
+  });
+
+  it('does not reuse a launch agent when starting a new conversation', async () => {
+    const routerModule = (await import(
+      '@tanstack/react-router'
+    )) as unknown as {
+      __testRouter: TestRouter;
+    };
+    routerModule.__testRouter.setSessionId(null);
+    window.history.replaceState(null, '', '/chat?agent=assistant');
+    fetchChatHistoryMock.mockImplementation(
+      async (_token, sessionId, _limit, _userId, agentId) => ({
+        sessionId,
+        agentId: agentId || undefined,
+        history:
+          agentId === 'assistant'
+            ? [
+                {
+                  id: 101,
+                  role: 'assistant',
+                  content: 'Launch agent session',
+                },
+              ]
+            : [],
+      }),
+    );
+
+    renderChatPage();
+
+    expect(await screen.findByText('Launch agent session')).not.toBeNull();
+    const launchCall = fetchChatHistoryMock.mock.calls.find(
+      (call) => call[4] === 'assistant',
+    );
+    const launchSessionId = launchCall?.[1];
+    expect(launchSessionId).toMatch(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open sidebar' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'New Conversation' }),
+    );
+
+    await waitFor(() => {
+      const freshCall = fetchChatHistoryMock.mock.calls.find(
+        (call) =>
+          call[4] === undefined &&
+          call[1] !== launchSessionId &&
+          /^sess_\d{8}_\d{6}_[0-9a-f]{8}$/.test(call[1]),
+      );
+      expect(freshCall).toBeTruthy();
+    });
+    await waitFor(() =>
+      expect(cleanupNoUserChatSessionsMock).toHaveBeenCalledWith('test-token', {
+        channelId: 'web',
+        keepSessionId: expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
+      }),
     );
   });
 
@@ -1611,6 +1670,7 @@ describe('ChatPage', () => {
     )) as unknown as {
       __testRouter: TestRouter;
     };
+    window.history.replaceState(null, '', '/chat/session-a?agent=assistant');
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
       history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
@@ -1630,6 +1690,15 @@ describe('ChatPage', () => {
     renderChatPage();
 
     expect(await screen.findByText('Opened session A')).not.toBeNull();
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-a',
+        80,
+        'web-user-1',
+        'assistant',
+      ),
+    );
 
     fireEvent.click(
       screen.getByRole('button', {
@@ -1649,15 +1718,15 @@ describe('ChatPage', () => {
       expect(routerModule.__testRouter.lastTo).toBe('/chat/$sessionId'),
     );
     expect(routerModule.__testRouter.lastReplace).toBe(true);
-    await waitFor(() =>
-      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
-        'test-token',
-        expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
-        80,
-        'web-user-1',
-        undefined,
-      ),
-    );
+    await waitFor(() => {
+      const freshCall = fetchChatHistoryMock.mock.calls.find(
+        (call) =>
+          call[1] !== 'session-a' &&
+          call[4] === undefined &&
+          /^sess_\d{8}_\d{6}_[0-9a-f]{8}$/.test(call[1]),
+      );
+      expect(freshCall).toBeTruthy();
+    });
   });
 
   it('renders the jump-to-latest chip when scrolled away and clears it on click', async () => {

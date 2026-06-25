@@ -8484,8 +8484,7 @@ function resolveBootstrapAutostartContext(params: {
   ) {
     return null;
   }
-  const existingSessionAgentId =
-    String(existingSession?.agent_id || '').trim() || '';
+  const existingSessionAgentId = String(existingSession?.agent_id || '').trim();
   const activeThreadAgentId = existingSession
     ? getActiveThreadAgentId(existingSession)
     : null;

@@ -475,6 +475,8 @@ export function ChatPage() {
       setSessionPendingDelete(null);
       const currentSessionId = getSessionId();
       if (deletedSessionId === currentSessionId) {
+        // Keep the page bound to a concrete no-user session after deleting the
+        // active chat so history loading can mint the replacement immediately.
         startFreshChat({ replace: true });
       }
     },
@@ -766,6 +768,8 @@ export function ChatPage() {
       setError('Stop the current run before starting a new chat.');
       return;
     }
+    // New Conversation intentionally creates a concrete no-user session, then
+    // prunes older drafts so repeated clicks only keep the latest one.
     const nextSessionId = startFreshChat();
     cleanupNoUserSessions(nextSessionId);
     refreshRecent();
