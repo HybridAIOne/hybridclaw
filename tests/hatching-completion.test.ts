@@ -42,6 +42,30 @@ describe('appendHatchingChannelSetupLinks', () => {
     expect(result).toBe(resultText);
   });
 
+  test('does not duplicate absolute channel setup links already in the response', () => {
+    const resultText = [
+      'I sent the welcome email.',
+      '',
+      'Optional setup links:',
+      '- [Set up WhatsApp](https://chat.example.com/admin/channels#whatsapp)',
+      '- [Set up Discord](https://chat.example.com/admin/channels#discord)',
+      '- [Set up Telegram](https://chat.example.com/admin/channels#telegram)',
+    ].join('\n');
+
+    const result = appendHatchingChannelSetupLinks({
+      resultText,
+      hatchingCompletion: {
+        completed: true,
+        updated: true,
+        reason: 'message sent',
+      },
+    });
+
+    expect(result).toBe(resultText);
+    expect(result.match(/Set up WhatsApp/g)).toHaveLength(1);
+    expect(result).not.toContain('Optional channel setup:');
+  });
+
   test('normalizes plain setup paths already in the response', () => {
     const result = appendHatchingChannelSetupLinks({
       resultText: [

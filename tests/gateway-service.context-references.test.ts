@@ -238,7 +238,10 @@ test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-m
 
   expect(userMessage?.role).toBe('user');
   expect(userMessage?.content).toContain(
-    'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool.',
+    'If USER.md or the conversation contains the user email and the user has given enough profile or goal details to personalize the welcome, send a useful welcome email with the message tool.',
+  );
+  expect(userMessage?.content).toContain(
+    'Treat Email, Registration email, Mailbox, or any email-looking USER.md value as the user email; do not ask for email again.',
   );
   expect(userMessage?.content).toContain(
     'Follow the short welcome email template in BOOTSTRAP.md',

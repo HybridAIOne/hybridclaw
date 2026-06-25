@@ -234,8 +234,10 @@ describe('workspace bootstrap lifecycle', () => {
     const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
     const bootstrapMarkdown = fs.readFileSync(bootstrapPath, 'utf-8');
     expect(bootstrapMarkdown).toContain(
-      'ask for an email address if `USER.md` does not',
+      'ask for an email address only if `USER.md` does not',
     );
+    expect(bootstrapMarkdown).toContain('Registration email');
+    expect(bootstrapMarkdown).toContain('compact starter');
     expect(bootstrapMarkdown).toContain('Web chat is already working');
     expect(bootstrapMarkdown).toContain('/admin/channels#discord');
     expect(bootstrapMarkdown).toContain('/admin/channels#telegram');

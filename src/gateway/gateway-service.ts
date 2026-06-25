@@ -455,6 +455,7 @@ import {
   WORKSPACE_BOOTSTRAP_FILES,
 } from '../workspace.js';
 import {
+  getActiveThreadAgentId,
   resolveAgentAddressing,
   setActiveThreadAgentId,
 } from './agent-addressing.js';
@@ -711,7 +712,7 @@ function buildBootstrapAutostartPrompt(
     'This is an internal kickoff turn, not a user-authored message.',
     `Follow the ${fileName} instructions now and begin the conversation proactively.`,
     fileName === 'BOOTSTRAP.md'
-      ? 'Onboarding should be conversational: do not dump a form or checklist, ask only a few useful questions at a time, and let the user answer naturally.'
+      ? 'Start hatching with a compact starter questionnaire: ask 4 to 6 short, useful questions in one conversational message so the user can answer naturally. Use facts already present in USER.md. Treat Email, Registration email, Mailbox, or any email-looking value in USER.md as the user email, and do not ask for email again.'
       : 'Send a concise first message to the user.',
     `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
   ].join(' ');
@@ -8453,11 +8454,23 @@ function resolveBootstrapAutostartContext(params: {
     requestedSessionId,
     params.channelId,
   );
+  const requestedAgentId = String(params.agentId || '').trim();
+  const existingSession = memoryService.getSessionById(requestedSessionId);
+  const existingSessionAgentId =
+    String(existingSession?.agent_id || '').trim() || '';
+  const activeThreadAgentId = existingSession
+    ? getActiveThreadAgentId(existingSession)
+    : null;
+  const autostartAgentId =
+    requestedAgentId ||
+    activeThreadAgentId ||
+    existingSessionAgentId ||
+    undefined;
   const session = memoryService.getOrCreateSession(
     requestedSessionId,
     null,
     channelId,
-    params.agentId ?? undefined,
+    autostartAgentId,
   );
   if (
     !params.allowExistingSessionMessages &&
@@ -8468,7 +8481,7 @@ function resolveBootstrapAutostartContext(params: {
   }
 
   const resolved = resolveAgentForRequest({
-    agentId: params.agentId,
+    agentId: autostartAgentId,
     session,
   });
   ensureBootstrapFiles(resolved.agentId);

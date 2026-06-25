@@ -170,6 +170,7 @@ export function ChatPage() {
 
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const launchAgentSessionIdRef = useRef<string | null>(null);
+  const suppressDefaultAutostartRef = useRef(false);
   const debouncedSessionSearchQuery = useDebouncedValue(
     sessionSearchQuery,
     160,
@@ -230,6 +231,11 @@ export function ChatPage() {
     handleSessionIdCorrection,
   } = useChatSession();
 
+  const startBlankChat = useCallback(() => {
+    suppressDefaultAutostartRef.current = true;
+    startFreshChat();
+  }, [startFreshChat]);
+
   useEffect(() => {
     if (!launchAgentId) return;
     launchAgentSessionIdRef.current = ensureSessionForSend();
@@ -262,6 +268,19 @@ export function ChatPage() {
         ? auth.gatewayStatus
         : undefined,
   });
+
+  useEffect(() => {
+    if (launchAgentId || sessionId || !chatApiReady) return;
+    if (suppressDefaultAutostartRef.current) return;
+    if (!appStatusQuery.data?.defaultAgentId?.trim()) return;
+    ensureSessionForSend();
+  }, [
+    appStatusQuery.data?.defaultAgentId,
+    chatApiReady,
+    ensureSessionForSend,
+    launchAgentId,
+    sessionId,
+  ]);
 
   const agentsQuery = useQuery({
     queryKey: ['agents-list', auth.token],
@@ -475,7 +494,7 @@ export function ChatPage() {
       setSessionPendingDelete(null);
       const currentSessionId = getSessionId();
       if (deletedSessionId === currentSessionId) {
-        startFreshChat();
+        startBlankChat();
       }
     },
     onError: (err) => {
@@ -726,9 +745,9 @@ export function ChatPage() {
       setError('Stop the current run before starting a new chat.');
       return;
     }
-    startFreshChat();
+    startBlankChat();
     refreshRecent();
-  }, [stream.isActive, startFreshChat, refreshRecent, setError]);
+  }, [stream.isActive, startBlankChat, refreshRecent, setError]);
 
   const handleSendMessage = useCallback(
     (content: string, media: MediaItem[]) => {
