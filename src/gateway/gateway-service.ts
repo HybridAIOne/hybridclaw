@@ -719,8 +719,8 @@ function buildBootstrapAutostartPrompt(
   if (fileName === 'BOOTSTRAP.md') {
     return [
       'Continue the first BOOTSTRAP.md turn now.',
-      'A short hatching-progress line has already been sent, so do not open with another hatching or coming-online line.',
-      'Ask two or three natural questions from BOOTSTRAP.md in a warm conversational way, not as a list of fields.',
+      'Open the next welcome message with a warm greeting and a one-line intro, then move into the questions.',
+      'Write a short multi-paragraph message following BOOTSTRAP.md: warm greeting, then two or three natural questions in prose (not a list of fields), then an easy closing line. Use empty lines for separating paragraphs.',
       'Include the email ask naturally unless USER.md already contains the email address.',
       'Return only the user-visible message.',
     ].join(' ');
@@ -8606,19 +8606,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
         source: BOOTSTRAP_AUTOSTART_SOURCE,
       },
     });
-    recordAuditEvent({
-      sessionId: session.id,
-      runId,
-      event: {
-        type: 'turn.start',
-        turnIndex,
-        userInput: buildBootstrapAutostartPrompt(bootstrapFile),
-        username: normalizedUsername,
-        mediaCount: 0,
-        source: BOOTSTRAP_AUTOSTART_SOURCE,
-      },
-    });
-
     const chatbotResolution = await resolveGatewayChatbotId({
       model,
       chatbotId: resolved.chatbotId,
@@ -8681,10 +8668,58 @@ export async function ensureGatewayBootstrapAutostart(params: {
       return;
     }
 
+    const storeBootstrapAssistantMessage = (content: string): number => {
+      const assistantMessageId = memoryService.storeMessage({
+        sessionId: session.id,
+        userId: 'assistant',
+        username: null,
+        role: 'assistant',
+        content,
+        agentId: resolved.agentId,
+      });
+      appendSessionTranscript(resolved.agentId, {
+        sessionId: session.id,
+        channelId,
+        role: 'assistant',
+        userId: 'assistant',
+        username: null,
+        content,
+      });
+      return assistantMessageId;
+    };
+    let preludeText: string | null = null;
+    if (bootstrapFile === 'BOOTSTRAP.md') {
+      preludeText = await generateBootstrapPrelude({
+        agentId: resolved.agentId,
+        fileName: bootstrapFile,
+        model,
+        chatbotId,
+      });
+    }
+    const hasPrelude = Boolean(preludeText);
+    const bootstrapAutostartPrompt =
+      buildBootstrapAutostartPrompt(bootstrapFile);
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'turn.start',
+        turnIndex,
+        userInput: bootstrapAutostartPrompt,
+        username: normalizedUsername,
+        mediaCount: 0,
+        source: BOOTSTRAP_AUTOSTART_SOURCE,
+      },
+    });
+    if (preludeText) {
+      storeBootstrapAssistantMessage(preludeText);
+    }
+    const baseAssistantMessages = hasPrelude ? 1 : 0;
+
     const { messages } = buildConversationContext({
       agentId: resolved.agentId,
       history: [],
-      currentUserContent: buildBootstrapAutostartPrompt(bootstrapFile),
+      currentUserContent: bootstrapAutostartPrompt,
       ...(bootstrapFile === 'BOOTSTRAP.md'
         ? {
             skillPromptMode: 'compact' as const,
@@ -8706,7 +8741,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     });
     messages.push({
       role: 'user',
-      content: buildBootstrapAutostartPrompt(bootstrapFile),
+      content: bootstrapAutostartPrompt,
     });
 
     const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway(
@@ -8734,25 +8769,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
       });
     }
 
-    const storeBootstrapAssistantMessage = (content: string): number => {
-      const assistantMessageId = memoryService.storeMessage({
-        sessionId: session.id,
-        userId: 'assistant',
-        username: null,
-        role: 'assistant',
-        content,
-        agentId: resolved.agentId,
-      });
-      appendSessionTranscript(resolved.agentId, {
-        sessionId: session.id,
-        channelId,
-        role: 'assistant',
-        userId: 'assistant',
-        username: null,
-        content,
-      });
-      return assistantMessageId;
-    };
     if (bootstrapFile === 'OPENING.md') {
       recordAuditEvent({
         sessionId: session.id,
@@ -8889,18 +8905,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
       });
       return;
     }
-
-    const preludeText = await generateBootstrapPrelude({
-      agentId: resolved.agentId,
-      fileName: bootstrapFile,
-      model,
-      chatbotId,
-    });
-    const hasPrelude = Boolean(preludeText);
-    if (preludeText) {
-      storeBootstrapAssistantMessage(preludeText);
-    }
-    const baseAssistantMessages = hasPrelude ? 1 : 0;
 
     recordAuditEvent({
       sessionId: session.id,

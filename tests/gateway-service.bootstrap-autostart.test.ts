@@ -147,10 +147,13 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
     ),
   });
   expect(request?.messages?.at(-1)?.content).toContain(
-    'A short hatching-progress line has already been sent',
+    'Open the next welcome message with a warm greeting',
   );
   expect(request?.messages?.at(-1)?.content).toContain(
-    'Ask two or three natural questions',
+    'Write a short multi-paragraph message following BOOTSTRAP.md',
+  );
+  expect(request?.messages?.at(-1)?.content).toContain(
+    'Use empty lines for separating paragraphs',
   );
   expect(request?.messages?.at(-1)?.content).toContain(
     'Include the email ask naturally',
@@ -431,6 +434,46 @@ test('ensureGatewayBootstrapAutostart drops prelude text that mentions internals
     expect.objectContaining({
       role: 'assistant',
       content: 'Ready without a prelude.',
+    }),
+  ]);
+});
+
+test('ensureGatewayBootstrapAutostart keeps bootstrap opener when auxiliary generation fails', async () => {
+  setupHome();
+
+  callAuxiliaryModelMock.mockRejectedValueOnce(new Error('aux timeout'));
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Ready after aux failure.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'agent:main:channel:web:chat:dm:peer:prelude-fallback-test';
+  await ensureGatewayBootstrapAutostart({ sessionId });
+
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | {
+        messages?: Array<{ role: string; content: string }>;
+      }
+    | undefined;
+  expect(request?.messages?.at(-1)?.content).toContain(
+    'Open the next welcome message with a warm greeting',
+  );
+  expect(request?.messages?.at(-1)?.content).toContain(
+    'Write a short multi-paragraph message following BOOTSTRAP.md',
+  );
+  expect(getGatewayHistory(sessionId, 10).history).toEqual([
+    expect.objectContaining({
+      role: 'assistant',
+      content: 'Ready after aux failure.',
     }),
   ]);
 });
