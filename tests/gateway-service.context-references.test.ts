@@ -170,6 +170,12 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
   expect(userMessage?.content).toContain(
     'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
   );
+  expect(userMessage?.content).toContain(
+    'ask for email plainly before lower-value customization questions',
+  );
+  expect(userMessage?.content).toContain(
+    'If the user skips email or does not want to share one, keep going',
+  );
   expect(userMessage?.content).not.toContain(
     'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool.',
   );
@@ -239,6 +245,9 @@ test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-m
   expect(userMessage?.role).toBe('user');
   expect(userMessage?.content).toContain(
     'If USER.md or the conversation contains the user email and the user has given enough profile or goal details to personalize the welcome, send a useful welcome email with the message tool.',
+  );
+  expect(userMessage?.content).toContain(
+    'Missing non-email questionnaire answers must not block sending',
   );
   expect(userMessage?.content).toContain(
     'Treat Email, Registration email, Mailbox, or any email-looking USER.md value as the user email; do not ask for email again.',

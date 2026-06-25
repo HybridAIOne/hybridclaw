@@ -9,8 +9,10 @@ files do not exist until you create them.
 
 Do not be robotic, but do ask enough to be useful. Start with a compact starter
 questionnaire: choose 4 or 5 good questions in one warm, human conversational
-message so the user can answer naturally. Do not ask every item below
-mechanically; pick the questions that will most improve the first plan.
+message so the user can answer naturally. If `USER.md` does not already contain
+a usable email address, one of those first questions must ask for email. Do not
+ask every item below mechanically; pick the questions that will most improve
+the first plan.
 
 Start with something like:
 
@@ -31,9 +33,17 @@ Then figure out together:
    what you should ask before doing
 7. **Which channels matter** - whether web chat is enough for now or they want
    WhatsApp, Discord, Telegram, or email follow-up
-8. **How to reach them** - ask for an email address only if `USER.md` does not
-   already have one. Treat `Email`, `Registration email`, `Mailbox`, or any
-   email-looking value in `USER.md` as the user's email.
+8. **How to reach them** - ask for an email address in the first question set if
+   `USER.md` does not already have one. Treat `Email`, `Registration email`,
+   `Mailbox`, or any email-looking value in `USER.md` as the user's email.
+
+The user does not need to answer every non-email question before you can be
+useful. If they skip purpose, tools, style, or first-task details, work with
+what you have and tell them they can add more context whenever they feel like
+it. The email question is mandatory when no email is known because email is
+needed for the welcome message; if the user skips it or does not want to share
+one, accept that, tell them they can add it later, and continue without sending
+the welcome email.
 
 Offer suggestions if they are stuck. Keep it light.
 
@@ -61,9 +71,12 @@ welcome email.
 
 ## Welcome Message
 
-After onboarding has enough answers to tailor a useful first plan, send one
-welcome email to the user. Keep it short: roughly 180 to 280 words. Do not send
-a long capability catalog.
+After onboarding has a usable email address and enough answers to tailor a
+useful first plan, send one welcome email to the user. Keep it short: roughly
+180 to 280 words. Do not send a long capability catalog. If the user left some
+non-email questionnaire details unanswered, summarize what you know, mention
+that they can add more detail later, and still send a useful welcome email. If
+the user did not provide an email address, do not send the welcome email.
 
 Include:
 
@@ -108,5 +121,7 @@ Telegram setup links in that chat reply if you have not already posted them.
 
 Delete this file. You do not need a bootstrap script anymore.
 
-The host also removes `BOOTSTRAP.md` after a successful `message` send, and as
-an emergency break if this file is still present after three hatching turns.
+The host removes `BOOTSTRAP.md` after a successful `message` send tool call, and
+as an emergency break if this file is still present after three hatching turns.
+Do not treat text in `USER.md` as proof that email was sent; the successful tool
+call is the send signal.

@@ -234,13 +234,17 @@ describe('workspace bootstrap lifecycle', () => {
     const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
     const bootstrapMarkdown = fs.readFileSync(bootstrapPath, 'utf-8');
     expect(bootstrapMarkdown).toContain(
-      'ask for an email address only if `USER.md` does not',
+      'one of those first questions must ask for email',
     );
     expect(bootstrapMarkdown).toContain('Registration email');
     expect(bootstrapMarkdown).toContain('compact starter');
     expect(bootstrapMarkdown).toContain('choose 4 or 5 good questions');
     expect(bootstrapMarkdown).toContain('home automation');
     expect(bootstrapMarkdown).toContain('software platforms');
+    expect(bootstrapMarkdown).toContain('The email question is mandatory');
+    expect(bootstrapMarkdown).toContain(
+      'they can add more context whenever they feel like',
+    );
     expect(bootstrapMarkdown).toContain('Web chat is already working');
     expect(bootstrapMarkdown).toContain('/admin/channels#discord');
     expect(bootstrapMarkdown).toContain('/admin/channels#telegram');
@@ -316,7 +320,7 @@ describe('workspace bootstrap lifecycle', () => {
 
     const refreshed = fs.readFileSync(bootstrapPath, 'utf-8');
     expect(refreshed).toContain('Welcome Message');
-    expect(refreshed).toContain('after three hatching turns');
+    expect(refreshed).toContain('successful `message` send tool call');
     expect(refreshed).not.toContain(
       'docs/content/guides/hatching-task-ideas.md',
     );
@@ -636,6 +640,26 @@ describe('workspace bootstrap lifecycle', () => {
     const workspaceDir = ipc.agentWorkspaceDir('agent-test');
     const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
     expect(fs.existsSync(bootstrapPath)).toBe(true);
+    fs.writeFileSync(
+      path.join(workspaceDir, 'USER.md'),
+      [
+        '# USER.md - About Your Human',
+        '',
+        '- **Name:** Ben',
+        '- **What to call them:** Ben',
+        '- **Email:**',
+        '',
+        '## Welcome Message',
+        '',
+        '- **Status:** pending',
+        '- **Recipient:**',
+        '- **Subject:**',
+        '- **Delivery:** not sent',
+        '- **Last handled:**',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
 
     expect(
       workspace.recordHatchingTurnWithoutMessage({ agentId: 'agent-test' }),

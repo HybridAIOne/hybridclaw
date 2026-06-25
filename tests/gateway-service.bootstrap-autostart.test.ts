@@ -120,6 +120,12 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(request?.messages?.at(-1)?.content).toContain(
     'tools or software platforms',
   );
+  expect(request?.messages?.at(-1)?.content).toContain(
+    'Missing non-email questionnaire answers are acceptable',
+  );
+  expect(request?.messages?.at(-1)?.content).toContain(
+    'include one direct email question in this first question set',
+  );
   expect(callAuxiliaryModelMock).toHaveBeenCalledWith(
     expect.objectContaining({
       task: 'compression',

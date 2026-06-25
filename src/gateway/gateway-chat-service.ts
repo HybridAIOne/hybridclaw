@@ -646,7 +646,7 @@ function isGpt5OnboardingModelId(modelId: string): boolean {
 
 function buildGpt5OnboardingPromptInjection(): string[] {
   return [
-    'If USER.md or the conversation contains the user email and the user has given enough profile or goal details to personalize the welcome, send a useful welcome email with the message tool. Treat Email, Registration email, Mailbox, or any email-looking USER.md value as the user email; do not ask for email again. Follow the short welcome email template in BOOTSTRAP.md: 3 concrete first tasks, 2 or 3 copy-paste prompt ideas, and one concrete next step. Do not include channel setup links in the email; post those links as Markdown links in the hatching chat. Set action="send", to=<email>, and subject=<specific subject>. Do not ask for separate confirmation.',
+    'If USER.md or the conversation contains the user email and the user has given enough profile or goal details to personalize the welcome, send a useful welcome email with the message tool. Missing non-email questionnaire answers must not block sending; mention that the user can add more context later. Treat Email, Registration email, Mailbox, or any email-looking USER.md value as the user email; do not ask for email again. Follow the short welcome email template in BOOTSTRAP.md: 3 concrete first tasks, 2 or 3 copy-paste prompt ideas, and one concrete next step. Do not include channel setup links in the email; post those links as Markdown links in the hatching chat. Set action="send", to=<email>, and subject=<specific subject>. Do not ask for separate confirmation.',
   ];
 }
 
@@ -660,9 +660,11 @@ function buildBootstrapChatTurnPrompt(params: {
     'Continue the in-progress hatching conversation using the full chat history above.',
     'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
     `Keep following ${params.fileName}: acknowledge the user's latest reply and fill the remaining starter-questionnaire gaps one or two at a time.`,
-    'Prioritize missing purpose and tool/software platform details before lower-value customization questions.',
+    'If USER.md does not contain Email, Registration email, Mailbox, or any email-looking value, ask for email plainly before lower-value customization questions.',
     'Do not ask for email if USER.md already contains Email, Registration email, Mailbox, or any email-looking value.',
+    'Prioritize missing purpose and tool/software platform details before lower-value customization questions.',
     'If the user has not answered the previous questions yet, briefly point back to them instead of asking a fresh set.',
+    'If the user skips email or does not want to share one, keep going and tell them they can add it later.',
     'Do not ask a generic "what can I do for you?" question.',
     `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${params.fileName} explicitly requires it.`,
   ];
