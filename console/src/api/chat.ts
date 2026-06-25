@@ -1,5 +1,6 @@
 import type {
   BranchResponse,
+  ChatCleanupResponse,
   ChatCommandsResponse,
   ChatContextResponse,
   ChatHistoryResponse,
@@ -38,6 +39,25 @@ export function fetchChatRecent(
   return requestJson<ChatRecentResponse>(
     `/api/chat/recent?${params.toString()}`,
     { token },
+  );
+}
+
+export function cleanupNoUserChatSessions(
+  token: string,
+  params: {
+    channelId?: string;
+    keepSessionId?: string;
+  },
+): Promise<ChatCleanupResponse> {
+  const query = new URLSearchParams({
+    channelId: params.channelId || 'web',
+  });
+  if (params.keepSessionId) {
+    query.set('keepSessionId', params.keepSessionId);
+  }
+  return requestJson<ChatCleanupResponse>(
+    `/api/chat/cleanup?${query.toString()}`,
+    { token, method: 'POST' },
   );
 }
 

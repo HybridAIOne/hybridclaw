@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import Database from 'better-sqlite3';
 import { expect, test, vi } from 'vitest';
 
 import {
@@ -151,6 +152,45 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   await ensureGatewayBootstrapAutostart({ sessionId });
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   expect(getGatewayHistory(sessionId, 10).history).toHaveLength(2);
+});
+
+test('ensureGatewayBootstrapAutostart does not refresh started sessions on history probes', async () => {
+  setupHome();
+
+  const { initDatabase, getSessionById, storeMessage } = await import(
+    '../src/memory/db.ts'
+  );
+  const { DB_PATH } = await import('../src/config/config.ts');
+  const { ensureGatewayBootstrapAutostart } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'agent:main:channel:web:chat:dm:peer:opened-session';
+  memoryService.getOrCreateSession(sessionId, null, 'web', 'main');
+  storeMessage(sessionId, 'user-1', 'user', 'user', 'previous turn', 'main');
+
+  const oldLastActive = '2026-04-01T00:00:00.000Z';
+  const storedSession = getSessionById(sessionId);
+  expect(storedSession).toBeTruthy();
+  const db = new Database(DB_PATH);
+  db.prepare('UPDATE sessions SET last_active = ? WHERE id = ?').run(
+    oldLastActive,
+    storedSession?.id,
+  );
+  db.close();
+
+  await ensureGatewayBootstrapAutostart({
+    sessionId,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+  });
+
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(getSessionById(sessionId)?.last_active).toBe(oldLastActive);
 });
 
 test('ensureGatewayBootstrapAutostart uses regular model when onboarding model is empty', async () => {

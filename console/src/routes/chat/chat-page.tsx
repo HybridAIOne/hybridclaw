@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import {
+  cleanupNoUserChatSessions,
   createChatBranch,
   createChatMobileQr,
   executeCommand,
@@ -119,10 +120,6 @@ function buildBranchInfoMap(
   return map;
 }
 
-function hasUserMessage(messages: ChatUiMessage[]): boolean {
-  return messages.some((message) => message.role === 'user');
-}
-
 function chatRecentQueryKey(
   token: string,
   userId: string,
@@ -174,7 +171,6 @@ export function ChatPage() {
 
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const launchAgentSessionIdRef = useRef<string | null>(null);
-  const sessionsWithUserMessagesRef = useRef<Set<string>>(new Set());
   const debouncedSessionSearchQuery = useDebouncedValue(
     sessionSearchQuery,
     160,
@@ -232,7 +228,6 @@ export function ChatPage() {
     switchToSession,
     startFreshChat,
     ensureSessionForSend,
-    isLocallyCreatedSession,
     handleSessionIdCorrection,
   } = useChatSession();
 
@@ -429,15 +424,6 @@ export function ChatPage() {
   });
 
   const messages = historyQuery.data?.messages ?? EMPTY_MESSAGES;
-  useEffect(() => {
-    if (!sessionId || historyQuery.data?.requestedSessionId !== sessionId) {
-      return;
-    }
-    if (hasUserMessage(historyQuery.data.messages)) {
-      sessionsWithUserMessagesRef.current.add(sessionId);
-    }
-  }, [historyQuery.data, sessionId]);
-
   const isBootstrapAutostartStarting =
     historyQuery.data?.bootstrapAutostart?.status === 'starting';
   const visibleMessages = useMemo<ChatUiMessage[]>(() => {
@@ -744,49 +730,22 @@ export function ChatPage() {
     [auth.token, setError],
   );
 
-  const shouldCleanupNoUserSession = useCallback(
-    (targetSessionId: string) => {
-      if (!targetSessionId) return false;
-      if (sessionsWithUserMessagesRef.current.has(targetSessionId)) {
-        return false;
-      }
-
-      const matchingHistory =
-        historyQuery.data?.requestedSessionId === targetSessionId
-          ? historyQuery.data
-          : null;
-      if (matchingHistory && hasUserMessage(matchingHistory.messages)) {
-        return false;
-      }
-
-      if (isLocallyCreatedSession(targetSessionId)) return true;
-
-      return Boolean(
-        matchingHistory &&
-          !historyQuery.isPending &&
-          historyQuery.fetchStatus === 'idle',
-      );
-    },
-    [
-      historyQuery.data,
-      historyQuery.fetchStatus,
-      historyQuery.isPending,
-      isLocallyCreatedSession,
-    ],
-  );
-
-  const cleanupNoUserSession = useCallback(
-    (targetSessionId: string) => {
-      void deleteChatSession(auth.token, targetSessionId)
+  const cleanupNoUserSessions = useCallback(
+    (keepSessionId: string) => {
+      void cleanupNoUserChatSessions(auth.token, {
+        channelId: 'web',
+        keepSessionId,
+      })
         .then((data) => {
-          if (!data.deleted) return;
-          const deletedSessionId = data.sessionId;
-          queryClient.removeQueries({
-            queryKey: chatHistoryQueryKey(auth.token, deletedSessionId),
-          });
-          queryClient.removeQueries({
-            queryKey: chatContextQueryKey(auth.token, deletedSessionId),
-          });
+          if (data.deletedCount === 0) return;
+          for (const deletedSessionId of data.deletedSessionIds) {
+            queryClient.removeQueries({
+              queryKey: chatHistoryQueryKey(auth.token, deletedSessionId),
+            });
+            queryClient.removeQueries({
+              queryKey: chatContextQueryKey(auth.token, deletedSessionId),
+            });
+          }
           void queryClient.invalidateQueries({
             queryKey: chatRecentQueryPrefix(auth.token, userId),
           });
@@ -807,25 +766,20 @@ export function ChatPage() {
       setError('Stop the current run before starting a new chat.');
       return;
     }
-    const previousSessionId = getSessionId();
-    const shouldCleanupPrevious = shouldCleanupNoUserSession(previousSessionId);
-    startFreshChat();
-    if (shouldCleanupPrevious) cleanupNoUserSession(previousSessionId);
+    const nextSessionId = startFreshChat();
+    cleanupNoUserSessions(nextSessionId);
     refreshRecent();
   }, [
     stream.isActive,
-    getSessionId,
-    shouldCleanupNoUserSession,
     startFreshChat,
-    cleanupNoUserSession,
+    cleanupNoUserSessions,
     refreshRecent,
     setError,
   ]);
 
   const handleSendMessage = useCallback(
     (content: string, media: MediaItem[]) => {
-      const targetSessionId = ensureSessionForSend();
-      sessionsWithUserMessagesRef.current.add(targetSessionId);
+      ensureSessionForSend();
       // Sending re-engages the user with the live conversation — snap back so
       // their bubble and the incoming stream are visible without the "↓ Latest"
       // chip getting in the way.

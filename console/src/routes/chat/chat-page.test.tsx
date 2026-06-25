@@ -19,6 +19,7 @@ vi.mock('@tanstack/react-router', async () => {
 
 import type {
   BranchResponse,
+  ChatCleanupResponse,
   ChatContextResponse,
   ChatHistoryResponse,
   ChatMobileQrResponse,
@@ -60,8 +61,21 @@ const fetchChatHistoryMock =
   >();
 const fetchChatContextMock =
   vi.fn<(token: string, sessionId: string) => Promise<ChatContextResponse>>();
+const cleanupNoUserChatSessionsMock =
+  vi.fn<
+    (
+      token: string,
+      params: { channelId?: string; keepSessionId?: string },
+    ) => Promise<ChatCleanupResponse>
+  >();
 const deleteChatSessionMock =
-  vi.fn<(token: string, sessionId: string) => Promise<DeleteSessionResult>>();
+  vi.fn<
+    (
+      token: string,
+      sessionId: string,
+      options?: { onlyWithoutUserMessages?: boolean },
+    ) => Promise<DeleteSessionResult>
+  >();
 const createChatMobileQrMock =
   vi.fn<
     (
@@ -102,6 +116,10 @@ const isActiveMock = vi.fn();
 const useChatStreamMock = vi.fn();
 
 vi.mock('../../api/chat', () => ({
+  cleanupNoUserChatSessions: (
+    token: string,
+    params: { channelId?: string; keepSessionId?: string },
+  ) => cleanupNoUserChatSessionsMock(token, params),
   fetchAppStatus: (token: string) => fetchAppStatusMock(token),
   fetchChatRecent: (
     token: string,
@@ -141,8 +159,11 @@ vi.mock('../../api/chat', () => ({
 }));
 
 vi.mock('../../api/client', () => ({
-  deleteSession: (token: string, sessionId: string) =>
-    deleteChatSessionMock(token, sessionId),
+  deleteSession: (
+    token: string,
+    sessionId: string,
+    options?: { onlyWithoutUserMessages?: boolean },
+  ) => deleteChatSessionMock(token, sessionId, options),
   fetchAgentList: (token: string) => fetchAgentListMock(token),
   fetchModels: (token: string) => fetchModelsMock(token),
   fetchSkills: (token: string) => fetchSkillsMock(token),
@@ -257,6 +278,7 @@ describe('ChatPage', () => {
     fetchChatRecentMock.mockReset();
     fetchChatHistoryMock.mockReset();
     fetchChatContextMock.mockReset();
+    cleanupNoUserChatSessionsMock.mockReset();
     deleteChatSessionMock.mockReset();
     createChatMobileQrMock.mockReset();
     createChatBranchMock.mockReset();
@@ -336,6 +358,10 @@ describe('ChatPage', () => {
     fetchChatContextMock.mockResolvedValue({
       sessionId: 'session-a',
       snapshot: null,
+    });
+    cleanupNoUserChatSessionsMock.mockResolvedValue({
+      deletedCount: 0,
+      deletedSessionIds: [],
     });
     deleteChatSessionMock.mockResolvedValue({
       deleted: true,
@@ -564,17 +590,6 @@ describe('ChatPage', () => {
     )) as unknown as {
       __testRouter: TestRouter;
     };
-    deleteChatSessionMock.mockImplementation(async (_token, sessionId) => ({
-      deleted: true,
-      sessionId,
-      deletedMessages: sessionId === 'session-a' ? 1 : 0,
-      deletedTasks: 0,
-      deletedSemanticMemories: 0,
-      deletedUsageEvents: 0,
-      deletedAuditEntries: 0,
-      deletedStructuredAuditEntries: 0,
-      deletedApprovalEntries: 0,
-    }));
     fetchChatHistoryMock.mockImplementation(async (_token, sessionId) => ({
       sessionId,
       history:
@@ -613,11 +628,12 @@ describe('ChatPage', () => {
       ),
     );
     await waitFor(() =>
-      expect(deleteChatSessionMock).toHaveBeenCalledWith(
-        'test-token',
-        'session-a',
-      ),
+      expect(cleanupNoUserChatSessionsMock).toHaveBeenCalledWith('test-token', {
+        channelId: 'web',
+        keepSessionId: expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
+      }),
     );
+    expect(deleteChatSessionMock).not.toHaveBeenCalled();
 
     const firstFreshSessionId = fetchChatHistoryMock.mock.calls
       .map((call) => call[1])
@@ -629,11 +645,12 @@ describe('ChatPage', () => {
     );
 
     await waitFor(() =>
-      expect(deleteChatSessionMock).toHaveBeenCalledWith(
-        'test-token',
-        firstFreshSessionId,
-      ),
+      expect(cleanupNoUserChatSessionsMock).toHaveBeenCalledWith('test-token', {
+        channelId: 'web',
+        keepSessionId: expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
+      }),
     );
+    expect(cleanupNoUserChatSessionsMock).toHaveBeenCalledTimes(2);
   });
 
   it('keeps sessions with user messages when starting a new conversation', async () => {
@@ -664,6 +681,12 @@ describe('ChatPage', () => {
 
     await waitFor(() =>
       expect(routerModule.__testRouter.lastTo).toBe('/chat/$sessionId'),
+    );
+    await waitFor(() =>
+      expect(cleanupNoUserChatSessionsMock).toHaveBeenCalledWith('test-token', {
+        channelId: 'web',
+        keepSessionId: expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
+      }),
     );
     expect(deleteChatSessionMock).not.toHaveBeenCalled();
   });
