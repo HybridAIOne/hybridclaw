@@ -235,12 +235,16 @@ describe('workspace bootstrap lifecycle', () => {
     const bootstrapMarkdown = fs.readFileSync(bootstrapPath, 'utf-8');
     expect(bootstrapMarkdown).toContain("new coworker's first day");
     expect(bootstrapMarkdown).toContain('You are not running an intake form');
-    expect(bootstrapMarkdown).toContain('Talk like a person');
+    expect(bootstrapMarkdown).toContain('Write an actual message');
+    expect(bootstrapMarkdown).toContain('genuine greeting');
     expect(bootstrapMarkdown).toContain(
       'not a setup wizard',
     );
     expect(bootstrapMarkdown).toContain('one question per line');
     expect(bootstrapMarkdown).toContain('Two or three questions');
+    expect(bootstrapMarkdown).toContain("what they'd like to call YOU");
+    expect(bootstrapMarkdown).toContain("don't have a fixed name yet");
+    expect(bootstrapMarkdown).toContain('including the name they chose for you');
     expect(bootstrapMarkdown).toContain('a good email for you');
     expect(bootstrapMarkdown).toContain('home automation');
     expect(bootstrapMarkdown).toContain("what they're working on right now");

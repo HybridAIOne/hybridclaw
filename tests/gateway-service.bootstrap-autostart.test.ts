@@ -114,12 +114,16 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(systemPrompt).toContain('## Runtime Metadata');
   expect(systemPrompt).toContain("new coworker's first day");
   expect(systemPrompt).toContain('You are not running an intake form');
-  expect(systemPrompt).toContain('Talk like a person');
+  expect(systemPrompt).toContain('Write an actual message');
+  expect(systemPrompt).toContain('genuine greeting');
   expect(systemPrompt).toContain(
     'not a setup wizard',
   );
   expect(systemPrompt).toContain('one question per line');
   expect(systemPrompt).toContain('Two or three questions');
+  expect(systemPrompt).toContain("what they'd like to call YOU");
+  expect(systemPrompt).toContain("don't have a fixed name yet");
+  expect(systemPrompt).toContain('including the name they chose for you');
   expect(systemPrompt).toContain('a good email for you');
   expect(systemPrompt).toContain('home automation');
   expect(systemPrompt).toContain("what they're working on right now");
