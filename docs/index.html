@@ -889,45 +889,45 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest release: v0.25.3</div>
+    <div class="section-label">Latest release: v0.25.7</div>
     <h2 class="section-title">Current release highlights</h2>
-    <p class="section-desc">HybridClaw v0.25.3 adds the bundled Langfuse skill, A2A public URL hardening, Apple desktop release diagnostics, dependency maintenance, MCP startup failure isolation, and cleaner workspace bootstrap context.</p>
+    <p class="section-desc">HybridClaw v0.25.7 improves first-run hatching, keeps web chat drafts cleaner, makes channel sender allowlists editable in admin, and shows session timestamps in local time.</p>
   </div>
   <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f4dd;</div>
+      <h3>Conversational hatching</h3>
+      <p>Fresh agents start with a shorter, natural setup message that asks two or three questions and captures the user's email for the welcome note.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f4ac;</div>
+      <h3>Cleaner chat drafts</h3>
+      <p>New Conversation keeps the latest no-user web chat session selected and prunes older empty or assistant-only drafts without touching started chats.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f512;</div>
+      <h3>Editable allowlists</h3>
+      <p>Admin channel settings can manage DM, group, email, and mailbox sender allowlists, including explicit confirmation before adding wildcard entries.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f553;</div>
+      <h3>Local session times</h3>
+      <p>Gateway status and session displays show timestamps in the local timezone without seconds or UTC suffix noise.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f680;</div>
+      <h3>Autostart hardening</h3>
+      <p>Hatching and <code>OPENING.md</code> autostarts avoid duplicate concurrent runs, skip started sessions on history probes, and recover from auxiliary prelude failures.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f9f9;</div>
+      <h3>Resource hygiene</h3>
+      <p>Doctor cleanup labels stale histories with no user messages as unstarted sessions and removes empty or assistant-only rows while preserving real conversations.</p>
+    </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f50d;</div>
       <h3>Langfuse skill</h3>
       <p>Read traces, observations, sessions, scores, prompts, datasets, models, and metrics, and create guarded scores, comments, datasets, dataset items, and prompt versions.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f5a5;</div>
-      <h3>Apple Desktop App</h3>
-      <p>Download the signed Apple Silicon DMG from GitHub Releases, with desktop gateway startup logs and recent child output available for packaged app launch diagnostics.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f9e9;</div>
-      <h3>MCP resilience</h3>
-      <p>A single MCP server that fails to connect or disconnect is logged and skipped instead of aborting the whole chat turn or retrying unchanged failures every turn.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f4dd;</div>
-      <h3>Cleaner bootstrap</h3>
-      <p>Workspace startup context skips default empty <code>HEARTBEAT.md</code> templates and legacy no-task placeholders so agents receive less bootstrap noise.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f517;</div>
-      <h3>A2A public URL</h3>
-      <p>Agent Cards advertise the configured public deployment URL when present and fail closed when <code>deployment.public_url</code> is invalid.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f512;</div>
-      <h3>Dependency hygiene</h3>
-      <p>npm audit remediation, Nodemailer 9.0.0, refreshed dependency policy baselines, and clearer lockfile update guidance tighten release maintenance.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
-      <h3>Governance evidence</h3>
-      <p>Admin RBAC role bundles, ISO/IEC 27001 evidence docs, ISO/IEC 42001 readiness docs, SBOM/provenance attestations, CodeQL, and secret scanning improve audit readiness.</p>
     </div>
   </div>
 </section>

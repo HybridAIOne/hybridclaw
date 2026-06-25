@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## [0.25.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.7) - 2026-06-25
+
+### Added
+
+- **Admin sender allowlists**: Channel settings in the admin console can edit
+  allowed sender lists for WhatsApp, Telegram, Threema, Signal, email
+  (including mailbox-level allowlists), Microsoft Teams, Slack, and iMessage,
+  with wildcard confirmation and explicit all-senders labeling.
+
+### Changed
+
+- **Hatching first run**: Fresh agents start with a shorter, conversational
+  setup message that asks two or three natural questions, captures the user's
+  email for the welcome note, and keeps model-generated hatching preludes
+  limited to `BOOTSTRAP.md` sessions.
+- **Session timestamps**: Gateway status and session displays render timestamps
+  in the local timezone without noisy seconds or UTC suffixes.
+
+### Fixed
+
+- **Web chat drafts**: Starting a new conversation keeps the newly created
+  no-user session selected and deletes older empty or assistant-only web chat
+  drafts without touching sessions that already have user messages or scheduler
+  sessions.
+- **Bootstrap autostart reliability**: Hatching and `OPENING.md` autostarts no
+  longer refresh already-started sessions on history probes, avoid duplicate
+  concurrent runs, fall back cleanly when auxiliary prelude generation fails,
+  and keep selected-agent autostart concrete.
+- **Resource hygiene cleanup**: Doctor resource hygiene now labels stale no-user
+  histories as unstarted sessions and cleans up empty or assistant-only rows
+  while preserving sessions with user messages.
+
 ## [0.25.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.6) - 2026-06-24
 
 ### Added
