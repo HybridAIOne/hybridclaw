@@ -972,8 +972,14 @@ export function deleteAdminEmailMessage(
 export function deleteSession(
   token: string,
   sessionId: string,
+  options?: {
+    onlyWithoutUserMessages?: boolean;
+  },
 ): Promise<DeleteSessionResult> {
   const params = new URLSearchParams({ sessionId });
+  if (options?.onlyWithoutUserMessages) {
+    params.set('ifNoUserMessages', '1');
+  }
   return requestJson<DeleteSessionResult>(
     `/api/admin/sessions?${params.toString()}`,
     {

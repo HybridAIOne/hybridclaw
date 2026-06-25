@@ -2141,6 +2141,74 @@ th {
   background: var(--panel-muted);
 }
 
+.allow-list-field {
+  align-content: start;
+}
+
+.allow-list-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.allow-list-items {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.allow-list-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--chip-surface);
+}
+
+.allow-list-item-wildcard {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+}
+
+.allow-list-entry-main {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.allow-list-entry-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family:
+    ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.allow-list-warning-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  border: 1px solid var(--danger-border);
+  border-radius: 999px;
+  background: var(--panel-bg);
+  color: var(--danger);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
 .email-account-section,
 .email-account-list,
 .email-account-row {

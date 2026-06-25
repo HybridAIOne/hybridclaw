@@ -20,32 +20,11 @@ function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-local-cli-'));
 }
 
-async function importFreshCli(
-  homeDir: string,
-  options?: {
-    imessageLocalReadyError?: Error | null;
-  },
-) {
+async function importFreshCli(homeDir: string) {
   process.env.HOME = homeDir;
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
   vi.resetModules();
-  const imessageLocalPrereqsMock = () => ({
-    assertLocalIMessageBackendReady: vi.fn(() => {
-      if (options?.imessageLocalReadyError) {
-        throw options.imessageLocalReadyError;
-      }
-    }),
-    formatMissingIMessageCliMessage: vi.fn((cliPath: string) => cliPath),
-  });
-  vi.doMock(
-    '../src/channels/imessage/local-prereqs.js',
-    imessageLocalPrereqsMock,
-  );
-  vi.doMock(
-    '../src/channels/imessage/local-prereqs.ts',
-    imessageLocalPrereqsMock,
-  );
   vi.doMock('../src/channels/whatsapp/connection.ts', () => ({
     createWhatsAppConnectionManager: () => ({
       getSocket: () => null,
@@ -107,8 +86,6 @@ async function readRuntimeSecrets(
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.doUnmock('../src/channels/imessage/local-prereqs.js');
-  vi.doUnmock('../src/channels/imessage/local-prereqs.ts');
   vi.doUnmock('../src/channels/whatsapp/connection.ts');
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
@@ -998,17 +975,24 @@ test('local configure vllm with name stores a named endpoint secret ref', async 
   expect(secrets.LOCAL_ENDPOINT_HAIGPU2_API_KEY).toBe('gemma-secret-key');
 });
 
-test('channels imessage setup fails fast when the local imsg binary is missing', async () => {
+test('channels imessage setup writes local config without probing imsg', async () => {
   const homeDir = makeTempHome();
-  const cli = await importFreshCli(homeDir, {
-    imessageLocalReadyError: new Error(
-      'Missing iMessage CLI binary: imsg. Install it with `brew install steipete/tap/imsg` or rerun `hybridclaw channels imessage setup --cli-path /absolute/path/to/imsg ...`.',
-    ),
-  });
+  const cli = await importFreshCli(homeDir);
 
-  await expect(
-    cli.main(['channels', 'imessage', 'setup', '--allow-from', '+14155551212']),
-  ).rejects.toThrow(/Missing iMessage CLI binary: imsg/);
+  await cli.main([
+    'channels',
+    'imessage',
+    'setup',
+    '--allow-from',
+    '+14155551212',
+    '--cli-path',
+    '/missing/imsg',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.imessage.enabled).toBe(true);
+  expect(config.imessage.backend).toBe('local');
+  expect(config.imessage.cliPath).toBe('/missing/imsg');
 });
 
 test('auth login msteams writes config and stores MSTEAMS_APP_PASSWORD', async () => {

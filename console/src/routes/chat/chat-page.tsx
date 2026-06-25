@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import {
+  cleanupNoUserChatSessions,
   createChatBranch,
   createChatMobileQr,
   executeCommand,
@@ -230,10 +231,9 @@ export function ChatPage() {
     handleSessionIdCorrection,
   } = useChatSession();
 
-  useEffect(() => {
-    if (!launchAgentId) return;
-    launchAgentSessionIdRef.current = ensureSessionForSend();
-  }, [ensureSessionForSend, launchAgentId]);
+  if (launchAgentId && sessionId && !launchAgentSessionIdRef.current) {
+    launchAgentSessionIdRef.current = sessionId;
+  }
 
   const requestedHistoryAgentId =
     sessionId && launchAgentSessionIdRef.current === sessionId
@@ -475,7 +475,9 @@ export function ChatPage() {
       setSessionPendingDelete(null);
       const currentSessionId = getSessionId();
       if (deletedSessionId === currentSessionId) {
-        startFreshChat();
+        // Keep the page bound to a concrete no-user session after deleting the
+        // active chat so history loading can mint the replacement immediately.
+        startFreshChat({ replace: true });
       }
     },
     onError: (err) => {
@@ -599,10 +601,19 @@ export function ChatPage() {
 
   // Server may resolve to a canonical branch id; keep the URL in sync.
   useEffect(() => {
+    if (historyQuery.isPending || historyQuery.fetchStatus !== 'idle') return;
+    if (historyQuery.data?.requestedSessionId !== sessionId) return;
     const resolved = historyQuery.data?.resolvedSessionId;
     if (!resolved || resolved === sessionId) return;
     void navigateToSession(resolved, { replace: true });
-  }, [historyQuery.data?.resolvedSessionId, sessionId, navigateToSession]);
+  }, [
+    historyQuery.data?.requestedSessionId,
+    historyQuery.data?.resolvedSessionId,
+    historyQuery.fetchStatus,
+    historyQuery.isPending,
+    sessionId,
+    navigateToSession,
+  ]);
 
   const branchInfoMap = useMemo(
     () => buildBranchInfoMap(messages, branchFamilies),
@@ -721,14 +732,54 @@ export function ChatPage() {
     [auth.token, setError],
   );
 
+  const cleanupNoUserSessions = useCallback(
+    (keepSessionId: string) => {
+      void cleanupNoUserChatSessions(auth.token, {
+        channelId: 'web',
+        keepSessionId,
+      })
+        .then((data) => {
+          if (data.deletedCount === 0) return;
+          for (const deletedSessionId of data.deletedSessionIds) {
+            queryClient.removeQueries({
+              queryKey: chatHistoryQueryKey(auth.token, deletedSessionId),
+            });
+            queryClient.removeQueries({
+              queryKey: chatContextQueryKey(auth.token, deletedSessionId),
+            });
+          }
+          void queryClient.invalidateQueries({
+            queryKey: chatRecentQueryPrefix(auth.token, userId),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ['overview'],
+            refetchType: 'none',
+          });
+        })
+        .catch((err: unknown) => {
+          console.warn('Failed to clean up no-user chat session', err);
+        });
+    },
+    [auth.token, queryClient, userId],
+  );
+
   const handleNewChat = useCallback(() => {
     if (stream.isActive()) {
       setError('Stop the current run before starting a new chat.');
       return;
     }
-    startFreshChat();
+    // New Conversation intentionally creates a concrete no-user session, then
+    // prunes older drafts so repeated clicks only keep the latest one.
+    const nextSessionId = startFreshChat();
+    cleanupNoUserSessions(nextSessionId);
     refreshRecent();
-  }, [stream.isActive, startFreshChat, refreshRecent, setError]);
+  }, [
+    stream.isActive,
+    startFreshChat,
+    cleanupNoUserSessions,
+    refreshRecent,
+    setError,
+  ]);
 
   const handleSendMessage = useCallback(
     (content: string, media: MediaItem[]) => {
@@ -773,6 +824,7 @@ export function ChatPage() {
               },
             ],
             branchFamilies: prev?.branchFamilies ?? new Map(),
+            requestedSessionId: prev?.requestedSessionId ?? targetSessionId,
             resolvedSessionId: targetSessionId,
             agentId: prev?.agentId ?? null,
             bootstrapAutostart: prev?.bootstrapAutostart ?? null,

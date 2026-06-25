@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import Database from 'better-sqlite3';
 import { expect, test, vi } from 'vitest';
 
 import {
@@ -158,6 +159,45 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   await ensureGatewayBootstrapAutostart({ sessionId });
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   expect(getGatewayHistory(sessionId, 10).history).toHaveLength(2);
+});
+
+test('ensureGatewayBootstrapAutostart does not refresh started sessions on history probes', async () => {
+  setupHome();
+
+  const { initDatabase, getSessionById, storeMessage } = await import(
+    '../src/memory/db.ts'
+  );
+  const { DB_PATH } = await import('../src/config/config.ts');
+  const { ensureGatewayBootstrapAutostart } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'agent:main:channel:web:chat:dm:peer:opened-session';
+  memoryService.getOrCreateSession(sessionId, null, 'web', 'main');
+  storeMessage(sessionId, 'user-1', 'user', 'user', 'previous turn', 'main');
+
+  const oldLastActive = '2026-04-01T00:00:00.000Z';
+  const storedSession = getSessionById(sessionId);
+  expect(storedSession).toBeTruthy();
+  const db = new Database(DB_PATH);
+  db.prepare('UPDATE sessions SET last_active = ? WHERE id = ?').run(
+    oldLastActive,
+    storedSession?.id,
+  );
+  db.close();
+
+  await ensureGatewayBootstrapAutostart({
+    sessionId,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+  });
+
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(getSessionById(sessionId)?.last_active).toBe(oldLastActive);
 });
 
 test('ensureGatewayBootstrapAutostart uses regular model when onboarding model is empty', async () => {
@@ -492,6 +532,131 @@ test('ensureGatewayBootstrapAutostart can hatch a selected agent in an existing 
       expect.objectContaining({
         role: 'assistant',
         content: 'Research agent is hatching.',
+      }),
+    ]),
+  );
+});
+
+test('ensureGatewayBootstrapAutostart uses the active thread agent without explicit agentId', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Active research agent is hatching.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { setActiveThreadAgentId } = await import(
+    '../src/gateway/agent-addressing.ts'
+  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+  const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({
+    id: 'research',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+  });
+  ensureBootstrapFiles('research');
+
+  const sessionId =
+    'agent:main:channel:web:chat:dm:peer:active-agent-bootstrap';
+  const session = memoryService.getOrCreateSession(
+    sessionId,
+    null,
+    'web',
+    'main',
+  );
+  setActiveThreadAgentId(session, 'research');
+
+  await ensureGatewayBootstrapAutostart({
+    sessionId,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+  });
+
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | {
+        messages?: Array<{ role: string; content: string }>;
+        agentId?: string;
+      }
+    | undefined;
+  expect(request?.agentId).toBe('research');
+  expect(getGatewayHistory(sessionId, 10).history).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        role: 'assistant',
+        content: 'Active research agent is hatching.',
+      }),
+    ]),
+  );
+});
+
+test('ensureGatewayBootstrapAutostart hatches the configured default agent without explicit agentId or existing session', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Default research agent is hatching.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+  const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({
+    id: 'research',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+  });
+  updateRuntimeConfig((draft) => {
+    draft.agents.defaultAgentId = 'research';
+    draft.agents.list = [{ id: 'main' }, { id: 'research' }];
+  });
+  ensureBootstrapFiles('research');
+
+  const sessionId = 'sess_default_agent_bootstrap';
+
+  await ensureGatewayBootstrapAutostart({
+    sessionId,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+  });
+
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | {
+        messages?: Array<{ role: string; content: string }>;
+        agentId?: string;
+      }
+    | undefined;
+  expect(request?.agentId).toBe('research');
+  expect(getGatewayHistory(sessionId, 10).history).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        role: 'assistant',
+        content: 'Default research agent is hatching.',
       }),
     ]),
   );

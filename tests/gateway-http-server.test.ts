@@ -1436,6 +1436,11 @@ async function importFreshHealth(options?: {
     }),
   );
   const getGatewayAdminSessions = vi.fn(() => []);
+  const cleanupGatewayNoUserChatSessions = vi.fn(() => ({
+    deletedCount: 2,
+    deletedSessionIds: ['old-empty', 'old-opening'],
+    keptSessionId: 'new-session',
+  }));
   const getGatewayAdminScheduler = vi.fn(() => ({
     jobs: [],
   }));
@@ -2108,6 +2113,7 @@ async function importFreshHealth(options?: {
     deleteGatewayAdminAgent,
     deleteGatewayAdminSession,
     ensureGatewayBootstrapAutostart,
+    cleanupGatewayNoUserChatSessions,
     GatewayRequestError,
     getGatewayAgentList,
     getGatewayAgents,
@@ -2262,6 +2268,7 @@ async function importFreshHealth(options?: {
     listenArgs,
     getGatewayStatus,
     ensureGatewayBootstrapAutostart,
+    cleanupGatewayNoUserChatSessions,
     getGatewayAgentList,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
@@ -2282,6 +2289,7 @@ async function importFreshHealth(options?: {
     stopTunnelStatus,
     stopGatewayAdminTunnel,
     deleteGatewayAdminEmailMessage,
+    deleteGatewayAdminSession,
     getGatewayAdminEmailFolder,
     getGatewayAdminEmailMailbox,
     getGatewayAdminEmailMessage,
@@ -5707,6 +5715,50 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(200);
     expect(state.getGatewayAdminSkills).toHaveBeenCalledTimes(1);
+  });
+
+  test('passes no-user guard to admin session deletion', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/sessions?sessionId=session-a&ifNoUserMessages=1',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.deleteGatewayAdminSession).toHaveBeenCalledWith('session-a', {
+      onlyWithoutUserMessages: true,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      deleted: true,
+      sessionId: 's1',
+    });
+  });
+
+  test('cleans no-user web chat sessions through the chat cleanup endpoint', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/cleanup?channelId=web&keepSessionId=new-session',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.cleanupGatewayNoUserChatSessions).toHaveBeenCalledWith({
+      channelId: 'web',
+      keepSessionId: 'new-session',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      deletedCount: 2,
+      deletedSessionIds: ['old-empty', 'old-opening'],
+      keptSessionId: 'new-session',
+    });
   });
 
   test('allows scoped admin sessions with a matching wildcard route action', async () => {
