@@ -112,18 +112,18 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(systemPrompt).toContain('## MEMORY.md');
   expect(systemPrompt).toContain('## BOOTSTRAP.md');
   expect(systemPrompt).toContain('## Runtime Metadata');
-  expect(systemPrompt).toContain("Don't interrogate. Don't be robotic.");
+  expect(systemPrompt).toContain("new coworker's first day");
+  expect(systemPrompt).toContain('You are not running an intake form');
+  expect(systemPrompt).toContain('Talk like a person');
   expect(systemPrompt).toContain(
-    'After the brief hatching-progress line',
+    'not a setup wizard',
   );
-  expect(systemPrompt).toContain('Ask 3 to 5 clear questions');
-  expect(systemPrompt).toContain('survey');
-  expect(systemPrompt).toContain('Do not cram everything into one line');
-  expect(systemPrompt).toContain('Email is the only');
-  expect(systemPrompt).toContain('What email should I use for your welcome email?');
+  expect(systemPrompt).toContain('one question per line');
+  expect(systemPrompt).toContain('Two or three questions');
+  expect(systemPrompt).toContain('a good email for you');
   expect(systemPrompt).toContain('home automation');
-  expect(systemPrompt).toContain('software platforms');
-  expect(systemPrompt).toContain('Do not say the email is being sent');
+  expect(systemPrompt).toContain("what they're working on right now");
+  expect(systemPrompt).toContain("claim it's sent until");
   expect(systemPrompt).not.toContain('## AGENTS.md');
   expect(systemPrompt).not.toContain('## TOOLS.md');
   expect(systemPrompt).not.toContain('## BOOT.md');
@@ -146,10 +146,10 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
     'A short hatching-progress line has already been sent',
   );
   expect(request?.messages?.at(-1)?.content).toContain(
-    'Ask 3-5 clear setup questions',
+    'Ask two or three natural questions',
   );
   expect(request?.messages?.at(-1)?.content).toContain(
-    'Include a welcome-email question',
+    'Include the email ask naturally',
   );
   expect(request?.messages?.at(-1)?.content).not.toContain(
     'startup instruction file',

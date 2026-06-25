@@ -233,26 +233,23 @@ describe('workspace bootstrap lifecycle', () => {
     );
     const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
     const bootstrapMarkdown = fs.readFileSync(bootstrapPath, 'utf-8');
-    expect(bootstrapMarkdown).toContain("Don't interrogate. Don't be robotic.");
+    expect(bootstrapMarkdown).toContain("new coworker's first day");
+    expect(bootstrapMarkdown).toContain('You are not running an intake form');
+    expect(bootstrapMarkdown).toContain('Talk like a person');
     expect(bootstrapMarkdown).toContain(
-      'After the brief hatching-progress line',
+      'not a setup wizard',
     );
-    expect(bootstrapMarkdown).toContain('Ask 3 to 5 clear questions');
-    expect(bootstrapMarkdown).toContain('a little like a');
-    expect(bootstrapMarkdown).toContain('survey');
-    expect(bootstrapMarkdown).toContain('Do not cram everything into one line');
-    expect(bootstrapMarkdown).toContain('Email is the only');
-    expect(bootstrapMarkdown).toContain('What email should I use for your welcome email?');
+    expect(bootstrapMarkdown).toContain('one question per line');
+    expect(bootstrapMarkdown).toContain('Two or three questions');
+    expect(bootstrapMarkdown).toContain('a good email for you');
     expect(bootstrapMarkdown).toContain('home automation');
-    expect(bootstrapMarkdown).toContain('software platforms');
+    expect(bootstrapMarkdown).toContain("what they're working on right now");
     expect(bootstrapMarkdown).toContain(
-      'Missing non-email details are',
+      'Everything except the email is optional',
     );
-    expect(bootstrapMarkdown).toContain('exactly 3 concrete first tasks');
+    expect(bootstrapMarkdown).toContain('3 specific first tasks');
     expect(bootstrapMarkdown).toContain('copy-paste prompt ideas');
-    expect(bootstrapMarkdown).toContain(
-      'Do not say the email is being sent',
-    );
+    expect(bootstrapMarkdown).toContain("claim it's sent until");
     expect(bootstrapMarkdown).not.toContain('Optional channel setup:');
 
     const files = workspace.loadBootstrapFiles('agent-test');
@@ -317,9 +314,7 @@ describe('workspace bootstrap lifecycle', () => {
 
     const refreshed = fs.readFileSync(bootstrapPath, 'utf-8');
     expect(refreshed).toContain('Welcome Message');
-    expect(refreshed).toContain(
-      'After the welcome email send succeeds',
-    );
+    expect(refreshed).toContain('After the send succeeds');
     expect(refreshed).not.toContain(
       'docs/content/guides/hatching-task-ideas.md',
     );

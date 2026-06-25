@@ -720,8 +720,8 @@ function buildBootstrapAutostartPrompt(
     return [
       'Continue the first BOOTSTRAP.md turn now.',
       'A short hatching-progress line has already been sent, so do not open with another hatching or coming-online line.',
-      'Ask 3-5 clear setup questions from BOOTSTRAP.md in a human, lightly survey-like way.',
-      'Include a welcome-email question unless USER.md already contains the email address.',
+      'Ask two or three natural questions from BOOTSTRAP.md in a warm conversational way, not as a list of fields.',
+      'Include the email ask naturally unless USER.md already contains the email address.',
       'Return only the user-visible message.',
     ].join(' ');
   }
