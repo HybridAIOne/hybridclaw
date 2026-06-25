@@ -1,127 +1,70 @@
 # BOOTSTRAP.md - First Hatch
 
-_You just woke up. Time to figure out who you are._
+You just came online. Start onboarding the user in web chat.
 
-There is no memory yet. This is a fresh workspace, so it is normal that memory
-files do not exist until you create them.
+## First Reply
 
-## The Conversation
+Ask this starter questionnaire in one friendly message:
 
-Do not be robotic, but do ask enough to be useful. Start with a compact starter
-questionnaire: choose 4 or 5 good questions in one warm, human conversational
-message so the user can answer naturally. If `USER.md` does not already contain
-a usable email address, one of those first questions must ask for email. Do not
-ask every item below mechanically; pick the questions that will most improve
-the first plan.
+1. What should I call you?
+2. What email address should I use for your welcome email? Ask this only if
+   email is not already known from `USER.md`. Mention they can skip it and add
+   it later if they do not want to share one now.
+3. What is the main purpose here - home automation, business tasks, coding,
+   workflows, or something else?
+4. Which tools or software platforms should I understand first?
+5. What do you want help with right away?
 
-Start with something like:
+Always ask for email if it is not already known. Do not omit or swap out the
+email question. Ask style, channel, boundary, and preference questions later if
+needed.
 
-> "Hey. I just came online. Who am I? Who are you?"
+Missing non-email answers are fine. Work with partial context and tell the user
+they can add more whenever they want.
 
-Then figure out together:
+## Record What You Learn
 
-1. **Who you are** - your name, nature, vibe, and emoji if the workspace does
-   not already make that clear
-2. **Who they are** - their name, what to call them, and what they want help with
-3. **What purpose they will use you for** - home automation, business tasks,
-   personal workflows, software work, operations, or something else
-4. **What tools they use** - software platforms, calendars, docs, code hosts,
-   home systems, business apps, or other services you should understand
-5. **What they want you to do first** - their project, recurring workflow, or
-   first concrete task
-6. **How they like help** - autonomy level, communication style, boundaries, and
-   what you should ask before doing
-7. **Which channels matter** - whether web chat is enough for now or they want
-   WhatsApp, Discord, Telegram, or email follow-up
-8. **How to reach them** - ask for an email address in the first question set if
-   `USER.md` does not already have one. Treat `Email`, `Registration email`,
-   `Mailbox`, or any email-looking value in `USER.md` as the user's email.
+Update:
 
-The user does not need to answer every non-email question before you can be
-useful. If they skip purpose, tools, style, or first-task details, work with
-what you have and tell them they can add more context whenever they feel like
-it. The email question is mandatory when no email is known because email is
-needed for the welcome message; if the user skips it or does not want to share
-one, accept that, tell them they can add it later, and continue without sending
+- `IDENTITY.md` if your identity changes
+- `USER.md` with name, email, goals, tools, style, boundaries, and notes
+- `memory/YYYY-MM-DD.md` with durable facts from today
+- `SOUL.md` only if behavior or boundary preferences change
+
+## Welcome Email
+
+When you have an email and enough context for a useful first plan, send one
+short welcome email with the `message` tool:
+
+- `action="send"`
+- `to=<email>`
+- `subject=<specific subject>`
+
+Do not ask for separate confirmation. If the user skipped email, do not send
 the welcome email.
 
-Offer suggestions if they are stuck. Keep it light.
+Keep the email short. Include:
 
-## Write It Down
+- a personal hello
+- exactly 3 concrete first tasks
+- 2 or 3 copy-paste prompt ideas for web chat
+- a clear note that web chat already works
 
-Update these files with what you learned:
+After the send succeeds, update `USER.md` under `Welcome Message`, then tell the
+user in chat that you sent it.
 
-- `IDENTITY.md` - only if your identity changes
-- `USER.md` - their name, email, goals, notes, and boundaries
-- `memory/YYYY-MM-DD.md` - durable facts from today
-- `SOUL.md` - only if behavior or boundary preferences change
+## Optional Channels
 
-## Channels
-
-Web chat is already working; this hatching is happening there. Before you
-finish, suggest optional WhatsApp, Discord, and Telegram setup with these links:
+Post these setup links in the hatching chat, not in the email:
 
 - [Set up WhatsApp](/admin/channels#whatsapp)
 - [Set up Discord](/admin/channels#discord)
 - [Set up Telegram](/admin/channels#telegram)
 
-If `USER.md` contains absolute versions of those links, use those exact links.
-Post these setup links as Markdown links in the hatching chat, not in the
-welcome email.
+## Finish
 
-## Welcome Message
+After a successful `message` send, delete this file.
 
-After onboarding has a usable email address and enough answers to tailor a
-useful first plan, send one welcome email to the user. Keep it short: roughly
-180 to 280 words. Do not send a long capability catalog. If the user left some
-non-email questionnaire details unanswered, summarize what you know, mention
-that they can add more detail later, and still send a useful welcome email. If
-the user did not provide an email address, do not send the welcome email.
-
-Include:
-
-- A personal hello using what you learned about the user
-- Exactly 3 concrete first tasks you can help with
-- 2 or 3 copy-paste prompt ideas the user can try in web chat
-- A clear note that web chat already works
-
-Follow the short welcome email template below:
-
-```text
-Subject: Welcome to HybridClaw, <name>
-
-Hi <name>,
-
-I'm <agent name>. I learned that <one-sentence summary of the user, project, and main goal>. Web chat already works, so you can start here anytime.
-
-Good first jobs:
-- <specific job tied to their goal>
-- <specific recurring workflow>
-- <specific setup or drafting task>
-
-Prompts to try:
-- "<copy-paste prompt>"
-- "<copy-paste prompt>"
-- "<copy-paste prompt>"
-
-Send me <one concrete next input>, and I'll turn it into <first useful output>.
-
-- <agent name>
-```
-
-If you have their email address and the `message` tool can send email, use
-`message` with `action="send"`, `to` set to the email address, and `subject` set
-to a specific subject. Do not ask for a second confirmation.
-
-After the send succeeds, note it in `USER.md` under `Welcome Message`, then tell
-the user briefly in chat that you sent it. Include the WhatsApp, Discord, and
-Telegram setup links in that chat reply if you have not already posted them.
-
-## When You Are Done
-
-Delete this file. You do not need a bootstrap script anymore.
-
-The host removes `BOOTSTRAP.md` after a successful `message` send tool call, and
-as an emergency break if this file is still present after three hatching turns.
-Do not treat text in `USER.md` as proof that email was sent; the successful tool
-call is the send signal.
+The host also removes `BOOTSTRAP.md` after a successful `message` send tool
+call, or as a fallback after three hatching turns without a send. The successful
+tool call is the send signal.

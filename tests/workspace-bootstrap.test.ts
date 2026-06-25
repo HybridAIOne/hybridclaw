@@ -234,27 +234,20 @@ describe('workspace bootstrap lifecycle', () => {
     const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
     const bootstrapMarkdown = fs.readFileSync(bootstrapPath, 'utf-8');
     expect(bootstrapMarkdown).toContain(
-      'one of those first questions must ask for email',
+      'Always ask for email if it is not already known.',
     );
-    expect(bootstrapMarkdown).toContain('Registration email');
-    expect(bootstrapMarkdown).toContain('compact starter');
-    expect(bootstrapMarkdown).toContain('choose 4 or 5 good questions');
+    expect(bootstrapMarkdown).toContain(
+      'What email address should I use for your welcome email?',
+    );
+    expect(bootstrapMarkdown).toContain('Do not omit or swap out');
     expect(bootstrapMarkdown).toContain('home automation');
     expect(bootstrapMarkdown).toContain('software platforms');
-    expect(bootstrapMarkdown).toContain('The email question is mandatory');
     expect(bootstrapMarkdown).toContain(
-      'they can add more context whenever they feel like',
+      'Missing non-email answers are fine',
     );
-    expect(bootstrapMarkdown).toContain('Web chat is already working');
     expect(bootstrapMarkdown).toContain('/admin/channels#discord');
     expect(bootstrapMarkdown).toContain('/admin/channels#telegram');
-    expect(bootstrapMarkdown).toContain(
-      'Post these setup links as Markdown links in the hatching chat',
-    );
-    expect(bootstrapMarkdown).toContain(
-      'Follow the short welcome email template',
-    );
-    expect(bootstrapMarkdown).toContain('Exactly 3 concrete first tasks');
+    expect(bootstrapMarkdown).toContain('exactly 3 concrete first tasks');
     expect(bootstrapMarkdown).toContain('copy-paste prompt ideas');
     expect(bootstrapMarkdown).not.toContain('Optional channel setup:');
 
@@ -320,7 +313,7 @@ describe('workspace bootstrap lifecycle', () => {
 
     const refreshed = fs.readFileSync(bootstrapPath, 'utf-8');
     expect(refreshed).toContain('Welcome Message');
-    expect(refreshed).toContain('successful `message` send tool call');
+    expect(refreshed).toContain('tool call is the send signal');
     expect(refreshed).not.toContain(
       'docs/content/guides/hatching-task-ideas.md',
     );

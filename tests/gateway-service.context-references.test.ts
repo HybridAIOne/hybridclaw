@@ -171,7 +171,7 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
     'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
   );
   expect(userMessage?.content).toContain(
-    'ask for email plainly before lower-value customization questions',
+    'ask for email before lower-priority details',
   );
   expect(userMessage?.content).toContain(
     'If the user skips email or does not want to share one, keep going',
@@ -250,10 +250,10 @@ test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-m
     'Missing non-email questionnaire answers must not block sending',
   );
   expect(userMessage?.content).toContain(
-    'Treat Email, Registration email, Mailbox, or any email-looking USER.md value as the user email; do not ask for email again.',
+    'Use the email from USER.md or the conversation; do not ask for email again if it is already known.',
   );
   expect(userMessage?.content).toContain(
-    'Follow the short welcome email template in BOOTSTRAP.md',
+    'Follow the Welcome Email section in BOOTSTRAP.md',
   );
   expect(userMessage?.content).toContain(
     '3 concrete first tasks, 2 or 3 copy-paste prompt ideas',

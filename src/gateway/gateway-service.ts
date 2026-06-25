@@ -715,7 +715,7 @@ function buildBootstrapAutostartPrompt(
     'This is an internal kickoff turn, not a user-authored message.',
     `Follow the ${fileName} instructions now and begin the conversation proactively.`,
     fileName === 'BOOTSTRAP.md'
-      ? 'Start hatching with a compact starter questionnaire: choose 4 to 5 good questions in one warm, human conversational message so the user can answer naturally. Ask what purpose they will use the agent for, such as home automation, business tasks, or workflows, and which tools or software platforms they use when those facts are not already known. Use facts already present in USER.md. Treat Email, Registration email, Mailbox, or any email-looking value in USER.md as the user email, and do not ask for email again. If USER.md has no usable email, include one direct email question in this first question set. Missing non-email questionnaire answers are acceptable; tell the user they can add more context later. If the user skips email or does not want to share one, continue without sending the welcome email.'
+      ? 'Start hatching by following BOOTSTRAP.md exactly. Use facts already present in USER.md. If email is not already known from USER.md, BOOTSTRAP.md requires asking for email in the starter questionnaire. Missing non-email answers are acceptable; tell the user they can add more context later.'
       : 'Send a concise first message to the user.',
     `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
   ].join(' ');

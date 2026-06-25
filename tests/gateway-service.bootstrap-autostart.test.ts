@@ -107,6 +107,13 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
       message.content.includes('## BOOTSTRAP.md'),
     ),
   ).toBe(true);
+  expect(
+    request?.messages?.some((message) =>
+      message.content.includes(
+        'What email address should I use for your welcome email?',
+      ),
+    ),
+  ).toBe(true);
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining(
@@ -114,17 +121,10 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
     ),
   });
   expect(request?.messages?.at(-1)?.content).toContain(
-    'choose 4 to 5 good questions',
-  );
-  expect(request?.messages?.at(-1)?.content).toContain('home automation');
-  expect(request?.messages?.at(-1)?.content).toContain(
-    'tools or software platforms',
+    'Start hatching by following BOOTSTRAP.md exactly',
   );
   expect(request?.messages?.at(-1)?.content).toContain(
-    'Missing non-email questionnaire answers are acceptable',
-  );
-  expect(request?.messages?.at(-1)?.content).toContain(
-    'include one direct email question in this first question set',
+    'BOOTSTRAP.md requires asking for email',
   );
   expect(callAuxiliaryModelMock).toHaveBeenCalledWith(
     expect.objectContaining({
