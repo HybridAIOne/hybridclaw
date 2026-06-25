@@ -16,56 +16,6 @@ export type BootstrapHatchingTurnResult = {
   turnsWithoutMessage?: number;
 };
 
-const HATCHING_CHANNEL_SETUP_LINKS = [
-  'Optional channel setup:',
-  '- [Set up WhatsApp](/admin/channels#whatsapp)',
-  '- [Set up Discord](/admin/channels#discord)',
-  '- [Set up Telegram](/admin/channels#telegram)',
-].join('\n');
-
-const HATCHING_CHANNEL_LINKS = [
-  {
-    name: 'WhatsApp',
-    path: '/admin/channels#whatsapp',
-    markdown: '[Set up WhatsApp](/admin/channels#whatsapp)',
-  },
-  {
-    name: 'Discord',
-    path: '/admin/channels#discord',
-    markdown: '[Set up Discord](/admin/channels#discord)',
-  },
-  {
-    name: 'Telegram',
-    path: '/admin/channels#telegram',
-    markdown: '[Set up Telegram](/admin/channels#telegram)',
-  },
-] as const;
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function hasChannelSetupLink(
-  text: string,
-  link: (typeof HATCHING_CHANNEL_LINKS)[number],
-): boolean {
-  if (text.includes(link.markdown)) return true;
-
-  const escapedName = escapeRegExp(link.name);
-  const escapedPath = escapeRegExp(link.path);
-  const markdownLinkPattern = new RegExp(
-    `\\[[^\\]\\n]*${escapedName}[^\\]\\n]*\\]\\([^\\)\\n]*${escapedPath}[^\\)\\n]*\\)`,
-    'i',
-  );
-  if (markdownLinkPattern.test(text)) return true;
-
-  const plainLinkPattern = new RegExp(
-    `\\b${escapedName}\\b[^\\n]*${escapedPath}`,
-    'i',
-  );
-  return plainLinkPattern.test(text);
-}
-
 function parseJsonObject(value: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(value);
@@ -137,36 +87,4 @@ export function recordBootstrapHatchingTurnResult(params: {
     subject: send.subject,
     handledAt: params.handledAt,
   });
-}
-
-export function appendHatchingChannelSetupLinks(params: {
-  resultText: string;
-  hatchingCompletion: BootstrapHatchingTurnResult | null;
-}): string {
-  if (
-    !params.hatchingCompletion?.completed ||
-    params.hatchingCompletion.reason !== 'message sent'
-  ) {
-    return params.resultText;
-  }
-  let resultText = params.resultText;
-  for (const link of HATCHING_CHANNEL_LINKS) {
-    const escapedName = escapeRegExp(link.name);
-    const escapedPath = escapeRegExp(link.path);
-    resultText = resultText.replace(
-      new RegExp(
-        `-?\\s*${escapedName}:\\s+\`?[^\\s\\n\`]*${escapedPath}\`?`,
-        'g',
-      ),
-      `- ${link.markdown}`,
-    );
-  }
-  if (
-    HATCHING_CHANNEL_LINKS.every((link) =>
-      hasChannelSetupLink(resultText, link),
-    )
-  ) {
-    return resultText;
-  }
-  return `${resultText.trimEnd()}\n\n${HATCHING_CHANNEL_SETUP_LINKS}`;
 }

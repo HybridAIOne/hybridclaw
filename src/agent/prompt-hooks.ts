@@ -233,13 +233,7 @@ function buildCompactSkillsPrompt(skills: Skill[]): string {
   );
   if (promptCandidates.length === 0) return '';
 
-  const lines = [
-    '## Skills',
-    'Available skills are listed only by top-level metadata. Do not read a skill during bootstrap unless the user explicitly asks for it or it directly helps onboarding.',
-    'For later work, if a skill clearly applies, read its SKILL.md at the listed location before using it.',
-    '',
-    '<available_skills>',
-  ];
+  const lines = ['## Skills', '<available_skills>'];
 
   for (const skill of promptCandidates) {
     lines.push(

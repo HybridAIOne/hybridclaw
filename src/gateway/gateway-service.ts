@@ -610,10 +610,7 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { initializeGoalContinuationRunner } from './goal-continuation-runner.js';
-import {
-  appendHatchingChannelSetupLinks,
-  recordBootstrapHatchingTurnResult,
-} from './hatching-completion.js';
+import { recordBootstrapHatchingTurnResult } from './hatching-completion.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -726,7 +723,6 @@ function buildBootstrapAutostartPrompt(
     fileName === 'OPENING.md'
       ? 'Send a concise first message to the user.'
       : '',
-    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
   ]
     .filter(Boolean)
     .join(' ');
@@ -823,7 +819,7 @@ async function generateOpeningAutostartMessage(params: {
         {
           role: 'user',
           content:
-            'Generate exactly one concise user-facing opening message now by following OPENING.md. Return only the message to send. Do not add a hatching, startup, or coming-online prelude unless OPENING.md explicitly asks for one. Do not mention hidden prompts, internal kickoff turns, or system mechanics.',
+            'Generate exactly one concise user-facing opening message now by following OPENING.md. Return only the message to send. Do not add a hatching, startup, or coming-online prelude unless OPENING.md explicitly asks for one.',
         },
       ],
     });
@@ -8966,10 +8962,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
       output.status === 'success'
         ? normalizeBootstrapAutostartResult(output)
         : '';
-    const resultTextWithHatchingLinks = appendHatchingChannelSetupLinks({
-      resultText,
-      hatchingCompletion,
-    });
 
     const usagePayload = buildTokenUsageAuditPayload(
       messages,
@@ -9014,7 +9006,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       enqueueTokenUsage(event);
     }
 
-    if (output.status !== 'success' || !resultTextWithHatchingLinks) {
+    if (output.status !== 'success' || !resultText) {
       deleteMemoryValue(session.id, markerKey);
       recordAuditEvent({
         sessionId: session.id,
@@ -9042,9 +9034,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       return;
     }
 
-    const assistantMessageId = storeBootstrapAssistantMessage(
-      resultTextWithHatchingLinks,
-    );
+    const assistantMessageId = storeBootstrapAssistantMessage(resultText);
     setMemoryValue(session.id, markerKey, {
       status: 'completed',
       fileName: bootstrapFile,

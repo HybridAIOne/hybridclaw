@@ -158,10 +158,7 @@ import {
   firstNumber,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
-import {
-  appendHatchingChannelSetupLinks,
-  recordBootstrapHatchingTurnResult,
-} from './hatching-completion.js';
+import { recordBootstrapHatchingTurnResult } from './hatching-completion.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
 import {
@@ -662,7 +659,6 @@ function buildBootstrapChatTurnPrompt(params: {
     `Keep following ${params.fileName} and acknowledge the user's latest reply.`,
     'If the user has not answered the previous questions yet, briefly point back to them instead of asking a fresh set.',
     'Do not ask a generic "what can I do for you?" question.',
-    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${params.fileName} explicitly requires it.`,
   ];
   if (isGpt5OnboardingModelId(params.model)) {
     lines.push('', ...buildGpt5OnboardingPromptInjection());
@@ -2303,10 +2299,6 @@ async function handleGatewayMessageInner(
         );
       }
     }
-    resultText = appendHatchingChannelSetupLinks({
-      resultText,
-      hatchingCompletion,
-    });
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex,

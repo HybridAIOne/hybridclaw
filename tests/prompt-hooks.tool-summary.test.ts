@@ -260,6 +260,11 @@ test('buildSystemPromptFromHooks can render compact skill metadata only', () => 
   expect(prompt).not.toContain('<required_credentials>');
   expect(prompt).not.toContain('<supported_channels>');
   expect(prompt).not.toContain(
+    'Available skills are listed only by top-level metadata',
+  );
+  expect(prompt).not.toContain('Do not read a skill during bootstrap');
+  expect(prompt).not.toContain('For later work');
+  expect(prompt).not.toContain(
     'Run documented skill helper commands exactly as shown',
   );
 });

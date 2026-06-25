@@ -382,15 +382,9 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
   });
 
   expect(result.status).toBe('success');
-  expect(result.result).toContain('Optional channel setup:');
-  expect(result.result).toContain(
-    '[Set up WhatsApp](/admin/channels#whatsapp)',
-  );
-  expect(result.result).toContain('[Set up Discord](/admin/channels#discord)');
-  expect(result.result).toContain(
-    '[Set up Telegram](/admin/channels#telegram)',
-  );
-  expect(result.result).not.toContain('`/admin/channels#whatsapp`');
+  expect(result.result).toBe('I sent the welcome message.');
+  expect(result.result).not.toContain('Optional channel setup:');
+  expect(result.result).not.toContain('/admin/channels#whatsapp');
   expect(fs.existsSync(path.join(workspaceDir, 'BOOTSTRAP.md'))).toBe(false);
   const userMarkdown = fs.readFileSync(
     path.join(workspaceDir, 'USER.md'),
