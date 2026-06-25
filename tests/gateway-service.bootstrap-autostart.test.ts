@@ -143,20 +143,11 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining(
-      'Continue the first BOOTSTRAP.md turn now',
+      'Greet the user like you are his new coworker or companion',
     ),
   });
   expect(request?.messages?.at(-1)?.content).toContain(
-    'Open the next welcome message with a warm greeting',
-  );
-  expect(request?.messages?.at(-1)?.content).toContain(
-    'Write a short multi-paragraph message following BOOTSTRAP.md',
-  );
-  expect(request?.messages?.at(-1)?.content).toContain(
-    'Use empty lines for separating paragraphs',
-  );
-  expect(request?.messages?.at(-1)?.content).toContain(
-    'Include the email ask naturally',
+    "Don't forget to ask for the email",
   );
   expect(request?.messages?.at(-1)?.content).not.toContain(
     'startup instruction file',
@@ -465,10 +456,10 @@ test('ensureGatewayBootstrapAutostart keeps bootstrap opener when auxiliary gene
       }
     | undefined;
   expect(request?.messages?.at(-1)?.content).toContain(
-    'Open the next welcome message with a warm greeting',
+    'Greet the user like you are his new coworker or companion',
   );
   expect(request?.messages?.at(-1)?.content).toContain(
-    'Write a short multi-paragraph message following BOOTSTRAP.md',
+    "Don't forget to ask for the email",
   );
   expect(getGatewayHistory(sessionId, 10).history).toEqual([
     expect.objectContaining({
@@ -611,7 +602,7 @@ test('ensureGatewayBootstrapAutostart can hatch a selected agent in an existing 
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining(
-      'Continue the first BOOTSTRAP.md turn now',
+      'Greet the user like you are his new coworker or companion',
     ),
   });
   expect(getGatewayHistory(sessionId, 10).history).toEqual(

@@ -717,13 +717,7 @@ function buildBootstrapAutostartPrompt(
   fileName: 'BOOTSTRAP.md' | 'OPENING.md',
 ): string {
   if (fileName === 'BOOTSTRAP.md') {
-    return [
-      'Continue the first BOOTSTRAP.md turn now.',
-      'Open the next welcome message with a warm greeting and a one-line intro, then move into the questions.',
-      'Write a short multi-paragraph message following BOOTSTRAP.md: warm greeting, then two or three natural questions in prose (not a list of fields), then an easy closing line. Use empty lines for separating paragraphs.',
-      'Include the email ask naturally unless USER.md already contains the email address.',
-      'Return only the user-visible message.',
-    ].join(' ');
+    return "Greet the user like you are his new coworker or companion. Ask a few questions from the BOOTSTRAP.md file. Don't forget to ask for the email, because you need this for sending him a welcome email. Make it conversational and friendly.";
   }
 
   return [
