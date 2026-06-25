@@ -188,7 +188,7 @@ test('agent switch starts active BOOTSTRAP hatching in a reused session', async 
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining(
-      'Follow BOOTSTRAP.md before replying normally',
+      'Start the first BOOTSTRAP.md hatching reply now',
     ),
   });
   await vi.waitFor(() => {

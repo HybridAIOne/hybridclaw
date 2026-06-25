@@ -716,11 +716,19 @@ type StoredAdminAgentMarkdownRevision =
 function buildBootstrapAutostartPrompt(
   fileName: 'BOOTSTRAP.md' | 'OPENING.md',
 ): string {
+  if (fileName === 'BOOTSTRAP.md') {
+    return [
+      'Start the first BOOTSTRAP.md hatching reply now.',
+      'Make it feel like you just came online: warm, curious, and grounded.',
+      'Ask for the welcome-email address if USER.md does not already contain it.',
+      'Ask only a few natural setup questions from BOOTSTRAP.md, without compressing them into one sentence or posting a numbered list.',
+      'Return only the user-visible message.',
+    ].join(' ');
+  }
+
   return [
     `Follow ${fileName} before replying normally.`,
-    fileName === 'OPENING.md'
-      ? 'Send a concise first message to the user.'
-      : `Your first user-visible reply must follow ${fileName}, not a generic greeting.`,
+    'Send a concise first message to the user.',
   ]
     .filter(Boolean)
     .join(' ');

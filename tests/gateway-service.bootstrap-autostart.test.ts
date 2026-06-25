@@ -136,11 +136,17 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining(
-      'Follow BOOTSTRAP.md before replying normally',
+      'Start the first BOOTSTRAP.md hatching reply now',
     ),
   });
   expect(request?.messages?.at(-1)?.content).toContain(
-    'Your first user-visible reply must follow BOOTSTRAP.md',
+    'Make it feel like you just came online',
+  );
+  expect(request?.messages?.at(-1)?.content).toContain(
+    'Ask for the welcome-email address',
+  );
+  expect(request?.messages?.at(-1)?.content).toContain(
+    'without compressing them into one sentence',
   );
   expect(request?.messages?.at(-1)?.content).not.toContain(
     'startup instruction file',
@@ -549,7 +555,7 @@ test('ensureGatewayBootstrapAutostart can hatch a selected agent in an existing 
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining(
-      'Follow BOOTSTRAP.md before replying normally',
+      'Start the first BOOTSTRAP.md hatching reply now',
     ),
   });
   expect(getGatewayHistory(sessionId, 10).history).toEqual(
