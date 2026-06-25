@@ -163,7 +163,7 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
         {
           role: 'user',
           content:
-            'You are a HybridClaw agent coming alive. Tell the user in a nice way that you are on your way.',
+            'You are a HybridClaw agent coming alive. Tell the user in a nice way that you are on your way. Make it one sentence only.',
         },
       ],
     }),

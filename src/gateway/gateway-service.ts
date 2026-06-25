@@ -767,8 +767,8 @@ async function generateBootstrapPrelude(params: {
           role: 'user',
           content:
             params.fileName === 'BOOTSTRAP.md'
-              ? 'You are a HybridClaw agent coming alive. Tell the user in a nice way that you are on your way.'
-              : 'Generate a brief opening line before the agent starts.',
+              ? 'You are a HybridClaw agent coming alive. Tell the user in a nice way that you are on your way. Make it one sentence only.'
+              : 'Generate a brief opening line before the agent starts. Make it one sentence only.',
         },
       ],
     });
