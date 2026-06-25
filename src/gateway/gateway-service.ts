@@ -718,10 +718,10 @@ function buildBootstrapAutostartPrompt(
 ): string {
   if (fileName === 'BOOTSTRAP.md') {
     return [
-      'Start the first BOOTSTRAP.md hatching reply now.',
-      'Make it feel like you just came online: warm, curious, and grounded.',
-      'Ask for the welcome-email address if USER.md does not already contain it.',
-      'Ask only a few natural setup questions from BOOTSTRAP.md, without compressing them into one sentence or posting a numbered list.',
+      'Continue the first BOOTSTRAP.md turn now.',
+      'A short hatching-progress line has already been sent, so do not open with another hatching or coming-online line.',
+      'Ask 3-5 clear setup questions from BOOTSTRAP.md in a human, lightly survey-like way.',
+      'Include a welcome-email question unless USER.md already contains the email address.',
       'Return only the user-visible message.',
     ].join(' ');
   }
@@ -772,13 +772,13 @@ async function generateBootstrapPrelude(params: {
         {
           role: 'system',
           content:
-            'Write exactly one short first-person startup line for a newly hatching personal AI agent. Make it conversational and alive, not corporate. Do not ask onboarding questions yet. Do not use markdown, quotes, or explanations.',
+            'Write exactly one short first-person hatching-in-progress line for a personal AI agent. Make it conversational and alive, not corporate. The agent is still hatching, not fully hatched: mention progress, taking shape, or working through the eggshell. Do not sound already arrived. Do not ask onboarding questions yet. Do not use markdown, quotes, or explanations.',
         },
         {
           role: 'user',
           content:
             params.fileName === 'BOOTSTRAP.md'
-              ? 'Generate a brief coming-to-life line before onboarding starts.'
+              ? 'Generate a brief hatching-progress line before onboarding starts.'
               : 'Generate a brief opening line before the agent starts.',
         },
       ],
@@ -8697,7 +8697,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
           }
         : {}),
       extraSafetyText:
-        'Bootstrap kickoff turn. Start the conversation proactively with a natural user-facing hatching message.',
+        'Bootstrap kickoff turn. Continue after the brief hatching prelude with setup questions.',
       runtimeInfo: {
         chatbotId,
         model,

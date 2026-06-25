@@ -235,8 +235,11 @@ describe('workspace bootstrap lifecycle', () => {
     const bootstrapMarkdown = fs.readFileSync(bootstrapPath, 'utf-8');
     expect(bootstrapMarkdown).toContain("Don't interrogate. Don't be robotic.");
     expect(bootstrapMarkdown).toContain(
-      'The first reply should feel like a human beginning',
+      'After the brief hatching-progress line',
     );
+    expect(bootstrapMarkdown).toContain('Ask 3 to 5 clear questions');
+    expect(bootstrapMarkdown).toContain('a little like a');
+    expect(bootstrapMarkdown).toContain('survey');
     expect(bootstrapMarkdown).toContain('Do not cram everything into one line');
     expect(bootstrapMarkdown).toContain('Email is the only');
     expect(bootstrapMarkdown).toContain('What email should I use for your welcome email?');

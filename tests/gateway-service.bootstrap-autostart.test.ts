@@ -114,8 +114,10 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(systemPrompt).toContain('## Runtime Metadata');
   expect(systemPrompt).toContain("Don't interrogate. Don't be robotic.");
   expect(systemPrompt).toContain(
-    'The first reply should feel like a human beginning',
+    'After the brief hatching-progress line',
   );
+  expect(systemPrompt).toContain('Ask 3 to 5 clear questions');
+  expect(systemPrompt).toContain('survey');
   expect(systemPrompt).toContain('Do not cram everything into one line');
   expect(systemPrompt).toContain('Email is the only');
   expect(systemPrompt).toContain('What email should I use for your welcome email?');
@@ -136,17 +138,17 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining(
-      'Start the first BOOTSTRAP.md hatching reply now',
+      'Continue the first BOOTSTRAP.md turn now',
     ),
   });
   expect(request?.messages?.at(-1)?.content).toContain(
-    'Make it feel like you just came online',
+    'A short hatching-progress line has already been sent',
   );
   expect(request?.messages?.at(-1)?.content).toContain(
-    'Ask for the welcome-email address',
+    'Ask 3-5 clear setup questions',
   );
   expect(request?.messages?.at(-1)?.content).toContain(
-    'without compressing them into one sentence',
+    'Include a welcome-email question',
   );
   expect(request?.messages?.at(-1)?.content).not.toContain(
     'startup instruction file',
@@ -158,7 +160,14 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
       fallbackEnableRag: false,
       maxTokens: 48,
       timeoutMs: 1500,
-      messages: expect.any(Array),
+      messages: expect.arrayContaining([
+        expect.objectContaining({
+          content: expect.stringContaining('hatching-in-progress line'),
+        }),
+        expect.objectContaining({
+          content: expect.stringContaining('hatching-progress line'),
+        }),
+      ]),
     }),
   );
 
@@ -555,7 +564,7 @@ test('ensureGatewayBootstrapAutostart can hatch a selected agent in an existing 
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining(
-      'Start the first BOOTSTRAP.md hatching reply now',
+      'Continue the first BOOTSTRAP.md turn now',
     ),
   });
   expect(getGatewayHistory(sessionId, 10).history).toEqual(
