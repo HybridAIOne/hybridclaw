@@ -233,20 +233,27 @@ describe('workspace bootstrap lifecycle', () => {
     );
     const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
     const bootstrapMarkdown = fs.readFileSync(bootstrapPath, 'utf-8');
+    expect(bootstrapMarkdown).toContain("new coworker's first day");
+    expect(bootstrapMarkdown).toContain('You are not running an intake form');
+    expect(bootstrapMarkdown).toContain('Write an actual message');
+    expect(bootstrapMarkdown).toContain('genuine greeting');
     expect(bootstrapMarkdown).toContain(
-      'ask for an email address if `USER.md` does not',
+      'not a setup wizard',
     );
-    expect(bootstrapMarkdown).toContain('Web chat is already working');
-    expect(bootstrapMarkdown).toContain('/admin/channels#discord');
-    expect(bootstrapMarkdown).toContain('/admin/channels#telegram');
+    expect(bootstrapMarkdown).toContain('one question per line');
+    expect(bootstrapMarkdown).toContain('Two or three questions');
+    expect(bootstrapMarkdown).toContain("what they'd like to call YOU");
+    expect(bootstrapMarkdown).toContain("don't have a fixed name yet");
+    expect(bootstrapMarkdown).toContain('including the name they chose for you');
+    expect(bootstrapMarkdown).toContain('a good email for you');
+    expect(bootstrapMarkdown).toContain('home automation');
+    expect(bootstrapMarkdown).toContain("what they're working on right now");
     expect(bootstrapMarkdown).toContain(
-      'Post these setup links as Markdown links in the hatching chat',
+      'Everything except the email is optional',
     );
-    expect(bootstrapMarkdown).toContain(
-      'Follow the short welcome email template',
-    );
-    expect(bootstrapMarkdown).toContain('Exactly 3 concrete first tasks');
+    expect(bootstrapMarkdown).toContain('3 specific first tasks');
     expect(bootstrapMarkdown).toContain('copy-paste prompt ideas');
+    expect(bootstrapMarkdown).toContain("claim it's sent until");
     expect(bootstrapMarkdown).not.toContain('Optional channel setup:');
 
     const files = workspace.loadBootstrapFiles('agent-test');
@@ -311,7 +318,7 @@ describe('workspace bootstrap lifecycle', () => {
 
     const refreshed = fs.readFileSync(bootstrapPath, 'utf-8');
     expect(refreshed).toContain('Welcome Message');
-    expect(refreshed).toContain('after three hatching turns');
+    expect(refreshed).toContain('After the send succeeds');
     expect(refreshed).not.toContain(
       'docs/content/guides/hatching-task-ideas.md',
     );
@@ -631,6 +638,26 @@ describe('workspace bootstrap lifecycle', () => {
     const workspaceDir = ipc.agentWorkspaceDir('agent-test');
     const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
     expect(fs.existsSync(bootstrapPath)).toBe(true);
+    fs.writeFileSync(
+      path.join(workspaceDir, 'USER.md'),
+      [
+        '# USER.md - About Your Human',
+        '',
+        '- **Name:** Ben',
+        '- **What to call them:** Ben',
+        '- **Email:**',
+        '',
+        '## Welcome Message',
+        '',
+        '- **Status:** pending',
+        '- **Recipient:**',
+        '- **Subject:**',
+        '- **Delivery:** not sent',
+        '- **Last handled:**',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
 
     expect(
       workspace.recordHatchingTurnWithoutMessage({ agentId: 'agent-test' }),

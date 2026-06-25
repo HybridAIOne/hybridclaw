@@ -158,10 +158,7 @@ import {
   firstNumber,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
-import {
-  appendHatchingChannelSetupLinks,
-  recordBootstrapHatchingTurnResult,
-} from './hatching-completion.js';
+import { recordBootstrapHatchingTurnResult } from './hatching-completion.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
 import {
@@ -196,7 +193,7 @@ function persistSpeechTranscriptsToScopedMemory(params: {
   for (const execution of params.toolExecutions) {
     if (execution.name !== 'audio_transcribe' || execution.isError) continue;
     const payload = parseJsonObject(execution.result);
-    if (!payload || payload.success !== true) continue;
+    if (payload?.success !== true) continue;
     if (typeof payload.action === 'string' && payload.action !== 'transcribe') {
       continue;
     }
@@ -646,23 +643,19 @@ function isGpt5OnboardingModelId(modelId: string): boolean {
 
 function buildGpt5OnboardingPromptInjection(): string[] {
   return [
-    'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool. Follow the short welcome email template in BOOTSTRAP.md: 3 concrete first tasks, 2 or 3 copy-paste prompt ideas, and one concrete next step. Do not include channel setup links in the email; post those links as Markdown links in the hatching chat. Set action="send", to=<email>, and subject=<specific subject>. Do not ask for separate confirmation.',
+    'If USER.md or the conversation contains the user email and enough profile or goal details to personalize the welcome, send the welcome email in this turn with the message tool. Missing non-email answers must not block sending; mention the user can add more context later.',
+    'Do not say the email is being sent, has been sent, or will be sent until after the message tool call has succeeded. If you are ready to send it, call message with action="send", to=<email>, subject=<specific subject>, and useful email content before writing the chat reply.',
+    'Follow the Welcome Email section in BOOTSTRAP.md: 3 concrete first tasks, 2 or 3 copy-paste prompt ideas, and a clear note that web chat already works. Do not ask for separate confirmation.',
   ];
 }
 
-function buildBootstrapChatTurnPrompt(params: {
-  fileName: 'BOOTSTRAP.md';
-  model: string;
-}): string {
+function buildBootstrapChatTurnPrompt(params: { model: string }): string {
   const lines = [
-    'Hatching mode is active for this agent.',
-    `A startup instruction file (${params.fileName}) exists and is already loaded in the system context.`,
-    'Continue the in-progress hatching conversation using the full chat history above.',
-    'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
-    `Keep following ${params.fileName}: acknowledge the user's latest reply and ask only the next useful customization question.`,
-    'If the user has not answered the previous questions yet, briefly point back to them instead of asking a fresh set.',
+    'Continue the in-progress BOOTSTRAP.md conversation using the full chat history above.',
+    'Do not restart, reintroduce yourself, or repeat questions you already asked.',
+    "Acknowledge the user's latest reply and keep going naturally.",
+    'If the user has not answered yet, briefly point back to the pending email or context request instead of asking a fresh set.',
     'Do not ask a generic "what can I do for you?" question.',
-    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${params.fileName} explicitly requires it.`,
   ];
   if (isGpt5OnboardingModelId(params.model)) {
     lines.push('', ...buildGpt5OnboardingPromptInjection());
@@ -1726,7 +1719,6 @@ async function handleGatewayMessageInner(
     })
   ) {
     agentUserContent = `${buildBootstrapChatTurnPrompt({
-      fileName: 'BOOTSTRAP.md',
       model,
     })}\n\nUser message:\n${agentUserContent}`;
   }
@@ -2303,10 +2295,6 @@ async function handleGatewayMessageInner(
         );
       }
     }
-    resultText = appendHatchingChannelSetupLinks({
-      resultText,
-      hatchingCompletion,
-    });
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex,

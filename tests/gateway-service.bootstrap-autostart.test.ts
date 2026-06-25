@@ -95,6 +95,7 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
     | {
         messages?: Array<{ role: string; content: string }>;
         channelId?: string;
+        chatbotId?: string;
       }
     | undefined;
   expect(request?.channelId).toBe('web');
@@ -102,25 +103,69 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(request?.messages?.some((message) => message.role === 'system')).toBe(
     true,
   );
-  expect(
-    request?.messages?.some((message) =>
-      message.content.includes('## BOOTSTRAP.md'),
-    ),
-  ).toBe(true);
+  const systemPrompt =
+    request?.messages?.find((message) => message.role === 'system')?.content ||
+    '';
+  expect(systemPrompt).toContain('## SOUL.md');
+  expect(systemPrompt).toContain('## IDENTITY.md');
+  expect(systemPrompt).toContain('## USER.md');
+  expect(systemPrompt).toContain('## MEMORY.md');
+  expect(systemPrompt).toContain('## BOOTSTRAP.md');
+  expect(systemPrompt).toContain('## Runtime Metadata');
+  expect(systemPrompt).toContain("new coworker's first day");
+  expect(systemPrompt).toContain('You are not running an intake form');
+  expect(systemPrompt).toContain('Write an actual message');
+  expect(systemPrompt).toContain('genuine greeting');
+  expect(systemPrompt).toContain(
+    'not a setup wizard',
+  );
+  expect(systemPrompt).toContain('one question per line');
+  expect(systemPrompt).toContain('Two or three questions');
+  expect(systemPrompt).toContain("what they'd like to call YOU");
+  expect(systemPrompt).toContain("don't have a fixed name yet");
+  expect(systemPrompt).toContain('including the name they chose for you');
+  expect(systemPrompt).toContain('a good email for you');
+  expect(systemPrompt).toContain('home automation');
+  expect(systemPrompt).toContain("what they're working on right now");
+  expect(systemPrompt).toContain("claim it's sent until");
+  expect(systemPrompt).not.toContain('## AGENTS.md');
+  expect(systemPrompt).not.toContain('## TOOLS.md');
+  expect(systemPrompt).not.toContain('## BOOT.md');
+  expect(systemPrompt).not.toContain('## OPENING.md');
+  expect(systemPrompt).not.toContain('## Skills (mandatory)');
+  expect(systemPrompt).not.toContain('<required_credentials>');
+  expect(systemPrompt).not.toContain('<supported_channels>');
+  expect(systemPrompt).not.toContain('## Runtime Safety Guardrails');
+  expect(systemPrompt).not.toContain('## Tool Execution Discipline');
+  expect(systemPrompt).not.toContain('## Web Retrieval Routing');
+  expect(systemPrompt).not.toContain('## Browser Auth Handling');
+  expect(systemPrompt).not.toContain('## Subagent Delegation Playbook');
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining(
-      'A startup instruction file (BOOTSTRAP.md) exists',
+      'Greet the user like you are his new coworker or companion',
     ),
   });
+  expect(request?.messages?.at(-1)?.content).toContain(
+    "Don't forget to ask for the email",
+  );
+  expect(request?.messages?.at(-1)?.content).not.toContain(
+    'startup instruction file',
+  );
   expect(callAuxiliaryModelMock).toHaveBeenCalledWith(
     expect.objectContaining({
       task: 'compression',
       agentId: 'main',
       fallbackEnableRag: false,
       maxTokens: 48,
-      timeoutMs: 1500,
-      messages: expect.any(Array),
+      timeoutMs: 5000,
+      messages: [
+        {
+          role: 'user',
+          content:
+            'You are a HybridClaw agent coming alive. Tell the user in a nice way that you are on your way. Make it one sentence only.',
+        },
+      ],
     }),
   );
 
@@ -384,6 +429,46 @@ test('ensureGatewayBootstrapAutostart drops prelude text that mentions internals
   ]);
 });
 
+test('ensureGatewayBootstrapAutostart keeps bootstrap opener when auxiliary generation fails', async () => {
+  setupHome();
+
+  callAuxiliaryModelMock.mockRejectedValueOnce(new Error('aux timeout'));
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Ready after aux failure.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'agent:main:channel:web:chat:dm:peer:prelude-fallback-test';
+  await ensureGatewayBootstrapAutostart({ sessionId });
+
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | {
+        messages?: Array<{ role: string; content: string }>;
+      }
+    | undefined;
+  expect(request?.messages?.at(-1)?.content).toContain(
+    'Greet the user like you are his new coworker or companion',
+  );
+  expect(request?.messages?.at(-1)?.content).toContain(
+    "Don't forget to ask for the email",
+  );
+  expect(getGatewayHistory(sessionId, 10).history).toEqual([
+    expect.objectContaining({
+      role: 'assistant',
+      content: 'Ready after aux failure.',
+    }),
+  ]);
+});
+
 test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per session', async () => {
   setupHome();
 
@@ -447,9 +532,24 @@ test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per se
   ).toBe(true);
   expect(
     request?.messages?.some((message) =>
-      message.content.includes('A startup instruction file (OPENING.md) exists'),
+      message.content.includes('Follow OPENING.md before replying normally'),
     ),
   ).toBe(true);
+  expect(
+    request?.messages?.some((message) =>
+      message.content.includes('Opening kickoff turn'),
+    ),
+  ).toBe(true);
+  expect(
+    request?.messages?.some((message) =>
+      message.content.includes('brief hatching prelude'),
+    ),
+  ).toBe(false);
+  expect(
+    request?.messages?.some((message) =>
+      message.content.includes('HybridClaw agent coming alive'),
+    ),
+  ).toBe(false);
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining('Generate exactly one concise'),
@@ -517,7 +617,7 @@ test('ensureGatewayBootstrapAutostart can hatch a selected agent in an existing 
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining(
-      'A startup instruction file (BOOTSTRAP.md) exists',
+      'Greet the user like you are his new coworker or companion',
     ),
   });
   expect(getGatewayHistory(sessionId, 10).history).toEqual(
