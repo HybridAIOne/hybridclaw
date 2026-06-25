@@ -44,7 +44,7 @@ import {
   getSandboxDiagnostics,
   stopAllExecutions,
 } from '../agent/executor.js';
-import type { PromptMode } from '../agent/prompt-hooks.js';
+import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import {
   buildToolsSummary,
@@ -647,6 +647,15 @@ const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
 const BOOTSTRAP_PRELUDE_MAX_TOKENS = 48;
 const BOOTSTRAP_PRELUDE_TIMEOUT_MS = 1500;
+const BOOTSTRAP_HATCHING_PROMPT_PARTS = [
+  'soul',
+  'identity',
+  'user',
+  'memory-file',
+  'bootstrap-file',
+  'skills',
+  'runtime',
+] satisfies PromptPartName[];
 const OPENING_AUTOSTART_MAX_TOKENS = 512;
 const OPENING_AUTOSTART_TIMEOUT_MS = 5000;
 const activeBootstrapAutostartSessions = new Set<string>();
@@ -8679,6 +8688,12 @@ export async function ensureGatewayBootstrapAutostart(params: {
       agentId: resolved.agentId,
       history: [],
       currentUserContent: buildBootstrapAutostartPrompt(bootstrapFile),
+      ...(bootstrapFile === 'BOOTSTRAP.md'
+        ? {
+            skillPromptMode: 'compact' as const,
+            includePromptParts: BOOTSTRAP_HATCHING_PROMPT_PARTS,
+          }
+        : {}),
       extraSafetyText:
         'Bootstrap kickoff turn. Start the conversation proactively with a concise user-facing opening message.',
       runtimeInfo: {

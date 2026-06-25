@@ -51,6 +51,7 @@ export type {
   WorkspacePromptPartName,
 } from './prompt-parts.js';
 export type PromptMode = 'full' | 'minimal' | 'none';
+export type SkillPromptMode = 'full' | 'compact';
 export const MESSAGE_SEND_SILENT_REPLY_TOKEN = SILENT_REPLY_TOKEN;
 export { PROMPT_PART_NAMES } from './prompt-parts.js';
 
@@ -74,6 +75,7 @@ export interface PromptHookContext {
   explicitSkillInvocation?: SkillInvocation | null;
   purpose?: 'conversation' | 'memory-flush';
   promptMode?: PromptMode;
+  skillPromptMode?: SkillPromptMode;
   includePromptParts?: PromptPartName[];
   omitPromptParts?: PromptPartName[];
   extraSafetyText?: string;
@@ -217,6 +219,43 @@ function buildSkillsSection(skillsPrompt: string): string {
   ].join('\n');
 }
 
+function escapeCompactSkillValue(value: string): string {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+function buildCompactSkillsPrompt(skills: Skill[]): string {
+  const promptCandidates = skills.filter(
+    (skill) => !skill.disableModelInvocation,
+  );
+  if (promptCandidates.length === 0) return '';
+
+  const lines = [
+    '## Skills',
+    'Available skills are listed only by top-level metadata. Do not read a skill during bootstrap unless the user explicitly asks for it or it directly helps onboarding.',
+    'For later work, if a skill clearly applies, read its SKILL.md at the listed location before using it.',
+    '',
+    '<available_skills>',
+  ];
+
+  for (const skill of promptCandidates) {
+    lines.push(
+      '  <skill>',
+      `    <name>${escapeCompactSkillValue(skill.name)}</name>`,
+      `    <category>${escapeCompactSkillValue(skill.category)}</category>`,
+      `    <description>${escapeCompactSkillValue(skill.description || skill.name)}</description>`,
+      `    <location>${escapeCompactSkillValue(skill.location)}</location>`,
+      '  </skill>',
+    );
+  }
+
+  lines.push('</available_skills>');
+  return lines.join('\n');
+}
+
 function buildBootstrapHook(context: PromptHookContext): string {
   const contextFiles = loadStaticBootstrapFiles(context.agentId).filter(
     (file) => {
@@ -231,7 +270,9 @@ function buildBootstrapHook(context: PromptHookContext): string {
   const skillsPrompt = context.explicitSkillInvocation
     ? ''
     : isBootstrapPartSelected('skills', context)
-      ? buildSkillsSection(buildSkillsPrompt(context.skills))
+      ? context.skillPromptMode === 'compact'
+        ? buildCompactSkillsPrompt(context.skills)
+        : buildSkillsSection(buildSkillsPrompt(context.skills))
       : '';
   return [contextPrompt, cloudMemoryPrompt, skillsPrompt]
     .filter(Boolean)

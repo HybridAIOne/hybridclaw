@@ -27,6 +27,7 @@ import {
   type PromptMode,
   type PromptPartName,
   type PromptRuntimeInfo,
+  type SkillPromptMode,
 } from './prompt-hooks.js';
 import { mergeBlockedToolNames } from './tool-policy.js';
 
@@ -127,6 +128,7 @@ export function buildConversationContext(params: {
   history: HistoryMessage[];
   expandLatestHistoryUser?: boolean;
   promptMode?: PromptMode;
+  skillPromptMode?: SkillPromptMode;
   includePromptParts?: PromptPartName[];
   omitPromptParts?: PromptPartName[];
   extraSafetyText?: string;
@@ -142,6 +144,7 @@ export function buildConversationContext(params: {
     history,
     expandLatestHistoryUser = false,
     promptMode = 'full',
+    skillPromptMode = 'full',
     includePromptParts,
     omitPromptParts,
     extraSafetyText,
@@ -173,6 +176,7 @@ export function buildConversationContext(params: {
     explicitSkillInvocation,
     purpose: 'conversation',
     promptMode,
+    skillPromptMode,
     includePromptParts,
     omitPromptParts,
     extraSafetyText,

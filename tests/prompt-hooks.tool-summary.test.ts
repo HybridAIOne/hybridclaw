@@ -232,6 +232,38 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   );
 });
 
+test('buildSystemPromptFromHooks can render compact skill metadata only', () => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [
+      makeSkill({
+        always: true,
+        description: 'Create, inspect, and edit PDF files.',
+      }),
+    ],
+    skillPromptMode: 'compact',
+    includePromptParts: ['skills'],
+  });
+
+  expect(prompt).toContain('## Skills');
+  expect(prompt).not.toContain('## Skills (mandatory)');
+  expect(prompt).toContain('<available_skills>');
+  expect(prompt).toContain('<name>pdf</name>');
+  expect(prompt).toContain('<category>office</category>');
+  expect(prompt).toContain(
+    '<description>Create, inspect, and edit PDF files.</description>',
+  );
+  expect(prompt).toContain('<location>skills/pdf/SKILL.md</location>');
+  expect(prompt).not.toContain('<skill_always');
+  expect(prompt).not.toContain('<version>');
+  expect(prompt).not.toContain('<capabilities>');
+  expect(prompt).not.toContain('<required_credentials>');
+  expect(prompt).not.toContain('<supported_channels>');
+  expect(prompt).not.toContain(
+    'Run documented skill helper commands exactly as shown',
+  );
+});
+
 test('buildSystemPromptFromHooks omits mandatory routing instructions when no skills are available', () => {
   const prompt = buildSystemPromptFromHooks({
     agentId: 'test-agent',

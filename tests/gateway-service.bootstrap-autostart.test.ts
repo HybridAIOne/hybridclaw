@@ -95,6 +95,7 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
     | {
         messages?: Array<{ role: string; content: string }>;
         channelId?: string;
+        chatbotId?: string;
       }
     | undefined;
   expect(request?.channelId).toBe('web');
@@ -102,16 +103,30 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(request?.messages?.some((message) => message.role === 'system')).toBe(
     true,
   );
-  expect(
-    request?.messages?.some((message) =>
-      message.content.includes('## BOOTSTRAP.md'),
-    ),
-  ).toBe(true);
-  expect(
-    request?.messages?.some((message) =>
-      message.content.includes('Email is the only mandatory topic'),
-    ),
-  ).toBe(true);
+  const systemPrompt =
+    request?.messages?.find((message) => message.role === 'system')?.content ||
+    '';
+  expect(systemPrompt).toContain('## SOUL.md');
+  expect(systemPrompt).toContain('## IDENTITY.md');
+  expect(systemPrompt).toContain('## USER.md');
+  expect(systemPrompt).toContain('## MEMORY.md');
+  expect(systemPrompt).toContain('## BOOTSTRAP.md');
+  expect(systemPrompt).toContain('## Runtime Metadata');
+  expect(systemPrompt).toContain('Email is the only mandatory topic');
+  expect(systemPrompt).toContain('home automation');
+  expect(systemPrompt).toContain('software platforms');
+  expect(systemPrompt).not.toContain('## AGENTS.md');
+  expect(systemPrompt).not.toContain('## TOOLS.md');
+  expect(systemPrompt).not.toContain('## BOOT.md');
+  expect(systemPrompt).not.toContain('## OPENING.md');
+  expect(systemPrompt).not.toContain('## Skills (mandatory)');
+  expect(systemPrompt).not.toContain('<required_credentials>');
+  expect(systemPrompt).not.toContain('<supported_channels>');
+  expect(systemPrompt).not.toContain('## Runtime Safety Guardrails');
+  expect(systemPrompt).not.toContain('## Tool Execution Discipline');
+  expect(systemPrompt).not.toContain('## Web Retrieval Routing');
+  expect(systemPrompt).not.toContain('## Browser Auth Handling');
+  expect(systemPrompt).not.toContain('## Subagent Delegation Playbook');
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining(
