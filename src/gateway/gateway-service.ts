@@ -748,7 +748,6 @@ function normalizeBootstrapPrelude(raw: string): string | null {
 
 async function generateBootstrapPrelude(params: {
   agentId: string;
-  fileName: 'BOOTSTRAP.md' | 'OPENING.md';
   model: string;
   chatbotId: string | null;
 }): Promise<string | null> {
@@ -766,16 +765,14 @@ async function generateBootstrapPrelude(params: {
         {
           role: 'user',
           content:
-            params.fileName === 'BOOTSTRAP.md'
-              ? 'You are a HybridClaw agent coming alive. Tell the user in a nice way that you are on your way. Make it one sentence only.'
-              : 'Generate a brief opening line before the agent starts. Make it one sentence only.',
+            'You are a HybridClaw agent coming alive. Tell the user in a nice way that you are on your way. Make it one sentence only.',
         },
       ],
     });
     return normalizeBootstrapPrelude(result.content);
   } catch (error) {
     logger.debug(
-      { agentId: params.agentId, fileName: params.fileName, error },
+      { agentId: params.agentId, fileName: 'BOOTSTRAP.md', error },
       'Failed to generate bootstrap prelude with auxiliary model',
     );
     return null;
@@ -8685,7 +8682,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
     if (bootstrapFile === 'BOOTSTRAP.md') {
       preludeText = await generateBootstrapPrelude({
         agentId: resolved.agentId,
-        fileName: bootstrapFile,
         model,
         chatbotId,
       });
@@ -8721,7 +8717,9 @@ export async function ensureGatewayBootstrapAutostart(params: {
           }
         : {}),
       extraSafetyText:
-        'Bootstrap kickoff turn. Continue after the brief hatching prelude with setup questions.',
+        bootstrapFile === 'BOOTSTRAP.md'
+          ? 'Bootstrap kickoff turn. Continue after the brief hatching prelude with setup questions.'
+          : 'Opening kickoff turn. Follow OPENING.md and send the opening message.',
       runtimeInfo: {
         chatbotId,
         model,

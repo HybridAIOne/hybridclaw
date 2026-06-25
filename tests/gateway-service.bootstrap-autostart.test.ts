@@ -535,6 +535,21 @@ test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per se
       message.content.includes('Follow OPENING.md before replying normally'),
     ),
   ).toBe(true);
+  expect(
+    request?.messages?.some((message) =>
+      message.content.includes('Opening kickoff turn'),
+    ),
+  ).toBe(true);
+  expect(
+    request?.messages?.some((message) =>
+      message.content.includes('brief hatching prelude'),
+    ),
+  ).toBe(false);
+  expect(
+    request?.messages?.some((message) =>
+      message.content.includes('HybridClaw agent coming alive'),
+    ),
+  ).toBe(false);
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining('Generate exactly one concise'),
