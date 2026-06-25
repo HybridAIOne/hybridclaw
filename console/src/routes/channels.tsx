@@ -92,6 +92,22 @@ function ListField(props: {
   );
 }
 
+const WILDCARD_ALLOW_ENTRY = '*';
+
+function normalizeAllowListEntry(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function dedupeAllowListEntries(values: string[]): string[] {
+  const entries: string[] = [];
+  for (const value of values) {
+    if (!value || entries.includes(value)) continue;
+    entries.push(value);
+  }
+  return entries;
+}
+
 function AllowListField(props: {
   label: string;
   value: string[];
@@ -99,15 +115,25 @@ function AllowListField(props: {
   onChange: (value: string[]) => void;
 }) {
   const [nextValue, setNextValue] = useState('');
-  const entries = [
-    ...new Set(props.value.map((entry) => entry.trim()).filter(Boolean)),
-  ];
-  const canAdd = parseStringList(nextValue).length > 0;
+  const entries = dedupeAllowListEntries(props.value);
+  const nextEntry = normalizeAllowListEntry(nextValue);
+  const canAdd = nextEntry !== null;
 
-  const addEntries = () => {
-    const nextEntries = parseStringList(nextValue);
-    if (nextEntries.length === 0) return;
-    props.onChange([...new Set([...entries, ...nextEntries])]);
+  const addEntry = () => {
+    if (!nextEntry) return;
+    if (
+      nextEntry === WILDCARD_ALLOW_ENTRY &&
+      !entries.includes(WILDCARD_ALLOW_ENTRY) &&
+      !window.confirm(
+        'Adding * allows every sender for this allowlist. Continue?',
+      )
+    ) {
+      return;
+    }
+
+    // Channel runtimes own format-specific normalization. The admin UI only
+    // trims and dedupes raw entries so channel-specific identities stay valid.
+    props.onChange(dedupeAllowListEntries([...entries, nextEntry]));
     setNextValue('');
   };
 
@@ -118,7 +144,7 @@ function AllowListField(props: {
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
-    addEntries();
+    addEntry();
   };
 
   return (
@@ -135,7 +161,7 @@ function AllowListField(props: {
           type="button"
           variant="ghost"
           disabled={!canAdd}
-          onClick={addEntries}
+          onClick={addEntry}
         >
           Add
         </Button>
@@ -143,8 +169,20 @@ function AllowListField(props: {
       {entries.length > 0 ? (
         <ul className="allow-list-items">
           {entries.map((entry) => (
-            <li className="allow-list-item" key={entry}>
-              <span>{entry}</span>
+            <li
+              className={
+                entry === WILDCARD_ALLOW_ENTRY
+                  ? 'allow-list-item allow-list-item-wildcard'
+                  : 'allow-list-item'
+              }
+              key={entry}
+            >
+              <div className="allow-list-entry-main">
+                <span className="allow-list-entry-value">{entry}</span>
+                {entry === WILDCARD_ALLOW_ENTRY ? (
+                  <span className="allow-list-warning-label">all senders</span>
+                ) : null}
+              </div>
               <Button
                 type="button"
                 variant="ghost"
