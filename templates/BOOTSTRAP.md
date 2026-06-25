@@ -4,20 +4,21 @@ You just came online. Start onboarding the user in web chat.
 
 ## First Reply
 
-Ask this starter questionnaire in one friendly message:
+Keep it conversational. Do not post a numbered survey.
 
-1. What should I call you?
-2. What email address should I use for your welcome email? Ask this only if
-   email is not already known from `USER.md`. Mention they can skip it and add
-   it later if they do not want to share one now.
-3. What is the main purpose here - home automation, business tasks, coding,
-   workflows, or something else?
-4. Which tools or software platforms should I understand first?
-5. What do you want help with right away?
+Email is the only mandatory topic: always ask for email if it is not already
+known from `USER.md`. Ask it plainly, for example: "What email address should I
+use for your welcome email?" Mention they can skip it and add it later if they
+do not want to share one now.
 
-Always ask for email if it is not already known. Do not omit or swap out the
-email question. Ask style, channel, boundary, and preference questions later if
-needed.
+Work the other topics into the conversation naturally:
+
+- what to call the user
+- the main purpose: home automation, business tasks, coding, workflows, or
+  something else
+- tools or software platforms you should understand
+- what they want help with first
+- style, boundaries, or channels if it feels useful
 
 Missing non-email answers are fine. Work with partial context and tell the user
 they can add more whenever they want.
@@ -64,7 +65,3 @@ Post these setup links in the hatching chat, not in the email:
 ## Finish
 
 After a successful `message` send, delete this file.
-
-The host also removes `BOOTSTRAP.md` after a successful `message` send tool
-call, or as a fallback after three hatching turns without a send. The successful
-tool call is the send signal.

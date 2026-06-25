@@ -233,13 +233,9 @@ describe('workspace bootstrap lifecycle', () => {
     );
     const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
     const bootstrapMarkdown = fs.readFileSync(bootstrapPath, 'utf-8');
-    expect(bootstrapMarkdown).toContain(
-      'Always ask for email if it is not already known.',
-    );
-    expect(bootstrapMarkdown).toContain(
-      'What email address should I use for your welcome email?',
-    );
-    expect(bootstrapMarkdown).toContain('Do not omit or swap out');
+    expect(bootstrapMarkdown).toContain('Do not post a numbered survey');
+    expect(bootstrapMarkdown).toContain('Email is the only mandatory topic');
+    expect(bootstrapMarkdown).toContain('use for your welcome email?');
     expect(bootstrapMarkdown).toContain('home automation');
     expect(bootstrapMarkdown).toContain('software platforms');
     expect(bootstrapMarkdown).toContain(
@@ -313,7 +309,9 @@ describe('workspace bootstrap lifecycle', () => {
 
     const refreshed = fs.readFileSync(bootstrapPath, 'utf-8');
     expect(refreshed).toContain('Welcome Message');
-    expect(refreshed).toContain('tool call is the send signal');
+    expect(refreshed).toContain(
+      'After a successful `message` send, delete this file',
+    );
     expect(refreshed).not.toContain(
       'docs/content/guides/hatching-task-ideas.md',
     );

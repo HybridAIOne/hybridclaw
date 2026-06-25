@@ -714,11 +714,13 @@ function buildBootstrapAutostartPrompt(
     `A startup instruction file (${fileName}) exists for this agent.`,
     'This is an internal kickoff turn, not a user-authored message.',
     `Follow the ${fileName} instructions now and begin the conversation proactively.`,
-    fileName === 'BOOTSTRAP.md'
-      ? 'Start hatching by following BOOTSTRAP.md exactly. Use facts already present in USER.md. If email is not already known from USER.md, BOOTSTRAP.md requires asking for email in the starter questionnaire. Missing non-email answers are acceptable; tell the user they can add more context later.'
-      : 'Send a concise first message to the user.',
+    fileName === 'OPENING.md'
+      ? 'Send a concise first message to the user.'
+      : '',
     `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
-  ].join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 function normalizeBootstrapPrelude(raw: string): string | null {

@@ -659,10 +659,8 @@ function buildBootstrapChatTurnPrompt(params: {
     `A startup instruction file (${params.fileName}) exists and is already loaded in the system context.`,
     'Continue the in-progress hatching conversation using the full chat history above.',
     'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
-    `Keep following ${params.fileName}: acknowledge the user's latest reply and fill the remaining BOOTSTRAP.md starter-questionnaire gaps one or two at a time.`,
-    'If email is not already known from USER.md, ask for email before lower-priority details.',
+    `Keep following ${params.fileName} and acknowledge the user's latest reply.`,
     'If the user has not answered the previous questions yet, briefly point back to them instead of asking a fresh set.',
-    'If the user skips email or does not want to share one, keep going and tell them they can add it later.',
     'Do not ask a generic "what can I do for you?" question.',
     `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${params.fileName} explicitly requires it.`,
   ];

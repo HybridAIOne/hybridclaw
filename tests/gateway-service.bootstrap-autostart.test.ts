@@ -109,9 +109,7 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   ).toBe(true);
   expect(
     request?.messages?.some((message) =>
-      message.content.includes(
-        'What email address should I use for your welcome email?',
-      ),
+      message.content.includes('Email is the only mandatory topic'),
     ),
   ).toBe(true);
   expect(request?.messages?.at(-1)).toEqual({
@@ -121,9 +119,9 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
     ),
   });
   expect(request?.messages?.at(-1)?.content).toContain(
-    'Start hatching by following BOOTSTRAP.md exactly',
+    'Follow the BOOTSTRAP.md instructions now',
   );
-  expect(request?.messages?.at(-1)?.content).toContain(
+  expect(request?.messages?.at(-1)?.content).not.toContain(
     'BOOTSTRAP.md requires asking for email',
   );
   expect(callAuxiliaryModelMock).toHaveBeenCalledWith(

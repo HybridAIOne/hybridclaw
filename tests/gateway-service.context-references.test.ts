@@ -171,10 +171,7 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
     'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
   );
   expect(userMessage?.content).toContain(
-    'ask for email before lower-priority details',
-  );
-  expect(userMessage?.content).toContain(
-    'If the user skips email or does not want to share one, keep going',
+    'Keep following BOOTSTRAP.md and acknowledge',
   );
   expect(userMessage?.content).not.toContain(
     'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool.',
