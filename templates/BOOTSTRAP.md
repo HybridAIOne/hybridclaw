@@ -47,6 +47,8 @@ short welcome email with the `message` tool:
 - `subject=<specific subject>`
 
 Do not wait for every preference and do not ask for separate confirmation.
+Do not say the email is being sent or has been sent until after the `message`
+tool call succeeds.
 
 Keep the email short. Include:
 

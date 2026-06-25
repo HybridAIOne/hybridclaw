@@ -250,6 +250,9 @@ describe('workspace bootstrap lifecycle', () => {
     );
     expect(bootstrapMarkdown).toContain('exactly 3 concrete first tasks');
     expect(bootstrapMarkdown).toContain('copy-paste prompt ideas');
+    expect(bootstrapMarkdown).toContain(
+      'Do not say the email is being sent',
+    );
     expect(bootstrapMarkdown).not.toContain('Optional channel setup:');
 
     const files = workspace.loadBootstrapFiles('agent-test');

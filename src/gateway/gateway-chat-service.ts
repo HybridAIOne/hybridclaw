@@ -63,6 +63,11 @@ import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
+import {
+  collectModelLookupCandidates,
+  matchesModelFamily,
+} from '../providers/model-lookup.js';
+import { isGpt5ModelId } from '../providers/model-metadata.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { maybeAutoTitleSession } from '../session/session-title.js';
@@ -629,14 +634,33 @@ function captureGatewayChatResultError(params: {
   });
 }
 
-function buildBootstrapChatTurnPrompt(): string {
+function isGpt5OnboardingModelId(modelId: string): boolean {
+  return collectModelLookupCandidates(modelId).some(
+    (candidate) =>
+      isGpt5ModelId(candidate) || matchesModelFamily(candidate, 'gpt-5'),
+  );
+}
+
+function buildGpt5OnboardingPromptInjection(): string[] {
   return [
+    'If USER.md or the conversation contains the user email and enough profile or goal details to personalize the welcome, send the welcome email in this turn with the message tool. Missing non-email answers must not block sending; mention the user can add more context later.',
+    'Do not say the email is being sent, has been sent, or will be sent until after the message tool call has succeeded. If you are ready to send it, call message with action="send", to=<email>, subject=<specific subject>, and useful email content before writing the chat reply.',
+    'Follow the Welcome Email section in BOOTSTRAP.md: 3 concrete first tasks, 2 or 3 copy-paste prompt ideas, and a clear note that web chat already works. Do not ask for separate confirmation.',
+  ];
+}
+
+function buildBootstrapChatTurnPrompt(params: { model: string }): string {
+  const lines = [
     'Continue the in-progress BOOTSTRAP.md conversation using the full chat history above.',
     'Do not restart, reintroduce yourself, or repeat questions you already asked.',
     "Acknowledge the user's latest reply and keep going naturally.",
     'If the user has not answered yet, briefly point back to the pending email or context request instead of asking a fresh set.',
     'Do not ask a generic "what can I do for you?" question.',
-  ].join('\n');
+  ];
+  if (isGpt5OnboardingModelId(params.model)) {
+    lines.push('', ...buildGpt5OnboardingPromptInjection());
+  }
+  return lines.join('\n');
 }
 
 function shouldInjectBootstrapChatTurnPrompt(params: {
@@ -1694,7 +1718,9 @@ async function handleGatewayMessageInner(
         startupBootstrapFile === 'BOOTSTRAP.md' ? startupBootstrapFile : null,
     })
   ) {
-    agentUserContent = `${buildBootstrapChatTurnPrompt()}\n\nUser message:\n${agentUserContent}`;
+    agentUserContent = `${buildBootstrapChatTurnPrompt({
+      model,
+    })}\n\nUser message:\n${agentUserContent}`;
   }
   if (pluginManager?.hasMiddleware('pre_send')) {
     const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {

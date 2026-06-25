@@ -123,6 +123,7 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(systemPrompt).toContain('What email should I use for your welcome email?');
   expect(systemPrompt).toContain('home automation');
   expect(systemPrompt).toContain('software platforms');
+  expect(systemPrompt).toContain('Do not say the email is being sent');
   expect(systemPrompt).not.toContain('## AGENTS.md');
   expect(systemPrompt).not.toContain('## TOOLS.md');
   expect(systemPrompt).not.toContain('## BOOT.md');

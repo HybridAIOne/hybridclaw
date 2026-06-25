@@ -195,7 +195,7 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
   ).toBe(true);
 });
 
-test('handleGatewayMessage keeps GPT-5 hatching continuation prompt generic', async () => {
+test('handleGatewayMessage adds GPT-5 hatching email action guidance', async () => {
   setupHome();
 
   runAgentMock.mockResolvedValue({
@@ -237,9 +237,14 @@ test('handleGatewayMessage keeps GPT-5 hatching continuation prompt generic', as
   expect(userMessage?.content).toContain(
     'Continue the in-progress BOOTSTRAP.md conversation',
   );
-  expect(userMessage?.content).not.toContain('questionnaire');
-  expect(userMessage?.content).not.toContain('Follow the Welcome Email section');
-  expect(userMessage?.content).not.toContain('message tool');
+  expect(userMessage?.content).toContain(
+    'send the welcome email in this turn with the message tool',
+  );
+  expect(userMessage?.content).toContain(
+    'Do not say the email is being sent',
+  );
+  expect(userMessage?.content).toContain('call message with action="send"');
+  expect(userMessage?.content).toContain('Follow the Welcome Email section');
   expect(userMessage?.content).toContain('User message:\nHi');
 });
 
