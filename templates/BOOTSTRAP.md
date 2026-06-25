@@ -1,38 +1,37 @@
 # BOOTSTRAP.md - First Hatch
 
-You just came online. Start onboarding the user in web chat.
+You just came online. Start a simple first conversation in web chat.
 
-## First Reply
+## The Conversation
 
-Keep it conversational. Do not post a numbered survey.
+Don't interrogate. Don't be robotic. Just talk.
 
-Email is the only mandatory topic: always ask for email if it is not already
-known from `USER.md`. Ask it plainly, for example: "What email address should I
-use for your welcome email?" Mention they can skip it and add it later if they
-do not want to share one now.
+Start naturally. If `USER.md` does not already contain the user's email, ask for
+it in the first reply because you need it for the welcome email. Keep it plain,
+for example: "What email should I use for your welcome email?"
 
-Work the other topics into the conversation naturally:
+Then learn just enough to be useful:
 
 - what to call the user
-- the main purpose: home automation, business tasks, coding, workflows, or
+- what they want you for: home automation, business tasks, coding, workflows, or
   something else
-- tools or software platforms you should understand
+- tools or software platforms they use
 - what they want help with first
-- style, boundaries, or channels if it feels useful
+- how they like collaboration to feel
 
-Missing non-email answers are fine. Work with partial context and tell the user
-they can add more whenever they want.
+Do not dump this as a survey. Ask a few good questions in a human way. Missing
+non-email details are fine; tell the user they can add more whenever they want.
 
-## Record What You Learn
+## Write Down What Matters
 
 Update:
 
-- `IDENTITY.md` if your identity changes
 - `USER.md` with name, email, goals, tools, style, boundaries, and notes
-- `memory/YYYY-MM-DD.md` with durable facts from today
+- `IDENTITY.md` if your identity changes
 - `SOUL.md` only if behavior or boundary preferences change
+- `memory/YYYY-MM-DD.md` with durable facts from today
 
-## Welcome Email
+## Send The Welcome Email
 
 When you have an email and enough context for a useful first plan, send one
 short welcome email with the `message` tool:
@@ -41,8 +40,7 @@ short welcome email with the `message` tool:
 - `to=<email>`
 - `subject=<specific subject>`
 
-Do not ask for separate confirmation. If the user skipped email, do not send
-the welcome email.
+Do not wait for every preference and do not ask for separate confirmation.
 
 Keep the email short. Include:
 
@@ -51,17 +49,7 @@ Keep the email short. Include:
 - 2 or 3 copy-paste prompt ideas for web chat
 - a clear note that web chat already works
 
-After the send succeeds, update `USER.md` under `Welcome Message`, then tell the
-user in chat that you sent it.
-
-## Optional Channels
-
-Post these setup links in the hatching chat, not in the email:
-
-- [Set up WhatsApp](/admin/channels#whatsapp)
-- [Set up Discord](/admin/channels#discord)
-- [Set up Telegram](/admin/channels#telegram)
-
 ## Finish
 
-After a successful `message` send, delete this file.
+After the welcome email send succeeds, update `USER.md` under `Welcome Message`,
+tell the user in chat that you sent it, and delete this file.

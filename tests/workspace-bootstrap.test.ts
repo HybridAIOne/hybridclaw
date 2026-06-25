@@ -233,16 +233,14 @@ describe('workspace bootstrap lifecycle', () => {
     );
     const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
     const bootstrapMarkdown = fs.readFileSync(bootstrapPath, 'utf-8');
-    expect(bootstrapMarkdown).toContain('Do not post a numbered survey');
-    expect(bootstrapMarkdown).toContain('Email is the only mandatory topic');
-    expect(bootstrapMarkdown).toContain('use for your welcome email?');
+    expect(bootstrapMarkdown).toContain("Don't interrogate. Don't be robotic.");
+    expect(bootstrapMarkdown).toContain('What email should I use for your welcome email?');
+    expect(bootstrapMarkdown).toContain('Do not dump this as a survey');
     expect(bootstrapMarkdown).toContain('home automation');
     expect(bootstrapMarkdown).toContain('software platforms');
     expect(bootstrapMarkdown).toContain(
-      'Missing non-email answers are fine',
+      'non-email details are fine',
     );
-    expect(bootstrapMarkdown).toContain('/admin/channels#discord');
-    expect(bootstrapMarkdown).toContain('/admin/channels#telegram');
     expect(bootstrapMarkdown).toContain('exactly 3 concrete first tasks');
     expect(bootstrapMarkdown).toContain('copy-paste prompt ideas');
     expect(bootstrapMarkdown).not.toContain('Optional channel setup:');
@@ -310,7 +308,7 @@ describe('workspace bootstrap lifecycle', () => {
     const refreshed = fs.readFileSync(bootstrapPath, 'utf-8');
     expect(refreshed).toContain('Welcome Message');
     expect(refreshed).toContain(
-      'After a successful `message` send, delete this file',
+      'After the welcome email send succeeds',
     );
     expect(refreshed).not.toContain(
       'docs/content/guides/hatching-task-ideas.md',

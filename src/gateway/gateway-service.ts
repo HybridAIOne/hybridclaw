@@ -717,12 +717,10 @@ function buildBootstrapAutostartPrompt(
   fileName: 'BOOTSTRAP.md' | 'OPENING.md',
 ): string {
   return [
-    `A startup instruction file (${fileName}) exists for this agent.`,
-    'This is an internal kickoff turn, not a user-authored message.',
-    `Follow the ${fileName} instructions now and begin the conversation proactively.`,
+    `Follow ${fileName} before replying normally.`,
     fileName === 'OPENING.md'
       ? 'Send a concise first message to the user.'
-      : '',
+      : `Your first user-visible reply must follow ${fileName}, not a generic greeting.`,
   ]
     .filter(Boolean)
     .join(' ');

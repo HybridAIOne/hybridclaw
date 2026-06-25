@@ -63,11 +63,6 @@ import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
-import {
-  collectModelLookupCandidates,
-  matchesModelFamily,
-} from '../providers/model-lookup.js';
-import { isGpt5ModelId } from '../providers/model-metadata.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { maybeAutoTitleSession } from '../session/session-title.js';
@@ -634,36 +629,14 @@ function captureGatewayChatResultError(params: {
   });
 }
 
-function isGpt5OnboardingModelId(modelId: string): boolean {
-  return collectModelLookupCandidates(modelId).some(
-    (candidate) =>
-      isGpt5ModelId(candidate) || matchesModelFamily(candidate, 'gpt-5'),
-  );
-}
-
-function buildGpt5OnboardingPromptInjection(): string[] {
+function buildBootstrapChatTurnPrompt(): string {
   return [
-    'If USER.md or the conversation contains the user email and the user has given enough profile or goal details to personalize the welcome, send a useful welcome email with the message tool. Missing non-email questionnaire answers must not block sending; mention that the user can add more context later. Use the email from USER.md or the conversation; do not ask for email again if it is already known. Follow the Welcome Email section in BOOTSTRAP.md: 3 concrete first tasks, 2 or 3 copy-paste prompt ideas, and one concrete next step. Do not include channel setup links in the email; post those links as Markdown links in the hatching chat. Set action="send", to=<email>, and subject=<specific subject>. Do not ask for separate confirmation.',
-  ];
-}
-
-function buildBootstrapChatTurnPrompt(params: {
-  fileName: 'BOOTSTRAP.md';
-  model: string;
-}): string {
-  const lines = [
-    'Hatching mode is active for this agent.',
-    `A startup instruction file (${params.fileName}) exists and is already loaded in the system context.`,
-    'Continue the in-progress hatching conversation using the full chat history above.',
-    'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
-    `Keep following ${params.fileName} and acknowledge the user's latest reply.`,
-    'If the user has not answered the previous questions yet, briefly point back to them instead of asking a fresh set.',
+    'Continue the in-progress BOOTSTRAP.md conversation using the full chat history above.',
+    'Do not restart, reintroduce yourself, or repeat questions you already asked.',
+    "Acknowledge the user's latest reply and keep going naturally.",
+    'If the user has not answered yet, briefly point back to the pending email or context request instead of asking a fresh set.',
     'Do not ask a generic "what can I do for you?" question.',
-  ];
-  if (isGpt5OnboardingModelId(params.model)) {
-    lines.push('', ...buildGpt5OnboardingPromptInjection());
-  }
-  return lines.join('\n');
+  ].join('\n');
 }
 
 function shouldInjectBootstrapChatTurnPrompt(params: {
@@ -1721,10 +1694,7 @@ async function handleGatewayMessageInner(
         startupBootstrapFile === 'BOOTSTRAP.md' ? startupBootstrapFile : null,
     })
   ) {
-    agentUserContent = `${buildBootstrapChatTurnPrompt({
-      fileName: 'BOOTSTRAP.md',
-      model,
-    })}\n\nUser message:\n${agentUserContent}`;
+    agentUserContent = `${buildBootstrapChatTurnPrompt()}\n\nUser message:\n${agentUserContent}`;
   }
   if (pluginManager?.hasMiddleware('pre_send')) {
     const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {

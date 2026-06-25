@@ -112,7 +112,8 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(systemPrompt).toContain('## MEMORY.md');
   expect(systemPrompt).toContain('## BOOTSTRAP.md');
   expect(systemPrompt).toContain('## Runtime Metadata');
-  expect(systemPrompt).toContain('Email is the only mandatory topic');
+  expect(systemPrompt).toContain("Don't interrogate. Don't be robotic.");
+  expect(systemPrompt).toContain('What email should I use for your welcome email?');
   expect(systemPrompt).toContain('home automation');
   expect(systemPrompt).toContain('software platforms');
   expect(systemPrompt).not.toContain('## AGENTS.md');
@@ -130,14 +131,14 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining(
-      'A startup instruction file (BOOTSTRAP.md) exists',
+      'Follow BOOTSTRAP.md before replying normally',
     ),
   });
   expect(request?.messages?.at(-1)?.content).toContain(
-    'Follow the BOOTSTRAP.md instructions now',
+    'Your first user-visible reply must follow BOOTSTRAP.md',
   );
   expect(request?.messages?.at(-1)?.content).not.toContain(
-    'BOOTSTRAP.md requires asking for email',
+    'startup instruction file',
   );
   expect(callAuxiliaryModelMock).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -473,7 +474,7 @@ test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per se
   ).toBe(true);
   expect(
     request?.messages?.some((message) =>
-      message.content.includes('A startup instruction file (OPENING.md) exists'),
+      message.content.includes('Follow OPENING.md before replying normally'),
     ),
   ).toBe(true);
   expect(request?.messages?.at(-1)).toEqual({
@@ -543,7 +544,7 @@ test('ensureGatewayBootstrapAutostart can hatch a selected agent in an existing 
   expect(request?.messages?.at(-1)).toEqual({
     role: 'user',
     content: expect.stringContaining(
-      'A startup instruction file (BOOTSTRAP.md) exists',
+      'Follow BOOTSTRAP.md before replying normally',
     ),
   });
   expect(getGatewayHistory(sessionId, 10).history).toEqual(

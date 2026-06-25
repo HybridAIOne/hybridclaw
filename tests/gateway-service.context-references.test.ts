@@ -159,19 +159,13 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
   );
   expect(userMessage?.role).toBe('user');
   expect(userMessage?.content).toContain(
-    'Hatching mode is active for this agent.',
+    'Continue the in-progress BOOTSTRAP.md conversation using the full chat history above.',
   );
   expect(userMessage?.content).toContain(
-    'A startup instruction file (BOOTSTRAP.md) exists',
+    'Do not restart, reintroduce yourself, or repeat questions you already asked.',
   );
   expect(userMessage?.content).toContain(
-    'Continue the in-progress hatching conversation using the full chat history above.',
-  );
-  expect(userMessage?.content).toContain(
-    'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
-  );
-  expect(userMessage?.content).toContain(
-    'Keep following BOOTSTRAP.md and acknowledge',
+    "Acknowledge the user's latest reply and keep going naturally.",
   );
   expect(userMessage?.content).not.toContain(
     'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool.',
@@ -196,12 +190,12 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
   expect(storedUsers).toContain('Hi');
   expect(
     storedUsers.every(
-      (content) => !content.includes('Hatching mode is active'),
+      (content) => !content.includes('Continue the in-progress BOOTSTRAP.md'),
     ),
   ).toBe(true);
 });
 
-test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-mini', async () => {
+test('handleGatewayMessage keeps GPT-5 hatching continuation prompt generic', async () => {
   setupHome();
 
   runAgentMock.mockResolvedValue({
@@ -241,26 +235,11 @@ test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-m
 
   expect(userMessage?.role).toBe('user');
   expect(userMessage?.content).toContain(
-    'If USER.md or the conversation contains the user email and the user has given enough profile or goal details to personalize the welcome, send a useful welcome email with the message tool.',
+    'Continue the in-progress BOOTSTRAP.md conversation',
   );
-  expect(userMessage?.content).toContain(
-    'Missing non-email questionnaire answers must not block sending',
-  );
-  expect(userMessage?.content).toContain(
-    'Use the email from USER.md or the conversation; do not ask for email again if it is already known.',
-  );
-  expect(userMessage?.content).toContain(
-    'Follow the Welcome Email section in BOOTSTRAP.md',
-  );
-  expect(userMessage?.content).toContain(
-    '3 concrete first tasks, 2 or 3 copy-paste prompt ideas',
-  );
-  expect(userMessage?.content).toContain(
-    'Do not include channel setup links in the email; post those links as Markdown links in the hatching chat.',
-  );
-  expect(userMessage?.content).toContain(
-    'Do not ask for separate confirmation.',
-  );
+  expect(userMessage?.content).not.toContain('questionnaire');
+  expect(userMessage?.content).not.toContain('Follow the Welcome Email section');
+  expect(userMessage?.content).not.toContain('message tool');
   expect(userMessage?.content).toContain('User message:\nHi');
 });
 
