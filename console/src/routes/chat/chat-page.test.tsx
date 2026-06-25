@@ -500,6 +500,64 @@ describe('ChatPage', () => {
     );
   });
 
+  it('mints a session and loads history for the configured default agent on bare chat', async () => {
+    const routerModule = (await import(
+      '@tanstack/react-router'
+    )) as unknown as {
+      __testRouter: TestRouter;
+    };
+    routerModule.__testRouter.setSessionId(null);
+    window.history.replaceState(null, '', '/chat');
+    const gatewayStatus: GatewayStatus = {
+      status: 'ok',
+      webAuthConfigured: true,
+      version: '0.0.0',
+      imageTag: null,
+      uptime: 0,
+      sessions: 0,
+      activeContainers: 0,
+      defaultAgentId: 'assistant',
+      defaultModel: 'gpt-5',
+      ragDefault: false,
+      timestamp: '2026-04-14T10:00:00.000Z',
+    };
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      token: 'test-token',
+      gatewayStatus,
+      error: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+      retry: vi.fn(),
+    });
+    fetchAppStatusMock.mockResolvedValue(gatewayStatus);
+    fetchChatHistoryMock.mockImplementation(async (_token, sessionId) => ({
+      sessionId,
+      agentId: 'assistant',
+      history: [],
+      bootstrapAutostart: {
+        status: 'starting',
+        fileName: 'BOOTSTRAP.md',
+      },
+    }));
+
+    renderChatPage();
+
+    await waitFor(() =>
+      expect(routerModule.__testRouter.lastTo).toBe('/chat/$sessionId'),
+    );
+    expect(routerModule.__testRouter.lastReplace).toBe(true);
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
+        80,
+        'web-user-1',
+        undefined,
+      ),
+    );
+  });
+
   it('syncs the agent dropdown from the active session history', async () => {
     fetchAgentListMock.mockResolvedValue([
       { id: 'main', name: 'Main Agent' },

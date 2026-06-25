@@ -455,6 +455,7 @@ import {
   WORKSPACE_BOOTSTRAP_FILES,
 } from '../workspace.js';
 import {
+  getActiveThreadAgentId,
   resolveAgentAddressing,
   setActiveThreadAgentId,
 } from './agent-addressing.js';
@@ -8453,11 +8454,23 @@ function resolveBootstrapAutostartContext(params: {
     requestedSessionId,
     params.channelId,
   );
+  const requestedAgentId = String(params.agentId || '').trim();
+  const existingSession = memoryService.getSessionById(requestedSessionId);
+  const existingSessionAgentId =
+    String(existingSession?.agent_id || '').trim() || '';
+  const activeThreadAgentId = existingSession
+    ? getActiveThreadAgentId(existingSession)
+    : null;
+  const autostartAgentId =
+    requestedAgentId ||
+    activeThreadAgentId ||
+    existingSessionAgentId ||
+    undefined;
   const session = memoryService.getOrCreateSession(
     requestedSessionId,
     null,
     channelId,
-    params.agentId ?? undefined,
+    autostartAgentId,
   );
   if (
     !params.allowExistingSessionMessages &&
@@ -8468,7 +8481,7 @@ function resolveBootstrapAutostartContext(params: {
   }
 
   const resolved = resolveAgentForRequest({
-    agentId: params.agentId,
+    agentId: autostartAgentId,
     session,
   });
   ensureBootstrapFiles(resolved.agentId);
