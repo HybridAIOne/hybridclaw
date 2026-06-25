@@ -2155,6 +2155,9 @@ th {
 .allow-list-items {
   display: grid;
   gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .allow-list-item {

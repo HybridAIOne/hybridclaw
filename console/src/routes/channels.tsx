@@ -99,18 +99,20 @@ function AllowListField(props: {
   onChange: (value: string[]) => void;
 }) {
   const [nextValue, setNextValue] = useState('');
-  const entries = props.value.map((entry) => entry.trim()).filter(Boolean);
+  const entries = [
+    ...new Set(props.value.map((entry) => entry.trim()).filter(Boolean)),
+  ];
   const canAdd = parseStringList(nextValue).length > 0;
 
   const addEntries = () => {
     const nextEntries = parseStringList(nextValue);
     if (nextEntries.length === 0) return;
-    props.onChange([...entries, ...nextEntries]);
+    props.onChange([...new Set([...entries, ...nextEntries])]);
     setNextValue('');
   };
 
-  const removeEntry = (index: number) => {
-    props.onChange(entries.filter((_, entryIndex) => entryIndex !== index));
+  const removeEntry = (entryToRemove: string) => {
+    props.onChange(entries.filter((entry) => entry !== entryToRemove));
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -139,22 +141,22 @@ function AllowListField(props: {
         </Button>
       </div>
       {entries.length > 0 ? (
-        <div className="allow-list-items" role="list">
-          {entries.map((entry, index) => (
-            <div className="allow-list-item" role="listitem" key={`${index}-${entry}`}>
+        <ul className="allow-list-items">
+          {entries.map((entry) => (
+            <li className="allow-list-item" key={entry}>
               <span>{entry}</span>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 aria-label={`Remove ${entry}`}
-                onClick={() => removeEntry(index)}
+                onClick={() => removeEntry(entry)}
               >
                 <Trash width={15} height={15} />
               </Button>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       ) : (
         <p className="muted-copy">No allowed senders configured.</p>
       )}
