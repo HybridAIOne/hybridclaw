@@ -1098,7 +1098,7 @@ describe('ChannelsPage', () => {
           daemonUrl: 'http://127.0.0.1:8080',
           account: '+14155550123',
           dmPolicy: 'allowlist',
-          allowFrom: ['+14155551212'],
+          allowFrom: ['+14155551212', '+14155559876'],
         },
       },
     });
@@ -1125,9 +1125,24 @@ describe('ChannelsPage', () => {
     fireEvent.change(screen.getByLabelText('DM policy'), {
       target: { value: 'allowlist' },
     });
+    const addDmSenderButton = within(panel as HTMLElement).getAllByRole(
+      'button',
+      {
+        name: 'Add',
+      },
+    )[0] as HTMLElement;
     fireEvent.change(screen.getByLabelText('Allowed DM senders'), {
       target: { value: '+14155551212' },
     });
+    fireEvent.click(addDmSenderButton);
+    fireEvent.change(screen.getByLabelText('Allowed DM senders'), {
+      target: { value: '+14155551212' },
+    });
+    fireEvent.click(addDmSenderButton);
+    fireEvent.change(screen.getByLabelText('Allowed DM senders'), {
+      target: { value: '+14155559876' },
+    });
+    fireEvent.click(addDmSenderButton);
     fireEvent.click(
       within(panel as HTMLElement).getByRole('button', {
         name: 'Save channel settings',
@@ -1143,11 +1158,55 @@ describe('ChannelsPage', () => {
             daemonUrl: 'http://127.0.0.1:8080',
             account: '+14155550123',
             dmPolicy: 'allowlist',
-            allowFrom: ['+14155551212'],
+            allowFrom: ['+14155551212', '+14155559876'],
           }),
         }),
       );
     });
+  });
+
+  it('confirms and labels wildcard Signal allowlist entries', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig({
+        signal: {
+          ...makeConfig().signal,
+          enabled: true,
+          account: '+14155550123',
+          dmPolicy: 'allowlist',
+        },
+      }),
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /Signal/i });
+    fireEvent.click(screen.getByRole('button', { name: /Signal/i }));
+
+    const panel = screen
+      .getByRole('heading', { name: 'Signal settings' })
+      .closest('[data-slot="card"]');
+    expect(panel).not.toBeNull();
+
+    const addDmSenderButton = within(panel as HTMLElement).getAllByRole(
+      'button',
+      {
+        name: 'Add',
+      },
+    )[0] as HTMLElement;
+    fireEvent.change(screen.getByLabelText('Allowed DM senders'), {
+      target: { value: '*' },
+    });
+    fireEvent.click(addDmSenderButton);
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Adding * allows every sender for this allowlist. Continue?',
+    );
+    expect(within(panel as HTMLElement).getByText('*')).toBeTruthy();
+    expect(within(panel as HTMLElement).getByText('all senders')).toBeTruthy();
+
+    confirmSpy.mockRestore();
   });
 
   it('starts Signal linked-device setup and renders the QR', async () => {
