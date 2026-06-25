@@ -2141,6 +2141,44 @@ th {
   background: var(--panel-muted);
 }
 
+.allow-list-field {
+  align-content: start;
+}
+
+.allow-list-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.allow-list-items {
+  display: grid;
+  gap: 8px;
+}
+
+.allow-list-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--chip-surface);
+}
+
+.allow-list-item span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family:
+    ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
 .email-account-section,
 .email-account-list,
 .email-account-row {

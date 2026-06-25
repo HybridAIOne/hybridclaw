@@ -1098,7 +1098,7 @@ describe('ChannelsPage', () => {
           daemonUrl: 'http://127.0.0.1:8080',
           account: '+14155550123',
           dmPolicy: 'allowlist',
-          allowFrom: ['+14155551212'],
+          allowFrom: ['+14155551212', '+14155559876'],
         },
       },
     });
@@ -1126,8 +1126,13 @@ describe('ChannelsPage', () => {
       target: { value: 'allowlist' },
     });
     fireEvent.change(screen.getByLabelText('Allowed DM senders'), {
-      target: { value: '+14155551212' },
+      target: { value: '+14155551212, +14155559876' },
     });
+    const addButtons = within(panel as HTMLElement).getAllByRole('button', {
+      name: 'Add',
+    });
+    expect(addButtons[0]).toBeTruthy();
+    fireEvent.click(addButtons[0] as HTMLElement);
     fireEvent.click(
       within(panel as HTMLElement).getByRole('button', {
         name: 'Save channel settings',
@@ -1143,7 +1148,7 @@ describe('ChannelsPage', () => {
             daemonUrl: 'http://127.0.0.1:8080',
             account: '+14155550123',
             dmPolicy: 'allowlist',
-            allowFrom: ['+14155551212'],
+            allowFrom: ['+14155551212', '+14155559876'],
           }),
         }),
       );

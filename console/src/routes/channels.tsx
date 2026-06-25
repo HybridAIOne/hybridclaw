@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { type KeyboardEvent, useEffect, useState } from 'react';
 import {
   fetchAdminAgents,
   fetchConfig,
@@ -89,6 +89,76 @@ function ListField(props: {
         placeholder={props.placeholder}
       />
     </label>
+  );
+}
+
+function AllowListField(props: {
+  label: string;
+  value: string[];
+  placeholder?: string;
+  onChange: (value: string[]) => void;
+}) {
+  const [nextValue, setNextValue] = useState('');
+  const entries = props.value.map((entry) => entry.trim()).filter(Boolean);
+  const canAdd = parseStringList(nextValue).length > 0;
+
+  const addEntries = () => {
+    const nextEntries = parseStringList(nextValue);
+    if (nextEntries.length === 0) return;
+    props.onChange([...entries, ...nextEntries]);
+    setNextValue('');
+  };
+
+  const removeEntry = (index: number) => {
+    props.onChange(entries.filter((_, entryIndex) => entryIndex !== index));
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    addEntries();
+  };
+
+  return (
+    <Field className="allow-list-field">
+      <FieldLabel>{props.label}</FieldLabel>
+      <div className="allow-list-add-row">
+        <Input
+          value={nextValue}
+          onChange={(event) => setNextValue(event.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={props.placeholder}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={!canAdd}
+          onClick={addEntries}
+        >
+          Add
+        </Button>
+      </div>
+      {entries.length > 0 ? (
+        <div className="allow-list-items" role="list">
+          {entries.map((entry, index) => (
+            <div className="allow-list-item" role="listitem" key={`${index}-${entry}`}>
+              <span>{entry}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={`Remove ${entry}`}
+                onClick={() => removeEntry(index)}
+              >
+                <Trash width={15} height={15} />
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="muted-copy">No allowed senders configured.</p>
+      )}
+    </Field>
   );
 }
 
@@ -751,11 +821,10 @@ function WhatsAppChannelEditor(props: {
       <FormField
         name="whatsapp.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed DM senders"
             value={field.value as string[]}
-            rows={3}
-            placeholder="comma or newline separated"
+            placeholder="+14155551212 or *"
             onChange={field.onChange}
           />
         )}
@@ -764,11 +833,10 @@ function WhatsAppChannelEditor(props: {
       <FormField
         name="whatsapp.groupAllowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed group senders"
             value={field.value as string[]}
-            rows={3}
-            placeholder="comma or newline separated"
+            placeholder="+14155551212 or *"
             onChange={field.onChange}
           />
         )}
@@ -963,10 +1031,9 @@ function TelegramChannelEditor(props: {
       <FormField
         name="telegram.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed DM senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="numeric user id, @username, or *"
             onChange={field.onChange}
           />
@@ -976,10 +1043,9 @@ function TelegramChannelEditor(props: {
       <FormField
         name="telegram.groupAllowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed group senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="numeric user id, @username, or *"
             onChange={field.onChange}
           />
@@ -1114,10 +1180,9 @@ function ThreemaChannelEditor(props: {
       <FormField
         name="threema.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="threema:ABCDEFGH, threema:phone:41791234567, or *"
             onChange={field.onChange}
           />
@@ -1358,10 +1423,9 @@ function SignalChannelEditor(props: {
       <FormField
         name="signal.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed DM senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="+14155551212, Signal UUID, or *"
             onChange={field.onChange}
           />
@@ -1371,10 +1435,9 @@ function SignalChannelEditor(props: {
       <FormField
         name="signal.groupAllowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed group senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="+14155551212, Signal UUID, or *"
             onChange={field.onChange}
           />
@@ -1791,10 +1854,9 @@ function EmailChannelEditor(props: {
       <FormField
         name="email.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="name@example.com, *@example.com"
             onChange={field.onChange}
           />
@@ -2084,10 +2146,9 @@ function EmailChannelEditor(props: {
                     }
                   />
 
-                  <ListField
+                  <AllowListField
                     label="Mailbox allowed senders"
                     value={account.allowFrom}
-                    rows={2}
                     placeholder="name@example.com, *@example.com"
                     onChange={(allowFrom) =>
                       updateEmailAccount(index, (current) => ({
@@ -2479,11 +2540,10 @@ function TeamsChannelEditor(props: {
       <FormField
         name="msteams.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed AAD object IDs"
             value={field.value as string[]}
-            rows={4}
-            placeholder="comma or newline separated"
+            placeholder="AAD object ID or *"
             onChange={field.onChange}
           />
         )}
@@ -2651,11 +2711,10 @@ function SlackChannelEditor(props: {
       <FormField
         name="slack.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed DM Slack user IDs"
             value={field.value as string[]}
-            rows={4}
-            placeholder="comma or newline separated"
+            placeholder="Slack user ID or *"
             onChange={field.onChange}
           />
         )}
@@ -2664,11 +2723,10 @@ function SlackChannelEditor(props: {
       <FormField
         name="slack.groupAllowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed channel Slack user IDs"
             value={field.value as string[]}
-            rows={4}
-            placeholder="comma or newline separated"
+            placeholder="Slack user ID or *"
             onChange={field.onChange}
           />
         )}
@@ -3142,10 +3200,9 @@ function IMessageChannelEditor(props: {
       <FormField
         name="imessage.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed DM senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="phone, email, or chat:id"
             onChange={field.onChange}
           />
@@ -3155,10 +3212,9 @@ function IMessageChannelEditor(props: {
       <FormField
         name="imessage.groupAllowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed group senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="phone, email, or chat:id"
             onChange={field.onChange}
           />
