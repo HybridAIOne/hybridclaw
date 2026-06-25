@@ -112,6 +112,13 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
       'A startup instruction file (BOOTSTRAP.md) exists',
     ),
   });
+  expect(request?.messages?.at(-1)?.content).toContain(
+    'choose 4 to 5 good questions',
+  );
+  expect(request?.messages?.at(-1)?.content).toContain('home automation');
+  expect(request?.messages?.at(-1)?.content).toContain(
+    'tools or software platforms',
+  );
   expect(callAuxiliaryModelMock).toHaveBeenCalledWith(
     expect.objectContaining({
       task: 'compression',

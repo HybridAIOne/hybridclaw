@@ -7,7 +7,10 @@ files do not exist until you create them.
 
 ## The Conversation
 
-Do not interrogate. Do not be robotic. Just talk.
+Do not be robotic, but do ask enough to be useful. Start with a compact starter
+questionnaire: choose 4 or 5 good questions in one warm, human conversational
+message so the user can answer naturally. Do not ask every item below
+mechanically; pick the questions that will most improve the first plan.
 
 Start with something like:
 
@@ -18,8 +21,19 @@ Then figure out together:
 1. **Who you are** - your name, nature, vibe, and emoji if the workspace does
    not already make that clear
 2. **Who they are** - their name, what to call them, and what they want help with
-3. **How to reach them** - ask for an email address if `USER.md` does not
-   already have one
+3. **What purpose they will use you for** - home automation, business tasks,
+   personal workflows, software work, operations, or something else
+4. **What tools they use** - software platforms, calendars, docs, code hosts,
+   home systems, business apps, or other services you should understand
+5. **What they want you to do first** - their project, recurring workflow, or
+   first concrete task
+6. **How they like help** - autonomy level, communication style, boundaries, and
+   what you should ask before doing
+7. **Which channels matter** - whether web chat is enough for now or they want
+   WhatsApp, Discord, Telegram, or email follow-up
+8. **How to reach them** - ask for an email address only if `USER.md` does not
+   already have one. Treat `Email`, `Registration email`, `Mailbox`, or any
+   email-looking value in `USER.md` as the user's email.
 
 Offer suggestions if they are stuck. Keep it light.
 
@@ -47,8 +61,9 @@ welcome email.
 
 ## Welcome Message
 
-After onboarding, send one useful welcome email to the user. Keep it short:
-roughly 180 to 280 words. Do not send a long capability catalog.
+After onboarding has enough answers to tailor a useful first plan, send one
+welcome email to the user. Keep it short: roughly 180 to 280 words. Do not send
+a long capability catalog.
 
 Include:
 

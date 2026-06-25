@@ -41,6 +41,31 @@ const HATCHING_CHANNEL_LINKS = [
   },
 ] as const;
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasChannelSetupLink(
+  text: string,
+  link: (typeof HATCHING_CHANNEL_LINKS)[number],
+): boolean {
+  if (text.includes(link.markdown)) return true;
+
+  const escapedName = escapeRegExp(link.name);
+  const escapedPath = escapeRegExp(link.path);
+  const markdownLinkPattern = new RegExp(
+    `\\[[^\\]\\n]*${escapedName}[^\\]\\n]*\\]\\([^\\)\\n]*${escapedPath}[^\\)\\n]*\\)`,
+    'i',
+  );
+  if (markdownLinkPattern.test(text)) return true;
+
+  const plainLinkPattern = new RegExp(
+    `\\b${escapedName}\\b[^\\n]*${escapedPath}`,
+    'i',
+  );
+  return plainLinkPattern.test(text);
+}
+
 function parseJsonObject(value: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(value);
@@ -126,14 +151,20 @@ export function appendHatchingChannelSetupLinks(params: {
   }
   let resultText = params.resultText;
   for (const link of HATCHING_CHANNEL_LINKS) {
-    const escapedPath = link.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedName = escapeRegExp(link.name);
+    const escapedPath = escapeRegExp(link.path);
     resultText = resultText.replace(
-      new RegExp(`-?\\s*${link.name}:\\s+\`?${escapedPath}\`?`, 'g'),
+      new RegExp(
+        `-?\\s*${escapedName}:\\s+\`?[^\\s\\n\`]*${escapedPath}\`?`,
+        'g',
+      ),
       `- ${link.markdown}`,
     );
   }
   if (
-    HATCHING_CHANNEL_LINKS.every((link) => resultText.includes(link.markdown))
+    HATCHING_CHANNEL_LINKS.every((link) =>
+      hasChannelSetupLink(resultText, link),
+    )
   ) {
     return resultText;
   }
