@@ -234,12 +234,16 @@ describe('workspace bootstrap lifecycle', () => {
     const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
     const bootstrapMarkdown = fs.readFileSync(bootstrapPath, 'utf-8');
     expect(bootstrapMarkdown).toContain("Don't interrogate. Don't be robotic.");
+    expect(bootstrapMarkdown).toContain(
+      'The first reply should feel like a human beginning',
+    );
+    expect(bootstrapMarkdown).toContain('Do not cram everything into one line');
+    expect(bootstrapMarkdown).toContain('Email is the only');
     expect(bootstrapMarkdown).toContain('What email should I use for your welcome email?');
-    expect(bootstrapMarkdown).toContain('Do not dump this as a survey');
     expect(bootstrapMarkdown).toContain('home automation');
     expect(bootstrapMarkdown).toContain('software platforms');
     expect(bootstrapMarkdown).toContain(
-      'non-email details are fine',
+      'Missing non-email details are',
     );
     expect(bootstrapMarkdown).toContain('exactly 3 concrete first tasks');
     expect(bootstrapMarkdown).toContain('copy-paste prompt ideas');

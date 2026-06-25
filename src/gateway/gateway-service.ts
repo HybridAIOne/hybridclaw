@@ -8689,7 +8689,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
           }
         : {}),
       extraSafetyText:
-        'Bootstrap kickoff turn. Start the conversation proactively with a concise user-facing opening message.',
+        'Bootstrap kickoff turn. Start the conversation proactively with a natural user-facing hatching message.',
       runtimeInfo: {
         chatbotId,
         model,

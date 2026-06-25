@@ -113,6 +113,11 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(systemPrompt).toContain('## BOOTSTRAP.md');
   expect(systemPrompt).toContain('## Runtime Metadata');
   expect(systemPrompt).toContain("Don't interrogate. Don't be robotic.");
+  expect(systemPrompt).toContain(
+    'The first reply should feel like a human beginning',
+  );
+  expect(systemPrompt).toContain('Do not cram everything into one line');
+  expect(systemPrompt).toContain('Email is the only');
   expect(systemPrompt).toContain('What email should I use for your welcome email?');
   expect(systemPrompt).toContain('home automation');
   expect(systemPrompt).toContain('software platforms');
