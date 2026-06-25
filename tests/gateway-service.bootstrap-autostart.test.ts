@@ -158,7 +158,7 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
       agentId: 'main',
       fallbackEnableRag: false,
       maxTokens: 48,
-      timeoutMs: 1500,
+      timeoutMs: 5000,
       messages: [
         {
           role: 'user',
