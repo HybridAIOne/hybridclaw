@@ -119,6 +119,10 @@ function buildBranchInfoMap(
   return map;
 }
 
+function hasUserMessage(messages: ChatUiMessage[]): boolean {
+  return messages.some((message) => message.role === 'user');
+}
+
 function chatRecentQueryKey(
   token: string,
   userId: string,
@@ -170,7 +174,7 @@ export function ChatPage() {
 
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const launchAgentSessionIdRef = useRef<string | null>(null);
-  const suppressDefaultAutostartRef = useRef(false);
+  const sessionsWithUserMessagesRef = useRef<Set<string>>(new Set());
   const debouncedSessionSearchQuery = useDebouncedValue(
     sessionSearchQuery,
     160,
@@ -228,18 +232,13 @@ export function ChatPage() {
     switchToSession,
     startFreshChat,
     ensureSessionForSend,
+    isLocallyCreatedSession,
     handleSessionIdCorrection,
   } = useChatSession();
 
-  const startBlankChat = useCallback(() => {
-    suppressDefaultAutostartRef.current = true;
-    startFreshChat();
-  }, [startFreshChat]);
-
-  useEffect(() => {
-    if (!launchAgentId) return;
-    launchAgentSessionIdRef.current = ensureSessionForSend();
-  }, [ensureSessionForSend, launchAgentId]);
+  if (launchAgentId && sessionId && !launchAgentSessionIdRef.current) {
+    launchAgentSessionIdRef.current = sessionId;
+  }
 
   const requestedHistoryAgentId =
     sessionId && launchAgentSessionIdRef.current === sessionId
@@ -268,19 +267,6 @@ export function ChatPage() {
         ? auth.gatewayStatus
         : undefined,
   });
-
-  useEffect(() => {
-    if (launchAgentId || sessionId || !chatApiReady) return;
-    if (suppressDefaultAutostartRef.current) return;
-    if (!appStatusQuery.data?.defaultAgentId?.trim()) return;
-    ensureSessionForSend();
-  }, [
-    appStatusQuery.data?.defaultAgentId,
-    chatApiReady,
-    ensureSessionForSend,
-    launchAgentId,
-    sessionId,
-  ]);
 
   const agentsQuery = useQuery({
     queryKey: ['agents-list', auth.token],
@@ -443,6 +429,15 @@ export function ChatPage() {
   });
 
   const messages = historyQuery.data?.messages ?? EMPTY_MESSAGES;
+  useEffect(() => {
+    if (!sessionId || historyQuery.data?.requestedSessionId !== sessionId) {
+      return;
+    }
+    if (hasUserMessage(historyQuery.data.messages)) {
+      sessionsWithUserMessagesRef.current.add(sessionId);
+    }
+  }, [historyQuery.data, sessionId]);
+
   const isBootstrapAutostartStarting =
     historyQuery.data?.bootstrapAutostart?.status === 'starting';
   const visibleMessages = useMemo<ChatUiMessage[]>(() => {
@@ -494,7 +489,7 @@ export function ChatPage() {
       setSessionPendingDelete(null);
       const currentSessionId = getSessionId();
       if (deletedSessionId === currentSessionId) {
-        startBlankChat();
+        startFreshChat({ replace: true });
       }
     },
     onError: (err) => {
@@ -618,10 +613,19 @@ export function ChatPage() {
 
   // Server may resolve to a canonical branch id; keep the URL in sync.
   useEffect(() => {
+    if (historyQuery.isPending || historyQuery.fetchStatus !== 'idle') return;
+    if (historyQuery.data?.requestedSessionId !== sessionId) return;
     const resolved = historyQuery.data?.resolvedSessionId;
     if (!resolved || resolved === sessionId) return;
     void navigateToSession(resolved, { replace: true });
-  }, [historyQuery.data?.resolvedSessionId, sessionId, navigateToSession]);
+  }, [
+    historyQuery.data?.requestedSessionId,
+    historyQuery.data?.resolvedSessionId,
+    historyQuery.fetchStatus,
+    historyQuery.isPending,
+    sessionId,
+    navigateToSession,
+  ]);
 
   const branchInfoMap = useMemo(
     () => buildBranchInfoMap(messages, branchFamilies),
@@ -740,18 +744,88 @@ export function ChatPage() {
     [auth.token, setError],
   );
 
+  const shouldCleanupNoUserSession = useCallback(
+    (targetSessionId: string) => {
+      if (!targetSessionId) return false;
+      if (sessionsWithUserMessagesRef.current.has(targetSessionId)) {
+        return false;
+      }
+
+      const matchingHistory =
+        historyQuery.data?.requestedSessionId === targetSessionId
+          ? historyQuery.data
+          : null;
+      if (matchingHistory && hasUserMessage(matchingHistory.messages)) {
+        return false;
+      }
+
+      if (isLocallyCreatedSession(targetSessionId)) return true;
+
+      return Boolean(
+        matchingHistory &&
+          !historyQuery.isPending &&
+          historyQuery.fetchStatus === 'idle',
+      );
+    },
+    [
+      historyQuery.data,
+      historyQuery.fetchStatus,
+      historyQuery.isPending,
+      isLocallyCreatedSession,
+    ],
+  );
+
+  const cleanupNoUserSession = useCallback(
+    (targetSessionId: string) => {
+      void deleteChatSession(auth.token, targetSessionId)
+        .then((data) => {
+          if (!data.deleted) return;
+          const deletedSessionId = data.sessionId;
+          queryClient.removeQueries({
+            queryKey: chatHistoryQueryKey(auth.token, deletedSessionId),
+          });
+          queryClient.removeQueries({
+            queryKey: chatContextQueryKey(auth.token, deletedSessionId),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: chatRecentQueryPrefix(auth.token, userId),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ['overview'],
+            refetchType: 'none',
+          });
+        })
+        .catch((err: unknown) => {
+          console.warn('Failed to clean up no-user chat session', err);
+        });
+    },
+    [auth.token, queryClient, userId],
+  );
+
   const handleNewChat = useCallback(() => {
     if (stream.isActive()) {
       setError('Stop the current run before starting a new chat.');
       return;
     }
-    startBlankChat();
+    const previousSessionId = getSessionId();
+    const shouldCleanupPrevious = shouldCleanupNoUserSession(previousSessionId);
+    startFreshChat();
+    if (shouldCleanupPrevious) cleanupNoUserSession(previousSessionId);
     refreshRecent();
-  }, [stream.isActive, startBlankChat, refreshRecent, setError]);
+  }, [
+    stream.isActive,
+    getSessionId,
+    shouldCleanupNoUserSession,
+    startFreshChat,
+    cleanupNoUserSession,
+    refreshRecent,
+    setError,
+  ]);
 
   const handleSendMessage = useCallback(
     (content: string, media: MediaItem[]) => {
-      ensureSessionForSend();
+      const targetSessionId = ensureSessionForSend();
+      sessionsWithUserMessagesRef.current.add(targetSessionId);
       // Sending re-engages the user with the live conversation — snap back so
       // their bubble and the incoming stream are visible without the "↓ Latest"
       // chip getting in the way.
@@ -792,6 +866,7 @@ export function ChatPage() {
               },
             ],
             branchFamilies: prev?.branchFamilies ?? new Map(),
+            requestedSessionId: prev?.requestedSessionId ?? targetSessionId,
             resolvedSessionId: targetSessionId,
             agentId: prev?.agentId ?? null,
             bootstrapAutostart: prev?.bootstrapAutostart ?? null,
