@@ -660,6 +660,7 @@ function buildBootstrapChatTurnPrompt(params: {
     'Continue the in-progress hatching conversation using the full chat history above.',
     'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
     `Keep following ${params.fileName}: acknowledge the user's latest reply and fill the remaining starter-questionnaire gaps one or two at a time.`,
+    'Prioritize missing purpose and tool/software platform details before lower-value customization questions.',
     'Do not ask for email if USER.md already contains Email, Registration email, Mailbox, or any email-looking value.',
     'If the user has not answered the previous questions yet, briefly point back to them instead of asking a fresh set.',
     'Do not ask a generic "what can I do for you?" question.',

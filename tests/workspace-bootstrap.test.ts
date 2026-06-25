@@ -238,6 +238,9 @@ describe('workspace bootstrap lifecycle', () => {
     );
     expect(bootstrapMarkdown).toContain('Registration email');
     expect(bootstrapMarkdown).toContain('compact starter');
+    expect(bootstrapMarkdown).toContain('choose 4 or 5 good questions');
+    expect(bootstrapMarkdown).toContain('home automation');
+    expect(bootstrapMarkdown).toContain('software platforms');
     expect(bootstrapMarkdown).toContain('Web chat is already working');
     expect(bootstrapMarkdown).toContain('/admin/channels#discord');
     expect(bootstrapMarkdown).toContain('/admin/channels#telegram');
