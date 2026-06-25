@@ -10,6 +10,12 @@ export interface ChatRecentResponse {
   sessions: ChatRecentSession[];
 }
 
+export interface ChatCleanupResponse {
+  deletedCount: number;
+  deletedSessionIds: string[];
+  keptSessionId?: string;
+}
+
 export interface ChatMobileQrResponse {
   launchUrl: string;
   expiresAt: string;

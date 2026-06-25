@@ -2448,6 +2448,7 @@ export interface AdminSecretMutationResponse {
 export interface DeleteSessionResult {
   deleted: boolean;
   sessionId: string;
+  skippedReason?: 'has_user_messages';
   deletedMessages: number;
   deletedTasks: number;
   deletedSemanticMemories: number;

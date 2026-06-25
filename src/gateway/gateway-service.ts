@@ -257,6 +257,7 @@ import {
   getSessionCount,
   getSessionFileChangeCounts,
   getSessionMessageCounts,
+  getSessionsByChannelId,
   getSessionToolCallBreakdown,
   getSessionUsageTotals,
   getSessionUsageTotalsSince,
@@ -274,6 +275,7 @@ import {
   listUsageBySession,
   listUsageDailyBreakdown,
   recordRequestLog,
+  sessionHasUserMessages,
   setMemoryValue,
   updateSessionAgent,
   updateSessionChatbot,
@@ -455,6 +457,7 @@ import {
   WORKSPACE_BOOTSTRAP_FILES,
 } from '../workspace.js';
 import {
+  getActiveThreadAgentId,
   resolveAgentAddressing,
   setActiveThreadAgentId,
 } from './agent-addressing.js';
@@ -594,6 +597,7 @@ import {
   type GatewayCommandResult,
   type GatewayHistorySummary,
   type GatewayModelProviderKey,
+  type GatewayNoUserChatSessionCleanupResult,
   type GatewayRecentChatSession,
   type GatewayRemoteAgentListPeer,
   type GatewayStatus,
@@ -5819,7 +5823,24 @@ export async function deleteGatewayAdminEmailMessage(params: {
 
 export function deleteGatewayAdminSession(
   sessionId: string,
+  options?: {
+    onlyWithoutUserMessages?: boolean;
+  },
 ): GatewayAdminDeleteSessionResult {
+  if (options?.onlyWithoutUserMessages && sessionHasUserMessages(sessionId)) {
+    return {
+      deleted: false,
+      sessionId,
+      skippedReason: 'has_user_messages',
+      deletedMessages: 0,
+      deletedTasks: 0,
+      deletedSemanticMemories: 0,
+      deletedUsageEvents: 0,
+      deletedAuditEntries: 0,
+      deletedStructuredAuditEntries: 0,
+      deletedApprovalEntries: 0,
+    };
+  }
   interruptGatewaySessionExecution(sessionId);
   return deleteSessionData(sessionId);
 }
@@ -8453,11 +8474,31 @@ function resolveBootstrapAutostartContext(params: {
     requestedSessionId,
     params.channelId,
   );
+  const requestedAgentId = String(params.agentId || '').trim();
+  const existingSession = memoryService.getSessionById(requestedSessionId);
+  if (
+    existingSession &&
+    !params.allowExistingSessionMessages &&
+    (existingSession.message_count > 0 ||
+      String(existingSession.session_summary || '').trim().length > 0)
+  ) {
+    return null;
+  }
+  const existingSessionAgentId = String(existingSession?.agent_id || '').trim();
+  const activeThreadAgentId = existingSession
+    ? getActiveThreadAgentId(existingSession)
+    : null;
+  const autostartAgentId =
+    requestedAgentId ||
+    activeThreadAgentId ||
+    existingSessionAgentId ||
+    undefined;
   const session = memoryService.getOrCreateSession(
     requestedSessionId,
     null,
     channelId,
-    params.agentId ?? undefined,
+    autostartAgentId,
+    { touch: false },
   );
   if (
     !params.allowExistingSessionMessages &&
@@ -8468,7 +8509,7 @@ function resolveBootstrapAutostartContext(params: {
   }
 
   const resolved = resolveAgentForRequest({
-    agentId: params.agentId,
+    agentId: autostartAgentId,
     session,
   });
   ensureBootstrapFiles(resolved.agentId);
@@ -9349,6 +9390,55 @@ export async function getGatewayAgentList(): Promise<GatewayAgentListResponse> {
   return {
     agents: getGatewayLocalAgentListItems(),
     ...(remotePeers.length > 0 ? { remotePeers } : {}),
+  };
+}
+
+function isProtectedNoUserChatCleanupSession(session: Session): boolean {
+  const sessionKey = String(session.session_key || '').trim();
+  return (
+    session.full_auto_enabled === 1 ||
+    session.channel_id === 'scheduler' ||
+    session.id.startsWith('scheduler:') ||
+    session.id.startsWith('cron:') ||
+    session.id.includes(':chat:cron:') ||
+    sessionKey.includes(':chat:cron:')
+  );
+}
+
+export function cleanupGatewayNoUserChatSessions(params: {
+  channelId?: string | null;
+  keepSessionId?: string | null;
+}): GatewayNoUserChatSessionCleanupResult {
+  const channelId = String(params.channelId || 'web').trim() || 'web';
+  const keepSessionId = String(params.keepSessionId || '').trim();
+  const keptSessionId = keepSessionId
+    ? memoryService.getSessionById(keepSessionId)?.id || keepSessionId
+    : '';
+  const keepSessionIds = new Set(
+    [keepSessionId, keptSessionId].filter((value) => value.length > 0),
+  );
+  const deletedSessionIds: string[] = [];
+
+  for (const session of getSessionsByChannelId(channelId)) {
+    if (
+      keepSessionIds.has(session.id) ||
+      keepSessionIds.has(session.session_key || '') ||
+      keepSessionIds.has(session.main_session_key || '')
+    ) {
+      continue;
+    }
+    if (isProtectedNoUserChatCleanupSession(session)) continue;
+    if (sessionHasUserMessages(session.id)) continue;
+    const result = deleteGatewayAdminSession(session.id, {
+      onlyWithoutUserMessages: true,
+    });
+    if (result.deleted) deletedSessionIds.push(result.sessionId);
+  }
+
+  return {
+    deletedCount: deletedSessionIds.length,
+    deletedSessionIds,
+    ...(keptSessionId ? { keptSessionId } : {}),
   };
 }
 

@@ -6519,12 +6519,14 @@ export function getOrCreateSession(
   agentId?: string,
   options?: {
     forceNewCurrent?: boolean;
+    touch?: boolean;
   },
 ): Session {
   const requestedSessionId = String(sessionId || '').trim();
   const requestedAgentId = agentId?.trim() || '';
   const defaultAgentId = resolveDefaultAgentId(getRuntimeConfig());
   const forceNewCurrent = options?.forceNewCurrent === true;
+  const touch = options?.touch !== false;
   const canonicalSessionKey = resolveCanonicalSessionKey({
     requestedSessionId,
     guildId,
@@ -6541,12 +6543,12 @@ export function getOrCreateSession(
       requestedAgentId || exactSession.agent_id || defaultAgentId;
     db.prepare(
       `UPDATE sessions
-       SET last_active = datetime('now'),
-           agent_id = ?,
+       SET agent_id = ?,
            guild_id = ?,
            channel_id = ?,
            session_key = ?,
-           main_session_key = ?
+           main_session_key = ?,
+           last_active = CASE WHEN ? THEN datetime('now') ELSE last_active END
        WHERE id = ?`,
     ).run(
       nextAgentId,
@@ -6554,6 +6556,7 @@ export function getOrCreateSession(
       channelId,
       canonicalSessionKey || exactSession.id,
       mainSessionKey || canonicalSessionKey || exactSession.id,
+      touch ? 1 : 0,
       exactSession.id,
     );
     return requireSessionById(exactSession.id);
@@ -6573,12 +6576,12 @@ export function getOrCreateSession(
     const nextAgentId = requestedAgentId || existing.agent_id || defaultAgentId;
     db.prepare(
       `UPDATE sessions
-       SET last_active = datetime('now'),
-           agent_id = ?,
+       SET agent_id = ?,
            guild_id = ?,
            channel_id = ?,
            session_key = ?,
            main_session_key = ?,
+           last_active = CASE WHEN ? THEN datetime('now') ELSE last_active END,
            legacy_session_id = CASE
              WHEN ? THEN ?
              ELSE legacy_session_id
@@ -6590,6 +6593,7 @@ export function getOrCreateSession(
       channelId,
       canonicalSessionKey || existing.id,
       mainSessionKey || canonicalSessionKey || existing.id,
+      touch ? 1 : 0,
       requestedSessionId !== canonicalSessionKey &&
         isLegacySessionKey(requestedSessionId)
         ? 1
@@ -6638,6 +6642,21 @@ export function getSessionById(sessionId: string): Session | undefined {
     selectCurrentSessionByMainSessionKey(normalized) ||
     selectCurrentSessionByLegacySessionId(normalized)
   );
+}
+
+export function sessionHasUserMessages(sessionId: string): boolean {
+  ensureDatabaseReady();
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  if (!resolvedSessionId) return false;
+  const row = queryOne<{ count: number }, [string]>(
+    db,
+    `SELECT COUNT(*) AS count
+     FROM messages
+     WHERE session_id = ?
+       AND role = 'user'`,
+    resolvedSessionId,
+  );
+  return normalizeUsageNumber(row?.count) > 0;
 }
 
 export function getSessionsByChannelId(channelId: string): Session[] {

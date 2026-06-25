@@ -121,6 +121,7 @@ export function useChatStream(
         return {
           messages: nextMessages,
           branchFamilies: prev?.branchFamilies ?? new Map(),
+          requestedSessionId: prev?.requestedSessionId ?? sessionId,
           resolvedSessionId: prev?.resolvedSessionId ?? sessionId,
           agentId: prev?.agentId ?? null,
           bootstrapAutostart: prev?.bootstrapAutostart ?? null,

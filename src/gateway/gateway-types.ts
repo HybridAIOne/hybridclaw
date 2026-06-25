@@ -335,6 +335,12 @@ export interface GatewayRecentChatSessionsResponse {
   sessions: GatewayRecentChatSession[];
 }
 
+export interface GatewayNoUserChatSessionCleanupResult {
+  deletedCount: number;
+  deletedSessionIds: string[];
+  keptSessionId?: string;
+}
+
 export interface GatewaySchedulerJobStatus {
   id: string;
   name: string;
@@ -937,6 +943,7 @@ export interface GatewayAdminBoardBudgetResponse {
 export interface GatewayAdminDeleteSessionResult {
   deleted: boolean;
   sessionId: string;
+  skippedReason?: 'has_user_messages';
   deletedMessages: number;
   deletedTasks: number;
   deletedSemanticMemories: number;

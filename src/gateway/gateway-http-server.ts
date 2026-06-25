@@ -209,6 +209,7 @@ import { handleApiSecretInject } from './gateway-secret-injection.js';
 import {
   applyGatewayAdminPolicyPreset,
   approveGatewayAdminA2APairingRequest,
+  cleanupGatewayNoUserChatSessions,
   completeGatewayMcpOAuthCallback,
   createGatewayAdminAgent,
   createGatewayAdminSkill,
@@ -3632,6 +3633,17 @@ function handleApiChatRecent(
   });
 }
 
+function handleApiChatCleanup(res: ServerResponse, url: URL): void {
+  sendJson(
+    res,
+    200,
+    cleanupGatewayNoUserChatSessions({
+      channelId: url.searchParams.get('channelId') || 'web',
+      keepSessionId: url.searchParams.get('keepSessionId'),
+    }),
+  );
+}
+
 async function handleApiChatMobileQr(
   req: IncomingMessage,
   res: ServerResponse,
@@ -4866,7 +4878,13 @@ function handleApiAdminSessionDelete(res: ServerResponse, url: URL): void {
     sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
     return;
   }
-  sendJson(res, 200, deleteGatewayAdminSession(sessionId));
+  sendJson(
+    res,
+    200,
+    deleteGatewayAdminSession(sessionId, {
+      onlyWithoutUserMessages: url.searchParams.get('ifNoUserMessages') === '1',
+    }),
+  );
 }
 
 async function handleApiAdminChannels(
@@ -7671,6 +7689,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/chat/recent' && method === 'GET') {
             handleApiChatRecent(req, res, url);
+            return;
+          }
+          if (pathname === '/api/chat/cleanup' && method === 'POST') {
+            handleApiChatCleanup(res, url);
             return;
           }
           if (pathname === '/api/chat/mobile-qr' && method === 'POST') {

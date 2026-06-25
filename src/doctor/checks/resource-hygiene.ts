@@ -225,11 +225,16 @@ function loadSessionSnapshotFromDatabase(): SessionDatabaseSnapshot {
       .prepare('SELECT id FROM sessions')
       .all() as Array<{ id: string }>;
 
-    const emptySessionRows = db
+    const unstartedSessionRows = db
       .prepare(
         `SELECT id, last_active
-           FROM sessions
-          WHERE COALESCE(message_count, 0) = 0`,
+           FROM sessions s
+          WHERE NOT EXISTS (
+            SELECT 1
+              FROM messages m
+             WHERE m.session_id = s.id
+               AND m.role = 'user'
+          )`,
       )
       .all() as Array<{ id: string; last_active: string }>;
     // Candidate selection is intentionally broader than the token regex used
@@ -271,7 +276,7 @@ function loadSessionSnapshotFromDatabase(): SessionDatabaseSnapshot {
       allSessionKeys: new Set(
         allSessionRows.map((row) => safeFilePart(String(row.id || ''))),
       ),
-      emptySessions: emptySessionRows.map((row) => {
+      emptySessions: unstartedSessionRows.map((row) => {
         const lastActiveMs = Date.parse(row.last_active);
         return {
           id: row.id,
@@ -1013,7 +1018,7 @@ export async function checkEmptySessions(
     return [
       makeResult(
         'database',
-        'Empty sessions',
+        'Unstarted sessions',
         'error',
         `Cannot inspect sessions without ${shortenHomePath(DB_PATH)} (${toErrorMessage(error)})`,
       ),
@@ -1031,9 +1036,9 @@ export async function checkEmptySessions(
     return [
       makeResult(
         'database',
-        'Empty sessions',
+        'Unstarted sessions',
         'ok',
-        `No empty sessions older than ${formatAge(EMPTY_SESSION_MAX_AGE_MS)}`,
+        `No unstarted sessions older than ${formatAge(EMPTY_SESSION_MAX_AGE_MS)}`,
       ),
     ];
   }
@@ -1056,10 +1061,10 @@ export async function checkEmptySessions(
   return [
     makeResult(
       'database',
-      'Empty sessions',
+      'Unstarted sessions',
       'warn',
       [
-        `${stale.length} ${pluralize(stale.length, 'session has', 'sessions have')} zero messages and ${pluralize(stale.length, 'is', 'are')} older than ${formatAge(EMPTY_SESSION_MAX_AGE_MS)}`,
+        `${stale.length} ${pluralize(stale.length, 'session has', 'sessions have')} no user messages and ${pluralize(stale.length, 'is', 'are')} older than ${formatAge(EMPTY_SESSION_MAX_AGE_MS)}`,
         oldestSession?.lastActive
           ? `oldest activity ${oldestSession.lastActive}`
           : null,
@@ -1067,7 +1072,7 @@ export async function checkEmptySessions(
         .filter((part): part is string => Boolean(part))
         .join(', '),
       {
-        summary: `Delete ${stale.length} empty ${pluralize(stale.length, 'session', 'sessions')}`,
+        summary: `Delete ${stale.length} unstarted ${pluralize(stale.length, 'session', 'sessions')}`,
         requiresApproval: false,
         apply: async () => {
           for (const session of stale) {
@@ -1200,7 +1205,7 @@ export function resourceHygieneDoctorChecks(): DoctorCheck[] {
     },
     {
       category: 'database',
-      label: 'Empty sessions',
+      label: 'Unstarted sessions',
       run: () => checkEmptySessions(ctx),
     },
     {
