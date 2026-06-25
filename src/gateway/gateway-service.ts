@@ -770,15 +770,10 @@ async function generateBootstrapPrelude(params: {
       timeoutMs: BOOTSTRAP_PRELUDE_TIMEOUT_MS,
       messages: [
         {
-          role: 'system',
-          content:
-            'Write exactly one short first-person hatching-in-progress line for a personal AI agent. Make it conversational and alive, not corporate. The agent is still hatching, not fully hatched: mention progress, taking shape, or working through the eggshell. Do not sound already arrived. Do not ask onboarding questions yet. Do not use markdown, quotes, or explanations.',
-        },
-        {
           role: 'user',
           content:
             params.fileName === 'BOOTSTRAP.md'
-              ? 'Generate a brief hatching-progress line before onboarding starts.'
+              ? 'You are a HybridClaw agent coming alive. Tell the user in a nice way that you are on your way.'
               : 'Generate a brief opening line before the agent starts.',
         },
       ],

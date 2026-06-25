@@ -161,14 +161,13 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
       fallbackEnableRag: false,
       maxTokens: 48,
       timeoutMs: 1500,
-      messages: expect.arrayContaining([
-        expect.objectContaining({
-          content: expect.stringContaining('hatching-in-progress line'),
-        }),
-        expect.objectContaining({
-          content: expect.stringContaining('hatching-progress line'),
-        }),
-      ]),
+      messages: [
+        {
+          role: 'user',
+          content:
+            'You are a HybridClaw agent coming alive. Tell the user in a nice way that you are on your way.',
+        },
+      ],
     }),
   );
 
