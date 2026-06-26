@@ -20,6 +20,11 @@ import {
   DialogTitle,
 } from '../components/dialog';
 import { Field, FieldDescription, FieldLabel } from '../components/field';
+import {
+  GoogleLogo,
+  HybridAILogo,
+  MicrosoftLogo,
+} from '../components/icons/providers';
 import { Input } from '../components/input';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
@@ -55,12 +60,6 @@ function stateIsConnected(connector: AdminConnector): boolean {
   return connector.state === 'connected';
 }
 
-function connectorInitials(connector: AdminConnector): string {
-  if (connector.id === 'hybridai') return 'HA';
-  if (connector.id === 'google') return 'G';
-  return 'M365';
-}
-
 function connectorMarkClass(connector: AdminConnector): string {
   return cx(
     styles.connectorMark,
@@ -68,6 +67,16 @@ function connectorMarkClass(connector: AdminConnector): string {
     connector.id === 'google' && styles.connectorMarkGoogle,
     connector.id === 'microsoft365' && styles.connectorMarkMicrosoft365,
   );
+}
+
+function ConnectorLogo({ connector }: { connector: AdminConnector }) {
+  if (connector.id === 'hybridai') {
+    return <HybridAILogo width={24} height={24} />;
+  }
+  if (connector.id === 'google') {
+    return <GoogleLogo width={24} height={24} />;
+  }
+  return <MicrosoftLogo width={24} height={24} />;
 }
 
 function oauthDraftFromConnector(connector: AdminConnector): OAuthDraft {
@@ -228,7 +237,7 @@ export function ConnectorsPage() {
             <CardHeader>
               <div className={styles.connectorHead}>
                 <span className={connectorMarkClass(connector)}>
-                  {connectorInitials(connector)}
+                  <ConnectorLogo connector={connector} />
                 </span>
                 <div>
                   <div className={styles.connectorTitleRow}>

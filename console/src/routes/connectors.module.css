@@ -22,27 +22,29 @@
   border-radius: var(--radius-sm);
   align-items: center;
   justify-content: center;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0;
   border: 1px solid var(--line);
-  color: var(--text);
   background: var(--panel-muted);
 }
 
+.connectorMark svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
 .connectorMarkHybridai {
-  background: color-mix(in srgb, var(--accent) 18%, var(--panel-bg));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-bg));
   border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
 }
 
 .connectorMarkGoogle {
-  background: color-mix(in srgb, #2f7d32 14%, var(--panel-bg));
-  border-color: color-mix(in srgb, #2f7d32 35%, var(--line));
+  background: color-mix(in srgb, #fff 84%, var(--panel-bg));
+  border-color: color-mix(in srgb, #4285f4 32%, var(--line));
 }
 
 .connectorMarkMicrosoft365 {
-  background: color-mix(in srgb, #2563eb 14%, var(--panel-bg));
-  border-color: color-mix(in srgb, #2563eb 35%, var(--line));
+  background: color-mix(in srgb, #fff 82%, var(--panel-bg));
+  border-color: color-mix(in srgb, #00a4ef 32%, var(--line));
 }
 
 .connectorTitleRow {

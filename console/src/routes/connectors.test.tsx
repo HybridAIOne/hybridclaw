@@ -114,6 +114,8 @@ describe('ConnectorsPage', () => {
     expect(screen.getByText('Microsoft 365')).toBeTruthy();
     expect(screen.getByText('GOOGLE_OAUTH_CLIENT_ID')).toBeTruthy();
     expect(screen.queryByText(/hybridclaw auth login/u)).toBeNull();
+    expect(screen.queryByText('HA')).toBeNull();
+    expect(screen.queryByText('M365')).toBeNull();
   });
 
   it('opens HybridAI login and saves the pasted API key', async () => {
