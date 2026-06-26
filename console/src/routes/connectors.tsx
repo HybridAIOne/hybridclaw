@@ -19,7 +19,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/dialog';
-import { Field, FieldDescription, FieldLabel } from '../components/field';
+import { Field, FieldLabel } from '../components/field';
+import { HybridClaw } from '../components/icons';
 import {
   GoogleLogo,
   HybridAILogo,
@@ -200,6 +201,26 @@ export function ConnectorsPage() {
   const connectors = connectorsQuery.data?.connectors || [];
   const oauthTarget =
     connectors.find((connector) => connector.id === oauthTargetId) || null;
+  const isMicrosoftOAuthTarget = oauthTargetId === 'microsoft365';
+  const microsoftNeedsClientSetup =
+    isMicrosoftOAuthTarget && oauthTarget?.clientConfigured === false;
+  const googleNeedsAccount =
+    oauthTargetId === 'google' && !oauthDraft.account.trim();
+  const googleNeedsClientId =
+    oauthTargetId === 'google' &&
+    !oauthTarget?.clientConfigured &&
+    !oauthDraft.clientId.trim();
+  const googleNeedsClientSecret =
+    oauthTargetId === 'google' &&
+    !oauthTarget?.clientSecretConfigured &&
+    !oauthDraft.clientSecret.trim();
+  const oauthSubmitDisabled =
+    oauthMutation.isPending ||
+    !oauthTargetId ||
+    (microsoftNeedsClientSetup && !oauthDraft.clientId.trim()) ||
+    googleNeedsAccount ||
+    googleNeedsClientId ||
+    googleNeedsClientSecret;
 
   const openOAuthDialog = (connector: AdminConnector) => {
     if (!isOAuthConnectorId(connector.id)) return;
@@ -333,23 +354,6 @@ export function ConnectorsPage() {
                         ? 'Reconnect'
                         : 'Connect'}
                     </Button>
-                    {connector.adminConsentUrl ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        render={
-                          <a
-                            href={connector.adminConsentUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Admin consent
-                          </a>
-                        }
-                      >
-                        Admin consent
-                      </Button>
-                    ) : null}
                     {connector.state === 'connected' ? (
                       <Button
                         type="button"
@@ -416,123 +420,176 @@ export function ConnectorsPage() {
         >
           <DialogHeader>
             <DialogTitle>
-              {oauthTarget ? `Connect ${oauthTarget.name}` : 'Connect'}
+              {isMicrosoftOAuthTarget
+                ? 'Sign in with your work account'
+                : oauthTarget
+                  ? `Connect ${oauthTarget.name}`
+                  : 'Connect'}
             </DialogTitle>
             <DialogDescription>
-              {oauthMutation.isPending
-                ? 'Waiting for authorization in the browser.'
-                : 'Leave stored app credentials blank to reuse them.'}
+              {isMicrosoftOAuthTarget
+                ? 'Sign in with your Microsoft 365 work or school account. Personal Microsoft accounts are not supported.'
+                : oauthMutation.isPending
+                  ? 'Waiting for authorization in the browser.'
+                  : 'Leave stored app credentials blank to reuse them.'}
             </DialogDescription>
           </DialogHeader>
 
-          <div className={styles.dialogForm}>
-            <Field>
-              <FieldLabel>
-                {oauthTargetId === 'google'
-                  ? 'Google account'
-                  : 'Account label'}
-              </FieldLabel>
-              <Input
-                value={oauthDraft.account}
-                onChange={(event) =>
-                  setOauthDraft((current) => ({
-                    ...current,
-                    account: event.target.value,
-                  }))
-                }
-                placeholder={
-                  oauthTargetId === 'google' ? 'user@example.com' : 'optional'
-                }
-              />
-            </Field>
+          {isMicrosoftOAuthTarget ? (
+            <div className={styles.microsoftDialog}>
+              <div className={styles.oauthBridge} aria-hidden="true">
+                <span
+                  className={cx(
+                    styles.oauthBridgeMark,
+                    styles.connectorMarkMicrosoft365,
+                  )}
+                >
+                  <MicrosoftLogo width={28} height={28} />
+                </span>
+                <span className={styles.oauthBridgeLine} />
+                <span
+                  className={cx(
+                    styles.oauthBridgeMark,
+                    styles.oauthBridgeMarkHybridClaw,
+                  )}
+                >
+                  <HybridClaw width={28} height={28} />
+                </span>
+              </div>
 
-            {oauthTargetId === 'microsoft365' ? (
-              <Field>
-                <FieldLabel>Tenant</FieldLabel>
-                <Input
-                  value={oauthDraft.tenantId}
-                  onChange={(event) =>
-                    setOauthDraft((current) => ({
-                      ...current,
-                      tenantId: event.target.value,
-                    }))
-                  }
-                  placeholder="organizations"
-                />
-              </Field>
-            ) : null}
+              {oauthMutation.isPending ? (
+                <div className={styles.microsoftCopy}>
+                  <p>Complete the Microsoft sign-in in the new browser tab.</p>
+                  {pendingAuthUrl ? (
+                    <a
+                      className={styles.pendingLink}
+                      href={pendingAuthUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Reopen Microsoft sign-in
+                    </a>
+                  ) : null}
+                </div>
+              ) : (
+                <div className={styles.microsoftCopy}>
+                  <p>
+                    Connect SharePoint, OneDrive, Outlook, Teams, calendar, and
+                    chat data to HybridClaw through Microsoft Graph.
+                  </p>
+                  <p>
+                    If you are the Microsoft Entra admin, approve access during
+                    sign-in. Otherwise your admin may need to approve it first.
+                  </p>
+                </div>
+              )}
 
-            <div className="field-grid">
-              <Field>
-                <FieldLabel>Client ID</FieldLabel>
-                <Input
-                  value={oauthDraft.clientId}
-                  onChange={(event) =>
-                    setOauthDraft((current) => ({
-                      ...current,
-                      clientId: event.target.value,
-                    }))
-                  }
-                  placeholder={
-                    oauthTarget?.clientConfigured
-                      ? 'stored client id'
-                      : 'client id'
-                  }
-                />
-              </Field>
-              <Field>
-                <FieldLabel>Client secret</FieldLabel>
-                <Input
-                  type="password"
-                  autoComplete="off"
-                  value={oauthDraft.clientSecret}
-                  onChange={(event) =>
-                    setOauthDraft((current) => ({
-                      ...current,
-                      clientSecret: event.target.value,
-                    }))
-                  }
-                  placeholder={
-                    oauthTarget?.clientSecretConfigured
-                      ? 'stored secret'
-                      : oauthTargetId === 'microsoft365'
-                        ? 'optional'
-                        : 'client secret'
-                  }
-                />
-                {oauthTargetId === 'microsoft365' ? (
-                  <FieldDescription>
-                    Public Entra apps do not need a client secret.
-                  </FieldDescription>
-                ) : null}
-              </Field>
+              {microsoftNeedsClientSetup ? (
+                <div className={styles.microsoftSetup}>
+                  <div>
+                    <strong>One-time Entra app setup</strong>
+                    <p>
+                      Add the HybridClaw Microsoft app client ID here once to
+                      enable the simple sign-in flow on this gateway.
+                    </p>
+                  </div>
+                  <Field>
+                    <FieldLabel>Microsoft app client ID</FieldLabel>
+                    <Input
+                      value={oauthDraft.clientId}
+                      onChange={(event) =>
+                        setOauthDraft((current) => ({
+                          ...current,
+                          clientId: event.target.value,
+                        }))
+                      }
+                      placeholder="00000000-0000-0000-0000-000000000000"
+                    />
+                  </Field>
+                </div>
+              ) : null}
             </div>
+          ) : (
+            <div className={styles.dialogForm}>
+              <Field>
+                <FieldLabel>Google account</FieldLabel>
+                <Input
+                  value={oauthDraft.account}
+                  onChange={(event) =>
+                    setOauthDraft((current) => ({
+                      ...current,
+                      account: event.target.value,
+                    }))
+                  }
+                  placeholder="user@example.com"
+                />
+              </Field>
 
-            <Field>
-              <FieldLabel>Scopes</FieldLabel>
-              <Textarea
-                rows={4}
-                value={oauthDraft.scopes}
-                onChange={(event) =>
-                  setOauthDraft((current) => ({
-                    ...current,
-                    scopes: event.target.value,
-                  }))
-                }
-              />
-            </Field>
+              <div className="field-grid">
+                <Field>
+                  <FieldLabel>Client ID</FieldLabel>
+                  <Input
+                    value={oauthDraft.clientId}
+                    onChange={(event) =>
+                      setOauthDraft((current) => ({
+                        ...current,
+                        clientId: event.target.value,
+                      }))
+                    }
+                    placeholder={
+                      oauthTarget?.clientConfigured
+                        ? 'stored client id'
+                        : 'client id'
+                    }
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>Client secret</FieldLabel>
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    value={oauthDraft.clientSecret}
+                    onChange={(event) =>
+                      setOauthDraft((current) => ({
+                        ...current,
+                        clientSecret: event.target.value,
+                      }))
+                    }
+                    placeholder={
+                      oauthTarget?.clientSecretConfigured
+                        ? 'stored secret'
+                        : 'client secret'
+                    }
+                  />
+                </Field>
+              </div>
 
-            {pendingAuthUrl && oauthMutation.isPending ? (
-              <a
-                className={styles.pendingLink}
-                href={pendingAuthUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open authorization page
-              </a>
-            ) : null}
-          </div>
+              <Field>
+                <FieldLabel>Scopes</FieldLabel>
+                <Textarea
+                  rows={4}
+                  value={oauthDraft.scopes}
+                  onChange={(event) =>
+                    setOauthDraft((current) => ({
+                      ...current,
+                      scopes: event.target.value,
+                    }))
+                  }
+                />
+              </Field>
+
+              {pendingAuthUrl && oauthMutation.isPending ? (
+                <a
+                  className={styles.pendingLink}
+                  href={pendingAuthUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open authorization page
+                </a>
+              ) : null}
+            </div>
+          )}
 
           <DialogFooter>
             <DialogClose
@@ -544,10 +601,14 @@ export function ConnectorsPage() {
             <Button
               type="button"
               loading={oauthMutation.isPending}
-              disabled={oauthMutation.isPending || !oauthTargetId}
+              disabled={oauthSubmitDisabled}
               onClick={() => oauthMutation.mutate()}
             >
-              {oauthMutation.isPending ? 'Waiting...' : 'Connect'}
+              {oauthMutation.isPending
+                ? 'Waiting...'
+                : isMicrosoftOAuthTarget
+                  ? 'Continue'
+                  : 'Connect'}
             </Button>
           </DialogFooter>
         </DialogContent>

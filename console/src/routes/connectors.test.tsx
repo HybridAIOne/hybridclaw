@@ -118,6 +118,21 @@ describe('ConnectorsPage', () => {
     expect(screen.queryByText('M365')).toBeNull();
   });
 
+  it('opens Microsoft 365 as a guided work-account sign-in flow', async () => {
+    renderWithProviders(<ConnectorsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reconnect' }));
+
+    expect(screen.getByText('Sign in with your work account')).toBeTruthy();
+    expect(screen.getByText(/work or school account/u)).toBeTruthy();
+    expect(screen.getByText(/approve access during sign-in/u)).toBeTruthy();
+    expect(screen.queryByLabelText('Tenant')).toBeNull();
+    expect(screen.queryByLabelText('Client ID')).toBeNull();
+    expect(screen.queryByLabelText('Client secret')).toBeNull();
+    expect(screen.queryByLabelText('Scopes')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy();
+  });
+
   it('opens HybridAI login and saves the pasted API key', async () => {
     const connected = makeConnectorsResponse();
     connected.connectors[0] = {

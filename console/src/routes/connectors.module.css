@@ -124,6 +124,74 @@
   gap: 14px;
 }
 
+.microsoftDialog {
+  display: grid;
+  gap: 18px;
+}
+
+.oauthBridge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0 4px;
+}
+
+.oauthBridgeMark {
+  display: inline-flex;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  background: var(--panel-muted);
+}
+
+.oauthBridgeMark svg {
+  display: block;
+}
+
+.oauthBridgeMarkHybridClaw {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-bg));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+.oauthBridgeLine {
+  width: 74px;
+  height: 1px;
+  background: var(--line);
+}
+
+.microsoftCopy {
+  display: grid;
+  gap: 12px;
+  color: var(--muted-foreground);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.microsoftCopy p {
+  margin: 0;
+}
+
+.microsoftSetup {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted);
+}
+
+.microsoftSetup p {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
 .pendingLink {
   color: var(--accent);
   font-size: 0.84rem;
