@@ -43,7 +43,6 @@ function makeConnectorsResponse(): AdminConnectorsResponse {
         loginUrl:
           'https://hybridai.one/login?context=hybridclaw&next=/admin_api_keys',
         adminConsentUrl: null,
-        command: 'hybridclaw auth login hybridai',
         setupSecretNames: ['HYBRIDAI_API_KEY'],
       },
       {
@@ -62,7 +61,6 @@ function makeConnectorsResponse(): AdminConnectorsResponse {
         tenantId: null,
         loginUrl: null,
         adminConsentUrl: null,
-        command: 'hybridclaw auth login google --account <email>',
         setupSecretNames: [
           'GOOGLE_ACCOUNT',
           'GOOGLE_OAUTH_CLIENT_ID',
@@ -87,7 +85,6 @@ function makeConnectorsResponse(): AdminConnectorsResponse {
         loginUrl: null,
         adminConsentUrl:
           'https://login.microsoftonline.com/organizations/adminconsent?client_id=microsoft-client-id',
-        command: 'hybridclaw auth login microsoft365',
         setupSecretNames: [
           'MICROSOFT_365_ACCOUNT',
           'MICROSOFT_365_TENANT_ID',
@@ -116,7 +113,7 @@ describe('ConnectorsPage', () => {
     expect(screen.getByText('Google Workspace')).toBeTruthy();
     expect(screen.getByText('Microsoft 365')).toBeTruthy();
     expect(screen.getByText('GOOGLE_OAUTH_CLIENT_ID')).toBeTruthy();
-    expect(screen.getByText('hybridclaw auth login microsoft365')).toBeTruthy();
+    expect(screen.queryByText(/hybridclaw auth login/u)).toBeNull();
   });
 
   it('opens HybridAI login and saves the pasted API key', async () => {

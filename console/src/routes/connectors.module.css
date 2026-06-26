@@ -117,17 +117,6 @@
   overflow-wrap: anywhere;
 }
 
-.commandBlock {
-  display: block;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  background: var(--panel-muted);
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 .dialogForm {
   display: grid;
   gap: 14px;

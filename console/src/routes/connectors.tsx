@@ -286,8 +286,6 @@ export function ConnectorsPage() {
                 </div>
               ) : null}
 
-              <code className={styles.commandBlock}>{connector.command}</code>
-
               <div className={styles.connectorActions}>
                 {connector.id === 'hybridai' ? (
                   <>

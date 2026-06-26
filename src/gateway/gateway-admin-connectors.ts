@@ -78,7 +78,6 @@ export interface GatewayAdminConnector {
   tenantId: string | null;
   loginUrl: string | null;
   adminConsentUrl: string | null;
-  command: string;
   setupSecretNames: string[];
 }
 
@@ -263,7 +262,6 @@ function buildHybridAIConnector(): GatewayAdminConnector {
     tenantId: null,
     loginUrl: resolveHybridAILoginUrl(),
     adminConsentUrl: null,
-    command: 'hybridclaw auth login hybridai',
     setupSecretNames: ['HYBRIDAI_API_KEY'],
   };
 }
@@ -299,7 +297,6 @@ function buildGoogleConnector(): GatewayAdminConnector {
     tenantId: null,
     loginUrl: null,
     adminConsentUrl: null,
-    command: 'hybridclaw auth login google --account <email>',
     setupSecretNames: [
       GOOGLE_ACCOUNT_SECRET,
       GOOGLE_OAUTH_CLIENT_ID_SECRET,
@@ -340,7 +337,6 @@ function buildMicrosoft365Connector(): GatewayAdminConnector {
     tenantId,
     loginUrl: null,
     adminConsentUrl: microsoftAdminConsentUrl(clientId, tenantId),
-    command: 'hybridclaw auth login microsoft365',
     setupSecretNames: [
       MICROSOFT_365_ACCOUNT_SECRET,
       MICROSOFT_365_TENANT_ID_SECRET,

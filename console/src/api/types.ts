@@ -1461,7 +1461,6 @@ export interface AdminConnector {
   tenantId: string | null;
   loginUrl: string | null;
   adminConsentUrl: string | null;
-  command: string;
   setupSecretNames: string[];
 }
 
