@@ -128,4 +128,19 @@ describe('admin RBAC role bundles', () => {
       'admin.tunnel.stop',
     );
   });
+
+  test('maps connector routes to read and secret mutation actions', () => {
+    expect(resolveAdminRbacAction('/api/admin/connectors', 'GET')).toBe(
+      'admin.connectors.read',
+    );
+    expect(
+      resolveAdminRbacAction('/api/admin/connectors/hybridai/key', 'PUT'),
+    ).toBe('secret.overwrite');
+    expect(
+      resolveAdminRbacAction('/api/admin/connectors/oauth/start', 'POST'),
+    ).toBe('secret.overwrite');
+    expect(
+      resolveAdminRbacAction('/api/admin/connectors/logout', 'POST'),
+    ).toBe('secret.unset');
+  });
 });

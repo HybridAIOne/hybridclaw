@@ -23,13 +23,19 @@ import {
   HUBSPOT_ACCESS_TOKEN_SECRET,
   resolveHubSpotAccessToken,
 } from '../auth/hubspot-auth.js';
+import {
+  MICROSOFT_365_ACCESS_TOKEN_SECRET,
+  resolveMicrosoft365AccessToken,
+} from '../auth/microsoft-auth.js';
 import type {
   RuntimeConfig,
   RuntimeHttpRequestGoogleOAuthSecretRef,
+  RuntimeHttpRequestMicrosoftOAuthSecretRef,
 } from '../config/runtime-config.js';
 import {
   getRuntimeConfig,
   isGoogleOAuthSecretRef,
+  isMicrosoftOAuthSecretRef,
 } from '../config/runtime-config.js';
 import { readStoredRuntimeEnvValue } from '../config/runtime-env.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
@@ -650,10 +656,15 @@ function isHubSpotApiHost(host?: string): boolean {
   );
 }
 
+function isMicrosoftGraphHost(host?: string): boolean {
+  return normalizeSecretString(host).toLowerCase() === 'graph.microsoft.com';
+}
+
 function requiresBearerDomainBinding(secretName: string): boolean {
   return (
     !isGoogleWorkspaceRuntimeTokenName(secretName) &&
-    secretName !== HUBSPOT_ACCESS_TOKEN_SECRET
+    secretName !== HUBSPOT_ACCESS_TOKEN_SECRET &&
+    secretName !== MICROSOFT_365_ACCESS_TOKEN_SECRET
   );
 }
 
@@ -663,6 +674,12 @@ function isGoogleOAuthHttpAuthRuleSecret(
   return isGoogleOAuthSecretRef(value);
 }
 
+function isMicrosoftOAuthHttpAuthRuleSecret(
+  value: unknown,
+): value is RuntimeHttpRequestMicrosoftOAuthSecretRef {
+  return isMicrosoftOAuthSecretRef(value);
+}
+
 async function resolveOAuthTokenOrThrow(params: {
   secretName: string;
   context: SecretResolveContext;
@@ -670,7 +687,7 @@ async function resolveOAuthTokenOrThrow(params: {
   allowedHostDescription: string;
   resolveToken: () => Promise<{
     accessToken: string;
-    source: 'store' | 'google-oauth' | 'hubspot-oauth';
+    source: 'store' | 'google-oauth' | 'hubspot-oauth' | 'microsoft-oauth';
   } | null>;
   loginHint: string;
 }): Promise<string> {
@@ -749,6 +766,20 @@ async function resolveHubSpotOAuthTokenOrThrow(
   });
 }
 
+async function resolveMicrosoftOAuthTokenOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  return await resolveOAuthTokenOrThrow({
+    secretName,
+    context,
+    isAllowedHost: isMicrosoftGraphHost,
+    allowedHostDescription: 'Microsoft Graph',
+    resolveToken: resolveMicrosoft365AccessToken,
+    loginHint: `${secretName} is not available. Run \`hybridclaw auth login microsoft365\` and retry the request.`,
+  });
+}
+
 async function resolveHttpSecretOrThrow(
   secretName: string,
   context: SecretResolveContext,
@@ -761,6 +792,9 @@ async function resolveHttpSecretOrThrow(
   }
   if (secretName === HUBSPOT_ACCESS_TOKEN_SECRET) {
     return await resolveHubSpotOAuthTokenOrThrow(secretName, context);
+  }
+  if (secretName === MICROSOFT_365_ACCESS_TOKEN_SECRET) {
+    return await resolveMicrosoftOAuthTokenOrThrow(secretName, context);
   }
   return resolveStoredSecretForInjection({
     secretName,
@@ -1769,6 +1803,18 @@ async function resolveHttpRuleSecret(
       value: withAuthPrefix(
         await resolveGoogleOAuthTokenOrThrow(
           GOOGLE_WORKSPACE_CLI_TOKEN_SECRET,
+          context,
+        ),
+        prefix,
+      ),
+    };
+  }
+  if (isMicrosoftOAuthHttpAuthRuleSecret(value)) {
+    return {
+      header: headerName,
+      value: withAuthPrefix(
+        await resolveMicrosoftOAuthTokenOrThrow(
+          MICROSOFT_365_ACCESS_TOKEN_SECRET,
           context,
         ),
         prefix,

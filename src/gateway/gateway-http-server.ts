@@ -163,6 +163,13 @@ import {
 } from './chat-result.js';
 import { escapeHtml, serveDocs } from './docs.js';
 import {
+  completeGatewayAdminConnectorOAuthCallback,
+  getGatewayAdminConnectors,
+  logoutGatewayAdminConnector,
+  saveGatewayAdminHybridAIConnectorApiKey,
+  startGatewayAdminConnectorOAuth,
+} from './gateway-admin-connectors.js';
+import {
   getGatewayAdminSecrets,
   overwriteGatewayAdminSecret,
   recordGatewayAdminSecretMutationFailure,
@@ -5555,6 +5562,51 @@ async function handleApiAdminMcpOAuth(
   sendJson(res, 200, logoutGatewayAdminMcpOAuth(name));
 }
 
+async function handleApiAdminConnectors(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const pathname = url.pathname;
+  if (pathname === '/api/admin/connectors' && req.method === 'GET') {
+    sendJson(res, 200, getGatewayAdminConnectors());
+    return;
+  }
+
+  if (
+    pathname === '/api/admin/connectors/hybridai/key' &&
+    req.method === 'PUT'
+  ) {
+    const body = (await readJsonBody(req)) as { apiKey?: unknown };
+    sendJson(res, 200, saveGatewayAdminHybridAIConnectorApiKey(body));
+    return;
+  }
+
+  if (
+    pathname === '/api/admin/connectors/oauth/start' &&
+    req.method === 'POST'
+  ) {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    sendJson(
+      res,
+      200,
+      startGatewayAdminConnectorOAuth({
+        body,
+        requestBaseUrl: resolveRequestOrigin(req),
+      }),
+    );
+    return;
+  }
+
+  if (pathname === '/api/admin/connectors/logout' && req.method === 'POST') {
+    const body = (await readJsonBody(req)) as { provider?: unknown };
+    sendJson(res, 200, logoutGatewayAdminConnector(body));
+    return;
+  }
+
+  sendMethodNotAllowed(res);
+}
+
 function sendMcpOAuthCallbackPage(
   res: ServerResponse,
   status: number,
@@ -5617,6 +5669,53 @@ async function handleApiMcpOAuthCallback(
       res,
       400,
       'MCP authorization failed',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+async function handleApiConnectorOAuthCallback(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const state = (url.searchParams.get('state') || '').trim();
+  const code = (url.searchParams.get('code') || '').trim();
+  const providerError = (url.searchParams.get('error') || '').trim();
+  if (providerError) {
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'Connector authorization failed',
+      providerError,
+    );
+    return;
+  }
+  if (!state || !code) {
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'Connector authorization failed',
+      'The callback is missing the authorization code or state parameter.',
+    );
+    return;
+  }
+  try {
+    const result = await completeGatewayAdminConnectorOAuthCallback({
+      state,
+      code,
+    });
+    sendMcpOAuthCallbackPage(
+      res,
+      200,
+      `Connected to ${result.name}`,
+      'Authorization complete. You can close this tab and return to HybridClaw.',
+      { autoClose: true },
+    );
+  } catch (err) {
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'Connector authorization failed',
       err instanceof Error ? err.message : String(err),
     );
   }
@@ -7263,6 +7362,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         });
         return;
       }
+      if (pathname === '/api/connectors/oauth/callback' && method === 'GET') {
+        // Public by design: the OAuth provider redirects the user's browser
+        // here without gateway credentials. The flow is bound to a
+        // single-use `state` nonce validated by the pending-flow registry.
+        void handleApiConnectorOAuthCallback(res, url).catch((err: unknown) => {
+          if (res.writableEnded) return;
+          sendJson(res, 500, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        return;
+      }
       if (pathname === '/api/agent-avatar' && method === 'GET') {
         try {
           handleApiAgentAvatar(req, res, url);
@@ -7458,6 +7569,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT' || method === 'DELETE')
           ) {
             await handleApiAdminMcp(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/connectors' ||
+            pathname === '/api/admin/connectors/hybridai/key' ||
+            pathname === '/api/admin/connectors/oauth/start' ||
+            pathname === '/api/admin/connectors/logout'
+          ) {
+            await handleApiAdminConnectors(req, res, url);
             return;
           }
           if (

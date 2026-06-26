@@ -1442,6 +1442,41 @@ export interface AdminMcpOAuthStatusResponse {
   auth: AdminMcpAuthStatus;
 }
 
+export type AdminConnectorId = 'hybridai' | 'google' | 'microsoft365';
+
+export type AdminConnectorState = 'connected' | 'not_connected' | 'needs_setup';
+
+export interface AdminConnector {
+  id: AdminConnectorId;
+  name: string;
+  description: string;
+  state: AdminConnectorState;
+  authKind: 'api-key' | 'oauth';
+  account: string | null;
+  detail: string;
+  scopes: string[];
+  routesConfigured: boolean;
+  clientConfigured: boolean;
+  clientSecretConfigured: boolean;
+  tenantId: string | null;
+  loginUrl: string | null;
+  adminConsentUrl: string | null;
+  command: string;
+  setupSecretNames: string[];
+}
+
+export interface AdminConnectorsResponse {
+  connectors: AdminConnector[];
+  secretsPath: string;
+}
+
+export interface AdminConnectorOAuthStartResponse {
+  provider: Exclude<AdminConnectorId, 'hybridai'>;
+  authorizationUrl: string;
+  state: string;
+  expiresAt: number;
+}
+
 export interface AdminAuditEntry {
   id: number;
   sessionId: string;

@@ -2005,6 +2005,86 @@ test('secret route add rejects Google OAuth runtime provider routes outside goog
   expect(storedConfig.tools.httpRequest.authRules).toEqual([]);
 });
 
+test('secret route add accepts Microsoft OAuth runtime provider routes', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  await handleGatewayCommand({
+    sessionId: 'session-secret-route-microsoft-oauth',
+    guildId: null,
+    channelId: 'tui',
+    args: [
+      'secret',
+      'route',
+      'add',
+      'https://graph.microsoft.com/v1.0',
+      'microsoft-oauth',
+    ],
+  });
+
+  const storedConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as RuntimeConfig;
+  expect(storedConfig.tools.httpRequest.authRules).toEqual([
+    {
+      urlPrefix: 'https://graph.microsoft.com/v1.0/',
+      header: 'Authorization',
+      prefix: 'Bearer',
+      secret: {
+        source: 'microsoft-oauth',
+      },
+    },
+  ]);
+});
+
+test('secret route add rejects Microsoft OAuth runtime provider routes outside Graph', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-secret-route-microsoft-oauth-invalid',
+    guildId: null,
+    channelId: 'tui',
+    args: [
+      'secret',
+      'route',
+      'add',
+      'https://api.example.com/v1',
+      'graph-oauth',
+    ],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Invalid Microsoft OAuth Route');
+  expect(result.text).toContain('graph.microsoft.com');
+
+  const storedConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as RuntimeConfig;
+  expect(storedConfig.tools.httpRequest.authRules).toEqual([]);
+});
+
 test('config shows the local runtime config', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

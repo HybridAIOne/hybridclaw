@@ -181,7 +181,11 @@ import {
   isGoogleApisUrlPrefix,
   isGoogleOAuthSecretRef,
   isGoogleOAuthSpecifier,
+  isMicrosoftGraphUrlPrefix,
+  isMicrosoftOAuthSecretRef,
+  isMicrosoftOAuthSpecifier,
   makeGoogleOAuthSecretRef,
+  makeMicrosoftOAuthSecretRef,
   normalizeHttpRequestAuthRuleUrlPrefix,
   type RuntimeAuxiliaryModelPolicyConfig,
   type RuntimeConfig,
@@ -4201,6 +4205,9 @@ function normalizeSecretRouteSecret(
   if (isGoogleOAuthSpecifier(value)) {
     return makeGoogleOAuthSecretRef();
   }
+  if (isMicrosoftOAuthSpecifier(value)) {
+    return makeMicrosoftOAuthSecretRef();
+  }
   return { source: 'store', id: value };
 }
 
@@ -4220,6 +4227,7 @@ function formatRouteSecretLabel(
 ): string {
   if (typeof secret === 'string') return secret;
   if (isGoogleOAuthSecretRef(secret)) return 'google-oauth';
+  if (isMicrosoftOAuthSecretRef(secret)) return 'microsoft-oauth';
   return `${secret.source}:${secret.id}`;
 }
 
@@ -4285,9 +4293,11 @@ function formatHttpRequestAuthRule(
       ? rule.secret
       : isGoogleOAuthSecretRef(rule.secret)
         ? 'google-oauth'
-        : typeof rule.secret.id === 'string'
-          ? `${rule.secret.source}:${rule.secret.id}`
-          : '<invalid>';
+        : isMicrosoftOAuthSecretRef(rule.secret)
+          ? 'microsoft-oauth'
+          : typeof rule.secret.id === 'string'
+            ? `${rule.secret.source}:${rule.secret.id}`
+            : '<invalid>';
   const prefix = rule.prefix ? ` ${rule.prefix}` : '';
   return `${index + 1}. ${rule.urlPrefix} -> ${rule.header}:${prefix} ${parsedSecret}`.trim();
 }
@@ -12119,7 +12129,7 @@ export async function handleGatewayCommand(
             if (!rawPrefix || !secretName) {
               return badCommand(
                 'Usage',
-                'Usage: `secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]`',
+                'Usage: `secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]`',
               );
             }
             const secret = normalizeSecretRouteSecret(secretName);
@@ -12151,6 +12161,15 @@ export async function handleGatewayCommand(
                 return badCommand(
                   'Invalid Google OAuth Route',
                   '`google-oauth` routes can only target googleapis.com or *.googleapis.com URL prefixes.',
+                );
+              }
+              if (
+                isMicrosoftOAuthSecretRef(secret) &&
+                !isMicrosoftGraphUrlPrefix(urlPrefix)
+              ) {
+                return badCommand(
+                  'Invalid Microsoft OAuth Route',
+                  '`microsoft-oauth` routes can only target graph.microsoft.com URL prefixes.',
                 );
               }
               const header = normalizeSecretRouteHeader(rawHeader);
@@ -12278,7 +12297,7 @@ export async function handleGatewayCommand(
 
           return badCommand(
             'Usage',
-            'Usage: `secret route list`, `secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]`, or `secret route remove <url-prefix> [header]`',
+            'Usage: `secret route list`, `secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]`, or `secret route remove <url-prefix> [header]`',
           );
         }
 

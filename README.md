@@ -121,7 +121,7 @@ npm run desktop
 
 | Area | Built in |
 | --- | --- |
-| Skills | 76 bundled skills, production business helpers, eval fixtures, packaged skill lifecycle, and human-distillation workflows |
+| Skills | 79 bundled skills, production business helpers, eval fixtures, packaged skill lifecycle, and human-distillation workflows |
 | Channels | Discord, Slack, Signal, WhatsApp, Telegram, Microsoft Teams, email, iMessage, fax, Twilio voice, web, and incoming webhooks |
 | Runtime | Gateway service, TUI client, web chat, admin console, loopback OpenAI-compatible API, Docker or host execution |
 | Governance | Encrypted runtime secrets, SecretRef credential isolation, approval policies, sandbox controls, audit trails with hash-chain integrity |

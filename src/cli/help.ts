@@ -244,9 +244,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|local|msteams|slack> ...
-  hybridclaw auth status <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|local|msteams|slack>
-  hybridclaw auth logout <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|local|msteams|slack>
+  hybridclaw auth login <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack> ...
+  hybridclaw auth status <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
+  hybridclaw auth logout <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
   hybridclaw auth whatsapp reset
 
 Examples:
@@ -261,6 +261,7 @@ Examples:
   hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
   hybridclaw auth login google --client-id ... --client-secret ... --account you@gmail.com
   hybridclaw auth login hubspot --client-id ... --client-secret ... --account sales@example.com
+  hybridclaw auth login microsoft365 --client-id ... --tenant-id organizations --account you@example.com
   hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
   hybridclaw auth login local ollama llama3.2
   hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
@@ -273,6 +274,7 @@ Examples:
   hybridclaw auth status huggingface
   hybridclaw auth status google
   hybridclaw auth status hubspot
+  hybridclaw auth status microsoft365
   hybridclaw auth status msteams
   hybridclaw auth status slack
   hybridclaw auth logout anthropic
@@ -281,6 +283,7 @@ Examples:
   hybridclaw auth logout huggingface
   hybridclaw auth logout google
   hybridclaw auth logout hubspot
+  hybridclaw auth logout microsoft365
   hybridclaw auth logout msteams
   hybridclaw auth logout slack
 
@@ -297,6 +300,7 @@ Notes:
   - \`auth login huggingface\` prompts for the token when \`--api-key\` and \`HF_TOKEN\` are both absent.
   - \`secret set HUBSPOT_ACCESS_TOKEN\` stores a HubSpot Service Key or bearer token in ${runtimeSecretsPath()} for HubSpot API calls.
   - \`auth login hubspot --access-token <token>\` is an equivalent HubSpot Service Key setup path.
+  - \`auth login microsoft365\` stores Microsoft Entra OAuth refresh-token material for Microsoft Graph calls.
   - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.
   - \`auth login slack\` prompts for the bot token and app token when the terminal is interactive.`);
 }
@@ -349,6 +353,32 @@ Notes:
   - Legacy private app access tokens are also accepted bearer credentials; HubSpot Personal Access Keys and Developer Keys are not valid CRM REST bearer tokens for this skill.
   - OAuth client id/client secret setup is only needed for public app OAuth flows.
   - The gateway injects \`HUBSPOT_ACCESS_TOKEN\` only into HubSpot API requests.`);
+}
+
+export function printMicrosoft365Usage(): void {
+  console.log(`Usage: hybridclaw auth login microsoft365 [options]
+
+Options:
+  --client-id <id>          Microsoft Entra app client id
+  --client-secret <secret>  Optional client secret for confidential app registrations
+  --tenant-id <tenant>      Tenant id, verified domain, common, organizations, or consumers
+  --account <label>         Optional account label or email for status output
+  --scopes <scopes>         Space- or comma-separated Microsoft Graph delegated scopes
+  --refresh-token <token>   Store an existing refresh token instead of opening the browser flow
+  --redirect-port <port>    Fixed localhost callback port (optional)
+
+Examples:
+  hybridclaw auth login microsoft365 --client-id "<client-id>" --tenant-id organizations --account you@example.com
+  hybridclaw auth login microsoft365 --client-id "<client-id>" --client-secret "<secret>" --tenant-id "<tenant-id>"
+  hybridclaw auth login microsoft365 --client-id "<client-id>" --refresh-token "<refresh-token>"
+  hybridclaw auth status microsoft365
+  hybridclaw auth logout microsoft365
+
+Notes:
+  - Create a Microsoft Entra app registration with a localhost/mobile-desktop redirect URI matching the printed callback URL.
+  - The default scopes are delegated read-only Graph scopes for user profile, Outlook mail/calendar, OneDrive/SharePoint files, Teams, and chats.
+  - Tenant admins may need to grant consent for the default read-only Graph scopes before normal users can connect.
+  - The gateway injects \`MICROSOFT_365_ACCESS_TOKEN\` only into graph.microsoft.com requests.`);
 }
 
 export function printChannelsUsage(): void {
@@ -842,7 +872,7 @@ Commands:
   hybridclaw secret show <name>
   hybridclaw secret unset <name>
   hybridclaw secret route list
-  hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
+  hybridclaw secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
   hybridclaw secret route remove <url-prefix> [header]
 
 Examples:
@@ -852,12 +882,13 @@ Examples:
   hybridclaw secret unset SF_FULL_USERNAME
   hybridclaw secret route add https://staging.hybridai.one/api/v1/ STAGING_HYBRIDAI_API_KEY X-API-Key none
   hybridclaw secret route add https://analyticsdata.googleapis.com/ google-oauth Authorization Bearer
+  hybridclaw secret route add https://graph.microsoft.com/v1.0/ microsoft-oauth Authorization Bearer
 
 Notes:
   - \`secret\` reads and writes the encrypted store at ${runtimeSecretsPath()}.
   - Secret names must use uppercase letters, digits, and underscores.
   - \`show\` reports whether a secret is stored; it never outputs decrypted values. Secrets are only resolved gateway-side via \`<secret:NAME>\` placeholders or auth rules.
-  - \`route add\` writes \`tools.httpRequest.authRules[]\` in ${runtimeConfigPath()} with a store-backed secret ref or the Google OAuth runtime token provider.
+  - \`route add\` writes \`tools.httpRequest.authRules[]\` in ${runtimeConfigPath()} with a store-backed secret ref, the Google OAuth runtime token provider, or the Microsoft Graph OAuth runtime token provider.
   - Use \`prefix\` for \`Bearer <secret>\` or \`none\` for raw header injection.`);
 }
 
@@ -1114,6 +1145,13 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
     case 'hubspot':
     case 'hs':
       printHubSpotUsage();
+      return true;
+    case 'microsoft365':
+    case 'microsoft-365':
+    case 'm365':
+    case 'office365':
+    case 'graph':
+      printMicrosoft365Usage();
       return true;
     case 'browser':
       printBrowserUsage();

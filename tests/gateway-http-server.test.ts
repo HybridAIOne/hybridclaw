@@ -1472,6 +1472,28 @@ async function importFreshHealth(options?: {
   const getGatewayAdminMcp = vi.fn(() => ({
     servers: [],
   }));
+  const getGatewayAdminConnectors = vi.fn(() => ({
+    secretsPath: '/tmp/credentials.json',
+    connectors: [],
+  }));
+  const saveGatewayAdminHybridAIConnectorApiKey = vi.fn(() => ({
+    secretsPath: '/tmp/credentials.json',
+    connectors: [],
+  }));
+  const startGatewayAdminConnectorOAuth = vi.fn(() => ({
+    provider: 'microsoft365',
+    authorizationUrl: 'https://login.example.test/authorize',
+    state: 'connector-state',
+    expiresAt: Date.now() + 600_000,
+  }));
+  const logoutGatewayAdminConnector = vi.fn(() => ({
+    secretsPath: '/tmp/credentials.json',
+    connectors: [],
+  }));
+  const completeGatewayAdminConnectorOAuthCallback = vi.fn(async () => ({
+    provider: 'microsoft365',
+    name: 'Microsoft 365',
+  }));
   const getGatewayAdminAudit = vi.fn(() => ({
     query: '',
     sessionId: '',
@@ -2188,6 +2210,13 @@ async function importFreshHealth(options?: {
     overwriteGatewayAdminSecret,
     recordGatewayAdminSecretMutationFailure,
     unsetGatewayAdminSecret,
+  }));
+  vi.doMock('../src/gateway/gateway-admin-connectors.js', () => ({
+    completeGatewayAdminConnectorOAuthCallback,
+    getGatewayAdminConnectors,
+    logoutGatewayAdminConnector,
+    saveGatewayAdminHybridAIConnectorApiKey,
+    startGatewayAdminConnectorOAuth,
   }));
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage,
@@ -11371,6 +11400,128 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(403);
     expect(JSON.parse(res.body).error).toContain(
       'HUBSPOT_ACCESS_TOKEN can only be injected into HubSpot API requests',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('injects Microsoft 365 OAuth runtime bearer tokens for Graph hosts', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-microsoft-365-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    vi.doMock('../src/auth/microsoft-auth.js', () => ({
+      MICROSOFT_365_ACCESS_TOKEN_SECRET: 'MICROSOFT_365_ACCESS_TOKEN',
+      resolveMicrosoft365AccessToken: vi.fn(async () => ({
+        accessToken: 'minted-microsoft-access-token',
+        source: 'microsoft-oauth',
+      })),
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '20.190.151.1', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      url: 'https://graph.microsoft.com/v1.0/me',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      arrayBuffer: async () =>
+        Buffer.from(JSON.stringify({ id: 'user-id', displayName: 'User' })),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://graph.microsoft.com/v1.0/me',
+        bearerSecretName: 'MICROSOFT_365_ACCESS_TOKEN',
+        sessionId: 'microsoft-365-audit',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer minted-microsoft-access-token',
+        }),
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).json).toEqual({
+      id: 'user-id',
+      displayName: 'User',
+    });
+    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const auditRecords = fs
+      .readFileSync(getAuditWirePath('microsoft-365-audit'), 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    expect(auditRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            type: 'secret.resolved',
+            secretRef: {
+              source: 'microsoft-oauth',
+              id: 'MICROSOFT_365_ACCESS_TOKEN',
+            },
+          }),
+        }),
+      ]),
+    );
+  });
+
+  test('blocks Microsoft 365 OAuth runtime bearer tokens for non-Graph hosts', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-microsoft-365-block-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    vi.doMock('../src/auth/microsoft-auth.js', () => ({
+      MICROSOFT_365_ACCESS_TOKEN_SECRET: 'MICROSOFT_365_ACCESS_TOKEN',
+      resolveMicrosoft365AccessToken: vi.fn(async () => ({
+        accessToken: 'minted-microsoft-access-token',
+        source: 'microsoft-oauth',
+      })),
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://example.com/steal',
+        bearerSecretName: 'MICROSOFT_365_ACCESS_TOKEN',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).error).toContain(
+      'MICROSOFT_365_ACCESS_TOKEN can only be injected into Microsoft Graph requests',
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });

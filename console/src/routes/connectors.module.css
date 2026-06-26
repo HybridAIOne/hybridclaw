@@ -1,0 +1,156 @@
+.connectorGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.connectorCard {
+  min-height: 100%;
+}
+
+.connectorHead {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.connectorMark {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  border: 1px solid var(--line);
+  color: var(--text);
+  background: var(--panel-muted);
+}
+
+.connectorMarkHybridai {
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel-bg));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+.connectorMarkGoogle {
+  background: color-mix(in srgb, #2f7d32 14%, var(--panel-bg));
+  border-color: color-mix(in srgb, #2f7d32 35%, var(--line));
+}
+
+.connectorMarkMicrosoft365 {
+  background: color-mix(in srgb, #2563eb 14%, var(--panel-bg));
+  border-color: color-mix(in srgb, #2563eb 35%, var(--line));
+}
+
+.connectorTitleRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.connectorTitle {
+  margin: 0;
+  font-size: 0.96rem;
+  line-height: 1.25;
+}
+
+.connectorDescription {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.connectorFacts {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.connectorFact {
+  display: grid;
+  grid-template-columns: minmax(74px, auto) minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  font-size: 0.84rem;
+}
+
+.connectorFact span:first-child {
+  color: var(--muted-foreground);
+}
+
+.connectorFact strong,
+.connectorFact code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.connectorActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding-top: 4px;
+}
+
+.setupList {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.setupSecret {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-muted);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
+.commandBlock {
+  display: block;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-muted);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dialogForm {
+  display: grid;
+  gap: 14px;
+}
+
+.pendingLink {
+  color: var(--accent);
+  font-size: 0.84rem;
+}
+
+@media (max-width: 1180px) {
+  .connectorGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .connectorGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .connectorTitleRow {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
