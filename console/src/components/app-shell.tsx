@@ -15,6 +15,7 @@ import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 import { ViewSwitchNav } from './view-switch';
 
 const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
+const APP_SHELL_CONFIG_REFRESH_INTERVAL_MS = 5_000;
 
 type AppShellConfigContextValue = {
   emailEnabled: boolean;
@@ -41,6 +42,8 @@ export function AppShell(props: { children: ReactNode }) {
     queryFn: () => fetchConfig(auth.token),
     enabled: Boolean(auth.token),
     staleTime: 30_000,
+    refetchInterval: APP_SHELL_CONFIG_REFRESH_INTERVAL_MS,
+    refetchOnWindowFocus: true,
   });
   const emailEnabled =
     (statusQuery.data?.emailEnabled ?? auth.gatewayStatus?.emailEnabled) ===
