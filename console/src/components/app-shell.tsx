@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
 import { createContext, type ReactNode, useContext } from 'react';
-import { validateToken } from '../api/client';
+import { fetchConfig, validateToken } from '../api/client';
 import { useAuth } from '../auth';
 import { resolveCurrentAdminNavItem } from './admin-nav';
 import { AppSidebar } from './sidebar/app-sidebar';
@@ -36,6 +36,12 @@ export function AppShell(props: { children: ReactNode }) {
     enabled: Boolean(auth.token),
     staleTime: 30_000,
   });
+  const configQuery = useQuery({
+    queryKey: ['config', auth.token],
+    queryFn: () => fetchConfig(auth.token),
+    enabled: Boolean(auth.token),
+    staleTime: 30_000,
+  });
   const emailEnabled =
     (statusQuery.data?.emailEnabled ?? auth.gatewayStatus?.emailEnabled) ===
     true;
@@ -64,7 +70,7 @@ export function AppShell(props: { children: ReactNode }) {
                 <h2>{currentNavItem.label}</h2>
               </div>
             </div>
-            <ViewSwitchNav />
+            <ViewSwitchNav items={configQuery.data?.config.ui?.navigation} />
           </div>
           <div className="page-content">{props.children}</div>
         </SidebarInset>

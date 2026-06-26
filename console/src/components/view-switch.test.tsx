@@ -59,4 +59,35 @@ describe('ViewSwitchNav', () => {
     expect(agentsItem?.getAttribute('aria-current')).toBe('page');
     expect(agentsItem?.className).toContain('active');
   });
+
+  it('renders custom local and external navigation items', () => {
+    mockRouterState.pathname = '/admin/channels';
+
+    render(
+      <ViewSwitchNav
+        items={[
+          { label: 'Channels', href: '/admin/channels' },
+          { label: 'Cloud', href: 'https://hybridclaw.io' },
+        ]}
+      />,
+    );
+
+    const channelsLink = screen
+      .getByText('Channels')
+      .closest('.view-switch-link');
+    expect(channelsLink?.getAttribute('aria-current')).toBe('page');
+    expect(channelsLink?.className).toContain('active');
+
+    const cloudLink = screen.getByRole('link', { name: 'Cloud' });
+    expect(cloudLink.getAttribute('href')).toBe('https://hybridclaw.io');
+    expect(cloudLink.getAttribute('target')).toBe('_blank');
+    expect(cloudLink.dataset.routerLink).toBeUndefined();
+    expect(screen.queryByText('Chat')).toBeNull();
+  });
+
+  it('hides the navigation strip when explicitly configured empty', () => {
+    const { container } = render(<ViewSwitchNav items={[]} />);
+
+    expect(container.querySelector('.view-switch')).toBeNull();
+  });
 });

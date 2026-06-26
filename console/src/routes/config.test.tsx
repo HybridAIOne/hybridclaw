@@ -78,6 +78,18 @@ function makeConfig(): AdminConfig {
       maxConcurrent: 2,
       persistBashState: false,
     },
+    ui: {
+      navigation: [
+        { href: '/chat', label: 'Chat' },
+        { href: '/agents', label: 'Agents' },
+        { href: '/admin', label: 'Admin' },
+        {
+          href: 'https://github.com/HybridAIOne/hybridclaw',
+          label: 'GitHub',
+        },
+        { href: '/docs', label: 'Docs' },
+      ],
+    },
     ops: {
       healthHost: '127.0.0.1',
       healthPort: 9090,
@@ -285,6 +297,45 @@ describe('ConfigPage', () => {
     expect(
       (screen.getByLabelText('Health host') as HTMLInputElement).value,
     ).toBe('10.0.0.1');
+  });
+
+  it('edits top navigation links from the form view', async () => {
+    renderConfigPage();
+
+    const firstLabel = (await screen.findByLabelText(
+      'Navigation item 1 label',
+    )) as HTMLInputElement;
+    fireEvent.change(firstLabel, { target: { value: 'Channels' } });
+    fireEvent.change(screen.getByLabelText('Navigation item 1 href'), {
+      target: { value: '/admin/channels' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove navigation item 4' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add link' }));
+    fireEvent.change(screen.getByLabelText('Navigation item 5 label'), {
+      target: { value: 'Cloud' },
+    });
+    fireEvent.change(screen.getByLabelText('Navigation item 5 href'), {
+      target: { value: 'https://hybridclaw.io' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(saveConfigMock).toHaveBeenCalledTimes(1));
+    expect(saveConfigMock).toHaveBeenCalledWith(
+      'admin-token',
+      expect.objectContaining({
+        ui: {
+          navigation: [
+            { href: '/admin/channels', label: 'Channels' },
+            { href: '/agents', label: 'Agents' },
+            { href: '/admin', label: 'Admin' },
+            { href: '/docs', label: 'Docs' },
+            { href: 'https://hybridclaw.io', label: 'Cloud' },
+          ],
+        },
+      }),
+    );
   });
 
   it('surfaces a FieldError for malformed JSON in raw mode and blocks saving', async () => {

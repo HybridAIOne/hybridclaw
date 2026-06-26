@@ -864,6 +864,12 @@ export interface AdminConfig {
       health_check_interval_ms: number;
     };
   };
+  ui?: {
+    navigation: Array<{
+      label: string;
+      href: string;
+    }>;
+  };
   ops: {
     healthHost: string;
     healthPort: number;

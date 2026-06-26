@@ -82,6 +82,19 @@
   resize: vertical;
 }
 
+.navigationList {
+  display: grid;
+  gap: 10px;
+}
+
+.navigationRow {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.45fr) minmax(180px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
 .unavailable {
   display: flex;
   flex-direction: column;
@@ -99,5 +112,13 @@
 @media (max-width: 1080px) {
   .content {
     grid-template-columns: 1fr;
+  }
+
+  .navigationRow {
+    grid-template-columns: 1fr;
+  }
+
+  .navigationRow button {
+    justify-self: end;
   }
 }

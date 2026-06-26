@@ -88,6 +88,53 @@ describe('config reload integration', () => {
     expect(cfg.ops.healthPort).toBe(7777);
   });
 
+  it('populates the default console navigation config', () => {
+    writeConfig({});
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    expect(cfg.ui.navigation).toEqual([
+      { href: '/chat', label: 'Chat' },
+      { href: '/agents', label: 'Agents' },
+      { href: '/admin', label: 'Admin' },
+      { href: 'https://github.com/HybridAIOne/hybridclaw', label: 'GitHub' },
+      { href: '/docs', label: 'Docs' },
+    ]);
+  });
+
+  it('normalizes custom console navigation links', () => {
+    writeConfig({
+      ui: {
+        navigation: [
+          { label: ' Channels ', href: ' /admin/channels ' },
+          { label: 'Cloud', href: 'https://hybridclaw.io/' },
+          { label: 'Bad scheme', href: 'javascript:alert(1)' },
+          { label: '', href: '/admin' },
+          { label: 'Relative', href: 'admin/channels' },
+        ],
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    expect(cfg.ui.navigation).toEqual([
+      { href: '/admin/channels', label: 'Channels' },
+      { href: 'https://hybridclaw.io/', label: 'Cloud' },
+    ]);
+  });
+
+  it('keeps an explicitly empty console navigation list', () => {
+    writeConfig({
+      ui: {
+        navigation: [],
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    expect(cfg.ui.navigation).toEqual([]);
+  });
+
   it('reloadRuntimeConfig accepts SearXNG bearer SecretRefs', () => {
     writeConfig({
       web: {

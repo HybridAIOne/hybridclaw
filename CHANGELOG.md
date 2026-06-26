@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- **Console navigation config**: The top navigation strip can be customized
+  from runtime config with local console paths or HTTP(S) URLs and link text.
+
 ## [0.25.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.7) - 2026-06-25
 
 ### Added
