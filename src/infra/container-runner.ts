@@ -59,6 +59,7 @@ import {
 import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { logger } from '../logger.js';
+import { withAutoHybridAIConnectorsMcpServer } from '../mcp/hybridai-connectors.js';
 import { resolveMcpServersForRuntime } from '../mcp/mcp-oauth.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
@@ -1093,7 +1094,11 @@ async function runContainerInner(
 
   const startTime = Date.now();
   const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
-  const mcpServers = await resolveMcpServersForRuntime(MCP_SERVERS);
+  const mcpServers = await resolveMcpServersForRuntime(
+    withAutoHybridAIConnectorsMcpServer(MCP_SERVERS, {
+      mapUrl: remapHostBaseUrlForContainer,
+    }),
+  );
   const existingEntry = pool.get(sessionId);
   const selectedCodexRuntime =
     modelRuntime.provider === 'openai-codex' ? CODEX_RUNTIME : 'hybridclaw';
