@@ -39,6 +39,7 @@ type LocalOAuthConnectorId = Extract<
   AdminConnectorId,
   'google' | 'microsoft365'
 >;
+type OAuthConnectorId = Exclude<AdminConnectorId, 'hybridai'>;
 type PlatformConnectorId = Extract<AdminConnectorId, 'github'>;
 
 interface OAuthDraft {
@@ -50,7 +51,7 @@ interface OAuthDraft {
 }
 
 interface OAuthStartPayload {
-  provider: LocalOAuthConnectorId;
+  provider: OAuthConnectorId;
   account?: string;
   tenantId?: string;
   clientId?: string;
@@ -77,7 +78,9 @@ function stateIsConnected(connector: AdminConnector): boolean {
   return connector.state === 'connected';
 }
 
-function connectorIsPlatform(connector: AdminConnector): boolean {
+function connectorIsPlatform(
+  connector: AdminConnector,
+): connector is AdminConnector & { id: PlatformConnectorId } {
   return PLATFORM_CONNECTORS.has(connector.id);
 }
 
@@ -205,6 +208,11 @@ export function ConnectorsPage() {
     mutationFn: async (payload: OAuthStartPayload) => {
       const started = await startConnectorOAuth(auth.token, payload);
       setPendingAuthUrl(started.authorizationUrl);
+      if (started.provider === 'github') {
+        window.open(started.authorizationUrl, '_self');
+        return 'GitHub';
+      }
+
       window.open(started.authorizationUrl, '_blank', 'noopener');
 
       const deadline =
@@ -296,23 +304,15 @@ export function ConnectorsPage() {
     window.history.replaceState(null, '', `${url.pathname}${url.search}`);
   }, [toast]);
 
-  const openPlatformConnector = (
-    connector: AdminConnector,
-    options: { start: boolean },
-  ) => {
+  const openPlatformConnector = (connector: AdminConnector) => {
     if (!connector.loginUrl) {
       toast.error(`${connector.name} connection is not available.`);
       return;
     }
     const url = new URL(connector.loginUrl);
-    if (options.start) {
-      const returnUrl = new URL('/admin/connectors', window.location.origin);
-      url.searchParams.set('return_to', returnUrl.toString());
-    } else {
-      url.searchParams.delete('connect');
-      url.searchParams.delete('return_to');
-      url.hash = connector.id;
-    }
+    url.searchParams.delete('connect');
+    url.searchParams.delete('return_to');
+    url.hash = connector.id;
     window.open(url.toString(), '_self');
   };
 
@@ -432,14 +432,21 @@ export function ConnectorsPage() {
                   <Button
                     type="button"
                     size="sm"
+                    loading={
+                      oauthMutation.isPending &&
+                      oauthMutation.variables?.provider === connector.id
+                    }
+                    disabled={oauthMutation.isPending}
                     aria-label={`${isConnected ? 'Manage' : 'Connect'} ${
                       connector.name
                     }`}
-                    onClick={() =>
-                      openPlatformConnector(connector, {
-                        start: !isConnected,
-                      })
-                    }
+                    onClick={() => {
+                      if (isConnected) {
+                        openPlatformConnector(connector);
+                        return;
+                      }
+                      oauthMutation.mutate({ provider: connector.id });
+                    }}
                   >
                     {isConnected ? 'Manage' : 'Connect'}
                   </Button>

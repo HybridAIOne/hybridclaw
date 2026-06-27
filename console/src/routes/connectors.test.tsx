@@ -163,7 +163,14 @@ describe('ConnectorsPage', () => {
     expect(logoutConnectorMock).not.toHaveBeenCalled();
   });
 
-  it('opens GitHub through HybridAI connectors and returns to HybridClaw', async () => {
+  it('starts GitHub through HybridClaw and opens the returned authorization URL', async () => {
+    startConnectorOAuthMock.mockResolvedValue({
+      provider: 'github',
+      authorizationUrl:
+        'https://github.com/apps/hybridai-test/installations/new',
+      state: '',
+      expiresAt: Date.now() + 600_000,
+    });
     const openSpy = vi
       .spyOn(window, 'open')
       .mockReturnValue(null as unknown as Window);
@@ -174,17 +181,15 @@ describe('ConnectorsPage', () => {
       await screen.findByRole('button', { name: 'Connect GitHub' }),
     );
 
-    const [targetUrl, target] = openSpy.mock.calls[0] || [];
-    expect(target).toBe('_self');
-    const url = new URL(String(targetUrl));
-    expect(url.origin).toBe('https://hybridai.one');
-    expect(url.pathname).toBe('/admin_workspace/connectors');
-    expect(url.searchParams.get('connect')).toBe('github');
-
-    const returnTo = new URL(url.searchParams.get('return_to') || '');
-    expect(returnTo.origin).toBe(window.location.origin);
-    expect(returnTo.pathname).toBe('/admin/connectors');
-    expect(returnTo.search).toBe('');
+    await waitFor(() =>
+      expect(startConnectorOAuthMock).toHaveBeenCalledWith('admin-token', {
+        provider: 'github',
+      }),
+    );
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://github.com/apps/hybridai-test/installations/new',
+      '_self',
+    );
 
     openSpy.mockRestore();
   });

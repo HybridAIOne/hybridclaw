@@ -15,6 +15,7 @@ import {
 } from '../auth/google-auth.js';
 import {
   clearHybridAICredentials,
+  getHybridAIApiKey,
   getHybridAIAuthStatus,
 } from '../auth/hybridai-auth.js';
 import {
@@ -34,6 +35,7 @@ import {
 } from '../auth/microsoft-auth.js';
 import {
   HYBRIDAI_BASE_URL,
+  MissingRequiredEnvVarError,
   refreshRuntimeSecretsFromEnv,
 } from '../config/config.js';
 import {
@@ -66,6 +68,10 @@ export type GatewayAdminLocalOAuthConnectorId = Extract<
   GatewayAdminConnectorId,
   'google' | 'microsoft365'
 >;
+export type GatewayAdminOAuthConnectorId = Exclude<
+  GatewayAdminConnectorId,
+  'hybridai'
+>;
 
 export type GatewayAdminConnectorState =
   | 'connected'
@@ -96,7 +102,7 @@ export interface GatewayAdminConnectorsResponse {
 }
 
 export interface GatewayAdminConnectorOAuthStartResult {
-  provider: GatewayAdminLocalOAuthConnectorId;
+  provider: GatewayAdminOAuthConnectorId;
   authorizationUrl: string;
   state: string;
   expiresAt: number;
@@ -138,20 +144,16 @@ function readSecretOrEnv(name: string): string {
   );
 }
 
+function resolveHybridAIBaseUrl(): string {
+  return (HYBRIDAI_BASE_URL || 'https://hybridai.one').replace(/\/+$/g, '');
+}
+
 function resolveHybridAILoginUrl(): string {
-  const baseUrl = (HYBRIDAI_BASE_URL || 'https://hybridai.one').replace(
-    /\/+$/g,
-    '',
-  );
-  return `${baseUrl}${HYBRIDAI_LOGIN_PATH}`;
+  return `${resolveHybridAIBaseUrl()}${HYBRIDAI_LOGIN_PATH}`;
 }
 
 function resolveHybridAIConnectorUrl(connectorId: string): string {
-  const baseUrl = (HYBRIDAI_BASE_URL || 'https://hybridai.one').replace(
-    /\/+$/g,
-    '',
-  );
-  const url = new URL(HYBRIDAI_CONNECTORS_PATH, baseUrl);
+  const url = new URL(HYBRIDAI_CONNECTORS_PATH, resolveHybridAIBaseUrl());
   url.searchParams.set('connect', connectorId);
   return url.toString();
 }
@@ -199,6 +201,19 @@ function resolveOAuthRedirectUri(requestBaseUrl?: string): string {
     );
   }
   return `${baseUrl}/api/connectors/oauth/callback`;
+}
+
+function resolveConnectorReturnUrl(requestBaseUrl?: string): string {
+  const baseUrl = String(requestBaseUrl || '')
+    .trim()
+    .replace(/\/+$/g, '');
+  if (!baseUrl) {
+    throw new GatewayRequestError(
+      400,
+      'Cannot determine the gateway base URL for the connector return.',
+    );
+  }
+  return `${baseUrl}/admin/connectors`;
 }
 
 function hasGoogleOAuthRoute(): boolean {
@@ -390,6 +405,79 @@ function buildMicrosoft365Connector(): GatewayAdminConnector {
   };
 }
 
+async function readJsonObject(
+  response: Response,
+): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (!text.trim()) return {};
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed && typeof parsed === 'object'
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+async function startHybridAIPlatformConnectorOAuth(input: {
+  provider: Extract<GatewayAdminConnectorId, 'github'>;
+  requestBaseUrl?: string;
+}): Promise<GatewayAdminConnectorOAuthStartResult> {
+  let apiKey: string;
+  try {
+    apiKey = getHybridAIApiKey();
+  } catch (error) {
+    if (error instanceof MissingRequiredEnvVarError) {
+      throw new GatewayRequestError(
+        400,
+        'Connect HybridAI first, then connect GitHub.',
+      );
+    }
+    throw error;
+  }
+
+  const response = await fetch(
+    `${resolveHybridAIBaseUrl()}/api/v1/connectors/oauth/authorize/${encodeURIComponent(input.provider)}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        return_to: resolveConnectorReturnUrl(input.requestBaseUrl),
+      }),
+    },
+  );
+  const payload = await readJsonObject(response);
+  if (!response.ok) {
+    const message =
+      trimString(payload.message) ||
+      trimString(payload.error) ||
+      `HybridAI returned ${response.status}`;
+    throw new GatewayRequestError(
+      response.status === 401 ? 401 : 502,
+      `Could not start ${input.provider} connector authorization: ${message}`,
+    );
+  }
+
+  const authorizationUrl = trimString(payload.authorization_url);
+  if (!authorizationUrl) {
+    throw new GatewayRequestError(
+      502,
+      `HybridAI did not return a ${input.provider} authorization URL.`,
+    );
+  }
+
+  return {
+    provider: input.provider,
+    authorizationUrl,
+    state: '',
+    expiresAt: Date.now() + PENDING_CONNECTOR_OAUTH_TTL_MS,
+  };
+}
+
 export function getGatewayAdminConnectors(): GatewayAdminConnectorsResponse {
   return {
     connectors: [
@@ -501,10 +589,10 @@ function resolveMicrosoft365OAuthFlow(input: {
   };
 }
 
-export function startGatewayAdminConnectorOAuth(input: {
+export async function startGatewayAdminConnectorOAuth(input: {
   body: ConnectorOAuthStartInput;
   requestBaseUrl?: string;
-}): GatewayAdminConnectorOAuthStartResult {
+}): Promise<GatewayAdminConnectorOAuthStartResult> {
   pruneExpiredConnectorOAuthFlows();
   const provider = parseConnectorId(input.body.provider);
   if (provider === 'hybridai') {
@@ -514,10 +602,10 @@ export function startGatewayAdminConnectorOAuth(input: {
     );
   }
   if (provider === 'github') {
-    throw new GatewayRequestError(
-      400,
-      'GitHub is connected through HybridAI connectors.',
-    );
+    return startHybridAIPlatformConnectorOAuth({
+      provider,
+      requestBaseUrl: input.requestBaseUrl,
+    });
   }
 
   const redirectUri = resolveOAuthRedirectUri(input.requestBaseUrl);

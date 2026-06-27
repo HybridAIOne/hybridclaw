@@ -135,7 +135,7 @@ describe('gateway admin connectors', () => {
   test('completes Microsoft OAuth and configures the Graph auth route', async () => {
     const { connectors, runtimeConfig, runtimeSecrets } =
       await importFreshConnectors();
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => {
       return new Response(
         JSON.stringify({
           refresh_token: 'microsoft-refresh-token',
@@ -149,7 +149,7 @@ describe('gateway admin connectors', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const started = connectors.startGatewayAdminConnectorOAuth({
+    const started = await connectors.startGatewayAdminConnectorOAuth({
       requestBaseUrl: 'http://127.0.0.1:9090',
       body: {
         provider: 'm365',
@@ -195,17 +195,61 @@ describe('gateway admin connectors', () => {
     );
   });
 
+  test('starts GitHub OAuth through HybridAI as the API key owner', async () => {
+    const { connectors, runtimeSecrets } = await importFreshConnectors();
+    runtimeSecrets.saveNamedRuntimeSecrets({
+      HYBRIDAI_API_KEY: 'hai-test-secret-key',
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          authorization_url: 'https://github.test/install',
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const started = await connectors.startGatewayAdminConnectorOAuth({
+      requestBaseUrl: 'http://127.0.0.1:9090',
+      body: {
+        provider: 'github',
+      },
+    });
+
+    expect(started).toMatchObject({
+      provider: 'github',
+      authorizationUrl: 'https://github.test/install',
+      state: '',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, request] = fetchMock.mock.calls[0] || [];
+    expect(String(url)).toBe(
+      'https://hybridai.one/api/v1/connectors/oauth/authorize/github',
+    );
+    const init = request as RequestInit;
+    expect(new Headers(init.headers).get('Authorization')).toBe(
+      'Bearer hai-test-secret-key',
+    );
+    expect(JSON.parse(String(init.body))).toEqual({
+      return_to: 'http://127.0.0.1:9090/admin/connectors',
+    });
+  });
+
   test('rejects Google OAuth start when account and client credentials are missing', async () => {
     const { connectors } = await importFreshConnectors();
 
-    expect(() =>
+    await expect(
       connectors.startGatewayAdminConnectorOAuth({
         requestBaseUrl: 'http://127.0.0.1:9090',
         body: {
           provider: 'google',
         },
       }),
-    ).toThrow('Google account email is required.');
+    ).rejects.toThrow('Google account email is required.');
   });
 
   test('rejects connector OAuth callbacks with unknown state', async () => {

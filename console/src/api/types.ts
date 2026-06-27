@@ -1474,7 +1474,7 @@ export interface AdminConnectorsResponse {
 }
 
 export interface AdminConnectorOAuthStartResponse {
-  provider: Extract<AdminConnectorId, 'google' | 'microsoft365'>;
+  provider: Exclude<AdminConnectorId, 'hybridai'>;
   authorizationUrl: string;
   state: string;
   expiresAt: number;

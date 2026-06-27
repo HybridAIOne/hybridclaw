@@ -5590,7 +5590,7 @@ async function handleApiAdminConnectors(
     sendJson(
       res,
       200,
-      startGatewayAdminConnectorOAuth({
+      await startGatewayAdminConnectorOAuth({
         body,
         requestBaseUrl: resolveRequestOrigin(req),
       }),
