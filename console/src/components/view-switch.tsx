@@ -66,12 +66,16 @@ function resolveActiveHref(
 ): string | null {
   return (
     items
-      .filter((item) => !isExternalHref(item.href) && isActive(pathname, item.href))
+      .filter(
+        (item) => !isExternalHref(item.href) && isActive(pathname, item.href),
+      )
       .sort((a, b) => b.href.length - a.href.length)[0]?.href ?? null
   );
 }
 
-export function ViewSwitchNav(props: { items?: ReadonlyArray<ViewSwitchItem> }) {
+export function ViewSwitchNav(props: {
+  items?: ReadonlyArray<ViewSwitchItem>;
+}) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });

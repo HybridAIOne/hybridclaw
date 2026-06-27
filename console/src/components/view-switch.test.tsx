@@ -89,7 +89,10 @@ describe('ViewSwitchNav', () => {
     render(
       <ViewSwitchNav
         items={[
-          { label: 'Source', href: 'https://github.com/HybridAIOne/hybridclaw' },
+          {
+            label: 'Source',
+            href: 'https://github.com/HybridAIOne/hybridclaw',
+          },
           { label: 'Spoof', href: 'https://github.com.evil.example/repo' },
         ]}
       />,
