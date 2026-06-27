@@ -125,6 +125,12 @@ function escapeODataString(value) {
   return String(value || '').replace(/'/g, "''");
 }
 
+function escapeGraphSearchPhrase(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"');
+}
+
 function isoOrDefault(value, fallback) {
   const raw = String(value || '').trim() || fallback;
   const timestamp = Date.parse(raw);
@@ -196,7 +202,7 @@ function buildMailSearchRequest(args, maxResponseBytes) {
   return buildHttpRequest(
     graphUrl('me/messages', {
       $top: top,
-      $search: `"${query.replace(/"/g, '\\"')}"`,
+      $search: `"${escapeGraphSearchPhrase(query)}"`,
       $select:
         'id,subject,from,receivedDateTime,webLink,isRead,bodyPreview,hasAttachments',
     }),

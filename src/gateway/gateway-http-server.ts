@@ -5634,14 +5634,11 @@ async function handleApiMcpOAuthCallback(
 ): Promise<void> {
   const error = (url.searchParams.get('error') || '').trim();
   if (error) {
-    const description = (
-      url.searchParams.get('error_description') || ''
-    ).trim();
     sendMcpOAuthCallbackPage(
       res,
       400,
       'MCP authorization failed',
-      description || error,
+      'The provider returned an authorization error. Please close this tab and try again.',
     );
     return;
   }
@@ -5657,20 +5654,20 @@ async function handleApiMcpOAuthCallback(
     return;
   }
   try {
-    const result = await completeGatewayMcpOAuthCallback({ state, code });
+    await completeGatewayMcpOAuthCallback({ state, code });
     sendMcpOAuthCallbackPage(
       res,
       200,
-      `Connected to ${result.serverName}`,
+      'MCP connected',
       'Authorization complete. You can close this tab and return to HybridClaw.',
       { autoClose: true },
     );
-  } catch (err) {
+  } catch {
     sendMcpOAuthCallbackPage(
       res,
       400,
       'MCP authorization failed',
-      err instanceof Error ? err.message : String(err),
+      'Authorization could not be completed. Please close this tab and try again.',
     );
   }
 }
@@ -5687,7 +5684,7 @@ async function handleApiConnectorOAuthCallback(
       res,
       400,
       'Connector authorization failed',
-      providerError,
+      'The provider returned an authorization error. Please close this tab and try again.',
     );
     return;
   }
@@ -5701,23 +5698,23 @@ async function handleApiConnectorOAuthCallback(
     return;
   }
   try {
-    const result = await completeGatewayAdminConnectorOAuthCallback({
+    await completeGatewayAdminConnectorOAuthCallback({
       state,
       code,
     });
     sendMcpOAuthCallbackPage(
       res,
       200,
-      `Connected to ${result.name}`,
+      'Connector connected',
       'Authorization complete. You can close this tab and return to HybridClaw.',
       { autoClose: true },
     );
-  } catch (err) {
+  } catch {
     sendMcpOAuthCallbackPage(
       res,
       400,
       'Connector authorization failed',
-      err instanceof Error ? err.message : String(err),
+      'Authorization could not be completed. Please close this tab and try again.',
     );
   }
 }

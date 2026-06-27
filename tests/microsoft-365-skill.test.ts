@@ -74,6 +74,25 @@ test('Microsoft 365 helper builds profile and mail requests with bearer secret r
   expect(JSON.parse(mail.stdout).httpRequest.url).toContain('%24top=5');
 });
 
+test('Microsoft 365 helper escapes mail search phrases', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'mail',
+    'search',
+    '--query',
+    'path:\\docs "budget"',
+  ]);
+
+  expect(result.status).toBe(0);
+  const request = JSON.parse(result.stdout).httpRequest;
+  const url = new URL(request.url);
+  expect(url.searchParams.get('$search')).toBe(
+    '"path:\\\\docs \\"budget\\""',
+  );
+});
+
 test('Microsoft 365 helper builds calendar, drive, and Teams requests', () => {
   const calendar = runHelper([
     '--format',
