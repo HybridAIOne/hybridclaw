@@ -6965,15 +6965,83 @@ function requireConfiguredMcpServer(name: string): {
 }
 
 export function resolveMcpOAuthRedirectUri(requestBaseUrl?: string): string {
-  const base = String(requestBaseUrl || GATEWAY_BASE_URL || '')
-    .trim()
-    .replace(/\/+$/, '');
+  const config = getRuntimeConfig();
+  const configuredPublicUrl = normalizeMcpOAuthCallbackBaseUrl(
+    config.deployment.public_url,
+  );
+  const configuredGatewayUrl =
+    normalizeMcpOAuthCallbackBaseUrl(GATEWAY_BASE_URL);
+  const requestUrl = normalizeMcpOAuthCallbackBaseUrl(requestBaseUrl);
+  const publicConfiguredGatewayUrl =
+    configuredGatewayUrl &&
+    !isPrivateMcpOAuthCallbackBaseUrl(configuredGatewayUrl)
+      ? configuredGatewayUrl
+      : '';
+  const publicRequestUrl =
+    requestUrl && !isPrivateMcpOAuthCallbackBaseUrl(requestUrl)
+      ? requestUrl
+      : '';
+  const base =
+    configuredPublicUrl ||
+    publicConfiguredGatewayUrl ||
+    publicRequestUrl ||
+    requestUrl ||
+    configuredGatewayUrl ||
+    '';
   if (!base) {
     throw new Error(
       'Cannot determine the gateway base URL for the OAuth redirect.',
     );
   }
   return `${base}/api/mcp/oauth/callback`;
+}
+
+function normalizeMcpOAuthCallbackBaseUrl(value?: string): string {
+  const trimmed = String(value || '')
+    .trim()
+    .replace(/\/+$/, '');
+  if (!trimmed) return '';
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+  } catch {
+    return '';
+  }
+  return trimmed;
+}
+
+function isPrivateMcpOAuthCallbackBaseUrl(value: string): boolean {
+  let hostname = '';
+  try {
+    hostname = new URL(value).hostname.toLowerCase();
+  } catch {
+    return true;
+  }
+  if (hostname === 'localhost' || hostname === '::1' || hostname === '[::1]') {
+    return true;
+  }
+  const parts = hostname.split('.');
+  if (parts.length !== 4) return false;
+  const octets = parts.map((part) => Number.parseInt(part, 10));
+  if (
+    octets.some(
+      (octet, index) =>
+        !Number.isInteger(octet) ||
+        String(octet) !== parts[index] ||
+        octet < 0 ||
+        octet > 255,
+    )
+  ) {
+    return false;
+  }
+  const [first, second] = octets;
+  return (
+    first === 10 ||
+    first === 127 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    (first === 169 && second === 254)
+  );
 }
 
 export async function startGatewayAdminMcpOAuth(input: {

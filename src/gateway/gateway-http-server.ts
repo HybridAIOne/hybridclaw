@@ -2295,6 +2295,11 @@ function resolveRequestOrigin(
   const explicitBaseUrl = normalizePublicBaseUrl(bodyBaseUrl);
   if (explicitBaseUrl) return explicitBaseUrl;
 
+  const configuredPublicUrl = normalizePublicBaseUrl(
+    getRuntimeConfig().deployment.public_url,
+  );
+  if (configuredPublicUrl) return configuredPublicUrl;
+
   const forwardedHost = String(req.headers['x-forwarded-host'] || '')
     .split(',')[0]
     ?.trim();
