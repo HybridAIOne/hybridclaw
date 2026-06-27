@@ -1444,7 +1444,7 @@ async function resolveTlsCertificateSha256Pin(
   }
   if (!secretName) return null;
   return normalizeSha256Fingerprint(
-    await resolveHttpSecretOrThrow(secretName, {
+    resolveStoredProtocolSecretOrThrow(secretName, {
       ...context,
       selector: 'tlsCertificateSha256',
     }),
