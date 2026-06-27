@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
 import { createContext, type ReactNode, useContext } from 'react';
-import { fetchConfig, validateToken } from '../api/client';
+import { validateToken } from '../api/client';
 import { isAuthReadyForApi, useAuth } from '../auth';
 import { resolveCurrentAdminNavItem } from './admin-nav';
 import { AppSidebar } from './sidebar/app-sidebar';
@@ -12,10 +12,9 @@ import {
   SidebarProvider,
 } from './sidebar/index';
 import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
-import { ViewSwitchNav } from './view-switch';
+import { useConfiguredViewSwitchItems, ViewSwitchNav } from './view-switch';
 
 const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
-const APP_SHELL_CONFIG_REFRESH_INTERVAL_MS = 30_000;
 
 type AppShellConfigContextValue = {
   emailEnabled: boolean;
@@ -38,14 +37,7 @@ export function AppShell(props: { children: ReactNode }) {
     enabled: authReady,
     staleTime: 30_000,
   });
-  const configQuery = useQuery({
-    queryKey: ['config', auth.token],
-    queryFn: () => fetchConfig(auth.token),
-    enabled: authReady,
-    staleTime: 30_000,
-    refetchInterval: APP_SHELL_CONFIG_REFRESH_INTERVAL_MS,
-    refetchOnWindowFocus: true,
-  });
+  const viewSwitchItems = useConfiguredViewSwitchItems(auth.token);
   const emailEnabled =
     (statusQuery.data?.emailEnabled ?? auth.gatewayStatus?.emailEnabled) ===
     true;
@@ -74,7 +66,7 @@ export function AppShell(props: { children: ReactNode }) {
                 <h2>{currentNavItem.label}</h2>
               </div>
             </div>
-            <ViewSwitchNav items={configQuery.data?.config.ui?.navigation} />
+            <ViewSwitchNav items={viewSwitchItems} />
           </div>
           <div className="page-content">{props.children}</div>
         </SidebarInset>

@@ -189,6 +189,7 @@ vi.mock('./use-chat-stream', () => ({
 }));
 
 vi.mock('../../components/view-switch', () => ({
+  useConfiguredViewSwitchItems: () => undefined,
   ViewSwitchNav: () => null,
 }));
 

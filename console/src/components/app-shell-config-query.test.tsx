@@ -5,6 +5,8 @@ import { AppShell } from './app-shell';
 
 const useQueryMock = vi.hoisted(() => vi.fn());
 const useAuthMock = vi.hoisted(() => vi.fn());
+const useConfiguredViewSwitchItemsMock = vi.hoisted(() => vi.fn());
+const ViewSwitchNavMock = vi.hoisted(() => vi.fn());
 const routerStateMock = vi.hoisted(() => ({
   pathname: '/chat',
 }));
@@ -56,7 +58,12 @@ vi.mock('./sidebar/navigation', () => ({
 }));
 
 vi.mock('./view-switch', () => ({
-  ViewSwitchNav: () => <nav data-testid="view-switch" />,
+  useConfiguredViewSwitchItems: (token: string) =>
+    useConfiguredViewSwitchItemsMock(token),
+  ViewSwitchNav: (props: { items?: unknown }) => {
+    ViewSwitchNavMock(props);
+    return <nav data-testid="view-switch" />;
+  },
 }));
 
 describe('AppShell config query', () => {
@@ -69,33 +76,25 @@ describe('AppShell config query', () => {
     });
     useQueryMock.mockImplementation(
       ({ queryKey }: { queryKey: readonly string[] }) =>
-        queryKey[0] === 'config'
-          ? { data: { config: { ui: { navigation: [] } } } }
-          : { data: { emailEnabled: false } },
+        queryKey[0] === 'status' ? { data: { emailEnabled: false } } : {},
     );
+    useConfiguredViewSwitchItemsMock.mockReset();
+    useConfiguredViewSwitchItemsMock.mockReturnValue([
+      { href: '/chat', label: 'Chat' },
+    ]);
+    ViewSwitchNavMock.mockReset();
   });
 
-  it('refreshes runtime config so navigation changes become visible', () => {
+  it('passes runtime navigation config into the view switch', () => {
     render(
       <AppShell>
         <section />
       </AppShell>,
     );
 
-    const configQueryOptions = useQueryMock.mock.calls
-      .map(([options]) => options as { queryKey: readonly string[] })
-      .find((options) => options.queryKey[0] === 'config') as
-      | {
-          enabled?: boolean;
-          refetchInterval?: number;
-          refetchOnWindowFocus?: boolean;
-        }
-      | undefined;
-
-    expect(configQueryOptions).toMatchObject({
-      enabled: true,
-      refetchInterval: 30_000,
-      refetchOnWindowFocus: true,
+    expect(useConfiguredViewSwitchItemsMock).toHaveBeenCalledWith('');
+    expect(ViewSwitchNavMock).toHaveBeenCalledWith({
+      items: [{ href: '/chat', label: 'Chat' }],
     });
   });
 });

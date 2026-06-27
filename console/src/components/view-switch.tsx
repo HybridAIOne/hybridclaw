@@ -1,5 +1,7 @@
+import { useQuery } from '@tanstack/react-query';
 import { Link, useRouterState } from '@tanstack/react-router';
 import type { ComponentType } from 'react';
+import { fetchConfig } from '../api/client';
 import { Admin, Agents, Chat, Circle, Docs } from './icons';
 
 type ViewSwitchIcon = 'admin' | 'agents' | 'chat' | 'docs';
@@ -31,6 +33,20 @@ const VIEW_SWITCH_ICONS: Record<ViewSwitchIcon, ComponentType> = {
 };
 
 const SPA_NAVIGATION_PREFIXES = ['/admin', '/agents', '/chat'] as const;
+const VIEW_SWITCH_CONFIG_REFRESH_INTERVAL_MS = 30_000;
+
+export function useConfiguredViewSwitchItems(
+  token: string,
+): ReadonlyArray<ViewSwitchItem> | undefined {
+  const configQuery = useQuery({
+    queryKey: ['config', token],
+    queryFn: () => fetchConfig(token),
+    staleTime: 30_000,
+    refetchInterval: VIEW_SWITCH_CONFIG_REFRESH_INTERVAL_MS,
+    refetchOnWindowFocus: true,
+  });
+  return configQuery.data?.config.ui?.navigation;
+}
 
 function isActive(pathname: string, path: string): boolean {
   return pathname === path || pathname.startsWith(`${path}/`);
