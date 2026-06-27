@@ -796,9 +796,6 @@ async function resolveHttpSecretOrThrow(
   if (secretName === MICROSOFT_365_ACCESS_TOKEN_SECRET) {
     return await resolveMicrosoftOAuthTokenOrThrow(secretName, context);
   }
-  // lgtm[js/weak-sensitive-data-hashing] Secrets resolved here may later be
-  // included in protocol-required request fingerprints; they are not persisted
-  // as password hashes.
   return resolveStoredSecretForInjection({
     secretName,
     sessionId: context.sessionId,
@@ -835,6 +832,8 @@ function signGoogleServiceAccountJwt(params: {
     base64UrlJson(payload),
   ].join('.');
   const signer = createSign('RSA-SHA256');
+  // lgtm[js/insufficient-password-hash] Google service account JWTs must be
+  // signed with RSA-SHA256; this signs a short-lived assertion, not a password.
   signer.update(signingInput);
   signer.end();
   const signature = signer.sign(params.privateKey).toString('base64url');
@@ -1434,8 +1433,6 @@ function encodeCanonicalQueryPart(value: string): string {
   );
 }
 
-// lgtm[js/weak-sensitive-data-hashing] OTC signs a canonical request digest by
-// specification; this is request authentication, not password storage.
 function canonicalizeOtcQuery(url: URL): string {
   return Array.from(url.searchParams.entries())
     .map(([key, value]) => [
@@ -1469,12 +1466,16 @@ function canonicalizeOtcPath(url: URL): string {
 }
 
 function sha256Hex(value: string | Uint8Array | undefined): string {
+  // lgtm[js/insufficient-password-hash] SHA-256 is used here for protocol
+  // request digests and artifact fingerprints, not for password storage.
   return createHash('sha256')
     .update(value ?? '')
     .digest('hex');
 }
 
 function hmacSha256Hex(secret: string, value: string): string {
+  // lgtm[js/insufficient-password-hash] SDK-HMAC-SHA256 is the OTC
+  // request-signing algorithm; the result is an API signature, not a password.
   return createHmac('sha256', secret).update(value).digest('hex');
 }
 

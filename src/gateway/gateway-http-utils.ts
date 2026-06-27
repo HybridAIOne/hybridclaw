@@ -42,22 +42,65 @@ export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   }
 }
 
-function jsonResponseReplacer(key: string, value: unknown): unknown {
-  const normalizedKey = key.toLowerCase();
-  if (
-    normalizedKey === 'stack' ||
-    normalizedKey === 'stacktrace' ||
-    normalizedKey === 'stack_trace'
-  ) {
-    return undefined;
+type JsonResponseValue =
+  | null
+  | string
+  | number
+  | boolean
+  | JsonResponseValue[]
+  | { [key: string]: JsonResponseValue };
+
+const STACK_TRACE_FIELD_NAMES = new Set(['stack', 'stacktrace', 'stack_trace']);
+
+function sanitizeJsonResponsePayload(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): JsonResponseValue | undefined {
+  if (value === null) return null;
+
+  switch (typeof value) {
+    case 'string':
+    case 'number':
+    case 'boolean':
+      return value;
+    case 'bigint':
+      return value.toString();
+    case 'undefined':
+    case 'function':
+    case 'symbol':
+      return undefined;
   }
+
   if (value instanceof Error) {
     return {
       name: value.name,
       message: value.message,
     };
   }
-  return value;
+
+  if (value instanceof Date) return value.toISOString();
+
+  if (seen.has(value)) return '[Circular]';
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map(
+        (item) => sanitizeJsonResponsePayload(item, seen) ?? null,
+      );
+    }
+
+    const sanitized: { [key: string]: JsonResponseValue } = {};
+    for (const [key, rawValue] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      if (STACK_TRACE_FIELD_NAMES.has(key.toLowerCase())) continue;
+      const sanitizedValue = sanitizeJsonResponsePayload(rawValue, seen);
+      if (sanitizedValue !== undefined) sanitized[key] = sanitizedValue;
+    }
+    return sanitized;
+  } finally {
+    seen.delete(value);
+  }
 }
 
 export function sendJson(
@@ -68,5 +111,7 @@ export function sendJson(
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
   });
-  res.end(JSON.stringify(payload, jsonResponseReplacer, 2));
+  res.end(
+    JSON.stringify(sanitizeJsonResponsePayload(payload) ?? null, null, 2),
+  );
 }
