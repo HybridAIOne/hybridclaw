@@ -195,6 +195,13 @@ code {
   height: 16px;
 }
 
+.nav-link-icon img {
+  display: block;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
 .button-row,
 .header-actions {
   display: flex;

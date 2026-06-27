@@ -79,6 +79,9 @@ const NAVIGATION_LABEL_MAX_LENGTH = 48;
 const NAVIGATION_HREF_INPUT_PATTERN = '(?:/(?!/).*|https?://.+)';
 const NAVIGATION_HREF_ERROR =
   'Use a local path starting with / or an http(s) URL.';
+const NAVIGATION_IMAGE_INPUT_PATTERN = '(?:|/(?!/).*|https?://.+)';
+const NAVIGATION_IMAGE_ERROR =
+  'Use a local image path starting with / or an http(s) image URL.';
 
 const NEW_NAVIGATION_ITEM: NavigationItem = {
   href: '',
@@ -230,6 +233,32 @@ function validateNavigationHref(value: string): string | null {
       : NAVIGATION_HREF_ERROR;
   } catch {
     return NAVIGATION_HREF_ERROR;
+  }
+}
+
+function validateNavigationImage(value: string | undefined): string | null {
+  const candidate = (value ?? '').trim();
+  if (candidate === '') return null;
+
+  if (candidate.startsWith('/')) {
+    if (candidate.startsWith('//')) {
+      return NAVIGATION_IMAGE_ERROR;
+    }
+    try {
+      new URL(candidate, 'http://127.0.0.1');
+      return null;
+    } catch {
+      return NAVIGATION_IMAGE_ERROR;
+    }
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+      ? null
+      : NAVIGATION_IMAGE_ERROR;
+  } catch {
+    return NAVIGATION_IMAGE_ERROR;
   }
 }
 
@@ -412,7 +441,8 @@ function NavigationFields({
       <FieldLabel>Navigation links</FieldLabel>
       <FieldDescription>
         Local paths like <code>/admin/channels</code> and HTTP(S) URLs are shown
-        in the top navigation strip.
+        in the top navigation strip. Optional image paths or URLs render as the
+        link icon.
       </FieldDescription>
       {items.length > 0 ? (
         <div className={styles.navigationList}>
@@ -431,7 +461,10 @@ function NavigationFields({
                     placeholder="Link text"
                     maxLength={NAVIGATION_LABEL_MAX_LENGTH}
                     onChange={(event) =>
-                      updateItem(index, { label: event.target.value })
+                      updateItem(index, {
+                        icon: undefined,
+                        label: event.target.value,
+                      })
                     }
                   />
                   <FieldError />
@@ -448,7 +481,30 @@ function NavigationFields({
                     pattern={NAVIGATION_HREF_INPUT_PATTERN}
                     title={NAVIGATION_HREF_ERROR}
                     onChange={(event) =>
-                      updateItem(index, { href: event.target.value })
+                      updateItem(index, {
+                        href: event.target.value,
+                        icon: undefined,
+                      })
+                    }
+                  />
+                  <FieldError />
+                </Field>
+                <Field
+                  error={validateNavigationImage(item.image)}
+                  className={styles.navigationControl}
+                >
+                  <Input
+                    aria-label={`Navigation item ${index + 1} image`}
+                    value={item.image ?? ''}
+                    placeholder="/icons/hybridai.png"
+                    pattern={NAVIGATION_IMAGE_INPUT_PATTERN}
+                    title={NAVIGATION_IMAGE_ERROR}
+                    onChange={(event) =>
+                      updateItem(index, {
+                        image: event.target.value.trim()
+                          ? event.target.value
+                          : undefined,
+                      })
                     }
                   />
                   <FieldError />

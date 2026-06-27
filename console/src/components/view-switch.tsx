@@ -1,30 +1,34 @@
 import { Link, useRouterState } from '@tanstack/react-router';
 import type { ComponentType } from 'react';
-import {
-  Admin,
-  Agents,
-  Chat,
-  Circle,
-  Docs,
-  Github,
-  HybridAILogo,
-} from './icons';
+import { Admin, Agents, Chat, Circle, Docs } from './icons';
+
+type ViewSwitchIcon = 'admin' | 'agents' | 'chat' | 'docs';
 
 export type ViewSwitchItem = {
   label: string;
   href: string;
+  icon?: ViewSwitchIcon;
+  image?: string;
 };
 
 export const DEFAULT_VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
-  { href: '/chat', label: 'Chat' },
-  { href: '/agents', label: 'Agents' },
-  { href: '/admin', label: 'Admin' },
+  { href: '/chat', icon: 'chat', label: 'Chat' },
+  { href: '/agents', icon: 'agents', label: 'Agents' },
+  { href: '/admin', icon: 'admin', label: 'Admin' },
   {
     href: 'https://github.com/HybridAIOne/hybridclaw',
+    image: '/icons/github.svg',
     label: 'GitHub',
   },
-  { href: '/docs', label: 'Docs' },
+  { href: '/docs', icon: 'docs', label: 'Docs' },
 ];
+
+const VIEW_SWITCH_ICONS: Record<ViewSwitchIcon, ComponentType> = {
+  admin: Admin,
+  agents: Agents,
+  chat: Chat,
+  docs: Docs,
+};
 
 const SPA_NAVIGATION_PREFIXES = ['/admin', '/agents', '/chat'] as const;
 
@@ -44,30 +48,22 @@ function isSpaHref(href: string): boolean {
   );
 }
 
-function hostnameMatches(href: string, hostname: string): boolean {
-  try {
-    return new URL(href).hostname.toLowerCase() === hostname;
-  } catch {
-    return false;
+function NavigationMark({ item }: { item: ViewSwitchItem }) {
+  if (item.image) {
+    return (
+      <img
+        src={item.image}
+        alt=""
+        aria-hidden="true"
+        decoding="async"
+        draggable={false}
+        referrerPolicy="no-referrer"
+      />
+    );
   }
-}
 
-function iconForItem(item: ViewSwitchItem): ComponentType {
-  const label = item.label.trim().toLowerCase();
-  const href = item.href.trim().toLowerCase();
-  if (href === '/chat') return Chat;
-  if (href === '/agents') return Agents;
-  if (href === '/admin') return Admin;
-  if (href === '/docs') return Docs;
-  if (hostnameMatches(item.href, 'github.com')) return Github;
-  if (hostnameMatches(item.href, 'hybridai.one')) return HybridAILogo;
-  if (label === 'chat') return Chat;
-  if (label === 'agents') return Agents;
-  if (label === 'admin') return Admin;
-  if (label === 'docs') return Docs;
-  if (label === 'github') return Github;
-  if (label === 'hybridai') return HybridAILogo;
-  return Circle;
+  const Icon = item.icon ? VIEW_SWITCH_ICONS[item.icon] : Circle;
+  return <Icon />;
 }
 
 function resolveActiveHref(
@@ -96,12 +92,11 @@ export function ViewSwitchNav(props: {
   return (
     <nav className="view-switch" aria-label="Switch view">
       {items.map((item, index) => {
-        const Icon = iconForItem(item);
         const key = `${item.href}:${item.label}:${index}`;
         const inner = (
           <>
             <span className="nav-link-icon" aria-hidden="true">
-              <Icon />
+              <NavigationMark item={item} />
             </span>
             <span>{item.label}</span>
           </>

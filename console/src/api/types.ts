@@ -868,6 +868,8 @@ export interface AdminConfig {
     navigation: Array<{
       label: string;
       href: string;
+      icon?: 'admin' | 'agents' | 'chat' | 'docs';
+      image?: string;
     }>;
   };
   ops: {

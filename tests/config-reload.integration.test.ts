@@ -94,11 +94,15 @@ describe('config reload integration', () => {
     const cfg = configMod.reloadRuntimeConfig('test');
 
     expect(cfg.ui.navigation).toEqual([
-      { href: '/chat', label: 'Chat' },
-      { href: '/agents', label: 'Agents' },
-      { href: '/admin', label: 'Admin' },
-      { href: 'https://github.com/HybridAIOne/hybridclaw', label: 'GitHub' },
-      { href: '/docs', label: 'Docs' },
+      { href: '/chat', icon: 'chat', label: 'Chat' },
+      { href: '/agents', icon: 'agents', label: 'Agents' },
+      { href: '/admin', icon: 'admin', label: 'Admin' },
+      {
+        href: 'https://github.com/HybridAIOne/hybridclaw',
+        image: '/icons/github.svg',
+        label: 'GitHub',
+      },
+      { href: '/docs', icon: 'docs', label: 'Docs' },
     ]);
   });
 
@@ -106,8 +110,21 @@ describe('config reload integration', () => {
     writeConfig({
       ui: {
         navigation: [
-          { label: ' Channels ', href: ' /admin/channels ' },
-          { label: 'Cloud', href: 'https://hybridclaw.io/' },
+          {
+            label: ' Channels ',
+            href: ' /admin/channels ',
+            icon: 'admin',
+          },
+          {
+            label: 'Cloud',
+            href: 'https://hybridclaw.io/',
+            image: ' /icons/cloud.svg ',
+          },
+          {
+            label: 'Bad image',
+            href: 'https://example.com',
+            image: 'javascript:alert(1)',
+          },
           { label: 'Bad scheme', href: 'javascript:alert(1)' },
           { label: '', href: '/admin' },
           { label: 'Relative', href: 'admin/channels' },
@@ -118,8 +135,13 @@ describe('config reload integration', () => {
     const cfg = configMod.reloadRuntimeConfig('test');
 
     expect(cfg.ui.navigation).toEqual([
-      { href: '/admin/channels', label: 'Channels' },
-      { href: 'https://hybridclaw.io/', label: 'Cloud' },
+      { href: '/admin/channels', icon: 'admin', label: 'Channels' },
+      {
+        href: 'https://hybridclaw.io/',
+        image: '/icons/cloud.svg',
+        label: 'Cloud',
+      },
+      { href: 'https://example.com/', label: 'Bad image' },
     ]);
   });
 

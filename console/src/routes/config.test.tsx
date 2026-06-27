@@ -80,14 +80,15 @@ function makeConfig(): AdminConfig {
     },
     ui: {
       navigation: [
-        { href: '/chat', label: 'Chat' },
-        { href: '/agents', label: 'Agents' },
-        { href: '/admin', label: 'Admin' },
+        { href: '/chat', icon: 'chat', label: 'Chat' },
+        { href: '/agents', icon: 'agents', label: 'Agents' },
+        { href: '/admin', icon: 'admin', label: 'Admin' },
         {
           href: 'https://github.com/HybridAIOne/hybridclaw',
+          image: '/icons/github.svg',
           label: 'GitHub',
         },
-        { href: '/docs', label: 'Docs' },
+        { href: '/docs', icon: 'docs', label: 'Docs' },
       ],
     },
     ops: {
@@ -314,10 +315,13 @@ describe('ConfigPage', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Add link' }));
     fireEvent.change(screen.getByLabelText('Navigation item 5 label'), {
-      target: { value: 'Cloud' },
+      target: { value: 'HybridAI' },
     });
     fireEvent.change(screen.getByLabelText('Navigation item 5 href'), {
-      target: { value: 'https://hybridclaw.io' },
+      target: { value: 'https://hybridai.one/admin_startpage' },
+    });
+    fireEvent.change(screen.getByLabelText('Navigation item 5 image'), {
+      target: { value: '/icons/hybridai.png' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
@@ -328,10 +332,14 @@ describe('ConfigPage', () => {
         ui: {
           navigation: [
             { href: '/admin/channels', label: 'Channels' },
-            { href: '/agents', label: 'Agents' },
-            { href: '/admin', label: 'Admin' },
-            { href: '/docs', label: 'Docs' },
-            { href: 'https://hybridclaw.io', label: 'Cloud' },
+            { href: '/agents', icon: 'agents', label: 'Agents' },
+            { href: '/admin', icon: 'admin', label: 'Admin' },
+            { href: '/docs', icon: 'docs', label: 'Docs' },
+            {
+              href: 'https://hybridai.one/admin_startpage',
+              image: '/icons/hybridai.png',
+              label: 'HybridAI',
+            },
           ],
         },
       }),
@@ -350,9 +358,13 @@ describe('ConfigPage', () => {
     const href = screen.getByLabelText(
       'Navigation item 6 href',
     ) as HTMLInputElement;
+    const image = screen.getByLabelText(
+      'Navigation item 6 image',
+    ) as HTMLInputElement;
     expect(label.value).toBe('');
     expect(label.maxLength).toBe(48);
     expect(href.value).toBe('');
+    expect(image.value).toBe('');
     expect(screen.getAllByRole('alert')).toHaveLength(2);
     expect(
       (
@@ -364,9 +376,15 @@ describe('ConfigPage', () => {
 
     fireEvent.change(label, { target: { value: 'Bad link' } });
     fireEvent.change(href, { target: { value: 'javascript:alert(1)' } });
+    fireEvent.change(image, { target: { value: 'javascript:alert(1)' } });
 
     expect(
       screen.getByText(/local path starting with \/ or an http\(s\) URL/i),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /local image path starting with \/ or an http\(s\) image URL/i,
+      ),
     ).toBeTruthy();
     expect(
       (
@@ -378,6 +396,7 @@ describe('ConfigPage', () => {
     expect(saveConfigMock).not.toHaveBeenCalled();
 
     fireEvent.change(href, { target: { value: 'https://hybridclaw.io' } });
+    fireEvent.change(image, { target: { value: '/icons/cloud.svg' } });
 
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
     expect(

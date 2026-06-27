@@ -85,61 +85,45 @@ describe('ViewSwitchNav', () => {
     expect(screen.queryByText('Chat')).toBeNull();
   });
 
-  it('uses the GitHub icon only for the exact github.com hostname', () => {
+  it('renders configured navigation images', () => {
+    render(<ViewSwitchNav />);
+
+    expect(
+      screen
+        .getByRole('link', { name: 'GitHub' })
+        .querySelector('img')
+        ?.getAttribute('src'),
+    ).toBe('/icons/github.svg');
+  });
+
+  it('uses images only when the item explicitly configures one', () => {
     render(
       <ViewSwitchNav
         items={[
           {
-            label: 'Source',
+            label: 'GitHub',
             href: 'https://github.com/HybridAIOne/hybridclaw',
           },
-          { label: 'Spoof', href: 'https://github.com.evil.example/repo' },
-        ]}
-      />,
-    );
-
-    expect(
-      screen
-        .getByRole('link', { name: 'Source' })
-        .querySelector('svg')
-        ?.getAttribute('viewBox'),
-    ).toBe('0 0 16 16');
-    expect(
-      screen
-        .getByRole('link', { name: 'Spoof' })
-        .querySelector('svg')
-        ?.getAttribute('viewBox'),
-    ).toBe('0 0 24 24');
-  });
-
-  it('uses the HybridAI logo only for the exact hybridai.one hostname', () => {
-    render(
-      <ViewSwitchNav
-        items={[
           {
             label: 'HybridAI',
             href: 'https://hybridai.one/admin_startpage',
-          },
-          {
-            label: 'Spoof',
-            href: 'https://hybridai.one.evil.example/admin_startpage',
+            image: '/icons/hybridai.png',
           },
         ]}
       />,
     );
 
+    const githubLink = screen.getByRole('link', { name: 'GitHub' });
+    expect(githubLink.querySelector('img')).toBeNull();
+    expect(githubLink.querySelector('svg')?.getAttribute('viewBox')).toBe(
+      '0 0 24 24',
+    );
     expect(
       screen
         .getByRole('link', { name: 'HybridAI' })
-        .querySelector('svg')
-        ?.getAttribute('viewBox'),
-    ).toBe('0 0 100 100');
-    expect(
-      screen
-        .getByRole('link', { name: 'Spoof' })
-        .querySelector('svg')
-        ?.getAttribute('viewBox'),
-    ).toBe('0 0 24 24');
+        .querySelector('img')
+        ?.getAttribute('src'),
+    ).toBe('/icons/hybridai.png');
   });
 
   it('hides the navigation strip when explicitly configured empty', () => {

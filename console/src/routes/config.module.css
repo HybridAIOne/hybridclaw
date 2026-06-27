@@ -89,7 +89,9 @@
 
 .navigationRow {
   display: grid;
-  grid-template-columns: minmax(120px, 0.45fr) minmax(180px, 1fr) auto;
+  grid-template-columns:
+    minmax(120px, 0.45fr) minmax(180px, 1fr) minmax(150px, 0.75fr)
+    auto;
   gap: var(--radius-sm);
   align-items: start;
   min-width: 0;

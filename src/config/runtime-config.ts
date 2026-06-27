@@ -144,7 +144,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 32;
+export const CONFIG_VERSION = 33;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -342,7 +342,11 @@ export interface RuntimeDeploymentConfig {
 export interface RuntimeUiNavigationItem {
   label: string;
   href: string;
+  icon?: RuntimeUiNavigationIcon;
+  image?: string;
 }
+
+export type RuntimeUiNavigationIcon = 'admin' | 'agents' | 'chat' | 'docs';
 
 export interface RuntimeUiConfig {
   navigation: RuntimeUiNavigationItem[];
@@ -1358,11 +1362,15 @@ const DEFAULT_DASHSCOPE_MODEL_LIST = ['dashscope/qwen3-coder-plus'] as const;
 const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
 const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 const DEFAULT_UI_NAVIGATION_ITEMS: ReadonlyArray<RuntimeUiNavigationItem> = [
-  { href: '/chat', label: 'Chat' },
-  { href: '/agents', label: 'Agents' },
-  { href: '/admin', label: 'Admin' },
-  { href: 'https://github.com/HybridAIOne/hybridclaw', label: 'GitHub' },
-  { href: '/docs', label: 'Docs' },
+  { href: '/chat', icon: 'chat', label: 'Chat' },
+  { href: '/agents', icon: 'agents', label: 'Agents' },
+  { href: '/admin', icon: 'admin', label: 'Admin' },
+  {
+    href: 'https://github.com/HybridAIOne/hybridclaw',
+    image: '/icons/github.svg',
+    label: 'GitHub',
+  },
+  { href: '/docs', icon: 'docs', label: 'Docs' },
 ];
 
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
@@ -4945,6 +4953,12 @@ function normalizeBaseUrl(value: unknown, fallback: string): string {
 
 const MAX_UI_NAVIGATION_ITEMS = 12;
 const MAX_UI_NAVIGATION_LABEL_LENGTH = 48;
+const UI_NAVIGATION_ICONS = new Set<RuntimeUiNavigationIcon>([
+  'admin',
+  'agents',
+  'chat',
+  'docs',
+]);
 
 function normalizeUiNavigationHref(value: unknown): string | null {
   const candidate = normalizeString(value, '', { allowEmpty: false });
@@ -4971,6 +4985,22 @@ function normalizeUiNavigationHref(value: unknown): string | null {
   }
 }
 
+function normalizeUiNavigationImage(value: unknown): string | undefined {
+  const normalized = normalizeUiNavigationHref(value);
+  return normalized ?? undefined;
+}
+
+function normalizeUiNavigationIcon(
+  value: unknown,
+): RuntimeUiNavigationIcon | undefined {
+  const normalized = normalizeString(value, '', {
+    allowEmpty: false,
+  }).toLowerCase();
+  return UI_NAVIGATION_ICONS.has(normalized as RuntimeUiNavigationIcon)
+    ? (normalized as RuntimeUiNavigationIcon)
+    : undefined;
+}
+
 function normalizeUiNavigationItems(
   value: unknown,
   fallback: ReadonlyArray<RuntimeUiNavigationItem>,
@@ -4983,10 +5013,15 @@ function normalizeUiNavigationItems(
     const label = normalizeString(rawItem.label, '', { allowEmpty: false });
     const href = normalizeUiNavigationHref(rawItem.href);
     if (!label || !href) continue;
-    normalized.push({
+    const item: RuntimeUiNavigationItem = {
       href,
       label: label.slice(0, MAX_UI_NAVIGATION_LABEL_LENGTH),
-    });
+    };
+    const icon = normalizeUiNavigationIcon(rawItem.icon);
+    if (icon) item.icon = icon;
+    const image = normalizeUiNavigationImage(rawItem.image);
+    if (image) item.image = image;
+    normalized.push(item);
     if (normalized.length >= MAX_UI_NAVIGATION_ITEMS) break;
   }
   return normalized;
