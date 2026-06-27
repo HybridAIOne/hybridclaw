@@ -37,6 +37,14 @@ function isSpaHref(href: string): boolean {
   );
 }
 
+function hostnameMatches(href: string, hostname: string): boolean {
+  try {
+    return new URL(href).hostname.toLowerCase() === hostname;
+  } catch {
+    return false;
+  }
+}
+
 function iconForItem(item: ViewSwitchItem): ComponentType {
   const label = item.label.trim().toLowerCase();
   const href = item.href.trim().toLowerCase();
@@ -44,7 +52,9 @@ function iconForItem(item: ViewSwitchItem): ComponentType {
   if (href === '/agents' || label === 'agents') return Agents;
   if (href === '/admin' || label === 'admin') return Admin;
   if (href === '/docs' || label === 'docs') return Docs;
-  if (href.includes('github.com') || label === 'github') return Github;
+  if (hostnameMatches(item.href, 'github.com') || label === 'github') {
+    return Github;
+  }
   return Circle;
 }
 

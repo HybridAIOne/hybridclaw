@@ -85,6 +85,30 @@ describe('ViewSwitchNav', () => {
     expect(screen.queryByText('Chat')).toBeNull();
   });
 
+  it('uses the GitHub icon only for the exact github.com hostname', () => {
+    render(
+      <ViewSwitchNav
+        items={[
+          { label: 'Source', href: 'https://github.com/HybridAIOne/hybridclaw' },
+          { label: 'Spoof', href: 'https://github.com.evil.example/repo' },
+        ]}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole('link', { name: 'Source' })
+        .querySelector('svg')
+        ?.getAttribute('viewBox'),
+    ).toBe('0 0 16 16');
+    expect(
+      screen
+        .getByRole('link', { name: 'Spoof' })
+        .querySelector('svg')
+        ?.getAttribute('viewBox'),
+    ).toBe('0 0 24 24');
+  });
+
   it('hides the navigation strip when explicitly configured empty', () => {
     const { container } = render(<ViewSwitchNav items={[]} />);
 
