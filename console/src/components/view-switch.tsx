@@ -7,7 +7,7 @@ export type ViewSwitchItem = {
   href: string;
 };
 
-const DEFAULT_VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
+export const DEFAULT_VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
   { href: '/chat', label: 'Chat' },
   { href: '/agents', label: 'Agents' },
   { href: '/admin', label: 'Admin' },
@@ -18,6 +18,8 @@ const DEFAULT_VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
   { href: '/docs', label: 'Docs' },
 ];
 
+const SPA_NAVIGATION_PREFIXES = ['/admin', '/agents', '/chat'] as const;
+
 function isActive(pathname: string, path: string): boolean {
   return pathname === path || pathname.startsWith(`${path}/`);
 }
@@ -27,13 +29,10 @@ function isExternalHref(href: string): boolean {
 }
 
 function isSpaHref(href: string): boolean {
-  return (
-    href === '/admin' ||
-    href.startsWith('/admin/') ||
-    href === '/agents' ||
-    href.startsWith('/agents/') ||
-    href === '/chat' ||
-    href.startsWith('/chat/')
+  // Keep configured links inside known console route families on the SPA
+  // router; other local paths intentionally fall back to normal anchors.
+  return SPA_NAVIGATION_PREFIXES.some(
+    (prefix) => href === prefix || href.startsWith(`${prefix}/`),
   );
 }
 
@@ -48,13 +47,16 @@ function hostnameMatches(href: string, hostname: string): boolean {
 function iconForItem(item: ViewSwitchItem): ComponentType {
   const label = item.label.trim().toLowerCase();
   const href = item.href.trim().toLowerCase();
-  if (href === '/chat' || label === 'chat') return Chat;
-  if (href === '/agents' || label === 'agents') return Agents;
-  if (href === '/admin' || label === 'admin') return Admin;
-  if (href === '/docs' || label === 'docs') return Docs;
-  if (hostnameMatches(item.href, 'github.com') || label === 'github') {
-    return Github;
-  }
+  if (href === '/chat') return Chat;
+  if (href === '/agents') return Agents;
+  if (href === '/admin') return Admin;
+  if (href === '/docs') return Docs;
+  if (hostnameMatches(item.href, 'github.com')) return Github;
+  if (label === 'chat') return Chat;
+  if (label === 'agents') return Agents;
+  if (label === 'admin') return Admin;
+  if (label === 'docs') return Docs;
+  if (label === 'github') return Github;
   return Circle;
 }
 

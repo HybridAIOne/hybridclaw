@@ -338,6 +338,57 @@ describe('ConfigPage', () => {
     );
   });
 
+  it('adds blank navigation rows and validates links before saving', async () => {
+    renderConfigPage();
+
+    await screen.findByLabelText('Navigation item 1 label');
+    fireEvent.click(screen.getByRole('button', { name: 'Add link' }));
+
+    const label = screen.getByLabelText(
+      'Navigation item 6 label',
+    ) as HTMLInputElement;
+    const href = screen.getByLabelText(
+      'Navigation item 6 href',
+    ) as HTMLInputElement;
+    expect(label.value).toBe('');
+    expect(label.maxLength).toBe(48);
+    expect(href.value).toBe('');
+    expect(screen.getAllByRole('alert')).toHaveLength(2);
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Save changes',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    fireEvent.change(label, { target: { value: 'Bad link' } });
+    fireEvent.change(href, { target: { value: 'javascript:alert(1)' } });
+
+    expect(
+      screen.getByText(/local path starting with \/ or an http\(s\) URL/i),
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Save changes',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(saveConfigMock).not.toHaveBeenCalled();
+
+    fireEvent.change(href, { target: { value: 'https://hybridclaw.io' } });
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Save changes',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
+
   it('surfaces a FieldError for malformed JSON in raw mode and blocks saving', async () => {
     renderConfigPage();
 

@@ -94,7 +94,7 @@ describe('AppShell config query', () => {
 
     expect(configQueryOptions).toMatchObject({
       enabled: true,
-      refetchInterval: 5000,
+      refetchInterval: 30_000,
       refetchOnWindowFocus: true,
     });
   });

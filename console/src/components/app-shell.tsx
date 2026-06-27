@@ -15,7 +15,7 @@ import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
 import { ViewSwitchNav } from './view-switch';
 
 const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
-const APP_SHELL_CONFIG_REFRESH_INTERVAL_MS = 5_000;
+const APP_SHELL_CONFIG_REFRESH_INTERVAL_MS = 30_000;
 
 type AppShellConfigContextValue = {
   emailEnabled: boolean;

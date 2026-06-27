@@ -4971,17 +4971,11 @@ function normalizeUiNavigationHref(value: unknown): string | null {
   }
 }
 
-function cloneUiNavigationItems(
-  items: ReadonlyArray<RuntimeUiNavigationItem>,
-): RuntimeUiNavigationItem[] {
-  return items.map((item) => ({ ...item }));
-}
-
 function normalizeUiNavigationItems(
   value: unknown,
   fallback: ReadonlyArray<RuntimeUiNavigationItem>,
 ): RuntimeUiNavigationItem[] {
-  if (!Array.isArray(value)) return cloneUiNavigationItems(fallback);
+  if (!Array.isArray(value)) return fallback.map((item) => ({ ...item }));
 
   const normalized: RuntimeUiNavigationItem[] = [];
   for (const rawItem of value) {

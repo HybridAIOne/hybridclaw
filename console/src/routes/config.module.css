@@ -84,15 +84,19 @@
 
 .navigationList {
   display: grid;
-  gap: 10px;
+  gap: var(--radius-sm);
 }
 
 .navigationRow {
   display: grid;
   grid-template-columns: minmax(120px, 0.45fr) minmax(180px, 1fr) auto;
-  gap: 10px;
-  align-items: center;
+  gap: var(--radius-sm);
+  align-items: start;
   min-width: 0;
+}
+
+.navigationControl {
+  gap: calc(var(--radius-sm) / 2);
 }
 
 .unavailable {
