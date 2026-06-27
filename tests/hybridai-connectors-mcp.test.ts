@@ -1,20 +1,49 @@
 import { describe, expect, test, vi } from 'vitest';
 
-async function importHelper() {
+async function importHelper(options?: { apiKey?: string; throwMissing?: boolean }) {
   vi.resetModules();
+  class MissingRequiredEnvVarError extends Error {
+    constructor(public readonly envVar: string) {
+      super(`Missing required env var: ${envVar}`);
+    }
+  }
   vi.doMock('../src/config/config.js', () => ({
-    HYBRIDAI_API_KEY: '',
     HYBRIDAI_BASE_URL: 'https://hybridai.one',
+    MissingRequiredEnvVarError,
+  }));
+  vi.doMock('../src/auth/hybridai-auth.js', () => ({
+    getHybridAIApiKey: () => {
+      if (options?.throwMissing) {
+        throw new MissingRequiredEnvVarError('HYBRIDAI_API_KEY');
+      }
+      return options?.apiKey || '';
+    },
   }));
   return import('../src/mcp/hybridai-connectors.ts');
 }
 
 describe('HybridAI connectors MCP auto registration', () => {
   test('does not register without a HybridAI API key', async () => {
-    const { withAutoHybridAIConnectorsMcpServer } = await importHelper();
+    const { withAutoHybridAIConnectorsMcpServer } = await importHelper({
+      throwMissing: true,
+    });
     const servers = {};
 
     expect(withAutoHybridAIConnectorsMcpServer(servers)).toBe(servers);
+  });
+
+  test('uses the HybridAI auth resolver when no explicit key is passed', async () => {
+    const { withAutoHybridAIConnectorsMcpServer } = await importHelper({
+      apiKey: 'hai-resolved-secret',
+    });
+
+    expect(withAutoHybridAIConnectorsMcpServer({})).toMatchObject({
+      hybridai: {
+        headers: {
+          Authorization: 'Bearer hai-resolved-secret',
+        },
+      },
+    });
   });
 
   test('registers the HybridAI connectors gateway with the bearer token', async () => {

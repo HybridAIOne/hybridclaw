@@ -1,4 +1,8 @@
-import { HYBRIDAI_API_KEY, HYBRIDAI_BASE_URL } from '../config/config.js';
+import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
+import {
+  HYBRIDAI_BASE_URL,
+  MissingRequiredEnvVarError,
+} from '../config/config.js';
 import type { McpServerConfig } from '../types/models.js';
 
 export const HYBRIDAI_CONNECTORS_MCP_SERVER_NAME = 'hybridai';
@@ -26,7 +30,14 @@ export function withAutoHybridAIConnectorsMcpServer(
   servers: Record<string, McpServerConfig>,
   options: HybridAIConnectorsMcpOptions = {},
 ): Record<string, McpServerConfig> {
-  const apiKey = String(options.apiKey ?? HYBRIDAI_API_KEY).trim();
+  let apiKey = String(options.apiKey ?? '').trim();
+  if (!apiKey) {
+    try {
+      apiKey = getHybridAIApiKey();
+    } catch (error) {
+      if (!(error instanceof MissingRequiredEnvVarError)) throw error;
+    }
+  }
   if (!apiKey) return servers;
 
   const existing = servers[HYBRIDAI_CONNECTORS_MCP_SERVER_NAME];
