@@ -28,6 +28,7 @@ vi.mock('../api/client', () => ({
 }));
 
 vi.mock('../auth', () => ({
+  isAuthReadyForApi: (auth: { status: string }) => auth.status === 'ready',
   useAuth: () => useAuthMock(),
 }));
 
@@ -61,7 +62,8 @@ vi.mock('./view-switch', () => ({
 describe('AppShell config query', () => {
   beforeEach(() => {
     useAuthMock.mockReturnValue({
-      token: 'admin-token',
+      status: 'ready',
+      token: '',
       gatewayStatus: { emailEnabled: false, version: 'test' },
       logout: vi.fn(),
     });
@@ -84,12 +86,14 @@ describe('AppShell config query', () => {
       .map(([options]) => options as { queryKey: readonly string[] })
       .find((options) => options.queryKey[0] === 'config') as
       | {
+          enabled?: boolean;
           refetchInterval?: number;
           refetchOnWindowFocus?: boolean;
         }
       | undefined;
 
     expect(configQueryOptions).toMatchObject({
+      enabled: true,
       refetchInterval: 5000,
       refetchOnWindowFocus: true,
     });

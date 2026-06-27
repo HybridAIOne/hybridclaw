@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
 import { createContext, type ReactNode, useContext } from 'react';
 import { fetchConfig, validateToken } from '../api/client';
-import { useAuth } from '../auth';
+import { isAuthReadyForApi, useAuth } from '../auth';
 import { resolveCurrentAdminNavItem } from './admin-nav';
 import { AppSidebar } from './sidebar/app-sidebar';
 import {
@@ -27,6 +27,7 @@ const AppShellConfigContext = createContext<AppShellConfigContextValue>({
 
 export function AppShell(props: { children: ReactNode }) {
   const auth = useAuth();
+  const authReady = isAuthReadyForApi(auth);
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
@@ -34,13 +35,13 @@ export function AppShell(props: { children: ReactNode }) {
     queryKey: ['status', auth.token],
     queryFn: () => validateToken(auth.token),
     initialData: auth.gatewayStatus ?? undefined,
-    enabled: Boolean(auth.token),
+    enabled: authReady,
     staleTime: 30_000,
   });
   const configQuery = useQuery({
     queryKey: ['config', auth.token],
     queryFn: () => fetchConfig(auth.token),
-    enabled: Boolean(auth.token),
+    enabled: authReady,
     staleTime: 30_000,
     refetchInterval: APP_SHELL_CONFIG_REFRESH_INTERVAL_MS,
     refetchOnWindowFocus: true,
