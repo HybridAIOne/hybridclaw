@@ -1,6 +1,14 @@
 import { Link, useRouterState } from '@tanstack/react-router';
 import type { ComponentType } from 'react';
-import { Admin, Agents, Chat, Circle, Docs, Github } from './icons';
+import {
+  Admin,
+  Agents,
+  Chat,
+  Circle,
+  Docs,
+  Github,
+  HybridAILogo,
+} from './icons';
 
 export type ViewSwitchItem = {
   label: string;
@@ -52,11 +60,13 @@ function iconForItem(item: ViewSwitchItem): ComponentType {
   if (href === '/admin') return Admin;
   if (href === '/docs') return Docs;
   if (hostnameMatches(item.href, 'github.com')) return Github;
+  if (hostnameMatches(item.href, 'hybridai.one')) return HybridAILogo;
   if (label === 'chat') return Chat;
   if (label === 'agents') return Agents;
   if (label === 'admin') return Admin;
   if (label === 'docs') return Docs;
   if (label === 'github') return Github;
+  if (label === 'hybridai') return HybridAILogo;
   return Circle;
 }
 

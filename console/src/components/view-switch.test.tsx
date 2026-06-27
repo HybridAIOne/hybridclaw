@@ -112,6 +112,36 @@ describe('ViewSwitchNav', () => {
     ).toBe('0 0 24 24');
   });
 
+  it('uses the HybridAI logo only for the exact hybridai.one hostname', () => {
+    render(
+      <ViewSwitchNav
+        items={[
+          {
+            label: 'HybridAI',
+            href: 'https://hybridai.one/admin_startpage',
+          },
+          {
+            label: 'Spoof',
+            href: 'https://hybridai.one.evil.example/admin_startpage',
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole('link', { name: 'HybridAI' })
+        .querySelector('svg')
+        ?.getAttribute('viewBox'),
+    ).toBe('0 0 100 100');
+    expect(
+      screen
+        .getByRole('link', { name: 'Spoof' })
+        .querySelector('svg')
+        ?.getAttribute('viewBox'),
+    ).toBe('0 0 24 24');
+  });
+
   it('hides the navigation strip when explicitly configured empty', () => {
     const { container } = render(<ViewSwitchNav items={[]} />);
 
