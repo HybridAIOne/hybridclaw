@@ -9,7 +9,7 @@
 
 .connectorCard {
   height: 168px;
-  justify-content: space-between;
+  justify-content: flex-start;
 }
 
 .connectorCardDisabled {
@@ -87,6 +87,7 @@
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+  margin-top: auto;
   min-height: 30px;
 }
 
