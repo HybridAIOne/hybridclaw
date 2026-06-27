@@ -239,6 +239,71 @@ describe('gateway admin connectors', () => {
     });
   });
 
+  test('tests HybridAI with the configured platform API key', async () => {
+    const { connectors, runtimeSecrets } = await importFreshConnectors();
+    runtimeSecrets.saveNamedRuntimeSecrets({
+      HYBRIDAI_API_KEY: 'hai-test-secret-key',
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(JSON.stringify({ bots: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      connectors.testGatewayAdminConnector({ provider: 'hybridai' }),
+    ).resolves.toMatchObject({
+      provider: 'hybridai',
+      name: 'HybridAI',
+      ok: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, request] = fetchMock.mock.calls[0] || [];
+    expect(String(url)).toBe(
+      'https://hybridai.one/api/v1/bot-management/bots',
+    );
+    expect(new Headers((request as RequestInit).headers).get('Authorization')).toBe(
+      'Bearer hai-test-secret-key',
+    );
+  });
+
+  test('tests GitHub through the HybridAI connector directory', async () => {
+    const { connectors, runtimeSecrets } = await importFreshConnectors();
+    runtimeSecrets.saveNamedRuntimeSecrets({
+      HYBRIDAI_API_KEY: 'hai-test-secret-key',
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          connectors: [{ id: 'github', connected: true }],
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      connectors.testGatewayAdminConnector({ provider: 'github' }),
+    ).resolves.toEqual({
+      provider: 'github',
+      name: 'GitHub',
+      ok: true,
+      message: 'GitHub is connected for this HybridAI account.',
+    });
+    const [url, request] = fetchMock.mock.calls[0] || [];
+    expect(String(url)).toBe(
+      'https://hybridai.one/api/v1/connectors/directory',
+    );
+    expect(new Headers((request as RequestInit).headers).get('Authorization')).toBe(
+      'Bearer hai-test-secret-key',
+    );
+  });
+
   test('rejects Google OAuth start when account and client credentials are missing', async () => {
     const { connectors } = await importFreshConnectors();
 

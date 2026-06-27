@@ -139,6 +139,9 @@ describe('admin RBAC role bundles', () => {
     expect(
       resolveAdminRbacAction('/api/admin/connectors/oauth/start', 'POST'),
     ).toBe('secret.overwrite');
+    expect(resolveAdminRbacAction('/api/admin/connectors/test', 'POST')).toBe(
+      'admin.connectors.read',
+    );
     expect(
       resolveAdminRbacAction('/api/admin/connectors/logout', 'POST'),
     ).toBe('secret.unset');

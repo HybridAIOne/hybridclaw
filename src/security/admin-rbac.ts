@@ -447,6 +447,9 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/admin/connectors/oauth/start' && method === 'POST') {
     return 'secret.overwrite';
   }
+  if (pathname === '/api/admin/connectors/test' && method === 'POST') {
+    return 'admin.connectors.read';
+  }
   if (pathname === '/api/admin/connectors/logout' && method === 'POST') {
     return 'secret.unset';
   }

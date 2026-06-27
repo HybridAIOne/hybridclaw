@@ -11,6 +11,7 @@ import {
   GOOGLE_OAUTH_SCOPES_SECRET,
   getGoogleAuthStatus,
   loginGoogle,
+  mintGoogleAccessToken,
   parseGoogleScopes,
 } from '../auth/google-auth.js';
 import {
@@ -31,6 +32,7 @@ import {
   MICROSOFT_365_OAUTH_CLIENT_SECRET_SECRET,
   MICROSOFT_365_OAUTH_SCOPES_SECRET,
   MICROSOFT_365_TENANT_ID_SECRET,
+  mintMicrosoft365AccessToken,
   parseMicrosoft365Scopes,
 } from '../auth/microsoft-auth.js';
 import {
@@ -101,6 +103,13 @@ export interface GatewayAdminConnectorsResponse {
   secretsPath: string;
 }
 
+export interface GatewayAdminConnectorTestResult {
+  provider: GatewayAdminConnectorId;
+  name: string;
+  ok: boolean;
+  message: string;
+}
+
 export interface GatewayAdminConnectorOAuthStartResult {
   provider: GatewayAdminOAuthConnectorId;
   authorizationUrl: string;
@@ -136,6 +145,10 @@ function trimString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error || 'failed');
+}
+
 function readSecretOrEnv(name: string): string {
   return (
     String(process.env[name] || '').trim() ||
@@ -156,6 +169,11 @@ function resolveHybridAIConnectorUrl(connectorId: string): string {
   const url = new URL(HYBRIDAI_CONNECTORS_PATH, resolveHybridAIBaseUrl());
   url.searchParams.set('connect', connectorId);
   return url.toString();
+}
+
+function resolveHybridAIUrl(pathname: string): string {
+  const normalizedPath = pathname.startsWith('/') ? pathname : `/${pathname}`;
+  return `${resolveHybridAIBaseUrl()}${normalizedPath}`;
 }
 
 function makeState(): string {
@@ -418,6 +436,214 @@ async function readJsonObject(
   } catch {
     return {};
   }
+}
+
+function messageFromHybridAIResponse(
+  payload: Record<string, unknown>,
+  fallback: string,
+): string {
+  return (
+    trimString(payload.message) ||
+    trimString(payload.error) ||
+    trimString(payload.text) ||
+    fallback
+  );
+}
+
+function testResult(input: {
+  provider: GatewayAdminConnectorId;
+  name: string;
+  ok: boolean;
+  message: string;
+}): GatewayAdminConnectorTestResult {
+  return input;
+}
+
+async function testHybridAIConnector(): Promise<GatewayAdminConnectorTestResult> {
+  let apiKey: string;
+  try {
+    apiKey = getHybridAIApiKey();
+  } catch (error) {
+    if (error instanceof MissingRequiredEnvVarError) {
+      return testResult({
+        provider: 'hybridai',
+        name: 'HybridAI',
+        ok: false,
+        message: 'No HybridAI API key is configured for this gateway.',
+      });
+    }
+    throw error;
+  }
+
+  try {
+    const response = await fetch(
+      resolveHybridAIUrl('/api/v1/bot-management/bots'),
+      {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      },
+    );
+    const payload = await readJsonObject(response);
+    if (response.ok) {
+      return testResult({
+        provider: 'hybridai',
+        name: 'HybridAI',
+        ok: true,
+        message: `HybridAI accepted this key at ${resolveHybridAIBaseUrl()}.`,
+      });
+    }
+    return testResult({
+      provider: 'hybridai',
+      name: 'HybridAI',
+      ok: false,
+      message: messageFromHybridAIResponse(
+        payload,
+        `HybridAI returned HTTP ${response.status}.`,
+      ),
+    });
+  } catch (error) {
+    return testResult({
+      provider: 'hybridai',
+      name: 'HybridAI',
+      ok: false,
+      message: `Could not reach HybridAI: ${errorMessage(error)}`,
+    });
+  }
+}
+
+async function testGitHubConnector(): Promise<GatewayAdminConnectorTestResult> {
+  let apiKey: string;
+  try {
+    apiKey = getHybridAIApiKey();
+  } catch (error) {
+    if (error instanceof MissingRequiredEnvVarError) {
+      return testResult({
+        provider: 'github',
+        name: 'GitHub',
+        ok: false,
+        message: 'Connect HybridAI first, then connect GitHub.',
+      });
+    }
+    throw error;
+  }
+
+  try {
+    const response = await fetch(
+      resolveHybridAIUrl('/api/v1/connectors/directory'),
+      {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      },
+    );
+    const payload = await readJsonObject(response);
+    if (!response.ok) {
+      return testResult({
+        provider: 'github',
+        name: 'GitHub',
+        ok: false,
+        message: messageFromHybridAIResponse(
+          payload,
+          `HybridAI connector directory returned HTTP ${response.status}.`,
+        ),
+      });
+    }
+
+    const connectors = Array.isArray(payload.connectors)
+      ? payload.connectors
+      : [];
+    const github = connectors.find(
+      (entry) =>
+        entry &&
+        typeof entry === 'object' &&
+        (entry as Record<string, unknown>).id === 'github',
+    ) as Record<string, unknown> | undefined;
+
+    if (github?.connected === true) {
+      return testResult({
+        provider: 'github',
+        name: 'GitHub',
+        ok: true,
+        message: 'GitHub is connected for this HybridAI account.',
+      });
+    }
+    return testResult({
+      provider: 'github',
+      name: 'GitHub',
+      ok: false,
+      message: 'GitHub is not connected for this HybridAI account.',
+    });
+  } catch (error) {
+    return testResult({
+      provider: 'github',
+      name: 'GitHub',
+      ok: false,
+      message: `Could not reach HybridAI connectors: ${errorMessage(error)}`,
+    });
+  }
+}
+
+async function testGoogleConnector(): Promise<GatewayAdminConnectorTestResult> {
+  try {
+    const minted = await mintGoogleAccessToken();
+    if (!minted) {
+      return testResult({
+        provider: 'google',
+        name: 'Google Workspace',
+        ok: false,
+        message: 'Google Workspace is not connected.',
+      });
+    }
+    return testResult({
+      provider: 'google',
+      name: 'Google Workspace',
+      ok: true,
+      message: minted.account
+        ? `Google Workspace is ready for ${minted.account}.`
+        : 'Google Workspace is ready to use.',
+    });
+  } catch (error) {
+    return testResult({
+      provider: 'google',
+      name: 'Google Workspace',
+      ok: false,
+      message: errorMessage(error),
+    });
+  }
+}
+
+async function testMicrosoft365Connector(): Promise<GatewayAdminConnectorTestResult> {
+  try {
+    const minted = await mintMicrosoft365AccessToken();
+    if (!minted) {
+      return testResult({
+        provider: 'microsoft365',
+        name: 'Microsoft 365',
+        ok: false,
+        message: 'Microsoft 365 is not connected.',
+      });
+    }
+    return testResult({
+      provider: 'microsoft365',
+      name: 'Microsoft 365',
+      ok: true,
+      message: 'Microsoft 365 is ready to use.',
+    });
+  } catch (error) {
+    return testResult({
+      provider: 'microsoft365',
+      name: 'Microsoft 365',
+      ok: false,
+      message: errorMessage(error),
+    });
+  }
+}
+
+export async function testGatewayAdminConnector(input: {
+  provider?: unknown;
+}): Promise<GatewayAdminConnectorTestResult> {
+  const provider = parseConnectorId(input.provider);
+  if (provider === 'hybridai') return testHybridAIConnector();
+  if (provider === 'github') return testGitHubConnector();
+  if (provider === 'google') return testGoogleConnector();
+  return testMicrosoft365Connector();
 }
 
 async function startHybridAIPlatformConnectorOAuth(input: {

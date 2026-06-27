@@ -28,6 +28,7 @@ import type {
   AdminConnectorId,
   AdminConnectorOAuthStartResponse,
   AdminConnectorsResponse,
+  AdminConnectorTestResponse,
   AdminCreateSkillPayload,
   AdminDistillConsentPayload,
   AdminDistillResponse,
@@ -1323,6 +1324,17 @@ export function logoutConnector(
   provider: AdminConnectorId,
 ): Promise<AdminConnectorsResponse> {
   return requestJson<AdminConnectorsResponse>('/api/admin/connectors/logout', {
+    token,
+    method: 'POST',
+    body: { provider },
+  });
+}
+
+export function testConnector(
+  token: string,
+  provider: AdminConnectorId,
+): Promise<AdminConnectorTestResponse> {
+  return requestJson<AdminConnectorTestResponse>('/api/admin/connectors/test', {
     token,
     method: 'POST',
     body: { provider },

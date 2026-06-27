@@ -1480,6 +1480,13 @@ export interface AdminConnectorOAuthStartResponse {
   expiresAt: number;
 }
 
+export interface AdminConnectorTestResponse {
+  provider: AdminConnectorId;
+  name: string;
+  ok: boolean;
+  message: string;
+}
+
 export interface AdminAuditEntry {
   id: number;
   sessionId: string;

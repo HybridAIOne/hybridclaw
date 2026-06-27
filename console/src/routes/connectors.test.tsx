@@ -8,6 +8,7 @@ const fetchConnectorsMock = vi.fn<() => Promise<AdminConnectorsResponse>>();
 const logoutConnectorMock = vi.fn();
 const saveHybridAIConnectorKeyMock = vi.fn();
 const startConnectorOAuthMock = vi.fn();
+const testConnectorMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
@@ -16,6 +17,7 @@ vi.mock('../api/client', () => ({
   saveHybridAIConnectorKey: (...args: unknown[]) =>
     saveHybridAIConnectorKeyMock(...args),
   startConnectorOAuth: (...args: unknown[]) => startConnectorOAuthMock(...args),
+  testConnector: (...args: unknown[]) => testConnectorMock(...args),
 }));
 
 vi.mock('../auth', () => ({
@@ -121,6 +123,7 @@ describe('ConnectorsPage', () => {
     logoutConnectorMock.mockReset();
     saveHybridAIConnectorKeyMock.mockReset();
     startConnectorOAuthMock.mockReset();
+    testConnectorMock.mockReset();
     useAuthMock.mockReset();
     useAuthMock.mockReturnValue({ token: 'admin-token' });
     fetchConnectorsMock.mockResolvedValue(makeConnectorsResponse());
@@ -192,6 +195,29 @@ describe('ConnectorsPage', () => {
     );
 
     openSpy.mockRestore();
+  });
+
+  it('tests a connector from its card', async () => {
+    testConnectorMock.mockResolvedValue({
+      provider: 'github',
+      name: 'GitHub',
+      ok: true,
+      message: 'GitHub is connected for this HybridAI account.',
+    });
+
+    renderWithProviders(<ConnectorsPage />);
+
+    const githubTest = await screen.findByRole('button', {
+      name: 'Test GitHub',
+    });
+    fireEvent.click(githubTest);
+
+    await waitFor(() =>
+      expect(testConnectorMock).toHaveBeenCalledWith('admin-token', 'github'),
+    );
+    expect(
+      await screen.findByText('GitHub is connected for this HybridAI account.'),
+    ).toBeTruthy();
   });
 
   it('reconnects Google Workspace directly when stored OAuth setup exists', async () => {

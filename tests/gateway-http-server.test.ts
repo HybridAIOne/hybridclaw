@@ -1490,6 +1490,12 @@ async function importFreshHealth(options?: {
     secretsPath: '/tmp/credentials.json',
     connectors: [],
   }));
+  const testGatewayAdminConnector = vi.fn(async () => ({
+    provider: 'github',
+    name: 'GitHub',
+    ok: true,
+    message: 'GitHub is connected.',
+  }));
   const completeGatewayAdminConnectorOAuthCallback = vi.fn(async () => ({
     provider: 'microsoft365',
     name: 'Microsoft 365',
@@ -2217,6 +2223,7 @@ async function importFreshHealth(options?: {
     logoutGatewayAdminConnector,
     saveGatewayAdminHybridAIConnectorApiKey,
     startGatewayAdminConnectorOAuth,
+    testGatewayAdminConnector,
   }));
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage,

@@ -5,6 +5,7 @@ import {
   logoutConnector,
   saveHybridAIConnectorKey,
   startConnectorOAuth,
+  testConnector,
 } from '../api/client';
 import type { AdminConnector, AdminConnectorId } from '../api/types';
 import { useAuth } from '../auth';
@@ -257,6 +258,21 @@ export function ConnectorsPage() {
     },
   });
 
+  const testMutation = useMutation({
+    mutationFn: (provider: AdminConnectorId) =>
+      testConnector(auth.token, provider),
+    onSuccess: (result) => {
+      if (result.ok) {
+        toast.success(`${result.name} test passed.`, result.message);
+        return;
+      }
+      toast.error(`${result.name} test failed.`, result.message);
+    },
+    onError: (error) => {
+      toast.error('Connector test failed', getErrorMessage(error));
+    },
+  });
+
   const connectors = connectorsQuery.data?.connectors || [];
   const oauthTarget =
     connectors.find((connector) => connector.id === oauthTargetId) || null;
@@ -480,6 +496,20 @@ export function ConnectorsPage() {
                     ) : null}
                   </>
                 )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  loading={
+                    testMutation.isPending &&
+                    testMutation.variables === connector.id
+                  }
+                  disabled={isComingSoon || testMutation.isPending}
+                  aria-label={`Test ${connector.name}`}
+                  onClick={() => testMutation.mutate(connector.id)}
+                >
+                  Test
+                </Button>
               </div>
             </Card>
           );

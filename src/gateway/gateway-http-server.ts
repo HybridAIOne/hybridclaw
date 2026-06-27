@@ -168,6 +168,7 @@ import {
   logoutGatewayAdminConnector,
   saveGatewayAdminHybridAIConnectorApiKey,
   startGatewayAdminConnectorOAuth,
+  testGatewayAdminConnector,
 } from './gateway-admin-connectors.js';
 import {
   getGatewayAdminSecrets,
@@ -5601,6 +5602,12 @@ async function handleApiAdminConnectors(
   if (pathname === '/api/admin/connectors/logout' && req.method === 'POST') {
     const body = (await readJsonBody(req)) as { provider?: unknown };
     sendJson(res, 200, logoutGatewayAdminConnector(body));
+    return;
+  }
+
+  if (pathname === '/api/admin/connectors/test' && req.method === 'POST') {
+    const body = (await readJsonBody(req)) as { provider?: unknown };
+    sendJson(res, 200, await testGatewayAdminConnector(body));
     return;
   }
 
