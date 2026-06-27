@@ -509,6 +509,98 @@ describe('ChannelsPage', () => {
     );
   });
 
+  it('collapses email advanced settings above additional mailboxes by default', async () => {
+    const config = makeConfig({
+      channelInstructions: {
+        ...makeConfig().channelInstructions,
+        email: 'Use concise email replies.',
+      },
+    });
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+
+    renderChannelsPage();
+
+    const [emailChannelButton] = await screen.findAllByRole('button', {
+      name: /Email/i,
+    });
+
+    fireEvent.click(emailChannelButton);
+
+    const summary = screen.getByText('Advanced settings');
+    const details = summary.closest('details') as HTMLDetailsElement | null;
+    if (!details) throw new Error('Expected advanced settings details.');
+    expect(details.open).toBe(false);
+
+    const additionalMailboxes = screen.getByText('Additional agent mailboxes');
+    expect(
+      Boolean(
+        details.compareDocumentPosition(additionalMailboxes) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+
+    fireEvent.click(summary);
+
+    expect(details.open).toBe(true);
+    expect(within(details).getByLabelText('Poll interval ms')).toBeTruthy();
+    expect(within(details).getByLabelText('Text chunk limit')).toBeTruthy();
+    expect(within(details).getByLabelText('Media max MB')).toBeTruthy();
+    expect(
+      (
+        within(details).getByLabelText(
+          'Channel instructions',
+        ) as HTMLTextAreaElement
+      ).value,
+    ).toBe('Use concise email replies.');
+  });
+
+  it('saves email channel settings immediately when adding an allowed sender', async () => {
+    const config = makeConfig();
+    const savedConfig = {
+      ...config,
+      email: {
+        ...config.email,
+        allowFrom: ['ops@example.com', 'new@example.com'],
+      },
+    };
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+    saveConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: savedConfig,
+    });
+
+    renderChannelsPage();
+
+    const [emailChannelButton] = await screen.findAllByRole('button', {
+      name: /Email/i,
+    });
+
+    fireEvent.click(emailChannelButton);
+    fireEvent.change(screen.getByLabelText('Allowed senders'), {
+      target: { value: 'new@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => {
+      expect(saveConfigMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(saveConfigMock).toHaveBeenCalledWith(
+      'test-token',
+      expect.objectContaining({
+        email: expect.objectContaining({
+          allowFrom: ['ops@example.com', 'new@example.com'],
+        }),
+      }),
+    );
+  });
+
   it('saves agent mailbox mappings through the email channel editor', async () => {
     const config = makeConfig();
     fetchConfigMock.mockResolvedValue({

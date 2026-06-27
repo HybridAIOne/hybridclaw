@@ -113,6 +113,7 @@ function AllowListField(props: {
   value: string[];
   placeholder?: string;
   onChange: (value: string[]) => void;
+  onAdd?: (value: string[]) => void;
 }) {
   const [nextValue, setNextValue] = useState('');
   const entries = dedupeAllowListEntries(props.value);
@@ -133,7 +134,9 @@ function AllowListField(props: {
 
     // Channel runtimes own format-specific normalization. The admin UI only
     // trims and dedupes raw entries so channel-specific identities stay valid.
-    props.onChange(dedupeAllowListEntries([...entries, nextEntry]));
+    const nextEntries = dedupeAllowListEntries([...entries, nextEntry]);
+    props.onChange(nextEntries);
+    props.onAdd?.(nextEntries);
     setNextValue('');
   };
 
@@ -1547,6 +1550,7 @@ function EmailChannelEditor(props: {
   hybridaiApiKeyConfigured: boolean;
   agents: AdminAgent[];
   token: string;
+  onAutoSave: (config: AdminConfig) => void;
   onSecretSaved: () => void;
 }) {
   const [fetchingEmailConfig, setFetchingEmailConfig] = useState(false);
@@ -1602,6 +1606,18 @@ function EmailChannelEditor(props: {
     setEmailAccounts(
       emailAccounts.filter((_, currentIndex) => currentIndex !== index),
     );
+  }
+
+  function saveDefaultAllowFrom(allowFrom: string[]) {
+    const nextConfig = {
+      ...props.draft,
+      email: {
+        ...props.draft.email,
+        allowFrom,
+      },
+    };
+    props.form.setDraft(nextConfig);
+    props.onAutoSave(nextConfig);
   }
 
   async function handleFetchEmailConfig() {
@@ -1899,55 +1915,62 @@ function EmailChannelEditor(props: {
             value={field.value as string[]}
             placeholder="name@example.com, *@example.com"
             onChange={field.onChange}
+            onAdd={saveDefaultAllowFrom}
           />
         )}
       />
 
-      <div className="field-grid">
-        <FormField
-          name="email.pollIntervalMs"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Poll interval ms</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
-        />
-        <FormField
-          name="email.textChunkLimit"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Text chunk limit</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
-        />
-      </div>
-
-      <FormField
-        name="email.mediaMaxMb"
-        render={({ field }) => (
-          <Field>
-            <FieldLabel>Media max MB</FieldLabel>
-            <NumberField
-              integer
-              min={0}
-              value={field.value as number}
-              onValueChange={field.onChange}
+      <details className="channel-advanced-settings">
+        <summary>Advanced settings</summary>
+        <div className="channel-advanced-settings-body">
+          <div className="field-grid">
+            <FormField
+              name="email.pollIntervalMs"
+              render={({ field }) => (
+                <Field>
+                  <FieldLabel>Poll interval ms</FieldLabel>
+                  <NumberField
+                    integer
+                    min={0}
+                    value={field.value as number}
+                    onValueChange={field.onChange}
+                  />
+                </Field>
+              )}
             />
-          </Field>
-        )}
-      />
+            <FormField
+              name="email.textChunkLimit"
+              render={({ field }) => (
+                <Field>
+                  <FieldLabel>Text chunk limit</FieldLabel>
+                  <NumberField
+                    integer
+                    min={0}
+                    value={field.value as number}
+                    onValueChange={field.onChange}
+                  />
+                </Field>
+              )}
+            />
+          </div>
+
+          <FormField
+            name="email.mediaMaxMb"
+            render={({ field }) => (
+              <Field>
+                <FieldLabel>Media max MB</FieldLabel>
+                <NumberField
+                  integer
+                  min={0}
+                  value={field.value as number}
+                  onValueChange={field.onChange}
+                />
+              </Field>
+            )}
+          />
+          <ChannelInstructionsField kind="email" />
+        </div>
+      </details>
       <div className="email-account-section">
         <div className="email-account-section-header">
           <h4>Additional agent mailboxes</h4>
@@ -2234,7 +2257,6 @@ function EmailChannelEditor(props: {
           </div>
         )}
       </div>
-      <ChannelInstructionsField kind="email" />
     </>
   );
 }
@@ -3379,6 +3401,7 @@ function renderSelectedEditor(
   },
   agents: AdminAgent[],
   onConfigSaved: (config: AdminConfig) => void,
+  onConfigAutoSave: (config: AdminConfig) => void,
   onSecretSaved: () => void,
 ) {
   switch (kind) {
@@ -3488,6 +3511,7 @@ function renderSelectedEditor(
           hybridaiApiKeyConfigured={hybridaiApiKeyConfigured}
           agents={agents}
           token={token}
+          onAutoSave={onConfigAutoSave}
           onSecretSaved={onSecretSaved}
         />
       );
@@ -3731,6 +3755,7 @@ export function ChannelsPage() {
                           queryKey: ['status', auth.token],
                         });
                       },
+                      (config) => saveMutation.mutate(config),
                       () => {
                         void queryClient.invalidateQueries({
                           queryKey: ['status', auth.token],
