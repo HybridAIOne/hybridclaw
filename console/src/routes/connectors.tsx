@@ -44,6 +44,15 @@ interface OAuthDraft {
   scopes: string;
 }
 
+interface OAuthStartPayload {
+  provider: OAuthConnectorId;
+  account?: string;
+  tenantId?: string;
+  clientId?: string;
+  clientSecret?: string;
+  scopes?: string;
+}
+
 const OAUTH_POLL_INTERVAL_MS = 2_000;
 const OAUTH_POLL_TIMEOUT_MS = 5 * 60_000;
 
@@ -96,6 +105,29 @@ function isOAuthConnectorId(
   return value === 'google' || value === 'microsoft365';
 }
 
+function canUseStoredGoogleOAuth(connector: AdminConnector): boolean {
+  return (
+    connector.id === 'google' &&
+    Boolean(connector.account) &&
+    connector.clientConfigured &&
+    connector.clientSecretConfigured
+  );
+}
+
+function oauthPayloadFromDraft(
+  provider: OAuthConnectorId,
+  draft: OAuthDraft,
+): OAuthStartPayload {
+  return {
+    provider,
+    account: draft.account,
+    tenantId: draft.tenantId,
+    clientId: draft.clientId,
+    clientSecret: draft.clientSecret,
+    scopes: draft.scopes,
+  };
+}
+
 export function ConnectorsPage() {
   const auth = useAuth();
   const toast = useToast();
@@ -138,16 +170,8 @@ export function ConnectorsPage() {
   });
 
   const oauthMutation = useMutation({
-    mutationFn: async () => {
-      if (!oauthTargetId) throw new Error('Select a connector first.');
-      const started = await startConnectorOAuth(auth.token, {
-        provider: oauthTargetId,
-        account: oauthDraft.account,
-        tenantId: oauthDraft.tenantId,
-        clientId: oauthDraft.clientId,
-        clientSecret: oauthDraft.clientSecret,
-        scopes: oauthDraft.scopes,
-      });
+    mutationFn: async (payload: OAuthStartPayload) => {
+      const started = await startConnectorOAuth(auth.token, payload);
       setPendingAuthUrl(started.authorizationUrl);
       window.open(started.authorizationUrl, '_blank', 'noopener');
 
@@ -162,7 +186,7 @@ export function ConnectorsPage() {
         const payload = await fetchConnectors(auth.token);
         setConnectorsData(payload);
         const connector = payload.connectors.find(
-          (entry) => entry.id === oauthTargetId,
+          (entry) => entry.id === started.provider,
         );
         if (connector?.state === 'connected') return connector.name;
       }
@@ -219,6 +243,10 @@ export function ConnectorsPage() {
 
   const openOAuthDialog = (connector: AdminConnector) => {
     if (!isOAuthConnectorId(connector.id)) return;
+    if (canUseStoredGoogleOAuth(connector)) {
+      oauthMutation.mutate({ provider: 'google' });
+      return;
+    }
     setOauthDraft(oauthDraftFromConnector(connector));
     setOauthTargetId(connector.id);
   };
@@ -304,6 +332,11 @@ export function ConnectorsPage() {
                   <Button
                     type="button"
                     size="sm"
+                    loading={
+                      oauthMutation.isPending &&
+                      oauthMutation.variables?.provider === connector.id
+                    }
+                    disabled={oauthMutation.isPending}
                     onClick={() => openOAuthDialog(connector)}
                   >
                     {connector.state === 'connected' ? 'Reconnect' : 'Connect'}
@@ -556,7 +589,12 @@ export function ConnectorsPage() {
               type="button"
               loading={oauthMutation.isPending}
               disabled={oauthSubmitDisabled}
-              onClick={() => oauthMutation.mutate()}
+              onClick={() => {
+                if (!oauthTargetId) return;
+                oauthMutation.mutate(
+                  oauthPayloadFromDraft(oauthTargetId, oauthDraft),
+                );
+              }}
             >
               {oauthMutation.isPending
                 ? 'Waiting...'

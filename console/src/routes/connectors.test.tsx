@@ -140,6 +140,51 @@ describe('ConnectorsPage', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy();
   });
 
+  it('reconnects Google Workspace directly when stored OAuth setup exists', async () => {
+    const connected = makeConnectorsResponse();
+    connected.connectors[1] = {
+      ...connected.connectors[1],
+      state: 'connected',
+      account: 'eigenarbeit@gmail.com',
+      routesConfigured: true,
+      clientConfigured: true,
+      clientSecretConfigured: true,
+      detail: 'OAuth refresh token configured.',
+    };
+    fetchConnectorsMock.mockResolvedValue(connected);
+    startConnectorOAuthMock.mockResolvedValue({
+      provider: 'google',
+      authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+      state: 'state',
+      expiresAt: Date.now() + 3_000,
+    });
+    const openSpy = vi
+      .spyOn(window, 'open')
+      .mockReturnValue(null as unknown as Window);
+
+    renderWithProviders(<ConnectorsPage />);
+
+    const reconnectButtons = await screen.findAllByRole('button', {
+      name: 'Reconnect',
+    });
+    fireEvent.click(reconnectButtons[0]);
+
+    await waitFor(() =>
+      expect(startConnectorOAuthMock).toHaveBeenCalledWith('admin-token', {
+        provider: 'google',
+      }),
+    );
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://accounts.google.com/o/oauth2/v2/auth',
+      '_blank',
+      'noopener',
+    );
+    expect(screen.queryByText('Connect Google Workspace')).toBeNull();
+    expect(screen.queryByLabelText('Scopes')).toBeNull();
+
+    openSpy.mockRestore();
+  });
+
   it('opens HybridAI login and saves the pasted API key', async () => {
     const connected = makeConnectorsResponse();
     connected.connectors[0] = {
