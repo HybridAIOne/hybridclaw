@@ -12,6 +12,7 @@
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
+  padding: 20px 20px 12px;
   justify-content: stretch;
 }
 
