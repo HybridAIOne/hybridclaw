@@ -30,7 +30,7 @@ function makeConnectorsResponse(): AdminConnectorsResponse {
         id: 'hybridai',
         name: 'HybridAI',
         description:
-          'Model routing, bot selection, and managed HybridAI access.',
+          'Use HybridAI models, bots, and managed workspace features in HybridClaw.',
         state: 'not_connected',
         authKind: 'api-key',
         account: null,
@@ -48,7 +48,8 @@ function makeConnectorsResponse(): AdminConnectorsResponse {
       {
         id: 'google',
         name: 'Google Workspace',
-        description: 'Gmail, Calendar, Drive, Docs, Sheets, and People APIs.',
+        description:
+          'Bring Gmail, Calendar, Drive, Docs, Sheets, and contacts into your workflows.',
         state: 'needs_setup',
         authKind: 'oauth',
         account: null,
@@ -72,7 +73,7 @@ function makeConnectorsResponse(): AdminConnectorsResponse {
         id: 'microsoft365',
         name: 'Microsoft 365',
         description:
-          'Microsoft Graph access for mail, calendar, files, Teams, and chats.',
+          'Connect work mail, calendars, files, SharePoint, OneDrive, and Teams.',
         state: 'connected',
         authKind: 'oauth',
         account: 'user@example.com',

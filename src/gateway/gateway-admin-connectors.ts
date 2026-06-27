@@ -248,7 +248,8 @@ function buildHybridAIConnector(): GatewayAdminConnector {
   return {
     id: 'hybridai',
     name: 'HybridAI',
-    description: 'Model routing, bot selection, and managed HybridAI access.',
+    description:
+      'Use HybridAI models, bots, and managed workspace features in HybridClaw.',
     state: status.authenticated ? 'connected' : 'not_connected',
     authKind: 'api-key',
     account: null,
@@ -275,7 +276,8 @@ function buildGoogleConnector(): GatewayAdminConnector {
   return {
     id: 'google',
     name: 'Google Workspace',
-    description: 'Gmail, Calendar, Drive, Docs, Sheets, and People APIs.',
+    description:
+      'Bring Gmail, Calendar, Drive, Docs, Sheets, and contacts into your workflows.',
     state: status.authenticated
       ? 'connected'
       : clientConfigured
@@ -317,7 +319,7 @@ function buildMicrosoft365Connector(): GatewayAdminConnector {
     id: 'microsoft365',
     name: 'Microsoft 365',
     description:
-      'Microsoft Graph access for mail, calendar, files, Teams, and chats.',
+      'Connect work mail, calendars, files, SharePoint, OneDrive, and Teams.',
     state: status.authenticated
       ? 'connected'
       : clientId
