@@ -86,6 +86,7 @@ import type {
 } from '../config/runtime-config.js';
 import {
   getRuntimeConfig,
+  onRuntimeConfigChange,
   parseSchedulerBoardStatus,
   reloadRuntimeConfig,
   resolveDefaultAgentId,
@@ -310,6 +311,7 @@ import type {
   GatewayChatResultMessageRole,
   GatewayCommandRequest,
 } from './gateway-types.js';
+import { normalizeHttpOrigin } from './gateway-url-utils.js';
 import {
   extensionToMimeType,
   resolveWorkspaceRelativePath,
@@ -1635,6 +1637,10 @@ type MobileLaunchTokenEntry = {
   expiresAt: number;
 };
 const mobileLaunchTokens = new Map<string, MobileLaunchTokenEntry>();
+let deploymentPublicUrl = getRuntimeConfig().deployment.public_url;
+onRuntimeConfigChange((next) => {
+  deploymentPublicUrl = next.deployment.public_url;
+});
 
 function parseApiAdminPolicyIndex(value: unknown): number {
   const parsed = parsePositiveInteger(value);
@@ -2281,27 +2287,15 @@ function resolveMobileLaunchToken(token: string):
   };
 }
 
-function normalizePublicBaseUrl(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  try {
-    const url = new URL(trimmed);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return undefined;
-    }
-    return url.origin;
-  } catch {
-    return undefined;
-  }
-}
-
 function resolveRequestOrigin(
   req: IncomingMessage,
   bodyBaseUrl?: unknown,
 ): string {
-  const explicitBaseUrl = normalizePublicBaseUrl(bodyBaseUrl);
+  const explicitBaseUrl = normalizeHttpOrigin(bodyBaseUrl);
   if (explicitBaseUrl) return explicitBaseUrl;
+
+  const configuredPublicUrl = normalizeHttpOrigin(deploymentPublicUrl);
+  if (configuredPublicUrl) return configuredPublicUrl;
 
   const forwardedHost = String(req.headers['x-forwarded-host'] || '')
     .split(',')[0]
@@ -2312,9 +2306,9 @@ function resolveRequestOrigin(
 }
 
 function resolveA2AAgentCardOrigin(req: IncomingMessage): string | null {
-  const configuredPublicUrl = getRuntimeConfig().deployment.public_url.trim();
+  const configuredPublicUrl = deploymentPublicUrl.trim();
   if (configuredPublicUrl) {
-    const origin = normalizePublicBaseUrl(configuredPublicUrl);
+    const origin = normalizeHttpOrigin(configuredPublicUrl);
     if (origin) return origin;
     logger.warn(
       { publicUrl: configuredPublicUrl },

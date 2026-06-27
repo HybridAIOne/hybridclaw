@@ -2970,6 +2970,37 @@ describe('gateway HTTP server', () => {
     expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
   });
 
+  test('allows signed session cookie API mutations with configured public URL and internal host', async () => {
+    const authSecret = 'api-session-cloud-public-origin-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      deploymentPublicUrl: 'https://u-public.sbx.hybridai.one',
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          role: 'admin.config_manager',
+        }),
+        host: '172.19.0.21:9090',
+        origin: 'https://u-public.sbx.hybridai.one',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
+  });
+
   test('rejects signed session cookie mutations with mismatched forwarded origin', async () => {
     const authSecret = 'api-session-forwarded-origin-mismatch-secret';
     const state = await importFreshHealth({
@@ -5536,6 +5567,36 @@ describe('gateway HTTP server', () => {
 
     expect(replayRes.statusCode).toBe(401);
     expect(replayRes.body).toBe('Mobile launch QR code is invalid or expired.');
+  });
+
+  test('mobile chat QR uses configured public URL when request host is internal', async () => {
+    const state = await importFreshHealth({
+      authSecret: 'mobile-qr-public-url-secret',
+      deploymentPublicUrl: 'https://u-public.sbx.hybridai.one',
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/mobile-qr',
+      headers: {
+        authorization: 'Bearer web-token',
+        host: '172.19.0.21:9090',
+      },
+      body: {
+        userId: 'web-user-a',
+        sessionId: 'agent:main:channel:web:chat:dm:peer:1234567890abcdef',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    const payload = JSON.parse(res.body) as { launchUrl: string };
+    expect(payload.launchUrl).toMatch(
+      /^https:\/\/u-public\.sbx\.hybridai\.one\/chat\/continue\?token=/,
+    );
   });
 
   test('rejects protected mobile chat QR creation when auth secret is missing', async () => {
