@@ -44,6 +44,28 @@ test('MCP OAuth redirect prefers public gateway base URL over private admin requ
   );
 });
 
+test('MCP OAuth redirect prefers public gateway base URL over private IPv6 request origin', async () => {
+  setupHome();
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  updateRuntimeConfig((draft) => {
+    draft.deployment.public_url = '';
+    draft.ops.gatewayBaseUrl = 'https://gateway.hybridclaw.example.com';
+  });
+
+  const { resolveMcpOAuthRedirectUri } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  expect(resolveMcpOAuthRedirectUri('http://[fd12::1]:9090')).toBe(
+    'https://gateway.hybridclaw.example.com/api/mcp/oauth/callback',
+  );
+  expect(resolveMcpOAuthRedirectUri('http://[fe80::1]:9090')).toBe(
+    'https://gateway.hybridclaw.example.com/api/mcp/oauth/callback',
+  );
+});
+
 test('MCP OAuth redirect keeps public request origin when configured gateway base is local', async () => {
   setupHome();
   const { resolveMcpOAuthRedirectUri } = await import(
@@ -71,4 +93,24 @@ test('MCP OAuth redirect falls back to configured local base URL without request
   expect(resolveMcpOAuthRedirectUri()).toBe(
     'http://127.0.0.1:9090/api/mcp/oauth/callback',
   );
+});
+
+test('MCP OAuth redirect rejects invalid configured deployment public URL', async () => {
+  setupHome();
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  updateRuntimeConfig((draft) => {
+    draft.deployment.mode = 'cloud';
+    draft.deployment.public_url = 'ftp://cloud.hybridclaw.example.com';
+    draft.ops.gatewayBaseUrl = 'http://127.0.0.1:9090';
+  });
+
+  const { resolveMcpOAuthRedirectUri } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  expect(() =>
+    resolveMcpOAuthRedirectUri('http://172.19.0.21:9090'),
+  ).toThrow('deployment.public_url must be an HTTP(S) URL');
 });

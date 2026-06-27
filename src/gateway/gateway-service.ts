@@ -604,6 +604,10 @@ import {
   renderGatewayCommand,
 } from './gateway-types.js';
 import {
+  isPrivateHttpBaseUrl,
+  normalizeHttpBaseUrl,
+} from './gateway-url-utils.js';
+import {
   firstNumber,
   numberFromUnknown,
   parseAuditPayload,
@@ -6966,82 +6970,46 @@ function requireConfiguredMcpServer(name: string): {
 
 export function resolveMcpOAuthRedirectUri(requestBaseUrl?: string): string {
   const config = getRuntimeConfig();
-  const configuredPublicUrl = normalizeMcpOAuthCallbackBaseUrl(
+  const configuredPublicUrl = normalizeConfiguredMcpOAuthPublicUrl(
     config.deployment.public_url,
   );
-  const configuredGatewayUrl =
-    normalizeMcpOAuthCallbackBaseUrl(GATEWAY_BASE_URL);
-  const requestUrl = normalizeMcpOAuthCallbackBaseUrl(requestBaseUrl);
-  const publicConfiguredGatewayUrl =
-    configuredGatewayUrl &&
-    !isPrivateMcpOAuthCallbackBaseUrl(configuredGatewayUrl)
-      ? configuredGatewayUrl
-      : '';
-  const publicRequestUrl =
-    requestUrl && !isPrivateMcpOAuthCallbackBaseUrl(requestUrl)
-      ? requestUrl
-      : '';
-  const base =
-    configuredPublicUrl ||
-    publicConfiguredGatewayUrl ||
-    publicRequestUrl ||
-    requestUrl ||
-    configuredGatewayUrl ||
-    '';
+  if (configuredPublicUrl) return buildMcpOAuthRedirectUri(configuredPublicUrl);
+
+  // Prefer public callback bases; private fallbacks only keep local dev working
+  // when no public deployment URL or public request/gateway URL is available.
+  const configuredGatewayUrl = normalizeHttpBaseUrl(GATEWAY_BASE_URL);
+  if (configuredGatewayUrl && !isPrivateHttpBaseUrl(configuredGatewayUrl)) {
+    return buildMcpOAuthRedirectUri(configuredGatewayUrl);
+  }
+
+  const requestUrl = normalizeHttpBaseUrl(requestBaseUrl);
+  if (requestUrl && !isPrivateHttpBaseUrl(requestUrl)) {
+    return buildMcpOAuthRedirectUri(requestUrl);
+  }
+
+  const base = requestUrl || configuredGatewayUrl || '';
   if (!base) {
     throw new Error(
       'Cannot determine the gateway base URL for the OAuth redirect.',
     );
   }
-  return `${base}/api/mcp/oauth/callback`;
+  return buildMcpOAuthRedirectUri(base);
 }
 
-function normalizeMcpOAuthCallbackBaseUrl(value?: string): string {
-  const trimmed = String(value || '')
-    .trim()
-    .replace(/\/+$/, '');
-  if (!trimmed) return '';
-  try {
-    const url = new URL(trimmed);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
-  } catch {
-    return '';
-  }
-  return trimmed;
-}
-
-function isPrivateMcpOAuthCallbackBaseUrl(value: string): boolean {
-  let hostname = '';
-  try {
-    hostname = new URL(value).hostname.toLowerCase();
-  } catch {
-    return true;
-  }
-  if (hostname === 'localhost' || hostname === '::1' || hostname === '[::1]') {
-    return true;
-  }
-  const parts = hostname.split('.');
-  if (parts.length !== 4) return false;
-  const octets = parts.map((part) => Number.parseInt(part, 10));
-  if (
-    octets.some(
-      (octet, index) =>
-        !Number.isInteger(octet) ||
-        String(octet) !== parts[index] ||
-        octet < 0 ||
-        octet > 255,
-    )
-  ) {
-    return false;
-  }
-  const [first, second] = octets;
-  return (
-    first === 10 ||
-    first === 127 ||
-    (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && second === 168) ||
-    (first === 169 && second === 254)
+function normalizeConfiguredMcpOAuthPublicUrl(value?: string): string {
+  const normalized = normalizeHttpBaseUrl(value);
+  if (normalized || !String(value || '').trim()) return normalized || '';
+  logger.warn(
+    { publicUrl: value },
+    'Invalid deployment.public_url for MCP OAuth callback',
   );
+  throw new Error(
+    'deployment.public_url must be an HTTP(S) URL for MCP OAuth callbacks.',
+  );
+}
+
+function buildMcpOAuthRedirectUri(baseUrl: string): string {
+  return `${baseUrl}/api/mcp/oauth/callback`;
 }
 
 export async function startGatewayAdminMcpOAuth(input: {
