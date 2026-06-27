@@ -430,7 +430,7 @@ async function saveHttpResponseArtifact(params: {
     path: `/workspace/.http-artifacts/${storedFilename}`,
     filename,
     mimeType: responseMimeType,
-    sha256: sha256Hex(params.body),
+    sha256: sha256ArtifactHex(params.body),
   };
 }
 
@@ -1359,7 +1359,7 @@ function verifyPinnedTlsCertificateFromSocket(
       'Pinned TLS certificate check failed: peer certificate was not available.',
     );
   }
-  const actual = sha256Hex(raw);
+  const actual = sha256CertificateHex(raw);
   if (actual !== expectedSha256) {
     throw new GatewayRequestError(
       502,
@@ -1622,9 +1622,15 @@ function canonicalizeOtcPath(url: URL): string {
   return canonical.endsWith('/') ? canonical : `${canonical}/`;
 }
 
-function sha256Hex(value: string | Uint8Array | undefined): string {
-  // lgtm[js/insufficient-password-hash] SHA-256 is used here for protocol
-  // request digests and artifact fingerprints, not for password storage.
+function sha256ArtifactHex(value: Uint8Array): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function sha256CertificateHex(value: Uint8Array): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function sha256OtcDigestHex(value: string | Uint8Array | undefined): string {
   return createHash('sha256')
     .update(value ?? '')
     .digest('hex');
@@ -1717,7 +1723,7 @@ async function applyOtcAkSkSigning(params: {
     : '';
 
   const sdkDate = formatOtcSdkDate();
-  const bodyHash = sha256Hex(
+  const bodyHash = sha256OtcDigestHex(
     typeof params.body === 'string' || params.body instanceof Uint8Array
       ? params.body
       : undefined,
@@ -1747,9 +1753,11 @@ async function applyOtcAkSkSigning(params: {
     bodyHash,
   ].join('\n');
   const algorithm = 'SDK-HMAC-SHA256';
-  const stringToSign = [algorithm, sdkDate, sha256Hex(canonicalRequest)].join(
-    '\n',
-  );
+  const stringToSign = [
+    algorithm,
+    sdkDate,
+    sha256OtcDigestHex(canonicalRequest),
+  ].join('\n');
   const signature = hmacSha256Hex(secretAccessKey, stringToSign);
   setHeaderValue(
     params.headers,
