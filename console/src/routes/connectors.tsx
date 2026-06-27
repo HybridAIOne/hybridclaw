@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   fetchConnectors,
   logoutConnector,
@@ -22,6 +22,7 @@ import {
 import { Field, FieldLabel } from '../components/field';
 import { HybridClaw } from '../components/icons';
 import {
+  GitHubLogo,
   GoogleLogo,
   HybridAILogo,
   MicrosoftLogo,
@@ -34,7 +35,11 @@ import { cx } from '../lib/cx';
 import { getErrorMessage } from '../lib/error-message';
 import styles from './connectors.module.css';
 
-type OAuthConnectorId = Exclude<AdminConnectorId, 'hybridai'>;
+type LocalOAuthConnectorId = Extract<
+  AdminConnectorId,
+  'google' | 'microsoft365'
+>;
+type PlatformConnectorId = Extract<AdminConnectorId, 'github'>;
 
 interface OAuthDraft {
   account: string;
@@ -45,7 +50,7 @@ interface OAuthDraft {
 }
 
 interface OAuthStartPayload {
-  provider: OAuthConnectorId;
+  provider: LocalOAuthConnectorId;
   account?: string;
   tenantId?: string;
   clientId?: string;
@@ -56,6 +61,7 @@ interface OAuthStartPayload {
 const OAUTH_POLL_INTERVAL_MS = 2_000;
 const OAUTH_POLL_TIMEOUT_MS = 5 * 60_000;
 const COMING_SOON_CONNECTORS = new Set<AdminConnectorId>(['microsoft365']);
+const PLATFORM_CONNECTORS = new Set<AdminConnectorId>(['github']);
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -71,6 +77,10 @@ function stateIsConnected(connector: AdminConnector): boolean {
   return connector.state === 'connected';
 }
 
+function connectorIsPlatform(connector: AdminConnector): boolean {
+  return PLATFORM_CONNECTORS.has(connector.id);
+}
+
 function connectorIsComingSoon(connector: AdminConnector): boolean {
   return COMING_SOON_CONNECTORS.has(connector.id);
 }
@@ -79,6 +89,7 @@ function connectorMarkClass(connector: AdminConnector): string {
   return cx(
     styles.connectorMark,
     connector.id === 'hybridai' && styles.connectorMarkHybridai,
+    connector.id === 'github' && styles.connectorMarkGithub,
     connector.id === 'google' && styles.connectorMarkGoogle,
     connector.id === 'microsoft365' && styles.connectorMarkMicrosoft365,
   );
@@ -87,6 +98,9 @@ function connectorMarkClass(connector: AdminConnector): string {
 function ConnectorLogo({ connector }: { connector: AdminConnector }) {
   if (connector.id === 'hybridai') {
     return <HybridAILogo width={24} height={24} />;
+  }
+  if (connector.id === 'github') {
+    return <GitHubLogo width={24} height={24} />;
   }
   if (connector.id === 'google') {
     return <GoogleLogo width={24} height={24} />;
@@ -106,8 +120,14 @@ function oauthDraftFromConnector(connector: AdminConnector): OAuthDraft {
 
 function isOAuthConnectorId(
   value: AdminConnectorId,
-): value is OAuthConnectorId {
+): value is LocalOAuthConnectorId {
   return value === 'google' || value === 'microsoft365';
+}
+
+function isPlatformConnectorId(
+  value: string | null,
+): value is PlatformConnectorId {
+  return value === 'github';
 }
 
 function canUseStoredGoogleOAuth(connector: AdminConnector): boolean {
@@ -120,7 +140,7 @@ function canUseStoredGoogleOAuth(connector: AdminConnector): boolean {
 }
 
 function oauthPayloadFromDraft(
-  provider: OAuthConnectorId,
+  provider: LocalOAuthConnectorId,
   draft: OAuthDraft,
 ): OAuthStartPayload {
   return {
@@ -139,9 +159,16 @@ export function ConnectorsPage() {
   const queryClient = useQueryClient();
   const [hybridKeyOpen, setHybridKeyOpen] = useState(false);
   const [hybridApiKey, setHybridApiKey] = useState('');
-  const [oauthTargetId, setOauthTargetId] = useState<OAuthConnectorId | null>(
-    null,
-  );
+  const [oauthTargetId, setOauthTargetId] =
+    useState<LocalOAuthConnectorId | null>(null);
+  const [platformConnectedIds, setPlatformConnectedIds] = useState<
+    Set<PlatformConnectorId>
+  >(() => {
+    if (typeof window === 'undefined') return new Set();
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get('connected');
+    return isPlatformConnectorId(connected) ? new Set([connected]) : new Set();
+  });
   const [oauthDraft, setOauthDraft] = useState<OAuthDraft>({
     account: '',
     tenantId: '',
@@ -246,6 +273,50 @@ export function ConnectorsPage() {
     googleNeedsClientId ||
     googleNeedsClientSecret;
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get('connected');
+    const connectError = params.get('connect_error');
+    if (!isPlatformConnectorId(connected) && !connectError) return;
+
+    if (isPlatformConnectorId(connected)) {
+      setPlatformConnectedIds((current) => {
+        const next = new Set(current);
+        next.add(connected);
+        return next;
+      });
+      toast.success('GitHub connected.');
+    } else {
+      toast.error('Connector connection failed.');
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete('connected');
+    url.searchParams.delete('connect_error');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}`);
+  }, [toast]);
+
+  const openPlatformConnector = (
+    connector: AdminConnector,
+    options: { start: boolean },
+  ) => {
+    if (!connector.loginUrl) {
+      toast.error(`${connector.name} connection is not available.`);
+      return;
+    }
+    const url = new URL(connector.loginUrl);
+    if (options.start) {
+      const returnUrl = new URL('/admin/connectors', window.location.origin);
+      returnUrl.searchParams.set('connected', connector.id);
+      url.searchParams.set('return_to', returnUrl.toString());
+    } else {
+      url.searchParams.delete('connect');
+      url.searchParams.delete('return_to');
+      url.hash = connector.id;
+    }
+    window.open(url.toString(), '_self');
+  };
+
   const openOAuthDialog = (connector: AdminConnector) => {
     if (!isOAuthConnectorId(connector.id)) return;
     if (connectorIsComingSoon(connector)) return;
@@ -280,7 +351,12 @@ export function ConnectorsPage() {
       <div className={styles.connectorGrid}>
         {connectors.map((connector) => {
           const isComingSoon = connectorIsComingSoon(connector);
-          const isConnected = stateIsConnected(connector) && !isComingSoon;
+          const isConnected =
+            (stateIsConnected(connector) ||
+              (connector.id === 'github' &&
+                platformConnectedIds.has(connector.id))) &&
+            !isComingSoon;
+          const isPlatform = connectorIsPlatform(connector);
 
           return (
             <Card
@@ -353,6 +429,21 @@ export function ConnectorsPage() {
                       </Button>
                     ) : null}
                   </>
+                ) : isPlatform ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    aria-label={`${isConnected ? 'Manage' : 'Connect'} ${
+                      connector.name
+                    }`}
+                    onClick={() =>
+                      openPlatformConnector(connector, {
+                        start: !isConnected,
+                      })
+                    }
+                  >
+                    {isConnected ? 'Manage' : 'Connect'}
+                  </Button>
                 ) : (
                   <>
                     <Button

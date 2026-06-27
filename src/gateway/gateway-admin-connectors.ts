@@ -55,8 +55,17 @@ import {
 
 const PENDING_CONNECTOR_OAUTH_TTL_MS = 10 * 60_000;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
+const HYBRIDAI_CONNECTORS_PATH = '/admin_workspace/connectors';
 
-export type GatewayAdminConnectorId = 'hybridai' | 'google' | 'microsoft365';
+export type GatewayAdminConnectorId =
+  | 'hybridai'
+  | 'github'
+  | 'google'
+  | 'microsoft365';
+export type GatewayAdminLocalOAuthConnectorId = Extract<
+  GatewayAdminConnectorId,
+  'google' | 'microsoft365'
+>;
 
 export type GatewayAdminConnectorState =
   | 'connected'
@@ -87,7 +96,7 @@ export interface GatewayAdminConnectorsResponse {
 }
 
 export interface GatewayAdminConnectorOAuthStartResult {
-  provider: Exclude<GatewayAdminConnectorId, 'hybridai'>;
+  provider: GatewayAdminLocalOAuthConnectorId;
   authorizationUrl: string;
   state: string;
   expiresAt: number;
@@ -103,7 +112,7 @@ interface ConnectorOAuthStartInput {
 }
 
 interface PendingConnectorOAuthFlow {
-  provider: Exclude<GatewayAdminConnectorId, 'hybridai'>;
+  provider: GatewayAdminLocalOAuthConnectorId;
   account: string;
   tenantId: string;
   clientId: string;
@@ -137,6 +146,16 @@ function resolveHybridAILoginUrl(): string {
   return `${baseUrl}${HYBRIDAI_LOGIN_PATH}`;
 }
 
+function resolveHybridAIConnectorUrl(connectorId: string): string {
+  const baseUrl = (HYBRIDAI_BASE_URL || 'https://hybridai.one').replace(
+    /\/+$/g,
+    '',
+  );
+  const url = new URL(HYBRIDAI_CONNECTORS_PATH, baseUrl);
+  url.searchParams.set('connect', connectorId);
+  return url.toString();
+}
+
 function makeState(): string {
   return randomBytes(32).toString('base64url');
 }
@@ -154,6 +173,7 @@ function parseConnectorId(value: unknown): GatewayAdminConnectorId {
   const normalized = trimString(value).toLowerCase();
   if (
     normalized === 'hybridai' ||
+    normalized === 'github' ||
     normalized === 'google' ||
     normalized === 'microsoft365'
   ) {
@@ -164,7 +184,7 @@ function parseConnectorId(value: unknown): GatewayAdminConnectorId {
   }
   throw new GatewayRequestError(
     400,
-    'Connector must be `hybridai`, `google`, or `microsoft365`.',
+    'Connector must be `hybridai`, `github`, `google`, or `microsoft365`.',
   );
 }
 
@@ -308,6 +328,27 @@ function buildGoogleConnector(): GatewayAdminConnector {
   };
 }
 
+function buildGitHubConnector(): GatewayAdminConnector {
+  return {
+    id: 'github',
+    name: 'GitHub',
+    description:
+      'Work with repositories, pull requests, issues, and code from GitHub.',
+    state: 'not_connected',
+    authKind: 'oauth',
+    account: null,
+    detail: 'Managed by HybridAI connectors.',
+    scopes: [],
+    routesConfigured: true,
+    clientConfigured: true,
+    clientSecretConfigured: true,
+    tenantId: null,
+    loginUrl: resolveHybridAIConnectorUrl('github'),
+    adminConsentUrl: null,
+    setupSecretNames: [],
+  };
+}
+
 function buildMicrosoft365Connector(): GatewayAdminConnector {
   const status = getMicrosoft365AuthStatus();
   const clientId = readSecretOrEnv(MICROSOFT_365_OAUTH_CLIENT_ID_SECRET);
@@ -353,6 +394,7 @@ export function getGatewayAdminConnectors(): GatewayAdminConnectorsResponse {
   return {
     connectors: [
       buildHybridAIConnector(),
+      buildGitHubConnector(),
       buildGoogleConnector(),
       buildMicrosoft365Connector(),
     ],
@@ -471,6 +513,12 @@ export function startGatewayAdminConnectorOAuth(input: {
       'HybridAI uses an API key flow, not OAuth.',
     );
   }
+  if (provider === 'github') {
+    throw new GatewayRequestError(
+      400,
+      'GitHub is connected through HybridAI connectors.',
+    );
+  }
 
   const redirectUri = resolveOAuthRedirectUri(input.requestBaseUrl);
   const state = makeState();
@@ -576,6 +624,11 @@ export function logoutGatewayAdminConnector(input: {
   const provider = parseConnectorId(input.provider);
   if (provider === 'hybridai') {
     clearHybridAICredentials();
+  } else if (provider === 'github') {
+    throw new GatewayRequestError(
+      400,
+      'GitHub is managed through HybridAI connectors.',
+    );
   } else if (provider === 'google') {
     clearGoogleAuth();
   } else {

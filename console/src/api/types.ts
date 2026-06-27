@@ -1442,7 +1442,11 @@ export interface AdminMcpOAuthStatusResponse {
   auth: AdminMcpAuthStatus;
 }
 
-export type AdminConnectorId = 'hybridai' | 'google' | 'microsoft365';
+export type AdminConnectorId =
+  | 'hybridai'
+  | 'github'
+  | 'google'
+  | 'microsoft365';
 
 export type AdminConnectorState = 'connected' | 'not_connected' | 'needs_setup';
 
@@ -1470,7 +1474,7 @@ export interface AdminConnectorsResponse {
 }
 
 export interface AdminConnectorOAuthStartResponse {
-  provider: Exclude<AdminConnectorId, 'hybridai'>;
+  provider: Extract<AdminConnectorId, 'google' | 'microsoft365'>;
   authorizationUrl: string;
   state: string;
   expiresAt: number;

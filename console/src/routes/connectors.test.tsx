@@ -46,6 +46,25 @@ function makeConnectorsResponse(): AdminConnectorsResponse {
         setupSecretNames: ['HYBRIDAI_API_KEY'],
       },
       {
+        id: 'github',
+        name: 'GitHub',
+        description:
+          'Work with repositories, pull requests, issues, and code from GitHub.',
+        state: 'not_connected',
+        authKind: 'oauth',
+        account: null,
+        detail: 'Managed by HybridAI connectors.',
+        scopes: [],
+        routesConfigured: true,
+        clientConfigured: true,
+        clientSecretConfigured: true,
+        tenantId: null,
+        loginUrl:
+          'https://hybridai.one/admin_workspace/connectors?connect=github',
+        adminConsentUrl: null,
+        setupSecretNames: [],
+      },
+      {
         id: 'google',
         name: 'Google Workspace',
         description:
@@ -111,6 +130,7 @@ describe('ConnectorsPage', () => {
     renderWithProviders(<ConnectorsPage />);
 
     expect(await screen.findByText('HybridAI')).toBeTruthy();
+    expect(screen.getByText('GitHub')).toBeTruthy();
     expect(screen.getByText('Google Workspace')).toBeTruthy();
     expect(screen.getByText('Microsoft 365')).toBeTruthy();
     expect(
@@ -143,10 +163,36 @@ describe('ConnectorsPage', () => {
     expect(logoutConnectorMock).not.toHaveBeenCalled();
   });
 
+  it('opens GitHub through HybridAI connectors and returns to HybridClaw', async () => {
+    const openSpy = vi
+      .spyOn(window, 'open')
+      .mockReturnValue(null as unknown as Window);
+
+    renderWithProviders(<ConnectorsPage />);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Connect GitHub' }),
+    );
+
+    const [targetUrl, target] = openSpy.mock.calls[0] || [];
+    expect(target).toBe('_self');
+    const url = new URL(String(targetUrl));
+    expect(url.origin).toBe('https://hybridai.one');
+    expect(url.pathname).toBe('/admin_workspace/connectors');
+    expect(url.searchParams.get('connect')).toBe('github');
+
+    const returnTo = new URL(url.searchParams.get('return_to') || '');
+    expect(returnTo.origin).toBe(window.location.origin);
+    expect(returnTo.pathname).toBe('/admin/connectors');
+    expect(returnTo.searchParams.get('connected')).toBe('github');
+
+    openSpy.mockRestore();
+  });
+
   it('reconnects Google Workspace directly when stored OAuth setup exists', async () => {
     const connected = makeConnectorsResponse();
-    connected.connectors[1] = {
-      ...connected.connectors[1],
+    connected.connectors[2] = {
+      ...connected.connectors[2],
       state: 'connected',
       account: 'eigenarbeit@gmail.com',
       routesConfigured: true,

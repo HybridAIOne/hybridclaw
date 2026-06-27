@@ -45,6 +45,12 @@
   border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
 }
 
+.connectorMarkGithub {
+  color: #1f2328;
+  background: color-mix(in srgb, #fff 84%, var(--panel-bg));
+  border-color: color-mix(in srgb, #1f2328 24%, var(--line));
+}
+
 .connectorMarkGoogle {
   background: color-mix(in srgb, #fff 84%, var(--panel-bg));
   border-color: color-mix(in srgb, #4285f4 32%, var(--line));
