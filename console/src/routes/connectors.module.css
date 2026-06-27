@@ -7,9 +7,12 @@
   align-items: start;
 }
 
-.connectorCard {
+.connectorCard.connectorCard {
   height: 168px;
-  justify-content: flex-start;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  justify-content: stretch;
 }
 
 .connectorCardDisabled {
@@ -21,6 +24,10 @@
   grid-template-columns: auto minmax(0, 1fr);
   gap: 12px;
   align-items: start;
+}
+
+.connectorText {
+  min-width: 0;
 }
 
 .connectorMark {
@@ -69,25 +76,38 @@
   min-width: 0;
 }
 
-.connectorTitle {
-  margin: 0;
-  font-size: 0.96rem;
-  line-height: 1.25;
+.connectorTitleRow > :last-child {
+  flex: 0 0 auto;
 }
 
-.connectorDescription {
+.connectorTitle.connectorTitle {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.96rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectorDescription.connectorDescription {
   margin: 4px 0 0;
+  display: -webkit-box;
+  overflow: hidden;
   color: var(--muted-foreground);
   font-size: 0.84rem;
   line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
-.connectorActions {
+.connectorActions.connectorActions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
-  margin-top: auto;
+  align-self: end;
+  margin-top: 0;
   min-height: 30px;
 }
 
@@ -188,5 +208,9 @@
   .connectorCard {
     height: auto;
     min-height: 168px;
+  }
+
+  .connectorTitle {
+    white-space: normal;
   }
 }

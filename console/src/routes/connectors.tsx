@@ -389,7 +389,7 @@ export function ConnectorsPage() {
                   <span className={connectorMarkClass(connector)}>
                     <ConnectorLogo connector={connector} />
                   </span>
-                  <div>
+                  <div className={styles.connectorText}>
                     <div className={styles.connectorTitleRow}>
                       <CardTitle className={styles.connectorTitle}>
                         {connector.name}
