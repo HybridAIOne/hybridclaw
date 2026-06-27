@@ -304,6 +304,49 @@ describe('gateway admin connectors', () => {
     );
   });
 
+  test('marks GitHub connected from the HybridAI connector directory', async () => {
+    const { connectors, runtimeSecrets } = await importFreshConnectors();
+    runtimeSecrets.saveNamedRuntimeSecrets({
+      HYBRIDAI_API_KEY: 'hai-test-secret-key',
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          connectors: [
+            {
+              id: 'github',
+              connected: true,
+              account: 'HybridAIOne',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response =
+      await connectors.getGatewayAdminConnectorsWithPlatformState();
+
+    expect(response.connectors.find((entry) => entry.id === 'github')).toMatchObject(
+      {
+        state: 'connected',
+        account: 'HybridAIOne',
+        detail: 'Connected through HybridAI.',
+      },
+    );
+    const [url, request] = fetchMock.mock.calls[0] || [];
+    expect(String(url)).toBe(
+      'https://hybridai.one/api/v1/connectors/directory',
+    );
+    expect(new Headers((request as RequestInit).headers).get('Authorization')).toBe(
+      'Bearer hai-test-secret-key',
+    );
+  });
+
   test('rejects Google OAuth start when account and client credentials are missing', async () => {
     const { connectors } = await importFreshConnectors();
 

@@ -139,6 +139,11 @@ interface PendingConnectorOAuthFlow {
   createdAt: number;
 }
 
+interface HybridAIPlatformConnectorStatus {
+  connected: boolean;
+  account: string | null;
+}
+
 const pendingConnectorOAuthFlows = new Map<string, PendingConnectorOAuthFlow>();
 
 function trimString(value: unknown): string {
@@ -361,16 +366,21 @@ function buildGoogleConnector(): GatewayAdminConnector {
   };
 }
 
-function buildGitHubConnector(): GatewayAdminConnector {
+function buildGitHubConnector(
+  status?: HybridAIPlatformConnectorStatus,
+): GatewayAdminConnector {
+  const connected = status?.connected === true;
   return {
     id: 'github',
     name: 'GitHub',
     description:
       'Work with repositories, pull requests, issues, and code from GitHub.',
-    state: 'not_connected',
+    state: connected ? 'connected' : 'not_connected',
     authKind: 'oauth',
-    account: null,
-    detail: 'Managed by HybridAI connectors.',
+    account: status?.account || null,
+    detail: connected
+      ? 'Connected through HybridAI.'
+      : 'Managed by HybridAI connectors.',
     scopes: [],
     routesConfigured: true,
     clientConfigured: true,
@@ -448,6 +458,58 @@ function messageFromHybridAIResponse(
     trimString(payload.text) ||
     fallback
   );
+}
+
+function parseHybridAIPlatformConnectorStatuses(
+  payload: Record<string, unknown>,
+): Map<string, HybridAIPlatformConnectorStatus> {
+  const connectors = Array.isArray(payload.connectors)
+    ? payload.connectors
+    : [];
+  const statuses = new Map<string, HybridAIPlatformConnectorStatus>();
+  for (const entry of connectors) {
+    if (!entry || typeof entry !== 'object') continue;
+    const record = entry as Record<string, unknown>;
+    const id = trimString(record.id).toLowerCase();
+    if (!id) continue;
+    statuses.set(id, {
+      connected:
+        record.connected === true || trimString(record.status) === 'connected',
+      account:
+        trimString(record.account) ||
+        trimString(record.username) ||
+        trimString(record.owner) ||
+        null,
+    });
+  }
+  return statuses;
+}
+
+async function readHybridAIPlatformConnectorStatuses(): Promise<
+  Map<string, HybridAIPlatformConnectorStatus>
+> {
+  let apiKey: string;
+  try {
+    apiKey = getHybridAIApiKey();
+  } catch (error) {
+    if (error instanceof MissingRequiredEnvVarError) return new Map();
+    throw error;
+  }
+
+  try {
+    const response = await fetch(
+      resolveHybridAIUrl('/api/v1/connectors/directory'),
+      {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      },
+    );
+    if (!response.ok) return new Map();
+    return parseHybridAIPlatformConnectorStatuses(
+      await readJsonObject(response),
+    );
+  } catch {
+    return new Map();
+  }
 }
 
 function testResult(input: {
@@ -709,6 +771,19 @@ export function getGatewayAdminConnectors(): GatewayAdminConnectorsResponse {
     connectors: [
       buildHybridAIConnector(),
       buildGitHubConnector(),
+      buildGoogleConnector(),
+      buildMicrosoft365Connector(),
+    ],
+    secretsPath: runtimeSecretsPath(),
+  };
+}
+
+export async function getGatewayAdminConnectorsWithPlatformState(): Promise<GatewayAdminConnectorsResponse> {
+  const platformStatuses = await readHybridAIPlatformConnectorStatuses();
+  return {
+    connectors: [
+      buildHybridAIConnector(),
+      buildGitHubConnector(platformStatuses.get('github')),
       buildGoogleConnector(),
       buildMicrosoft365Connector(),
     ],

@@ -1476,6 +1476,10 @@ async function importFreshHealth(options?: {
     secretsPath: '/tmp/credentials.json',
     connectors: [],
   }));
+  const getGatewayAdminConnectorsWithPlatformState = vi.fn(async () => ({
+    secretsPath: '/tmp/credentials.json',
+    connectors: [],
+  }));
   const saveGatewayAdminHybridAIConnectorApiKey = vi.fn(() => ({
     secretsPath: '/tmp/credentials.json',
     connectors: [],
@@ -2220,6 +2224,7 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/gateway/gateway-admin-connectors.js', () => ({
     completeGatewayAdminConnectorOAuthCallback,
     getGatewayAdminConnectors,
+    getGatewayAdminConnectorsWithPlatformState,
     logoutGatewayAdminConnector,
     saveGatewayAdminHybridAIConnectorApiKey,
     startGatewayAdminConnectorOAuth,
@@ -2357,6 +2362,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminPlugins,
     getGatewayAdminScheduler,
     getGatewayAdminMcp,
+    getGatewayAdminConnectorsWithPlatformState,
     testGatewayAdminConnector,
     getGatewayAdminAudit,
     getGatewayAdminSkills,

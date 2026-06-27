@@ -264,6 +264,9 @@ export function ConnectorsPage() {
     onSuccess: (result) => {
       if (result.ok) {
         toast.success(`${result.name} test passed.`, result.message);
+        queryClient.invalidateQueries({
+          queryKey: ['admin', 'connectors', auth.token],
+        });
         return;
       }
       toast.error(`${result.name} test failed.`, result.message);

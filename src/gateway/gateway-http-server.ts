@@ -165,7 +165,7 @@ import {
 import { escapeHtml, serveDocs } from './docs.js';
 import {
   completeGatewayAdminConnectorOAuthCallback,
-  getGatewayAdminConnectors,
+  getGatewayAdminConnectorsWithPlatformState,
   logoutGatewayAdminConnector,
   saveGatewayAdminHybridAIConnectorApiKey,
   startGatewayAdminConnectorOAuth,
@@ -5564,7 +5564,7 @@ async function handleApiAdminConnectors(
 ): Promise<void> {
   const pathname = url.pathname;
   if (pathname === '/api/admin/connectors' && req.method === 'GET') {
-    sendJson(res, 200, getGatewayAdminConnectors());
+    sendJson(res, 200, await getGatewayAdminConnectorsWithPlatformState());
     return;
   }
 
