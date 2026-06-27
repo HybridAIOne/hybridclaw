@@ -9,7 +9,7 @@ import {
 import type { AdminConnector, AdminConnectorId } from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
+import { Card, CardHeader, CardTitle } from '../components/card';
 import {
   Dialog,
   DialogClose,
@@ -94,11 +94,6 @@ function isOAuthConnectorId(
   value: AdminConnectorId,
 ): value is OAuthConnectorId {
   return value === 'google' || value === 'microsoft365';
-}
-
-function routeLabel(connector: AdminConnector): string {
-  if (connector.id === 'hybridai') return 'built in';
-  return connector.routesConfigured ? 'configured' : 'missing';
 }
 
 export function ConnectorsPage() {
@@ -280,95 +275,58 @@ export function ConnectorsPage() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
-              <div className={styles.connectorFacts}>
-                <div className={styles.connectorFact}>
-                  <span>Account</span>
-                  <strong>{connector.account || 'not set'}</strong>
-                </div>
-                <div className={styles.connectorFact}>
-                  <span>Auth</span>
-                  <strong>{connector.authKind}</strong>
-                </div>
-                {connector.tenantId ? (
-                  <div className={styles.connectorFact}>
-                    <span>Tenant</span>
-                    <strong>{connector.tenantId}</strong>
-                  </div>
-                ) : null}
-                <div className={styles.connectorFact}>
-                  <span>Routes</span>
-                  <strong>{routeLabel(connector)}</strong>
-                </div>
-                <div className={styles.connectorFact}>
-                  <span>Status</span>
-                  <strong>{connector.detail}</strong>
-                </div>
-              </div>
-
-              {connector.state === 'needs_setup' ? (
-                <div className={styles.setupList}>
-                  {connector.setupSecretNames.map((name) => (
-                    <code key={name} className={styles.setupSecret}>
-                      {name}
-                    </code>
-                  ))}
-                </div>
-              ) : null}
-
-              <div className={styles.connectorActions}>
-                {connector.id === 'hybridai' ? (
-                  <>
+            <div className={styles.connectorActions}>
+              {connector.id === 'hybridai' ? (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      if (connector.loginUrl) {
+                        window.open(connector.loginUrl, '_blank', 'noopener');
+                      }
+                      setHybridKeyOpen(true);
+                    }}
+                  >
+                    {connector.state === 'connected' ? 'Rotate key' : 'Connect'}
+                  </Button>
+                  {connector.state === 'connected' ? (
                     <Button
                       type="button"
-                      onClick={() => {
-                        if (connector.loginUrl) {
-                          window.open(connector.loginUrl, '_blank', 'noopener');
-                        }
-                        setHybridKeyOpen(true);
-                      }}
+                      size="sm"
+                      variant="ghost"
+                      loading={logoutMutation.isPending}
+                      disabled={logoutMutation.isPending}
+                      onClick={() => logoutMutation.mutate(connector.id)}
                     >
-                      {connector.state === 'connected'
-                        ? 'Rotate key'
-                        : 'Connect'}
+                      Disconnect
                     </Button>
-                    {connector.state === 'connected' ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        loading={logoutMutation.isPending}
-                        disabled={logoutMutation.isPending}
-                        onClick={() => logoutMutation.mutate(connector.id)}
-                      >
-                        Disconnect
-                      </Button>
-                    ) : null}
-                  </>
-                ) : (
-                  <>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => openOAuthDialog(connector)}
+                  >
+                    {connector.state === 'connected' ? 'Reconnect' : 'Connect'}
+                  </Button>
+                  {connector.state === 'connected' ? (
                     <Button
                       type="button"
-                      onClick={() => openOAuthDialog(connector)}
+                      size="sm"
+                      variant="ghost"
+                      loading={logoutMutation.isPending}
+                      disabled={logoutMutation.isPending}
+                      onClick={() => logoutMutation.mutate(connector.id)}
                     >
-                      {connector.state === 'connected'
-                        ? 'Reconnect'
-                        : 'Connect'}
+                      Disconnect
                     </Button>
-                    {connector.state === 'connected' ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        loading={logoutMutation.isPending}
-                        disabled={logoutMutation.isPending}
-                        onClick={() => logoutMutation.mutate(connector.id)}
-                      >
-                        Disconnect
-                      </Button>
-                    ) : null}
-                  </>
-                )}
-              </div>
-            </CardContent>
+                  ) : null}
+                </>
+              )}
+            </div>
           </Card>
         ))}
       </div>
