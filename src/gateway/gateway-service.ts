@@ -147,6 +147,7 @@ import {
   FULLAUTO_NEVER_APPROVE_TOOLS,
   GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
+  GATEWAY_PUBLIC_BASE_URL,
   GATEWAY_CLIENT_BASE_URL,
   HUGGINGFACE_API_KEY,
   HYBRIDAI_BASE_URL,
@@ -6965,7 +6966,14 @@ function requireConfiguredMcpServer(name: string): {
 }
 
 export function resolveMcpOAuthRedirectUri(requestBaseUrl?: string): string {
-  const base = String(requestBaseUrl || GATEWAY_BASE_URL || '')
+  // Prefer an explicitly-configured public origin when set: behind an ingress
+  // proxy the request-derived origin can be the gateway's internal address
+  // (e.g. http://172.19.0.22:9090), which is not reachable by the user's browser
+  // and would make the OAuth redirect fail. Falls back to the request origin and
+  // then the internal base URL for standalone setups.
+  const base = String(
+    GATEWAY_PUBLIC_BASE_URL || requestBaseUrl || GATEWAY_BASE_URL || '',
+  )
     .trim()
     .replace(/\/+$/, '');
   if (!base) {

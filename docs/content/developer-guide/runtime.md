@@ -111,6 +111,14 @@ Core details:
   already-running HybridClaw gateway.
 - `HEALTH_HOST` can override the health server bind address without rewriting
   runtime config, which is useful in containerized or proxied deployments.
+- `GATEWAY_PUBLIC_BASE_URL` is the public origin the gateway is reached at when
+  it runs behind an ingress proxy (e.g. `https://u-<id>.sbx.example.com`). When
+  set it is preferred over the request-derived origin for building
+  externally-reachable URLs — notably MCP OAuth redirect URIs, which otherwise
+  fall back to the incoming request's `Host`/`X-Forwarded-Host`. Set this when a
+  proxy can't be relied on to forward `X-Forwarded-Host`, so OAuth callbacks
+  don't end up pointing at the gateway's internal address. Leave it unset for
+  standalone/desktop runs.
 - `mcpServers.*.env` and `mcpServers.*.headers` are persisted in
   `~/.hybridclaw/config.json` exactly as configured today. Treat them as
   plaintext secrets and lock the runtime directory down with

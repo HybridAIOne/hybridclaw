@@ -540,6 +540,11 @@ export let HEALTH_PORT = 9090;
 export let WEB_API_TOKEN = '';
 export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
 export let GATEWAY_CLIENT_BASE_URL = 'http://127.0.0.1:9090';
+// Public origin the gateway is reached at (e.g. behind an ingress proxy).
+// When set, it is preferred over the request-derived origin for building
+// externally-reachable URLs such as MCP OAuth redirect URIs. Empty = derive
+// from the incoming request (default standalone behavior).
+export let GATEWAY_PUBLIC_BASE_URL = '';
 const GATEWAY_API_TOKEN_LOCK_STALE_MS = 10_000;
 const GATEWAY_API_TOKEN_LOCK_TIMEOUT_MS = 5_000;
 const GATEWAY_API_TOKEN_LOCK_RETRY_MS = 25;
@@ -1109,6 +1114,10 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
   GATEWAY_CLIENT_BASE_URL = config.ops.gatewayInternalBaseUrl;
+  GATEWAY_PUBLIC_BASE_URL = normalizeConfiguredBaseUrl(
+    process.env.GATEWAY_PUBLIC_BASE_URL,
+    '',
+  );
   gatewayApiTokenUsesGeneratedFallback = false;
   GATEWAY_API_TOKEN =
     readRuntimeSecretValue(
