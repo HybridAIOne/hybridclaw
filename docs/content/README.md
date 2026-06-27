@@ -27,6 +27,13 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
+- HybridClaw v0.25.8 uses configured public deployment URLs for cloud MCP OAuth
+  callbacks, admin origin checks, and mobile chat QR links when requests arrive
+  through internal hosts.
+- HybridClaw v0.25.8 autosaves default email allowed-sender additions as soon
+  as admins click Add.
+- Email channel advanced settings are collapsed by default so additional
+  mailboxes stay easier to scan while lower-frequency options remain available.
 - HybridClaw v0.25.7 uses a conversational first-run hatching flow with a
   natural email ask for the welcome note and shorter setup prompts.
 - Web chat keeps new no-user drafts concrete, prunes older empty or
