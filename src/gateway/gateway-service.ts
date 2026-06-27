@@ -604,6 +604,10 @@ import {
   renderGatewayCommand,
 } from './gateway-types.js';
 import {
+  isPrivateHttpBaseUrl,
+  normalizeHttpBaseUrl,
+} from './gateway-url-utils.js';
+import {
   firstNumber,
   numberFromUnknown,
   parseAuditPayload,
@@ -6965,15 +6969,47 @@ function requireConfiguredMcpServer(name: string): {
 }
 
 export function resolveMcpOAuthRedirectUri(requestBaseUrl?: string): string {
-  const base = String(requestBaseUrl || GATEWAY_BASE_URL || '')
-    .trim()
-    .replace(/\/+$/, '');
+  const config = getRuntimeConfig();
+  const configuredPublicUrl = normalizeConfiguredMcpOAuthPublicUrl(
+    config.deployment.public_url,
+  );
+  if (configuredPublicUrl) return buildMcpOAuthRedirectUri(configuredPublicUrl);
+
+  // Prefer public callback bases; private fallbacks only keep local dev working
+  // when no public deployment URL or public request/gateway URL is available.
+  const configuredGatewayUrl = normalizeHttpBaseUrl(GATEWAY_BASE_URL);
+  if (configuredGatewayUrl && !isPrivateHttpBaseUrl(configuredGatewayUrl)) {
+    return buildMcpOAuthRedirectUri(configuredGatewayUrl);
+  }
+
+  const requestUrl = normalizeHttpBaseUrl(requestBaseUrl);
+  if (requestUrl && !isPrivateHttpBaseUrl(requestUrl)) {
+    return buildMcpOAuthRedirectUri(requestUrl);
+  }
+
+  const base = requestUrl || configuredGatewayUrl || '';
   if (!base) {
     throw new Error(
       'Cannot determine the gateway base URL for the OAuth redirect.',
     );
   }
-  return `${base}/api/mcp/oauth/callback`;
+  return buildMcpOAuthRedirectUri(base);
+}
+
+function normalizeConfiguredMcpOAuthPublicUrl(value?: string): string {
+  const normalized = normalizeHttpBaseUrl(value);
+  if (normalized || !String(value || '').trim()) return normalized || '';
+  logger.warn(
+    { publicUrl: value },
+    'Invalid deployment.public_url for MCP OAuth callback',
+  );
+  throw new Error(
+    'deployment.public_url must be an HTTP(S) URL for MCP OAuth callbacks.',
+  );
+}
+
+function buildMcpOAuthRedirectUri(baseUrl: string): string {
+  return `${baseUrl}/api/mcp/oauth/callback`;
 }
 
 export async function startGatewayAdminMcpOAuth(input: {
