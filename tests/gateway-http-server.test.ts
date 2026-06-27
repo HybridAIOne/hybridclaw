@@ -2357,6 +2357,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminPlugins,
     getGatewayAdminScheduler,
     getGatewayAdminMcp,
+    testGatewayAdminConnector,
     getGatewayAdminAudit,
     getGatewayAdminSkills,
     getGatewayAdminSkillPackageFile,
@@ -6959,6 +6960,33 @@ describe('gateway HTTP server', () => {
           name: 'Research Bot',
         },
       ],
+    });
+  });
+
+  test('routes admin connector test requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/connectors/test',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: { provider: 'github' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.testGatewayAdminConnector).toHaveBeenCalledWith({
+      provider: 'github',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      provider: 'github',
+      name: 'GitHub',
+      ok: true,
+      message: 'GitHub is connected.',
     });
   });
 

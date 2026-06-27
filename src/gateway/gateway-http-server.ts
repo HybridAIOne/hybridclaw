@@ -7573,6 +7573,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             pathname === '/api/admin/connectors' ||
             pathname === '/api/admin/connectors/hybridai/key' ||
             pathname === '/api/admin/connectors/oauth/start' ||
+            pathname === '/api/admin/connectors/test' ||
             pathname === '/api/admin/connectors/logout'
           ) {
             await handleApiAdminConnectors(req, res, url);
