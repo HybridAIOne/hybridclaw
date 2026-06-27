@@ -184,7 +184,7 @@ describe('ConnectorsPage', () => {
     const returnTo = new URL(url.searchParams.get('return_to') || '');
     expect(returnTo.origin).toBe(window.location.origin);
     expect(returnTo.pathname).toBe('/admin/connectors');
-    expect(returnTo.searchParams.get('connected')).toBe('github');
+    expect(returnTo.search).toBe('');
 
     openSpy.mockRestore();
   });

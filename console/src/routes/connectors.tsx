@@ -307,7 +307,6 @@ export function ConnectorsPage() {
     const url = new URL(connector.loginUrl);
     if (options.start) {
       const returnUrl = new URL('/admin/connectors', window.location.origin);
-      returnUrl.searchParams.set('connected', connector.id);
       url.searchParams.set('return_to', returnUrl.toString());
     } else {
       url.searchParams.delete('connect');
