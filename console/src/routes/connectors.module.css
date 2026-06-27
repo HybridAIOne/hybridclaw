@@ -2,6 +2,9 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+  align-self: start;
+  align-content: start;
+  align-items: start;
 }
 
 .connectorCard {

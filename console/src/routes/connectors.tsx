@@ -29,7 +29,7 @@ import {
 import { Input } from '../components/input';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
-import { BooleanPill, PageHeader } from '../components/ui';
+import { BooleanPill } from '../components/ui';
 import { cx } from '../lib/cx';
 import { getErrorMessage } from '../lib/error-message';
 import styles from './connectors.module.css';
@@ -226,7 +226,6 @@ export function ConnectorsPage() {
   if (connectorsQuery.isPending) {
     return (
       <div className="page-stack">
-        <PageHeader description="Prebuilt account and workspace integrations" />
         <div className="empty-state">Loading connectors...</div>
       </div>
     );
@@ -235,7 +234,6 @@ export function ConnectorsPage() {
   if (connectorsQuery.isError) {
     return (
       <div className="page-stack">
-        <PageHeader description="Prebuilt account and workspace integrations" />
         <div className="empty-state">
           Failed to load connectors: {getErrorMessage(connectorsQuery.error)}
         </div>
@@ -245,8 +243,6 @@ export function ConnectorsPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader description="Prebuilt account and workspace integrations" />
-
       <div className={styles.connectorGrid}>
         {connectors.map((connector) => (
           <Card key={connector.id} className={styles.connectorCard}>

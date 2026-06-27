@@ -112,6 +112,9 @@ describe('ConnectorsPage', () => {
     expect(await screen.findByText('HybridAI')).toBeTruthy();
     expect(screen.getByText('Google Workspace')).toBeTruthy();
     expect(screen.getByText('Microsoft 365')).toBeTruthy();
+    expect(
+      screen.queryByText('Prebuilt account and workspace integrations'),
+    ).toBeNull();
     expect(screen.queryByText('GOOGLE_OAUTH_CLIENT_ID')).toBeNull();
     expect(screen.queryByText('Account')).toBeNull();
     expect(screen.queryByText('Auth')).toBeNull();
