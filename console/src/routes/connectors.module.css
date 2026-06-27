@@ -12,6 +12,10 @@
   justify-content: space-between;
 }
 
+.connectorCardDisabled {
+  background: color-mix(in srgb, var(--panel-muted) 62%, var(--panel-bg));
+}
+
 .connectorHead {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

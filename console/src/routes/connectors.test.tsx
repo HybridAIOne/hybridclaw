@@ -125,19 +125,22 @@ describe('ConnectorsPage', () => {
     expect(screen.queryByText('M365')).toBeNull();
   });
 
-  it('opens Microsoft 365 as a guided work-account sign-in flow', async () => {
+  it('marks Microsoft 365 as coming soon and disables setup', async () => {
     renderWithProviders(<ConnectorsPage />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Reconnect' }));
+    expect(await screen.findByText('Microsoft 365')).toBeTruthy();
+    expect(screen.getByText('coming soon')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
 
-    expect(screen.getByText('Sign in with your work account')).toBeTruthy();
-    expect(screen.getByText(/work or school account/u)).toBeTruthy();
-    expect(screen.getByText(/approve access during sign-in/u)).toBeTruthy();
-    expect(screen.queryByLabelText('Tenant')).toBeNull();
-    expect(screen.queryByLabelText('Client ID')).toBeNull();
-    expect(screen.queryByLabelText('Client secret')).toBeNull();
-    expect(screen.queryByLabelText('Scopes')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy();
+    const comingSoonButton = screen.getByRole('button', {
+      name: 'Coming soon',
+    }) as HTMLButtonElement;
+    expect(comingSoonButton.disabled).toBe(true);
+    fireEvent.click(comingSoonButton);
+
+    expect(screen.queryByText('Sign in with your work account')).toBeNull();
+    expect(startConnectorOAuthMock).not.toHaveBeenCalled();
+    expect(logoutConnectorMock).not.toHaveBeenCalled();
   });
 
   it('reconnects Google Workspace directly when stored OAuth setup exists', async () => {

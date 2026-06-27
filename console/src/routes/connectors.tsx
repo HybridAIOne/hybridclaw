@@ -55,6 +55,7 @@ interface OAuthStartPayload {
 
 const OAUTH_POLL_INTERVAL_MS = 2_000;
 const OAUTH_POLL_TIMEOUT_MS = 5 * 60_000;
+const COMING_SOON_CONNECTORS = new Set<AdminConnectorId>(['microsoft365']);
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -68,6 +69,10 @@ function stateLabel(connector: AdminConnector): string {
 
 function stateIsConnected(connector: AdminConnector): boolean {
   return connector.state === 'connected';
+}
+
+function connectorIsComingSoon(connector: AdminConnector): boolean {
+  return COMING_SOON_CONNECTORS.has(connector.id);
 }
 
 function connectorMarkClass(connector: AdminConnector): string {
@@ -243,6 +248,7 @@ export function ConnectorsPage() {
 
   const openOAuthDialog = (connector: AdminConnector) => {
     if (!isOAuthConnectorId(connector.id)) return;
+    if (connectorIsComingSoon(connector)) return;
     if (canUseStoredGoogleOAuth(connector)) {
       oauthMutation.mutate({ provider: 'google' });
       return;
@@ -272,92 +278,115 @@ export function ConnectorsPage() {
   return (
     <div className="page-stack">
       <div className={styles.connectorGrid}>
-        {connectors.map((connector) => (
-          <Card key={connector.id} className={styles.connectorCard}>
-            <CardHeader>
-              <div className={styles.connectorHead}>
-                <span className={connectorMarkClass(connector)}>
-                  <ConnectorLogo connector={connector} />
-                </span>
-                <div>
-                  <div className={styles.connectorTitleRow}>
-                    <CardTitle className={styles.connectorTitle}>
-                      {connector.name}
-                    </CardTitle>
-                    <BooleanPill
-                      value={stateIsConnected(connector)}
-                      trueLabel="connected"
-                      falseLabel={stateLabel(connector)}
-                      falseTone={
-                        connector.state === 'needs_setup' ? 'danger' : 'default'
-                      }
-                    />
-                  </div>
-                  <p className={styles.connectorDescription}>
-                    {connector.description}
-                  </p>
-                </div>
-              </div>
-            </CardHeader>
-            <div className={styles.connectorActions}>
-              {connector.id === 'hybridai' ? (
-                <>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => {
-                      if (connector.loginUrl) {
-                        window.open(connector.loginUrl, '_blank', 'noopener');
-                      }
-                      setHybridKeyOpen(true);
-                    }}
-                  >
-                    {connector.state === 'connected' ? 'Rotate key' : 'Connect'}
-                  </Button>
-                  {connector.state === 'connected' ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      loading={logoutMutation.isPending}
-                      disabled={logoutMutation.isPending}
-                      onClick={() => logoutMutation.mutate(connector.id)}
-                    >
-                      Disconnect
-                    </Button>
-                  ) : null}
-                </>
-              ) : (
-                <>
-                  <Button
-                    type="button"
-                    size="sm"
-                    loading={
-                      oauthMutation.isPending &&
-                      oauthMutation.variables?.provider === connector.id
-                    }
-                    disabled={oauthMutation.isPending}
-                    onClick={() => openOAuthDialog(connector)}
-                  >
-                    {connector.state === 'connected' ? 'Reconnect' : 'Connect'}
-                  </Button>
-                  {connector.state === 'connected' ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      loading={logoutMutation.isPending}
-                      disabled={logoutMutation.isPending}
-                      onClick={() => logoutMutation.mutate(connector.id)}
-                    >
-                      Disconnect
-                    </Button>
-                  ) : null}
-                </>
+        {connectors.map((connector) => {
+          const isComingSoon = connectorIsComingSoon(connector);
+          const isConnected = stateIsConnected(connector) && !isComingSoon;
+
+          return (
+            <Card
+              key={connector.id}
+              className={cx(
+                styles.connectorCard,
+                isComingSoon && styles.connectorCardDisabled,
               )}
-            </div>
-          </Card>
-        ))}
+            >
+              <CardHeader>
+                <div className={styles.connectorHead}>
+                  <span className={connectorMarkClass(connector)}>
+                    <ConnectorLogo connector={connector} />
+                  </span>
+                  <div>
+                    <div className={styles.connectorTitleRow}>
+                      <CardTitle className={styles.connectorTitle}>
+                        {connector.name}
+                      </CardTitle>
+                      <BooleanPill
+                        value={isConnected}
+                        trueLabel="connected"
+                        falseLabel={
+                          isComingSoon ? 'coming soon' : stateLabel(connector)
+                        }
+                        falseTone={
+                          connector.state === 'needs_setup' && !isComingSoon
+                            ? 'danger'
+                            : 'default'
+                        }
+                      />
+                    </div>
+                    <p className={styles.connectorDescription}>
+                      {connector.description}
+                    </p>
+                  </div>
+                </div>
+              </CardHeader>
+              <div className={styles.connectorActions}>
+                {isComingSoon ? (
+                  <Button type="button" size="sm" variant="outline" disabled>
+                    Coming soon
+                  </Button>
+                ) : connector.id === 'hybridai' ? (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        if (connector.loginUrl) {
+                          window.open(connector.loginUrl, '_blank', 'noopener');
+                        }
+                        setHybridKeyOpen(true);
+                      }}
+                    >
+                      {connector.state === 'connected'
+                        ? 'Rotate key'
+                        : 'Connect'}
+                    </Button>
+                    {connector.state === 'connected' ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        loading={logoutMutation.isPending}
+                        disabled={logoutMutation.isPending}
+                        onClick={() => logoutMutation.mutate(connector.id)}
+                      >
+                        Disconnect
+                      </Button>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      loading={
+                        oauthMutation.isPending &&
+                        oauthMutation.variables?.provider === connector.id
+                      }
+                      disabled={oauthMutation.isPending}
+                      onClick={() => openOAuthDialog(connector)}
+                    >
+                      {connector.state === 'connected'
+                        ? 'Reconnect'
+                        : 'Connect'}
+                    </Button>
+                    {connector.state === 'connected' ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        loading={logoutMutation.isPending}
+                        disabled={logoutMutation.isPending}
+                        onClick={() => logoutMutation.mutate(connector.id)}
+                      >
+                        Disconnect
+                      </Button>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            </Card>
+          );
+        })}
       </div>
 
       <Dialog open={hybridKeyOpen} onOpenChange={setHybridKeyOpen}>
