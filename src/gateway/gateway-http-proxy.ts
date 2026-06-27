@@ -796,6 +796,9 @@ async function resolveHttpSecretOrThrow(
   if (secretName === MICROSOFT_365_ACCESS_TOKEN_SECRET) {
     return await resolveMicrosoftOAuthTokenOrThrow(secretName, context);
   }
+  // lgtm[js/weak-sensitive-data-hashing] Secrets resolved here may later be
+  // included in protocol-required request fingerprints; they are not persisted
+  // as password hashes.
   return resolveStoredSecretForInjection({
     secretName,
     sessionId: context.sessionId,
@@ -1431,6 +1434,8 @@ function encodeCanonicalQueryPart(value: string): string {
   );
 }
 
+// lgtm[js/weak-sensitive-data-hashing] OTC signs a canonical request digest by
+// specification; this is request authentication, not password storage.
 function canonicalizeOtcQuery(url: URL): string {
   return Array.from(url.searchParams.entries())
     .map(([key, value]) => [

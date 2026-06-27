@@ -42,6 +42,24 @@ export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   }
 }
 
+function jsonResponseReplacer(key: string, value: unknown): unknown {
+  const normalizedKey = key.toLowerCase();
+  if (
+    normalizedKey === 'stack' ||
+    normalizedKey === 'stacktrace' ||
+    normalizedKey === 'stack_trace'
+  ) {
+    return undefined;
+  }
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: value.message,
+    };
+  }
+  return value;
+}
+
 export function sendJson(
   res: ServerResponse,
   statusCode: number,
@@ -50,5 +68,5 @@ export function sendJson(
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
   });
-  res.end(JSON.stringify(payload, null, 2));
+  res.end(JSON.stringify(payload, jsonResponseReplacer, 2));
 }
