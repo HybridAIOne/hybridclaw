@@ -103,6 +103,76 @@ function sanitizeJsonResponsePayload(
   }
 }
 
+function quoteJsonString(value: string): string {
+  let quoted = '"';
+  for (const char of value) {
+    switch (char) {
+      case '"':
+        quoted += '\\"';
+        break;
+      case '\\':
+        quoted += '\\\\';
+        break;
+      case '\b':
+        quoted += '\\b';
+        break;
+      case '\f':
+        quoted += '\\f';
+        break;
+      case '\n':
+        quoted += '\\n';
+        break;
+      case '\r':
+        quoted += '\\r';
+        break;
+      case '\t':
+        quoted += '\\t';
+        break;
+      default:
+        quoted +=
+          char.charCodeAt(0) < 0x20
+            ? `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`
+            : char;
+    }
+  }
+  quoted += '"';
+  return quoted;
+}
+
+function stringifyJsonResponseValue(
+  value: JsonResponseValue,
+  indent = 0,
+): string {
+  if (value === null) return 'null';
+  if (typeof value === 'string') return quoteJsonString(value);
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : 'null';
+  }
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+
+  const padding = ' '.repeat(indent);
+  const childPadding = ' '.repeat(indent + 2);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]';
+    const items = value.map(
+      (entry) =>
+        `${childPadding}${stringifyJsonResponseValue(entry, indent + 2)}`,
+    );
+    return `[\n${items.join(',\n')}\n${padding}]`;
+  }
+
+  const entries = Object.entries(value);
+  if (entries.length === 0) return '{}';
+  const items = entries.map(
+    ([key, entry]) =>
+      `${childPadding}${quoteJsonString(key)}: ${stringifyJsonResponseValue(
+        entry,
+        indent + 2,
+      )}`,
+  );
+  return `{\n${items.join(',\n')}\n${padding}}`;
+}
+
 export function sendJson(
   res: ServerResponse,
   statusCode: number,
@@ -112,6 +182,6 @@ export function sendJson(
     'Content-Type': 'application/json; charset=utf-8',
   });
   res.end(
-    JSON.stringify(sanitizeJsonResponsePayload(payload) ?? null, null, 2),
+    stringifyJsonResponseValue(sanitizeJsonResponsePayload(payload) ?? null),
   );
 }

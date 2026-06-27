@@ -13028,6 +13028,39 @@ describe('gateway HTTP server', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test('rejects managed connector tokens as T Cloud Public signing material', async () => {
+    const fetchMock = vi.fn();
+    const { state } = await setupOtcGatewayRequestTest({
+      dnsAddress: '80.158.59.140',
+      fetchMock,
+    });
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://ecs.eu-de.otc.t-systems.com/v2.1/project123/servers/detail?limit=50',
+        method: 'GET',
+        skillName: 't-cloud-public',
+        otcAkSk: {
+          accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
+          secretAccessKeySecretName: 'MICROSOFT_365_ACCESS_TOKEN',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain(
+      'MICROSOFT_365_ACCESS_TOKEN is a managed connector token',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('blocks T Cloud Public signing for non-OTC hosts', async () => {
     const fetchMock = vi.fn();
     const { state } = await setupOtcGatewayRequestTest({
