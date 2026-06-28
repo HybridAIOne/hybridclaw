@@ -181,7 +181,11 @@ import {
   isGoogleApisUrlPrefix,
   isGoogleOAuthSecretRef,
   isGoogleOAuthSpecifier,
+  isMicrosoftGraphUrlPrefix,
+  isMicrosoftOAuthSecretRef,
+  isMicrosoftOAuthSpecifier,
   makeGoogleOAuthSecretRef,
+  makeMicrosoftOAuthSecretRef,
   normalizeHttpRequestAuthRuleUrlPrefix,
   type RuntimeAuxiliaryModelPolicyConfig,
   type RuntimeConfig,
@@ -603,6 +607,10 @@ import {
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
+import {
+  isPrivateHttpBaseUrl,
+  normalizeHttpBaseUrl,
+} from './gateway-url-utils.js';
 import {
   firstNumber,
   numberFromUnknown,
@@ -4201,6 +4209,9 @@ function normalizeSecretRouteSecret(
   if (isGoogleOAuthSpecifier(value)) {
     return makeGoogleOAuthSecretRef();
   }
+  if (isMicrosoftOAuthSpecifier(value)) {
+    return makeMicrosoftOAuthSecretRef();
+  }
   return { source: 'store', id: value };
 }
 
@@ -4220,6 +4231,7 @@ function formatRouteSecretLabel(
 ): string {
   if (typeof secret === 'string') return secret;
   if (isGoogleOAuthSecretRef(secret)) return 'google-oauth';
+  if (isMicrosoftOAuthSecretRef(secret)) return 'microsoft-oauth';
   return `${secret.source}:${secret.id}`;
 }
 
@@ -4285,9 +4297,11 @@ function formatHttpRequestAuthRule(
       ? rule.secret
       : isGoogleOAuthSecretRef(rule.secret)
         ? 'google-oauth'
-        : typeof rule.secret.id === 'string'
-          ? `${rule.secret.source}:${rule.secret.id}`
-          : '<invalid>';
+        : isMicrosoftOAuthSecretRef(rule.secret)
+          ? 'microsoft-oauth'
+          : typeof rule.secret.id === 'string'
+            ? `${rule.secret.source}:${rule.secret.id}`
+            : '<invalid>';
   const prefix = rule.prefix ? ` ${rule.prefix}` : '';
   return `${index + 1}. ${rule.urlPrefix} -> ${rule.header}:${prefix} ${parsedSecret}`.trim();
 }
@@ -6965,15 +6979,47 @@ function requireConfiguredMcpServer(name: string): {
 }
 
 export function resolveMcpOAuthRedirectUri(requestBaseUrl?: string): string {
-  const base = String(requestBaseUrl || GATEWAY_BASE_URL || '')
-    .trim()
-    .replace(/\/+$/, '');
+  const config = getRuntimeConfig();
+  const configuredPublicUrl = normalizeConfiguredMcpOAuthPublicUrl(
+    config.deployment.public_url,
+  );
+  if (configuredPublicUrl) return buildMcpOAuthRedirectUri(configuredPublicUrl);
+
+  // Prefer public callback bases; private fallbacks only keep local dev working
+  // when no public deployment URL or public request/gateway URL is available.
+  const configuredGatewayUrl = normalizeHttpBaseUrl(GATEWAY_BASE_URL);
+  if (configuredGatewayUrl && !isPrivateHttpBaseUrl(configuredGatewayUrl)) {
+    return buildMcpOAuthRedirectUri(configuredGatewayUrl);
+  }
+
+  const requestUrl = normalizeHttpBaseUrl(requestBaseUrl);
+  if (requestUrl && !isPrivateHttpBaseUrl(requestUrl)) {
+    return buildMcpOAuthRedirectUri(requestUrl);
+  }
+
+  const base = requestUrl || configuredGatewayUrl || '';
   if (!base) {
     throw new Error(
       'Cannot determine the gateway base URL for the OAuth redirect.',
     );
   }
-  return `${base}/api/mcp/oauth/callback`;
+  return buildMcpOAuthRedirectUri(base);
+}
+
+function normalizeConfiguredMcpOAuthPublicUrl(value?: string): string {
+  const normalized = normalizeHttpBaseUrl(value);
+  if (normalized || !String(value || '').trim()) return normalized || '';
+  logger.warn(
+    { publicUrl: value },
+    'Invalid deployment.public_url for MCP OAuth callback',
+  );
+  throw new Error(
+    'deployment.public_url must be an HTTP(S) URL for MCP OAuth callbacks.',
+  );
+}
+
+function buildMcpOAuthRedirectUri(baseUrl: string): string {
+  return `${baseUrl}/api/mcp/oauth/callback`;
 }
 
 export async function startGatewayAdminMcpOAuth(input: {
@@ -12119,7 +12165,7 @@ export async function handleGatewayCommand(
             if (!rawPrefix || !secretName) {
               return badCommand(
                 'Usage',
-                'Usage: `secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]`',
+                'Usage: `secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]`',
               );
             }
             const secret = normalizeSecretRouteSecret(secretName);
@@ -12151,6 +12197,15 @@ export async function handleGatewayCommand(
                 return badCommand(
                   'Invalid Google OAuth Route',
                   '`google-oauth` routes can only target googleapis.com or *.googleapis.com URL prefixes.',
+                );
+              }
+              if (
+                isMicrosoftOAuthSecretRef(secret) &&
+                !isMicrosoftGraphUrlPrefix(urlPrefix)
+              ) {
+                return badCommand(
+                  'Invalid Microsoft OAuth Route',
+                  '`microsoft-oauth` routes can only target graph.microsoft.com URL prefixes.',
                 );
               }
               const header = normalizeSecretRouteHeader(rawHeader);
@@ -12278,7 +12333,7 @@ export async function handleGatewayCommand(
 
           return badCommand(
             'Usage',
-            'Usage: `secret route list`, `secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]`, or `secret route remove <url-prefix> [header]`',
+            'Usage: `secret route list`, `secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]`, or `secret route remove <url-prefix> [header]`',
           );
         }
 

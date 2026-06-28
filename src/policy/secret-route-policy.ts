@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -9,6 +8,9 @@ import type { SecretRef } from '../security/secret-refs.js';
 import { resolveWorkspacePolicyPath } from './policy-store.js';
 
 const MANAGED_BY_SECRET_ROUTE_FIELD = 'managed_by_secret_route';
+const FNV64_OFFSET = 0xcbf29ce484222325n;
+const FNV64_PRIME = 0x100000001b3n;
+const FNV64_MASK = 0xffffffffffffffffn;
 
 type SecretRoutePolicyTarget = {
   secretSource: 'store';
@@ -95,25 +97,31 @@ function routePolicyTarget(
   return null;
 }
 
+function stableRuleFingerprint(value: string): string {
+  let fingerprint = FNV64_OFFSET;
+  for (let index = 0; index < value.length; index += 1) {
+    fingerprint ^= BigInt(value.charCodeAt(index));
+    fingerprint = (fingerprint * FNV64_PRIME) & FNV64_MASK;
+  }
+  return fingerprint.toString(16).padStart(16, '0');
+}
+
 function secretRouteRuleId(params: {
   agentId: string;
   host: string;
   header: string;
   target: SecretRoutePolicyTarget;
 }): string {
-  const hash = createHash('sha256')
-    .update(
-      [
-        params.agentId,
-        params.host.toLowerCase(),
-        params.header.toLowerCase(),
-        params.target.secretSource,
-        params.target.secretId,
-      ].join('\0'),
-    )
-    .digest('hex')
-    .slice(0, 16);
-  return `allow-http-secret-route-${hash}`;
+  const fingerprint = stableRuleFingerprint(
+    [
+      params.agentId,
+      params.host.toLowerCase(),
+      params.header.toLowerCase(),
+      params.target.secretSource,
+      params.target.secretId,
+    ].join('\0'),
+  );
+  return `allow-http-secret-route-${fingerprint}`;
 }
 
 function secretRouteRule(params: {

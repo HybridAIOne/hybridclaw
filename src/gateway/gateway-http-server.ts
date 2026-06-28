@@ -86,6 +86,7 @@ import type {
 } from '../config/runtime-config.js';
 import {
   getRuntimeConfig,
+  onRuntimeConfigChange,
   parseSchedulerBoardStatus,
   reloadRuntimeConfig,
   resolveDefaultAgentId,
@@ -162,6 +163,14 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { escapeHtml, serveDocs } from './docs.js';
+import {
+  completeGatewayAdminConnectorOAuthCallback,
+  getGatewayAdminConnectorsWithPlatformState,
+  logoutGatewayAdminConnector,
+  saveGatewayAdminHybridAIConnectorApiKey,
+  startGatewayAdminConnectorOAuth,
+  testGatewayAdminConnector,
+} from './gateway-admin-connectors.js';
 import {
   getGatewayAdminSecrets,
   overwriteGatewayAdminSecret,
@@ -302,6 +311,7 @@ import type {
   GatewayChatResultMessageRole,
   GatewayCommandRequest,
 } from './gateway-types.js';
+import { normalizeHttpOrigin } from './gateway-url-utils.js';
 import {
   extensionToMimeType,
   resolveWorkspaceRelativePath,
@@ -1627,6 +1637,10 @@ type MobileLaunchTokenEntry = {
   expiresAt: number;
 };
 const mobileLaunchTokens = new Map<string, MobileLaunchTokenEntry>();
+let deploymentPublicUrl = getRuntimeConfig().deployment.public_url;
+onRuntimeConfigChange((next) => {
+  deploymentPublicUrl = next.deployment.public_url;
+});
 
 function parseApiAdminPolicyIndex(value: unknown): number {
   const parsed = parsePositiveInteger(value);
@@ -2273,27 +2287,15 @@ function resolveMobileLaunchToken(token: string):
   };
 }
 
-function normalizePublicBaseUrl(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  try {
-    const url = new URL(trimmed);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return undefined;
-    }
-    return url.origin;
-  } catch {
-    return undefined;
-  }
-}
-
 function resolveRequestOrigin(
   req: IncomingMessage,
   bodyBaseUrl?: unknown,
 ): string {
-  const explicitBaseUrl = normalizePublicBaseUrl(bodyBaseUrl);
+  const explicitBaseUrl = normalizeHttpOrigin(bodyBaseUrl);
   if (explicitBaseUrl) return explicitBaseUrl;
+
+  const configuredPublicUrl = normalizeHttpOrigin(deploymentPublicUrl);
+  if (configuredPublicUrl) return configuredPublicUrl;
 
   const forwardedHost = String(req.headers['x-forwarded-host'] || '')
     .split(',')[0]
@@ -2304,9 +2306,9 @@ function resolveRequestOrigin(
 }
 
 function resolveA2AAgentCardOrigin(req: IncomingMessage): string | null {
-  const configuredPublicUrl = getRuntimeConfig().deployment.public_url.trim();
+  const configuredPublicUrl = deploymentPublicUrl.trim();
   if (configuredPublicUrl) {
-    const origin = normalizePublicBaseUrl(configuredPublicUrl);
+    const origin = normalizeHttpOrigin(configuredPublicUrl);
     if (origin) return origin;
     logger.warn(
       { publicUrl: configuredPublicUrl },
@@ -5555,6 +5557,57 @@ async function handleApiAdminMcpOAuth(
   sendJson(res, 200, logoutGatewayAdminMcpOAuth(name));
 }
 
+async function handleApiAdminConnectors(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const pathname = url.pathname;
+  if (pathname === '/api/admin/connectors' && req.method === 'GET') {
+    sendJson(res, 200, await getGatewayAdminConnectorsWithPlatformState());
+    return;
+  }
+
+  if (
+    pathname === '/api/admin/connectors/hybridai/key' &&
+    req.method === 'PUT'
+  ) {
+    const body = (await readJsonBody(req)) as { apiKey?: unknown };
+    sendJson(res, 200, saveGatewayAdminHybridAIConnectorApiKey(body));
+    return;
+  }
+
+  if (
+    pathname === '/api/admin/connectors/oauth/start' &&
+    req.method === 'POST'
+  ) {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    sendJson(
+      res,
+      200,
+      await startGatewayAdminConnectorOAuth({
+        body,
+        requestBaseUrl: resolveRequestOrigin(req),
+      }),
+    );
+    return;
+  }
+
+  if (pathname === '/api/admin/connectors/logout' && req.method === 'POST') {
+    const body = (await readJsonBody(req)) as { provider?: unknown };
+    sendJson(res, 200, logoutGatewayAdminConnector(body));
+    return;
+  }
+
+  if (pathname === '/api/admin/connectors/test' && req.method === 'POST') {
+    const body = (await readJsonBody(req)) as { provider?: unknown };
+    sendJson(res, 200, await testGatewayAdminConnector(body));
+    return;
+  }
+
+  sendMethodNotAllowed(res);
+}
+
 function sendMcpOAuthCallbackPage(
   res: ServerResponse,
   status: number,
@@ -5581,14 +5634,11 @@ async function handleApiMcpOAuthCallback(
 ): Promise<void> {
   const error = (url.searchParams.get('error') || '').trim();
   if (error) {
-    const description = (
-      url.searchParams.get('error_description') || ''
-    ).trim();
     sendMcpOAuthCallbackPage(
       res,
       400,
       'MCP authorization failed',
-      description || error,
+      'The provider returned an authorization error. Please close this tab and try again.',
     );
     return;
   }
@@ -5604,20 +5654,67 @@ async function handleApiMcpOAuthCallback(
     return;
   }
   try {
-    const result = await completeGatewayMcpOAuthCallback({ state, code });
+    await completeGatewayMcpOAuthCallback({ state, code });
     sendMcpOAuthCallbackPage(
       res,
       200,
-      `Connected to ${result.serverName}`,
+      'MCP connected',
       'Authorization complete. You can close this tab and return to HybridClaw.',
       { autoClose: true },
     );
-  } catch (err) {
+  } catch {
     sendMcpOAuthCallbackPage(
       res,
       400,
       'MCP authorization failed',
-      err instanceof Error ? err.message : String(err),
+      'Authorization could not be completed. Please close this tab and try again.',
+    );
+  }
+}
+
+async function handleApiConnectorOAuthCallback(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const state = (url.searchParams.get('state') || '').trim();
+  const code = (url.searchParams.get('code') || '').trim();
+  const providerError = (url.searchParams.get('error') || '').trim();
+  if (providerError) {
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'Connector authorization failed',
+      'The provider returned an authorization error. Please close this tab and try again.',
+    );
+    return;
+  }
+  if (!state || !code) {
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'Connector authorization failed',
+      'The callback is missing the authorization code or state parameter.',
+    );
+    return;
+  }
+  try {
+    await completeGatewayAdminConnectorOAuthCallback({
+      state,
+      code,
+    });
+    sendMcpOAuthCallbackPage(
+      res,
+      200,
+      'Connector connected',
+      'Authorization complete. You can close this tab and return to HybridClaw.',
+      { autoClose: true },
+    );
+  } catch {
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'Connector authorization failed',
+      'Authorization could not be completed. Please close this tab and try again.',
     );
   }
 }
@@ -7263,6 +7360,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         });
         return;
       }
+      if (pathname === '/api/connectors/oauth/callback' && method === 'GET') {
+        // Public by design: the OAuth provider redirects the user's browser
+        // here without gateway credentials. The flow is bound to a
+        // single-use `state` nonce validated by the pending-flow registry.
+        void handleApiConnectorOAuthCallback(res, url).catch((err: unknown) => {
+          if (res.writableEnded) return;
+          sendJson(res, 500, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        return;
+      }
       if (pathname === '/api/agent-avatar' && method === 'GET') {
         try {
           handleApiAgentAvatar(req, res, url);
@@ -7458,6 +7567,16 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT' || method === 'DELETE')
           ) {
             await handleApiAdminMcp(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/connectors' ||
+            pathname === '/api/admin/connectors/hybridai/key' ||
+            pathname === '/api/admin/connectors/oauth/start' ||
+            pathname === '/api/admin/connectors/test' ||
+            pathname === '/api/admin/connectors/logout'
+          ) {
+            await handleApiAdminConnectors(req, res, url);
             return;
           }
           if (

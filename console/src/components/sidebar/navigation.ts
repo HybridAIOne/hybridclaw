@@ -75,6 +75,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       { to: '/admin/email', label: 'Email', icon: Email, requiresEmail: true },
       { to: '/admin/models', label: 'Models', icon: Models },
       { to: '/admin/scheduler', label: 'Scheduler', icon: Scheduler },
+      { to: '/admin/connectors', label: 'Connectors', icon: Plugins },
       { to: '/admin/mcp', label: 'MCP', icon: Cog },
     ],
   },

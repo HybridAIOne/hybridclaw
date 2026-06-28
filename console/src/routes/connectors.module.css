@@ -1,0 +1,217 @@
+.connectorGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-self: start;
+  align-content: start;
+  align-items: start;
+}
+
+.connectorCard.connectorCard {
+  height: 168px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 20px 20px 12px;
+  justify-content: stretch;
+}
+
+.connectorCardDisabled {
+  background: color-mix(in srgb, var(--panel-muted) 62%, var(--panel-bg));
+}
+
+.connectorHead {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.connectorText {
+  min-width: 0;
+}
+
+.connectorMark {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  background: var(--panel-muted);
+}
+
+.connectorMark svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+.connectorMarkHybridai {
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-bg));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+.connectorMarkGithub {
+  color: #1f2328;
+  background: color-mix(in srgb, #fff 84%, var(--panel-bg));
+  border-color: color-mix(in srgb, #1f2328 24%, var(--line));
+}
+
+.connectorMarkGoogle {
+  background: color-mix(in srgb, #fff 84%, var(--panel-bg));
+  border-color: color-mix(in srgb, #4285f4 32%, var(--line));
+}
+
+.connectorMarkMicrosoft365 {
+  background: color-mix(in srgb, #fff 82%, var(--panel-bg));
+  border-color: color-mix(in srgb, #00a4ef 32%, var(--line));
+}
+
+.connectorTitleRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.connectorTitleRow > :last-child {
+  flex: 0 0 auto;
+}
+
+.connectorTitle.connectorTitle {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.96rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectorDescription.connectorDescription {
+  margin: 4px 0 0;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.connectorActions.connectorActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  align-self: end;
+  margin-top: 0;
+  min-height: 30px;
+}
+
+.dialogForm {
+  display: grid;
+  gap: 14px;
+}
+
+.microsoftDialog {
+  display: grid;
+  gap: 18px;
+}
+
+.oauthBridge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0 4px;
+}
+
+.oauthBridgeMark {
+  display: inline-flex;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  background: var(--panel-muted);
+}
+
+.oauthBridgeMark svg {
+  display: block;
+}
+
+.oauthBridgeMarkHybridClaw {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-bg));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+.oauthBridgeLine {
+  width: 74px;
+  height: 1px;
+  background: var(--line);
+}
+
+.microsoftCopy {
+  display: grid;
+  gap: 12px;
+  color: var(--muted-foreground);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.microsoftCopy p {
+  margin: 0;
+}
+
+.microsoftSetup {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted);
+}
+
+.microsoftSetup p {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.pendingLink {
+  color: var(--accent);
+  font-size: 0.84rem;
+}
+
+@media (max-width: 1180px) {
+  .connectorGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .connectorGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .connectorTitleRow {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .connectorCard {
+    height: auto;
+    min-height: 168px;
+  }
+
+  .connectorTitle {
+    white-space: normal;
+  }
+}

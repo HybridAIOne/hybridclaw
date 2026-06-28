@@ -816,9 +816,14 @@ export interface RuntimeHttpRequestGoogleOAuthSecretRef {
   source: 'google-oauth';
 }
 
+export interface RuntimeHttpRequestMicrosoftOAuthSecretRef {
+  source: 'microsoft-oauth';
+}
+
 export type RuntimeHttpRequestAuthRuleSecret =
   | SecretInput
-  | RuntimeHttpRequestGoogleOAuthSecretRef;
+  | RuntimeHttpRequestGoogleOAuthSecretRef
+  | RuntimeHttpRequestMicrosoftOAuthSecretRef;
 
 export interface RuntimeHttpRequestAuthRule {
   urlPrefix: string;
@@ -875,12 +880,28 @@ export function makeGoogleOAuthSecretRef(): RuntimeHttpRequestGoogleOAuthSecretR
   return { source: 'google-oauth' };
 }
 
+export function makeMicrosoftOAuthSecretRef(): RuntimeHttpRequestMicrosoftOAuthSecretRef {
+  return { source: 'microsoft-oauth' };
+}
+
 export function isGoogleOAuthSpecifier(value: string): boolean {
   const normalized = String(value || '')
     .trim()
     .toLowerCase();
   return (
     normalized === 'google-oauth' || normalized === 'google-oauth:workspace'
+  );
+}
+
+export function isMicrosoftOAuthSpecifier(value: string): boolean {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return (
+    normalized === 'microsoft-oauth' ||
+    normalized === 'microsoft365-oauth' ||
+    normalized === 'm365-oauth' ||
+    normalized === 'graph-oauth'
   );
 }
 
@@ -894,11 +915,26 @@ export function isGoogleOAuthSecretRef(
   );
 }
 
+export function isMicrosoftOAuthSecretRef(
+  value: unknown,
+): value is RuntimeHttpRequestMicrosoftOAuthSecretRef {
+  return isRecord(value) && value.source === 'microsoft-oauth';
+}
+
 export function isGoogleApisUrlPrefix(value: string): boolean {
   try {
     const parsed = new URL(value);
     const host = parsed.hostname.trim().toLowerCase();
     return host === 'googleapis.com' || host.endsWith('.googleapis.com');
+  } catch {
+    return false;
+  }
+}
+
+export function isMicrosoftGraphUrlPrefix(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.hostname.trim().toLowerCase() === 'graph.microsoft.com';
   } catch {
     return false;
   }
@@ -5587,6 +5623,9 @@ function normalizeHttpRequestAuthRuleSecret(
   if (isGoogleOAuthSecretRef(value)) {
     return makeGoogleOAuthSecretRef();
   }
+  if (isMicrosoftOAuthSecretRef(value)) {
+    return makeMicrosoftOAuthSecretRef();
+  }
 
   const parsed = parseSecretInput(value);
   if (parsed.kind === 'invalid') {
@@ -5594,7 +5633,7 @@ function normalizeHttpRequestAuthRuleSecret(
   }
   if (parsed.kind === 'plain') {
     throw new Error(
-      `${path} must use a stored secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`{ "source": "google-oauth" }\``,
+      `${path} must use a stored secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\`, \`{ "source": "google-oauth" }\`, or \`{ "source": "microsoft-oauth" }\``,
     );
   }
   return cloneConfig(parsed.ref);

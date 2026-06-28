@@ -560,6 +560,46 @@ test('secret route add rejects Google OAuth routes for non-Google APIs', async (
   expect(readRuntimeConfig(homeDir).tools.httpRequest.authRules).toEqual([]);
 });
 
+test('secret route add supports Microsoft OAuth runtime auth rules', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'secret',
+    'route',
+    'add',
+    'https://graph.microsoft.com/v1.0',
+    'microsoft-oauth',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.tools.httpRequest.authRules).toEqual([
+    {
+      urlPrefix: 'https://graph.microsoft.com/v1.0/',
+      header: 'Authorization',
+      prefix: 'Bearer',
+      secret: { source: 'microsoft-oauth' },
+    },
+  ]);
+});
+
+test('secret route add rejects Microsoft OAuth routes for non-Graph APIs', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await expect(
+    cli.main([
+      'secret',
+      'route',
+      'add',
+      'https://api.example.com/v1',
+      'm365-oauth',
+    ]),
+  ).rejects.toThrow(/graph\.microsoft\.com/);
+
+  expect(readRuntimeConfig(homeDir).tools.httpRequest.authRules).toEqual([]);
+});
+
 test('top-level help hides deprecated alias commands', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);

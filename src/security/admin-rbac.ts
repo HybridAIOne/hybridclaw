@@ -33,6 +33,7 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.channels.read',
   'admin.channels.write',
   'admin.channels.delete',
+  'admin.connectors.read',
   'admin.mcp.read',
   'admin.mcp.write',
   'admin.mcp.delete',
@@ -94,6 +95,7 @@ const ADMIN_READ_ACTIONS = [
   'admin.email.read',
   'admin.scheduler.read',
   'admin.channels.read',
+  'admin.connectors.read',
   'admin.mcp.read',
   'admin.config.read',
   'admin.browser_pool.read',
@@ -435,6 +437,21 @@ export function resolveAdminRbacAction(
       'admin.mcp.write',
       'admin.mcp.delete',
     );
+  }
+  if (pathname === '/api/admin/connectors') {
+    return method === 'GET' ? 'admin.connectors.read' : null;
+  }
+  if (pathname === '/api/admin/connectors/hybridai/key' && method === 'PUT') {
+    return 'secret.overwrite';
+  }
+  if (pathname === '/api/admin/connectors/oauth/start' && method === 'POST') {
+    return 'secret.overwrite';
+  }
+  if (pathname === '/api/admin/connectors/test' && method === 'POST') {
+    return 'admin.connectors.read';
+  }
+  if (pathname === '/api/admin/connectors/logout' && method === 'POST') {
+    return 'secret.unset';
   }
   if (pathname === '/api/admin/config') {
     if (method === 'GET') return 'admin.config.read';

@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
+const ORIGINAL_HYBRIDAI_BASE_URL = process.env.HYBRIDAI_BASE_URL;
+const ORIGINAL_API_KEY = process.env.API_KEY;
 const ORIGINAL_SSH_CONNECTION = process.env.SSH_CONNECTION;
 const ORIGINAL_SSH_CLIENT = process.env.SSH_CLIENT;
 const ORIGINAL_SSH_TTY = process.env.SSH_TTY;
@@ -76,6 +78,8 @@ afterEach(() => {
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
+  restoreEnvVar('HYBRIDAI_BASE_URL', ORIGINAL_HYBRIDAI_BASE_URL);
+  restoreEnvVar('API_KEY', ORIGINAL_API_KEY);
   restoreEnvVar('SSH_CONNECTION', ORIGINAL_SSH_CONNECTION);
   restoreEnvVar('SSH_CLIENT', ORIGINAL_SSH_CLIENT);
   restoreEnvVar('SSH_TTY', ORIGINAL_SSH_TTY);
@@ -152,6 +156,49 @@ describe('HybridAI auth status', () => {
       maskedApiKey: 'hai-…4321',
       source: 'env',
     });
+  });
+
+  it('uses local platform API_KEY before stored production keys for custom base URLs', async () => {
+    const homeDir = makeTempHome();
+    process.env.HOME = homeDir;
+    process.env.HYBRIDAI_BASE_URL = 'http://localhost:5000';
+    process.env.API_KEY = 'hai-local1234567890';
+    delete process.env.HYBRIDAI_API_KEY;
+    vi.resetModules();
+
+    const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+    runtimeSecrets.saveRuntimeSecrets(
+      { HYBRIDAI_API_KEY: 'hai-prod1234567890' },
+      homeDir,
+    );
+
+    const hybridAIAuth = await importFreshHybridAIAuth(homeDir);
+    expect(hybridAIAuth.getHybridAIApiKey()).toBe('hai-local1234567890');
+    expect(hybridAIAuth.getHybridAIAuthStatus(homeDir)).toMatchObject({
+      authenticated: true,
+      maskedApiKey: 'hai-…7890',
+      source: 'env',
+    });
+  });
+
+  it('does not use generic API_KEY for the default production base URL', async () => {
+    const homeDir = makeTempHome();
+    process.env.HOME = homeDir;
+    process.env.API_KEY = 'hai-local1234567890';
+    delete process.env.HYBRIDAI_API_KEY;
+    delete process.env.HYBRIDAI_BASE_URL;
+
+    const hybridAIAuth = await importFreshHybridAIAuth(homeDir);
+    expect(hybridAIAuth.getHybridAIAuthStatus(homeDir)).toMatchObject({
+      authenticated: false,
+      maskedApiKey: null,
+      source: null,
+    });
+    expect(() => hybridAIAuth.getHybridAIApiKey()).toThrowError(
+      expect.objectContaining({
+        envVar: 'HYBRIDAI_API_KEY',
+      }),
+    );
   });
 });
 

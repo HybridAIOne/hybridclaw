@@ -7,6 +7,28 @@
 - **Console navigation config**: The top navigation strip can be customized
   from runtime config with local console paths or HTTP(S) URLs and link text.
 
+## [0.25.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.8) - 2026-06-27
+
+### Changed
+
+- **Email admin layout**: Email channel advanced settings now collapse by
+  default above additional mailboxes, keeping default allowlist management
+  prominent while poll interval, chunk limit, media limit, and channel
+  instructions remain available on demand.
+
+### Fixed
+
+- **Cloud MCP OAuth callbacks**: MCP OAuth setup now prefers the configured
+  deployment public URL and other public gateway origins over private internal
+  request hosts, rejects invalid configured public URLs, and covers IPv4, IPv6,
+  and local development fallback cases.
+- **Cloud request origins**: Admin session-cookie origin checks and mobile chat
+  QR launch links now honor `deployment.public_url` when requests arrive through
+  internal gateway hosts.
+- **Email allowlist autosave**: Adding a default allowed sender in the admin
+  console now saves immediately instead of leaving the new entry only in the
+  unsaved draft state.
+
 ## [0.25.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.7) - 2026-06-25
 
 ### Added

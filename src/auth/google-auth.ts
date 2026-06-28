@@ -115,7 +115,7 @@ function makeState(): string {
   return randomBytes(24).toString('base64url');
 }
 
-function buildAuthorizeUrl(input: {
+export function buildGoogleAuthorizeUrl(input: {
   clientId: string;
   redirectUri: string;
   state: string;
@@ -164,7 +164,7 @@ async function postGoogleToken(
   return payload;
 }
 
-async function exchangeAuthorizationCode(input: {
+export async function exchangeGoogleAuthorizationCode(input: {
   clientId: string;
   clientSecret: string;
   code: string;
@@ -261,7 +261,7 @@ async function waitForAuthorizationCode(input: {
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : 0;
       const redirectUri = `http://${LOOPBACK_HOST}:${port}/oauth2/callback`;
-      const authorizeUrl = buildAuthorizeUrl({
+      const authorizeUrl = buildGoogleAuthorizeUrl({
         clientId: input.clientId,
         redirectUri,
         state,
@@ -302,7 +302,7 @@ export async function loginGoogle(
       scopes,
       redirectPort: input.redirectPort,
     });
-    const exchanged = await exchangeAuthorizationCode({
+    const exchanged = await exchangeGoogleAuthorizationCode({
       clientId: input.clientId,
       clientSecret: input.clientSecret,
       code: authorization.code,
