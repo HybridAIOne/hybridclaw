@@ -112,6 +112,9 @@ hybridclaw auth whatsapp reset
   command prints a Google authorization URL and waits for the local OAuth
   callback; approve the requested scopes in the browser to store the refresh
   token.
+- `hybridclaw auth login microsoft365` stores Microsoft Entra OAuth refresh
+  token material for read-only Microsoft Graph access through the bundled
+  `microsoft-365` skill and direct `microsoft-oauth` routes.
 - Google API access through `gog` or `gws` also requires the relevant Google
   Cloud APIs to be enabled in the same project, for example Gmail API, Google
   Calendar API, Google Drive API, Google Docs API, Google Sheets API, and People API.
@@ -167,7 +170,7 @@ hybridclaw secret set <NAME> <VALUE>
 hybridclaw secret show <NAME>
 hybridclaw secret unset <NAME>
 hybridclaw secret route list
-hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
+hybridclaw secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
 hybridclaw secret route remove <url-prefix> [header]
 ```
 
@@ -177,7 +180,7 @@ hybridclaw secret route remove <url-prefix> [header]
 /secret show <NAME>
 /secret unset <NAME>
 /secret route list
-/secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
+/secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
 /secret route remove <url-prefix> [header]
 ```
 
@@ -303,6 +306,61 @@ The configured Google OAuth auth routes should attach Authorization.
 - `PERMISSION_DENIED` for a GA4 property: grant the authorized Google account Viewer or Analyst access to that GA4 property.
 - `insufficient authentication scopes`: rerun `hybridclaw auth login google` with all required scopes.
 - `401 Unauthorized`: rerun `hybridclaw auth login google`; the stored refresh token may have been revoked or the OAuth client may have changed.
+
+## Microsoft Graph OAuth For Microsoft 365 APIs
+
+Use the `microsoft-oauth` route provider when an agent should call Microsoft
+Graph through `http_request` without seeing or handling an access token. This is
+the direct-API path behind the bundled `microsoft-365` connector.
+
+The route provider uses encrypted Microsoft Entra OAuth material created by
+`hybridclaw auth login microsoft365`. At request time the gateway mints a
+short-lived Microsoft Graph access token on the host and injects it only into
+`graph.microsoft.com` requests.
+
+### 1. Create A Microsoft Entra App Registration
+
+1. Open Microsoft Entra admin center.
+2. Open **App registrations** and create or select an app for HybridClaw.
+3. Add a **Mobile and desktop applications** redirect URI matching the
+   localhost callback URL printed by `hybridclaw auth login microsoft365`.
+4. Add delegated Microsoft Graph read permissions for the data you need. The
+   default HybridClaw setup asks for `User.Read`, `Mail.Read`,
+   `Calendars.Read`, `Files.Read.All`, `Sites.Read.All`,
+   `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `ChannelMessage.Read.All`, `Chat.Read`, and
+   `offline_access`.
+5. Have a tenant admin grant consent when your organization requires admin
+   approval for those scopes.
+
+### 2. Authorize Microsoft 365
+
+```bash
+hybridclaw auth login microsoft365 \
+  --client-id "<client-id>" \
+  --tenant-id organizations \
+  --account you@example.com
+hybridclaw auth status microsoft365
+```
+
+### 3. Add A Microsoft Graph Auth Route
+
+```bash
+hybridclaw secret route add https://graph.microsoft.com/v1.0/ microsoft-oauth Authorization Bearer
+```
+
+The route is stored in `~/.hybridclaw/config.json` as:
+
+```json
+{
+  "urlPrefix": "https://graph.microsoft.com/v1.0/",
+  "header": "Authorization",
+  "prefix": "Bearer",
+  "secret": { "source": "microsoft-oauth" }
+}
+```
+
+For common read-only Microsoft 365 workflows, prefer the bundled
+`microsoft-365` skill so endpoint construction stays deterministic.
 
 ## Google Ads Invoice Harvesting
 

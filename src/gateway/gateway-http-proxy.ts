@@ -23,13 +23,19 @@ import {
   HUBSPOT_ACCESS_TOKEN_SECRET,
   resolveHubSpotAccessToken,
 } from '../auth/hubspot-auth.js';
+import {
+  MICROSOFT_365_ACCESS_TOKEN_SECRET,
+  resolveMicrosoft365AccessToken,
+} from '../auth/microsoft-auth.js';
 import type {
   RuntimeConfig,
   RuntimeHttpRequestGoogleOAuthSecretRef,
+  RuntimeHttpRequestMicrosoftOAuthSecretRef,
 } from '../config/runtime-config.js';
 import {
   getRuntimeConfig,
   isGoogleOAuthSecretRef,
+  isMicrosoftOAuthSecretRef,
 } from '../config/runtime-config.js';
 import { readStoredRuntimeEnvValue } from '../config/runtime-env.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
@@ -142,6 +148,11 @@ type OtcAkSkAuthRule = {
   secretAccessKeySecretName: string;
   securityTokenSecretName?: string;
 };
+
+type HttpSecretResolver = (
+  secretName: string,
+  context: SecretResolveContext,
+) => Promise<string> | string;
 
 type UndiciConnector = ReturnType<typeof buildUndiciConnector>;
 type UndiciConnectorOptions = Parameters<UndiciConnector>[0];
@@ -419,7 +430,7 @@ async function saveHttpResponseArtifact(params: {
     path: `/workspace/.http-artifacts/${storedFilename}`,
     filename,
     mimeType: responseMimeType,
-    sha256: sha256Hex(params.body),
+    sha256: sha256ArtifactHex(params.body),
   };
 }
 
@@ -650,10 +661,15 @@ function isHubSpotApiHost(host?: string): boolean {
   );
 }
 
+function isMicrosoftGraphHost(host?: string): boolean {
+  return normalizeSecretString(host).toLowerCase() === 'graph.microsoft.com';
+}
+
 function requiresBearerDomainBinding(secretName: string): boolean {
   return (
     !isGoogleWorkspaceRuntimeTokenName(secretName) &&
-    secretName !== HUBSPOT_ACCESS_TOKEN_SECRET
+    secretName !== HUBSPOT_ACCESS_TOKEN_SECRET &&
+    secretName !== MICROSOFT_365_ACCESS_TOKEN_SECRET
   );
 }
 
@@ -663,6 +679,12 @@ function isGoogleOAuthHttpAuthRuleSecret(
   return isGoogleOAuthSecretRef(value);
 }
 
+function isMicrosoftOAuthHttpAuthRuleSecret(
+  value: unknown,
+): value is RuntimeHttpRequestMicrosoftOAuthSecretRef {
+  return isMicrosoftOAuthSecretRef(value);
+}
+
 async function resolveOAuthTokenOrThrow(params: {
   secretName: string;
   context: SecretResolveContext;
@@ -670,7 +692,7 @@ async function resolveOAuthTokenOrThrow(params: {
   allowedHostDescription: string;
   resolveToken: () => Promise<{
     accessToken: string;
-    source: 'store' | 'google-oauth' | 'hubspot-oauth';
+    source: 'store' | 'google-oauth' | 'hubspot-oauth' | 'microsoft-oauth';
   } | null>;
   loginHint: string;
 }): Promise<string> {
@@ -749,6 +771,20 @@ async function resolveHubSpotOAuthTokenOrThrow(
   });
 }
 
+async function resolveMicrosoftOAuthTokenOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  return await resolveOAuthTokenOrThrow({
+    secretName,
+    context,
+    isAllowedHost: isMicrosoftGraphHost,
+    allowedHostDescription: 'Microsoft Graph',
+    resolveToken: resolveMicrosoft365AccessToken,
+    loginHint: `${secretName} is not available. Run \`hybridclaw auth login microsoft365\` and retry the request.`,
+  });
+}
+
 async function resolveHttpSecretOrThrow(
   secretName: string,
   context: SecretResolveContext,
@@ -761,6 +797,41 @@ async function resolveHttpSecretOrThrow(
   }
   if (secretName === HUBSPOT_ACCESS_TOKEN_SECRET) {
     return await resolveHubSpotOAuthTokenOrThrow(secretName, context);
+  }
+  if (secretName === MICROSOFT_365_ACCESS_TOKEN_SECRET) {
+    return await resolveMicrosoftOAuthTokenOrThrow(secretName, context);
+  }
+  return resolveStoredSecretForInjection({
+    secretName,
+    sessionId: context.sessionId,
+    agentId: context.agentId,
+    skillName: context.skillName,
+    sinkKind: 'http',
+    host: context.host,
+    selector: context.selector,
+  });
+}
+
+function isManagedConnectorTokenSecretName(secretName: string): boolean {
+  return (
+    isGoogleWorkspaceRuntimeTokenName(secretName) ||
+    secretName === HUBSPOT_ACCESS_TOKEN_SECRET ||
+    secretName === MICROSOFT_365_ACCESS_TOKEN_SECRET
+  );
+}
+
+function resolveStoredProtocolSecretOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): string {
+  if (!isRuntimeSecretName(secretName)) {
+    throw new GatewayRequestError(400, `Invalid secret name: ${secretName}`);
+  }
+  if (isManagedConnectorTokenSecretName(secretName)) {
+    throw new GatewayRequestError(
+      400,
+      `${secretName} is a managed connector token and cannot be reused as protocol signing material.`,
+    );
   }
   return resolveStoredSecretForInjection({
     secretName,
@@ -798,6 +869,8 @@ function signGoogleServiceAccountJwt(params: {
     base64UrlJson(payload),
   ].join('.');
   const signer = createSign('RSA-SHA256');
+  // lgtm[js/insufficient-password-hash] Google service account JWTs must be
+  // signed with RSA-SHA256; this signs a short-lived assertion, not a password.
   signer.update(signingInput);
   signer.end();
   const signature = signer.sign(params.privateKey).toString('base64url');
@@ -815,19 +888,22 @@ async function acquireGoogleServiceAccountAccessToken(
     );
   }
 
-  const clientEmail = await resolveHttpSecretOrThrow(
+  const clientEmail = resolveStoredProtocolSecretOrThrow(
     rule.clientEmailSecretName,
     {
       ...context,
       selector: 'googleServiceAccount.clientEmail',
     },
   );
-  const privateKey = await resolveHttpSecretOrThrow(rule.privateKeySecretName, {
-    ...context,
-    selector: 'googleServiceAccount.privateKey',
-  });
+  const privateKey = resolveStoredProtocolSecretOrThrow(
+    rule.privateKeySecretName,
+    {
+      ...context,
+      selector: 'googleServiceAccount.privateKey',
+    },
+  );
   const subject = rule.subjectSecretName
-    ? await resolveHttpSecretOrThrow(rule.subjectSecretName, {
+    ? resolveStoredProtocolSecretOrThrow(rule.subjectSecretName, {
         ...context,
         selector: 'googleServiceAccount.subject',
       })
@@ -895,6 +971,7 @@ async function acquireGoogleServiceAccountAccessToken(
 async function replaceHttpPlaceholdersInString(
   value: string,
   context: SecretResolveContext,
+  resolveSecret: HttpSecretResolver = resolveHttpSecretOrThrow,
 ): Promise<string> {
   let next = '';
   let lastIndex = 0;
@@ -904,7 +981,7 @@ async function replaceHttpPlaceholdersInString(
     const kind = match[1] || '';
     const name = match[2] || '';
     if (kind === 'secret') {
-      next += await resolveHttpSecretOrThrow(name, {
+      next += await resolveSecret(name, {
         ...context,
         selector: context.selector || '<secret-placeholder>',
       });
@@ -927,13 +1004,16 @@ async function replaceHttpPlaceholdersInString(
 async function replaceHttpPlaceholders(
   value: unknown,
   context: SecretResolveContext,
+  resolveSecret: HttpSecretResolver = resolveHttpSecretOrThrow,
 ): Promise<unknown> {
   if (typeof value === 'string') {
-    return await replaceHttpPlaceholdersInString(value, context);
+    return await replaceHttpPlaceholdersInString(value, context, resolveSecret);
   }
   if (Array.isArray(value)) {
     return await Promise.all(
-      value.map((entry) => replaceHttpPlaceholders(entry, context)),
+      value.map((entry) =>
+        replaceHttpPlaceholders(entry, context, resolveSecret),
+      ),
     );
   }
   if (value && typeof value === 'object') {
@@ -941,7 +1021,71 @@ async function replaceHttpPlaceholders(
       await Promise.all(
         Object.entries(value).map(async ([key, entry]) => [
           key,
-          await replaceHttpPlaceholders(entry, {
+          await replaceHttpPlaceholders(
+            entry,
+            {
+              ...context,
+              selector: context.selector || `json.${key}`,
+            },
+            resolveSecret,
+          ),
+        ]),
+      ),
+    );
+  }
+  return value;
+}
+
+async function replaceStoredProtocolPlaceholdersInString(
+  value: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  let next = '';
+  let lastIndex = 0;
+  for (const match of value.matchAll(HTTP_REQUEST_PLACEHOLDER_RE)) {
+    const matchIndex = match.index ?? 0;
+    next += value.slice(lastIndex, matchIndex);
+    const kind = match[1] || '';
+    const name = match[2] || '';
+    if (kind === 'secret') {
+      next += resolveStoredProtocolSecretOrThrow(name, {
+        ...context,
+        selector: context.selector || '<secret-placeholder>',
+      });
+    } else {
+      const envValue = readStoredRuntimeEnvValue(name);
+      if (!envValue) {
+        throw new GatewayRequestError(
+          400,
+          `Env store value ${name} is not configured.`,
+        );
+      }
+      next += envValue;
+    }
+    lastIndex = matchIndex + match[0].length;
+  }
+  next += value.slice(lastIndex);
+  return next;
+}
+
+async function replaceStoredProtocolPlaceholders(
+  value: unknown,
+  context: SecretResolveContext,
+): Promise<unknown> {
+  if (typeof value === 'string') {
+    return await replaceStoredProtocolPlaceholdersInString(value, context);
+  }
+  if (Array.isArray(value)) {
+    return await Promise.all(
+      value.map((entry) => replaceStoredProtocolPlaceholders(entry, context)),
+    );
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      await Promise.all(
+        Object.entries(value).map(async ([key, entry]) => [
+          key,
+          await replaceStoredProtocolPlaceholders(entry, {
             ...context,
             selector: context.selector || `json.${key}`,
           }),
@@ -1125,18 +1269,226 @@ async function buildHttpRequestFormBody(
   value: unknown,
   context: SecretResolveContext,
   replacePlaceholders: boolean,
+  resolveSecret: HttpSecretResolver = resolveHttpSecretOrThrow,
 ): Promise<string> {
   const params = new URLSearchParams();
   for (const [name, rawValue] of normalizeHttpRequestForm(value)) {
     const resolvedValue = replacePlaceholders
-      ? await replaceHttpPlaceholdersInString(rawValue, {
-          ...context,
-          selector: `form.${name}`,
-        })
+      ? await replaceHttpPlaceholdersInString(
+          rawValue,
+          {
+            ...context,
+            selector: `form.${name}`,
+          },
+          resolveSecret,
+        )
       : rawValue;
     params.append(name, resolvedValue);
   }
   return params.toString();
+}
+
+async function buildHttpRequestPayloadBody(params: {
+  body: ApiHttpRequestBody;
+  headers: Record<string, string>;
+  context: SecretResolveContext;
+  replacePlaceholders: boolean;
+  resolveSecret: HttpSecretResolver;
+}): Promise<BodyInit | undefined> {
+  const { body } = params;
+  const payloadSources = [
+    body.json !== undefined,
+    body.body !== undefined,
+    body.bodyBase64 !== undefined,
+    body.form !== undefined,
+  ].filter(Boolean).length;
+  if (payloadSources > 1) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `json`, `body`, `bodyBase64`, or `form`.',
+    );
+  }
+
+  if (body.json !== undefined) {
+    const jsonValue = params.replacePlaceholders
+      ? await replaceHttpPlaceholders(
+          body.json,
+          {
+            ...params.context,
+            selector: 'json',
+          },
+          params.resolveSecret,
+        )
+      : body.json;
+    if (
+      !Object.keys(params.headers).some(
+        (key) => key.toLowerCase() === 'content-type',
+      )
+    ) {
+      setHeaderValue(params.headers, 'Content-Type', 'application/json');
+    }
+    return JSON.stringify(jsonValue);
+  }
+
+  if (typeof body.body === 'string') {
+    return params.replacePlaceholders
+      ? await replaceHttpPlaceholdersInString(
+          body.body,
+          {
+            ...params.context,
+            selector: 'body',
+          },
+          params.resolveSecret,
+        )
+      : body.body;
+  }
+  if (body.body !== undefined) {
+    throw new GatewayRequestError(
+      400,
+      '`body` must be a string when provided. Use `json` for structured payloads.',
+    );
+  }
+
+  if (body.form !== undefined) {
+    const payloadBody = await buildHttpRequestFormBody(
+      body.form,
+      params.context,
+      params.replacePlaceholders,
+      params.resolveSecret,
+    );
+    if (
+      !Object.keys(params.headers).some(
+        (key) => key.toLowerCase() === 'content-type',
+      )
+    ) {
+      setHeaderValue(
+        params.headers,
+        'Content-Type',
+        'application/x-www-form-urlencoded',
+      );
+    }
+    return payloadBody;
+  }
+
+  if (typeof body.bodyBase64 === 'string') {
+    let payloadBuffer: Buffer;
+    try {
+      payloadBuffer = Buffer.from(body.bodyBase64, 'base64');
+    } catch {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    if (payloadBuffer.toString('base64') !== body.bodyBase64.trim()) {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    return new Uint8Array(payloadBuffer);
+  }
+  if (body.bodyBase64 !== undefined) {
+    throw new GatewayRequestError(
+      400,
+      '`bodyBase64` must be a base64 string when provided.',
+    );
+  }
+
+  return undefined;
+}
+
+async function buildStoredProtocolHttpRequestPayloadBody(params: {
+  body: ApiHttpRequestBody;
+  headers: Record<string, string>;
+  context: SecretResolveContext;
+  replacePlaceholders: boolean;
+}): Promise<BodyInit | undefined> {
+  const { body } = params;
+  const payloadSources = [
+    body.json !== undefined,
+    body.body !== undefined,
+    body.bodyBase64 !== undefined,
+    body.form !== undefined,
+  ].filter(Boolean).length;
+  if (payloadSources > 1) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `json`, `body`, `bodyBase64`, or `form`.',
+    );
+  }
+
+  if (body.json !== undefined) {
+    const jsonValue = params.replacePlaceholders
+      ? await replaceStoredProtocolPlaceholders(body.json, {
+          ...params.context,
+          selector: 'json',
+        })
+      : body.json;
+    if (
+      !Object.keys(params.headers).some(
+        (key) => key.toLowerCase() === 'content-type',
+      )
+    ) {
+      setHeaderValue(params.headers, 'Content-Type', 'application/json');
+    }
+    return JSON.stringify(jsonValue);
+  }
+
+  if (typeof body.body === 'string') {
+    return params.replacePlaceholders
+      ? await replaceStoredProtocolPlaceholdersInString(body.body, {
+          ...params.context,
+          selector: 'body',
+        })
+      : body.body;
+  }
+  if (body.body !== undefined) {
+    throw new GatewayRequestError(
+      400,
+      '`body` must be a string when provided. Use `json` for structured payloads.',
+    );
+  }
+
+  if (body.form !== undefined) {
+    const formParams = new URLSearchParams();
+    for (const [name, rawValue] of normalizeHttpRequestForm(body.form)) {
+      const resolvedValue = params.replacePlaceholders
+        ? await replaceStoredProtocolPlaceholdersInString(rawValue, {
+            ...params.context,
+            selector: `form.${name}`,
+          })
+        : rawValue;
+      formParams.append(name, resolvedValue);
+    }
+    if (
+      !Object.keys(params.headers).some(
+        (key) => key.toLowerCase() === 'content-type',
+      )
+    ) {
+      setHeaderValue(
+        params.headers,
+        'Content-Type',
+        'application/x-www-form-urlencoded',
+      );
+    }
+    return formParams.toString();
+  }
+
+  if (typeof body.bodyBase64 === 'string') {
+    let payloadBuffer: Buffer;
+    try {
+      payloadBuffer = Buffer.from(body.bodyBase64, 'base64');
+    } catch {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    if (payloadBuffer.toString('base64') !== body.bodyBase64.trim()) {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    return new Uint8Array(payloadBuffer);
+  }
+  if (body.bodyBase64 !== undefined) {
+    throw new GatewayRequestError(
+      400,
+      '`bodyBase64` must be a base64 string when provided.',
+    );
+  }
+
+  return undefined;
 }
 
 function verifyPinnedTlsCertificateFromSocket(
@@ -1166,7 +1518,7 @@ function verifyPinnedTlsCertificateFromSocket(
       'Pinned TLS certificate check failed: peer certificate was not available.',
     );
   }
-  const actual = sha256Hex(raw);
+  const actual = sha256CertificateHex(raw);
   if (actual !== expectedSha256) {
     throw new GatewayRequestError(
       502,
@@ -1251,7 +1603,7 @@ async function resolveTlsCertificateSha256Pin(
   }
   if (!secretName) return null;
   return normalizeSha256Fingerprint(
-    await resolveHttpSecretOrThrow(secretName, {
+    resolveStoredProtocolSecretOrThrow(secretName, {
       ...context,
       selector: 'tlsCertificateSha256',
     }),
@@ -1429,13 +1781,23 @@ function canonicalizeOtcPath(url: URL): string {
   return canonical.endsWith('/') ? canonical : `${canonical}/`;
 }
 
-function sha256Hex(value: string | Uint8Array | undefined): string {
+function sha256ArtifactHex(value: Uint8Array): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function sha256CertificateHex(value: Uint8Array): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function sha256OtcDigestHex(value: string | Uint8Array | undefined): string {
   return createHash('sha256')
     .update(value ?? '')
     .digest('hex');
 }
 
 function hmacSha256Hex(secret: string, value: string): string {
+  // lgtm[js/insufficient-password-hash] SDK-HMAC-SHA256 is the OTC
+  // request-signing algorithm; the result is an API signature, not a password.
   return createHmac('sha256', secret).update(value).digest('hex');
 }
 
@@ -1490,7 +1852,7 @@ async function applyOtcAkSkSigning(params: {
     );
   }
 
-  const accessKeyId = await resolveHttpSecretOrThrow(
+  const accessKeyId = resolveStoredProtocolSecretOrThrow(
     params.rule.accessKeyIdSecretName,
     {
       ...params.context,
@@ -1501,7 +1863,7 @@ async function applyOtcAkSkSigning(params: {
     params.rule.accessKeyIdSecretName,
     accessKeyId,
   );
-  const secretAccessKey = await resolveHttpSecretOrThrow(
+  const secretAccessKey = resolveStoredProtocolSecretOrThrow(
     params.rule.secretAccessKeySecretName,
     {
       ...params.context,
@@ -1513,14 +1875,14 @@ async function applyOtcAkSkSigning(params: {
     secretAccessKey,
   );
   const securityToken = params.rule.securityTokenSecretName
-    ? await resolveHttpSecretOrThrow(params.rule.securityTokenSecretName, {
+    ? resolveStoredProtocolSecretOrThrow(params.rule.securityTokenSecretName, {
         ...params.context,
         selector: 'otcAkSk.securityToken',
       })
     : '';
 
   const sdkDate = formatOtcSdkDate();
-  const bodyHash = sha256Hex(
+  const bodyHash = sha256OtcDigestHex(
     typeof params.body === 'string' || params.body instanceof Uint8Array
       ? params.body
       : undefined,
@@ -1550,9 +1912,11 @@ async function applyOtcAkSkSigning(params: {
     bodyHash,
   ].join('\n');
   const algorithm = 'SDK-HMAC-SHA256';
-  const stringToSign = [algorithm, sdkDate, sha256Hex(canonicalRequest)].join(
-    '\n',
-  );
+  const stringToSign = [
+    algorithm,
+    sdkDate,
+    sha256OtcDigestHex(canonicalRequest),
+  ].join('\n');
   const signature = hmacSha256Hex(secretAccessKey, stringToSign);
   setHeaderValue(
     params.headers,
@@ -1769,6 +2133,18 @@ async function resolveHttpRuleSecret(
       value: withAuthPrefix(
         await resolveGoogleOAuthTokenOrThrow(
           GOOGLE_WORKSPACE_CLI_TOKEN_SECRET,
+          context,
+        ),
+        prefix,
+      ),
+    };
+  }
+  if (isMicrosoftOAuthHttpAuthRuleSecret(value)) {
+    return {
+      header: headerName,
+      value: withAuthPrefix(
+        await resolveMicrosoftOAuthTokenOrThrow(
+          MICROSOFT_365_ACCESS_TOKEN_SECRET,
           context,
         ),
         prefix,
@@ -2019,86 +2395,30 @@ export async function handleApiHttpRequest(
     }
   }
 
-  const payloadSources = [
-    body.json !== undefined,
-    body.body !== undefined,
-    body.bodyBase64 !== undefined,
-    body.form !== undefined,
-  ].filter(Boolean).length;
-  if (payloadSources > 1) {
-    throw new GatewayRequestError(
-      400,
-      'Use only one of `json`, `body`, `bodyBase64`, or `form`.',
-    );
-  }
-
   let payloadBody: BodyInit | undefined;
-  if (body.json !== undefined) {
-    const jsonValue = replacePlaceholders
-      ? await replaceHttpPlaceholders(body.json, {
-          ...secretContext,
-          selector: 'json',
-        })
-      : body.json;
-    payloadBody = JSON.stringify(jsonValue);
-    if (
-      !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')
-    ) {
-      setHeaderValue(headers, 'Content-Type', 'application/json');
-    }
-  } else if (typeof body.body === 'string') {
-    payloadBody = replacePlaceholders
-      ? await replaceHttpPlaceholdersInString(body.body, {
-          ...secretContext,
-          selector: 'body',
-        })
-      : body.body;
-  } else if (body.body !== undefined) {
-    throw new GatewayRequestError(
-      400,
-      '`body` must be a string when provided. Use `json` for structured payloads.',
-    );
-  } else if (body.form !== undefined) {
-    payloadBody = await buildHttpRequestFormBody(
-      body.form,
-      secretContext,
-      replacePlaceholders,
-    );
-    if (
-      !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')
-    ) {
-      setHeaderValue(
-        headers,
-        'Content-Type',
-        'application/x-www-form-urlencoded',
-      );
-    }
-  } else if (typeof body.bodyBase64 === 'string') {
-    let payloadBuffer: Buffer;
-    try {
-      payloadBuffer = Buffer.from(body.bodyBase64, 'base64');
-    } catch {
-      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
-    }
-    if (payloadBuffer.toString('base64') !== body.bodyBase64.trim()) {
-      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
-    }
-    payloadBody = new Uint8Array(payloadBuffer);
-  } else if (body.bodyBase64 !== undefined) {
-    throw new GatewayRequestError(
-      400,
-      '`bodyBase64` must be a base64 string when provided.',
-    );
-  }
-
   if (otcAkSk) {
+    const otcPayloadBody = await buildStoredProtocolHttpRequestPayloadBody({
+      body,
+      headers,
+      context: secretContext,
+      replacePlaceholders,
+    });
     await applyOtcAkSkSigning({
       rule: otcAkSk,
       url,
       method,
       headers,
-      body: payloadBody,
+      body: otcPayloadBody,
       context: secretContext,
+    });
+    payloadBody = otcPayloadBody;
+  } else {
+    payloadBody = await buildHttpRequestPayloadBody({
+      body,
+      headers,
+      context: secretContext,
+      replacePlaceholders,
+      resolveSecret: resolveHttpSecretOrThrow,
     });
   }
 

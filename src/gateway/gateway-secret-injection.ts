@@ -84,7 +84,7 @@ export function recordSecretResolved(params: {
   sessionId?: string;
   runId?: string;
   skillName?: string;
-  secretSource: 'store' | 'google-oauth' | 'hubspot-oauth';
+  secretSource: 'store' | 'google-oauth' | 'hubspot-oauth' | 'microsoft-oauth';
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;
@@ -112,7 +112,7 @@ export function recordSecretUnsafeEscaped(params: {
   sessionId?: string;
   runId?: string;
   skillName?: string;
-  secretSource: 'store' | 'google-oauth' | 'hubspot-oauth';
+  secretSource: 'store' | 'google-oauth' | 'hubspot-oauth' | 'microsoft-oauth';
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;

@@ -17,6 +17,7 @@ import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
+import { ConnectorsPage } from './routes/connectors';
 import { DashboardPage } from './routes/dashboard';
 import { DistillPage } from './routes/distill';
 import { EmailPage } from './routes/email';
@@ -244,6 +245,12 @@ const mcpRoute = createRoute({
   component: McpPage,
 });
 
+const connectorsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/connectors',
+  component: ConnectorsPage,
+});
+
 const auditRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/audit',
@@ -323,6 +330,7 @@ const routeTree = rootRoute.addChildren([
     jobsRoute,
     harnessEvolutionRoute,
     distillRoute,
+    connectorsRoute,
     mcpRoute,
     auditRoute,
     skillsRoute,

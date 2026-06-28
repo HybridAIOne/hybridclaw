@@ -25,6 +25,19 @@ import {
   parseHubSpotScopes,
 } from '../auth/hubspot-auth.js';
 import {
+  clearMicrosoft365Auth,
+  DEFAULT_MICROSOFT_365_OAUTH_SCOPES,
+  getMicrosoft365AuthStatus,
+  loginMicrosoft365,
+  MICROSOFT_365_ACCOUNT_SECRET,
+  MICROSOFT_365_OAUTH_CLIENT_ID_SECRET,
+  MICROSOFT_365_OAUTH_CLIENT_SECRET_SECRET,
+  MICROSOFT_365_OAUTH_REFRESH_TOKEN_SECRET,
+  MICROSOFT_365_OAUTH_SCOPES_SECRET,
+  MICROSOFT_365_TENANT_ID_SECRET,
+  parseMicrosoft365Scopes,
+} from '../auth/microsoft-auth.js';
+import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   runtimeConfigPath,
@@ -66,6 +79,7 @@ import {
   printHuggingFaceUsage,
   printHybridAIUsage,
   printLocalUsage,
+  printMicrosoft365Usage,
   printMistralUsage,
   printMSTeamsUsage,
   printOpenRouterUsage,
@@ -952,6 +966,7 @@ type UnifiedProvider =
   | 'huggingface'
   | 'google'
   | 'hubspot'
+  | 'microsoft365'
   | 'gemini'
   | 'deepseek'
   | 'xai'
@@ -1005,6 +1020,17 @@ function normalizeUnifiedProvider(
   if (normalized === 'hubspot' || normalized === 'hs') {
     return 'hubspot';
   }
+  if (
+    normalized === 'microsoft365' ||
+    normalized === 'microsoft-365' ||
+    normalized === 'm365' ||
+    normalized === 'office365' ||
+    normalized === 'office-365' ||
+    normalized === 'graph' ||
+    normalized === 'msgraph'
+  ) {
+    return 'microsoft365';
+  }
   // Check data-driven generic providers by id or alias.
   for (const def of GENERIC_PROVIDER_AUTH_DEFS) {
     if (normalized === def.id || def.aliases.includes(normalized)) {
@@ -1047,7 +1073,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -1061,7 +1087,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -1468,6 +1494,31 @@ function clearHubSpotCredentials(): void {
   console.log('The gateway will no longer inject HubSpot access tokens.');
 }
 
+function printMicrosoft365Status(): void {
+  const status = getMicrosoft365AuthStatus();
+  console.log(`Path: ${status.path}`);
+  console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
+  console.log(`Tenant: ${status.tenantId}`);
+  if (status.authenticated) {
+    console.log('Source: runtime-secrets');
+    console.log(`Account: ${status.account || '(not set)'}`);
+    console.log('Refresh token: configured');
+    console.log(
+      `Client secret: ${status.clientSecretConfigured ? 'configured' : 'not set (public client)'}`,
+    );
+    console.log(`Scopes: ${status.scopes.join(' ')}`);
+    console.log('HTTP auth mode: gateway-minted Microsoft Graph bearer token');
+  }
+}
+
+function clearMicrosoft365Credentials(): void {
+  const filePath = clearMicrosoft365Auth();
+  console.log(`Cleared Microsoft 365 OAuth credentials from ${filePath}.`);
+  console.log(
+    'The gateway will no longer inject Microsoft Graph access tokens.',
+  );
+}
+
 function parseHubSpotLoginArgs(args: string[]): {
   account?: string;
   clientId?: string;
@@ -1562,6 +1613,106 @@ function parseHubSpotLoginArgs(args: string[]): {
     }
     throw new Error(
       `Unexpected argument: ${arg}. Use \`hybridclaw auth login hubspot --help\`.`,
+    );
+  }
+
+  return parsed;
+}
+
+function parseMicrosoft365LoginArgs(args: string[]): {
+  account?: string;
+  tenantId?: string;
+  clientId?: string;
+  clientSecret?: string;
+  refreshToken?: string;
+  scopes?: string;
+  redirectPort?: number;
+} {
+  type Microsoft365StringFlagKey =
+    | 'account'
+    | 'tenantId'
+    | 'clientId'
+    | 'clientSecret'
+    | 'refreshToken'
+    | 'scopes';
+  const parsed: {
+    account?: string;
+    tenantId?: string;
+    clientId?: string;
+    clientSecret?: string;
+    refreshToken?: string;
+    scopes?: string;
+    redirectPort?: number;
+  } = {};
+  const stringFlags: Array<{
+    key: Microsoft365StringFlagKey;
+    name: string;
+    placeholder: string;
+  }> = [
+    { key: 'account', name: '--account', placeholder: '<label-or-email>' },
+    {
+      key: 'tenantId',
+      name: '--tenant-id',
+      placeholder: '<tenant-id|domain|organizations>',
+    },
+    { key: 'clientId', name: '--client-id', placeholder: '<id>' },
+    {
+      key: 'clientSecret',
+      name: '--client-secret',
+      placeholder: '<secret>',
+    },
+    {
+      key: 'refreshToken',
+      name: '--refresh-token',
+      placeholder: '<token>',
+    },
+    { key: 'scopes', name: '--scopes', placeholder: '<scopes>' },
+  ];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    let matchedStringFlag = false;
+    for (const flag of stringFlags) {
+      const parsedFlag = parseValueFlag({
+        arg,
+        args,
+        index,
+        name: flag.name,
+        placeholder: flag.placeholder,
+        allowEmptyEquals: true,
+      });
+      if (!parsedFlag) continue;
+      parsed[flag.key] = parsedFlag.value || undefined;
+      index = parsedFlag.nextIndex;
+      matchedStringFlag = true;
+      break;
+    }
+    if (matchedStringFlag) continue;
+
+    const redirectPortFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--redirect-port',
+      placeholder: '<port>',
+      allowEmptyEquals: true,
+    });
+    if (redirectPortFlag) {
+      const port = Number.parseInt(redirectPortFlag.value, 10);
+      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+        throw new Error(
+          'Microsoft 365 OAuth redirect port must be between 1 and 65535.',
+        );
+      }
+      parsed.redirectPort = port;
+      index = redirectPortFlag.nextIndex;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw auth login microsoft365 --help\`.`,
     );
   }
 
@@ -1693,6 +1844,128 @@ async function configureHubSpotAuth(args: string[]): Promise<void> {
   );
   console.log(
     'The gateway will mint short-lived HubSpot access tokens for http_request calls.',
+  );
+}
+
+async function resolveInteractiveMicrosoft365Login(params: {
+  account: string;
+  tenantId: string;
+  clientId: string;
+  clientSecret: string;
+}): Promise<{
+  account: string;
+  tenantId: string;
+  clientId: string;
+  clientSecret: string;
+}> {
+  if (params.clientId) {
+    return params;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      'Missing Microsoft 365 OAuth client id. Pass `--client-id <id>` or run this command in an interactive terminal.',
+    );
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    const account = await promptWithDefault({
+      rl,
+      question: 'Microsoft 365 account label or email',
+      defaultValue: params.account || undefined,
+      required: false,
+    });
+    const tenantId = await promptWithDefault({
+      rl,
+      question: 'Microsoft tenant id, verified domain, or organizations',
+      defaultValue: params.tenantId || 'organizations',
+      required: false,
+    });
+    const clientId = await promptWithDefault({
+      rl,
+      question: 'Microsoft Entra app client id',
+      defaultValue: params.clientId || undefined,
+    });
+    const clientSecret = await promptWithDefault({
+      rl,
+      question:
+        'Microsoft Entra app client secret (optional for public clients)',
+      defaultValue: params.clientSecret || undefined,
+      required: false,
+      secret: true,
+    });
+    return {
+      account,
+      tenantId,
+      clientId,
+      clientSecret,
+    };
+  } finally {
+    rl.close();
+  }
+}
+
+async function configureMicrosoft365Auth(args: string[]): Promise<void> {
+  const parsed = parseMicrosoft365LoginArgs(args);
+  const resolved = await resolveInteractiveMicrosoft365Login({
+    account:
+      parsed.account ||
+      process.env[MICROSOFT_365_ACCOUNT_SECRET]?.trim() ||
+      readStoredRuntimeSecret(MICROSOFT_365_ACCOUNT_SECRET) ||
+      '',
+    tenantId:
+      parsed.tenantId ||
+      process.env[MICROSOFT_365_TENANT_ID_SECRET]?.trim() ||
+      readStoredRuntimeSecret(MICROSOFT_365_TENANT_ID_SECRET) ||
+      'organizations',
+    clientId:
+      parsed.clientId ||
+      process.env[MICROSOFT_365_OAUTH_CLIENT_ID_SECRET]?.trim() ||
+      readStoredRuntimeSecret(MICROSOFT_365_OAUTH_CLIENT_ID_SECRET) ||
+      '',
+    clientSecret:
+      parsed.clientSecret ||
+      process.env[MICROSOFT_365_OAUTH_CLIENT_SECRET_SECRET]?.trim() ||
+      readStoredRuntimeSecret(MICROSOFT_365_OAUTH_CLIENT_SECRET_SECRET) ||
+      '',
+  });
+  const scopes = parseMicrosoft365Scopes(
+    parsed.scopes ||
+      process.env[MICROSOFT_365_OAUTH_SCOPES_SECRET]?.trim() ||
+      readStoredRuntimeSecret(MICROSOFT_365_OAUTH_SCOPES_SECRET) ||
+      DEFAULT_MICROSOFT_365_OAUTH_SCOPES.join(' '),
+  );
+  const result = await loginMicrosoft365({
+    account: resolved.account,
+    tenantId: resolved.tenantId,
+    clientId: resolved.clientId,
+    clientSecret: resolved.clientSecret,
+    refreshToken:
+      parsed.refreshToken ||
+      process.env[MICROSOFT_365_OAUTH_REFRESH_TOKEN_SECRET]?.trim() ||
+      undefined,
+    scopes,
+    redirectPort: parsed.redirectPort,
+  });
+
+  console.log(
+    `Saved Microsoft 365 OAuth credentials to ${result.secretsPath}.`,
+  );
+  if (result.account) console.log(`Account: ${result.account}`);
+  console.log(`Tenant: ${result.tenantId}`);
+  console.log(`Scopes: ${result.scopes.join(' ')}`);
+  console.log(
+    result.usedProvidedRefreshToken
+      ? 'Stored provided refresh token.'
+      : 'Completed browser authorization and stored refresh token.',
+  );
+  console.log(
+    'The gateway will mint short-lived Microsoft Graph access tokens for http_request calls.',
   );
 }
 
@@ -1941,6 +2214,10 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
   }
   if (provider === 'hubspot') {
     printHubSpotUsage();
+    return;
+  }
+  if (provider === 'microsoft365') {
+    printMicrosoft365Usage();
     return;
   }
   if (findGenericProviderDef(provider)) {
@@ -2330,7 +2607,7 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -2368,6 +2645,10 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   }
   if (parsed.provider === 'hubspot') {
     await configureHubSpotAuth(parsed.remaining);
+    return;
+  }
+  if (parsed.provider === 'microsoft365') {
+    await configureMicrosoft365Auth(parsed.remaining);
     return;
   }
   const genericLoginDef = findGenericProviderDef(parsed.provider);
@@ -2546,6 +2827,14 @@ async function dispatchProviderAction(
     clearHubSpotCredentials();
     return;
   }
+  if (provider === 'microsoft365') {
+    if (action === 'status') {
+      printMicrosoft365Status();
+      return;
+    }
+    clearMicrosoft365Credentials();
+    return;
+  }
   const genericDef = findGenericProviderDef(provider);
   if (genericDef) {
     if (action === 'status') {
@@ -2601,7 +2890,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (parsed.remaining.length > 0) {

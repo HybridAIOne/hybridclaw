@@ -237,6 +237,7 @@ hybridclaw auth login openrouter [model-id] [--api-key <key>] [--base-url <url>]
 hybridclaw auth login mistral [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login huggingface [model-id] [--api-key <token>] [--base-url <url>] [--no-default]
 hybridclaw auth login google [--client-id <id>] [--client-secret <secret>] [--account <email>] [--scopes <scopes>] [--refresh-token <token>] [--redirect-port <port>]
+hybridclaw auth login microsoft365 [--client-id <id>] [--client-secret <secret>] [--tenant-id <tenant>] [--account <label>] [--scopes <scopes>] [--refresh-token <token>] [--redirect-port <port>]
 hybridclaw auth login gemini [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login deepseek [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login xai [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
@@ -304,7 +305,7 @@ hybridclaw secret set <name> <value>
 hybridclaw secret show <name>
 hybridclaw secret unset <name>
 hybridclaw secret route list
-hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
+hybridclaw secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
 hybridclaw secret route remove <url-prefix> [header]
 hybridclaw env list
 hybridclaw env set <name> <value>
@@ -318,7 +319,7 @@ hybridclaw env unset <name>
 /secret show <name>
 /secret unset <name>
 /secret route list
-/secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
+/secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
 /secret route remove <url-prefix> [header]
 /env list
 /env set <name> <value>
@@ -340,6 +341,8 @@ hybridclaw env unset <name>
 - use `google-oauth` as the secret name for direct Google API routes after
   `hybridclaw auth login google`; see
   [Google OAuth For Direct Google APIs](../getting-started/authentication.md#google-oauth-for-direct-google-apis)
+- use `microsoft-oauth` as the secret name for direct Microsoft Graph routes
+  after `hybridclaw auth login microsoft365`
 - `env` stores plaintext runtime values such as local device hostnames,
   account ids, or usernames for agent helpers. Do not use it for passwords,
   tokens, API keys, or signing material; use encrypted secrets for those.

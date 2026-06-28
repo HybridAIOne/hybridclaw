@@ -1472,6 +1472,38 @@ async function importFreshHealth(options?: {
   const getGatewayAdminMcp = vi.fn(() => ({
     servers: [],
   }));
+  const getGatewayAdminConnectors = vi.fn(() => ({
+    secretsPath: '/tmp/credentials.json',
+    connectors: [],
+  }));
+  const getGatewayAdminConnectorsWithPlatformState = vi.fn(async () => ({
+    secretsPath: '/tmp/credentials.json',
+    connectors: [],
+  }));
+  const saveGatewayAdminHybridAIConnectorApiKey = vi.fn(() => ({
+    secretsPath: '/tmp/credentials.json',
+    connectors: [],
+  }));
+  const startGatewayAdminConnectorOAuth = vi.fn(() => ({
+    provider: 'microsoft365',
+    authorizationUrl: 'https://login.example.test/authorize',
+    state: 'connector-state',
+    expiresAt: Date.now() + 600_000,
+  }));
+  const logoutGatewayAdminConnector = vi.fn(() => ({
+    secretsPath: '/tmp/credentials.json',
+    connectors: [],
+  }));
+  const testGatewayAdminConnector = vi.fn(async () => ({
+    provider: 'github',
+    name: 'GitHub',
+    ok: true,
+    message: 'GitHub is connected.',
+  }));
+  const completeGatewayAdminConnectorOAuthCallback = vi.fn(async () => ({
+    provider: 'microsoft365',
+    name: 'Microsoft 365',
+  }));
   const getGatewayAdminAudit = vi.fn(() => ({
     query: '',
     sessionId: '',
@@ -2189,6 +2221,15 @@ async function importFreshHealth(options?: {
     recordGatewayAdminSecretMutationFailure,
     unsetGatewayAdminSecret,
   }));
+  vi.doMock('../src/gateway/gateway-admin-connectors.js', () => ({
+    completeGatewayAdminConnectorOAuthCallback,
+    getGatewayAdminConnectors,
+    getGatewayAdminConnectorsWithPlatformState,
+    logoutGatewayAdminConnector,
+    saveGatewayAdminHybridAIConnectorApiKey,
+    startGatewayAdminConnectorOAuth,
+    testGatewayAdminConnector,
+  }));
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage,
   }));
@@ -2321,6 +2362,8 @@ async function importFreshHealth(options?: {
     getGatewayAdminPlugins,
     getGatewayAdminScheduler,
     getGatewayAdminMcp,
+    getGatewayAdminConnectorsWithPlatformState,
+    testGatewayAdminConnector,
     getGatewayAdminAudit,
     getGatewayAdminSkills,
     getGatewayAdminSkillPackageFile,
@@ -6926,6 +6969,33 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('routes admin connector test requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/connectors/test',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: { provider: 'github' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.testGatewayAdminConnector).toHaveBeenCalledWith({
+      provider: 'github',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      provider: 'github',
+      name: 'GitHub',
+      ok: true,
+      message: 'GitHub is connected.',
+    });
+  });
+
   test('rejects non-HTTPS HybridAI bot base URLs', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -11436,6 +11506,128 @@ describe('gateway HTTP server', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test('injects Microsoft 365 OAuth runtime bearer tokens for Graph hosts', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-microsoft-365-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    vi.doMock('../src/auth/microsoft-auth.js', () => ({
+      MICROSOFT_365_ACCESS_TOKEN_SECRET: 'MICROSOFT_365_ACCESS_TOKEN',
+      resolveMicrosoft365AccessToken: vi.fn(async () => ({
+        accessToken: 'minted-microsoft-access-token',
+        source: 'microsoft-oauth',
+      })),
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '20.190.151.1', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      url: 'https://graph.microsoft.com/v1.0/me',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      arrayBuffer: async () =>
+        Buffer.from(JSON.stringify({ id: 'user-id', displayName: 'User' })),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://graph.microsoft.com/v1.0/me',
+        bearerSecretName: 'MICROSOFT_365_ACCESS_TOKEN',
+        sessionId: 'microsoft-365-audit',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer minted-microsoft-access-token',
+        }),
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).json).toEqual({
+      id: 'user-id',
+      displayName: 'User',
+    });
+    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const auditRecords = fs
+      .readFileSync(getAuditWirePath('microsoft-365-audit'), 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    expect(auditRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            type: 'secret.resolved',
+            secretRef: {
+              source: 'microsoft-oauth',
+              id: 'MICROSOFT_365_ACCESS_TOKEN',
+            },
+          }),
+        }),
+      ]),
+    );
+  });
+
+  test('blocks Microsoft 365 OAuth runtime bearer tokens for non-Graph hosts', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-microsoft-365-block-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    vi.doMock('../src/auth/microsoft-auth.js', () => ({
+      MICROSOFT_365_ACCESS_TOKEN_SECRET: 'MICROSOFT_365_ACCESS_TOKEN',
+      resolveMicrosoft365AccessToken: vi.fn(async () => ({
+        accessToken: 'minted-microsoft-access-token',
+        source: 'microsoft-oauth',
+      })),
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://example.com/steal',
+        bearerSecretName: 'MICROSOFT_365_ACCESS_TOKEN',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).error).toContain(
+      'MICROSOFT_365_ACCESS_TOKEN can only be injected into Microsoft Graph requests',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('exchanges Google service-account JWTs and injects short-lived bearer tokens', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-google-sa-');
     process.env.HOME = homeDir;
@@ -12832,6 +13024,39 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body).error).toContain(
       'OTC_ACCESS_KEY_ID contains a placeholder value',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects managed connector tokens as T Cloud Public signing material', async () => {
+    const fetchMock = vi.fn();
+    const { state } = await setupOtcGatewayRequestTest({
+      dnsAddress: '80.158.59.140',
+      fetchMock,
+    });
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://ecs.eu-de.otc.t-systems.com/v2.1/project123/servers/detail?limit=50',
+        method: 'GET',
+        skillName: 't-cloud-public',
+        otcAkSk: {
+          accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
+          secretAccessKeySecretName: 'MICROSOFT_365_ACCESS_TOKEN',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain(
+      'MICROSOFT_365_ACCESS_TOKEN is a managed connector token',
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
