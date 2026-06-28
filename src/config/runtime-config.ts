@@ -1362,15 +1362,15 @@ const DEFAULT_DASHSCOPE_MODEL_LIST = ['dashscope/qwen3-coder-plus'] as const;
 const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
 const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 const DEFAULT_UI_NAVIGATION_ITEMS: ReadonlyArray<RuntimeUiNavigationItem> = [
-  { href: '/chat', icon: 'chat', label: 'Chat' },
-  { href: '/agents', icon: 'agents', label: 'Agents' },
-  { href: '/admin', icon: 'admin', label: 'Admin' },
+  { href: '/chat', label: 'Chat', icon: 'chat' },
+  { href: '/agents', label: 'Agents', icon: 'agents' },
+  { href: '/admin', label: 'Admin', icon: 'admin' },
   {
     href: 'https://github.com/HybridAIOne/hybridclaw',
-    image: '/icons/github.svg',
     label: 'GitHub',
+    image: '/icons/github.svg',
   },
-  { href: '/docs', icon: 'docs', label: 'Docs' },
+  { href: '/docs', label: 'Docs', icon: 'docs' },
 ];
 
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
