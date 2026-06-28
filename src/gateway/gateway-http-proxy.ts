@@ -1036,6 +1036,66 @@ async function replaceHttpPlaceholders(
   return value;
 }
 
+async function replaceStoredProtocolPlaceholdersInString(
+  value: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  let next = '';
+  let lastIndex = 0;
+  for (const match of value.matchAll(HTTP_REQUEST_PLACEHOLDER_RE)) {
+    const matchIndex = match.index ?? 0;
+    next += value.slice(lastIndex, matchIndex);
+    const kind = match[1] || '';
+    const name = match[2] || '';
+    if (kind === 'secret') {
+      next += resolveStoredProtocolSecretOrThrow(name, {
+        ...context,
+        selector: context.selector || '<secret-placeholder>',
+      });
+    } else {
+      const envValue = readStoredRuntimeEnvValue(name);
+      if (!envValue) {
+        throw new GatewayRequestError(
+          400,
+          `Env store value ${name} is not configured.`,
+        );
+      }
+      next += envValue;
+    }
+    lastIndex = matchIndex + match[0].length;
+  }
+  next += value.slice(lastIndex);
+  return next;
+}
+
+async function replaceStoredProtocolPlaceholders(
+  value: unknown,
+  context: SecretResolveContext,
+): Promise<unknown> {
+  if (typeof value === 'string') {
+    return await replaceStoredProtocolPlaceholdersInString(value, context);
+  }
+  if (Array.isArray(value)) {
+    return await Promise.all(
+      value.map((entry) => replaceStoredProtocolPlaceholders(entry, context)),
+    );
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      await Promise.all(
+        Object.entries(value).map(async ([key, entry]) => [
+          key,
+          await replaceStoredProtocolPlaceholders(entry, {
+            ...context,
+            selector: context.selector || `json.${key}`,
+          }),
+        ]),
+      ),
+    );
+  }
+  return value;
+}
+
 const BOUND_DOMAIN_SUFFIX = '_BOUND_DOMAIN';
 const UNBOUND_CAPTURE_JSON_PATHS = new Set(['instance_url']);
 
@@ -1308,6 +1368,105 @@ async function buildHttpRequestPayloadBody(params: {
       );
     }
     return payloadBody;
+  }
+
+  if (typeof body.bodyBase64 === 'string') {
+    let payloadBuffer: Buffer;
+    try {
+      payloadBuffer = Buffer.from(body.bodyBase64, 'base64');
+    } catch {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    if (payloadBuffer.toString('base64') !== body.bodyBase64.trim()) {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    return new Uint8Array(payloadBuffer);
+  }
+  if (body.bodyBase64 !== undefined) {
+    throw new GatewayRequestError(
+      400,
+      '`bodyBase64` must be a base64 string when provided.',
+    );
+  }
+
+  return undefined;
+}
+
+async function buildStoredProtocolHttpRequestPayloadBody(params: {
+  body: ApiHttpRequestBody;
+  headers: Record<string, string>;
+  context: SecretResolveContext;
+  replacePlaceholders: boolean;
+}): Promise<BodyInit | undefined> {
+  const { body } = params;
+  const payloadSources = [
+    body.json !== undefined,
+    body.body !== undefined,
+    body.bodyBase64 !== undefined,
+    body.form !== undefined,
+  ].filter(Boolean).length;
+  if (payloadSources > 1) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `json`, `body`, `bodyBase64`, or `form`.',
+    );
+  }
+
+  if (body.json !== undefined) {
+    const jsonValue = params.replacePlaceholders
+      ? await replaceStoredProtocolPlaceholders(body.json, {
+          ...params.context,
+          selector: 'json',
+        })
+      : body.json;
+    if (
+      !Object.keys(params.headers).some(
+        (key) => key.toLowerCase() === 'content-type',
+      )
+    ) {
+      setHeaderValue(params.headers, 'Content-Type', 'application/json');
+    }
+    return JSON.stringify(jsonValue);
+  }
+
+  if (typeof body.body === 'string') {
+    return params.replacePlaceholders
+      ? await replaceStoredProtocolPlaceholdersInString(body.body, {
+          ...params.context,
+          selector: 'body',
+        })
+      : body.body;
+  }
+  if (body.body !== undefined) {
+    throw new GatewayRequestError(
+      400,
+      '`body` must be a string when provided. Use `json` for structured payloads.',
+    );
+  }
+
+  if (body.form !== undefined) {
+    const formParams = new URLSearchParams();
+    for (const [name, rawValue] of normalizeHttpRequestForm(body.form)) {
+      const resolvedValue = params.replacePlaceholders
+        ? await replaceStoredProtocolPlaceholdersInString(rawValue, {
+            ...params.context,
+            selector: `form.${name}`,
+          })
+        : rawValue;
+      formParams.append(name, resolvedValue);
+    }
+    if (
+      !Object.keys(params.headers).some(
+        (key) => key.toLowerCase() === 'content-type',
+      )
+    ) {
+      setHeaderValue(
+        params.headers,
+        'Content-Type',
+        'application/x-www-form-urlencoded',
+      );
+    }
+    return formParams.toString();
   }
 
   if (typeof body.bodyBase64 === 'string') {
@@ -2238,12 +2397,11 @@ export async function handleApiHttpRequest(
 
   let payloadBody: BodyInit | undefined;
   if (otcAkSk) {
-    const otcPayloadBody = await buildHttpRequestPayloadBody({
+    const otcPayloadBody = await buildStoredProtocolHttpRequestPayloadBody({
       body,
       headers,
       context: secretContext,
       replacePlaceholders,
-      resolveSecret: resolveStoredProtocolSecretOrThrow,
     });
     await applyOtcAkSkSigning({
       rule: otcAkSk,
