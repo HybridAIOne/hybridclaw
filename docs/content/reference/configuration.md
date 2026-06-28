@@ -102,6 +102,10 @@ saved revision history directly.
   on startup; update config files to use `binds` before `additionalMounts` is
   removed
 - `browser.provider` selects the browser automation backend. Supported values include `local`, `camofox`, `managed-cloud`, `browser-use-cloud`, and `mac-cua`. `browser.local.*` and `browser.camofox.*` configure persistent profile roots and headed mode; `browser.managedCloud.*` points at an operator-run HybridClaw browser pool with navigation-guard enforcement and optional `poolTokenRef` bearer authentication; `browser.browserUseCloud.*` configures the Browser Use Cloud passthrough and reads `BROWSER_USE_API_KEY` through the configured SecretRef; and `browser.macCua.*` selects the operator-owned macOS browser, driver command, driver args, and screenshot mode (`som`, `vision`, or `ax`). Camofox stealth mode is deny-by-default per host; allow it from the workspace policy with `browser.stealth.rules`. Run `hybridclaw doctor cua-mac` before enabling `mac-cua`; the provider requires the `cua-driver` binary plus macOS Accessibility and Screen Recording grants.
+- `ui.navigation[]` controls the console top navigation strip. Each entry has
+  `label` and `href`; optional `icon` values (`chat`, `agents`, `admin`,
+  `docs`) select built-in console icons, and optional `image` values use a
+  local image path such as `/icons/hybridai.png` or an HTTP(S) image URL.
 - `ops.healthHost` and `ops.healthPort` for the gateway HTTP bind address and
   port; the default is loopback on `127.0.0.1:9090`
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and

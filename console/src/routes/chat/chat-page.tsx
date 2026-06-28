@@ -44,7 +44,10 @@ import {
   DialogTitle,
 } from '../../components/dialog';
 import { MobileTopbarTrigger } from '../../components/sidebar/index';
-import { ViewSwitchNav } from '../../components/view-switch';
+import {
+  useConfiguredViewSwitchItems,
+  ViewSwitchNav,
+} from '../../components/view-switch';
 import {
   type ApprovalAction,
   buildApprovalCommand,
@@ -251,6 +254,7 @@ export function ChatPage() {
   }, [queryClient, auth.token, userId, getSessionId]);
 
   const chatApiReady = isAuthReadyForApi(auth);
+  const viewSwitchItems = useConfiguredViewSwitchItems(auth.token);
 
   const appStatusQuery = useQuery({
     queryKey: ['app-status', auth.token],
@@ -1113,7 +1117,7 @@ export function ChatPage() {
                 <span />
               </span>
             </button>
-            <ViewSwitchNav />
+            <ViewSwitchNav items={viewSwitchItems} />
           </div>
           {mobileQr ? (
             <div className={css.mobileQrOverlay}>

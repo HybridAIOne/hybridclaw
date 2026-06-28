@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
 import { createContext, type ReactNode, useContext } from 'react';
 import { validateToken } from '../api/client';
-import { useAuth } from '../auth';
+import { isAuthReadyForApi, useAuth } from '../auth';
 import { resolveCurrentAdminNavItem } from './admin-nav';
 import { AppSidebar } from './sidebar/app-sidebar';
 import {
@@ -12,7 +12,7 @@ import {
   SidebarProvider,
 } from './sidebar/index';
 import { SIDEBAR_NAV_GROUPS } from './sidebar/navigation';
-import { ViewSwitchNav } from './view-switch';
+import { useConfiguredViewSwitchItems, ViewSwitchNav } from './view-switch';
 
 const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
 
@@ -26,6 +26,7 @@ const AppShellConfigContext = createContext<AppShellConfigContextValue>({
 
 export function AppShell(props: { children: ReactNode }) {
   const auth = useAuth();
+  const authReady = isAuthReadyForApi(auth);
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
@@ -33,9 +34,10 @@ export function AppShell(props: { children: ReactNode }) {
     queryKey: ['status', auth.token],
     queryFn: () => validateToken(auth.token),
     initialData: auth.gatewayStatus ?? undefined,
-    enabled: Boolean(auth.token),
+    enabled: authReady,
     staleTime: 30_000,
   });
+  const viewSwitchItems = useConfiguredViewSwitchItems(auth.token);
   const emailEnabled =
     (statusQuery.data?.emailEnabled ?? auth.gatewayStatus?.emailEnabled) ===
     true;
@@ -64,7 +66,7 @@ export function AppShell(props: { children: ReactNode }) {
                 <h2>{currentNavItem.label}</h2>
               </div>
             </div>
-            <ViewSwitchNav />
+            <ViewSwitchNav items={viewSwitchItems} />
           </div>
           <div className="page-content">{props.children}</div>
         </SidebarInset>

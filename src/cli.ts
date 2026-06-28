@@ -1717,7 +1717,7 @@ async function handleConfigCommand(args: string[]): Promise<void> {
   }
 
   const value = parseRuntimeConfigCommandValue(rawValue);
-  const nextConfig = updateRuntimeConfig(
+  updateRuntimeConfig(
     (draft) => {
       setRuntimeConfigValueAtPath(draft, key, value);
     },
@@ -1728,7 +1728,6 @@ async function handleConfigCommand(args: string[]): Promise<void> {
   );
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   console.log(`Key: ${key}`);
-  console.log(JSON.stringify(nextConfig, null, 2));
   await runRuntimeConfigFileCheck();
 }
 

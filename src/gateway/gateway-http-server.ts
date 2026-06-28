@@ -7972,6 +7972,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname.startsWith('/icons/')) {
+      if (serveConsoleAsset(pathname, res)) return;
+      sendText(res, 404, 'Not Found');
+      return;
+    }
+
     if (canUseDevViteProxy(req) && isViteSourcePath(pathname)) {
       proxyToVite(req, res, pathname + url.search);
       return;

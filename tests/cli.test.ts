@@ -3841,6 +3841,9 @@ describe('CLI hybridai commands', () => {
       'Updated runtime config at /tmp/config.json.',
     );
     expect(logSpy).toHaveBeenCalledWith('Key: hybridai.maxTokens');
+    expect(logSpy).not.toHaveBeenCalledWith(
+      JSON.stringify(getRuntimeConfig(), null, 2),
+    );
   });
 
   it('runs hybridai login with explicit browser mode', async () => {

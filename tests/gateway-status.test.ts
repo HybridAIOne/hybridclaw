@@ -2228,6 +2228,7 @@ test('config set updates an existing dotted runtime config key', async () => {
     config.hybridai.maxTokens = 4096;
   });
 
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
   const { initDatabase } = await import('../src/memory/db.ts');
   const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
   const { handleGatewayCommand } = await import(
@@ -2247,10 +2248,12 @@ test('config set updates an existing dotted runtime config key', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Runtime Config Updated');
+  expect(result.text).toContain(`Path: ${configPath}`);
   expect(result.text).toContain('Key: hybridai.maxTokens');
-  expect(result.text).toContain('"maxTokens": 8192');
   expect(result.text).toContain('Check:');
   expect(result.text).toContain('✓ Config');
+  expect(result.text).not.toContain('Config:');
+  expect(result.text).not.toContain('"maxTokens": 8192');
   expect(getRuntimeConfig().hybridai.maxTokens).toBe(8192);
 });
 

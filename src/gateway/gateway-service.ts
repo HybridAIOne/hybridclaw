@@ -12650,16 +12650,13 @@ export async function handleGatewayCommand(
           }
           try {
             const value = parseRuntimeConfigCommandValue(rawValue);
-            const nextConfig = updateRuntimeConfig((draft) => {
+            updateRuntimeConfig((draft) => {
               setRuntimeConfigValueAtPath(draft, key, value);
             });
             const check = await runRuntimeConfigCheck();
             const text = [
               `Path: ${runtimeConfigPath()}`,
               `Key: ${key}`,
-              'Config:',
-              formatRuntimeConfigJson(nextConfig),
-              '',
               'Check:',
               check.text,
             ].join('\n');

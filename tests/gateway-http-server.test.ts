@@ -73,6 +73,12 @@ function makeTempDocsDir(options?: {
     'console.log("admin")',
     'utf8',
   );
+  fs.mkdirSync(path.join(consoleDistDir, 'icons'), { recursive: true });
+  fs.writeFileSync(
+    path.join(consoleDistDir, 'icons', 'github.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" />',
+    'utf8',
+  );
   fs.writeFileSync(
     path.join(contentDocsDir, '_category_.json'),
     JSON.stringify({ label: 'Docs', position: 1, collapsed: false }),
@@ -4595,6 +4601,29 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
     expect(res.body).toContain('<h1>Admin</h1>');
+  });
+
+  test('serves admin console public icon assets', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/icons/github.svg' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('image/svg+xml');
+    expect(res.body).toContain('<svg');
+  });
+
+  test('does not serve traversal-looking admin console icon paths', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/icons/%2e%2e/%2e%2e/config.json' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toBe('Not Found');
   });
 
   test('accepts a valid launch token on /auth/callback, sets a session cookie, and redirects to /admin', async () => {

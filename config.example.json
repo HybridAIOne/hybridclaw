@@ -1,5 +1,5 @@
 {
-  "version": 31,
+  "version": 32,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -14,6 +14,30 @@
       "provider": "manual",
       "health_check_interval_ms": 30000
     }
+  },
+  "ui": {
+    "navigation": [
+      {
+        "href": "/chat",
+        "label": "Chat"
+      },
+      {
+        "href": "/agents",
+        "label": "Agents"
+      },
+      {
+        "href": "/admin",
+        "label": "Admin"
+      },
+      {
+        "href": "https://github.com/HybridAIOne/hybridclaw",
+        "label": "GitHub"
+      },
+      {
+        "href": "/docs",
+        "label": "Docs"
+      }
+    ]
   },
   "browser": {
     "provider": "local",
