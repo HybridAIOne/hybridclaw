@@ -1,73 +1,151 @@
+import { useQuery } from '@tanstack/react-query';
 import { Link, useRouterState } from '@tanstack/react-router';
 import type { ComponentType } from 'react';
-import { Admin, Agents, Chat, Docs, Github } from './icons';
+import { fetchConfig } from '../api/client';
+import { Admin, Agents, Chat, Circle, Docs } from './icons';
 
-type ViewSwitchItem = {
+type ViewSwitchIcon = 'admin' | 'agents' | 'chat' | 'docs';
+
+export type ViewSwitchItem = {
   label: string;
-  icon: ComponentType;
-} & ({ href: string; external?: boolean } | { to: string; external?: false });
+  href: string;
+  icon?: ViewSwitchIcon;
+  image?: string;
+};
 
-const VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
-  { to: '/chat', label: 'Chat', icon: Chat },
-  { to: '/agents', label: 'Agents', icon: Agents },
-  { to: '/admin', label: 'Admin', icon: Admin },
+export const DEFAULT_VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
+  { href: '/chat', icon: 'chat', label: 'Chat' },
+  { href: '/agents', icon: 'agents', label: 'Agents' },
+  { href: '/admin', icon: 'admin', label: 'Admin' },
   {
     href: 'https://github.com/HybridAIOne/hybridclaw',
+    image: '/icons/github.svg',
     label: 'GitHub',
-    icon: Github,
-    external: true,
   },
-  { href: '/docs', label: 'Docs', icon: Docs },
+  { href: '/docs', icon: 'docs', label: 'Docs' },
 ];
+
+const VIEW_SWITCH_ICONS: Record<ViewSwitchIcon, ComponentType> = {
+  admin: Admin,
+  agents: Agents,
+  chat: Chat,
+  docs: Docs,
+};
+
+const SPA_NAVIGATION_PREFIXES = ['/admin', '/agents', '/chat'] as const;
+const VIEW_SWITCH_CONFIG_REFRESH_INTERVAL_MS = 30_000;
+
+export function useConfiguredViewSwitchItems(
+  token: string,
+): ReadonlyArray<ViewSwitchItem> | undefined {
+  const configQuery = useQuery({
+    queryKey: ['config', token],
+    queryFn: () => fetchConfig(token),
+    staleTime: 30_000,
+    refetchInterval: VIEW_SWITCH_CONFIG_REFRESH_INTERVAL_MS,
+    refetchOnWindowFocus: true,
+  });
+  return configQuery.data?.config.ui?.navigation;
+}
 
 function isActive(pathname: string, path: string): boolean {
   return pathname === path || pathname.startsWith(`${path}/`);
 }
 
-export function ViewSwitchNav() {
+function isExternalHref(href: string): boolean {
+  return /^https?:\/\//iu.test(href);
+}
+
+function isSpaHref(href: string): boolean {
+  // Keep configured links inside known console route families on the SPA
+  // router; other local paths intentionally fall back to normal anchors.
+  return SPA_NAVIGATION_PREFIXES.some(
+    (prefix) => href === prefix || href.startsWith(`${prefix}/`),
+  );
+}
+
+function NavigationMark({ item }: { item: ViewSwitchItem }) {
+  if (item.image) {
+    return (
+      <img
+        src={item.image}
+        alt=""
+        aria-hidden="true"
+        decoding="async"
+        draggable={false}
+        referrerPolicy="no-referrer"
+      />
+    );
+  }
+
+  const Icon = item.icon ? VIEW_SWITCH_ICONS[item.icon] : Circle;
+  return <Icon />;
+}
+
+function resolveActiveHref(
+  pathname: string,
+  items: ReadonlyArray<ViewSwitchItem>,
+): string | null {
+  return (
+    items
+      .filter(
+        (item) => !isExternalHref(item.href) && isActive(pathname, item.href),
+      )
+      .sort((a, b) => b.href.length - a.href.length)[0]?.href ?? null
+  );
+}
+
+export function ViewSwitchNav(props: {
+  items?: ReadonlyArray<ViewSwitchItem>;
+}) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
+  const items = props.items ?? DEFAULT_VIEW_SWITCH_ITEMS;
+  if (items.length === 0) return null;
+  const activeHref = resolveActiveHref(pathname, items);
 
   return (
     <nav className="view-switch" aria-label="Switch view">
-      {VIEW_SWITCH_ITEMS.map((item) => {
+      {items.map((item, index) => {
+        const key = `${item.href}:${item.label}:${index}`;
         const inner = (
           <>
             <span className="nav-link-icon" aria-hidden="true">
-              <item.icon />
+              <NavigationMark item={item} />
             </span>
             <span>{item.label}</span>
           </>
         );
-        if ('href' in item) {
-          const active = !item.external && isActive(pathname, item.href);
+        const external = isExternalHref(item.href);
+        if (external || !isSpaHref(item.href)) {
+          const active = item.href === activeHref;
           return (
             <a
-              key={item.href}
+              key={key}
               className={
                 active ? 'view-switch-link active' : 'view-switch-link'
               }
               href={item.href}
               aria-current={active ? 'page' : undefined}
-              target={item.external ? '_blank' : undefined}
-              rel={item.external ? 'noopener noreferrer' : undefined}
+              target={external ? '_blank' : undefined}
+              rel={external ? 'noopener noreferrer' : undefined}
             >
               {inner}
             </a>
           );
         }
-        const active = isActive(pathname, item.to);
+        const active = item.href === activeHref;
         return active ? (
           <span
-            key={item.to}
+            key={key}
             className="view-switch-link active"
             aria-current="page"
           >
             {inner}
           </span>
         ) : (
-          <Link key={item.to} className="view-switch-link" to={item.to}>
+          <Link key={key} className="view-switch-link" to={item.href}>
             {inner}
           </Link>
         );

@@ -205,6 +205,107 @@ test('session compaction backlog fix compacts oversized idle sessions and report
   );
 });
 
+test('unstarted session check prunes stale sessions with no user messages', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase, getOrCreateSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const { DB_PATH } = await import('../src/config/config.ts');
+
+  initDatabase({ quiet: true });
+  const assistantOnlySession = getOrCreateSession(
+    'session-assistant-only-stale',
+    null,
+    'web',
+    'main',
+  );
+  const userSession = getOrCreateSession(
+    'session-with-user-stale',
+    null,
+    'web',
+    'main',
+  );
+  const recentAssistantOnlySession = getOrCreateSession(
+    'session-assistant-only-recent',
+    null,
+    'web',
+    'main',
+  );
+
+  const db = new Database(DB_PATH);
+  db.prepare(
+    'INSERT INTO messages (session_id, user_id, username, role, content, agent_id) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(
+    assistantOnlySession.id,
+    'web',
+    'Web',
+    'assistant',
+    'Opening message',
+    'main',
+  );
+  db.prepare(
+    'INSERT INTO messages (session_id, user_id, username, role, content, agent_id) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(userSession.id, 'web', 'Web', 'assistant', 'Opening message', 'main');
+  db.prepare(
+    'INSERT INTO messages (session_id, user_id, username, role, content, agent_id) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(userSession.id, 'web', 'Web', 'user', 'Hello', 'main');
+  db.prepare(
+    'INSERT INTO messages (session_id, user_id, username, role, content, agent_id) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(
+    recentAssistantOnlySession.id,
+    'web',
+    'Web',
+    'assistant',
+    'Recent opening',
+    'main',
+  );
+  db.prepare(
+    'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+  ).run(1, '2026-04-01T00:00:00.000Z', assistantOnlySession.id);
+  db.prepare(
+    'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+  ).run(2, '2026-04-01T00:00:00.000Z', userSession.id);
+  db.prepare(
+    'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+  ).run(1, new Date().toISOString(), recentAssistantOnlySession.id);
+  db.close();
+
+  const { checkEmptySessions } = await import(
+    '../src/doctor/checks/resource-hygiene.ts'
+  );
+
+  const [result] = await checkEmptySessions();
+
+  expect(result).toMatchObject({
+    label: 'Unstarted sessions',
+    severity: 'warn',
+  });
+  expect(result.message).toContain('no user messages');
+
+  await result.fix?.apply();
+
+  const verifyDb = new Database(DB_PATH);
+  const assistantOnlyRow = verifyDb
+    .prepare('SELECT id FROM sessions WHERE id = ?')
+    .get(assistantOnlySession.id);
+  const userRow = verifyDb
+    .prepare('SELECT id FROM sessions WHERE id = ?')
+    .get(userSession.id);
+  const recentAssistantOnlyRow = verifyDb
+    .prepare('SELECT id FROM sessions WHERE id = ?')
+    .get(recentAssistantOnlySession.id);
+  verifyDb.close();
+
+  expect(assistantOnlyRow).toBeUndefined();
+  expect(userRow).toEqual({ id: userSession.id });
+  expect(recentAssistantOnlyRow).toEqual({
+    id: recentAssistantOnlySession.id,
+  });
+});
+
 test('ephemeral eval artifact check removes stale eval sessions and directories', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

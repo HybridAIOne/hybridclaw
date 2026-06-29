@@ -4,7 +4,10 @@ import { memo, useMemo, useState } from 'react';
 import { fetchAgentsOverview } from '../api/client';
 import type { AgentCard, AgentSessionCard } from '../api/types';
 import { useAuth } from '../auth';
-import { ViewSwitchNav } from '../components/view-switch';
+import {
+  useConfiguredViewSwitchItems,
+  ViewSwitchNav,
+} from '../components/view-switch';
 import {
   formatCompactNumber,
   formatDateTime,
@@ -137,6 +140,7 @@ const SessionTerminal = memo(
 export function AgentsOverviewPage() {
   const auth = useAuth();
   const navigate = useNavigate();
+  const viewSwitchItems = useConfiguredViewSwitchItems(auth.token);
   const [filter, setFilter] = useState<SessionFilter>('all');
   const [openOutputIds, setOpenOutputIds] = useState<Set<string>>(new Set());
 
@@ -212,7 +216,7 @@ export function AgentsOverviewPage() {
             </span>
           ) : null}
         </div>
-        <ViewSwitchNav />
+        <ViewSwitchNav items={viewSwitchItems} />
       </header>
 
       <div className="agents-stats-row">

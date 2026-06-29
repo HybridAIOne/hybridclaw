@@ -1391,14 +1391,17 @@ aside[data-state="collapsed"] .chatSidebarContent {
   padding: 6px 0;
 }
 
-.composerInputWrap:focus-within .composerInputOverlay::after {
-  content: "";
-  display: inline-block;
+.composerOverlayCaret {
+  display: none;
   width: 1px;
   height: 1.25em;
   margin-left: 1px;
   background: var(--text);
   vertical-align: -0.18em;
+}
+
+.composerInputWrap:focus-within .composerOverlayCaret {
+  display: inline-block;
 }
 
 .composerMentionPill {
@@ -1536,13 +1539,24 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .agentSelectPopup {
-  width: min(280px, calc(100vw - 16px));
+  width: min(380px, calc(100vw - 16px));
   height: auto;
   max-height: min(360px, calc(100vh - 32px));
 }
 
 .agentSelectItem {
   min-height: 44px;
+}
+
+.remoteAgentGroupLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.remoteAgentGroupIcon {
+  flex: 0 0 auto;
+  opacity: 0.85;
 }
 
 .agentSelectItemText {

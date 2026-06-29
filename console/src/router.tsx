@@ -3,9 +3,11 @@ import {
   createRoute,
   createRouter,
   Outlet,
+  useRouterState,
 } from '@tanstack/react-router';
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { AppShell } from './components/app-shell';
+import { resolveBrowserTitle } from './lib/browser-title';
 import { A2AInboxPage } from './routes/a2a-inbox';
 import { A2ATrustPage } from './routes/a2a-trust';
 import { AgentsPage } from './routes/agent-scoreboard';
@@ -15,6 +17,7 @@ import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
+import { ConnectorsPage } from './routes/connectors';
 import { DashboardPage } from './routes/dashboard';
 import { DistillPage } from './routes/distill';
 import { EmailPage } from './routes/email';
@@ -65,8 +68,29 @@ function optionalStringSearchValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function BrowserTitle() {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+
+  useEffect(() => {
+    document.title = resolveBrowserTitle(pathname);
+  }, [pathname]);
+
+  return null;
+}
+
+function RootRouteComponent() {
+  return (
+    <>
+      <BrowserTitle />
+      <Outlet />
+    </>
+  );
+}
+
 const rootRoute = createRootRoute({
-  component: () => <Outlet />,
+  component: RootRouteComponent,
 });
 
 function AppShellRouteComponent() {
@@ -221,6 +245,12 @@ const mcpRoute = createRoute({
   component: McpPage,
 });
 
+const connectorsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/connectors',
+  component: ConnectorsPage,
+});
+
 const auditRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/audit',
@@ -300,6 +330,7 @@ const routeTree = rootRoute.addChildren([
     jobsRoute,
     harnessEvolutionRoute,
     distillRoute,
+    connectorsRoute,
     mcpRoute,
     auditRoute,
     skillsRoute,

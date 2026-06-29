@@ -846,7 +846,7 @@
     <div class="hero-install-note">Prerequisites: Node.js 22+. The installer checks Node, installs the CLI, checks Docker, and can run onboarding. Docker provides full container isolation, while containerized deployments can switch to host sandbox mode. Manual npm install is still supported.</div>
   </div>
   <div class="hero-cta">
-    <a href="https://github.com/HybridAIOne/hybridclaw/releases/download/v0.25.2/HybridClaw-0.25.2-arm64.dmg" class="btn btn-primary">Download Apple Desktop App</a>
+    <a href="https://github.com/HybridAIOne/hybridclaw/releases/latest" class="btn btn-primary">Download Apple Desktop App</a>
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
     <a href="/hybridclaw/docs/" class="btn btn-secondary">Read Docs</a>
     <a href="#comparison" class="btn btn-secondary">See Comparison</a>
@@ -889,45 +889,25 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest release: v0.25.2</div>
+    <div class="section-label">Latest release: v0.25.8</div>
     <h2 class="section-title">Current release highlights</h2>
-    <p class="section-desc">HybridClaw v0.25.2 ships a signed and notarized Apple Desktop App for Apple Silicon Macs, plus a smoother first-run hatching experience, OAuth-backed MCP setup, richer skill administration, per-agent email routing, risk evals, and stronger governance evidence.</p>
+    <p class="section-desc">HybridClaw v0.25.8 tightens cloud public URL handling and email channel administration: MCP OAuth callbacks use public deployment origins, default allowlist additions save immediately, and advanced email settings stay tucked away.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f5a5;</div>
-      <h3>Apple Desktop App</h3>
-      <p>Download the signed Apple Silicon DMG from GitHub Releases, drag <code>HybridClaw.app</code> into <code>/Applications</code>, and launch the local gateway, chat, agents, and admin surfaces from a native macOS window.</p>
+      <div class="feature-icon">&#x1f310;</div>
+      <h3>Cloud MCP callbacks</h3>
+      <p>MCP OAuth setup now prefers configured public deployment URLs and other public gateway origins over private internal request hosts.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f9ed;</div>
-      <h3>Guided hatching</h3>
-      <p>First-run onboarding can use a dedicated model, keeps setup links visible in chat, records first-job ideas, sends the welcome email when available, and avoids duplicate bootstrap starts.</p>
+      <div class="feature-icon">&#x1f4e7;</div>
+      <h3>Email allowlist autosave</h3>
+      <p>Adding a default allowed sender in the admin console saves immediately, so the new address is persisted as soon as admins click Add.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f510;</div>
-      <h3>MCP OAuth</h3>
-      <p>Remote MCP servers can use gateway-managed OAuth 2.1 with guided setup in the TUI and web console, encrypted token storage, refresh, and <code>/mcp login</code> commands.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f9f0;</div>
-      <h3>Skill admin</h3>
-      <p>Skill detail pages show docs, prompts, dependencies, logos, credential status, recent invocations, enable controls, example launchers, and guarded package text-file edits.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x2709;&#xfe0f;</div>
-      <h3>Per-agent mailboxes</h3>
-      <p>Built-in IMAP/SMTP email can route separate mailbox credentials to separate agents, keep inbound threads on the right agent, and reply from the mailbox that received the message.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f9ea;</div>
-      <h3>Agent-risk evals</h3>
-      <p>The <code>agent-risk</code> gate covers top-level NIST AI RMF, NIST AI 600-1, and OWASP LLM Top 10 scenarios with redacted evidence artifacts.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
-      <h3>Governance evidence</h3>
-      <p>Admin RBAC role bundles, ISO/IEC 27001 evidence docs, ISO/IEC 42001 readiness docs, SBOM/provenance attestations, CodeQL, and secret scanning improve audit readiness.</p>
+      <div class="feature-icon">&#x1f5c2;</div>
+      <h3>Focused email settings</h3>
+      <p>Poll interval, text chunk limit, media limit, and channel instructions now live under collapsed advanced settings above additional mailboxes.</p>
     </div>
   </div>
 </section>
@@ -1666,7 +1646,7 @@
     <div class="features-grid">
       <div class="feature-card">
         <h3 style="color: var(--accent-1);">Apple Desktop App</h3>
-        <p>On Apple Silicon Macs, download <a href="https://github.com/HybridAIOne/hybridclaw/releases/download/v0.25.2/HybridClaw-0.25.2-arm64.dmg">HybridClaw-0.25.2-arm64.dmg</a>, open it, and drag <code>HybridClaw.app</code> into <code>/Applications</code>.</p>
+        <p>On Apple Silicon Macs, download the latest DMG from <a href="https://github.com/HybridAIOne/hybridclaw/releases/latest">GitHub Releases</a>, open it, and drag <code>HybridClaw.app</code> into <code>/Applications</code>.</p>
       </div>
       <div class="feature-card">
         <h3 style="color: var(--accent-1);">1. Install CLI</h3>

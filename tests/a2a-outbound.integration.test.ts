@@ -205,7 +205,11 @@ describe('A2A outbound integration', () => {
           jsonrpc: '2.0',
           method: 'message/send',
         }),
-        decoded: envelope,
+        decoded: expect.objectContaining({
+          ...envelope,
+          sender_agent_id: expect.stringMatching(/^main@local@inst-/),
+          sender_instance_id: expect.stringMatching(/^inst-/),
+        }),
       },
     ]);
   });

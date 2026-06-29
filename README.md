@@ -71,8 +71,8 @@ Fastest managed launch: [HybridClaw on HybridAI Cloud](https://hybridclaw.io).
 
 Apple Desktop App for macOS:
 
-- Download the signed and notarized Apple Silicon DMG:
-  [HybridClaw-0.25.2-arm64.dmg](https://github.com/HybridAIOne/hybridclaw/releases/download/v0.25.2/HybridClaw-0.25.2-arm64.dmg)
+- Download the signed and notarized Apple Silicon DMG from
+  [GitHub Releases](https://github.com/HybridAIOne/hybridclaw/releases/latest).
 - Open the DMG, drag `HybridClaw.app` into `/Applications`, and launch it.
 - The desktop app starts the local gateway and opens the chat, agents, and
   admin surfaces in a native macOS window.
@@ -121,7 +121,7 @@ npm run desktop
 
 | Area | Built in |
 | --- | --- |
-| Skills | 76 bundled skills, production business helpers, eval fixtures, packaged skill lifecycle, and human-distillation workflows |
+| Skills | 79 bundled skills, production business helpers, eval fixtures, packaged skill lifecycle, and human-distillation workflows |
 | Channels | Discord, Slack, Signal, WhatsApp, Telegram, Microsoft Teams, email, iMessage, fax, Twilio voice, web, and incoming webhooks |
 | Runtime | Gateway service, TUI client, web chat, admin console, loopback OpenAI-compatible API, Docker or host execution |
 | Governance | Encrypted runtime secrets, SecretRef credential isolation, approval policies, sandbox controls, audit trails with hash-chain integrity |
@@ -228,7 +228,7 @@ Core pieces:
 | Build desktop releases | [Desktop Release Builds](https://hybridaione.github.io/hybridclaw/docs/developer-guide/desktop-release) |
 | Contribute | [CONTRIBUTING.md](./CONTRIBUTING.md), [docs/content/README.md](./docs/content/README.md) |
 
-Latest release: [v0.25.2](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.25.2).
+Latest release: [v0.25.8](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.25.8).
 Release notes: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Development

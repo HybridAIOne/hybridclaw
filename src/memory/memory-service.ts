@@ -101,6 +101,7 @@ export interface MemoryBackend {
     agentId?: string,
     options?: {
       forceNewCurrent?: boolean;
+      touch?: boolean;
     },
   ) => Session;
   getSessionById: (sessionId: string) => Session | undefined;
@@ -464,6 +465,7 @@ export class MemoryService {
     agentId?: string,
     options?: {
       forceNewCurrent?: boolean;
+      touch?: boolean;
     },
   ): Session {
     return this.backend.getOrCreateSession(

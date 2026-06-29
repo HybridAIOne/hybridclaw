@@ -329,6 +329,30 @@ export interface AdminModelUsageRow extends AdminUsageSummary {
 
 export type AdminTunnelHealth = 'healthy' | 'reconnecting' | 'down';
 
+export type AdminTunnelProvider =
+  | 'cloudflare'
+  | 'manual'
+  | 'ngrok'
+  | 'ssh'
+  | 'tailscale';
+
+export interface AdminTunnelConfig {
+  mode: 'cloud' | 'local';
+  provider: AdminTunnelProvider | (string & {}) | null;
+  publicUrl: string;
+  healthCheckIntervalMs: number;
+}
+
+export interface AdminTunnelConfigInput {
+  provider: AdminTunnelProvider;
+  publicUrl: string;
+}
+
+export interface AdminTunnelConfigResponse {
+  config: AdminTunnelConfig;
+  tunnel: AdminTunnelStatus;
+}
+
 export interface AdminTunnelStatus {
   provider: string | null;
   publicUrl: string | null;
@@ -826,6 +850,28 @@ export interface AdminConfig {
       screenshotMode: 'som' | 'vision' | 'ax';
     };
   };
+  deployment: {
+    mode: 'cloud' | 'local';
+    public_url: string;
+    tunnel: {
+      provider?:
+        | 'cloudflare'
+        | 'manual'
+        | 'ngrok'
+        | 'ssh'
+        | 'tailscale'
+        | (string & {});
+      health_check_interval_ms: number;
+    };
+  };
+  ui?: {
+    navigation: Array<{
+      label: string;
+      href: string;
+      icon?: 'admin' | 'agents' | 'chat' | 'docs';
+      image?: string;
+    }>;
+  };
   ops: {
     healthHost: string;
     healthPort: number;
@@ -1257,15 +1303,32 @@ export interface AgentsOverviewResponse {
   sessions: AgentSessionCard[];
 }
 
+export type AgentListItemSource =
+  | { type: 'local' }
+  | {
+      type: 'remote';
+      peerId: string;
+      instanceId: string;
+    };
+
 export interface AgentListItem {
   id: string;
   name: string | null;
   imageUrl?: string | null;
   emptyChatHeader?: string | null;
+  source?: AgentListItemSource;
+}
+
+export interface RemoteAgentListPeer {
+  peerId: string;
+  instanceId: string;
+  agentCardUrl: string;
+  agents: AgentListItem[];
 }
 
 export interface AgentListResponse {
   agents: AgentListItem[];
+  remotePeers?: RemoteAgentListPeer[];
 }
 
 export interface JobAgent {
@@ -1385,6 +1448,51 @@ export interface AdminMcpOAuthStartResponse {
 export interface AdminMcpOAuthStatusResponse {
   name: string;
   auth: AdminMcpAuthStatus;
+}
+
+export type AdminConnectorId =
+  | 'hybridai'
+  | 'github'
+  | 'google'
+  | 'microsoft365';
+
+export type AdminConnectorState = 'connected' | 'not_connected' | 'needs_setup';
+
+export interface AdminConnector {
+  id: AdminConnectorId;
+  name: string;
+  description: string;
+  state: AdminConnectorState;
+  authKind: 'api-key' | 'oauth';
+  account: string | null;
+  detail: string;
+  scopes: string[];
+  routesConfigured: boolean;
+  clientConfigured: boolean;
+  clientSecretConfigured: boolean;
+  tenantId: string | null;
+  loginUrl: string | null;
+  adminConsentUrl: string | null;
+  setupSecretNames: string[];
+}
+
+export interface AdminConnectorsResponse {
+  connectors: AdminConnector[];
+  secretsPath: string;
+}
+
+export interface AdminConnectorOAuthStartResponse {
+  provider: Exclude<AdminConnectorId, 'hybridai'>;
+  authorizationUrl: string;
+  state: string;
+  expiresAt: number;
+}
+
+export interface AdminConnectorTestResponse {
+  provider: AdminConnectorId;
+  name: string;
+  ok: boolean;
+  message: string;
 }
 
 export interface AdminAuditEntry {
@@ -2393,6 +2501,7 @@ export interface AdminSecretMutationResponse {
 export interface DeleteSessionResult {
   deleted: boolean;
   sessionId: string;
+  skippedReason?: 'has_user_messages';
   deletedMessages: number;
   deletedTasks: number;
   deletedSemanticMemories: number;

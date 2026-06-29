@@ -10,6 +10,7 @@ import type { ChatUiMessage } from './chat-ui-message';
 export interface ChatHistoryUiData {
   messages: ChatUiMessage[];
   branchFamilies: Map<string, BranchVariant[]>;
+  requestedSessionId: string;
   resolvedSessionId: string;
   agentId: string | null;
   bootstrapAutostart: ChatHistoryResponse['bootstrapAutostart'];
@@ -94,6 +95,7 @@ export function buildChatHistoryUiData(
   return {
     messages,
     branchFamilies,
+    requestedSessionId,
     resolvedSessionId,
     agentId: raw.agentId?.trim() || null,
     bootstrapAutostart: raw.bootstrapAutostart ?? null,
@@ -111,7 +113,8 @@ export async function loadChatHistoryUi(
   token: string,
   sessionId: string,
   userId?: string,
+  agentId?: string,
 ): Promise<ChatHistoryUiData> {
-  const raw = await fetchChatHistory(token, sessionId, 80, userId);
+  const raw = await fetchChatHistory(token, sessionId, 80, userId, agentId);
   return buildChatHistoryUiData(raw, sessionId);
 }

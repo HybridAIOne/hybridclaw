@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { type KeyboardEvent, useEffect, useState } from 'react';
 import {
   fetchAdminAgents,
   fetchConfig,
@@ -89,6 +89,119 @@ function ListField(props: {
         placeholder={props.placeholder}
       />
     </label>
+  );
+}
+
+const WILDCARD_ALLOW_ENTRY = '*';
+
+function normalizeAllowListEntry(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function dedupeAllowListEntries(values: string[]): string[] {
+  const entries: string[] = [];
+  for (const value of values) {
+    if (!value || entries.includes(value)) continue;
+    entries.push(value);
+  }
+  return entries;
+}
+
+function AllowListField(props: {
+  label: string;
+  value: string[];
+  placeholder?: string;
+  onChange: (value: string[]) => void;
+  onAdd?: (value: string[]) => void;
+}) {
+  const [nextValue, setNextValue] = useState('');
+  const entries = dedupeAllowListEntries(props.value);
+  const nextEntry = normalizeAllowListEntry(nextValue);
+  const canAdd = nextEntry !== null;
+
+  const addEntry = () => {
+    if (!nextEntry) return;
+    if (
+      nextEntry === WILDCARD_ALLOW_ENTRY &&
+      !entries.includes(WILDCARD_ALLOW_ENTRY) &&
+      !window.confirm(
+        'Adding * allows every sender for this allowlist. Continue?',
+      )
+    ) {
+      return;
+    }
+
+    // Channel runtimes own format-specific normalization. The admin UI only
+    // trims and dedupes raw entries so channel-specific identities stay valid.
+    const nextEntries = dedupeAllowListEntries([...entries, nextEntry]);
+    props.onChange(nextEntries);
+    props.onAdd?.(nextEntries);
+    setNextValue('');
+  };
+
+  const removeEntry = (entryToRemove: string) => {
+    props.onChange(entries.filter((entry) => entry !== entryToRemove));
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    addEntry();
+  };
+
+  return (
+    <Field className="allow-list-field">
+      <FieldLabel>{props.label}</FieldLabel>
+      <div className="allow-list-add-row">
+        <Input
+          value={nextValue}
+          onChange={(event) => setNextValue(event.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={props.placeholder}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={!canAdd}
+          onClick={addEntry}
+        >
+          Add
+        </Button>
+      </div>
+      {entries.length > 0 ? (
+        <ul className="allow-list-items">
+          {entries.map((entry) => (
+            <li
+              className={
+                entry === WILDCARD_ALLOW_ENTRY
+                  ? 'allow-list-item allow-list-item-wildcard'
+                  : 'allow-list-item'
+              }
+              key={entry}
+            >
+              <div className="allow-list-entry-main">
+                <span className="allow-list-entry-value">{entry}</span>
+                {entry === WILDCARD_ALLOW_ENTRY ? (
+                  <span className="allow-list-warning-label">all senders</span>
+                ) : null}
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={`Remove ${entry}`}
+                onClick={() => removeEntry(entry)}
+              >
+                <Trash width={15} height={15} />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted-copy">No allowed senders configured.</p>
+      )}
+    </Field>
   );
 }
 
@@ -751,11 +864,10 @@ function WhatsAppChannelEditor(props: {
       <FormField
         name="whatsapp.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed DM senders"
             value={field.value as string[]}
-            rows={3}
-            placeholder="comma or newline separated"
+            placeholder="+14155551212 or *"
             onChange={field.onChange}
           />
         )}
@@ -764,11 +876,10 @@ function WhatsAppChannelEditor(props: {
       <FormField
         name="whatsapp.groupAllowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed group senders"
             value={field.value as string[]}
-            rows={3}
-            placeholder="comma or newline separated"
+            placeholder="+14155551212 or *"
             onChange={field.onChange}
           />
         )}
@@ -963,10 +1074,9 @@ function TelegramChannelEditor(props: {
       <FormField
         name="telegram.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed DM senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="numeric user id, @username, or *"
             onChange={field.onChange}
           />
@@ -976,10 +1086,9 @@ function TelegramChannelEditor(props: {
       <FormField
         name="telegram.groupAllowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed group senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="numeric user id, @username, or *"
             onChange={field.onChange}
           />
@@ -1114,10 +1223,9 @@ function ThreemaChannelEditor(props: {
       <FormField
         name="threema.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="threema:ABCDEFGH, threema:phone:41791234567, or *"
             onChange={field.onChange}
           />
@@ -1358,10 +1466,9 @@ function SignalChannelEditor(props: {
       <FormField
         name="signal.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed DM senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="+14155551212, Signal UUID, or *"
             onChange={field.onChange}
           />
@@ -1371,10 +1478,9 @@ function SignalChannelEditor(props: {
       <FormField
         name="signal.groupAllowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed group senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="+14155551212, Signal UUID, or *"
             onChange={field.onChange}
           />
@@ -1444,6 +1550,7 @@ function EmailChannelEditor(props: {
   hybridaiApiKeyConfigured: boolean;
   agents: AdminAgent[];
   token: string;
+  onAutoSave: (config: AdminConfig) => void;
   onSecretSaved: () => void;
 }) {
   const [fetchingEmailConfig, setFetchingEmailConfig] = useState(false);
@@ -1499,6 +1606,18 @@ function EmailChannelEditor(props: {
     setEmailAccounts(
       emailAccounts.filter((_, currentIndex) => currentIndex !== index),
     );
+  }
+
+  function saveDefaultAllowFrom(allowFrom: string[]) {
+    const nextConfig = {
+      ...props.draft,
+      email: {
+        ...props.draft.email,
+        allowFrom,
+      },
+    };
+    props.form.setDraft(nextConfig);
+    props.onAutoSave(nextConfig);
   }
 
   async function handleFetchEmailConfig() {
@@ -1791,61 +1910,67 @@ function EmailChannelEditor(props: {
       <FormField
         name="email.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="name@example.com, *@example.com"
             onChange={field.onChange}
+            onAdd={saveDefaultAllowFrom}
           />
         )}
       />
 
-      <div className="field-grid">
-        <FormField
-          name="email.pollIntervalMs"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Poll interval ms</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
-        />
-        <FormField
-          name="email.textChunkLimit"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Text chunk limit</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
-        />
-      </div>
-
-      <FormField
-        name="email.mediaMaxMb"
-        render={({ field }) => (
-          <Field>
-            <FieldLabel>Media max MB</FieldLabel>
-            <NumberField
-              integer
-              min={0}
-              value={field.value as number}
-              onValueChange={field.onChange}
+      <details className="channel-advanced-settings">
+        <summary>Advanced settings</summary>
+        <div className="channel-advanced-settings-body">
+          <div className="field-grid">
+            <FormField
+              name="email.pollIntervalMs"
+              render={({ field }) => (
+                <Field>
+                  <FieldLabel>Poll interval ms</FieldLabel>
+                  <NumberField
+                    integer
+                    min={0}
+                    value={field.value as number}
+                    onValueChange={field.onChange}
+                  />
+                </Field>
+              )}
             />
-          </Field>
-        )}
-      />
+            <FormField
+              name="email.textChunkLimit"
+              render={({ field }) => (
+                <Field>
+                  <FieldLabel>Text chunk limit</FieldLabel>
+                  <NumberField
+                    integer
+                    min={0}
+                    value={field.value as number}
+                    onValueChange={field.onChange}
+                  />
+                </Field>
+              )}
+            />
+          </div>
+
+          <FormField
+            name="email.mediaMaxMb"
+            render={({ field }) => (
+              <Field>
+                <FieldLabel>Media max MB</FieldLabel>
+                <NumberField
+                  integer
+                  min={0}
+                  value={field.value as number}
+                  onValueChange={field.onChange}
+                />
+              </Field>
+            )}
+          />
+          <ChannelInstructionsField kind="email" />
+        </div>
+      </details>
       <div className="email-account-section">
         <div className="email-account-section-header">
           <h4>Additional agent mailboxes</h4>
@@ -2084,10 +2209,9 @@ function EmailChannelEditor(props: {
                     }
                   />
 
-                  <ListField
+                  <AllowListField
                     label="Mailbox allowed senders"
                     value={account.allowFrom}
-                    rows={2}
                     placeholder="name@example.com, *@example.com"
                     onChange={(allowFrom) =>
                       updateEmailAccount(index, (current) => ({
@@ -2133,7 +2257,6 @@ function EmailChannelEditor(props: {
           </div>
         )}
       </div>
-      <ChannelInstructionsField kind="email" />
     </>
   );
 }
@@ -2479,11 +2602,10 @@ function TeamsChannelEditor(props: {
       <FormField
         name="msteams.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed AAD object IDs"
             value={field.value as string[]}
-            rows={4}
-            placeholder="comma or newline separated"
+            placeholder="AAD object ID or *"
             onChange={field.onChange}
           />
         )}
@@ -2651,11 +2773,10 @@ function SlackChannelEditor(props: {
       <FormField
         name="slack.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed DM Slack user IDs"
             value={field.value as string[]}
-            rows={4}
-            placeholder="comma or newline separated"
+            placeholder="Slack user ID or *"
             onChange={field.onChange}
           />
         )}
@@ -2664,11 +2785,10 @@ function SlackChannelEditor(props: {
       <FormField
         name="slack.groupAllowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed channel Slack user IDs"
             value={field.value as string[]}
-            rows={4}
-            placeholder="comma or newline separated"
+            placeholder="Slack user ID or *"
             onChange={field.onChange}
           />
         )}
@@ -3142,10 +3262,9 @@ function IMessageChannelEditor(props: {
       <FormField
         name="imessage.allowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed DM senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="phone, email, or chat:id"
             onChange={field.onChange}
           />
@@ -3155,10 +3274,9 @@ function IMessageChannelEditor(props: {
       <FormField
         name="imessage.groupAllowFrom"
         render={({ field }) => (
-          <ListField
+          <AllowListField
             label="Allowed group senders"
             value={field.value as string[]}
-            rows={3}
             placeholder="phone, email, or chat:id"
             onChange={field.onChange}
           />
@@ -3283,6 +3401,7 @@ function renderSelectedEditor(
   },
   agents: AdminAgent[],
   onConfigSaved: (config: AdminConfig) => void,
+  onConfigAutoSave: (config: AdminConfig) => void,
   onSecretSaved: () => void,
 ) {
   switch (kind) {
@@ -3392,6 +3511,7 @@ function renderSelectedEditor(
           hybridaiApiKeyConfigured={hybridaiApiKeyConfigured}
           agents={agents}
           token={token}
+          onAutoSave={onConfigAutoSave}
           onSecretSaved={onSecretSaved}
         />
       );
@@ -3635,6 +3755,7 @@ export function ChannelsPage() {
                           queryKey: ['status', auth.token],
                         });
                       },
+                      (config) => saveMutation.mutate(config),
                       () => {
                         void queryClient.invalidateQueries({
                           queryKey: ['status', auth.token],

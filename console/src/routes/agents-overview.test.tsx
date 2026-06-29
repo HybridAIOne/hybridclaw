@@ -14,6 +14,24 @@ import { AgentsOverviewPage } from './agents-overview';
 const fetchAgentsOverviewMock = vi.fn<() => Promise<AgentsOverviewResponse>>();
 const navigateMock = vi.fn();
 const useAuthMock = vi.fn();
+const useConfiguredViewSwitchItemsMock = vi.hoisted(() => vi.fn());
+const ViewSwitchNavMock = vi.hoisted(() => vi.fn());
+
+function ensureLocalStorage() {
+  if (typeof globalThis.localStorage?.clear === 'function') return;
+  const store = new Map<string, string>();
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      clear: () => store.clear(),
+      getItem: (key: string) => store.get(key) ?? null,
+      removeItem: (key: string) => store.delete(key),
+      setItem: (key: string, value: string) => {
+        store.set(key, String(value));
+      },
+    },
+  });
+}
 
 vi.mock('../api/client', () => ({
   fetchAgentsOverview: () => fetchAgentsOverviewMock(),
@@ -21,6 +39,15 @@ vi.mock('../api/client', () => ({
 
 vi.mock('../auth', () => ({
   useAuth: () => useAuthMock(),
+}));
+
+vi.mock('../components/view-switch', () => ({
+  useConfiguredViewSwitchItems: (token: string) =>
+    useConfiguredViewSwitchItemsMock(token),
+  ViewSwitchNav: (props: { items?: unknown }) => {
+    ViewSwitchNavMock(props);
+    return <nav data-testid="view-switch" />;
+  },
 }));
 
 vi.mock('@tanstack/react-router', () => ({
@@ -180,6 +207,17 @@ describe('AgentsOverviewPage', () => {
     navigateMock.mockReset();
     navigateMock.mockResolvedValue(undefined);
     useAuthMock.mockReset();
+    useConfiguredViewSwitchItemsMock.mockReset();
+    useConfiguredViewSwitchItemsMock.mockReturnValue([
+      { href: '/chat', label: 'Chat' },
+      {
+        href: 'https://hybridai.one/admin_startpage',
+        image: '/icons/hybridai.png',
+        label: 'HybridAI',
+      },
+    ]);
+    ViewSwitchNavMock.mockReset();
+    ensureLocalStorage();
     localStorage.clear();
     useAuthMock.mockReturnValue({ token: 'test-token' });
     fetchAgentsOverviewMock.mockResolvedValue(makeOverview());
@@ -195,6 +233,17 @@ describe('AgentsOverviewPage', () => {
     expect(screen.getByText('Main')).toBeTruthy();
     expect(screen.getByText('Session A')).toBeTruthy();
     expect(screen.getByText('Session B')).toBeTruthy();
+    expect(useConfiguredViewSwitchItemsMock).toHaveBeenCalledWith('test-token');
+    expect(ViewSwitchNavMock).toHaveBeenCalledWith({
+      items: [
+        { href: '/chat', label: 'Chat' },
+        {
+          href: 'https://hybridai.one/admin_startpage',
+          image: '/icons/hybridai.png',
+          label: 'HybridAI',
+        },
+      ],
+    });
 
     fireEvent.click(screen.getByRole('tab', { name: /Stopped/ }));
 

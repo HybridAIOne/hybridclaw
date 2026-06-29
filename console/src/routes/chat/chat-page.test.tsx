@@ -19,6 +19,7 @@ vi.mock('@tanstack/react-router', async () => {
 
 import type {
   BranchResponse,
+  ChatCleanupResponse,
   ChatContextResponse,
   ChatHistoryResponse,
   ChatMobileQrResponse,
@@ -49,11 +50,32 @@ const fetchChatRecentMock =
     ) => Promise<ChatRecentResponse>
   >();
 const fetchChatHistoryMock =
-  vi.fn<(token: string, sessionId: string) => Promise<ChatHistoryResponse>>();
+  vi.fn<
+    (
+      token: string,
+      sessionId: string,
+      limit?: number,
+      userId?: string,
+      agentId?: string,
+    ) => Promise<ChatHistoryResponse>
+  >();
 const fetchChatContextMock =
   vi.fn<(token: string, sessionId: string) => Promise<ChatContextResponse>>();
+const cleanupNoUserChatSessionsMock =
+  vi.fn<
+    (
+      token: string,
+      params: { channelId?: string; keepSessionId?: string },
+    ) => Promise<ChatCleanupResponse>
+  >();
 const deleteChatSessionMock =
-  vi.fn<(token: string, sessionId: string) => Promise<DeleteSessionResult>>();
+  vi.fn<
+    (
+      token: string,
+      sessionId: string,
+      options?: { onlyWithoutUserMessages?: boolean },
+    ) => Promise<DeleteSessionResult>
+  >();
 const createChatMobileQrMock =
   vi.fn<
     (
@@ -94,6 +116,10 @@ const isActiveMock = vi.fn();
 const useChatStreamMock = vi.fn();
 
 vi.mock('../../api/chat', () => ({
+  cleanupNoUserChatSessions: (
+    token: string,
+    params: { channelId?: string; keepSessionId?: string },
+  ) => cleanupNoUserChatSessionsMock(token, params),
   fetchAppStatus: (token: string) => fetchAppStatusMock(token),
   fetchChatRecent: (
     token: string,
@@ -103,8 +129,13 @@ vi.mock('../../api/chat', () => ({
     query?: string,
     scope?: 'user' | 'all',
   ) => fetchChatRecentMock(token, userId, channelId, limit, query, scope),
-  fetchChatHistory: (token: string, sessionId: string) =>
-    fetchChatHistoryMock(token, sessionId),
+  fetchChatHistory: (
+    token: string,
+    sessionId: string,
+    limit?: number,
+    userId?: string,
+    agentId?: string,
+  ) => fetchChatHistoryMock(token, sessionId, limit, userId, agentId),
   fetchChatContext: (token: string, sessionId: string) =>
     fetchChatContextMock(token, sessionId),
   createChatMobileQr: (
@@ -128,8 +159,14 @@ vi.mock('../../api/chat', () => ({
 }));
 
 vi.mock('../../api/client', () => ({
-  deleteSession: (token: string, sessionId: string) =>
-    deleteChatSessionMock(token, sessionId),
+  deleteSession: (
+    token: string,
+    sessionId: string,
+    options?: { onlyWithoutUserMessages?: boolean },
+  ) =>
+    options === undefined
+      ? deleteChatSessionMock(token, sessionId)
+      : deleteChatSessionMock(token, sessionId, options),
   fetchAgentList: (token: string) => fetchAgentListMock(token),
   fetchModels: (token: string) => fetchModelsMock(token),
   fetchSkills: (token: string) => fetchSkillsMock(token),
@@ -152,6 +189,7 @@ vi.mock('./use-chat-stream', () => ({
 }));
 
 vi.mock('../../components/view-switch', () => ({
+  useConfiguredViewSwitchItems: () => undefined,
   ViewSwitchNav: () => null,
 }));
 
@@ -244,6 +282,7 @@ describe('ChatPage', () => {
     fetchChatRecentMock.mockReset();
     fetchChatHistoryMock.mockReset();
     fetchChatContextMock.mockReset();
+    cleanupNoUserChatSessionsMock.mockReset();
     deleteChatSessionMock.mockReset();
     createChatMobileQrMock.mockReset();
     createChatBranchMock.mockReset();
@@ -323,6 +362,10 @@ describe('ChatPage', () => {
     fetchChatContextMock.mockResolvedValue({
       sessionId: 'session-a',
       snapshot: null,
+    });
+    cleanupNoUserChatSessionsMock.mockResolvedValue({
+      deletedCount: 0,
+      deletedSessionIds: [],
     });
     deleteChatSessionMock.mockResolvedValue({
       deleted: true,
@@ -426,6 +469,9 @@ describe('ChatPage', () => {
       expect(fetchChatHistoryMock).toHaveBeenCalledWith(
         'test-token',
         'session-b',
+        80,
+        'web-user-1',
+        undefined,
       ),
     );
   });
@@ -451,6 +497,258 @@ describe('ChatPage', () => {
         '/1password List all items in my "Development" vault',
       ),
     );
+  });
+
+  it('mints a session and loads history for a launch agent query param', async () => {
+    const routerModule = (await import(
+      '@tanstack/react-router'
+    )) as unknown as {
+      __testRouter: TestRouter;
+    };
+    routerModule.__testRouter.setSessionId(null);
+    window.history.replaceState(null, '', '/chat?agent=assistant');
+    fetchChatHistoryMock.mockImplementation(async (_token, sessionId) => ({
+      sessionId,
+      agentId: 'assistant',
+      history: [],
+    }));
+
+    renderChatPage();
+
+    await waitFor(() =>
+      expect(routerModule.__testRouter.lastTo).toBe('/chat/$sessionId'),
+    );
+    expect(routerModule.__testRouter.lastReplace).toBe(true);
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
+        80,
+        'web-user-1',
+        'assistant',
+      ),
+    );
+  });
+
+  it('mints a session and loads history for the configured default agent on bare chat', async () => {
+    const routerModule = (await import(
+      '@tanstack/react-router'
+    )) as unknown as {
+      __testRouter: TestRouter;
+    };
+    routerModule.__testRouter.setSessionId(null);
+    window.history.replaceState(null, '', '/chat');
+    const gatewayStatus: GatewayStatus = {
+      status: 'ok',
+      webAuthConfigured: true,
+      version: '0.0.0',
+      imageTag: null,
+      uptime: 0,
+      sessions: 0,
+      activeContainers: 0,
+      defaultAgentId: 'assistant',
+      defaultModel: 'gpt-5',
+      ragDefault: false,
+      timestamp: '2026-04-14T10:00:00.000Z',
+    };
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      token: 'test-token',
+      gatewayStatus,
+      error: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+      retry: vi.fn(),
+    });
+    fetchAppStatusMock.mockResolvedValue(gatewayStatus);
+    fetchChatHistoryMock.mockImplementation(async (_token, sessionId) => ({
+      sessionId,
+      agentId: 'assistant',
+      history: [],
+      bootstrapAutostart: {
+        status: 'starting',
+        fileName: 'BOOTSTRAP.md',
+      },
+    }));
+
+    renderChatPage();
+
+    await waitFor(() =>
+      expect(routerModule.__testRouter.lastTo).toBe('/chat/$sessionId'),
+    );
+    expect(routerModule.__testRouter.lastReplace).toBe(true);
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
+        80,
+        'web-user-1',
+        undefined,
+      ),
+    );
+  });
+
+  it('does not reuse a launch agent when starting a new conversation', async () => {
+    const routerModule = (await import(
+      '@tanstack/react-router'
+    )) as unknown as {
+      __testRouter: TestRouter;
+    };
+    routerModule.__testRouter.setSessionId(null);
+    window.history.replaceState(null, '', '/chat?agent=assistant');
+    fetchChatHistoryMock.mockImplementation(
+      async (_token, sessionId, _limit, _userId, agentId) => ({
+        sessionId,
+        agentId: agentId || undefined,
+        history:
+          agentId === 'assistant'
+            ? [
+                {
+                  id: 101,
+                  role: 'assistant',
+                  content: 'Launch agent session',
+                },
+              ]
+            : [],
+      }),
+    );
+
+    renderChatPage();
+
+    expect(await screen.findByText('Launch agent session')).not.toBeNull();
+    const launchCall = fetchChatHistoryMock.mock.calls.find(
+      (call) => call[4] === 'assistant',
+    );
+    const launchSessionId = launchCall?.[1];
+    expect(launchSessionId).toMatch(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open sidebar' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'New Conversation' }),
+    );
+
+    await waitFor(() => {
+      const freshCall = fetchChatHistoryMock.mock.calls.find(
+        (call) =>
+          call[4] === undefined &&
+          call[1] !== launchSessionId &&
+          /^sess_\d{8}_\d{6}_[0-9a-f]{8}$/.test(call[1]),
+      );
+      expect(freshCall).toBeTruthy();
+    });
+    await waitFor(() =>
+      expect(cleanupNoUserChatSessionsMock).toHaveBeenCalledWith('test-token', {
+        channelId: 'web',
+        keepSessionId: expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
+      }),
+    );
+  });
+
+  it('mints a fresh session when starting a new conversation', async () => {
+    const routerModule = (await import(
+      '@tanstack/react-router'
+    )) as unknown as {
+      __testRouter: TestRouter;
+    };
+    fetchChatHistoryMock.mockImplementation(async (_token, sessionId) => ({
+      sessionId,
+      history:
+        sessionId === 'session-a'
+          ? [{ id: 101, role: 'assistant', content: 'Opened session A' }]
+          : [],
+      bootstrapAutostart:
+        sessionId === 'session-a'
+          ? undefined
+          : {
+              status: 'starting',
+              fileName: 'OPENING.md',
+            },
+    }));
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open sidebar' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'New Conversation' }),
+    );
+
+    await waitFor(() =>
+      expect(routerModule.__testRouter.lastTo).toBe('/chat/$sessionId'),
+    );
+    expect(routerModule.__testRouter.lastReplace).toBe(false);
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
+        80,
+        'web-user-1',
+        undefined,
+      ),
+    );
+    await waitFor(() =>
+      expect(cleanupNoUserChatSessionsMock).toHaveBeenCalledWith('test-token', {
+        channelId: 'web',
+        keepSessionId: expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
+      }),
+    );
+    expect(deleteChatSessionMock).not.toHaveBeenCalled();
+
+    const firstFreshSessionId = fetchChatHistoryMock.mock.calls
+      .map((call) => call[1])
+      .find((sessionId) => /^sess_\d{8}_\d{6}_[0-9a-f]{8}$/.test(sessionId));
+    expect(firstFreshSessionId).toBeTruthy();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'New Conversation' }),
+    );
+
+    await waitFor(() =>
+      expect(cleanupNoUserChatSessionsMock).toHaveBeenCalledWith('test-token', {
+        channelId: 'web',
+        keepSessionId: expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
+      }),
+    );
+    expect(cleanupNoUserChatSessionsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps sessions with user messages when starting a new conversation', async () => {
+    const routerModule = (await import(
+      '@tanstack/react-router'
+    )) as unknown as {
+      __testRouter: TestRouter;
+    };
+    fetchChatHistoryMock.mockImplementation(async (_token, sessionId) => ({
+      sessionId,
+      history:
+        sessionId === 'session-a'
+          ? [
+              { id: 101, role: 'assistant', content: 'Opened session A' },
+              { id: 102, role: 'user', content: 'Hello' },
+            ]
+          : [],
+    }));
+
+    renderChatPage();
+
+    expect(await screen.findByText('Hello')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open sidebar' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'New Conversation' }),
+    );
+
+    await waitFor(() =>
+      expect(routerModule.__testRouter.lastTo).toBe('/chat/$sessionId'),
+    );
+    await waitFor(() =>
+      expect(cleanupNoUserChatSessionsMock).toHaveBeenCalledWith('test-token', {
+        channelId: 'web',
+        keepSessionId: expect.stringMatching(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/),
+      }),
+    );
+    expect(deleteChatSessionMock).not.toHaveBeenCalled();
   });
 
   it('syncs the agent dropdown from the active session history', async () => {
@@ -527,10 +825,13 @@ describe('ChatPage', () => {
   });
 
   it('switches agents from the composer dropdown using the command path', async () => {
-    fetchChatHistoryMock.mockResolvedValue({
-      sessionId: 'session-a',
-      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
-    });
+    fetchChatHistoryMock.mockImplementation(async (_token, sessionId) => ({
+      sessionId,
+      history:
+        sessionId === 'session-a'
+          ? [{ id: 101, role: 'assistant', content: 'Opened session A' }]
+          : [],
+    }));
 
     renderChatPage();
 
@@ -845,8 +1146,8 @@ describe('ChatPage', () => {
 
     expect(fetchChatHistoryMock).toHaveBeenCalledTimes(2);
     expect(fetchChatHistoryMock.mock.calls).toEqual([
-      ['test-token', 'session-a'],
-      ['test-token', 'session-b'],
+      ['test-token', 'session-a', 80, 'web-user-1', undefined],
+      ['test-token', 'session-b', 80, 'web-user-1', undefined],
     ]);
   });
 
@@ -895,6 +1196,9 @@ describe('ChatPage', () => {
       expect(fetchChatHistoryMock).toHaveBeenCalledWith(
         'test-token',
         'session-b',
+        80,
+        'web-user-1',
+        undefined,
       ),
     );
   });
@@ -950,6 +1254,9 @@ describe('ChatPage', () => {
       expect(fetchChatHistoryMock).toHaveBeenCalledWith(
         'test-token',
         'session-search',
+        80,
+        'web-user-1',
+        undefined,
       ),
     );
   });
@@ -1364,6 +1671,7 @@ describe('ChatPage', () => {
     )) as unknown as {
       __testRouter: TestRouter;
     };
+    window.history.replaceState(null, '', '/chat/session-a?agent=assistant');
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
       history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
@@ -1383,6 +1691,15 @@ describe('ChatPage', () => {
     renderChatPage();
 
     expect(await screen.findByText('Opened session A')).not.toBeNull();
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-a',
+        80,
+        'web-user-1',
+        'assistant',
+      ),
+    );
 
     fireEvent.click(
       screen.getByRole('button', {
@@ -1398,7 +1715,19 @@ describe('ChatPage', () => {
         'session-a',
       ),
     );
-    await waitFor(() => expect(routerModule.__testRouter.lastTo).toBe('/chat'));
+    await waitFor(() =>
+      expect(routerModule.__testRouter.lastTo).toBe('/chat/$sessionId'),
+    );
+    expect(routerModule.__testRouter.lastReplace).toBe(true);
+    await waitFor(() => {
+      const freshCall = fetchChatHistoryMock.mock.calls.find(
+        (call) =>
+          call[1] !== 'session-a' &&
+          call[4] === undefined &&
+          /^sess_\d{8}_\d{6}_[0-9a-f]{8}$/.test(call[1]),
+      );
+      expect(freshCall).toBeTruthy();
+    });
   });
 
   it('renders the jump-to-latest chip when scrolled away and clears it on click', async () => {
@@ -1567,6 +1896,9 @@ describe('ChatPage', () => {
       expect(fetchChatHistoryMock).toHaveBeenCalledWith(
         'test-token',
         'session-branch',
+        80,
+        'web-user-1',
+        undefined,
       ),
     );
     await waitFor(() =>

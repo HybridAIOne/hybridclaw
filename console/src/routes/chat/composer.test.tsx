@@ -124,6 +124,76 @@ describe('Composer', () => {
     expect(onAgentSwitch).toHaveBeenCalledWith('charly');
   });
 
+  it('groups trusted remote agents and inserts a canonical mention when selected', async () => {
+    const onAgentSwitch = vi.fn();
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'remote@team@inst-peer',
+          name: 'Remote Research',
+          source: {
+            type: 'remote',
+            peerId: 'inst-peer',
+            instanceId: 'inst-peer',
+          },
+        },
+      ],
+      selectedAgentId: 'main',
+      onAgentSwitch,
+    });
+
+    fireEvent.click(screen.getByLabelText('Switch agent'));
+    const listbox = screen.getByRole('listbox');
+    expect(listbox.textContent).toContain('Local');
+    expect(listbox.textContent).toContain('inst-peer');
+    fireEvent.click(
+      within(listbox).getByRole('option', { name: 'Remote Research' }),
+    );
+
+    const textarea = getTextarea();
+    await waitFor(() => expect(document.activeElement).toBe(textarea));
+    expect(textarea.value).toBe('@remote@team@inst-peer ');
+    expect(textarea.selectionStart).toBe('@remote@team@inst-peer '.length);
+    expect(onAgentSwitch).not.toHaveBeenCalled();
+  });
+
+  it('places the caret after the inserted remote address before existing text', async () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'remote@team@inst-peer',
+          name: 'Remote Research',
+          source: {
+            type: 'remote',
+            peerId: 'inst-peer',
+            instanceId: 'inst-peer',
+          },
+        },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: 'summarize this' } });
+
+    fireEvent.click(screen.getByLabelText('Switch agent'));
+    fireEvent.click(
+      within(screen.getByRole('listbox')).getByRole('option', {
+        name: 'Remote Research',
+      }),
+    );
+
+    expect(textarea.value).toBe('@remote@team@inst-peer summarize this');
+    await waitFor(() => {
+      expect(document.activeElement).toBe(textarea);
+      expect(textarea.selectionStart).toBe('@remote@team@inst-peer '.length);
+    });
+    expect(
+      document.querySelector(`.${css.composerOverlayCaret}`),
+    ).not.toBeNull();
+  });
+
   it('does not render persistent agent mention chips', () => {
     renderComposer({
       agents: [
@@ -179,6 +249,34 @@ describe('Composer', () => {
       ),
     );
     expect(fetchChatCommandsMock).not.toHaveBeenCalled();
+  });
+
+  it('suggests canonical remote agent mentions', async () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'remote@team@inst-peer',
+          name: 'Remote Research',
+          source: {
+            type: 'remote',
+            peerId: 'inst-peer',
+            instanceId: 'inst-peer',
+          },
+        },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: '@remote@te' } });
+
+    const panel = await screen.findByRole('listbox', { name: 'Agents' });
+    expect(panel.textContent).toContain('@remote@team@inst-peer');
+
+    fireEvent.keyDown(textarea, { key: 'Tab' });
+
+    expect(textarea.value).toBe('@remote@team@inst-peer ');
+    expect(screen.getByText('@remote@team@inst-peer')).not.toBeNull();
   });
 
   it('shows a neutral loading avatar until the agent image loads', async () => {

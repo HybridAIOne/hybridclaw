@@ -32,6 +32,7 @@ import {
   required,
 } from '../components/field';
 import { Form, FormField, useForm } from '../components/form';
+import { Trash } from '../components/icons';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { NumberField } from '../components/number-field';
@@ -40,6 +41,7 @@ import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
+import { DEFAULT_VIEW_SWITCH_ITEMS } from '../components/view-switch';
 import { useFormMutation } from '../hooks/use-form-mutation';
 import { useUnsavedChangesGuard } from '../hooks/use-unsaved-changes-guard';
 import { getErrorMessage } from '../lib/error-message';
@@ -58,6 +60,7 @@ type BrowserObjectSection = Exclude<
   keyof BrowserConfig,
   'provider' | 'allowPrivateNetwork'
 >;
+type NavigationItem = NonNullable<AdminConfig['ui']>['navigation'][number];
 const LOCAL_DOCKER_POOL_TENANT_ID = 'main';
 
 const PROVIDER_OPTIONS: ReadonlyArray<{
@@ -72,6 +75,18 @@ const PROVIDER_OPTIONS: ReadonlyArray<{
 ];
 
 const CONTAINER_MEMORY_PATTERN = /^\d+(?:\.\d+)?[kKmMgG]?$/;
+const NAVIGATION_LABEL_MAX_LENGTH = 48;
+const NAVIGATION_HREF_INPUT_PATTERN = '(?:/(?!/).*|https?://.+)';
+const NAVIGATION_HREF_ERROR =
+  'Use a local path starting with / or an http(s) URL.';
+const NAVIGATION_IMAGE_INPUT_PATTERN = '(?:|/(?!/).*|https?://.+)';
+const NAVIGATION_IMAGE_ERROR =
+  'Use a local image path starting with / or an http(s) image URL.';
+
+const NEW_NAVIGATION_ITEM: NavigationItem = {
+  href: '',
+  label: '',
+};
 
 function defaultBrowserConfig(): BrowserConfig {
   return {
@@ -182,12 +197,91 @@ function browserConfig(config: AdminConfig): BrowserConfig {
   });
 }
 
+function navigationConfig(config: AdminConfig): NavigationItem[] {
+  return Array.isArray(config.ui?.navigation)
+    ? config.ui.navigation
+    : DEFAULT_VIEW_SWITCH_ITEMS.map((item) => ({ ...item }));
+}
+
+function validateNavigationLabel(value: string): string | null {
+  if (value.trim() === '') return 'Required.';
+  return value.length > NAVIGATION_LABEL_MAX_LENGTH
+    ? `Must be at most ${NAVIGATION_LABEL_MAX_LENGTH} characters.`
+    : null;
+}
+
+function validateNavigationHref(value: string): string | null {
+  const candidate = value.trim();
+  if (candidate === '') return 'Required.';
+
+  if (candidate.startsWith('/')) {
+    if (candidate.startsWith('//')) {
+      return NAVIGATION_HREF_ERROR;
+    }
+    try {
+      new URL(candidate, 'http://127.0.0.1');
+      return null;
+    } catch {
+      return NAVIGATION_HREF_ERROR;
+    }
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+      ? null
+      : NAVIGATION_HREF_ERROR;
+  } catch {
+    return NAVIGATION_HREF_ERROR;
+  }
+}
+
+function validateNavigationImage(value: string | undefined): string | null {
+  const candidate = (value ?? '').trim();
+  if (candidate === '') return null;
+
+  if (candidate.startsWith('/')) {
+    if (candidate.startsWith('//')) {
+      return NAVIGATION_IMAGE_ERROR;
+    }
+    try {
+      new URL(candidate, 'http://127.0.0.1');
+      return null;
+    } catch {
+      return NAVIGATION_IMAGE_ERROR;
+    }
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+      ? null
+      : NAVIGATION_IMAGE_ERROR;
+  } catch {
+    return NAVIGATION_IMAGE_ERROR;
+  }
+}
+
 function withBrowser(
   current: AdminConfig | null,
   updater: (browser: BrowserConfig) => BrowserConfig,
 ): AdminConfig | null {
   if (!current) return current;
   return { ...current, browser: updater(browserConfig(current)) };
+}
+
+function withNavigation(
+  current: AdminConfig | null,
+  updater: (navigation: NavigationItem[]) => NavigationItem[],
+): AdminConfig | null {
+  if (!current) return current;
+  return {
+    ...current,
+    ui: {
+      ...(current.ui ?? {}),
+      navigation: updater(navigationConfig(current)),
+    },
+  };
 }
 
 function setBrowserSection<K extends BrowserObjectSection>(
@@ -290,6 +384,153 @@ function ProfileBrowserFields({
         </FieldContent>
       </Field>
     </>
+  );
+}
+
+function NavigationFields({
+  items,
+  setDraft,
+}: {
+  items: NavigationItem[];
+  setDraft: DraftSetter;
+}) {
+  const nextRowKeyRef = useRef(0);
+  const rowKeysRef = useRef<string[]>([]);
+  const getRowKey = (index: number): string => {
+    while (rowKeysRef.current.length <= index) {
+      const nextKey = nextRowKeyRef.current;
+      nextRowKeyRef.current += 1;
+      rowKeysRef.current.push(`navigation-row-${nextKey}`);
+    }
+    return rowKeysRef.current[index];
+  };
+
+  const updateItem = (index: number, updates: Partial<NavigationItem>) => {
+    setDraft((current) =>
+      withNavigation(current, (navigation) =>
+        navigation.map((item, currentIndex) =>
+          currentIndex === index ? { ...item, ...updates } : item,
+        ),
+      ),
+    );
+  };
+
+  const removeItem = (index: number) => {
+    rowKeysRef.current.splice(index, 1);
+    setDraft((current) =>
+      withNavigation(current, (navigation) =>
+        navigation.filter((_, currentIndex) => currentIndex !== index),
+      ),
+    );
+  };
+
+  const addItem = () => {
+    const nextKey = nextRowKeyRef.current;
+    nextRowKeyRef.current += 1;
+    rowKeysRef.current.push(`navigation-row-${nextKey}`);
+    setDraft((current) =>
+      withNavigation(current, (navigation) => [
+        ...navigation,
+        { ...NEW_NAVIGATION_ITEM },
+      ]),
+    );
+  };
+
+  return (
+    <Field>
+      <FieldLabel>Navigation links</FieldLabel>
+      <FieldDescription>
+        Local paths like <code>/admin/channels</code> and HTTP(S) URLs are shown
+        in the top navigation strip. Optional image paths or URLs render as the
+        link icon.
+      </FieldDescription>
+      {items.length > 0 ? (
+        <div className={styles.navigationList}>
+          {items.map((item, index) => {
+            const rowKey = getRowKey(index);
+            return (
+              <div className={styles.navigationRow} key={rowKey}>
+                <Field
+                  required
+                  error={validateNavigationLabel(item.label)}
+                  className={styles.navigationControl}
+                >
+                  <Input
+                    aria-label={`Navigation item ${index + 1} label`}
+                    value={item.label}
+                    placeholder="Link text"
+                    maxLength={NAVIGATION_LABEL_MAX_LENGTH}
+                    onChange={(event) =>
+                      updateItem(index, {
+                        icon: undefined,
+                        label: event.target.value,
+                      })
+                    }
+                  />
+                  <FieldError />
+                </Field>
+                <Field
+                  required
+                  error={validateNavigationHref(item.href)}
+                  className={styles.navigationControl}
+                >
+                  <Input
+                    aria-label={`Navigation item ${index + 1} href`}
+                    value={item.href}
+                    placeholder="/admin/channels or https://hybridclaw.io"
+                    pattern={NAVIGATION_HREF_INPUT_PATTERN}
+                    title={NAVIGATION_HREF_ERROR}
+                    onChange={(event) =>
+                      updateItem(index, {
+                        href: event.target.value,
+                        icon: undefined,
+                      })
+                    }
+                  />
+                  <FieldError />
+                </Field>
+                <Field
+                  error={validateNavigationImage(item.image)}
+                  className={styles.navigationControl}
+                >
+                  <Input
+                    aria-label={`Navigation item ${index + 1} image`}
+                    value={item.image ?? ''}
+                    placeholder="/icons/hybridai.png"
+                    pattern={NAVIGATION_IMAGE_INPUT_PATTERN}
+                    title={NAVIGATION_IMAGE_ERROR}
+                    onChange={(event) =>
+                      updateItem(index, {
+                        image: event.target.value.trim()
+                          ? event.target.value
+                          : undefined,
+                      })
+                    }
+                  />
+                  <FieldError />
+                </Field>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Remove navigation item ${index + 1}`}
+                  onClick={() => removeItem(index)}
+                >
+                  <Trash width={15} height={15} />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="muted-copy">No navigation links configured.</p>
+      )}
+      <div className="button-row">
+        <Button type="button" variant="ghost" onClick={addItem}>
+          Add link
+        </Button>
+      </div>
+    </Field>
   );
 }
 
@@ -429,6 +670,7 @@ export function ConfigPage() {
   }
 
   const browser = draftBrowser;
+  const navigation = navigationConfig(draft);
 
   const handleViewModeChange = (next: string) => {
     const target = next === 'json' ? 'json' : 'form';
@@ -626,6 +868,18 @@ export function ConfigPage() {
                       </Field>
                     )}
                   />
+                </FieldGroup>
+              </FieldSet>
+            </Card>
+
+            <Card className={styles.sectionCard}>
+              <FieldSet>
+                <FieldLegend>Navigation</FieldLegend>
+                <FieldDescription className={styles.sectionDescription}>
+                  Top-level links shown in the console navigation strip.
+                </FieldDescription>
+                <FieldGroup>
+                  <NavigationFields items={navigation} setDraft={setDraft} />
                 </FieldGroup>
               </FieldSet>
             </Card>

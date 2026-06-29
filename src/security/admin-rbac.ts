@@ -7,7 +7,10 @@ export const ADMIN_SECRET_RBAC_ACTIONS = [
 export const ADMIN_RBAC_ACTIONS = [
   ...ADMIN_SECRET_RBAC_ACTIONS,
   'admin.overview.read',
+  'admin.tunnel.read',
+  'admin.tunnel.write',
   'admin.tunnel.reconnect',
+  'admin.tunnel.stop',
   'admin.statistics.read',
   'admin.logs.read',
   'admin.team.read',
@@ -30,6 +33,7 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.channels.read',
   'admin.channels.write',
   'admin.channels.delete',
+  'admin.connectors.read',
   'admin.mcp.read',
   'admin.mcp.write',
   'admin.mcp.delete',
@@ -78,6 +82,7 @@ export type AdminRbacAction = (typeof ADMIN_RBAC_ACTIONS)[number];
 
 const ADMIN_READ_ACTIONS = [
   'admin.overview.read',
+  'admin.tunnel.read',
   'admin.statistics.read',
   'admin.logs.read',
   'admin.team.read',
@@ -90,6 +95,7 @@ const ADMIN_READ_ACTIONS = [
   'admin.email.read',
   'admin.scheduler.read',
   'admin.channels.read',
+  'admin.connectors.read',
   'admin.mcp.read',
   'admin.config.read',
   'admin.browser_pool.read',
@@ -117,6 +123,7 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
   'admin.operator': [
     ...ADMIN_READ_ACTIONS,
     'admin.tunnel.reconnect',
+    'admin.tunnel.stop',
     'admin.sessions.delete',
     'admin.scheduler.write',
     'admin.scheduler.delete',
@@ -145,6 +152,7 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
   ],
   'admin.config_manager': [
     ...ADMIN_READ_ACTIONS,
+    'admin.tunnel.write',
     'admin.config.write',
     'admin.config.reload',
     'admin.models.write',
@@ -177,7 +185,9 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
   'admin:owner': ADMIN_RBAC_ACTIONS,
   'admin:operator': [
     ...ADMIN_AUDITOR_ACTIONS,
+    'admin.tunnel.write',
     'admin.tunnel.reconnect',
+    'admin.tunnel.stop',
     'admin.team.write',
     'admin.agents.write',
     'admin.models.write',
@@ -348,8 +358,16 @@ export function resolveAdminRbacAction(
     if (method === 'DELETE') return 'secret.unset';
     return null;
   }
+  if (pathname === '/api/admin/tunnel') {
+    if (method === 'GET') return 'admin.tunnel.read';
+    if (method === 'PUT') return 'admin.tunnel.write';
+    return null;
+  }
   if (pathname === '/api/admin/tunnel/reconnect' && method === 'POST') {
     return 'admin.tunnel.reconnect';
+  }
+  if (pathname === '/api/admin/tunnel/stop' && method === 'POST') {
+    return 'admin.tunnel.stop';
   }
   if (pathname === '/api/admin/statistics' && method === 'GET') {
     return 'admin.statistics.read';
@@ -419,6 +437,21 @@ export function resolveAdminRbacAction(
       'admin.mcp.write',
       'admin.mcp.delete',
     );
+  }
+  if (pathname === '/api/admin/connectors') {
+    return method === 'GET' ? 'admin.connectors.read' : null;
+  }
+  if (pathname === '/api/admin/connectors/hybridai/key' && method === 'PUT') {
+    return 'secret.overwrite';
+  }
+  if (pathname === '/api/admin/connectors/oauth/start' && method === 'POST') {
+    return 'secret.overwrite';
+  }
+  if (pathname === '/api/admin/connectors/test' && method === 'POST') {
+    return 'admin.connectors.read';
+  }
+  if (pathname === '/api/admin/connectors/logout' && method === 'POST') {
+    return 'secret.unset';
   }
   if (pathname === '/api/admin/config') {
     if (method === 'GET') return 'admin.config.read';

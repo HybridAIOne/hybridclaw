@@ -4,6 +4,124 @@
 
 ### Added
 
+- **Console navigation config**: The top navigation strip can be customized
+  from runtime config with local console paths or HTTP(S) URLs and link text.
+
+## [0.25.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.8) - 2026-06-27
+
+### Changed
+
+- **Email admin layout**: Email channel advanced settings now collapse by
+  default above additional mailboxes, keeping default allowlist management
+  prominent while poll interval, chunk limit, media limit, and channel
+  instructions remain available on demand.
+
+### Fixed
+
+- **Cloud MCP OAuth callbacks**: MCP OAuth setup now prefers the configured
+  deployment public URL and other public gateway origins over private internal
+  request hosts, rejects invalid configured public URLs, and covers IPv4, IPv6,
+  and local development fallback cases.
+- **Cloud request origins**: Admin session-cookie origin checks and mobile chat
+  QR launch links now honor `deployment.public_url` when requests arrive through
+  internal gateway hosts.
+- **Email allowlist autosave**: Adding a default allowed sender in the admin
+  console now saves immediately instead of leaving the new entry only in the
+  unsaved draft state.
+
+## [0.25.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.7) - 2026-06-25
+
+### Added
+
+- **Admin sender allowlists**: Channel settings in the admin console can edit
+  allowed sender lists for WhatsApp, Telegram, Threema, Signal, email
+  (including mailbox-level allowlists), Microsoft Teams, Slack, and iMessage,
+  with wildcard confirmation and explicit all-senders labeling.
+
+### Changed
+
+- **Hatching first run**: Fresh agents start with a shorter, conversational
+  setup message that asks two or three natural questions, captures the user's
+  email for the welcome note, and keeps model-generated hatching preludes
+  limited to `BOOTSTRAP.md` sessions.
+- **Session timestamps**: Gateway status and session displays render timestamps
+  in the local timezone without noisy seconds or UTC suffixes.
+
+### Fixed
+
+- **Web chat drafts**: Starting a new conversation keeps the newly created
+  no-user session selected and deletes older empty or assistant-only web chat
+  drafts without touching sessions that already have user messages or scheduler
+  sessions.
+- **Bootstrap autostart reliability**: Hatching and `OPENING.md` autostarts no
+  longer refresh already-started sessions on history probes, avoid duplicate
+  concurrent runs, fall back cleanly when auxiliary prelude generation fails,
+  and keep selected-agent autostart concrete.
+- **Resource hygiene cleanup**: Doctor resource hygiene now labels stale no-user
+  histories as unstarted sessions and cleans up empty or assistant-only rows
+  while preserving sessions with user messages.
+
+## [0.25.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.6) - 2026-06-24
+
+### Added
+
+- **Launch-agent chat sessions**: `/chat?agent=<id>` links now mint a web chat
+  session, preselect the requested local agent, and pass that agent through the
+  history bootstrap path so the correct agent autostart runs for the new
+  session.
+
+### Fixed
+
+- **Foreground gateway logging**: `gateway start --foreground` restores
+  mirroring to the gateway log file even when the logger initializes before the
+  foreground command configures the log path, while avoiding duplicate file
+  streams when stdio is already redirected to the gateway log.
+
+## [0.25.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.5) - 2026-06-22
+
+### Fixed
+
+- **Remote agent mentions**: Selecting a remote agent in chat now places the
+  caret after the inserted address and keeps the styled composer overlay caret
+  aligned with the real textarea selection.
+- **Streaming text deltas**: Container streaming now emits visible model text
+  deltas live instead of buffering answer text until the model turn completes.
+- **Host bootstrap cleanup**: Host-mode approval policy now recognizes the
+  actual workspace-root `BOOTSTRAP.md` path as one-time onboarding cleanup while
+  keeping nested or rootless delete calls approval-gated.
+
+## [0.25.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.4) - 2026-06-22
+
+### Added
+
+- **Remote agents in chat**: Trusted A2A peer agents now appear in the chat
+  agent selector, grouped by remote instance. Selecting a remote agent inserts
+  its canonical address and sends the message through the A2A delivery path.
+- **Admin tunnel controls**: The admin dashboard now exposes public tunnel
+  configuration, current tunnel health, and managed tunnel start, reconnect,
+  and stop actions with validation, pending states, errors, and audit events.
+
+### Changed
+
+- **Console loading state**: Replaced the initial auth-check card with a
+  branded, accessible HybridClaw loading screen and reduced-motion-aware
+  progress treatment.
+
+### Fixed
+
+- **Console browser titles**: Chat and Agents routes now receive route-specific
+  page titles from both the gateway-served HTML and client-side navigation,
+  instead of showing the admin title outside admin pages.
+- **Remote A2A delivery**: Queued remote A2A envelopes are canonicalized before
+  persistence and audit recording so sender and recipient ids stay normalized.
+- **Remote selector and tunnel polish**: Remote agent groups use a server icon,
+  admin tunnel action buttons align and reflect start, stop, and reconnect
+  states consistently, and revision tokens for config/team changes are opaque.
+
+## [0.25.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.3) - 2026-06-22
+
+### Added
+
 - **Langfuse skill**: LLM observability and evaluation based on the official
   Langfuse skill (`github.com/langfuse/skills`, MIT). Reads traces, observations,
   sessions, scores, prompts, datasets, models, and metrics, and creates scores,
@@ -18,12 +136,30 @@
 ### Changed
 
 - **Quick Start guide**: Rewrote the getting-started quickstart into a
-  zero-to-working funnel — a fast HybridAI Cloud path (model preselected,
-  already in web chat) and a numbered local path (onboard → start gateway →
-  confirm healthy with `gateway status` / `doctor` → open chat → send a first
+  zero-to-working funnel -- a fast HybridAI Cloud path (model preselected,
+  already in web chat) and a numbered local path (onboard -> start gateway ->
+  confirm healthy with `gateway status` / `doctor` -> open chat -> send a first
   message) with explicit success signals, a troubleshooting block, and a command
   cheat sheet. Relocated the per-channel startup auto-connect conditions into the
   Channels overview.
+- **Apple desktop diagnostics**: The desktop wrapper captures gateway startup
+  logs, recent child output, spawn failures, and early exits so packaged app
+  launch failures are diagnosable.
+- **Dependency maintenance**: Remediated npm audit dependencies, upgraded
+  Nodemailer to 9.0.0, refreshed dependency policy baselines, and clarified the
+  dependency lockfile update workflow for future maintenance.
+
+### Fixed
+
+- **A2A Agent Card public URL**: The A2A Agent Card advertises the configured
+  public deployment URL when present, and invalid `deployment.public_url` values
+  fail closed instead of falling back to an internal request origin.
+- **MCP server startup isolation**: A single MCP server that fails to connect or
+  disconnect is logged and skipped instead of aborting the whole chat turn, and
+  unchanged failed server configs are not retried every turn.
+- **Empty heartbeat context**: Workspace bootstrap context skips the default
+  empty `HEARTBEAT.md` template and legacy "no recurring heartbeat tasks"
+  placeholders, avoiding noise in agent startup context.
 
 ## [0.25.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.2) - 2026-06-20
 
@@ -35,6 +171,12 @@
   TLS-terminating proxy.
 
 ## [0.25.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.1) - 2026-06-20
+
+### Changed
+
+- **Desktop packaging**: Desktop build commands rebuild the app before
+  packaging, reuse current icon/runtime stages, cache the staged Node runtime,
+  and strip non-runtime dependency files from packaged desktop bundles.
 
 ### Fixed
 

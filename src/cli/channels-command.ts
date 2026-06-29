@@ -12,7 +12,6 @@ import {
   normalizeEmailAllowEntry,
 } from '../channels/email/allowlist.js';
 import { normalizeIMessageHandle } from '../channels/imessage/handle.js';
-import { assertLocalIMessageBackendReady } from '../channels/imessage/local-prereqs.js';
 import { normalizeSignalDaemonUrl } from '../channels/signal/api.js';
 import { normalizeSignalRecipient } from '../channels/signal/target.js';
 import { allowSlackWebhookInWorkspacePolicy } from '../channels/slack-webhook/policy.js';
@@ -2405,10 +2404,6 @@ async function configureIMessageChannel(args: string[]): Promise<void> {
       'Remote iMessage setup requires `--server-url <url>` or an existing `imessage.serverUrl` value.',
     );
   }
-  if (backend === 'local') {
-    await assertLocalIMessageBackendReady(cliPath);
-  }
-
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.imessage.enabled = true;
     draft.imessage.backend = backend;

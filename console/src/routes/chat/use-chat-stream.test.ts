@@ -48,6 +48,7 @@ function makeHarness(initialMessages: ChatUiMessage[] = []) {
     {
       messages: [...initialMessages],
       branchFamilies: new Map(),
+      requestedSessionId: SESSION_ID,
       resolvedSessionId: SESSION_ID,
       agentId: null,
       bootstrapAutostart: null,

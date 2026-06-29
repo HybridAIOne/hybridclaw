@@ -60,10 +60,20 @@ describe('useChatSession', () => {
     (await getTestRouter()).reset();
   });
 
-  it('returns empty sessionId when the URL is bare and no draft has been minted', () => {
+  it('mints a session and replaces the URL when the route is bare', async () => {
+    const router = await getTestRouter();
     const { result } = setup();
-    expect(result.current.sessionId).toBe('');
-    expect(result.current.getSessionId()).toBe('');
+    const minted = result.current.sessionId;
+
+    expect(minted).toMatch(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/);
+    expect(result.current.getSessionId()).toBe(minted);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(router.lastTo).toBe('/chat/$sessionId');
+    expect(router.lastReplace).toBe(true);
   });
 
   it('returns the URL sessionId when the `/chat/$sessionId` route is active', async () => {
@@ -75,10 +85,16 @@ describe('useChatSession', () => {
     expect(result.current.getSessionId()).toBe('session-from-url');
   });
 
-  it('persists the sessionId to localStorage whenever it becomes truthy', async () => {
+  it('persists generated and URL session ids to localStorage', async () => {
     const router = await getTestRouter();
     const { result } = setup();
-    expect(localStorage.getItem('hybridclaw_session')).toBeNull();
+    const minted = result.current.sessionId;
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(localStorage.getItem('hybridclaw_session')).toBe(minted);
 
     await act(async () => {
       router.setSessionId('session-a');
@@ -89,18 +105,23 @@ describe('useChatSession', () => {
     expect(result.current.sessionId).toBe('session-a');
   });
 
-  it('ensureSessionForSend mints a draft, updates getSessionId immediately, and navigates replace', async () => {
+  it('ensureSessionForSend returns the generated session for a bare route', async () => {
     const router = await getTestRouter();
     const { result } = setup();
+    const minted = result.current.sessionId;
 
+    let returned = '';
     act(() => {
-      result.current.ensureSessionForSend();
+      returned = result.current.ensureSessionForSend();
     });
 
-    const minted = result.current.getSessionId();
-    expect(minted).not.toBe('');
+    expect(returned).toBe(minted);
     expect(minted).toMatch(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/);
-    expect(router.navigate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
     expect(router.lastTo).toBe('/chat/$sessionId');
     expect(router.lastReplace).toBe(true);
   });
@@ -110,22 +131,22 @@ describe('useChatSession', () => {
     router.setSessionId('session-existing');
     const { result } = setup();
 
+    let returned = '';
     act(() => {
-      result.current.ensureSessionForSend();
+      returned = result.current.ensureSessionForSend();
     });
 
     expect(router.navigate).not.toHaveBeenCalled();
+    expect(returned).toBe('session-existing');
     expect(result.current.getSessionId()).toBe('session-existing');
   });
 
-  it('startFreshChat clears the draft and navigates to `/chat`', async () => {
+  it('startFreshChat mints a fresh session and navigates to it', async () => {
     const router = await getTestRouter();
     const { result } = setup();
 
-    act(() => {
-      result.current.ensureSessionForSend();
-    });
-    expect(result.current.getSessionId()).not.toBe('');
+    const previous = result.current.getSessionId();
+    expect(previous).toMatch(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/);
     await act(async () => {
       await Promise.resolve();
     });
@@ -137,8 +158,10 @@ describe('useChatSession', () => {
       await Promise.resolve();
     });
 
-    expect(router.lastTo).toBe('/chat');
-    expect(result.current.sessionId).toBe('');
+    expect(router.lastTo).toBe('/chat/$sessionId');
+    expect(router.lastReplace).toBe(false);
+    expect(result.current.sessionId).toMatch(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/);
+    expect(result.current.sessionId).not.toBe(previous);
   });
 
   it('handleSessionIdCorrection navigates replace when the server id differs', async () => {
@@ -186,9 +209,6 @@ describe('useChatSession', () => {
     const router = await getTestRouter();
     const { result, rerender } = setup();
 
-    act(() => {
-      result.current.ensureSessionForSend();
-    });
     const minted = result.current.getSessionId();
 
     // URL catches up

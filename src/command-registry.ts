@@ -1679,10 +1679,11 @@ function buildSlashCommandCatalogDefinitions(
         },
         {
           id: 'secret.route.add',
-          label: '/secret route add <url-prefix> <secret-name|google-oauth>',
+          label:
+            '/secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth>',
           insertText: '/secret route add ',
           description:
-            'Auto-attach a stored secret or Google OAuth token to matching HTTP requests',
+            'Auto-attach a stored secret, Google OAuth token, or Microsoft Graph OAuth token to matching HTTP requests',
         },
       ],
       options: [

@@ -44,7 +44,7 @@ For production package requirements see
 | Productivity | feature-planning, human-distill, project-manager, trello | [Productivity Skills](./productivity.md) |
 | Memory & Knowledge | llm-wiki, notion, obsidian, personality, zettelkasten | [Memory & Knowledge Skills](./memory-knowledge.md) |
 | Publishing | diagram, excalidraw, hermes3000-writing, image-generation, manim-video, video-generation, video.from-script, wordpress, write-blog-post | [Publishing Skills](./publishing.md) |
-| Integrations & Utilities | 1password, stripe, mailchimp, download-platform-invoices, airtable, fastbill, hubspot, lexware-office, firecrawl, ga4, google-ads, heygen, sokosumi, gog, google-workspace, current-time, hybridclaw-help, iss-position, search.web, search.news, search.images | [Integrations & Utilities](./integrations.md) |
+| Integrations & Utilities | 1password, stripe, mailchimp, download-platform-invoices, airtable, fastbill, hubspot, lexware-office, firecrawl, ga4, google-ads, heygen, sokosumi, gog, google-workspace, microsoft-365, current-time, hybridclaw-help, iss-position, search.web, search.news, search.images | [Integrations & Utilities](./integrations.md) |
 | Security & Privacy | distil-pii-redactor | [Integrations & Utilities](./integrations.md#distil-pii-redactor) |
 
 ## Evaluating Example Prompts

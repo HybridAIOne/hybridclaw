@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import {
+  cleanupNoUserChatSessions,
   createChatBranch,
   createChatMobileQr,
   executeCommand,
@@ -43,7 +44,10 @@ import {
   DialogTitle,
 } from '../../components/dialog';
 import { MobileTopbarTrigger } from '../../components/sidebar/index';
-import { ViewSwitchNav } from '../../components/view-switch';
+import {
+  useConfiguredViewSwitchItems,
+  ViewSwitchNav,
+} from '../../components/view-switch';
 import {
   type ApprovalAction,
   buildApprovalCommand,
@@ -85,6 +89,16 @@ const BOOTSTRAP_AUTOSTART_THINKING_ID = 'bootstrap-autostart-thinking';
 const BOOTSTRAP_AUTOSTART_REFETCH_MS = 1500;
 const DEFAULT_EMPTY_CHAT_HEADER = 'Ready to claw through your to-do list?';
 type RecentChatScope = 'user' | 'all';
+
+const AGENT_QUERY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+function readLaunchAgentId(): string {
+  const value = new URLSearchParams(window.location.search)
+    .get('agent')
+    ?.trim();
+  if (!value) return '';
+  return AGENT_QUERY_ID_PATTERN.test(value) ? value : '';
+}
 
 function buildBranchInfoMap(
   messages: ChatUiMessage[],
@@ -134,6 +148,7 @@ export function ChatPage() {
     () => new URLSearchParams(window.location.search).get('prompt') || '',
     [],
   );
+  const launchAgentId = useMemo(readLaunchAgentId, []);
 
   const [errorState, setErrorState] = useState({ message: '', version: 0 });
   const error = errorState.message;
@@ -148,7 +163,9 @@ export function ChatPage() {
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [mobileQr, setMobileQr] = useState<ChatMobileQrResponse | null>(null);
   const [mobileQrBusy, setMobileQrBusy] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
+    launchAgentId || null,
+  );
   const [selectedModelId, setSelectedModelId] = useState('');
   const [recentChatScope, setRecentChatScope] =
     useState<RecentChatScope>('user');
@@ -156,6 +173,7 @@ export function ChatPage() {
     useState<ChatRecentSession | null>(null);
 
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
+  const launchAgentSessionIdRef = useRef<string | null>(null);
   const debouncedSessionSearchQuery = useDebouncedValue(
     sessionSearchQuery,
     160,
@@ -216,6 +234,15 @@ export function ChatPage() {
     handleSessionIdCorrection,
   } = useChatSession();
 
+  if (launchAgentId && sessionId && !launchAgentSessionIdRef.current) {
+    launchAgentSessionIdRef.current = sessionId;
+  }
+
+  const requestedHistoryAgentId =
+    sessionId && launchAgentSessionIdRef.current === sessionId
+      ? launchAgentId
+      : '';
+
   const refreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: chatRecentQueryPrefix(auth.token, userId),
@@ -227,6 +254,7 @@ export function ChatPage() {
   }, [queryClient, auth.token, userId, getSessionId]);
 
   const chatApiReady = isAuthReadyForApi(auth);
+  const viewSwitchItems = useConfiguredViewSwitchItems(auth.token);
 
   const appStatusQuery = useQuery({
     queryKey: ['app-status', auth.token],
@@ -264,7 +292,7 @@ export function ChatPage() {
   // to the gateway default whenever the session changes. We don't know what
   // model the new session was last set to, so the default is the best guess
   // until the user picks again.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is intentionally a re-fire trigger, not read inside the body
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId intentionally resets the local model selection.
   useEffect(() => {
     const id = appStatusQuery.data?.defaultModel?.trim() ?? '';
     setSelectedModelId(id);
@@ -319,6 +347,7 @@ export function ChatPage() {
         name: agent.name,
         imageUrl: agent.imageUrl ?? null,
         emptyChatHeader: agent.emptyChatHeader ?? null,
+        source: agent.source,
       })),
     [agentsQuery.data],
   );
@@ -379,7 +408,13 @@ export function ChatPage() {
 
   const historyQuery = useQuery({
     queryKey: chatHistoryQueryKey(auth.token, sessionId),
-    queryFn: () => loadChatHistoryUi(auth.token, sessionId, userId),
+    queryFn: () =>
+      loadChatHistoryUi(
+        auth.token,
+        sessionId,
+        userId,
+        requestedHistoryAgentId || undefined,
+      ),
     enabled: chatApiReady && Boolean(sessionId),
     staleTime: Infinity,
   });
@@ -444,7 +479,9 @@ export function ChatPage() {
       setSessionPendingDelete(null);
       const currentSessionId = getSessionId();
       if (deletedSessionId === currentSessionId) {
-        startFreshChat();
+        // Keep the page bound to a concrete no-user session after deleting the
+        // active chat so history loading can mint the replacement immediately.
+        startFreshChat({ replace: true });
       }
     },
     onError: (err) => {
@@ -497,10 +534,13 @@ export function ChatPage() {
     if (id) setSelectedModelId(id);
   }, [contextQuery.data?.snapshot?.model]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is intentionally a re-fire trigger, not read inside the body
   useEffect(() => {
+    if (launchAgentId && launchAgentSessionIdRef.current === sessionId) {
+      setSelectedAgentId(launchAgentId);
+      return;
+    }
     setSelectedAgentId(null);
-  }, [sessionId]);
+  }, [launchAgentId, sessionId]);
 
   useEffect(() => {
     if (!historyQuery.error) return;
@@ -565,10 +605,19 @@ export function ChatPage() {
 
   // Server may resolve to a canonical branch id; keep the URL in sync.
   useEffect(() => {
+    if (historyQuery.isPending || historyQuery.fetchStatus !== 'idle') return;
+    if (historyQuery.data?.requestedSessionId !== sessionId) return;
     const resolved = historyQuery.data?.resolvedSessionId;
     if (!resolved || resolved === sessionId) return;
     void navigateToSession(resolved, { replace: true });
-  }, [historyQuery.data?.resolvedSessionId, sessionId, navigateToSession]);
+  }, [
+    historyQuery.data?.requestedSessionId,
+    historyQuery.data?.resolvedSessionId,
+    historyQuery.fetchStatus,
+    historyQuery.isPending,
+    sessionId,
+    navigateToSession,
+  ]);
 
   const branchInfoMap = useMemo(
     () => buildBranchInfoMap(messages, branchFamilies),
@@ -687,14 +736,54 @@ export function ChatPage() {
     [auth.token, setError],
   );
 
+  const cleanupNoUserSessions = useCallback(
+    (keepSessionId: string) => {
+      void cleanupNoUserChatSessions(auth.token, {
+        channelId: 'web',
+        keepSessionId,
+      })
+        .then((data) => {
+          if (data.deletedCount === 0) return;
+          for (const deletedSessionId of data.deletedSessionIds) {
+            queryClient.removeQueries({
+              queryKey: chatHistoryQueryKey(auth.token, deletedSessionId),
+            });
+            queryClient.removeQueries({
+              queryKey: chatContextQueryKey(auth.token, deletedSessionId),
+            });
+          }
+          void queryClient.invalidateQueries({
+            queryKey: chatRecentQueryPrefix(auth.token, userId),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ['overview'],
+            refetchType: 'none',
+          });
+        })
+        .catch((err: unknown) => {
+          console.warn('Failed to clean up no-user chat session', err);
+        });
+    },
+    [auth.token, queryClient, userId],
+  );
+
   const handleNewChat = useCallback(() => {
     if (stream.isActive()) {
       setError('Stop the current run before starting a new chat.');
       return;
     }
-    startFreshChat();
+    // New Conversation intentionally creates a concrete no-user session, then
+    // prunes older drafts so repeated clicks only keep the latest one.
+    const nextSessionId = startFreshChat();
+    cleanupNoUserSessions(nextSessionId);
     refreshRecent();
-  }, [stream.isActive, startFreshChat, refreshRecent, setError]);
+  }, [
+    stream.isActive,
+    startFreshChat,
+    cleanupNoUserSessions,
+    refreshRecent,
+    setError,
+  ]);
 
   const handleSendMessage = useCallback(
     (content: string, media: MediaItem[]) => {
@@ -739,6 +828,7 @@ export function ChatPage() {
               },
             ],
             branchFamilies: prev?.branchFamilies ?? new Map(),
+            requestedSessionId: prev?.requestedSessionId ?? targetSessionId,
             resolvedSessionId: targetSessionId,
             agentId: prev?.agentId ?? null,
             bootstrapAutostart: prev?.bootstrapAutostart ?? null,
@@ -1027,7 +1117,7 @@ export function ChatPage() {
                 <span />
               </span>
             </button>
-            <ViewSwitchNav />
+            <ViewSwitchNav items={viewSwitchItems} />
           </div>
           {mobileQr ? (
             <div className={css.mobileQrOverlay}>

@@ -19,6 +19,7 @@ import type { SlackWebhookSendResult } from '../channels/slack-webhook/delivery.
 import type {
   MSTeamsReplyStyle,
   RuntimeConfig,
+  RuntimeDeploymentMode,
   RuntimeDeploymentTunnelProvider,
   RuntimeDiscordChannelConfig,
   RuntimeMSTeamsChannelConfig,
@@ -332,6 +333,12 @@ export interface GatewayRecentChatSession {
 
 export interface GatewayRecentChatSessionsResponse {
   sessions: GatewayRecentChatSession[];
+}
+
+export interface GatewayNoUserChatSessionCleanupResult {
+  deletedCount: number;
+  deletedSessionIds: string[];
+  keptSessionId?: string;
 }
 
 export interface GatewaySchedulerJobStatus {
@@ -655,6 +662,18 @@ export interface GatewayAdminTunnelStatus {
   nextReconnectAt: string | null;
 }
 
+export interface GatewayAdminTunnelConfig {
+  mode: RuntimeDeploymentMode;
+  provider: RuntimeDeploymentTunnelProvider | null;
+  publicUrl: string;
+  healthCheckIntervalMs: number;
+}
+
+export interface GatewayAdminTunnelConfigResponse {
+  config: GatewayAdminTunnelConfig;
+  tunnel: GatewayAdminTunnelStatus;
+}
+
 export interface GatewayAdminOverview {
   status: GatewayStatus;
   configPath: string;
@@ -837,8 +856,16 @@ export interface GatewayAgentListItem {
   emptyChatHeader?: string;
 }
 
+export interface GatewayRemoteAgentListPeer {
+  peerId: string;
+  instanceId: string;
+  agentCardUrl: string;
+  agents: GatewayAgentListItem[];
+}
+
 export interface GatewayAgentListResponse {
   agents: GatewayAgentListItem[];
+  remotePeers?: GatewayRemoteAgentListPeer[];
 }
 
 export interface GatewayAdminJobAgent {
@@ -916,6 +943,7 @@ export interface GatewayAdminBoardBudgetResponse {
 export interface GatewayAdminDeleteSessionResult {
   deleted: boolean;
   sessionId: string;
+  skippedReason?: 'has_user_messages';
   deletedMessages: number;
   deletedTasks: number;
   deletedSemanticMemories: number;

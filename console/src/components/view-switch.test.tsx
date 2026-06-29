@@ -59,4 +59,76 @@ describe('ViewSwitchNav', () => {
     expect(agentsItem?.getAttribute('aria-current')).toBe('page');
     expect(agentsItem?.className).toContain('active');
   });
+
+  it('renders custom local and external navigation items', () => {
+    mockRouterState.pathname = '/admin/channels';
+
+    render(
+      <ViewSwitchNav
+        items={[
+          { label: 'Channels', href: '/admin/channels' },
+          { label: 'Cloud', href: 'https://hybridclaw.io' },
+        ]}
+      />,
+    );
+
+    const channelsLink = screen
+      .getByText('Channels')
+      .closest('.view-switch-link');
+    expect(channelsLink?.getAttribute('aria-current')).toBe('page');
+    expect(channelsLink?.className).toContain('active');
+
+    const cloudLink = screen.getByRole('link', { name: 'Cloud' });
+    expect(cloudLink.getAttribute('href')).toBe('https://hybridclaw.io');
+    expect(cloudLink.getAttribute('target')).toBe('_blank');
+    expect(cloudLink.dataset.routerLink).toBeUndefined();
+    expect(screen.queryByText('Chat')).toBeNull();
+  });
+
+  it('renders configured navigation images', () => {
+    render(<ViewSwitchNav />);
+
+    expect(
+      screen
+        .getByRole('link', { name: 'GitHub' })
+        .querySelector('img')
+        ?.getAttribute('src'),
+    ).toBe('/icons/github.svg');
+  });
+
+  it('uses images only when the item explicitly configures one', () => {
+    render(
+      <ViewSwitchNav
+        items={[
+          {
+            label: 'GitHub',
+            href: 'https://github.com/HybridAIOne/hybridclaw',
+          },
+          {
+            label: 'HybridAI',
+            href: 'https://hybridai.one/admin_startpage',
+            image: '/icons/hybridai.png',
+          },
+        ]}
+      />,
+    );
+
+    const githubLink = screen.getByRole('link', { name: 'GitHub' });
+    expect(githubLink.querySelector('img')).toBeNull();
+    expect(githubLink.querySelector('svg')?.getAttribute('viewBox')).toBe(
+      '0 0 24 24',
+    );
+    expect(
+      screen
+        .getByRole('link', { name: 'HybridAI' })
+        .querySelector('img')
+        ?.getAttribute('src'),
+    ).toBe('/icons/hybridai.png');
+  });
+
+  it('hides the navigation strip when explicitly configured empty', () => {
+    const { container } = render(<ViewSwitchNav items={[]} />);
+
+    expect(container.querySelector('.view-switch')).toBeNull();
+  });
 });

@@ -16,6 +16,7 @@ import { Popover, PopoverAnchor } from '../../components/popover';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { pluralize } from '../../lib/format';
+import { AGENT_ADDRESS_PATTERN } from './agent-address-pattern';
 import { preloadAgentAvatarUrl, useAgentAvatarUrl } from './agent-avatar-url';
 import {
   type AgentSwitchOption,
@@ -40,23 +41,32 @@ interface AgentMentionContext {
   query: string;
 }
 
-const AGENT_MENTION_TOKEN_RE = /@([A-Za-z0-9._-]+)(?=$|[\s:])/gu;
+const AGENT_MENTION_QUERY_PATTERN = '[A-Za-z0-9._-]*(?:@[A-Za-z0-9._-]*){0,2}';
+const AGENT_MENTION_CONTEXT_RE = new RegExp(
+  `(?:^|[\\s([{])@(${AGENT_MENTION_QUERY_PATTERN})$`,
+  'u',
+);
+const AGENT_MENTION_TOKEN_RE = new RegExp(
+  `@(${AGENT_ADDRESS_PATTERN})(?=$|[\\s:])`,
+  'gu',
+);
+const LEADING_AGENT_ADDRESS_RE = new RegExp(
+  `^@${AGENT_ADDRESS_PATTERN}(?=$|[\\s:])\\s*`,
+  'u',
+);
 
 function getAgentMentionContext(
   value: string,
   cursor: number,
 ): AgentMentionContext | null {
   const beforeCursor = value.slice(0, cursor);
-  const atIndex = beforeCursor.lastIndexOf('@');
-  if (atIndex === -1) return null;
-
-  const beforeAt = atIndex === 0 ? '' : value[atIndex - 1];
-  if (beforeAt && !/[\s([{]/u.test(beforeAt)) return null;
-
-  const query = value.slice(atIndex + 1, cursor);
-  if (!/^[A-Za-z0-9._-]*$/u.test(query)) return null;
-
-  return { tokenStart: atIndex, query };
+  const match = AGENT_MENTION_CONTEXT_RE.exec(beforeCursor);
+  if (!match) return null;
+  const query = match[1] ?? '';
+  return {
+    tokenStart: beforeCursor.length - query.length - 1,
+    query,
+  };
 }
 
 export function Composer(props: {
@@ -84,8 +94,12 @@ export function Composer(props: {
   const [panelMode, setPanelMode] = useState<SlashPanelMode>('closed');
   const [lastQuery, setLastQuery] = useState('');
   const [composerValue, setComposerValue] = useState('');
+  const [composerCaretIndex, setComposerCaretIndex] = useState(0);
   const appliedInitialValueRef = useRef<string | null>(null);
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectionRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const suggestSeqRef = useRef(0);
   const overlayRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
@@ -104,6 +118,9 @@ export function Composer(props: {
   useEffect(() => {
     return () => {
       if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+      if (selectionRestoreTimerRef.current) {
+        clearTimeout(selectionRestoreTimerRef.current);
+      }
       // Invalidate any in-flight fetch so its late resolve can't setState
       // on an unmounted component.
       suggestSeqRef.current += 1;
@@ -153,6 +170,32 @@ export function Composer(props: {
     ta.style.height = `${Math.max(36, Math.min(ta.scrollHeight, 180))}px`;
   }, []);
 
+  const syncComposerSelection = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    setComposerCaretIndex(ta.selectionStart ?? ta.value.length);
+  }, []);
+
+  const restoreComposerFocusAt = useCallback((cursor: number) => {
+    const applySelection = () => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const nextCursor = Math.max(0, Math.min(cursor, ta.value.length));
+      ta.focus();
+      ta.setSelectionRange(nextCursor, nextCursor);
+      setComposerCaretIndex(nextCursor);
+    };
+
+    applySelection();
+    if (selectionRestoreTimerRef.current) {
+      clearTimeout(selectionRestoreTimerRef.current);
+    }
+    selectionRestoreTimerRef.current = setTimeout(() => {
+      selectionRestoreTimerRef.current = null;
+      applySelection();
+    }, 0);
+  }, []);
+
   useEffect(() => {
     const nextValue = props.initialValue?.trim() || '';
     if (appliedInitialValueRef.current === nextValue) return;
@@ -164,6 +207,7 @@ export function Composer(props: {
     ta.value = nextValue;
     ta.setSelectionRange(nextValue.length, nextValue.length);
     setComposerValue(nextValue);
+    setComposerCaretIndex(nextValue.length);
     setPanelMode('closed');
     suggestSeqRef.current += 1;
     resize();
@@ -172,18 +216,18 @@ export function Composer(props: {
 
   // The fetch itself can't be aborted, so the seq bump is what makes a
   // late-resolving response a no-op.
-  const cancelPendingFetch = () => {
+  const cancelPendingFetch = useCallback(() => {
     if (suggestTimerRef.current) {
       clearTimeout(suggestTimerRef.current);
       suggestTimerRef.current = null;
     }
     suggestSeqRef.current += 1;
-  };
+  }, []);
 
-  const closePanel = () => {
+  const closePanel = useCallback(() => {
     cancelPendingFetch();
     setPanelMode('closed');
-  };
+  }, [cancelPendingFetch]);
 
   const fetchSuggestions = useCallback(
     async (query: string) => {
@@ -250,6 +294,7 @@ export function Composer(props: {
     if (!ta) return;
     setComposerValue(ta.value);
     const cursor = ta.selectionStart ?? ta.value.length;
+    setComposerCaretIndex(cursor);
     const ctx = getSlashContext(ta.value, cursor);
     if (ctx) {
       const query = ctx.query.trim();
@@ -287,6 +332,7 @@ export function Composer(props: {
     const value = ta.value;
     const cursor = ta.selectionStart ?? value.length;
     const insertCore = item.insertText.replace(/\s+$/, '');
+    let nextCursor = ta.value.length;
     if (suggestionKind === 'agent') {
       const ctx = getAgentMentionContext(value, cursor);
       if (ctx) {
@@ -294,13 +340,15 @@ export function Composer(props: {
         const after = value.slice(cursor);
         const insert = after.startsWith(' ') ? insertCore : `${insertCore} `;
         ta.value = before + insert + after;
-        const newCursor = before.length + insert.length;
-        ta.setSelectionRange(newCursor, newCursor);
+        nextCursor = before.length + insert.length;
+        ta.setSelectionRange(nextCursor, nextCursor);
       } else {
         ta.value = `${insertCore} `;
-        ta.setSelectionRange(ta.value.length, ta.value.length);
+        nextCursor = ta.value.length;
+        ta.setSelectionRange(nextCursor, nextCursor);
       }
       setComposerValue(ta.value);
+      setComposerCaretIndex(nextCursor);
       closePanel();
       resize();
       ta.focus();
@@ -313,17 +361,45 @@ export function Composer(props: {
       const after = value.slice(cursor);
       const insert = after.startsWith(' ') ? insertCore : `${insertCore} `;
       ta.value = before + insert + after;
-      const newCursor = before.length + insert.length;
-      ta.setSelectionRange(newCursor, newCursor);
+      nextCursor = before.length + insert.length;
+      ta.setSelectionRange(nextCursor, nextCursor);
     } else {
       ta.value = `${insertCore} `;
-      ta.setSelectionRange(ta.value.length, ta.value.length);
+      nextCursor = ta.value.length;
+      ta.setSelectionRange(nextCursor, nextCursor);
     }
     setComposerValue(ta.value);
+    setComposerCaretIndex(nextCursor);
     closePanel();
     resize();
     ta.focus();
   };
+
+  const insertAgentAddress = useCallback(
+    (agentId: string) => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const mention = `@${agentId}`;
+      const insertedPrefix = `${mention} `;
+      const value = ta.value;
+      const leadingMention = LEADING_AGENT_ADDRESS_RE.exec(value);
+      let nextValue: string;
+      if (!value.trim()) {
+        nextValue = insertedPrefix;
+      } else if (leadingMention) {
+        nextValue = `${insertedPrefix}${value.slice(leadingMention[0].length).trimStart()}`;
+      } else {
+        nextValue = `${insertedPrefix}${value.trimStart()}`;
+      }
+      ta.value = nextValue;
+      setComposerValue(ta.value);
+      setComposerCaretIndex(insertedPrefix.length);
+      closePanel();
+      resize();
+      restoreComposerFocusAt(insertedPrefix.length);
+    },
+    [closePanel, resize, restoreComposerFocusAt],
+  );
 
   const submit = () => {
     if (props.isStreaming) {
@@ -336,6 +412,7 @@ export function Composer(props: {
     props.onSend(val, pendingMedia);
     if (textareaRef.current) textareaRef.current.value = '';
     setComposerValue('');
+    setComposerCaretIndex(0);
     setPendingMedia([]);
     closePanel();
     resize();
@@ -474,6 +551,7 @@ export function Composer(props: {
               >
                 <ComposerInputPreview
                   value={composerValue}
+                  caretIndex={composerCaretIndex}
                   agents={agentById}
                   token={props.token}
                 />
@@ -489,6 +567,10 @@ export function Composer(props: {
               placeholder="Message HybridClaw"
               disabled={props.isStreaming}
               onInput={handleInput}
+              onSelect={syncComposerSelection}
+              onClick={syncComposerSelection}
+              onKeyUp={syncComposerSelection}
+              onFocus={syncComposerSelection}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               onScroll={handleScroll}
@@ -520,7 +602,13 @@ export function Composer(props: {
                 selectedAgentId={selectedAgentId}
                 token={props.token}
                 disabled={props.isStreaming}
-                onSwitch={(agentId) => props.onAgentSwitch?.(agentId)}
+                onSwitch={(agent) => {
+                  if (agent.source?.type === 'remote') {
+                    insertAgentAddress(agent.id);
+                    return;
+                  }
+                  props.onAgentSwitch?.(agent.id);
+                }}
               />
               <ModelSwitchSelect
                 models={modelOptions}
@@ -598,32 +686,71 @@ export function Composer(props: {
 
 function ComposerInputPreview(props: {
   value: string;
+  caretIndex: number;
   agents: ReadonlyMap<string, AgentSwitchOption>;
   token: string;
 }) {
   const parts: ReactNode[] = [];
   let last = 0;
   let key = 0;
+  let caretRendered = false;
+  const caretIndex = Math.max(
+    0,
+    Math.min(props.caretIndex, props.value.length),
+  );
+
+  const appendCaret = () => {
+    if (caretRendered) return;
+    parts.push(
+      <span
+        key={`caret-${key++}`}
+        className={css.composerOverlayCaret}
+        aria-hidden="true"
+      />,
+    );
+    caretRendered = true;
+  };
+
+  const appendText = (text: string, startIndex: number) => {
+    const endIndex = startIndex + text.length;
+    if (caretIndex < startIndex || caretIndex > endIndex) {
+      parts.push(text);
+      return;
+    }
+
+    const splitAt = caretIndex - startIndex;
+    if (splitAt > 0) parts.push(text.slice(0, splitAt));
+    appendCaret();
+    if (splitAt < text.length) parts.push(text.slice(splitAt));
+  };
 
   for (const match of props.value.matchAll(AGENT_MENTION_TOKEN_RE)) {
     const mention = match[0];
     const agentId = match[1] ?? '';
     const index = match.index ?? 0;
+    const mentionEnd = index + mention.length;
     const agent = props.agents.get(agentId);
     if (!agent) continue;
-    if (index > last) parts.push(props.value.slice(last, index));
-    parts.push(
-      <ComposerMentionPill
-        key={`mention-${key++}`}
-        mention={mention}
-        imageUrl={agent.imageUrl ?? null}
-        token={props.token}
-      />,
-    );
-    last = index + mention.length;
+    if (index > last) appendText(props.value.slice(last, index), last);
+    if (caretIndex > index && caretIndex < mentionEnd) {
+      appendText(mention, index);
+    } else {
+      if (caretIndex === index) appendCaret();
+      parts.push(
+        <ComposerMentionPill
+          key={`mention-${key++}`}
+          mention={mention}
+          imageUrl={agent.imageUrl ?? null}
+          token={props.token}
+        />,
+      );
+      if (caretIndex === mentionEnd) appendCaret();
+    }
+    last = mentionEnd;
   }
 
-  if (last < props.value.length) parts.push(props.value.slice(last));
+  if (last < props.value.length) appendText(props.value.slice(last), last);
+  if (!caretRendered && caretIndex === props.value.length) appendCaret();
   return parts.length > 0 ? parts : props.value;
 }
 
