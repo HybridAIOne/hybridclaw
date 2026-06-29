@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import {
   type SetStateAction,
   useCallback,
@@ -178,19 +178,27 @@ export function ChatPage() {
   const userId = useRef(readStoredUserId()).current;
   // A `?prompt=` seed prefills the composer. When paired with `?send=1` (used
   // by the Apps builder and `/app`), it is auto-sent instead of prefilled.
-  const initialChatSeed = useMemo(() => {
-    const sp = new URLSearchParams(window.location.search);
-    const kind = sp.get('kind');
+  // Read from router state (not window.location) — the URL lags client-side
+  // navigation, so window.location.search can be empty at first render.
+  const chatSearch = useSearch({ strict: false }) as {
+    prompt?: string;
+    send?: string;
+    app?: string;
+    category?: string;
+    kind?: string;
+  };
+  const [initialChatSeed] = useState(() => {
+    const kind = chatSearch.kind;
     const appKind: 'web' | 'live' | undefined =
       kind === 'live' ? 'live' : kind === 'web' ? 'web' : undefined;
     return {
-      prompt: sp.get('prompt') || '',
-      autoSend: sp.get('send') === '1',
-      appBuild: sp.get('app') === '1',
-      appCategory: sp.get('category') || undefined,
+      prompt: chatSearch.prompt ?? '',
+      autoSend: chatSearch.send === '1',
+      appBuild: chatSearch.app === '1',
+      appCategory: chatSearch.category,
       appKind,
     };
-  }, []);
+  });
   // Sessions started as app builds: each app-build turn is tagged so the
   // gateway captures the produced HTML into the Apps gallery. Persisted so a
   // reload mid-conversation doesn't drop the tag.
