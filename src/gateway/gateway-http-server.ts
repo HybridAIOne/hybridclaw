@@ -25,6 +25,7 @@ import {
   normalizeAgentProxyConfig,
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
+import { generateApp } from '../apps/app-generator.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getBoardBudgetSummaries } from '../board/budget-chip.js';
 import {
@@ -102,6 +103,7 @@ import {
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
   writeUploadedMediaCacheFile,
 } from '../media/uploaded-media-cache.js';
+import { createApp, deleteApp, getApp, listApps } from '../memory/apps.js';
 import {
   claimQueuedProactiveMessages,
   enqueueProactiveMessage,
@@ -6978,6 +6980,134 @@ async function handleApiArtifact(
   });
 }
 
+/**
+ * Parse `/api/apps/<id>` (or `/api/apps/<id><suffix>`, e.g. `/view`) into the
+ * app id. Returns null for non-matching paths or malformed ids rather than
+ * throwing, so it is safe to call from the pre-auth dispatch section.
+ */
+function parseApiAppId(pathname: string, suffix = ''): string | null {
+  const prefix = '/api/apps/';
+  if (!pathname.startsWith(prefix)) return null;
+  let rest = pathname.slice(prefix.length);
+  if (suffix) {
+    if (!rest.endsWith(suffix)) return null;
+    rest = rest.slice(0, rest.length - suffix.length);
+  }
+  if (!rest || rest.includes('/')) return null;
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+}
+
+async function handleApiAppView(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  id: string,
+): Promise<void> {
+  if (
+    !hasApiAuth(req, url, {
+      allowLocalWebSession: true,
+      allowQueryToken: true,
+      allowSessionCookie: true,
+    })
+  ) {
+    sendJson(res, 401, {
+      error:
+        'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass `?token=<WEB_API_TOKEN>`.',
+    });
+    return;
+  }
+  const app = getApp(id);
+  if (!app) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(app.html);
+}
+
+function handleApiAppsList(res: ServerResponse, url: URL): void {
+  const category = url.searchParams.get('category') ?? undefined;
+  const search =
+    url.searchParams.get('q') ?? url.searchParams.get('search') ?? undefined;
+  const apps = listApps({
+    ...(category ? { category } : {}),
+    ...(search ? { search } : {}),
+  });
+  sendJson(res, 200, { apps, total: apps.length });
+}
+
+function handleApiAppDetail(res: ServerResponse, id: string): void {
+  const app = getApp(id);
+  if (!app) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  sendJson(res, 200, { app });
+}
+
+function handleApiAppDelete(res: ServerResponse, id: string): void {
+  if (!deleteApp(id)) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleApiAppGenerate(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as {
+    description?: unknown;
+    category?: unknown;
+    agentId?: unknown;
+    model?: unknown;
+    sessionId?: unknown;
+    chatbotId?: unknown;
+  };
+  const description =
+    typeof body.description === 'string' ? body.description.trim() : '';
+  if (!description) {
+    throw new GatewayRequestError(
+      400,
+      'A non-empty `description` is required.',
+    );
+  }
+  const agentId =
+    (typeof body.agentId === 'string' && body.agentId.trim()) ||
+    resolveDefaultAgentId(getRuntimeConfig());
+  const generated = await generateApp({
+    description,
+    ...(typeof body.category === 'string' ? { category: body.category } : {}),
+    agentId,
+    ...(typeof body.model === 'string' && body.model.trim()
+      ? { model: body.model.trim() }
+      : {}),
+    ...(typeof body.chatbotId === 'string' && body.chatbotId.trim()
+      ? { chatbotId: body.chatbotId.trim() }
+      : {}),
+  });
+  const app = createApp({
+    title: generated.title,
+    html: generated.html,
+    category: generated.category,
+    description,
+    prompt: description,
+    agentId,
+    sessionId:
+      typeof body.sessionId === 'string' ? body.sessionId.trim() || null : null,
+  });
+  sendJson(res, 201, { app });
+}
+
 async function handleApiAdminTerminal(
   req: IncomingMessage,
   res: ServerResponse,
@@ -7348,6 +7478,25 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         });
         return;
       }
+      {
+        // App viewer renders generated HTML inline in a (sandboxed) browser
+        // frame, so — like /api/artifact — it accepts query-token / cookie auth
+        // instead of requiring an Authorization header.
+        const appViewId = parseApiAppId(pathname, '/view');
+        if (appViewId !== null && method === 'GET') {
+          void handleApiAppView(req, res, url, appViewId).catch(
+            (err: unknown) => {
+              if (res.writableEnded) return;
+              const errorText =
+                err instanceof Error ? err.message : String(err);
+              const statusCode =
+                err instanceof GatewayRequestError ? err.statusCode : 500;
+              sendJson(res, statusCode, { error: errorText });
+            },
+          );
+          return;
+        }
+      }
       if (pathname === '/api/mcp/oauth/callback' && method === 'GET') {
         // Public by design: the OAuth provider redirects the user's browser
         // here without gateway credentials. The flow is bound to a
@@ -7425,6 +7574,29 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           if (pathname === '/api/admin/overview' && method === 'GET') {
             await handleApiAdminOverview(res);
             return;
+          }
+          if (pathname === '/api/apps' && method === 'GET') {
+            handleApiAppsList(res, url);
+            return;
+          }
+          if (pathname === '/api/apps/generate' && method === 'POST') {
+            await handleApiAppGenerate(req, res);
+            return;
+          }
+          {
+            const appId = parseApiAppId(pathname);
+            if (appId !== null) {
+              if (method === 'GET') {
+                handleApiAppDetail(res, appId);
+                return;
+              }
+              if (method === 'DELETE') {
+                handleApiAppDelete(res, appId);
+                return;
+              }
+              sendMethodNotAllowed(res);
+              return;
+            }
           }
           if (pathname === '/api/admin/secrets' && method === 'GET') {
             handleApiAdminSecrets(req, res);

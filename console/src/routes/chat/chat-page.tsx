@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import {
   type SetStateAction,
   useCallback,
@@ -142,6 +143,7 @@ function chatContextQueryKey(token: string, sessionId: string) {
 
 export function ChatPage() {
   const auth = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const userId = useRef(readStoredUserId()).current;
   const initialComposerPrompt = useMemo(
@@ -787,6 +789,18 @@ export function ChatPage() {
 
   const handleSendMessage = useCallback(
     (content: string, media: MediaItem[]) => {
+      // `/app <description>` (or `/apps ...`) is handled client-side: it opens
+      // the Apps gallery and builds the artifact there rather than sending a
+      // chat turn. Bare `/app` just opens the gallery.
+      const appCommand = /^\/apps?\b[ \t]*([\s\S]*)$/i.exec(content.trim());
+      if (appCommand && media.length === 0) {
+        const description = appCommand[1].trim();
+        void navigate({
+          to: '/apps',
+          search: description ? { build: '1', prompt: description } : {},
+        });
+        return;
+      }
       ensureSessionForSend();
       // Sending re-engages the user with the live conversation — snap back so
       // their bubble and the incoming stream are visible without the "↓ Latest"
@@ -794,7 +808,7 @@ export function ChatPage() {
       jumpToBottom();
       void stream.sendMessage(content, media);
     },
-    [ensureSessionForSend, jumpToBottom, stream.sendMessage],
+    [ensureSessionForSend, jumpToBottom, navigate, stream.sendMessage],
   );
 
   const appendLocalCommandResult = useCallback(

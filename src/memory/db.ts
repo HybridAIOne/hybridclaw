@@ -162,7 +162,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 45;
+export const DATABASE_SCHEMA_VERSION = 46;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -3099,6 +3099,27 @@ function migrateV45(
   recordMigration(database, 45, 'Persist per-agent empty chat header');
 }
 
+function migrateV46(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS apps (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      category TEXT NOT NULL DEFAULT 'apps',
+      html TEXT NOT NULL,
+      prompt TEXT,
+      agent_id TEXT,
+      session_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'public')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_apps_created_at ON apps(created_at);
+    CREATE INDEX IF NOT EXISTS idx_apps_category ON apps(category);
+  `);
+  recordMigration(database, 46, 'Persist generated apps (artifacts gallery)');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3214,6 +3235,7 @@ function runMigrations(
   if (currentVersion < 45 || agentEmptyChatHeaderNeedMigration(database)) {
     migrateV45(database, opts);
   }
+  if (currentVersion < 46) migrateV46(database);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

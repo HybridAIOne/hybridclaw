@@ -1,3 +1,4 @@
+import { useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import type { ChatRecentSession } from '../../api/chat-types';
 import { useAuth } from '../../auth';
@@ -42,6 +43,7 @@ export interface ChatSidebarProps {
 export function ChatSidebarPanel(props: ChatSidebarProps) {
   const auth = useAuth();
   const sidebar = useSidebar();
+  const navigate = useNavigate();
   const isSearching = props.searchQuery.trim().length > 0;
 
   useEffect(() => {
@@ -63,6 +65,14 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
         >
           <span aria-hidden="true">+</span>
           <span>New Conversation</span>
+        </button>
+        <button
+          type="button"
+          className={css.newChatButton}
+          onClick={() => navigate({ to: '/apps' })}
+        >
+          <span aria-hidden="true">▦</span>
+          <span>Apps</span>
         </button>
         <div className={css.sidebarSearchWrap}>
           <input

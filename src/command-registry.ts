@@ -709,6 +709,26 @@ function buildSlashCommandCatalogDefinitions(
       description: 'Show HybridClaw runtime status (only visible to you)',
     },
     {
+      // Web-console only: handled client-side by the chat composer, which opens
+      // the Apps gallery and builds the artifact there (see chat-page.tsx).
+      name: 'app',
+      description:
+        'Build a web app, document, game, or tool and save it to your Apps gallery',
+      localSurfaces: ['web'],
+      tuiMenu: {
+        label: '/app <description>',
+        insertText: '/app ',
+      },
+      options: [
+        {
+          kind: 'string',
+          name: 'description',
+          description: 'What to build',
+          required: true,
+        },
+      ],
+    },
+    {
       name: 'btw',
       description: BTW_COMMAND_DESCRIPTION,
       options: [
