@@ -1,7 +1,15 @@
-// The build flow mirrors the reference artifact experience: refine the
-// briefing, propose a short plan and wait for confirmation, then build. Output
-// is one self-contained HTML file (the gallery serves it in a sandboxed iframe,
-// so it must be fully client-side), defaulting to React via CDN.
+// An app-build seed is one chat message, but only the briefing (the part
+// before the marker) is shown in the chat — the build directive after it is
+// sent to the model as input but hidden from the bubble (see
+// stripAppBuildDirective + message-block). The model still receives everything.
+export const APP_BUILD_DIRECTIVE_MARKER = '\n\n<<<APP_BUILD_DIRECTIVE>>>\n';
+
+/** Display helper: show only the briefing, hide the build directive. */
+export function stripAppBuildDirective(content: string): string {
+  const idx = content.indexOf(APP_BUILD_DIRECTIVE_MARKER);
+  return idx === -1 ? content : content.slice(0, idx).trimEnd();
+}
+
 const CLIENT_NOTE =
   'Build one self-contained, fully client-side HTML file (no backend).';
 
@@ -16,11 +24,15 @@ const PUBLISH_NOTE =
 
 const BUILD_NOTE = `${CLIENT_NOTE} ${STACK_NOTE} ${DESIGN_NOTE} ${PUBLISH_NOTE}`;
 
+function compose(briefing: string, directiveLines: string[]): string {
+  return `${briefing}${APP_BUILD_DIRECTIVE_MARKER}${directiveLines.join('\n')}`;
+}
+
 /**
  * Build the first chat message that kicks off an app-building conversation.
- * When the user provides an idea, the agent refines that briefing and clarifies
- * open points (it does NOT suggest different apps); otherwise it asks what to
- * build. Either way it proposes a plan, waits for confirmation, then builds.
+ * Only the briefing is shown; the directive (everything after the marker) is
+ * input for the model. When the user gives an idea, the agent refines that
+ * briefing rather than suggesting other apps.
  */
 export function buildAppSeed(
   categoryNoun: string | null,
@@ -28,58 +40,59 @@ export function buildAppSeed(
 ): string {
   const desc = description.trim();
   if (desc) {
-    const intro = categoryNoun
+    const briefing = categoryNoun
       ? `Let's build a ${categoryNoun} web app. Here's my idea: ${desc}`
       : `Let's build a web app. Here's my idea: ${desc}`;
-    return [
-      intro,
-      '',
+    return compose(briefing, [
       'Before building:',
       "1. Refine this briefing with me — clarify any open points and fill the gaps. Don't suggest a different app; I already know what I want.",
       '2. Propose a short plan and wait for my OK.',
       `Then build it. ${BUILD_NOTE}`,
-    ].join('\n');
+    ]);
   }
-  const intro = categoryNoun
+  const briefing = categoryNoun
     ? `Let's build a ${categoryNoun} web app.`
     : "Let's build a web app.";
-  return [
-    intro,
-    '',
+  return compose(briefing, [
     'Before building:',
     '1. Ask me a couple of quick questions about what I want, the purpose, and who it is for.',
     '2. Propose a short plan and wait for my OK.',
     `Then build it. ${BUILD_NOTE}`,
-  ].join('\n');
+  ]);
 }
 
 /**
- * Seed for a "live app". With an idea, the agent confirms the needed connectors
- * are available and refines the briefing (no alternative-app suggestions);
- * without one, it suggests connector-powered options. It then plans, confirms,
- * and builds an app that embeds live connector data and can be refreshed.
+ * Seed for a "live app". Live apps assume the available MCP connectors / tools
+ * and use them directly (no "which data source?" questions). With an idea the
+ * agent confirms the needed connectors and refines the briefing; without one it
+ * suggests connector-powered options.
  */
 export function buildLiveAppSeed(description: string): string {
   const desc = description.trim();
   const liveTail = `Then build it as a live app that embeds the latest data pulled from those connectors, with a refresh action. ${BUILD_NOTE}`;
+  const mcpRule =
+    'Assume my connected MCP servers / tools are the data source: if a relevant connector is available, use it directly to fetch the data — do not ask me which data source or connector to use.';
   if (desc) {
-    return [
+    return compose(
       `I want to create a live app that uses my connected tools. Here's my idea: ${desc}`,
-      '',
-      'Before building:',
-      '1. Check which connectors / MCP servers I have set up, and confirm the ones this app needs are available — tell me if something is missing or will not work.',
-      "2. Refine this briefing with me and clarify any open points (which data source, which connector, scope). Don't suggest a different app; I already know what I want.",
-      '3. Propose a short plan and wait for my OK.',
-      liveTail,
-    ].join('\n');
+      [
+        mcpRule,
+        '',
+        'Before building:',
+        '1. Check which connectors / MCP servers I have set up, and confirm the ones this app needs are available — tell me only if something required is missing.',
+        '2. Refine this briefing with me on genuinely open points (scope, fields, sorting). Do not suggest a different app; I already know what I want.',
+        '3. Propose a short plan and wait for my OK.',
+        liveTail,
+      ],
+    );
   }
-  return [
-    'I want to create a live app that uses my connected tools.',
+  return compose('I want to create a live app that uses my connected tools.', [
+    mcpRule,
     '',
     'Before building:',
     '1. Check which connectors / MCP servers I have set up.',
     '2. Suggest a few useful live apps or dashboards that use them, and ask me which to build.',
     '3. Refine the idea with me and propose a short plan; wait for my OK.',
     liveTail,
-  ].join('\n');
+  ]);
 }
