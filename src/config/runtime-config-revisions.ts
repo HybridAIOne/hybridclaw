@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 
-import { md5Hex } from '../utils/hash.js';
+import { sha256Hex } from '../utils/hash.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 const CONFIG_REVISION_DB_PATH = path.join(
@@ -496,7 +496,7 @@ export function syncRuntimeAssetRevisionStateInOpenDatabase(
   }
 
   const content = observedFile?.content ?? fs.readFileSync(assetPath, 'utf-8');
-  const md5 = observedFile?.md5 ?? md5Hex(content);
+  const md5 = observedFile?.md5 ?? sha256Hex(content);
   if (!state) {
     database
       .prepare(
