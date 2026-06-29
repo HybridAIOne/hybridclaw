@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   type AppCategory,
   type AppDetail,
+  type AppKind,
   type AppSummary,
   appViewUrl,
   deleteApp,
@@ -30,12 +31,12 @@ import {
 import { ChevronDown, Search, Trash } from '../components/icons';
 import { MobileTopbarTrigger } from '../components/sidebar/index';
 import { useToast } from '../components/toast';
-import { buildAppSeed } from '../lib/app-seed';
+import { buildAppSeed, buildLiveAppSeed } from '../lib/app-seed';
 import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
 import styles from './apps.module.css';
 import { AppsChatSidebar } from './apps-chat-sidebar';
-import { CategoryIcon } from './apps-icons';
+import { CategoryIcon, RefreshIcon as Refresh } from './apps-icons';
 import chatCss from './chat/chat-page.module.css';
 import { ChatSidebarProvider } from './chat/chat-sidebar';
 
@@ -140,7 +141,7 @@ export function AppsPage() {
   const [categoryFilter, setCategoryFilter] = useState<'all' | AppCategory>(
     'all',
   );
-  const [newOpen, setNewOpen] = useState(false);
+  const [newKind, setNewKind] = useState<AppKind | null>(null);
   const [viewer, setViewer] = useState<AppDetail | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AppSummary | null>(null);
 
@@ -150,18 +151,51 @@ export function AppsPage() {
     retry: false,
   });
 
-  // Selecting a category starts an app-building conversation in chat, seeded
-  // with the category and any idea the user typed.
-  function startBuild(category: AppCategory, description: string) {
+  // Starting a build opens a chat conversation seeded for the chosen kind:
+  // web apps are category-driven; live apps inspect the user's connectors first.
+  function startWebBuild(category: AppCategory, description: string) {
     const seedNoun = CATEGORY_BY_SLUG.get(category)?.seedNoun ?? null;
-    setNewOpen(false);
+    setNewKind(null);
     void navigate({
       to: '/chat',
       search: {
         prompt: buildAppSeed(seedNoun, description),
         send: '1',
         app: '1',
+        kind: 'web',
         ...(category !== 'scratch' ? { category } : {}),
+      },
+    });
+  }
+
+  function startLiveBuild(description: string) {
+    setNewKind(null);
+    void navigate({
+      to: '/chat',
+      search: {
+        prompt: buildLiveAppSeed(description),
+        send: '1',
+        app: '1',
+        kind: 'live',
+      },
+    });
+  }
+
+  function refreshApp(app: AppSummary) {
+    if (!app.sessionId) {
+      toast.error('This app has no conversation to refresh.');
+      return;
+    }
+    setViewer(null);
+    void navigate({
+      to: '/chat/$sessionId',
+      params: { sessionId: app.sessionId },
+      search: {
+        prompt:
+          'Refresh this live app with the latest data from my connectors and rebuild it as a single self-contained web app.',
+        send: '1',
+        app: '1',
+        kind: 'live',
       },
     });
   }
@@ -219,7 +253,30 @@ export function AppsPage() {
                   <MobileTopbarTrigger className={styles.mobileTrigger} />
                   <h1 className={styles.title}>Apps</h1>
                 </div>
-                <Button onClick={() => setNewOpen(true)}>+ New app</Button>
+                <Dropdown>
+                  <DropdownTrigger className={styles.newAppTrigger}>
+                    + New app
+                    <ChevronDown aria-hidden="true" />
+                  </DropdownTrigger>
+                  <DropdownContent align="end">
+                    <DropdownItem onSelect={() => setNewKind('web')}>
+                      <span className={styles.newAppItem}>
+                        <span className={styles.newAppItemTitle}>Web app</span>
+                        <span className={styles.newAppItemHint}>
+                          Self-contained app, document, game, or tool
+                        </span>
+                      </span>
+                    </DropdownItem>
+                    <DropdownItem onSelect={() => setNewKind('live')}>
+                      <span className={styles.newAppItem}>
+                        <span className={styles.newAppItemTitle}>Live app</span>
+                        <span className={styles.newAppItemHint}>
+                          Uses your connectors and can be refreshed
+                        </span>
+                      </span>
+                    </DropdownItem>
+                  </DropdownContent>
+                </Dropdown>
               </header>
 
               <div className={styles.toolbar}>
@@ -270,7 +327,7 @@ export function AppsPage() {
               ) : filtered.length === 0 ? (
                 <EmptyState
                   hasApps={apps.length > 0}
-                  onCreate={() => setNewOpen(true)}
+                  onCreate={() => setNewKind('web')}
                 />
               ) : (
                 <ul className={styles.grid}>
@@ -280,6 +337,7 @@ export function AppsPage() {
                         app={app}
                         onOpen={() => openApp(app)}
                         onDelete={() => setConfirmDelete(app)}
+                        onRefresh={() => refreshApp(app)}
                       />
                     </li>
                   ))}
@@ -291,12 +349,18 @@ export function AppsPage() {
       </div>
 
       <NewAppDialog
-        open={newOpen}
-        onOpenChange={setNewOpen}
-        onStart={startBuild}
+        kind={newKind}
+        onClose={() => setNewKind(null)}
+        onStartWeb={startWebBuild}
+        onStartLive={startLiveBuild}
       />
 
-      <AppViewer app={viewer} token={token} onClose={() => setViewer(null)} />
+      <AppViewer
+        app={viewer}
+        token={token}
+        onClose={() => setViewer(null)}
+        onRefresh={viewer ? () => refreshApp(viewer) : undefined}
+      />
 
       <Dialog
         open={confirmDelete !== null}
@@ -355,13 +419,23 @@ function AppCard(props: {
   app: AppSummary;
   onOpen: () => void;
   onDelete: () => void;
+  onRefresh: () => void;
 }) {
   const { app } = props;
+  const isLive = app.kind === 'live';
   return (
     <div className={styles.card}>
       <button type="button" className={styles.cardMain} onClick={props.onOpen}>
-        <div className={styles.cardGlyph} aria-hidden="true">
-          <CategoryIcon category={app.category} />
+        <div className={styles.cardTop}>
+          <div className={styles.cardGlyph} aria-hidden="true">
+            <CategoryIcon category={app.category} />
+          </div>
+          <span
+            className={isLive ? styles.kindBadgeLive : styles.kindBadge}
+            title={isLive ? 'Connector-aware, refreshable' : undefined}
+          >
+            {isLive ? 'Live' : 'Web'}
+          </span>
         </div>
         <div className={styles.cardBody}>
           <span className={styles.cardTitle}>{app.title}</span>
@@ -379,43 +453,65 @@ function AppCard(props: {
           <span>{app.visibility === 'public' ? 'Public' : 'Private'}</span>
         </div>
       </button>
-      <button
-        type="button"
-        className={styles.cardDelete}
-        aria-label={`Delete ${app.title}`}
-        title="Delete"
-        onClick={props.onDelete}
-      >
-        <Trash className={styles.cardDeleteIcon} />
-      </button>
+      <div className={styles.cardActions}>
+        {isLive ? (
+          <button
+            type="button"
+            className={styles.cardAction}
+            aria-label={`Refresh ${app.title}`}
+            title="Refresh with latest data"
+            onClick={props.onRefresh}
+          >
+            <Refresh className={styles.cardActionIcon} />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={styles.cardAction}
+          aria-label={`Delete ${app.title}`}
+          title="Delete"
+          onClick={props.onDelete}
+        >
+          <Trash className={styles.cardActionIcon} />
+        </button>
+      </div>
     </div>
   );
 }
 
 function NewAppDialog(props: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onStart: (category: AppCategory, description: string) => void;
+  kind: AppKind | null;
+  onClose: () => void;
+  onStartWeb: (category: AppCategory, description: string) => void;
+  onStartLive: (description: string) => void;
 }) {
   const [category, setCategory] = useState<AppCategory | null>(null);
   const [description, setDescription] = useState('');
+  const open = props.kind !== null;
 
   // Reset each time the dialog opens.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on open/kind change
   useEffect(() => {
-    if (!props.open) return;
+    if (!open) return;
     setCategory(null);
     setDescription('');
-  }, [props.open]);
+  }, [open, props.kind]);
 
   const activeCategory = category ? CATEGORY_BY_SLUG.get(category) : undefined;
+  const showCategoryGrid = props.kind === 'web' && category === null;
 
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) props.onClose();
+      }}
+    >
       <DialogContent className={styles.newDialog}>
-        {category === null ? (
+        {showCategoryGrid ? (
           <>
             <DialogHeader>
-              <DialogTitle>Create a new app</DialogTitle>
+              <DialogTitle>Create a web app</DialogTitle>
               <DialogDescription>
                 Pick a category to get started, or start from scratch with your
                 own idea.
@@ -438,7 +534,38 @@ function NewAppDialog(props: {
               ))}
             </div>
           </>
-        ) : (
+        ) : props.kind === 'live' ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Create a live app</DialogTitle>
+              <DialogDescription>
+                HybridClaw checks your connected tools (MCP), suggests apps that
+                use them, then builds one you can refresh. Add a starting idea
+                (optional).
+              </DialogDescription>
+            </DialogHeader>
+            <textarea
+              className={styles.promptInput}
+              value={description}
+              autoFocus
+              placeholder="e.g. A dashboard of my upcoming meetings and unread priority emails"
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+            />
+            <DialogFooter>
+              <button
+                type="button"
+                className={styles.secondaryButton}
+                onClick={props.onClose}
+              >
+                Cancel
+              </button>
+              <Button onClick={() => props.onStartLive(description.trim())}>
+                Start building →
+              </Button>
+            </DialogFooter>
+          </>
+        ) : category ? (
           <>
             <DialogHeader>
               <DialogTitle>
@@ -486,13 +613,13 @@ function NewAppDialog(props: {
                 ← Back
               </button>
               <Button
-                onClick={() => props.onStart(category, description.trim())}
+                onClick={() => props.onStartWeb(category, description.trim())}
               >
                 Start building →
               </Button>
             </DialogFooter>
           </>
-        )}
+        ) : null}
       </DialogContent>
     </Dialog>
   );
@@ -502,6 +629,7 @@ function AppViewer(props: {
   app: AppDetail | null;
   token: string;
   onClose: () => void;
+  onRefresh?: () => void;
 }) {
   const { app } = props;
   return (
@@ -515,6 +643,15 @@ function AppViewer(props: {
         <div className={styles.viewerHeader}>
           <DialogTitle className={styles.viewerTitle}>{app?.title}</DialogTitle>
           <div className={styles.viewerActions}>
+            {app && app.kind === 'live' && props.onRefresh ? (
+              <button
+                type="button"
+                className={styles.secondaryButton}
+                onClick={props.onRefresh}
+              >
+                <Refresh className={styles.inlineIcon} /> Refresh
+              </button>
+            ) : null}
             {app ? (
               <a
                 className={styles.secondaryButton}

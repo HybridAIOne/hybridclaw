@@ -75,19 +75,26 @@ test('unknown category normalizes to apps', async () => {
   expect(created.category).toBe('apps');
 });
 
-test('upsertAppForSession creates then updates the same session entry', async () => {
-  const { upsertAppForSession, listApps, getApp } = await setup();
-  const first = upsertAppForSession('sess-app-1', {
+test('upsertAppArtifact creates then updates the same (session, source) entry', async () => {
+  const { upsertAppArtifact, listApps, getApp } = await setup();
+  const first = upsertAppArtifact({
+    sessionId: 'sess-app-1',
+    sourceKey: 'app.html',
     title: 'Draft',
     html: '<html><body>v1</body></html>',
     category: 'productivity',
+    kind: 'live',
   });
   expect(listApps()).toHaveLength(1);
+  expect(first.kind).toBe('live');
 
-  const second = upsertAppForSession('sess-app-1', {
+  const second = upsertAppArtifact({
+    sessionId: 'sess-app-1',
+    sourceKey: 'app.html',
     title: 'Final Dashboard',
     html: '<html><body>v2</body></html>',
     category: 'productivity',
+    kind: 'live',
   });
   // Same row updated in place, not a duplicate.
   expect(second.id).toBe(first.id);
@@ -95,12 +102,23 @@ test('upsertAppForSession creates then updates the same session entry', async ()
   expect(getApp(first.id)?.html).toContain('v2');
   expect(getApp(first.id)?.title).toBe('Final Dashboard');
 
-  // A different session makes a separate entry.
-  upsertAppForSession('sess-app-2', {
-    title: 'Other',
+  // A different artifact in the same session is a separate entry.
+  upsertAppArtifact({
+    sessionId: 'sess-app-1',
+    sourceKey: 'report.html',
+    title: 'Report',
     html: '<html></html>',
   });
   expect(listApps()).toHaveLength(2);
+
+  // A different session is also separate.
+  upsertAppArtifact({
+    sessionId: 'sess-app-2',
+    sourceKey: 'app.html',
+    title: 'Other',
+    html: '<html></html>',
+  });
+  expect(listApps()).toHaveLength(3);
 });
 
 test('deleteApp removes the record', async () => {

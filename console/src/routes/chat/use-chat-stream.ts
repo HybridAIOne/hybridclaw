@@ -73,7 +73,12 @@ export interface UseChatStreamReturn {
   sendMessage: (
     content: string,
     media: MediaItem[],
-    opts?: { hideUser?: boolean; appBuild?: boolean; appCategory?: string },
+    opts?: {
+      hideUser?: boolean;
+      appBuild?: boolean;
+      appCategory?: string;
+      appKind?: 'web' | 'live';
+    },
   ) => Promise<boolean>;
   stopRequest: () => Promise<void>;
   isStreaming: boolean;
@@ -135,7 +140,12 @@ export function useChatStream(
     async (
       content: string,
       media: MediaItem[],
-      opts?: { hideUser?: boolean; appBuild?: boolean; appCategory?: string },
+      opts?: {
+        hideUser?: boolean;
+        appBuild?: boolean;
+        appCategory?: string;
+        appKind?: 'web' | 'live';
+      },
     ) => {
       if (activeRequestRef.current) {
         setError(
@@ -264,6 +274,7 @@ export function useChatStream(
             ...(media.length > 0 ? { media } : {}),
             ...(opts?.appBuild ? { appBuild: true } : {}),
             ...(opts?.appCategory ? { appCategory: opts.appCategory } : {}),
+            ...(opts?.appKind ? { appKind: opts.appKind } : {}),
           },
           signal: req.controller.signal,
           callbacks: {

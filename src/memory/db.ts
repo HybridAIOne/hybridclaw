@@ -162,7 +162,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 46;
+export const DATABASE_SCHEMA_VERSION = 47;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -3120,6 +3120,40 @@ function migrateV46(database: Database.Database): void {
   recordMigration(database, 46, 'Persist generated apps (artifacts gallery)');
 }
 
+function appsKindNeedMigration(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'apps') && !columnExists(database, 'apps', 'kind')
+  );
+}
+
+function migrateV47(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'apps',
+    column: 'kind',
+    ddl: "kind TEXT NOT NULL DEFAULT 'web'",
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'apps',
+    column: 'source_key',
+    ddl: 'source_key TEXT',
+    quiet,
+  });
+  if (tableExists(database, 'apps')) {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_apps_session_source
+        ON apps(session_id, source_key);
+    `);
+  }
+  recordMigration(database, 47, 'Add app kind (web/live) and source key');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3236,6 +3270,9 @@ function runMigrations(
     migrateV45(database, opts);
   }
   if (currentVersion < 46) migrateV46(database);
+  if (currentVersion < 47 || appsKindNeedMigration(database)) {
+    migrateV47(database, opts);
+  }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

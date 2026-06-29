@@ -35,6 +35,16 @@ export function AppsGridIcon(props: IconProps) {
   );
 }
 
+/** Circular arrow — refresh a live app with the latest connector data. */
+export function RefreshIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+      <path d="M20 5v6h-6" />
+    </Svg>
+  );
+}
+
 function AppsWebsitesIcon(props: IconProps) {
   return (
     <Svg {...props}>

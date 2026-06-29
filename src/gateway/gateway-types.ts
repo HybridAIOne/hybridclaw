@@ -167,16 +167,19 @@ export interface GatewayChatRequestBody {
   model?: string | null;
   enableRag?: boolean;
   /**
-   * When true, a self-contained HTML result from this turn is captured into the
-   * Apps gallery (used by the Apps builder conversation). `appCategory` tags it.
+   * Marks an Apps-builder conversation. HTML artifacts are captured into the
+   * gallery for every chat, but `appBuild` also captures inline HTML from the
+   * assistant text and tags the entry with `appCategory` / `appKind`.
    */
   appBuild?: boolean;
   appCategory?: string | null;
+  appKind?: 'web' | 'live';
 }
 
 export interface GatewayChatRequest {
   appBuild?: boolean;
   appCategory?: string | null;
+  appKind?: 'web' | 'live';
   sessionId: GatewayChatRequestBody['sessionId'];
   executionSessionId?: string;
   executorModeOverride?: 'host' | 'container';

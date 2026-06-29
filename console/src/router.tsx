@@ -321,18 +321,21 @@ const chatRoute = createRoute({
     agent?: string;
     app?: string;
     category?: string;
+    kind?: string;
   } => {
     const prompt = optionalStringSearchValue(search.prompt);
     const send = optionalStringSearchValue(search.send);
     const agent = optionalStringSearchValue(search.agent);
     const app = optionalStringSearchValue(search.app);
     const category = optionalStringSearchValue(search.category);
+    const kind = optionalStringSearchValue(search.kind);
     return {
       ...(prompt ? { prompt } : {}),
       ...(send ? { send } : {}),
       ...(agent ? { agent } : {}),
       ...(app ? { app } : {}),
       ...(category ? { category } : {}),
+      ...(kind ? { kind } : {}),
     };
   },
   component: ChatRouteComponent,

@@ -151,16 +151,22 @@ export function ChatPage() {
   // by the Apps builder and `/app`), it is auto-sent instead of prefilled.
   const initialChatSeed = useMemo(() => {
     const sp = new URLSearchParams(window.location.search);
+    const kind = sp.get('kind');
+    const appKind: 'web' | 'live' | undefined =
+      kind === 'live' ? 'live' : kind === 'web' ? 'web' : undefined;
     return {
       prompt: sp.get('prompt') || '',
       autoSend: sp.get('send') === '1',
       appBuild: sp.get('app') === '1',
       appCategory: sp.get('category') || undefined,
+      appKind,
     };
   }, []);
   // Sessions started as app builds: each app-build turn is tagged so the
   // gateway captures the produced HTML into the Apps gallery.
-  const appBuildSessionsRef = useRef(new Map<string, string | undefined>());
+  const appBuildSessionsRef = useRef(
+    new Map<string, { category?: string; kind?: 'web' | 'live' }>(),
+  );
   const initialComposerPrompt = initialChatSeed.autoSend
     ? ''
     : initialChatSeed.prompt;
@@ -814,10 +820,11 @@ export function ChatPage() {
           return;
         }
         const sid = ensureSessionForSend();
-        appBuildSessionsRef.current.set(sid, undefined);
+        appBuildSessionsRef.current.set(sid, { kind: 'web' });
         jumpToBottom();
         void stream.sendMessage(buildAppSeed(null, description), [], {
           appBuild: true,
+          appKind: 'web',
         });
         return;
       }
@@ -826,11 +833,12 @@ export function ChatPage() {
       // their bubble and the incoming stream are visible without the "↓ Latest"
       // chip getting in the way.
       jumpToBottom();
-      if (appBuildSessionsRef.current.has(sid)) {
-        const appCategory = appBuildSessionsRef.current.get(sid);
+      const appBuild = appBuildSessionsRef.current.get(sid);
+      if (appBuild) {
         void stream.sendMessage(content, media, {
           appBuild: true,
-          ...(appCategory ? { appCategory } : {}),
+          ...(appBuild.category ? { appCategory: appBuild.category } : {}),
+          ...(appBuild.kind ? { appKind: appBuild.kind } : {}),
         });
         return;
       }
@@ -853,7 +861,10 @@ export function ChatPage() {
     window.history.replaceState(null, '', window.location.pathname);
     if (initialChatSeed.appBuild) {
       const sid = ensureSessionForSend();
-      appBuildSessionsRef.current.set(sid, initialChatSeed.appCategory);
+      appBuildSessionsRef.current.set(sid, {
+        category: initialChatSeed.appCategory,
+        kind: initialChatSeed.appKind,
+      });
     }
     handleSendMessage(seed, []);
   }, [initialChatSeed, chatApiReady, ensureSessionForSend, handleSendMessage]);

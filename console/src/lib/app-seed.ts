@@ -22,3 +22,22 @@ export function buildAppSeed(
   }
   return `Let's build a small self-contained web app. ${tail}`;
 }
+
+/**
+ * Seed for a "live app": the agent first inspects the user's connected tools
+ * (MCP / connectors), suggests connector-powered apps, then builds one that
+ * embeds the latest data so it can be refreshed later.
+ */
+export function buildLiveAppSeed(description: string): string {
+  const desc = description.trim();
+  const intro = desc
+    ? `I want to create a live app that uses my connected tools. Here's my idea: ${desc}`
+    : 'I want to create a live app that uses my connected tools.';
+  return [
+    intro,
+    '',
+    'First, check which connectors / MCP servers I have set up.',
+    'Then suggest a few useful live apps or dashboards that use them, and ask me which to build.',
+    'Build the one I pick as a single self-contained web app that embeds the latest data pulled from those connectors, so I can preview it and refresh it later.',
+  ].join('\n');
+}

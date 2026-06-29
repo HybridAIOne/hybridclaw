@@ -112,7 +112,7 @@ import {
   deleteApp,
   getApp,
   listApps,
-  upsertAppForSession,
+  upsertAppArtifact,
 } from '../memory/apps.js';
 import {
   claimQueuedProactiveMessages,
@@ -2973,6 +2973,9 @@ async function handleApiChat(
     ...(typeof body.appCategory === 'string'
       ? { appCategory: body.appCategory }
       : {}),
+    ...(body.appKind === 'live' || body.appKind === 'web'
+      ? { appKind: body.appKind }
+      : {}),
   };
   logger.debug(
     {
@@ -3005,7 +3008,7 @@ async function handleApiChat(
     processedResult.sessionId || chatRequest.sessionId,
     processedResult,
   );
-  await maybeCaptureAppBuild(chatRequest, result);
+  await maybeCaptureChatArtifacts(chatRequest, result);
   sendJson(res, result.status === 'success' ? 200 : 500, result);
 }
 
@@ -3311,7 +3314,7 @@ async function handleApiChatStream(
       type: 'result',
       result: filteredResult,
     });
-    await maybeCaptureAppBuild(chatRequest, filteredResult);
+    await maybeCaptureChatArtifacts(chatRequest, filteredResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     sendEvent({
@@ -7125,45 +7128,72 @@ async function handleApiAppGenerate(
 }
 
 /**
- * For app-build conversations, persist a self-contained HTML result into the
- * Apps gallery (one entry per session, updated as the conversation iterates).
+ * Persist self-contained HTML produced in a chat turn into the Apps gallery.
+ * Runs for every chat (not just the Apps builder): each HTML artifact file
+ * becomes a gallery entry keyed by (session, filename), updated in place as the
+ * conversation iterates. App-builder turns additionally capture HTML inlined in
+ * the assistant text and tag the entry with category / kind.
  * Best-effort: never throws into the chat response path.
  */
-async function maybeCaptureAppBuild(
+async function maybeCaptureChatArtifacts(
   chatRequest: GatewayChatRequest,
   result: GatewayChatResult,
 ): Promise<void> {
-  if (!chatRequest.appBuild) return;
   if (result.status !== 'success') return;
   const sessionId = result.sessionId || chatRequest.sessionId;
   if (!sessionId) return;
+  const kind = chatRequest.appKind === 'live' ? 'live' : 'web';
+  const category = chatRequest.appBuild
+    ? (chatRequest.appCategory ?? null)
+    : null;
+  const agentId = result.agentId ?? chatRequest.agentId ?? null;
   try {
-    let html: string | null = null;
-    const htmlArtifact = result.artifacts?.find((artifact) =>
-      artifact.mimeType?.toLowerCase().includes('html'),
-    );
-    if (htmlArtifact?.path) {
+    let capturedFromArtifact = false;
+    for (const artifact of result.artifacts ?? []) {
+      if (!artifact.mimeType?.toLowerCase().includes('html')) continue;
+      if (!artifact.path) continue;
+      let html: string;
       try {
-        const content = await fs.promises.readFile(htmlArtifact.path, 'utf8');
+        const content = await fs.promises.readFile(artifact.path, 'utf8');
         html = extractHtmlDocument(content) ?? content;
       } catch {
-        // Fall back to extracting from the assistant text below.
+        continue;
       }
+      const app = upsertAppArtifact({
+        sessionId,
+        sourceKey: artifact.filename || artifact.path,
+        title: deriveAppTitle(html, artifact.filename || ''),
+        html,
+        category,
+        kind,
+        agentId,
+      });
+      capturedFromArtifact = true;
+      logger.debug(
+        { sessionId, appId: app.id, title: app.title, kind },
+        'Captured HTML artifact into Apps gallery',
+      );
     }
-    if (!html) html = extractHtmlDocument(result.result ?? '');
-    if (!html) return;
-    const app = upsertAppForSession(sessionId, {
-      title: deriveAppTitle(html, ''),
-      html,
-      category: chatRequest.appCategory ?? null,
-      agentId: result.agentId ?? chatRequest.agentId ?? null,
-    });
-    logger.debug(
-      { sessionId, appId: app.id, title: app.title },
-      'Captured app build into Apps gallery',
-    );
+    // App-builder turns may inline the HTML in the reply instead of a file.
+    if (!capturedFromArtifact && chatRequest.appBuild) {
+      const html = extractHtmlDocument(result.result ?? '');
+      if (!html) return;
+      const app = upsertAppArtifact({
+        sessionId,
+        sourceKey: 'inline',
+        title: deriveAppTitle(html, ''),
+        html,
+        category,
+        kind,
+        agentId,
+      });
+      logger.debug(
+        { sessionId, appId: app.id, title: app.title, kind },
+        'Captured inline app build into Apps gallery',
+      );
+    }
   } catch (err) {
-    logger.warn({ err, sessionId }, 'Failed to capture app build');
+    logger.warn({ err, sessionId }, 'Failed to capture chat artifacts');
   }
 }
 

@@ -11,14 +11,18 @@ export type AppCategory =
 
 export type AppVisibility = 'private' | 'public';
 
+export type AppKind = 'web' | 'live';
+
 export interface AppSummary {
   id: string;
   title: string;
   description: string | null;
   category: AppCategory;
+  kind: AppKind;
   prompt: string | null;
   agentId: string | null;
   sessionId: string | null;
+  sourceKey: string | null;
   visibility: AppVisibility;
   createdAt: string;
   updatedAt: string;
