@@ -23,26 +23,25 @@ describe('stripAppBuildDirective', () => {
 });
 
 describe('buildAppSeed', () => {
-  it('builds immediately with best-practice defaults instead of interrogating', () => {
+  it('proposes a plan first, decides with best practices, and does not interrogate', () => {
     const seed = buildAppSeed('productivity tool', 'A churn dashboard');
     expect(seed).toMatch(/best-practice defaults/i);
     expect(seed).toMatch(/don't ask me a list of questions/i);
-    expect(seed).toMatch(/build it now/i);
-    expect(seed).not.toMatch(/wait for my ok/i);
+    expect(seed).toMatch(/propose a short plan/i);
+    expect(seed).toMatch(/wait for my ok/i);
   });
 });
 
 describe('buildLiveAppSeed', () => {
-  it('uses MCP connectors directly and builds now when given an idea', () => {
+  it('uses MCP directly, plans first, and does not suggest alternatives when given an idea', () => {
     const seed = buildLiveAppSeed('A dashboard of open PRs for hybridclaw');
     expect(stripAppBuildDirective(seed)).toContain(
       'A dashboard of open PRs for hybridclaw',
     );
     expect(seed).toMatch(/do not ask me which data source/i);
-    expect(seed).toMatch(/best-practice defaults/i);
-    expect(seed).toMatch(/build it now/i);
+    expect(seed).toMatch(/propose a short plan/i);
+    expect(seed).toMatch(/wait for my ok/i);
     expect(seed).not.toMatch(/suggest a few useful live apps/i);
-    expect(seed).not.toMatch(/wait for my ok/i);
     expect(seed).toMatch(/embeds the latest data/i);
   });
 

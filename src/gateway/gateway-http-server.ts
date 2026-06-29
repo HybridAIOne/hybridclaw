@@ -7185,7 +7185,47 @@ async function maybeCaptureChatArtifacts(
         'Captured HTML artifact into Apps gallery',
       );
     }
-    // App-builder turns may inline the HTML in the reply instead of a file.
+    // App-builder turns often write the HTML to a workspace file and only
+    // reference it in the reply (e.g. "apps/dashboard.html"). Resolve those
+    // references inside the agent workspace and capture them.
+    if (captured.length === 0 && chatRequest.appBuild) {
+      const workspaceDir = agentWorkspaceDir(
+        agentId || resolveDefaultAgentId(getRuntimeConfig()),
+      );
+      const seen = new Set<string>();
+      for (const match of (result.result ?? '').matchAll(
+        /([A-Za-z0-9_][A-Za-z0-9_./-]*\.html)\b/g,
+      )) {
+        const ref = match[1];
+        if (seen.has(ref)) continue;
+        seen.add(ref);
+        const filePath = resolveWorkspaceRelativePath(workspaceDir, ref);
+        if (!filePath) continue;
+        let content: string;
+        try {
+          content = await fs.promises.readFile(filePath, 'utf8');
+        } catch {
+          continue;
+        }
+        const html = extractHtmlDocument(content) ?? content;
+        if (!/<html|<!doctype html/i.test(html)) continue;
+        const app = upsertAppArtifact({
+          sessionId,
+          sourceKey: ref,
+          title: deriveAppTitle(html, path.basename(ref)),
+          html,
+          category,
+          kind,
+          agentId,
+        });
+        captured.push({ id: app.id, title: app.title, kind: app.kind });
+        logger.debug(
+          { sessionId, appId: app.id, title: app.title, kind, ref },
+          'Captured workspace HTML file into Apps gallery',
+        );
+      }
+    }
+    // Or the HTML may be inlined in the reply instead of a file.
     if (captured.length === 0 && chatRequest.appBuild) {
       const html = extractHtmlDocument(result.result ?? '');
       if (!html) return captured;

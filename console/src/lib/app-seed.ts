@@ -44,15 +44,15 @@ export function buildAppSeed(
       ? `Let's build a ${categoryNoun} web app. Here's my idea: ${desc}`
       : `Let's build a web app. Here's my idea: ${desc}`;
     return compose(briefing, [
-      "Don't ask me a list of questions and don't wait for confirmation. Use best-practice defaults for anything I didn't specify, and don't suggest a different app — I already know what I want.",
-      `Briefly note the key decisions you're making, then build it now. ${BUILD_NOTE}`,
+      "Don't ask me a list of questions — use best-practice defaults for anything I didn't specify, and don't suggest a different app (I already know what I want).",
+      `First propose a short plan (your key decisions, a few bullets), then wait for my OK and build it. ${BUILD_NOTE}`,
     ]);
   }
   const briefing = categoryNoun
     ? `Let's build a ${categoryNoun} web app.`
     : "Let's build a web app.";
   return compose(briefing, [
-    'Ask me one quick question about what I want, then use best-practice defaults and build it now.',
+    'Ask me one quick question about what I want, then propose a short plan, wait for my OK, and build it.',
     BUILD_NOTE,
   ]);
 }
@@ -65,7 +65,7 @@ export function buildAppSeed(
  */
 export function buildLiveAppSeed(description: string): string {
   const desc = description.trim();
-  const liveTail = `Build it now as a live app that embeds the latest data pulled from those connectors, with a refresh action. ${BUILD_NOTE}`;
+  const liveTail = `build it as a live app that embeds the latest data pulled from those connectors, with a refresh action. ${BUILD_NOTE}`;
   const mcpRule =
     'Assume my connected MCP servers / tools are the data source: if a relevant connector is available, use it directly to fetch the data — do not ask me which data source or connector to use.';
   if (desc) {
@@ -73,14 +73,14 @@ export function buildLiveAppSeed(description: string): string {
       `I want to create a live app that uses my connected tools. Here's my idea: ${desc}`,
       [
         mcpRule,
-        "Don't ask me a list of questions and don't wait for confirmation. Use best-practice defaults for anything I didn't specify (scope, fields, sorting, refresh), and don't suggest a different app — I already know what I want. Tell me only if something essential is missing.",
-        `Briefly note the key decisions you're making, then ${liveTail}`,
+        "Don't ask me a list of questions — use best-practice defaults for anything I didn't specify (scope, fields, sorting, refresh), and don't suggest a different app (I already know what I want). Tell me only if something essential is missing.",
+        `First propose a short plan (your key decisions, a few bullets), then wait for my OK and ${liveTail}`,
       ],
     );
   }
   return compose('I want to create a live app that uses my connected tools.', [
     mcpRule,
     'Suggest the most useful live app or dashboard you can build with my connectors (briefly list a couple of options and recommend one).',
-    `Once I pick, use best-practice defaults and ${liveTail}`,
+    `Once I pick, propose a short plan, wait for my OK, and ${liveTail}`,
   ]);
 }
