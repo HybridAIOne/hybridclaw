@@ -20,22 +20,6 @@ import {
   getHybridAIAuthStatus,
 } from '../auth/hybridai-auth.js';
 import {
-  buildMicrosoft365AuthorizeUrl,
-  clearMicrosoft365Auth,
-  createMicrosoft365PkcePair,
-  DEFAULT_MICROSOFT_365_OAUTH_SCOPES,
-  exchangeMicrosoft365AuthorizationCode,
-  getMicrosoft365AuthStatus,
-  loginMicrosoft365,
-  MICROSOFT_365_ACCOUNT_SECRET,
-  MICROSOFT_365_OAUTH_CLIENT_ID_SECRET,
-  MICROSOFT_365_OAUTH_CLIENT_SECRET_SECRET,
-  MICROSOFT_365_OAUTH_SCOPES_SECRET,
-  MICROSOFT_365_TENANT_ID_SECRET,
-  mintMicrosoft365AccessToken,
-  parseMicrosoft365Scopes,
-} from '../auth/microsoft-auth.js';
-import {
   HYBRIDAI_BASE_URL,
   MissingRequiredEnvVarError,
   refreshRuntimeSecretsFromEnv,
@@ -43,9 +27,7 @@ import {
 import {
   getRuntimeConfig,
   isGoogleOAuthSecretRef,
-  isMicrosoftOAuthSecretRef,
   makeGoogleOAuthSecretRef,
-  makeMicrosoftOAuthSecretRef,
   normalizeHttpRequestAuthRuleUrlPrefix,
   type RuntimeHttpRequestAuthRule,
   updateRuntimeConfig,
@@ -66,9 +48,9 @@ export type GatewayAdminConnectorId =
   | 'github'
   | 'google'
   | 'microsoft365';
-export type GatewayAdminLocalOAuthConnectorId = Extract<
+type GatewayAdminPlatformConnectorId = Extract<
   GatewayAdminConnectorId,
-  'google' | 'microsoft365'
+  'github' | 'microsoft365'
 >;
 export type GatewayAdminOAuthConnectorId = Exclude<
   GatewayAdminConnectorId,
@@ -120,22 +102,17 @@ export interface GatewayAdminConnectorOAuthStartResult {
 interface ConnectorOAuthStartInput {
   provider?: unknown;
   account?: unknown;
-  tenantId?: unknown;
   clientId?: unknown;
   clientSecret?: unknown;
   scopes?: unknown;
 }
 
 interface PendingConnectorOAuthFlow {
-  provider: GatewayAdminLocalOAuthConnectorId;
   account: string;
-  tenantId: string;
   clientId: string;
   clientSecret: string;
   scopes: string[];
   redirectUri: string;
-  codeVerifier: string | null;
-  codeChallenge: string | null;
   createdAt: number;
 }
 
@@ -245,12 +222,6 @@ function hasGoogleOAuthRoute(): boolean {
   );
 }
 
-function hasMicrosoftOAuthRoute(): boolean {
-  return getRuntimeConfig().tools.httpRequest.authRules.some((rule) =>
-    isMicrosoftOAuthSecretRef(rule.secret),
-  );
-}
-
 function upsertHttpAuthRule(rule: RuntimeHttpRequestAuthRule): void {
   updateRuntimeConfig((draft) => {
     draft.tools.httpRequest.authRules =
@@ -278,27 +249,6 @@ function ensureGoogleWorkspaceRoutes(): void {
       secret: makeGoogleOAuthSecretRef(),
     });
   }
-}
-
-function ensureMicrosoftGraphRoute(): void {
-  upsertHttpAuthRule({
-    urlPrefix: normalizeHttpRequestAuthRuleUrlPrefix(
-      'https://graph.microsoft.com/',
-    ),
-    header: 'Authorization',
-    prefix: 'Bearer',
-    secret: makeMicrosoftOAuthSecretRef(),
-  });
-}
-
-function microsoftAdminConsentUrl(
-  clientId: string,
-  tenantId: string | null,
-): string | null {
-  if (!clientId) return null;
-  const tenant = tenantId || 'organizations';
-  const query = new URLSearchParams({ client_id: clientId });
-  return `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/adminconsent?${query.toString()}`;
 }
 
 function buildHybridAIConnector(): GatewayAdminConnector {
@@ -392,44 +342,29 @@ function buildGitHubConnector(
   };
 }
 
-function buildMicrosoft365Connector(): GatewayAdminConnector {
-  const status = getMicrosoft365AuthStatus();
-  const clientId = readSecretOrEnv(MICROSOFT_365_OAUTH_CLIENT_ID_SECRET);
-  const clientSecret = readSecretOrEnv(
-    MICROSOFT_365_OAUTH_CLIENT_SECRET_SECRET,
-  );
-  const tenantId = status.tenantId || 'organizations';
+function buildMicrosoft365Connector(
+  status?: HybridAIPlatformConnectorStatus,
+): GatewayAdminConnector {
+  const connected = status?.connected === true;
   return {
     id: 'microsoft365',
     name: 'Microsoft 365',
     description:
       'Connect work mail, calendars, files, SharePoint, OneDrive, and Teams.',
-    state: status.authenticated
-      ? 'connected'
-      : clientId
-        ? 'not_connected'
-        : 'needs_setup',
+    state: connected ? 'connected' : 'not_connected',
     authKind: 'oauth',
-    account: status.account || null,
-    detail: status.authenticated
-      ? 'OAuth refresh token configured.'
-      : clientId
-        ? 'OAuth client configured. Connect to authorize Microsoft Graph.'
-        : 'A Microsoft Entra app client id is required until HybridClaw ships its hosted app id.',
-    scopes: status.scopes,
-    routesConfigured: hasMicrosoftOAuthRoute(),
-    clientConfigured: Boolean(clientId),
-    clientSecretConfigured: Boolean(clientSecret),
-    tenantId,
-    loginUrl: null,
-    adminConsentUrl: microsoftAdminConsentUrl(clientId, tenantId),
-    setupSecretNames: [
-      MICROSOFT_365_ACCOUNT_SECRET,
-      MICROSOFT_365_TENANT_ID_SECRET,
-      MICROSOFT_365_OAUTH_CLIENT_ID_SECRET,
-      MICROSOFT_365_OAUTH_CLIENT_SECRET_SECRET,
-      MICROSOFT_365_OAUTH_SCOPES_SECRET,
-    ],
+    account: status?.account || null,
+    detail: connected
+      ? 'Connected through HybridAI.'
+      : 'Managed by HybridAI connectors.',
+    scopes: [],
+    routesConfigured: true,
+    clientConfigured: true,
+    clientSecretConfigured: true,
+    tenantId: null,
+    loginUrl: resolveHybridAIConnectorUrl('microsoft365'),
+    adminConsentUrl: null,
+    setupSecretNames: [],
   };
 }
 
@@ -470,7 +405,7 @@ function parseHybridAIPlatformConnectorStatuses(
   for (const entry of connectors) {
     if (!entry || typeof entry !== 'object') continue;
     const record = entry as Record<string, unknown>;
-    const id = trimString(record.id).toLowerCase();
+    const id = normalizeHybridAIPlatformConnectorId(record.id);
     if (!id) continue;
     statuses.set(id, {
       connected:
@@ -483,6 +418,29 @@ function parseHybridAIPlatformConnectorStatuses(
     });
   }
   return statuses;
+}
+
+function normalizeHybridAIPlatformConnectorId(
+  value: unknown,
+): GatewayAdminPlatformConnectorId | null {
+  const id = trimString(value).toLowerCase();
+  if (id === 'github') return 'github';
+  if (
+    id === 'microsoft365' ||
+    id === 'microsoft-365' ||
+    id === 'm365' ||
+    id === 'windows365' ||
+    id === 'windows-365'
+  ) {
+    return 'microsoft365';
+  }
+  return null;
+}
+
+function platformConnectorName(
+  provider: GatewayAdminPlatformConnectorId,
+): string {
+  return provider === 'github' ? 'GitHub' : 'Microsoft 365';
 }
 
 async function readHybridAIPlatformConnectorStatuses(): Promise<
@@ -572,17 +530,20 @@ async function testHybridAIConnector(): Promise<GatewayAdminConnectorTestResult>
   }
 }
 
-async function testGitHubConnector(): Promise<GatewayAdminConnectorTestResult> {
+async function testHybridAIPlatformConnector(
+  provider: GatewayAdminPlatformConnectorId,
+): Promise<GatewayAdminConnectorTestResult> {
+  const name = platformConnectorName(provider);
   let apiKey: string;
   try {
     apiKey = getHybridAIApiKey();
   } catch (error) {
     if (error instanceof MissingRequiredEnvVarError) {
       return testResult({
-        provider: 'github',
-        name: 'GitHub',
+        provider,
+        name,
         ok: false,
-        message: 'Connect HybridAI first, then connect GitHub.',
+        message: `Connect HybridAI first, then connect ${name}.`,
       });
     }
     throw error;
@@ -598,8 +559,8 @@ async function testGitHubConnector(): Promise<GatewayAdminConnectorTestResult> {
     const payload = await readJsonObject(response);
     if (!response.ok) {
       return testResult({
-        provider: 'github',
-        name: 'GitHub',
+        provider,
+        name,
         ok: false,
         message: messageFromHybridAIResponse(
           payload,
@@ -608,34 +569,27 @@ async function testGitHubConnector(): Promise<GatewayAdminConnectorTestResult> {
       });
     }
 
-    const connectors = Array.isArray(payload.connectors)
-      ? payload.connectors
-      : [];
-    const github = connectors.find(
-      (entry) =>
-        entry &&
-        typeof entry === 'object' &&
-        (entry as Record<string, unknown>).id === 'github',
-    ) as Record<string, unknown> | undefined;
+    const connectors = parseHybridAIPlatformConnectorStatuses(payload);
+    const connector = connectors.get(provider);
 
-    if (github?.connected === true) {
+    if (connector?.connected === true) {
       return testResult({
-        provider: 'github',
-        name: 'GitHub',
+        provider,
+        name,
         ok: true,
-        message: 'GitHub is connected for this HybridAI account.',
+        message: `${name} is connected for this HybridAI account.`,
       });
     }
     return testResult({
-      provider: 'github',
-      name: 'GitHub',
+      provider,
+      name,
       ok: false,
-      message: 'GitHub is not connected for this HybridAI account.',
+      message: `${name} is not connected for this HybridAI account.`,
     });
   } catch (error) {
     return testResult({
-      provider: 'github',
-      name: 'GitHub',
+      provider,
+      name,
       ok: false,
       message: `Could not reach HybridAI connectors: ${errorMessage(error)}`,
     });
@@ -671,47 +625,22 @@ async function testGoogleConnector(): Promise<GatewayAdminConnectorTestResult> {
   }
 }
 
-async function testMicrosoft365Connector(): Promise<GatewayAdminConnectorTestResult> {
-  try {
-    const minted = await mintMicrosoft365AccessToken();
-    if (!minted) {
-      return testResult({
-        provider: 'microsoft365',
-        name: 'Microsoft 365',
-        ok: false,
-        message: 'Microsoft 365 is not connected.',
-      });
-    }
-    return testResult({
-      provider: 'microsoft365',
-      name: 'Microsoft 365',
-      ok: true,
-      message: 'Microsoft 365 is ready to use.',
-    });
-  } catch (error) {
-    return testResult({
-      provider: 'microsoft365',
-      name: 'Microsoft 365',
-      ok: false,
-      message: errorMessage(error),
-    });
-  }
-}
-
 export async function testGatewayAdminConnector(input: {
   provider?: unknown;
 }): Promise<GatewayAdminConnectorTestResult> {
   const provider = parseConnectorId(input.provider);
   if (provider === 'hybridai') return testHybridAIConnector();
-  if (provider === 'github') return testGitHubConnector();
-  if (provider === 'google') return testGoogleConnector();
-  return testMicrosoft365Connector();
+  if (provider === 'github' || provider === 'microsoft365') {
+    return testHybridAIPlatformConnector(provider);
+  }
+  return testGoogleConnector();
 }
 
 async function startHybridAIPlatformConnectorOAuth(input: {
-  provider: Extract<GatewayAdminConnectorId, 'github'>;
+  provider: GatewayAdminPlatformConnectorId;
   requestBaseUrl?: string;
 }): Promise<GatewayAdminConnectorOAuthStartResult> {
+  const name = platformConnectorName(input.provider);
   let apiKey: string;
   try {
     apiKey = getHybridAIApiKey();
@@ -719,7 +648,7 @@ async function startHybridAIPlatformConnectorOAuth(input: {
     if (error instanceof MissingRequiredEnvVarError) {
       throw new GatewayRequestError(
         400,
-        'Connect HybridAI first, then connect GitHub.',
+        `Connect HybridAI first, then connect ${name}.`,
       );
     }
     throw error;
@@ -785,7 +714,7 @@ export async function getGatewayAdminConnectorsWithPlatformState(): Promise<Gate
       buildHybridAIConnector(),
       buildGitHubConnector(platformStatuses.get('github')),
       buildGoogleConnector(),
-      buildMicrosoft365Connector(),
+      buildMicrosoft365Connector(platformStatuses.get('microsoft365')),
     ],
     secretsPath: runtimeSecretsPath(),
   };
@@ -832,60 +761,11 @@ function resolveGoogleOAuthFlow(input: {
   }
 
   return {
-    provider: 'google',
     account,
-    tenantId: '',
     clientId,
     clientSecret,
     scopes,
     redirectUri: input.redirectUri,
-    codeVerifier: null,
-    codeChallenge: null,
-    createdAt: Date.now(),
-  };
-}
-
-function resolveMicrosoft365OAuthFlow(input: {
-  body: ConnectorOAuthStartInput;
-  redirectUri: string;
-}): PendingConnectorOAuthFlow {
-  const current = getMicrosoft365AuthStatus();
-  const account = trimString(input.body.account) || current.account;
-  const tenantId =
-    trimString(input.body.tenantId) ||
-    readSecretOrEnv(MICROSOFT_365_TENANT_ID_SECRET) ||
-    current.tenantId ||
-    'organizations';
-  const clientId =
-    trimString(input.body.clientId) ||
-    readSecretOrEnv(MICROSOFT_365_OAUTH_CLIENT_ID_SECRET);
-  const clientSecret =
-    trimString(input.body.clientSecret) ||
-    readSecretOrEnv(MICROSOFT_365_OAUTH_CLIENT_SECRET_SECRET);
-  const scopes = parseMicrosoft365Scopes(
-    trimString(input.body.scopes) ||
-      readSecretOrEnv(MICROSOFT_365_OAUTH_SCOPES_SECRET) ||
-      DEFAULT_MICROSOFT_365_OAUTH_SCOPES.join(' '),
-  );
-  const pkce = createMicrosoft365PkcePair();
-
-  if (!clientId) {
-    throw new GatewayRequestError(
-      400,
-      'Microsoft 365 OAuth client id is required.',
-    );
-  }
-
-  return {
-    provider: 'microsoft365',
-    account,
-    tenantId,
-    clientId,
-    clientSecret,
-    scopes,
-    redirectUri: input.redirectUri,
-    codeVerifier: pkce.verifier,
-    codeChallenge: pkce.challenge,
     createdAt: Date.now(),
   };
 }
@@ -902,7 +782,7 @@ export async function startGatewayAdminConnectorOAuth(input: {
       'HybridAI uses an API key flow, not OAuth.',
     );
   }
-  if (provider === 'github') {
+  if (provider === 'github' || provider === 'microsoft365') {
     return startHybridAIPlatformConnectorOAuth({
       provider,
       requestBaseUrl: input.requestBaseUrl,
@@ -911,40 +791,20 @@ export async function startGatewayAdminConnectorOAuth(input: {
 
   const redirectUri = resolveOAuthRedirectUri(input.requestBaseUrl);
   const state = makeState();
-  const flow =
-    provider === 'google'
-      ? resolveGoogleOAuthFlow({ body: input.body, redirectUri })
-      : resolveMicrosoft365OAuthFlow({ body: input.body, redirectUri });
+  const flow = resolveGoogleOAuthFlow({ body: input.body, redirectUri });
 
   pendingConnectorOAuthFlows.set(state, flow);
-  if (provider === 'microsoft365' && !flow.codeChallenge) {
-    pendingConnectorOAuthFlows.delete(state);
-    throw new GatewayRequestError(
-      400,
-      'Microsoft 365 OAuth flow is missing PKCE challenge state.',
-    );
-  }
 
   return {
-    provider,
+    provider: 'google',
     state,
     expiresAt: flow.createdAt + PENDING_CONNECTOR_OAUTH_TTL_MS,
-    authorizationUrl:
-      provider === 'google'
-        ? buildGoogleAuthorizeUrl({
-            clientId: flow.clientId,
-            redirectUri,
-            state,
-            scopes: flow.scopes,
-          })
-        : buildMicrosoft365AuthorizeUrl({
-            tenantId: flow.tenantId,
-            clientId: flow.clientId,
-            redirectUri,
-            state,
-            scopes: flow.scopes,
-            codeChallenge: flow.codeChallenge || '',
-          }),
+    authorizationUrl: buildGoogleAuthorizeUrl({
+      clientId: flow.clientId,
+      redirectUri,
+      state,
+      scopes: flow.scopes,
+    }),
   };
 }
 
@@ -962,49 +822,21 @@ export async function completeGatewayAdminConnectorOAuthCallback(input: {
   }
   pendingConnectorOAuthFlows.delete(input.state);
 
-  if (flow.provider === 'google') {
-    const exchanged = await exchangeGoogleAuthorizationCode({
-      clientId: flow.clientId,
-      clientSecret: flow.clientSecret,
-      code: input.code,
-      redirectUri: flow.redirectUri,
-    });
-    await loginGoogle({
-      account: flow.account,
-      clientId: flow.clientId,
-      clientSecret: flow.clientSecret,
-      refreshToken: exchanged.refreshToken,
-      scopes: flow.scopes,
-    });
-    ensureGoogleWorkspaceRoutes();
-    return { provider: 'google', name: 'Google Workspace' };
-  }
-
-  if (!flow.codeVerifier) {
-    throw new GatewayRequestError(
-      400,
-      'Microsoft 365 OAuth flow is missing PKCE verifier state.',
-    );
-  }
-  const exchanged = await exchangeMicrosoft365AuthorizationCode({
-    tenantId: flow.tenantId,
+  const exchanged = await exchangeGoogleAuthorizationCode({
     clientId: flow.clientId,
     clientSecret: flow.clientSecret,
     code: input.code,
     redirectUri: flow.redirectUri,
-    codeVerifier: flow.codeVerifier,
-    scopes: flow.scopes,
   });
-  await loginMicrosoft365({
+  await loginGoogle({
     account: flow.account,
-    tenantId: flow.tenantId,
     clientId: flow.clientId,
     clientSecret: flow.clientSecret,
     refreshToken: exchanged.refreshToken,
     scopes: flow.scopes,
   });
-  ensureMicrosoftGraphRoute();
-  return { provider: 'microsoft365', name: 'Microsoft 365' };
+  ensureGoogleWorkspaceRoutes();
+  return { provider: 'google', name: 'Google Workspace' };
 }
 
 export function logoutGatewayAdminConnector(input: {
@@ -1013,15 +845,13 @@ export function logoutGatewayAdminConnector(input: {
   const provider = parseConnectorId(input.provider);
   if (provider === 'hybridai') {
     clearHybridAICredentials();
-  } else if (provider === 'github') {
+  } else if (provider === 'github' || provider === 'microsoft365') {
     throw new GatewayRequestError(
       400,
-      'GitHub is managed through HybridAI connectors.',
+      `${platformConnectorName(provider)} is managed through HybridAI connectors.`,
     );
   } else if (provider === 'google') {
     clearGoogleAuth();
-  } else {
-    clearMicrosoft365Auth();
   }
   return getGatewayAdminConnectors();
 }
