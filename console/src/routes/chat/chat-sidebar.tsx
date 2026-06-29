@@ -19,6 +19,7 @@ import sidebarStyles from '../../components/sidebar/index.module.css';
 import { ThemeToggle } from '../../components/theme-toggle';
 import { cx } from '../../lib/cx';
 import { formatRelativeTime } from '../../lib/format';
+import { AppsGridIcon } from '../apps-icons';
 import css from './chat-page.module.css';
 
 export { SidebarProvider as ChatSidebarProvider } from '../../components/sidebar/index';
@@ -71,7 +72,9 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
           className={css.newChatButton}
           onClick={() => navigate({ to: '/apps' })}
         >
-          <span aria-hidden="true">▦</span>
+          <span aria-hidden="true" className={css.navLinkIcon}>
+            <AppsGridIcon />
+          </span>
           <span>Apps</span>
         </button>
         <div className={css.sidebarSearchWrap}>

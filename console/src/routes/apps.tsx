@@ -29,60 +29,89 @@ import {
   DropdownTrigger,
 } from '../components/dropdown';
 import { ChevronDown, Search, Trash } from '../components/icons';
+import { MobileTopbarTrigger } from '../components/sidebar/index';
 import { useToast } from '../components/toast';
 import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
 import styles from './apps.module.css';
+import { AppsChatSidebar } from './apps-chat-sidebar';
+import { CategoryIcon } from './apps-icons';
+import chatCss from './chat/chat-page.module.css';
+import { ChatSidebarProvider } from './chat/chat-sidebar';
 
 interface CategoryMeta {
   slug: AppCategory;
   label: string;
   hint: string;
-  glyph: string;
+  examples: string[];
 }
 
 const CATEGORIES: CategoryMeta[] = [
   {
     slug: 'apps',
-    label: 'Apps & Websites',
-    hint: 'Interactive web apps and landing pages',
-    glyph: '🌐',
+    label: 'Apps & websites',
+    hint: 'Internal tools, portals, landing pages',
+    examples: [
+      'A client onboarding portal with step-by-step progress',
+      'A SaaS pricing page with a monthly/annual toggle',
+      'An internal team directory with search',
+    ],
   },
   {
     slug: 'documents',
-    label: 'Documents & Templates',
-    hint: 'Reports, docs, printable templates',
-    glyph: '📄',
+    label: 'Documents & templates',
+    hint: 'Proposals, reports, printable templates',
+    examples: [
+      'A consulting invoice with line items and totals',
+      'A quarterly business review one-pager',
+      'A statement-of-work proposal template',
+    ],
   },
   {
     slug: 'games',
     label: 'Games',
     hint: 'Playable browser games',
-    glyph: '🎮',
+    examples: [
+      'A product-knowledge quiz game for new hires',
+      'A typing-speed trainer',
+      'A memory match game',
+    ],
   },
   {
     slug: 'productivity',
-    label: 'Productivity Tools',
+    label: 'Productivity tools',
     hint: 'Calculators, trackers, dashboards',
-    glyph: '⚡',
+    examples: [
+      'A SaaS MRR and churn dashboard',
+      'A meeting-cost calculator',
+      'A project ROI calculator',
+    ],
   },
   {
     slug: 'creative',
-    label: 'Creative Projects',
-    hint: 'Visual, generative, artistic pieces',
-    glyph: '🎨',
+    label: 'Creative projects',
+    hint: 'Brand assets, mockups, visuals',
+    examples: [
+      'A branded social media post mockup',
+      'A pitch-deck cover slide',
+      'A simple drawing canvas',
+    ],
   },
   {
     slug: 'quiz',
-    label: 'Quiz or Survey',
-    hint: 'Quizzes, surveys, interactive forms',
-    glyph: '📝',
+    label: 'Quiz or survey',
+    hint: 'Lead capture, feedback, assessments',
+    examples: [
+      'A lead-qualification survey with scoring',
+      'An employee eNPS survey',
+      'A customer CSAT form',
+    ],
   },
   {
     slug: 'scratch',
     label: 'Start from scratch',
     hint: 'Describe anything you can imagine',
-    glyph: '✨',
+    examples: [],
   },
 ];
 
@@ -90,10 +119,6 @@ const CATEGORY_BY_SLUG = new Map(CATEGORIES.map((c) => [c.slug, c]));
 
 function categoryLabel(slug: string): string {
   return CATEGORY_BY_SLUG.get(slug as AppCategory)?.label ?? 'App';
-}
-
-function categoryGlyph(slug: string): string {
-  return CATEGORY_BY_SLUG.get(slug as AppCategory)?.glyph ?? '🌐';
 }
 
 export function AppsPage() {
@@ -211,99 +236,102 @@ export function AppsPage() {
     categoryFilter === 'all' ? 'All' : categoryLabel(categoryFilter);
 
   return (
-    <div className={styles.page}>
-      <header className={styles.topbar}>
-        <div className={styles.topbarLeft}>
-          <button
-            type="button"
-            className={styles.backLink}
-            onClick={() => navigate({ to: '/chat' })}
-          >
-            ← Chat
-          </button>
-          <h1 className={styles.title}>Apps</h1>
-        </div>
-        <Button
-          onClick={() => {
-            setSeedPrompt('');
-            setSeedCategory(null);
-            setNewOpen(true);
-          }}
-        >
-          + New App
-        </Button>
-      </header>
+    <ChatSidebarProvider>
+      <div className={chatCss.chatPage}>
+        <AppsChatSidebar />
+        <div className={chatCss.chatMain}>
+          <div className={styles.scroll}>
+            <div className={styles.page}>
+              <header className={styles.topbar}>
+                <div className={styles.topbarLeft}>
+                  <MobileTopbarTrigger className={styles.mobileTrigger} />
+                  <h1 className={styles.title}>Apps</h1>
+                </div>
+                <Button
+                  onClick={() => {
+                    setSeedPrompt('');
+                    setSeedCategory(null);
+                    setNewOpen(true);
+                  }}
+                >
+                  + New app
+                </Button>
+              </header>
 
-      <div className={styles.toolbar}>
-        <div className={styles.searchWrap}>
-          <Search className={styles.searchIcon} aria-hidden="true" />
-          <input
-            type="search"
-            className={styles.searchInput}
-            placeholder="Search apps…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            aria-label="Search apps"
-          />
+              <div className={styles.toolbar}>
+                <div className={styles.searchWrap}>
+                  <Search className={styles.searchIcon} aria-hidden="true" />
+                  <input
+                    type="search"
+                    className={styles.searchInput}
+                    placeholder="Search apps…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    aria-label="Search apps"
+                  />
+                </div>
+                <Dropdown>
+                  <DropdownTrigger className={styles.filterTrigger}>
+                    <span>
+                      Filter: <strong>{filterLabel}</strong>
+                    </span>
+                    <ChevronDown aria-hidden="true" />
+                  </DropdownTrigger>
+                  <DropdownContent align="end">
+                    <DropdownItem
+                      active={categoryFilter === 'all'}
+                      onSelect={() => setCategoryFilter('all')}
+                    >
+                      All
+                    </DropdownItem>
+                    {CATEGORIES.map((category) => (
+                      <DropdownItem
+                        key={category.slug}
+                        active={categoryFilter === category.slug}
+                        onSelect={() => setCategoryFilter(category.slug)}
+                      >
+                        {category.label}
+                      </DropdownItem>
+                    ))}
+                  </DropdownContent>
+                </Dropdown>
+              </div>
+
+              {generateMutation.isPending && !newOpen ? (
+                <div className={styles.buildingBanner} role="status">
+                  <span className={styles.buildingSpinner} aria-hidden="true" />
+                  Building your app… this can take a moment.
+                </div>
+              ) : null}
+
+              {query.isPending ? (
+                <div className="empty-state">Loading apps…</div>
+              ) : query.isError ? (
+                <div className="empty-state">
+                  Failed to load apps: {getErrorMessage(query.error)}
+                </div>
+              ) : filtered.length === 0 ? (
+                <EmptyState
+                  hasApps={apps.length > 0}
+                  onCreate={() => setNewOpen(true)}
+                />
+              ) : (
+                <ul className={styles.grid}>
+                  {filtered.map((app) => (
+                    <li key={app.id}>
+                      <AppCard
+                        app={app}
+                        onOpen={() => openApp(app)}
+                        onDelete={() => setConfirmDelete(app)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         </div>
-        <Dropdown>
-          <DropdownTrigger className={styles.filterTrigger}>
-            <span>
-              Filter: <strong>{filterLabel}</strong>
-            </span>
-            <ChevronDown aria-hidden="true" />
-          </DropdownTrigger>
-          <DropdownContent align="end">
-            <DropdownItem
-              active={categoryFilter === 'all'}
-              onSelect={() => setCategoryFilter('all')}
-            >
-              All
-            </DropdownItem>
-            {CATEGORIES.map((category) => (
-              <DropdownItem
-                key={category.slug}
-                active={categoryFilter === category.slug}
-                onSelect={() => setCategoryFilter(category.slug)}
-              >
-                {category.glyph} {category.label}
-              </DropdownItem>
-            ))}
-          </DropdownContent>
-        </Dropdown>
       </div>
-
-      {generateMutation.isPending && !newOpen ? (
-        <div className={styles.buildingBanner} role="status">
-          <span className={styles.buildingSpinner} aria-hidden="true" />
-          Building your app… this can take a moment.
-        </div>
-      ) : null}
-
-      {query.isPending ? (
-        <div className="empty-state">Loading apps…</div>
-      ) : query.isError ? (
-        <div className="empty-state">
-          Failed to load apps: {getErrorMessage(query.error)}
-        </div>
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          hasApps={apps.length > 0}
-          onCreate={() => setNewOpen(true)}
-        />
-      ) : (
-        <ul className={styles.grid}>
-          {filtered.map((app) => (
-            <li key={app.id}>
-              <AppCard
-                app={app}
-                onOpen={() => openApp(app)}
-                onDelete={() => setConfirmDelete(app)}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
 
       <NewAppDialog
         open={newOpen}
@@ -348,7 +376,7 @@ export function AppsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </ChatSidebarProvider>
   );
 }
 
@@ -356,7 +384,7 @@ function EmptyState(props: { hasApps: boolean; onCreate: () => void }) {
   return (
     <div className={styles.empty}>
       <div className={styles.emptyGlyph} aria-hidden="true">
-        ✨
+        <CategoryIcon category="scratch" />
       </div>
       <h2 className={styles.emptyTitle}>
         {props.hasApps ? 'No matching apps' : 'No apps yet'}
@@ -364,10 +392,10 @@ function EmptyState(props: { hasApps: boolean; onCreate: () => void }) {
       <p className={styles.emptyText}>
         {props.hasApps
           ? 'Try a different search or filter.'
-          : 'Describe an app, document, game, or tool and HybridClaw builds it for you.'}
+          : 'Describe an app, document, tool, or report and HybridClaw builds it for you.'}
       </p>
       {!props.hasApps ? (
-        <Button onClick={props.onCreate}>+ New App</Button>
+        <Button onClick={props.onCreate}>+ New app</Button>
       ) : null}
     </div>
   );
@@ -383,7 +411,7 @@ function AppCard(props: {
     <div className={styles.card}>
       <button type="button" className={styles.cardMain} onClick={props.onOpen}>
         <div className={styles.cardGlyph} aria-hidden="true">
-          {categoryGlyph(app.category)}
+          <CategoryIcon category={app.category} />
         </div>
         <div className={styles.cardBody}>
           <span className={styles.cardTitle}>{app.title}</span>
@@ -455,7 +483,7 @@ function NewAppDialog(props: {
                   onClick={() => setCategory(meta.slug)}
                 >
                   <span className={styles.categoryGlyph} aria-hidden="true">
-                    {meta.glyph}
+                    <CategoryIcon category={meta.slug} />
                   </span>
                   <span className={styles.categoryLabel}>{meta.label}</span>
                   <span className={styles.categoryHint}>{meta.hint}</span>
@@ -467,7 +495,10 @@ function NewAppDialog(props: {
           <>
             <DialogHeader>
               <DialogTitle>
-                {activeCategory?.glyph} {activeCategory?.label}
+                <span className={styles.dialogTitleIcon} aria-hidden="true">
+                  <CategoryIcon category={category} />
+                </span>
+                {activeCategory?.label}
               </DialogTitle>
               <DialogDescription>
                 Describe what you want. HybridClaw builds a self-contained app
@@ -479,10 +510,28 @@ function NewAppDialog(props: {
               value={description}
               autoFocus
               disabled={props.isGenerating}
-              placeholder="e.g. A pomodoro timer with a circular progress ring and sound when it finishes"
+              placeholder="e.g. A client onboarding portal that tracks setup steps and shows progress"
               onChange={(e) => setDescription(e.target.value)}
               rows={5}
             />
+            {activeCategory && activeCategory.examples.length > 0 ? (
+              <div className={styles.examples}>
+                <span className={styles.examplesLabel}>Examples</span>
+                <div className={styles.exampleChips}>
+                  {activeCategory.examples.map((example) => (
+                    <button
+                      key={example}
+                      type="button"
+                      className={styles.exampleChip}
+                      disabled={props.isGenerating}
+                      onClick={() => setDescription(example)}
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <DialogFooter>
               <button
                 type="button"

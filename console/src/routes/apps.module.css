@@ -1,3 +1,9 @@
+.scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .page {
   display: flex;
   flex-direction: column;
@@ -19,22 +25,11 @@
 .topbarLeft {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
 }
 
-.backLink {
-  border: none;
-  background: transparent;
-  color: var(--muted-foreground);
-  font-size: 0.875rem;
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 6px;
-}
-
-.backLink:hover {
-  color: var(--foreground);
-  background: var(--nav-hover);
+.mobileTrigger {
+  flex-shrink: 0;
 }
 
 .title {
@@ -145,8 +140,19 @@
 }
 
 .cardGlyph {
-  font-size: 1.5rem;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.cardGlyph svg {
+  width: 22px;
+  height: 22px;
 }
 
 .cardBody {
@@ -267,7 +273,19 @@
 }
 
 .emptyGlyph {
-  font-size: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.emptyGlyph svg {
+  width: 26px;
+  height: 26px;
 }
 
 .emptyTitle {
@@ -300,7 +318,7 @@
 .categoryTile {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -319,8 +337,79 @@
 }
 
 .categoryGlyph {
-  font-size: 1.5rem;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.categoryGlyph svg {
+  width: 23px;
+  height: 23px;
+}
+
+.dialogTitleIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: -5px;
+  width: 22px;
+  height: 22px;
+  margin-right: 8px;
+  color: var(--foreground);
+}
+
+.dialogTitleIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.examples {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.examplesLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+}
+
+.exampleChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.exampleChip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.exampleChip:hover {
+  border-color: var(--border-strong);
+  background: var(--nav-hover);
+}
+
+.exampleChip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .categoryLabel {

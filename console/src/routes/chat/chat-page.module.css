@@ -79,6 +79,16 @@
   justify-content: center;
 }
 
+.navLinkIcon {
+  align-items: center;
+  color: var(--muted-foreground);
+}
+
+.navLinkIcon svg {
+  width: 18px;
+  height: 18px;
+}
+
 .sidebarLabel {
   margin: 12px 0 4px;
   padding: 0 6px;
