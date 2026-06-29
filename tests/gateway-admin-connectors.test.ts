@@ -132,14 +132,15 @@ describe('gateway admin connectors', () => {
     expect(refreshRuntimeSecretsFromEnv).toHaveBeenCalledTimes(1);
   });
 
-  test('completes Microsoft OAuth and configures the Graph auth route', async () => {
-    const { connectors, runtimeConfig, runtimeSecrets } =
-      await importFreshConnectors();
+  test('starts Microsoft 365 OAuth through HybridAI as the API key owner', async () => {
+    const { connectors, runtimeSecrets } = await importFreshConnectors();
+    runtimeSecrets.saveNamedRuntimeSecrets({
+      HYBRIDAI_API_KEY: 'hai-test-secret-key',
+    });
     const fetchMock = vi.fn<typeof fetch>(async () => {
       return new Response(
         JSON.stringify({
-          refresh_token: 'microsoft-refresh-token',
-          token_type: 'Bearer',
+          authorization_url: 'https://microsoft.test/authorize',
         }),
         {
           status: 200,
@@ -152,47 +153,27 @@ describe('gateway admin connectors', () => {
     const started = await connectors.startGatewayAdminConnectorOAuth({
       requestBaseUrl: 'http://127.0.0.1:9090',
       body: {
-        provider: 'm365',
-        account: 'user@example.com',
-        tenantId: 'organizations',
-        clientId: 'microsoft-client-id',
-        scopes: 'offline_access User.Read Mail.Read',
+        provider: 'microsoft365',
       },
     });
 
-    const url = new URL(started.authorizationUrl);
-    expect(started.provider).toBe('microsoft365');
-    expect(url.origin + url.pathname).toBe(
-      'https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize',
-    );
-    expect(url.searchParams.get('redirect_uri')).toBe(
-      'http://127.0.0.1:9090/api/connectors/oauth/callback',
-    );
-    expect(url.searchParams.get('code_challenge')).toBeTruthy();
-
-    await expect(
-      connectors.completeGatewayAdminConnectorOAuthCallback({
-        state: started.state,
-        code: 'authorization-code',
-      }),
-    ).resolves.toEqual({
+    expect(started).toMatchObject({
       provider: 'microsoft365',
-      name: 'Microsoft 365',
-    });
-
-    expect(runtimeSecrets.readStoredRuntimeSecret('MICROSOFT_365_REFRESH_TOKEN')).toBe(
-      'microsoft-refresh-token',
-    );
-    expect(runtimeConfig.tools.httpRequest.authRules).toContainEqual({
-      urlPrefix: 'https://graph.microsoft.com/',
-      header: 'Authorization',
-      prefix: 'Bearer',
-      secret: { source: 'microsoft-oauth' },
+      authorizationUrl: 'https://microsoft.test/authorize',
+      state: '',
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
-      'code_verifier=',
+    const [url, request] = fetchMock.mock.calls[0] || [];
+    expect(String(url)).toBe(
+      'https://hybridai.one/api/v1/connectors/oauth/authorize/microsoft365',
     );
+    const init = request as RequestInit;
+    expect(new Headers(init.headers).get('Authorization')).toBe(
+      'Bearer hai-test-secret-key',
+    );
+    expect(JSON.parse(String(init.body))).toEqual({
+      return_to: 'http://127.0.0.1:9090/admin/connectors',
+    });
   });
 
   test('starts GitHub OAuth through HybridAI as the API key owner', async () => {
@@ -304,6 +285,41 @@ describe('gateway admin connectors', () => {
     );
   });
 
+  test('tests Microsoft 365 through the HybridAI connector directory', async () => {
+    const { connectors, runtimeSecrets } = await importFreshConnectors();
+    runtimeSecrets.saveNamedRuntimeSecrets({
+      HYBRIDAI_API_KEY: 'hai-test-secret-key',
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          connectors: [{ id: 'microsoft365', connected: true }],
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      connectors.testGatewayAdminConnector({ provider: 'microsoft365' }),
+    ).resolves.toEqual({
+      provider: 'microsoft365',
+      name: 'Microsoft 365',
+      ok: true,
+      message: 'Microsoft 365 is connected for this HybridAI account.',
+    });
+    const [url, request] = fetchMock.mock.calls[0] || [];
+    expect(String(url)).toBe(
+      'https://hybridai.one/api/v1/connectors/directory',
+    );
+    expect(new Headers((request as RequestInit).headers).get('Authorization')).toBe(
+      'Bearer hai-test-secret-key',
+    );
+  });
+
   test('marks GitHub connected from the HybridAI connector directory', async () => {
     const { connectors, runtimeSecrets } = await importFreshConnectors();
     runtimeSecrets.saveNamedRuntimeSecrets({
@@ -338,6 +354,49 @@ describe('gateway admin connectors', () => {
         detail: 'Connected through HybridAI.',
       },
     );
+    const [url, request] = fetchMock.mock.calls[0] || [];
+    expect(String(url)).toBe(
+      'https://hybridai.one/api/v1/connectors/directory',
+    );
+    expect(new Headers((request as RequestInit).headers).get('Authorization')).toBe(
+      'Bearer hai-test-secret-key',
+    );
+  });
+
+  test('marks Microsoft 365 connected from the HybridAI connector directory', async () => {
+    const { connectors, runtimeSecrets } = await importFreshConnectors();
+    runtimeSecrets.saveNamedRuntimeSecrets({
+      HYBRIDAI_API_KEY: 'hai-test-secret-key',
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          connectors: [
+            {
+              id: 'windows365',
+              connected: true,
+              account: 'user@example.com',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response =
+      await connectors.getGatewayAdminConnectorsWithPlatformState();
+
+    expect(
+      response.connectors.find((entry) => entry.id === 'microsoft365'),
+    ).toMatchObject({
+      state: 'connected',
+      account: 'user@example.com',
+      detail: 'Connected through HybridAI.',
+    });
     const [url, request] = fetchMock.mock.calls[0] || [];
     expect(String(url)).toBe(
       'https://hybridai.one/api/v1/connectors/directory',

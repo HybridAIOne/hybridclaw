@@ -21,7 +21,6 @@ import {
   DialogTitle,
 } from '../components/dialog';
 import { Field, FieldLabel } from '../components/field';
-import { HybridClaw } from '../components/icons';
 import {
   GitHubLogo,
   GoogleLogo,
@@ -36,16 +35,12 @@ import { cx } from '../lib/cx';
 import { getErrorMessage } from '../lib/error-message';
 import styles from './connectors.module.css';
 
-type LocalOAuthConnectorId = Extract<
-  AdminConnectorId,
-  'google' | 'microsoft365'
->;
+type LocalOAuthConnectorId = Extract<AdminConnectorId, 'google'>;
 type OAuthConnectorId = Exclude<AdminConnectorId, 'hybridai'>;
-type PlatformConnectorId = Extract<AdminConnectorId, 'github'>;
+type PlatformConnectorId = Extract<AdminConnectorId, 'github' | 'microsoft365'>;
 
 interface OAuthDraft {
   account: string;
-  tenantId: string;
   clientId: string;
   clientSecret: string;
   scopes: string;
@@ -54,7 +49,6 @@ interface OAuthDraft {
 interface OAuthStartPayload {
   provider: OAuthConnectorId;
   account?: string;
-  tenantId?: string;
   clientId?: string;
   clientSecret?: string;
   scopes?: string;
@@ -62,8 +56,10 @@ interface OAuthStartPayload {
 
 const OAUTH_POLL_INTERVAL_MS = 2_000;
 const OAUTH_POLL_TIMEOUT_MS = 5 * 60_000;
-const COMING_SOON_CONNECTORS = new Set<AdminConnectorId>(['microsoft365']);
-const PLATFORM_CONNECTORS = new Set<AdminConnectorId>(['github']);
+const PLATFORM_CONNECTORS = new Set<AdminConnectorId>([
+  'github',
+  'microsoft365',
+]);
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -83,10 +79,6 @@ function connectorIsPlatform(
   connector: AdminConnector,
 ): connector is AdminConnector & { id: PlatformConnectorId } {
   return PLATFORM_CONNECTORS.has(connector.id);
-}
-
-function connectorIsComingSoon(connector: AdminConnector): boolean {
-  return COMING_SOON_CONNECTORS.has(connector.id);
 }
 
 function connectorMarkClass(connector: AdminConnector): string {
@@ -115,7 +107,6 @@ function ConnectorLogo({ connector }: { connector: AdminConnector }) {
 function oauthDraftFromConnector(connector: AdminConnector): OAuthDraft {
   return {
     account: connector.account || '',
-    tenantId: connector.tenantId || '',
     clientId: '',
     clientSecret: '',
     scopes: connector.scopes.join(' '),
@@ -125,13 +116,17 @@ function oauthDraftFromConnector(connector: AdminConnector): OAuthDraft {
 function isOAuthConnectorId(
   value: AdminConnectorId,
 ): value is LocalOAuthConnectorId {
-  return value === 'google' || value === 'microsoft365';
+  return value === 'google';
 }
 
 function isPlatformConnectorId(
   value: string | null,
 ): value is PlatformConnectorId {
-  return value === 'github';
+  return value === 'github' || value === 'microsoft365';
+}
+
+function platformConnectorName(provider: PlatformConnectorId): string {
+  return provider === 'github' ? 'GitHub' : 'Microsoft 365';
 }
 
 function canUseStoredGoogleOAuth(connector: AdminConnector): boolean {
@@ -150,7 +145,6 @@ function oauthPayloadFromDraft(
   return {
     provider,
     account: draft.account,
-    tenantId: draft.tenantId,
     clientId: draft.clientId,
     clientSecret: draft.clientSecret,
     scopes: draft.scopes,
@@ -175,7 +169,6 @@ export function ConnectorsPage() {
   });
   const [oauthDraft, setOauthDraft] = useState<OAuthDraft>({
     account: '',
-    tenantId: '',
     clientId: '',
     clientSecret: '',
     scopes: '',
@@ -208,12 +201,12 @@ export function ConnectorsPage() {
   const oauthMutation = useMutation({
     mutationFn: async (payload: OAuthStartPayload) => {
       const started = await startConnectorOAuth(auth.token, payload);
-      setPendingAuthUrl(started.authorizationUrl);
-      if (started.provider === 'github') {
+      if (isPlatformConnectorId(started.provider)) {
         window.open(started.authorizationUrl, '_self');
-        return 'GitHub';
+        return platformConnectorName(started.provider);
       }
 
+      setPendingAuthUrl(started.authorizationUrl);
       window.open(started.authorizationUrl, '_blank', 'noopener');
 
       const deadline =
@@ -279,9 +272,6 @@ export function ConnectorsPage() {
   const connectors = connectorsQuery.data?.connectors || [];
   const oauthTarget =
     connectors.find((connector) => connector.id === oauthTargetId) || null;
-  const isMicrosoftOAuthTarget = oauthTargetId === 'microsoft365';
-  const microsoftNeedsClientSetup =
-    isMicrosoftOAuthTarget && oauthTarget?.clientConfigured === false;
   const googleNeedsAccount =
     oauthTargetId === 'google' && !oauthDraft.account.trim();
   const googleNeedsClientId =
@@ -295,7 +285,6 @@ export function ConnectorsPage() {
   const oauthSubmitDisabled =
     oauthMutation.isPending ||
     !oauthTargetId ||
-    (microsoftNeedsClientSetup && !oauthDraft.clientId.trim()) ||
     googleNeedsAccount ||
     googleNeedsClientId ||
     googleNeedsClientSecret;
@@ -312,7 +301,7 @@ export function ConnectorsPage() {
         next.add(connected);
         return next;
       });
-      toast.success('GitHub connected.');
+      toast.success(`${platformConnectorName(connected)} connected.`);
     } else {
       toast.error('Connector connection failed.');
     }
@@ -337,7 +326,6 @@ export function ConnectorsPage() {
 
   const openOAuthDialog = (connector: AdminConnector) => {
     if (!isOAuthConnectorId(connector.id)) return;
-    if (connectorIsComingSoon(connector)) return;
     if (canUseStoredGoogleOAuth(connector)) {
       oauthMutation.mutate({ provider: 'google' });
       return;
@@ -368,22 +356,13 @@ export function ConnectorsPage() {
     <div className="page-stack">
       <div className={styles.connectorGrid}>
         {connectors.map((connector) => {
-          const isComingSoon = connectorIsComingSoon(connector);
-          const isConnected =
-            (stateIsConnected(connector) ||
-              (connector.id === 'github' &&
-                platformConnectedIds.has(connector.id))) &&
-            !isComingSoon;
           const isPlatform = connectorIsPlatform(connector);
+          const isConnected =
+            stateIsConnected(connector) ||
+            (isPlatform && platformConnectedIds.has(connector.id));
 
           return (
-            <Card
-              key={connector.id}
-              className={cx(
-                styles.connectorCard,
-                isComingSoon && styles.connectorCardDisabled,
-              )}
-            >
+            <Card key={connector.id} className={styles.connectorCard}>
               <CardHeader>
                 <div className={styles.connectorHead}>
                   <span className={connectorMarkClass(connector)}>
@@ -397,11 +376,9 @@ export function ConnectorsPage() {
                       <BooleanPill
                         value={isConnected}
                         trueLabel="connected"
-                        falseLabel={
-                          isComingSoon ? 'coming soon' : stateLabel(connector)
-                        }
+                        falseLabel={stateLabel(connector)}
                         falseTone={
-                          connector.state === 'needs_setup' && !isComingSoon
+                          connector.state === 'needs_setup'
                             ? 'danger'
                             : 'default'
                         }
@@ -414,11 +391,7 @@ export function ConnectorsPage() {
                 </div>
               </CardHeader>
               <div className={styles.connectorActions}>
-                {isComingSoon ? (
-                  <Button type="button" size="sm" variant="outline" disabled>
-                    Coming soon
-                  </Button>
-                ) : connector.id === 'hybridai' ? (
+                {connector.id === 'hybridai' ? (
                   <>
                     <Button
                       type="button"
@@ -507,7 +480,7 @@ export function ConnectorsPage() {
                     testMutation.isPending &&
                     testMutation.variables === connector.id
                   }
-                  disabled={isComingSoon || testMutation.isPending}
+                  disabled={testMutation.isPending}
                   aria-label={`Test ${connector.name}`}
                   onClick={() => testMutation.mutate(connector.id)}
                 >
@@ -566,176 +539,94 @@ export function ConnectorsPage() {
         >
           <DialogHeader>
             <DialogTitle>
-              {isMicrosoftOAuthTarget
-                ? 'Sign in with your work account'
-                : oauthTarget
-                  ? `Connect ${oauthTarget.name}`
-                  : 'Connect'}
+              {oauthTarget ? `Connect ${oauthTarget.name}` : 'Connect'}
             </DialogTitle>
             <DialogDescription>
-              {isMicrosoftOAuthTarget
-                ? 'Sign in with your Microsoft 365 work or school account. Personal Microsoft accounts are not supported.'
-                : oauthMutation.isPending
-                  ? 'Waiting for authorization in the browser.'
-                  : 'Leave stored app credentials blank to reuse them.'}
+              {oauthMutation.isPending
+                ? 'Waiting for authorization in the browser.'
+                : 'Leave stored app credentials blank to reuse them.'}
             </DialogDescription>
           </DialogHeader>
 
-          {isMicrosoftOAuthTarget ? (
-            <div className={styles.microsoftDialog}>
-              <div className={styles.oauthBridge} aria-hidden="true">
-                <span
-                  className={cx(
-                    styles.oauthBridgeMark,
-                    styles.connectorMarkMicrosoft365,
-                  )}
-                >
-                  <MicrosoftLogo width={28} height={28} />
-                </span>
-                <span className={styles.oauthBridgeLine} />
-                <span
-                  className={cx(
-                    styles.oauthBridgeMark,
-                    styles.oauthBridgeMarkHybridClaw,
-                  )}
-                >
-                  <HybridClaw width={28} height={28} />
-                </span>
-              </div>
+          <div className={styles.dialogForm}>
+            <Field>
+              <FieldLabel>Google account</FieldLabel>
+              <Input
+                value={oauthDraft.account}
+                onChange={(event) =>
+                  setOauthDraft((current) => ({
+                    ...current,
+                    account: event.target.value,
+                  }))
+                }
+                placeholder="user@example.com"
+              />
+            </Field>
 
-              {oauthMutation.isPending ? (
-                <div className={styles.microsoftCopy}>
-                  <p>Complete the Microsoft sign-in in the new browser tab.</p>
-                  {pendingAuthUrl ? (
-                    <a
-                      className={styles.pendingLink}
-                      href={pendingAuthUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Reopen Microsoft sign-in
-                    </a>
-                  ) : null}
-                </div>
-              ) : (
-                <div className={styles.microsoftCopy}>
-                  <p>
-                    Connect SharePoint, OneDrive, Outlook, Teams, calendar, and
-                    chat data to HybridClaw through Microsoft Graph.
-                  </p>
-                  <p>
-                    If you are the Microsoft Entra admin, approve access during
-                    sign-in. Otherwise your admin may need to approve it first.
-                  </p>
-                </div>
-              )}
-
-              {microsoftNeedsClientSetup ? (
-                <div className={styles.microsoftSetup}>
-                  <div>
-                    <strong>One-time Entra app setup</strong>
-                    <p>
-                      Add the HybridClaw Microsoft app client ID here once to
-                      enable the simple sign-in flow on this gateway.
-                    </p>
-                  </div>
-                  <Field>
-                    <FieldLabel>Microsoft app client ID</FieldLabel>
-                    <Input
-                      value={oauthDraft.clientId}
-                      onChange={(event) =>
-                        setOauthDraft((current) => ({
-                          ...current,
-                          clientId: event.target.value,
-                        }))
-                      }
-                      placeholder="00000000-0000-0000-0000-000000000000"
-                    />
-                  </Field>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className={styles.dialogForm}>
+            <div className="field-grid">
               <Field>
-                <FieldLabel>Google account</FieldLabel>
+                <FieldLabel>Client ID</FieldLabel>
                 <Input
-                  value={oauthDraft.account}
+                  value={oauthDraft.clientId}
                   onChange={(event) =>
                     setOauthDraft((current) => ({
                       ...current,
-                      account: event.target.value,
+                      clientId: event.target.value,
                     }))
                   }
-                  placeholder="user@example.com"
+                  placeholder={
+                    oauthTarget?.clientConfigured
+                      ? 'stored client id'
+                      : 'client id'
+                  }
                 />
               </Field>
-
-              <div className="field-grid">
-                <Field>
-                  <FieldLabel>Client ID</FieldLabel>
-                  <Input
-                    value={oauthDraft.clientId}
-                    onChange={(event) =>
-                      setOauthDraft((current) => ({
-                        ...current,
-                        clientId: event.target.value,
-                      }))
-                    }
-                    placeholder={
-                      oauthTarget?.clientConfigured
-                        ? 'stored client id'
-                        : 'client id'
-                    }
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel>Client secret</FieldLabel>
-                  <Input
-                    type="password"
-                    autoComplete="off"
-                    value={oauthDraft.clientSecret}
-                    onChange={(event) =>
-                      setOauthDraft((current) => ({
-                        ...current,
-                        clientSecret: event.target.value,
-                      }))
-                    }
-                    placeholder={
-                      oauthTarget?.clientSecretConfigured
-                        ? 'stored secret'
-                        : 'client secret'
-                    }
-                  />
-                </Field>
-              </div>
-
               <Field>
-                <FieldLabel>Scopes</FieldLabel>
-                <Textarea
-                  rows={4}
-                  value={oauthDraft.scopes}
+                <FieldLabel>Client secret</FieldLabel>
+                <Input
+                  type="password"
+                  autoComplete="off"
+                  value={oauthDraft.clientSecret}
                   onChange={(event) =>
                     setOauthDraft((current) => ({
                       ...current,
-                      scopes: event.target.value,
+                      clientSecret: event.target.value,
                     }))
+                  }
+                  placeholder={
+                    oauthTarget?.clientSecretConfigured
+                      ? 'stored secret'
+                      : 'client secret'
                   }
                 />
               </Field>
-
-              {pendingAuthUrl && oauthMutation.isPending ? (
-                <a
-                  className={styles.pendingLink}
-                  href={pendingAuthUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open authorization page
-                </a>
-              ) : null}
             </div>
-          )}
+
+            <Field>
+              <FieldLabel>Scopes</FieldLabel>
+              <Textarea
+                rows={4}
+                value={oauthDraft.scopes}
+                onChange={(event) =>
+                  setOauthDraft((current) => ({
+                    ...current,
+                    scopes: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+
+            {pendingAuthUrl && oauthMutation.isPending ? (
+              <a
+                className={styles.pendingLink}
+                href={pendingAuthUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open authorization page
+              </a>
+            ) : null}
+          </div>
 
           <DialogFooter>
             <DialogClose
@@ -755,11 +646,7 @@ export function ConnectorsPage() {
                 );
               }}
             >
-              {oauthMutation.isPending
-                ? 'Waiting...'
-                : isMicrosoftOAuthTarget
-                  ? 'Continue'
-                  : 'Connect'}
+              {oauthMutation.isPending ? 'Waiting...' : 'Connect'}
             </Button>
           </DialogFooter>
         </DialogContent>
