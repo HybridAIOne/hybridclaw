@@ -11,7 +11,10 @@ const STACK_NOTE =
 const DESIGN_NOTE =
   'Design it with care — if you have a frontend-design skill, use it; otherwise apply strong fundamentals (clear layout, sensible typography, responsive, accessible, modern).';
 
-const BUILD_NOTE = `${CLIENT_NOTE} ${STACK_NOTE} ${DESIGN_NOTE}`;
+const PUBLISH_NOTE =
+  'When you finish, the app is automatically published to my Apps gallery and opened as a preview with its own link — no external hosting needed, so just build it.';
+
+const BUILD_NOTE = `${CLIENT_NOTE} ${STACK_NOTE} ${DESIGN_NOTE} ${PUBLISH_NOTE}`;
 
 /**
  * Build the first chat message that kicks off an app-building conversation.

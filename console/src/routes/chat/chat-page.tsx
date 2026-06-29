@@ -143,6 +143,34 @@ function chatContextQueryKey(token: string, sessionId: string) {
   return ['chat-context', token, sessionId] as const;
 }
 
+type AppBuildSessionInfo = { category?: string; kind?: 'web' | 'live' };
+const APP_BUILD_SESSIONS_KEY = 'hybridclaw.appBuildSessions';
+
+// App-build session tags are persisted so follow-up build turns (and the
+// finished-build popup) keep working after a page reload.
+function loadAppBuildSessions(): Map<string, AppBuildSessionInfo> {
+  try {
+    const raw = localStorage.getItem(APP_BUILD_SESSIONS_KEY);
+    if (!raw) return new Map();
+    return new Map(
+      Object.entries(JSON.parse(raw) as Record<string, AppBuildSessionInfo>),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+function saveAppBuildSessions(map: Map<string, AppBuildSessionInfo>): void {
+  try {
+    localStorage.setItem(
+      APP_BUILD_SESSIONS_KEY,
+      JSON.stringify(Object.fromEntries(map)),
+    );
+  } catch {
+    // ignore storage failures (private mode, quota)
+  }
+}
+
 export function ChatPage() {
   const auth = useAuth();
   const navigate = useNavigate();
@@ -164,9 +192,15 @@ export function ChatPage() {
     };
   }, []);
   // Sessions started as app builds: each app-build turn is tagged so the
-  // gateway captures the produced HTML into the Apps gallery.
-  const appBuildSessionsRef = useRef(
-    new Map<string, { category?: string; kind?: 'web' | 'live' }>(),
+  // gateway captures the produced HTML into the Apps gallery. Persisted so a
+  // reload mid-conversation doesn't drop the tag.
+  const appBuildSessionsRef = useRef(loadAppBuildSessions());
+  const markAppBuildSession = useCallback(
+    (sessionId: string, info: AppBuildSessionInfo) => {
+      appBuildSessionsRef.current.set(sessionId, info);
+      saveAppBuildSessions(appBuildSessionsRef.current);
+    },
+    [],
   );
   const initialComposerPrompt = initialChatSeed.autoSend
     ? ''
@@ -829,7 +863,7 @@ export function ChatPage() {
           return;
         }
         const sid = ensureSessionForSend();
-        appBuildSessionsRef.current.set(sid, { kind: 'web' });
+        markAppBuildSession(sid, { kind: 'web' });
         jumpToBottom();
         void stream.sendMessage(buildAppSeed(null, description), [], {
           appBuild: true,
@@ -853,7 +887,13 @@ export function ChatPage() {
       }
       void stream.sendMessage(content, media);
     },
-    [ensureSessionForSend, jumpToBottom, navigate, stream.sendMessage],
+    [
+      ensureSessionForSend,
+      jumpToBottom,
+      navigate,
+      markAppBuildSession,
+      stream.sendMessage,
+    ],
   );
 
   // Auto-send a seeded conversation (Apps builder / `/app`): when arriving at
@@ -873,7 +913,7 @@ export function ChatPage() {
     window.history.replaceState(null, '', window.location.pathname);
     if (initialChatSeed.appBuild) {
       const sid = ensureSessionForSend();
-      appBuildSessionsRef.current.set(sid, {
+      markAppBuildSession(sid, {
         category: initialChatSeed.appCategory,
         kind: initialChatSeed.appKind,
       });
@@ -884,6 +924,7 @@ export function ChatPage() {
     chatApiReady,
     historyQuery.isFetched,
     ensureSessionForSend,
+    markAppBuildSession,
     handleSendMessage,
   ]);
 

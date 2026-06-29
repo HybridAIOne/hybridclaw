@@ -2353,13 +2353,19 @@ function isConsoleSpaPath(pathname: string): boolean {
     pathname === '/admin' ||
     pathname.startsWith('/admin/') ||
     pathname === '/chat' ||
-    pathname.startsWith('/chat/')
+    pathname.startsWith('/chat/') ||
+    pathname === '/apps' ||
+    pathname.startsWith('/apps/')
   );
 }
 
 function resolveConsolePageTitle(pathname: string): string {
   if (pathname === '/chat' || pathname.startsWith('/chat/')) {
     return 'HybridClaw Chat';
+  }
+
+  if (pathname === '/apps' || pathname.startsWith('/apps/')) {
+    return 'HybridClaw Apps';
   }
 
   if (pathname === '/agents' || pathname.startsWith('/agents/')) {
