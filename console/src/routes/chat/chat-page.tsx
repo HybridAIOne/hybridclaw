@@ -856,6 +856,9 @@ export function ChatPage() {
     const seed = initialChatSeed.prompt.trim();
     if (!seed) return;
     if (!chatApiReady) return;
+    // Wait for the session's initial (empty) history to settle first — sending
+    // before it resolves lets the empty fetch clobber the optimistic message.
+    if (!historyQuery.isFetched) return;
     autoSentSeedRef.current = true;
     // Drop the params so a refresh doesn't resend.
     window.history.replaceState(null, '', window.location.pathname);
@@ -867,7 +870,13 @@ export function ChatPage() {
       });
     }
     handleSendMessage(seed, []);
-  }, [initialChatSeed, chatApiReady, ensureSessionForSend, handleSendMessage]);
+  }, [
+    initialChatSeed,
+    chatApiReady,
+    historyQuery.isFetched,
+    ensureSessionForSend,
+    handleSendMessage,
+  ]);
 
   const appendLocalCommandResult = useCallback(
     (targetSessionId: string, content: string) => {
