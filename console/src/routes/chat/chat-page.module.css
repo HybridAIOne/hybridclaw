@@ -89,6 +89,66 @@
   height: 18px;
 }
 
+.appPreviewDialog {
+  width: min(1100px, 95vw);
+  max-width: min(1100px, 95vw);
+  height: 86vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.appPreviewHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.appPreviewTitle {
+  font-size: 1rem;
+  font-weight: 650;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appPreviewActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.appPreviewLink {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.appPreviewLink:hover {
+  border-color: var(--border-strong);
+  background: var(--chat-hover-bg);
+}
+
+.appPreviewFrame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+
 .sidebarLabel {
   margin: 12px 0 4px;
   padding: 0 6px;

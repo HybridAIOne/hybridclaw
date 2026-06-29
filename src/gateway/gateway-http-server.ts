@@ -3008,7 +3008,8 @@ async function handleApiChat(
     processedResult.sessionId || chatRequest.sessionId,
     processedResult,
   );
-  await maybeCaptureChatArtifacts(chatRequest, result);
+  const capturedApps = await maybeCaptureChatArtifacts(chatRequest, result);
+  if (capturedApps.length > 0) result.apps = capturedApps;
   sendJson(res, result.status === 'success' ? 200 : 500, result);
 }
 
@@ -3310,11 +3311,15 @@ async function handleApiChatStream(
     if (pendingApproval && pendingApproval.approvalId !== streamedApprovalId) {
       sendEvent(pendingApproval);
     }
+    const capturedApps = await maybeCaptureChatArtifacts(
+      chatRequest,
+      filteredResult,
+    );
+    if (capturedApps.length > 0) filteredResult.apps = capturedApps;
     sendEvent({
       type: 'result',
       result: filteredResult,
     });
-    await maybeCaptureChatArtifacts(chatRequest, filteredResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     sendEvent({
@@ -7138,17 +7143,17 @@ async function handleApiAppGenerate(
 async function maybeCaptureChatArtifacts(
   chatRequest: GatewayChatRequest,
   result: GatewayChatResult,
-): Promise<void> {
-  if (result.status !== 'success') return;
+): Promise<NonNullable<GatewayChatResult['apps']>> {
+  const captured: NonNullable<GatewayChatResult['apps']> = [];
+  if (result.status !== 'success') return captured;
   const sessionId = result.sessionId || chatRequest.sessionId;
-  if (!sessionId) return;
+  if (!sessionId) return captured;
   const kind = chatRequest.appKind === 'live' ? 'live' : 'web';
   const category = chatRequest.appBuild
     ? (chatRequest.appCategory ?? null)
     : null;
   const agentId = result.agentId ?? chatRequest.agentId ?? null;
   try {
-    let capturedFromArtifact = false;
     for (const artifact of result.artifacts ?? []) {
       if (!artifact.mimeType?.toLowerCase().includes('html')) continue;
       if (!artifact.path) continue;
@@ -7168,16 +7173,16 @@ async function maybeCaptureChatArtifacts(
         kind,
         agentId,
       });
-      capturedFromArtifact = true;
+      captured.push({ id: app.id, title: app.title, kind: app.kind });
       logger.debug(
         { sessionId, appId: app.id, title: app.title, kind },
         'Captured HTML artifact into Apps gallery',
       );
     }
     // App-builder turns may inline the HTML in the reply instead of a file.
-    if (!capturedFromArtifact && chatRequest.appBuild) {
+    if (captured.length === 0 && chatRequest.appBuild) {
       const html = extractHtmlDocument(result.result ?? '');
-      if (!html) return;
+      if (!html) return captured;
       const app = upsertAppArtifact({
         sessionId,
         sourceKey: 'inline',
@@ -7187,6 +7192,7 @@ async function maybeCaptureChatArtifacts(
         kind,
         agentId,
       });
+      captured.push({ id: app.id, title: app.title, kind: app.kind });
       logger.debug(
         { sessionId, appId: app.id, title: app.title, kind },
         'Captured inline app build into Apps gallery',
@@ -7195,6 +7201,7 @@ async function maybeCaptureChatArtifacts(
   } catch (err) {
     logger.warn({ err, sessionId }, 'Failed to capture chat artifacts');
   }
+  return captured;
 }
 
 async function handleApiAdminTerminal(

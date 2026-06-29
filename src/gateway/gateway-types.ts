@@ -107,6 +107,8 @@ export interface GatewayChatResult {
     filename: string;
     mimeType: string;
   }>;
+  /** Apps captured into the gallery from this turn (Apps builder / artifacts). */
+  apps?: Array<{ id: string; title: string; kind: 'web' | 'live' }>;
   toolExecutions?: ToolExecution[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;

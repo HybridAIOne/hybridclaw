@@ -36,6 +36,9 @@ interface UseChatStreamOptions {
   refreshRecent: () => void;
   onSessionIdCorrection: (serverSessionId: string) => void;
   onModelResolved?: (modelId: string) => void;
+  onAppsCaptured?: (
+    apps: Array<{ id: string; title: string; kind: 'web' | 'live' }>,
+  ) => void;
   resolveAddressedAgentPresentation?: (
     content: string,
   ) => AssistantPresentation | null;
@@ -100,6 +103,7 @@ export function useChatStream(
     refreshRecent,
     onSessionIdCorrection,
     onModelResolved,
+    onAppsCaptured,
     resolveAddressedAgentPresentation,
   } = options;
 
@@ -306,6 +310,12 @@ export function useChatStream(
           onModelResolved?.(resolvedModel);
         }
 
+        // Only pop the preview for explicit app builds/refreshes — regular
+        // chats still capture HTML to the gallery, just without interrupting.
+        if (opts?.appBuild && result.apps && result.apps.length > 0) {
+          onAppsCaptured?.(result.apps);
+        }
+
         flushRender();
 
         const finalText = result.result ?? req.assistantText ?? '';
@@ -456,6 +466,7 @@ export function useChatStream(
       writeMessages,
       onSessionIdCorrection,
       onModelResolved,
+      onAppsCaptured,
       resolveAddressedAgentPresentation,
       queryClient,
       setError,

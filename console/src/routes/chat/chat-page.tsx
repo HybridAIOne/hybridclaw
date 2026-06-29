@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { appViewUrl } from '../../api/apps';
 import {
   cleanupNoUserChatSessions,
   createChatBranch,
@@ -400,6 +401,12 @@ export function ChatPage() {
   );
   const modelOptions = modelsQuery.data?.models ?? EMPTY_MODELS;
 
+  const [previewApp, setPreviewApp] = useState<{
+    id: string;
+    title: string;
+    kind: 'web' | 'live';
+  } | null>(null);
+
   const stream = useChatStream({
     token: auth.token,
     userId,
@@ -408,6 +415,8 @@ export function ChatPage() {
     refreshRecent,
     onSessionIdCorrection: handleSessionIdCorrection,
     onModelResolved: setSelectedModelId,
+    // When a build is captured into the gallery, pop it open as a preview.
+    onAppsCaptured: (apps) => setPreviewApp(apps[apps.length - 1] ?? null),
     resolveAddressedAgentPresentation,
   });
 
@@ -1349,6 +1358,56 @@ export function ChatPage() {
                 {deleteSessionMutation.isPending ? 'Deleting...' : 'Delete'}
               </button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={previewApp !== null}
+          onOpenChange={(open) => {
+            if (!open) setPreviewApp(null);
+          }}
+        >
+          <DialogContent
+            className={css.appPreviewDialog}
+            aria-label="App preview"
+          >
+            <div className={css.appPreviewHeader}>
+              <DialogTitle className={css.appPreviewTitle}>
+                {previewApp?.title}
+              </DialogTitle>
+              <div className={css.appPreviewActions}>
+                <button
+                  type="button"
+                  className={css.appPreviewLink}
+                  onClick={() => {
+                    setPreviewApp(null);
+                    void navigate({ to: '/apps' });
+                  }}
+                >
+                  View in Apps
+                </button>
+                {previewApp ? (
+                  <a
+                    className={css.appPreviewLink}
+                    href={appViewUrl(previewApp.id, auth.token)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open in new tab ↗
+                  </a>
+                ) : null}
+                <DialogClose className={css.appPreviewLink}>Close</DialogClose>
+              </div>
+            </div>
+            {previewApp ? (
+              <iframe
+                key={previewApp.id}
+                className={css.appPreviewFrame}
+                title={previewApp.title}
+                src={appViewUrl(previewApp.id, auth.token)}
+                sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-popups-to-escape-sandbox"
+              />
+            ) : null}
           </DialogContent>
         </Dialog>
       </div>
