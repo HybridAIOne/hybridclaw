@@ -95,23 +95,19 @@ function makeConnectorsResponse(): AdminConnectorsResponse {
         name: 'Microsoft 365',
         description:
           'Connect work mail, calendars, files, SharePoint, OneDrive, and Teams.',
-        state: 'connected',
+        state: 'not_connected',
         authKind: 'oauth',
-        account: 'user@example.com',
-        detail: 'OAuth refresh token configured.',
-        scopes: ['offline_access', 'User.Read'],
+        account: null,
+        detail: 'Managed by HybridAI connectors.',
+        scopes: [],
         routesConfigured: true,
         clientConfigured: true,
-        clientSecretConfigured: false,
-        tenantId: 'organizations',
-        loginUrl: null,
-        adminConsentUrl:
-          'https://login.microsoftonline.com/organizations/adminconsent?client_id=microsoft-client-id',
-        setupSecretNames: [
-          'MICROSOFT_365_ACCOUNT',
-          'MICROSOFT_365_TENANT_ID',
-          'MICROSOFT_365_CLIENT_ID',
-        ],
+        clientSecretConfigured: true,
+        tenantId: null,
+        loginUrl:
+          'https://hybridai.one/admin_workspace/connectors?connect=microsoft365',
+        adminConsentUrl: null,
+        setupSecretNames: [],
       },
     ],
   };
@@ -148,24 +144,6 @@ describe('ConnectorsPage', () => {
     expect(screen.queryByText('M365')).toBeNull();
   });
 
-  it('marks Microsoft 365 as coming soon and disables setup', async () => {
-    renderWithProviders(<ConnectorsPage />);
-
-    expect(await screen.findByText('Microsoft 365')).toBeTruthy();
-    expect(screen.getByText('coming soon')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
-
-    const comingSoonButton = screen.getByRole('button', {
-      name: 'Coming soon',
-    }) as HTMLButtonElement;
-    expect(comingSoonButton.disabled).toBe(true);
-    fireEvent.click(comingSoonButton);
-
-    expect(screen.queryByText('Sign in with your work account')).toBeNull();
-    expect(startConnectorOAuthMock).not.toHaveBeenCalled();
-    expect(logoutConnectorMock).not.toHaveBeenCalled();
-  });
-
   it('starts GitHub through HybridClaw and opens the returned authorization URL', async () => {
     startConnectorOAuthMock.mockResolvedValue({
       provider: 'github',
@@ -191,6 +169,37 @@ describe('ConnectorsPage', () => {
     );
     expect(openSpy).toHaveBeenCalledWith(
       'https://github.com/apps/hybridai-test/installations/new',
+      '_self',
+    );
+
+    openSpy.mockRestore();
+  });
+
+  it('starts Microsoft 365 through HybridClaw and opens the returned authorization URL', async () => {
+    startConnectorOAuthMock.mockResolvedValue({
+      provider: 'microsoft365',
+      authorizationUrl:
+        'https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize',
+      state: '',
+      expiresAt: Date.now() + 600_000,
+    });
+    const openSpy = vi
+      .spyOn(window, 'open')
+      .mockReturnValue(null as unknown as Window);
+
+    renderWithProviders(<ConnectorsPage />);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Connect Microsoft 365' }),
+    );
+
+    await waitFor(() =>
+      expect(startConnectorOAuthMock).toHaveBeenCalledWith('admin-token', {
+        provider: 'microsoft365',
+      }),
+    );
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize',
       '_self',
     );
 
