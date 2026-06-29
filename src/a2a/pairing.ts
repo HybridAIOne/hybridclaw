@@ -204,10 +204,7 @@ function normalizeDelegationKeyId(
 ): string {
   const expected = delegationKeyIdForPublicKeyPem(publicKeyPem);
   if (value === undefined || value === null || value === '') return expected;
-  const normalized = normalizeOptionalPairingString(
-    value,
-    'delegation.keyId',
-  );
+  const normalized = normalizeOptionalPairingString(value, 'delegation.keyId');
   if (!normalized) return expected;
   if (normalized !== expected) {
     throw new GatewayRequestError(
@@ -262,10 +259,7 @@ function parseDelegationTrustAdvertisement(
 ): A2ADelegationTrustAdvertisement | null {
   if (!isRecord(value)) return null;
   if (value.algorithm !== undefined && value.algorithm !== 'Ed25519') {
-    throw new GatewayRequestError(
-      400,
-      'delegation.algorithm must be Ed25519.',
-    );
+    throw new GatewayRequestError(400, 'delegation.algorithm must be Ed25519.');
   }
   const publicKeyPem = normalizeDelegationPublicKeyPem(value.publicKeyPem);
   const senderAgentIds = normalizeDelegationSenderAgentIds(
