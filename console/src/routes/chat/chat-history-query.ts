@@ -10,10 +10,19 @@ import type { ChatUiMessage } from './chat-ui-message';
 export interface ChatHistoryUiData {
   messages: ChatUiMessage[];
   branchFamilies: Map<string, BranchVariant[]>;
+  requestedSessionId: string;
   resolvedSessionId: string;
+  agentId: string | null;
+  bootstrapAutostart: ChatHistoryResponse['bootstrapAutostart'];
 }
 
 export const EMPTY_BRANCH_FAMILIES: Map<string, BranchVariant[]> = new Map();
+
+function normalizeAgentIdForComparison(agentId: string | null | undefined) {
+  return String(agentId ?? '')
+    .trim()
+    .toLowerCase();
+}
 
 export function buildChatHistoryUiData(
   raw: ChatHistoryResponse,
@@ -38,8 +47,23 @@ export function buildChatHistoryUiData(
   }
 
   const history = raw.history ?? [];
+  const sessionAgentId = normalizeAgentIdForComparison(raw.agentId);
   let lastUserContent: string | null = null;
-  const messages: ChatMessage[] = history.map((msg) => {
+  const messages: ChatMessage[] = history.map((msg, index) => {
+    const nextAssistant = history
+      .slice(index + 1)
+      .find((candidate) => candidate.role !== 'system');
+    const nextAssistantAgentId = normalizeAgentIdForComparison(
+      nextAssistant?.agent_id ?? nextAssistant?.assistantPresentation?.agentId,
+    );
+    const hasAddressedAgent =
+      msg.role === 'user' &&
+      nextAssistant?.role === 'assistant' &&
+      !!nextAssistantAgentId &&
+      nextAssistantAgentId !== sessionAgentId;
+    const addressedAgentPresentation = hasAddressedAgent
+      ? (nextAssistant?.assistantPresentation ?? null)
+      : null;
     if (msg.role === 'user') lastUserContent = msg.content;
     const replayContent =
       msg.role === 'user'
@@ -59,6 +83,7 @@ export function buildChatHistoryUiData(
       replayRequest:
         replayContent !== null ? { content: replayContent, media: [] } : null,
       assistantPresentation: msg.assistantPresentation ?? null,
+      addressedAgentPresentation,
       responseRating: msg.response_rating ?? null,
       branchKey:
         msg.id !== undefined && msg.id !== null
@@ -67,7 +92,14 @@ export function buildChatHistoryUiData(
     };
   });
 
-  return { messages, branchFamilies, resolvedSessionId };
+  return {
+    messages,
+    branchFamilies,
+    requestedSessionId,
+    resolvedSessionId,
+    agentId: raw.agentId?.trim() || null,
+    bootstrapAutostart: raw.bootstrapAutostart ?? null,
+  };
 }
 
 export function chatHistoryQueryKey(
@@ -81,7 +113,8 @@ export async function loadChatHistoryUi(
   token: string,
   sessionId: string,
   userId?: string,
+  agentId?: string,
 ): Promise<ChatHistoryUiData> {
-  const raw = await fetchChatHistory(token, sessionId, 80, userId);
+  const raw = await fetchChatHistory(token, sessionId, 80, userId, agentId);
   return buildChatHistoryUiData(raw, sessionId);
 }

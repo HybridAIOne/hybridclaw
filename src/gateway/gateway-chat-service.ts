@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { createA2AEnvelope } from '../a2a/envelope.js';
+import { sendMessage as sendA2AMessage } from '../a2a/runtime.js';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
 import type { MiddlewareEvent } from '../agent/middleware.js';
@@ -55,11 +57,17 @@ import {
   memoryService,
 } from '../memory/memory-service.js';
 import { withSpan } from '../observability/otel.js';
+import { captureSentryException } from '../observability/sentry.js';
 import { loadPolicyFullAutoNeverApprove } from '../policy/remote-policy-authority.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
+import {
+  collectModelLookupCandidates,
+  matchesModelFamily,
+} from '../providers/model-lookup.js';
+import { isGpt5ModelId } from '../providers/model-metadata.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { maybeAutoTitleSession } from '../session/session-title.js';
@@ -84,7 +92,16 @@ import type { CanonicalSessionContext } from '../types/session.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
-import { ensureBootstrapFiles } from '../workspace.js';
+import { parseJsonObject } from '../utils/json-object.js';
+import {
+  ensureBootstrapFiles,
+  resolveStartupBootstrapFile,
+} from '../workspace.js';
+import {
+  getActiveThreadAgentId,
+  resolveAgentAddressing,
+  setActiveThreadAgentId,
+} from './agent-addressing.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
@@ -127,6 +144,7 @@ import {
   resolveChannelType,
   resolveGatewayChatbotId,
   resolveMediaToolPolicy,
+  resolveOnboardingTurnModel,
   resolveSessionAutoResetPolicy,
   shouldForceNewTuiSession,
 } from './gateway-service.js';
@@ -140,7 +158,13 @@ import {
   firstNumber,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { recordBootstrapHatchingTurnResult } from './hatching-completion.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
+import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
+import {
+  detectCliSecretSetCommand,
+  renderCliSecretSetCommandWarning,
+} from './secret-command-guard.js';
 import {
   normalizeSessionShowMode,
   sessionShowModeShowsTools,
@@ -158,17 +182,6 @@ function resolveTurnRuntimeAuditLabel(
     : 'hybridclaw';
 }
 
-function parseToolResultObject(result: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(result) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 function persistSpeechTranscriptsToScopedMemory(params: {
   sessionId: string;
   skillName: string | null;
@@ -179,8 +192,8 @@ function persistSpeechTranscriptsToScopedMemory(params: {
     : 'skill:speech-to-text';
   for (const execution of params.toolExecutions) {
     if (execution.name !== 'audio_transcribe' || execution.isError) continue;
-    const payload = parseToolResultObject(execution.result);
-    if (!payload || payload.success !== true) continue;
+    const payload = parseJsonObject(execution.result);
+    if (payload?.success !== true) continue;
     if (typeof payload.action === 'string' && payload.action !== 'transcribe') {
       continue;
     }
@@ -579,6 +592,96 @@ function resolvePluginRoutingModel(params: {
   return configuredModel;
 }
 
+function captureGatewayChatResultError(params: {
+  message: string;
+  errorType: 'agent' | 'configuration' | 'gateway';
+  sessionId: string;
+  channelId: string;
+  agentId: string;
+  model: string;
+  provider: string;
+  runId: string;
+  turnIndex: number;
+  source?: string;
+  stage?: string;
+  durationMs?: number;
+  toolCallCount?: number;
+}): void {
+  const tags: Record<string, string> = {
+    agent_id: params.agentId,
+    channel_id: params.channelId,
+    error_type: params.errorType,
+    session_id: params.sessionId,
+  };
+  if (params.stage) tags.stage = params.stage;
+  captureSentryException(new Error(params.message), {
+    mechanism: 'gateway.chat_result',
+    tags,
+    extra: {
+      agentId: params.agentId,
+      channelId: params.channelId,
+      durationMs: params.durationMs,
+      errorType: params.errorType,
+      model: params.model,
+      provider: params.provider,
+      runId: params.runId,
+      sessionId: params.sessionId,
+      source: params.source,
+      stage: params.stage,
+      toolCallCount: params.toolCallCount,
+      turnIndex: params.turnIndex,
+    },
+  });
+}
+
+function isGpt5OnboardingModelId(modelId: string): boolean {
+  return collectModelLookupCandidates(modelId).some(
+    (candidate) =>
+      isGpt5ModelId(candidate) || matchesModelFamily(candidate, 'gpt-5'),
+  );
+}
+
+function buildGpt5OnboardingPromptInjection(): string[] {
+  return [
+    'If USER.md or the conversation contains the user email and enough profile or goal details to personalize the welcome, send the welcome email in this turn with the message tool. Missing non-email answers must not block sending; mention the user can add more context later.',
+    'Do not say the email is being sent, has been sent, or will be sent until after the message tool call has succeeded. If you are ready to send it, call message with action="send", to=<email>, subject=<specific subject>, and useful email content before writing the chat reply.',
+    'Follow the Welcome Email section in BOOTSTRAP.md: 3 concrete first tasks, 2 or 3 copy-paste prompt ideas, and a clear note that web chat already works. Do not ask for separate confirmation.',
+  ];
+}
+
+function buildBootstrapChatTurnPrompt(params: { model: string }): string {
+  const lines = [
+    'Continue the in-progress BOOTSTRAP.md conversation using the full chat history above.',
+    'Do not restart, reintroduce yourself, or repeat questions you already asked.',
+    "Acknowledge the user's latest reply and keep going naturally.",
+    'If the user has not answered yet, briefly point back to the pending email or context request instead of asking a fresh set.',
+    'Do not ask a generic "what can I do for you?" question.',
+  ];
+  if (isGpt5OnboardingModelId(params.model)) {
+    lines.push('', ...buildGpt5OnboardingPromptInjection());
+  }
+  return lines.join('\n');
+}
+
+function shouldInjectBootstrapChatTurnPrompt(params: {
+  userContent: string;
+  promptMode?: PromptMode;
+  startupBootstrapFile: 'BOOTSTRAP.md' | null;
+}): boolean {
+  if (params.startupBootstrapFile !== 'BOOTSTRAP.md') return false;
+  if (params.promptMode === 'none') return false;
+  if (params.userContent.trim().startsWith('/')) return false;
+  return true;
+}
+
+function buildA2AChatThreadId(session: {
+  id: string;
+  session_key?: string | null;
+  main_session_key?: string | null;
+}): string {
+  return session.main_session_key || session.session_key || session.id;
+}
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
@@ -656,6 +759,183 @@ async function handleGatewayMessageInner(
     sessionKey: session.session_key,
     mainSessionKey: session.main_session_key,
   });
+  const fanoutSource = source.includes('.fanout');
+  const shouldUpdateActiveAgent =
+    source !== 'fullauto' &&
+    !fanoutSource &&
+    !isGoalContinuationSource(source) &&
+    resolveSessionResetChannelKind(req.channelId) !== 'scheduler' &&
+    resolveSessionResetChannelKind(req.channelId) !== 'heartbeat';
+  const addressed = resolveAgentAddressing({
+    content: req.content,
+    currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
+    fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
+  });
+  if (addressed.kind === 'error') {
+    return attachSessionIdentity({
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: addressed.message,
+    });
+  }
+  if (addressed.kind === 'fanout') {
+    if (addressed.agentIds.length === 0) {
+      return attachSessionIdentity({
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: `No agents are available for @${addressed.alias}.`,
+        addressEnvelope: addressed.envelope,
+      });
+    }
+    const outputs: string[] = [];
+    try {
+      for (const targetAgentId of addressed.agentIds) {
+        const childEnvelope = {
+          ...addressed.envelope,
+          to: targetAgentId,
+        };
+        let childText: string;
+        try {
+          const childResult = await handleGatewayMessageInner({
+            ...req,
+            content: addressed.content,
+            agentId: targetAgentId,
+            addressEnvelope: childEnvelope,
+            source: `${source}.fanout`,
+            onTextDelta: undefined,
+            onThinkingDelta: undefined,
+            onToolProgress: undefined,
+            onApprovalProgress: undefined,
+          });
+          childText =
+            childResult.result ||
+            childResult.error ||
+            (childResult.status === 'success' ? '(no reply)' : 'failed');
+        } catch (error) {
+          // One unhealthy agent must not abort the rest of the fanout.
+          childText = `failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`;
+        }
+        outputs.push(`@${targetAgentId}: ${childText}`);
+      }
+    } finally {
+      session = memoryService.getOrCreateSession(
+        req.sessionId,
+        req.guildId,
+        req.channelId,
+        session.agent_id || DEFAULT_AGENT_ID,
+        { forceNewCurrent: shouldForceNewTuiSession(req) },
+      );
+    }
+    return attachSessionIdentity({
+      status: 'success',
+      result: outputs.join('\n\n'),
+      toolsUsed: [],
+      agentId: session.agent_id || DEFAULT_AGENT_ID,
+      addressEnvelope: addressed.envelope,
+      assistantPresentation: getGatewayAssistantPresentationForMessageAgent(
+        session.agent_id || DEFAULT_AGENT_ID,
+      ),
+    });
+  }
+  if (addressed.kind === 'remote') {
+    const content = addressed.content.trim();
+    if (!content) {
+      return attachSessionIdentity({
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: `Usage: @${addressed.canonicalId} <message>`,
+        messageRole: 'command',
+        addressEnvelope: addressed.envelope,
+      });
+    }
+
+    const senderAgentId =
+      typeof addressed.envelope.from === 'string' &&
+      addressed.envelope.from.trim()
+        ? addressed.envelope.from.trim()
+        : DEFAULT_AGENT_ID;
+    const envelope = createA2AEnvelope({
+      sender_agent_id: senderAgentId,
+      recipient_agent_id: addressed.canonicalId,
+      thread_id: buildA2AChatThreadId(session),
+      intent: 'chat',
+      content,
+    });
+    const confirmation = sendA2AMessage(envelope, {
+      actor: req.userId || req.username || 'web-user',
+      sessionId: req.sessionId,
+      auditRunId: runId,
+      peerDescriptor: {
+        transport: 'a2a',
+        canonicalId: addressed.canonicalId,
+      },
+      escalationTarget: resolveAgentEscalationTarget(senderAgentId),
+    });
+
+    if (confirmation.delivered === false) {
+      return attachSessionIdentity({
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: confirmation.failure_reason,
+        messageRole: 'command',
+        addressEnvelope: addressed.envelope,
+      });
+    }
+
+    const delivery =
+      confirmation.delivered === true ? 'Delivered' : 'Queued for delivery';
+    return attachSessionIdentity({
+      status: 'success',
+      result: [
+        `${delivery} to \`${confirmation.recipient_agent_id}\`.`,
+        `Message: \`${confirmation.message_id}\``,
+        `Thread: \`${confirmation.thread_id}\``,
+      ].join('\n'),
+      toolsUsed: [],
+      messageRole: 'command',
+      addressEnvelope: addressed.envelope,
+    });
+  }
+  if (addressed.kind === 'agent') {
+    req.content = addressed.content;
+    req.agentId = addressed.agentId;
+    req.addressEnvelope = addressed.envelope;
+    if (shouldUpdateActiveAgent) {
+      setActiveThreadAgentId(session, addressed.agentId);
+    }
+  } else if (req.agentId?.trim()) {
+    if (shouldUpdateActiveAgent) {
+      setActiveThreadAgentId(session, req.agentId.trim());
+    }
+    req.addressEnvelope ??= {
+      to: req.agentId.trim(),
+      from: session.agent_id || DEFAULT_AGENT_ID,
+    };
+  } else {
+    const activeAgentId = getActiveThreadAgentId(session);
+    if (activeAgentId) {
+      req.agentId = activeAgentId;
+      req.addressEnvelope = {
+        to: activeAgentId,
+        from: session.agent_id || DEFAULT_AGENT_ID,
+      };
+    }
+  }
+  const cliSecretSetCommand = detectCliSecretSetCommand(req.content);
+  if (cliSecretSetCommand) {
+    return attachSessionIdentity({
+      status: 'success',
+      result: renderCliSecretSetCommandWarning(cliSecretSetCommand),
+      toolsUsed: [],
+      messageRole: 'command',
+    });
+  }
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
     clearScheduledFullAutoContinuation(req.sessionId);
@@ -686,15 +966,6 @@ async function handleGatewayMessageInner(
   const resolvedAgent = resolveAgentConfig(agentId);
   let model = resolvedModel;
   let chatbotId = resolvedChatbotId;
-  let chatbotResolution = await resolveGatewayChatbotId({
-    model,
-    chatbotId,
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId,
-    trigger: 'chat',
-  });
-  chatbotId = chatbotResolution.chatbotId;
   const channelType =
     resolveChannelType(req) || resolveSessionResetChannelKind(req.channelId);
   const channel =
@@ -777,29 +1048,24 @@ async function handleGatewayMessageInner(
       req.sessionId = session.id;
     }
   }
-  const sessionContext = buildSessionContext({
-    source: {
-      channelKind: channelType || channel?.kind,
-      chatId: req.channelId,
-      chatType:
-        channelType === 'heartbeat' || channelType === 'scheduler'
-          ? 'system'
-          : req.guildId
-            ? 'channel'
-            : 'dm',
-      userId: req.userId,
-      userName: req.username ?? undefined,
-      guildId: req.guildId,
-    },
-    agentId,
-    sessionId: session.id,
-    sessionKey: session.session_key,
-    mainSessionKey: session.main_session_key,
-  });
-  const showMode = normalizeSessionShowMode(session.show_mode);
-  const shouldEmitTools = sessionShowModeShowsTools(showMode);
-  const enableRag = req.enableRag ?? session.enable_rag === 1;
-  let provider = resolveModelProvider(model);
+  const proxy = resolvedAgent.proxy;
+  if (proxy) {
+    try {
+      const result = await forwardGatewayMessageToProxyAgent({
+        req,
+        agent: { ...resolvedAgent, proxy },
+        runId,
+        abortSignal: activeGatewayRequest.signal,
+      });
+      return attachSessionIdentity({
+        ...result,
+        assistantPresentation:
+          getGatewayAssistantPresentationForMessageAgent(agentId),
+      });
+    } finally {
+      activeGatewayRequest.release();
+    }
+  }
   let media = normalizeMediaContextItems(req.media);
   const workspacePath = path.resolve(
     req.workspacePathOverride || agentWorkspaceDir(agentId),
@@ -821,6 +1087,9 @@ async function handleGatewayMessageInner(
         workspaceInitialized: false,
       }
     : ensureBootstrapFiles(agentId);
+  const startupBootstrapFile = req.workspacePathOverride
+    ? null
+    : resolveStartupBootstrapFile(agentId);
   if (
     workspaceBootstrap.workspaceInitialized &&
     (session.message_count > 0 || Boolean(session.session_summary))
@@ -850,6 +1119,44 @@ async function handleGatewayMessageInner(
       'Cleared session history after workspace reset',
     );
   }
+  model = resolveOnboardingTurnModel({
+    bootstrapFile: startupBootstrapFile,
+    model,
+  });
+  const onboardingModelPinned =
+    startupBootstrapFile === 'BOOTSTRAP.md' && model !== resolvedModel;
+  let provider = resolveModelProvider(model);
+  let chatbotResolution = await resolveGatewayChatbotId({
+    model,
+    chatbotId,
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    agentId,
+    trigger: 'chat',
+  });
+  chatbotId = chatbotResolution.chatbotId;
+  const sessionContext = buildSessionContext({
+    source: {
+      channelKind: channelType || channel?.kind,
+      chatId: req.channelId,
+      chatType:
+        channelType === 'heartbeat' || channelType === 'scheduler'
+          ? 'system'
+          : req.guildId
+            ? 'channel'
+            : 'dm',
+      userId: req.userId,
+      userName: req.username ?? undefined,
+      guildId: req.guildId,
+    },
+    agentId,
+    sessionId: session.id,
+    sessionKey: session.session_key,
+    mainSessionKey: session.main_session_key,
+  });
+  const showMode = normalizeSessionShowMode(session.show_mode);
+  const shouldEmitTools = sessionShowModeShowsTools(showMode);
+  const enableRag = req.enableRag ?? session.enable_rag === 1;
   const audioPrelude = await prependAudioTranscriptionsToUserContent({
     content: req.content,
     media,
@@ -909,7 +1216,8 @@ async function handleGatewayMessageInner(
   const explicitModelPinned = Boolean(
     req.model?.trim() ||
       session.model?.trim() ||
-      resolveAgentModel(resolvedAgent),
+      resolveAgentModel(resolvedAgent) ||
+      onboardingModelPinned,
   );
   let routingExecutionNotice: string | null = null;
   if (pluginManager?.hasMiddleware('routing')) {
@@ -988,6 +1296,7 @@ async function handleGatewayMessageInner(
       const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
+        messageRole: 'assistant',
         agentId,
         model,
         provider,
@@ -1030,6 +1339,14 @@ async function handleGatewayMessageInner(
     } else {
       effectiveUserTurnContentExpanded = routingOutcome.userContent;
     }
+  }
+  const postRoutingModel = resolveOnboardingTurnModel({
+    bootstrapFile: startupBootstrapFile,
+    model,
+  });
+  if (postRoutingModel !== model) {
+    model = postRoutingModel;
+    provider = resolveModelProvider(model);
   }
   if (model !== resolvedModel) {
     chatbotResolution = await resolveGatewayChatbotId({
@@ -1149,6 +1466,21 @@ async function handleGatewayMessageInner(
       provider,
       error,
     };
+    captureGatewayChatResultError({
+      message: error,
+      errorType: 'configuration',
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      agentId,
+      model,
+      provider,
+      runId,
+      turnIndex,
+      source,
+      stage: 'pre-agent',
+      durationMs: Date.now() - startedAt,
+      toolCallCount: 0,
+    });
     await emitPostTurnForResult(result);
     return attachSessionIdentity(result);
   }
@@ -1177,6 +1509,7 @@ async function handleGatewayMessageInner(
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
+      messageRole: 'assistant',
       toolsUsed: [],
       agentId,
       model,
@@ -1377,6 +1710,18 @@ async function handleGatewayMessageInner(
   let agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;
+  if (
+    shouldInjectBootstrapChatTurnPrompt({
+      userContent: agentUserContent,
+      promptMode: promptPartDefaults.promptMode,
+      startupBootstrapFile:
+        startupBootstrapFile === 'BOOTSTRAP.md' ? startupBootstrapFile : null,
+    })
+  ) {
+    agentUserContent = `${buildBootstrapChatTurnPrompt({
+      model,
+    })}\n\nUser message:\n${agentUserContent}`;
+  }
   if (pluginManager?.hasMiddleware('pre_send')) {
     const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {
       sessionId: req.sessionId,
@@ -1437,6 +1782,7 @@ async function handleGatewayMessageInner(
       const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
+        messageRole: 'assistant',
         toolsUsed: [],
         pluginsUsed,
         agentId,
@@ -1574,6 +1920,7 @@ async function handleGatewayMessageInner(
       executorModeOverride: req.executorModeOverride,
       model,
       agentId,
+      addressEnvelope: req.addressEnvelope,
       workspacePathOverride: req.workspacePathOverride,
       workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
       skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
@@ -1605,6 +1952,24 @@ async function handleGatewayMessageInner(
       media,
     );
     const toolExecutions = output.toolExecutions || [];
+    const hatchingCompletion = recordBootstrapHatchingTurnResult({
+      agentId,
+      bootstrapFile: startupBootstrapFile,
+      toolExecutions,
+    });
+    if (hatchingCompletion) {
+      logger.info(
+        {
+          sessionId: req.sessionId,
+          agentId,
+          completed: hatchingCompletion.completed,
+          updated: hatchingCompletion.updated,
+          reason: hatchingCompletion.reason,
+          turnsWithoutMessage: hatchingCompletion.turnsWithoutMessage,
+        },
+        'Processed hatching completion signal',
+      );
+    }
     await routeEscalationApproval({
       approval: output.pendingApproval,
       agentId: resolvedAgent.id,
@@ -1858,6 +2223,21 @@ async function handleGatewayMessageInner(
         tokenUsage: output.tokenUsage,
         error: errorMessage,
       };
+      captureGatewayChatResultError({
+        message: errorMessage,
+        errorType: 'agent',
+        sessionId: req.sessionId,
+        channelId: req.channelId,
+        agentId,
+        model,
+        provider,
+        runId,
+        turnIndex,
+        source,
+        stage: agentStage,
+        durationMs,
+        toolCallCount: toolExecutions.length,
+      });
       await emitPostTurnForResult(result);
       return attachSessionIdentity(result);
     }
@@ -2026,10 +2406,12 @@ async function handleGatewayMessageInner(
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
+      messageRole: output.pendingApproval ? 'approval' : 'assistant',
       toolsUsed: output.toolsUsed || [],
       pluginsUsed,
       skillUsed: observedSkillName ?? undefined,
       agentId,
+      addressEnvelope: req.addressEnvelope,
       model,
       provider,
       memoryCitations: output.memoryCitations,
@@ -2138,6 +2520,21 @@ async function handleGatewayMessageInner(
       provider,
       toolExecutions: undefined,
       error: errorMsg,
+    });
+    captureGatewayChatResultError({
+      message: errorMsg,
+      errorType: 'gateway',
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      agentId,
+      model,
+      provider,
+      runId,
+      turnIndex,
+      source,
+      stage: agentStage,
+      durationMs,
+      toolCallCount: 0,
     });
     await emitPostTurnForResult(result);
     return result;

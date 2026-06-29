@@ -4,6 +4,7 @@ import type {
 } from '../shared/stakes-classifier.js';
 import type { WebSearchConfig } from '../shared/web-search-config.js';
 import type { McpServerConfig } from './mcp/types.js';
+import type { ModelBehavior } from './model-behavior.js';
 
 export interface ChatContentTextPart {
   type: 'text';
@@ -105,6 +106,7 @@ export interface ToolSchemaProperty {
   description?: string;
   items?: ToolSchemaProperty;
   properties?: Record<string, ToolSchemaProperty>;
+  additionalProperties?: boolean | ToolSchemaProperty;
   required?: string[];
   enum?: string[];
   minItems?: number;
@@ -135,6 +137,7 @@ export interface TaskModelPolicy {
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ModelBehavior;
   thinkingFormat?: 'qwen';
   model: string;
   chatbotId?: string;
@@ -203,6 +206,12 @@ export interface ProviderCredentials {
 
 export type CodexTurnRuntime = 'hybridclaw' | 'app-server';
 
+export interface AddressEnvelope {
+  to: string | string[];
+  from?: string | null;
+  fanoutAlias?: 'team' | 'all';
+}
+
 export interface ContainerInput {
   healthCheck?: {
     nonce: string;
@@ -229,12 +238,14 @@ export interface ContainerInput {
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ModelBehavior;
   thinkingFormat?: 'qwen';
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
   browserProvider?: string;
   browserAllowPrivateNetwork?: boolean;
   model: string;
+  addressEnvelope?: AddressEnvelope;
   codexRuntime?: CodexTurnRuntime;
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
@@ -354,6 +365,9 @@ export interface PendingApproval {
   prompt: string;
   intent: string;
   reason: string;
+  approvalTier?: 'green' | 'yellow' | 'red';
+  toolName?: string;
+  commandPreview?: string;
   allowSession: boolean;
   allowAgent: boolean;
   allowAll: boolean;

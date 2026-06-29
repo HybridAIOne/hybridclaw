@@ -128,6 +128,10 @@ import type { RuntimeConfig } from '../config/runtime-config.js';
 import { resolveLocalInstanceId } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import {
+  startPeriodicCloudMemorySync,
+  stopPeriodicCloudMemorySync,
+} from '../memory/cloud-memory.js';
+import {
   getDreamTimezone,
   hasDreamRunToday,
   isMemoryConsolidationEnabled,
@@ -144,6 +148,11 @@ import {
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { initOtel, shutdownOtel } from '../observability/otel.js';
+import {
+  captureSentryException,
+  initSentry,
+  shutdownSentry,
+} from '../observability/sentry.js';
 import { hybridAIProbe } from '../providers/hybridai-health.js';
 import {
   startDiscoveryLoop,
@@ -217,11 +226,11 @@ import {
   rememberPendingApproval,
 } from './pending-approvals.js';
 import {
+  hasImmediateProactiveDeliveryPath,
   hasQueuedProactiveDeliveryPath,
   isDiscordChannelId,
   isEmailAddress,
   isHeartbeatOkText,
-  isSupportedProactiveChannelId,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
   shouldSuppressProactiveMessage,
@@ -1338,7 +1347,7 @@ async function flushQueuedProactiveMessages(): Promise<void> {
       droppedUndeliverable += 1;
       continue;
     }
-    if (!isSupportedProactiveChannelId(item.channel_id)) {
+    if (!hasImmediateProactiveDeliveryPath(item)) {
       continue;
     }
     await sendProactiveMessageNow(
@@ -1911,17 +1920,36 @@ async function startEmailIntegration(): Promise<boolean> {
     logger.info('Email integration disabled: email.enabled=false');
     return false;
   }
-  if (!emailConfig.address.trim()) {
-    logger.info('Email integration disabled: no email address configured');
+  const emailAccounts = Array.isArray(emailConfig.accounts)
+    ? emailConfig.accounts
+    : [];
+  const hasAccountList = emailAccounts.length > 0;
+  if (
+    hasAccountList &&
+    emailAccounts.some((account) => !account.address.trim())
+  ) {
+    logger.info(
+      'Email integration disabled: one or more email account addresses are not configured',
+    );
     return false;
   }
-  if (!emailConfig.imapHost.trim() || !emailConfig.smtpHost.trim()) {
+  const hasConfiguredAccount = hasAccountList
+    ? true
+    : Boolean(emailConfig.address.trim());
+  if (!hasConfiguredAccount) {
+    logger.info('Email integration disabled: no email account configured');
+    return false;
+  }
+  if (
+    !hasAccountList &&
+    (!emailConfig.imapHost.trim() || !emailConfig.smtpHost.trim())
+  ) {
     logger.info(
       'Email integration disabled: IMAP/SMTP host configuration incomplete',
     );
     return false;
   }
-  if (!String(EMAIL_PASSWORD || '').trim()) {
+  if (!hasAccountList && !String(EMAIL_PASSWORD || '').trim()) {
     logger.info('Email integration disabled: EMAIL_PASSWORD not configured');
     return false;
   }
@@ -1967,6 +1995,7 @@ async function startEmailIntegration(): Promise<boolean> {
               userId,
               username,
               content,
+              agentId: context.agentId,
               media,
               onProactiveMessage: async (message) => {
                 await deliverProactiveMessage(
@@ -2013,14 +2042,13 @@ async function startEmailIntegration(): Promise<boolean> {
                 ? result.toolsUsed
                 : undefined,
             );
-            await sendToEmail(channelId, responseText, {
+            await reply(responseText, {
               ...(emailMetadata ? { metadata: emailMetadata } : {}),
             });
           }
           for (const artifact of artifacts) {
             try {
-              await sendEmailAttachmentTo({
-                to: channelId,
+              await context.sendAttachment({
                 filePath: artifact.path,
                 mimeType: artifact.mimeType,
                 filename: artifact.filename,
@@ -3225,6 +3253,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
       runManagedMediaCleanup('shutdown'),
     );
     stopHeartbeat();
+    stopPeriodicCloudMemorySync();
     stopA2AOutboxProcessor();
     stopWebhookOutboxProcessor();
     stopObservabilityIngest();
@@ -3239,6 +3268,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
     stopScheduler();
     stopMemoryConsolidationScheduler();
     await runShutdownStep('shut down OTel', shutdownOtel);
+    await runShutdownStep('flush Sentry', shutdownSentry);
     if (proactiveFlushTimer) {
       clearInterval(proactiveFlushTimer);
       proactiveFlushTimer = null;
@@ -3484,6 +3514,7 @@ function logWarmProcessPoolStartup(config: RuntimeConfig['container']): void {
 }
 
 async function main(): Promise<void> {
+  await initSentry();
   await initOtel();
   logger.info('Starting HybridClaw gateway');
   ensureA2AInstanceKeypair();
@@ -3525,6 +3556,9 @@ async function main(): Promise<void> {
   const imessageActive = await startIMessageIntegration();
 
   startOrRestartHeartbeat();
+  startPeriodicCloudMemorySync({
+    resolveAgentIds: () => listAgents().map((agent) => agent.id),
+  });
   startA2AOutboxProcessor();
   startWebhookOutboxProcessor();
   startObservabilityIngest();
@@ -3685,7 +3719,11 @@ async function main(): Promise<void> {
   httpServer.setReady();
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   logger.fatal({ err }, 'Failed to start gateway');
+  captureSentryException(err, {
+    mechanism: 'gateway.startup',
+  });
+  await shutdownSentry();
   process.exit(1);
 });

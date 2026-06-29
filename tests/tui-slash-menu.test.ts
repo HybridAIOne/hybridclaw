@@ -25,6 +25,8 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels.filter((label) => label === '/dream on')).toHaveLength(1);
   expect(labels.filter((label) => label === '/dream off')).toHaveLength(1);
   expect(labels).toContain('/auth status hybridai');
+  expect(labels).toContain('/aux test <task> <prompt>');
+  expect(labels).toContain('/aux list');
   expect(labels).toContain('/secret list');
   expect(labels).toContain('/secret set <name> <value>');
   expect(labels).toContain('/env list');
@@ -221,6 +223,66 @@ test('fuzzy ranking can target nested command variants', () => {
   expect(ranked[0]?.label).toBe('/approve agent [approval_id]');
 });
 
+test('slash menu placeholder arguments match concrete values', () => {
+  const ranked = rankTuiSlashMenuEntries(
+    buildTuiSlashMenuEntries([], 'web'),
+    'agent create bob',
+  );
+
+  expect(ranked[0]?.label).toBe('/agent create <id> [model]');
+});
+
+test('slash menu argument matching works across command families', () => {
+  const entries = buildTuiSlashMenuEntries();
+
+  expect(rankTuiSlashMenuEntries(entries, 'mcp reconnect datalion')[0]?.label).toBe(
+    '/mcp reconnect <name>',
+  );
+  expect(
+    rankTuiSlashMenuEntries(entries, 'policy allow example.com')[0]?.label,
+  ).toBe('/policy allow <host>');
+  expect(rankTuiSlashMenuEntries(entries, 'model default gpt-5')[0]?.label).toBe(
+    '/model default [name]',
+  );
+});
+
+test('slash menu placeholder matching keeps choice groups literal', () => {
+  const ranked = rankTuiSlashMenuEntries(
+    buildTuiSlashMenuEntries([], 'web'),
+    'agent banana',
+  );
+
+  expect(ranked).toEqual([]);
+});
+
+test('slash menu argument matching keeps flag placeholders literal', () => {
+  const entries = [
+    {
+      id: 'demo',
+      label: '/demo [--json]',
+      insertText: '/demo ',
+      description: 'Demo flag command',
+      searchTerms: ['/demo [--json]'],
+      depth: 1,
+      sortIndex: 0,
+    },
+  ];
+
+  expect(rankTuiSlashMenuEntries(entries, 'demo anything')).toEqual([]);
+  expect(rankTuiSlashMenuEntries(entries, 'demo --json')[0]?.label).toBe(
+    '/demo [--json]',
+  );
+});
+
+test('slash menu argument matching still ignores unknown commands', () => {
+  const ranked = rankTuiSlashMenuEntries(
+    buildTuiSlashMenuEntries(),
+    'zzz datalion',
+  );
+
+  expect(ranked).toEqual([]);
+});
+
 test('includes plugin commands in slash menu results', () => {
   const entries = buildTuiSlashMenuEntries([
     {
@@ -365,7 +427,7 @@ test('second escape clears the current prompt line after dismissing the menu', (
 test('arrow up falls through to readline history when slash query has no matches', () => {
   const { rl, operations } = buildControllerHarness();
 
-  rl.line = '/mcp reconnect datalion';
+  rl.line = '/zzz datalion';
   rl.cursor = rl.line.length;
   operations.length = 0;
 
@@ -379,7 +441,7 @@ test('arrow up falls through to readline history when slash query has no matches
 test('arrow down falls through to readline history when slash query has no matches', () => {
   const { rl, operations } = buildControllerHarness();
 
-  rl.line = '/mcp reconnect datalion';
+  rl.line = '/zzz datalion';
   rl.cursor = rl.line.length;
   operations.length = 0;
 

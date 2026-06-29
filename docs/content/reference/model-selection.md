@@ -22,7 +22,9 @@ Model prefixes:
 - DashScope / Qwen models use `dashscope/`
 - Xiaomi MiMo models use `xiaomi/`
 - Kilo Code models use `kilo/`
-- local backends use prefixes such as `ollama/`, `lmstudio/`, and `vllm/`
+- local backends use prefixes such as `ollama/`, `lmstudio/`, and `vllm/`;
+  named local endpoints use their configured endpoint name as the prefix, for
+  example `haigpu2/google/gemma-4-e4b-it`
 
 The shipped default Codex model is `openai-codex/gpt-5-codex`.
 
@@ -65,21 +67,26 @@ Examples:
   `huggingface/...` model, a `gemini/...` model, a `deepseek/...` model, a
   `xai/...` model, a `kilo/...` model, or a local backend model such as
   `ollama/...`
+- `hybridai.onboardingModel` is optional and defaults to an empty string. When
+  set, active `BOOTSTRAP.md` hatching turns use that model. When empty,
+  onboarding follows the normal session, agent, and global model hierarchy
 - `/agent model <name>` sets the persistent model for the current session agent
 - `/model set <name>` is a session-only override
 - `/model clear` removes the session override and falls back to the agent or
   global default
 - `/model default [name]` shows or sets the global default model for new
   sessions
-- `/model info` shows the effective, session, agent, and default models
+- `/model info` shows the effective, session, agent, default, and configured
+  auxiliary models
 
 ## Model Info And Usage
 
-`/model info` also reports known model metadata when HybridClaw can resolve it:
-context window, maximum output tokens, capability flags, pricing per 1M tokens,
-and source references. Local models and Codex subscription-backed models are
-shown as zero-cost in local usage summaries; remote-provider pricing is shown
-only when the provider catalog exposes usable pricing metadata.
+`/model info` also reports configured auxiliary model routes and known model
+metadata when HybridClaw can resolve it: context window, maximum output tokens,
+capability flags, pricing per 1M tokens, and source references. Local models
+and Codex subscription-backed models are shown as zero-cost in local usage
+summaries; remote-provider pricing is shown only when the provider catalog
+exposes usable pricing metadata.
 
 The admin Models page combines the same metadata with daily and monthly usage
 rollups, so operators can sort by context window or monthly usage and compare

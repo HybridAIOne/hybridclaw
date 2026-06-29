@@ -53,10 +53,12 @@ describe('logger forced level override', () => {
     vi.restoreAllMocks();
     vi.resetModules();
     vi.doUnmock('../src/config/runtime-config.ts');
+    vi.doUnmock('../src/observability/sentry.js');
     loadedLoggerModule?.removeLoggerProcessHandlersForTests();
     loadedLoggerModule = null;
     delete process.env.HYBRIDCLAW_FORCE_LOG_LEVEL;
     delete process.env.HYBRIDCLAW_GATEWAY_LOG_FILE;
+    delete process.env.HYBRIDCLAW_GATEWAY_STDIO_TO_LOG;
     if (tempDir) {
       void fs.rm(tempDir, { recursive: true, force: true });
       tempDir = null;
@@ -88,6 +90,55 @@ describe('logger forced level override', () => {
     expect(logger.level).toBe('debug');
   });
 
+  it('reports effective and forced logger levels', async () => {
+    process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
+    vi.doMock('../src/config/runtime-config.ts', () => ({
+      getRuntimeConfig: () => ({
+        ops: { logLevel: 'info' },
+      }),
+      onRuntimeConfigChange: vi.fn(),
+    }));
+
+    const { getLoggerRuntimeState } = await importLoggerModule();
+
+    expect(getLoggerRuntimeState()).toEqual({
+      configuredLevel: 'info',
+      effectiveLevel: 'debug',
+      forcedLevel: 'debug',
+    });
+  });
+
+  it('allows startup debug level to resync from runtime config', async () => {
+    vi.doMock('../src/config/runtime-config.ts', () => ({
+      getRuntimeConfig: () => ({
+        ops: { logLevel: 'info' },
+      }),
+      onRuntimeConfigChange: vi.fn(),
+    }));
+
+    const {
+      getLoggerRuntimeState,
+      logger,
+      setLoggerStartupLevel,
+      syncLoggerLevelFromRuntimeConfig,
+    } = await importLoggerModule();
+
+    expect(logger.level).toBe('info');
+    setLoggerStartupLevel('debug');
+    expect(getLoggerRuntimeState()).toEqual({
+      configuredLevel: 'info',
+      effectiveLevel: 'debug',
+      forcedLevel: null,
+    });
+
+    syncLoggerLevelFromRuntimeConfig('test');
+    expect(getLoggerRuntimeState()).toEqual({
+      configuredLevel: 'info',
+      effectiveLevel: 'info',
+      forcedLevel: null,
+    });
+  });
+
   it('mirrors logs to the configured gateway log file', async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hybridclaw-logger-'));
     const logPath = path.join(tempDir, 'gateway.log');
@@ -109,6 +160,50 @@ describe('logger forced level override', () => {
     );
 
     expect(logText).toContain('foreground log mirror test');
+  });
+
+  it('does not open the gateway log file when stdout already mirrors it', async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hybridclaw-logger-'));
+    const logPath = path.join(tempDir, 'gateway.log');
+    process.env.HYBRIDCLAW_GATEWAY_LOG_FILE = logPath;
+    process.env.HYBRIDCLAW_GATEWAY_STDIO_TO_LOG = '1';
+
+    vi.doMock('../src/config/runtime-config.ts', () => ({
+      getRuntimeConfig: () => ({
+        ops: { logLevel: 'info' },
+      }),
+      onRuntimeConfigChange: vi.fn(),
+    }));
+
+    const { logger } = await importLoggerModule();
+
+    logger.info('stdio gateway log mirror test');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await expect(fs.stat(logPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('can enable the gateway log file mirror after logger initialization', async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hybridclaw-logger-'));
+    const logPath = path.join(tempDir, 'gateway.log');
+
+    vi.doMock('../src/config/runtime-config.ts', () => ({
+      getRuntimeConfig: () => ({
+        ops: { logLevel: 'info' },
+      }),
+      onRuntimeConfigChange: vi.fn(),
+    }));
+
+    const { enableGatewayLogFileMirror, logger } = await importLoggerModule();
+    enableGatewayLogFileMirror(logPath);
+
+    logger.info('late gateway log mirror test');
+
+    const logText = await waitForFileText(logPath, (text) =>
+      text.includes('late gateway log mirror test'),
+    );
+
+    expect(logText).toContain('late gateway log mirror test');
   });
 
   it('writes debug logs when the forced level is debug', async () => {
@@ -273,6 +368,46 @@ describe('logger forced level override', () => {
       'Uncaught exception',
     );
     expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('captures unexpected process failures in Sentry', async () => {
+    const captureSentryException = vi.fn();
+    vi.doMock('../src/observability/sentry.js', () => ({
+      captureSentryException,
+    }));
+    const { handleUncaughtExceptionForTests, handleUnhandledRejectionForTests } =
+      await importFreshLogger();
+    vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+
+    const uncaught = new Error('Invariant violation');
+    const rejection = new Error('Rejected invariant');
+    handleUncaughtExceptionForTests(uncaught);
+    handleUnhandledRejectionForTests(rejection);
+
+    expect(captureSentryException).toHaveBeenCalledWith(uncaught, {
+      mechanism: 'process.uncaughtException',
+    });
+    expect(captureSentryException).toHaveBeenCalledWith(rejection, {
+      mechanism: 'process.unhandledRejection',
+    });
+  });
+
+  it('does not capture expected transport noise in Sentry', async () => {
+    const captureSentryException = vi.fn();
+    vi.doMock('../src/observability/sentry.js', () => ({
+      captureSentryException,
+    }));
+    const { handleUncaughtExceptionForTests, handleUnhandledRejectionForTests } =
+      await importFreshLogger();
+
+    handleUncaughtExceptionForTests(
+      new Error('Opening handshake has timed out'),
+    );
+    handleUnhandledRejectionForTests(
+      new Error('Opening handshake has timed out'),
+    );
+
+    expect(captureSentryException).not.toHaveBeenCalled();
   });
 
   it('registers process handlers only once across module reloads', async () => {

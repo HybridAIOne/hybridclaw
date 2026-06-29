@@ -1,5 +1,6 @@
 import type {
   BranchResponse,
+  ChatCleanupResponse,
   ChatCommandsResponse,
   ChatContextResponse,
   ChatHistoryResponse,
@@ -41,17 +42,38 @@ export function fetchChatRecent(
   );
 }
 
+export function cleanupNoUserChatSessions(
+  token: string,
+  params: {
+    channelId?: string;
+    keepSessionId?: string;
+  },
+): Promise<ChatCleanupResponse> {
+  const query = new URLSearchParams({
+    channelId: params.channelId || 'web',
+  });
+  if (params.keepSessionId) {
+    query.set('keepSessionId', params.keepSessionId);
+  }
+  return requestJson<ChatCleanupResponse>(
+    `/api/chat/cleanup?${query.toString()}`,
+    { token, method: 'POST' },
+  );
+}
+
 export function fetchChatHistory(
   token: string,
   sessionId: string,
   limit = 80,
   userId?: string,
+  agentId?: string,
 ): Promise<ChatHistoryResponse> {
   const params = new URLSearchParams({
     sessionId,
     limit: String(limit),
   });
   if (userId) params.set('userId', userId);
+  if (agentId?.trim()) params.set('agentId', agentId.trim());
   return requestJson<ChatHistoryResponse>(`/api/history?${params.toString()}`, {
     token,
   });

@@ -4,6 +4,19 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+function mockRuntimeSecrets(
+  readStoredRuntimeSecret: (name: string) => string | null,
+): void {
+  vi.doMock('../src/security/runtime-secrets.js', () => ({
+    isRuntimeSecretName: (value: string) =>
+      /^[A-Z][A-Z0-9_]{0,127}$/.test(value),
+    loadRuntimeSecrets: vi.fn(),
+    migrateLegacyRuntimeSecretsFile: vi.fn(() => false),
+    readStoredRuntimeSecret,
+    readStoredRuntimeSecrets: vi.fn(() => ({})),
+  }));
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
@@ -33,12 +46,9 @@ describe('SecretRef', () => {
 
 describe('SecretHandle', () => {
   test('blocks accidental coercion and JSON serialization', async () => {
-    vi.doMock('../src/security/runtime-secrets.js', () => ({
-      isRuntimeSecretName: (value: string) =>
-        /^[A-Z][A-Z0-9_]{0,127}$/.test(value),
-      readStoredRuntimeSecret: (name: string) =>
-        name === 'HYBRIDCLAW_TEST_SECRET' ? 'super-secret-value' : null,
-    }));
+    mockRuntimeSecrets((name) =>
+      name === 'HYBRIDCLAW_TEST_SECRET' ? 'super-secret-value' : null,
+    );
     const { resolveSecretHandleInput } = await import(
       '../src/security/secret-refs.js'
     );
@@ -72,12 +82,9 @@ describe('SecretHandle', () => {
   });
 
   test('resolved secret refs return handles and HTTP header injection audits', async () => {
-    vi.doMock('../src/security/runtime-secrets.js', () => ({
-      isRuntimeSecretName: (value: string) =>
-        /^[A-Z][A-Z0-9_]{0,127}$/.test(value),
-      readStoredRuntimeSecret: (name: string) =>
-        name === 'HYBRIDCLAW_TEST_SECRET' ? 'header-secret-value' : null,
-    }));
+    mockRuntimeSecrets((name) =>
+      name === 'HYBRIDCLAW_TEST_SECRET' ? 'header-secret-value' : null,
+    );
     const { resolveSecretInput } = await import(
       '../src/security/secret-refs.js'
     );
@@ -419,12 +426,9 @@ describe('gateway secret injection', () => {
       makeAuditRunId: () => 'run-secret',
       recordAuditEvent,
     }));
-    vi.doMock('../src/security/runtime-secrets.js', () => ({
-      isRuntimeSecretName: (value: string) =>
-        /^[A-Z][A-Z0-9_]{0,127}$/.test(value),
-      readStoredRuntimeSecret: (name: string) =>
-        name === 'AIRTABLE_PAT' ? 'pat-cleartext-secret' : null,
-    }));
+    mockRuntimeSecrets((name) =>
+      name === 'AIRTABLE_PAT' ? 'pat-cleartext-secret' : null,
+    );
 
     const { resolveStoredSecretForInjection } = await import(
       '../src/gateway/gateway-secret-injection.js'
@@ -456,11 +460,7 @@ describe('gateway secret injection', () => {
       makeAuditRunId: () => 'run-secret',
       recordAuditEvent: vi.fn(),
     }));
-    vi.doMock('../src/security/runtime-secrets.js', () => ({
-      isRuntimeSecretName: (value: string) =>
-        /^[A-Z][A-Z0-9_]{0,127}$/.test(value),
-      readStoredRuntimeSecret: () => null,
-    }));
+    mockRuntimeSecrets(() => null);
 
     const { resolveStoredSecretForInjection } = await import(
       '../src/gateway/gateway-secret-injection.js'
@@ -509,12 +509,9 @@ describe('gateway secret injection', () => {
       makeAuditRunId: () => 'run-secret',
       recordAuditEvent: vi.fn(),
     }));
-    vi.doMock('../src/security/runtime-secrets.js', () => ({
-      isRuntimeSecretName: (value: string) =>
-        /^[A-Z][A-Z0-9_]{0,127}$/.test(value),
-      readStoredRuntimeSecret: (name: string) =>
-        name === 'AIRTABLE_PAT' ? 'pat-cleartext-secret' : null,
-    }));
+    mockRuntimeSecrets((name) =>
+      name === 'AIRTABLE_PAT' ? 'pat-cleartext-secret' : null,
+    );
 
     const { resolveStoredSecretForInjection } = await import(
       '../src/gateway/gateway-secret-injection.js'
@@ -554,12 +551,9 @@ describe('gateway secret injection', () => {
       makeAuditRunId: () => 'run-secret',
       recordAuditEvent,
     }));
-    vi.doMock('../src/security/runtime-secrets.js', () => ({
-      isRuntimeSecretName: (value: string) =>
-        /^[A-Z][A-Z0-9_]{0,127}$/.test(value),
-      readStoredRuntimeSecret: (name: string) =>
-        name === 'DATEV_PASSWORD' ? 'datev-cleartext-secret' : null,
-    }));
+    mockRuntimeSecrets((name) =>
+      name === 'DATEV_PASSWORD' ? 'datev-cleartext-secret' : null,
+    );
 
     const { resolveStoredSecretForInjection } = await import(
       '../src/gateway/gateway-secret-injection.js'

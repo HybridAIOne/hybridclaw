@@ -25,9 +25,23 @@ import {
   parseHubSpotScopes,
 } from '../auth/hubspot-auth.js';
 import {
+  clearMicrosoft365Auth,
+  DEFAULT_MICROSOFT_365_OAUTH_SCOPES,
+  getMicrosoft365AuthStatus,
+  loginMicrosoft365,
+  MICROSOFT_365_ACCOUNT_SECRET,
+  MICROSOFT_365_OAUTH_CLIENT_ID_SECRET,
+  MICROSOFT_365_OAUTH_CLIENT_SECRET_SECRET,
+  MICROSOFT_365_OAUTH_REFRESH_TOKEN_SECRET,
+  MICROSOFT_365_OAUTH_SCOPES_SECRET,
+  MICROSOFT_365_TENANT_ID_SECRET,
+  parseMicrosoft365Scopes,
+} from '../auth/microsoft-auth.js';
+import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   runtimeConfigPath,
+  setRuntimeConfigLocalEndpointSecretInput,
   setRuntimeConfigSecretInput,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
@@ -37,6 +51,7 @@ import {
   normalizeAnthropicModelName,
 } from '../providers/anthropic-utils.js';
 import { resolveModelProvider } from '../providers/factory.js';
+import { validateLocalEndpointName } from '../providers/local-endpoints.js';
 import type { LocalBackendType } from '../providers/local-types.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import { getProviderAliasesFor } from '../providers/provider-aliases.js';
@@ -48,8 +63,10 @@ import { normalizeBaseUrl } from '../providers/utils.js';
 import {
   readStoredRuntimeSecret,
   runtimeSecretsPath,
+  saveNamedRuntimeSecrets,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import type { ModelBehavior } from '../types/model-behavior.js';
 import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { makeLazyApi, normalizeArgs, parseValueFlag } from './common.js';
 import {
@@ -62,6 +79,7 @@ import {
   printHuggingFaceUsage,
   printHybridAIUsage,
   printLocalUsage,
+  printMicrosoft365Usage,
   printMistralUsage,
   printMSTeamsUsage,
   printOpenRouterUsage,
@@ -948,6 +966,7 @@ type UnifiedProvider =
   | 'huggingface'
   | 'google'
   | 'hubspot'
+  | 'microsoft365'
   | 'gemini'
   | 'deepseek'
   | 'xai'
@@ -1001,6 +1020,17 @@ function normalizeUnifiedProvider(
   if (normalized === 'hubspot' || normalized === 'hs') {
     return 'hubspot';
   }
+  if (
+    normalized === 'microsoft365' ||
+    normalized === 'microsoft-365' ||
+    normalized === 'm365' ||
+    normalized === 'office365' ||
+    normalized === 'office-365' ||
+    normalized === 'graph' ||
+    normalized === 'msgraph'
+  ) {
+    return 'microsoft365';
+  }
   // Check data-driven generic providers by id or alias.
   for (const def of GENERIC_PROVIDER_AUTH_DEFS) {
     if (normalized === def.id || def.aliases.includes(normalized)) {
@@ -1043,7 +1073,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -1057,7 +1087,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -1464,6 +1494,31 @@ function clearHubSpotCredentials(): void {
   console.log('The gateway will no longer inject HubSpot access tokens.');
 }
 
+function printMicrosoft365Status(): void {
+  const status = getMicrosoft365AuthStatus();
+  console.log(`Path: ${status.path}`);
+  console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
+  console.log(`Tenant: ${status.tenantId}`);
+  if (status.authenticated) {
+    console.log('Source: runtime-secrets');
+    console.log(`Account: ${status.account || '(not set)'}`);
+    console.log('Refresh token: configured');
+    console.log(
+      `Client secret: ${status.clientSecretConfigured ? 'configured' : 'not set (public client)'}`,
+    );
+    console.log(`Scopes: ${status.scopes.join(' ')}`);
+    console.log('HTTP auth mode: gateway-minted Microsoft Graph bearer token');
+  }
+}
+
+function clearMicrosoft365Credentials(): void {
+  const filePath = clearMicrosoft365Auth();
+  console.log(`Cleared Microsoft 365 OAuth credentials from ${filePath}.`);
+  console.log(
+    'The gateway will no longer inject Microsoft Graph access tokens.',
+  );
+}
+
 function parseHubSpotLoginArgs(args: string[]): {
   account?: string;
   clientId?: string;
@@ -1558,6 +1613,106 @@ function parseHubSpotLoginArgs(args: string[]): {
     }
     throw new Error(
       `Unexpected argument: ${arg}. Use \`hybridclaw auth login hubspot --help\`.`,
+    );
+  }
+
+  return parsed;
+}
+
+function parseMicrosoft365LoginArgs(args: string[]): {
+  account?: string;
+  tenantId?: string;
+  clientId?: string;
+  clientSecret?: string;
+  refreshToken?: string;
+  scopes?: string;
+  redirectPort?: number;
+} {
+  type Microsoft365StringFlagKey =
+    | 'account'
+    | 'tenantId'
+    | 'clientId'
+    | 'clientSecret'
+    | 'refreshToken'
+    | 'scopes';
+  const parsed: {
+    account?: string;
+    tenantId?: string;
+    clientId?: string;
+    clientSecret?: string;
+    refreshToken?: string;
+    scopes?: string;
+    redirectPort?: number;
+  } = {};
+  const stringFlags: Array<{
+    key: Microsoft365StringFlagKey;
+    name: string;
+    placeholder: string;
+  }> = [
+    { key: 'account', name: '--account', placeholder: '<label-or-email>' },
+    {
+      key: 'tenantId',
+      name: '--tenant-id',
+      placeholder: '<tenant-id|domain|organizations>',
+    },
+    { key: 'clientId', name: '--client-id', placeholder: '<id>' },
+    {
+      key: 'clientSecret',
+      name: '--client-secret',
+      placeholder: '<secret>',
+    },
+    {
+      key: 'refreshToken',
+      name: '--refresh-token',
+      placeholder: '<token>',
+    },
+    { key: 'scopes', name: '--scopes', placeholder: '<scopes>' },
+  ];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    let matchedStringFlag = false;
+    for (const flag of stringFlags) {
+      const parsedFlag = parseValueFlag({
+        arg,
+        args,
+        index,
+        name: flag.name,
+        placeholder: flag.placeholder,
+        allowEmptyEquals: true,
+      });
+      if (!parsedFlag) continue;
+      parsed[flag.key] = parsedFlag.value || undefined;
+      index = parsedFlag.nextIndex;
+      matchedStringFlag = true;
+      break;
+    }
+    if (matchedStringFlag) continue;
+
+    const redirectPortFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--redirect-port',
+      placeholder: '<port>',
+      allowEmptyEquals: true,
+    });
+    if (redirectPortFlag) {
+      const port = Number.parseInt(redirectPortFlag.value, 10);
+      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+        throw new Error(
+          'Microsoft 365 OAuth redirect port must be between 1 and 65535.',
+        );
+      }
+      parsed.redirectPort = port;
+      index = redirectPortFlag.nextIndex;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw auth login microsoft365 --help\`.`,
     );
   }
 
@@ -1689,6 +1844,128 @@ async function configureHubSpotAuth(args: string[]): Promise<void> {
   );
   console.log(
     'The gateway will mint short-lived HubSpot access tokens for http_request calls.',
+  );
+}
+
+async function resolveInteractiveMicrosoft365Login(params: {
+  account: string;
+  tenantId: string;
+  clientId: string;
+  clientSecret: string;
+}): Promise<{
+  account: string;
+  tenantId: string;
+  clientId: string;
+  clientSecret: string;
+}> {
+  if (params.clientId) {
+    return params;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      'Missing Microsoft 365 OAuth client id. Pass `--client-id <id>` or run this command in an interactive terminal.',
+    );
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    const account = await promptWithDefault({
+      rl,
+      question: 'Microsoft 365 account label or email',
+      defaultValue: params.account || undefined,
+      required: false,
+    });
+    const tenantId = await promptWithDefault({
+      rl,
+      question: 'Microsoft tenant id, verified domain, or organizations',
+      defaultValue: params.tenantId || 'organizations',
+      required: false,
+    });
+    const clientId = await promptWithDefault({
+      rl,
+      question: 'Microsoft Entra app client id',
+      defaultValue: params.clientId || undefined,
+    });
+    const clientSecret = await promptWithDefault({
+      rl,
+      question:
+        'Microsoft Entra app client secret (optional for public clients)',
+      defaultValue: params.clientSecret || undefined,
+      required: false,
+      secret: true,
+    });
+    return {
+      account,
+      tenantId,
+      clientId,
+      clientSecret,
+    };
+  } finally {
+    rl.close();
+  }
+}
+
+async function configureMicrosoft365Auth(args: string[]): Promise<void> {
+  const parsed = parseMicrosoft365LoginArgs(args);
+  const resolved = await resolveInteractiveMicrosoft365Login({
+    account:
+      parsed.account ||
+      process.env[MICROSOFT_365_ACCOUNT_SECRET]?.trim() ||
+      readStoredRuntimeSecret(MICROSOFT_365_ACCOUNT_SECRET) ||
+      '',
+    tenantId:
+      parsed.tenantId ||
+      process.env[MICROSOFT_365_TENANT_ID_SECRET]?.trim() ||
+      readStoredRuntimeSecret(MICROSOFT_365_TENANT_ID_SECRET) ||
+      'organizations',
+    clientId:
+      parsed.clientId ||
+      process.env[MICROSOFT_365_OAUTH_CLIENT_ID_SECRET]?.trim() ||
+      readStoredRuntimeSecret(MICROSOFT_365_OAUTH_CLIENT_ID_SECRET) ||
+      '',
+    clientSecret:
+      parsed.clientSecret ||
+      process.env[MICROSOFT_365_OAUTH_CLIENT_SECRET_SECRET]?.trim() ||
+      readStoredRuntimeSecret(MICROSOFT_365_OAUTH_CLIENT_SECRET_SECRET) ||
+      '',
+  });
+  const scopes = parseMicrosoft365Scopes(
+    parsed.scopes ||
+      process.env[MICROSOFT_365_OAUTH_SCOPES_SECRET]?.trim() ||
+      readStoredRuntimeSecret(MICROSOFT_365_OAUTH_SCOPES_SECRET) ||
+      DEFAULT_MICROSOFT_365_OAUTH_SCOPES.join(' '),
+  );
+  const result = await loginMicrosoft365({
+    account: resolved.account,
+    tenantId: resolved.tenantId,
+    clientId: resolved.clientId,
+    clientSecret: resolved.clientSecret,
+    refreshToken:
+      parsed.refreshToken ||
+      process.env[MICROSOFT_365_OAUTH_REFRESH_TOKEN_SECRET]?.trim() ||
+      undefined,
+    scopes,
+    redirectPort: parsed.redirectPort,
+  });
+
+  console.log(
+    `Saved Microsoft 365 OAuth credentials to ${result.secretsPath}.`,
+  );
+  if (result.account) console.log(`Account: ${result.account}`);
+  console.log(`Tenant: ${result.tenantId}`);
+  console.log(`Scopes: ${result.scopes.join(' ')}`);
+  console.log(
+    result.usedProvidedRefreshToken
+      ? 'Stored provided refresh token.'
+      : 'Completed browser authorization and stored refresh token.',
+  );
+  console.log(
+    'The gateway will mint short-lived Microsoft Graph access tokens for http_request calls.',
   );
 }
 
@@ -1939,6 +2216,10 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
     printHubSpotUsage();
     return;
   }
+  if (provider === 'microsoft365') {
+    printMicrosoft365Usage();
+    return;
+  }
   if (findGenericProviderDef(provider)) {
     console.log(
       `Usage: hybridclaw auth login ${provider} [--api-key <key>] [--base-url <url>] [--model <model>] [--no-default]`,
@@ -1959,8 +2240,15 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
 function normalizeLocalModelId(
   backend: LocalBackendType,
   rawModelId: string,
+  endpointName?: string,
 ): string {
   const trimmed = rawModelId.trim();
+  if (endpointName) {
+    const endpointPrefix = `${endpointName}/`;
+    if (trimmed.startsWith(endpointPrefix)) {
+      return trimmed.slice(endpointPrefix.length).trim();
+    }
+  }
   const ownPrefix = `${backend}/`;
   if (trimmed.toLowerCase().startsWith(ownPrefix)) {
     return trimmed.slice(ownPrefix.length).trim();
@@ -1990,11 +2278,22 @@ function normalizeLocalBaseUrl(
   return /\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/v1`;
 }
 
+function localEndpointSecretName(endpointName: string): string {
+  const suffix = endpointName
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return `LOCAL_ENDPOINT_${suffix || 'ENDPOINT'}_API_KEY`;
+}
+
 interface ParsedLocalConfigureArgs {
   backend: LocalBackendType;
   modelId?: string;
   baseUrl?: string;
   apiKey?: string;
+  name?: string;
+  modelBehavior?: ModelBehavior;
   setDefault: boolean;
 }
 
@@ -2002,6 +2301,8 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
   const positional: string[] = [];
   const { baseUrl, remaining } = extractBaseUrlArg(args);
   let apiKey: string | undefined;
+  let parsedName: string | undefined;
+  let modelBehavior: ModelBehavior | undefined;
   let setDefault = true;
   let setDefaultExplicit = false;
 
@@ -2017,6 +2318,18 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
       setDefaultExplicit = true;
       continue;
     }
+    const nameFlag = parseValueFlag({
+      arg,
+      args: remaining,
+      index,
+      name: '--name',
+      placeholder: '<name>',
+    });
+    if (nameFlag) {
+      parsedName = validateLocalEndpointName(nameFlag.value);
+      index = nameFlag.nextIndex;
+      continue;
+    }
     const apiKeyFlag = parseValueFlag({
       arg,
       args: remaining,
@@ -2030,6 +2343,22 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
       index = apiKeyFlag.nextIndex;
       continue;
     }
+    const thinkingFormatFlag = parseValueFlag({
+      arg,
+      args: remaining,
+      index,
+      name: '--thinking-format',
+      placeholder: '<format>',
+    });
+    if (thinkingFormatFlag) {
+      const normalized = thinkingFormatFlag.value.trim().toLowerCase();
+      if (normalized !== 'qwen') {
+        throw new Error('`--thinking-format` currently supports only `qwen`.');
+      }
+      modelBehavior = { ...(modelBehavior || {}), thinkingFormat: 'qwen' };
+      index = thinkingFormatFlag.nextIndex;
+      continue;
+    }
     if (arg.startsWith('-')) {
       throw new Error(`Unknown flag: ${arg}`);
     }
@@ -2038,7 +2367,7 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
 
   if (positional.length < 1) {
     throw new Error(
-      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]`',
+      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]`',
     );
   }
 
@@ -2053,9 +2382,10 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
     throw new Error('`--api-key` is only supported for the `vllm` backend.');
   }
 
+  const endpointName = parsedName?.trim();
   const rawModelId = positional.slice(1).join(' ');
   const modelId = rawModelId
-    ? normalizeLocalModelId(backendRaw, rawModelId)
+    ? normalizeLocalModelId(backendRaw, rawModelId, endpointName)
     : undefined;
   if (setDefaultExplicit && setDefault && !modelId) {
     throw new Error('`--set-default` requires a model ID.');
@@ -2066,6 +2396,8 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
     ...(modelId ? { modelId } : {}),
     baseUrl,
     apiKey,
+    ...(endpointName ? { name: endpointName } : {}),
+    ...(modelBehavior ? { modelBehavior } : {}),
     setDefault: Boolean(modelId) && setDefault,
   };
 }
@@ -2088,6 +2420,14 @@ function printLocalStatus(): void {
       );
     }
   }
+  for (const endpoint of config.local.endpoints) {
+    console.log(
+      `${endpoint.name}: ${endpoint.enabled ? 'enabled' : 'disabled'} (${endpoint.type}, ${endpoint.baseUrl})`,
+    );
+    if (endpoint.apiKey) {
+      console.log(`${endpoint.name} api key: configured`);
+    }
+  }
 }
 
 function configureLocalBackend(args: string[]): void {
@@ -2095,24 +2435,70 @@ function configureLocalBackend(args: string[]): void {
   const parsed = parseLocalConfigureArgs(args);
   const currentConfig = getRuntimeConfig();
   const currentBackend = currentConfig.local.backends[parsed.backend];
+  const currentEndpoint = parsed.name
+    ? currentConfig.local.endpoints.find(
+        (endpoint) => endpoint.name === parsed.name,
+      )
+    : undefined;
   const normalizedBaseUrl = normalizeLocalBaseUrl(
     parsed.backend,
-    parsed.baseUrl || currentBackend.baseUrl,
+    parsed.baseUrl || currentEndpoint?.baseUrl || currentBackend.baseUrl,
   );
+  const modelPrefix = parsed.name || parsed.backend;
   const fullModelName = parsed.modelId
-    ? `${parsed.backend}/${parsed.modelId}`
+    ? `${modelPrefix}/${parsed.modelId}`
     : '';
   const nextConfig = updateRuntimeConfig((draft) => {
-    draft.local.backends[parsed.backend].enabled = true;
-    draft.local.backends[parsed.backend].baseUrl = normalizedBaseUrl;
-    if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
-      draft.local.backends.vllm.apiKey = '';
+    if (parsed.name) {
+      const existing = draft.local.endpoints.find(
+        (endpoint) => endpoint.name === parsed.name,
+      );
+      const endpoint = {
+        name: parsed.name,
+        type: parsed.backend,
+        enabled: true,
+        baseUrl: normalizedBaseUrl,
+        apiKey: parsed.apiKey !== undefined ? '' : existing?.apiKey || '',
+        ...(parsed.modelBehavior
+          ? { modelBehavior: parsed.modelBehavior }
+          : existing?.modelBehavior
+            ? { modelBehavior: existing.modelBehavior }
+            : {}),
+      };
+      draft.local.endpoints = [
+        ...draft.local.endpoints.filter((entry) => entry.name !== parsed.name),
+        endpoint,
+      ];
+    } else {
+      draft.local.backends[parsed.backend].enabled = true;
+      draft.local.backends[parsed.backend].baseUrl = normalizedBaseUrl;
+      if (parsed.modelBehavior) {
+        draft.local.backends[parsed.backend].modelBehavior =
+          parsed.modelBehavior;
+      }
+      if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
+        draft.local.backends.vllm.apiKey = '';
+      }
     }
     if (parsed.setDefault) {
       draft.hybridai.defaultModel = fullModelName;
     }
   });
-  if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
+  if (parsed.name && parsed.apiKey !== undefined) {
+    const secretName = localEndpointSecretName(parsed.name);
+    saveNamedRuntimeSecrets({ [secretName]: parsed.apiKey });
+    setRuntimeConfigLocalEndpointSecretInput(
+      parsed.name,
+      {
+        source: 'store',
+        id: secretName,
+      },
+      {
+        route: 'cli.auth.local.configure-endpoint-secret-ref',
+        source: 'user',
+      },
+    );
+  } else if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
     saveRuntimeSecrets({ VLLM_API_KEY: parsed.apiKey });
     setRuntimeConfigSecretInput(
       'local.backends.vllm.apiKey',
@@ -2129,14 +2515,42 @@ function configureLocalBackend(args: string[]): void {
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   console.log(`Backend: ${parsed.backend}`);
-  console.log(`Base URL: ${nextConfig.local.backends[parsed.backend].baseUrl}`);
+  if (parsed.name) {
+    console.log(`Endpoint: ${parsed.name}`);
+  }
+  const nextEndpoint = parsed.name
+    ? nextConfig.local.endpoints.find(
+        (endpoint) => endpoint.name === parsed.name,
+      )
+    : undefined;
+  console.log(
+    `Base URL: ${nextEndpoint?.baseUrl || nextConfig.local.backends[parsed.backend].baseUrl}`,
+  );
   if (fullModelName) {
     console.log(`Configured model: ${fullModelName}`);
   } else {
     console.log('Configured model: none');
   }
-  if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
-    console.log('vllm api key: configured');
+  const configuredBehavior =
+    nextEndpoint?.modelBehavior ||
+    nextConfig.local.backends[parsed.backend].modelBehavior;
+  if (configuredBehavior?.thinkingFormat) {
+    console.log(
+      `Model behavior: ${[
+        configuredBehavior.thinkingFormat
+          ? `thinkingFormat=${configuredBehavior.thinkingFormat}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(', ')}`,
+    );
+  }
+  if (parsed.apiKey !== undefined) {
+    console.log(
+      parsed.name
+        ? `${parsed.name} api key: configured`
+        : 'vllm api key: configured',
+    );
   }
   if (parsed.setDefault) {
     console.log(`Default model: ${fullModelName}`);
@@ -2153,7 +2567,7 @@ function configureLocalBackend(args: string[]): void {
     console.log(`  /model set ${fullModelName}`);
   } else {
     console.log(`  /model list ${parsed.backend}`);
-    console.log(`  /model set ${parsed.backend}/<model>`);
+    console.log(`  /model set ${modelPrefix}/<model>`);
   }
 }
 
@@ -2193,7 +2607,7 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -2231,6 +2645,10 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   }
   if (parsed.provider === 'hubspot') {
     await configureHubSpotAuth(parsed.remaining);
+    return;
+  }
+  if (parsed.provider === 'microsoft365') {
+    await configureMicrosoft365Auth(parsed.remaining);
     return;
   }
   const genericLoginDef = findGenericProviderDef(parsed.provider);
@@ -2409,6 +2827,14 @@ async function dispatchProviderAction(
     clearHubSpotCredentials();
     return;
   }
+  if (provider === 'microsoft365') {
+    if (action === 'status') {
+      printMicrosoft365Status();
+      return;
+    }
+    clearMicrosoft365Credentials();
+    return;
+  }
   const genericDef = findGenericProviderDef(provider);
   if (genericDef) {
     if (action === 'status') {
@@ -2464,7 +2890,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (parsed.remaining.length > 0) {

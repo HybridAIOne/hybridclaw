@@ -501,6 +501,116 @@ documented Shelly OAuth flow for the Real Time Events API access token.
 
 ---
 
+## blink
+
+Inspect Blink camera and video-doorbell state, list motion clips, refresh still
+images as artifacts, and prepare guarded home-security control requests.
+
+**Prerequisites** — Blink account credentials in HybridClaw secrets. Start from
+chat:
+
+```text
+/secret set BLINK_EMAIL "<account email>"
+/secret set BLINK_PASSWORD "<account password>"
+```
+
+Equivalent shell commands:
+
+```bash
+hybridclaw secret set BLINK_EMAIL "<account email>"
+hybridclaw secret set BLINK_PASSWORD "<account password>"
+```
+
+Run the helper login flow once to capture OAuth session secrets. If Blink asks
+for email/SMS verification, provide the PIN through the operator handoff and
+run the helper with `--pin`.
+
+> 💡 **Tips & Tricks**
+>
+> Start with `devices-list`; it returns networks, sync modules, cameras, and
+> doorbell-like devices in one compact overview.
+>
+> Clip and thumbnail downloads are stored as gateway artifacts so raw media
+> bytes do not enter model context.
+>
+> Arming, disarming, motion toggles, thumbnail refreshes, and clip actions are
+> approval-gated. Live view and clip deletion are red-tier.
+
+> 🎯 **Try it yourself**
+>
+> `List my Blink cameras and summarize battery, signal, and offline state`
+>
+> `Show recent Blink motion clips since yesterday morning`
+>
+> `Prepare an approval plan to arm the front-door Blink network`
+>
+> `Refresh the current still image for the driveway camera`
+
+**Troubleshooting**
+
+- **Login required** — run `account-refresh` once, then `account-login` if the
+  stored refresh token cannot recover the session.
+- **PIN required** — stop and ask the operator for the Blink PIN instead of
+  retrying or probing alternate endpoints.
+- **Stale thumbnail** — report the helper's freshness fields and avoid calling
+  an unchanged thumbnail a fresh screenshot.
+
+---
+
+## hue
+
+Inspect and control Philips Hue Bridge lighting installations through local
+CLIP v2 or the Hue Remote API.
+
+**Prerequisites** — a Hue Bridge URL and application key. Store the local bridge
+host from chat:
+
+```text
+/env set HUE_BRIDGE_HOST "https://<bridge-ip>"
+```
+
+Equivalent shell command:
+
+```bash
+hybridclaw env set HUE_BRIDGE_HOST "https://<bridge-ip>"
+```
+
+Press the bridge link button, build the helper link request, send the emitted
+gateway request, and store the returned application key in
+`HUE_APPLICATION_KEY`. Remote API use also needs the Hue developer OAuth
+credentials and `HUE_REMOTE_REFRESH_TOKEN`.
+
+> 💡 **Tips & Tricks**
+>
+> Read current light, room, zone, and scene state before planning any control.
+>
+> Local reads are green-tier. Light, grouped-light, room, scene, and behavior
+> changes are amber-tier. Bridge configuration writes are red-tier.
+>
+> The helper scopes self-signed bridge TLS handling per request; do not add a
+> blanket insecure TLS bypass.
+
+> 🎯 **Try it yourself**
+>
+> `List Hue rooms, grouped lights, and current brightness`
+>
+> `Show Hue scenes available for the living room`
+>
+> `Prepare an approval plan to dim the office lights to 40 percent`
+>
+> `Check whether the configured Hue bridge link button is active`
+
+**Troubleshooting**
+
+- **Application key missing** — press the Hue bridge link button and use the
+  helper link flow instead of asking for the bridge host again.
+- **Certificate error** — rerun the helper-emitted request with its scoped
+  self-signed TLS flag.
+- **Policy denial** — check managed LAN policy coverage before adding a broad
+  bridge allowlist rule.
+
+---
+
 ## homematic
 
 Inspect Homematic IP Home Control Unit state and prepare guarded smart-home
@@ -592,6 +702,55 @@ server-side as request headers.
   Query API package attached to the account.
 - **Gateway policy denial** — allow the selected local inverter host or
   `api.solarweb.com` before running live requests.
+
+---
+
+## byd-battery
+
+Read BYD Battery-Box Premium HVS/HVM/LVS/LVL home-storage telemetry through
+local Modbus TCP or paired Fronius inverter delegation. Read-only v1: remote
+shutdown, BMU resets, capacity reconfiguration, and all write operations are
+out of scope.
+
+**Prerequisites** — LAN access to the BYD BMU Modbus endpoint, or a Fronius
+pairing for delegated reads.
+
+```bash
+hybridclaw secret set BYD_BMU_HOST "192.168.1.50"
+hybridclaw secret set BYD_BMU_MODBUS_PORT "8080"
+hybridclaw secret set BYD_BMU_UNIT_ID "1"
+hybridclaw secret set BYD_BMU_MODEL "Premium HVS"
+```
+
+All connection values stay in encrypted secrets; the helper never prints the
+configured host, port, unit id, or model in normal results, and only reads
+allowlisted register ranges with no arbitrary Modbus passthrough.
+
+> 💡 **Tips & Tricks**
+>
+> Use `state-of-charge` and `pack-telemetry` for live SoC, SoH, power direction, voltage, current, and temperature.
+>
+> Use `cell-extremes` and `module-telemetry` for cell voltage spread and per-module diagnostics.
+>
+> Use `inventory`, `firmware`, and `be-connect-metadata` for service handoff details; use `alarms` and `energy-counters` for decoded alarm codes and kWh rollups.
+>
+> If local Modbus is not configured but the battery is paired to a Fronius inverter, append `--via fronius` to delegate the read.
+
+> 🎯 **Try it yourself**
+>
+> `What is my BYD battery's current state of charge and state of health?`
+>
+> `Show pack telemetry and cell voltage spread for my Battery-Box`
+>
+> `Decode any active BYD battery alarms and summarize them as an incident`
+>
+> `List my battery tower and module topology with firmware versions`
+
+**Troubleshooting**
+
+- **BMU host missing** — set `BYD_BMU_HOST` (and port/unit id if non-default) or use `--via fronius` with a paired inverter.
+- **Connect timeout or comms lost** — the helper stops after the first failure and emits an incident payload; check the BMU LAN address and port instead of retrying.
+- **Gateway policy denial** — allow only the BMU LAN host and Modbus port; local reads need no internet endpoints.
 
 ---
 

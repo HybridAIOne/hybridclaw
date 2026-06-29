@@ -54,6 +54,21 @@ describe('isExpectedTransportError', () => {
     expect(isExpectedTransportError(error)).toBe(true);
   });
 
+  test('matches transport errors nested in wrapper data fields', () => {
+    const error = Object.assign(new Error('WebSocket Error'), {
+      data: new Error('Opening handshake has timed out'),
+    });
+
+    expect(isExpectedTransportError(error)).toBe(true);
+    expect(
+      describeExpectedTransportError(
+        error,
+        'WhatsApp WebSocket',
+        'web.whatsapp.com',
+      ),
+    ).toBe('WhatsApp WebSocket connection to web.whatsapp.com timed out.');
+  });
+
   test('ignores unrelated application errors', () => {
     expect(
       isExpectedTransportError(

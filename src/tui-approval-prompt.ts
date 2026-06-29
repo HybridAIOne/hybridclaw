@@ -3,6 +3,7 @@ import type readline from 'node:readline';
 import type { ApprovalScopeMode } from './approval-commands.js';
 import type { TuiApprovalDetails } from './tui-approval.js';
 import { wrapTuiBlock } from './tui-thinking.js';
+import { truncateAnsi, visibleAnsiWidth } from './utils/ansi.js';
 
 export type TuiApprovalSelectionOption = ApprovalScopeMode | 'skip';
 
@@ -36,66 +37,16 @@ type InternalReadline = readline.Interface & {
   _ttyWrite?: (chunk: string, key: readline.Key) => void;
 };
 
-function getAnsiSequenceLength(value: string, index: number): number {
-  if (value.charCodeAt(index) !== 27 || value[index + 1] !== '[') {
-    return 0;
-  }
-
-  let cursor = index + 2;
-  while (cursor < value.length) {
-    const code = value.charCodeAt(cursor);
-    if (code >= 64 && code <= 126) {
-      return cursor - index + 1;
-    }
-    cursor += 1;
-  }
-
-  return 0;
-}
-
 function truncateLine(value: string, width: number, reset = ''): string {
-  if (width <= 0) return '';
-  const targetVisibleLength = width === 1 ? 1 : width - 3;
-  let output = '';
-  let visibleLength = 0;
-  let truncated = false;
-  const hasAnsi = value.includes('\x1b[');
-
-  for (let index = 0; index < value.length; ) {
-    const ansiSequenceLength = getAnsiSequenceLength(value, index);
-    if (ansiSequenceLength > 0) {
-      output += value.slice(index, index + ansiSequenceLength);
-      index += ansiSequenceLength;
-      continue;
-    }
-
-    if (visibleLength >= targetVisibleLength) {
-      truncated = true;
-      break;
-    }
-
-    output += value[index] || '';
-    visibleLength += 1;
-    index += 1;
-  }
-
-  if (!truncated) return output;
-
-  return hasAnsi ? `${output}...${reset}` : `${output}...`;
+  return truncateAnsi(value, width, {
+    ellipsis: '...',
+    reset,
+    resetMode: 'ansi',
+  });
 }
 
 function visibleTerminalLength(value: string): number {
-  let visible = 0;
-  for (let index = 0; index < value.length; ) {
-    const ansiSequenceLength = getAnsiSequenceLength(value, index);
-    if (ansiSequenceLength > 0) {
-      index += ansiSequenceLength;
-      continue;
-    }
-    visible += 1;
-    index += (value.codePointAt(index) || 0) > 0xffff ? 2 : 1;
-  }
-  return visible;
+  return visibleAnsiWidth(value);
 }
 
 function sentenceCase(value: string): string {

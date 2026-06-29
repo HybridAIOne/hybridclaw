@@ -2,7 +2,6 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
@@ -74,63 +73,7 @@ export class MissingRequiredEnvVarError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function readVersionFromPackageJson(packageJsonPath: string): string | null {
-  try {
-    const raw = fs.readFileSync(packageJsonPath, 'utf-8');
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      isRecord(parsed) &&
-      typeof parsed.version === 'string' &&
-      parsed.version.trim()
-    ) {
-      return parsed.version.trim();
-    }
-  } catch {
-    // fall through
-  }
-  return null;
-}
-
-function resolveAppVersion(): string {
-  const envVersion = process.env.npm_package_version;
-  if (envVersion?.trim()) return envVersion.trim();
-
-  const modulePath = fileURLToPath(import.meta.url);
-  const probePaths = [
-    path.join(path.dirname(modulePath), '..', '..', 'package.json'),
-  ];
-  const moduleVersion = readVersionFromPackageJson(probePaths[0]);
-  if (moduleVersion) return moduleVersion;
-
-  const entryPath = process.argv[1];
-  if (entryPath) {
-    const entryPackagePath = path.join(
-      path.dirname(path.resolve(entryPath)),
-      '..',
-      'package.json',
-    );
-    probePaths.push(entryPackagePath);
-    const entryVersion = readVersionFromPackageJson(entryPackagePath);
-    if (entryVersion) return entryVersion;
-  }
-
-  const cwdPackagePath = path.join(process.cwd(), 'package.json');
-  probePaths.push(cwdPackagePath);
-  const cwdVersion = readVersionFromPackageJson(cwdPackagePath);
-  if (cwdVersion) return cwdVersion;
-
-  logger.warn(
-    { probePaths: Array.from(new Set(probePaths)) },
-    'Unable to resolve app version from package.json probes; falling back to 0.0.0',
-  );
-  return '0.0.0';
-}
-
-export const APP_VERSION = resolveAppVersion();
+export { APP_VERSION } from './app-version.js';
 
 function readRuntimeSecretValue(
   envKeys: string[],
@@ -477,6 +420,7 @@ export let EMAIL_MEDIA_MAX_MB = 20;
 
 export let HYBRIDAI_BASE_URL = 'https://hybridai.one';
 export let HYBRIDAI_MODEL = 'gpt-4.1-mini';
+export let HYBRIDAI_ONBOARDING_MODEL = '';
 export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
@@ -513,13 +457,26 @@ export let KILO_ENABLED = false;
 export let KILO_BASE_URL = 'https://api.kilo.ai/api/gateway';
 export let LOCAL_OLLAMA_ENABLED = true;
 export let LOCAL_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
+export let LOCAL_OLLAMA_MODEL_BEHAVIOR:
+  | RuntimeConfig['local']['backends']['ollama']['modelBehavior']
+  | undefined;
 export let LOCAL_LMSTUDIO_ENABLED = false;
 export let LOCAL_LMSTUDIO_BASE_URL = 'http://127.0.0.1:1234/v1';
+export let LOCAL_LMSTUDIO_MODEL_BEHAVIOR:
+  | RuntimeConfig['local']['backends']['lmstudio']['modelBehavior']
+  | undefined;
 export let LOCAL_LLAMACPP_ENABLED = false;
 export let LOCAL_LLAMACPP_BASE_URL = 'http://127.0.0.1:8081/v1';
+export let LOCAL_LLAMACPP_MODEL_BEHAVIOR:
+  | RuntimeConfig['local']['backends']['llamacpp']['modelBehavior']
+  | undefined;
 export let LOCAL_VLLM_ENABLED = false;
 export let LOCAL_VLLM_BASE_URL = 'http://127.0.0.1:8000/v1';
 export let LOCAL_VLLM_API_KEY = '';
+export let LOCAL_VLLM_MODEL_BEHAVIOR:
+  | RuntimeConfig['local']['backends']['vllm']['modelBehavior']
+  | undefined;
+export let LOCAL_ENDPOINTS: RuntimeConfig['local']['endpoints'] = [];
 export let LOCAL_DISCOVERY_ENABLED = true;
 export let LOCAL_DISCOVERY_INTERVAL_MS = 3_600_000;
 export let LOCAL_DISCOVERY_MAX_MODELS = 200;
@@ -582,6 +539,7 @@ export let HEALTH_HOST = '127.0.0.1';
 export let HEALTH_PORT = 9090;
 export let WEB_API_TOKEN = '';
 export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
+export let GATEWAY_CLIENT_BASE_URL = 'http://127.0.0.1:9090';
 const GATEWAY_API_TOKEN_LOCK_STALE_MS = 10_000;
 const GATEWAY_API_TOKEN_LOCK_TIMEOUT_MS = 5_000;
 const GATEWAY_API_TOKEN_LOCK_RETRY_MS = 25;
@@ -1033,6 +991,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     config.hybridai.baseUrl,
   );
   HYBRIDAI_MODEL = config.hybridai.defaultModel;
+  HYBRIDAI_ONBOARDING_MODEL = config.hybridai.onboardingModel;
   HYBRIDAI_CHATBOT_ID =
     process.env.HYBRIDAI_CHATBOT_ID?.trim() ||
     '' ||
@@ -1075,13 +1034,26 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   KILO_BASE_URL = config.kilo.baseUrl;
   LOCAL_OLLAMA_ENABLED = config.local.backends.ollama.enabled;
   LOCAL_OLLAMA_BASE_URL = config.local.backends.ollama.baseUrl;
+  LOCAL_OLLAMA_MODEL_BEHAVIOR = config.local.backends.ollama.modelBehavior
+    ? structuredClone(config.local.backends.ollama.modelBehavior)
+    : undefined;
   LOCAL_LMSTUDIO_ENABLED = config.local.backends.lmstudio.enabled;
   LOCAL_LMSTUDIO_BASE_URL = config.local.backends.lmstudio.baseUrl;
+  LOCAL_LMSTUDIO_MODEL_BEHAVIOR = config.local.backends.lmstudio.modelBehavior
+    ? structuredClone(config.local.backends.lmstudio.modelBehavior)
+    : undefined;
   LOCAL_LLAMACPP_ENABLED = config.local.backends.llamacpp.enabled;
   LOCAL_LLAMACPP_BASE_URL = config.local.backends.llamacpp.baseUrl;
+  LOCAL_LLAMACPP_MODEL_BEHAVIOR = config.local.backends.llamacpp.modelBehavior
+    ? structuredClone(config.local.backends.llamacpp.modelBehavior)
+    : undefined;
   LOCAL_VLLM_ENABLED = config.local.backends.vllm.enabled;
   LOCAL_VLLM_BASE_URL = config.local.backends.vllm.baseUrl;
   LOCAL_VLLM_API_KEY = config.local.backends.vllm.apiKey || '';
+  LOCAL_VLLM_MODEL_BEHAVIOR = config.local.backends.vllm.modelBehavior
+    ? structuredClone(config.local.backends.vllm.modelBehavior)
+    : undefined;
+  LOCAL_ENDPOINTS = structuredClone(config.local.endpoints);
   LOCAL_DISCOVERY_ENABLED = config.local.discovery.enabled;
   LOCAL_DISCOVERY_INTERVAL_MS = config.local.discovery.intervalMs;
   LOCAL_DISCOVERY_MAX_MODELS = config.local.discovery.maxModels;
@@ -1136,6 +1108,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     readRuntimeSecretValue(['WEB_API_TOKEN'], 'WEB_API_TOKEN', storedSecrets) ||
     config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
+  GATEWAY_CLIENT_BASE_URL = config.ops.gatewayInternalBaseUrl;
   gatewayApiTokenUsesGeneratedFallback = false;
   GATEWAY_API_TOKEN =
     readRuntimeSecretValue(

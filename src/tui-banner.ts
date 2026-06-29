@@ -1,4 +1,5 @@
 import { detectRuntimeProviderPrefix } from './providers/task-routing.js';
+import { visibleAnsiWidth } from './utils/ansi.js';
 
 export interface TuiBannerPalette {
   reset: string;
@@ -106,47 +107,12 @@ const SLASH_COMMANDS = [
   '/usage',
 ] as const;
 
-function getAnsiSequenceLength(value: string, index: number): number {
-  if (value.charCodeAt(index) !== 27 || value[index + 1] !== '[') {
-    return 0;
-  }
-
-  let cursor = index + 2;
-  while (cursor < value.length) {
-    const code = value.charCodeAt(cursor);
-    if (code >= 64 && code <= 126) {
-      return cursor - index + 1;
-    }
-    cursor += 1;
-  }
-
-  return 0;
-}
-
-function stripAnsi(value: string): string {
-  let output = '';
-  for (let index = 0; index < value.length; ) {
-    const ansiSequenceLength = getAnsiSequenceLength(value, index);
-    if (ansiSequenceLength > 0) {
-      index += ansiSequenceLength;
-      continue;
-    }
-    output += value[index] || '';
-    index += 1;
-  }
-  return output;
-}
-
-function visibleLength(value: string): number {
-  return [...stripAnsi(value)].length;
-}
-
 function maxVisibleLength(lines: readonly string[]): number {
-  return lines.reduce((max, line) => Math.max(max, visibleLength(line)), 0);
+  return lines.reduce((max, line) => Math.max(max, visibleAnsiWidth(line)), 0);
 }
 
 function padVisibleEnd(value: string, width: number): string {
-  return `${value}${' '.repeat(Math.max(0, width - visibleLength(value)))}`;
+  return `${value}${' '.repeat(Math.max(0, width - visibleAnsiWidth(value)))}`;
 }
 
 function wrapValue(label: string, rawValue: string, width: number): string[] {

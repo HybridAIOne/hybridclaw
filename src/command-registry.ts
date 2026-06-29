@@ -75,6 +75,7 @@ interface LocalSessionHelpPresentation {
 const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'agent',
   'auth',
+  'aux',
   'bot',
   'btw',
   'config',
@@ -212,6 +213,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     command: '/auth status <provider>',
     description: 'Show local provider auth and config status',
   },
+  aux: {
+    command: '/aux test <task> <prompt> [--max-tokens <n>]',
+    description: 'Run a configured auxiliary model task on demand',
+  },
   bot: {
     command: '/bot [info|list|set <id|name>|clear]',
     description: 'Manage the chatbot for this session',
@@ -270,8 +275,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     description: 'Show current settings',
   },
   mcp: {
-    command: '/mcp [list|add|toggle|remove|reconnect] [name] [json]',
-    description: 'Manage MCP servers',
+    command:
+      '/mcp [list|add|edit|login|logout|status|toggle|remove|reconnect] [name] [json]',
+    description:
+      'Manage MCP servers (guided add/edit wizard and OAuth login in the TUI)',
   },
   model: {
     command:
@@ -417,6 +424,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'btw':
       return ['btw', ...parts.slice(1)];
+
+    case 'aux':
+      return parts.length > 1 ? ['aux', ...parts.slice(1)] : ['aux'];
 
     case 'second-opinion':
       return ['second-opinion', ...parts.slice(1)];
@@ -707,6 +717,30 @@ function buildSlashCommandCatalogDefinitions(
           name: 'question',
           description: 'The side question to answer',
           required: true,
+        },
+      ],
+    },
+    {
+      name: 'aux',
+      description: 'Run a configured auxiliary model task on demand',
+      tuiOnly: true,
+      localSurfaces: ['tui', 'web'],
+      tuiMenu: {
+        label: '/aux test <task> <prompt>',
+        insertText: '/aux test ',
+      },
+      tuiMenuEntries: [
+        {
+          id: 'aux-test',
+          label: '/aux test <task> <prompt>',
+          insertText: '/aux test ',
+          description: 'Run a configured auxiliary model task',
+        },
+        {
+          id: 'aux-list',
+          label: '/aux list',
+          insertText: '/aux list',
+          description: 'List triggerable auxiliary text tasks',
         },
       ],
     },
@@ -1645,10 +1679,11 @@ function buildSlashCommandCatalogDefinitions(
         },
         {
           id: 'secret.route.add',
-          label: '/secret route add <url-prefix> <secret-name|google-oauth>',
+          label:
+            '/secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth>',
           insertText: '/secret route add ',
           description:
-            'Auto-attach a stored secret or Google OAuth token to matching HTTP requests',
+            'Auto-attach a stored secret, Google OAuth token, or Microsoft Graph OAuth token to matching HTTP requests',
         },
       ],
       options: [
@@ -2148,6 +2183,45 @@ function buildSlashCommandCatalogDefinitions(
             },
           ],
         },
+        {
+          kind: 'subcommand',
+          name: 'login',
+          description: 'Start the OAuth login flow for an MCP server',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'MCP server name',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'logout',
+          description: 'Clear stored OAuth credentials for an MCP server',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'MCP server name',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'status',
+          description: 'Show connection status for an MCP server',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'MCP server name',
+              required: true,
+            },
+          ],
+        },
       ],
     },
     {
@@ -2284,7 +2358,8 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'sessions',
-      description: 'List chat sessions or inspect active sandbox sessions',
+      description:
+        'List chat sessions, inspect active sandbox sessions, or prune old persisted sessions',
     },
     {
       name: 'audit',
@@ -3405,7 +3480,10 @@ export function parseCanonicalSlashCommandArgs(
       if (
         subcommand === 'remove' ||
         subcommand === 'toggle' ||
-        subcommand === 'reconnect'
+        subcommand === 'reconnect' ||
+        subcommand === 'login' ||
+        subcommand === 'logout' ||
+        subcommand === 'status'
       ) {
         const name = normalizeStringOption(interaction, 'name', true);
         return name ? ['mcp', subcommand, name] : null;

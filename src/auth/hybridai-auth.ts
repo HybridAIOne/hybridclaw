@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import readline from 'node:readline/promises';
 
 import {
@@ -12,6 +11,7 @@ import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import { tryOpenUrlInBrowser } from '../utils/open-url.js';
 import { promptForSecretInput } from '../utils/secret-prompt.js';
 
 export interface HybridAIAuthStatus {
@@ -41,13 +41,35 @@ const DEFAULT_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 const BOT_LIST_PATH = '/api/v1/bot-management/bots';
 const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
 
+function isDefaultHybridAIBaseUrl(): boolean {
+  return normalizeBaseUrl(HYBRIDAI_BASE_URL) === DEFAULT_BASE_URL;
+}
+
+function resolveCurrentApiKey(): {
+  apiKey: string;
+  source: HybridAIAuthStatus['source'];
+} {
+  const envApiKey = (process.env.HYBRIDAI_API_KEY || '').trim();
+  if (envApiKey) return { apiKey: envApiKey, source: 'env' };
+
+  const localPlatformApiKey = (process.env.API_KEY || '').trim();
+  if (!isDefaultHybridAIBaseUrl() && localPlatformApiKey) {
+    return { apiKey: localPlatformApiKey, source: 'env' };
+  }
+
+  const storedApiKey = readStoredRuntimeSecret('HYBRIDAI_API_KEY') || '';
+  if (storedApiKey) {
+    return { apiKey: storedApiKey, source: 'runtime-secrets' };
+  }
+
+  const configuredApiKey = (HYBRIDAI_API_KEY || '').trim();
+  if (configuredApiKey) return { apiKey: configuredApiKey, source: 'env' };
+
+  return { apiKey: '', source: null };
+}
+
 function readCurrentApiKey(): string {
-  return (
-    process.env.HYBRIDAI_API_KEY ||
-    readStoredRuntimeSecret('HYBRIDAI_API_KEY') ||
-    HYBRIDAI_API_KEY ||
-    ''
-  ).trim();
+  return resolveCurrentApiKey().apiKey;
 }
 
 function maskToken(value: string): string {
@@ -168,32 +190,6 @@ async function validateApiKey(
   return { ok: true };
 }
 
-function getOpenCommand(url: string): { cmd: string; args: string[] } | null {
-  if (process.platform === 'darwin') return { cmd: 'open', args: [url] };
-  if (process.platform === 'win32') {
-    return { cmd: 'cmd', args: ['/c', 'start', '', url] };
-  }
-  if (process.platform === 'linux') return { cmd: 'xdg-open', args: [url] };
-  return null;
-}
-
-async function tryOpenUrl(url: string): Promise<boolean> {
-  const openCommand = getOpenCommand(url);
-  if (!openCommand) return false;
-
-  return new Promise((resolve) => {
-    const child = spawn(openCommand.cmd, openCommand.args, {
-      stdio: 'ignore',
-      detached: true,
-    });
-    child.once('error', () => resolve(false));
-    child.once('spawn', () => {
-      child.unref();
-      resolve(true);
-    });
-  });
-}
-
 async function promptYesNo(
   rl: readline.Interface,
   question: string,
@@ -244,7 +240,7 @@ async function loginWithApiKeyPrompt(options: {
       if (
         await promptYesNo(rl, 'Open the login page in your browser now?', true)
       ) {
-        const opened = await tryOpenUrl(loginUrl);
+        const opened = await tryOpenUrlInBrowser(loginUrl);
         if (!opened) {
           console.log('Could not auto-open browser. Open the link manually.');
         }
@@ -363,9 +359,7 @@ export async function loginHybridAIInteractive(options?: {
 
 export function getHybridAIAuthStatus(): HybridAIAuthStatus {
   const path = runtimeSecretsPath();
-  const envApiKey = (process.env.HYBRIDAI_API_KEY || '').trim();
-  const storedApiKey = readStoredRuntimeSecret('HYBRIDAI_API_KEY') || '';
-  const apiKey = readCurrentApiKey();
+  const { apiKey, source } = resolveCurrentApiKey();
   if (!apiKey) {
     return {
       authenticated: false,
@@ -379,12 +373,6 @@ export function getHybridAIAuthStatus(): HybridAIAuthStatus {
     authenticated: true,
     path,
     maskedApiKey: maskToken(apiKey),
-    source: envApiKey
-      ? storedApiKey && storedApiKey === envApiKey
-        ? 'runtime-secrets'
-        : 'env'
-      : storedApiKey
-        ? 'runtime-secrets'
-        : null,
+    source,
   };
 }

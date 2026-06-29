@@ -12,7 +12,7 @@ import { registerChannel } from './channels/channel-registry.js';
 import { buildLocalSessionSlashHelpEntries } from './command-registry.js';
 import {
   APP_VERSION,
-  GATEWAY_BASE_URL,
+  GATEWAY_CLIENT_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
@@ -20,6 +20,7 @@ import {
 import { createApprovalPresentation } from './gateway/approval-presentation.js';
 import { extractGatewayChatApprovalEvent } from './gateway/chat-approval.js';
 import {
+  fetchGatewayAdminMcp,
   fetchGatewayAdminSkills,
   type GatewayChatApprovalEvent,
   type GatewayChatResult,
@@ -95,6 +96,10 @@ import {
 } from './tui-history.js';
 import { TuiMultilineInputController } from './tui-input.js';
 import {
+  promptTuiMcpServerWizard,
+  runTuiMcpOAuthLogin,
+} from './tui-mcp-wizard.js';
+import {
   isGoalContinuationSource,
   normalizeGoalContinuationText,
   proactiveBadgeLabel,
@@ -129,6 +134,13 @@ import {
   wrapTuiBlock,
 } from './tui-thinking.js';
 import type { SessionShowMode } from './types/session.js';
+import {
+  getAnsiSequenceLength,
+  stripAnsi,
+  terminalCharCellWidth,
+  truncateAnsi,
+  visibleAnsiWidth,
+} from './utils/ansi.js';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -635,7 +647,7 @@ function printBanner(
       currentModel: modelInfo.current,
       defaultModel: modelInfo.defaultModel,
       sandboxMode,
-      gatewayBaseUrl: GATEWAY_BASE_URL,
+      gatewayBaseUrl: GATEWAY_CLIENT_BASE_URL,
       hybridAIBaseUrl: HYBRIDAI_BASE_URL,
       chatbotId: HYBRIDAI_CHATBOT_ID || 'unset',
       version: APP_VERSION,
@@ -856,59 +868,6 @@ interface TuiMarkdownTable {
   endLine: number;
 }
 
-function stripAnsiTui(value: string): string {
-  let output = '';
-  for (let index = 0; index < value.length; ) {
-    if (value.charCodeAt(index) === 27 && value[index + 1] === '[') {
-      index += 2;
-      while (index < value.length) {
-        const code = value.charCodeAt(index);
-        index += 1;
-        if (code >= 64 && code <= 126) break;
-      }
-      continue;
-    }
-    output += value[index] || '';
-    index += 1;
-  }
-  return output;
-}
-
-function tuiCharacterWidth(symbol: string): number {
-  const code = symbol.codePointAt(0);
-  if (code == null) return 0;
-  if (code === 0) return 0;
-  if (code < 32 || (code >= 0x7f && code < 0xa0)) return 0;
-  if (
-    (code >= 0x300 && code <= 0x36f) ||
-    (code >= 0x200b && code <= 0x200f) ||
-    code === 0x200d ||
-    (code >= 0xfe00 && code <= 0xfe0f) ||
-    (code >= 0xe0100 && code <= 0xe01ef)
-  ) {
-    return 0;
-  }
-  if (
-    code >= 0x1100 &&
-    (code <= 0x115f ||
-      code === 0x2329 ||
-      code === 0x232a ||
-      (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f) ||
-      (code >= 0xac00 && code <= 0xd7a3) ||
-      (code >= 0xf900 && code <= 0xfaff) ||
-      (code >= 0xfe10 && code <= 0xfe19) ||
-      (code >= 0xfe30 && code <= 0xfe6f) ||
-      (code >= 0xff00 && code <= 0xff60) ||
-      (code >= 0xffe0 && code <= 0xffe6) ||
-      (code >= 0x2600 && code <= 0x27bf) ||
-      (code >= 0x1f300 && code <= 0x1faff) ||
-      (code >= 0x20000 && code <= 0x3fffd))
-  ) {
-    return 2;
-  }
-  return 1;
-}
-
 function nextTuiSymbol(
   source: string,
   index: number,
@@ -923,24 +882,7 @@ function nextTuiSymbol(
 }
 
 export function visibleTuiLength(value: string): number {
-  const source = String(value || '');
-  let width = 0;
-  for (let index = 0; index < source.length; ) {
-    if (source.charCodeAt(index) === 27 && source[index + 1] === '[') {
-      index += 2;
-      while (index < source.length) {
-        const code = source.charCodeAt(index);
-        index += 1;
-        if (code >= 64 && code <= 126) break;
-      }
-      continue;
-    }
-
-    const next = nextTuiSymbol(source, index);
-    width += tuiCharacterWidth(next.symbol);
-    index = next.nextIndex;
-  }
-  return width;
+  return visibleAnsiWidth(value);
 }
 
 function padAnsiTuiEnd(value: string, width: number): string {
@@ -955,15 +897,13 @@ function tokenizeAnsiTui(value: string): TuiAnsiToken[] {
   const source = String(value || '');
   const tokens: TuiAnsiToken[] = [];
   for (let index = 0; index < source.length; ) {
-    if (source.charCodeAt(index) === 27 && source[index + 1] === '[') {
-      const start = index;
-      index += 2;
-      while (index < source.length) {
-        const code = source.charCodeAt(index);
-        index += 1;
-        if (code >= 64 && code <= 126) break;
-      }
-      tokens.push({ kind: 'ansi', value: source.slice(start, index) });
+    const ansiSequenceLength = getAnsiSequenceLength(source, index);
+    if (ansiSequenceLength > 0) {
+      tokens.push({
+        kind: 'ansi',
+        value: source.slice(index, index + ansiSequenceLength),
+      });
+      index += ansiSequenceLength;
       continue;
     }
     const next = nextTuiSymbol(source, index);
@@ -1044,7 +984,7 @@ function sliceAnsiTuiVisible(
       continue;
     }
 
-    const symbolWidth = tuiCharacterWidth(token.value);
+    const symbolWidth = terminalCharCellWidth(token.value);
     const nextVisibleIndex = visibleIndex + symbolWidth;
     const includeToken =
       symbolWidth === 0
@@ -1075,36 +1015,11 @@ function sliceAnsiTuiVisible(
 }
 
 function truncateAnsiTuiEnd(value: string, width: number): string {
-  if (width <= 0) return '';
-  const source = String(value || '');
-  if (visibleTuiLength(source) <= width) return source;
-  if (width === 1) return '…';
-
-  let output = '';
-  let visibleCount = 0;
-  for (let index = 0; index < source.length; ) {
-    if (source.charCodeAt(index) === 27 && source[index + 1] === '[') {
-      const start = index;
-      index += 2;
-      while (index < source.length) {
-        const code = source.charCodeAt(index);
-        index += 1;
-        if (code >= 64 && code <= 126) break;
-      }
-      output += source.slice(start, index);
-      continue;
-    }
-    const next = nextTuiSymbol(source, index);
-    const symbolWidth = tuiCharacterWidth(next.symbol);
-    if (symbolWidth > 0 && visibleCount + symbolWidth + 1 > width) {
-      output += '…';
-      return output.endsWith(RESET) ? output : `${output}${RESET}`;
-    }
-    output += next.symbol;
-    visibleCount += symbolWidth;
-    index = next.nextIndex;
-  }
-  return output;
+  return truncateAnsi(value, width, {
+    ellipsis: '…',
+    reset: RESET,
+    resetMode: 'always',
+  });
 }
 
 function stripInlineMarkdownForTui(value: string): string {
@@ -1229,7 +1144,7 @@ function wrapAnsiTuiVisibleLine(value: string, width: number): string[] {
 
   while (visibleTuiLength(remaining) > safeWidth) {
     let takeWidth = safeWidth;
-    const visiblePrefix = stripAnsiTui(
+    const visiblePrefix = stripAnsi(
       sliceAnsiTuiVisible(remaining, 0, safeWidth),
     );
     const lastSpace = visiblePrefix.search(/\s+\S*$/u);
@@ -1374,7 +1289,7 @@ function looksLikeTuiTableSection(rows: readonly string[]): boolean {
   if (rows.length < 2) return false;
   const headerCells = rows[0]?.split(/ {2,}/).filter(Boolean) || [];
   if (headerCells.length < 3) return false;
-  return /^[- ]+$/u.test(stripAnsiTui(rows[1] || ''));
+  return /^[- ]+$/u.test(stripAnsi(rows[1] || ''));
 }
 
 function reflowTuiTableSection(
@@ -1620,6 +1535,21 @@ export function formatTuiTitledCommandBlock(
   return [...lines, '', ...wrapTuiBlock(text, width, '  ').split('\n')];
 }
 
+export function formatTuiProseCommandBlock(
+  title: string,
+  text: string,
+  width: number,
+): string[] {
+  const proseWidth = Math.max(24, Math.floor(width || 120));
+  const lines = wrapTuiBlock(title, proseWidth, '  ').split('\n');
+  if (!text.trim()) return lines;
+  return [
+    ...lines,
+    '',
+    ...formatTuiMarkdownOutput(text, proseWidth, '  ').split('\n'),
+  ];
+}
+
 export function isMutedSkillListLine(line: string): boolean {
   return /\[disabled\]/i.test(line) || isSkillInstallHintLine(line);
 }
@@ -1711,6 +1641,23 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
     );
     console.log();
     console.log(wrapTuiBlock(result.text, terminalColumns(), '  '));
+    console.log();
+    return;
+  }
+  if (result.title === 'Second Opinion') {
+    clearTuiSlashMenu();
+    console.log();
+    for (const line of formatTuiProseCommandBlock(
+      result.title,
+      result.text,
+      terminalColumns(),
+    )) {
+      if (!line) {
+        console.log();
+        continue;
+      }
+      console.log(`${GOLD}${line}${RESET}`);
+    }
     console.log();
     return;
   }
@@ -2802,6 +2749,52 @@ async function handleSlashCommand(
       await promptSkillConfigSelection(rl);
       return true;
     }
+    case 'mcp': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (sub === 'add' && parts.length <= 3) {
+        await promptTuiMcpServerWizard({
+          rl,
+          presetName: (parts[2] || '').trim(),
+        });
+        return true;
+      }
+      if (sub === 'edit') {
+        const name = (parts[2] || '').trim();
+        if (!name) {
+          printInfo('Usage: /mcp edit <name>');
+          return true;
+        }
+        let existing = null;
+        try {
+          const response = await fetchGatewayAdminMcp();
+          existing =
+            response.servers.find((server) => server.name === name) || null;
+        } catch (error) {
+          printInfo(
+            `Failed to load MCP servers: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return true;
+        }
+        if (!existing) {
+          printInfo(
+            `MCP server "${name}" was not found. Run /mcp add to create it.`,
+          );
+          return true;
+        }
+        await promptTuiMcpServerWizard({ rl, existing });
+        return true;
+      }
+      if (sub === 'login') {
+        const name = (parts[2] || '').trim();
+        if (!name) {
+          printInfo('Usage: /mcp login <name>');
+          return true;
+        }
+        await runTuiMcpOAuthLogin({ name });
+        return true;
+      }
+      break;
+    }
     case 'info':
       await runGatewayCommand(['bot', 'info'], rl);
       await runGatewayCommand(['model', 'info'], rl);
@@ -3238,7 +3231,7 @@ function clearDelegateStatusBlock(): void {
 }
 
 function currentPromptRows(): number {
-  return countTerminalRows(stripAnsiTui(buildPromptText()), terminalColumns());
+  return countTerminalRows(stripAnsi(buildPromptText()), terminalColumns());
 }
 
 function clearTerminalRows(rows: number, moveUpRows: number): void {

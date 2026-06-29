@@ -1,5 +1,5 @@
 {
-  "version": 29,
+  "version": 32,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -14,6 +14,30 @@
       "provider": "manual",
       "health_check_interval_ms": 30000
     }
+  },
+  "ui": {
+    "navigation": [
+      {
+        "href": "/chat",
+        "label": "Chat"
+      },
+      {
+        "href": "/agents",
+        "label": "Agents"
+      },
+      {
+        "href": "/admin",
+        "label": "Admin"
+      },
+      {
+        "href": "https://github.com/HybridAIOne/hybridclaw",
+        "label": "GitHub"
+      },
+      {
+        "href": "/docs",
+        "label": "Docs"
+      }
+    ]
   },
   "browser": {
     "provider": "local",
@@ -304,11 +328,13 @@
     "folders": ["INBOX"],
     "allowFrom": [],
     "textChunkLimit": 50000,
-    "mediaMaxMb": 20
+    "mediaMaxMb": 20,
+    "accounts": []
   },
   "hybridai": {
     "baseUrl": "https://hybridai.one",
     "defaultModel": "gpt-4.1-mini",
+    "onboardingModel": "",
     "defaultChatbotId": "",
     "maxTokens": 4096,
     "enableRag": true,
@@ -404,6 +430,7 @@
         "apiKey": ""
       }
     },
+    "endpoints": [],
     "discovery": {
       "enabled": true,
       "intervalMs": 3600000,
@@ -512,6 +539,12 @@
       "command": "npx",
       "args": ["-y", "@playwright/mcp@latest"],
       "enabled": false
+    },
+    "linear": {
+      "transport": "http",
+      "url": "https://mcp.linear.app/mcp",
+      "auth": "oauth",
+      "enabled": false
     }
   },
   "web": {
@@ -580,7 +613,9 @@
     "gatewayBaseUrl": "http://127.0.0.1:9090",
     "gatewayApiToken": "",
     "dbPath": "~/.hybridclaw/data/hybridclaw.db",
-    "logLevel": "info"
+    "logLevel": "info",
+    "logRequests": false,
+    "debugModelResponses": false
   },
   "observability": {
     "enabled": true,

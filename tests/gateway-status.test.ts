@@ -709,16 +709,23 @@ test('getGatewayAdminModels tags each row with its providerHealth key', async ()
     const actual = await vi.importActual<
       typeof import('../src/providers/model-catalog.js')
     >('../src/providers/model-catalog.js');
+    const modelList = [
+      'gpt-4.1-mini', // bare slug = HybridAI passthrough
+      'openai-codex/gpt-5', // openai-codex/ prefix maps to providerHealth key 'codex'
+      'openrouter/anthropic/claude-sonnet-4',
+      'gemini/gemini-2.5-pro',
+      'ollama/llama-3.1',
+      'haigpu2/google/gemma-4-e4b-it',
+    ];
     return {
       ...actual,
       refreshAvailableModelCatalogs: vi.fn(async () => {}),
-      getAvailableModelList: vi.fn(() => [
-        'gpt-4.1-mini', // bare slug = HybridAI passthrough
-        'openai-codex/gpt-5', // openai-codex/ prefix maps to providerHealth key 'codex'
-        'openrouter/anthropic/claude-sonnet-4',
-        'gemini/gemini-2.5-pro',
-        'ollama/llama-3.1',
-      ]),
+      getAvailableModelList: vi.fn((provider?: string) => {
+        if (provider === 'ollama') return ['ollama/llama-3.1'];
+        if (provider === 'vllm') return ['haigpu2/google/gemma-4-e4b-it'];
+        if (provider === 'lmstudio' || provider === 'llamacpp') return [];
+        return modelList;
+      }),
     };
   });
 
@@ -737,6 +744,7 @@ test('getGatewayAdminModels tags each row with its providerHealth key', async ()
   expect(byId['openrouter/anthropic/claude-sonnet-4']).toBe('openrouter');
   expect(byId['gemini/gemini-2.5-pro']).toBe('gemini');
   expect(byId['ollama/llama-3.1']).toBe('ollama');
+  expect(byId['haigpu2/google/gemma-4-e4b-it']).toBe('vllm');
 });
 
 test('getGatewayAdminModels treats hybridai-prefixed models as HybridAI without warning', async () => {
@@ -865,6 +873,7 @@ test('getGatewayStatus includes the current WhatsApp pairing QR text', async () 
     getWhatsAppPairingState: vi.fn(() => ({
       pairingQrText: '▄▄\n██',
       updatedAt: '2026-04-08T10:00:00.000Z',
+      error: null,
     })),
   }));
 
@@ -881,6 +890,7 @@ test('getGatewayStatus includes the current WhatsApp pairing QR text', async () 
     jid: null,
     pairingQrText: '▄▄\n██',
     pairingUpdatedAt: '2026-04-08T10:00:00.000Z',
+    pairingError: null,
   });
 });
 
@@ -1022,6 +1032,68 @@ test('status command includes the current session agent', async () => {
   expect(result.text).toContain(
     `CWD: ${path.resolve(agentWorkspaceDir('research'))}`,
   );
+});
+
+test('status command reports proxy mode for HybridAI proxy agents', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({
+    id: 'proxy-support',
+    model: 'openai-codex/gpt-5.3-codex',
+    proxy: {
+      kind: 'hybridai',
+      baseUrl: 'https://hybridai.one',
+      chatbotId: '051df245-3f6e-459e-a890-c7e28e094a71',
+      apiKey: { source: 'store', id: 'HYBRIDAI_API_KEY' },
+      conversationScope: 'user',
+    },
+  });
+
+  await handleGatewayCommand({
+    sessionId: 'session-status-proxy-agent',
+    guildId: null,
+    channelId: 'channel-status-proxy-agent',
+    args: ['agent', 'switch', 'proxy-support'],
+  });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-proxy-agent',
+    guildId: null,
+    channelId: 'channel-status-proxy-agent',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Status');
+  expect(result.text).toContain('Mode: HybridAI proxy');
+  expect(result.text).toContain('Agent: proxy-support');
+  expect(result.text).toContain('Upstream: https://hybridai.one');
+  expect(result.text).toContain(
+    'Chatbot: 051df245-3f6e-459e-a890-c7e28e094a71',
+  );
+  expect(result.text).toContain('Conversation scope: user');
+  expect(result.text).not.toContain('Model:');
+  expect(result.text).not.toContain('Tokens:');
+  expect(result.text).not.toContain('Cache:');
+  expect(result.text).not.toContain('Context:');
+  expect(result.text).not.toContain('CWD:');
+  expect(result.text).not.toContain('Runtime:');
+  expect(result.text).not.toContain('Sandbox:');
+  expect(result.text).not.toContain('RAG:');
+  expect(result.text).not.toContain('Ralph:');
 });
 
 test('status command labels Codex app-server turn runtime separately from sandbox', async () => {
@@ -1225,6 +1297,220 @@ test('sessions command includes abbreviated first and last message snippets', as
   expect(result.text).toContain('"First prompt that should appear as an..."');
   expect(result.text).toContain('"Final assistant reply that should als..."');
   expect(result.text).toContain('" ... "');
+});
+
+test('sessions prune defaults to dry-run and keeps matched sessions', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-16T12:00:00.000Z'));
+  vi.resetModules();
+
+  const {
+    getOrCreateSession,
+    getSessionById,
+    initDatabase,
+    storeMessage,
+    withMemoryDatabase,
+  } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const oldSession = getOrCreateSession(
+    'session-prune-old-dry-run',
+    null,
+    'web',
+    'main',
+  );
+  storeMessage(
+    oldSession.id,
+    'user_a',
+    'user_a',
+    'user',
+    'Old message retained by dry run.',
+  );
+  withMemoryDatabase((db) => {
+    db.prepare('UPDATE sessions SET last_active = ? WHERE id = ?').run(
+      '2026-01-01T00:00:00.000Z',
+      oldSession.id,
+    );
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-prune-command-dry-run',
+    guildId: null,
+    channelId: 'web',
+    args: ['sessions', 'prune', '--older-than', '90d'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Sessions Prune Dry Run');
+  expect(result.text).toContain('Matched: 1 session');
+  expect(result.text).toContain('No sessions were deleted.');
+  expect(result.text).toContain('session-prune-old-dry-run');
+  expect(getSessionById(oldSession.id)).toBeDefined();
+});
+
+test('sessions prune confirm deletes old sessions and skips protected sessions', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-16T12:00:00.000Z'));
+  vi.resetModules();
+  vi.doMock('../src/agent/executor.js', async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import('../src/agent/executor.js')>();
+    return {
+      ...actual,
+      getActiveExecutorSessionIds: vi.fn(() => ['session-prune-active']),
+    };
+  });
+
+  const {
+    getOrCreateSession,
+    getRecentStructuredAuditForSession,
+    getSessionById,
+    initDatabase,
+    storeMessage,
+    withMemoryDatabase,
+  } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const deletedSession = getOrCreateSession(
+    'session-prune-delete',
+    null,
+    'web',
+    'main',
+  );
+  const recentSession = getOrCreateSession(
+    'session-prune-recent',
+    null,
+    'web',
+    'main',
+  );
+  const fullAutoSession = getOrCreateSession(
+    'session-prune-fullauto',
+    null,
+    'web',
+    'main',
+  );
+  const schedulerSession = getOrCreateSession(
+    'scheduler:session-prune',
+    null,
+    'scheduler',
+    'main',
+  );
+  const activeSession = getOrCreateSession(
+    'session-prune-active',
+    null,
+    'web',
+    'main',
+  );
+
+  for (const targetSession of [
+    deletedSession,
+    recentSession,
+    fullAutoSession,
+    schedulerSession,
+    activeSession,
+  ]) {
+    storeMessage(
+      targetSession.id,
+      'user_a',
+      'user_a',
+      'user',
+      `Message for ${targetSession.id}`,
+    );
+  }
+
+  withMemoryDatabase((db) => {
+    const updateLastActive = db.prepare(
+      'UPDATE sessions SET last_active = ? WHERE id = ?',
+    );
+    for (const targetSession of [
+      deletedSession,
+      fullAutoSession,
+      schedulerSession,
+      activeSession,
+    ]) {
+      updateLastActive.run('2026-01-01T00:00:00.000Z', targetSession.id);
+    }
+    updateLastActive.run('2026-06-01T00:00:00.000Z', recentSession.id);
+    db.prepare('UPDATE sessions SET full_auto_enabled = 1 WHERE id = ?').run(
+      fullAutoSession.id,
+    );
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-prune-command-confirm',
+    guildId: null,
+    channelId: 'web',
+    args: ['sessions', 'prune', '--older-than=90d', '--confirm'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Pruned Sessions');
+  expect(result.text).toContain('Matched: 1 session');
+  expect(result.text).toContain('Protected skipped: 3');
+  expect(result.text).toContain('Deleted: 1 session');
+  const auditEvents = getRecentStructuredAuditForSession(
+    'session-prune-command-confirm',
+    10,
+  );
+  expect(auditEvents[0]?.event_type).toBe('session.prune');
+  expect(JSON.parse(auditEvents[0]?.payload || '{}')).toMatchObject({
+    type: 'session.prune',
+    source: 'command',
+    olderThan: '90d',
+    matchedCount: 1,
+    deletedCount: 1,
+    protectedSkipped: 3,
+    invalidTimestampSkipped: 0,
+    deletedRows: {
+      messages: 1,
+    },
+  });
+  expect(getSessionById(deletedSession.id)).toBeUndefined();
+  expect(getSessionById(recentSession.id)).toBeDefined();
+  expect(getSessionById(fullAutoSession.id)).toBeDefined();
+  expect(getSessionById(schedulerSession.id)).toBeDefined();
+  expect(getSessionById(activeSession.id)).toBeDefined();
+});
+
+test('sessions prune rejects retention windows shorter than 24h', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-prune-short-window',
+    guildId: null,
+    channelId: 'web',
+    args: ['sessions', 'prune', '--older-than', '1h', '--confirm'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('must be at least 24h');
 });
 
 test('sessions active lists active sandbox sessions and clear-active stops them', async () => {
@@ -1463,6 +1749,17 @@ test('secret commands manage encrypted secrets and HTTP auth routes', async () =
   });
   expect(setResult.kind).toBe('plain');
   expect(readStoredRuntimeSecret('NEW_HAI_API_KEY')).toBe('super-secret-value');
+
+  const quotedSetResult = await handleGatewayCommand({
+    sessionId: 'session-secret-set-quoted',
+    guildId: null,
+    channelId: 'tui',
+    args: ['secret', 'set', 'QUOTED_SECRET', '"wrapped secret value"'],
+  });
+  expect(quotedSetResult.kind).toBe('plain');
+  expect(readStoredRuntimeSecret('QUOTED_SECRET')).toBe(
+    'wrapped secret value',
+  );
 
   const routeResult = await handleGatewayCommand({
     sessionId: 'session-secret-route',
@@ -1708,6 +2005,86 @@ test('secret route add rejects Google OAuth runtime provider routes outside goog
   expect(storedConfig.tools.httpRequest.authRules).toEqual([]);
 });
 
+test('secret route add accepts Microsoft OAuth runtime provider routes', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  await handleGatewayCommand({
+    sessionId: 'session-secret-route-microsoft-oauth',
+    guildId: null,
+    channelId: 'tui',
+    args: [
+      'secret',
+      'route',
+      'add',
+      'https://graph.microsoft.com/v1.0',
+      'microsoft-oauth',
+    ],
+  });
+
+  const storedConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as RuntimeConfig;
+  expect(storedConfig.tools.httpRequest.authRules).toEqual([
+    {
+      urlPrefix: 'https://graph.microsoft.com/v1.0/',
+      header: 'Authorization',
+      prefix: 'Bearer',
+      secret: {
+        source: 'microsoft-oauth',
+      },
+    },
+  ]);
+});
+
+test('secret route add rejects Microsoft OAuth runtime provider routes outside Graph', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-secret-route-microsoft-oauth-invalid',
+    guildId: null,
+    channelId: 'tui',
+    args: [
+      'secret',
+      'route',
+      'add',
+      'https://api.example.com/v1',
+      'graph-oauth',
+    ],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Invalid Microsoft OAuth Route');
+  expect(result.text).toContain('graph.microsoft.com');
+
+  const storedConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as RuntimeConfig;
+  expect(storedConfig.tools.httpRequest.authRules).toEqual([]);
+});
+
 test('config shows the local runtime config', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -1851,6 +2228,7 @@ test('config set updates an existing dotted runtime config key', async () => {
     config.hybridai.maxTokens = 4096;
   });
 
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
   const { initDatabase } = await import('../src/memory/db.ts');
   const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
   const { handleGatewayCommand } = await import(
@@ -1870,10 +2248,12 @@ test('config set updates an existing dotted runtime config key', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Runtime Config Updated');
+  expect(result.text).toContain(`Path: ${configPath}`);
   expect(result.text).toContain('Key: hybridai.maxTokens');
-  expect(result.text).toContain('"maxTokens": 8192');
   expect(result.text).toContain('Check:');
   expect(result.text).toContain('✓ Config');
+  expect(result.text).not.toContain('Config:');
+  expect(result.text).not.toContain('"maxTokens": 8192');
   expect(getRuntimeConfig().hybridai.maxTokens).toBe(8192);
 });
 
@@ -3722,6 +4102,22 @@ test('model info shows global, agent, and session scopes', async () => {
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
+    config.local.endpoints = [
+      {
+        name: 'haigpu2',
+        type: 'vllm',
+        enabled: true,
+        baseUrl: 'http://haigpu2:8000/v1',
+        apiKey: '',
+      },
+    ];
+    config.auxiliaryModels.compression.provider = 'vllm';
+    config.auxiliaryModels.compression.model = 'haigpu2/google/gemma-4-e4b-it';
+    config.auxiliaryModels.second_opinion = {
+      provider: 'openai-codex',
+      model: 'openai-codex/gpt-5.5',
+      maxTokens: 1200,
+    };
   });
   vi.resetModules();
 
@@ -3767,6 +4163,13 @@ test('model info shows global, agent, and session scopes', async () => {
   expect(result.text).toContain('Global model: hybridai/gpt-5');
   expect(result.text).toContain('Agent model: hybridai/gpt-5-mini');
   expect(result.text).toContain('Session model: hybridai/gpt-5-nano');
+  expect(result.text).toContain('Aux models:\n');
+  expect(result.text).toContain(
+    '- compression: haigpu2/google/gemma-4-e4b-it',
+  );
+  expect(result.text).toContain(
+    '- second_opinion: openai-codex/gpt-5.5 (max 1.2k)',
+  );
   expect(result.text).toContain('Known metadata: yes');
   expect(result.text).toContain('Pricing: dynamic pricing unavailable');
   expect(result.text).toContain(

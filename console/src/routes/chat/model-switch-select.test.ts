@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { createElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatModel } from '../../api/types';
@@ -56,6 +56,31 @@ describe('parseModel', () => {
     expect(parsed.displayName).toBe('Claude Haiku 4.5');
   });
 
+  it('groups named vLLM endpoint ids under the vLLM rail provider', () => {
+    const parsed = parseModel(
+      model({
+        id: 'haigpu2/google/gemma-4-e4b-it',
+        provider: 'vllm',
+        backend: 'vllm',
+      }),
+    );
+    expect(parsed.provider).toBe('vLLM');
+    expect(parsed.groupLabel).toBe('vLLM · Google');
+    expect(parsed.routeLabel).toBe('haigpu2');
+    expect(parsed.displayName).toBe('Gemma 4 E4b It');
+  });
+
+  it('keeps the default vLLM backend route visible', () => {
+    const parsed = parseModel(
+      model({
+        id: 'vllm/Qwen/Qwen3.6-27B-FP8',
+        provider: 'vllm',
+        backend: 'vllm',
+      }),
+    );
+    expect(parsed.routeLabel).toBe('vLLM');
+  });
+
   it('strips Anthropic date-stamp suffixes from displayName', () => {
     const parsed = parseModel(
       model({
@@ -83,5 +108,41 @@ describe('parseModel', () => {
     const trigger = screen.getByRole('combobox', { name: 'Switch model' });
     expect(trigger.textContent).toContain('Grok 4.20 0309 Non Reasoning');
     expect(trigger.textContent).not.toContain('Qwen3.6 27b Fp8');
+  });
+
+  it('disambiguates duplicate local model names by route in the dropdown', () => {
+    render(
+      createElement(ModelSwitchSelect, {
+        models: [
+          model({
+            id: 'vllm/Qwen/Qwen3.6-27B-FP8',
+            provider: 'vllm',
+            backend: 'vllm',
+            contextWindow: 131_072,
+          }),
+          model({
+            id: 'haigpu1/Qwen/Qwen3.6-27B-FP8',
+            provider: 'vllm',
+            backend: 'vllm',
+            contextWindow: 131_072,
+          }),
+        ],
+        selectedModelId: 'vllm/Qwen/Qwen3.6-27B-FP8',
+        onSwitch: vi.fn(),
+      }),
+    );
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Switch model' }));
+
+    const defaultRoute = document.querySelector<HTMLElement>(
+      '[data-value="vllm/Qwen/Qwen3.6-27B-FP8"]',
+    );
+    const namedRoute = document.querySelector<HTMLElement>(
+      '[data-value="haigpu1/Qwen/Qwen3.6-27B-FP8"]',
+    );
+    expect(defaultRoute?.textContent).toContain('vLLM');
+    expect(defaultRoute?.getAttribute('aria-label')).toContain('vLLM');
+    expect(namedRoute?.textContent).toContain('haigpu1');
+    expect(namedRoute?.getAttribute('aria-label')).toContain('haigpu1');
   });
 });

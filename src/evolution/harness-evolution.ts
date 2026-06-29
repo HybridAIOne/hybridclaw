@@ -4,6 +4,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
 import { redactSecrets } from '../security/redact.js';
+import {
+  type AgentRiskReferences,
+  assertHarnessRiskCoverage,
+  calculateHarnessRiskCoverage,
+  emptyRiskReferences,
+  type HarnessRiskCoverage,
+  type HarnessRiskCoverageRequirements,
+  parseAgentRiskReferences,
+  parseHarnessRiskCoverageRequirements,
+} from './harness-risk-taxonomy.js';
 
 export const HARNESS_EVOLUTION_SCHEMA_VERSION = 1;
 export const DEFAULT_EVOLUTION_ROUNDS = 10;
@@ -164,6 +174,7 @@ export interface EvolutionEvalTask {
   expected?: string;
   command?: string;
   timeoutMs?: number;
+  riskReferences: AgentRiskReferences;
 }
 
 export interface EvolutionEvalSuite {
@@ -173,6 +184,8 @@ export interface EvolutionEvalSuite {
   tasks: EvolutionEvalTask[];
   costBudgetUsd?: number;
   maxTokens?: number;
+  riskCoverageRequirements: HarnessRiskCoverageRequirements;
+  riskCoverage: HarnessRiskCoverage;
 }
 
 export interface EvolutionTaskOutcome {
@@ -528,14 +541,25 @@ export function loadEvolutionEvalSuite(suitePath: string): EvolutionEvalSuite {
       'Eval suite must declare a non-empty tasks or scenarios array.',
     );
   }
+  const tasks = rawTasks.map((task, index) => parseEvalTask(task, index));
+  const riskCoverageRequirements = parseHarnessRiskCoverageRequirements(
+    record.riskCoverage,
+  );
+  const riskCoverage = calculateHarnessRiskCoverage(
+    tasks,
+    riskCoverageRequirements,
+  );
+  assertHarnessRiskCoverage(riskCoverage);
 
   return {
     id: normalizeId(readString(record.id) || path.basename(absolutePath)),
     name: readString(record.name) || path.basename(absolutePath),
     sourcePath: absolutePath,
-    tasks: rawTasks.map((task, index) => parseEvalTask(task, index)),
+    tasks,
     costBudgetUsd: readNumber(record.costBudgetUsd),
     maxTokens: readNumber(record.maxTokens),
+    riskCoverageRequirements,
+    riskCoverage,
   };
 }
 
@@ -568,7 +592,27 @@ export function readHarnessEvolutionSummary(
   }
   return {
     ...parsed,
+    suite: withRiskCoverage(parsed.suite),
     summaryPath: absolutePath,
+  };
+}
+
+function withRiskCoverage(suite: EvolutionEvalSuite): EvolutionEvalSuite {
+  const tasks = suite.tasks.map((task) => ({
+    ...task,
+    riskReferences: task.riskReferences || emptyRiskReferences(),
+  }));
+  const riskCoverageRequirements =
+    suite.riskCoverageRequirements ||
+    parseHarnessRiskCoverageRequirements(undefined);
+  const riskCoverage =
+    suite.riskCoverage ||
+    calculateHarnessRiskCoverage(tasks, riskCoverageRequirements);
+  return {
+    ...suite,
+    tasks,
+    riskCoverageRequirements,
+    riskCoverage,
   };
 }
 
@@ -1122,10 +1166,20 @@ export function renderEvolutionChart(result: EvolutionRunResult): string {
       `Cost gate: ok (${formatNumber(result.costGate.totalCostUsd)}/${formatNumber(result.costGate.budgetUsd)} USD)`,
     );
   }
+  lines.push(formatRiskCoverage(result.suite.riskCoverage));
   lines.push(
     `Seed delta: ${result.seedDelta.mode === 'fresh_seed' ? 'fresh seed' : 'in-place'} ${result.seedDelta.changedSurfaceCount}/${HARNESS_SURFACES.length} surfaces changed (${result.seedDelta.fileCount} files)`,
   );
   return lines.join('\n');
+}
+
+function formatRiskCoverage(coverage: HarnessRiskCoverage): string {
+  const groups = [
+    `NIST RMF ${coverage.nistAiRmf.coveredCount}/${coverage.nistAiRmf.totalCount}`,
+    `NIST GAI ${coverage.nistGaiProfile.coveredCount}/${coverage.nistGaiProfile.totalCount}`,
+    `OWASP LLM ${coverage.owaspLlmTop10.coveredCount}/${coverage.owaspLlmTop10.totalCount}`,
+  ];
+  return `Risk coverage: ${groups.join('; ')}`;
 }
 
 function normalizeRelativePath(relativePath: string): string {
@@ -1291,6 +1345,7 @@ function parseEvalTask(task: unknown, index: number): EvolutionEvalTask {
     expected: readString(record.expected),
     command: readString(record.command),
     timeoutMs: readNumber(record.timeoutMs),
+    riskReferences: parseAgentRiskReferences(record),
   };
 }
 

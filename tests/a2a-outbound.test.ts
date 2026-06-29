@@ -140,7 +140,11 @@ describe('A2A outbound adapter', () => {
     });
     expect(rpc.id).toBeUndefined();
     expect(decodeA2AJsonRpcRequest(rpc)).toEqual(
-      sampleA2AEnvelope('msg-a2a-1'),
+      expect.objectContaining({
+        ...sampleA2AEnvelope('msg-a2a-1'),
+        sender_agent_id: expect.stringMatching(/^main@local@inst-/),
+        sender_instance_id: expect.stringMatching(/^inst-/),
+      }),
     );
     const keyPair = a2a.getOrCreateA2ADelegationTokenKeyPair();
     const agentCardToken = requests[0]?.authorization.replace(/^Bearer /, '');
@@ -717,6 +721,42 @@ describe('A2A outbound adapter', () => {
         method: 'POST',
       },
     ]);
+  });
+
+  test('fails unresolved queued messages fast when canonical peer trust was revoked', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+    const trust = await import('../src/a2a/trust-ledger.ts');
+
+    initDatabase({ quiet: true });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter());
+    trust.upsertA2ATrustedPublicKeyPeer({
+      peerId: 'peer-instance',
+      agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      deliveryUrl: 'https://peer.example.com/a2a',
+      publicKeyJwk: publicKeyJwk(),
+    });
+    trust.revokeA2ATrustedPublicKeyPeer('peer-instance');
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-revoked-canonical'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        canonicalId: 'remote@team@peer-instance',
+      },
+      transportRegistry: registry,
+    });
+
+    await expect(a2a.processA2AOutbox()).resolves.toMatchObject({
+      processed: 1,
+      failed: 1,
+    });
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      status: 'failed',
+      lastError: expect.stringContaining('peer-untrusted'),
+    });
   });
 
   test('records resolved canonical peer destinations on retry audits', async () => {

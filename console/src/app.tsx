@@ -1,8 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from './auth';
+import { HybridClaw } from './components/icons';
 import { LoginScreen } from './components/login-screen';
+import { resolveBrowserTitle } from './lib/browser-title';
 import { router } from './router';
 
 export function App() {
@@ -18,16 +20,28 @@ export function App() {
       }),
   );
 
+  useEffect(() => {
+    document.title = resolveBrowserTitle(window.location.pathname);
+  }, []);
+
   if (auth.status === 'checking') {
     return (
-      <div className="login-shell">
-        <div className="login-card">
-          <p className="eyebrow">HybridClaw Admin</p>
-          <h1>Connecting.</h1>
-          <p className="supporting-text">
-            Checking whether this instance is localhost-only or protected by
-            <code> WEB_API_TOKEN</code>.
-          </p>
+      <div className="loading-shell">
+        <div
+          aria-label="Loading HybridClaw"
+          aria-live="polite"
+          className="loading-panel"
+          role="status"
+        >
+          <div className="loading-mark-wrap">
+            <HybridClaw className="loading-mark" />
+          </div>
+          <div className="loading-copy">
+            <h1>Loading HybridClaw ...</h1>
+          </div>
+          <div className="loading-progress" aria-hidden="true">
+            <span />
+          </div>
         </div>
       </div>
     );

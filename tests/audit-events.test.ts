@@ -400,6 +400,7 @@ test('weekly agent anomaly rollups count flagged and confirmed-normal tool check
       (rollup) => rollup.agent_id === 'lena',
     ),
   ).toEqual({
+    actor: { type: 'agent', id: 'lena' },
     agent_id: 'lena',
     flagged: 1,
     confirmed_normal: 1,
@@ -470,6 +471,7 @@ test('weekly agent anomaly rollups scan the full UTC week without row cap', asyn
       (rollup) => rollup.agent_id === 'lena',
     ),
   ).toEqual({
+    actor: { type: 'agent', id: 'lena' },
     agent_id: 'lena',
     flagged: 1,
     confirmed_normal: 1,

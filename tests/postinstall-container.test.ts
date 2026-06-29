@@ -76,6 +76,29 @@ test('skips packaged installs when container dependencies are already present', 
   });
 });
 
+test('a dependency only in the outer package node_modules still counts as missing', () => {
+  // Regression guard for the require.resolve probe, which walked up the
+  // node_modules hierarchy: a dep hoisted into the outer package's tree
+  // counted as present and the container bootstrap was silently skipped.
+  const outerRoot = makeTempDir();
+  const packageRoot = path.join(outerRoot, 'node_modules', 'hybridclaw');
+  writeJson(path.join(outerRoot, 'node_modules', 'playwright', 'package.json'), {
+    name: 'playwright',
+    version: '1.58.2',
+  });
+  writeJson(path.join(packageRoot, 'container', 'package.json'), {
+    dependencies: {
+      playwright: '^1.58.2',
+    },
+  });
+
+  expect(inspectContainerBootstrap(packageRoot)).toMatchObject({
+    needed: true,
+    reason: 'missing-dependencies',
+    missingDependencies: ['playwright'],
+  });
+});
+
 test('prefers npm_execpath when npm exposes it during install', () => {
   const packageRoot = makeTempDir();
   const npmCliPath = path.join(packageRoot, 'npm-cli.js');
@@ -96,9 +119,27 @@ test('prefers npm_execpath when npm exposes it during install', () => {
       'install',
       '--ignore-scripts',
       '--omit=dev',
+      '--no-audit',
+      '--fund=false',
       '--workspaces=false',
     ],
   });
+});
+
+test('falls back to npm when npm_execpath is the npm shell wrapper', () => {
+  // npm's bin/npm is a bash script (npm.cmd a batch file); handing it to
+  // process.execPath would make node throw a SyntaxError and fail the install.
+  const packageRoot = makeTempDir();
+  const npmWrapperPath = path.join(packageRoot, 'npm');
+  fs.writeFileSync(npmWrapperPath, '#!/bin/sh\nexec npm-cli.js "$@"\n', 'utf-8');
+
+  expect(
+    resolveNpmCommand('/tmp/hybridclaw-container', {
+      ...process.env,
+      npm_config_user_agent: 'npm/11.10.0 node/v22.15.1 linux x64',
+      npm_execpath: npmWrapperPath,
+    }),
+  ).toMatchObject({ command: 'npm' });
 });
 
 test('falls back to npm when installed through pnpm', () => {
@@ -120,9 +161,25 @@ test('falls back to npm when installed through pnpm', () => {
       'install',
       '--ignore-scripts',
       '--omit=dev',
+      '--no-audit',
+      '--fund=false',
       '--workspaces=false',
     ],
   });
+});
+
+test('falls back to npm when installed through yarn', () => {
+  const packageRoot = makeTempDir();
+  const yarnCliPath = path.join(packageRoot, 'yarn.js');
+  fs.writeFileSync(yarnCliPath, '', 'utf-8');
+
+  expect(
+    resolveNpmCommand('/tmp/hybridclaw-container', {
+      ...process.env,
+      npm_config_user_agent: 'yarn/1.22.22 npm/? node/v22.15.1 linux x64',
+      npm_execpath: yarnCliPath,
+    }),
+  ).toMatchObject({ command: 'npm' });
 });
 
 test('scrubs outer npm lifecycle variables before bootstrapping container deps', () => {
@@ -152,7 +209,9 @@ test('runs bootstrap when executed as a direct node script', () => {
   const scriptDir = path.join(packageRoot, 'scripts');
   fs.mkdirSync(scriptDir, { recursive: true });
   fs.copyFileSync(
-    path.join(process.cwd(), 'scripts', 'postinstall-container.mjs'),
+    // Resolve from this test file, not cwd — other tests in the shared
+    // worker chdir into temp dirs.
+    new URL('../scripts/postinstall-container.mjs', import.meta.url),
     path.join(scriptDir, 'postinstall-container.mjs'),
   );
   writeJson(path.join(packageRoot, 'container', 'package.json'), {

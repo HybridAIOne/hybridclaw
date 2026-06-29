@@ -5,7 +5,8 @@ import { expect, test, vi } from 'vitest';
 import type { StructuredAuditEntry } from '../src/types/audit.js';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
-const { runAgentMock } = vi.hoisted(() => ({
+const { captureSentryExceptionMock, runAgentMock } = vi.hoisted(() => ({
+  captureSentryExceptionMock: vi.fn(),
   runAgentMock: vi.fn(),
 }));
 
@@ -13,10 +14,15 @@ vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
 }));
 
+vi.mock('../src/observability/sentry.js', () => ({
+  captureSentryException: captureSentryExceptionMock,
+}));
+
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-audit-',
   envVars: ['HYBRIDCLAW_LOG_REQUESTS'],
   cleanup: () => {
+    captureSentryExceptionMock.mockReset();
     runAgentMock.mockReset();
     vi.doUnmock('../src/providers/hybridai-bots.ts');
     vi.doUnmock('../src/logger.js');
@@ -858,6 +864,24 @@ test('handleGatewayMessage records agent handoff before agent-side timeouts', as
     errorType: 'agent',
     stage: 'processing-agent-output',
   });
+  expect(captureSentryExceptionMock).toHaveBeenCalledWith(expect.any(Error), {
+    mechanism: 'gateway.chat_result',
+    tags: expect.objectContaining({
+      agent_id: 'main',
+      channel_id: '491701234567@s.whatsapp.net',
+      error_type: 'agent',
+      session_id: sessionId,
+      stage: 'processing-agent-output',
+    }),
+    extra: expect.objectContaining({
+      agentId: 'main',
+      channelId: '491701234567@s.whatsapp.net',
+      errorType: 'agent',
+      model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+      sessionId,
+      stage: 'processing-agent-output',
+    }),
+  });
 });
 
 test('handleGatewayMessage stores redacted request logs when enabled', async () => {
@@ -951,6 +975,55 @@ test('handleGatewayMessage stores redacted request logs when enabled', async () 
   expect(toolExecutions[0]?.result).toContain(
     'X-Amz-Signature=[REDACTED]&token=[REDACTED]',
   );
+});
+
+test('handleGatewayMessage stores request logs when enabled in runtime config', async () => {
+  const homeDir = setupHome();
+  fs.mkdirSync(`${homeDir}/.hybridclaw`, { recursive: true });
+  fs.writeFileSync(
+    `${homeDir}/.hybridclaw/config.json`,
+    `${JSON.stringify({ ops: { logRequests: true } }, null, 2)}\n`,
+    'utf-8',
+  );
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'done',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { DB_PATH } = await import('../src/config/config.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayMessage({
+    sessionId: 'session-request-log-config',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: 'hello from config logging',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+
+  const inspect = new Database(DB_PATH, { readonly: true });
+  const rowCount = inspect
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM request_log
+       WHERE session_id = ?`,
+    )
+    .get('session-request-log-config') as { count: number };
+  inspect.close();
+
+  expect(rowCount.count).toBe(1);
 });
 
 test('handleGatewayMessage skips request logs when request logging is disabled', async () => {

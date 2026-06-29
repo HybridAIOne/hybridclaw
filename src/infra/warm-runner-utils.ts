@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { ExecutorSessionHealthSnapshot } from '../agent/executor-types.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
+import { containerBootstrapScriptPath } from './install-root.js';
 import {
   cleanupHealthIpc,
   ensureSessionDirs,
@@ -82,12 +83,24 @@ export function summarizeExit(
   return 'unknown exit status';
 }
 
+function isInternalProgressLine(line: string): boolean {
+  return (
+    line === '[stream-activity]' ||
+    line.startsWith('[stream] ') ||
+    line.startsWith('[thinking] ') ||
+    line.startsWith('[approval] ')
+  );
+}
+
 export function formatWarmRunnerTerminalError(
   entry: Pick<WarmRunnerHealthEntry, 'process' | 'stderrHistory'>,
   runtimeLabel: string,
   params?: {
     code?: number | null;
     signal?: NodeJS.Signals | null;
+    // Overrides the host-install repair hint for runtimes (e.g. the Docker
+    // sandbox) where the host-side bootstrap script cannot fix anything.
+    repairHint?: string;
   },
 ): string {
   const stderrText = entry.stderrHistory.join('\n');
@@ -103,11 +116,13 @@ export function formatWarmRunnerTerminalError(
     return [
       `${runtimeLabel} exited before producing output (${status}).`,
       `Missing runtime dependency: ${missingPackageMatch[1]}.`,
-      'Reinstall HybridClaw. If you are running from a source checkout, run `npm run setup` first.',
+      params?.repairHint ??
+        `Run \`node ${containerBootstrapScriptPath()}\` to repair the install, or \`npm run setup\` from a source checkout.`,
     ].join('\n');
   }
 
   const detail = entry.stderrHistory
+    .filter((line) => !isInternalProgressLine(line))
     .slice(-4)
     .join(' ')
     .replace(/\s+/g, ' ')

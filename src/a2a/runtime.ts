@@ -159,7 +159,7 @@ export function sendMessage(
   if (peerDescriptor.transport !== 'internal') {
     try {
       encodeForRegisteredTransport({
-        envelope: preparedEnvelope,
+        envelope: normalizedEnvelope,
         peerDescriptor,
         registry: meta?.transportRegistry,
         sessionId: meta?.sessionId,
@@ -173,7 +173,7 @@ export function sendMessage(
       throw error;
     }
     recordSendAudits({
-      envelope: preparedEnvelope,
+      envelope: normalizedEnvelope,
       meta,
       transport: peerDescriptor.transport,
     });

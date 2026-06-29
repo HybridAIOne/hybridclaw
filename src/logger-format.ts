@@ -7,6 +7,7 @@ export const LOGGER_PRETTY_OPTIONS = {
   colorizeObjects: false,
   errorLikeObjectKeys: [] as string[],
   singleLine: true,
+  translateTime: 'SYS:yyyy-mm-dd HH:MM:ss.l',
 };
 
 function isDomException(value: Error): boolean {

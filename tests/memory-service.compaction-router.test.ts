@@ -34,6 +34,7 @@ function makeBackend(): MemoryBackend {
     getSessionById: () => makeSession(),
     getConversationHistory: () => [] as StoredMessage[],
     getConversationHistoryPage: () => ({
+      agentId: null,
       sessionKey: null,
       mainSessionKey: null,
       history: [] as StoredMessage[],

@@ -7,75 +7,83 @@
 [![License](https://img.shields.io/github/license/HybridAIOne/hybridclaw)](https://github.com/HybridAIOne/hybridclaw/blob/main/LICENSE)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://hybridaione.github.io/hybridclaw/docs/)
 [![Powered by HybridAI](https://img.shields.io/badge/powered%20by-HybridAI-blueviolet)](https://hybridai.one)
+[![Cloud](https://img.shields.io/badge/cloud-launch%20HybridClaw-2ea44f)](https://hybridclaw.io)
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/jsVW4vJw27)
 
 <img width="420" height="397" alt="HybridClaw - Enterprise-ready self-hosted AI assistant runtime" src="docs/hero.png" />
 
-## All of the Claw, None of the Chaos
-### Enterprise-ready self-hosted AI assistant runtime
+## Business Skills That Work On Smaller Models
 
-HybridClaw is a self-hosted AI assistant runtime for teams that need control,
-security, and operational visibility. It combines sandboxed execution, secure
-credentials, approvals, persistent memory, and admin surfaces behind a single
-gateway.
+HybridClaw's main promise is practical business work. The bundled CRM,
+marketing, analytics, finance, cloud, office, and operations skills are
+implemented as tested helpers with eval scenarios, credential boundaries, and
+approval tiers, and are validated against `Qwen/Qwen3.6-27B-FP8` as the
+small-model baseline.
 
-Connect it to Discord, Discord Incoming Webhooks, Slack, Slack Incoming
-Webhooks, Signal, WhatsApp, Telegram, Microsoft Teams, email, fax, Twilio
-voice, or the web. Run it locally, deploy it for business workflows, and keep your
-agents, secrets, and data under your control.
+That is the useful difference: a compact model can operate Salesforce,
+HubSpot, GA4, Google Ads, Lexware, Airtable, warehouse SQL, invoices, cloud
+ops, and office documents through structured rails instead of fragile
+free-form prompting.
+
+HybridClaw also treats agents as networked coworkers. Local agents, hosted
+HybridAI proxy agents, and trusted peer HybridClaw instances can address one
+another, exchange A2A envelopes, and route work through approval-aware
+channels.
+
+First-run onboarding is built around hatching: a new agent asks about the
+user's work, records useful context, keeps setup links visible in chat, and can
+send a tailored first-jobs welcome email when an email route is available.
+
+Credentials stay outside the model context. Secrets live in the encrypted
+runtime store and SecretRef-backed tools resolve them at execution time, so
+LLMs see the requested action and approval context, not raw API keys,
+passwords, or bearer tokens.
+
+Run one local assistant, operate a fleet of role-specific coworkers, or launch
+HybridClaw on HybridAI Cloud in a few minutes at
+[hybridclaw.io](https://hybridclaw.io).
 
 [Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart) ·
+[Launch Cloud](https://hybridclaw.io) ·
 [Installation](https://hybridaione.github.io/hybridclaw/docs/getting-started/installation) ·
+[Docs](https://hybridaione.github.io/hybridclaw/docs/) ·
 [Configuration](https://hybridaione.github.io/hybridclaw/docs/reference/configuration) ·
-[Migration](https://hybridaione.github.io/hybridclaw/docs/reference/commands#migration) ·
-[Contributing](./CONTRIBUTING.md) ·
-[Support](./SUPPORT.md)
+[Commands](https://hybridaione.github.io/hybridclaw/docs/reference/commands) ·
+[Contributing](./CONTRIBUTING.md)
 
-## Pick your path
+## Why HybridClaw
 
-- Want the shortest path to a running assistant? Start with
-  [Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart).
-- Want the full setup flow with providers, channels, and admin surfaces? Start
-  with [Installation](https://hybridaione.github.io/hybridclaw/docs/getting-started/installation)
-  and [Authentication](https://hybridaione.github.io/hybridclaw/docs/getting-started/authentication).
-- Want to migrate from OpenClaw or Hermes? Start with the
-  [migration commands](https://hybridaione.github.io/hybridclaw/docs/reference/commands#migration).
-- Want to contribute from source? Start with [CONTRIBUTING.md](./CONTRIBUTING.md)
-  and the maintainer docs under [docs/content/README.md](./docs/content/README.md).
+| You need | HybridClaw gives you |
+| --- | --- |
+| A first run that becomes useful quickly | Guided hatching with setup links, tailored first-job suggestions, optional onboarding-specific model routing, and welcome-email handoff |
+| Business workflows that survive real use | Production skill helpers with fixtures, eval scenarios, targeted tests, approval tiers, and a `Qwen/Qwen3.6-27B-FP8` validation baseline |
+| Multi-agent workflows across installations | Local agents, hosted proxy agents, A2A trust, explicit addressing, inbound envelopes, and admin-visible peer pairing |
+| Credentials the model cannot read | Encrypted runtime secrets and SecretRef-backed execution paths that keep raw keys and passwords out of prompts and tool results |
+| Assistants that can act, not just chat | A gateway, web chat, TUI, admin console, scheduler, tools, and OpenAI-compatible API behind one local service |
+| Control over sensitive work | Approval policy, sandbox boundaries, output guardrails, and hash-chained audit trails |
+| Agents that fit existing teams | Discord, Slack, Teams, Telegram, WhatsApp, email, voice, web, and more through the same runtime |
+| Operational memory | Local files, SQLite state, semantic recall, session compaction, and optional HybridAI cloud memory |
+| Repeatable expert workflows | Per-agent workspaces, budgets, model routing, A2A trust, proxy agents, `.claw` archives, and human-distillation workflows |
 
-## Coming from OpenClaw or Hermes?
+## Install
 
-```bash
-hybridclaw migrate openclaw --dry-run
-hybridclaw migrate hermes --dry-run
-```
+Fastest managed launch: [HybridClaw on HybridAI Cloud](https://hybridclaw.io).
 
-Preview and import compatible state from OpenClaw or Hermes in minutes.
-Imports compatible skills, memory, config, and optional secrets.
+Apple Desktop App for macOS:
 
-## HybridAI Platform Advantage
+- Download the signed and notarized Apple Silicon DMG from
+  [GitHub Releases](https://github.com/HybridAIOne/hybridclaw/releases/latest).
+- Open the DMG, drag `HybridClaw.app` into `/Applications`, and launch it.
+- The desktop app starts the local gateway and opens the chat, agents, and
+  admin surfaces in a native macOS window.
 
-HybridClaw is the runtime. HybridAI is the (optional) platform layer around it.
-
-HybridAI adds:
-
-- one-click cloud deployment
-- enterprise shared RAG / knowledge
-- access to current models from Anthropic, OpenAI, Google, xAI, and others
-- observability across multiple agents
-- built-in email addresses for your agents
-- ready-to-run virtual coworkers
-
-## Get running in 2 minutes
-
-One-line install on Linux/macOS (ensures Node 22, installs the CLI, runs
-onboarding):
+Linux/macOS CLI one-line installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash
 ```
 
-Or do it by hand with npm:
+Manual npm install:
 
 ```bash
 npm install -g @hybridaione/hybridclaw
@@ -84,16 +92,23 @@ hybridclaw gateway
 hybridclaw tui
 ```
 
-Open locally:
+Requirements: Node.js 22. Docker is recommended for the default sandbox.
 
-- Chat UI: `http://127.0.0.1:9090/chat`
-- Admin UI: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
-  scheduler, audit, statistics, config, secrets, output guard, and
-  channel-specific instructions
-- Agents UI: `http://127.0.0.1:9090/agents`
-- OpenAI-compatible API: `http://127.0.0.1:9090/v1/models` and `http://127.0.0.1:9090/v1/chat/completions`
+## First Run
 
-Requirement: Node.js 22 (Docker recommended for sandbox)
+After the gateway starts, open:
+
+| Surface | URL / command | Use it for |
+| --- | --- | --- |
+| Web Chat | `http://127.0.0.1:9090/chat` | Chat, slash commands, model and agent switching |
+| Admin Console | `http://127.0.0.1:9090/admin` | Channels, agents, approvals, audit, config, secrets, skills, distillation |
+| Agents UI | `http://127.0.0.1:9090/agents` | Agent fleet overview and prompt-file editing |
+| TUI | `hybridclaw tui` | Terminal chat, approvals, status, resume |
+| OpenAI-compatible API | `http://127.0.0.1:9090/v1/chat/completions` | Local evals and compatible clients |
+
+For signed macOS desktop builds and future architectures, use the
+[GitHub Releases](https://github.com/HybridAIOne/hybridclaw/releases/latest)
+page.
 
 Desktop wrapper from source:
 
@@ -102,355 +117,121 @@ npm install
 npm run desktop
 ```
 
-The Electron workspace opens the existing `/chat` surface in a native macOS
-window, exposes `/admin` from the app menu, reuses a running local gateway when
-available, and starts the bundled gateway automatically when it is not already
-listening on `http://127.0.0.1:9090`.
+## What You Get
 
-Release notes live in [CHANGELOG.md](./CHANGELOG.md), and the browsable
-operator and maintainer manual lives at
-[hybridaione.github.io/hybridclaw/docs](https://hybridaione.github.io/hybridclaw/docs/).
+| Area | Built in |
+| --- | --- |
+| Skills | 79 bundled skills, production business helpers, eval fixtures, packaged skill lifecycle, and human-distillation workflows |
+| Channels | Discord, Slack, Signal, WhatsApp, Telegram, Microsoft Teams, email, iMessage, fax, Twilio voice, web, and incoming webhooks |
+| Runtime | Gateway service, TUI client, web chat, admin console, loopback OpenAI-compatible API, Docker or host execution |
+| Governance | Encrypted runtime secrets, SecretRef credential isolation, approval policies, sandbox controls, audit trails with hash-chain integrity |
+| Memory | Local memory files, SQLite persistence, semantic recall, session compaction, optional HybridAI cloud memory sync |
+| Agents | Guided hatching, per-agent workspaces, models, budgets, prompt files, explicit addressing, proxy agents, A2A trust, peer-instance communication |
+| Extensibility | Packaged business skills, plugins, MCP servers, SecretRef-backed HTTP tools |
 
-## See it in Action
+## Product Strengths
 
-Once the gateway is running, open HybridClaw locally:
+- **Validated business skills**: production skills use deterministic helpers,
+  fixtures, eval scenarios, and targeted tests so small models can perform
+  useful work through structured actions.
+- **Guided onboarding**: hatching collects useful work context, keeps setup
+  links handy, writes first-job suggestions, and can route the first-run
+  conversation through a stronger onboarding model before returning to the
+  normal default.
+- **Multi-agent operations**: agents can coordinate across local workspaces,
+  hosted HybridAI proxies, and trusted peer HybridClaw instances with A2A
+  pairing, explicit addressing, inbound envelopes, and admin-visible trust.
+- **Prompt-level credential isolation**: encrypted secrets and SecretRefs keep
+  credential values out of model context while tools receive only the scoped
+  credential material needed at execution time.
+- **One runtime for many surfaces**: web, terminal, Discord, Slack, Teams,
+  email, voice, webhooks, and local API clients all use the same gateway,
+  memory, policy, and audit model.
+- **Secure by default**: LLM output is treated as untrusted, risky actions
+  route through approval policy, and every sensitive boundary is visible in
+  audit.
+- **Model freedom**: use HybridAI, major hosted providers, local engines, or
+  named OpenAI-compatible endpoints from the same model picker and config
+  surface.
+- **Operator visibility**: `/admin` covers channels, approvals, audit,
+  statistics, output guard, secrets, fleet topology, A2A inbox/trust, and
+  distillation without requiring shell access.
+- **Business-ready extension model**: packaged skills, plugins, MCP servers,
+  and SecretRef-backed HTTP tools share the same approval and credential
+  boundaries.
+- **Practical migration path**: preview compatible imports from OpenClaw or
+  Hermes, then package agents as portable `.claw` archives.
 
-- Web Chat: `http://127.0.0.1:9090/chat`
-- Web Chat keeps a recent-session sidebar and can search conversation titles
-  with contextual snippets before you reopen or delete an older browser session
-- Web Chat shows live context-window usage, accepts `/context`, and lets you
-  switch the active agent and model from the composer; active agent switching is
-  preserved across session reloads and UI route changes
-- Web Chat keeps scrolling pinned when you read older messages and shows a
-  jump-to-latest affordance when new output arrives below the current viewport
-- Web Chat accepts `/btw <question>` side questions while a primary run is
-  active, so you can ask an ephemeral follow-up without interrupting the
-  current run
-- Web Chat renders slash-command output as command results and lets operators
-  rate persisted assistant responses with thumbs-up/down feedback that feeds
-  observability and skill-improvement signals
-- Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
-  scheduler, audit, statistics, config, secrets, output guard, A2A inbox threads, and
-  channel-specific instructions
-- Agent Dashboard: `http://127.0.0.1:9090/agents`
-- or connect Discord, Discord Incoming Webhooks, Slack, Slack Incoming
-  Webhooks, Signal, WhatsApp, Telegram, Microsoft Teams, Email, Fax
+## Common Commands
 
-## Operator workflows
+```bash
+hybridclaw gateway status
+hybridclaw tui --resume <sessionId>
+hybridclaw config get <key>
+hybridclaw skill list
+hybridclaw agent list
+hybridclaw doctor
+hybridclaw update --yes
+```
 
-- Install from npm, source, or the multi-arch Nix flake; a preview Homebrew
-  formula is available for `--HEAD` builds while stable tap publication is
-  prepared.
-- `hybridclaw gateway status` reports sandbox/runtime details, and in
-  container mode it includes the configured image name plus the resolved
-  version and short image id.
-- `hybridclaw backup` creates a WAL-safe archive of the runtime home, and
-  `hybridclaw backup restore <archive.zip>` validates the archive before
-  replacing local runtime state.
-- `hybridclaw update --yes` upgrades a global npm install and auto-restarts a
-  running local gateway with its original launch parameters when possible,
-  falling back to `hybridclaw gateway restart` if not.
-- `/admin/agents` edits allowlisted bootstrap markdown files such as
-  `AGENTS.md`, keeps saved revisions, and restores earlier versions from the
-  browser.
-- `/admin/statistics` reports message, session, token, cost, and channel trends
-  across a selected date range.
-- The Usage rollup surfaces loading skeletons, cost metrics, and per-model
-  spend summaries without scanning every stored session on page load.
-- `/admin/agent-scoreboard` ranks agents by observed skill scores, reliability,
-  timing, best skills, and CV links.
-- `/audit turn <n>` and `/audit run <runId>` show focused turn traces for
-  debugging one request without reading the full session audit stream.
-- `hybridclaw agent config` accepts generated JSON payloads to upsert agent
-  metadata, write bootstrap markdown, import profile images into the agent
-  workspace, and optionally activate the agent.
-- `/admin/channels` edits transport config, encrypted channel credentials,
-  Signal QR linking, Twilio voice settings, and per-channel instructions that
-  are injected into prompts at runtime.
-- `/admin/secrets` lists stored and declared-but-empty secrets by metadata
-  only, supports overwrite and unset actions, and never returns cleartext
-  secret values to the browser.
-- `/admin/output-guard` configures response guardrails and plugin-backed
-  output classification without editing runtime config by hand.
-- `slack_webhook` targets provide outbound-only Slack Incoming Webhook delivery
-  with encrypted webhook URLs, named destinations, Block Kit text chunking,
-  reachability status, and POST-only network policy grants.
-- `discord_webhook` targets provide outbound-only Discord Incoming Webhook
-  delivery with encrypted webhook URLs, named destinations, message chunking,
-  reachability status, and POST-only network policy grants.
-- `/admin/approvals` manages approval policies from the browser.
-- Approval policy evaluation runs through a hook-fed rule pipeline, so
-  workspace policy ordering and plugin tool-use hooks share one approval path.
-- `/admin/a2a-inbox` shows read-only A2A message threads across the instance,
-  with sender, recipient, timestamp, intent, and content for each message.
-- `/admin/a2a-trust` shows the local A2A public-key trust ledger for paired
-  peer instances.
-- `/admin/gateway` reloads runtime config and refreshes secrets from the
-  browser, and shows public URL plus tunnel status, without tearing down the
-  enclosing workspace container; keep `hybridclaw gateway restart` for
-  local/manual full restarts.
-- `/context` and the web chat context ring show current context-window usage,
-  remaining headroom, and compaction counts for the active session.
-- `/goal` stores a standing completion condition for the current thread and
-  queues supervised continuations until the goal is judged complete, paused,
-  cleared, interrupted, or blocked by approval policy.
-- `/second-opinion` asks a stronger configured model to compare a question,
-  validate the last answer, or fact-check with web-search evidence while
-  honoring configured model context, confidentiality, and agent-budget limits.
-- `proactive.delegation.model` can pin delegated work to a different model
-  from the parent turn; `/status` shows delegate token totals and local-token
-  share when that split is configured.
-- `deployment.mode`, `deployment.public_url`, `deployment.tunnel.provider`, and
-  `deployment.tunnel.health_check_interval_ms` describe local/cloud exposure
-  and tunnel health cadence. The built-in ngrok, Tailscale Funnel, and
-  Cloudflare Tunnel providers read `NGROK_AUTHTOKEN`, `TS_AUTHKEY`,
-  `CLOUDFLARE_TUNNEL_TOKEN`, and Cloudflare certificate credentials from the
-  encrypted runtime secret store.
-- A2A cross-instance delivery resolves canonical peer IDs in order from the
-  local deployment URL or active tunnel URL, the A2A public-key trust ledger,
-  then DNS-style discovery when `HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE` is
-  configured.
-- `container.warmPool` keeps a bounded adaptive pool of idle host/container
-  runtimes for recently active agents when low cold-start latency matters.
-- `container.persistBashState` controls whether bash tool calls share shell
-  state (`cd`, exported env vars, aliases) across turns in the same active
-  runtime session; `/admin/config` exposes the same setting as `Persistent bash state`.
-- Agent budget config supports monthly USD/EUR caps and token caps; job and
-  board budget chips show neutral, warning, and over-budget states for
-  configured agents.
-- `security.confidentialRedactionEnabled` controls whether optional
-  `.confidential.yml` rules redact prompts and block matching outbound text;
-  `/admin/config` exposes the same setting as `Confidential leak guard`.
-- `hybridclaw audit scan-leaks` scans historical audit logs against optional
-  `.confidential.yml` rules for NDA-class client, project, person, keyword,
-  and regex matches.
-- Generated artifacts remain downloadable and attachable even when the sandbox
-  exposes a custom workspace display root such as `/app`.
-- `hybridclaw tui` includes live delegate progress, pulsing tool rows,
-  completion checkmarks, rendered Markdown tables, a keyboard-driven approval
-  picker, and a ready-to-run `hybridclaw tui --resume <sessionId>` command on
-  exit. Pressing `Esc` stops the active run and returns control to the prompt.
-- `hybridclaw doctor` checks runtime health including resource hygiene
-  maintenance for stale gateway artifacts. `hybridclaw doctor browser-use`
-  checks the local Playwright browser automation substrate and can install
-  missing Chromium support with `--fix`.
-- `hybridclaw onboarding` and related local setup flows can restore the last
-  known-good saved config snapshot or roll back to a tracked revision when
-  `config.json` becomes invalid.
-- `hybridclaw skill import` supports community sources, local directories,
-  and `.zip` archives.
-- `hybridclaw skill install <source>`, `skill upgrade`, `skill revisions`, and
-  `skill rollback` manage packaged business skills with manifests, audit
-  events, and snapshots.
-- `hybridclaw skill list blocked` and `hybridclaw skill unblock <name>` let
-  local operators review scanner-blocked skills and record a bypass marker for
-  the installed copy when the finding has been accepted.
-- Bundled skills include CRM, finance, infrastructure, monitoring,
-  home-automation and solar monitoring, fax, local PII redaction, media,
-  search, and office workflows. Skill setup guides live in the
-  [Skills Catalog](https://hybridaione.github.io/hybridclaw/docs/guides/skills/).
-- The bundled tutorials cover owner, GTM, marketing, sales, DevRel, content,
-  invoicing, webinar, and release-launch workflows that can run from the TUI,
-  web chat, or connected channels.
-- `hybridclaw eval hybridai-skills` turns the bundled skills pages' "Try it
-  yourself" prompts into a local eval suite, and live summaries surface the
-  observed skill, artifact presence, and counted tool-call totals.
-- Channel delivery stays predictable: email seeds its first mailbox cursor from
-  the current head instead of replaying old inbox mail, retry-aware transports
-  honor server `Retry-After` backoff, expected transient Discord/Email/WhatsApp
-  transport outages stay local with rate-limited logging, and WhatsApp startup
-  avoids intermittent init-query bad-request failures.
+Migration preview:
 
-## Models, Skills, and Memory
+```bash
+hybridclaw migrate openclaw --dry-run
+hybridclaw migrate hermes --dry-run
+```
 
-- `hybridclaw auth login` and `/model list` cover HybridAI, Codex,
-  Anthropic, OpenRouter, Mistral, Hugging Face, Gemini, DeepSeek, xAI, Z.AI,
-  Kimi, MiniMax, DashScope, Xiaomi, Kilo Code, and local backends such as
-  Ollama, LM Studio, llama.cpp, and vLLM. Remote OpenAI-compatible providers
-  can merge runtime-discovered model catalogs with operator-pinned lists.
-- `/model info`, `/usage monthly`, `/usage model monthly`, and the admin
-  Models page surface discovered context windows, output limits, model
-  capabilities, pricing, and per-model monthly spend where provider metadata is
-  available.
-- Anthropic can run through the direct Messages API with `ANTHROPIC_API_KEY`
-  or through the official Claude CLI transport in host sandbox mode.
-- Brave, Perplexity, and Tavily web-search credentials can live in the
-  encrypted runtime secret store and are passed into host or container agent
-  runtimes from the active config.
-- Web search can also target a self-hosted SearXNG instance through
-  `web.search.searxngBaseUrl` or `SEARXNG_BASE_URL`; authenticated instances
-  use store-backed SearXNG bearer SecretRefs, and agents can override the
-  global SearXNG base URL and bearer SecretRef for tenant-specific search.
-  Bundled `search.web`, `search.news`, and `search.images` skills prefer that
-  sovereign search path.
-- Google OAuth credentials for Workspace skills live in the encrypted runtime
-  secret store; agent runtimes receive short-lived access tokens for `gog` and
-  `gws` instead of long-lived refresh tokens.
-- Canonical user and agent identities use stable lowercase IDs and DNS-style
-  discovery records so A2A peers can resolve remote URLs and public keys.
-- `hybridclaw secret route ...` and `/secret route ...` can attach stored
-  secrets or Google OAuth access tokens to matching `http_request` URL
-  prefixes, including Google Ads API calls.
-- `HYBRIDAI_FALLBACK_CHAIN` can route auth and rate-limit provider failures to
-  alternate models/providers with cooldowns before retrying the primary.
-- Skills can be enabled or disabled globally or per channel from
-  `hybridclaw skill enable|disable`, TUI `/skill config`, or the admin
-  `Skills` page.
-- Packaged skills can declare versioned manifests, capabilities, required
-  credentials, supported channels, and per-agent autonomy policy.
-- Bundled skills include API-backed Google Workspace workflows (`gog`, `gws`),
-  Salesforce inspection, GitHub issue queue processing (`gh-issues`),
-  monthly SaaS invoice harvesting (`download-platform-invoices`), Airtable,
-  FastBill, Lexware Office, managed or self-hosted Firecrawl, Google Ads, GA4 reporting,
-  HeyGen, Hermes3000 long-form writing, Fronius solar monitoring, Homematic
-  HCU state/control planning, natural-language warehouse SQL
-  (`warehouse-sql`), brand-voice drafting, speech transcription and language
-  detection (`speech.transcribe`, `speech.detect-language`), validated
-  diagram-as-code creation through `diagram`, and editable Excalidraw diagram
-  creation.
-- Native media tools generate images and videos through configured providers,
-  persist the resulting artifacts, and expose the same capability through the
-  bundled `image-generation`, `video-generation`, and `video.from-script`
-  skills.
-- Native audio transcription can route through configured local or provider
-  backends, produce private transcript artifacts, and attach language,
-  timestamp, speaker, duration, and cost metadata when available.
-- Dynamic per-turn context such as current date, host, today's daily memory,
-  session summary, and retrieved context is appended after the static system
-  prompt so provider prefix caches can reuse the stable prompt prefix.
-- Browser automation can use local persistent Playwright profiles, Camofox
-  profiles, or Browser Use Cloud sessions with encrypted `BROWSER_USE_API_KEY`
-  storage, usage metering, shared navigation guards, SecretRef-gated credential
-  fills, and deny-by-default host allowlisting for Camofox stealth mode.
-- The repo-shipped `brand-voice` plugin can flag, rewrite, or block final
-  responses that violate configured voice rules before they reach users.
-- Built-in office skills handle longer PDF creation flows cleanly: the bundled
-  PDF creator wraps long lines, honors explicit `\n`, and adds pages
-  automatically when reports or invoices spill past the first page.
-- Built-in memory can stay standalone or layer with ByteRover, Mem0, Honcho,
-  MemPalace, QMD, and GBrain plugins depending on whether you want
-  local-first recall, hosted memory, or domain-specific retrieval.
-- Optional OpenTelemetry tracing exports gateway and agent spans to OTLP
-  backends and annotates structured logs with trace ids for cross-system
-  correlation.
+## HybridAI Platform
 
-## How HybridClaw compares
+HybridClaw runs self-hosted. HybridAI is the optional platform layer around it:
 
-| Capability | HybridClaw | OpenClaw | Hermes Agent |
-| --- | --- | --- | --- |
-| Self-hosted runtime | ✅ Gateway + sandboxed container runtime | ✅ Self-hosted gateway/runtime | ✅ Self-hosted gateway/runtime |
-| Migration support | ✅ Imports from OpenClaw and Hermes | ❌ No comparable import path surfaced | ⚠️ Imports from OpenClaw only |
-| Encrypted secrets | ✅ Encrypted store + SecretRefs | ⚠️ SecretRefs, not a built-in encrypted store | ⚠️ File-permission-based secret storage |
-| Approvals / governance | ✅ Approvals, audit trails, sandbox, config history | ⚠️ Strong approvals/audit, less enterprise-governance framing | ⚠️ Strong approvals/isolation, less audit/admin surface |
-| Memory / knowledge | ✅ Shared memory + HybridAI knowledge path | ⚠️ Strong memory/session features | ⚠️ Strong persistent/self-improving memory |
-| Multi-agent observability | ✅ Built-in audit surfaces + platform path | ⚠️ Multi-agent/task inspection exists | ⚠️ Subagents + logs/session search, not central observability |
-| Local + cloud deployment model | ✅ Local-first runtime with HybridAI cloud path plus SSH/Tailscale remote access | ⚠️ Self-hosted + remote access | ✅ Local, VPS, Docker, Modal, Daytona |
-| Multiple UIs | ✅ TUI + Chat UI + Admin UI + Agents UI | ✅ TUI + WebChat + Control UI | ⚠️ TUI + messaging + API server, no comparable built-in admin/chat web UI |
-
-## Adjacent tools
-
-| Comparison point | HybridClaw | LangChain | n8n |
-| --- | --- | --- | --- |
-| Framework vs runtime | Runtime | Framework | Workflow builder |
-| Coding required | Low to medium | High | Low |
-| Workflow builder vs agent runtime | Agent runtime | Framework for building agent systems | Visual workflow builder |
-| Enterprise controls | ✅ Approvals, audit, sandbox, encrypted secrets | ⚠️ You build them | ⚠️ Workflow-level controls |
-
-## Security and governance built in
-
-- secure credential storage
-- optional confidential-info redaction before model calls
-- retroactive audit leak scanning
-- sandboxed execution
-- approvals
-- audit trails with hash chain
-- config versioning and backup/rollback
-- observability
-
-## Built for real workflows
-
-- channels
-- versioned agent workspace prompt files with saved revisions and restore
-- browser sessions
-- office docs
-- skills / plugins / MCP
-- persistent workspaces
-
-## Built for rollout and migration
-
-- import from OpenClaw / Hermes
-- portable `.claw` packages with bundled knowledge and skills
-- local-first to cloud-ready path
+- managed HybridClaw launch at [hybridclaw.io](https://hybridclaw.io)
+- enterprise shared RAG and cloud memory
+- managed access to current models
+- observability across multiple agents
+- hosted email addresses for agents
+- ready-to-run virtual coworkers
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, A2A peer trust, board-card storage, and channel integrations for Discord, Discord Incoming Webhooks, Slack, Slack Incoming Webhooks, Signal, Threema, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
-- **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
-  a structured startup banner that surfaces model, sandbox, gateway, and
-  chatbot context before the first prompt, live delegate status/progress,
-  an interactive approval picker for pending approvals, and an exit summary
-  with a ready-to-run resume command
-- **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, native media-generation tools, web/search adapters, and preinstalled browser automation runtime with cursor-aware snapshots for JS-heavy custom UI
-- Communication via file-based IPC (input.json / output.json)
+```text
+User message
+  -> Gateway (HTTP, web chat, TUI, Discord, Slack, email, etc.)
+  -> ContainerInput JSON
+  -> Host or Docker runtime
+  -> Agent loop, tools, approvals, memory, MCP
+  -> ContainerOutput JSON
+  -> Gateway response, session store, audit trail
+```
 
-## Documentation
+Core pieces:
 
-Browse the full manual at
-[hybridaione.github.io/hybridclaw/docs](https://hybridaione.github.io/hybridclaw/docs/).
+- **Gateway service**: command handling, channel transports, REST APIs,
+  scheduler, SQLite persistence, audit, A2A, admin surfaces.
+- **Container runtime**: sandboxed tool execution, provider adapters, browser
+  automation, media/search tooling, file-based IPC.
+- **TUI client**: thin HTTP client for terminal-first operation.
+- **Console**: web chat and admin UI served by the gateway.
 
-- Getting started:
-  [Installation](https://hybridaione.github.io/hybridclaw/docs/getting-started/installation),
-  [Authentication](https://hybridaione.github.io/hybridclaw/docs/getting-started/authentication), and
-  [Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart)
-- Enterprise deployment:
-  [Runtime Internals](https://hybridaione.github.io/hybridclaw/docs/developer-guide/runtime) and
-  [Architecture](https://hybridaione.github.io/hybridclaw/docs/developer-guide/architecture)
-- Operations:
-  [Remote Access](https://hybridaione.github.io/hybridclaw/docs/guides/remote-access)
-- Security:
-  [SECURITY.md](./SECURITY.md) and [TRUST_MODEL.md](./TRUST_MODEL.md)
-- Migration:
-  [Commands: Migration](https://hybridaione.github.io/hybridclaw/docs/reference/commands#migration) and
-  [FAQ](https://hybridaione.github.io/hybridclaw/docs/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
-- Channels:
-  [Connect Your First Channel](https://hybridaione.github.io/hybridclaw/docs/getting-started/first-channel),
-  [Overview](https://hybridaione.github.io/hybridclaw/docs/channels/overview),
-  [Twilio Voice](https://hybridaione.github.io/hybridclaw/docs/guides/twilio-voice),
-  [Discord](https://hybridaione.github.io/hybridclaw/docs/channels/discord),
-  [Discord Incoming Webhook](https://hybridaione.github.io/hybridclaw/docs/channels/discord-webhook),
-  [Slack](https://hybridaione.github.io/hybridclaw/docs/channels/slack),
-  [Slack Incoming Webhook](https://hybridaione.github.io/hybridclaw/docs/channels/slack-webhook),
-  [Telegram](https://hybridaione.github.io/hybridclaw/docs/channels/telegram),
-  [Signal](https://hybridaione.github.io/hybridclaw/docs/channels/signal),
-  [Threema](https://hybridaione.github.io/hybridclaw/docs/channels/threema),
-  [Email](https://hybridaione.github.io/hybridclaw/docs/channels/email),
-  [WhatsApp](https://hybridaione.github.io/hybridclaw/docs/channels/whatsapp),
-  [iMessage](https://hybridaione.github.io/hybridclaw/docs/channels/imessage), and
-  [Microsoft Teams](https://hybridaione.github.io/hybridclaw/docs/channels/msteams)
-- Tutorials:
-  [Practical Workflows](https://hybridaione.github.io/hybridclaw/docs/tutorials) for owner,
-  GTM, marketing, sales, DevRel, content, invoicing, webinar, and release
-  launch workflows
-- Skills and plugins:
-  [Extensibility](https://hybridaione.github.io/hybridclaw/docs/extensibility),
-  [Bundled Skills](https://hybridaione.github.io/hybridclaw/docs/guides/bundled-skills),
-  [Plugin System](https://hybridaione.github.io/hybridclaw/docs/extensibility/plugins),
-  [Memory Plugins](https://hybridaione.github.io/hybridclaw/docs/extensibility/memory-plugins),
-  [ByteRover Memory Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/byterover-memory-plugin),
-  [GBrain Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/gbrain-plugin),
-  [Mem0 Memory Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/mem0-memory-plugin),
-  [Honcho Memory Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/honcho-memory-plugin), and
-  [MemPalace Memory Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/mempalace-memory-plugin)
-- Configuration:
-  [Configuration Reference](https://hybridaione.github.io/hybridclaw/docs/reference/configuration)
-- CLI reference:
-  [Commands](https://hybridaione.github.io/hybridclaw/docs/reference/commands),
-  [Diagnostics](https://hybridaione.github.io/hybridclaw/docs/reference/diagnostics), and
-  [FAQ](https://hybridaione.github.io/hybridclaw/docs/reference/faq)
+## Docs By Goal
 
-## Contributing
+| Goal | Start here |
+| --- | --- |
+| Install and launch | [Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart), [Installation](https://hybridaione.github.io/hybridclaw/docs/getting-started/installation) |
+| Configure providers and models | [Authentication](https://hybridaione.github.io/hybridclaw/docs/getting-started/authentication), [Model Selection](https://hybridaione.github.io/hybridclaw/docs/reference/model-selection) |
+| Connect channels | [Connect Your First Channel](https://hybridaione.github.io/hybridclaw/docs/getting-started/first-channel), [Channels](https://hybridaione.github.io/hybridclaw/docs/channels/overview) |
+| Use bundled skills | [Bundled Skills](https://hybridaione.github.io/hybridclaw/docs/guides/bundled-skills), [Skills Catalog](https://hybridaione.github.io/hybridclaw/docs/guides/skills/) |
+| Distill a coworker | [Human Distillation](https://hybridaione.github.io/hybridclaw/docs/guides/human-distillation) |
+| Operate securely | [Security](./SECURITY.md), [Trust Model](./TRUST_MODEL.md), [Approvals](https://hybridaione.github.io/hybridclaw/docs/developer-guide/approvals) |
+| Inspect commands | [Commands](https://hybridaione.github.io/hybridclaw/docs/reference/commands), [Diagnostics](https://hybridaione.github.io/hybridclaw/docs/reference/diagnostics) |
+| Extend HybridClaw | [Extensibility](https://hybridaione.github.io/hybridclaw/docs/extensibility), [Plugins](https://hybridaione.github.io/hybridclaw/docs/extensibility/plugins), [MCP](https://hybridaione.github.io/hybridclaw/docs/guides/tui-mcp) |
+| Build desktop releases | [Desktop Release Builds](https://hybridaione.github.io/hybridclaw/docs/developer-guide/desktop-release) |
+| Contribute | [CONTRIBUTING.md](./CONTRIBUTING.md), [docs/content/README.md](./docs/content/README.md) |
 
-Contributor quick start:
+Latest release: [v0.25.8](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.25.8).
+Release notes: [CHANGELOG.md](./CHANGELOG.md)
+
+## Development
 
 ```bash
 npm install
@@ -460,12 +241,18 @@ npm run typecheck
 npm run test:unit
 ```
 
-Use `npm run typecheck`, `npm run lint`, and targeted tests for code changes.
-For docs-only changes, verify links, commands, and examples. GitHub issue forms
-cover bug reports, setup help, feature requests, and docs fixes, and the PR
-template asks for validation and scope boundaries up front. See
-[CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow, check matrix, and
-community guidance.
+Useful dev commands:
+
+```bash
+npm run dev          # gateway in hot-reload mode
+npm run tui          # terminal client
+npm run check        # Biome check
+npm run format       # Biome write
+```
+
+For docs-only changes, verify links, commands, and examples. For code changes,
+run `npm run typecheck`, `npm run lint`, and targeted tests for the touched
+area.
 
 ## Community
 

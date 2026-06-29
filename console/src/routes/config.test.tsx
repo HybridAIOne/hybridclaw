@@ -78,11 +78,25 @@ function makeConfig(): AdminConfig {
       maxConcurrent: 2,
       persistBashState: false,
     },
+    ui: {
+      navigation: [
+        { href: '/chat', icon: 'chat', label: 'Chat' },
+        { href: '/agents', icon: 'agents', label: 'Agents' },
+        { href: '/admin', icon: 'admin', label: 'Admin' },
+        {
+          href: 'https://github.com/HybridAIOne/hybridclaw',
+          image: '/icons/github.svg',
+          label: 'GitHub',
+        },
+        { href: '/docs', icon: 'docs', label: 'Docs' },
+      ],
+    },
     ops: {
       healthHost: '127.0.0.1',
       healthPort: 9090,
       webApiToken: '',
       gatewayBaseUrl: '',
+      gatewayInternalBaseUrl: 'http://127.0.0.1:9090',
       gatewayApiToken: '',
       dbPath: '',
       logLevel: 'info',
@@ -284,6 +298,114 @@ describe('ConfigPage', () => {
     expect(
       (screen.getByLabelText('Health host') as HTMLInputElement).value,
     ).toBe('10.0.0.1');
+  });
+
+  it('edits top navigation links from the form view', async () => {
+    renderConfigPage();
+
+    const firstLabel = (await screen.findByLabelText(
+      'Navigation item 1 label',
+    )) as HTMLInputElement;
+    fireEvent.change(firstLabel, { target: { value: 'Channels' } });
+    fireEvent.change(screen.getByLabelText('Navigation item 1 href'), {
+      target: { value: '/admin/channels' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove navigation item 4' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add link' }));
+    fireEvent.change(screen.getByLabelText('Navigation item 5 label'), {
+      target: { value: 'HybridAI' },
+    });
+    fireEvent.change(screen.getByLabelText('Navigation item 5 href'), {
+      target: { value: 'https://hybridai.one/admin_startpage' },
+    });
+    fireEvent.change(screen.getByLabelText('Navigation item 5 image'), {
+      target: { value: '/icons/hybridai.png' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(saveConfigMock).toHaveBeenCalledTimes(1));
+    expect(saveConfigMock).toHaveBeenCalledWith(
+      'admin-token',
+      expect.objectContaining({
+        ui: {
+          navigation: [
+            { href: '/admin/channels', label: 'Channels' },
+            { href: '/agents', icon: 'agents', label: 'Agents' },
+            { href: '/admin', icon: 'admin', label: 'Admin' },
+            { href: '/docs', icon: 'docs', label: 'Docs' },
+            {
+              href: 'https://hybridai.one/admin_startpage',
+              image: '/icons/hybridai.png',
+              label: 'HybridAI',
+            },
+          ],
+        },
+      }),
+    );
+  });
+
+  it('adds blank navigation rows and validates links before saving', async () => {
+    renderConfigPage();
+
+    await screen.findByLabelText('Navigation item 1 label');
+    fireEvent.click(screen.getByRole('button', { name: 'Add link' }));
+
+    const label = screen.getByLabelText(
+      'Navigation item 6 label',
+    ) as HTMLInputElement;
+    const href = screen.getByLabelText(
+      'Navigation item 6 href',
+    ) as HTMLInputElement;
+    const image = screen.getByLabelText(
+      'Navigation item 6 image',
+    ) as HTMLInputElement;
+    expect(label.value).toBe('');
+    expect(label.maxLength).toBe(48);
+    expect(href.value).toBe('');
+    expect(image.value).toBe('');
+    expect(screen.getAllByRole('alert')).toHaveLength(2);
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Save changes',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    fireEvent.change(label, { target: { value: 'Bad link' } });
+    fireEvent.change(href, { target: { value: 'javascript:alert(1)' } });
+    fireEvent.change(image, { target: { value: 'javascript:alert(1)' } });
+
+    expect(
+      screen.getByText(/local path starting with \/ or an http\(s\) URL/i),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /local image path starting with \/ or an http\(s\) image URL/i,
+      ),
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Save changes',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(saveConfigMock).not.toHaveBeenCalled();
+
+    fireEvent.change(href, { target: { value: 'https://hybridclaw.io' } });
+    fireEvent.change(image, { target: { value: '/icons/cloud.svg' } });
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Save changes',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
   });
 
   it('surfaces a FieldError for malformed JSON in raw mode and blocks saving', async () => {

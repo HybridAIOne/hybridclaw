@@ -1,11 +1,13 @@
 import type { JsonWebKey } from 'node:crypto';
 import type { BaseMessageOptions } from 'discord.js';
 import type { A2AEnvelope } from '../a2a/envelope.js';
+import type { A2AIncomingPairingRequest } from '../a2a/pairing.js';
 import type { A2ATrustedPublicKeyPeer } from '../a2a/trust-ledger.js';
 import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
 import type {
   AgentBudgetCurrency,
   AgentBudgetUnit,
+  AgentProxyConversationScope,
 } from '../agents/agent-types.js';
 import type {
   AgentTeamStructureDiff,
@@ -17,19 +19,26 @@ import type { SlackWebhookSendResult } from '../channels/slack-webhook/delivery.
 import type {
   MSTeamsReplyStyle,
   RuntimeConfig,
+  RuntimeDeploymentMode,
   RuntimeDeploymentTunnelProvider,
   RuntimeDiscordChannelConfig,
   RuntimeMSTeamsChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
+import type {
+  McpOAuthConnectionState,
+  McpOAuthStartResult,
+  McpOAuthStatus,
+} from '../mcp/mcp-oauth.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type {
+  SkillInstallSpec,
   SkillManifestConfigVariable,
   SkillManifestDeclaredCredential,
 } from '../skills/skills.js';
 import type { SkillGuardFinding } from '../skills/skills-guard.js';
 import type { TunnelState } from '../tunnel/tunnel-provider.js';
-import type { MediaContextItem } from '../types/container.js';
+import type { AddressEnvelope, MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
   PendingApproval,
@@ -69,19 +78,22 @@ export interface GatewayAssistantPresentation {
   imageUrl?: string;
 }
 
+export type GatewayChatResultMessageRole = 'assistant' | 'approval' | 'command';
+export type GatewayAddressEnvelope = AddressEnvelope;
+
 export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
   /**
-   * True when this result was produced by handling a slash command rather than
-   * by the model. Lets clients (e.g. the web console) render command/system
-   * output distinctly from assistant replies.
+   * UI presentation role for the result message. This is separate from persisted
+   * history roles and avoids inferring rendering from command/approval metadata.
    */
-  commandResult?: boolean;
+  messageRole?: GatewayChatResultMessageRole;
   pluginsUsed?: string[];
   skillUsed?: string;
   agentId?: string;
+  addressEnvelope?: GatewayAddressEnvelope;
   assistantPresentation?: GatewayAssistantPresentation;
   model?: string;
   provider?: string;
@@ -182,6 +194,7 @@ export interface GatewayChatRequest {
   content: GatewayChatRequestBody['content'];
   media?: GatewayChatRequestBody['media'];
   agentId?: GatewayChatRequestBody['agentId'];
+  addressEnvelope?: GatewayAddressEnvelope;
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];
   enableRag?: GatewayChatRequestBody['enableRag'];
@@ -282,6 +295,7 @@ export interface GatewayHistoryBranchFamily {
 
 export interface GatewayHistoryResponse {
   sessionId: string;
+  agentId?: string | null;
   // Routing metadata for related chat session instances. These are not bearer
   // credentials and must never be used for authorization decisions.
   // If they ever become auth-relevant, remove them from web responses instead
@@ -319,6 +333,12 @@ export interface GatewayRecentChatSession {
 
 export interface GatewayRecentChatSessionsResponse {
   sessions: GatewayRecentChatSession[];
+}
+
+export interface GatewayNoUserChatSessionCleanupResult {
+  deletedCount: number;
+  deletedSessionIds: string[];
+  keptSessionId?: string;
 }
 
 export interface GatewaySchedulerJobStatus {
@@ -484,6 +504,7 @@ export interface GatewayStatus {
     jid: string | null;
     pairingQrText: string | null;
     pairingUpdatedAt: string | null;
+    pairingError: string | null;
   };
   signal?: {
     enabled: boolean;
@@ -639,6 +660,18 @@ export interface GatewayAdminTunnelStatus {
   lastError: string | null;
   lastCheckedAt: string | null;
   nextReconnectAt: string | null;
+}
+
+export interface GatewayAdminTunnelConfig {
+  mode: RuntimeDeploymentMode;
+  provider: RuntimeDeploymentTunnelProvider | null;
+  publicUrl: string;
+  healthCheckIntervalMs: number;
+}
+
+export interface GatewayAdminTunnelConfigResponse {
+  config: GatewayAdminTunnelConfig;
+  tunnel: GatewayAdminTunnelStatus;
 }
 
 export interface GatewayAdminOverview {
@@ -819,10 +852,20 @@ export interface GatewayAgentsResponse {
 export interface GatewayAgentListItem {
   id: string;
   name: string | null;
+  imageUrl?: string;
+  emptyChatHeader?: string;
+}
+
+export interface GatewayRemoteAgentListPeer {
+  peerId: string;
+  instanceId: string;
+  agentCardUrl: string;
+  agents: GatewayAgentListItem[];
 }
 
 export interface GatewayAgentListResponse {
   agents: GatewayAgentListItem[];
+  remotePeers?: GatewayRemoteAgentListPeer[];
 }
 
 export interface GatewayAdminJobAgent {
@@ -900,6 +943,7 @@ export interface GatewayAdminBoardBudgetResponse {
 export interface GatewayAdminDeleteSessionResult {
   deleted: boolean;
   sessionId: string;
+  skippedReason?: 'has_user_messages';
   deletedMessages: number;
   deletedTasks: number;
   deletedSemanticMemories: number;
@@ -1031,6 +1075,7 @@ export interface GatewayAdminA2ATrustPeer extends GatewayAdminA2ATrustPeerBase {
 export interface GatewayAdminA2ATrustResponse {
   identity: GatewayAdminA2AIdentity;
   peers: GatewayAdminA2ATrustPeer[];
+  pairingRequests: GatewayAdminA2APairingRequest[];
 }
 
 export interface GatewayAdminA2ATrustUpsertRequest {
@@ -1040,6 +1085,96 @@ export interface GatewayAdminA2ATrustUpsertRequest {
   publicKeyFingerprint?: unknown;
   publicKeyJwk?: unknown;
   reason?: unknown;
+}
+
+export interface GatewayAdminFleetTopologyHq {
+  instanceId: string;
+  publicKeyFingerprint: string;
+  version: string;
+  status: 'local';
+  latencyMs: number;
+  lastSeenAt: string;
+}
+
+export type GatewayAdminFleetTopologyInstanceStatus =
+  | 'online'
+  | 'unreachable'
+  | 'unconfigured'
+  | 'revoked';
+
+export interface GatewayAdminFleetTopologyInstance {
+  peerId: string;
+  agentCardUrl: string;
+  deliveryUrl: string;
+  publicKeyFingerprint: string;
+  trustStatus: 'trusted' | 'revoked';
+  status: GatewayAdminFleetTopologyInstanceStatus;
+  version: string | null;
+  latencyMs: number | null;
+  error: string | null;
+  trustedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
+}
+
+export interface GatewayAdminFleetTopologyResponse {
+  hq: GatewayAdminFleetTopologyHq;
+  instances: GatewayAdminFleetTopologyInstance[];
+}
+
+export interface GatewayAdminFleetTopologyUpsertRequest {
+  peerId?: unknown;
+  agentCardUrl?: unknown;
+  deliveryUrl?: unknown;
+  publicKeyFingerprint?: unknown;
+  publicKeyJwk?: unknown;
+  reason?: unknown;
+}
+
+export interface GatewayAdminA2APairingRequest
+  extends A2AIncomingPairingRequest {}
+
+export interface GatewayAdminA2APairingStartRequest {
+  peerUrl?: unknown;
+  canonicalId?: unknown;
+  canonicalInstanceId?: unknown;
+  reason?: unknown;
+  notifyPeer?: unknown;
+}
+
+export interface GatewayAdminA2APairingPreviewResponse {
+  proposal: {
+    peerId: string;
+    agentCardUrl: string;
+    deliveryUrl: string;
+    publicKeyFingerprint: string;
+    publicKeyJwk: JsonWebKey;
+    name: string | null;
+  };
+}
+
+export interface GatewayAdminA2APairingDecisionRequest {
+  requestId?: unknown;
+  reason?: unknown;
+}
+
+export interface GatewayAdminA2APairingStartResponse
+  extends GatewayAdminA2ATrustResponse {
+  proposal: {
+    peerId: string;
+    agentCardUrl: string;
+    deliveryUrl: string;
+    publicKeyFingerprint: string;
+    name: string | null;
+  };
+  remoteNotification: {
+    status: 'not_requested' | 'sent' | 'failed';
+    url: string | null;
+    error: string | null;
+  };
 }
 
 export interface GatewayAdminA2AThreadMessage {
@@ -1069,7 +1204,11 @@ export interface GatewayAdminA2AInboxResponse {
 
 export interface GatewayAdminAgentMarkdownFile {
   name: string;
+  displayName?: string;
   path: string;
+  scope?: 'agent' | 'installation' | 'company';
+  cloudPath?: string;
+  readOnly?: boolean;
   exists: boolean;
   updatedAt: string | null;
   sizeBytes: number | null;
@@ -1083,13 +1222,26 @@ export interface GatewayAdminAgentMarkdownRevision {
   source: 'save' | 'restore';
 }
 
+export interface GatewayAdminAgentProxyConfig {
+  kind: 'hybridai';
+  baseUrl: string;
+  chatbotId: string;
+  apiKey: {
+    source: 'store';
+    id: string;
+  };
+  conversationScope?: AgentProxyConversationScope;
+}
+
 export interface GatewayAdminAgent {
   id: string;
   name: string | null;
+  emptyChatHeader: string | null;
   model: string | null;
   skills: string[] | null;
   chatbotId: string | null;
   enableRag: boolean | null;
+  proxy?: GatewayAdminAgentProxyConfig | null;
   role: string | null;
   reportsTo: string | null;
   delegatesTo: string[] | null;
@@ -1101,6 +1253,17 @@ export interface GatewayAdminAgent {
 
 export interface GatewayAdminAgentsResponse {
   agents: GatewayAdminAgent[];
+}
+
+export interface GatewayAdminHybridAIBot {
+  id: string;
+  name: string;
+  description?: string;
+  model?: string;
+}
+
+export interface GatewayAdminHybridAIBotsResponse {
+  bots: GatewayAdminHybridAIBot[];
 }
 
 export interface GatewayAdminTeamStructureRevision {
@@ -1229,15 +1392,27 @@ export interface GatewayAdminSchedulerResponse {
   jobs: GatewayAdminSchedulerJob[];
 }
 
+export type GatewayAdminMcpAuthState = McpOAuthConnectionState;
+
+export type GatewayAdminMcpAuthStatus = McpOAuthStatus;
+
 export interface GatewayAdminMcpServer {
   name: string;
   enabled: boolean;
   summary: string;
   config: McpServerConfig;
+  auth: GatewayAdminMcpAuthStatus;
 }
 
 export interface GatewayAdminMcpResponse {
   servers: GatewayAdminMcpServer[];
+}
+
+export type GatewayAdminMcpOAuthStartResponse = McpOAuthStartResult;
+
+export interface GatewayAdminMcpOAuthStatusResponse {
+  name: string;
+  auth: GatewayAdminMcpAuthStatus;
 }
 
 export interface GatewayAdminAuditEntry {
@@ -1356,11 +1531,82 @@ export interface GatewayAdminApprovalsResponse {
 
 export type GatewayAdminSkillGuardFinding = Omit<SkillGuardFinding, 'match'>;
 
+export interface GatewayAdminSkillPrompt {
+  prompt: string;
+  kind: 'try-it' | 'conversation';
+  turnIndex?: number;
+  conversationId?: string;
+}
+
+export interface GatewayAdminSkillScreenshot {
+  src: string;
+  alt: string;
+  title?: string;
+}
+
+export interface GatewayAdminSkillDocs {
+  title: string;
+  sourcePath: string;
+  sourceHref: string;
+  tutorialMarkdown: string;
+  examplePrompts: GatewayAdminSkillPrompt[];
+  screenshots: GatewayAdminSkillScreenshot[];
+}
+
+export type GatewayAdminSkillPackageEntryKind =
+  | 'directory'
+  | 'file'
+  | 'symlink'
+  | 'other';
+
+export interface GatewayAdminSkillPackageFile {
+  path: string;
+  name: string;
+  kind: GatewayAdminSkillPackageEntryKind;
+  sizeBytes: number | null;
+  updatedAt: string | null;
+  editable: boolean;
+  previewable: boolean;
+}
+
+export interface GatewayAdminSkillPackageFilesResponse {
+  skillName: string;
+  rootPath: string;
+  files: GatewayAdminSkillPackageFile[];
+}
+
+export interface GatewayAdminSkillPackageFileResponse {
+  skillName: string;
+  rootPath: string;
+  file: GatewayAdminSkillPackageFile & {
+    content: string | null;
+  };
+}
+
+export interface GatewayAdminSkillInvocation {
+  sessionId: string;
+  userMessageId: number;
+  assistantMessageId: number | null;
+  username: string | null;
+  createdAt: string;
+  responseCreatedAt: string | null;
+  userPrompt: string;
+  skillInput: string;
+  response: string | null;
+}
+
+export interface GatewayAdminSkillInvocationsResponse {
+  skillName: string;
+  invocations: GatewayAdminSkillInvocation[];
+}
+
 export interface GatewayAdminSkill {
   name: string;
   description: string;
   category: string;
   shortDescription?: string;
+  logoUrl?: string;
+  developer: string;
   source: string;
   available: boolean;
   enabled: boolean;
@@ -1371,10 +1617,18 @@ export interface GatewayAdminSkill {
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
+  capabilities: string[];
+  supportedChannels: string[];
+  requires: {
+    bins: string[];
+    env: string[];
+  };
   tags: string[];
   relatedSkills: string[];
+  install: SkillInstallSpec[];
   credentials: SkillManifestDeclaredCredential[];
   configVariables: SkillManifestConfigVariable[];
+  docs?: GatewayAdminSkillDocs;
 }
 
 export interface GatewayAdminSkillsResponse {

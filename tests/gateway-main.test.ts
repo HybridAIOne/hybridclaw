@@ -76,6 +76,7 @@ function createGatewayMainTestState(options?: {
         imapSecure: true,
         smtpHost: options?.emailEnabled ? 'smtp.example.com' : '',
         smtpSecure: false,
+        accounts: [],
       },
       discordWebhook: {
         enabled: false,
@@ -314,8 +315,12 @@ function createGatewayMainTestState(options?: {
     startWebhookOutboxProcessor: vi.fn(),
     stopWebhookOutboxProcessor: vi.fn(),
     startDiscoveryLoop: vi.fn(),
+    startPeriodicCloudMemorySync: vi.fn(),
+    stopPeriodicCloudMemorySync: vi.fn(),
     hybridAIProbeGet: vi.fn(async () => ({})),
     localBackendsProbeGet: vi.fn(async () => new Map()),
+    initSentry: vi.fn(async () => {}),
+    shutdownSentry: vi.fn(async () => {}),
     startObservabilityIngest: vi.fn(),
     startScheduler: vi.fn(),
     whatsappLinked: options?.whatsappLinked === true,
@@ -612,6 +617,10 @@ async function importFreshGatewayMain(options?: {
       setConsolidationLanguage: state.memoryServiceSetLanguage,
     },
   }));
+  vi.doMock('../src/memory/cloud-memory.js', () => ({
+    startPeriodicCloudMemorySync: state.startPeriodicCloudMemorySync,
+    stopPeriodicCloudMemorySync: state.stopPeriodicCloudMemorySync,
+  }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
     listAgents: state.listAgents,
     resolveAgentForRequest: state.resolveAgentForRequest,
@@ -634,6 +643,11 @@ async function importFreshGatewayMain(options?: {
       peek: vi.fn(() => null),
       invalidate: vi.fn(),
     },
+  }));
+  vi.doMock('../src/observability/sentry.js', () => ({
+    captureSentryException: vi.fn(),
+    initSentry: state.initSentry,
+    shutdownSentry: state.shutdownSentry,
   }));
   vi.doMock('../src/scheduler/heartbeat.js', () => ({
     startHeartbeat: state.startHeartbeat,
@@ -769,6 +783,7 @@ useCleanMocks({
     '../src/a2a/webhook-outbound.js',
     '../src/providers/local-discovery.js',
     '../src/providers/local-health.js',
+    '../src/observability/sentry.js',
     '../src/scheduler/heartbeat.js',
     '../src/scheduler/scheduler.js',
     '../src/gateway/gateway-service.js',
@@ -787,6 +802,7 @@ describe('gateway bootstrap', () => {
     const state = await importFreshGatewayMain();
 
     expect(state.initDatabase).toHaveBeenCalledTimes(1);
+    expect(state.initSentry).toHaveBeenCalledTimes(1);
     expect(state.migrateConfigSchedulerJobsToDatabase).toHaveBeenCalledTimes(1);
     expect(state.initGatewayService).toHaveBeenCalledTimes(1);
     expect(state.resumeEnabledFullAutoSessions).toHaveBeenCalledTimes(1);
@@ -800,6 +816,9 @@ describe('gateway bootstrap', () => {
     );
     expect(state.startWebhookOutboxProcessor).toHaveBeenCalledTimes(1);
     expect(state.startDiscoveryLoop).toHaveBeenCalledTimes(1);
+    expect(state.startPeriodicCloudMemorySync).toHaveBeenCalledWith({
+      resolveAgentIds: expect.any(Function),
+    });
     expect(state.startObservabilityIngest).toHaveBeenCalledTimes(1);
     expect(state.startScheduler).toHaveBeenCalledTimes(1);
     expect(state.onConfigChange).toHaveBeenCalledTimes(1);
@@ -1276,6 +1295,56 @@ describe('gateway bootstrap', () => {
         channelId: 'tui',
         result: idleText,
       }),
+      'Scheduled task completed',
+    );
+  });
+
+  test('delivers empty HEARTBEAT.md scheduler no-op reports when a scheduler job reaches the model', async () => {
+    const state = await importFreshGatewayMain();
+    const idleText =
+      'Nothing to report. HEARTBEAT.md is empty — no periodic tasks configured.';
+    state.runGatewayScheduledTask.mockImplementation(
+      async (...args: unknown[]) => {
+        const onResult = args[4] as (result: {
+          text: string;
+        }) => Promise<void>;
+        await onResult({ text: idleText });
+      },
+    );
+
+    await state.scheduledTaskRunner?.({
+      source: 'scheduler-job',
+      jobId: 'budget-tokens',
+      sessionId: 'scheduler:budget-tokens',
+      channelId: 'tui',
+      prompt: 'Hi',
+      actionKind: 'agent_turn',
+      delivery: {
+        kind: 'channel',
+        channelId: 'tui',
+      },
+    });
+
+    expect(state.runGatewayScheduledTask).toHaveBeenCalledTimes(1);
+    expect(state.loggerInfo).not.toHaveBeenCalledWith(
+      {
+        jobId: 'budget-tokens',
+        taskId: undefined,
+        source: 'scheduler-job',
+        channelId: 'tui',
+        result: idleText,
+      },
+      'Scheduled task completed without TUI delivery',
+    );
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      {
+        jobId: 'budget-tokens',
+        taskId: undefined,
+        source: 'scheduler-job',
+        channelId: 'tui',
+        artifactCount: 0,
+        result: idleText,
+      },
       'Scheduled task completed',
     );
   });
@@ -2771,6 +2840,8 @@ describe('gateway bootstrap', () => {
     expect(state.shutdownSlack).toHaveBeenCalledTimes(1);
     expect(state.shutdownTelegram).toHaveBeenCalledTimes(1);
     expect(state.shutdownWhatsApp).toHaveBeenCalledTimes(1);
+    expect(state.stopPeriodicCloudMemorySync).toHaveBeenCalledTimes(1);
+    expect(state.shutdownSentry).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 

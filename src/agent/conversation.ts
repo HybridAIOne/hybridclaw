@@ -1,6 +1,7 @@
 import os from 'node:os';
 
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
 import {
   type HistoryOptimizationStats,
   optimizeHistoryMessagesForPrompt,
@@ -26,6 +27,7 @@ import {
   type PromptMode,
   type PromptPartName,
   type PromptRuntimeInfo,
+  type SkillPromptMode,
 } from './prompt-hooks.js';
 import { mergeBlockedToolNames } from './tool-policy.js';
 
@@ -126,6 +128,7 @@ export function buildConversationContext(params: {
   history: HistoryMessage[];
   expandLatestHistoryUser?: boolean;
   promptMode?: PromptMode;
+  skillPromptMode?: SkillPromptMode;
   includePromptParts?: PromptPartName[];
   omitPromptParts?: PromptPartName[];
   extraSafetyText?: string;
@@ -141,6 +144,7 @@ export function buildConversationContext(params: {
     history,
     expandLatestHistoryUser = false,
     promptMode = 'full',
+    skillPromptMode = 'full',
     includePromptParts,
     omitPromptParts,
     extraSafetyText,
@@ -149,6 +153,9 @@ export function buildConversationContext(params: {
     blockedTools,
     currentUserContent,
   } = params;
+  if (promptMode !== 'none') {
+    scheduleCloudMemorySync(agentId);
+  }
   const mergedBlockedTools = mergeBlockedToolNames({ explicit: blockedTools });
   const skills = loadSkills(
     agentId,
@@ -169,6 +176,7 @@ export function buildConversationContext(params: {
     explicitSkillInvocation,
     purpose: 'conversation',
     promptMode,
+    skillPromptMode,
     includePromptParts,
     omitPromptParts,
     extraSafetyText,

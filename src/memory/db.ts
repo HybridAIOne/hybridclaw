@@ -14,6 +14,7 @@ import {
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   normalizeAgentIdentityFields,
+  normalizeAgentProxyConfig,
   validateAgentOrgChart,
 } from '../agents/agent-types.js';
 import {
@@ -33,6 +34,13 @@ import {
   runtimeConfigRevisionStorePath,
   syncRuntimeAssetRevisionStateInOpenDatabase,
 } from '../config/runtime-config-revisions.js';
+import {
+  type Actor,
+  ActorValidationError,
+  actorFromLegacyFields,
+  createUserActor,
+  normalizeActor,
+} from '../identity/actor.js';
 import {
   AGENT_IDENTITY_COMPONENT_MAX_LENGTH,
   deriveLocalAgentIdentity,
@@ -154,10 +162,13 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 42;
+export const DATABASE_SCHEMA_VERSION = 45;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
+const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
+const ACTOR_ID_MAX_LENGTH =
+  AGENT_IDENTITY_COMPONENT_MAX_LENGTH * 3 + '@'.length * 2;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
   'messages_recent_chat_search_ai';
@@ -173,6 +184,8 @@ const STRUCTURED_AUDIT_SELECT_COLUMNS = [
   'timestamp',
   'run_id',
   'parent_run_id',
+  'actor_type',
+  'actor_id',
   'payload',
   'wire_hash',
   'wire_prev_hash',
@@ -203,6 +216,7 @@ type AgentRow = {
   name: string | null;
   display_name: string | null;
   image_asset: string | null;
+  empty_chat_header: string | null;
   model: string | null;
   skills: string | null;
   chatbot_id: string | null;
@@ -216,11 +230,13 @@ type AgentRow = {
   cv: string | null;
   escalation_target: string | null;
   a2a: string | null;
+  proxy: string | null;
   created_at: string;
   updated_at: string;
 };
 
 interface ConversationHistoryPageRow {
+  session_agent_id: string | null;
   session_key: string | null;
   main_session_key: string | null;
   id: number | null;
@@ -254,6 +270,9 @@ export interface ResponseRatingTarget {
   role: string;
   model: string | null;
   provider: string | null;
+  chatbot_id: string | null;
+  user_content: string | null;
+  assistant_content: string;
   skill_observation_id: number | null;
   skill_run_id: string | null;
   skill_name: string | null;
@@ -350,6 +369,16 @@ function queryAll<Row>(
   ...params: unknown[]
 ): Row[] {
   return database.prepare<unknown[], Row>(sql).all(...params);
+}
+
+function queryHydratedAuditEntries<Bind extends unknown[] = []>(
+  database: Database.Database,
+  sql: string,
+  ...params: Bind
+): StructuredAuditEntry[] {
+  return queryAll<StructuredAuditEntry, Bind>(database, sql, ...params).map(
+    hydrateStructuredAuditEntry,
+  );
 }
 
 function tableExists(database: Database.Database, table: string): boolean {
@@ -530,6 +559,22 @@ function agentSkillScoresNeedMigration(database: Database.Database): boolean {
 function agentA2ANeedMigration(database: Database.Database): boolean {
   return (
     tableExists(database, 'agents') && !columnExists(database, 'agents', 'a2a')
+  );
+}
+
+function agentProxyNeedMigration(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'agents') &&
+    !columnExists(database, 'agents', 'proxy')
+  );
+}
+
+function agentEmptyChatHeaderNeedMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'agents') &&
+    !columnExists(database, 'agents', 'empty_chat_header')
   );
 }
 
@@ -838,6 +883,8 @@ function migrateV1(database: Database.Database): void {
       timestamp TEXT NOT NULL,
       run_id TEXT NOT NULL,
       parent_run_id TEXT,
+      actor_type TEXT CHECK (actor_type IN ('user', 'agent')),
+      actor_id TEXT CHECK (actor_id IS NULL OR length(actor_id) <= ${ACTOR_ID_MAX_LENGTH}),
       payload TEXT NOT NULL,
       wire_hash TEXT NOT NULL,
       wire_prev_hash TEXT NOT NULL,
@@ -847,6 +894,7 @@ function migrateV1(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_audit_events_type_timestamp ON audit_events(event_type, timestamp);
     CREATE INDEX IF NOT EXISTS idx_audit_events_session_seq ON audit_events(session_id, seq);
     CREATE INDEX IF NOT EXISTS idx_audit_events_run_seq ON audit_events(run_id, seq);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_actor_timestamp ON audit_events(actor_type, actor_id, timestamp);
 
     CREATE TABLE IF NOT EXISTS observability_offsets (
       stream_key TEXT PRIMARY KEY,
@@ -1368,6 +1416,7 @@ function migrateV6(
         name TEXT,
         display_name TEXT,
         image_asset TEXT,
+        empty_chat_header TEXT,
         model TEXT,
         skills TEXT,
         chatbot_id TEXT,
@@ -2944,6 +2993,112 @@ function migrateV42(database: Database.Database): void {
   recordMigration(database, 42, 'Persist per-response operator ratings');
 }
 
+function auditEventsNeedActorMigration(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'audit_events') &&
+    (!columnExists(database, 'audit_events', 'actor_type') ||
+      !columnExists(database, 'audit_events', 'actor_id') ||
+      !indexExists(database, 'idx_audit_events_actor_timestamp'))
+  );
+}
+
+function migrateV43(database: Database.Database): void {
+  if (!tableExists(database, 'audit_events')) {
+    recordMigration(database, 43, 'Index structured audit events by Actor');
+    return;
+  }
+
+  addColumnIfMissing({
+    database,
+    table: 'audit_events',
+    column: 'actor_type',
+    ddl: "actor_type TEXT CHECK (actor_type IN ('user', 'agent'))",
+    quiet: true,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'audit_events',
+    column: 'actor_id',
+    ddl: `actor_id TEXT CHECK (actor_id IS NULL OR length(actor_id) <= ${ACTOR_ID_MAX_LENGTH})`,
+    quiet: true,
+  });
+
+  const selectBatch = database.prepare(
+    `SELECT id, payload
+     FROM audit_events
+     WHERE (actor_type IS NULL OR actor_id IS NULL)
+       AND id > ?
+     ORDER BY id ASC
+     LIMIT ?`,
+  );
+  const update = database.prepare(
+    `UPDATE audit_events
+     SET actor_type = ?, actor_id = ?
+     WHERE id = ?`,
+  );
+  let lastId = 0;
+  let skippedRows = 0;
+  while (true) {
+    const rows = selectBatch.all(
+      lastId,
+      AUDIT_ACTOR_MIGRATION_BATCH_SIZE,
+    ) as Array<{ id: number; payload: string }>;
+    if (rows.length === 0) break;
+
+    database.transaction(() => {
+      for (const row of rows) {
+        lastId = row.id;
+        const actor = readAuditActorFromPayloadText(row.payload);
+        if (!actor) {
+          skippedRows += 1;
+          continue;
+        }
+        update.run(actor.type, actor.id, row.id);
+      }
+    })();
+  }
+
+  if (skippedRows > 0) {
+    logger.warn(
+      { skippedRows },
+      'Structured audit actor migration skipped rows without a recoverable actor',
+    );
+  }
+
+  database.exec(
+    'CREATE INDEX IF NOT EXISTS idx_audit_events_actor_timestamp ON audit_events(actor_type, actor_id, timestamp)',
+  );
+  recordMigration(database, 43, 'Index structured audit events by Actor');
+}
+
+function migrateV44(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'proxy',
+    ddl: 'proxy TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 44, 'Persist per-agent proxy backend metadata');
+}
+
+function migrateV45(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'empty_chat_header',
+    ddl: 'empty_chat_header TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 45, 'Persist per-agent empty chat header');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3049,6 +3204,15 @@ function runMigrations(
   }
   if (currentVersion < 42 || responseRatingsNeedMigration(database)) {
     migrateV42(database);
+  }
+  if (currentVersion < 43 || auditEventsNeedActorMigration(database)) {
+    migrateV43(database);
+  }
+  if (currentVersion < 44 || agentProxyNeedMigration(database)) {
+    migrateV44(database, opts);
+  }
+  if (currentVersion < 45 || agentEmptyChatHeaderNeedMigration(database)) {
+    migrateV45(database, opts);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -3314,6 +3478,25 @@ function parseAgentA2AConfig(rawConfig: string | null): AgentConfig['a2a'] {
   }
 }
 
+function serializeAgentProxyConfig(proxy: AgentConfig['proxy']): string | null {
+  return proxy ? JSON.stringify(proxy) : null;
+}
+
+function parseAgentProxyConfig(rawConfig: string | null): AgentConfig['proxy'] {
+  const normalized = rawConfig?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    return normalizeAgentProxyConfig(JSON.parse(normalized), 'agents.proxy');
+  } catch {
+    logger.warn(
+      { configLength: normalized.length },
+      'Failed to parse persisted agent proxy configuration',
+    );
+    return undefined;
+  }
+}
+
 function normalizeStoredIdentityField(
   value: string | null,
   parseIdentity: (normalized: string) => { id: string },
@@ -3470,6 +3653,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const name = row.name?.trim() || '';
   const displayName = row.display_name?.trim() || '';
   const imageAsset = row.image_asset?.trim() || '';
+  const emptyChatHeader = row.empty_chat_header?.trim() || '';
   const model = parseAgentModelConfig(row.model);
   const skills = parseAgentSkillsConfig(row.skills);
   const chatbotId = row.chatbot_id?.trim() || '';
@@ -3482,6 +3666,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const cv = parseAgentCv(row.cv);
   const escalationTarget = parseAgentEscalationTarget(row.escalation_target);
   const a2a = parseAgentA2AConfig(row.a2a);
+  const proxy = parseAgentProxyConfig(row.proxy);
   return {
     id: row.id,
     ...(canonicalId ? { canonicalId } : {}),
@@ -3489,6 +3674,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(name ? { name } : {}),
     ...(displayName ? { displayName } : {}),
     ...(imageAsset ? { imageAsset } : {}),
+    ...(emptyChatHeader ? { emptyChatHeader } : {}),
     ...(model ? { model } : {}),
     ...(skills !== undefined ? { skills } : {}),
     ...(chatbotId ? { chatbotId } : {}),
@@ -3504,11 +3690,12 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(cv ? { cv } : {}),
     ...(escalationTarget ? { escalationTarget } : {}),
     ...(a2a ? { a2a } : {}),
+    ...(proxy ? { proxy } : {}),
   };
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, canonical_id, owner_user_id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, created_at, updated_at';
+  'id, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -3543,6 +3730,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const normalizedName = agent.name?.trim() || null;
   const normalizedDisplayName = agent.displayName?.trim() || null;
   const normalizedImageAsset = agent.imageAsset?.trim() || null;
+  const normalizedEmptyChatHeader = agent.emptyChatHeader?.trim() || null;
   const normalizedModel = serializeAgentModelConfig(agent.model);
   const normalizedSkills = serializeAgentSkillsConfig(agent.skills);
   const normalizedChatbotId = agent.chatbotId?.trim() || null;
@@ -3557,6 +3745,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     agent.escalationTarget,
   );
   const normalizedA2A = serializeAgentA2AConfig(agent.a2a);
+  const normalizedProxy = serializeAgentProxyConfig(agent.proxy);
   const explicitIdentity = normalizeAgentIdentityFields({
     canonicalId: agent.canonicalId,
     ownerUserId: agent.ownerUserId,
@@ -3607,6 +3796,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        name,
        display_name,
        image_asset,
+       empty_chat_header,
        model,
        skills,
        chatbot_id,
@@ -3620,15 +3810,17 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        cv,
        escalation_target,
        a2a,
+       proxy,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        canonical_id = excluded.canonical_id,
        owner_user_id = excluded.owner_user_id,
        name = excluded.name,
        display_name = excluded.display_name,
        image_asset = excluded.image_asset,
+       empty_chat_header = excluded.empty_chat_header,
        model = excluded.model,
        skills = excluded.skills,
        chatbot_id = excluded.chatbot_id,
@@ -3642,6 +3834,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        cv = excluded.cv,
        escalation_target = excluded.escalation_target,
        a2a = excluded.a2a,
+       proxy = excluded.proxy,
        updated_at = datetime('now')`,
   ).run(
     normalizedId,
@@ -3650,6 +3843,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedName,
     normalizedDisplayName,
     normalizedImageAsset,
+    normalizedEmptyChatHeader,
     normalizedModel,
     normalizedSkills,
     normalizedChatbotId,
@@ -3663,6 +3857,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedCv,
     normalizedEscalationTarget,
     normalizedA2A,
+    normalizedProxy,
   );
   const storedAgent = getAgentById(normalizedId);
   if (!storedAgent) {
@@ -3885,6 +4080,24 @@ export function setMemoryValue(
   ).run(sessionId, normalizedKey, valueBlob, now);
 }
 
+export function claimMemoryValue(
+  sessionId: string,
+  key: string,
+  value: unknown,
+): boolean {
+  const normalizedKey = normalizeMemoryKvKey(key);
+  if (!normalizedKey) return false;
+  const valueBlob = serializeMemoryKvValue(value);
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `INSERT OR IGNORE INTO kv_store (agent_id, key, value, version, updated_at)
+       VALUES (?, ?, ?, 1, ?)`,
+    )
+    .run(sessionId, normalizedKey, valueBlob, now);
+  return result.changes > 0;
+}
+
 export function deleteMemoryValue(sessionId: string, key: string): boolean {
   const normalizedKey = normalizeMemoryKvKey(key);
   if (!normalizedKey) return false;
@@ -3896,6 +4109,30 @@ export function deleteMemoryValue(sessionId: string, key: string): boolean {
     )
     .run(sessionId, normalizedKey);
   return result.changes > 0;
+}
+
+export function deleteMemoryValuesByKey(key: string): number {
+  const normalizedKey = normalizeMemoryKvKey(key);
+  if (!normalizedKey) return 0;
+  const result = db
+    .prepare(
+      `DELETE FROM kv_store
+       WHERE key = ?`,
+    )
+    .run(normalizedKey);
+  return result.changes;
+}
+
+export function deleteMemoryValuesByKeyPrefix(prefix: string): number {
+  const normalizedPrefix = normalizeMemoryKvKey(prefix);
+  if (!normalizedPrefix) return 0;
+  const result = db
+    .prepare(
+      `DELETE FROM kv_store
+       WHERE substr(key, 1, ?) = ?`,
+    )
+    .run(normalizedPrefix.length, normalizedPrefix);
+  return result.changes;
 }
 
 export function listMemoryValues(
@@ -6282,12 +6519,14 @@ export function getOrCreateSession(
   agentId?: string,
   options?: {
     forceNewCurrent?: boolean;
+    touch?: boolean;
   },
 ): Session {
   const requestedSessionId = String(sessionId || '').trim();
   const requestedAgentId = agentId?.trim() || '';
   const defaultAgentId = resolveDefaultAgentId(getRuntimeConfig());
   const forceNewCurrent = options?.forceNewCurrent === true;
+  const touch = options?.touch !== false;
   const canonicalSessionKey = resolveCanonicalSessionKey({
     requestedSessionId,
     guildId,
@@ -6304,12 +6543,12 @@ export function getOrCreateSession(
       requestedAgentId || exactSession.agent_id || defaultAgentId;
     db.prepare(
       `UPDATE sessions
-       SET last_active = datetime('now'),
-           agent_id = ?,
+       SET agent_id = ?,
            guild_id = ?,
            channel_id = ?,
            session_key = ?,
-           main_session_key = ?
+           main_session_key = ?,
+           last_active = CASE WHEN ? THEN datetime('now') ELSE last_active END
        WHERE id = ?`,
     ).run(
       nextAgentId,
@@ -6317,6 +6556,7 @@ export function getOrCreateSession(
       channelId,
       canonicalSessionKey || exactSession.id,
       mainSessionKey || canonicalSessionKey || exactSession.id,
+      touch ? 1 : 0,
       exactSession.id,
     );
     return requireSessionById(exactSession.id);
@@ -6336,12 +6576,12 @@ export function getOrCreateSession(
     const nextAgentId = requestedAgentId || existing.agent_id || defaultAgentId;
     db.prepare(
       `UPDATE sessions
-       SET last_active = datetime('now'),
-           agent_id = ?,
+       SET agent_id = ?,
            guild_id = ?,
            channel_id = ?,
            session_key = ?,
            main_session_key = ?,
+           last_active = CASE WHEN ? THEN datetime('now') ELSE last_active END,
            legacy_session_id = CASE
              WHEN ? THEN ?
              ELSE legacy_session_id
@@ -6353,6 +6593,7 @@ export function getOrCreateSession(
       channelId,
       canonicalSessionKey || existing.id,
       mainSessionKey || canonicalSessionKey || existing.id,
+      touch ? 1 : 0,
       requestedSessionId !== canonicalSessionKey &&
         isLegacySessionKey(requestedSessionId)
         ? 1
@@ -6401,6 +6642,21 @@ export function getSessionById(sessionId: string): Session | undefined {
     selectCurrentSessionByMainSessionKey(normalized) ||
     selectCurrentSessionByLegacySessionId(normalized)
   );
+}
+
+export function sessionHasUserMessages(sessionId: string): boolean {
+  ensureDatabaseReady();
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  if (!resolvedSessionId) return false;
+  const row = queryOne<{ count: number }, [string]>(
+    db,
+    `SELECT COUNT(*) AS count
+     FROM messages
+     WHERE session_id = ?
+       AND role = 'user'`,
+    resolvedSessionId,
+  );
+  return normalizeUsageNumber(row?.count) > 0;
 }
 
 export function getSessionsByChannelId(channelId: string): Session[] {
@@ -7159,6 +7415,134 @@ export function getRecentSessionsForUser(params: {
   });
 }
 
+export function getRecentSessionsForActor(params: {
+  actor: Actor;
+  channelId?: string | null;
+  limit?: number;
+  query?: string | null;
+  includeScheduled?: boolean;
+}): RecentUserSessionSummary[] {
+  if (params.actor.type === 'user') {
+    return getRecentSessionsForUser({
+      userId: params.actor.id,
+      channelId: params.channelId,
+      limit: params.limit,
+      query: params.query,
+      includeScheduled: params.includeScheduled,
+    });
+  }
+
+  const agentId = params.actor.id.trim();
+  if (!agentId) return [];
+  const channelId = String(params.channelId || '').trim();
+  const searchQuery = normalizeRecentChatSearchQuery(
+    params.query,
+  ).toLowerCase();
+  const limit = normalizeRecentChatSessionLimit(params.limit);
+  const sqlLimit = searchQuery ? MAX_RECENT_CHAT_SESSION_LIMIT : limit;
+  const scheduledWhere =
+    params.includeScheduled === false
+      ? ` AND ${NON_SCHEDULED_RECENT_SESSION_SQL}`
+      : '';
+
+  const rows = channelId
+    ? queryAll<RecentUserSessionRow, [string, string, number]>(
+        db,
+        `SELECT
+           s.id,
+           s.last_active,
+           s.message_count,
+           s.title,
+           (
+             SELECT MAX(all_messages.created_at)
+               FROM messages all_messages
+              WHERE all_messages.session_id = s.id
+           ) AS last_message_at
+           FROM sessions s
+           WHERE s.agent_id = ?
+             AND s.channel_id = ?
+             ${scheduledWhere}
+           ORDER BY COALESCE(last_message_at, s.last_active) DESC
+           LIMIT ?`,
+        agentId,
+        channelId,
+        sqlLimit,
+      )
+    : queryAll<RecentUserSessionRow, [string, number]>(
+        db,
+        `SELECT
+           s.id,
+           s.last_active,
+           s.message_count,
+           s.title,
+           (
+             SELECT MAX(all_messages.created_at)
+               FROM messages all_messages
+              WHERE all_messages.session_id = s.id
+           ) AS last_message_at
+           FROM sessions s
+           WHERE s.agent_id = ?
+             ${scheduledWhere}
+           ORDER BY COALESCE(last_message_at, s.last_active) DESC
+           LIMIT ?`,
+        agentId,
+        sqlLimit,
+      );
+
+  return buildRecentSessionSummaries({
+    rows,
+    boundaryUserId: null,
+    searchQuery,
+    limit,
+  });
+}
+
+export interface ActorDataDiscoveryResult {
+  actor: Actor;
+  sessions: RecentUserSessionSummary[];
+  auditEvents: StructuredAuditEntry[];
+}
+
+export function discoverActorData(params: {
+  actor: Actor;
+  channelId?: string | null;
+  limit?: number;
+  query?: string | null;
+  includeScheduled?: boolean;
+  auditLimit?: number;
+}): ActorDataDiscoveryResult {
+  ensureDatabaseReady();
+  const sessions = getRecentSessionsForActor({
+    actor: params.actor,
+    channelId: params.channelId,
+    limit: params.limit,
+    query: params.query,
+    includeScheduled: params.includeScheduled,
+  });
+  const auditLimit = Math.max(
+    1,
+    Math.min(Math.trunc(params.auditLimit ?? 200), 1_000),
+  );
+  const auditEvents = queryHydratedAuditEntries<[string, string, number]>(
+    db,
+    `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
+     FROM audit_events
+     WHERE actor_type = ?
+       AND actor_id = ?
+     ORDER BY id DESC
+     LIMIT ?`,
+    params.actor.type,
+    params.actor.id,
+    auditLimit,
+  );
+
+  return {
+    actor: params.actor,
+    sessions,
+    auditEvents,
+  };
+}
+
 export function getRecentSessionsForChannel(params: {
   channelId: string;
   limit?: number;
@@ -7456,6 +7840,9 @@ export function getResponseRatingTarget(params: {
       agent_id: string | null;
       role: string;
       model: string | null;
+      chatbot_id: string | null;
+      user_content: string | null;
+      assistant_content: string;
       skill_observation_id: number | null;
       skill_run_id: string | null;
       skill_name: string | null;
@@ -7469,8 +7856,19 @@ export function getResponseRatingTarget(params: {
          m.id AS message_id,
          m.agent_id,
          m.role,
+         COALESCE(m.content, '') AS assistant_content,
          m.created_at,
+         s.chatbot_id,
          s.model,
+         (
+           SELECT previous_user_message.content
+           FROM messages previous_user_message
+           WHERE previous_user_message.session_id = m.session_id
+             AND previous_user_message.id < m.id
+             AND previous_user_message.role = 'user'
+           ORDER BY previous_user_message.id DESC
+           LIMIT 1
+         ) AS user_content,
          (
            SELECT julianday(MAX(previous_user_message.created_at))
            FROM messages previous_user_message
@@ -7506,6 +7904,9 @@ export function getResponseRatingTarget(params: {
        target_message.agent_id,
        target_message.role,
        target_message.model,
+       target_message.chatbot_id,
+       target_message.user_content,
+       target_message.assistant_content,
        attributed_skill.id AS skill_observation_id,
        attributed_skill.run_id AS skill_run_id,
        attributed_skill.skill_name
@@ -7744,6 +8145,7 @@ export function getConversationHistoryPage(
   const rows = db
     .prepare(
       `SELECT
+         s.agent_id AS session_agent_id,
          s.session_key,
          s.main_session_key,
          m.id,
@@ -7775,6 +8177,7 @@ export function getConversationHistoryPage(
   if (rows.length === 0) {
     return {
       sessionId: resolvedSessionId,
+      agentId: null,
       sessionKey: null,
       mainSessionKey: null,
       history: [],
@@ -7809,6 +8212,7 @@ export function getConversationHistoryPage(
 
   return {
     sessionId: resolvedSessionId,
+    agentId: rows[0]?.session_agent_id || null,
     sessionKey: rows[0]?.session_key || null,
     mainSessionKey: rows[0]?.main_session_key || null,
     history,
@@ -9552,6 +9956,7 @@ function mapAgentSkillScoreRow(row: AgentSkillScoreAggregate): AgentSkillScore {
   });
   return {
     ...normalized,
+    actor: { type: 'agent', id: normalized.agent_id },
     quality_score: qualityScore,
     reliability_score: reliabilityScore,
     timing_score: timingScore,
@@ -10137,14 +10542,106 @@ function readPayloadBooleanValue(
   return typeof value === 'boolean' ? value : null;
 }
 
+interface ReadPayloadActorOptions {
+  warnInvalidLegacy?: boolean;
+  context?: Record<string, unknown>;
+}
+
+function warnInvalidAuditActor(
+  error: unknown,
+  options?: ReadPayloadActorOptions,
+): void {
+  if (!(error instanceof ActorValidationError)) throw error;
+  if (!options?.warnInvalidLegacy) return;
+  logger.warn(
+    { ...options.context, error: error.message },
+    'Structured audit event has invalid actor fields',
+  );
+}
+
+function readPayloadActor(
+  payload: Record<string, unknown>,
+  options?: ReadPayloadActorOptions,
+): Actor | null {
+  const actor = payload.actor;
+  if (actor && typeof actor === 'object' && !Array.isArray(actor)) {
+    const actorRecord = actor as Record<string, unknown>;
+    if (!('type' in actorRecord) && !('id' in actorRecord)) return null;
+    try {
+      return normalizeActor(actor);
+    } catch (error) {
+      warnInvalidAuditActor(error, options);
+      return null;
+    }
+  }
+
+  try {
+    return readPayloadActorFromLegacyFields(payload);
+  } catch (error) {
+    warnInvalidAuditActor(error, options);
+    return null;
+  }
+}
+
+function readPayloadActorFromLegacyFields(
+  payload: Record<string, unknown>,
+): Actor | null {
+  const userId = readPayloadStringValue(payload, 'userId')?.trim() || '';
+  const agentId = readPayloadStringValue(payload, 'agentId')?.trim() || '';
+  if (userId && agentId) {
+    return actorFromLegacyFields({ userId, agentId });
+  }
+  if (userId) {
+    return createUserActor(formatLocalOwnerUserId(userId));
+  }
+  if (agentId) {
+    return actorFromLegacyFields({ agentId });
+  }
+  return null;
+}
+
+function readAuditActorFromPayloadText(payloadText: string): Actor | null {
+  try {
+    const parsed = JSON.parse(payloadText) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return readPayloadActor(parsed as Record<string, unknown>);
+  } catch {
+    return null;
+  }
+}
+
+function hydrateStructuredAuditEntry(
+  entry: StructuredAuditEntry,
+): StructuredAuditEntry {
+  if (entry.actor_type && entry.actor_id) return entry;
+
+  const actor =
+    entry.actor_type && entry.actor_id
+      ? ({ type: entry.actor_type, id: entry.actor_id } as Actor)
+      : readAuditActorFromPayloadText(entry.payload);
+  if (!actor) return entry;
+
+  return {
+    ...entry,
+    actor_type: actor.type,
+    actor_id: actor.id,
+  };
+}
+
 export function logStructuredAuditEvent(record: WireRecord): void {
   const eventType = record.event.type || 'unknown';
+  const actor = readPayloadActor(record.event, {
+    warnInvalidLegacy: true,
+    context: { eventType, seq: record.seq, sessionId: record.sessionId },
+  });
   const payloadText = JSON.stringify(record.event);
 
   db.prepare(
     `INSERT OR IGNORE INTO audit_events (
-      session_id, seq, event_type, timestamp, run_id, parent_run_id, payload, wire_hash, wire_prev_hash
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      session_id, seq, event_type, timestamp, run_id, parent_run_id, actor_type, actor_id, payload, wire_hash, wire_prev_hash
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     record.sessionId,
     record.seq,
@@ -10152,6 +10649,8 @@ export function logStructuredAuditEvent(record: WireRecord): void {
     record.timestamp,
     record.runId,
     record.parentRunId || null,
+    actor?.type ?? null,
+    actor?.id ?? null,
     payloadText,
     record._hash,
     record._prevHash,
@@ -10189,7 +10688,7 @@ export function logStructuredAuditEvent(record: WireRecord): void {
 export function getRecentStructuredAudit(limit = 20): StructuredAuditEntry[] {
   ensureDatabaseReady();
   const bounded = Math.max(1, Math.min(limit, 1_000));
-  return queryAll<StructuredAuditEntry, [number]>(
+  return queryHydratedAuditEntries<[number]>(
     db,
     `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
      FROM audit_events
@@ -10200,6 +10699,7 @@ export function getRecentStructuredAudit(limit = 20): StructuredAuditEntry[] {
 }
 
 export interface AgentAnomalyRollup {
+  actor: Actor;
   agent_id: string;
   flagged: number;
   confirmed_normal: number;
@@ -10266,6 +10766,7 @@ export function getWeeklyAgentAnomalyRollups(
     const rollup =
       byAgent.get(agentId) ||
       ({
+        actor: { type: 'agent', id: agentId },
         agent_id: agentId,
         flagged: 0,
         confirmed_normal: 0,
@@ -10414,14 +10915,14 @@ function queryStructuredAuditEntries(params?: {
   `;
 
   if (limit == null) {
-    return queryAll<StructuredAuditEntry, Array<string | number>>(
+    return queryHydratedAuditEntries<Array<string | number>>(
       db,
       sql,
       ...values,
     );
   }
 
-  return queryAll<StructuredAuditEntry, Array<string | number>>(
+  return queryHydratedAuditEntries<Array<string | number>>(
     db,
     sql,
     ...values,
@@ -10452,7 +10953,7 @@ export function getRecentStructuredAuditForSessions(
   if (normalizedSessionIds.length === 0) return [];
   const limit = Math.max(1, Math.min(200, Math.trunc(perSessionLimit || 20)));
   const placeholders = normalizedSessionIds.map(() => '?').join(', ');
-  return queryAll<StructuredAuditEntry, Array<string | number>>(
+  return queryHydratedAuditEntries<Array<string | number>>(
     db,
     `WITH ranked_events AS (
        SELECT
@@ -10467,7 +10968,7 @@ export function getRecentStructuredAuditForSessions(
      SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
      FROM ranked_events
      WHERE liveness_rank <= ?
-     ORDER BY session_id ASC, seq DESC`,
+    ORDER BY session_id ASC, seq DESC`,
     ...normalizedSessionIds,
     limit,
   );
@@ -10551,13 +11052,13 @@ export function getStructuredAuditAfterId(
 ): StructuredAuditEntry[] {
   const boundedAfterId = Math.max(0, Math.floor(afterId));
   const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 5_000));
-  return queryAll<StructuredAuditEntry, [number, number]>(
+  return queryHydratedAuditEntries<[number, number]>(
     db,
     `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
      FROM audit_events
      WHERE id > ?
      ORDER BY id ASC
-     LIMIT ?`,
+    LIMIT ?`,
     boundedAfterId,
     boundedLimit,
   );
@@ -10572,10 +11073,7 @@ export function searchStructuredAudit(
   if (!normalized) return [];
   const bounded = Math.max(1, Math.min(limit, 1_000));
   const like = `%${normalized}%`;
-  return queryAll<
-    StructuredAuditEntry,
-    [string, string, string, string, number]
-  >(
+  return queryHydratedAuditEntries<[string, string, string, string, number]>(
     db,
     `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
      FROM audit_events

@@ -44,6 +44,31 @@ describe('NativeSelect', () => {
     expect(screen.getByDisplayValue('Bravo')).toBe(select);
   });
 
+  it('does not reset a select input event before the first change event', () => {
+    function ControlledInField() {
+      const [value, setValue] = useState('a');
+      return (
+        <Field controlId="choice">
+          <FieldLabel>Choice</FieldLabel>
+          <NativeSelect
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+          >
+            <NativeSelectOption value="a">Alpha</NativeSelectOption>
+            <NativeSelectOption value="b">Bravo</NativeSelectOption>
+          </NativeSelect>
+        </Field>
+      );
+    }
+
+    render(<ControlledInField />);
+    const select = screen.getByLabelText('Choice') as HTMLSelectElement;
+    fireEvent.input(select, { target: { value: 'b' } });
+    fireEvent.change(select);
+    expect(select.value).toBe('b');
+    expect(screen.getByDisplayValue('Bravo')).toBe(select);
+  });
+
   it('inherits id and disabled from the surrounding Field', () => {
     render(
       <Field controlId="region" disabled>

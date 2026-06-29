@@ -31,14 +31,20 @@ test('cleanIncomingContent strips comments and preserves CDATA text', async () =
   ).toBe('Hello raw\nworld &');
 });
 
-test('cleanIncomingContent removes Teams mention bodies', async () => {
+test('cleanIncomingContent maps Teams mention bodies to agent addresses', async () => {
   const { cleanIncomingContent } = await importInboundModule();
 
   expect(
     cleanIncomingContent({
-      text: '<at>HybridClaw</at> hi there',
+      text: '<at>Research Agent</at> hi there',
     }),
-  ).toBe('hi there');
+  ).toBe('@Research-Agent hi there');
+
+  expect(
+    cleanIncomingContent({
+      text: '<at id="0">Research Agent</at> hi there',
+    }),
+  ).toBe('@Research-Agent hi there');
 });
 
 test('cleanIncomingContent extracts nested Adaptive Card text', async () => {

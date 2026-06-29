@@ -109,10 +109,11 @@ payload can update only markdown without clearing the model, bot binding, skill
 allowlist, or RAG setting. Passing an empty value for a supported agent field
 clears that field.
 
-When `imageAsset` is an `http`/`https` URL or a local file path, `agent config`
-imports the image into the target workspace `assets/` directory and stores that
-workspace-relative path in the agent registry. Existing workspace-relative
-`imageAsset` paths are preserved as provided.
+`emptyChatHeader` sets the heading shown when the agent is selected in an empty
+chat. When `imageAsset` is an `http`/`https` URL or a local file path, `agent
+config` imports the image into the target workspace `assets/` directory and
+stores that workspace-relative path in the agent registry. Existing
+workspace-relative `imageAsset` paths are preserved as provided.
 
 Use `.claw` archives instead when you need portability, arbitrary workspace
 files, bundled workspace skills, bundled home plugins, or install-time external
@@ -246,6 +247,7 @@ interface ClawManifest {
   presentation?: {
     displayName?: string;
     imageAsset?: string;
+    emptyChatHeader?: string;
   };
 
   agent?: {
@@ -420,13 +422,13 @@ reuses one readline session for the whole export flow.
 5. picks the agent id from `--id`, then `manifest.id`, then sanitized
    `manifest.name`
 6. registers the agent in the normal agent registry
-7. copies `workspace/` into the agent workspace path
-8. restores bundled skills into `workspace/skills/`
+7. copies `workspace/` into the agent workspace path without adding missing
+   bootstrap templates
+8. restores manifest-declared bundled skills into `workspace/skills/`
 9. installs manifest-declared skill imports into `workspace/skills/`
-10. installs bundled plugins with the normal plugin installer
+10. installs manifest-declared bundled plugins with the normal plugin installer
 11. merges packaged skill config and validated bundled-plugin overrides into
    runtime config
-12. calls `ensureBootstrapFiles()` to fill any missing templates
 
 Use `--force` to replace an existing agent workspace or reinstall bundled
 plugins during import. Use `--skip-externals` to skip manifest-declared skill

@@ -35,6 +35,16 @@ function renderLogLines(writeEntries: (logger: pino.Logger) => void): string[] {
 }
 
 describe('logger formatting', () => {
+  it('renders full local dates in log timestamps', () => {
+    const [line] = renderLogLines((logger) => {
+      logger.info('Gateway started');
+    });
+
+    expect(line).toMatch(
+      /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\]/,
+    );
+  });
+
   it('renders structured fields on one line as compact JSON', () => {
     const [line] = renderLogLines((logger) => {
       logger.info(

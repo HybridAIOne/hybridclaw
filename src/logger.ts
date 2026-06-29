@@ -15,6 +15,7 @@ import {
   LOGGER_SERIALIZERS,
 } from './logger-format.js';
 import { getTraceContext } from './observability/otel.js';
+import { captureSentryException } from './observability/sentry.js';
 import { isExpectedTransportError } from './utils/transport-errors.js';
 
 const VALID_LOG_LEVELS = new Set([
@@ -44,9 +45,13 @@ function resolveForcedLogLevel():
 
 let forcedLevel = resolveForcedLogLevel();
 const initialLevel = forcedLevel || getRuntimeConfig().ops.logLevel;
-const gatewayLogFile = String(
-  process.env.HYBRIDCLAW_GATEWAY_LOG_FILE || '',
-).trim();
+const stdoutMirrorsGatewayLog =
+  String(process.env.HYBRIDCLAW_GATEWAY_STDIO_TO_LOG || '').trim() === '1';
+const gatewayLogFile = stdoutMirrorsGatewayLog
+  ? ''
+  : String(process.env.HYBRIDCLAW_GATEWAY_LOG_FILE || '').trim();
+let loggerOutput: ReturnType<typeof pino.multistream> | null = null;
+let gatewayLogFileMirrorPath: string | null = null;
 
 function createPrettyDestination(
   prettyOptions: typeof LOGGER_PRETTY_OPTIONS,
@@ -78,6 +83,20 @@ function createPrettyDestination(
   });
 }
 
+function createGatewayLogFileDestination(
+  logFile: string,
+): NodeJS.WritableStream {
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  const fileStream = fs.createWriteStream(logFile, { flags: 'a' });
+  return createPrettyDestination(
+    {
+      ...LOGGER_PRETTY_OPTIONS,
+      colorize: false,
+    },
+    fileStream,
+  );
+}
+
 function createLogger() {
   const options = {
     errorKey: LOGGER_ERROR_KEY,
@@ -92,29 +111,54 @@ function createLogger() {
   const streams: Array<{ level: 'trace'; stream: NodeJS.WritableStream }> = [
     {
       level: 'trace',
-      stream: createPrettyDestination(LOGGER_PRETTY_OPTIONS, process.stdout),
+      stream: createPrettyDestination(
+        {
+          ...LOGGER_PRETTY_OPTIONS,
+          colorize: stdoutMirrorsGatewayLog
+            ? false
+            : LOGGER_PRETTY_OPTIONS.colorize,
+        },
+        process.stdout,
+      ),
     },
   ];
 
   if (gatewayLogFile) {
-    fs.mkdirSync(path.dirname(gatewayLogFile), { recursive: true });
-    const fileStream = fs.createWriteStream(gatewayLogFile, { flags: 'a' });
+    gatewayLogFileMirrorPath = path.resolve(gatewayLogFile);
     streams.push({
       level: 'trace',
-      stream: createPrettyDestination(
-        {
-          ...LOGGER_PRETTY_OPTIONS,
-          colorize: false,
-        },
-        fileStream,
-      ),
+      stream: createGatewayLogFileDestination(gatewayLogFile),
     });
   }
 
-  return pino(options, pino.multistream(streams));
+  loggerOutput = pino.multistream(streams);
+  return pino(options, loggerOutput);
 }
 
 export const logger = createLogger();
+
+export function enableGatewayLogFileMirror(logFile: string): void {
+  const trimmed = logFile.trim();
+  if (!trimmed) return;
+  const normalized = path.resolve(trimmed);
+  if (gatewayLogFileMirrorPath === normalized) return;
+  if (gatewayLogFileMirrorPath) {
+    logger.warn(
+      { configuredPath: gatewayLogFileMirrorPath, requestedPath: normalized },
+      'Gateway log file mirror already configured; ignoring new path',
+    );
+    return;
+  }
+  if (!loggerOutput) {
+    throw new Error('Logger output stream is not initialized.');
+  }
+
+  loggerOutput.add({
+    level: 'trace',
+    stream: createGatewayLogFileDestination(normalized),
+  });
+  gatewayLogFileMirrorPath = normalized;
+}
 
 if (forcedLevel) {
   logger.debug(
@@ -134,6 +178,50 @@ export function forceLoggerLevel(
   logger.debug({ forcedLevel: level }, 'Logger level forced programmatically');
 }
 
+export function setLoggerStartupLevel(
+  level: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'],
+): void {
+  if (!VALID_LOG_LEVELS.has(level)) {
+    throw new Error(`Invalid log level: ${level}`);
+  }
+  if (forcedLevel) return;
+  logger.level = level;
+  logger.debug({ level }, 'Logger level set by startup flag');
+}
+
+export function syncLoggerLevelFromRuntimeConfig(reason: string): void {
+  if (forcedLevel) {
+    logger.debug(
+      {
+        configuredLevel: getRuntimeConfig().ops.logLevel,
+        forcedLevel,
+        reason,
+      },
+      'Ignoring runtime config log-level sync due to forced override',
+    );
+    return;
+  }
+
+  const level = getRuntimeConfig().ops.logLevel;
+  if (logger.level === level) return;
+  logger.level = level;
+  logger.info({ level, reason }, 'Logger level updated from runtime config');
+}
+
+export function getLoggerRuntimeState(): {
+  configuredLevel: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'];
+  effectiveLevel: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'];
+  forcedLevel: ReturnType<typeof getRuntimeConfig>['ops']['logLevel'] | null;
+} {
+  return {
+    configuredLevel: getRuntimeConfig().ops.logLevel,
+    effectiveLevel: logger.level as ReturnType<
+      typeof getRuntimeConfig
+    >['ops']['logLevel'],
+    forcedLevel,
+  };
+}
+
 onRuntimeConfigChange((next, prev) => {
   if (forcedLevel) {
     if (next.ops.logLevel !== prev.ops.logLevel) {
@@ -148,11 +236,7 @@ onRuntimeConfigChange((next, prev) => {
     return;
   }
   if (next.ops.logLevel !== prev.ops.logLevel) {
-    logger.level = next.ops.logLevel;
-    logger.info(
-      { level: next.ops.logLevel },
-      'Logger level updated from runtime config',
-    );
+    syncLoggerLevelFromRuntimeConfig('runtime-config-change');
   }
 });
 
@@ -223,6 +307,9 @@ function uncaughtExceptionHandler(err: Error) {
   }
 
   logger.fatal({ err }, 'Uncaught exception');
+  captureSentryException(err, {
+    mechanism: 'process.uncaughtException',
+  });
   process.exit(1);
 }
 (
@@ -243,6 +330,9 @@ function unhandledRejectionHandler(reason: unknown) {
   }
 
   logger.error({ err: reason }, 'Unhandled rejection');
+  captureSentryException(reason, {
+    mechanism: 'process.unhandledRejection',
+  });
 }
 (
   unhandledRejectionHandler as typeof unhandledRejectionHandler & {

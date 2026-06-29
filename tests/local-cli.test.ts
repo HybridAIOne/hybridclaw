@@ -20,24 +20,11 @@ function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-local-cli-'));
 }
 
-async function importFreshCli(
-  homeDir: string,
-  options?: {
-    imessageLocalReadyError?: Error | null;
-  },
-) {
+async function importFreshCli(homeDir: string) {
   process.env.HOME = homeDir;
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
   vi.resetModules();
-  vi.doMock('../src/channels/imessage/local-prereqs.js', () => ({
-    assertLocalIMessageBackendReady: vi.fn(() => {
-      if (options?.imessageLocalReadyError) {
-        throw options.imessageLocalReadyError;
-      }
-    }),
-    formatMissingIMessageCliMessage: vi.fn((cliPath: string) => cliPath),
-  }));
   vi.doMock('../src/channels/whatsapp/connection.ts', () => ({
     createWhatsAppConnectionManager: () => ({
       getSocket: () => null,
@@ -90,13 +77,15 @@ async function readRuntimeSecrets(
     MSTEAMS_APP_PASSWORD: runtimeSecrets.readStoredRuntimeSecret(
       'MSTEAMS_APP_PASSWORD',
     ),
+    LOCAL_ENDPOINT_HAIGPU2_API_KEY: runtimeSecrets.readStoredRuntimeSecret(
+      'LOCAL_ENDPOINT_HAIGPU2_API_KEY',
+    ),
     VLLM_API_KEY: runtimeSecrets.readStoredRuntimeSecret('VLLM_API_KEY'),
   };
 }
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.doUnmock('../src/channels/imessage/local-prereqs.js');
   vi.doUnmock('../src/channels/whatsapp/connection.ts');
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
@@ -145,6 +134,8 @@ test('local configure lmstudio enables the backend and normalizes the URL', asyn
     'qwen/qwen3.5-9b',
     '--base-url',
     'http://127.0.0.1:1234',
+    '--thinking-format',
+    'qwen',
   ]);
 
   const config = readRuntimeConfig(homeDir);
@@ -152,6 +143,9 @@ test('local configure lmstudio enables the backend and normalizes the URL', asyn
   expect(config.local.backends.lmstudio.baseUrl).toBe(
     'http://127.0.0.1:1234/v1',
   );
+  expect(config.local.backends.lmstudio.modelBehavior).toEqual({
+    thinkingFormat: 'qwen',
+  });
   expect(config.hybridai.defaultModel).toBe('lmstudio/qwen/qwen3.5-9b');
   expect(logSpy).toHaveBeenCalledWith(
     expect.stringContaining('Updated runtime config at'),
@@ -260,6 +254,16 @@ test('secret set, show, and unset manage encrypted secrets', async () => {
 
   expect(runtimeSecrets.readStoredRuntimeSecret('SF_FULL_USERNAME')).toBe(
     'user@example.com',
+  );
+
+  await cli.main(['secret', 'set', 'SF_PASSWORD', '"quoted password"']);
+  expect(runtimeSecrets.readStoredRuntimeSecret('SF_PASSWORD')).toBe(
+    'quoted password',
+  );
+
+  await cli.main(['secret', 'set', 'SF_TOKEN', "'single-quoted-token'"]);
+  expect(runtimeSecrets.readStoredRuntimeSecret('SF_TOKEN')).toBe(
+    'single-quoted-token',
   );
 
   logSpy.mockClear();
@@ -552,6 +556,46 @@ test('secret route add rejects Google OAuth routes for non-Google APIs', async (
       'google-oauth',
     ]),
   ).rejects.toThrow(/googleapis\.com/);
+
+  expect(readRuntimeConfig(homeDir).tools.httpRequest.authRules).toEqual([]);
+});
+
+test('secret route add supports Microsoft OAuth runtime auth rules', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'secret',
+    'route',
+    'add',
+    'https://graph.microsoft.com/v1.0',
+    'microsoft-oauth',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.tools.httpRequest.authRules).toEqual([
+    {
+      urlPrefix: 'https://graph.microsoft.com/v1.0/',
+      header: 'Authorization',
+      prefix: 'Bearer',
+      secret: { source: 'microsoft-oauth' },
+    },
+  ]);
+});
+
+test('secret route add rejects Microsoft OAuth routes for non-Graph APIs', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await expect(
+    cli.main([
+      'secret',
+      'route',
+      'add',
+      'https://api.example.com/v1',
+      'm365-oauth',
+    ]),
+  ).rejects.toThrow(/graph\.microsoft\.com/);
 
   expect(readRuntimeConfig(homeDir).tools.httpRequest.authRules).toEqual([]);
 });
@@ -925,17 +969,70 @@ test('local configure vllm stores api key in runtime secrets and writes a store 
   expect(secrets.VLLM_API_KEY).toBe('vllm-secret-key');
 });
 
-test('channels imessage setup fails fast when the local imsg binary is missing', async () => {
+test('local configure vllm with name stores a named endpoint secret ref', async () => {
   const homeDir = makeTempHome();
-  const cli = await importFreshCli(homeDir, {
-    imessageLocalReadyError: new Error(
-      'Missing iMessage CLI binary: imsg. Install it with `brew install steipete/tap/imsg` or rerun `hybridclaw channels imessage setup --cli-path /absolute/path/to/imsg ...`.',
-    ),
-  });
+  const cli = await importFreshCli(homeDir);
 
-  await expect(
-    cli.main(['channels', 'imessage', 'setup', '--allow-from', '+14155551212']),
-  ).rejects.toThrow(/Missing iMessage CLI binary: imsg/);
+  await cli.main([
+    'local',
+    'configure',
+    'vllm',
+    'google/gemma-3-27b-it',
+    '--name',
+    'haigpu2',
+    '--base-url',
+    'http://haigpu2:8000',
+    '--api-key',
+    'gemma-secret-key',
+    '--no-default',
+  ]);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  vi.resetModules();
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  const config = runtimeConfig.getRuntimeConfig();
+  const rawConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const rawLocal = rawConfig.local as Record<string, unknown>;
+  const rawEndpoints = rawLocal.endpoints as Array<Record<string, unknown>>;
+  const rawEndpoint = rawEndpoints.find((entry) => entry.name === 'haigpu2');
+  const secrets = await readRuntimeSecrets(homeDir);
+
+  expect(config.local.endpoints).toContainEqual({
+    name: 'haigpu2',
+    type: 'vllm',
+    enabled: true,
+    baseUrl: 'http://haigpu2:8000/v1',
+    apiKey: 'gemma-secret-key',
+  });
+  expect(config.hybridai.defaultModel).toBe('gpt-5.4-mini');
+  expect(rawEndpoint?.apiKey).toEqual({
+    source: 'store',
+    id: 'LOCAL_ENDPOINT_HAIGPU2_API_KEY',
+  });
+  expect(secrets.LOCAL_ENDPOINT_HAIGPU2_API_KEY).toBe('gemma-secret-key');
+});
+
+test('channels imessage setup writes local config without probing imsg', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'channels',
+    'imessage',
+    'setup',
+    '--allow-from',
+    '+14155551212',
+    '--cli-path',
+    '/missing/imsg',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.imessage.enabled).toBe(true);
+  expect(config.imessage.backend).toBe('local');
+  expect(config.imessage.cliPath).toBe('/missing/imsg');
 });
 
 test('auth login msteams writes config and stores MSTEAMS_APP_PASSWORD', async () => {

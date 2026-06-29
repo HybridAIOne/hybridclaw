@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import {
+  cleanupNoUserChatSessions,
   createChatBranch,
   createChatMobileQr,
   executeCommand,
@@ -29,6 +30,7 @@ import {
   deleteSession as deleteChatSession,
   fetchAgentList,
   fetchModels,
+  fetchSkills,
 } from '../../api/client';
 import type { ChatModel } from '../../api/types';
 import { isAuthReadyForApi, useAuth } from '../../auth';
@@ -42,7 +44,10 @@ import {
   DialogTitle,
 } from '../../components/dialog';
 import { MobileTopbarTrigger } from '../../components/sidebar/index';
-import { ViewSwitchNav } from '../../components/view-switch';
+import {
+  useConfiguredViewSwitchItems,
+  ViewSwitchNav,
+} from '../../components/view-switch';
 import {
   type ApprovalAction,
   buildApprovalCommand,
@@ -54,6 +59,7 @@ import {
 import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
 import { getErrorMessage } from '../../lib/error-message';
 import { useDebouncedValue } from '../../lib/use-debounced-value';
+import { findAgentMentions } from './agent-mention-display';
 import {
   type ChatHistoryUiData,
   chatHistoryQueryKey,
@@ -79,7 +85,20 @@ const EMPTY_MESSAGES: ChatUiMessage[] = [];
 const EMPTY_MODELS: ChatModel[] = [];
 const ERROR_BANNER_VISIBLE_MS = 5000;
 const ERROR_BANNER_FADE_MS = 200;
+const BOOTSTRAP_AUTOSTART_THINKING_ID = 'bootstrap-autostart-thinking';
+const BOOTSTRAP_AUTOSTART_REFETCH_MS = 1500;
+const DEFAULT_EMPTY_CHAT_HEADER = 'Ready to claw through your to-do list?';
 type RecentChatScope = 'user' | 'all';
+
+const AGENT_QUERY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+function readLaunchAgentId(): string {
+  const value = new URLSearchParams(window.location.search)
+    .get('agent')
+    ?.trim();
+  if (!value) return '';
+  return AGENT_QUERY_ID_PATTERN.test(value) ? value : '';
+}
 
 function buildBranchInfoMap(
   messages: ChatUiMessage[],
@@ -125,6 +144,11 @@ export function ChatPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const userId = useRef(readStoredUserId()).current;
+  const initialComposerPrompt = useMemo(
+    () => new URLSearchParams(window.location.search).get('prompt') || '',
+    [],
+  );
+  const launchAgentId = useMemo(readLaunchAgentId, []);
 
   const [errorState, setErrorState] = useState({ message: '', version: 0 });
   const error = errorState.message;
@@ -139,7 +163,9 @@ export function ChatPage() {
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [mobileQr, setMobileQr] = useState<ChatMobileQrResponse | null>(null);
   const [mobileQrBusy, setMobileQrBusy] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
+    launchAgentId || null,
+  );
   const [selectedModelId, setSelectedModelId] = useState('');
   const [recentChatScope, setRecentChatScope] =
     useState<RecentChatScope>('user');
@@ -147,6 +173,7 @@ export function ChatPage() {
     useState<ChatRecentSession | null>(null);
 
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
+  const launchAgentSessionIdRef = useRef<string | null>(null);
   const debouncedSessionSearchQuery = useDebouncedValue(
     sessionSearchQuery,
     160,
@@ -207,6 +234,15 @@ export function ChatPage() {
     handleSessionIdCorrection,
   } = useChatSession();
 
+  if (launchAgentId && sessionId && !launchAgentSessionIdRef.current) {
+    launchAgentSessionIdRef.current = sessionId;
+  }
+
+  const requestedHistoryAgentId =
+    sessionId && launchAgentSessionIdRef.current === sessionId
+      ? launchAgentId
+      : '';
+
   const refreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: chatRecentQueryPrefix(auth.token, userId),
@@ -217,16 +253,8 @@ export function ChatPage() {
     });
   }, [queryClient, auth.token, userId, getSessionId]);
 
-  const stream = useChatStream({
-    token: auth.token,
-    userId,
-    getSessionId,
-    setError,
-    refreshRecent,
-    onSessionIdCorrection: handleSessionIdCorrection,
-    onModelResolved: setSelectedModelId,
-  });
   const chatApiReady = isAuthReadyForApi(auth);
+  const viewSwitchItems = useConfiguredViewSwitchItems(auth.token);
 
   const appStatusQuery = useQuery({
     queryKey: ['app-status', auth.token],
@@ -252,20 +280,19 @@ export function ChatPage() {
     staleTime: 30_000,
     enabled: chatApiReady,
   });
-
-  // Selection is local-once-set: until the user picks an agent the UI follows
-  // the gateway default; after they pick, their choice sticks even when the
-  // query refetches with a different default.
-  const effectiveAgentId =
-    selectedAgentId ??
-    appStatusQuery.data?.defaultAgentId?.trim().toLowerCase() ??
-    DEFAULT_AGENT_ID;
+  const skillsQuery = useQuery({
+    queryKey: ['skills', auth.token],
+    queryFn: () => fetchSkills(auth.token),
+    staleTime: 60_000,
+    retry: false,
+    enabled: chatApiReady,
+  });
 
   // /model set is session-scoped on the gateway, so re-seed the local selection
   // to the gateway default whenever the session changes. We don't know what
   // model the new session was last set to, so the default is the best guess
   // until the user picks again.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is intentionally a re-fire trigger, not read inside the body
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId intentionally resets the local model selection.
   useEffect(() => {
     const id = appStatusQuery.data?.defaultModel?.trim() ?? '';
     setSelectedModelId(id);
@@ -318,10 +345,49 @@ export function ChatPage() {
       (agentsQuery.data ?? []).map((agent) => ({
         id: agent.id,
         name: agent.name,
+        imageUrl: agent.imageUrl ?? null,
+        emptyChatHeader: agent.emptyChatHeader ?? null,
+        source: agent.source,
       })),
     [agentsQuery.data],
   );
+  const skillInvocationTargets = useMemo(() => {
+    return new Map(
+      (skillsQuery.data?.skills ?? [])
+        .filter((skill) => skill.userInvocable)
+        .map((skill) => [skill.name.toLowerCase(), skill.name]),
+    );
+  }, [skillsQuery.data?.skills]);
+  const resolveAddressedAgentPresentation = useCallback(
+    (content: string) => {
+      const mentions = findAgentMentions(content);
+      for (const mention of mentions) {
+        const agent = agentOptions.find(
+          (option) => option.id.toLowerCase() === mention.agentId.toLowerCase(),
+        );
+        if (!agent) continue;
+        return {
+          agentId: agent.id,
+          displayName: agent.name ?? agent.id,
+          imageUrl: agent.imageUrl ?? null,
+        };
+      }
+      return null;
+    },
+    [agentOptions],
+  );
   const modelOptions = modelsQuery.data?.models ?? EMPTY_MODELS;
+
+  const stream = useChatStream({
+    token: auth.token,
+    userId,
+    getSessionId,
+    setError,
+    refreshRecent,
+    onSessionIdCorrection: handleSessionIdCorrection,
+    onModelResolved: setSelectedModelId,
+    resolveAddressedAgentPresentation,
+  });
 
   useEffect(() => {
     const message = errorState.message;
@@ -342,7 +408,13 @@ export function ChatPage() {
 
   const historyQuery = useQuery({
     queryKey: chatHistoryQueryKey(auth.token, sessionId),
-    queryFn: () => loadChatHistoryUi(auth.token, sessionId, userId),
+    queryFn: () =>
+      loadChatHistoryUi(
+        auth.token,
+        sessionId,
+        userId,
+        requestedHistoryAgentId || undefined,
+      ),
     enabled: chatApiReady && Boolean(sessionId),
     staleTime: Infinity,
   });
@@ -356,8 +428,31 @@ export function ChatPage() {
   });
 
   const messages = historyQuery.data?.messages ?? EMPTY_MESSAGES;
+  const isBootstrapAutostartStarting =
+    historyQuery.data?.bootstrapAutostart?.status === 'starting';
+  const visibleMessages = useMemo<ChatUiMessage[]>(() => {
+    if (!isBootstrapAutostartStarting) return messages;
+    return [
+      ...messages,
+      {
+        id: BOOTSTRAP_AUTOSTART_THINKING_ID,
+        role: 'thinking',
+        content: '',
+        sessionId,
+      },
+    ];
+  }, [isBootstrapAutostartStarting, messages, sessionId]);
   const branchFamilies =
     historyQuery.data?.branchFamilies ?? EMPTY_BRANCH_FAMILIES;
+  const effectiveAgentId =
+    selectedAgentId?.trim().toLowerCase() ||
+    historyQuery.data?.agentId?.trim().toLowerCase() ||
+    appStatusQuery.data?.defaultAgentId?.trim().toLowerCase() ||
+    DEFAULT_AGENT_ID;
+  const emptyChatHeader =
+    agentOptions
+      .find((agent) => agent.id.toLowerCase() === effectiveAgentId)
+      ?.emptyChatHeader?.trim() || DEFAULT_EMPTY_CHAT_HEADER;
 
   const deleteSessionMutation = useMutation({
     mutationFn: (targetSessionId: string) =>
@@ -384,7 +479,9 @@ export function ChatPage() {
       setSessionPendingDelete(null);
       const currentSessionId = getSessionId();
       if (deletedSessionId === currentSessionId) {
-        startFreshChat();
+        // Keep the page bound to a concrete no-user session after deleting the
+        // active chat so history loading can mint the replacement immediately.
+        startFreshChat({ replace: true });
       }
     },
     onError: (err) => {
@@ -438,9 +535,30 @@ export function ChatPage() {
   }, [contextQuery.data?.snapshot?.model]);
 
   useEffect(() => {
+    if (launchAgentId && launchAgentSessionIdRef.current === sessionId) {
+      setSelectedAgentId(launchAgentId);
+      return;
+    }
+    setSelectedAgentId(null);
+  }, [launchAgentId, sessionId]);
+
+  useEffect(() => {
     if (!historyQuery.error) return;
     setError(getErrorMessage(historyQuery.error));
   }, [historyQuery.error, setError]);
+
+  useEffect(() => {
+    if (historyQuery.data?.bootstrapAutostart?.status !== 'starting') return;
+    if (historyQuery.isFetching) return;
+    const timer = window.setTimeout(() => {
+      void historyQuery.refetch();
+    }, BOOTSTRAP_AUTOSTART_REFETCH_MS);
+    return () => window.clearTimeout(timer);
+  }, [
+    historyQuery.data?.bootstrapAutostart?.status,
+    historyQuery.isFetching,
+    historyQuery.refetch,
+  ]);
 
   useEffect(() => {
     if (!mobileQr) return;
@@ -487,10 +605,19 @@ export function ChatPage() {
 
   // Server may resolve to a canonical branch id; keep the URL in sync.
   useEffect(() => {
+    if (historyQuery.isPending || historyQuery.fetchStatus !== 'idle') return;
+    if (historyQuery.data?.requestedSessionId !== sessionId) return;
     const resolved = historyQuery.data?.resolvedSessionId;
     if (!resolved || resolved === sessionId) return;
     void navigateToSession(resolved, { replace: true });
-  }, [historyQuery.data?.resolvedSessionId, sessionId, navigateToSession]);
+  }, [
+    historyQuery.data?.requestedSessionId,
+    historyQuery.data?.resolvedSessionId,
+    historyQuery.fetchStatus,
+    historyQuery.isPending,
+    sessionId,
+    navigateToSession,
+  ]);
 
   const branchInfoMap = useMemo(
     () => buildBranchInfoMap(messages, branchFamilies),
@@ -609,14 +736,54 @@ export function ChatPage() {
     [auth.token, setError],
   );
 
+  const cleanupNoUserSessions = useCallback(
+    (keepSessionId: string) => {
+      void cleanupNoUserChatSessions(auth.token, {
+        channelId: 'web',
+        keepSessionId,
+      })
+        .then((data) => {
+          if (data.deletedCount === 0) return;
+          for (const deletedSessionId of data.deletedSessionIds) {
+            queryClient.removeQueries({
+              queryKey: chatHistoryQueryKey(auth.token, deletedSessionId),
+            });
+            queryClient.removeQueries({
+              queryKey: chatContextQueryKey(auth.token, deletedSessionId),
+            });
+          }
+          void queryClient.invalidateQueries({
+            queryKey: chatRecentQueryPrefix(auth.token, userId),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ['overview'],
+            refetchType: 'none',
+          });
+        })
+        .catch((err: unknown) => {
+          console.warn('Failed to clean up no-user chat session', err);
+        });
+    },
+    [auth.token, queryClient, userId],
+  );
+
   const handleNewChat = useCallback(() => {
     if (stream.isActive()) {
       setError('Stop the current run before starting a new chat.');
       return;
     }
-    startFreshChat();
+    // New Conversation intentionally creates a concrete no-user session, then
+    // prunes older drafts so repeated clicks only keep the latest one.
+    const nextSessionId = startFreshChat();
+    cleanupNoUserSessions(nextSessionId);
     refreshRecent();
-  }, [stream.isActive, startFreshChat, refreshRecent, setError]);
+  }, [
+    stream.isActive,
+    startFreshChat,
+    cleanupNoUserSessions,
+    refreshRecent,
+    setError,
+  ]);
 
   const handleSendMessage = useCallback(
     (content: string, media: MediaItem[]) => {
@@ -636,22 +803,37 @@ export function ChatPage() {
       if (!text) return;
       queryClient.setQueryData<ChatHistoryUiData>(
         chatHistoryQueryKey(auth.token, targetSessionId),
-        (prev) => ({
-          messages: [
-            ...(prev?.messages ?? []),
-            {
-              id: nextMsgId(),
-              role: 'command',
-              content: text,
-              rawContent: text,
-              sessionId: targetSessionId,
-              artifacts: [],
-              replayRequest: null,
-            },
-          ],
-          branchFamilies: prev?.branchFamilies ?? new Map(),
-          resolvedSessionId: targetSessionId,
-        }),
+        (prev) => {
+          const prevMessages = prev?.messages ?? [];
+          if (
+            prevMessages.some(
+              (message) =>
+                message.role === 'command' &&
+                (message.rawContent || message.content).trim() === text,
+            )
+          ) {
+            return prev;
+          }
+          return {
+            messages: [
+              ...prevMessages,
+              {
+                id: nextMsgId(),
+                role: 'command',
+                content: text,
+                rawContent: text,
+                sessionId: targetSessionId,
+                artifacts: [],
+                replayRequest: null,
+              },
+            ],
+            branchFamilies: prev?.branchFamilies ?? new Map(),
+            requestedSessionId: prev?.requestedSessionId ?? targetSessionId,
+            resolvedSessionId: targetSessionId,
+            agentId: prev?.agentId ?? null,
+            bootstrapAutostart: prev?.bootstrapAutostart ?? null,
+          };
+        },
       );
     },
     [auth.token, queryClient],
@@ -659,11 +841,13 @@ export function ChatPage() {
 
   const ensureSwitchHistory = useCallback(
     async (resolvedSessionId: string) => {
-      await queryClient
-        .ensureQueryData({
-          queryKey: chatHistoryQueryKey(auth.token, resolvedSessionId),
+      const queryKey = chatHistoryQueryKey(auth.token, resolvedSessionId);
+      return queryClient
+        .fetchQuery({
+          queryKey,
           queryFn: () =>
             loadChatHistoryUi(auth.token, resolvedSessionId, userId),
+          staleTime: 0,
         })
         .catch((err: unknown) => {
           console.warn(
@@ -699,7 +883,7 @@ export function ChatPage() {
         );
         const resolvedSessionId =
           result.sessionId?.trim() || requestedSessionId;
-        await ensureSwitchHistory(resolvedSessionId);
+        const switchHistory = await ensureSwitchHistory(resolvedSessionId);
         appendLocalCommandResult(resolvedSessionId, result.text);
         if (resolvedSessionId !== requestedSessionId) {
           await switchToSession(resolvedSessionId, { replace: true });
@@ -707,6 +891,28 @@ export function ChatPage() {
         void queryClient.invalidateQueries({
           queryKey: chatContextQueryKey(auth.token, resolvedSessionId),
         });
+        const shouldAwaitGatewayHatching =
+          commandArgs[0] === 'agent' &&
+          commandArgs[1] === 'switch' &&
+          switchHistory?.bootstrapAutostart?.fileName === 'BOOTSTRAP.md' &&
+          (switchHistory.bootstrapAutostart.status === 'idle' ||
+            switchHistory.bootstrapAutostart.status === 'starting');
+        if (shouldAwaitGatewayHatching) {
+          queryClient.setQueryData<ChatHistoryUiData>(
+            chatHistoryQueryKey(auth.token, resolvedSessionId),
+            (prev) =>
+              prev
+                ? {
+                    ...prev,
+                    bootstrapAutostart: {
+                      status: 'starting',
+                      fileName: 'BOOTSTRAP.md',
+                    },
+                  }
+                : prev,
+          );
+          jumpToBottom();
+        }
         refreshRecent();
         onAccepted(value);
       } catch (err) {
@@ -719,6 +925,7 @@ export function ChatPage() {
       ensureSessionForSend,
       ensureSwitchHistory,
       getSessionId,
+      jumpToBottom,
       queryClient,
       refreshRecent,
       setError,
@@ -761,17 +968,20 @@ export function ChatPage() {
     [stream.isActive, navigateToSession, setError],
   );
 
-  const canDeleteSession = useCallback(() => {
-    if (stream.isActive()) {
-      setError('Stop the current run before deleting a chat.');
-      return false;
-    }
-    return !deleteSessionMutation.isPending;
-  }, [deleteSessionMutation.isPending, stream.isActive, setError]);
+  const canDeleteSession = useCallback(
+    (targetSessionId: string) => {
+      if (stream.activeSessionId === targetSessionId) {
+        setError('Stop the current run before deleting this chat.');
+        return false;
+      }
+      return !deleteSessionMutation.isPending;
+    },
+    [deleteSessionMutation.isPending, stream.activeSessionId, setError],
+  );
 
   const handleRequestDeleteSession = useCallback(
     (target: ChatRecentSession) => {
-      if (!canDeleteSession()) return;
+      if (!canDeleteSession(target.sessionId)) return;
       setSessionPendingDelete(target);
     },
     [canDeleteSession],
@@ -781,7 +991,7 @@ export function ChatPage() {
     if (!sessionPendingDelete) {
       throw new Error('Delete confirmation is missing a session.');
     }
-    if (!canDeleteSession()) return;
+    if (!canDeleteSession(sessionPendingDelete.sessionId)) return;
     deleteSessionMutation.mutate(sessionPendingDelete.sessionId);
   }, [canDeleteSession, deleteSessionMutation, sessionPendingDelete]);
 
@@ -859,7 +1069,7 @@ export function ChatPage() {
     [branchFamilies, handleOpenSession],
   );
 
-  const isEmpty = messages.length === 0;
+  const isEmpty = visibleMessages.length === 0;
   const isSwitchingSession = historyQuery.isFetching;
 
   const sidebarProps = {
@@ -907,7 +1117,7 @@ export function ChatPage() {
                 <span />
               </span>
             </button>
-            <ViewSwitchNav />
+            <ViewSwitchNav items={viewSwitchItems} />
           </div>
           {mobileQr ? (
             <div className={css.mobileQrOverlay}>
@@ -944,14 +1154,12 @@ export function ChatPage() {
           ) : null}
           {isEmpty ? (
             <div className={css.emptyState}>
-              <h1 className={css.greeting}>
-                Ready to claw through your to-do list?
-              </h1>
+              <h1 className={css.greeting}>{emptyChatHeader}</h1>
             </div>
           ) : (
             <div className={css.messageArea} ref={messageAreaRef}>
               <div className={css.messageList} ref={messageListRef}>
-                {messages.map((msg) =>
+                {visibleMessages.map((msg) =>
                   editingId === msg.id && msg.role !== 'thinking' ? (
                     <div key={msg.id} className={css.messageBlock}>
                       <EditInline
@@ -976,6 +1184,7 @@ export function ChatPage() {
                         ratingMutation.isPending &&
                         ratingMutation.variables?.message.id === msg.id
                       }
+                      skillInvocationTargets={skillInvocationTargets}
                       onApprovalAction={handleApprovalAction}
                       approvalBusy={approvalBusy}
                       branchInfo={branchInfoMap.get(msg.id) ?? null}
@@ -1020,6 +1229,7 @@ export function ChatPage() {
             models={modelOptions}
             selectedModelId={selectedModelId}
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
+            initialValue={initialComposerPrompt}
           />
         </div>
         <Dialog

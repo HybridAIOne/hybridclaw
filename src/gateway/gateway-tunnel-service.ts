@@ -1,7 +1,10 @@
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   getRuntimeConfig,
+  RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS,
+  type RuntimeDeploymentKnownTunnelProvider,
   type RuntimeDeploymentTunnelProvider,
+  updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { createCloudflareTunnelProvider } from '../tunnel/cloudflare-tunnel-provider.js';
@@ -17,6 +20,8 @@ import {
   errorMessage,
 } from '../tunnel/tunnel-provider-utils.js';
 import type {
+  GatewayAdminTunnelConfig,
+  GatewayAdminTunnelConfigResponse,
   GatewayAdminTunnelHealth,
   GatewayAdminTunnelStatus,
 } from './gateway-types.js';
@@ -24,9 +29,111 @@ import type {
 let managedProvider: TunnelProvider | null = null;
 let managedProviderKey: string | null = null;
 let reconnectInFlight: Promise<GatewayAdminTunnelStatus> | null = null;
+let stopInFlight: Promise<GatewayAdminTunnelStatus> | null = null;
+
+const TUNNEL_PROVIDER_META = {
+  cloudflare: {
+    managed: true,
+    usesConfiguredPublicUrl: true,
+    requiresPublicUrl: true,
+  },
+  manual: {
+    managed: false,
+    usesConfiguredPublicUrl: true,
+    requiresPublicUrl: false,
+  },
+  ngrok: {
+    managed: true,
+    usesConfiguredPublicUrl: false,
+    requiresPublicUrl: false,
+  },
+  ssh: {
+    managed: false,
+    usesConfiguredPublicUrl: true,
+    requiresPublicUrl: false,
+  },
+  tailscale: {
+    managed: true,
+    usesConfiguredPublicUrl: false,
+    requiresPublicUrl: false,
+  },
+} as const satisfies Record<
+  RuntimeDeploymentKnownTunnelProvider,
+  {
+    managed: boolean;
+    usesConfiguredPublicUrl: boolean;
+    requiresPublicUrl: boolean;
+  }
+>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 function normalizePublicUrl(value: string | null | undefined): string | null {
   return value?.trim() || null;
+}
+
+function normalizeConfigPublicUrl(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value !== 'string') {
+    throw new GatewayRequestError(400, 'publicUrl must be a string.');
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new GatewayRequestError(400, 'publicUrl must be a valid URL.');
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new GatewayRequestError(
+      400,
+      'publicUrl must use http:// or https://.',
+    );
+  }
+  return url.toString().replace(/\/$/, '');
+}
+
+function normalizeKnownTunnelProvider(
+  value: unknown,
+): RuntimeDeploymentKnownTunnelProvider {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new GatewayRequestError(400, 'provider is required.');
+  }
+  const normalized = value.trim().toLowerCase();
+  if (
+    !(RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS as readonly string[]).includes(
+      normalized,
+    )
+  ) {
+    throw new GatewayRequestError(400, 'provider is not supported.');
+  }
+  return normalized as RuntimeDeploymentKnownTunnelProvider;
+}
+
+function getKnownTunnelProvider(
+  value: RuntimeDeploymentTunnelProvider | undefined,
+): RuntimeDeploymentKnownTunnelProvider | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (
+    (RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS as readonly string[]).includes(
+      normalized,
+    )
+  ) {
+    return normalized as RuntimeDeploymentKnownTunnelProvider;
+  }
+  return null;
+}
+
+function isManagedTunnelProvider(
+  provider: RuntimeDeploymentTunnelProvider | undefined,
+): boolean {
+  const knownProvider = getKnownTunnelProvider(provider);
+  return knownProvider ? TUNNEL_PROVIDER_META[knownProvider].managed : false;
 }
 
 function tunnelHealthForState(state: TunnelState): GatewayAdminTunnelHealth {
@@ -70,11 +177,7 @@ function stopStaleManagedProvider(provider: TunnelProvider): void {
 function getManagedTunnelProvider(): TunnelProvider | null {
   const config = getRuntimeConfig();
   const provider = config.deployment.tunnel.provider;
-  if (
-    provider !== 'ngrok' &&
-    provider !== 'tailscale' &&
-    provider !== 'cloudflare'
-  ) {
+  if (!isManagedTunnelProvider(provider)) {
     if (managedProvider) {
       stopStaleManagedProvider(managedProvider);
     }
@@ -137,13 +240,20 @@ function mapTunnelStatus(params: {
     publicUrl,
     state,
     health: tunnelHealthForState(state),
-    reconnectSupported:
-      params.provider === 'ngrok' ||
-      params.provider === 'tailscale' ||
-      params.provider === 'cloudflare',
+    reconnectSupported: isManagedTunnelProvider(params.provider),
     lastError: params.managedStatus?.last_error ?? null,
     lastCheckedAt: params.managedStatus?.last_checked_at ?? null,
     nextReconnectAt: params.managedStatus?.next_reconnect_at ?? null,
+  };
+}
+
+function mapTunnelConfig(): GatewayAdminTunnelConfig {
+  const config = getRuntimeConfig();
+  return {
+    mode: config.deployment.mode,
+    provider: config.deployment.tunnel.provider ?? null,
+    publicUrl: normalizePublicUrl(config.deployment.public_url) ?? '',
+    healthCheckIntervalMs: config.deployment.tunnel.health_check_interval_ms,
   };
 }
 
@@ -157,6 +267,49 @@ export function getGatewayAdminTunnelStatus(): GatewayAdminTunnelStatus {
     configuredPublicUrl: normalizePublicUrl(config.deployment.public_url),
     managedStatus,
   });
+}
+
+export function getGatewayAdminTunnelConfig(): GatewayAdminTunnelConfigResponse {
+  return {
+    config: mapTunnelConfig(),
+    tunnel: getGatewayAdminTunnelStatus(),
+  };
+}
+
+export function saveGatewayAdminTunnelConfig(
+  input: unknown,
+): GatewayAdminTunnelConfigResponse {
+  if (!isRecord(input)) {
+    throw new GatewayRequestError(
+      400,
+      'Expected tunnel config request object.',
+    );
+  }
+
+  const provider = normalizeKnownTunnelProvider(input.provider);
+  const meta = TUNNEL_PROVIDER_META[provider];
+  const publicUrl = meta.usesConfiguredPublicUrl
+    ? normalizeConfigPublicUrl(input.publicUrl)
+    : '';
+  if (meta.requiresPublicUrl && !publicUrl) {
+    throw new GatewayRequestError(
+      400,
+      'publicUrl is required for this tunnel provider.',
+    );
+  }
+
+  updateRuntimeConfig(
+    (draft) => {
+      draft.deployment.public_url = publicUrl;
+      draft.deployment.tunnel.provider = provider;
+    },
+    {
+      route: 'api.admin.tunnel',
+      source: 'admin-console',
+    },
+  );
+
+  return getGatewayAdminTunnelConfig();
 }
 
 export async function reconnectGatewayAdminTunnel(): Promise<GatewayAdminTunnelStatus> {
@@ -199,8 +352,48 @@ export async function reconnectGatewayAdminTunnel(): Promise<GatewayAdminTunnelS
   }
 }
 
+export async function stopGatewayAdminTunnel(): Promise<GatewayAdminTunnelStatus> {
+  const before = getGatewayAdminTunnelStatus();
+  recordAuditEvent({
+    sessionId: DEFAULT_TUNNEL_AUDIT_SESSION_ID,
+    runId: makeAuditRunId('tunnel-admin'),
+    event: {
+      type: 'tunnel.manual_stop',
+      provider: before.provider ?? 'none',
+      public_url: before.publicUrl,
+      state: before.state,
+    },
+  });
+
+  const provider = getManagedTunnelProvider();
+  if (!provider) {
+    throw new GatewayRequestError(
+      409,
+      'Manual stop is only supported for managed tunnel providers.',
+    );
+  }
+
+  if (stopInFlight) {
+    return stopInFlight;
+  }
+
+  const operation = (async () => {
+    await provider.stop();
+    return getGatewayAdminTunnelStatus();
+  })();
+  stopInFlight = operation;
+  try {
+    return await operation;
+  } finally {
+    if (stopInFlight === operation) {
+      stopInFlight = null;
+    }
+  }
+}
+
 export function resetGatewayAdminTunnelForTests(): void {
   managedProvider = null;
   managedProviderKey = null;
   reconnectInFlight = null;
+  stopInFlight = null;
 }

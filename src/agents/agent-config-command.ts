@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
+import { isRecord } from '../utils/type-guards.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import {
   getAgentById,
@@ -17,6 +17,7 @@ import {
   hasSnakeCamelAlias,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  normalizeAgentProxyConfig,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
 } from './agent-types.js';
@@ -57,10 +58,6 @@ type AgentConfigJsonPayload = Record<string, unknown> & {
   files?: unknown;
   markdown?: unknown;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
 
 function normalizeOptionalString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -187,6 +184,14 @@ function applyAgentConfigFieldUpdates(
     if (imageAsset) next.imageAsset = imageAsset;
     else delete next.imageAsset;
   }
+  if (Object.hasOwn(updates, 'emptyChatHeader')) {
+    const emptyChatHeader = normalizeOptionalStringField(
+      'emptyChatHeader',
+      updates.emptyChatHeader,
+    );
+    if (emptyChatHeader) next.emptyChatHeader = emptyChatHeader;
+    else delete next.emptyChatHeader;
+  }
   if (Object.hasOwn(updates, 'model')) {
     const model = normalizeModelConfig(updates.model);
     if (model) next.model = model;
@@ -290,6 +295,19 @@ function applyAgentConfigFieldUpdates(
         );
       }
       next.webSearch = webSearch;
+    }
+  }
+  if (Object.hasOwn(updates, 'proxy')) {
+    if (updates.proxy === null) {
+      delete next.proxy;
+    } else {
+      const proxy = normalizeAgentProxyConfig(updates.proxy, 'proxy');
+      if (!proxy) {
+        throw new Error(
+          '`proxy` must include kind, baseUrl, chatbotId, and apiKey fields, or null.',
+        );
+      }
+      next.proxy = proxy;
     }
   }
   return next;

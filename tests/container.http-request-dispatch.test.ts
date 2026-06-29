@@ -64,6 +64,89 @@ describe.sequential('container http_request dispatch', () => {
     );
   });
 
+  test('forwards env placeholders and self-signed TLS flags to the gateway endpoint', async () => {
+    const { executeTool, setGatewayContext, setSessionContext } = await import(
+      '../container/src/tools.js'
+    );
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          body: '[{"success":{"username":"test-application-key"}}]',
+        }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setGatewayContext('http://127.0.0.1:9000', 'token-123', 'web', []);
+    setSessionContext('agent:main:channel:web:chat:dm:peer:test');
+
+    const result = await executeTool(
+      'http_request',
+      JSON.stringify({
+        url: '<env:HUE_BRIDGE_HOST>/api',
+        method: 'POST',
+        json: {
+          devicetype: 'hybridclaw#lab',
+        },
+        captureResponseFields: [
+          {
+            jsonPath: '0.success.username',
+            secretName: 'HUE_APPLICATION_KEY',
+          },
+        ],
+        replaceSecretPlaceholders: true,
+        allowSelfSignedTls: true,
+        skillName: 'hue',
+      }),
+    );
+
+    expect(result).toContain('"ok": true');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:9000/api/http/request',
+      expect.objectContaining({
+        body: JSON.stringify({
+          url: '<env:HUE_BRIDGE_HOST>/api',
+          method: 'POST',
+          json: {
+            devicetype: 'hybridclaw#lab',
+          },
+          captureResponseFields: [
+            {
+              jsonPath: '0.success.username',
+              secretName: 'HUE_APPLICATION_KEY',
+            },
+          ],
+          replaceSecretPlaceholders: true,
+          allowSelfSignedTls: true,
+          skillName: 'hue',
+          sessionId: 'agent:main:channel:web:chat:dm:peer:test',
+        }),
+      }),
+    );
+  });
+
+  test('http_request schema exposes scoped TLS controls', async () => {
+    const { TOOL_DEFINITIONS } = await import('../container/src/tools.js');
+    const httpRequest = TOOL_DEFINITIONS.find(
+      (tool) => tool.function.name === 'http_request',
+    );
+    const properties = httpRequest?.function.parameters.properties;
+
+    expect(properties).toMatchObject({
+      allowSelfSignedTls: {
+        type: 'boolean',
+      },
+      tlsCertificateSha256: {
+        type: 'string',
+      },
+      tlsCertificateSha256SecretName: {
+        type: 'string',
+      },
+    });
+  });
+
   test('surfaces upstream JSON error details before headers for proxied failures', async () => {
     const { executeToolWithMetadata, setGatewayContext } = await import(
       '../container/src/tools.js'

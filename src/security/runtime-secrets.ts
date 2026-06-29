@@ -8,6 +8,7 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { isRecord } from '../utils/type-guards.js';
 import { migrateLegacySecretFile } from './runtime-secrets-migration.js';
 
 const RUNTIME_SECRETS_FILE = 'credentials.json';
@@ -161,10 +162,6 @@ interface EncryptedSecretEntry {
 interface EncryptedSecretStore {
   version: typeof SECRET_STORE_VERSION;
   entries: Record<string, EncryptedSecretEntry>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function isEncryptedSecretEntry(value: unknown): value is EncryptedSecretEntry {
@@ -820,6 +817,19 @@ export function readStoredRuntimeSecret(
 export function readStoredRuntimeSecrets(): RuntimeSecrets {
   const store = new SecretStore();
   return { ...store.readAll() };
+}
+
+export function normalizeRuntimeSecretInputValue(raw: string): string {
+  const value = String(raw || '').trim();
+  if (value.length < 2) return value;
+
+  const first = value[0];
+  const last = value[value.length - 1];
+  if ((first === '"' || first === "'") && first === last) {
+    return value.slice(1, -1);
+  }
+
+  return value;
 }
 
 export function migrateLegacyRuntimeSecretsFile(): boolean {

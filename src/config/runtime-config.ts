@@ -15,6 +15,7 @@ import {
   cloneAgentA2AConfig,
   cloneAgentBudgetConfig,
   cloneAgentCv,
+  cloneAgentProxyConfig,
   cloneAgentWebSearchConfig,
   DEFAULT_AGENT_ID,
   hasSnakeCamelAlias,
@@ -23,6 +24,7 @@ import {
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   normalizeAgentIdentityFields,
+  normalizeAgentProxyConfig,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
@@ -45,6 +47,7 @@ import {
   normalizeSlackWebhookUrl,
   SLACK_WEBHOOK_DEFAULT_TARGET,
 } from '../channels/slack-webhook/target.js';
+import { supportsMcpOAuth } from '../mcp/server-config.js';
 import type {
   MemoryEmbeddingDtype,
   MemoryEmbeddingProviderKind,
@@ -68,8 +71,14 @@ import {
   normalizeMemoryRecallTokenizer,
 } from '../memory/semantic-recall.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
-import type { LocalProviderConfig } from '../providers/local-types.js';
+import type {
+  LocalBackendType,
+  LocalEndpointConfig,
+  LocalModelBehavior,
+  LocalProviderConfig,
+} from '../providers/local-types.js';
 import {
+  isLocalBackendType,
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
@@ -106,6 +115,7 @@ import {
   normalizeTrimmedStringSet,
 } from '../utils/normalized-strings.js';
 import { expandHomePath } from '../utils/path.js';
+import { isRecord } from '../utils/type-guards.js';
 import {
   clearRuntimeAssetRevisions as clearTrackedRuntimeAssetRevisions,
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
@@ -134,9 +144,10 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 29;
+export const CONFIG_VERSION = 33;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
+export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
   'This is a live phone call. Produce plain spoken text only.',
@@ -238,7 +249,10 @@ export type DiscordPresenceActivityType =
   | 'competing'
   | 'custom';
 export type SchedulerScheduleKind = 'at' | 'every' | 'cron' | 'one_shot';
-export type SchedulerActionKind = 'agent_turn' | 'system_event';
+export type SchedulerActionKind =
+  | 'agent_turn'
+  | 'heartbeat_poll'
+  | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
 export const DEFAULT_ONE_SHOT_MAX_RETRIES = 3;
 export const SKILL_AUTONOMY_LEVELS = [
@@ -323,6 +337,19 @@ export interface RuntimeDeploymentConfig {
   mode: RuntimeDeploymentMode;
   public_url: string;
   tunnel: RuntimeDeploymentTunnelConfig;
+}
+
+export interface RuntimeUiNavigationItem {
+  label: string;
+  href: string;
+  icon?: RuntimeUiNavigationIcon;
+  image?: string;
+}
+
+export type RuntimeUiNavigationIcon = 'admin' | 'agents' | 'chat' | 'docs';
+
+export interface RuntimeUiConfig {
+  navigation: RuntimeUiNavigationItem[];
 }
 
 export interface RuntimeBrowserLocalConfig {
@@ -713,6 +740,23 @@ export interface RuntimeEmailConfig {
   allowFrom: string[];
   textChunkLimit: number;
   mediaMaxMb: number;
+  accounts: RuntimeEmailAccountConfig[];
+}
+
+export interface RuntimeEmailAccountConfig {
+  agentId: string;
+  imapHost: string;
+  imapPort: number;
+  imapSecure: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  address: string;
+  password: SecretInput;
+  pollIntervalMs: number;
+  folders: string[];
+  allowFrom: string[];
+  mediaMaxMb: number;
 }
 
 export interface RuntimeChannelInstructionsConfig {
@@ -772,9 +816,14 @@ export interface RuntimeHttpRequestGoogleOAuthSecretRef {
   source: 'google-oauth';
 }
 
+export interface RuntimeHttpRequestMicrosoftOAuthSecretRef {
+  source: 'microsoft-oauth';
+}
+
 export type RuntimeHttpRequestAuthRuleSecret =
   | SecretInput
-  | RuntimeHttpRequestGoogleOAuthSecretRef;
+  | RuntimeHttpRequestGoogleOAuthSecretRef
+  | RuntimeHttpRequestMicrosoftOAuthSecretRef;
 
 export interface RuntimeHttpRequestAuthRule {
   urlPrefix: string;
@@ -831,12 +880,28 @@ export function makeGoogleOAuthSecretRef(): RuntimeHttpRequestGoogleOAuthSecretR
   return { source: 'google-oauth' };
 }
 
+export function makeMicrosoftOAuthSecretRef(): RuntimeHttpRequestMicrosoftOAuthSecretRef {
+  return { source: 'microsoft-oauth' };
+}
+
 export function isGoogleOAuthSpecifier(value: string): boolean {
   const normalized = String(value || '')
     .trim()
     .toLowerCase();
   return (
     normalized === 'google-oauth' || normalized === 'google-oauth:workspace'
+  );
+}
+
+export function isMicrosoftOAuthSpecifier(value: string): boolean {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return (
+    normalized === 'microsoft-oauth' ||
+    normalized === 'microsoft365-oauth' ||
+    normalized === 'm365-oauth' ||
+    normalized === 'graph-oauth'
   );
 }
 
@@ -850,11 +915,26 @@ export function isGoogleOAuthSecretRef(
   );
 }
 
+export function isMicrosoftOAuthSecretRef(
+  value: unknown,
+): value is RuntimeHttpRequestMicrosoftOAuthSecretRef {
+  return isRecord(value) && value.source === 'microsoft-oauth';
+}
+
 export function isGoogleApisUrlPrefix(value: string): boolean {
   try {
     const parsed = new URL(value);
     const host = parsed.hostname.trim().toLowerCase();
     return host === 'googleapis.com' || host.endsWith('.googleapis.com');
+  } catch {
+    return false;
+  }
+}
+
+export function isMicrosoftGraphUrlPrefix(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.hostname.trim().toLowerCase() === 'graph.microsoft.com';
   } catch {
     return false;
   }
@@ -931,6 +1011,7 @@ export interface RuntimeConfig {
   audit: RuntimeAuditConfig;
   security: RuntimeSecurityConfig;
   deployment: RuntimeDeploymentConfig;
+  ui: RuntimeUiConfig;
   browser: RuntimeBrowserConfig;
   agents: AgentsConfig;
   skills: {
@@ -991,6 +1072,7 @@ export interface RuntimeConfig {
   hybridai: {
     baseUrl: string;
     defaultModel: string;
+    onboardingModel: string;
     defaultChatbotId: string;
     maxTokens: number;
     enableRag: boolean;
@@ -1149,9 +1231,12 @@ export interface RuntimeConfig {
     healthPort: number;
     webApiToken: string;
     gatewayBaseUrl: string;
+    gatewayInternalBaseUrl: string;
     gatewayApiToken: string;
     dbPath: string;
     logLevel: LogLevel;
+    logRequests: boolean;
+    debugModelResponses: boolean;
   };
   observability: {
     enabled: boolean;
@@ -1312,6 +1397,17 @@ const DEFAULT_MINIMAX_MODEL_LIST = ['minimax/MiniMax-M2'] as const;
 const DEFAULT_DASHSCOPE_MODEL_LIST = ['dashscope/qwen3-coder-plus'] as const;
 const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
 const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
+const DEFAULT_UI_NAVIGATION_ITEMS: ReadonlyArray<RuntimeUiNavigationItem> = [
+  { href: '/chat', label: 'Chat', icon: 'chat' },
+  { href: '/agents', label: 'Agents', icon: 'agents' },
+  { href: '/admin', label: 'Admin', icon: 'admin' },
+  {
+    href: 'https://github.com/HybridAIOne/hybridclaw',
+    label: 'GitHub',
+    image: '/icons/github.svg',
+  },
+  { href: '/docs', label: 'Docs', icon: 'docs' },
+];
 
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
@@ -1335,6 +1431,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       provider: 'manual',
       health_check_interval_ms: DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS,
     },
+  },
+  ui: {
+    navigation: DEFAULT_UI_NAVIGATION_ITEMS.map((item) => ({ ...item })),
   },
   browser: {
     provider: 'local',
@@ -1645,10 +1744,12 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     allowFrom: [],
     textChunkLimit: 50_000,
     mediaMaxMb: 20,
+    accounts: [],
   },
   hybridai: {
     baseUrl: 'https://hybridai.one',
     defaultModel: DEFAULT_HYBRIDAI_MODEL,
+    onboardingModel: DEFAULT_HYBRIDAI_ONBOARDING_MODEL,
     defaultChatbotId: '',
     maxTokens: 4_096,
     enableRag: true,
@@ -1746,6 +1847,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
         apiKey: '',
       },
     },
+    endpoints: [],
     discovery: {
       enabled: true,
       intervalMs: 3_600_000,
@@ -1909,9 +2011,12 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     healthPort: 9090,
     webApiToken: '',
     gatewayBaseUrl: 'http://127.0.0.1:9090',
+    gatewayInternalBaseUrl: 'http://127.0.0.1:9090',
     gatewayApiToken: '',
     dbPath: DEFAULT_DB_PATH,
     logLevel: 'info',
+    logRequests: false,
+    debugModelResponses: false,
   },
   observability: {
     enabled: true,
@@ -2045,10 +2150,6 @@ function isRuntimeConfigWatcherDisabled(): boolean {
 
 function cloneConfig<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeString(
@@ -2756,6 +2857,13 @@ function normalizeAgentConfig(
       allowEmpty: true,
     },
   );
+  const emptyChatHeader = normalizeString(
+    value.emptyChatHeader,
+    fallback?.emptyChatHeader ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
   const model = normalizeAgentModelConfig(value.model, fallback?.model);
   const workspace = normalizeString(
     value.workspace,
@@ -2823,6 +2931,9 @@ function normalizeAgentConfig(
         fallback?.webSearch,
       )
     : cloneAgentWebSearchConfig(fallback?.webSearch);
+  const proxy = Object.hasOwn(value, 'proxy')
+    ? normalizeAgentProxyConfig(value.proxy, 'agents.list[].proxy')
+    : cloneAgentProxyConfig(fallback?.proxy);
   const budget = Object.hasOwn(value, 'budget')
     ? normalizeAgentBudgetConfig(value.budget, fallback?.budget)
     : cloneAgentBudgetConfig(fallback?.budget);
@@ -2830,7 +2941,7 @@ function normalizeAgentConfig(
     id,
     ...identityFields,
     ...(name ? { name } : {}),
-    ...buildOptionalAgentPresentation(displayName, imageAsset),
+    ...buildOptionalAgentPresentation(displayName, imageAsset, emptyChatHeader),
     ...(model ? { model } : {}),
     ...(skills !== undefined ? { skills } : {}),
     ...(workspace ? { workspace } : {}),
@@ -2845,6 +2956,7 @@ function normalizeAgentConfig(
     ...(escalationTarget ? { escalationTarget } : {}),
     ...(a2a ? { a2a } : {}),
     ...(webSearch ? { webSearch } : {}),
+    ...(proxy ? { proxy } : {}),
     ...(budget ? { budget } : {}),
   };
 }
@@ -2975,6 +3087,12 @@ function normalizeMcpServerConfig(value: unknown): McpServerConfig | null {
   const cwd = normalizeString(value.cwd, '', { allowEmpty: true });
   const url = normalizeString(value.url, '', { allowEmpty: true });
   const headers = normalizeStringRecord(value.headers);
+  const auth =
+    String(value.auth || '')
+      .trim()
+      .toLowerCase() === 'oauth' && supportsMcpOAuth(transport)
+      ? ('oauth' as const)
+      : undefined;
   const enabled = normalizeBoolean(value.enabled, true);
 
   if (transport === 'stdio' && !command) return null;
@@ -2988,6 +3106,7 @@ function normalizeMcpServerConfig(value: unknown): McpServerConfig | null {
     ...(cwd ? { cwd } : {}),
     ...(url ? { url } : {}),
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    ...(auth ? { auth } : {}),
     enabled,
   };
 }
@@ -3942,10 +4061,11 @@ function normalizeEmailConfig(
   fallback: RuntimeEmailConfig,
   opts?: {
     password?: unknown;
+    accountPasswords?: unknown[];
   },
 ): RuntimeEmailConfig {
   const raw = isRecord(value) ? value : {};
-  return {
+  const base = {
     enabled: normalizeBoolean(raw.enabled, fallback.enabled),
     imapHost: normalizeString(raw.imapHost, fallback.imapHost, {
       allowEmpty: true,
@@ -3995,6 +4115,112 @@ function normalizeEmailConfig(
       min: 1,
       max: 100,
     }),
+  };
+  const rawAccounts = Array.isArray(raw.accounts) ? raw.accounts : [];
+  return {
+    ...base,
+    accounts: rawAccounts
+      .map((account, index) =>
+        normalizeEmailAccountConfig(
+          account,
+          fallback.accounts[index],
+          base,
+          opts?.accountPasswords?.[index],
+        ),
+      )
+      .filter((account): account is RuntimeEmailAccountConfig =>
+        Boolean(account),
+      ),
+  };
+}
+
+function normalizeEmailAccountConfig(
+  value: unknown,
+  fallback: RuntimeEmailAccountConfig | undefined,
+  parent: Omit<RuntimeEmailConfig, 'accounts'>,
+  password: unknown,
+): RuntimeEmailAccountConfig | null {
+  if (!isRecord(value)) return null;
+  return {
+    agentId: normalizeString(
+      value.agentId,
+      fallback?.agentId ?? DEFAULT_AGENT_ID,
+      {
+        allowEmpty: false,
+      },
+    ),
+    imapHost: normalizeString(
+      value.imapHost,
+      fallback?.imapHost ?? parent.imapHost,
+      {
+        allowEmpty: true,
+      },
+    ),
+    imapPort: normalizeInteger(
+      value.imapPort,
+      fallback?.imapPort ?? parent.imapPort,
+      {
+        min: 1,
+        max: 65_535,
+      },
+    ),
+    imapSecure: normalizeBoolean(
+      value.imapSecure,
+      fallback?.imapSecure ?? parent.imapSecure,
+    ),
+    smtpHost: normalizeString(
+      value.smtpHost,
+      fallback?.smtpHost ?? parent.smtpHost,
+      {
+        allowEmpty: true,
+      },
+    ),
+    smtpPort: normalizeInteger(
+      value.smtpPort,
+      fallback?.smtpPort ?? parent.smtpPort,
+      {
+        min: 1,
+        max: 65_535,
+      },
+    ),
+    smtpSecure: normalizeBoolean(
+      value.smtpSecure,
+      fallback?.smtpSecure ?? parent.smtpSecure,
+    ),
+    address: normalizeString(value.address, fallback?.address ?? '', {
+      allowEmpty: true,
+    }),
+    password: normalizeString(
+      password ?? value.password,
+      typeof fallback?.password === 'string' ? fallback.password : '',
+      {
+        allowEmpty: true,
+      },
+    ),
+    pollIntervalMs: normalizeInteger(
+      value.pollIntervalMs,
+      fallback?.pollIntervalMs ?? parent.pollIntervalMs,
+      {
+        min: 1_000,
+        max: 3_600_000,
+      },
+    ),
+    folders: normalizeStringArray(
+      value.folders,
+      fallback?.folders ?? parent.folders,
+    ),
+    allowFrom: normalizeStringArray(
+      value.allowFrom,
+      fallback?.allowFrom ?? parent.allowFrom,
+    ),
+    mediaMaxMb: normalizeInteger(
+      value.mediaMaxMb,
+      fallback?.mediaMaxMb ?? parent.mediaMaxMb,
+      {
+        min: 1,
+        max: 100,
+      },
+    ),
   };
 }
 
@@ -4571,7 +4797,11 @@ function normalizeSchedulerActionKind(
 ): SchedulerActionKind {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'agent_turn' || normalized === 'system_event')
+  if (
+    normalized === 'agent_turn' ||
+    normalized === 'heartbeat_poll' ||
+    normalized === 'system_event'
+  )
     return normalized;
   return fallback;
 }
@@ -4755,6 +4985,158 @@ function normalizeLogLevel(value: unknown, fallback: LogLevel): LogLevel {
 function normalizeBaseUrl(value: unknown, fallback: string): string {
   const candidate = normalizeString(value, fallback, { allowEmpty: false });
   return candidate.replace(/\/+$/, '') || fallback;
+}
+
+const MAX_UI_NAVIGATION_ITEMS = 12;
+const MAX_UI_NAVIGATION_LABEL_LENGTH = 48;
+const UI_NAVIGATION_ICONS = new Set<RuntimeUiNavigationIcon>([
+  'admin',
+  'agents',
+  'chat',
+  'docs',
+]);
+
+function normalizeUiNavigationHref(value: unknown): string | null {
+  const candidate = normalizeString(value, '', { allowEmpty: false });
+  if (!candidate) return null;
+
+  if (candidate.startsWith('/')) {
+    if (candidate.startsWith('//')) return null;
+    try {
+      const parsed = new URL(candidate, 'http://127.0.0.1');
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeUiNavigationImage(value: unknown): string | undefined {
+  const normalized = normalizeUiNavigationHref(value);
+  return normalized ?? undefined;
+}
+
+function normalizeUiNavigationIcon(
+  value: unknown,
+): RuntimeUiNavigationIcon | undefined {
+  const normalized = normalizeString(value, '', {
+    allowEmpty: false,
+  }).toLowerCase();
+  return UI_NAVIGATION_ICONS.has(normalized as RuntimeUiNavigationIcon)
+    ? (normalized as RuntimeUiNavigationIcon)
+    : undefined;
+}
+
+function normalizeUiNavigationItems(
+  value: unknown,
+  fallback: ReadonlyArray<RuntimeUiNavigationItem>,
+): RuntimeUiNavigationItem[] {
+  if (!Array.isArray(value)) return fallback.map((item) => ({ ...item }));
+
+  const normalized: RuntimeUiNavigationItem[] = [];
+  for (const rawItem of value) {
+    if (!isRecord(rawItem)) continue;
+    const label = normalizeString(rawItem.label, '', { allowEmpty: false });
+    const href = normalizeUiNavigationHref(rawItem.href);
+    if (!label || !href) continue;
+    const item: RuntimeUiNavigationItem = {
+      href,
+      label: label.slice(0, MAX_UI_NAVIGATION_LABEL_LENGTH),
+    };
+    const icon = normalizeUiNavigationIcon(rawItem.icon);
+    if (icon) item.icon = icon;
+    const image = normalizeUiNavigationImage(rawItem.image);
+    if (image) item.image = image;
+    normalized.push(item);
+    if (normalized.length >= MAX_UI_NAVIGATION_ITEMS) break;
+  }
+  return normalized;
+}
+
+function normalizeUiConfig(
+  value: unknown,
+  fallback: RuntimeUiConfig,
+): RuntimeUiConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    navigation: normalizeUiNavigationItems(raw.navigation, fallback.navigation),
+  };
+}
+
+const LOCAL_ENDPOINT_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+function normalizeLocalEndpointName(value: unknown): string | null {
+  const normalized = String(value || '').trim();
+  if (!normalized || !LOCAL_ENDPOINT_NAME_PATTERN.test(normalized)) return null;
+  if (normalized.toLowerCase() === 'local') return null;
+  if (isRuntimeProviderId(normalized.toLowerCase())) return null;
+  return normalized;
+}
+
+function normalizeLocalEndpointType(value: unknown): LocalBackendType | null {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return isLocalBackendType(normalized) ? normalized : null;
+}
+
+function normalizeModelBehaviorConfig(
+  value: unknown,
+): LocalModelBehavior | undefined {
+  if (!isRecord(value)) return undefined;
+  const behavior: LocalModelBehavior = {};
+  const thinkingFormat = normalizeString(value.thinkingFormat, '', {
+    allowEmpty: true,
+  }).toLowerCase();
+  if (thinkingFormat === 'qwen') {
+    behavior.thinkingFormat = 'qwen';
+  }
+  return Object.keys(behavior).length > 0 ? behavior : undefined;
+}
+
+function normalizeLocalEndpointConfigs(value: unknown): LocalEndpointConfig[] {
+  if (!Array.isArray(value)) return [];
+  const endpoints: LocalEndpointConfig[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (!isRecord(raw)) continue;
+    const name = normalizeLocalEndpointName(raw.name);
+    const type = normalizeLocalEndpointType(raw.type);
+    if (!name || !type || seen.has(name)) continue;
+    seen.add(name);
+    const enabled = normalizeBoolean(raw.enabled, true);
+    const fallbackBaseUrl =
+      type === 'ollama'
+        ? DEFAULT_RUNTIME_CONFIG.local.backends.ollama.baseUrl
+        : type === 'lmstudio'
+          ? DEFAULT_RUNTIME_CONFIG.local.backends.lmstudio.baseUrl
+          : type === 'llamacpp'
+            ? DEFAULT_RUNTIME_CONFIG.local.backends.llamacpp.baseUrl
+            : DEFAULT_RUNTIME_CONFIG.local.backends.vllm.baseUrl;
+    const resolvedApiKey = resolveConfiguredSecretInput(raw.apiKey, {
+      path: `local.endpoints.${name}.apiKey`,
+      required: isSecretRefInput(raw.apiKey) && enabled,
+    });
+    endpoints.push({
+      name,
+      type,
+      enabled,
+      baseUrl: normalizeBaseUrl(raw.baseUrl, fallbackBaseUrl),
+      apiKey: normalizeString(resolvedApiKey, '', { allowEmpty: true }),
+      modelBehavior: normalizeModelBehaviorConfig(raw.modelBehavior),
+    });
+  }
+  return endpoints;
 }
 
 function migrateProviderBaseUrl(params: {
@@ -5002,6 +5384,40 @@ function preserveDiscordWebhookSecretInputs(
   }
 }
 
+function preserveLocalEndpointSecretInputs(
+  serializable: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  const sourceLocal = isRecord(source.local) ? source.local : null;
+  const sourceEndpoints =
+    sourceLocal && Array.isArray(sourceLocal.endpoints)
+      ? sourceLocal.endpoints
+      : null;
+  if (!sourceEndpoints) return;
+
+  const serializableLocal = isRecord(serializable.local)
+    ? serializable.local
+    : {};
+  serializable.local = serializableLocal;
+  const serializableEndpoints = Array.isArray(serializableLocal.endpoints)
+    ? serializableLocal.endpoints
+    : [];
+  serializableLocal.endpoints = serializableEndpoints;
+
+  for (const rawEndpoint of sourceEndpoints) {
+    if (!isRecord(rawEndpoint) || !isSecretRefInput(rawEndpoint.apiKey)) {
+      continue;
+    }
+    const name = normalizeLocalEndpointName(rawEndpoint.name);
+    if (!name) continue;
+    const target = serializableEndpoints.find(
+      (entry) => isRecord(entry) && entry.name === name,
+    );
+    if (!isRecord(target)) continue;
+    target.apiKey = cloneConfig(rawEndpoint.apiKey);
+  }
+}
+
 function preserveSecretInputs(
   serializable: Record<string, unknown>,
   source: Record<string, unknown>,
@@ -5011,8 +5427,101 @@ function preserveSecretInputs(
     if (!isSecretRefInput(sourceValue)) continue;
     setSecretInputOnSource(serializable, secretPath, cloneConfig(sourceValue));
   }
+  preserveEmailAccountSecretInputs(serializable, source);
   preserveSlackWebhookSecretInputs(serializable, source);
   preserveDiscordWebhookSecretInputs(serializable, source);
+  preserveLocalEndpointSecretInputs(serializable, source);
+}
+
+function preserveEmailAccountSecretInputs(
+  serializable: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  const sourceEmail = isRecord(source.email) ? source.email : null;
+  const sourceAccounts =
+    sourceEmail && Array.isArray(sourceEmail.accounts)
+      ? sourceEmail.accounts
+      : null;
+  if (!sourceAccounts) return;
+
+  const serializableEmail = isRecord(serializable.email)
+    ? serializable.email
+    : {};
+  serializable.email = serializableEmail;
+  const serializableAccounts = Array.isArray(serializableEmail.accounts)
+    ? serializableEmail.accounts
+    : [];
+  serializableEmail.accounts = serializableAccounts;
+
+  copyEmailAccountPasswordSecretRefs(sourceAccounts, serializableAccounts);
+}
+
+function copyEmailAccountPasswordSecretRefs(
+  sourceAccounts: unknown[],
+  targetAccounts: unknown[],
+  options: {
+    cloneExistingTarget?: boolean;
+    createMissingTarget?: boolean;
+  } = {},
+): void {
+  for (let index = 0; index < sourceAccounts.length; index += 1) {
+    const sourceAccount = sourceAccounts[index];
+    if (!isRecord(sourceAccount) || !isSecretRefInput(sourceAccount.password)) {
+      continue;
+    }
+
+    const target = targetAccounts[index];
+    if (!isRecord(target)) {
+      if (!options.createMissingTarget) continue;
+      targetAccounts[index] = {
+        password: cloneConfig(sourceAccount.password),
+      };
+      continue;
+    }
+
+    const nextTarget = options.cloneExistingTarget ? { ...target } : target;
+    nextTarget.password = cloneConfig(sourceAccount.password);
+    targetAccounts[index] = nextTarget;
+  }
+}
+
+function mergeSubmittedSecretInputs(
+  base: Record<string, unknown>,
+  submitted: unknown,
+): Record<string, unknown> {
+  const merged = cloneConfig(base);
+  if (!isRecord(submitted)) return merged;
+
+  for (const secretPath of SECRET_INPUT_PATHS) {
+    const submittedValue = getSecretInputFromSource(submitted, secretPath);
+    if (!isSecretRefInput(submittedValue)) continue;
+    setSecretInputOnSource(
+      merged,
+      secretPath,
+      cloneConfig(submittedValue) as SecretInput,
+    );
+  }
+
+  const submittedEmail = isRecord(submitted.email) ? submitted.email : null;
+  const submittedAccounts =
+    submittedEmail && Array.isArray(submittedEmail.accounts)
+      ? submittedEmail.accounts
+      : null;
+  if (!submittedAccounts) return merged;
+
+  const mergedEmail = isRecord(merged.email) ? merged.email : {};
+  merged.email = mergedEmail;
+  const mergedAccounts = Array.isArray(mergedEmail.accounts)
+    ? [...mergedEmail.accounts]
+    : [];
+  mergedEmail.accounts = mergedAccounts;
+
+  copyEmailAccountPasswordSecretRefs(submittedAccounts, mergedAccounts, {
+    cloneExistingTarget: true,
+    createMissingTarget: true,
+  });
+
+  return merged;
 }
 
 function resolveConfiguredSecretInput(
@@ -5114,6 +5623,9 @@ function normalizeHttpRequestAuthRuleSecret(
   if (isGoogleOAuthSecretRef(value)) {
     return makeGoogleOAuthSecretRef();
   }
+  if (isMicrosoftOAuthSecretRef(value)) {
+    return makeMicrosoftOAuthSecretRef();
+  }
 
   const parsed = parseSecretInput(value);
   if (parsed.kind === 'invalid') {
@@ -5121,7 +5633,7 @@ function normalizeHttpRequestAuthRuleSecret(
   }
   if (parsed.kind === 'plain') {
     throw new Error(
-      `${path} must use a stored secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`{ "source": "google-oauth" }\``,
+      `${path} must use a stored secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\`, \`{ "source": "google-oauth" }\`, or \`{ "source": "microsoft-oauth" }\``,
     );
   }
   return cloneConfig(parsed.ref);
@@ -6139,6 +6651,7 @@ function normalizeRuntimeConfig(
 
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
   const rawDeployment = isRecord(raw.deployment) ? raw.deployment : {};
+  const rawUi = isRecord(raw.ui) ? raw.ui : {};
   const rawBrowser = isRecord(raw.browser) ? raw.browser : {};
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
@@ -6366,6 +6879,18 @@ function normalizeRuntimeConfig(
       required: isSecretRefInput(rawEmail.password) && emailEnabled,
     },
   );
+  const rawEmailAccounts = Array.isArray(rawEmail.accounts)
+    ? rawEmail.accounts
+    : [];
+  const resolvedEmailAccountPasswords = rawEmailAccounts.map(
+    (rawAccount, index) => {
+      if (!isRecord(rawAccount)) return undefined;
+      return resolveConfiguredSecretInput(rawAccount.password, {
+        path: `email.accounts[${index}].password`,
+        required: isSecretRefInput(rawAccount.password) && emailEnabled,
+      });
+    },
+  );
   const rawVoiceTwilio = isRecord(rawVoice.twilio) ? rawVoice.twilio : {};
   const resolvedVoiceAuthToken = resolveConfiguredSecretInput(
     rawVoiceTwilio.authToken,
@@ -6584,6 +7109,7 @@ function normalizeRuntimeConfig(
       rawDeployment,
       DEFAULT_RUNTIME_CONFIG.deployment,
     ),
+    ui: normalizeUiConfig(rawUi, DEFAULT_RUNTIME_CONFIG.ui),
     browser: normalizeBrowserConfig(rawBrowser, DEFAULT_RUNTIME_CONFIG.browser),
     agents: normalizeAgentsConfig(rawAgents, DEFAULT_RUNTIME_CONFIG.agents),
     skills: {
@@ -6914,6 +7440,7 @@ function normalizeRuntimeConfig(
     ),
     email: normalizeEmailConfig(rawEmail, DEFAULT_RUNTIME_CONFIG.email, {
       password: resolvedEmailPassword,
+      accountPasswords: resolvedEmailAccountPasswords,
     }),
     hybridai: {
       baseUrl: hybridBaseUrl,
@@ -6921,6 +7448,11 @@ function normalizeRuntimeConfig(
         rawHybridAi.defaultModel,
         DEFAULT_RUNTIME_CONFIG.hybridai.defaultModel,
         { allowEmpty: false },
+      ),
+      onboardingModel: normalizeString(
+        rawHybridAi.onboardingModel,
+        DEFAULT_RUNTIME_CONFIG.hybridai.onboardingModel,
+        { allowEmpty: true },
       ),
       defaultChatbotId: hybridDefaultChatbotId,
       maxTokens: normalizeInteger(
@@ -7099,6 +7631,9 @@ function normalizeRuntimeConfig(
             rawOllamaBackend.baseUrl,
             DEFAULT_RUNTIME_CONFIG.local.backends.ollama.baseUrl,
           ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawOllamaBackend.modelBehavior,
+          ),
         },
         lmstudio: {
           enabled: normalizeBoolean(
@@ -7109,6 +7644,9 @@ function normalizeRuntimeConfig(
             rawLmStudioBackend.baseUrl,
             DEFAULT_RUNTIME_CONFIG.local.backends.lmstudio.baseUrl,
           ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawLmStudioBackend.modelBehavior,
+          ),
         },
         llamacpp: {
           enabled: normalizeBoolean(
@@ -7118,6 +7656,9 @@ function normalizeRuntimeConfig(
           baseUrl: normalizeBaseUrl(
             rawLlamacppBackend.baseUrl,
             DEFAULT_RUNTIME_CONFIG.local.backends.llamacpp.baseUrl,
+          ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawLlamacppBackend.modelBehavior,
           ),
         },
         vllm: {
@@ -7131,8 +7672,12 @@ function normalizeRuntimeConfig(
             DEFAULT_RUNTIME_CONFIG.local.backends.vllm.apiKey || '',
             { allowEmpty: true },
           ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawVllmBackend.modelBehavior,
+          ),
         },
       },
+      endpoints: normalizeLocalEndpointConfigs(rawLocal.endpoints),
       discovery: {
         enabled: normalizeBoolean(
           rawLocalDiscovery.enabled,
@@ -7627,11 +8172,20 @@ function normalizeRuntimeConfig(
         rawOps.gatewayBaseUrl,
         `http://127.0.0.1:${healthPort}`,
       ),
+      gatewayInternalBaseUrl: normalizeBaseUrl(
+        rawOps.gatewayInternalBaseUrl,
+        `http://127.0.0.1:${healthPort}`,
+      ),
       gatewayApiToken: normalizeString(resolvedGatewayApiToken, webApiToken, {
         allowEmpty: true,
       }),
       dbPath: normalizedDbPath,
       logLevel: normalizeLogLevel(rawOps.logLevel, defaultOps.logLevel),
+      logRequests: normalizeBoolean(rawOps.logRequests, defaultOps.logRequests),
+      debugModelResponses: normalizeBoolean(
+        rawOps.debugModelResponses,
+        defaultOps.debugModelResponses,
+      ),
     },
     observability: {
       enabled: normalizeBoolean(
@@ -8257,6 +8811,10 @@ export function getRuntimeConfig(): RuntimeConfig {
   return cloneConfig(currentConfig);
 }
 
+export function getRuntimeConfigSourceSnapshot(): Record<string, unknown> {
+  return cloneConfig(currentConfigSource);
+}
+
 export function getRuntimeConfigLoadError(): RuntimeConfigLoadError | null {
   return currentConfigLoadError ? { ...currentConfigLoadError } : null;
 }
@@ -8338,12 +8896,13 @@ export function saveRuntimeConfig(
     containerSandboxModeExplicit: sandboxModeExplicit,
     containerMaxConcurrentExplicit: maxConcurrentExplicit,
   };
+  const sourceConfig = mergeSubmittedSecretInputs(currentConfigSource, next);
   const nextSource = buildSerializableConfig(
     normalized,
     {
       omitImplicitSandboxMode: !sandboxModeExplicit,
     },
-    currentConfigSource,
+    sourceConfig,
   );
   writeConfigFile(
     normalized,
@@ -8351,7 +8910,7 @@ export function saveRuntimeConfig(
       omitImplicitSandboxMode: !sandboxModeExplicit,
     },
     meta,
-    currentConfigSource,
+    sourceConfig,
   );
   currentConfigSource = cloneConfig(nextSource);
   applyConfig(normalized);
@@ -8476,6 +9035,44 @@ export function setRuntimeConfigSecretInput(
 
   const draftSource = cloneConfig(baseSource);
   setSecretInputOnSource(draftSource, secretPath, value);
+  return saveRuntimeConfigSource(draftSource, meta);
+}
+
+export function setRuntimeConfigLocalEndpointSecretInput(
+  endpointName: string,
+  value: SecretInput | '',
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const normalizedName = normalizeLocalEndpointName(endpointName);
+  if (!normalizedName) {
+    throw new Error(`Invalid local endpoint name: ${endpointName}`);
+  }
+
+  let baseSource = currentConfigSource;
+  try {
+    loadRuntimeConfigFromSources({
+      route: 'runtime-config.refresh-before-local-endpoint-secret-save',
+      source: 'external',
+    });
+    baseSource = currentConfigSource;
+  } catch (err) {
+    console.warn(
+      `[runtime-config] local endpoint secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const draftSource = cloneConfig(baseSource);
+  const local = isRecord(draftSource.local) ? draftSource.local : {};
+  draftSource.local = local;
+  const endpoints = Array.isArray(local.endpoints) ? local.endpoints : [];
+  local.endpoints = endpoints;
+  const endpoint = endpoints.find(
+    (entry) => isRecord(entry) && entry.name === normalizedName,
+  );
+  if (!isRecord(endpoint)) {
+    throw new Error(`Local endpoint "${normalizedName}" is not configured.`);
+  }
+  endpoint.apiKey = value;
   return saveRuntimeConfigSource(draftSource, meta);
 }
 

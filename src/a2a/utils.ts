@@ -1,8 +1,6 @@
 import { isIP } from 'node:net';
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+export { isRecord } from '../utils/type-guards.js';
 
 export const A2A_TRANSPORT_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/;
 

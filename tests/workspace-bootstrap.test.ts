@@ -10,6 +10,7 @@ const makeTempDir = useTempDir();
 function readWorkspaceState(workspaceDir: string): {
   bootstrapSeededAt?: string;
   onboardingCompletedAt?: string;
+  hatchingTurnsWithoutMessage?: number;
 } {
   const statePath = path.join(
     workspaceDir,
@@ -19,7 +20,45 @@ function readWorkspaceState(workspaceDir: string): {
   return JSON.parse(fs.readFileSync(statePath, 'utf-8')) as {
     bootstrapSeededAt?: string;
     onboardingCompletedAt?: string;
+    hatchingTurnsWithoutMessage?: number;
   };
+}
+
+function completedUserMarkdown(): string {
+  return [
+    '# USER.md - About Your Human',
+    '',
+    '- **Name:** Ben',
+    '- **What to call them:** Ben',
+    '- **Email:** ben@example.com',
+    '',
+    '## Welcome Message',
+    '',
+    '- **Status:** drafted in chat',
+    '- **Recipient:** ben@example.com',
+    '- **Subject:** Your daily HybridClaw briefing helper',
+    '- **Delivery:** not sent',
+    '- **Last handled:** 2026-06-08',
+    '',
+  ].join('\n');
+}
+
+function completedUserMarkdownWithSentWelcome(): string {
+  return [
+    '# USER.md - About Your Human',
+    '',
+    '- **Name:** Ben',
+    '- **What to call them:** Ben',
+    '- **Email:** ben@example.com',
+    '',
+    '## Welcome Message',
+    '',
+    '- **Status:** sent',
+    '- **Recipient:** ben@example.com',
+    '- **Subject:** Welcome to HybridClaw',
+    '- **Delivery:** email channel, 2026-06-09',
+    '',
+  ].join('\n');
 }
 
 function currentLocalDateStamp(): string {
@@ -80,7 +119,7 @@ describe('workspace bootstrap lifecycle', () => {
     );
     fs.writeFileSync(
       path.join(workspaceDir, 'USER.md'),
-      '# USER.md - About Your Human\n\n- **Name:** Ben\n',
+      completedUserMarkdown(),
       'utf-8',
     );
     fs.unlinkSync(bootstrapPath);
@@ -90,6 +129,40 @@ describe('workspace bootstrap lifecycle', () => {
     expect(fs.existsSync(bootstrapPath)).toBe(false);
     const state = readWorkspaceState(workspaceDir);
     expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+  });
+
+  test('does not recreate BOOTSTRAP.md when a welcome message was sent', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+    fs.writeFileSync(
+      path.join(workspaceDir, 'IDENTITY.md'),
+      '# IDENTITY.md - Who Am I?\n\n- **Name:** Nova\n',
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(workspaceDir, 'USER.md'),
+      completedUserMarkdownWithSentWelcome(),
+      'utf-8',
+    );
+    fs.unlinkSync(bootstrapPath);
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    expect(fs.existsSync(bootstrapPath)).toBe(false);
+    const state = readWorkspaceState(workspaceDir);
     expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
 
@@ -118,7 +191,7 @@ describe('workspace bootstrap lifecycle', () => {
     );
     fs.writeFileSync(
       path.join(workspaceDir, 'USER.md'),
-      '# USER.md - About Your Human\n\n- **Name:** Ben\n',
+      completedUserMarkdown(),
       'utf-8',
     );
     fs.unlinkSync(path.join(workspaceDir, 'BOOTSTRAP.md'));
@@ -132,6 +205,123 @@ describe('workspace bootstrap lifecycle', () => {
     expect(postHatchAgents?.content).not.toContain('## First Run');
     expect(postHatchAgents?.content).not.toContain('hatching script');
     expect(postHatchAgents?.content).toContain('## Every Session');
+  });
+
+  test('seeds short hatching bootstrap instructions into fresh agent workspaces', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const userPath = path.join(workspaceDir, 'USER.md');
+    const userMarkdown = fs.readFileSync(userPath, 'utf-8');
+    expect(userMarkdown).toContain('## Welcome Message');
+    expect(userMarkdown).toContain(
+      '- **WhatsApp channel setup:** [Set up WhatsApp](/admin/channels#whatsapp)',
+    );
+    expect(userMarkdown).toContain(
+      '- **Discord channel setup:** [Set up Discord](/admin/channels#discord)',
+    );
+    expect(userMarkdown).toContain(
+      '- **Telegram channel setup:** [Set up Telegram](/admin/channels#telegram)',
+    );
+    const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+    const bootstrapMarkdown = fs.readFileSync(bootstrapPath, 'utf-8');
+    expect(bootstrapMarkdown).toContain("new coworker's first day");
+    expect(bootstrapMarkdown).toContain('You are not running an intake form');
+    expect(bootstrapMarkdown).toContain('Write an actual message');
+    expect(bootstrapMarkdown).toContain('genuine greeting');
+    expect(bootstrapMarkdown).toContain(
+      'not a setup wizard',
+    );
+    expect(bootstrapMarkdown).toContain('one question per line');
+    expect(bootstrapMarkdown).toContain('Two or three questions');
+    expect(bootstrapMarkdown).toContain("what they'd like to call YOU");
+    expect(bootstrapMarkdown).toContain("don't have a fixed name yet");
+    expect(bootstrapMarkdown).toContain('including the name they chose for you');
+    expect(bootstrapMarkdown).toContain('a good email for you');
+    expect(bootstrapMarkdown).toContain('home automation');
+    expect(bootstrapMarkdown).toContain("what they're working on right now");
+    expect(bootstrapMarkdown).toContain(
+      'Everything except the email is optional',
+    );
+    expect(bootstrapMarkdown).toContain('3 specific first tasks');
+    expect(bootstrapMarkdown).toContain('copy-paste prompt ideas');
+    expect(bootstrapMarkdown).toContain("claim it's sent until");
+    expect(bootstrapMarkdown).not.toContain('Optional channel setup:');
+
+    const files = workspace.loadBootstrapFiles('agent-test');
+    expect(files.some((file) => file.name === 'TASK_IDEAS.md')).toBe(false);
+  });
+
+  test('seeds BOOTSTRAP.md for explicit new-agent bootstrap even when workspace exists first', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceDir, 'preexisting-note.md'),
+      '# Preexisting Note\n',
+      'utf-8',
+    );
+
+    const result = workspace.ensureBootstrapFiles('agent-test', {
+      seedOneTimeBootstrap: true,
+    });
+
+    expect(result.workspaceInitialized).toBe(false);
+    expect(fs.existsSync(path.join(workspaceDir, 'BOOTSTRAP.md'))).toBe(true);
+    const state = readWorkspaceState(workspaceDir);
+    expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.onboardingCompletedAt).toBeUndefined();
+  });
+
+  test('refreshes legacy default hatching bootstrap instructions', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+    fs.writeFileSync(
+      bootstrapPath,
+      [
+        '# BOOTSTRAP.md - First Hatch',
+        '',
+        'Use the hatching task ideas guide in the docs website when available',
+        '(`docs/content/guides/hatching-task-ideas.md` in the source tree). Do not recite',
+        'it.',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const refreshed = fs.readFileSync(bootstrapPath, 'utf-8');
+    expect(refreshed).toContain('Welcome Message');
+    expect(refreshed).toContain('After the send succeeds');
+    expect(refreshed).not.toContain(
+      'docs/content/guides/hatching-task-ideas.md',
+    );
   });
 
   test("loads today's daily memory note into bootstrap context when present", async () => {
@@ -204,6 +394,30 @@ describe('workspace bootstrap lifecycle', () => {
     expect(workspace.hasActionableHeartbeatFile('agent-test')).toBe(false);
   });
 
+  test('does not treat legacy empty HEARTBEAT.md defaults as actionable', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const heartbeatPath = path.join(workspaceDir, 'HEARTBEAT.md');
+    fs.writeFileSync(
+      heartbeatPath,
+      '# HEARTBEAT.md\n\n# No recurring heartbeat tasks yet.\n',
+      'utf-8',
+    );
+
+    const files = workspace.loadStaticBootstrapFiles('agent-test');
+    expect(files.some((file) => file.name === 'HEARTBEAT.md')).toBe(false);
+    expect(workspace.hasActionableHeartbeatFile('agent-test')).toBe(false);
+  });
+
   test('loads customized HEARTBEAT.md into bootstrap context', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
@@ -231,7 +445,7 @@ describe('workspace bootstrap lifecycle', () => {
     expect(workspace.hasActionableHeartbeatFile('agent-test')).toBe(true);
   });
 
-  test('removes stale BOOTSTRAP.md when the workspace already looks completed', async () => {
+  test('keeps BOOTSTRAP.md until a deterministic completion signal', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
     vi.stubEnv('HOME', homeDir);
@@ -253,7 +467,7 @@ describe('workspace bootstrap lifecycle', () => {
     );
     fs.writeFileSync(
       path.join(workspaceDir, 'USER.md'),
-      '# USER.md - About Your Human\n\n- **Name:** Ben\n- **What to call them:** Ben\n',
+      completedUserMarkdown(),
       'utf-8',
     );
     fs.writeFileSync(
@@ -264,13 +478,13 @@ describe('workspace bootstrap lifecycle', () => {
 
     workspace.ensureBootstrapFiles('agent-test');
 
-    expect(fs.existsSync(bootstrapPath)).toBe(false);
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
     const state = readWorkspaceState(workspaceDir);
     expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
-    expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.onboardingCompletedAt).toBeUndefined();
   });
 
-  test('removes stale BOOTSTRAP.md after identity setup once transcripts exist', async () => {
+  test('removes BOOTSTRAP.md after a successful hatching message send', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
     vi.stubEnv('HOME', homeDir);
@@ -292,7 +506,7 @@ describe('workspace bootstrap lifecycle', () => {
     );
     fs.writeFileSync(
       path.join(workspaceDir, 'USER.md'),
-      '# USER.md - About Your Human\n\n- **Name:** Ben\n- **What to call them:** Ben\n',
+      completedUserMarkdown(),
       'utf-8',
     );
     fs.mkdirSync(path.join(workspaceDir, '.session-transcripts'), {
@@ -304,12 +518,175 @@ describe('workspace bootstrap lifecycle', () => {
       'utf-8',
     );
 
-    workspace.ensureBootstrapFiles('agent-test');
+    const completion = workspace.completeHatchingAfterMessageSend({
+      agentId: 'agent-test',
+      recipient: 'ben@example.com',
+      subject: 'Welcome',
+    });
 
+    expect(completion).toMatchObject({
+      completed: true,
+      reason: 'message sent',
+    });
     expect(fs.existsSync(bootstrapPath)).toBe(false);
     const state = readWorkspaceState(workspaceDir);
     expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
     expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.hatchingTurnsWithoutMessage).toBe(0);
+  });
+
+  test('keeps BOOTSTRAP.md while the welcome message is still pending', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+    fs.writeFileSync(
+      path.join(workspaceDir, 'USER.md'),
+      [
+        '# USER.md - About Your Human',
+        '',
+        '- **Name:** Ben',
+        '- **What to call them:** Ben',
+        '- **Email:** ben@example.com',
+        '',
+        '## Welcome Message',
+        '',
+        '- **Status:** pending',
+        '- **Recipient:** ben@example.com',
+        '- **Subject:** Welcome to HybridClaw',
+        '- **Delivery:** not sent',
+        '- **Last handled:**',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    fs.mkdirSync(path.join(workspaceDir, '.session-transcripts'), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(workspaceDir, '.session-transcripts', 'web.jsonl'),
+      '{"role":"user","content":"You can email me at ben@example.com"}\n',
+      'utf-8',
+    );
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+    const state = readWorkspaceState(workspaceDir);
+    expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.onboardingCompletedAt).toBeUndefined();
+  });
+
+  test('keeps BOOTSTRAP.md while USER.md email is still pending', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+    fs.writeFileSync(
+      path.join(workspaceDir, 'USER.md'),
+      '# USER.md - About Your Human\n\n- **Name:** Ben\n- **What to call them:** Ben\n- **Email:** (pending)\n',
+      'utf-8',
+    );
+    fs.mkdirSync(path.join(workspaceDir, '.session-transcripts'), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(workspaceDir, '.session-transcripts', 'web.jsonl'),
+      '{"role":"user","content":"You can call me Ben"}\n',
+      'utf-8',
+    );
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+    const state = readWorkspaceState(workspaceDir);
+    expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.onboardingCompletedAt).toBeUndefined();
+  });
+
+  test('removes BOOTSTRAP.md after three hatching turns without a message send', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+    fs.writeFileSync(
+      path.join(workspaceDir, 'USER.md'),
+      [
+        '# USER.md - About Your Human',
+        '',
+        '- **Name:** Ben',
+        '- **What to call them:** Ben',
+        '- **Email:**',
+        '',
+        '## Welcome Message',
+        '',
+        '- **Status:** pending',
+        '- **Recipient:**',
+        '- **Subject:**',
+        '- **Delivery:** not sent',
+        '- **Last handled:**',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    expect(
+      workspace.recordHatchingTurnWithoutMessage({ agentId: 'agent-test' }),
+    ).toMatchObject({
+      completed: false,
+      turnsWithoutMessage: 1,
+    });
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+    expect(
+      workspace.recordHatchingTurnWithoutMessage({ agentId: 'agent-test' }),
+    ).toMatchObject({
+      completed: false,
+      turnsWithoutMessage: 2,
+    });
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+    expect(
+      workspace.recordHatchingTurnWithoutMessage({ agentId: 'agent-test' }),
+    ).toMatchObject({
+      completed: true,
+      reason: 'no message sent after 3 hatching turns',
+      turnsWithoutMessage: 3,
+    });
+
+    expect(fs.existsSync(bootstrapPath)).toBe(false);
+    const state = readWorkspaceState(workspaceDir);
+    expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.hatchingTurnsWithoutMessage).toBe(0);
   });
 
   test('symlinks workspace node_modules to the container app deps when absent', async () => {
@@ -480,7 +857,7 @@ describe('workspace bootstrap lifecycle', () => {
     expect(state.onboardingCompletedAt).toBeUndefined();
   });
 
-  test('removes a package-provided custom BOOTSTRAP.md after onboarding updates the workspace', async () => {
+  test('keeps a package-provided custom BOOTSTRAP.md until a deterministic completion signal', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
     vi.stubEnv('HOME', homeDir);
@@ -509,7 +886,7 @@ describe('workspace bootstrap lifecycle', () => {
     );
     fs.writeFileSync(
       path.join(workspaceDir, 'USER.md'),
-      '# USER.md - About Your Human\n\n- **Name:** Ben\n',
+      completedUserMarkdown(),
       'utf-8',
     );
     fs.writeFileSync(
@@ -520,9 +897,9 @@ describe('workspace bootstrap lifecycle', () => {
 
     workspace.ensureBootstrapFiles('agent-test');
 
-    expect(fs.existsSync(bootstrapPath)).toBe(false);
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
     const state = readWorkspaceState(workspaceDir);
     expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
-    expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.onboardingCompletedAt).toBeUndefined();
   });
 });

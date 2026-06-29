@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-
 import YAML from 'yaml';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
@@ -23,6 +22,7 @@ import {
 } from '../security/runtime-secrets.js';
 import { bootstrapRuntimeSecrets } from '../security/runtime-secrets-bootstrap.js';
 import type { McpServerConfig } from '../types/models.js';
+import { isRecord } from '../utils/type-guards.js';
 
 export type AgentMigrationSource = 'openclaw' | 'hermes';
 
@@ -133,10 +133,6 @@ const RUNTIME_SECRET_KEYS: RuntimeSecretKey[] = [
   'WEB_API_TOKEN',
   'GATEWAY_API_TOKEN',
 ];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value);
-}
 
 function parseJsonFile(filePath: string): Record<string, unknown> {
   if (!fs.existsSync(filePath)) return {};

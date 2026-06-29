@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
-import { resolveInstallRoot } from './install-root.js';
+import {
+  containerBootstrapScriptPath,
+  resolveInstallRoot,
+} from './install-root.js';
 
 export interface HostRuntimeCommand {
   command: string;
@@ -65,15 +68,23 @@ function detectMissingContainerDependencies(installRoot: string): string[] {
 
     try {
       resolveFromContainer.resolve(`${dependency}/package.json`);
-    } catch {
-      missing.push(dependency);
+    } catch (error) {
+      // ERR_PACKAGE_PATH_NOT_EXPORTED means the package is installed but its
+      // exports map does not expose ./package.json (e.g. hoisted dompurify).
+      const code = (error as NodeJS.ErrnoException | null)?.code;
+      if (code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+        missing.push(dependency);
+      }
     }
   }
   return missing;
 }
 
 function isSourceCheckout(installRoot: string): boolean {
-  return fs.existsSync(path.join(installRoot, '.git'));
+  // Same probe as scripts/postinstall-container.mjs: the published tarball
+  // ships no top-level src/, and this also covers git-less source trees
+  // (tarball/zip downloads), which the bootstrap script refuses to touch.
+  return fs.existsSync(path.join(installRoot, 'src'));
 }
 
 function formatMissingDependencyMessage(
@@ -85,7 +96,7 @@ function formatMissingDependencyMessage(
   const list = missingDependencies.join(', ');
   const hint = isSourceCheckout(installRoot)
     ? 'If you are running from a source checkout, run `npm run setup` first.'
-    : 'Reinstall HybridClaw.';
+    : `Run \`node ${containerBootstrapScriptPath(installRoot)}\` to install them; installs that skip lifecycle scripts (--ignore-scripts, pnpm) miss this step.`;
   return [
     `${commandName}: Host runtime is not ready.`,
     `Missing runtime ${noun}: ${list}.`,

@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -11,12 +12,18 @@ import type {
   ChatCommandsResponse,
   MediaItem,
 } from '../../api/chat-types';
+import { clearAgentAvatarUrlCacheForTest } from './agent-avatar-url';
+import css from './chat-page.module.css';
 import { Composer } from './composer';
 
 const fetchChatCommandsMock =
   vi.fn<(token: string, query?: string) => Promise<ChatCommandsResponse>>();
+const fetchAgentAvatarBlobMock =
+  vi.fn<(token: string, imageUrl: string) => Promise<Blob>>();
 
 vi.mock('../../api/chat', () => ({
+  fetchAgentAvatarBlob: (token: string, imageUrl: string) =>
+    fetchAgentAvatarBlobMock(token, imageUrl),
   fetchChatCommands: (token: string, query?: string) =>
     fetchChatCommandsMock(token, query),
 }));
@@ -55,7 +62,19 @@ const getTextarea = () =>
 
 describe('Composer', () => {
   beforeEach(() => {
+    fetchAgentAvatarBlobMock.mockReset();
     fetchChatCommandsMock.mockReset();
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => 'blob:agent-avatar'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    });
+    clearAgentAvatarUrlCacheForTest();
   });
 
   it('strips the leading slash before fetching command suggestions', async () => {
@@ -70,20 +89,317 @@ describe('Composer', () => {
     );
   });
 
-  it('renders a compact agent switcher beside the attach button', () => {
+  it('renders a compact agent switcher beside the attach button', async () => {
     const onAgentSwitch = vi.fn();
+    fetchAgentAvatarBlobMock.mockResolvedValue(
+      new Blob(['avatar'], { type: 'image/png' }),
+    );
     renderComposer({
       agents: [
         { id: 'main', name: 'Assistant' },
-        { id: 'charly', name: 'Charly' },
+        {
+          id: 'charly',
+          name: 'Charly',
+          imageUrl: '/api/agent-avatar?agentId=charly',
+        },
       ],
       selectedAgentId: 'main',
       onAgentSwitch,
     });
-    fireEvent.change(screen.getByLabelText('Switch agent'), {
-      target: { value: 'charly' },
-    });
+    fireEvent.click(screen.getByLabelText('Switch agent'));
+    const listbox = screen.getByRole('listbox');
+    expect(
+      within(listbox).getByRole('option', { name: 'Charly' }),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(fetchAgentAvatarBlobMock).toHaveBeenCalledWith(
+        'test-token',
+        '/api/agent-avatar?agentId=charly',
+      ),
+    );
+    expect(listbox.querySelector('img')?.getAttribute('src')).toBe(
+      'blob:agent-avatar',
+    );
+    fireEvent.click(within(listbox).getByRole('option', { name: 'Charly' }));
     expect(onAgentSwitch).toHaveBeenCalledWith('charly');
+  });
+
+  it('groups trusted remote agents and inserts a canonical mention when selected', async () => {
+    const onAgentSwitch = vi.fn();
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'remote@team@inst-peer',
+          name: 'Remote Research',
+          source: {
+            type: 'remote',
+            peerId: 'inst-peer',
+            instanceId: 'inst-peer',
+          },
+        },
+      ],
+      selectedAgentId: 'main',
+      onAgentSwitch,
+    });
+
+    fireEvent.click(screen.getByLabelText('Switch agent'));
+    const listbox = screen.getByRole('listbox');
+    expect(listbox.textContent).toContain('Local');
+    expect(listbox.textContent).toContain('inst-peer');
+    fireEvent.click(
+      within(listbox).getByRole('option', { name: 'Remote Research' }),
+    );
+
+    const textarea = getTextarea();
+    await waitFor(() => expect(document.activeElement).toBe(textarea));
+    expect(textarea.value).toBe('@remote@team@inst-peer ');
+    expect(textarea.selectionStart).toBe('@remote@team@inst-peer '.length);
+    expect(onAgentSwitch).not.toHaveBeenCalled();
+  });
+
+  it('places the caret after the inserted remote address before existing text', async () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'remote@team@inst-peer',
+          name: 'Remote Research',
+          source: {
+            type: 'remote',
+            peerId: 'inst-peer',
+            instanceId: 'inst-peer',
+          },
+        },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: 'summarize this' } });
+
+    fireEvent.click(screen.getByLabelText('Switch agent'));
+    fireEvent.click(
+      within(screen.getByRole('listbox')).getByRole('option', {
+        name: 'Remote Research',
+      }),
+    );
+
+    expect(textarea.value).toBe('@remote@team@inst-peer summarize this');
+    await waitFor(() => {
+      expect(document.activeElement).toBe(textarea);
+      expect(textarea.selectionStart).toBe('@remote@team@inst-peer '.length);
+    });
+    expect(
+      document.querySelector(`.${css.composerOverlayCaret}`),
+    ).not.toBeNull();
+  });
+
+  it('does not render persistent agent mention chips', () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        { id: 'research', name: 'Research Agent' },
+      ],
+      selectedAgentId: 'main',
+    });
+
+    expect(screen.queryByRole('button', { name: '@research' })).toBeNull();
+  });
+
+  it('suggests agents after @ and inserts the active mention', async () => {
+    fetchAgentAvatarBlobMock.mockResolvedValue(
+      new Blob(['avatar'], { type: 'image/png' }),
+    );
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'research',
+          name: 'Research Agent',
+          imageUrl: '/api/agent-avatar?agentId=research',
+        },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: '@re' } });
+
+    const panel = await screen.findByRole('listbox', { name: 'Agents' });
+    expect(panel.textContent).toContain('@research');
+    expect(panel.textContent).toContain('Research Agent');
+    await waitFor(() =>
+      expect(fetchAgentAvatarBlobMock).toHaveBeenCalledWith(
+        'test-token',
+        '/api/agent-avatar?agentId=research',
+      ),
+    );
+    expect(panel.querySelector('img')?.getAttribute('src')).toBe(
+      'blob:agent-avatar',
+    );
+
+    fireEvent.keyDown(textarea, { key: 'Tab' });
+
+    expect(textarea.value).toBe('@research ');
+    const mention = screen.getByText('@research');
+    const pill = mention.closest(`.${css.composerMentionPill}`);
+    expect(pill).not.toBeNull();
+    await waitFor(() =>
+      expect(pill?.querySelector('img')?.getAttribute('src')).toBe(
+        'blob:agent-avatar',
+      ),
+    );
+    expect(fetchChatCommandsMock).not.toHaveBeenCalled();
+  });
+
+  it('suggests canonical remote agent mentions', async () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'remote@team@inst-peer',
+          name: 'Remote Research',
+          source: {
+            type: 'remote',
+            peerId: 'inst-peer',
+            instanceId: 'inst-peer',
+          },
+        },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: '@remote@te' } });
+
+    const panel = await screen.findByRole('listbox', { name: 'Agents' });
+    expect(panel.textContent).toContain('@remote@team@inst-peer');
+
+    fireEvent.keyDown(textarea, { key: 'Tab' });
+
+    expect(textarea.value).toBe('@remote@team@inst-peer ');
+    expect(screen.getByText('@remote@team@inst-peer')).not.toBeNull();
+  });
+
+  it('shows a neutral loading avatar until the agent image loads', async () => {
+    let resolveAvatar!: (blob: Blob) => void;
+    fetchAgentAvatarBlobMock.mockReturnValue(
+      new Promise<Blob>((resolve) => {
+        resolveAvatar = resolve;
+      }),
+    );
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'stephan',
+          name: 'Stephan Noller',
+          imageUrl: '/api/agent-avatar?agentId=stephan',
+        },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: '@steph' } });
+
+    const panel = await screen.findByRole('listbox', { name: 'Agents' });
+    expect(
+      panel.querySelector(`.${css.suggestionAvatarLoading}`),
+    ).not.toBeNull();
+
+    resolveAvatar(new Blob(['avatar'], { type: 'image/png' }));
+    await waitFor(() =>
+      expect(panel.querySelector('img')?.getAttribute('src')).toBe(
+        'blob:agent-avatar',
+      ),
+    );
+  });
+
+  it('loads agent avatars in local web sessions without a bearer token', async () => {
+    fetchAgentAvatarBlobMock.mockResolvedValue(
+      new Blob(['avatar'], { type: 'image/png' }),
+    );
+    renderComposer({
+      token: '',
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'stephan',
+          name: 'Stephan Noller',
+          imageUrl: '/api/agent-avatar?agentId=stephan',
+        },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: '@steph' } });
+
+    const panel = await screen.findByRole('listbox', { name: 'Agents' });
+    await waitFor(() =>
+      expect(fetchAgentAvatarBlobMock).toHaveBeenCalledWith(
+        '',
+        '/api/agent-avatar?agentId=stephan',
+      ),
+    );
+    expect(panel.querySelector('img')?.getAttribute('src')).toBe(
+      'blob:agent-avatar',
+    );
+  });
+
+  it('renders typed complete agent mentions as prompt pills', () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        { id: 'research', name: 'Research Agent' },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: '@research summarize' } });
+
+    const mention = screen
+      .getAllByText('@research')
+      .map((node) => node.closest(`.${css.composerMentionPill}`))
+      .find(Boolean);
+
+    expect(textarea.value).toBe('@research summarize');
+    expect(mention).toBeTruthy();
+  });
+
+  it('replaces only the active @ token when accepting a mid-line agent mention', async () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        { id: 'research', name: 'Research Agent' },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    textarea.value = 'ask @res later';
+    textarea.setSelectionRange('ask @res'.length, 'ask @res'.length);
+    fireEvent.input(textarea);
+
+    await screen.findByRole('listbox', { name: 'Agents' });
+    fireEvent.keyDown(textarea, { key: 'Tab' });
+
+    expect(textarea.value).toBe('ask @research later');
+    expect(textarea.selectionStart).toBe('ask @research'.length);
+  });
+
+  it('shows a no-match empty state for agent mentions', async () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        { id: 'research', name: 'Research Agent' },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: '@nobody' } });
+
+    const panel = await screen.findByRole('listbox', { name: 'Agents' });
+
+    expect(panel.textContent).toContain('No agents match @nobody');
+    expect(within(panel).queryByRole('option')).toBeNull();
+    expect(fetchChatCommandsMock).not.toHaveBeenCalled();
   });
 
   it('preserves internal newlines when sending a multiline message', () => {
@@ -115,13 +431,13 @@ describe('Composer', () => {
 
     it('inserts insertText with exactly one trailing space (no double space)', async () => {
       const textarea = await showPanel([APPROVE]);
-      fireEvent.keyDown(textarea, { key: 'Enter' });
+      fireEvent.keyDown(textarea, { key: 'Tab' });
       expect(textarea.value).toBe('/approve ');
     });
 
     it('appends a single trailing space when insertText has none', async () => {
       const textarea = await showPanel([CLEAR]);
-      fireEvent.keyDown(textarea, { key: 'Enter' });
+      fireEvent.keyDown(textarea, { key: 'Tab' });
       expect(textarea.value).toBe('/clear ');
     });
 
@@ -129,6 +445,66 @@ describe('Composer', () => {
       const textarea = await showPanel([APPROVE]);
       fireEvent.keyDown(textarea, { key: 'Tab' });
       expect(textarea.value).toBe('/approve ');
+    });
+
+    it('Enter submits when the active slash command already has arguments', async () => {
+      const onSend = vi.fn();
+      const agentCreate: ChatCommandSuggestion = {
+        id: 'agent.create',
+        label: '/agent create <id> [model]',
+        insertText: '/agent create ',
+        description: 'Create a new agent',
+      };
+      fetchChatCommandsMock.mockResolvedValue({ commands: [agentCreate] });
+      renderComposer({ onSend });
+      const textarea = getTextarea();
+      fireEvent.input(textarea, { target: { value: '/agent create perso' } });
+      await screen.findByRole('listbox');
+
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+
+      expect(onSend).toHaveBeenCalledWith('/agent create perso', []);
+      expect(textarea.value).toBe('');
+    });
+
+    it('Enter submits slash commands even while suggestions are open', async () => {
+      const onSend = vi.fn();
+      const agentRoot: ChatCommandSuggestion = {
+        id: 'agent',
+        label: '/agent <list|switch|create|install>',
+        insertText: '/agent ',
+        description: 'Manage agents',
+      };
+      fetchChatCommandsMock.mockResolvedValue({ commands: [agentRoot] });
+      renderComposer({ onSend });
+      const textarea = getTextarea();
+      fireEvent.input(textarea, { target: { value: '/agent create bob' } });
+      await screen.findByRole('listbox');
+
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+
+      expect(onSend).toHaveBeenCalledWith('/agent create bob', []);
+      expect(textarea.value).toBe('');
+    });
+
+    it('Tab completes the active slash suggestion instead of submitting', async () => {
+      const onSend = vi.fn();
+      const agentRoot: ChatCommandSuggestion = {
+        id: 'agent',
+        label: '/agent <list|switch|create|install>',
+        insertText: '/agent ',
+        description: 'Manage agents',
+      };
+      fetchChatCommandsMock.mockResolvedValue({ commands: [agentRoot] });
+      renderComposer({ onSend });
+      const textarea = getTextarea();
+      fireEvent.input(textarea, { target: { value: '/ag' } });
+      await screen.findByRole('listbox');
+
+      fireEvent.keyDown(textarea, { key: 'Tab' });
+
+      expect(onSend).not.toHaveBeenCalled();
+      expect(textarea.value).toBe('/agent ');
     });
 
     it('ArrowDown moves selection and wraps around', async () => {
@@ -358,7 +734,7 @@ describe('Composer', () => {
       textarea.setSelectionRange(cursor, cursor);
       fireEvent.input(textarea);
       await screen.findByRole('listbox');
-      fireEvent.keyDown(textarea, { key: 'Enter' });
+      fireEvent.keyDown(textarea, { key: 'Tab' });
       expect(textarea.value).toBe('hello /approve world');
       expect(textarea.selectionStart).toBe('hello /approve'.length);
     });

@@ -63,9 +63,23 @@ async function importService(options: {
     }
     return provider;
   });
+  const updateRuntimeConfig = vi.fn(
+    (mutator: (draft: RuntimeConfig) => void) => {
+      mutator(options.config);
+      return options.config;
+    },
+  );
 
   vi.doMock('../src/config/runtime-config.js', () => ({
+    RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS: [
+      'cloudflare',
+      'manual',
+      'ngrok',
+      'ssh',
+      'tailscale',
+    ],
     getRuntimeConfig: () => options.config,
+    updateRuntimeConfig,
   }));
   vi.doMock('../src/audit/audit-events.js', () => ({
     makeAuditRunId,
@@ -90,6 +104,7 @@ async function importService(options: {
     createTailscaleTunnelProvider,
     makeAuditRunId,
     recordAuditEvent,
+    updateRuntimeConfig,
   };
 }
 
@@ -127,6 +142,138 @@ test('admin tunnel status reports configured manual public URL as healthy', asyn
   expect(service.createNgrokTunnelProvider).not.toHaveBeenCalled();
   expect(service.createTailscaleTunnelProvider).not.toHaveBeenCalled();
   expect(service.createCloudflareTunnelProvider).not.toHaveBeenCalled();
+});
+
+test('admin tunnel config returns lightweight config and current status', async () => {
+  const service = await importService({
+    config: makeRuntimeConfig({
+      mode: 'cloud',
+      public_url: 'https://bot.example.test',
+      tunnel: {
+        provider: 'manual',
+        health_check_interval_ms: 45_000,
+      },
+    }),
+  });
+
+  expect(service.getGatewayAdminTunnelConfig()).toEqual({
+    config: {
+      mode: 'cloud',
+      provider: 'manual',
+      publicUrl: 'https://bot.example.test',
+      healthCheckIntervalMs: 45_000,
+    },
+    tunnel: {
+      provider: 'manual',
+      publicUrl: 'https://bot.example.test',
+      state: 'up',
+      health: 'healthy',
+      reconnectSupported: false,
+      lastError: null,
+      lastCheckedAt: null,
+      nextReconnectAt: null,
+    },
+  });
+});
+
+test('admin tunnel config save preserves deployment mode and gateway base URL', async () => {
+  const config = makeRuntimeConfig({
+    mode: 'cloud',
+    public_url: '',
+    tunnel: {
+      provider: 'manual',
+      health_check_interval_ms: 30_000,
+    },
+  });
+  config.ops.gatewayBaseUrl = 'http://127.0.0.1:9090';
+  const service = await importService({ config });
+
+  const result = service.saveGatewayAdminTunnelConfig({
+    provider: 'manual',
+    publicUrl: 'https://public.example.test/',
+  });
+
+  expect(result.config).toEqual({
+    mode: 'cloud',
+    provider: 'manual',
+    publicUrl: 'https://public.example.test',
+    healthCheckIntervalMs: 30_000,
+  });
+  expect(config.deployment.mode).toBe('cloud');
+  expect(config.ops.gatewayBaseUrl).toBe('http://127.0.0.1:9090');
+  expect(config.deployment.public_url).toBe('https://public.example.test');
+  expect(config.deployment.tunnel.provider).toBe('manual');
+  expect(service.updateRuntimeConfig).toHaveBeenCalledWith(
+    expect.any(Function),
+    {
+      route: 'api.admin.tunnel',
+      source: 'admin-console',
+    },
+  );
+});
+
+test('admin tunnel config save clears configured public URL for ngrok', async () => {
+  const config = makeRuntimeConfig({
+    mode: 'local',
+    public_url: 'https://old.example.test',
+    tunnel: {
+      provider: 'manual',
+      health_check_interval_ms: 30_000,
+    },
+  });
+  const provider: TunnelProvider = {
+    status: vi.fn(() => downStatus),
+    stop: vi.fn(async () => {}),
+    start: vi.fn(async () => ({ public_url: 'https://next.example.test' })),
+  };
+  const service = await importService({ config, provider });
+
+  const result = service.saveGatewayAdminTunnelConfig({
+    provider: 'ngrok',
+    publicUrl: 'https://ignored.example.test',
+  });
+
+  expect(result.config).toMatchObject({
+    provider: 'ngrok',
+    publicUrl: '',
+  });
+  expect(config.deployment.public_url).toBe('');
+  expect(config.deployment.tunnel.provider).toBe('ngrok');
+});
+
+test('admin tunnel config save rejects unsupported providers and invalid URLs', async () => {
+  const service = await importService({
+    config: makeRuntimeConfig({
+      mode: 'local',
+      public_url: '',
+      tunnel: {
+        provider: 'manual',
+        health_check_interval_ms: 30_000,
+      },
+    }),
+  });
+
+  for (const input of [
+    {
+      provider: 'localtunnel',
+      publicUrl: 'https://public.example.test',
+    },
+    {
+      provider: 'manual',
+      publicUrl: 'not a url',
+    },
+    {
+      provider: 'cloudflare',
+      publicUrl: '',
+    },
+  ]) {
+    try {
+      service.saveGatewayAdminTunnelConfig(input);
+      throw new Error('expected tunnel config save to fail');
+    } catch (error) {
+      expect(error).toMatchObject({ statusCode: 400 });
+    }
+  }
 });
 
 test('admin tunnel status stops stale ngrok provider when config changes', async () => {
@@ -425,6 +572,52 @@ test('admin tunnel reconnect audits the action and restarts cloudflare', async (
   });
 });
 
+test('admin tunnel stop audits the action and stops ngrok', async () => {
+  let status: TunnelStatus = {
+    ...downStatus,
+    running: true,
+    public_url: 'https://running.example.test',
+    state: 'up',
+  };
+  const provider: TunnelProvider = {
+    status: vi.fn(() => status),
+    stop: vi.fn(async () => {
+      status = { ...downStatus };
+    }),
+    start: vi.fn(async () => ({ public_url: 'https://new.example.test' })),
+  };
+  const service = await importService({
+    config: makeRuntimeConfig({
+      mode: 'local',
+      public_url: '',
+      tunnel: {
+        provider: 'ngrok',
+        health_check_interval_ms: 45_000,
+      },
+    }),
+    provider,
+  });
+
+  await expect(service.stopGatewayAdminTunnel()).resolves.toMatchObject({
+    provider: 'ngrok',
+    publicUrl: null,
+    health: 'down',
+  });
+
+  expect(provider.stop).toHaveBeenCalledTimes(1);
+  expect(provider.start).not.toHaveBeenCalled();
+  expect(service.recordAuditEvent).toHaveBeenCalledWith({
+    sessionId: 'system:tunnel',
+    runId: 'tunnel-admin-run',
+    event: {
+      type: 'tunnel.manual_stop',
+      provider: 'ngrok',
+      public_url: 'https://running.example.test',
+      state: 'up',
+    },
+  });
+});
+
 test('admin tunnel reconnect serializes concurrent calls', async () => {
   let resolveStop!: () => void;
   const stopGate = new Promise<void>((resolve) => {
@@ -506,6 +699,33 @@ test('unsupported tunnel reconnect is still audited before returning conflict', 
     runId: 'tunnel-admin-run',
     event: {
       type: 'tunnel.manual_reconnect',
+      provider: 'manual',
+      public_url: null,
+      state: 'down',
+    },
+  });
+});
+
+test('unsupported tunnel stop is still audited before returning conflict', async () => {
+  const service = await importService({
+    config: makeRuntimeConfig({
+      mode: 'local',
+      public_url: '',
+      tunnel: {
+        provider: 'manual',
+        health_check_interval_ms: 30_000,
+      },
+    }),
+  });
+
+  await expect(service.stopGatewayAdminTunnel()).rejects.toMatchObject({
+    statusCode: 409,
+  });
+  expect(service.recordAuditEvent).toHaveBeenCalledWith({
+    sessionId: 'system:tunnel',
+    runId: 'tunnel-admin-run',
+    event: {
+      type: 'tunnel.manual_stop',
       provider: 'manual',
       public_url: null,
       state: 'down',

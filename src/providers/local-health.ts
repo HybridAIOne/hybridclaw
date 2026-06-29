@@ -1,4 +1,5 @@
 import {
+  LOCAL_ENDPOINTS,
   LOCAL_HEALTH_CHECK_ENABLED,
   LOCAL_HEALTH_CHECK_TIMEOUT_MS,
   LOCAL_LLAMACPP_BASE_URL,
@@ -27,7 +28,8 @@ function hasEnabledLocalBackend(): boolean {
     LOCAL_OLLAMA_ENABLED ||
     LOCAL_LMSTUDIO_ENABLED ||
     LOCAL_LLAMACPP_ENABLED ||
-    LOCAL_VLLM_ENABLED
+    LOCAL_VLLM_ENABLED ||
+    LOCAL_ENDPOINTS.some((endpoint) => endpoint.enabled)
   );
 }
 
@@ -73,7 +75,9 @@ export async function checkConnection(
       endpoint,
       {
         headers:
-          backend === 'vllm' ? buildOpenAICompatHeaders(apiKey) : undefined,
+          backend === 'vllm' || String(apiKey || '').trim()
+            ? buildOpenAICompatHeaders(apiKey)
+            : undefined,
       },
       timeoutMs,
     );
@@ -187,9 +191,23 @@ export async function checkAllBackends(): Promise<
       ),
     );
   }
+  for (const endpoint of LOCAL_ENDPOINTS) {
+    if (!endpoint.enabled) continue;
+    tasks.push(
+      checkConnection(
+        endpoint.type,
+        endpoint.baseUrl,
+        LOCAL_HEALTH_CHECK_TIMEOUT_MS,
+        endpoint.apiKey,
+      ),
+    );
+  }
 
   for (const result of await Promise.all(tasks)) {
-    next.set(result.backend, result);
+    const existing = next.get(result.backend);
+    if (!existing || (!existing.reachable && result.reachable)) {
+      next.set(result.backend, result);
+    }
   }
   return next;
 }

@@ -1,5 +1,8 @@
 import path from 'node:path';
-import { resolveAgentForRequest } from '../../agents/agent-registry.js';
+import {
+  getAgentById,
+  resolveAgentForRequest,
+} from '../../agents/agent-registry.js';
 import {
   isDiscordChannelId,
   isSupportedProactiveChannelId,
@@ -326,6 +329,31 @@ function normalizeOptionalThreadMessageId(value: unknown): string | undefined {
   const normalized = value.trim();
   return normalized || undefined;
 }
+function normalizeEmailSenderName(value: unknown): string | null {
+  const normalized = String(value || '')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized || null;
+}
+
+function resolveEmailSenderNameForRequest(
+  request: DiscordToolActionRequest,
+): string | null {
+  const sessionId = String(request.sessionId || '').trim();
+  if (!sessionId) return null;
+
+  const session = getSessionById(sessionId);
+  if (!session) return null;
+
+  const { agentId } = resolveAgentForRequest({ session });
+  const agent = getAgentById(agentId);
+  return (
+    normalizeEmailSenderName(agent?.displayName) ||
+    normalizeEmailSenderName(agent?.name) ||
+    normalizeEmailSenderName(agentId)
+  );
+}
 
 function normalizeThreadReferenceList(value: unknown): string[] | undefined {
   if (value == null) return undefined;
@@ -421,6 +449,20 @@ async function runEmailMessageSendAction(
   const bcc = normalizeEmailRecipientList(request.bcc, 'bcc');
   const inReplyTo = normalizeOptionalThreadMessageId(request.inReplyTo);
   const references = normalizeThreadReferenceList(request.references);
+  const fromName = resolveEmailSenderNameForRequest(request);
+  const session = getSessionById(String(request.sessionId || '').trim());
+  const agentId = session
+    ? resolveAgentForRequest({ session }).agentId
+    : undefined;
+  const emailOptions = {
+    ...(agentId ? { agentId } : {}),
+    ...(subject ? { subject } : {}),
+    ...(cc ? { cc } : {}),
+    ...(bcc ? { bcc } : {}),
+    ...(inReplyTo ? { inReplyTo } : {}),
+    ...(references ? { references } : {}),
+    ...(fromName ? { fromName } : {}),
+  };
   const emailMeta = buildEmailSendResultMeta({
     subject,
     cc,
@@ -442,11 +484,7 @@ async function runEmailMessageSendAction(
       to: channelId,
       filePath,
       body: content || '',
-      subject,
-      cc,
-      bcc,
-      inReplyTo,
-      references,
+      ...emailOptions,
     });
     return {
       ok: true,
@@ -459,13 +497,7 @@ async function runEmailMessageSendAction(
     };
   }
 
-  await sendToEmail(channelId, content, {
-    subject,
-    cc,
-    bcc,
-    inReplyTo,
-    references,
-  });
+  await sendToEmail(channelId, content, emailOptions);
   return {
     ok: true,
     action: 'send',

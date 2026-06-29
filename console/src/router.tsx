@@ -3,9 +3,11 @@ import {
   createRoute,
   createRouter,
   Outlet,
+  useRouterState,
 } from '@tanstack/react-router';
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { AppShell } from './components/app-shell';
+import { resolveBrowserTitle } from './lib/browser-title';
 import { A2AInboxPage } from './routes/a2a-inbox';
 import { A2ATrustPage } from './routes/a2a-trust';
 import { AgentsPage } from './routes/agent-scoreboard';
@@ -15,17 +17,23 @@ import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
+import { ConnectorsPage } from './routes/connectors';
 import { DashboardPage } from './routes/dashboard';
+import { DistillPage } from './routes/distill';
 import { EmailPage } from './routes/email';
+import { FleetTopologyPage } from './routes/fleet-topology';
 import { GatewayPage } from './routes/gateway';
 import { HarnessEvolutionPage } from './routes/harness-evolution';
 import { JobsPage } from './routes/jobs';
+import { LogsPage } from './routes/logs';
 import { McpPage } from './routes/mcp';
 import { ModelsPage } from './routes/models';
 import { OutputGuardPage } from './routes/output-guard';
 import { PluginsPage } from './routes/plugins';
 import { SchedulerPage } from './routes/scheduler';
+import { SecretsPage } from './routes/secrets';
 import { SessionsPage } from './routes/sessions';
+import { SkillsDetailPage } from './routes/skill-detail';
 import { SkillsPage } from './routes/skills';
 import { StatisticsPage } from './routes/statistics';
 import { ToolsPage } from './routes/tools';
@@ -60,8 +68,29 @@ function optionalStringSearchValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function BrowserTitle() {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+
+  useEffect(() => {
+    document.title = resolveBrowserTitle(pathname);
+  }, [pathname]);
+
+  return null;
+}
+
+function RootRouteComponent() {
+  return (
+    <>
+      <BrowserTitle />
+      <Outlet />
+    </>
+  );
+}
+
 const rootRoute = createRootRoute({
-  component: () => <Outlet />,
+  component: RootRouteComponent,
 });
 
 function AppShellRouteComponent() {
@@ -138,6 +167,18 @@ const gatewayRoute = createRoute({
   component: GatewayPage,
 });
 
+const logsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/logs',
+  component: LogsPage,
+});
+
+const fleetTopologyRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/fleet-topology',
+  component: FleetTopologyPage,
+});
+
 const sessionsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/sessions',
@@ -192,10 +233,22 @@ const harnessEvolutionRoute = createRoute({
   component: HarnessEvolutionPage,
 });
 
+const distillRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/distill',
+  component: DistillPage,
+});
+
 const mcpRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/mcp',
   component: McpPage,
+});
+
+const connectorsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/connectors',
+  component: ConnectorsPage,
 });
 
 const auditRoute = createRoute({
@@ -214,6 +267,12 @@ const skillsRoute = createRoute({
   component: SkillsPage,
 });
 
+const skillDetailRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/skills/$skillName',
+  component: SkillsDetailPage,
+});
+
 const pluginsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/plugins',
@@ -230,6 +289,12 @@ const toolsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/tools',
   component: ToolsPage,
+});
+
+const secretsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/secrets',
+  component: SecretsPage,
 });
 
 const chatRoute = createRoute({
@@ -254,6 +319,8 @@ const routeTree = rootRoute.addChildren([
     agentScoreboardRoute,
     terminalRoute,
     gatewayRoute,
+    logsRoute,
+    fleetTopologyRoute,
     sessionsRoute,
     channelsRoute,
     emailRoute,
@@ -262,12 +329,16 @@ const routeTree = rootRoute.addChildren([
     schedulerRoute,
     jobsRoute,
     harnessEvolutionRoute,
+    distillRoute,
+    connectorsRoute,
     mcpRoute,
     auditRoute,
     skillsRoute,
+    skillDetailRoute,
     pluginsRoute,
     outputGuardRoute,
     toolsRoute,
+    secretsRoute,
   ]),
   agentsOverviewRoute,
   chatRoute.addChildren([chatSessionRoute]),

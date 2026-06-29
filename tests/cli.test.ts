@@ -454,6 +454,7 @@ async function importFreshCli(options?: {
     workspacePath: string;
     removedAgentRoot: boolean;
     removedRegistration: boolean;
+    removedBootstrapAutostartMarkers: number;
   };
   fetchMock?: (input: string | URL | Request, init?: RequestInit) => unknown;
   agentListResult?: Array<{
@@ -926,6 +927,7 @@ async function importFreshCli(options?: {
         workspacePath: `/tmp/.hybridclaw/data/agents/${agentId}/workspace`,
         removedAgentRoot: true,
         removedRegistration: true,
+        removedBootstrapAutostartMarkers: 0,
       }
     );
   });
@@ -1185,6 +1187,14 @@ async function importFreshCli(options?: {
   const removeGatewayPidFile = vi.fn();
   const writeGatewayPid = vi.fn();
   const isPidRunning = vi.fn(() => true);
+  const enableGatewayLogFileMirror = vi.fn();
+  const setLoggerStartupLevel = vi.fn();
+  const logger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
   const gatewayModuleLoaded = vi.fn();
   const tuiModuleLoaded = vi.fn();
   const runTui = vi.fn(async () => {
@@ -1253,6 +1263,7 @@ async function importFreshCli(options?: {
       APP_VERSION: '0.4.1',
       DATA_DIR: '/tmp/hybridclaw-data',
       GATEWAY_BASE_URL: 'http://127.0.0.1:9090',
+      GATEWAY_CLIENT_BASE_URL: 'http://127.0.0.1:9090',
       MissingRequiredEnvVarError,
       ensureGatewayApiTokenPersisted: vi.fn(() => 'gateway-token'),
       getResolvedSandboxMode: vi.fn(() => options?.sandboxMode || 'host'),
@@ -1293,6 +1304,11 @@ async function importFreshCli(options?: {
     readGatewayPid,
     removeGatewayPidFile,
     writeGatewayPid,
+  }));
+  vi.doMock('../src/logger.js', () => ({
+    enableGatewayLogFileMirror,
+    logger,
+    setLoggerStartupLevel,
   }));
   vi.doMock('../src/gateway/gateway.ts', () => {
     if (options?.gatewayModuleError) throw options.gatewayModuleError;
@@ -1493,6 +1509,9 @@ async function importFreshCli(options?: {
     removeGatewayPidFile,
     writeGatewayPid,
     isPidRunning,
+    enableGatewayLogFileMirror,
+    setLoggerStartupLevel,
+    logger,
     gatewayModuleLoaded,
     loadSkillCatalog,
     initDatabase,
@@ -3822,6 +3841,9 @@ describe('CLI hybridai commands', () => {
       'Updated runtime config at /tmp/config.json.',
     );
     expect(logSpy).toHaveBeenCalledWith('Key: hybridai.maxTokens');
+    expect(logSpy).not.toHaveBeenCalledWith(
+      JSON.stringify(getRuntimeConfig(), null, 2),
+    );
   });
 
   it('runs hybridai login with explicit browser mode', async () => {
@@ -4800,6 +4822,7 @@ describe('CLI hybridai commands', () => {
   it('writes and cleans up a managed PID file for gateway start --foreground', async () => {
     const {
       cli,
+      enableGatewayLogFileMirror,
       ensureGatewayRunDir,
       ensureRuntimeCredentials,
       gatewayModuleLoaded,
@@ -4831,6 +4854,12 @@ describe('CLI hybridai commands', () => {
       requireCredentials: false,
     });
     expect(ensureGatewayRunDir).toHaveBeenCalled();
+    expect(process.env.HYBRIDCLAW_GATEWAY_LOG_FILE).toBe(
+      '/tmp/hybridclaw-data/gateway/gateway.log',
+    );
+    expect(enableGatewayLogFileMirror).toHaveBeenCalledWith(
+      '/tmp/hybridclaw-data/gateway/gateway.log',
+    );
     expect(writeGatewayPid).toHaveBeenCalledWith(
       expect.objectContaining({
         pid: process.pid,
@@ -5295,7 +5324,7 @@ describe('CLI hybridai commands', () => {
 
   it('fails before starting tui when host runtime dependencies are missing', async () => {
     const startupError = new Error(
-      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Reinstall HybridClaw.',
+      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk.',
     );
     const {
       cli,
@@ -5310,7 +5339,7 @@ describe('CLI hybridai commands', () => {
     });
 
     await expect(cli.main(['tui'])).rejects.toThrow(
-      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Reinstall HybridClaw.',
+      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk.',
     );
 
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({

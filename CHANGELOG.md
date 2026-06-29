@@ -2,6 +2,605 @@
 
 ## Unreleased
 
+### Added
+
+- **Console navigation config**: The top navigation strip can be customized
+  from runtime config with local console paths or HTTP(S) URLs and link text.
+
+## [0.25.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.8) - 2026-06-27
+
+### Changed
+
+- **Email admin layout**: Email channel advanced settings now collapse by
+  default above additional mailboxes, keeping default allowlist management
+  prominent while poll interval, chunk limit, media limit, and channel
+  instructions remain available on demand.
+
+### Fixed
+
+- **Cloud MCP OAuth callbacks**: MCP OAuth setup now prefers the configured
+  deployment public URL and other public gateway origins over private internal
+  request hosts, rejects invalid configured public URLs, and covers IPv4, IPv6,
+  and local development fallback cases.
+- **Cloud request origins**: Admin session-cookie origin checks and mobile chat
+  QR launch links now honor `deployment.public_url` when requests arrive through
+  internal gateway hosts.
+- **Email allowlist autosave**: Adding a default allowed sender in the admin
+  console now saves immediately instead of leaving the new entry only in the
+  unsaved draft state.
+
+## [0.25.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.7) - 2026-06-25
+
+### Added
+
+- **Admin sender allowlists**: Channel settings in the admin console can edit
+  allowed sender lists for WhatsApp, Telegram, Threema, Signal, email
+  (including mailbox-level allowlists), Microsoft Teams, Slack, and iMessage,
+  with wildcard confirmation and explicit all-senders labeling.
+
+### Changed
+
+- **Hatching first run**: Fresh agents start with a shorter, conversational
+  setup message that asks two or three natural questions, captures the user's
+  email for the welcome note, and keeps model-generated hatching preludes
+  limited to `BOOTSTRAP.md` sessions.
+- **Session timestamps**: Gateway status and session displays render timestamps
+  in the local timezone without noisy seconds or UTC suffixes.
+
+### Fixed
+
+- **Web chat drafts**: Starting a new conversation keeps the newly created
+  no-user session selected and deletes older empty or assistant-only web chat
+  drafts without touching sessions that already have user messages or scheduler
+  sessions.
+- **Bootstrap autostart reliability**: Hatching and `OPENING.md` autostarts no
+  longer refresh already-started sessions on history probes, avoid duplicate
+  concurrent runs, fall back cleanly when auxiliary prelude generation fails,
+  and keep selected-agent autostart concrete.
+- **Resource hygiene cleanup**: Doctor resource hygiene now labels stale no-user
+  histories as unstarted sessions and cleans up empty or assistant-only rows
+  while preserving sessions with user messages.
+
+## [0.25.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.6) - 2026-06-24
+
+### Added
+
+- **Launch-agent chat sessions**: `/chat?agent=<id>` links now mint a web chat
+  session, preselect the requested local agent, and pass that agent through the
+  history bootstrap path so the correct agent autostart runs for the new
+  session.
+
+### Fixed
+
+- **Foreground gateway logging**: `gateway start --foreground` restores
+  mirroring to the gateway log file even when the logger initializes before the
+  foreground command configures the log path, while avoiding duplicate file
+  streams when stdio is already redirected to the gateway log.
+
+## [0.25.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.5) - 2026-06-22
+
+### Fixed
+
+- **Remote agent mentions**: Selecting a remote agent in chat now places the
+  caret after the inserted address and keeps the styled composer overlay caret
+  aligned with the real textarea selection.
+- **Streaming text deltas**: Container streaming now emits visible model text
+  deltas live instead of buffering answer text until the model turn completes.
+- **Host bootstrap cleanup**: Host-mode approval policy now recognizes the
+  actual workspace-root `BOOTSTRAP.md` path as one-time onboarding cleanup while
+  keeping nested or rootless delete calls approval-gated.
+
+## [0.25.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.4) - 2026-06-22
+
+### Added
+
+- **Remote agents in chat**: Trusted A2A peer agents now appear in the chat
+  agent selector, grouped by remote instance. Selecting a remote agent inserts
+  its canonical address and sends the message through the A2A delivery path.
+- **Admin tunnel controls**: The admin dashboard now exposes public tunnel
+  configuration, current tunnel health, and managed tunnel start, reconnect,
+  and stop actions with validation, pending states, errors, and audit events.
+
+### Changed
+
+- **Console loading state**: Replaced the initial auth-check card with a
+  branded, accessible HybridClaw loading screen and reduced-motion-aware
+  progress treatment.
+
+### Fixed
+
+- **Console browser titles**: Chat and Agents routes now receive route-specific
+  page titles from both the gateway-served HTML and client-side navigation,
+  instead of showing the admin title outside admin pages.
+- **Remote A2A delivery**: Queued remote A2A envelopes are canonicalized before
+  persistence and audit recording so sender and recipient ids stay normalized.
+- **Remote selector and tunnel polish**: Remote agent groups use a server icon,
+  admin tunnel action buttons align and reflect start, stop, and reconnect
+  states consistently, and revision tokens for config/team changes are opaque.
+
+## [0.25.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.3) - 2026-06-22
+
+### Added
+
+- **Langfuse skill**: LLM observability and evaluation based on the official
+  Langfuse skill (`github.com/langfuse/skills`, MIT). Reads traces, observations,
+  sessions, scores, prompts, datasets, models, and metrics, and creates scores,
+  comments, datasets, dataset items, and prompt versions through the
+  gateway-proxied `langfuse.cjs` helper. Auth uses a SecretRef-backed
+  `Authorization: Basic <secret:LANGFUSE_BASIC_AUTH>` header with a
+  `LANGFUSE_HOST` config variable; reads are green and writes are grant-gated.
+  Bundles the upstream reference docs (instrumentation, prompt migration, error
+  analysis, judge calibration, SDK upgrade, CI/CD) plus Langfuse documentation
+  lookup (llms.txt / markdown / search-docs).
+
+### Changed
+
+- **Quick Start guide**: Rewrote the getting-started quickstart into a
+  zero-to-working funnel -- a fast HybridAI Cloud path (model preselected,
+  already in web chat) and a numbered local path (onboard -> start gateway ->
+  confirm healthy with `gateway status` / `doctor` -> open chat -> send a first
+  message) with explicit success signals, a troubleshooting block, and a command
+  cheat sheet. Relocated the per-channel startup auto-connect conditions into the
+  Channels overview.
+- **Apple desktop diagnostics**: The desktop wrapper captures gateway startup
+  logs, recent child output, spawn failures, and early exits so packaged app
+  launch failures are diagnosable.
+- **Dependency maintenance**: Remediated npm audit dependencies, upgraded
+  Nodemailer to 9.0.0, refreshed dependency policy baselines, and clarified the
+  dependency lockfile update workflow for future maintenance.
+
+### Fixed
+
+- **A2A Agent Card public URL**: The A2A Agent Card advertises the configured
+  public deployment URL when present, and invalid `deployment.public_url` values
+  fail closed instead of falling back to an internal request origin.
+- **MCP server startup isolation**: A single MCP server that fails to connect or
+  disconnect is logged and skipped instead of aborting the whole chat turn, and
+  unchanged failed server configs are not retried every turn.
+- **Empty heartbeat context**: Workspace bootstrap context skips the default
+  empty `HEARTBEAT.md` template and legacy "no recurring heartbeat tasks"
+  placeholders, avoiding noise in agent startup context.
+
+## [0.25.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.2) - 2026-06-20
+
+### Fixed
+
+- **Cloud chat write authentication**: Cookie-authenticated browser writes now
+  accept browser-confirmed same-origin fetch metadata, restoring cloud chat
+  prompts, slash commands, agent changes, and model changes behind the
+  TLS-terminating proxy.
+
+## [0.25.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.1) - 2026-06-20
+
+### Changed
+
+- **Desktop packaging**: Desktop build commands rebuild the app before
+  packaging, reuse current icon/runtime stages, cache the staged Node runtime,
+  and strip non-runtime dependency files from packaged desktop bundles.
+
+### Fixed
+
+- **HybridAI cloud admin sessions**: HybridAI-launched sessions without scoped
+  RBAC claims are treated as full admin sessions for compatibility, explicit
+  scoped sessions remain restricted, and cookie-authenticated admin mutations
+  respect forwarded public origins behind the cloud proxy.
+
+## [0.25.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.0) - 2026-06-20
+
+### Added
+
+- **Improved onboarding experience**: First-run hatching has a dedicated
+  `hybridai.onboardingModel` override, runtime-aware bootstrap context,
+  stronger welcome-email guidance, preserved setup links in chat, direct
+  Markdown links for local setup routes, completion tracking after the first
+  email, and duplicate-autostart protection. New agents receive the bootstrap
+  file at creation time, reinstalled agents can hatch again when appropriate,
+  and completed agents can show tailored empty-chat headers without restarting
+  onboarding.
+- **Remote MCP OAuth**: Remote `http` and `sse` MCP servers can opt into
+  `"auth": "oauth"` with gateway-managed OAuth 2.1 discovery, PKCE, dynamic
+  client registration, encrypted token storage, automatic refresh, and guided
+  setup in both the TUI and admin console. Added `/mcp login`, `/mcp logout`,
+  and `/mcp status` flows for local and chat channels.
+- **Admin skill detail pages**: `/admin/skills` now opens dedicated detail
+  pages with parsed docs, tool/prompt/dependency metadata, package logos,
+  credential status, write-only secret management, enable/disable controls,
+  example prompt launchers, recent invocations, and guarded text-file editing
+  for installed skill packages.
+- **Per-agent email mailboxes**: Built-in IMAP/SMTP email supports
+  `email.accounts[]` so separate mailbox credentials can route inbound mail to
+  specific agents, send replies from the mailbox that received the thread, and
+  prefer the active agent's mailbox for agent-initiated sends.
+- **Agent-risk eval harness**: Added `/eval agent-risk` and
+  `hybridclaw eval agent-risk` with synthetic canary scenarios covering every
+  top-level NIST AI RMF function, NIST AI 600-1 GAI risk, and OWASP LLM Top 10
+  2025 item. The gate writes redacted evidence artifacts and supports focused
+  scenario runs.
+- **Admin access control evidence**: Added scoped admin RBAC role bundles,
+  route-level action enforcement for scoped sessions, terminal stream
+  authorization checks, admin access-control docs, and ISO/IEC 27001 evidence
+  records for access review, control ownership, monitoring, suppliers, risk,
+  asset/data inventory, signoff, and evidence cadence.
+- **ISO/IEC 42001 readiness docs**: Added an AI management-system readiness
+  matrix and reusable evidence templates for HybridClaw AI subsystem inventory,
+  risk, impact, lifecycle, monitoring, and human oversight records.
+- **PostHog business skill**: Added a bundled `posthog` skill for guarded
+  event capture, person-property updates, private person reads, feature flag
+  reads and test evaluation, Query API/HogQL reads, approval plans, and
+  missing-secret diagnostics through the gateway HTTP proxy.
+- **Guarded session pruning**: Added `sessions prune --older-than <duration>`
+  with dry-run default, explicit `--confirm`, protected-session skips, minimum
+  retention, and structured `session.prune` audit events.
+- **Supply-chain security workflow**: Added BuildKit provenance and SBOM
+  attestations for Docker builds, a pinned Security Scan workflow with CodeQL
+  and tracked secret scanning, and `npm run security:secret-scan` for local
+  verification.
+
+### Changed
+
+- **Agent package installs**: `.claw` installs restore only archived workspace
+  files plus manifest-declared bundled/imported assets. Default bootstrap
+  templates are seeded by agent creation, not by package install, preserving
+  the package author's exact workspace file set.
+- **Admin browser auth**: Browser admin auth uses signed HttpOnly session
+  cookies for callback flows, keeps manual fallback tokens tab-scoped, removes
+  EventSource query-token auth, and keeps broad bearer-token API compatibility
+  for existing operators.
+- **MCP and docs navigation**: Docs navigation now comes from a shared
+  `docs/content/navigation.json` manifest used by the static docs app and
+  gateway docs renderer, keeping internal docs direct-linkable but absent from
+  sidebar and search unless explicitly listed.
+- **HybridAI request identity**: Gateway, container, and eval HybridAI calls
+  include a versioned `hybridclaw/<version>` user agent for upstream
+  diagnostics.
+- **Homepage and docs positioning**: The homepage, docs shell, setup docs, and
+  release facts were refreshed around current managed-cloud, distillation,
+  A2A, proxy-agent, channel, business-skill, admin, and security capabilities.
+
+### Fixed
+
+- **Hatching and opening-message reliability**: Bootstrap autostarts use an
+  atomic cross-process claim, GPT-5-family hatching is guided to send the
+  welcome email once required user details are present, duplicated bootstrap
+  blocks are collapsed, `OPENING.md` autostart produces one assistant message,
+  and setup links remain visible in chat after the welcome email.
+- **HybridAI onboarding bot fallback**: Agent/model controls stay in sync after
+  `/agent switch`, `/bot clear` clears both session and configured default bot
+  state, and HybridAI default-user fallback can resolve the user's bot without
+  stale default-chatbot reuse.
+- **Mobile chat QR handoff**: QR continuation tokens preserve web-session auth
+  and set the signed session cookie before redirecting to the target chat, so
+  cloud/container deployments open the intended session instead of bouncing to
+  login.
+- **Named local model selection**: The model switcher shows local route labels
+  in row subtitles and search text, so duplicate-looking entries such as
+  default `vLLM` and named `haigpu1` Qwen routes are distinguishable.
+- **Skill admin polish**: Skill detail navigation stays inside the admin app,
+  skill-only slash commands link back to detail pages, package assets are not
+  surfaced as generic chat artifacts, credential overwrite labels are clearer,
+  set credentials show checkmarks, and Blink uses the official logo asset.
+- **Secret-scan eval fixtures**: Agent-risk eval canaries were renamed to avoid
+  secret-shaped false positives while preserving the intended leakage tests.
+
+## [0.24.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.4) - 2026-06-16
+
+### Added
+
+- **Admin logging modes**: The admin Logs page can switch logging Off, On, or
+  Debug from the console, persist the runtime config, reload the gateway, and
+  keep selected log tails pinned to the newest content after load or refresh.
+
+### Changed
+
+- **Admin Logs readability**: The Logs page gives the detail panel more room,
+  avoids duplicate path display, keeps the selected path visible in metadata,
+  strips ANSI color from tails, aligns mid-file tails, and shows full local
+  dates in formatted timestamps.
+- **Runtime logging config**: Request logging and model-response debug capture
+  are controlled through `ops.logRequests` and `ops.debugModelResponses` while
+  preserving environment and CLI startup overrides.
+
+### Fixed
+
+- **Admin dropdown selection**: Controlled native selects now apply the first
+  chosen option immediately by marking fields touched through React
+  change/blur handling instead of wrapper-level native listeners.
+- **GPT-5 onboarding email send**: GPT-5-family hatching prompts now tell the
+  agent to send the welcome message once basic user info and a valid email
+  address are present, without showing a draft or asking for another
+  confirmation.
+- **Logging mode save feedback**: The Logs page checks gateway reload
+  responses before reporting logging mode updates as saved and refreshes the
+  effective runtime state after save.
+
+## [0.24.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.3) - 2026-06-15
+
+### Changed
+
+- **Hatching conversation flow**: Agent hatching now stays conversational and
+  uses a tailored first-email subject instead of a fixed default. Web chat
+  reflects gateway-owned hatching autostart with a thinking state and refreshed
+  history instead of injecting a hidden kickoff message from the browser.
+
+### Fixed
+
+- **Confidential audit metadata**: Confidential masking and rehydration now
+  write metadata-only audit events with redaction counts, class summaries, and
+  surface names while keeping raw secret and client values out of the audit
+  wire log.
+- **Codex model discovery recovery**: Codex model discovery force-refreshes
+  stale credentials after authorization failures, can re-import the Codex CLI
+  auth store when refresh requires relogin, and avoids caching empty model
+  lists after rejected credentials.
+- **Hatching chat continuity**: Switched-agent hatching turns now keep the full
+  prior chat history in context, avoid repeating onboarding after the prelude,
+  and reload browser history so gateway-authored hatching messages appear
+  immediately.
+- **Legacy audit user actors**: Structured audit queries canonicalize legacy
+  plain user ids as local user actors and validate the normalized actor before
+  indexing.
+- **Container edit compatibility**: The container `edit` tool accepts
+  model-generated `old_text` and `new_text` aliases in addition to the primary
+  replacement fields.
+
+## [0.24.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.2) - 2026-06-14
+
+### Added
+
+- **Admin log viewer**: The admin console includes a Logs route and sidebar
+  entry for inspecting configured gateway and model-response debug log tails.
+  Operators can see file status, size, modified time, and capped tail content
+  through the gateway API without shelling into the host.
+
+### Changed
+
+- **Desktop macOS packaging**: Desktop DMG builds use
+  `electron-builder --mac dir zip dmg` end to end, removing the custom
+  `appdmg` path and scripts. The desktop release guide documents the expected
+  app, ZIP, block map, and DMG outputs, and the dependency-policy baseline is
+  aligned with the Electron packaging lockfile.
+
+### Fixed
+
+- **WhatsApp auth lock recovery**: Stale WhatsApp auth locks from a previous
+  process lifetime with the same PID are cleared before acquiring a fresh
+  lock, preventing reconnect, linking, or reset flows from blocking on
+  orphaned lock metadata.
+
+## [0.24.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.1) - 2026-06-14
+
+### Added
+
+- **Onboarding helpful links**: New agent workspaces seed a `Helpful Links`
+  section in `USER.md` for agent chat, WhatsApp setup, and documentation URLs.
+  The hatching flow now reads those exact links when preparing the tailored
+  first-jobs email and includes whichever links are available instead of
+  guessing deployment URLs. The admin Channels page also honors `#whatsapp`
+  deep links by selecting and scrolling directly to the WhatsApp setup panel.
+
+### Fixed
+
+- **WhatsApp pairing diagnostics**: WhatsApp transport, reconnect, and pairing
+  failures are now stored in pairing status and surfaced in the admin Channels
+  UI instead of leaving operators on a generic "waiting for QR" message.
+- **Bootstrap cleanup approvals**: Deleting the root `BOOTSTRAP.md` one-time
+  onboarding file is now auto-approved as safe cleanup after hatching, while
+  other delete calls still require explicit approval.
+- **HybridAI empty completion recovery**: HybridAI responses with no visible
+  text and no tool call now get one targeted retry before the container fails
+  the turn. Whitespace-only content is treated as empty, and the stalled-turn
+  budget tracks the retry.
+- **WebSocket transport error handling**: Expected transport failures nested in
+  wrapper `data`, `error`, `cause`, or aggregate fields are classified
+  consistently, timeout messages are rendered clearly, expected handshake
+  timeouts are dropped before Sentry reporting, and WhatsApp reconnect handling
+  preserves the original disconnect error for diagnosis.
+
+## [0.24.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.0) - 2026-06-11
+
+### Added
+
+- **Human distillation (R72)**: New `hybridclaw coworker` command group and
+  bundled `human-distill` skill that distills a real person's source material
+  into a coworker agent. Collectors normalise Slack exports, mbox email,
+  meeting transcripts, chat JSONL, documents, and gap-driven interview
+  questionnaires into an agent-scoped corpus with quality weighting, stable
+  provenance ids, and third-party PII masking at ingest. A resumable
+  ingest → analyse → build → merge → correct pipeline writes the persona into
+  the standard identity files (`IDENTITY.md`, `SOUL.md`, `USER.md`, `CV.md`)
+  and a generated work-module skill, with `/admin/distill` managing subjects,
+  consent, source uploads, corpus documents, and runs from the browser. Every
+  claim cites corpus documents (uncited claims are flagged, not written),
+  every merge is an F4-versioned reversible edit, and conflicting evidence is
+  surfaced as operator review items. Distilling a real, named human is
+  hard-blocked until a consent artefact is recorded; all lifecycle actions
+  emit hash-chained `distill.*` audit events; `coworker forget` erases corpus,
+  persona, work module, runs, and revision snapshots as one identifier set.
+  Includes a leakage/fidelity eval (`coworker eval`), conversational
+  corrections (`coworker correct`), and one-bundle multi-host export/install
+  for Claude Code, Codex, OpenClaw, and HybridClaw. Manifesto: Principle VII -
+  A coworker you can trust with real responsibility.
+- **Cloud memory sync**: Agents now sync local memory files (`MEMORY.md`,
+  `USER.md`, and recent daily memory notes) with the HybridAI cloud and receive
+  shared installation- and company-scoped memory back for prompt context. Sync
+  runs at conversation start and periodically every five minutes with
+  per-agent rate limiting, requires `HYBRIDAI_API_KEY`, `HYBRIDAI_BASE_URL`
+  (HTTPS only), and `HYBRIDAI_CHATBOT_ID`, and stays disabled when those are
+  unset. Shared memory appears read-only in the agent file editor under a
+  "Shared memory" group.
+- **A2A operator pairing**: Added `/admin/a2a-trust` for pairing two HybridClaw
+  instances: operators fetch a peer Agent Card by URL or canonical DNS
+  identifier, preview its identity and key fingerprint, and trust it with an
+  optional peer-side approval prompt. Incoming pairing requests arrive through
+  a rate-limited `/a2a/pairing/requests` endpoint and can be approved or
+  declined from the console with audit-trail decision reasons.
+- **Inbound A2A envelopes**: Added a JSON-RPC Agent Card envelope receiver for
+  cross-instance A2A delivery, including canonical sender/recipient metadata,
+  idempotent persistence, signed bearer-token validation, read-only admin
+  inbox visibility, and audit events for malformed or rejected envelopes.
+- **HybridAI proxy agents**: Agents can now proxy conversations to hosted
+  HybridAI chatbots via per-agent `proxy` config, SecretRef-backed API keys,
+  HTTPS-only upstreams, selectable channel- or user-scoped conversation ids,
+  streaming response forwarding, and `/status` visibility for proxy mode.
+- **Explicit agent addressing**: Chat channels and web chat can address
+  specific agents inline, with mention autocomplete, avatar-backed mention
+  pills, canonical recipient handling, and fanout hardening for local
+  proactive delivery.
+- **`byd-battery` skill**: Added read-only monitoring for BYD Battery-Box
+  Premium HVS/HVM/LVS/LVL home-storage systems over local Modbus TCP or
+  Fronius inverter delegation, covering state of charge, pack telemetry, cell
+  extremes, tower/module inventory, decoded alarms, firmware info, and energy
+  counters, with allowlisted register ranges and no write operations.
+- **`mailchimp` skill**: Added Mailchimp Marketing and Mailchimp
+  Transactional/Mandrill workflows for credential checks, audience/member
+  reads, guarded subscriber and tag mutations, campaign draft/content/report
+  operations, automations, journeys, and approval-gated campaign or
+  transactional sends through the gateway HTTP proxy.
+- **Amber approval cards**: Web chat approval prompts now render as structured
+  confirmation cards with an approval-tier badge, parsed action/tool/reason
+  detail rows, and separated confirm/deny and trust-scope button groups.
+- **Named local model endpoints**: Local provider config now supports
+  additional named Ollama, LM Studio, llama.cpp, and vLLM endpoints with
+  endpoint-prefixed model ids, CLI setup via `--name`, and per-endpoint model
+  behavior flags for Qwen thinking markup and Gemma tool-call formats.
+- **Auxiliary model testing**: Added `/aux test <task> <prompt>` so operators
+  can exercise configured auxiliary model routes directly and see the
+  provider/model used for the request.
+- **Response rating forwarding**: Thumbs up/down ratings on web chat responses
+  are forwarded to the HybridAI feedback API when HybridAI authentication is
+  active, alongside the existing local rating store and audit events.
+  Forwarding is non-blocking and skips silently when auth is unavailable.
+
+### Changed
+
+- **README and skill docs positioning**: The public README and skills docs now
+  lead with HybridClaw's validated business-skill workflow: helper-backed
+  production skills, eval scenarios, approval tiers, credential boundaries, and
+  `Qwen/Qwen3.6-27B-FP8` as the small-model validation baseline.
+- **Multi-agent and credential-isolation positioning**: The README and docs
+  now call out multi-instance A2A workflows, hosted proxy agents, explicit
+  addressing, and SecretRef-backed execution that keeps raw credentials out of
+  model context.
+- **HybridAI Cloud launch path**: The README, docs landing page, and
+  installation guide now link to the managed HybridClaw cloud offering at
+  `hybridclaw.io`.
+- **Desktop release order docs**: The macOS desktop release guide now
+  recommends building and notarizing from the exact version tag, uploading
+  desktop assets to a draft GitHub Release, then publishing after assets are
+  verified.
+- **Provider request payloads**: Empty tool definitions are omitted from
+  HybridAI, OpenAI-compatible, Codex, and Ollama provider requests instead of
+  sending empty `tools` arrays.
+- **Local vLLM tool behavior**: OpenAI-compatible local providers infer and
+  remember native-tool fallback support, count prompt-side tool overhead in
+  context guards, refresh named-endpoint metadata, and parse Gemma text tool
+  calls emitted before or after Markdown wrappers.
+- **Structured actors in audit data**: Audit/event records now carry unified
+  actor identities across A2A envelopes, board cards, adaptive-skill
+  observations, scoreboards, and structured audit queries.
+- **Coworker liveness scan**: Skill scans during coworker liveness checks use
+  set-based agent filtering, speeding up gateways with many agents.
+- **Release version sync tooling**: `npm run version:sync` now keeps root,
+  console, desktop, container, lockfile, and shrinkwrap package versions in
+  sync, with `release:check` validating the same invariant.
+- **Dependency updates**: Routine minor and patch dependency updates across the
+  gateway, console, container, and desktop packages, plus overrides that lift
+  transitive `shell-quote` and `tmp` to patched releases flagged by npm audit.
+
+### Fixed
+
+- **Gateway token timing safety**: Gateway API and bearer token checks use
+  constant-time comparison to avoid timing side channels.
+- **Delegation identifiers**: Delegation session and batch job identifiers use
+  cryptographic UUIDs instead of seeded pseudo-random strings.
+- **Containment check stalls**: Media and artifact path containment checks
+  resolve real paths asynchronously so large directory validation no longer
+  blocks the gateway event loop.
+- **TUI ANSI truncation**: Terminal output truncation handles incomplete ANSI
+  escape sequences and wide glyphs without corrupting styled text.
+- **Duplicate hatching after onboarding**: Switching agents after onboarding
+  no longer re-triggers the workspace bootstrap kickoff, and bootstrap job
+  detection recognizes both bulleted and numbered job lists.
+- **Host runtime dependency detection**: Source-checkout host runtime checks
+  no longer misreport container dependencies as missing when npm hoists a
+  package whose `exports` map does not expose `package.json` (e.g.
+  `dompurify`).
+- **Installer and setup hardening**: The one-line installer, postinstall
+  container setup, Node version guard, and Homebrew/source-checkout paths handle
+  no-sudo installs, user npm prefixes, and container dependency setup more
+  reliably.
+
+## [0.23.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.23.0) - 2026-06-09
+
+### Added
+
+- **`blink` skill**: Added Blink camera and video-doorbell workflows for
+  OAuth v2 login with PIN handoff, device/network/camera inventory, motion
+  clip listing and artifact-backed downloads, guarded arm/disarm and motion
+  control plans, and fresh-thumbnail refresh handling that keeps Blink media
+  bytes out of model context.
+- **`hue` skill**: Added Philips Hue Bridge support for local CLIP v2 reads,
+  bridge-link credential capture, self-signed bridge TLS handling, guarded
+  light/group/scene/behavior changes, Remote API token refresh support, and
+  LAN policy diagnostics for Hue Bridge requests.
+- **Fleet topology admin UI**: Added `/admin/fleet-topology` for viewing the
+  local A2A instance identity, checking trusted child instances through their
+  Agent Card URLs, and adding, editing, or removing A2A trust-ledger peers from
+  the console.
+- **Admin secrets console**: Added `/admin/secrets` as a write-only secret
+  manager that lists set and declared-but-empty secrets by metadata, supports
+  overwrite and unset actions, and never returns cleartext secret values to the
+  browser.
+- **Chat code rendering**: Web chat now syntax-highlights completed code
+  blocks, shows language labels, and provides a touch-reachable copy button
+  with success feedback while skipping highlighter work for actively streaming
+  messages.
+- **Sentry error reporting**: `hybridclaw env set SENTRY_DSN <dsn>` enables
+  optional gateway Sentry reporting for startup failures, uncaught exceptions,
+  unhandled rejections, and errors recorded through shared gateway/agent spans,
+  with default `production` environment, automatic
+  `hybridclaw@<package-version>` release naming, secret redaction, and graceful
+  shutdown flushes.
+- **Scheduler heartbeat polling action**: Config-backed scheduler jobs can use
+  the explicit `heartbeat_poll` action kind so empty `HEARTBEAT.md` files are
+  skipped before any model turn is started.
+
+### Changed
+
+- **Installer and npm policy alignment**: The bootstrap installer works more
+  cleanly on fresh Debian/Ubuntu hosts and no-sudo system Node setups, while
+  contributor docs, CI, Docker, and package metadata pin npm 11.10+ without
+  forcing consumer-facing `engines.npm` warnings.
+- **Second-opinion TUI formatting**: `/second-opinion` output in the terminal
+  wraps long model-comparison and validation responses instead of spilling past
+  the viewport.
+- **Skill setup guidance**: Skill authoring docs now require chat-friendly
+  `/env` and `/secret` setup alternatives alongside local `hybridclaw env` and
+  `hybridclaw secret` commands.
+- **Web agent hatching kickoff**: Switching to an agent with an active
+  `BOOTSTRAP.md` in web chat now sends a hidden kickoff turn so hatching starts
+  immediately while the visible slash-command response remains local command
+  output.
+
+### Fixed
+
+- **Interrupted agent shutdown output**: Container/runtime shutdown output now
+  distinguishes expected interrupted-run signal errors from real runtime
+  failures.
+- **Slash autocomplete flags**: TUI slash-command autocomplete keeps literal
+  argument and flag completions instead of rewriting them.
+- **Chat delete guard**: Deleting browser chat sessions is blocked while a run
+  is still active for that session.
+- **Malformed Unicode in prompts**: Container utilities sanitize malformed
+  Unicode so provider prompts and local OpenAI-compatible requests do not fail
+  on invalid surrogate data.
+- **Trace export identity preservation**: Session trace exports preserve trace
+  hash identifiers while applying secret redaction.
+- **Web approval buttons**: Approval buttons now emit gateway-supported
+  commands: `Allow once` sends `/approve yes`, `Allow always` sends
+  `/approve all`, and scoped buttons send their matching `session` or `agent`
+  approvals.
+
 ## [0.22.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.22.0) - 2026-06-05
 
 ### Added

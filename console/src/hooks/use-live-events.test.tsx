@@ -56,4 +56,11 @@ describe('useLiveEvents', () => {
 
     expect(screen.getByText('open')).not.toBeNull();
   });
+
+  it('does not put bearer tokens in the admin events stream URL', () => {
+    render(<Probe token="secret-token" />);
+
+    expect(MockEventSource.instances).toHaveLength(1);
+    expect(MockEventSource.instances[0]?.url).toBe('/api/events');
+  });
 });

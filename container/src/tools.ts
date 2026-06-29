@@ -29,6 +29,7 @@ import {
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import { runImageGenerate } from './image-generation.js';
 import type { McpClientManager } from './mcp/client-manager.js';
+import type { ModelBehavior } from './model-behavior.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   type RuntimeProvider,
@@ -113,6 +114,7 @@ let pendingDelegations: DelegationSideEffect[] = [];
 let injectedTasks: ScheduledTaskInfo[] = [];
 let scheduleSideEffectsEnabled = true;
 let currentSessionId = '';
+let currentAgentId = '';
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
 let gatewayChannelId = '';
@@ -794,6 +796,7 @@ export function setGatewayContext(
     agentId,
     browserAllowPrivateNetwork,
   );
+  currentAgentId = String(agentId || '').trim();
   gatewayChannelId = String(channelId || '').trim();
   gatewayConfiguredChannels =
     normalizeConfiguredChannelList(configuredChannels);
@@ -808,6 +811,7 @@ export function setModelContext(
   chatbotId: string,
   requestHeaders?: Record<string, string>,
   maxTokens?: number,
+  modelBehavior?: ModelBehavior,
   debugModelResponses = false,
 ): void {
   currentModelProvider = resolveRuntimeProviderContext(provider, model);
@@ -830,6 +834,7 @@ export function setModelContext(
     chatbotId,
     requestHeaders,
     currentModelMaxTokens,
+    modelBehavior,
     debugModelResponses,
   );
 }
@@ -1405,6 +1410,7 @@ async function callGatewayHttpRequest(
       body: JSON.stringify({
         ...requestArgs,
         ...(currentSessionId ? { sessionId: currentSessionId } : {}),
+        ...(currentAgentId ? { agentId: currentAgentId } : {}),
       }),
     });
   } catch (err) {
@@ -2785,6 +2791,21 @@ async function executeToolInternal(
     case 'edit': {
       let tempDirToCleanup: string | null = null;
       try {
+        const oldText =
+          typeof args.old === 'string'
+            ? args.old
+            : typeof args.old_text === 'string'
+              ? args.old_text
+              : '';
+        const newText =
+          typeof args.new === 'string'
+            ? args.new
+            : typeof args.new_text === 'string'
+              ? args.new_text
+              : '';
+        if (!oldText) {
+          return failTool('Error: old text is required for edit');
+        }
         let content = '';
         let filePath = '';
         let sandboxPath = '';
@@ -2806,7 +2827,7 @@ async function executeToolInternal(
 
         const count = args.count || 1;
         for (let i = 0; i < count; i++) {
-          const idx = content.indexOf(args.old);
+          const idx = content.indexOf(oldText);
           if (idx === -1) {
             if (i === 0)
               return failTool(`Error: Text not found in ${args.path}`);
@@ -2814,8 +2835,8 @@ async function executeToolInternal(
           }
           content =
             content.slice(0, idx) +
-            args.new +
-            content.slice(idx + args.old.length);
+            newText +
+            content.slice(idx + oldText.length);
         }
 
         fs.writeFileSync(filePath, content);
@@ -3950,6 +3971,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           path: { type: 'string', description: 'Path to the file to edit' },
           old: { type: 'string', description: 'Text to find and replace' },
           new: { type: 'string', description: 'Replacement text' },
+          old_text: {
+            type: 'string',
+            description: 'Alias for old; text to find and replace',
+          },
+          new_text: {
+            type: 'string',
+            description: 'Alias for new; replacement text',
+          },
           count: {
             type: 'number',
             description: 'Number of replacements (default: 1)',
@@ -4345,6 +4374,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'Optional raw text request body. Use `json` instead for JSON payloads.',
           },
+          form: {
+            type: 'object',
+            description:
+              'Optional application/x-www-form-urlencoded fields. The gateway resolves <secret:NAME> placeholders first, then URL-encodes values so secrets with special characters cannot break form encoding.',
+            additionalProperties: {
+              type: ['string', 'number', 'boolean'],
+            },
+          },
           bodyBase64: {
             type: 'string',
             description:
@@ -4440,10 +4477,102 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               required: ['name', 'secretName'],
             },
           },
+          captureResponseFields: {
+            type: 'array',
+            description:
+              'Capture selected JSON response fields into named runtime secrets and return only secret names, never captured values.',
+            items: {
+              type: 'object',
+              properties: {
+                jsonPath: {
+                  type: 'string',
+                  description:
+                    'Dot-separated JSON path to capture, for example `auth.token`.',
+                },
+                secretName: {
+                  type: 'string',
+                  description: 'Stored secret name to write.',
+                },
+                bindDomain: {
+                  type: 'string',
+                  description:
+                    'Optional domain binding for captured bearer-like secrets.',
+                },
+              },
+              required: ['jsonPath', 'secretName'],
+            },
+          },
+          captureResponseHeaders: {
+            type: 'array',
+            description:
+              'Capture selected response headers into named runtime secrets and return only secret names, never captured values.',
+            items: {
+              type: 'object',
+              properties: {
+                header: {
+                  type: 'string',
+                  description:
+                    'Response header name to capture, for example `client-id`.',
+                },
+                secretName: {
+                  type: 'string',
+                  description: 'Stored secret name to write.',
+                },
+                bindDomain: {
+                  type: 'string',
+                  description:
+                    'Optional domain binding for captured bearer-like secrets.',
+                },
+              },
+              required: ['header', 'secretName'],
+            },
+          },
           replaceSecretPlaceholders: {
             type: 'boolean',
             description:
               'When true (default), replace `<secret:NAME>` placeholders inside headers, body, and json values.',
+          },
+          suppressResponseBody: {
+            type: 'boolean',
+            description:
+              'When true, the gateway forwards the request but omits the response body from the tool result. Use for binary artifacts, media, live-view handles, or other data that must not enter model context.',
+          },
+          responseArtifact: {
+            type: 'object',
+            description:
+              'Save the response body as a workspace artifact and return only the artifact metadata. Use for images, videos, PDFs, and other binary responses that should be attached instead of entering model context.',
+            properties: {
+              filename: {
+                type: 'string',
+                description:
+                  'Suggested artifact filename. The gateway sanitizes it and may add a unique prefix.',
+              },
+              mimeType: {
+                type: 'string',
+                description:
+                  'Optional expected MIME type. Defaults to the upstream Content-Type header.',
+              },
+            },
+          },
+          allowManualRedirect: {
+            type: 'boolean',
+            description:
+              'When true, return 3xx response headers such as Location without following the redirect. Use only when a helper must inspect an authorization redirect code; the gateway still never follows outbound redirects.',
+          },
+          allowSelfSignedTls: {
+            type: 'boolean',
+            description:
+              'When true, allow a self-signed TLS certificate for this HTTPS request only. Use only for local/private devices whose helper explicitly marks the request, such as a Philips Hue Bridge.',
+          },
+          tlsCertificateSha256: {
+            type: 'string',
+            description:
+              'Optional SHA-256 certificate fingerprint pin for this HTTPS request. Do not combine with allowSelfSignedTls.',
+          },
+          tlsCertificateSha256SecretName: {
+            type: 'string',
+            description:
+              'Optional stored secret containing a SHA-256 certificate fingerprint pin for this HTTPS request. Do not combine with allowSelfSignedTls.',
           },
           timeoutMs: {
             type: 'number',

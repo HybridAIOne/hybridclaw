@@ -1,0 +1,1274 @@
+#!/usr/bin/env node
+'use strict';
+
+const crypto = require('node:crypto');
+
+const MARKETING_BASIC_AUTH_SECRET = 'MAILCHIMP_MARKETING_BASIC_AUTH';
+const MARKETING_OAUTH_TOKEN_SECRET = 'MAILCHIMP_MARKETING_OAUTH_TOKEN';
+const MANDRILL_API_KEY_SECRET = 'MANDRILL_API_KEY';
+const SERVER_PREFIX_ENV = 'MAILCHIMP_SERVER_PREFIX';
+const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
+const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
+const DEFAULT_COUNT = 25;
+const MAX_COUNT = 1000;
+const COST_MEASUREMENT = {
+  system: 'UsageTotals',
+  subLimitKey: 'mailchimp',
+};
+
+const OPERATION_TIERS = {
+  'oauth.metadata': 'green',
+  'marketing.root': 'green',
+  'audience.list': 'green',
+  'audience.members': 'green',
+  'audience.member': 'green',
+  'audience.member-upsert': 'amber',
+  'audience.member-update': 'amber',
+  'audience.member-archive': 'amber',
+  'audience.tags-update': 'amber',
+  'audience.bulk-plan': 'red',
+  'audience.merge-fields': 'green',
+  'audience.merge-field-create': 'amber',
+  'audience.merge-field-update': 'amber',
+  'campaign.list': 'green',
+  'campaign.create': 'amber',
+  'campaign.update': 'amber',
+  'campaign.content-get': 'green',
+  'campaign.content-set': 'amber',
+  'campaign.schedule': 'red',
+  'campaign.send': 'red',
+  'campaign.report': 'green',
+  'automation.list': 'green',
+  'automation.get': 'green',
+  'journey.list': 'green',
+  'journey.get': 'green',
+  'mandrill.message-info': 'green',
+  'mandrill.send': 'red',
+  'mandrill.send-template': 'red',
+};
+
+const MARKETING_OPERATIONS = new Set([
+  'marketing.root',
+  'audience.list',
+  'audience.members',
+  'audience.member',
+  'audience.member-upsert',
+  'audience.member-update',
+  'audience.member-archive',
+  'audience.tags-update',
+  'audience.merge-fields',
+  'audience.merge-field-create',
+  'audience.merge-field-update',
+  'campaign.list',
+  'campaign.create',
+  'campaign.update',
+  'campaign.content-get',
+  'campaign.content-set',
+  'campaign.schedule',
+  'campaign.send',
+  'campaign.report',
+  'automation.list',
+  'automation.get',
+  'journey.list',
+  'journey.get',
+]);
+const GUARDED_TIERS = new Set(['amber', 'red']);
+const EMAIL_SENDING_OPERATIONS = new Set([
+  'campaign.schedule',
+  'campaign.send',
+  'mandrill.send',
+  'mandrill.send-template',
+]);
+const RESOURCE_ACTION_OPERATIONS = {
+  oauth: {
+    metadata: 'oauth.metadata',
+  },
+  marketing: {
+    root: 'marketing.root',
+  },
+  audience: {
+    list: 'audience.list',
+    members: 'audience.members',
+    member: 'audience.member',
+    'member-upsert': 'audience.member-upsert',
+    upsert: 'audience.member-upsert',
+    'member-update': 'audience.member-update',
+    update: 'audience.member-update',
+    'member-archive': 'audience.member-archive',
+    archive: 'audience.member-archive',
+    'tags-update': 'audience.tags-update',
+    tags: 'audience.tags-update',
+    'bulk-plan': 'audience.bulk-plan',
+    'merge-fields': 'audience.merge-fields',
+    'merge-field-create': 'audience.merge-field-create',
+    'merge-field-update': 'audience.merge-field-update',
+  },
+  campaign: {
+    list: 'campaign.list',
+    create: 'campaign.create',
+    update: 'campaign.update',
+    'content-get': 'campaign.content-get',
+    'content-set': 'campaign.content-set',
+    schedule: 'campaign.schedule',
+    send: 'campaign.send',
+    report: 'campaign.report',
+  },
+  automation: {
+    list: 'automation.list',
+    get: 'automation.get',
+  },
+  journey: {
+    list: 'journey.list',
+    get: 'journey.get',
+  },
+  mandrill: {
+    'message-info': 'mandrill.message-info',
+    send: 'mandrill.send',
+    'send-template': 'mandrill.send-template',
+  },
+};
+
+function die(message) {
+  process.stderr.write(`${message}\n`);
+  process.exit(1);
+}
+
+function popFlag(args, name, defaultValue) {
+  const index = args.indexOf(name);
+  if (index === -1) return defaultValue;
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith('--')) {
+    die(`${name} requires a value.`);
+  }
+  args.splice(index, 2);
+  return value;
+}
+
+function popBooleanFlag(args, name) {
+  const index = args.indexOf(name);
+  if (index === -1) return false;
+  args.splice(index, 1);
+  return true;
+}
+
+function popRepeatedFlag(args, name) {
+  const values = [];
+  for (;;) {
+    const index = args.indexOf(name);
+    if (index === -1) return values;
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith('--')) {
+      die(`${name} requires a value.`);
+    }
+    values.push(value);
+    args.splice(index, 2);
+  }
+}
+
+function assertNoUnexpectedArgs(args) {
+  if (args.length > 0) die(`Unexpected argument: ${args[0]}`);
+}
+
+function requireText(value, label) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    die(`${label} is required.`);
+  }
+  return value.trim();
+}
+
+function requireEmail(value, label) {
+  const email = requireText(value, label);
+  if (!/^[^\s@]+@[^\s@]+$/u.test(email)) {
+    die(`${label} must be an email address.`);
+  }
+  return email;
+}
+
+function requireSecretName(value, label) {
+  const secretName = requireText(value, label);
+  if (!/^[A-Z][A-Z0-9_]{0,127}$/u.test(secretName)) {
+    die(`${label} must be an uppercase runtime secret name.`);
+  }
+  return secretName;
+}
+
+function encodeSegment(value, label) {
+  return encodeURIComponent(requireText(value, label));
+}
+
+function parseInteger(value, label, { min, max } = {}) {
+  const number = Number(value);
+  if (!Number.isInteger(number)) die(`${label} must be an integer.`);
+  if (min !== undefined && number < min) die(`${label} must be at least ${min}.`);
+  if (max !== undefined && number > max) die(`${label} must be at most ${max}.`);
+  return number;
+}
+
+function parseJsonObject(raw, label) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      die(`${label} must be a JSON object.`);
+    }
+    return parsed;
+  } catch (error) {
+    die(`${label} must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function parseJsonObjectFlag(args, name, defaultValue) {
+  const raw = popFlag(args, name);
+  if (raw === undefined) return defaultValue;
+  return parseJsonObject(raw, name);
+}
+
+function requireBodyJson(args) {
+  const json = parseJsonObjectFlag(args, '--body-json');
+  if (json === undefined) die('--body-json is required.');
+  return json;
+}
+
+function parseOptionalJsonObjectFlag(args, name) {
+  const raw = popFlag(args, name);
+  if (raw === undefined) return undefined;
+  return parseJsonObject(raw, name);
+}
+
+function parsePagination(args, query) {
+  const count = popFlag(args, '--count', String(DEFAULT_COUNT));
+  query.count = parseInteger(count, '--count', { min: 1, max: MAX_COUNT });
+  const offset = popFlag(args, '--offset');
+  if (offset !== undefined) query.offset = parseInteger(offset, '--offset', { min: 0 });
+}
+
+function appendQuery(url, query) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === '') continue;
+    params.set(key, String(value));
+  }
+  const qs = params.toString();
+  return qs ? `${url}?${qs}` : url;
+}
+
+function subscriberHash(email) {
+  return crypto.createHash('md5').update(requireEmail(email, '--email').toLowerCase()).digest('hex');
+}
+
+function resolveSubscriberHash(args) {
+  const hash = popFlag(args, '--subscriber-hash');
+  const email = popFlag(args, '--email');
+  if (hash && email) die('Use only one of --subscriber-hash or --email.');
+  if (hash) return requireText(hash, '--subscriber-hash').toLowerCase();
+  if (email) return subscriberHash(email);
+  die('One of --subscriber-hash or --email is required.');
+}
+
+function parseTags(values) {
+  if (values.length === 0) die('--tag is required at least once.');
+  return values.map((entry) => {
+    const [name, status = 'active'] = entry.split(':');
+    const normalizedStatus = status.trim().toLowerCase();
+    if (!['active', 'inactive'].includes(normalizedStatus)) {
+      die('--tag status must be active or inactive, for example --tag VIP:active.');
+    }
+    return {
+      name: requireText(name, '--tag name'),
+      status: normalizedStatus,
+    };
+  });
+}
+
+function parseAuthMode(args) {
+  const auth = popFlag(args, '--auth', 'api-key');
+  if (!['api-key', 'oauth'].includes(auth)) {
+    die('--auth must be api-key or oauth.');
+  }
+  return auth;
+}
+
+function marketingBaseUrl(args) {
+  const serverPrefix = requireText(
+    popFlag(args, '--server-prefix', `<env:${SERVER_PREFIX_ENV}>`),
+    '--server-prefix or <env:MAILCHIMP_SERVER_PREFIX>',
+  );
+  if (
+    serverPrefix !== `<env:${SERVER_PREFIX_ENV}>` &&
+    !/^[a-z0-9-]+$/u.test(serverPrefix.toLowerCase())
+  ) {
+    die('--server-prefix must contain only lowercase letters, digits, or hyphens.');
+  }
+  const normalizedPrefix =
+    serverPrefix === `<env:${SERVER_PREFIX_ENV}>`
+      ? serverPrefix
+      : serverPrefix.toLowerCase();
+  return `https://${normalizedPrefix}.api.mailchimp.com/3.0`;
+}
+
+function resolveMarketingAuth(args) {
+  const auth = parseAuthMode(args);
+  if (auth === 'api-key') {
+    const secretName = requireSecretName(
+      popFlag(args, '--basic-auth-secret', MARKETING_BASIC_AUTH_SECRET),
+      '--basic-auth-secret',
+    );
+    return {
+      mode: 'api-key',
+      headers: {
+        Authorization: `Basic <secret:${secretName}>`,
+      },
+    };
+  }
+  const secretName = requireSecretName(
+    popFlag(args, '--token-secret', MARKETING_OAUTH_TOKEN_SECRET),
+    '--token-secret',
+  );
+  return {
+    mode: 'oauth',
+    headers: {
+      Authorization: `OAuth <secret:${secretName}>`,
+    },
+  };
+}
+
+function marketingRequest(args, operation, stakesTier) {
+  const auth = resolveMarketingAuth(args);
+  const base = marketingBaseUrl(args);
+  const common = {
+    method: 'GET',
+    headers: {},
+  };
+
+  let path = '/';
+  let json;
+  const query = {};
+
+  switch (operation) {
+    case 'marketing.root':
+      break;
+    case 'audience.list':
+      path = '/lists';
+      parsePagination(args, query);
+      break;
+    case 'audience.members': {
+      const listId = encodeSegment(popFlag(args, '--list-id'), '--list-id');
+      path = `/lists/${listId}/members`;
+      parsePagination(args, query);
+      const status = popFlag(args, '--status');
+      if (status !== undefined) query.status = requireText(status, '--status');
+      break;
+    }
+    case 'audience.member': {
+      const listId = encodeSegment(popFlag(args, '--list-id'), '--list-id');
+      const hash = encodeSegment(resolveSubscriberHash(args), '--subscriber-hash');
+      path = `/lists/${listId}/members/${hash}`;
+      break;
+    }
+    case 'audience.member-upsert': {
+      const listId = encodeSegment(popFlag(args, '--list-id'), '--list-id');
+      const email = requireEmail(popFlag(args, '--email'), '--email');
+      path = `/lists/${listId}/members/${subscriberHash(email)}`;
+      common.method = 'PUT';
+      json = {
+        email_address: email,
+        status_if_new: popFlag(args, '--status-if-new', 'subscribed'),
+      };
+      const status = popFlag(args, '--status');
+      if (status !== undefined) json.status = requireText(status, '--status');
+      const mergeFields = parseJsonObjectFlag(args, '--merge-fields-json');
+      if (mergeFields !== undefined) json.merge_fields = mergeFields;
+      const tags = popRepeatedFlag(args, '--tag');
+      if (tags.length > 0) json.tags = parseTags(tags);
+      break;
+    }
+    case 'audience.member-update': {
+      const listId = encodeSegment(popFlag(args, '--list-id'), '--list-id');
+      const hash = encodeSegment(resolveSubscriberHash(args), '--subscriber-hash');
+      path = `/lists/${listId}/members/${hash}`;
+      common.method = 'PATCH';
+      json = requireBodyJson(args);
+      break;
+    }
+    case 'audience.member-archive': {
+      const listId = encodeSegment(popFlag(args, '--list-id'), '--list-id');
+      const hash = encodeSegment(resolveSubscriberHash(args), '--subscriber-hash');
+      path = `/lists/${listId}/members/${hash}`;
+      common.method = 'DELETE';
+      break;
+    }
+    case 'audience.tags-update': {
+      const listId = encodeSegment(popFlag(args, '--list-id'), '--list-id');
+      const hash = encodeSegment(resolveSubscriberHash(args), '--subscriber-hash');
+      path = `/lists/${listId}/members/${hash}/tags`;
+      common.method = 'POST';
+      json = { tags: parseTags(popRepeatedFlag(args, '--tag')) };
+      break;
+    }
+    case 'audience.merge-fields': {
+      const listId = encodeSegment(popFlag(args, '--list-id'), '--list-id');
+      path = `/lists/${listId}/merge-fields`;
+      parsePagination(args, query);
+      break;
+    }
+    case 'audience.merge-field-create': {
+      const listId = encodeSegment(popFlag(args, '--list-id'), '--list-id');
+      path = `/lists/${listId}/merge-fields`;
+      common.method = 'POST';
+      json = requireBodyJson(args);
+      break;
+    }
+    case 'audience.merge-field-update': {
+      const listId = encodeSegment(popFlag(args, '--list-id'), '--list-id');
+      const mergeId = encodeSegment(popFlag(args, '--merge-id'), '--merge-id');
+      path = `/lists/${listId}/merge-fields/${mergeId}`;
+      common.method = 'PATCH';
+      json = requireBodyJson(args);
+      break;
+    }
+    case 'campaign.list':
+      path = '/campaigns';
+      parsePagination(args, query);
+      for (const [flag, key] of [
+        ['--status', 'status'],
+        ['--type', 'type'],
+        ['--list-id', 'list_id'],
+      ]) {
+        const value = popFlag(args, flag);
+        if (value !== undefined) query[key] = value;
+      }
+      break;
+    case 'campaign.create':
+      path = '/campaigns';
+      common.method = 'POST';
+      json = requireBodyJson(args);
+      break;
+    case 'campaign.update': {
+      const campaignId = encodeSegment(popFlag(args, '--campaign-id'), '--campaign-id');
+      path = `/campaigns/${campaignId}`;
+      common.method = 'PATCH';
+      json = requireBodyJson(args);
+      break;
+    }
+    case 'campaign.content-get': {
+      const campaignId = encodeSegment(popFlag(args, '--campaign-id'), '--campaign-id');
+      path = `/campaigns/${campaignId}/content`;
+      break;
+    }
+    case 'campaign.content-set': {
+      const campaignId = encodeSegment(popFlag(args, '--campaign-id'), '--campaign-id');
+      path = `/campaigns/${campaignId}/content`;
+      common.method = 'PUT';
+      json = requireBodyJson(args);
+      break;
+    }
+    case 'campaign.schedule': {
+      const campaignId = encodeSegment(popFlag(args, '--campaign-id'), '--campaign-id');
+      const scheduleTime = requireText(popFlag(args, '--schedule-time'), '--schedule-time');
+      path = `/campaigns/${campaignId}/actions/schedule`;
+      common.method = 'POST';
+      json = { schedule_time: scheduleTime };
+      break;
+    }
+    case 'campaign.send': {
+      const campaignId = encodeSegment(popFlag(args, '--campaign-id'), '--campaign-id');
+      path = `/campaigns/${campaignId}/actions/send`;
+      common.method = 'POST';
+      break;
+    }
+    case 'campaign.report': {
+      const campaignId = encodeSegment(popFlag(args, '--campaign-id'), '--campaign-id');
+      const kind = popFlag(args, '--kind', 'overview');
+      const reportPaths = {
+        overview: `/reports/${campaignId}`,
+        bounces: `/reports/${campaignId}`,
+        opens: `/reports/${campaignId}/open-details`,
+        clicks: `/reports/${campaignId}/click-details`,
+        'email-activity': `/reports/${campaignId}/email-activity`,
+        'sent-to': `/reports/${campaignId}/sent-to`,
+        unsubscribed: `/reports/${campaignId}/unsubscribed`,
+        advice: `/reports/${campaignId}/advice`,
+        'domain-performance': `/reports/${campaignId}/domain-performance`,
+      };
+      path = reportPaths[kind];
+      if (!path) die('--kind must be one of overview, bounces, opens, clicks, email-activity, sent-to, unsubscribed, advice, domain-performance.');
+      if (kind === 'bounces') {
+        query.fields =
+          'id,campaign_title,emails_sent,bounces,send_time,list_id,list_name';
+      }
+      if (!['overview', 'bounces'].includes(kind)) {
+        parsePagination(args, query);
+      }
+      break;
+    }
+    case 'automation.list':
+      path = '/automations';
+      parsePagination(args, query);
+      break;
+    case 'automation.get':
+      path = `/automations/${encodeSegment(popFlag(args, '--workflow-id'), '--workflow-id')}`;
+      break;
+    case 'journey.list':
+      path = '/customer-journeys/journeys';
+      parsePagination(args, query);
+      break;
+    case 'journey.get':
+      path = `/customer-journeys/journeys/${encodeSegment(popFlag(args, '--journey-id'), '--journey-id')}`;
+      break;
+    default:
+      die(`Unsupported operation: ${operation}`);
+  }
+
+  assertNoUnexpectedArgs(args);
+  const httpRequest = {
+    url: appendQuery(`${base}${path}`, query),
+    method: common.method,
+    headers: {
+      ...common.headers,
+      ...auth.headers,
+    },
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    skillName: 'mailchimp',
+    stakesTier,
+    authMode: auth.mode,
+  };
+  if (json !== undefined) httpRequest.json = json;
+  return httpRequest;
+}
+
+function oauthMetadataRequest(args, stakesTier) {
+  const auth = popFlag(args, '--auth', 'oauth');
+  if (auth !== 'oauth') {
+    die('oauth.metadata requires --auth oauth.');
+  }
+  const tokenSecret = requireSecretName(
+    popFlag(args, '--token-secret', MARKETING_OAUTH_TOKEN_SECRET),
+    '--token-secret',
+  );
+  assertNoUnexpectedArgs(args);
+  return {
+    url: 'https://login.mailchimp.com/oauth2/metadata',
+    method: 'GET',
+    headers: {
+      Authorization: `OAuth <secret:${tokenSecret}>`,
+    },
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    skillName: 'mailchimp',
+    stakesTier,
+  };
+}
+
+function bulkMemberPlan(args, semantics) {
+  const listId = requireText(popFlag(args, '--list-id'), '--list-id');
+  const operation = requireText(popFlag(args, '--operation'), '--operation');
+  if (
+    ![
+      'member-upsert',
+      'member-update',
+      'member-archive',
+      'tags-update',
+    ].includes(operation)
+  ) {
+    die('--operation must be one of member-upsert, member-update, member-archive, tags-update.');
+  }
+  const count = parseInteger(popFlag(args, '--count'), '--count', {
+    min: 2,
+    max: 50_000,
+  });
+  const source = requireText(popFlag(args, '--source-label'), '--source-label');
+  const sample = parseOptionalJsonObjectFlag(args, '--sample-json');
+  assertNoUnexpectedArgs(args);
+  const requiredGrant = `mailchimp:audience.bulk-plan:list:${listId}:operation:${operation}:count:${count}`;
+  const approvedHelperCommand = [
+    'node',
+    'skills/mailchimp/mailchimp.cjs',
+    '--format',
+    'json',
+    'approval-plan',
+    semantics?.resource || 'audience.bulk-plan',
+  ];
+  if (semantics) approvedHelperCommand.push(semantics.action);
+  approvedHelperCommand.push(
+    '--list-id',
+    listId,
+    '--operation',
+    operation,
+    '--count',
+    String(count),
+    '--source-label',
+    source,
+  );
+  if (sample) {
+    approvedHelperCommand.push('--sample-json', JSON.stringify(sample));
+  }
+  return {
+    command: 'approval-plan',
+    operation: 'audience.bulk-plan',
+    stakesTier: 'red',
+    approvalRequired: true,
+    approval: {
+      requiredGrant,
+      boundary:
+        'This is a planning and approval boundary for bulk subscriber changes. Do not execute per-member helper commands until the operator approves this exact list, operation, source, count, and rollback plan.',
+      approvedHelperCommand,
+      approvedHelperCommandText: approvedHelperCommand.map(shellQuote).join(' '),
+    },
+    preview: {
+      listId,
+      memberOperation: operation,
+      count,
+      source,
+      sample: sample ? redactBulkSample(sample) : undefined,
+      sendsExternalEmail: false,
+      subscriberMutation: true,
+      execution:
+        'After approval, generate exact per-member approved helper commands and run them with --operator-grant. The helper does not expose Mailchimp batch endpoints.',
+    },
+    approvalText: [
+      'Mailchimp red operation: audience.bulk-plan',
+      `Audience: ${listId}`,
+      `Operation: ${operation}`,
+      `Member count: ${count}`,
+      `Source: ${source}`,
+      'Confirm consent basis, source file, sample rows, expected count, and rollback strategy before any per-member execution.',
+    ].join('\n'),
+  };
+}
+
+function redactBulkSample(sample) {
+  const copy = { ...sample };
+  for (const key of Object.keys(copy)) {
+    if (/email|address|phone|name/i.test(key)) {
+      copy[key] = `<redacted:${key}>`;
+    }
+  }
+  return copy;
+}
+
+function mandrillRequest(args, operation, stakesTier) {
+  const secretName = requireSecretName(
+    popFlag(args, '--mandrill-secret', MANDRILL_API_KEY_SECRET),
+    '--mandrill-secret',
+  );
+  let path;
+  let json;
+  switch (operation) {
+    case 'mandrill.message-info':
+      path = '/messages/info.json';
+      json = { id: requireText(popFlag(args, '--id'), '--id') };
+      break;
+    case 'mandrill.send':
+      path = '/messages/send.json';
+      json = requireBodyJson(args);
+      break;
+    case 'mandrill.send-template':
+      path = '/messages/send-template.json';
+      json = requireBodyJson(args);
+      break;
+    default:
+      die(`Unsupported operation: ${operation}`);
+  }
+  if (Object.hasOwn(json, 'key')) die('--body-json must not include Mandrill key.');
+  assertNoUnexpectedArgs(args);
+  return {
+    url: `https://mandrillapp.com/api/1.0${path}`,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    json: {
+      key: `<secret:${secretName}>`,
+      ...json,
+    },
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    skillName: 'mailchimp',
+    stakesTier,
+  };
+}
+
+function targetDescription(operation, httpRequest) {
+  const url = new URL(httpRequest.url);
+  if (operation.startsWith('mandrill.')) return `${operation}:${url.pathname}`;
+  return `${operation}:${url.hostname}${url.pathname}`;
+}
+
+function redactPreviewBody(json) {
+  if (json === undefined) return undefined;
+  return redactPreviewValue(json);
+}
+
+function redactPreviewValue(value, key = '') {
+  if (typeof value === 'string') {
+    if (['email_address', 'html', 'plain_text', 'text'].includes(key)) {
+      return `<redacted:${key}:length=${value.length}>`;
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (key === 'to') return `<${value.length} recipients>`;
+    return value.map((entry) => redactPreviewValue(entry));
+  }
+  if (!value || typeof value !== 'object') return value;
+  if (key === 'merge_fields') {
+    return Object.fromEntries(
+      Object.keys(value).map((entryKey) => [
+        entryKey,
+        '<redacted:merge-field>',
+      ]),
+    );
+  }
+  const redacted = {};
+  for (const [entryKey, entryValue] of Object.entries(value)) {
+    if (entryKey === 'key') {
+      if (
+        typeof entryValue !== 'string' ||
+        !/^<secret:[A-Z][A-Z0-9_]{0,127}>$/u.test(entryValue)
+      ) {
+        die('Mandrill key preview must be a runtime secret placeholder.');
+      }
+      redacted[entryKey] = entryValue;
+    } else {
+      redacted[entryKey] = redactPreviewValue(entryValue, entryKey);
+    }
+  }
+  return redacted;
+}
+
+function operationFromResourceAction(resource, action) {
+  const resourceName = requireText(resource, 'resource').toLowerCase();
+  const actionName = requireText(action, 'action').toLowerCase();
+  const operation = RESOURCE_ACTION_OPERATIONS[resourceName]?.[actionName];
+  if (!operation) die(`Unsupported Mailchimp action: ${resourceName} ${actionName}`);
+  return operation;
+}
+
+function operationToResourceAction(operation) {
+  for (const [resource, actions] of Object.entries(RESOURCE_ACTION_OPERATIONS)) {
+    for (const [action, candidate] of Object.entries(actions)) {
+      if (candidate === operation) return { resource, action };
+    }
+  }
+  return null;
+}
+
+function buildHttpRequest(operation, args, options = {}) {
+  const op = requireText(operation, 'operation');
+  const stakesTier = OPERATION_TIERS[op];
+  if (!stakesTier) die(`Unsupported operation: ${op}`);
+  if (op === 'audience.bulk-plan') {
+    die('audience.bulk-plan is an approval-plan only operation.');
+  }
+  const localArgs = [...args];
+  const operatorGrant = popBooleanFlag(localArgs, '--operator-grant');
+  const httpRequest =
+    op === 'oauth.metadata'
+      ? oauthMetadataRequest(localArgs, stakesTier)
+      : MARKETING_OPERATIONS.has(op)
+        ? marketingRequest(localArgs, op, stakesTier)
+        : mandrillRequest(localArgs, op, stakesTier);
+  const guarded = GUARDED_TIERS.has(stakesTier);
+  if (guarded && !operatorGrant && !options.allowGuarded) {
+    die(`${op} is a ${stakesTier} operation. Run approval-plan ${op} first, wait for explicit operator approval, then rerun the approved helper command with --operator-grant.`);
+  }
+  const payload = {
+    command: 'http-request',
+    operation: op,
+    stakesTier,
+    approvalRequired: guarded,
+    httpRequest,
+    credentialPolicy: {
+      marketingBasicAuthSecret: MARKETING_BASIC_AUTH_SECRET,
+      marketingOAuthTokenSecret: MARKETING_OAUTH_TOKEN_SECRET,
+      mandrillApiKeySecret: MANDRILL_API_KEY_SECRET,
+      serverPrefixEnv: SERVER_PREFIX_ENV,
+      missingCredentialBehavior:
+        'If the gateway reports a missing runtime secret or Mailchimp returns 401/403, stop after the first failure and ask the operator to set or verify the named credential.',
+    },
+    auditPolicy: {
+      pii:
+        'Summaries should prefer ids, subscriber_hash values, counts, and status fields. Do not log subscriber emails, Mandrill recipient lists, campaign HTML, or raw payload bodies beyond the minimum operator-approved context.',
+      automationContext:
+        'Automation and journey reads are for status and audit-safe context capture only; summarize ids, names, status, timestamps, and counts unless the operator asks for specific fields.',
+    },
+    costMeasurement: COST_MEASUREMENT,
+  };
+  if (guarded) {
+    payload.approval = {
+      requiredGrant: `mailchimp:${targetDescription(op, httpRequest)}`,
+      boundary:
+        'Stop after producing this request or approval plan. Execute only after explicit operator approval for the named Mailchimp or Mandrill target.',
+    };
+  }
+  return payload;
+}
+
+function buildSemanticRequest(resource, action, args) {
+  const operation = operationFromResourceAction(resource, action);
+  const payload = buildHttpRequest(operation, args);
+  return {
+    ...payload,
+    command: 'operation',
+    resource: resource.toLowerCase(),
+    action: action.toLowerCase(),
+  };
+}
+
+function buildApprovalPlan(operation, args, semantics) {
+  if (operation === 'audience.bulk-plan') {
+    return bulkMemberPlan(args, semantics);
+  }
+  const cleanArgs = args.filter((entry) => entry !== '--operator-grant');
+  const payload = buildHttpRequest(operation, cleanArgs, { allowGuarded: true });
+  if (!payload.approvalRequired) {
+    die(`${operation} is read-only and does not need approval-plan.`);
+  }
+  const semanticTarget = semantics || operationToResourceAction(operation);
+  const approvedTarget = semanticTarget
+    ? [semanticTarget.resource, semanticTarget.action]
+    : ['http-request', operation];
+  const approvedHelperCommand = [
+    'node',
+    'skills/mailchimp/mailchimp.cjs',
+    '--format',
+    'json',
+    ...approvedTarget,
+    ...cleanArgs,
+    '--operator-grant',
+  ];
+  return {
+    command: 'approval-plan',
+    operation,
+    stakesTier: payload.stakesTier,
+    approvalRequired: true,
+    approval: {
+      ...payload.approval,
+      approvedHelperCommand,
+      approvedHelperCommandText: approvedHelperCommand.map(shellQuote).join(' '),
+    },
+    preview: {
+      method: payload.httpRequest.method,
+      url: payload.httpRequest.url,
+      body: redactPreviewBody(payload.httpRequest.json),
+      sendsExternalEmail: EMAIL_SENDING_OPERATIONS.has(operation),
+      subscriberMutation: operation.startsWith('audience.member') || operation === 'audience.tags-update',
+    },
+    approvalText: [
+      `Mailchimp ${payload.stakesTier} operation: ${operation}`,
+      `Target: ${targetDescription(operation, payload.httpRequest)}`,
+      'Confirm the audience/campaign/message target, recipient impact, and rollback path before running the approved helper command unchanged.',
+    ].join('\n'),
+  };
+}
+
+function shellQuote(value) {
+  if (/^[A-Za-z0-9_./:@=-]+$/u.test(value)) return value;
+  return `'${String(value).replace(/'/gu, `'\\''`)}'`;
+}
+
+function resolveGatewayUrl() {
+  return String(
+    process.env.HYBRIDCLAW_GATEWAY_URL ||
+      process.env.GATEWAY_BASE_URL ||
+      DEFAULT_GATEWAY_URL,
+  ).replace(/\/+$/u, '');
+}
+
+function resolveGatewayToken() {
+  return String(
+    process.env.HYBRIDCLAW_GATEWAY_TOKEN || process.env.GATEWAY_API_TOKEN || '',
+  ).trim();
+}
+
+function parseJsonMaybe(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeGatewayResult(wrapper, fallbackStatus) {
+  const status = Number(wrapper.status || fallbackStatus || 0);
+  const body = typeof wrapper.body === 'string' ? wrapper.body : '';
+  return {
+    command: 'live-result',
+    ok: wrapper.ok !== false,
+    status,
+    statusText: wrapper.statusText || '',
+    headers: wrapper.headers || {},
+    body,
+    bodyJson: parseJsonMaybe(body),
+    bodyTruncated: wrapper.bodyTruncated === true,
+    maxResponseBytes: wrapper.maxResponseBytes,
+  };
+}
+
+function gatewayErrorMessage(response, text) {
+  const parsed = parseJsonMaybe(text);
+  const errorText =
+    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? String(parsed.error || parsed.text || text).trim()
+      : String(text || '').trim();
+  const prefix = `Gateway proxy returned HTTP ${response.status} for Mailchimp request`;
+  if (
+    response.status === 400 &&
+    /not allowlisted by workspace network policy/u.test(errorText)
+  ) {
+    return `${prefix}: workspace network policy denied this helper-emitted target. ${errorText}`;
+  }
+  if (
+    response.status === 502 &&
+    /Outbound HTTP request failed/u.test(errorText)
+  ) {
+    return `${prefix}: gateway policy accepted the request, but the gateway process could not open the outbound connection. ${errorText}`;
+  }
+  return `${prefix}: ${errorText || text}`;
+}
+
+function formatErrorCause(error) {
+  if (!error || typeof error !== 'object') return '';
+  const cause = error.cause;
+  if (!cause) return '';
+  if (cause instanceof Error) {
+    const nested = formatErrorCause(cause);
+    return nested && !cause.message.includes(nested)
+      ? `${cause.message} (${nested})`
+      : cause.message;
+  }
+  if (typeof cause === 'object') {
+    const code = typeof cause.code === 'string' ? cause.code : '';
+    const message = typeof cause.message === 'string' ? cause.message : '';
+    return [code, message].filter(Boolean).join(' ');
+  }
+  return String(cause);
+}
+
+function formatTransportError(error) {
+  if (!(error instanceof Error)) return String(error);
+  const cause = formatErrorCause(error);
+  if (!cause || error.message.includes(cause)) return error.message;
+  return `${error.message} (${cause})`;
+}
+
+async function executeGatewayRequest(httpRequest, options = {}) {
+  const fetchImpl = options.fetch || globalThis.fetch;
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('fetch is not available for Mailchimp requests.');
+  }
+  const gatewayUrl = String(options.gatewayUrl || resolveGatewayUrl()).replace(
+    /\/+$/u,
+    '',
+  );
+  const gatewayToken = options.gatewayToken || resolveGatewayToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (gatewayToken) headers.Authorization = `Bearer ${gatewayToken}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
+  );
+  let response;
+  let text = '';
+  try {
+    try {
+      response = await fetchImpl(`${gatewayUrl}/api/http/request`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(httpRequest),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw new Error(
+        `Gateway proxy request failed before Mailchimp request was sent: ${formatTransportError(
+          error,
+        )}. Check that the HybridClaw gateway is running and reachable at ${gatewayUrl}.`,
+      );
+    }
+    text = await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    throw new Error(gatewayErrorMessage(response, text));
+  }
+  const parsed = parseJsonMaybe(text);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      command: 'live-result',
+      ok: true,
+      status: response.status,
+      statusText: response.statusText || '',
+      headers: {},
+      body: text,
+      bodyJson: null,
+    };
+  }
+  const normalized = normalizeGatewayResult(parsed, response.status);
+  if (normalized.bodyTruncated) {
+    throw new Error(
+      `Mailchimp response was truncated by the gateway at ${normalized.maxResponseBytes || 'the configured'} bytes.`,
+    );
+  }
+  if (!normalized.ok) {
+    throw new Error(
+      `Mailchimp returned HTTP ${normalized.status || 'error'}: ${
+        normalized.body || normalized.statusText
+      }`,
+    );
+  }
+  return normalized;
+}
+
+async function executeLivePayload(payload, options = {}) {
+  return {
+    result: await executeGatewayRequest(payload.httpRequest, options),
+  };
+}
+
+function credentialCheck(args) {
+  const auth = parseAuthMode(args);
+  const serverPrefix = popFlag(args, '--server-prefix', `<env:${SERVER_PREFIX_ENV}>`);
+  if (
+    serverPrefix !== `<env:${SERVER_PREFIX_ENV}>` &&
+    !/^[a-z0-9-]+$/u.test(serverPrefix.toLowerCase())
+  ) {
+    die('--server-prefix must contain only lowercase letters, digits, or hyphens.');
+  }
+  assertNoUnexpectedArgs(args);
+  const requiredSecret =
+    auth === 'oauth' ? MARKETING_OAUTH_TOKEN_SECRET : MARKETING_BASIC_AUTH_SECRET;
+  const optionalMarketingSecret =
+    auth === 'oauth' ? MARKETING_BASIC_AUTH_SECRET : MARKETING_OAUTH_TOKEN_SECRET;
+  return {
+    command: 'credential-check',
+    authMode: auth,
+    ok: true,
+    missing: [],
+    gatewayResolution:
+      'The helper emits <env:...> and <secret:...> placeholders. The gateway resolves them from the runtime env and secret stores when the http_request runs.',
+    diagnosticPolicy:
+      'Do not run hybridclaw secret/env list, grep stores, or inspect local files from the agent sandbox to decide whether these values are set. Treat this placeholder plan as ready; only the gateway placeholder resolver or upstream 401/403 can prove a missing or invalid value.',
+    requiredPlaceholders: [
+      `<env:${SERVER_PREFIX_ENV}>`,
+      `<secret:${requiredSecret}>`,
+    ],
+    requiredConfigVariables: [
+      {
+        name: SERVER_PREFIX_ENV,
+        placeholder: `<env:${SERVER_PREFIX_ENV}>`,
+        reason:
+          'Marketing API host prefix, normally the suffix after the last hyphen in a Mailchimp API key such as us21.',
+      },
+    ],
+    requiredRuntimeSecrets: [
+      {
+        name: requiredSecret,
+        placeholder: `<secret:${requiredSecret}>`,
+        requiredFor:
+          'Mailchimp Marketing API audiences, campaigns, automations, journeys, and reports.',
+      },
+    ],
+    optionalRuntimeSecrets: [
+      {
+        name: optionalMarketingSecret,
+        placeholder: `<secret:${optionalMarketingSecret}>`,
+        requiredFor:
+          'Alternative Mailchimp Marketing auth mode selected with --auth api-key or --auth oauth.',
+      },
+      {
+        name: MANDRILL_API_KEY_SECRET,
+        placeholder: `<secret:${MANDRILL_API_KEY_SECRET}>`,
+        requiredFor: 'Mailchimp Transactional / Mandrill message send and lookup operations.',
+      },
+    ],
+    secretVisibility:
+      'This helper does not read runtime env or secret values. Missing values are reported by the HybridClaw gateway placeholder resolver or by a 401/403 upstream response.',
+  };
+}
+
+function classifyResponse(args) {
+  const gatewayError = popFlag(args, '--gateway-error');
+  const rawStatus = popFlag(args, '--status', gatewayError ? '0' : undefined);
+  const status =
+    rawStatus === '0'
+      ? 0
+      : parseInteger(rawStatus, '--status', { min: 100, max: 599 });
+  const body = parseJsonObjectFlag(args, '--body-json', {});
+  assertNoUnexpectedArgs(args);
+  let layer = 'upstream-api';
+  let action = 'Report the Mailchimp response body and stop if the request was a write.';
+  if (
+    gatewayError &&
+    /Stored secret [A-Z0-9_]+ is not set|Missing required runtime secrets?|Missing runtime secrets?/u.test(
+      gatewayError,
+    )
+  ) {
+    layer = 'missing-runtime-secret';
+    action = `Stop. Ask the operator to set the missing credential with hybridclaw secret set ${MARKETING_BASIC_AUTH_SECRET} "<base64-user-colon-api-key>", hybridclaw secret set ${MARKETING_OAUTH_TOKEN_SECRET} "<oauth-token>", or hybridclaw secret set ${MANDRILL_API_KEY_SECRET} "<mandrill-key>", then rerun the same helper command.`;
+  } else if (gatewayError && /policy|allowlist|blocked/i.test(gatewayError)) {
+    layer = 'gateway-policy-denied';
+    action =
+      'Stop. Report the gateway policy denial and ask the operator to approve the exact emitted host, method, and path.';
+  } else if (gatewayError) {
+    layer = 'gateway-or-network';
+    action =
+      'Stop. Inspect hybridclaw gateway status, current logs, and the gateway error before retrying.';
+  } else if (status === 401 || status === 403) {
+    layer = 'credential-or-permission';
+    action = `Stop after the first failure. Ask the operator to verify ${MARKETING_BASIC_AUTH_SECRET} or ${MARKETING_OAUTH_TOKEN_SECRET}, ${MANDRILL_API_KEY_SECRET}, the Mailchimp user role, and ${SERVER_PREFIX_ENV}.`;
+  } else if (status === 429) {
+    layer = 'rate-limit';
+    action = 'Stop and report retry guidance from Retry-After or Mailchimp rate-limit headers when present.';
+  } else if (status >= 500) {
+    layer = 'mailchimp-service';
+    action = 'Report the outage-class failure and avoid retry loops unless the operator asks for a later retry.';
+  } else if (status >= 400) {
+    layer = 'request-validation';
+    action = 'Fix the helper flags or request body before retrying.';
+  }
+  return {
+    command: 'classify-response',
+    status,
+    layer,
+    action,
+    upstream: {
+      title: body.title || body.name || body.status || '',
+      detail: gatewayError || body.detail || body.message || body.error || '',
+    },
+  };
+}
+
+function printHelp() {
+  process.stdout.write(`Mailchimp skill helper
+
+Usage:
+  node skills/mailchimp/mailchimp.cjs --format json credential-check [--server-prefix us21]
+  node skills/mailchimp/mailchimp.cjs --format json [--request] <resource> <action> [flags]
+  node skills/mailchimp/mailchimp.cjs --format json approval-plan <resource> <action> [flags]
+  node skills/mailchimp/mailchimp.cjs --format json classify-response --status 401 --body-json '{}'
+
+Marketing read operations:
+  oauth metadata
+  marketing root
+  audience list | audience members | audience member
+  audience merge-fields
+  campaign list | campaign content-get | campaign report
+  automation list | automation get | journey list | journey get
+
+Guarded Marketing writes:
+  audience member-upsert | audience member-update | audience member-archive
+  audience tags-update | audience bulk-plan | audience merge-field-create | audience merge-field-update
+  campaign create | campaign update | campaign content-set | campaign schedule | campaign send
+
+Transactional operations:
+  mandrill message-info
+  mandrill send | mandrill send-template
+
+Common flags:
+  --request                    Emit the gateway-ready request without executing it
+  --server-prefix us21          Mailchimp data center prefix or MAILCHIMP_SERVER_PREFIX
+  --auth api-key|oauth          Marketing auth mode (default api-key)
+  --basic-auth-secret NAME      Runtime secret containing base64 username:api-key (default MAILCHIMP_MARKETING_BASIC_AUTH)
+  --token-secret NAME           OAuth bearer token secret (default MAILCHIMP_MARKETING_OAUTH_TOKEN)
+  --mandrill-secret NAME        Runtime secret for Mandrill key (default MANDRILL_API_KEY)
+  --body-json JSON              Structured Mailchimp/Mandrill request body
+  --operator-grant              Required only after explicit approval for amber/red operations
+`);
+}
+
+function parseGlobalArgs(argv) {
+  const args = [...argv];
+  const format = popFlag(args, '--format', 'pretty');
+  if (!['json', 'pretty'].includes(format)) die('--format must be json or pretty.');
+  const requestOnly = popBooleanFlag(args, '--request');
+  return { args, format, requestOnly };
+}
+
+function buildRequestFromArgs(args) {
+  if (args.length === 0 || args[0] === '--help' || args[0] === 'help') {
+    return { command: 'help' };
+  }
+  const command = args.shift();
+  if (command === 'credential-check') return credentialCheck(args);
+  if (command === 'classify-response') return classifyResponse(args);
+  if (command === 'http-request') {
+    const operation = args.shift();
+    if (!operation) die('http-request requires an operation.');
+    return buildHttpRequest(operation, args);
+  }
+  if (command === 'approval-plan') {
+    const first = args.shift();
+    if (!first) die('approval-plan requires a resource and action.');
+    const second = args.shift();
+    if (second) {
+      return buildApprovalPlan(operationFromResourceAction(first, second), args, {
+        resource: first.toLowerCase(),
+        action: second.toLowerCase(),
+      });
+    }
+    return buildApprovalPlan(first, args);
+  }
+  const action = args.shift();
+  if (!action) die(`${command} requires an action.`);
+  return buildSemanticRequest(command, action, args);
+}
+
+function buildRequest(argv) {
+  const { args } = parseGlobalArgs(argv);
+  return buildRequestFromArgs(args);
+}
+
+function formatOutput(payload, format) {
+  return format === 'json'
+    ? `${JSON.stringify(payload)}\n`
+    : `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  if (args.includes('--help') || args.includes('-h')) {
+    printHelp();
+    return;
+  }
+  const { args: commandArgs, format, requestOnly } = parseGlobalArgs(args);
+  const payload = buildRequestFromArgs(commandArgs);
+  if (payload.command === 'help') {
+    printHelp();
+    return;
+  }
+  if (!requestOnly && payload.httpRequest && payload.command !== 'http-request') {
+    const { result } = await executeLivePayload(payload);
+    const output = {
+      command: 'live',
+      operation: payload.operation,
+      resource: payload.resource,
+      action: payload.action,
+      stakesTier: payload.stakesTier,
+      request: {
+        url: payload.httpRequest.url,
+        method: payload.httpRequest.method,
+      },
+      result,
+      costMeasurement: payload.costMeasurement,
+    };
+    process.stdout.write(formatOutput(output, format));
+    return;
+  }
+  process.stdout.write(formatOutput(payload, format));
+}
+
+if (require.main === module) {
+  main().catch((error) => die(error instanceof Error ? error.message : String(error)));
+}
+
+module.exports = {
+  buildRequest,
+  classifyResponse,
+  credentialCheck,
+  executeGatewayRequest,
+  executeLivePayload,
+  operationFromResourceAction,
+  subscriberHash,
+};

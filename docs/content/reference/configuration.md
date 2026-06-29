@@ -102,6 +102,10 @@ saved revision history directly.
   on startup; update config files to use `binds` before `additionalMounts` is
   removed
 - `browser.provider` selects the browser automation backend. Supported values include `local`, `camofox`, `managed-cloud`, `browser-use-cloud`, and `mac-cua`. `browser.local.*` and `browser.camofox.*` configure persistent profile roots and headed mode; `browser.managedCloud.*` points at an operator-run HybridClaw browser pool with navigation-guard enforcement and optional `poolTokenRef` bearer authentication; `browser.browserUseCloud.*` configures the Browser Use Cloud passthrough and reads `BROWSER_USE_API_KEY` through the configured SecretRef; and `browser.macCua.*` selects the operator-owned macOS browser, driver command, driver args, and screenshot mode (`som`, `vision`, or `ax`). Camofox stealth mode is deny-by-default per host; allow it from the workspace policy with `browser.stealth.rules`. Run `hybridclaw doctor cua-mac` before enabling `mac-cua`; the provider requires the `cua-driver` binary plus macOS Accessibility and Screen Recording grants.
+- `ui.navigation[]` controls the console top navigation strip. Each entry has
+  `label` and `href`; optional `icon` values (`chat`, `agents`, `admin`,
+  `docs`) select built-in console icons, and optional `image` values use a
+  local image path such as `/icons/hybridai.png` or an HTTP(S) image URL.
 - `ops.healthHost` and `ops.healthPort` for the gateway HTTP bind address and
   port; the default is loopback on `127.0.0.1:9090`
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and
@@ -111,11 +115,17 @@ saved revision history directly.
   `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_SERVICE_NAME` for optional built-in
   distributed tracing export to OTLP collectors; see
   [Runtime Internals](../developer-guide/runtime.md)
+- `SENTRY_DSN` runtime env value for optional Sentry gateway error reporting; `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, and `SENTRY_TRACES_SAMPLE_RATE` are optional overrides. Set values with `hybridclaw env set` and see [Runtime Internals](../developer-guide/runtime.md)
 - `hybridai.baseUrl` for the HybridAI API origin; `HYBRIDAI_BASE_URL` can
   override it for the current process without rewriting `config.json`
 - `hybridai.maxTokens` for the default completion output budget; the shipped
   default is `4096`; you can change it live with
   `hybridclaw config set hybridai.maxTokens <n>`
+- `local.endpoints[]` for additional named local model endpoints. Each entry
+  has `name`, `type` (`ollama`, `lmstudio`, `llamacpp`, or `vllm`), `enabled`,
+  `baseUrl`, optional `apiKey`, and optional `modelBehavior`; named models use
+  `<name>/<model-id>`, for example `haigpu2/mistralai/Mistral-7B-Instruct-v0.3`.
+  `modelBehavior` currently supports `thinkingFormat: "qwen"`.
 - `codex.baseUrl`, `codex.turnRuntime`, and `codex.models` for first-class
   Codex provider behavior. `codex.turnRuntime` accepts `hybridclaw` for the
   standard HybridClaw tool loop or `app-server` for the native Codex app-server
@@ -155,6 +165,10 @@ saved revision history directly.
   an immediate local consolidation run
 - `agents.defaultAgentId` for the default agent used by new requests and fresh
   web sessions when no agent is pinned explicitly
+- `agents.list[].proxy` for agents that forward their turns to a hosted
+  HybridAI chatbot instead of running the local agent loop. Proxy agents
+  require `kind: "hybridai"`, an HTTPS `baseUrl`, `chatbotId`, and a
+  SecretRef-backed `apiKey`; `conversationScope` can be `channel` or `user`.
 - `agents.list[].webSearch.searxngBaseUrl` and
   `agents.list[].webSearch.searxngBearerTokenRef` override the global SearXNG
   instance and bearer SecretRef for a specific agent
@@ -380,6 +394,10 @@ For the local speech and fallback workflow, see
 ## Secrets And Trust
 
 Keep runtime secrets in the encrypted `~/.hybridclaw/credentials.json` store.
+When a tool or channel uses a SecretRef, the model sees the requested action,
+secret name, and approval context, not the raw credential value. The gateway
+resolves the secret at the execution boundary and injects it only into the
+scoped request or channel adapter that needs it.
 Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
 `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`,
 `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`,
@@ -402,7 +420,7 @@ hybridclaw secret set <NAME> <VALUE>
 hybridclaw secret show <NAME>
 hybridclaw secret unset <NAME>
 hybridclaw secret route list
-hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
+hybridclaw secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
 hybridclaw secret route remove <url-prefix> [header]
 ```
 
@@ -412,7 +430,7 @@ hybridclaw secret route remove <url-prefix> [header]
 /secret show <NAME>
 /secret unset <NAME>
 /secret route list
-/secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
+/secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
 /secret route remove <url-prefix> [header]
 ```
 
@@ -422,6 +440,7 @@ hybridclaw secret route remove <url-prefix> [header]
 - `/secret route ...` is a convenience surface for editing
   `tools.httpRequest.authRules[]` without hand-editing `config.json`
 - `secret: { "source": "google-oauth" }` routes mint and inject the Google OAuth access token from `hybridclaw auth login google` for matching `*.googleapis.com` requests
+- `secret: { "source": "microsoft-oauth" }` routes mint and inject the Microsoft Graph access token from `hybridclaw auth login microsoft365` for matching `graph.microsoft.com` requests
 - secrets injected with `bearerSecretName` or `secretHeaders` should have a companion `<NAME>_BOUND_DOMAIN` secret containing the exact hostname they may be sent to; unbound bearer secrets still work during the deprecation window, but runtime logs and `hybridclaw doctor security` warn before unbound injection is removed
 
 Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.

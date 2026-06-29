@@ -85,7 +85,7 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     fs.mkdirSync(npmPrefix(), { recursive: true });
     fs.mkdirSync(dataDir(), { recursive: true });
 
-    const packOutput = execSync(`npm pack --pack-destination ${tempDir}`, {
+    const packOutput = execSync(`npm pack --pack-destination "${tempDir}"`, {
       encoding: 'utf-8',
       timeout: 120_000,
     }).trim();
@@ -141,6 +141,9 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     gatewayProcess.stderr?.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
     });
+    // Drain stdout too: an unread pipe blocks the gateway once its ~64KB
+    // buffer fills, deadlocking the suite on chatty startups.
+    gatewayProcess.stdout?.resume();
     gatewayProcess.on('exit', (code) => {
       if (code !== 0 && code !== null) {
         console.error('--- npm-installed gateway stderr ---\n', stderr);
@@ -168,6 +171,12 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
           '[cleanup] Gateway did not exit after SIGTERM, sending SIGKILL',
         );
         proc.kill('SIGKILL');
+        // Wait for the kill to land before rmSync below races a process that
+        // is still writing under tempDir (HOME, npm prefix, data dir).
+        await Promise.race([
+          new Promise<void>((resolve) => proc.on('exit', () => resolve())),
+          new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+        ]);
       }
     }
     if (tempDir) {
@@ -237,7 +246,7 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     });
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('<title>HybridClaw Admin</title>');
+    expect(html).toContain('<title>HybridClaw Chat</title>');
   });
 
   test('/admin serves the console (host mode, no container auth)', async () => {

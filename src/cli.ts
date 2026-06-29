@@ -73,7 +73,6 @@ import {
 } from './gateway/gateway-lifecycle.js';
 import type { GatewayStatus } from './gateway/gateway-types.js';
 import type { DockerAccessIssueKind } from './infra/container-setup.js';
-import { logger } from './logger.js';
 import { runtimeSecretsPath } from './security/runtime-secrets.js';
 import { sleep } from './utils/sleep.js';
 
@@ -163,7 +162,7 @@ function getConfigApi(): ConfigApi {
 }
 
 function getGatewayBaseUrl(): string {
-  return getConfigApi().GATEWAY_BASE_URL;
+  return getConfigApi().GATEWAY_CLIENT_BASE_URL;
 }
 
 function resolveInstallRoot(): string {
@@ -540,6 +539,7 @@ async function resolveTuiPreflightSandboxMode(): Promise<SandboxModeOverride | n
       return health.sandbox.mode === 'host' ? 'host' : null;
     }
   } catch (err) {
+    const { logger } = await import('./logger.js');
     logger.debug(
       { err },
       'TUI preflight gateway health lookup failed; falling back to authenticated status.',
@@ -861,6 +861,8 @@ async function runGatewayForeground(
     delete process.env[GATEWAY_LOG_FILE_ENV];
   } else {
     process.env[GATEWAY_LOG_FILE_ENV] = GATEWAY_LOG_PATH;
+    const { enableGatewayLogFileMirror } = await import('./logger.js');
+    enableGatewayLogFileMirror(GATEWAY_LOG_PATH);
   }
   if (logRequests) {
     process.env[GATEWAY_LOG_REQUESTS_ENV] = '1';
@@ -881,10 +883,9 @@ async function runGatewayForeground(
     process.env[GATEWAY_TOOLS_MODE_ENV] = toolsMode;
   }
   if (debug || debugModelResponses) {
-    process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
-    const { forceLoggerLevel } = await import('./logger.js');
-    forceLoggerLevel('debug');
-    console.log(`${commandName}: forcing gateway log level to debug.`);
+    const { setLoggerStartupLevel } = await import('./logger.js');
+    setLoggerStartupLevel('debug');
+    console.log(`${commandName}: setting startup log level to debug.`);
   }
   const foregroundGatewayPid = registerForegroundGatewayPid(commandName);
   await ensureRuntimeContainer(commandName, true, sandboxMode);
@@ -1716,7 +1717,7 @@ async function handleConfigCommand(args: string[]): Promise<void> {
   }
 
   const value = parseRuntimeConfigCommandValue(rawValue);
-  const nextConfig = updateRuntimeConfig(
+  updateRuntimeConfig(
     (draft) => {
       setRuntimeConfigValueAtPath(draft, key, value);
     },
@@ -1727,7 +1728,6 @@ async function handleConfigCommand(args: string[]): Promise<void> {
   );
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   console.log(`Key: ${key}`);
-  console.log(JSON.stringify(nextConfig, null, 2));
   await runRuntimeConfigFileCheck();
 }
 
@@ -1876,6 +1876,11 @@ async function handleCodexCommand(args: string[]): Promise<void> {
 async function handleSkillCommand(args: string[]): Promise<void> {
   const cliSkill = await import('./cli/skill-command.js');
   await cliSkill.handleSkillCommand(args);
+}
+
+async function handleCoworkerCommand(args: string[]): Promise<void> {
+  const cliCoworker = await import('./cli/coworker-command.js');
+  await cliCoworker.handleCoworkerCommand(args);
 }
 
 async function handleToolCommand(args: string[]): Promise<void> {
@@ -2033,6 +2038,13 @@ export async function main(
       await runTraceJudgeNativeCli(subargs);
       break;
     }
+    case '__eval-agent-risk-native': {
+      const { runAgentRiskNativeCli } = await import(
+        './evals/agent-risk-native.js'
+      );
+      await runAgentRiskNativeCli(subargs);
+      break;
+    }
     case 'tui':
       await launchTui(subargs);
       break;
@@ -2091,6 +2103,9 @@ export async function main(
       break;
     case 'skill':
       await handleSkillCommand(subargs);
+      break;
+    case 'coworker':
+      await handleCoworkerCommand(subargs);
       break;
     case 'tool':
       await handleToolCommand(subargs);

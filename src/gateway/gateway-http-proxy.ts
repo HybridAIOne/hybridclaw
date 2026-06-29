@@ -6,26 +6,42 @@
  * explicit response-field capture.
  */
 
-import { createHash, createHmac, createSign } from 'node:crypto';
+import { createHash, createHmac, createSign, randomUUID } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
+import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
+import path from 'node:path';
+import {
+  buildConnector as buildUndiciConnector,
+  Agent as UndiciAgent,
+} from 'undici';
 
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import {
   HUBSPOT_ACCESS_TOKEN_SECRET,
   resolveHubSpotAccessToken,
 } from '../auth/hubspot-auth.js';
+import {
+  MICROSOFT_365_ACCESS_TOKEN_SECRET,
+  resolveMicrosoft365AccessToken,
+} from '../auth/microsoft-auth.js';
 import type {
   RuntimeConfig,
   RuntimeHttpRequestGoogleOAuthSecretRef,
+  RuntimeHttpRequestMicrosoftOAuthSecretRef,
 } from '../config/runtime-config.js';
 import {
   getRuntimeConfig,
   isGoogleOAuthSecretRef,
+  isMicrosoftOAuthSecretRef,
 } from '../config/runtime-config.js';
+import { readStoredRuntimeEnvValue } from '../config/runtime-env.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { sanitizeUploadedMediaFilename } from '../media/uploaded-media-cache.js';
 import { evaluateNetworkPolicyAccess } from '../policy/network-policy.js';
 import { readPolicyState } from '../policy/policy-store.js';
 import {
@@ -64,7 +80,7 @@ import {
 
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const HTTP_REQUEST_MAX_RESPONSE_BYTES = 1_000_000;
-const HTTP_REQUEST_SECRET_PLACEHOLDER_RE = /<secret:([A-Z][A-Z0-9_]{0,127})>/g;
+const HTTP_REQUEST_PLACEHOLDER_RE = /<(secret|env):([A-Z][A-Z0-9_]{0,127})>/g;
 const REDIRECT_RESPONSE_STATUS_MIN = 300;
 const REDIRECT_RESPONSE_STATUS_MAX = 399;
 const GOOGLE_WORKSPACE_CLI_TOKEN_SECRET = 'GOOGLE_WORKSPACE_CLI_TOKEN';
@@ -72,7 +88,17 @@ const GOG_ACCESS_TOKEN_SECRET = 'GOG_ACCESS_TOKEN';
 const GOOGLE_SERVICE_ACCOUNT_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_SERVICE_ACCOUNT_JWT_TTL_SECONDS = 3600;
 
-type CaptureFieldRule = { jsonPath: string; secretName: string };
+type CaptureFieldRule = {
+  jsonPath: string;
+  secretName: string;
+  bindDomain?: string;
+};
+
+type CaptureHeaderRule = {
+  header: string;
+  secretName: string;
+  bindDomain?: string;
+};
 
 type ApiHttpRequestBody = {
   url?: unknown;
@@ -80,6 +106,7 @@ type ApiHttpRequestBody = {
   headers?: unknown;
   body?: unknown;
   bodyBase64?: unknown;
+  form?: unknown;
   json?: unknown;
   bearerSecretName?: unknown;
   bearerSecretRef?: unknown;
@@ -88,6 +115,14 @@ type ApiHttpRequestBody = {
   otcAkSk?: unknown;
   replaceSecretPlaceholders?: unknown;
   captureResponseFields?: unknown;
+  captureResponseHeaders?: unknown;
+  suppressResponseBody?: unknown;
+  responseArtifact?: unknown;
+  allowManualRedirect?: unknown;
+  includeResponseCookies?: unknown;
+  tlsCertificateSha256?: unknown;
+  tlsCertificateSha256SecretName?: unknown;
+  allowSelfSignedTls?: unknown;
   timeoutMs?: unknown;
   maxResponseBytes?: unknown;
   sessionId?: unknown;
@@ -113,6 +148,15 @@ type OtcAkSkAuthRule = {
   secretAccessKeySecretName: string;
   securityTokenSecretName?: string;
 };
+
+type HttpSecretResolver = (
+  secretName: string,
+  context: SecretResolveContext,
+) => Promise<string> | string;
+
+type UndiciConnector = ReturnType<typeof buildUndiciConnector>;
+type UndiciConnectorOptions = Parameters<UndiciConnector>[0];
+type UndiciConnectorCallback = Parameters<UndiciConnector>[1];
 
 type SecretResolveContext = {
   sessionId?: string;
@@ -202,6 +246,29 @@ type PrivateHostCheck = {
   reason: 'private' | 'dns_failed';
 };
 
+type ResponseArtifactOptions = {
+  filename: string;
+  mimeType?: string;
+};
+
+function normalizeResponseArtifactOptions(
+  value: unknown,
+): ResponseArtifactOptions | null {
+  if (value !== true && (typeof value !== 'object' || value === null)) {
+    return null;
+  }
+  if (value === true) {
+    return { filename: 'http-response' };
+  }
+  const record = value as Record<string, unknown>;
+  const filename = String(record.filename || 'http-response').trim();
+  const mimeType = String(record.mimeType || '').trim();
+  return {
+    filename: filename || 'http-response',
+    ...(mimeType ? { mimeType } : {}),
+  };
+}
+
 async function checkPrivateHost(hostname: string): Promise<PrivateHostCheck> {
   const host = hostname.trim().toLowerCase();
   if (!host) return { blocked: true, reason: 'private' };
@@ -244,8 +311,9 @@ function isPrivateHttpRequestAllowedByPolicy(params: {
   method: string;
   agentId?: string;
 }): boolean {
+  const workspacePath = agentWorkspaceDir(params.agentId || DEFAULT_AGENT_ID);
   try {
-    const state = readPolicyState(process.cwd());
+    const state = readPolicyState(workspacePath);
     const evaluation = evaluateNetworkPolicyAccess({
       defaultAction: state.defaultAction,
       rules: state.rules,
@@ -258,7 +326,7 @@ function isPrivateHttpRequestAllowedByPolicy(params: {
     return evaluation.decision === 'allow' && Boolean(evaluation.matchedRule);
   } catch (error) {
     logger.warn(
-      { host: params.url.hostname, error },
+      { host: params.url.hostname, workspacePath, error },
       'Failed to evaluate network policy for private http_request target; blocking request',
     );
     return false;
@@ -270,6 +338,101 @@ type HttpResponseReadResult = {
   bytesRead: number;
   truncated: boolean;
 };
+
+function readDeclaredBodyBytes(response: Response): number | undefined {
+  const contentLength = Number.parseInt(
+    String(response.headers.get('content-length') || ''),
+    10,
+  );
+  return Number.isFinite(contentLength) ? contentLength : undefined;
+}
+
+function responseHeadersObject(
+  response: Response,
+  includeResponseCookies: boolean,
+): Record<string, string | string[]> {
+  const headers: Record<string, string | string[]> = Object.fromEntries(
+    response.headers.entries(),
+  );
+  if (!includeResponseCookies) {
+    delete headers['set-cookie'];
+    return headers;
+  }
+
+  const cookieHeaders =
+    typeof response.headers.getSetCookie === 'function'
+      ? response.headers.getSetCookie()
+      : [];
+  const fallbackCookie = response.headers.get('set-cookie');
+  if (cookieHeaders.length > 0) {
+    headers['set-cookie'] = cookieHeaders;
+  } else if (fallbackCookie) {
+    headers['set-cookie'] = fallbackCookie;
+  }
+  return headers;
+}
+
+function sendSuppressedBodyResponse(
+  res: ServerResponse,
+  response: Response,
+  bodyBytes: number,
+  bodyTruncated: boolean,
+  maxResponseBytes: number,
+  includeResponseCookies: boolean,
+): void {
+  sendJson(res, 200, {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    url: response.url,
+    headers: responseHeadersObject(response, includeResponseCookies),
+    bodySuppressed: true,
+    bodyBytes,
+    ...(bodyTruncated
+      ? {
+          bodyTruncated: true,
+          maxResponseBytes,
+        }
+      : {}),
+  });
+}
+
+async function saveHttpResponseArtifact(params: {
+  body: Buffer;
+  response: Response;
+  options: ResponseArtifactOptions;
+  agentId?: string;
+}): Promise<{
+  path: string;
+  filename: string;
+  mimeType: string;
+  sha256: string;
+}> {
+  const workspaceDir = agentWorkspaceDir(params.agentId || DEFAULT_AGENT_ID);
+  const artifactDir = path.join(workspaceDir, '.http-artifacts');
+  await fs.promises.mkdir(artifactDir, { recursive: true, mode: 0o700 });
+
+  const responseMimeType =
+    params.options.mimeType ||
+    String(params.response.headers.get('content-type') || '')
+      .split(';')[0]
+      .trim() ||
+    'application/octet-stream';
+  const filename = sanitizeUploadedMediaFilename(
+    params.options.filename,
+    responseMimeType,
+  );
+  const storedFilename = `${Date.now()}-${randomUUID().slice(0, 8)}-${filename}`;
+  const hostPath = path.join(artifactDir, storedFilename);
+  await fs.promises.writeFile(hostPath, params.body, { mode: 0o600 });
+
+  return {
+    path: `/workspace/.http-artifacts/${storedFilename}`,
+    filename,
+    mimeType: responseMimeType,
+    sha256: sha256ArtifactHex(params.body),
+  };
+}
 
 async function readHttpResponseBuffer(
   response: Response,
@@ -498,10 +661,15 @@ function isHubSpotApiHost(host?: string): boolean {
   );
 }
 
+function isMicrosoftGraphHost(host?: string): boolean {
+  return normalizeSecretString(host).toLowerCase() === 'graph.microsoft.com';
+}
+
 function requiresBearerDomainBinding(secretName: string): boolean {
   return (
     !isGoogleWorkspaceRuntimeTokenName(secretName) &&
-    secretName !== HUBSPOT_ACCESS_TOKEN_SECRET
+    secretName !== HUBSPOT_ACCESS_TOKEN_SECRET &&
+    secretName !== MICROSOFT_365_ACCESS_TOKEN_SECRET
   );
 }
 
@@ -511,6 +679,12 @@ function isGoogleOAuthHttpAuthRuleSecret(
   return isGoogleOAuthSecretRef(value);
 }
 
+function isMicrosoftOAuthHttpAuthRuleSecret(
+  value: unknown,
+): value is RuntimeHttpRequestMicrosoftOAuthSecretRef {
+  return isMicrosoftOAuthSecretRef(value);
+}
+
 async function resolveOAuthTokenOrThrow(params: {
   secretName: string;
   context: SecretResolveContext;
@@ -518,7 +692,7 @@ async function resolveOAuthTokenOrThrow(params: {
   allowedHostDescription: string;
   resolveToken: () => Promise<{
     accessToken: string;
-    source: 'store' | 'google-oauth' | 'hubspot-oauth';
+    source: 'store' | 'google-oauth' | 'hubspot-oauth' | 'microsoft-oauth';
   } | null>;
   loginHint: string;
 }): Promise<string> {
@@ -597,6 +771,20 @@ async function resolveHubSpotOAuthTokenOrThrow(
   });
 }
 
+async function resolveMicrosoftOAuthTokenOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  return await resolveOAuthTokenOrThrow({
+    secretName,
+    context,
+    isAllowedHost: isMicrosoftGraphHost,
+    allowedHostDescription: 'Microsoft Graph',
+    resolveToken: resolveMicrosoft365AccessToken,
+    loginHint: `${secretName} is not available. Run \`hybridclaw auth login microsoft365\` and retry the request.`,
+  });
+}
+
 async function resolveHttpSecretOrThrow(
   secretName: string,
   context: SecretResolveContext,
@@ -609,6 +797,41 @@ async function resolveHttpSecretOrThrow(
   }
   if (secretName === HUBSPOT_ACCESS_TOKEN_SECRET) {
     return await resolveHubSpotOAuthTokenOrThrow(secretName, context);
+  }
+  if (secretName === MICROSOFT_365_ACCESS_TOKEN_SECRET) {
+    return await resolveMicrosoftOAuthTokenOrThrow(secretName, context);
+  }
+  return resolveStoredSecretForInjection({
+    secretName,
+    sessionId: context.sessionId,
+    agentId: context.agentId,
+    skillName: context.skillName,
+    sinkKind: 'http',
+    host: context.host,
+    selector: context.selector,
+  });
+}
+
+function isManagedConnectorTokenSecretName(secretName: string): boolean {
+  return (
+    isGoogleWorkspaceRuntimeTokenName(secretName) ||
+    secretName === HUBSPOT_ACCESS_TOKEN_SECRET ||
+    secretName === MICROSOFT_365_ACCESS_TOKEN_SECRET
+  );
+}
+
+function resolveStoredProtocolSecretOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): string {
+  if (!isRuntimeSecretName(secretName)) {
+    throw new GatewayRequestError(400, `Invalid secret name: ${secretName}`);
+  }
+  if (isManagedConnectorTokenSecretName(secretName)) {
+    throw new GatewayRequestError(
+      400,
+      `${secretName} is a managed connector token and cannot be reused as protocol signing material.`,
+    );
   }
   return resolveStoredSecretForInjection({
     secretName,
@@ -646,6 +869,8 @@ function signGoogleServiceAccountJwt(params: {
     base64UrlJson(payload),
   ].join('.');
   const signer = createSign('RSA-SHA256');
+  // lgtm[js/insufficient-password-hash] Google service account JWTs must be
+  // signed with RSA-SHA256; this signs a short-lived assertion, not a password.
   signer.update(signingInput);
   signer.end();
   const signature = signer.sign(params.privateKey).toString('base64url');
@@ -663,19 +888,22 @@ async function acquireGoogleServiceAccountAccessToken(
     );
   }
 
-  const clientEmail = await resolveHttpSecretOrThrow(
+  const clientEmail = resolveStoredProtocolSecretOrThrow(
     rule.clientEmailSecretName,
     {
       ...context,
       selector: 'googleServiceAccount.clientEmail',
     },
   );
-  const privateKey = await resolveHttpSecretOrThrow(rule.privateKeySecretName, {
-    ...context,
-    selector: 'googleServiceAccount.privateKey',
-  });
+  const privateKey = resolveStoredProtocolSecretOrThrow(
+    rule.privateKeySecretName,
+    {
+      ...context,
+      selector: 'googleServiceAccount.privateKey',
+    },
+  );
   const subject = rule.subjectSecretName
-    ? await resolveHttpSecretOrThrow(rule.subjectSecretName, {
+    ? resolveStoredProtocolSecretOrThrow(rule.subjectSecretName, {
         ...context,
         selector: 'googleServiceAccount.subject',
       })
@@ -740,35 +968,52 @@ async function acquireGoogleServiceAccountAccessToken(
   return accessToken;
 }
 
-async function replaceSecretPlaceholdersInString(
+async function replaceHttpPlaceholdersInString(
   value: string,
   context: SecretResolveContext,
+  resolveSecret: HttpSecretResolver = resolveHttpSecretOrThrow,
 ): Promise<string> {
   let next = '';
   let lastIndex = 0;
-  for (const match of value.matchAll(HTTP_REQUEST_SECRET_PLACEHOLDER_RE)) {
+  for (const match of value.matchAll(HTTP_REQUEST_PLACEHOLDER_RE)) {
     const matchIndex = match.index ?? 0;
     next += value.slice(lastIndex, matchIndex);
-    next += await resolveHttpSecretOrThrow(match[1] || '', {
-      ...context,
-      selector: context.selector || '<secret-placeholder>',
-    });
+    const kind = match[1] || '';
+    const name = match[2] || '';
+    if (kind === 'secret') {
+      next += await resolveSecret(name, {
+        ...context,
+        selector: context.selector || '<secret-placeholder>',
+      });
+    } else {
+      const envValue = readStoredRuntimeEnvValue(name);
+      if (!envValue) {
+        throw new GatewayRequestError(
+          400,
+          `Env store value ${name} is not configured.`,
+        );
+      }
+      next += envValue;
+    }
     lastIndex = matchIndex + match[0].length;
   }
   next += value.slice(lastIndex);
   return next;
 }
 
-async function replaceSecretPlaceholders(
+async function replaceHttpPlaceholders(
   value: unknown,
   context: SecretResolveContext,
+  resolveSecret: HttpSecretResolver = resolveHttpSecretOrThrow,
 ): Promise<unknown> {
   if (typeof value === 'string') {
-    return await replaceSecretPlaceholdersInString(value, context);
+    return await replaceHttpPlaceholdersInString(value, context, resolveSecret);
   }
   if (Array.isArray(value)) {
     return await Promise.all(
-      value.map((entry) => replaceSecretPlaceholders(entry, context)),
+      value.map((entry) =>
+        replaceHttpPlaceholders(entry, context, resolveSecret),
+      ),
     );
   }
   if (value && typeof value === 'object') {
@@ -776,7 +1021,71 @@ async function replaceSecretPlaceholders(
       await Promise.all(
         Object.entries(value).map(async ([key, entry]) => [
           key,
-          await replaceSecretPlaceholders(entry, {
+          await replaceHttpPlaceholders(
+            entry,
+            {
+              ...context,
+              selector: context.selector || `json.${key}`,
+            },
+            resolveSecret,
+          ),
+        ]),
+      ),
+    );
+  }
+  return value;
+}
+
+async function replaceStoredProtocolPlaceholdersInString(
+  value: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  let next = '';
+  let lastIndex = 0;
+  for (const match of value.matchAll(HTTP_REQUEST_PLACEHOLDER_RE)) {
+    const matchIndex = match.index ?? 0;
+    next += value.slice(lastIndex, matchIndex);
+    const kind = match[1] || '';
+    const name = match[2] || '';
+    if (kind === 'secret') {
+      next += resolveStoredProtocolSecretOrThrow(name, {
+        ...context,
+        selector: context.selector || '<secret-placeholder>',
+      });
+    } else {
+      const envValue = readStoredRuntimeEnvValue(name);
+      if (!envValue) {
+        throw new GatewayRequestError(
+          400,
+          `Env store value ${name} is not configured.`,
+        );
+      }
+      next += envValue;
+    }
+    lastIndex = matchIndex + match[0].length;
+  }
+  next += value.slice(lastIndex);
+  return next;
+}
+
+async function replaceStoredProtocolPlaceholders(
+  value: unknown,
+  context: SecretResolveContext,
+): Promise<unknown> {
+  if (typeof value === 'string') {
+    return await replaceStoredProtocolPlaceholdersInString(value, context);
+  }
+  if (Array.isArray(value)) {
+    return await Promise.all(
+      value.map((entry) => replaceStoredProtocolPlaceholders(entry, context)),
+    );
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      await Promise.all(
+        Object.entries(value).map(async ([key, entry]) => [
+          key,
+          await replaceStoredProtocolPlaceholders(entry, {
             ...context,
             selector: context.selector || `json.${key}`,
           }),
@@ -860,9 +1169,446 @@ function normalizeCaptureResponseFields(
         `Reserved runtime config name cannot be used in captureResponseFields: ${secretName}`,
       );
     }
-    rules.push({ jsonPath, secretName });
+    const rawBindDomain =
+      typeof (entry as Record<string, unknown>).bindDomain === 'string'
+        ? String((entry as Record<string, unknown>).bindDomain).trim()
+        : '';
+    let bindDomain: string | undefined;
+    if (rawBindDomain) {
+      if (!/^[A-Za-z0-9.-]{1,253}$/u.test(rawBindDomain)) {
+        throw new GatewayRequestError(
+          400,
+          `Invalid bindDomain in captureResponseFields: ${rawBindDomain}`,
+        );
+      }
+      bindDomain = extractBaseDomain(rawBindDomain.toLowerCase());
+    }
+    rules.push({ jsonPath, secretName, ...(bindDomain ? { bindDomain } : {}) });
   }
   return rules;
+}
+
+function normalizeCaptureResponseHeaders(
+  value: unknown,
+): CaptureHeaderRule[] | null {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) return null;
+  const rules: CaptureHeaderRule[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const header =
+      typeof entry.header === 'string' ? entry.header.trim().toLowerCase() : '';
+    const secretName =
+      typeof entry.secretName === 'string' ? entry.secretName.trim() : '';
+    if (!header || !secretName) continue;
+    if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/u.test(header)) {
+      throw new GatewayRequestError(
+        400,
+        `Invalid header name in captureResponseHeaders: ${header}`,
+      );
+    }
+    if (!isRuntimeSecretName(secretName)) {
+      throw new GatewayRequestError(
+        400,
+        `Invalid secret name in captureResponseHeaders: ${secretName}`,
+      );
+    }
+    if (isReservedNonSecretRuntimeName(secretName)) {
+      throw new GatewayRequestError(
+        400,
+        `Reserved runtime config name cannot be used in captureResponseHeaders: ${secretName}`,
+      );
+    }
+    const rawBindDomain =
+      typeof (entry as Record<string, unknown>).bindDomain === 'string'
+        ? String((entry as Record<string, unknown>).bindDomain).trim()
+        : '';
+    let bindDomain: string | undefined;
+    if (rawBindDomain) {
+      if (!/^[A-Za-z0-9.-]{1,253}$/u.test(rawBindDomain)) {
+        throw new GatewayRequestError(
+          400,
+          `Invalid bindDomain in captureResponseHeaders: ${rawBindDomain}`,
+        );
+      }
+      bindDomain = extractBaseDomain(rawBindDomain.toLowerCase());
+    }
+    rules.push({ header, secretName, ...(bindDomain ? { bindDomain } : {}) });
+  }
+  return rules;
+}
+
+function normalizeHttpRequestForm(value: unknown): [string, string][] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(
+      400,
+      '`form` must be an object of string values.',
+    );
+  }
+  const fields: [string, string][] = [];
+  for (const [rawName, rawValue] of Object.entries(value)) {
+    const name = rawName.trim();
+    if (!name) {
+      throw new GatewayRequestError(
+        400,
+        '`form` field names must be non-empty.',
+      );
+    }
+    if (typeof rawValue !== 'string') {
+      throw new GatewayRequestError(
+        400,
+        '`form` values must be strings. Use `json` for structured payloads.',
+      );
+    }
+    fields.push([name, rawValue]);
+  }
+  return fields;
+}
+
+async function buildHttpRequestFormBody(
+  value: unknown,
+  context: SecretResolveContext,
+  replacePlaceholders: boolean,
+  resolveSecret: HttpSecretResolver = resolveHttpSecretOrThrow,
+): Promise<string> {
+  const params = new URLSearchParams();
+  for (const [name, rawValue] of normalizeHttpRequestForm(value)) {
+    const resolvedValue = replacePlaceholders
+      ? await replaceHttpPlaceholdersInString(
+          rawValue,
+          {
+            ...context,
+            selector: `form.${name}`,
+          },
+          resolveSecret,
+        )
+      : rawValue;
+    params.append(name, resolvedValue);
+  }
+  return params.toString();
+}
+
+async function buildHttpRequestPayloadBody(params: {
+  body: ApiHttpRequestBody;
+  headers: Record<string, string>;
+  context: SecretResolveContext;
+  replacePlaceholders: boolean;
+  resolveSecret: HttpSecretResolver;
+}): Promise<BodyInit | undefined> {
+  const { body } = params;
+  const payloadSources = [
+    body.json !== undefined,
+    body.body !== undefined,
+    body.bodyBase64 !== undefined,
+    body.form !== undefined,
+  ].filter(Boolean).length;
+  if (payloadSources > 1) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `json`, `body`, `bodyBase64`, or `form`.',
+    );
+  }
+
+  if (body.json !== undefined) {
+    const jsonValue = params.replacePlaceholders
+      ? await replaceHttpPlaceholders(
+          body.json,
+          {
+            ...params.context,
+            selector: 'json',
+          },
+          params.resolveSecret,
+        )
+      : body.json;
+    if (
+      !Object.keys(params.headers).some(
+        (key) => key.toLowerCase() === 'content-type',
+      )
+    ) {
+      setHeaderValue(params.headers, 'Content-Type', 'application/json');
+    }
+    return JSON.stringify(jsonValue);
+  }
+
+  if (typeof body.body === 'string') {
+    return params.replacePlaceholders
+      ? await replaceHttpPlaceholdersInString(
+          body.body,
+          {
+            ...params.context,
+            selector: 'body',
+          },
+          params.resolveSecret,
+        )
+      : body.body;
+  }
+  if (body.body !== undefined) {
+    throw new GatewayRequestError(
+      400,
+      '`body` must be a string when provided. Use `json` for structured payloads.',
+    );
+  }
+
+  if (body.form !== undefined) {
+    const payloadBody = await buildHttpRequestFormBody(
+      body.form,
+      params.context,
+      params.replacePlaceholders,
+      params.resolveSecret,
+    );
+    if (
+      !Object.keys(params.headers).some(
+        (key) => key.toLowerCase() === 'content-type',
+      )
+    ) {
+      setHeaderValue(
+        params.headers,
+        'Content-Type',
+        'application/x-www-form-urlencoded',
+      );
+    }
+    return payloadBody;
+  }
+
+  if (typeof body.bodyBase64 === 'string') {
+    let payloadBuffer: Buffer;
+    try {
+      payloadBuffer = Buffer.from(body.bodyBase64, 'base64');
+    } catch {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    if (payloadBuffer.toString('base64') !== body.bodyBase64.trim()) {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    return new Uint8Array(payloadBuffer);
+  }
+  if (body.bodyBase64 !== undefined) {
+    throw new GatewayRequestError(
+      400,
+      '`bodyBase64` must be a base64 string when provided.',
+    );
+  }
+
+  return undefined;
+}
+
+async function buildStoredProtocolHttpRequestPayloadBody(params: {
+  body: ApiHttpRequestBody;
+  headers: Record<string, string>;
+  context: SecretResolveContext;
+  replacePlaceholders: boolean;
+}): Promise<BodyInit | undefined> {
+  const { body } = params;
+  const payloadSources = [
+    body.json !== undefined,
+    body.body !== undefined,
+    body.bodyBase64 !== undefined,
+    body.form !== undefined,
+  ].filter(Boolean).length;
+  if (payloadSources > 1) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `json`, `body`, `bodyBase64`, or `form`.',
+    );
+  }
+
+  if (body.json !== undefined) {
+    const jsonValue = params.replacePlaceholders
+      ? await replaceStoredProtocolPlaceholders(body.json, {
+          ...params.context,
+          selector: 'json',
+        })
+      : body.json;
+    if (
+      !Object.keys(params.headers).some(
+        (key) => key.toLowerCase() === 'content-type',
+      )
+    ) {
+      setHeaderValue(params.headers, 'Content-Type', 'application/json');
+    }
+    return JSON.stringify(jsonValue);
+  }
+
+  if (typeof body.body === 'string') {
+    return params.replacePlaceholders
+      ? await replaceStoredProtocolPlaceholdersInString(body.body, {
+          ...params.context,
+          selector: 'body',
+        })
+      : body.body;
+  }
+  if (body.body !== undefined) {
+    throw new GatewayRequestError(
+      400,
+      '`body` must be a string when provided. Use `json` for structured payloads.',
+    );
+  }
+
+  if (body.form !== undefined) {
+    const formParams = new URLSearchParams();
+    for (const [name, rawValue] of normalizeHttpRequestForm(body.form)) {
+      const resolvedValue = params.replacePlaceholders
+        ? await replaceStoredProtocolPlaceholdersInString(rawValue, {
+            ...params.context,
+            selector: `form.${name}`,
+          })
+        : rawValue;
+      formParams.append(name, resolvedValue);
+    }
+    if (
+      !Object.keys(params.headers).some(
+        (key) => key.toLowerCase() === 'content-type',
+      )
+    ) {
+      setHeaderValue(
+        params.headers,
+        'Content-Type',
+        'application/x-www-form-urlencoded',
+      );
+    }
+    return formParams.toString();
+  }
+
+  if (typeof body.bodyBase64 === 'string') {
+    let payloadBuffer: Buffer;
+    try {
+      payloadBuffer = Buffer.from(body.bodyBase64, 'base64');
+    } catch {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    if (payloadBuffer.toString('base64') !== body.bodyBase64.trim()) {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    return new Uint8Array(payloadBuffer);
+  }
+  if (body.bodyBase64 !== undefined) {
+    throw new GatewayRequestError(
+      400,
+      '`bodyBase64` must be a base64 string when provided.',
+    );
+  }
+
+  return undefined;
+}
+
+function verifyPinnedTlsCertificateFromSocket(
+  socket: unknown,
+  expectedSha256: string,
+): void {
+  const getPeerCertificate =
+    typeof (socket as { getPeerCertificate?: unknown }).getPeerCertificate ===
+    'function'
+      ? (
+          socket as {
+            getPeerCertificate: (detailed: true) => { raw?: unknown };
+          }
+        ).getPeerCertificate
+      : null;
+  if (!getPeerCertificate) {
+    throw new GatewayRequestError(
+      502,
+      'Pinned TLS certificate check failed: peer certificate was not available.',
+    );
+  }
+  const cert = getPeerCertificate.call(socket, true);
+  const raw = Buffer.isBuffer(cert.raw) ? cert.raw : null;
+  if (!raw) {
+    throw new GatewayRequestError(
+      502,
+      'Pinned TLS certificate check failed: peer certificate was not available.',
+    );
+  }
+  const actual = sha256CertificateHex(raw);
+  if (actual !== expectedSha256) {
+    throw new GatewayRequestError(
+      502,
+      'Pinned TLS certificate check failed: SHA-256 fingerprint mismatch.',
+    );
+  }
+}
+
+function createPinnedTlsDispatcher(
+  expectedSha256: string,
+  timeoutMs: number,
+): UndiciAgent {
+  const connector = buildUndiciConnector({
+    rejectUnauthorized: false,
+    timeout: Math.min(timeoutMs, 10_000),
+  });
+  const pinnedConnector: UndiciConnector = (
+    options: UndiciConnectorOptions,
+    callback: UndiciConnectorCallback,
+  ): void => {
+    connector(options, (error, socket) => {
+      if (error) {
+        callback(error, null);
+        return;
+      }
+      try {
+        verifyPinnedTlsCertificateFromSocket(socket, expectedSha256);
+        callback(null, socket);
+      } catch (pinError) {
+        socket.destroy();
+        callback(
+          pinError instanceof Error ? pinError : new Error(String(pinError)),
+          null,
+        );
+      }
+    });
+  };
+  return new UndiciAgent({ connect: pinnedConnector });
+}
+
+function createSelfSignedTlsDispatcher(timeoutMs: number): UndiciAgent {
+  return new UndiciAgent({
+    connect: buildUndiciConnector({
+      rejectUnauthorized: false,
+      timeout: Math.min(timeoutMs, 10_000),
+    }),
+  });
+}
+
+function normalizeSha256Fingerprint(value: unknown, path: string): string {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  const normalized = raw
+    .replace(/^sha256:/iu, '')
+    .replace(/:/g, '')
+    .toLowerCase();
+  if (!/^[a-f0-9]{64}$/u.test(normalized)) {
+    throw new GatewayRequestError(
+      400,
+      `${path} must be a SHA-256 fingerprint as 64 hex characters, optionally colon-separated.`,
+    );
+  }
+  return normalized;
+}
+
+async function resolveTlsCertificateSha256Pin(
+  body: ApiHttpRequestBody,
+  context: SecretResolveContext,
+): Promise<string | null> {
+  const direct = body.tlsCertificateSha256;
+  const secretName =
+    typeof body.tlsCertificateSha256SecretName === 'string'
+      ? body.tlsCertificateSha256SecretName.trim()
+      : '';
+  if (direct !== undefined && secretName) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `tlsCertificateSha256` or `tlsCertificateSha256SecretName`.',
+    );
+  }
+  if (direct !== undefined) {
+    return normalizeSha256Fingerprint(direct, 'tlsCertificateSha256');
+  }
+  if (!secretName) return null;
+  return normalizeSha256Fingerprint(
+    resolveStoredProtocolSecretOrThrow(secretName, {
+      ...context,
+      selector: 'tlsCertificateSha256',
+    }),
+    'tlsCertificateSha256SecretName',
+  );
 }
 
 function normalizeStringArray(value: unknown): string[] {
@@ -1035,13 +1781,23 @@ function canonicalizeOtcPath(url: URL): string {
   return canonical.endsWith('/') ? canonical : `${canonical}/`;
 }
 
-function sha256Hex(value: string | Uint8Array | undefined): string {
+function sha256ArtifactHex(value: Uint8Array): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function sha256CertificateHex(value: Uint8Array): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function sha256OtcDigestHex(value: string | Uint8Array | undefined): string {
   return createHash('sha256')
     .update(value ?? '')
     .digest('hex');
 }
 
 function hmacSha256Hex(secret: string, value: string): string {
+  // lgtm[js/insufficient-password-hash] SDK-HMAC-SHA256 is the OTC
+  // request-signing algorithm; the result is an API signature, not a password.
   return createHmac('sha256', secret).update(value).digest('hex');
 }
 
@@ -1096,7 +1852,7 @@ async function applyOtcAkSkSigning(params: {
     );
   }
 
-  const accessKeyId = await resolveHttpSecretOrThrow(
+  const accessKeyId = resolveStoredProtocolSecretOrThrow(
     params.rule.accessKeyIdSecretName,
     {
       ...params.context,
@@ -1107,7 +1863,7 @@ async function applyOtcAkSkSigning(params: {
     params.rule.accessKeyIdSecretName,
     accessKeyId,
   );
-  const secretAccessKey = await resolveHttpSecretOrThrow(
+  const secretAccessKey = resolveStoredProtocolSecretOrThrow(
     params.rule.secretAccessKeySecretName,
     {
       ...params.context,
@@ -1119,14 +1875,14 @@ async function applyOtcAkSkSigning(params: {
     secretAccessKey,
   );
   const securityToken = params.rule.securityTokenSecretName
-    ? await resolveHttpSecretOrThrow(params.rule.securityTokenSecretName, {
+    ? resolveStoredProtocolSecretOrThrow(params.rule.securityTokenSecretName, {
         ...params.context,
         selector: 'otcAkSk.securityToken',
       })
     : '';
 
   const sdkDate = formatOtcSdkDate();
-  const bodyHash = sha256Hex(
+  const bodyHash = sha256OtcDigestHex(
     typeof params.body === 'string' || params.body instanceof Uint8Array
       ? params.body
       : undefined,
@@ -1156,9 +1912,11 @@ async function applyOtcAkSkSigning(params: {
     bodyHash,
   ].join('\n');
   const algorithm = 'SDK-HMAC-SHA256';
-  const stringToSign = [algorithm, sdkDate, sha256Hex(canonicalRequest)].join(
-    '\n',
-  );
+  const stringToSign = [
+    algorithm,
+    sdkDate,
+    sha256OtcDigestHex(canonicalRequest),
+  ].join('\n');
   const signature = hmacSha256Hex(secretAccessKey, stringToSign);
   setHeaderValue(
     params.headers,
@@ -1206,20 +1964,21 @@ function captureSecretResponseFields(
   if (!responseJson || typeof responseJson !== 'object') return null;
   const obj = responseJson as Record<string, unknown>;
 
-  const baseDomain = extractBindingDomainFromResponse(obj, requestUrl);
+  const defaultBaseDomain = extractBindingDomainFromResponse(obj, requestUrl);
   const secrets: Record<string, string> = {};
   const captured: Record<string, string> = {};
 
   for (const rule of rules) {
-    const value = obj[rule.jsonPath];
-    if (typeof value === 'string' && value.trim()) {
-      secrets[rule.secretName] = value.trim();
+    const value = normalizeCapturedValue(readJsonPath(obj, rule.jsonPath));
+    if (value) {
+      secrets[rule.secretName] = value;
       captured[rule.jsonPath] = rule.secretName;
 
       // Bind captured secrets by default so future token field names such
       // as "access" or "bearer" cannot silently become cross-host credentials.
       if (!UNBOUND_CAPTURE_JSON_PATHS.has(rule.jsonPath)) {
-        secrets[`${rule.secretName}${BOUND_DOMAIN_SUFFIX}`] = baseDomain;
+        secrets[`${rule.secretName}${BOUND_DOMAIN_SUFFIX}`] =
+          rule.bindDomain || defaultBaseDomain;
       }
     }
   }
@@ -1237,6 +1996,62 @@ function captureSecretResponseFields(
   return captured;
 }
 
+function captureSecretResponseHeaders(
+  responseHeaders: Headers,
+  rules: CaptureHeaderRule[],
+  requestUrl: URL,
+): Record<string, string> | null {
+  if (rules.length === 0) return null;
+  const defaultBaseDomain = extractBaseDomain(requestUrl.hostname);
+  const secrets: Record<string, string> = {};
+  const captured: Record<string, string> = {};
+
+  for (const rule of rules) {
+    const value = normalizeCapturedValue(responseHeaders.get(rule.header));
+    if (value) {
+      secrets[rule.secretName] = value;
+      captured[`headers.${rule.header}`] = rule.secretName;
+      secrets[`${rule.secretName}${BOUND_DOMAIN_SUFFIX}`] =
+        rule.bindDomain || defaultBaseDomain;
+    }
+  }
+
+  if (Object.keys(secrets).length === 0) {
+    return null;
+  }
+
+  try {
+    saveNamedRuntimeSecrets(secrets);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new GatewayRequestError(400, message);
+  }
+  return captured;
+}
+
+function normalizeCapturedValue(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return '';
+}
+
+function readJsonPath(value: unknown, jsonPath: string): unknown {
+  let current = value;
+  for (const segment of jsonPath.split('.')) {
+    if (!segment) return undefined;
+    if (!current || typeof current !== 'object') {
+      return undefined;
+    }
+    if (Array.isArray(current)) {
+      if (!/^\d+$/u.test(segment)) return undefined;
+      current = current[Number(segment)];
+    } else {
+      current = (current as Record<string, unknown>)[segment];
+    }
+  }
+  return current;
+}
+
 function resolveCaptureResponseFields(value: unknown): CaptureFieldRule[] {
   if (value === undefined || value === null) return [];
   const fields = normalizeCaptureResponseFields(value);
@@ -1247,6 +2062,18 @@ function resolveCaptureResponseFields(value: unknown): CaptureFieldRule[] {
     );
   }
   return fields;
+}
+
+function resolveCaptureResponseHeaders(value: unknown): CaptureHeaderRule[] {
+  if (value === undefined || value === null) return [];
+  const headers = normalizeCaptureResponseHeaders(value);
+  if (!headers) {
+    throw new GatewayRequestError(
+      400,
+      '`captureResponseHeaders` must be an array when provided.',
+    );
+  }
+  return headers;
 }
 
 function matchesHttpRequestAuthRulePrefix(
@@ -1306,6 +2133,18 @@ async function resolveHttpRuleSecret(
       value: withAuthPrefix(
         await resolveGoogleOAuthTokenOrThrow(
           GOOGLE_WORKSPACE_CLI_TOKEN_SECRET,
+          context,
+        ),
+        prefix,
+      ),
+    };
+  }
+  if (isMicrosoftOAuthHttpAuthRuleSecret(value)) {
+    return {
+      header: headerName,
+      value: withAuthPrefix(
+        await resolveMicrosoftOAuthTokenOrThrow(
+          MICROSOFT_365_ACCESS_TOKEN_SECRET,
           context,
         ),
         prefix,
@@ -1404,8 +2243,11 @@ export async function handleApiHttpRequest(
   const captureFields = resolveCaptureResponseFields(
     body.captureResponseFields,
   );
+  const captureHeaders = resolveCaptureResponseHeaders(
+    body.captureResponseHeaders,
+  );
   const rawUrl = replacePlaceholders
-    ? await replaceSecretPlaceholdersInString(String(body.url || ''), {
+    ? await replaceHttpPlaceholdersInString(String(body.url || ''), {
         ...baseSecretContext,
         selector: 'url',
       })
@@ -1424,6 +2266,23 @@ export async function handleApiHttpRequest(
   const maxResponseBytes =
     parsePositiveInteger(body.maxResponseBytes) ??
     HTTP_REQUEST_MAX_RESPONSE_BYTES;
+  const suppressResponseBody = body.suppressResponseBody === true;
+  const responseArtifact = normalizeResponseArtifactOptions(
+    body.responseArtifact,
+  );
+  const allowManualRedirect = body.allowManualRedirect === true;
+  const includeResponseCookies = body.includeResponseCookies === true;
+  const tlsCertificateSha256 = await resolveTlsCertificateSha256Pin(
+    body,
+    secretContext,
+  );
+  const allowSelfSignedTls = body.allowSelfSignedTls === true;
+  if (allowSelfSignedTls && tlsCertificateSha256) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `allowSelfSignedTls`, `tlsCertificateSha256`, or `tlsCertificateSha256SecretName`.',
+    );
+  }
   const config = getRuntimeConfig();
 
   const headers = normalizeHttpRequestHeaders(body.headers);
@@ -1529,92 +2388,72 @@ export async function handleApiHttpRequest(
 
   if (replacePlaceholders) {
     for (const [key, value] of Object.entries(headers)) {
-      headers[key] = await replaceSecretPlaceholdersInString(value, {
+      headers[key] = await replaceHttpPlaceholdersInString(value, {
         ...secretContext,
         selector: key,
       });
     }
   }
 
-  const payloadSources = [
-    body.json !== undefined,
-    body.body !== undefined,
-    body.bodyBase64 !== undefined,
-  ].filter(Boolean).length;
-  if (payloadSources > 1) {
-    throw new GatewayRequestError(
-      400,
-      'Use only one of `json`, `body`, or `bodyBase64`.',
-    );
-  }
-
   let payloadBody: BodyInit | undefined;
-  if (body.json !== undefined) {
-    const jsonValue = replacePlaceholders
-      ? await replaceSecretPlaceholders(body.json, {
-          ...secretContext,
-          selector: 'json',
-        })
-      : body.json;
-    payloadBody = JSON.stringify(jsonValue);
-    if (
-      !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')
-    ) {
-      setHeaderValue(headers, 'Content-Type', 'application/json');
-    }
-  } else if (typeof body.body === 'string') {
-    payloadBody = replacePlaceholders
-      ? await replaceSecretPlaceholdersInString(body.body, {
-          ...secretContext,
-          selector: 'body',
-        })
-      : body.body;
-  } else if (body.body !== undefined) {
-    throw new GatewayRequestError(
-      400,
-      '`body` must be a string when provided. Use `json` for structured payloads.',
-    );
-  } else if (typeof body.bodyBase64 === 'string') {
-    let payloadBuffer: Buffer;
-    try {
-      payloadBuffer = Buffer.from(body.bodyBase64, 'base64');
-    } catch {
-      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
-    }
-    if (payloadBuffer.toString('base64') !== body.bodyBase64.trim()) {
-      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
-    }
-    payloadBody = new Uint8Array(payloadBuffer);
-  } else if (body.bodyBase64 !== undefined) {
-    throw new GatewayRequestError(
-      400,
-      '`bodyBase64` must be a base64 string when provided.',
-    );
-  }
-
   if (otcAkSk) {
+    const otcPayloadBody = await buildStoredProtocolHttpRequestPayloadBody({
+      body,
+      headers,
+      context: secretContext,
+      replacePlaceholders,
+    });
     await applyOtcAkSkSigning({
       rule: otcAkSk,
       url,
       method,
       headers,
-      body: payloadBody,
+      body: otcPayloadBody,
       context: secretContext,
     });
+    payloadBody = otcPayloadBody;
+  } else {
+    payloadBody = await buildHttpRequestPayloadBody({
+      body,
+      headers,
+      context: secretContext,
+      replacePlaceholders,
+      resolveSecret: resolveHttpSecretOrThrow,
+    });
+  }
+
+  if (
+    (tlsCertificateSha256 || allowSelfSignedTls) &&
+    url.protocol !== 'https:'
+  ) {
+    throw new GatewayRequestError(
+      400,
+      '`allowSelfSignedTls` and `tlsCertificateSha256` can only be used with https URLs.',
+    );
   }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const dispatcher = tlsCertificateSha256
+    ? createPinnedTlsDispatcher(tlsCertificateSha256, timeoutMs)
+    : allowSelfSignedTls
+      ? createSelfSignedTlsDispatcher(timeoutMs)
+      : undefined;
   let response: Response;
   try {
-    response = await fetch(url, {
+    const fetchOptions: RequestInit & { dispatcher?: UndiciAgent } = {
       method,
       headers,
       body: payloadBody,
       signal: controller.signal,
       redirect: 'manual',
-    });
+    };
+    if (dispatcher) {
+      fetchOptions.dispatcher = dispatcher;
+    }
+    response = await fetch(url, fetchOptions);
   } catch (error) {
+    await dispatcher?.close();
     throw new GatewayRequestError(
       502,
       `Outbound HTTP request failed: ${formatOutboundHttpError(error)}`,
@@ -1624,77 +2463,145 @@ export async function handleApiHttpRequest(
     clearTimeout(timeout);
   }
 
-  if (
-    response.status >= REDIRECT_RESPONSE_STATUS_MIN &&
-    response.status <= REDIRECT_RESPONSE_STATUS_MAX
-  ) {
-    throw new GatewayRequestError(
-      400,
-      'Outbound HTTP redirects are blocked by the SSRF guard.',
-    );
-  }
-
-  const contentLength = Number.parseInt(
-    String(response.headers.get('content-length') || ''),
-    10,
-  );
-  const responseBody =
-    Number.isFinite(contentLength) && contentLength > maxResponseBytes
-      ? {
-          buffer: Buffer.alloc(0),
-          bytesRead: contentLength,
-          truncated: true,
-        }
-      : await readHttpResponseBuffer(response, maxResponseBytes);
-  const declaredBodyBytes = Number.isFinite(contentLength)
-    ? contentLength
-    : undefined;
-  const bodyBytes =
-    responseBody.truncated && declaredBodyBytes !== undefined
-      ? declaredBodyBytes
-      : responseBody.bytesRead;
-  const bodyTruncated = responseBody.truncated;
-
-  const responseText = responseBody.buffer.toString('utf-8');
-  let responseJson: unknown;
-  if (!bodyTruncated) {
-    try {
-      responseJson = JSON.parse(responseText) as unknown;
-    } catch {
-      responseJson = undefined;
+  try {
+    if (
+      !allowManualRedirect &&
+      response.status >= REDIRECT_RESPONSE_STATUS_MIN &&
+      response.status <= REDIRECT_RESPONSE_STATUS_MAX
+    ) {
+      await response.body?.cancel();
+      throw new GatewayRequestError(
+        400,
+        'Outbound HTTP redirects are blocked by the SSRF guard.',
+      );
     }
-  }
 
-  // Capture selected response fields into the secret store and return only a
-  // confirmation. The original response body is never forwarded on capture.
-  const captured = captureSecretResponseFields(
-    responseJson,
-    captureFields,
-    url,
-  );
-  if (captured) {
+    const declaredBodyBytes = readDeclaredBodyBytes(response);
+
+    if (
+      suppressResponseBody &&
+      !responseArtifact &&
+      captureFields.length === 0 &&
+      captureHeaders.length === 0
+    ) {
+      await response.body?.cancel();
+      sendSuppressedBodyResponse(
+        res,
+        response,
+        declaredBodyBytes ?? 0,
+        false,
+        maxResponseBytes,
+        includeResponseCookies,
+      );
+      return;
+    }
+
+    const responseBody =
+      declaredBodyBytes !== undefined && declaredBodyBytes > maxResponseBytes
+        ? {
+            buffer: Buffer.alloc(0),
+            bytesRead: declaredBodyBytes,
+            truncated: true,
+          }
+        : await readHttpResponseBuffer(response, maxResponseBytes);
+    const bodyBytes =
+      responseBody.truncated && declaredBodyBytes !== undefined
+        ? declaredBodyBytes
+        : responseBody.bytesRead;
+    const bodyTruncated = responseBody.truncated;
+
+    const responseText = responseBody.buffer.toString('utf-8');
+    let responseJson: unknown;
+    if (!bodyTruncated) {
+      try {
+        responseJson = JSON.parse(responseText) as unknown;
+      } catch {
+        responseJson = undefined;
+      }
+    }
+
+    // Capture selected response fields/headers into the secret store and return only a
+    // confirmation. The original response body is never forwarded on capture.
+    const capturedFields = captureSecretResponseFields(
+      responseJson,
+      captureFields,
+      url,
+    );
+    const capturedHeaders = captureSecretResponseHeaders(
+      response.headers,
+      captureHeaders,
+      url,
+    );
+    const captured =
+      capturedFields || capturedHeaders
+        ? { ...(capturedFields || {}), ...(capturedHeaders || {}) }
+        : null;
+    if (captured) {
+      sendJson(res, 200, {
+        ok: response.ok,
+        status: response.status,
+        captured,
+      });
+      return;
+    }
+
+    if (responseArtifact) {
+      if (bodyTruncated) {
+        throw new GatewayRequestError(
+          502,
+          `Response artifact exceeds maxResponseBytes (${maxResponseBytes}).`,
+        );
+      }
+      const artifact = await saveHttpResponseArtifact({
+        body: responseBody.buffer,
+        response,
+        options: responseArtifact,
+        agentId: baseSecretContext.agentId,
+      });
+      sendJson(res, 200, {
+        success: true,
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        url: response.url,
+        headers: responseHeadersObject(response, includeResponseCookies),
+        artifact,
+        artifacts: [artifact],
+        bodySuppressed: true,
+        bodyBytes,
+      });
+      return;
+    }
+
+    if (suppressResponseBody) {
+      sendSuppressedBodyResponse(
+        res,
+        response,
+        bodyBytes,
+        bodyTruncated,
+        maxResponseBytes,
+        includeResponseCookies,
+      );
+      return;
+    }
+
     sendJson(res, 200, {
       ok: response.ok,
       status: response.status,
-      captured,
+      statusText: response.statusText,
+      url: response.url,
+      headers: responseHeadersObject(response, includeResponseCookies),
+      body: responseText,
+      ...(bodyTruncated
+        ? {
+            bodyTruncated: true,
+            bodyBytes,
+            maxResponseBytes,
+          }
+        : {}),
+      ...(responseJson === undefined ? {} : { json: responseJson }),
     });
-    return;
+  } finally {
+    await dispatcher?.close();
   }
-
-  sendJson(res, 200, {
-    ok: response.ok,
-    status: response.status,
-    statusText: response.statusText,
-    url: response.url,
-    headers: Object.fromEntries(response.headers.entries()),
-    body: responseText,
-    ...(bodyTruncated
-      ? {
-          bodyTruncated: true,
-          bodyBytes,
-          maxResponseBytes,
-        }
-      : {}),
-    ...(responseJson === undefined ? {} : { json: responseJson }),
-  });
 }

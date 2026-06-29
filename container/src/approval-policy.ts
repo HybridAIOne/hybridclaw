@@ -33,7 +33,11 @@ import {
   type BehaviorAnomalyTraceJudgeResult,
 } from './behavior-anomaly.js';
 import { classifyMcpTool } from './mcp/tool-classifier.js';
-import { WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY } from './runtime-paths.js';
+import {
+  toWorkspaceRelativePath,
+  WORKSPACE_ROOT,
+  WORKSPACE_ROOT_DISPLAY,
+} from './runtime-paths.js';
 import {
   createStakesClassifier,
   type StakesClassifier,
@@ -683,6 +687,14 @@ function normalizePathValue(rawPath: string): string {
     ? value.slice('/workspace/'.length)
     : value;
   return withoutWorkspace.replace(/^\.\/+/, '').replace(/^\/+/, '');
+}
+
+function isRootBootstrapPath(rawPath: string): boolean {
+  const value = rawPath.trim();
+  if (!value) return false;
+
+  const relativePath = toWorkspaceRelativePath(value);
+  return relativePath === 'BOOTSTRAP.md';
 }
 
 function matchesPathPattern(candidatePath: string, pattern: string): boolean {
@@ -2946,6 +2958,23 @@ export class TrustedAgentApprovalRuntime {
 
     if (lowerTool === 'delete') {
       const rawPath = normalizeText(args.path);
+      if (isRootBootstrapPath(rawPath)) {
+        return {
+          tier: 'green',
+          actionKey: 'delete:bootstrap',
+          intent: 'delete `BOOTSTRAP.md`',
+          consequenceIfDenied:
+            'BOOTSTRAP.md will remain for future hatching checks.',
+          reason:
+            'BOOTSTRAP.md is a one-time onboarding file removed after bootstrapping',
+          commandPreview: normalizePreview(rawPath || 'BOOTSTRAP.md'),
+          pathHints: rawPath ? [rawPath] : ['BOOTSTRAP.md'],
+          hostHints: [],
+          writeIntent: false,
+          promotableRed: false,
+          stickyYellow: false,
+        };
+      }
       const key = rawPath
         ? `delete:${primaryPathKey(rawPath)}`
         : 'delete:unknown';

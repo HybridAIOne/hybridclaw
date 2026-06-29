@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { executeCommand } from '../../api/chat';
 import type {
+  AssistantPresentation,
   ChatMessage,
   ChatStreamApproval,
   ChatStreamResult,
@@ -19,6 +20,7 @@ import type { ChatUiMessage, ThinkingChatMessage } from './chat-ui-message';
 interface ActiveRequest {
   controller: AbortController;
   sessionId: string;
+  messageRole: ChatMessage['role'];
   assistantText: string;
   lastRenderedText: string;
   pendingApproval: ChatStreamApproval | null;
@@ -34,6 +36,36 @@ interface UseChatStreamOptions {
   refreshRecent: () => void;
   onSessionIdCorrection: (serverSessionId: string) => void;
   onModelResolved?: (modelId: string) => void;
+  resolveAddressedAgentPresentation?: (
+    content: string,
+  ) => AssistantPresentation | null;
+}
+
+function mutatesAgentList(content: string): boolean {
+  const parts = content.trim().split(/\s+/);
+  const command = parts[0]?.replace(/^\/+/, '').toLowerCase();
+  const subcommand = parts[1]?.toLowerCase();
+  return (
+    (command === 'agent' || command === 'agents') &&
+    (subcommand === 'create' || subcommand === 'install')
+  );
+}
+
+function parseAgentSwitchTarget(content: string): string | null {
+  const parts = content.trim().split(/\s+/);
+  const command = parts[0]?.replace(/^\/+/, '').toLowerCase();
+  if (command !== 'agent' && command !== 'agents') return null;
+  if (parts[1]?.toLowerCase() !== 'switch') return null;
+  const target = parts[2]?.trim();
+  return target && !/\s/.test(target) ? target : null;
+}
+
+function isAgentSwitchSuccess(text: string): boolean {
+  return /^Session agent set to\b/i.test(text.trim());
+}
+
+function commandStartsBootstrapAutostart(text: string): boolean {
+  return /\bBOOTSTRAP\.md\b/i.test(text);
 }
 
 export interface UseChatStreamReturn {
@@ -47,6 +79,8 @@ export interface UseChatStreamReturn {
   isStreaming: boolean;
   /** The message ID currently being streamed, or null. */
   streamingMsgId: string | null;
+  /** The session ID currently running, or null when idle. */
+  activeSessionId: string | null;
   isActive: () => boolean;
 }
 
@@ -61,12 +95,14 @@ export function useChatStream(
     refreshRecent,
     onSessionIdCorrection,
     onModelResolved,
+    resolveAddressedAgentPresentation,
   } = options;
 
   const queryClient = useQueryClient();
   const activeRequestRef = useRef<ActiveRequest | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   // Writes must be bound to the sessionId captured when the send started —
   // reading `getSessionId()` at write time would race with navigation and
@@ -85,7 +121,10 @@ export function useChatStream(
         return {
           messages: nextMessages,
           branchFamilies: prev?.branchFamilies ?? new Map(),
+          requestedSessionId: prev?.requestedSessionId ?? sessionId,
           resolvedSessionId: prev?.resolvedSessionId ?? sessionId,
+          agentId: prev?.agentId ?? null,
+          bootstrapAutostart: prev?.bootstrapAutostart ?? null,
         };
       });
     },
@@ -113,6 +152,8 @@ export function useChatStream(
       setError('');
 
       if (userMsgId) {
+        const addressedAgentPresentation =
+          resolveAddressedAgentPresentation?.(content) ?? null;
         const userMsg: ChatMessage = {
           id: userMsgId,
           role: 'user',
@@ -122,6 +163,7 @@ export function useChatStream(
           media,
           artifacts: [],
           replayRequest: { content, media },
+          addressedAgentPresentation,
         };
         setMessages((prev) => [...prev, userMsg]);
       }
@@ -143,6 +185,7 @@ export function useChatStream(
       const req: ActiveRequest = {
         controller: new AbortController(),
         sessionId: targetSessionId,
+        messageRole: 'assistant',
         assistantText: '',
         lastRenderedText: '',
         pendingApproval: null,
@@ -150,6 +193,7 @@ export function useChatStream(
         stopping: false,
       };
       activeRequestRef.current = req;
+      setActiveSessionId(targetSessionId);
       setIsStreaming(true);
 
       const doRender = () => {
@@ -162,9 +206,6 @@ export function useChatStream(
         }
         req.lastRenderedText = req.assistantText;
 
-        const role: ChatMessage['role'] = req.pendingApproval
-          ? 'approval'
-          : 'assistant';
         const text = req.assistantText;
         const approval = req.pendingApproval;
 
@@ -174,7 +215,12 @@ export function useChatStream(
           if (existing) {
             return withoutThinking.map((m) =>
               m === existing
-                ? { ...m, role, content: text, pendingApproval: approval }
+                ? {
+                    ...m,
+                    role: req.messageRole,
+                    content: text,
+                    pendingApproval: approval,
+                  }
                 : m,
             );
           }
@@ -182,7 +228,7 @@ export function useChatStream(
             ...withoutThinking,
             {
               id: streamId,
-              role,
+              role: req.messageRole,
               content: text,
               sessionId: req.sessionId,
               artifacts: [],
@@ -225,6 +271,7 @@ export function useChatStream(
             },
             onApproval: (event) => {
               req.pendingApproval = event;
+              req.messageRole = 'approval';
               if (!req.assistantText.trim()) {
                 req.assistantText = buildApprovalSummary(event);
               }
@@ -251,16 +298,18 @@ export function useChatStream(
         const finalText = result.result ?? req.assistantText ?? '';
         const finalApproval = req.pendingApproval;
         const finalArtifacts = result.artifacts ?? [];
-        const finalRole: ChatMessage['role'] = finalApproval
-          ? 'approval'
-          : result.commandResult
-            ? 'command'
-            : 'assistant';
+        const addressedAgentId =
+          typeof result.addressEnvelope?.to === 'string'
+            ? result.addressEnvelope.to
+            : null;
+        if (!result.messageRole) {
+          throw new Error('Gateway chat result is missing messageRole.');
+        }
+        const finalRole: ChatMessage['role'] = result.messageRole;
         // A slash command that produced no visible output (and no artifacts)
         // leaves no bubble — like a shell command that succeeds silently.
         const isSilentCommand =
-          Boolean(result.commandResult) &&
-          !finalApproval &&
+          finalRole === 'command' &&
           finalText.trim().length === 0 &&
           finalArtifacts.length === 0;
         const buildFinalizedMessage = (
@@ -295,6 +344,9 @@ export function useChatStream(
             if (userMsgId && m.id === userMsgId && m.role === 'user') {
               return {
                 ...m,
+                addressedAgentPresentation: addressedAgentId
+                  ? (result.assistantPresentation ?? null)
+                  : null,
                 messageId: m.messageId ?? result.userMessageId ?? null,
                 sessionId: result.sessionId ?? m.sessionId,
               };
@@ -320,6 +372,45 @@ export function useChatStream(
         });
 
         refreshRecent();
+        const switchedAgentId =
+          finalRole === 'command' && isAgentSwitchSuccess(finalText)
+            ? parseAgentSwitchTarget(content)
+            : null;
+        if (switchedAgentId) {
+          const switchedSessionId = result.sessionId ?? targetSessionId;
+          const switchedHistoryKey = chatHistoryQueryKey(
+            token,
+            switchedSessionId,
+          );
+          queryClient.setQueryData<ChatHistoryUiData>(
+            switchedHistoryKey,
+            (prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                agentId: switchedAgentId,
+                bootstrapAutostart: commandStartsBootstrapAutostart(finalText)
+                  ? {
+                      status: 'starting',
+                      fileName: 'BOOTSTRAP.md',
+                    }
+                  : prev.bootstrapAutostart,
+              };
+            },
+          );
+          void queryClient.invalidateQueries({
+            queryKey: switchedHistoryKey,
+            refetchType: 'none',
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ['chat-context', token, switchedSessionId],
+          });
+        }
+        if (finalRole === 'command' && mutatesAgentList(content)) {
+          void queryClient.invalidateQueries({
+            queryKey: ['agents-list', token],
+          });
+        }
       } catch (err) {
         if (req.renderFrame) cancelAnimationFrame(req.renderFrame);
         const errorText = getErrorMessage(err);
@@ -338,6 +429,7 @@ export function useChatStream(
         });
       } finally {
         activeRequestRef.current = null;
+        setActiveSessionId(null);
         setIsStreaming(false);
         setStreamingMsgId(null);
       }
@@ -351,6 +443,8 @@ export function useChatStream(
       writeMessages,
       onSessionIdCorrection,
       onModelResolved,
+      resolveAddressedAgentPresentation,
+      queryClient,
       setError,
       refreshRecent,
     ],
@@ -371,5 +465,12 @@ export function useChatStream(
 
   const isActive = useCallback(() => activeRequestRef.current !== null, []);
 
-  return { sendMessage, stopRequest, isStreaming, streamingMsgId, isActive };
+  return {
+    sendMessage,
+    stopRequest,
+    isStreaming,
+    streamingMsgId,
+    activeSessionId,
+    isActive,
+  };
 }

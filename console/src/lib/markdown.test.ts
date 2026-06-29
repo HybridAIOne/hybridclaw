@@ -76,10 +76,54 @@ describe('renderMarkdown', () => {
     expect(renderMarkdown('line1\nline2')).toContain('line1<br />line2');
   });
 
-  it('renders fenced code blocks with language class intact', () => {
+  it('renders fenced code blocks with syntax-highlight token spans', () => {
     const html = renderMarkdown('```ts\nconst x = 1;\n```');
-    expect(html).toContain('<pre><code class="language-ts">');
-    expect(html).toContain('const x = 1;');
+    expect(html).toContain('<pre><code class="hljs language-ts">');
+    // highlight.js wraps keywords/numbers in token spans
+    expect(html).toContain('<span class="hljs-keyword">const</span>');
+    expect(html).toContain('<span class="hljs-number">1</span>');
+  });
+
+  it('falls back to plain escaped text for unknown languages', () => {
+    const html = renderMarkdown('```fakelang\n<script>alert(1)</script>\n```');
+    expect(html).toContain('<pre><code class="hljs language-fakelang">');
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).not.toContain('<script');
+    expect(html).not.toContain('hljs-');
+  });
+
+  it('escapes code content even when highlighted', () => {
+    const html = renderMarkdown('```ts\nconst a = "<img onerror=x>";\n```');
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img');
+  });
+
+  it('renders a code block without a language as plain escaped text', () => {
+    const html = renderMarkdown('```\nplain text\n```');
+    expect(html).toContain('<pre><code class="hljs">plain text');
+    expect(html).not.toContain('hljs-');
+  });
+
+  it('highlights via grammar aliases (js, sh, yml)', () => {
+    // We register canonical grammar names; highlight.js also registers their
+    // aliases. Guard that assumption so a fence like ```js still highlights.
+    expect(renderMarkdown('```js\nconst x = 1;\n```')).toContain(
+      '<span class="hljs-keyword">const</span>',
+    );
+    expect(renderMarkdown('```sh\necho hi\n```')).toContain('hljs-');
+    expect(renderMarkdown('```yml\nkey: value\n```')).toContain('hljs-');
+  });
+
+  it('skips token highlighting when highlight is disabled (streaming)', () => {
+    const code = '```ts\nconst x = 1;\n```';
+    // Default highlights…
+    expect(renderMarkdown(code)).toContain('<span class="hljs-keyword">');
+    // …but the streaming path emits plain escaped text with no token spans,
+    // keeping the same <pre><code class="hljs language-ts"> wrapper.
+    const plain = renderMarkdown(code, { highlight: false });
+    expect(plain).toContain('<pre><code class="hljs language-ts">');
+    expect(plain).toContain('const x = 1;');
+    expect(plain).not.toContain('hljs-');
   });
 
   it('renders blockquotes with grouped content', () => {
@@ -132,6 +176,47 @@ describe('renderMarkdown', () => {
     expect(html).toContain(
       '<a href="https://example.com" rel="noopener noreferrer" target="_blank">https://example.com</a>',
     );
+  });
+
+  it('linkifies bare local app routes', () => {
+    const html = renderMarkdown(
+      'WhatsApp: /admin/channels#whatsapp\nChat: /chat\nDocs: /docs/',
+    );
+
+    expect(html).toContain(
+      '<a href="/admin/channels#whatsapp">/admin/channels#whatsapp</a>',
+    );
+    expect(html).toContain('<a href="/chat">/chat</a>');
+    expect(html).toContain('<a href="/docs/">/docs/</a>');
+    expect(html).not.toContain('target="_blank">/admin');
+  });
+
+  it('does not linkify arbitrary local paths or code spans', () => {
+    const html = renderMarkdown(
+      'File: /Users/ben/project\nCode: `/Users/ben/project`',
+    );
+
+    expect(html).not.toContain('href="/Users');
+    expect(html).not.toContain('href="/admin/channels#whatsapp"');
+    expect(html).toContain('<code>/Users/ben/project</code>');
+  });
+
+  it('linkifies known local app routes inside inline code spans', () => {
+    const html = renderMarkdown('WhatsApp: `/admin/channels#whatsapp`');
+
+    expect(html).toContain(
+      '<a href="/admin/channels#whatsapp">/admin/channels#whatsapp</a>',
+    );
+    expect(html).not.toContain('<code>/admin/channels#whatsapp</code>');
+  });
+
+  it('does not rewrite existing local markdown links', () => {
+    const html = renderMarkdown('[Set up WhatsApp](/admin/channels#whatsapp)');
+
+    expect(html).toContain(
+      '<a href="/admin/channels#whatsapp">Set up WhatsApp</a>',
+    );
+    expect(html).not.toContain('href="/admin/channels#whatsapp)">');
   });
 
   it('allows mailto links but strips disallowed schemes like ftp and data', () => {
@@ -199,7 +284,7 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<ol>');
     expect(html).toContain('<li>Run <code>npm run build</code></li>');
     expect(html).toContain('<blockquote>');
-    expect(html).toContain('<pre><code class="language-bash">');
+    expect(html).toContain('<pre><code class="hljs language-bash">');
     expect(html).toContain(
       '<a href="https://example.com/runbook" rel="noopener noreferrer" target="_blank">runbook</a>',
     );

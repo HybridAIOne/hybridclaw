@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { replaceUnpairedSurrogates } from '../../shared/unicode-utils.js';
+import { resolveModelBehavior } from '../model-behavior.js';
 import {
   collapseSystemMessages,
   mergeSystemMessage,
@@ -134,22 +136,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function usesQwenCompat(args: {
-  provider: string | undefined;
-  model: string;
+  provider?: string;
+  model?: string;
+  modelBehavior?: NormalizedCallArgs['modelBehavior'];
   thinkingFormat?: 'qwen';
 }): boolean {
+  const behavior = resolveModelBehavior({
+    model: args.model
+      ? normalizeLocalModelName(args.provider, args.model)
+      : undefined,
+    configured: args.modelBehavior,
+  });
+  if (behavior?.thinkingFormat === 'qwen') return true;
   if (args.thinkingFormat === 'qwen') return true;
-  if (
-    args.provider !== 'lmstudio' &&
-    args.provider !== 'llamacpp' &&
-    args.provider !== 'vllm'
-  ) {
-    return false;
-  }
-  const normalizedModel = normalizeLocalModelName(args.provider, args.model)
-    .trim()
-    .toLowerCase();
-  return normalizedModel.includes('qwen') || normalizedModel.includes('qwq');
+  return false;
 }
 
 function usesLiquidCompat(args: {
@@ -172,10 +172,54 @@ function buildLiquidToolCallInstruction(tools: ToolDefinition[]): string {
   return `List of tools: ${JSON.stringify(toolList)}`;
 }
 
+function estimatePromptToolInstructionTokens(instruction: string): number {
+  if (!instruction) return 0;
+  return Math.max(1, Math.ceil(instruction.length / 4) + 16);
+}
+
+export function estimateLocalOpenAICompatPromptOverheadTokens(args: {
+  provider: string | undefined;
+  model: string;
+  tools?: ToolDefinition[];
+  modelBehavior?: NormalizedCallArgs['modelBehavior'];
+}): number {
+  const tools = Array.isArray(args.tools) ? args.tools : [];
+  if (tools.length === 0) return 0;
+  if (usesLiquidCompat(args)) {
+    return estimatePromptToolInstructionTokens(
+      buildLiquidToolCallInstruction(tools),
+    );
+  }
+  return 0;
+}
+
 function normalizeMessageContent(
   content: ChatMessage['content'],
 ): ChatMessage['content'] {
-  return content;
+  if (typeof content === 'string') return replaceUnpairedSurrogates(content);
+  if (!Array.isArray(content)) return content;
+  return content.map((part) => {
+    if (part.type === 'text') {
+      return { ...part, text: replaceUnpairedSurrogates(part.text) };
+    }
+    if (part.type === 'image_url') {
+      return {
+        ...part,
+        image_url: {
+          url: replaceUnpairedSurrogates(part.image_url.url),
+        },
+      };
+    }
+    if (part.type === 'audio_url') {
+      return {
+        ...part,
+        audio_url: {
+          url: replaceUnpairedSurrogates(part.audio_url.url),
+        },
+      };
+    }
+    return part;
+  });
 }
 
 function buildQwenRequestMessages(
@@ -293,9 +337,11 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
   const request: Record<string, unknown> = {
     model: normalizeLocalModelName(args.provider, args.model),
     messages: buildRequestMessages(args),
-    tools: args.tools,
-    tool_choice: 'auto',
   };
+  if (args.tools.length > 0) {
+    request.tools = args.tools;
+    request.tool_choice = 'auto';
+  }
   if (
     typeof args.maxTokens === 'number' &&
     Number.isFinite(args.maxTokens) &&
@@ -309,10 +355,14 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
 function buildToolCallNormalizationOptions(params: {
   provider: string | undefined;
   model: string;
+  modelBehavior?: NormalizedCallArgs['modelBehavior'];
 }) {
-  const parser = resolveToolCallTextParser(
-    normalizeLocalModelName(params.provider, params.model),
-  );
+  const parser =
+    params.modelBehavior?.thinkingFormat === 'qwen'
+      ? 'qwen'
+      : resolveToolCallTextParser(
+          normalizeLocalModelName(params.provider, params.model),
+        );
   return {
     parser,
     recoverBlankStructuredNameFromContent: parser === 'mistral',
@@ -432,6 +482,7 @@ function adaptLocalOpenAICompatResponse(
   params: {
     provider: string | undefined;
     model: string;
+    modelBehavior?: NormalizedCallArgs['modelBehavior'];
   },
 ): ChatCompletionResponse {
   assertNoProviderError(payload);
@@ -610,6 +661,7 @@ export async function callLocalOpenAICompatProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
   const requestBody = buildRequestBody(args);
+  const url = `${normalizeBaseUrl(args.baseUrl)}/chat/completions`;
   if (args.debugModelResponses) {
     logLastPrompt({
       sessionId: args.sessionId,
@@ -618,22 +670,19 @@ export async function callLocalOpenAICompatProvider(
       kind: 'openai_compatible_non_streaming_request',
       request: {
         method: 'POST',
-        url: `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
+        url,
         body: requestBody,
       },
     });
   }
-  const response = await fetch(
-    `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
-    {
-      method: 'POST',
-      headers: {
-        ...buildHeaders(args.apiKey),
-        ...(args.requestHeaders || {}),
-      },
-      body: JSON.stringify(requestBody),
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...buildHeaders(args.apiKey),
+      ...(args.requestHeaders || {}),
     },
-  );
+    body: JSON.stringify(requestBody),
+  });
 
   if (!response.ok) {
     throw new ProviderRequestError(response.status, await response.text());
@@ -652,6 +701,7 @@ export async function callLocalOpenAICompatProvider(
   return adaptLocalOpenAICompatResponse(payload, {
     provider: args.provider,
     model: args.model,
+    modelBehavior: args.modelBehavior,
   });
 }
 
@@ -665,6 +715,7 @@ export async function callLocalOpenAICompatProviderStream(
       include_usage: true,
     },
   };
+  const url = `${normalizeBaseUrl(args.baseUrl)}/chat/completions`;
   if (args.debugModelResponses) {
     logLastPrompt({
       sessionId: args.sessionId,
@@ -673,23 +724,20 @@ export async function callLocalOpenAICompatProviderStream(
       kind: 'openai_compatible_streaming_request',
       request: {
         method: 'POST',
-        url: `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
+        url,
         body: requestBody,
       },
     });
   }
-  const response = await fetch(
-    `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
-    {
-      method: 'POST',
-      headers: {
-        ...buildHeaders(args.apiKey),
-        ...(args.requestHeaders || {}),
-        Accept: 'text/event-stream, application/json',
-      },
-      body: JSON.stringify(requestBody),
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...buildHeaders(args.apiKey),
+      ...(args.requestHeaders || {}),
+      Accept: 'text/event-stream, application/json',
     },
-  );
+    body: JSON.stringify(requestBody),
+  });
 
   if (!response.ok) {
     throw new ProviderRequestError(response.status, await response.text());
@@ -715,6 +763,7 @@ export async function callLocalOpenAICompatProviderStream(
     const adapted = adaptLocalOpenAICompatResponse(payload, {
       provider: args.provider,
       model: args.model,
+      modelBehavior: args.modelBehavior,
     });
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
@@ -734,6 +783,7 @@ export async function callLocalOpenAICompatProviderStream(
     const adapted = adaptLocalOpenAICompatResponse(payload, {
       provider: args.provider,
       model: args.model,
+      modelBehavior: args.modelBehavior,
     });
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
@@ -744,22 +794,24 @@ export async function callLocalOpenAICompatProviderStream(
   const normalizationOptions = buildToolCallNormalizationOptions({
     provider: args.provider,
     model: args.model,
+    modelBehavior: args.modelBehavior,
   });
   const shouldFilterQwenMarkup =
+    args.modelBehavior?.thinkingFormat === 'qwen' ||
     args.thinkingFormat === 'qwen' ||
     normalizationOptions.parser === 'qwen' ||
     normalizationOptions.parser === 'qwen3_coder';
   const streamEmitter = createThinkingStreamEmitter(args.onTextDelta, {
     onThinkingDelta: args.onThinkingDelta,
   });
-  const qwenVisibleFilter = shouldFilterQwenMarkup
+  const visibleToolFilter = shouldFilterQwenMarkup
     ? createToolMarkupStreamFilter((delta) => streamEmitter.pushVisible(delta))
     : null;
-  const qwenReasoningFilter = shouldFilterQwenMarkup
+  const reasoningToolFilter = shouldFilterQwenMarkup
     ? createToolMarkupStreamFilter((delta) => streamEmitter.pushThinking(delta))
     : null;
   const flushReasoningPreview = (): void => {
-    qwenReasoningFilter?.close();
+    reasoningToolFilter?.close();
   };
 
   let buffer = '';
@@ -817,8 +869,8 @@ export async function callLocalOpenAICompatProviderStream(
         if (delta) {
           usedMessageContent = true;
           flushReasoningPreview();
-          if (qwenVisibleFilter) {
-            qwenVisibleFilter.push(delta);
+          if (visibleToolFilter) {
+            visibleToolFilter.push(delta);
           } else if (/[<]\/?think[>]/i.test(delta)) {
             streamEmitter.pushRaw(delta);
           } else {
@@ -833,8 +885,8 @@ export async function callLocalOpenAICompatProviderStream(
           : messageReasoning;
         rawReasoningContent = messageReasoning;
         if (reasoningDelta) {
-          if (qwenReasoningFilter) {
-            qwenReasoningFilter.push(reasoningDelta);
+          if (reasoningToolFilter) {
+            reasoningToolFilter.push(reasoningDelta);
           } else {
             streamEmitter.pushThinking(reasoningDelta);
           }
@@ -869,8 +921,8 @@ export async function callLocalOpenAICompatProviderStream(
       ) {
         rawTextContent += choice.delta.content;
         flushReasoningPreview();
-        if (qwenVisibleFilter) {
-          qwenVisibleFilter.push(choice.delta.content);
+        if (visibleToolFilter) {
+          visibleToolFilter.push(choice.delta.content);
         } else if (/[<]\/?think[>]/i.test(choice.delta.content)) {
           streamEmitter.pushRaw(choice.delta.content);
         } else {
@@ -880,8 +932,8 @@ export async function callLocalOpenAICompatProviderStream(
       const deltaReasoning = extractStructuredReasoning(choice.delta);
       if (deltaReasoning) {
         rawReasoningContent += deltaReasoning;
-        if (qwenReasoningFilter) {
-          qwenReasoningFilter.push(deltaReasoning);
+        if (reasoningToolFilter) {
+          reasoningToolFilter.push(deltaReasoning);
         } else {
           streamEmitter.pushThinking(deltaReasoning);
         }
@@ -940,8 +992,8 @@ export async function callLocalOpenAICompatProviderStream(
     throw new Error('Streaming response ended without payload');
   }
 
-  qwenVisibleFilter?.close();
-  qwenReasoningFilter?.close();
+  visibleToolFilter?.close();
+  reasoningToolFilter?.close();
   streamEmitter.close();
 
   return adaptLocalOpenAICompatResponse(
@@ -967,6 +1019,7 @@ export async function callLocalOpenAICompatProviderStream(
     {
       provider: args.provider,
       model: args.model,
+      modelBehavior: args.modelBehavior,
     },
   );
 }

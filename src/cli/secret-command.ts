@@ -4,7 +4,11 @@ import {
   isGoogleApisUrlPrefix,
   isGoogleOAuthSecretRef,
   isGoogleOAuthSpecifier,
+  isMicrosoftGraphUrlPrefix,
+  isMicrosoftOAuthSecretRef,
+  isMicrosoftOAuthSpecifier,
   makeGoogleOAuthSecretRef,
+  makeMicrosoftOAuthSecretRef,
   normalizeHttpRequestAuthRuleUrlPrefix,
   type RuntimeHttpRequestAuthRule,
   type RuntimeHttpRequestAuthRuleSecret,
@@ -22,6 +26,7 @@ import {
   isReservedNonSecretRuntimeName,
   isRuntimeSecretName,
   listStoredRuntimeSecretNames,
+  normalizeRuntimeSecretInputValue,
   readStoredRuntimeSecret,
   runtimeSecretsPath,
   saveNamedRuntimeSecrets,
@@ -52,6 +57,9 @@ function normalizeSecretRouteSecret(
   if (isGoogleOAuthSpecifier(value)) {
     return makeGoogleOAuthSecretRef();
   }
+  if (isMicrosoftOAuthSpecifier(value)) {
+    return makeMicrosoftOAuthSecretRef();
+  }
   assertSecretName(value);
   return { source: 'store', id: value };
 }
@@ -61,6 +69,7 @@ function formatRouteSecretLabel(
 ): string {
   if (typeof secret === 'string') return secret;
   if (isGoogleOAuthSecretRef(secret)) return 'google-oauth';
+  if (isMicrosoftOAuthSecretRef(secret)) return 'microsoft-oauth';
   return `${secret.source}:${secret.id}`;
 }
 
@@ -73,9 +82,11 @@ function formatHttpRequestAuthRule(
       ? rule.secret
       : isGoogleOAuthSecretRef(rule.secret)
         ? 'google-oauth'
-        : typeof rule.secret.id === 'string'
-          ? `${rule.secret.source}:${rule.secret.id}`
-          : '<invalid>';
+        : isMicrosoftOAuthSecretRef(rule.secret)
+          ? 'microsoft-oauth'
+          : typeof rule.secret.id === 'string'
+            ? `${rule.secret.source}:${rule.secret.id}`
+            : '<invalid>';
   const prefix = rule.prefix ? ` ${rule.prefix}` : '';
   return `${index + 1}. ${rule.urlPrefix} -> ${rule.header}:${prefix} ${parsedSecret}`.trim();
 }
@@ -124,7 +135,9 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
 
   if (sub === 'set') {
     const secretName = String(normalized[1] || '').trim();
-    const secretValue = normalized.slice(2).join(' ').trim();
+    const secretValue = normalizeRuntimeSecretInputValue(
+      normalized.slice(2).join(' '),
+    );
     if (!secretName || !secretValue) {
       printSecretUsage();
       throw new Error('Usage: `hybridclaw secret set <name> <value>`');
@@ -185,7 +198,7 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
       if (!rawPrefix || !secretName) {
         printSecretUsage();
         throw new Error(
-          'Usage: `hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]`',
+          'Usage: `hybridclaw secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]`',
         );
       }
       const secret = normalizeSecretRouteSecret(secretName);
@@ -193,6 +206,14 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
       if (isGoogleOAuthSecretRef(secret) && !isGoogleApisUrlPrefix(urlPrefix)) {
         throw new Error(
           '`google-oauth` routes can only target googleapis.com or *.googleapis.com URL prefixes.',
+        );
+      }
+      if (
+        isMicrosoftOAuthSecretRef(secret) &&
+        !isMicrosoftGraphUrlPrefix(urlPrefix)
+      ) {
+        throw new Error(
+          '`microsoft-oauth` routes can only target graph.microsoft.com URL prefixes.',
         );
       }
       const header = normalizeSecretRouteHeader(rawHeader);
@@ -320,7 +341,7 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
 
     printSecretUsage();
     throw new Error(
-      'Usage: `hybridclaw secret route list`, `hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]`, or `hybridclaw secret route remove <url-prefix> [header]`',
+      'Usage: `hybridclaw secret route list`, `hybridclaw secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]`, or `hybridclaw secret route remove <url-prefix> [header]`',
     );
   }
 

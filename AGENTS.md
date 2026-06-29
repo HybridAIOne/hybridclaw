@@ -264,11 +264,19 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
   `await import()` and static `import` for the same module in production paths.
 - **Dependencies:** root `package.json` is for gateway/CLI deps. Container-only
   deps go in `container/package.json`. Never add container deps to root.
+- When changing npm dependencies, update every generated dependency artifact in
+  the same change: the relevant `package-lock.json`, matching
+  `npm-shrinkwrap.json`, and the approved lockfile hashes in
+  `scripts/dependency-policy-baseline.json`. Use `npm run deps:update-lockfile`
+  when practical, or copy the updated lockfile to its shrinkwrap pair and
+  update the baseline hash after reviewing the lockfile diff. Run
+  `npm run deps:policy` before handing off.
 
 ### Git Discipline
 
 - Treat existing uncommitted changes as user work unless you created them.
 - Run `npm run format` before creating commits that will be pushed to GitHub.
+- Always run `npm run lint` before creating any commit.
 - Conventional Commits preferred: `feat:`, `fix:`, `test:`, `refactor:`,
   `chore:`, `docs:`.
 - Group related changes; avoid bundling unrelated refactors.
@@ -327,7 +335,13 @@ Skill resolution order (first match wins):
    }
    ```
 2. Tools are auto-discovered at startup and merged into the tool namespace.
-3. Test with `hybridclaw` running in dev mode.
+3. Remote `http`/`sse` servers can set `"auth": "oauth"`; the gateway runs the
+   OAuth 2.1 flow (`src/mcp/mcp-oauth.ts`), stores credentials in the
+   encrypted runtime secret store (`~/.hybridclaw/credentials.json`, one
+   `MCP_OAUTH_*` entry per server), and injects a fresh `Authorization` header
+   per turn. Connect via `/mcp login <name>`, the TUI `/mcp add` wizard, or the
+   console MCP page.
+4. Test with `hybridclaw` running in dev mode.
 
 ### 7.4 Modifying Approval Policy
 
@@ -350,11 +364,16 @@ Skill resolution order (first match wins):
 When the user says "bump release":
 
 1. Bump the requested semantic version (if unspecified, default to patch).
-2. Update version strings in:
+2. Update `package.json` to the new version, then run `npm run version:sync`
+   to propagate it through product package metadata:
    - `package.json`
-   - `package-lock.json` (root `version` and `packages[""]`)
+   - `package-lock.json` and `npm-shrinkwrap.json` (root `version`,
+     `packages[""]`, and product workspace entries)
+   - `console/package.json`
+   - `desktop/package.json`
    - `container/package.json`
-   - `container/package-lock.json` (root `version` and `packages[""]`)
+   - `container/package-lock.json` and `container/npm-shrinkwrap.json` (root
+     `version` and `packages[""]`)
    - any user-facing version text (for example `src/tui.ts` banner)
 3. Move `CHANGELOG.md` release notes from `Unreleased` to the new version
    heading (or create one).

@@ -1,6 +1,6 @@
 ---
 title: Integrations & Utilities
-description: 1Password, Stripe, Google Ads, GA4, Firecrawl, Sokosumi, Google Workspace, and utility skills.
+description: 1Password, Stripe, Mailchimp, Google Ads, GA4, Firecrawl, Sokosumi, Google Workspace, and utility skills.
 sidebar_position: 9
 ---
 
@@ -93,6 +93,52 @@ keys as environment variables.
 - **CLI not authenticated** — run `stripe login` to connect your account.
 - **"No such customer"** — you may be looking in test mode while the customer
   is in live mode (or vice versa). Confirm with `stripe config --list`.
+
+---
+
+## mailchimp
+
+Operate Mailchimp Marketing audiences, campaigns, reports, automations,
+journeys, and Mailchimp Transactional/Mandrill email through SecretRef-backed
+gateway requests.
+
+**Prerequisites** — Mailchimp Marketing API credentials and data-center prefix
+for Marketing API work; a Transactional/Mandrill API key for transactional
+email workflows.
+
+```bash
+hybridclaw secret set MAILCHIMP_MARKETING_BASIC_AUTH "<base64-user-colon-api-key>"
+hybridclaw env set MAILCHIMP_SERVER_PREFIX us21
+hybridclaw secret set MANDRILL_API_KEY "<mandrill-api-key>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with credential checks and read-only audience, campaign, report, automation, or journey queries before planning writes.
+>
+> Use OAuth metadata when setup uses `MAILCHIMP_MARKETING_OAUTH_TOKEN`; it returns the account-specific API endpoint and data-center prefix.
+>
+> Audience mutations, bulk plans, campaign schedule/send, and Mandrill sends require an approval plan and explicit operator approval.
+>
+> Keep subscriber PII out of summaries where possible; use subscriber hashes for lookup and archive/tag operations when practical.
+
+> 🎯 **Try it yourself**
+>
+> `Check whether Mailchimp Marketing credentials are configured and list my audiences`
+>
+> `Summarize the last campaign report and call out opens, clicks, unsubscribes, and bounces`
+>
+> `Prepare an approval plan to tag these subscribers as newsletter:active without executing it`
+>
+> `Review the journey configuration for our onboarding automation`
+
+**Troubleshooting**
+
+- **401 or 403** — verify the API token, user role, Transactional
+  provisioning, and `MAILCHIMP_SERVER_PREFIX`.
+- **429** — report the upstream rate-limit guidance and avoid retry loops.
+- **Credential uncertainty** — use the helper's `credential-check` path rather
+  than inspecting local files or environment variables from the agent sandbox.
 
 ---
 
@@ -660,6 +706,73 @@ and injects only Google Workspace CLI access-token environment variables plus
 > `Search Gmail for unread messages from finance@example.com from the last 7 days`
 >
 > `Export the Google Doc with id DOC_ID as text and summarize it`
+
+---
+
+## microsoft-365
+
+Read Microsoft 365 data through Microsoft Graph: Outlook mail, calendar events,
+OneDrive and SharePoint-backed files, Teams, chats, and profile details.
+
+**Prerequisites** — a Microsoft 365 work or school account, a Microsoft Entra
+app registration, and delegated Microsoft Graph read scopes consented for the
+tenant/user.
+
+**Install and authorize**
+
+1. Open Microsoft Entra admin center.
+2. Open **App registrations** and create or select the app HybridClaw should use.
+3. Add a **Mobile and desktop applications** redirect URI matching the localhost
+   callback URL printed by `hybridclaw auth login microsoft365`.
+4. Add delegated Microsoft Graph permissions for the data you want HybridClaw
+   to read. The default setup requests `User.Read`, `Mail.Read`,
+   `Calendars.Read`, `Files.Read.All`, `Sites.Read.All`,
+   `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `ChannelMessage.Read.All`, `Chat.Read`, and
+   `offline_access`.
+5. Have a tenant admin grant consent when your organization requires admin
+   consent for those read scopes.
+6. Store the OAuth material in HybridClaw and complete the consent link:
+
+```bash
+hybridclaw auth login microsoft365 \
+  --client-id "<client-id>" \
+  --tenant-id organizations \
+  --account you@example.com
+hybridclaw auth status microsoft365
+```
+
+HybridClaw stores the refresh token in encrypted runtime secrets. At run time,
+the gateway mints a short-lived access token on the host and injects it only
+into `graph.microsoft.com` requests as `MICROSOFT_365_ACCESS_TOKEN`.
+
+For direct Microsoft Graph calls outside the helper:
+
+```bash
+hybridclaw secret route add https://graph.microsoft.com/v1.0/ microsoft-oauth Authorization Bearer
+```
+
+> 💡 **Tips & Tricks**
+>
+> Use the bundled helper rather than handcrafting Graph URLs:
+>
+> ```bash
+> node skills/microsoft-365/m365.cjs --format json run mail recent --top 10
+> node skills/microsoft-365/m365.cjs --format json run calendar events --start 2026-06-26T00:00:00Z --end 2026-06-27T00:00:00Z
+> node skills/microsoft-365/m365.cjs --format json run drive search --query "quarterly plan"
+> ```
+>
+> This bundled connector is read-only. If Graph returns 401 or 403, check
+> `hybridclaw auth status microsoft365` and tenant admin consent before retrying.
+
+> 🎯 **Try it yourself**
+>
+> `Summarize my latest unread Outlook messages`
+>
+> `List my Microsoft 365 calendar meetings tomorrow`
+>
+> `Find OneDrive files about the quarterly plan`
+>
+> `Show my joined Teams and the channels in the product team`
 
 ---
 

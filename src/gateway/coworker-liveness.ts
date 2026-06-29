@@ -417,9 +417,10 @@ async function buildCoworkerLivenessSummary(
     auditEventsBySession.set(row.session_id, existing);
   }
   const skillRunsByAgent = new Map<string, SkillObservation[]>();
+  const agentIdSet = new Set(agentIds);
   for (const run of getSkillObservations({ limit: 1_000 })) {
     const agentId = (run.agent_id || DEFAULT_AGENT_ID).trim();
-    if (!agentIds.includes(agentId)) continue;
+    if (!agentIdSet.has(agentId)) continue;
     const existing = skillRunsByAgent.get(agentId) ?? [];
     if (existing.length >= 50) continue;
     existing.push(run);

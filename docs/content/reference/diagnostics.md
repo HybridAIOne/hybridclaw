@@ -52,8 +52,8 @@ problems do not look like generic provider outages.
 gateway artifacts such as orphaned sessions, leaked worker pool slots, and
 abandoned workspace state. The check caches a DB snapshot and disk-state diff
 so repeated runs are efficient. When `--fix` is passed, safe cleanups are
-applied automatically (e.g. reclaiming leaked pool slots and removing empty
-sessions).
+applied automatically (e.g. reclaiming leaked pool slots and removing
+unstarted sessions that have no user messages).
 
 ## Request Logging
 

@@ -88,6 +88,75 @@ describe('config reload integration', () => {
     expect(cfg.ops.healthPort).toBe(7777);
   });
 
+  it('populates the default console navigation config', () => {
+    writeConfig({});
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    expect(cfg.ui.navigation).toEqual([
+      { href: '/chat', icon: 'chat', label: 'Chat' },
+      { href: '/agents', icon: 'agents', label: 'Agents' },
+      { href: '/admin', icon: 'admin', label: 'Admin' },
+      {
+        href: 'https://github.com/HybridAIOne/hybridclaw',
+        image: '/icons/github.svg',
+        label: 'GitHub',
+      },
+      { href: '/docs', icon: 'docs', label: 'Docs' },
+    ]);
+  });
+
+  it('normalizes custom console navigation links', () => {
+    writeConfig({
+      ui: {
+        navigation: [
+          {
+            label: ' Channels ',
+            href: ' /admin/channels ',
+            icon: 'admin',
+          },
+          {
+            label: 'Cloud',
+            href: 'https://hybridclaw.io/',
+            image: ' /icons/cloud.svg ',
+          },
+          {
+            label: 'Bad image',
+            href: 'https://example.com',
+            image: 'javascript:alert(1)',
+          },
+          { label: 'Bad scheme', href: 'javascript:alert(1)' },
+          { label: '', href: '/admin' },
+          { label: 'Relative', href: 'admin/channels' },
+        ],
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    expect(cfg.ui.navigation).toEqual([
+      { href: '/admin/channels', icon: 'admin', label: 'Channels' },
+      {
+        href: 'https://hybridclaw.io/',
+        image: '/icons/cloud.svg',
+        label: 'Cloud',
+      },
+      { href: 'https://example.com/', label: 'Bad image' },
+    ]);
+  });
+
+  it('keeps an explicitly empty console navigation list', () => {
+    writeConfig({
+      ui: {
+        navigation: [],
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    expect(cfg.ui.navigation).toEqual([]);
+  });
+
   it('reloadRuntimeConfig accepts SearXNG bearer SecretRefs', () => {
     writeConfig({
       web: {
@@ -367,6 +436,21 @@ describe('config reload integration', () => {
     const cfg = configMod.reloadRuntimeConfig('test');
     // Invalid port string should fall back to default (9090).
     expect(cfg.ops.healthPort).toBe(9090);
+  });
+
+  it('normalizes persisted logging flags', () => {
+    writeConfig({
+      ops: {
+        logLevel: 'debug',
+        logRequests: true,
+        debugModelResponses: true,
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+    expect(cfg.ops.logLevel).toBe('debug');
+    expect(cfg.ops.logRequests).toBe(true);
+    expect(cfg.ops.debugModelResponses).toBe(true);
   });
 
   it('reloadRuntimeConfig accepts container.persistBashState=false', () => {

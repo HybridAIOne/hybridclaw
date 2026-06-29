@@ -10,6 +10,11 @@ export const LOG_LEVELS = [
 
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
+export interface AdminConfigReloadResponse {
+  status: string;
+  message?: string;
+}
+
 export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
@@ -158,6 +163,7 @@ export interface GatewayStatus {
     jid: string | null;
     pairingQrText: string | null;
     pairingUpdatedAt: string | null;
+    pairingError: string | null;
   };
   providerHealth?: Record<
     string,
@@ -323,6 +329,30 @@ export interface AdminModelUsageRow extends AdminUsageSummary {
 
 export type AdminTunnelHealth = 'healthy' | 'reconnecting' | 'down';
 
+export type AdminTunnelProvider =
+  | 'cloudflare'
+  | 'manual'
+  | 'ngrok'
+  | 'ssh'
+  | 'tailscale';
+
+export interface AdminTunnelConfig {
+  mode: 'cloud' | 'local';
+  provider: AdminTunnelProvider | (string & {}) | null;
+  publicUrl: string;
+  healthCheckIntervalMs: number;
+}
+
+export interface AdminTunnelConfigInput {
+  provider: AdminTunnelProvider;
+  publicUrl: string;
+}
+
+export interface AdminTunnelConfigResponse {
+  config: AdminTunnelConfig;
+  tunnel: AdminTunnelStatus;
+}
+
 export interface AdminTunnelStatus {
   provider: string | null;
   publicUrl: string | null;
@@ -476,6 +506,27 @@ export interface AdminChannelsResponse {
     defaultReplyStyle: 'thread' | 'top-level';
   };
   channels: AdminChannelEntry[];
+}
+
+export interface AdminStoredSecretRef {
+  source: 'store';
+  id: string;
+}
+
+export interface AdminEmailAccountConfig {
+  agentId: string;
+  imapHost: string;
+  imapPort: number;
+  imapSecure: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  address: string;
+  password?: string | AdminStoredSecretRef;
+  pollIntervalMs: number;
+  folders: string[];
+  allowFrom: string[];
+  mediaMaxMb: number;
 }
 
 export interface AdminConfig {
@@ -731,6 +782,7 @@ export interface AdminConfig {
     allowFrom: string[];
     textChunkLimit: number;
     mediaMaxMb: number;
+    accounts?: AdminEmailAccountConfig[];
   };
   container: {
     sandboxMode: 'container' | 'host';
@@ -798,14 +850,39 @@ export interface AdminConfig {
       screenshotMode: 'som' | 'vision' | 'ax';
     };
   };
+  deployment: {
+    mode: 'cloud' | 'local';
+    public_url: string;
+    tunnel: {
+      provider?:
+        | 'cloudflare'
+        | 'manual'
+        | 'ngrok'
+        | 'ssh'
+        | 'tailscale'
+        | (string & {});
+      health_check_interval_ms: number;
+    };
+  };
+  ui?: {
+    navigation: Array<{
+      label: string;
+      href: string;
+      icon?: 'admin' | 'agents' | 'chat' | 'docs';
+      image?: string;
+    }>;
+  };
   ops: {
     healthHost: string;
     healthPort: number;
     webApiToken: string;
     gatewayBaseUrl: string;
+    gatewayInternalBaseUrl: string;
     gatewayApiToken: string;
     dbPath: string;
     logLevel: LogLevel;
+    logRequests?: boolean;
+    debugModelResponses?: boolean;
   };
   [key: string]: unknown;
 }
@@ -813,6 +890,47 @@ export interface AdminConfig {
 export interface AdminConfigResponse {
   path: string;
   config: AdminConfig;
+}
+
+export interface AdminLogFile {
+  id: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  readable: boolean;
+  sizeBytes: number | null;
+  mtime: string | null;
+  description: string;
+  error: string | null;
+}
+
+export interface AdminLogTail {
+  fileId: string;
+  content: string;
+  tailBytes: number;
+  truncated: boolean;
+}
+
+export interface AdminLoggingState {
+  configuredLevel: LogLevel;
+  effectiveLevel: LogLevel;
+  forcedLevel: LogLevel | null;
+  logRequests: {
+    configured: boolean;
+    envEnabled: boolean;
+    effective: boolean;
+  };
+  debugModelResponses: {
+    configured: boolean;
+    envEnabled: boolean;
+    effective: boolean;
+  };
+}
+
+export interface AdminLogsResponse {
+  files: AdminLogFile[];
+  selected: AdminLogTail | null;
+  logging?: AdminLoggingState;
 }
 
 export interface AdminBrowserPoolHealthResponse {
@@ -965,7 +1083,11 @@ export interface AdminSchedulerResponse {
 
 export interface AdminAgentMarkdownFile {
   name: string;
+  displayName?: string;
   path: string;
+  scope?: 'agent' | 'installation' | 'company';
+  cloudPath?: string;
+  readOnly?: boolean;
   exists: boolean;
   updatedAt: string | null;
   sizeBytes: number | null;
@@ -979,13 +1101,28 @@ export interface AdminAgentMarkdownRevision {
   source: 'save' | 'restore';
 }
 
+export type AdminAgentProxyConversationScope = 'channel' | 'user';
+
+export interface AdminAgentProxyConfig {
+  kind: 'hybridai';
+  baseUrl: string;
+  chatbotId: string;
+  apiKey: {
+    source: 'store';
+    id: string;
+  };
+  conversationScope?: AdminAgentProxyConversationScope;
+}
+
 export interface AdminAgent {
   id: string;
   name: string | null;
+  emptyChatHeader?: string | null;
   model: string | null;
   skills: string[] | null;
   chatbotId: string | null;
   enableRag: boolean | null;
+  proxy?: AdminAgentProxyConfig | null;
   role: string | null;
   reportsTo: string | null;
   delegatesTo: string[] | null;
@@ -997,6 +1134,17 @@ export interface AdminAgent {
 
 export interface AdminAgentsResponse {
   agents: AdminAgent[];
+}
+
+export interface AdminHybridAIBot {
+  id: string;
+  name: string;
+  description?: string;
+  model?: string;
+}
+
+export interface AdminHybridAIBotsResponse {
+  bots: AdminHybridAIBot[];
 }
 
 export interface AdminTeamStructureEntry {
@@ -1155,13 +1303,32 @@ export interface AgentsOverviewResponse {
   sessions: AgentSessionCard[];
 }
 
+export type AgentListItemSource =
+  | { type: 'local' }
+  | {
+      type: 'remote';
+      peerId: string;
+      instanceId: string;
+    };
+
 export interface AgentListItem {
   id: string;
   name: string | null;
+  imageUrl?: string | null;
+  emptyChatHeader?: string | null;
+  source?: AgentListItemSource;
+}
+
+export interface RemoteAgentListPeer {
+  peerId: string;
+  instanceId: string;
+  agentCardUrl: string;
+  agents: AgentListItem[];
 }
 
 export interface AgentListResponse {
   agents: AgentListItem[];
+  remotePeers?: RemoteAgentListPeer[];
 }
 
 export interface JobAgent {
@@ -1246,7 +1413,17 @@ export interface AdminMcpConfig {
   cwd?: string;
   url?: string;
   headers?: Record<string, string>;
+  auth?: 'oauth';
   enabled?: boolean;
+}
+
+export type AdminMcpAuthState = 'connected' | 'expired' | 'unauthorized';
+
+export interface AdminMcpAuthStatus {
+  method: 'oauth' | 'none';
+  state?: AdminMcpAuthState;
+  expiresAt?: number | null;
+  scope?: string;
 }
 
 export interface AdminMcpServer {
@@ -1254,10 +1431,68 @@ export interface AdminMcpServer {
   enabled: boolean;
   summary: string;
   config: AdminMcpConfig;
+  auth: AdminMcpAuthStatus;
 }
 
 export interface AdminMcpResponse {
   servers: AdminMcpServer[];
+}
+
+export interface AdminMcpOAuthStartResponse {
+  serverName: string;
+  authorizationUrl: string;
+  state: string;
+  expiresAt: number;
+}
+
+export interface AdminMcpOAuthStatusResponse {
+  name: string;
+  auth: AdminMcpAuthStatus;
+}
+
+export type AdminConnectorId =
+  | 'hybridai'
+  | 'github'
+  | 'google'
+  | 'microsoft365';
+
+export type AdminConnectorState = 'connected' | 'not_connected' | 'needs_setup';
+
+export interface AdminConnector {
+  id: AdminConnectorId;
+  name: string;
+  description: string;
+  state: AdminConnectorState;
+  authKind: 'api-key' | 'oauth';
+  account: string | null;
+  detail: string;
+  scopes: string[];
+  routesConfigured: boolean;
+  clientConfigured: boolean;
+  clientSecretConfigured: boolean;
+  tenantId: string | null;
+  loginUrl: string | null;
+  adminConsentUrl: string | null;
+  setupSecretNames: string[];
+}
+
+export interface AdminConnectorsResponse {
+  connectors: AdminConnector[];
+  secretsPath: string;
+}
+
+export interface AdminConnectorOAuthStartResponse {
+  provider: Exclude<AdminConnectorId, 'hybridai'>;
+  authorizationUrl: string;
+  state: string;
+  expiresAt: number;
+}
+
+export interface AdminConnectorTestResponse {
+  provider: AdminConnectorId;
+  name: string;
+  ok: boolean;
+  message: string;
 }
 
 export interface AdminAuditEntry {
@@ -1312,6 +1547,7 @@ export interface AdminA2ATrustPeer {
 export interface AdminA2ATrustResponse {
   identity: AdminA2AIdentity;
   peers: AdminA2ATrustPeer[];
+  pairingRequests: AdminA2APairingRequest[];
 }
 
 export interface AdminA2ATrustUpsertRequest {
@@ -1321,6 +1557,108 @@ export interface AdminA2ATrustUpsertRequest {
   publicKeyFingerprint?: string;
   publicKeyJwk?: JsonWebKey;
   reason?: string;
+}
+
+export interface AdminFleetTopologyHq {
+  instanceId: string;
+  publicKeyFingerprint: string;
+  version: string;
+  status: 'local';
+  latencyMs: number;
+  lastSeenAt: string;
+}
+
+export type AdminFleetTopologyInstanceStatus =
+  | 'online'
+  | 'unreachable'
+  | 'unconfigured'
+  | 'revoked';
+
+export interface AdminFleetTopologyInstance {
+  peerId: string;
+  agentCardUrl: string;
+  deliveryUrl: string;
+  publicKeyFingerprint: string;
+  trustStatus: 'trusted' | 'revoked';
+  status: AdminFleetTopologyInstanceStatus;
+  version: string | null;
+  latencyMs: number | null;
+  error: string | null;
+  trustedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
+}
+
+export interface AdminFleetTopologyResponse {
+  hq: AdminFleetTopologyHq;
+  instances: AdminFleetTopologyInstance[];
+}
+
+export interface AdminFleetTopologyUpsertRequest {
+  peerId: string;
+  agentCardUrl?: string;
+  deliveryUrl?: string;
+  publicKeyFingerprint?: string;
+  publicKeyJwk?: JsonWebKey;
+  reason?: string;
+}
+
+export interface AdminA2APairingRequest {
+  schemaVersion: 1;
+  requestId: string;
+  status: 'pending' | 'approved' | 'declined';
+  pairingId: string | null;
+  peerId: string;
+  agentCardUrl: string;
+  deliveryUrl: string;
+  publicKeyJwk: JsonWebKey;
+  publicKeyFingerprint: string;
+  name: string | null;
+  requestedBy: string | null;
+  requestedAt: string;
+  updatedAt: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  declinedAt?: string;
+  declinedBy?: string;
+  reason?: string;
+}
+
+export interface AdminA2APairingStartRequest {
+  peerUrl?: string;
+  canonicalId?: string;
+  canonicalInstanceId?: string;
+  reason?: string;
+  notifyPeer?: boolean;
+}
+
+export interface AdminA2APairingPreviewResponse {
+  proposal: {
+    peerId: string;
+    agentCardUrl: string;
+    deliveryUrl: string;
+    publicKeyFingerprint: string;
+    publicKeyJwk: JsonWebKey;
+    name: string | null;
+  };
+}
+
+export interface AdminA2APairingStartResponse extends AdminA2ATrustResponse {
+  proposal: {
+    peerId: string;
+    agentCardUrl: string;
+    deliveryUrl: string;
+    publicKeyFingerprint: string;
+    name: string | null;
+  };
+  remoteNotification: {
+    status: 'not_requested' | 'sent' | 'failed';
+    url: string | null;
+    error: string | null;
+  };
 }
 
 export interface AdminA2AThreadMessage {
@@ -1467,6 +1805,8 @@ export interface AdminSkill {
   description: string;
   category: string;
   shortDescription?: string;
+  logoUrl?: string;
+  developer: string;
   source: string;
   available: boolean;
   enabled: boolean;
@@ -1484,13 +1824,114 @@ export interface AdminSkill {
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
+  capabilities: string[];
+  supportedChannels: string[];
+  requires: {
+    bins: string[];
+    env: string[];
+  };
   tags: string[];
   relatedSkills: string[];
+  install: Array<{
+    id?: string;
+    kind: 'brew' | 'uv' | 'npm' | 'node' | 'go' | 'download';
+    label?: string;
+    bins?: string[];
+    formula?: string;
+    package?: string;
+    module?: string;
+    url?: string;
+    path?: string;
+    chmod?: string;
+  }>;
+  credentials: Array<{
+    id: string;
+    kind: string;
+    required: boolean;
+    secretRef: {
+      source: string;
+      id: string;
+    };
+    scope?: string;
+    howToObtain?: string;
+  }>;
+  configVariables: Array<{
+    id: string;
+    env: string;
+    required: boolean;
+    scope?: string;
+    howToObtain?: string;
+  }>;
+  docs?: {
+    title: string;
+    sourcePath: string;
+    sourceHref: string;
+    tutorialMarkdown: string;
+    screenshots: Array<{
+      src: string;
+      alt: string;
+      title?: string;
+    }>;
+    examplePrompts: Array<{
+      prompt: string;
+      kind: 'try-it' | 'conversation';
+      turnIndex?: number;
+      conversationId?: string;
+    }>;
+  };
+}
+
+export type AdminSkillPackageEntryKind =
+  | 'directory'
+  | 'file'
+  | 'symlink'
+  | 'other';
+
+export interface AdminSkillPackageFile {
+  path: string;
+  name: string;
+  kind: AdminSkillPackageEntryKind;
+  sizeBytes: number | null;
+  updatedAt: string | null;
+  editable: boolean;
+  previewable: boolean;
+}
+
+export interface AdminSkillPackageFilesResponse {
+  skillName: string;
+  rootPath: string;
+  files: AdminSkillPackageFile[];
+}
+
+export interface AdminSkillPackageFileResponse {
+  skillName: string;
+  rootPath: string;
+  file: AdminSkillPackageFile & {
+    content: string | null;
+  };
+}
+
+export interface AdminSkillInvocation {
+  sessionId: string;
+  userMessageId: number;
+  assistantMessageId: number | null;
+  username: string | null;
+  createdAt: string;
+  responseCreatedAt: string | null;
+  userPrompt: string;
+  skillInput: string;
+  response: string | null;
+}
+
+export interface AdminSkillInvocationsResponse {
+  skillName: string;
+  invocations: AdminSkillInvocation[];
 }
 
 export interface AdminSkillsResponse {
   extraDirs: string[];
   disabled: string[];
+  channelDisabled?: Record<string, string[]>;
   skills: AdminSkill[];
 }
 
@@ -1669,6 +2110,183 @@ export interface AdminAgentScoreboardEntry {
 export interface AdminAgentScoreboardResponse {
   observed_skill_count: number;
   agents: AdminAgentScoreboardEntry[];
+}
+
+export type AdminDistillStageName =
+  | 'ingest'
+  | 'analyse'
+  | 'build'
+  | 'merge'
+  | 'correct';
+
+export type AdminDistillStageStatus =
+  | 'pending'
+  | 'completed'
+  | 'failed'
+  | 'awaiting-extraction';
+
+export type AdminDistillSourceKind =
+  | 'auto'
+  | 'slack-export'
+  | 'email-mbox'
+  | 'transcript'
+  | 'chat-jsonl'
+  | 'markdown'
+  | 'text'
+  | 'interview'
+  | 'correction';
+
+export interface AdminDistillStageState {
+  status: AdminDistillStageStatus;
+  startedAt?: string;
+  completedAt?: string;
+  detail?: string;
+}
+
+export interface AdminDistillSubjectProfile {
+  version: 1;
+  alias: string;
+  displayName: string;
+  realPerson: boolean;
+  role?: string;
+  relationship?: string;
+  personalityTags: string[];
+  matchAliases: string[];
+  createdAt: string;
+}
+
+export interface AdminDistillConsentSummary {
+  present: boolean;
+  valid: boolean;
+  revokedAt: string | null;
+  recordedAt: string | null;
+  grantedBy: string | null;
+  method: string | null;
+  scope: string | null;
+  sha256: string | null;
+}
+
+export interface AdminDistillEmbeddedText {
+  available: boolean;
+  content: string;
+  byteLength: number;
+  truncated: boolean;
+  error: string | null;
+}
+
+export interface AdminDistillRunSummary {
+  runId: string;
+  status: 'pending' | 'awaiting-extraction' | 'failed' | 'completed';
+  createdAt: string;
+  updatedAt: string;
+  stages: Record<AdminDistillStageName, AdminDistillStageState>;
+  stats: {
+    documentsAdded: number;
+    documentsTotal: number;
+    deltaDocuments: number;
+    claimsAdded: number;
+    claimsFlagged: number;
+    reviewsOpened: number;
+  };
+  sources: Array<{ path: string; kind: AdminDistillSourceKind }>;
+  reportPath: string;
+  packetMarkdownPath: string;
+  extractionPath: string;
+  artifacts: {
+    report: AdminDistillEmbeddedText;
+    packetMarkdown: AdminDistillEmbeddedText;
+    extraction: AdminDistillEmbeddedText;
+  };
+}
+
+export interface AdminDistillDataPaths {
+  workspacePath: string;
+  subjectPath: string;
+  uploadsPath: string;
+  corpusDocumentsPath: string;
+}
+
+export interface AdminDistillCorpusDocumentSummary {
+  id: string;
+  source: Exclude<AdminDistillSourceKind, 'auto'>;
+  origin: string;
+  author: string;
+  authoredBySubject: boolean;
+  title?: string;
+  channel?: string;
+  timestamp?: string;
+  wordCount: number;
+  weight: number;
+  holdout: boolean;
+  runId: string | null;
+  contentPreview: AdminDistillEmbeddedText;
+}
+
+export interface AdminDistillSubjectSummary {
+  agentId: string;
+  alias: string;
+  registeredAgent: boolean;
+  profile: AdminDistillSubjectProfile;
+  consent: AdminDistillConsentSummary;
+  paths: AdminDistillDataPaths;
+  corpusDocuments: number;
+  corpus: AdminDistillCorpusDocumentSummary[];
+  openReviews: number;
+  runs: AdminDistillRunSummary[];
+  latestRun: AdminDistillRunSummary | null;
+}
+
+export interface AdminDistillResponse {
+  sourceKinds: AdminDistillSourceKind[];
+  subjects: AdminDistillSubjectSummary[];
+}
+
+export interface AdminDistillSubjectPayload {
+  agentId?: string;
+  alias: string;
+  displayName?: string;
+  realPerson?: boolean;
+  role?: string;
+  relationship?: string;
+  personalityTags?: string[];
+  matchAliases?: string[];
+}
+
+export interface AdminDistillConsentPayload {
+  agentId?: string;
+  alias: string;
+  subjectName?: string;
+  grantedBy: string;
+  method: string;
+  statement: string;
+  scope?: string;
+  note?: string;
+}
+
+export interface AdminDistillRunPayload extends AdminDistillSubjectPayload {
+  sources?: Array<{ path: string; kind: AdminDistillSourceKind }>;
+  resumeRunId?: string;
+  holdoutRatio?: number;
+  kind?: AdminDistillSourceKind;
+}
+
+export interface AdminDistillSubjectResponse {
+  subject: AdminDistillSubjectSummary;
+}
+
+export interface AdminDistillRunResponse {
+  subject: AdminDistillSubjectSummary;
+  run: AdminDistillRunSummary;
+  warnings: string[];
+  flagged: string[];
+}
+
+export interface AdminDistillUploadResponse {
+  source: { path: string; kind: AdminDistillSourceKind };
+  path: string;
+  filename: string;
+  sizeBytes: number;
+  preview: AdminDistillEmbeddedText;
 }
 
 export interface AdminHarnessEvolutionMetrics {
@@ -1851,9 +2469,39 @@ export interface AdminToolsResponse {
   recentExecutions: AdminToolExecution[];
 }
 
+export type AdminSecretAction =
+  | 'secret.list_metadata'
+  | 'secret.overwrite'
+  | 'secret.unset';
+
+export interface AdminSecretFingerprint {
+  length: number;
+  sha256_prefix: string;
+}
+
+export interface AdminSecretEntry {
+  name: string;
+  state: 'set' | 'unset';
+  created_at: string | null;
+  last_rotated_at: string | null;
+  length: number | null;
+  fingerprint: AdminSecretFingerprint | null;
+}
+
+export interface AdminSecretsResponse {
+  secrets: AdminSecretEntry[];
+  total: number;
+  actions: AdminSecretAction[];
+}
+
+export interface AdminSecretMutationResponse {
+  secret: AdminSecretEntry;
+}
+
 export interface DeleteSessionResult {
   deleted: boolean;
   sessionId: string;
+  skippedReason?: 'has_user_messages';
   deletedMessages: number;
   deletedTasks: number;
   deletedSemanticMemories: number;

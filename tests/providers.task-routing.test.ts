@@ -144,6 +144,40 @@ test('resolves configured vision task model policy on the host', async () => {
   expect(taskModels?.session_search?.maxTokens).toBeUndefined();
 });
 
+test('resolves configured auxiliary task through named local endpoint', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.vllm.enabled = false;
+    config.local.endpoints = [
+      {
+        name: 'haigpu2',
+        type: 'vllm',
+        enabled: true,
+        baseUrl: 'http://haigpu2:8000/v1',
+        apiKey: 'gemma-secret-key',
+      },
+    ];
+    config.auxiliaryModels.compression.provider = 'vllm';
+    config.auxiliaryModels.compression.model =
+      'haigpu2/google/gemma-3-27b-it';
+    config.auxiliaryModels.compression.maxTokens = 222;
+  });
+  const taskRouting = await importFreshTaskRouting(homeDir);
+
+  const policy = await taskRouting.resolveTaskModelPolicy('compression', {
+    agentId: 'main',
+  });
+
+  expect(policy).toMatchObject({
+    provider: 'vllm',
+    baseUrl: 'http://haigpu2:8000/v1',
+    apiKey: 'gemma-secret-key',
+    model: 'vllm/google/gemma-3-27b-it',
+    isLocal: true,
+  });
+});
+
 test('prefers auxiliary env overrides for provider and model selection', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {

@@ -522,11 +522,8 @@ describe('tool call normalizer', () => {
     ]);
   });
 
-  test('resolves parser names by model family', () => {
+  test('resolves legacy parser names by model family', () => {
     expect(resolveToolCallTextParser('mistralai/devstral')).toBe('mistral');
-    expect(resolveToolCallTextParser('Qwen/Qwen3-Coder-30B-A3B')).toBe(
-      'qwen3_coder',
-    );
     expect(resolveToolCallTextParser('deepseek-ai/DeepSeek-V3.1')).toBe(
       'deepseek_v3_1',
     );
@@ -534,5 +531,10 @@ describe('tool call normalizer', () => {
       'liquid',
     );
     expect(resolveToolCallTextParser('unknown/model')).toBeNull();
+  });
+
+  test('does not infer Qwen parser behavior from model names', () => {
+    expect(resolveToolCallTextParser('Qwen/Qwen3-Coder-30B-A3B')).toBeNull();
+    expect(resolveToolCallTextParser('qwen/qwen3.5-9b')).toBeNull();
   });
 });

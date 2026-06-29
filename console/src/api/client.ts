@@ -1,5 +1,8 @@
 import type {
   AdminA2AInboxResponse,
+  AdminA2APairingPreviewResponse,
+  AdminA2APairingStartRequest,
+  AdminA2APairingStartResponse,
   AdminA2ATrustResponse,
   AdminA2ATrustUpsertRequest,
   AdminAdaptiveSkillAmendmentsResponse,
@@ -7,6 +10,7 @@ import type {
   AdminAgent,
   AdminAgentMarkdownFileResponse,
   AdminAgentMarkdownRevisionResponse,
+  AdminAgentProxyConfig,
   AdminAgentScoreboardResponse,
   AdminAgentsResponse,
   AdminApprovalsResponse,
@@ -19,20 +23,40 @@ import type {
   AdminChannelTransport,
   AdminCommandResult,
   AdminConfig,
+  AdminConfigReloadResponse,
   AdminConfigResponse,
+  AdminConnectorId,
+  AdminConnectorOAuthStartResponse,
+  AdminConnectorsResponse,
+  AdminConnectorTestResponse,
   AdminCreateSkillPayload,
+  AdminDistillConsentPayload,
+  AdminDistillResponse,
+  AdminDistillRunPayload,
+  AdminDistillRunResponse,
+  AdminDistillSourceKind,
+  AdminDistillSubjectPayload,
+  AdminDistillSubjectResponse,
+  AdminDistillUploadResponse,
   AdminEmailDeleteResponse,
   AdminEmailFolderResponse,
   AdminEmailMailboxResponse,
   AdminEmailMessageResponse,
+  AdminFleetTopologyResponse,
+  AdminFleetTopologyUpsertRequest,
   AdminHarnessEvolutionManifestResponse,
   AdminHarnessEvolutionResponse,
   AdminHarnessEvolutionRunResponse,
+  AdminHybridAIBot,
+  AdminHybridAIBotsResponse,
   AdminInteractionResponse,
   AdminInteractionResumeResponse,
   AdminJobsContextResponse,
   AdminLanHttpAccessMode,
+  AdminLogsResponse,
   AdminMcpConfig,
+  AdminMcpOAuthStartResponse,
+  AdminMcpOAuthStatusResponse,
   AdminMcpResponse,
   AdminModelsResponse,
   AdminOutputGuardPreviewResponse,
@@ -46,7 +70,12 @@ import type {
   AdminSchedulerBoardStatus,
   AdminSchedulerJob,
   AdminSchedulerResponse,
+  AdminSecretMutationResponse,
+  AdminSecretsResponse,
   AdminSession,
+  AdminSkillInvocationsResponse,
+  AdminSkillPackageFileResponse,
+  AdminSkillPackageFilesResponse,
   AdminSkillsResponse,
   AdminStatisticsResponse,
   AdminTeamStructureResponse,
@@ -54,6 +83,8 @@ import type {
   AdminTerminalStartResponse,
   AdminTerminalStopResponse,
   AdminToolsResponse,
+  AdminTunnelConfigInput,
+  AdminTunnelConfigResponse,
   AdminTunnelStatus,
   AgentListItem,
   AgentListResponse,
@@ -187,6 +218,15 @@ export async function readErrorResponseMessage(
   }
 }
 
+export class HttpResponseError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'HttpResponseError';
+    this.status = status;
+  }
+}
+
 export async function throwResponseError(
   response: Response,
   options?: { onAuthError?: 'dispatch' | 'ignore' },
@@ -195,7 +235,7 @@ export async function throwResponseError(
   if (response.status === 401 && options?.onAuthError !== 'ignore') {
     dispatchAuthRequired(message);
   }
-  throw new Error(message);
+  throw new HttpResponseError(message, response.status);
 }
 
 export async function requestJson<T>(
@@ -234,21 +274,20 @@ export async function requestJson<T>(
 }
 
 export function readStoredToken(): string {
-  const search = new URLSearchParams(window.location.search);
-  const queryToken = (search.get('token') || '').trim();
-  if (queryToken) {
-    window.localStorage.setItem(TOKEN_STORAGE_KEY, queryToken);
-    removeSearchParam(LOCAL_TOKEN_BOOTSTRAP_PARAM);
-    return queryToken;
-  }
-  removeSearchParam(LOCAL_TOKEN_BOOTSTRAP_PARAM);
-  return window.localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+  removeSearchParams(['token', LOCAL_TOKEN_BOOTSTRAP_PARAM]);
+  clearStoredToken();
+  return '';
 }
 
-function removeSearchParam(name: string): void {
+function removeSearchParams(names: string[]): void {
   const url = new URL(window.location.href);
-  if (!url.searchParams.has(name)) return;
-  url.searchParams.delete(name);
+  let changed = false;
+  for (const name of names) {
+    if (!url.searchParams.has(name)) continue;
+    url.searchParams.delete(name);
+    changed = true;
+  }
+  if (!changed) return;
   window.history.replaceState(
     window.history.state,
     '',
@@ -257,18 +296,18 @@ function removeSearchParam(name: string): void {
 }
 
 export function storeToken(token: string): void {
-  window.localStorage.setItem(TOKEN_STORAGE_KEY, token.trim());
+  void token;
+  clearStoredToken();
 }
 
 export function clearStoredToken(): void {
+  window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
 }
 
 export function adminEventsUrl(token: string): string {
-  const trimmed = token.trim();
-  if (!trimmed) return '/api/events';
-  const params = new URLSearchParams({ token: trimmed });
-  return `/api/events?${params.toString()}`;
+  void token;
+  return '/api/events';
 }
 
 export function validateToken(token: string): Promise<GatewayStatus> {
@@ -289,11 +328,41 @@ export function fetchOverview(token: string): Promise<AdminOverview> {
   return requestJson<AdminOverview>('/api/admin/overview', { token });
 }
 
+export function fetchTunnelConfig(
+  token: string,
+): Promise<AdminTunnelConfigResponse> {
+  return requestJson<AdminTunnelConfigResponse>('/api/admin/tunnel', {
+    token,
+  });
+}
+
+export function saveTunnelConfig(
+  token: string,
+  payload: AdminTunnelConfigInput,
+): Promise<AdminTunnelConfigResponse> {
+  return requestJson<AdminTunnelConfigResponse>('/api/admin/tunnel', {
+    token,
+    method: 'PUT',
+    body: payload,
+  });
+}
+
 export async function reconnectTunnel(
   token: string,
 ): Promise<AdminTunnelStatus> {
   const payload = await requestJson<{ tunnel: AdminTunnelStatus }>(
     '/api/admin/tunnel/reconnect',
+    {
+      token,
+      method: 'POST',
+    },
+  );
+  return payload.tunnel;
+}
+
+export async function stopTunnel(token: string): Promise<AdminTunnelStatus> {
+  const payload = await requestJson<{ tunnel: AdminTunnelStatus }>(
+    '/api/admin/tunnel/stop',
     {
       token,
       method: 'POST',
@@ -316,8 +385,183 @@ export function fetchStatistics(
   );
 }
 
+export function fetchAdminLogs(
+  token: string,
+  params?: { fileId?: string | null; tailBytes?: number },
+): Promise<AdminLogsResponse> {
+  const query = new URLSearchParams();
+  if (params?.fileId) query.set('file', params.fileId);
+  if (params?.tailBytes) query.set('tailBytes', String(params.tailBytes));
+  const suffix = query.toString();
+  return requestJson<AdminLogsResponse>(
+    suffix ? `/api/admin/logs?${suffix}` : '/api/admin/logs',
+    { token },
+  );
+}
+
 export function fetchA2ATrust(token: string): Promise<AdminA2ATrustResponse> {
   return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/trust', { token });
+}
+
+export function fetchFleetTopology(
+  token: string,
+): Promise<AdminFleetTopologyResponse> {
+  return requestJson<AdminFleetTopologyResponse>('/api/admin/fleet-topology', {
+    token,
+  });
+}
+
+export function fetchDistill(token: string): Promise<AdminDistillResponse> {
+  return requestJson<AdminDistillResponse>('/api/admin/distill', { token });
+}
+
+export function saveDistillSubject(
+  token: string,
+  payload: AdminDistillSubjectPayload,
+): Promise<AdminDistillSubjectResponse> {
+  return requestJson<AdminDistillSubjectResponse>(
+    '/api/admin/distill/subjects',
+    {
+      token,
+      method: 'POST',
+      body: payload,
+    },
+  );
+}
+
+export function recordDistillConsent(
+  token: string,
+  payload: AdminDistillConsentPayload,
+): Promise<AdminDistillSubjectResponse> {
+  return requestJson<AdminDistillSubjectResponse>(
+    '/api/admin/distill/consent',
+    {
+      token,
+      method: 'POST',
+      body: payload,
+    },
+  );
+}
+
+export function registerDistillAgent(
+  token: string,
+  payload: Pick<AdminDistillSubjectPayload, 'agentId' | 'alias'>,
+): Promise<AdminDistillSubjectResponse> {
+  return requestJson<AdminDistillSubjectResponse>(
+    '/api/admin/distill/register',
+    {
+      token,
+      method: 'POST',
+      body: payload,
+    },
+  );
+}
+
+export function runDistill(
+  token: string,
+  payload: AdminDistillRunPayload,
+): Promise<AdminDistillRunResponse> {
+  return requestJson<AdminDistillRunResponse>('/api/admin/distill/runs', {
+    token,
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export function uploadDistillSource(
+  token: string,
+  file: File,
+  params: {
+    alias: string;
+    agentId?: string;
+    kind?: AdminDistillSourceKind;
+  },
+): Promise<AdminDistillUploadResponse> {
+  const search = new URLSearchParams({ alias: params.alias });
+  if (params.agentId?.trim()) search.set('agentId', params.agentId.trim());
+  if (params.kind?.trim()) search.set('kind', params.kind.trim());
+  return requestJson<AdminDistillUploadResponse>(
+    `/api/admin/distill/sources/upload?${search.toString()}`,
+    {
+      token,
+      method: 'POST',
+      rawBody: file,
+      extraHeaders: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'X-Hybridclaw-Filename': encodeURIComponent(file.name || 'source.txt'),
+      },
+    },
+  );
+}
+
+function distillCorpusDocumentPath(params: {
+  alias: string;
+  agentId?: string;
+  documentId: string;
+}): string {
+  const search = new URLSearchParams({ alias: params.alias });
+  if (params.agentId?.trim()) search.set('agentId', params.agentId.trim());
+  return `/api/admin/distill/corpus/${encodeURIComponent(params.documentId)}?${search.toString()}`;
+}
+
+export async function downloadDistillCorpusDocument(
+  token: string,
+  params: {
+    alias: string;
+    agentId?: string;
+    documentId: string;
+  },
+): Promise<Blob> {
+  const response = await fetch(distillCorpusDocumentPath(params), {
+    headers: requestHeaders(token),
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    await throwResponseError(response);
+  }
+  return response.blob();
+}
+
+export function deleteDistillCorpusDocument(
+  token: string,
+  params: {
+    alias: string;
+    agentId?: string;
+    documentId: string;
+  },
+): Promise<AdminDistillSubjectResponse> {
+  return requestJson<AdminDistillSubjectResponse>(
+    distillCorpusDocumentPath(params),
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
+}
+
+export function upsertFleetTopologyInstance(
+  token: string,
+  body: AdminFleetTopologyUpsertRequest,
+): Promise<AdminFleetTopologyResponse> {
+  return requestJson<AdminFleetTopologyResponse>('/api/admin/fleet-topology', {
+    token,
+    method: 'POST',
+    body,
+  });
+}
+
+export function deleteFleetTopologyInstance(
+  token: string,
+  peerId: string,
+): Promise<AdminFleetTopologyResponse> {
+  const search = new URLSearchParams({ peerId });
+  return requestJson<AdminFleetTopologyResponse>(
+    `/api/admin/fleet-topology?${search.toString()}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
 }
 
 export function fetchA2AInbox(
@@ -374,16 +618,62 @@ export function deleteA2ATrustPeer(
   );
 }
 
-export function reloadGateway(
+export function startA2APairing(
   token: string,
-): Promise<{ status: 'ok'; message: string }> {
-  return requestJson<{ status: 'ok'; message: string }>(
-    '/api/admin/config/reload',
+  body: AdminA2APairingStartRequest,
+): Promise<AdminA2APairingStartResponse> {
+  return requestJson<AdminA2APairingStartResponse>('/api/admin/a2a/pairing', {
+    token,
+    method: 'POST',
+    body,
+  });
+}
+
+export function previewA2APairing(
+  token: string,
+  body: AdminA2APairingStartRequest,
+): Promise<AdminA2APairingPreviewResponse> {
+  return requestJson<AdminA2APairingPreviewResponse>(
+    '/api/admin/a2a/pairing/preview',
     {
       token,
       method: 'POST',
+      body,
     },
   );
+}
+
+export function approveA2APairingRequest(
+  token: string,
+  requestId: string,
+  reason?: string,
+): Promise<AdminA2ATrustResponse> {
+  return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/pairing/approve', {
+    token,
+    method: 'POST',
+    body: { requestId, ...(reason?.trim() ? { reason: reason.trim() } : {}) },
+  });
+}
+
+export function declineA2APairingRequest(
+  token: string,
+  requestId: string,
+  reason?: string,
+): Promise<AdminA2ATrustResponse> {
+  return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/pairing/decline', {
+    token,
+    method: 'POST',
+    body: { requestId, ...(reason?.trim() ? { reason: reason.trim() } : {}) },
+  });
+}
+
+export function reloadGateway(
+  token: string,
+): Promise<AdminConfigReloadResponse> {
+  return requestJson<AdminConfigReloadResponse>('/api/admin/config/reload', {
+    token,
+    method: 'POST',
+  });
 }
 
 export function startAdminTerminal(
@@ -434,7 +724,21 @@ export async function fetchAgentList(token: string): Promise<AgentListItem[]> {
   const payload = await requestJson<AgentListResponse>('/api/agents/list', {
     token,
   });
-  return payload.agents;
+  const localAgents = payload.agents.map((agent) => ({
+    ...agent,
+    source: { type: 'local' } as const,
+  }));
+  const remoteAgents = (payload.remotePeers ?? []).flatMap((peer) =>
+    peer.agents.map((agent) => ({
+      ...agent,
+      source: {
+        type: 'remote' as const,
+        peerId: peer.peerId,
+        instanceId: peer.instanceId,
+      },
+    })),
+  );
+  return [...localAgents, ...remoteAgents];
 }
 
 export async function fetchAdminAgents(token: string): Promise<AdminAgent[]> {
@@ -442,6 +746,38 @@ export async function fetchAdminAgents(token: string): Promise<AdminAgent[]> {
     token,
   });
   return payload.agents;
+}
+
+export async function fetchAdminHybridAIBots(
+  token: string,
+  baseUrl?: string,
+): Promise<AdminHybridAIBot[]> {
+  const params = new URLSearchParams();
+  if (baseUrl?.trim()) params.set('baseUrl', baseUrl.trim());
+  const query = params.toString();
+  const payload = await requestJson<AdminHybridAIBotsResponse>(
+    `/api/admin/hybridai/bots${query ? `?${query}` : ''}`,
+    { token },
+  );
+  return payload.bots;
+}
+
+export async function updateAdminAgent(
+  token: string,
+  agentId: string,
+  payload: {
+    proxy?: AdminAgentProxyConfig | null;
+  },
+): Promise<AdminAgent> {
+  const response = await requestJson<{ agent: AdminAgent }>(
+    `/api/admin/agents/${encodeURIComponent(agentId)}`,
+    {
+      token,
+      method: 'PUT',
+      body: payload,
+    },
+  );
+  return response.agent;
 }
 
 export function fetchAdminTeamStructure(
@@ -640,8 +976,14 @@ export function deleteAdminEmailMessage(
 export function deleteSession(
   token: string,
   sessionId: string,
+  options?: {
+    onlyWithoutUserMessages?: boolean;
+  },
 ): Promise<DeleteSessionResult> {
   const params = new URLSearchParams({ sessionId });
+  if (options?.onlyWithoutUserMessages) {
+    params.set('ifNoUserMessages', '1');
+  }
   return requestJson<DeleteSessionResult>(
     `/api/admin/sessions?${params.toString()}`,
     {
@@ -712,8 +1054,18 @@ export function startBrowserPool(
   );
 }
 
-export function fetchEmailConfig(token: string): Promise<unknown> {
-  return requestJson<unknown>('/api/admin/email-config/fetch', { token });
+export function fetchEmailConfig(
+  token: string,
+  options: { handleId?: string | null } = {},
+): Promise<unknown> {
+  const query = new URLSearchParams();
+  const handleId = String(options.handleId || '').trim();
+  if (handleId) query.set('handleId', handleId);
+  const queryString = query.toString();
+  const suffix = queryString ? `?${queryString}` : '';
+  return requestJson<unknown>(`/api/admin/email-config/fetch${suffix}`, {
+    token,
+  });
 }
 
 export function saveConfig(
@@ -798,6 +1150,40 @@ export function setRuntimeSecret(
   secretValue: string,
 ): Promise<AdminCommandResult> {
   return runAdminCommand(token, ['secret', 'set', secretName, secretValue]);
+}
+
+export function fetchAdminSecrets(
+  token: string,
+): Promise<AdminSecretsResponse> {
+  return requestJson<AdminSecretsResponse>('/api/admin/secrets', { token });
+}
+
+export function overwriteAdminSecret(
+  token: string,
+  name: string,
+  value: string,
+): Promise<AdminSecretMutationResponse> {
+  return requestJson<AdminSecretMutationResponse>(
+    `/api/admin/secrets/${encodeURIComponent(name)}`,
+    {
+      token,
+      method: 'PUT',
+      body: { value },
+    },
+  );
+}
+
+export function unsetAdminSecret(
+  token: string,
+  name: string,
+): Promise<AdminSecretMutationResponse> {
+  return requestJson<AdminSecretMutationResponse>(
+    `/api/admin/secrets/${encodeURIComponent(name)}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
 }
 
 export function fetchModels(token: string): Promise<AdminModelsResponse> {
@@ -890,6 +1276,71 @@ export function fetchMcp(token: string): Promise<AdminMcpResponse> {
   return requestJson<AdminMcpResponse>('/api/admin/mcp', { token });
 }
 
+export function fetchConnectors(
+  token: string,
+): Promise<AdminConnectorsResponse> {
+  return requestJson<AdminConnectorsResponse>('/api/admin/connectors', {
+    token,
+  });
+}
+
+export function saveHybridAIConnectorKey(
+  token: string,
+  apiKey: string,
+): Promise<AdminConnectorsResponse> {
+  return requestJson<AdminConnectorsResponse>(
+    '/api/admin/connectors/hybridai/key',
+    {
+      token,
+      method: 'PUT',
+      body: { apiKey },
+    },
+  );
+}
+
+export function startConnectorOAuth(
+  token: string,
+  payload: {
+    provider: Exclude<AdminConnectorId, 'hybridai'>;
+    account?: string;
+    tenantId?: string;
+    clientId?: string;
+    clientSecret?: string;
+    scopes?: string;
+  },
+): Promise<AdminConnectorOAuthStartResponse> {
+  return requestJson<AdminConnectorOAuthStartResponse>(
+    '/api/admin/connectors/oauth/start',
+    {
+      token,
+      method: 'POST',
+      body: payload,
+    },
+  );
+}
+
+export function logoutConnector(
+  token: string,
+  provider: AdminConnectorId,
+): Promise<AdminConnectorsResponse> {
+  return requestJson<AdminConnectorsResponse>('/api/admin/connectors/logout', {
+    token,
+    method: 'POST',
+    body: { provider },
+  });
+}
+
+export function testConnector(
+  token: string,
+  provider: AdminConnectorId,
+): Promise<AdminConnectorTestResponse> {
+  return requestJson<AdminConnectorTestResponse>('/api/admin/connectors/test', {
+    token,
+    method: 'POST',
+    body: { provider },
+  });
+}
+
 export function saveMcpServer(
   token: string,
   payload: { name: string; config: AdminMcpConfig },
@@ -909,6 +1360,39 @@ export function deleteMcpServer(
   return requestJson<AdminMcpResponse>(`/api/admin/mcp?${params.toString()}`, {
     token,
     method: 'DELETE',
+  });
+}
+
+export function startMcpOAuth(
+  token: string,
+  name: string,
+): Promise<AdminMcpOAuthStartResponse> {
+  return requestJson<AdminMcpOAuthStartResponse>('/api/admin/mcp/oauth/start', {
+    token,
+    method: 'POST',
+    body: { name },
+  });
+}
+
+export function fetchMcpOAuthStatus(
+  token: string,
+  name: string,
+): Promise<AdminMcpOAuthStatusResponse> {
+  const params = new URLSearchParams({ name });
+  return requestJson<AdminMcpOAuthStatusResponse>(
+    `/api/admin/mcp/oauth/status?${params.toString()}`,
+    { token },
+  );
+}
+
+export function logoutMcpOAuth(
+  token: string,
+  name: string,
+): Promise<AdminMcpResponse> {
+  return requestJson<AdminMcpResponse>('/api/admin/mcp/oauth/logout', {
+    token,
+    method: 'POST',
+    body: { name },
   });
 }
 
@@ -1100,6 +1584,50 @@ export function unblockSkill(
     method: 'POST',
     body: { name: skillName },
   });
+}
+
+export function fetchSkillPackageFiles(
+  token: string,
+  skillName: string,
+): Promise<AdminSkillPackageFilesResponse> {
+  return requestJson<AdminSkillPackageFilesResponse>(
+    `/api/admin/skills/${encodeURIComponent(skillName)}/files`,
+    { token },
+  );
+}
+
+export function fetchSkillInvocations(
+  token: string,
+  skillName: string,
+): Promise<AdminSkillInvocationsResponse> {
+  return requestJson<AdminSkillInvocationsResponse>(
+    `/api/admin/skills/${encodeURIComponent(skillName)}/invocations`,
+    { token },
+  );
+}
+
+export function fetchSkillPackageFile(
+  token: string,
+  params: { skillName: string; path: string },
+): Promise<AdminSkillPackageFileResponse> {
+  return requestJson<AdminSkillPackageFileResponse>(
+    `/api/admin/skills/${encodeURIComponent(params.skillName)}/files/content?path=${encodeURIComponent(params.path)}`,
+    { token },
+  );
+}
+
+export function saveSkillPackageFile(
+  token: string,
+  params: { skillName: string; path: string; content: string },
+): Promise<AdminSkillPackageFileResponse> {
+  return requestJson<AdminSkillPackageFileResponse>(
+    `/api/admin/skills/${encodeURIComponent(params.skillName)}/files/content?path=${encodeURIComponent(params.path)}`,
+    {
+      token,
+      method: 'PUT',
+      body: { content: params.content },
+    },
+  );
 }
 
 export function fetchPlugins(token: string): Promise<AdminPluginsResponse> {

@@ -19,6 +19,7 @@ export function printMainUsage(): void {
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, Slack, Telegram, Signal, Threema, WhatsApp, Email)
+  coworker   Distill a human's source material into a coworker agent
   browser    Manage persistent browser profiles for agent web automation
   browser-pool
              Check managed browser pool health
@@ -50,6 +51,9 @@ Notes:
   - Target coworker workspaces expose seven editable surfaces:
     system_prompt.md, tools.yaml, tools/, middleware/, sub_agents/, config/, long_term_memory/.
   - Fresh evolution refuses non-minimal seeds; production coworkers can use run without --fresh-seed.
+  - Suites may tag tasks with risks.nistAiRmf, risks.nistGaiProfile, and risks.owaspLlmTop10,
+    then require coverage with riskCoverage.requireNistAiRmfCore,
+    requireNistGaiProfile, or requireOwaspLlmTop10.
   - contract prints the evolve-agent system prompt and tool schema for host orchestration.
   - Round artifacts and F12 manifests are written under target runs/.`);
 }
@@ -63,7 +67,7 @@ Commands:
   hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--system-prompt=<parts|none>] [--tools=full|none] [--no-tools] [--sandbox=container|host]
   hybridclaw gateway stop
   hybridclaw gateway status
-  hybridclaw gateway sessions [active|clear-active]
+  hybridclaw gateway sessions [active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]
   hybridclaw gateway bot info
   hybridclaw gateway voice [info|call <e164-number>]
   hybridclaw gateway show [all|thinking|tools|none]
@@ -74,6 +78,8 @@ Commands:
 export function printEvalUsage(): void {
   console.log(`Usage: hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]
        hybridclaw eval locomo [setup|run|status|stop|results|logs]
+       hybridclaw eval trace-judge [run|status|stop|results|logs]
+       hybridclaw eval agent-risk [run|status|stop|results|logs]
        hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
        hybridclaw eval tau2 [setup|run|status|stop|results]
        hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
@@ -100,6 +106,9 @@ Examples:
   hybridclaw eval locomo run --mode retrieval --matrix rerank --budget 4000
   hybridclaw eval locomo run --mode retrieval --matrix tokenizer --budget 4000
   hybridclaw eval locomo run --mode retrieval --matrix embedding --budget 4000
+  hybridclaw eval trace-judge run
+  hybridclaw eval agent-risk run
+  hybridclaw eval agent-risk run --scenario data-privacy
   hybridclaw eval tau2
   hybridclaw eval tau2 setup
   hybridclaw eval terminal-bench-2.0 setup
@@ -115,8 +124,11 @@ Examples:
 Notes:
   - This is a local-only command. It is not intended for remote chat channels.
   - Detached benchmark commands are launched directly with \`hybridclaw eval <command...>\`.
-  - Only \`locomo\`, \`terminal-bench-2.0\`, and \`tau2\` have active HybridClaw implementations today.
+  - Only \`locomo\`, \`trace-judge\`, \`agent-risk\`, \`terminal-bench-2.0\`, and \`tau2\` have active HybridClaw implementations today.
   - \`swebench-verified\`, \`agentbench\`, and \`gaia\` are stub entries that return \`not implemented yet\`.
+  - \`agent-risk\` runs synthetic canary scenarios through the local OpenAI-compatible gateway for every top-level NIST AI RMF function, NIST AI 600-1 GAI risk, and OWASP LLM Top 10 2025 item.
+  - \`agent-risk\` is automated top-level eval coverage, not a formal compliance attestation; organizational controls still require external evidence.
+  - \`agent-risk run --scenario <id>\` runs one scenario; \`agent-risk run\` runs the full top-level taxonomy suite.
   - \`locomo\` downloads the official \`locomo10.json\` dataset during \`setup\`.
   - \`locomo --mode qa\` sends evaluate_gpts-style QA prompts through HybridClaw's local OpenAI-compatible gateway and scores the generated answers.
   - \`locomo --mode retrieval\` skips model generation, ingests each conversation into an isolated native memory session, and scores evidence hit-rate from recalled semantic memories.
@@ -177,7 +189,7 @@ Interactive slash commands inside TUI:
   /reset [yes|no]
   /schedule add "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
   /secret list   /secret set <name> <value>   /secret show <name>   /secret unset <name>   /secret route ...
-  /sessions [active|clear-active]
+  /sessions [active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]
   /show [all|thinking|tools|none]
   /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|unblock <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
   /status
@@ -201,7 +213,7 @@ export function printLocalUsage(): void {
 
 Commands:
   hybridclaw local status
-  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
+  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
 
 Use Instead:
   hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] ...
@@ -214,6 +226,7 @@ Examples:
   hybridclaw local configure llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
   hybridclaw local configure ollama llama3.2
   hybridclaw local configure vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
+  hybridclaw local configure vllm google/gemma-4-e4b-it --name haigpu2 --base-url http://haigpu2:8000 --api-key secret --no-default
 
 Notes:
   - \`hybridclaw local ...\` is deprecated and will be removed in a future release.
@@ -221,6 +234,8 @@ Notes:
   - Ollama URLs are normalized to omit \`/v1\`.
   - When a model id is provided, \`configure\` also sets \`hybridai.defaultModel\` to that local model by default.
     Use \`--no-default\` to leave the global default model unchanged.
+  - Use \`--name <endpoint>\` to configure another endpoint of the same backend type. Named models use \`<endpoint>/<model>\`, for example \`haigpu2/google/gemma-4-e4b-it\`.
+  - Use \`--thinking-format qwen\` to attach explicit model-behavior flags to a backend or named endpoint.
   - When no model id is provided, \`configure\` only enables the backend so you can browse models later with \`/model list <backend>\`.`);
 }
 
@@ -229,9 +244,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|local|msteams|slack> ...
-  hybridclaw auth status <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|local|msteams|slack>
-  hybridclaw auth logout <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|local|msteams|slack>
+  hybridclaw auth login <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack> ...
+  hybridclaw auth status <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
+  hybridclaw auth logout <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
   hybridclaw auth whatsapp reset
 
 Examples:
@@ -246,6 +261,7 @@ Examples:
   hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
   hybridclaw auth login google --client-id ... --client-secret ... --account you@gmail.com
   hybridclaw auth login hubspot --client-id ... --client-secret ... --account sales@example.com
+  hybridclaw auth login microsoft365 --client-id ... --tenant-id organizations --account you@example.com
   hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
   hybridclaw auth login local ollama llama3.2
   hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
@@ -258,6 +274,7 @@ Examples:
   hybridclaw auth status huggingface
   hybridclaw auth status google
   hybridclaw auth status hubspot
+  hybridclaw auth status microsoft365
   hybridclaw auth status msteams
   hybridclaw auth status slack
   hybridclaw auth logout anthropic
@@ -266,6 +283,7 @@ Examples:
   hybridclaw auth logout huggingface
   hybridclaw auth logout google
   hybridclaw auth logout hubspot
+  hybridclaw auth logout microsoft365
   hybridclaw auth logout msteams
   hybridclaw auth logout slack
 
@@ -282,6 +300,7 @@ Notes:
   - \`auth login huggingface\` prompts for the token when \`--api-key\` and \`HF_TOKEN\` are both absent.
   - \`secret set HUBSPOT_ACCESS_TOKEN\` stores a HubSpot Service Key or bearer token in ${runtimeSecretsPath()} for HubSpot API calls.
   - \`auth login hubspot --access-token <token>\` is an equivalent HubSpot Service Key setup path.
+  - \`auth login microsoft365\` stores Microsoft Entra OAuth refresh-token material for Microsoft Graph calls.
   - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.
   - \`auth login slack\` prompts for the bot token and app token when the terminal is interactive.`);
 }
@@ -334,6 +353,32 @@ Notes:
   - Legacy private app access tokens are also accepted bearer credentials; HubSpot Personal Access Keys and Developer Keys are not valid CRM REST bearer tokens for this skill.
   - OAuth client id/client secret setup is only needed for public app OAuth flows.
   - The gateway injects \`HUBSPOT_ACCESS_TOKEN\` only into HubSpot API requests.`);
+}
+
+export function printMicrosoft365Usage(): void {
+  console.log(`Usage: hybridclaw auth login microsoft365 [options]
+
+Options:
+  --client-id <id>          Microsoft Entra app client id
+  --client-secret <secret>  Optional client secret for confidential app registrations
+  --tenant-id <tenant>      Tenant id, verified domain, common, organizations, or consumers
+  --account <label>         Optional account label or email for status output
+  --scopes <scopes>         Space- or comma-separated Microsoft Graph delegated scopes
+  --refresh-token <token>   Store an existing refresh token instead of opening the browser flow
+  --redirect-port <port>    Fixed localhost callback port (optional)
+
+Examples:
+  hybridclaw auth login microsoft365 --client-id "<client-id>" --tenant-id organizations --account you@example.com
+  hybridclaw auth login microsoft365 --client-id "<client-id>" --client-secret "<secret>" --tenant-id "<tenant-id>"
+  hybridclaw auth login microsoft365 --client-id "<client-id>" --refresh-token "<refresh-token>"
+  hybridclaw auth status microsoft365
+  hybridclaw auth logout microsoft365
+
+Notes:
+  - Create a Microsoft Entra app registration with a localhost/mobile-desktop redirect URI matching the printed callback URL.
+  - The default scopes are delegated read-only Graph scopes for user profile, Outlook mail/calendar, OneDrive/SharePoint files, Teams, and chats.
+  - Tenant admins may need to grant consent for the default read-only Graph scopes before normal users can connect.
+  - The gateway injects \`MICROSOFT_365_ACCESS_TOKEN\` only into graph.microsoft.com requests.`);
 }
 
 export function printChannelsUsage(): void {
@@ -827,7 +872,7 @@ Commands:
   hybridclaw secret show <name>
   hybridclaw secret unset <name>
   hybridclaw secret route list
-  hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
+  hybridclaw secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
   hybridclaw secret route remove <url-prefix> [header]
 
 Examples:
@@ -837,12 +882,13 @@ Examples:
   hybridclaw secret unset SF_FULL_USERNAME
   hybridclaw secret route add https://staging.hybridai.one/api/v1/ STAGING_HYBRIDAI_API_KEY X-API-Key none
   hybridclaw secret route add https://analyticsdata.googleapis.com/ google-oauth Authorization Bearer
+  hybridclaw secret route add https://graph.microsoft.com/v1.0/ microsoft-oauth Authorization Bearer
 
 Notes:
   - \`secret\` reads and writes the encrypted store at ${runtimeSecretsPath()}.
   - Secret names must use uppercase letters, digits, and underscores.
   - \`show\` reports whether a secret is stored; it never outputs decrypted values. Secrets are only resolved gateway-side via \`<secret:NAME>\` placeholders or auth rules.
-  - \`route add\` writes \`tools.httpRequest.authRules[]\` in ${runtimeConfigPath()} with a store-backed secret ref or the Google OAuth runtime token provider.
+  - \`route add\` writes \`tools.httpRequest.authRules[]\` in ${runtimeConfigPath()} with a store-backed secret ref, the Google OAuth runtime token provider, or the Microsoft Graph OAuth runtime token provider.
   - Use \`prefix\` for \`Bearer <secret>\` or \`none\` for raw header injection.`);
 }
 
@@ -871,6 +917,7 @@ export function printAgentUsage(): void {
 
 Commands:
   hybridclaw agent list
+  hybridclaw agent create <id> [--name <name>] [--model <model>] [--workspace <path-or-id>] [--activate]
   hybridclaw agent config <json|--json <json>> [--activate]
   hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
   hybridclaw agent inspect <file.claw>
@@ -880,6 +927,8 @@ Commands:
 
 Notes:
   - \`list\` prints registered agents in a script-friendly tab-separated format.
+  - \`create\` registers a new agent and fills missing bootstrap files in its managed workspace.
+  - Use \`--workspace\` with \`create\` to attach an existing managed workspace path such as \`~/.hybridclaw/data/agents/ben/workspace\`, or a managed workspace id.
   - \`config\` upserts an agent from a quoted JSON payload. The payload may be an agent object directly, or \`{"agent": {...}, "markdown": {"IDENTITY.md": "..."}}\`.
   - \`config\` writes \`markdown\` or \`files\` entries as top-level \`.md\` files in the agent workspace, overwriting existing files.
   - \`config\` imports \`imageAsset\` URLs or local file paths into the agent workspace \`assets/\` directory.
@@ -891,7 +940,7 @@ Notes:
   - Use \`--plugins active\` to bundle only enabled home plugins, \`--plugins all\` to bundle all installed home plugins, or \`--plugins some --plugin <id>\` to bundle a selected subset.
   - Interactive export defaults to \`--skills ask\` and \`--plugins ask\`; non-interactive export defaults to \`--skills all\` and \`--plugins active\`.
   - \`inspect\` validates the archive manifest and prints a summary without extracting files.
-  - \`install\` validates ZIP safety, confirms the manifest, registers the agent, restores bundled content, installs manifest-declared skill imports into the agent workspace, and fills missing bootstrap files.
+  - \`install\` validates ZIP safety, confirms the manifest, registers the agent, restores archived workspace content, and installs only manifest-declared bundled content or imports.
   - \`install official:<agent-dir>\` downloads a packaged agent from \`HybridAIOne/claws\` on GitHub before installing it.
   - \`install github:owner/repo/<agent-dir>\` resolves the packaged agent from a GitHub claws repo; use \`github:owner/repo/<ref>/<agent-dir>\` to pin a ref.
   - Direct \`https://.../*.claw\` URLs download the archive before installing it.
@@ -903,6 +952,47 @@ Notes:
   - Use \`--skip-externals\` to skip manifest-declared imported skills and other external references during install.
   - Use \`--skip-import-errors\` to continue agent install when an imported skill fetch/install fails, and print retry commands instead.
   - Legacy aliases remain accepted: \`pack\` maps to \`export\`, and \`unpack\` maps to \`install\`.`);
+}
+
+export function printCoworkerUsage(): void {
+  console.log(`Usage: hybridclaw coworker <command>
+
+Distill a real person's source material (chat exports, emails, transcripts,
+docs, interviews) into a hireable coworker agent: persona into the existing
+identity files (IDENTITY.md / SOUL.md / USER.md / CV.md) plus a generated
+work-module skill, with per-claim source citations.
+
+Commands:
+  hybridclaw coworker distill --alias <alias> [--name "<display name>"] --source <path> [...]
+      Run the pipeline: ingest -> analyse -> build -> merge -> correct.
+      Flags: --role <role> --relationship <rel> --tag <tag> --match-alias <name|email>
+             --kind <auto|slack-export|email-mbox|transcript|chat-jsonl|markdown|text|interview>
+             --agent <agent-id> --resume <run-id> --holdout <0..0.5> --fictional
+  hybridclaw coworker consent record --alias <alias> --granted-by <who> --method <how> --statement "<text>"
+  hybridclaw coworker consent show|revoke --alias <alias>
+      Recorded consent artefact; required before distilling a real, named human.
+  hybridclaw coworker sources add --alias <alias> [--kind <kind>] <path> [...]
+      Add source material to the corpus without starting a full run.
+  hybridclaw coworker interview --alias <alias> [--audience subject|colleague] [--count <n>] [--out <file>]
+      Generate a gap-driven questionnaire targeting under-evidenced dimensions.
+  hybridclaw coworker status --alias <alias> [--id <run-id>]
+  hybridclaw coworker correct --alias <alias> --note "<correction>" [--scope persona|work|both]
+      Record a conversational correction; promoted on the next run.
+  hybridclaw coworker review list|resolve --alias <alias> [--id <review-id> --keep standing|incoming|both]
+      Conflicting evidence is surfaced here, never silently merged.
+  hybridclaw coworker eval --alias <alias>
+      Leakage scan over generated files + held-out fidelity prompts.
+  hybridclaw coworker export --alias <alias> [--out <dir>] [--host claude-code|codex|openclaw|hybridclaw] [--include-corpus]
+  hybridclaw coworker import --alias <alias> --bundle <dir>
+  hybridclaw coworker forget --alias <alias> --confirm
+      Right-to-be-forgotten: removes corpus, persona, work module, runs, and
+      their revision snapshots; the erasure event stays in the audit trail.
+
+Notes:
+  - Distilling a real, named human is blocked until consent is recorded.
+  - Every generated claim cites corpus document ids; unsupported claims are
+    flagged in the run REPORT.md instead of written into the persona.
+  - Run records live under the agent workspace at runtime/distill/<run-id>/.`);
 }
 
 export function printHelpUsage(): void {
@@ -917,6 +1007,7 @@ Topics:
   tui         Help for terminal client
   onboarding  Help for onboarding flow
   channels    Help for channel setup helpers
+  coworker    Help for human-distillation coworker commands
   migrate     Help for agent-home migration
   openclaw    Help for OpenClaw migration
   hermes      Help for Hermes Agent migration
@@ -1006,6 +1097,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
     case 'channels':
       printChannelsUsage();
       return true;
+    case 'coworker':
+      printCoworkerUsage();
+      return true;
     case 'config':
       printConfigUsage();
       return true;
@@ -1051,6 +1145,13 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
     case 'hubspot':
     case 'hs':
       printHubSpotUsage();
+      return true;
+    case 'microsoft365':
+    case 'microsoft-365':
+    case 'm365':
+    case 'office365':
+    case 'graph':
+      printMicrosoft365Usage();
       return true;
     case 'browser':
       printBrowserUsage();

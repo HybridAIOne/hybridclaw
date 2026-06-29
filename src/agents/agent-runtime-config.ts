@@ -8,7 +8,11 @@ import type {
   AgentModelConfig,
   AgentsConfig,
 } from './agent-types.js';
-import { agentCvEquals, agentEscalationTargetEquals } from './agent-types.js';
+import {
+  agentCvEquals,
+  agentEscalationTargetEquals,
+  agentProxyConfigEquals,
+} from './agent-types.js';
 
 function sameStringArray(a?: string[], b?: string[]): boolean {
   if (a === b) return true;
@@ -29,6 +33,7 @@ function sameAgentConfig(a: AgentConfig | undefined, b: AgentConfig): boolean {
     a.name === b.name &&
     a.displayName === b.displayName &&
     a.imageAsset === b.imageAsset &&
+    a.emptyChatHeader === b.emptyChatHeader &&
     sameModelConfig(a.model, b.model) &&
     sameStringArray(a.skills, b.skills) &&
     a.workspace === b.workspace &&
@@ -40,7 +45,8 @@ function sameAgentConfig(a: AgentConfig | undefined, b: AgentConfig): boolean {
     sameStringArray(a.delegatesTo, b.delegatesTo) &&
     sameStringArray(a.peers, b.peers) &&
     agentCvEquals(a.cv, b.cv) &&
-    agentEscalationTargetEquals(a.escalationTarget, b.escalationTarget)
+    agentEscalationTargetEquals(a.escalationTarget, b.escalationTarget) &&
+    agentProxyConfigEquals(a.proxy, b.proxy)
   );
 }
 

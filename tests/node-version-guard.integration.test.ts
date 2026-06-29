@@ -43,10 +43,16 @@ function runProbe(enginesNode: string) {
     path.join(root, 'package.json'),
     `${JSON.stringify({ type: 'module', engines: { node: enginesNode } })}\n`,
   );
+  // timeout: vitest's testTimeout cannot preempt synchronous spawnSync, so a
+  // hung probe would otherwise block the worker until the job-level kill.
   return spawnSync(
     process.execPath,
     ['--import', 'tsx/esm', path.join(root, 'dist', 'probe.ts')],
-    { encoding: 'utf8', env: { ...process.env, NODE_NO_WARNINGS: '1' } },
+    {
+      encoding: 'utf8',
+      env: { ...process.env, NODE_NO_WARNINGS: '1' },
+      timeout: 15_000,
+    },
   );
 }
 

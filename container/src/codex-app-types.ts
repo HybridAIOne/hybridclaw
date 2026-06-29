@@ -9,6 +9,7 @@ export interface CodexMcpContext {
   chatbotId?: string;
   requestHeaders?: Record<string, string>;
   maxTokens?: number;
+  modelBehavior?: ContainerInput['modelBehavior'];
   debugModelResponses?: boolean;
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;

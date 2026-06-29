@@ -102,7 +102,13 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'If the user explicitly names a skill from `<available_skills>`, treat that skill as selected.',
   );
   expect(prompt).toContain(
+    'A skill is instruction text, not a directly callable tool/function. Do not try to invoke a skill by name.',
+  );
+  expect(prompt).toContain(
     'If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
+  );
+  expect(prompt).toContain(
+    'After reading SKILL.md, use ordinary available tools such as `bash`, `read`, or `http_request` exactly as the skill instructs.',
   );
   expect(prompt).toContain(
     'Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',
@@ -223,6 +229,43 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   );
   expect(prompt).toContain(
     'Default response style: brief and direct. Lead with the answer, skip filler, and expand only when depth, risk, tradeoffs, or structured deliverables require it.',
+  );
+});
+
+test('buildSystemPromptFromHooks can render compact skill metadata only', () => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [
+      makeSkill({
+        always: true,
+        description: 'Create, inspect, and edit PDF files.',
+      }),
+    ],
+    skillPromptMode: 'compact',
+    includePromptParts: ['skills'],
+  });
+
+  expect(prompt).toContain('## Skills');
+  expect(prompt).not.toContain('## Skills (mandatory)');
+  expect(prompt).toContain('<available_skills>');
+  expect(prompt).toContain('<name>pdf</name>');
+  expect(prompt).toContain('<category>office</category>');
+  expect(prompt).toContain(
+    '<description>Create, inspect, and edit PDF files.</description>',
+  );
+  expect(prompt).toContain('<location>skills/pdf/SKILL.md</location>');
+  expect(prompt).not.toContain('<skill_always');
+  expect(prompt).not.toContain('<version>');
+  expect(prompt).not.toContain('<capabilities>');
+  expect(prompt).not.toContain('<required_credentials>');
+  expect(prompt).not.toContain('<supported_channels>');
+  expect(prompt).not.toContain(
+    'Available skills are listed only by top-level metadata',
+  );
+  expect(prompt).not.toContain('Do not read a skill during bootstrap');
+  expect(prompt).not.toContain('For later work');
+  expect(prompt).not.toContain(
+    'Run documented skill helper commands exactly as shown',
   );
 });
 
