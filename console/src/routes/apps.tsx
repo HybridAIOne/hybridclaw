@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useSearch } from '@tanstack/react-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
+import { useEffect, useMemo, useState } from 'react';
 import {
   type AppCategory,
   type AppDetail,
@@ -9,7 +9,6 @@ import {
   deleteApp,
   fetchApp,
   fetchApps,
-  generateApp,
 } from '../api/apps';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
@@ -31,6 +30,7 @@ import {
 import { ChevronDown, Search, Trash } from '../components/icons';
 import { MobileTopbarTrigger } from '../components/sidebar/index';
 import { useToast } from '../components/toast';
+import { buildAppSeed } from '../lib/app-seed';
 import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
 import styles from './apps.module.css';
@@ -43,6 +43,8 @@ interface CategoryMeta {
   slug: AppCategory;
   label: string;
   hint: string;
+  /** Noun phrase used to seed the build conversation; null = freeform. */
+  seedNoun: string | null;
   examples: string[];
 }
 
@@ -51,6 +53,7 @@ const CATEGORIES: CategoryMeta[] = [
     slug: 'apps',
     label: 'Apps & websites',
     hint: 'Internal tools, portals, landing pages',
+    seedNoun: 'web app or website',
     examples: [
       'A client onboarding portal with step-by-step progress',
       'A SaaS pricing page with a monthly/annual toggle',
@@ -61,6 +64,7 @@ const CATEGORIES: CategoryMeta[] = [
     slug: 'documents',
     label: 'Documents & templates',
     hint: 'Proposals, reports, printable templates',
+    seedNoun: 'document or template',
     examples: [
       'A consulting invoice with line items and totals',
       'A quarterly business review one-pager',
@@ -71,6 +75,7 @@ const CATEGORIES: CategoryMeta[] = [
     slug: 'games',
     label: 'Games',
     hint: 'Playable browser games',
+    seedNoun: 'browser game',
     examples: [
       'A product-knowledge quiz game for new hires',
       'A typing-speed trainer',
@@ -81,6 +86,7 @@ const CATEGORIES: CategoryMeta[] = [
     slug: 'productivity',
     label: 'Productivity tools',
     hint: 'Calculators, trackers, dashboards',
+    seedNoun: 'productivity tool',
     examples: [
       'A SaaS MRR and churn dashboard',
       'A meeting-cost calculator',
@@ -91,6 +97,7 @@ const CATEGORIES: CategoryMeta[] = [
     slug: 'creative',
     label: 'Creative projects',
     hint: 'Brand assets, mockups, visuals',
+    seedNoun: 'creative project',
     examples: [
       'A branded social media post mockup',
       'A pitch-deck cover slide',
@@ -101,6 +108,7 @@ const CATEGORIES: CategoryMeta[] = [
     slug: 'quiz',
     label: 'Quiz or survey',
     hint: 'Lead capture, feedback, assessments',
+    seedNoun: 'quiz or survey',
     examples: [
       'A lead-qualification survey with scoring',
       'An employee eNPS survey',
@@ -111,6 +119,7 @@ const CATEGORIES: CategoryMeta[] = [
     slug: 'scratch',
     label: 'Start from scratch',
     hint: 'Describe anything you can imagine',
+    seedNoun: null,
     examples: [],
   },
 ];
@@ -126,20 +135,12 @@ export function AppsPage() {
   const toast = useToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const searchParams = useSearch({ strict: false }) as {
-    build?: string;
-    prompt?: string;
-    category?: string;
-  };
-  const deepLinkHandled = useRef(false);
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | AppCategory>(
     'all',
   );
   const [newOpen, setNewOpen] = useState(false);
-  const [seedPrompt, setSeedPrompt] = useState('');
-  const [seedCategory, setSeedCategory] = useState<AppCategory | null>(null);
   const [viewer, setViewer] = useState<AppDetail | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AppSummary | null>(null);
 
@@ -149,50 +150,16 @@ export function AppsPage() {
     retry: false,
   });
 
-  const generateMutation = useMutation({
-    mutationFn: (vars: { description: string; category: AppCategory }) =>
-      generateApp(token, {
-        description: vars.description,
-        category: vars.category,
-      }),
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: ['apps'] });
-      setNewOpen(false);
-      setSeedPrompt('');
-      setSeedCategory(null);
-      toast.success(`Built “${result.app.title}”.`);
-      setViewer(result.app);
-    },
-    onError: (error) => {
-      toast.error(`Build failed: ${getErrorMessage(error)}`);
-    },
-  });
-
-  // Deep-link from the chat "/app <description>" slash command:
-  // /apps?build=1&prompt=...&category=... immediately builds the app. Without
-  // `build`, a `prompt` just pre-fills the builder dialog.
-  useEffect(() => {
-    if (deepLinkHandled.current) return;
-    const prompt = searchParams.prompt?.trim();
-    if (!prompt && searchParams.build !== '1') return;
-    deepLinkHandled.current = true;
-    const category =
-      searchParams.category &&
-      CATEGORY_BY_SLUG.has(searchParams.category as AppCategory)
-        ? (searchParams.category as AppCategory)
-        : 'scratch';
-    // Clear the params so a refresh doesn't rebuild.
-    void navigate({ to: '/apps', replace: true });
-    if (searchParams.build === '1' && prompt) {
-      generateMutation.mutate({ description: prompt, category });
-      return;
-    }
-    if (prompt) {
-      setSeedPrompt(prompt);
-      setSeedCategory(category);
-      setNewOpen(true);
-    }
-  }, [searchParams, navigate, generateMutation]);
+  // Selecting a category starts an app-building conversation in chat, seeded
+  // with the category and any idea the user typed.
+  function startBuild(category: AppCategory, description: string) {
+    const seedNoun = CATEGORY_BY_SLUG.get(category)?.seedNoun ?? null;
+    setNewOpen(false);
+    void navigate({
+      to: '/chat',
+      search: { prompt: buildAppSeed(seedNoun, description), send: '1' },
+    });
+  }
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteApp(token, id),
@@ -247,15 +214,7 @@ export function AppsPage() {
                   <MobileTopbarTrigger className={styles.mobileTrigger} />
                   <h1 className={styles.title}>Apps</h1>
                 </div>
-                <Button
-                  onClick={() => {
-                    setSeedPrompt('');
-                    setSeedCategory(null);
-                    setNewOpen(true);
-                  }}
-                >
-                  + New app
-                </Button>
+                <Button onClick={() => setNewOpen(true)}>+ New app</Button>
               </header>
 
               <div className={styles.toolbar}>
@@ -297,13 +256,6 @@ export function AppsPage() {
                 </Dropdown>
               </div>
 
-              {generateMutation.isPending && !newOpen ? (
-                <div className={styles.buildingBanner} role="status">
-                  <span className={styles.buildingSpinner} aria-hidden="true" />
-                  Building your app… this can take a moment.
-                </div>
-              ) : null}
-
               {query.isPending ? (
                 <div className="empty-state">Loading apps…</div>
               ) : query.isError ? (
@@ -335,15 +287,8 @@ export function AppsPage() {
 
       <NewAppDialog
         open={newOpen}
-        onOpenChange={(open) => {
-          if (!generateMutation.isPending) setNewOpen(open);
-        }}
-        seedPrompt={seedPrompt}
-        seedCategory={seedCategory}
-        isGenerating={generateMutation.isPending}
-        onSubmit={(description, category) =>
-          generateMutation.mutate({ description, category })
-        }
+        onOpenChange={setNewOpen}
+        onStart={startBuild}
       />
 
       <AppViewer app={viewer} token={token} onClose={() => setViewer(null)} />
@@ -445,20 +390,17 @@ function AppCard(props: {
 function NewAppDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  seedPrompt: string;
-  seedCategory: AppCategory | null;
-  isGenerating: boolean;
-  onSubmit: (description: string, category: AppCategory) => void;
+  onStart: (category: AppCategory, description: string) => void;
 }) {
   const [category, setCategory] = useState<AppCategory | null>(null);
   const [description, setDescription] = useState('');
 
-  // Reset / seed each time the dialog opens.
+  // Reset each time the dialog opens.
   useEffect(() => {
     if (!props.open) return;
-    setCategory(props.seedCategory);
-    setDescription(props.seedPrompt);
-  }, [props.open, props.seedCategory, props.seedPrompt]);
+    setCategory(null);
+    setDescription('');
+  }, [props.open]);
 
   const activeCategory = category ? CATEGORY_BY_SLUG.get(category) : undefined;
 
@@ -501,18 +443,17 @@ function NewAppDialog(props: {
                 {activeCategory?.label}
               </DialogTitle>
               <DialogDescription>
-                Describe what you want. HybridClaw builds a self-contained app
-                and saves it to your gallery.
+                Add a starting idea (optional). HybridClaw opens a chat, asks a
+                few questions, then builds it for you.
               </DialogDescription>
             </DialogHeader>
             <textarea
               className={styles.promptInput}
               value={description}
               autoFocus
-              disabled={props.isGenerating}
               placeholder="e.g. A client onboarding portal that tracks setup steps and shows progress"
               onChange={(e) => setDescription(e.target.value)}
-              rows={5}
+              rows={4}
             />
             {activeCategory && activeCategory.examples.length > 0 ? (
               <div className={styles.examples}>
@@ -523,7 +464,6 @@ function NewAppDialog(props: {
                       key={example}
                       type="button"
                       className={styles.exampleChip}
-                      disabled={props.isGenerating}
                       onClick={() => setDescription(example)}
                     >
                       {example}
@@ -536,16 +476,14 @@ function NewAppDialog(props: {
               <button
                 type="button"
                 className={styles.secondaryButton}
-                disabled={props.isGenerating}
                 onClick={() => setCategory(null)}
               >
                 ← Back
               </button>
               <Button
-                disabled={props.isGenerating || description.trim().length === 0}
-                onClick={() => props.onSubmit(description.trim(), category)}
+                onClick={() => props.onStart(category, description.trim())}
               >
-                {props.isGenerating ? 'Building…' : 'Build app'}
+                Start building →
               </Button>
             </DialogFooter>
           </>

@@ -313,6 +313,18 @@ const secretsRoute = createRoute({
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/chat',
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { prompt?: string; send?: string; agent?: string } => {
+    const prompt = optionalStringSearchValue(search.prompt);
+    const send = optionalStringSearchValue(search.send);
+    const agent = optionalStringSearchValue(search.agent);
+    return {
+      ...(prompt ? { prompt } : {}),
+      ...(send ? { send } : {}),
+      ...(agent ? { agent } : {}),
+    };
+  },
   component: ChatRouteComponent,
 });
 
@@ -324,18 +336,6 @@ const chatSessionRoute = createRoute({
 const appsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/apps',
-  validateSearch: (
-    search: Record<string, unknown>,
-  ): { build?: string; prompt?: string; category?: string } => {
-    const build = optionalStringSearchValue(search.build);
-    const prompt = optionalStringSearchValue(search.prompt);
-    const category = optionalStringSearchValue(search.category);
-    return {
-      ...(build ? { build } : {}),
-      ...(prompt ? { prompt } : {}),
-      ...(category ? { category } : {}),
-    };
-  },
   component: AppsRouteComponent,
 });
 

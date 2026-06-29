@@ -49,6 +49,7 @@ import {
   useConfiguredViewSwitchItems,
   ViewSwitchNav,
 } from '../../components/view-switch';
+import { buildAppSeed } from '../../lib/app-seed';
 import {
   type ApprovalAction,
   buildApprovalCommand,
@@ -146,10 +147,18 @@ export function ChatPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const userId = useRef(readStoredUserId()).current;
-  const initialComposerPrompt = useMemo(
-    () => new URLSearchParams(window.location.search).get('prompt') || '',
-    [],
-  );
+  // A `?prompt=` seed prefills the composer. When paired with `?send=1` (used
+  // by the Apps builder and `/app`), it is auto-sent instead of prefilled.
+  const initialChatSeed = useMemo(() => {
+    const sp = new URLSearchParams(window.location.search);
+    return {
+      prompt: sp.get('prompt') || '',
+      autoSend: sp.get('send') === '1',
+    };
+  }, []);
+  const initialComposerPrompt = initialChatSeed.autoSend
+    ? ''
+    : initialChatSeed.prompt;
   const launchAgentId = useMemo(readLaunchAgentId, []);
 
   const [errorState, setErrorState] = useState({ message: '', version: 0 });
@@ -789,16 +798,19 @@ export function ChatPage() {
 
   const handleSendMessage = useCallback(
     (content: string, media: MediaItem[]) => {
-      // `/app <description>` (or `/apps ...`) is handled client-side: it opens
-      // the Apps gallery and builds the artifact there rather than sending a
-      // chat turn. Bare `/app` just opens the gallery.
+      // `/app <idea>` starts an app-building conversation: the message is
+      // reframed as a build request so the agent gathers requirements and then
+      // builds a self-contained web app. Bare `/app` opens the Apps gallery.
       const appCommand = /^\/apps?\b[ \t]*([\s\S]*)$/i.exec(content.trim());
       if (appCommand && media.length === 0) {
         const description = appCommand[1].trim();
-        void navigate({
-          to: '/apps',
-          search: description ? { build: '1', prompt: description } : {},
-        });
+        if (!description) {
+          void navigate({ to: '/apps' });
+          return;
+        }
+        ensureSessionForSend();
+        jumpToBottom();
+        void stream.sendMessage(buildAppSeed(null, description), []);
         return;
       }
       ensureSessionForSend();
@@ -810,6 +822,21 @@ export function ChatPage() {
     },
     [ensureSessionForSend, jumpToBottom, navigate, stream.sendMessage],
   );
+
+  // Auto-send a seeded conversation (Apps builder / `/app`): when arriving at
+  // `/chat?prompt=…&send=1`, fire the first message once the chat API is ready.
+  const autoSentSeedRef = useRef(false);
+  useEffect(() => {
+    if (autoSentSeedRef.current) return;
+    if (!initialChatSeed.autoSend) return;
+    const seed = initialChatSeed.prompt.trim();
+    if (!seed) return;
+    if (!chatApiReady) return;
+    autoSentSeedRef.current = true;
+    // Drop the params so a refresh doesn't resend.
+    window.history.replaceState(null, '', window.location.pathname);
+    handleSendMessage(seed, []);
+  }, [initialChatSeed, chatApiReady, handleSendMessage]);
 
   const appendLocalCommandResult = useCallback(
     (targetSessionId: string, content: string) => {
