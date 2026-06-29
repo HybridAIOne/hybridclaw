@@ -166,9 +166,17 @@ export interface GatewayChatRequestBody {
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
+  /**
+   * When true, a self-contained HTML result from this turn is captured into the
+   * Apps gallery (used by the Apps builder conversation). `appCategory` tags it.
+   */
+  appBuild?: boolean;
+  appCategory?: string | null;
 }
 
 export interface GatewayChatRequest {
+  appBuild?: boolean;
+  appCategory?: string | null;
   sessionId: GatewayChatRequestBody['sessionId'];
   executionSessionId?: string;
   executorModeOverride?: 'host' | 'container';

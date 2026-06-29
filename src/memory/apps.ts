@@ -166,6 +166,69 @@ export function listApps(query: ListAppsQuery = {}): AppSummary[] {
   });
 }
 
+export interface UpsertAppForSessionInput {
+  title: string;
+  html: string;
+  category?: string | null;
+  description?: string | null;
+  prompt?: string | null;
+  agentId?: string | null;
+}
+
+/**
+ * Create or update the app attached to a chat session. App-build conversations
+ * call this on each turn that produces HTML, so the gallery entry evolves with
+ * the conversation instead of creating duplicates.
+ */
+export function upsertAppForSession(
+  sessionId: string,
+  input: UpsertAppForSessionInput,
+): StoredApp {
+  return withMemoryDatabase((database: Database.Database) => {
+    const session = sessionId.trim();
+    const category = normalizeAppCategory(input.category);
+    const title = input.title.trim() || 'Untitled App';
+    const existing = session
+      ? (database
+          .prepare<unknown[], { id: string }>(
+            `SELECT id FROM apps WHERE session_id = ? ORDER BY created_at DESC LIMIT 1`,
+          )
+          .get(session) ?? null)
+      : null;
+    if (existing) {
+      database
+        .prepare(
+          `UPDATE apps
+             SET title = ?, html = ?, category = ?,
+                 description = COALESCE(?, description),
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+           WHERE id = ?`,
+        )
+        .run(
+          title,
+          input.html,
+          category,
+          input.description?.trim() || null,
+          existing.id,
+        );
+      const row = database
+        .prepare<unknown[], AppRow>(`SELECT * FROM apps WHERE id = ?`)
+        .get(existing.id);
+      if (!row) throw new Error('Failed to update app for session.');
+      return appFromRow(row);
+    }
+    return createApp({
+      title,
+      html: input.html,
+      category,
+      description: input.description ?? null,
+      prompt: input.prompt ?? null,
+      agentId: input.agentId ?? null,
+      sessionId: session || null,
+    });
+  });
+}
+
 export function getApp(id: string): StoredApp | null {
   return withMemoryDatabase((database: Database.Database) => {
     const normalized = id.trim();

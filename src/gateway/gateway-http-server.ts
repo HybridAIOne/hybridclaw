@@ -25,7 +25,11 @@ import {
   normalizeAgentProxyConfig,
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
-import { generateApp } from '../apps/app-generator.js';
+import {
+  deriveAppTitle,
+  extractHtmlDocument,
+  generateApp,
+} from '../apps/app-generator.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getBoardBudgetSummaries } from '../board/budget-chip.js';
 import {
@@ -103,7 +107,13 @@ import {
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
   writeUploadedMediaCacheFile,
 } from '../media/uploaded-media-cache.js';
-import { createApp, deleteApp, getApp, listApps } from '../memory/apps.js';
+import {
+  createApp,
+  deleteApp,
+  getApp,
+  listApps,
+  upsertAppForSession,
+} from '../memory/apps.js';
 import {
   claimQueuedProactiveMessages,
   enqueueProactiveMessage,
@@ -2959,6 +2969,10 @@ async function handleApiChat(
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
     model: body.model,
+    ...(body.appBuild ? { appBuild: true } : {}),
+    ...(typeof body.appCategory === 'string'
+      ? { appCategory: body.appCategory }
+      : {}),
   };
   logger.debug(
     {
@@ -2991,6 +3005,7 @@ async function handleApiChat(
     processedResult.sessionId || chatRequest.sessionId,
     processedResult,
   );
+  await maybeCaptureAppBuild(chatRequest, result);
   sendJson(res, result.status === 'success' ? 200 : 500, result);
 }
 
@@ -3296,6 +3311,7 @@ async function handleApiChatStream(
       type: 'result',
       result: filteredResult,
     });
+    await maybeCaptureAppBuild(chatRequest, filteredResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     sendEvent({
@@ -7106,6 +7122,49 @@ async function handleApiAppGenerate(
       typeof body.sessionId === 'string' ? body.sessionId.trim() || null : null,
   });
   sendJson(res, 201, { app });
+}
+
+/**
+ * For app-build conversations, persist a self-contained HTML result into the
+ * Apps gallery (one entry per session, updated as the conversation iterates).
+ * Best-effort: never throws into the chat response path.
+ */
+async function maybeCaptureAppBuild(
+  chatRequest: GatewayChatRequest,
+  result: GatewayChatResult,
+): Promise<void> {
+  if (!chatRequest.appBuild) return;
+  if (result.status !== 'success') return;
+  const sessionId = result.sessionId || chatRequest.sessionId;
+  if (!sessionId) return;
+  try {
+    let html: string | null = null;
+    const htmlArtifact = result.artifacts?.find((artifact) =>
+      artifact.mimeType?.toLowerCase().includes('html'),
+    );
+    if (htmlArtifact?.path) {
+      try {
+        const content = await fs.promises.readFile(htmlArtifact.path, 'utf8');
+        html = extractHtmlDocument(content) ?? content;
+      } catch {
+        // Fall back to extracting from the assistant text below.
+      }
+    }
+    if (!html) html = extractHtmlDocument(result.result ?? '');
+    if (!html) return;
+    const app = upsertAppForSession(sessionId, {
+      title: deriveAppTitle(html, ''),
+      html,
+      category: chatRequest.appCategory ?? null,
+      agentId: result.agentId ?? chatRequest.agentId ?? null,
+    });
+    logger.debug(
+      { sessionId, appId: app.id, title: app.title },
+      'Captured app build into Apps gallery',
+    );
+  } catch (err) {
+    logger.warn({ err, sessionId }, 'Failed to capture app build');
+  }
 }
 
 async function handleApiAdminTerminal(

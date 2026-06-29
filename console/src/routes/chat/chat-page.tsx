@@ -154,8 +154,13 @@ export function ChatPage() {
     return {
       prompt: sp.get('prompt') || '',
       autoSend: sp.get('send') === '1',
+      appBuild: sp.get('app') === '1',
+      appCategory: sp.get('category') || undefined,
     };
   }, []);
+  // Sessions started as app builds: each app-build turn is tagged so the
+  // gateway captures the produced HTML into the Apps gallery.
+  const appBuildSessionsRef = useRef(new Map<string, string | undefined>());
   const initialComposerPrompt = initialChatSeed.autoSend
     ? ''
     : initialChatSeed.prompt;
@@ -808,16 +813,27 @@ export function ChatPage() {
           void navigate({ to: '/apps' });
           return;
         }
-        ensureSessionForSend();
+        const sid = ensureSessionForSend();
+        appBuildSessionsRef.current.set(sid, undefined);
         jumpToBottom();
-        void stream.sendMessage(buildAppSeed(null, description), []);
+        void stream.sendMessage(buildAppSeed(null, description), [], {
+          appBuild: true,
+        });
         return;
       }
-      ensureSessionForSend();
+      const sid = ensureSessionForSend();
       // Sending re-engages the user with the live conversation — snap back so
       // their bubble and the incoming stream are visible without the "↓ Latest"
       // chip getting in the way.
       jumpToBottom();
+      if (appBuildSessionsRef.current.has(sid)) {
+        const appCategory = appBuildSessionsRef.current.get(sid);
+        void stream.sendMessage(content, media, {
+          appBuild: true,
+          ...(appCategory ? { appCategory } : {}),
+        });
+        return;
+      }
       void stream.sendMessage(content, media);
     },
     [ensureSessionForSend, jumpToBottom, navigate, stream.sendMessage],
@@ -835,8 +851,12 @@ export function ChatPage() {
     autoSentSeedRef.current = true;
     // Drop the params so a refresh doesn't resend.
     window.history.replaceState(null, '', window.location.pathname);
+    if (initialChatSeed.appBuild) {
+      const sid = ensureSessionForSend();
+      appBuildSessionsRef.current.set(sid, initialChatSeed.appCategory);
+    }
     handleSendMessage(seed, []);
-  }, [initialChatSeed, chatApiReady, handleSendMessage]);
+  }, [initialChatSeed, chatApiReady, ensureSessionForSend, handleSendMessage]);
 
   const appendLocalCommandResult = useCallback(
     (targetSessionId: string, content: string) => {

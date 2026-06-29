@@ -157,7 +157,12 @@ export function AppsPage() {
     setNewOpen(false);
     void navigate({
       to: '/chat',
-      search: { prompt: buildAppSeed(seedNoun, description), send: '1' },
+      search: {
+        prompt: buildAppSeed(seedNoun, description),
+        send: '1',
+        app: '1',
+        ...(category !== 'scratch' ? { category } : {}),
+      },
     });
   }
 

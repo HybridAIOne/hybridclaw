@@ -315,14 +315,24 @@ const chatRoute = createRoute({
   path: '/chat',
   validateSearch: (
     search: Record<string, unknown>,
-  ): { prompt?: string; send?: string; agent?: string } => {
+  ): {
+    prompt?: string;
+    send?: string;
+    agent?: string;
+    app?: string;
+    category?: string;
+  } => {
     const prompt = optionalStringSearchValue(search.prompt);
     const send = optionalStringSearchValue(search.send);
     const agent = optionalStringSearchValue(search.agent);
+    const app = optionalStringSearchValue(search.app);
+    const category = optionalStringSearchValue(search.category);
     return {
       ...(prompt ? { prompt } : {}),
       ...(send ? { send } : {}),
       ...(agent ? { agent } : {}),
+      ...(app ? { app } : {}),
+      ...(category ? { category } : {}),
     };
   },
   component: ChatRouteComponent,

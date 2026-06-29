@@ -75,6 +75,34 @@ test('unknown category normalizes to apps', async () => {
   expect(created.category).toBe('apps');
 });
 
+test('upsertAppForSession creates then updates the same session entry', async () => {
+  const { upsertAppForSession, listApps, getApp } = await setup();
+  const first = upsertAppForSession('sess-app-1', {
+    title: 'Draft',
+    html: '<html><body>v1</body></html>',
+    category: 'productivity',
+  });
+  expect(listApps()).toHaveLength(1);
+
+  const second = upsertAppForSession('sess-app-1', {
+    title: 'Final Dashboard',
+    html: '<html><body>v2</body></html>',
+    category: 'productivity',
+  });
+  // Same row updated in place, not a duplicate.
+  expect(second.id).toBe(first.id);
+  expect(listApps()).toHaveLength(1);
+  expect(getApp(first.id)?.html).toContain('v2');
+  expect(getApp(first.id)?.title).toBe('Final Dashboard');
+
+  // A different session makes a separate entry.
+  upsertAppForSession('sess-app-2', {
+    title: 'Other',
+    html: '<html></html>',
+  });
+  expect(listApps()).toHaveLength(2);
+});
+
 test('deleteApp removes the record', async () => {
   const { createApp, deleteApp, getApp } = await setup();
   const created = createApp({ title: 'Temp', html: '<html></html>' });
