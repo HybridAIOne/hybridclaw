@@ -12,13 +12,16 @@ afterEach(async () => {
   await Promise.all(handles.splice(0).map((handle) => handle.close()));
 });
 
-async function startTestBridge(): Promise<BrowserModelBridgeHandle> {
+async function startTestBridge(
+  options: { apiKey?: string } = {},
+): Promise<BrowserModelBridgeHandle> {
   const handle = await startBrowserModelBridge({
     host: '127.0.0.1',
     port: 0,
     model: DEFAULT_BROWSER_MODEL_BRIDGE_MODEL,
     device: 'wasm',
     dtype: 'q4',
+    apiKey: options.apiKey,
   });
   handles.push(handle);
   return handle;
@@ -105,6 +108,58 @@ describe('browser model bridge', () => {
 
     expect(response.status).toBe(503);
     expect(payload.error?.type).toBe('browser_bridge_unavailable');
+  });
+
+  test('rejects malformed bearer authorization without regex backtracking', async () => {
+    const handle = await startTestBridge({ apiKey: 'test-key' });
+
+    const response = await fetch(`${handle.endpointUrl}/models`, {
+      headers: {
+        Authorization: `bearer\t${'\t\t'.repeat(512)}`,
+      },
+    });
+    const payload = (await response.json()) as {
+      error?: { message?: string; type?: string };
+    };
+
+    expect(response.status).toBe(401);
+    expect(payload.error).toMatchObject({
+      message: 'Unauthorized',
+      type: 'authentication_error',
+    });
+  });
+
+  test('returns a generic request body error for oversized chat requests', async () => {
+    const handle = await startTestBridge();
+    const ws = await connectFakeBrowser(handle);
+    handles.push({
+      ...handle,
+      close: async () => {
+        ws.close();
+      },
+    });
+
+    const response = await fetch(`${handle.endpointUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: 'user',
+            content: 'x'.repeat(2 * 1024 * 1024),
+          },
+        ],
+      }),
+    });
+    const payload = (await response.json()) as {
+      error?: { message?: string; type?: string };
+    };
+
+    expect(response.status).toBe(413);
+    expect(payload.error).toMatchObject({
+      message: 'Request body is too large.',
+      type: 'invalid_request_error',
+    });
   });
 
   test('relays chat completions through the connected browser tab', async () => {

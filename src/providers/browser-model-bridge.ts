@@ -16,6 +16,15 @@ export const DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE = 'q4f16';
 export const DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS = 2048;
 const MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15 * 60_000;
+const REQUEST_BODY_TOO_LARGE_MESSAGE = 'Request body is too large.';
+const REQUEST_BODY_READ_FAILED_MESSAGE = 'Unable to read request body.';
+
+class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super(REQUEST_BODY_TOO_LARGE_MESSAGE);
+    this.name = 'RequestBodyTooLargeError';
+  }
+}
 
 type WebSocketServerLike = {
   on: (
@@ -155,17 +164,27 @@ function readRequestBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let total = 0;
     const chunks: Buffer[] = [];
+    let failed = false;
     req.on('data', (chunk: Buffer) => {
+      if (failed) return;
       total += chunk.length;
       if (total > MAX_REQUEST_BODY_BYTES) {
-        reject(new Error('Request body is too large.'));
-        req.destroy();
+        failed = true;
+        chunks.length = 0;
+        reject(new RequestBodyTooLargeError());
         return;
       }
       chunks.push(chunk);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-    req.on('error', reject);
+    req.on('end', () => {
+      if (failed) return;
+      resolve(Buffer.concat(chunks).toString('utf-8'));
+    });
+    req.on('error', () => {
+      if (failed) return;
+      failed = true;
+      reject(new Error(REQUEST_BODY_READ_FAILED_MESSAGE));
+    });
   });
 }
 
@@ -176,8 +195,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function extractBearerToken(req: IncomingMessage): string {
   const value = req.headers.authorization;
   const header = Array.isArray(value) ? value[0] : value;
-  const match = String(header || '').match(/^Bearer\s+(.+)$/i);
-  return match?.[1]?.trim() || '';
+  const authorization = String(header || '');
+  if (authorization.slice(0, 6).toLowerCase() !== 'bearer') return '';
+  const separator = authorization.charCodeAt(6);
+  if (separator !== 0x20 && separator !== 0x09) return '';
+  return authorization.slice(7).trim();
 }
 
 function checkApiKey(req: IncomingMessage, apiKey: string): boolean {
@@ -398,9 +420,12 @@ export async function startBrowserModelBridge(
       try {
         body = safeJsonParse(await readRequestBody(req));
       } catch (error) {
-        jsonResponse(res, 413, {
+        const bodyTooLarge = error instanceof RequestBodyTooLargeError;
+        jsonResponse(res, bodyTooLarge ? 413 : 400, {
           error: {
-            message: error instanceof Error ? error.message : String(error),
+            message: bodyTooLarge
+              ? REQUEST_BODY_TOO_LARGE_MESSAGE
+              : REQUEST_BODY_READ_FAILED_MESSAGE,
             type: 'invalid_request_error',
           },
         });
