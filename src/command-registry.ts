@@ -714,6 +714,7 @@ function buildSlashCommandCatalogDefinitions(
       name: 'app',
       description:
         'Build a web app, document, game, or tool and save it to your Apps gallery',
+      tuiOnly: true,
       localSurfaces: ['web'],
       tuiMenu: {
         label: '/app <description>',
