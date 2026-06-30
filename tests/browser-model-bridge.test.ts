@@ -96,6 +96,10 @@ describe('browser model bridge', () => {
     );
     expect(workerBody).toContain("import('/vendor/transformers.worker.js')");
     expect(workerBody).toContain('apply_chat_template');
+    expect(workerBody).toContain('normalizeTools');
+    expect(workerBody).toContain('tools: normalizedTools');
+    expect(workerBody).toContain('tool_calls');
+    expect(workerBody).toContain('tool_call_id');
     expect(workerBody).toContain('return_full_text: false');
     expect(workerBody).toContain('errorToData');
     expect(workerBody).toContain('reportLoadProgress');

@@ -992,7 +992,7 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBe('ok');
   });
 
-  test('browser provider keeps LFM prompts compact and disables tools', async () => {
+  test('browser provider keeps compact prompts and emits tool calls', async () => {
     expect(
       estimateLocalOpenAICompatPromptOverheadTokens({
         provider: 'browser',
@@ -1008,21 +1008,31 @@ describe('local container providers', () => {
       >;
       const messages = body.messages as Array<Record<string, unknown>>;
       expect(body.model).toBe('LiquidAI/LFM2.5-230M-ONNX');
-      expect(body.tools).toBeUndefined();
-      expect(body.tool_choice).toBeUndefined();
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
       expect(messages).toEqual([
         {
           role: 'system',
           content:
-            'You are HybridClaw, a concise helpful assistant. Answer directly. This browser runtime cannot call tools.',
+            'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed.',
         },
         { role: 'user', content: 'old question' },
-        { role: 'assistant', content: 'old answer' },
+        {
+          role: 'assistant',
+          content: 'old answer',
+          tool_calls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'shell', arguments: '{}' },
+            },
+          ],
+        },
+        { role: 'tool', content: 'tool result', tool_call_id: 'call_1' },
         { role: 'user', content: 'hello' },
       ]);
       expect(JSON.stringify(messages)).not.toContain('Full HybridClaw prompt');
       expect(JSON.stringify(messages)).not.toContain('List of tools:');
-      expect(JSON.stringify(messages)).not.toContain('tool result');
       return new Response(
         JSON.stringify({
           id: 'resp_1',
@@ -1031,7 +1041,8 @@ describe('local container providers', () => {
             {
               message: {
                 role: 'assistant',
-                content: 'ok',
+                content:
+                  'Working <|tool_call_start|>[tools.shell(command="ls -la")]<|tool_call_end|>',
               },
               finish_reason: 'stop',
             },
@@ -1073,7 +1084,69 @@ describe('local container providers', () => {
       contextWindow: 32_768,
     });
 
-    expect(result.choices[0]?.message.content).toBe('ok');
+    expect(result.choices[0]?.message.content).toBe('Working');
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: '',
+        type: 'function',
+        function: {
+          name: 'shell',
+          arguments: '{"command":"ls -la"}',
+        },
+      },
+    ]);
+    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
+  test('browser provider stream filters Liquid tool markup from visible deltas', async () => {
+    const deltas: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.tools).toEqual(tools);
+        expect(body.tool_choice).toBe('auto');
+        return makeEventStreamResponse([
+          'data: {"id":"resp_1","model":"LiquidAI/LFM2.5-230M-ONNX","choices":[{"delta":{"content":"Thinking <|tool_call_start|>[tools."}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"shell(command=\\"pwd\\")]<|tool_call_end|>"}}]}\n\n',
+          'data: {"choices":[{"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]);
+      }),
+    );
+
+    const result = await callLocalOpenAICompatProviderStream({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools,
+      onTextDelta: (delta) => deltas.push(delta),
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(deltas).toEqual(['Thinking ']);
+    expect(result.choices[0]?.message.content).toBe('Thinking');
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: '',
+        type: 'function',
+        function: {
+          name: 'shell',
+          arguments: '{"command":"pwd"}',
+        },
+      },
+    ]);
+    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
   });
 
   test('OpenAI-compatible stream preserves think blocks and normalizes tool calls', async () => {

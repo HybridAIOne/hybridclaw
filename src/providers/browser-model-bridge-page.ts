@@ -304,15 +304,69 @@ function normalizeMessages(messages) {
     .map((message) => {
       const role = typeof message.role === 'string' ? message.role : 'user';
       const normalizedRole =
-        role === 'system' || role === 'assistant'
+        role === 'system' || role === 'assistant' || role === 'tool'
           ? role
           : 'user';
+      const toolCalls = Array.isArray(message.tool_calls)
+        ? message.tool_calls
+            .map((toolCall) => {
+              const functionRecord =
+                toolCall && typeof toolCall.function === 'object'
+                  ? toolCall.function
+                  : {};
+              return {
+                id: typeof toolCall.id === 'string' ? toolCall.id : '',
+                type: 'function',
+                function: {
+                  name:
+                    typeof functionRecord.name === 'string'
+                      ? functionRecord.name
+                      : '',
+                  arguments:
+                    typeof functionRecord.arguments === 'string'
+                      ? functionRecord.arguments
+                      : '{}',
+                },
+              };
+            })
+            .filter((toolCall) => toolCall.function.name)
+        : [];
       return {
         role: normalizedRole,
-        content: contentToText(message.content)
+        content: contentToText(message.content),
+        ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+        ...(normalizedRole === 'tool' && typeof message.tool_call_id === 'string'
+          ? { tool_call_id: message.tool_call_id }
+          : {}),
       };
     })
-    .filter((message) => message.content);
+    .filter((message) => message.content || message.tool_calls);
+}
+
+function normalizeTools(tools) {
+  if (!Array.isArray(tools)) return [];
+  return tools
+    .map((tool) => {
+      const functionRecord =
+        tool && typeof tool.function === 'object' ? tool.function : tool;
+      const name =
+        functionRecord && typeof functionRecord.name === 'string'
+          ? functionRecord.name
+          : '';
+      if (!name) return null;
+      return {
+        name,
+        description:
+          typeof functionRecord.description === 'string'
+            ? functionRecord.description
+            : '',
+        parameters:
+          functionRecord && typeof functionRecord.parameters === 'object'
+            ? functionRecord.parameters
+            : { type: 'object', properties: {}, required: [] },
+      };
+    })
+    .filter(Boolean);
 }
 
 function stripUnsupportedChatTemplateBlocks(template) {
@@ -321,20 +375,50 @@ function stripUnsupportedChatTemplateBlocks(template) {
     .replace(/\\{%-?\\s*endgeneration\\s*-?%\\}/g, '');
 }
 
-function applyChatTemplate(tokenizer, messages, chatTemplate) {
+function applyChatTemplate(tokenizer, messages, chatTemplate, tools) {
+  const normalizedTools = normalizeTools(tools);
   return tokenizer.apply_chat_template(messages, {
     tokenize: false,
     add_generation_prompt: true,
+    ...(normalizedTools.length > 0 ? { tools: normalizedTools } : {}),
     ...(chatTemplate ? { chat_template: chatTemplate } : {}),
   });
 }
 
-function renderPrompt(generator, messages) {
+function renderPlainPrompt(messages, tools) {
+  const normalizedTools = normalizeTools(tools);
+  const toolInstruction =
+    normalizedTools.length > 0
+      ? 'List of tools: ' + JSON.stringify(normalizedTools) + '\\n\\n'
+      : '';
+  return toolInstruction + messages
+    .map((message) => {
+      if (message.role === 'tool') {
+        return (
+          'TOOL RESULT' +
+          (message.tool_call_id ? ' ' + message.tool_call_id : '') +
+          ':\\n' +
+          message.content
+        );
+      }
+      if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+        return (
+          'ASSISTANT TOOL CALLS:\\n' +
+          JSON.stringify(message.tool_calls) +
+          (message.content ? '\\n\\nASSISTANT:\\n' + message.content : '')
+        );
+      }
+      return message.role.toUpperCase() + ':\\n' + message.content;
+    })
+    .join('\\n\\n') + '\\n\\nASSISTANT:\\n';
+}
+
+function renderPrompt(generator, messages, tools) {
   const normalized = normalizeMessages(messages);
   const tokenizer = generator && generator.tokenizer;
   if (tokenizer && typeof tokenizer.apply_chat_template === 'function') {
     try {
-      return applyChatTemplate(tokenizer, normalized);
+      return applyChatTemplate(tokenizer, normalized, undefined, tools);
     } catch (error) {
       const template = typeof tokenizer.chat_template === 'string'
         ? tokenizer.chat_template
@@ -350,7 +434,12 @@ function renderPrompt(generator, messages) {
         );
       if (canRetry) {
         try {
-          const rendered = applyChatTemplate(tokenizer, normalized, strippedTemplate);
+          const rendered = applyChatTemplate(
+            tokenizer,
+            normalized,
+            strippedTemplate,
+            tools,
+          );
           log('Chat template rendered after removing unsupported generation blocks', {
             originalError: errorToData(error),
           });
@@ -366,9 +455,7 @@ function renderPrompt(generator, messages) {
       }
     }
   }
-  return normalized
-    .map((message) => message.role.toUpperCase() + ':\\n' + message.content)
-    .join('\\n\\n') + '\\n\\nASSISTANT:\\n';
+  return renderPlainPrompt(normalized, tools);
 }
 
 function extractGeneratedText(result) {
@@ -553,9 +640,10 @@ async function generate(id, request) {
     phase = 'model';
     const generator = await loadGenerator();
     phase = 'prompt';
-    const promptText = renderPrompt(generator, request.messages);
+    const promptText = renderPrompt(generator, request.messages, request.tools);
     log('Prompt rendered', {
       messageCount: Array.isArray(request.messages) ? request.messages.length : 0,
+      toolCount: Array.isArray(request.tools) ? request.tools.length : 0,
       promptChars: promptText.length,
       maxNewTokens: request.max_tokens || CONFIG.maxNewTokens,
       environment: workerEnvironment(),

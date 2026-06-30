@@ -180,7 +180,7 @@ function estimatePromptToolInstructionTokens(instruction: string): number {
 }
 
 const BROWSER_MODEL_SYSTEM_PROMPT =
-  'You are HybridClaw, a concise helpful assistant. Answer directly. This browser runtime cannot call tools.';
+  'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed.';
 const BROWSER_MODEL_HISTORY_LIMIT = 6;
 const BROWSER_MODEL_TOTAL_PROMPT_CHARS = 12_000;
 const BROWSER_MODEL_MESSAGE_CHARS = 6_000;
@@ -222,9 +222,25 @@ function truncateBrowserPromptText(text: string, maxChars: number): string {
 
 function normalizeBrowserRequestRole(
   role: ChatMessage['role'],
-): 'user' | 'assistant' | null {
-  if (role === 'user' || role === 'assistant') return role;
+): 'user' | 'assistant' | 'tool' | null {
+  if (role === 'user' || role === 'assistant' || role === 'tool') return role;
   return null;
+}
+
+function normalizeBrowserToolCalls(
+  toolCalls: ChatMessage['tool_calls'],
+): ToolCall[] {
+  if (!Array.isArray(toolCalls)) return [];
+  return toolCalls
+    .map((toolCall) => ({
+      id: String(toolCall.id || ''),
+      type: 'function' as const,
+      function: {
+        name: String(toolCall.function?.name || ''),
+        arguments: String(toolCall.function?.arguments || '{}'),
+      },
+    }))
+    .filter((toolCall) => toolCall.function.name);
 }
 
 function buildBrowserRequestMessages(
@@ -243,11 +259,20 @@ function buildBrowserRequestMessages(
     const role = normalizeBrowserRequestRole(message.role);
     if (!role) continue;
     const text = contentToText(message.content).trim();
-    if (!text) continue;
+    const toolCalls =
+      role === 'assistant' ? normalizeBrowserToolCalls(message.tool_calls) : [];
+    if (!text && toolCalls.length === 0) continue;
     const maxChars = Math.min(BROWSER_MODEL_MESSAGE_CHARS, remainingChars);
     if (maxChars <= 0) break;
     const content = truncateBrowserPromptText(text, maxChars);
-    selected.push({ role, content });
+    selected.push({
+      role,
+      content,
+      ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+      ...(role === 'tool' && message.tool_call_id
+        ? { tool_call_id: message.tool_call_id }
+        : {}),
+    });
     remainingChars -= content.length;
   }
 
@@ -402,7 +427,7 @@ function buildRequestMessages(
 }
 
 function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
-  const tools = args.provider === 'browser' ? [] : args.tools;
+  const tools = args.tools;
   const request: Record<string, unknown> = {
     model: normalizeLocalModelName(args.provider, args.model),
     messages: buildRequestMessages(args),
@@ -426,9 +451,6 @@ function buildToolCallNormalizationOptions(params: {
   model: string;
   modelBehavior?: NormalizedCallArgs['modelBehavior'];
 }) {
-  if (params.provider === 'browser') {
-    return { parser: null, recoverBlankStructuredNameFromContent: false };
-  }
   const parser =
     params.modelBehavior?.thinkingFormat === 'qwen'
       ? 'qwen'
@@ -633,12 +655,19 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
   push: (delta: string) => void;
   close: () => void;
 } {
-  const startMarkers = ['<tool_call>', '<tool>', '[tool_call]', '<function='];
+  const startMarkers = [
+    '<tool_call>',
+    '<tool>',
+    '[tool_call]',
+    '<function=',
+    '<|tool_call_start|>',
+  ];
   const endMarkerByStartMarker = new Map([
     ['<tool_call>', '</tool_call>'],
     ['<tool>', '</tool>'],
     ['[tool_call]', '[/tool_call]'],
     ['<function=', '</function>'],
+    ['<|tool_call_start|>', '<|tool_call_end|>'],
   ]);
   let buffer = '';
   let insideToolMarkup = false;
@@ -675,7 +704,10 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
   };
 
   const stripTrailingPartialToolMarker = (text: string): string =>
-    text.replace(/(?:<|<\/|<tool|<tool_|<tool_call|<function=?)$/i, '');
+    text.replace(
+      /(?:<|<\/|<tool|<tool_|<tool_call|<function=?|<\|?|<\|tool|<\|tool_call|<\|tool_call_start)$/i,
+      '',
+    );
 
   const emit = (text: string): void => {
     if (text) onTextDelta(text);
@@ -868,18 +900,20 @@ export async function callLocalOpenAICompatProviderStream(
     model: args.model,
     modelBehavior: args.modelBehavior,
   });
-  const shouldFilterQwenMarkup =
+  const shouldFilterToolMarkup =
     args.modelBehavior?.thinkingFormat === 'qwen' ||
     args.thinkingFormat === 'qwen' ||
     normalizationOptions.parser === 'qwen' ||
-    normalizationOptions.parser === 'qwen3_coder';
+    normalizationOptions.parser === 'qwen3_coder' ||
+    normalizationOptions.parser === 'hermes' ||
+    normalizationOptions.parser === 'liquid';
   const streamEmitter = createThinkingStreamEmitter(args.onTextDelta, {
     onThinkingDelta: args.onThinkingDelta,
   });
-  const visibleToolFilter = shouldFilterQwenMarkup
+  const visibleToolFilter = shouldFilterToolMarkup
     ? createToolMarkupStreamFilter((delta) => streamEmitter.pushVisible(delta))
     : null;
-  const reasoningToolFilter = shouldFilterQwenMarkup
+  const reasoningToolFilter = shouldFilterToolMarkup
     ? createToolMarkupStreamFilter((delta) => streamEmitter.pushThinking(delta))
     : null;
   const flushReasoningPreview = (): void => {
