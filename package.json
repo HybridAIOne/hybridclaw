@@ -130,7 +130,7 @@
     "mailparser": "3.9.9",
     "marked": "17.0.4",
     "node-pty": "1.1.0",
-    "nodemailer": "9.0.0",
+    "nodemailer": "9.0.1",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.5.207",
     "pino": "9.14.0",
@@ -162,11 +162,14 @@
     "vitest": "4.1.8"
   },
   "overrides": {
-    "undici": "6.24.1",
+    "undici": "6.27.0",
     "lodash": "4.18.1",
     "uuid": "11.1.1",
-    "vite": "8.0.14",
-    "nodemailer": "9.0.0",
+    "vite": "8.0.16",
+    "nodemailer": "9.0.1",
+    "cheerio": {
+      "undici": "7.28.0"
+    },
     "shell-quote": "1.8.4",
     "tmp": "0.2.7"
   }
