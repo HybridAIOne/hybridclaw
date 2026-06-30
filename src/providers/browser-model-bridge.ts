@@ -76,6 +76,9 @@ type PendingRequest = {
   id: string;
   model: string;
   stream: boolean;
+  // True when the assistant turn was force-prefilled to require a tool call, so
+  // the whole response is buffered and emitted as OpenAI tool_calls.
+  forced: boolean;
   res: ServerResponse;
   content: string;
   created: number;
@@ -267,12 +270,186 @@ function createModelList(model: string): JsonObject {
   };
 }
 
+const LIQUID_TOOL_CALL_START = '<|tool_call_start|>';
+const LIQUID_TOOL_CALL_END = '<|tool_call_end|>';
+
+function lastMessageRole(messages: unknown): string {
+  if (!Array.isArray(messages)) return '';
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (isRecord(message) && typeof message.role === 'string') {
+      return message.role;
+    }
+  }
+  return '';
+}
+
+// LFM2 models reliably emit a tool call when the assistant turn is prefilled
+// with the `<|tool_call_start|>[` marker, but the small browser models will not
+// choose to start one on their own. Force the prefix when the caller requires a
+// tool (`tool_choice`) or when it is the model's turn to act on a user request.
+// The marker is Liquid-specific, so only force it for LFM/Liquid models — other
+// families (e.g. Gemma) use a different tool-call syntax and must not get it.
+export function computeForcedToolPrefix(
+  body: Record<string, unknown>,
+  model: string,
+): string {
+  if (!isLiquidBrowserModel(model)) return '';
+  const tools = Array.isArray(body.tools) ? body.tools : [];
+  if (tools.length === 0) return '';
+  const choice = body.tool_choice;
+  if (choice === 'none') return '';
+  if (
+    isRecord(choice) &&
+    isRecord(choice.function) &&
+    typeof choice.function.name === 'string' &&
+    choice.function.name
+  ) {
+    return `${LIQUID_TOOL_CALL_START}[${choice.function.name}(`;
+  }
+  if (choice === 'required') return `${LIQUID_TOOL_CALL_START}[`;
+  if (lastMessageRole(body.messages) === 'user') {
+    return `${LIQUID_TOOL_CALL_START}[`;
+  }
+  return '';
+}
+
+function splitTopLevelSegments(text: string, separator: string): string[] {
+  const segments: string[] = [];
+  const stack: string[] = [];
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+  let current = '';
+  for (const char of text) {
+    if (quote) {
+      current += char;
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === '(' || char === '[' || char === '{') stack.push(char);
+    else if (char === ')' || char === ']' || char === '}') stack.pop();
+    if (char === separator && stack.length === 0) {
+      segments.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) segments.push(current);
+  return segments;
+}
+
+function parseLiquidArgValue(raw: string): JsonValue {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  const first = trimmed[0];
+  if (first === '"' || first === "'") {
+    const inner = trimmed.slice(1, -1);
+    if (first === '"') {
+      try {
+        return JSON.parse(trimmed) as JsonValue;
+      } catch {
+        return inner;
+      }
+    }
+    return inner.replace(/\\'/g, "'");
+  }
+  if (trimmed === 'true') return true;
+  if (trimmed === 'false') return false;
+  if (trimmed === 'null' || trimmed === 'None') return null;
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
+  if (
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  ) {
+    try {
+      return JSON.parse(trimmed) as JsonValue;
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed;
+}
+
+function parseLiquidCallSegment(segment: string): JsonObject | null {
+  const match = segment
+    .trim()
+    .match(/^([A-Za-z_][A-Za-z0-9_.-]*)\(([\s\S]*)\)$/);
+  if (!match) return null;
+  const name = (match[1] || '').replace(/^tools\./, '');
+  const argsText = (match[2] || '').trim();
+  const args: JsonObject = {};
+  if (argsText) {
+    for (const assignment of splitTopLevelSegments(argsText, ',')) {
+      const eq = assignment.indexOf('=');
+      if (eq < 1) continue;
+      const key = assignment.slice(0, eq).trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key)) continue;
+      args[key] = parseLiquidArgValue(assignment.slice(eq + 1));
+    }
+  }
+  return {
+    id: `call_${randomUUID().replace(/-/g, '').slice(0, 16)}`,
+    type: 'function',
+    function: { name, arguments: JSON.stringify(args) },
+  };
+}
+
+// Extract LFM2 native tool calls (`<|tool_call_start|>[fn(k=v), ...]<|tool_call_end|>`)
+// from streamed text into OpenAI tool_calls, returning the remaining prose.
+export function parseLiquidToolCalls(text: string): {
+  content: string;
+  toolCalls: JsonObject[];
+} {
+  const start = text.indexOf(LIQUID_TOOL_CALL_START);
+  if (start < 0) return { content: text, toolCalls: [] };
+  const payloadStart = start + LIQUID_TOOL_CALL_START.length;
+  const endIndex = text.indexOf(LIQUID_TOOL_CALL_END, payloadStart);
+  const payloadEnd = endIndex < 0 ? text.length : endIndex;
+  let payload = text.slice(payloadStart, payloadEnd).trim();
+  if (payload.startsWith('[') && payload.endsWith(']')) {
+    payload = payload.slice(1, -1).trim();
+  } else if (payload.startsWith('[')) {
+    payload = payload.slice(1).trim();
+  }
+  const toolCalls = splitTopLevelSegments(payload, ',')
+    .map((segment) => parseLiquidCallSegment(segment))
+    .filter((call): call is JsonObject => call !== null);
+  if (toolCalls.length === 0) return { content: text, toolCalls: [] };
+  const trailing =
+    endIndex < 0 ? '' : text.slice(endIndex + LIQUID_TOOL_CALL_END.length);
+  const content = (text.slice(0, start) + trailing).trim();
+  return { content, toolCalls };
+}
+
+function toolCallsStreamDelta(
+  toolCalls: JsonObject[],
+): Record<string, unknown> {
+  return {
+    tool_calls: toolCalls.map((call, index) => ({
+      index,
+      id: call.id,
+      type: 'function',
+      function: call.function,
+    })),
+  };
+}
+
 function createChatCompletion(params: {
   id: string;
   model: string;
   content: string;
   created: number;
+  toolCalls?: JsonObject[];
 }): JsonObject {
+  const hasToolCalls = !!params.toolCalls && params.toolCalls.length > 0;
   return {
     id: params.id,
     object: 'chat.completion',
@@ -283,9 +460,10 @@ function createChatCompletion(params: {
         index: 0,
         message: {
           role: 'assistant',
-          content: params.content,
+          content: hasToolCalls && !params.content ? null : params.content,
+          ...(hasToolCalls ? { tool_calls: params.toolCalls } : {}),
         },
-        finish_reason: 'stop',
+        finish_reason: hasToolCalls ? 'tool_calls' : 'stop',
       },
     ],
     usage: {
@@ -531,11 +709,13 @@ export async function startBrowserModelBridge(
       const id = `chatcmpl-${randomUUID()}`;
       const stream = body.stream === true;
       const created = Math.floor(Date.now() / 1000);
+      const forcedToolPrefix = computeForcedToolPrefix(body, model);
       const pending: PendingRequest = {
         id,
         model:
           typeof body.model === 'string' && body.model ? body.model : model,
         stream,
+        forced: forcedToolPrefix.length > 0,
         res,
         content: '',
         created,
@@ -561,6 +741,9 @@ export async function startBrowserModelBridge(
         request: {
           ...body,
           model,
+          ...(forcedToolPrefix
+            ? { force_assistant_prefix: forcedToolPrefix }
+            : {}),
         },
       });
       if (!sent) {
@@ -674,7 +857,9 @@ export async function startBrowserModelBridge(
         const delta = String(payload.delta || '');
         if (!delta) return;
         pending.content += delta;
-        if (pending.stream && !pending.res.writableEnded) {
+        // Forced turns are buffered and emitted as structured tool_calls on
+        // completion; only stream plain-text deltas for non-forced turns.
+        if (pending.stream && !pending.forced && !pending.res.writableEnded) {
           pending.res.write(
             ssePayload(
               pending.id,
@@ -694,27 +879,73 @@ export async function startBrowserModelBridge(
           typeof payload.content === 'string'
             ? payload.content
             : pending.content;
+        const usage = {
+          prompt_tokens: 0,
+          completion_tokens:
+            typeof payload.tokens === 'number' ? payload.tokens : 0,
+          total_tokens: typeof payload.tokens === 'number' ? payload.tokens : 0,
+        };
         if (pending.stream) {
-          pending.res.write(
-            ssePayload(pending.id, pending.model, pending.created, {}, 'stop', {
-              prompt_tokens: 0,
-              completion_tokens:
-                typeof payload.tokens === 'number' ? payload.tokens : 0,
-              total_tokens:
-                typeof payload.tokens === 'number' ? payload.tokens : 0,
-            }),
-          );
+          const { content: cleanedContent, toolCalls } =
+            parseLiquidToolCalls(content);
+          if (toolCalls.length > 0) {
+            pending.res.write(
+              ssePayload(
+                pending.id,
+                pending.model,
+                pending.created,
+                toolCallsStreamDelta(toolCalls),
+                null,
+              ),
+            );
+            pending.res.write(
+              ssePayload(
+                pending.id,
+                pending.model,
+                pending.created,
+                {},
+                'tool_calls',
+                usage,
+              ),
+            );
+          } else {
+            // No tool call parsed: flush any buffered (forced) text, then stop.
+            if (pending.forced && cleanedContent) {
+              pending.res.write(
+                ssePayload(
+                  pending.id,
+                  pending.model,
+                  pending.created,
+                  { content: cleanedContent },
+                  null,
+                ),
+              );
+            }
+            pending.res.write(
+              ssePayload(
+                pending.id,
+                pending.model,
+                pending.created,
+                {},
+                'stop',
+                usage,
+              ),
+            );
+          }
           pending.res.write('data: [DONE]\n\n');
           pending.res.end();
         } else {
+          const { content: cleanedContent, toolCalls } =
+            parseLiquidToolCalls(content);
           jsonResponse(
             pending.res,
             200,
             createChatCompletion({
               id: pending.id,
               model: pending.model,
-              content,
+              content: cleanedContent,
               created: pending.created,
+              toolCalls,
             }),
           );
         }

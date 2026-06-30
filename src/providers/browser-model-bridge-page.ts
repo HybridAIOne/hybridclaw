@@ -697,7 +697,12 @@ async function generate(id, request) {
     phase = 'model';
     const generator = await loadGenerator();
     phase = 'prompt';
-    const promptText = renderPrompt(generator, request.messages, request.tools);
+    const forcedPrefix =
+      typeof request.force_assistant_prefix === 'string'
+        ? request.force_assistant_prefix
+        : '';
+    const promptText =
+      renderPrompt(generator, request.messages, request.tools) + forcedPrefix;
     log('Prompt rendered', {
       messageCount: Array.isArray(request.messages) ? request.messages.length : 0,
       toolCount: Array.isArray(request.tools) ? request.tools.length : 0,
@@ -706,6 +711,11 @@ async function generate(id, request) {
       environment: workerEnvironment(),
     });
     setRuntime('generating', 'generating', 100);
+
+    // When the assistant turn is force-prefilled (e.g. to require a tool call),
+    // the prefix lives in the prompt and is not streamed by the tokenizer, so
+    // emit it as the first delta to keep streamed and final content aligned.
+    if (forcedPrefix) post({ type: 'delta', id, delta: forcedPrefix });
 
     const streamer = new runtime.TextStreamer(generator.tokenizer, {
       skip_prompt: true,
@@ -774,7 +784,7 @@ async function generate(id, request) {
     phase = 'generation';
     const result = await generator(promptText, generationOptions);
     const fallbackText = extractGeneratedText(result);
-    const content = (output || fallbackText).trim();
+    const content = (forcedPrefix + (output || fallbackText)).trim();
     const elapsed = Math.max(0.001, (performance.now() - started) / 1000);
     const tps = tokens > 1 && firstTokenAt
       ? Math.round(((tokens - 1) / ((performance.now() - firstTokenAt) / 1000)) * 10) / 10

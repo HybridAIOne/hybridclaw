@@ -3,8 +3,23 @@ import { afterEach, describe, expect, test } from 'vitest';
 import {
   DEFAULT_BROWSER_MODEL_BRIDGE_MODEL,
   type BrowserModelBridgeHandle,
+  computeForcedToolPrefix,
+  parseLiquidToolCalls,
   startBrowserModelBridge,
 } from '../src/providers/browser-model-bridge.ts';
+
+const BASH_TOOL = {
+  type: 'function',
+  function: {
+    name: 'bash',
+    description: 'Run a bash command.',
+    parameters: {
+      type: 'object',
+      properties: { command: { type: 'string' } },
+      required: ['command'],
+    },
+  },
+};
 
 const handles: BrowserModelBridgeHandle[] = [];
 
@@ -353,5 +368,312 @@ describe('browser model bridge', () => {
     expect(body).not.toContain(
       '"delta":{"content":"Browser tab disconnected before generation completed."}',
     );
+  });
+
+  test('forces a tool-call prefix and parses the native tool call', async () => {
+    const handle = await startTestBridge();
+    const ws = await connectFakeBrowser(handle);
+    handles.push({
+      ...handle,
+      close: async () => {
+        ws.close();
+      },
+    });
+
+    const generateMessage = new Promise<Record<string, unknown>>((resolve) => {
+      ws.on('message', (raw) => {
+        const payload = JSON.parse(String(raw)) as Record<string, unknown>;
+        if (payload.type === 'generate') resolve(payload);
+      });
+    });
+
+    const responsePromise = fetch(`${handle.endpointUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: DEFAULT_BROWSER_MODEL_BRIDGE_MODEL,
+        messages: [
+          { role: 'user', content: 'Print the result of `ls -la`' },
+        ],
+        tools: [BASH_TOOL],
+      }),
+    });
+
+    const generate = await generateMessage;
+    const request = generate.request as Record<string, unknown>;
+    expect(request.force_assistant_prefix).toBe('<|tool_call_start|>[');
+
+    const id = String(generate.id);
+    // The worker echoes the forced prefix as the first delta, then the model's
+    // own completion of the native Pythonic tool call.
+    const content =
+      '<|tool_call_start|>[bash(command="ls -la")]<|tool_call_end|>';
+    ws.send(JSON.stringify({ type: 'complete', id, content, tokens: 8 }));
+
+    const response = await responsePromise;
+    const payload = (await response.json()) as {
+      choices: Array<{
+        finish_reason: string;
+        message: {
+          content: string | null;
+          tool_calls?: Array<{ function: { name: string; arguments: string } }>;
+        };
+      }>;
+    };
+
+    expect(response.status).toBe(200);
+    const choice = payload.choices[0];
+    expect(choice?.finish_reason).toBe('tool_calls');
+    expect(choice?.message.content).toBeNull();
+    expect(choice?.message.tool_calls).toEqual([
+      expect.objectContaining({
+        type: 'function',
+        function: { name: 'bash', arguments: '{"command":"ls -la"}' },
+      }),
+    ]);
+  });
+
+  test('streams a forced tool call as OpenAI tool_calls deltas', async () => {
+    const handle = await startTestBridge();
+    const ws = await connectFakeBrowser(handle);
+    handles.push({
+      ...handle,
+      close: async () => {
+        ws.close();
+      },
+    });
+
+    const generateMessage = new Promise<Record<string, unknown>>((resolve) => {
+      ws.on('message', (raw) => {
+        const payload = JSON.parse(String(raw)) as Record<string, unknown>;
+        if (payload.type === 'generate') resolve(payload);
+      });
+    });
+
+    const responsePromise = fetch(`${handle.endpointUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: DEFAULT_BROWSER_MODEL_BRIDGE_MODEL,
+        stream: true,
+        messages: [{ role: 'user', content: 'Print `ls -la`' }],
+        tools: [BASH_TOOL],
+      }),
+    });
+
+    const generate = await generateMessage;
+    const id = String(generate.id);
+    // The worker streams the forced prefix as the first delta, then the model's
+    // completion; the bridge buffers these and must not leak raw markup as text.
+    ws.send(JSON.stringify({ type: 'delta', id, delta: '<|tool_call_start|>[' }));
+    ws.send(
+      JSON.stringify({
+        type: 'delta',
+        id,
+        delta: 'bash(command="ls -la")]<|tool_call_end|>',
+      }),
+    );
+    ws.send(
+      JSON.stringify({
+        type: 'complete',
+        id,
+        content: '<|tool_call_start|>[bash(command="ls -la")]<|tool_call_end|>',
+        tokens: 8,
+      }),
+    );
+
+    const body = await (await responsePromise).text();
+    expect(body).not.toContain('<|tool_call_start|>');
+    expect(body).toContain('"tool_calls"');
+    expect(body).toContain('"name":"bash"');
+    expect(body).toContain('"arguments":"{\\"command\\":\\"ls -la\\"}"');
+    expect(body).toContain('"finish_reason":"tool_calls"');
+    expect(body).toContain('data: [DONE]');
+  });
+
+  test('does not force a tool call after a tool result', async () => {
+    const handle = await startTestBridge();
+    const ws = await connectFakeBrowser(handle);
+    handles.push({
+      ...handle,
+      close: async () => {
+        ws.close();
+      },
+    });
+
+    const generateMessage = new Promise<Record<string, unknown>>((resolve) => {
+      ws.on('message', (raw) => {
+        const payload = JSON.parse(String(raw)) as Record<string, unknown>;
+        if (payload.type === 'generate') resolve(payload);
+      });
+    });
+
+    const responsePromise = fetch(`${handle.endpointUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: DEFAULT_BROWSER_MODEL_BRIDGE_MODEL,
+        messages: [
+          { role: 'user', content: 'Print `ls -la`' },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              {
+                id: 'call_1',
+                type: 'function',
+                function: { name: 'bash', arguments: '{"command":"ls -la"}' },
+              },
+            ],
+          },
+          { role: 'tool', tool_call_id: 'call_1', content: 'total 0' },
+        ],
+        tools: [BASH_TOOL],
+      }),
+    });
+
+    const generate = await generateMessage;
+    const request = generate.request as Record<string, unknown>;
+    expect(request.force_assistant_prefix).toBeUndefined();
+
+    const id = String(generate.id);
+    ws.send(
+      JSON.stringify({ type: 'complete', id, content: 'All done.', tokens: 2 }),
+    );
+
+    const response = await responsePromise;
+    const payload = (await response.json()) as {
+      choices: Array<{
+        finish_reason: string;
+        message: { content: string | null; tool_calls?: unknown };
+      }>;
+    };
+    expect(payload.choices[0]?.finish_reason).toBe('stop');
+    expect(payload.choices[0]?.message.content).toBe('All done.');
+    expect(payload.choices[0]?.message.tool_calls).toBeUndefined();
+  });
+});
+
+describe('computeForcedToolPrefix', () => {
+  const LIQUID = DEFAULT_BROWSER_MODEL_BRIDGE_MODEL;
+
+  test('forces on a user turn when tools are present', () => {
+    expect(
+      computeForcedToolPrefix(
+        { tools: [BASH_TOOL], messages: [{ role: 'user', content: 'go' }] },
+        LIQUID,
+      ),
+    ).toBe('<|tool_call_start|>[');
+  });
+
+  test('does not force without tools', () => {
+    expect(
+      computeForcedToolPrefix(
+        { messages: [{ role: 'user', content: 'go' }] },
+        LIQUID,
+      ),
+    ).toBe('');
+  });
+
+  test('does not force for non-Liquid model families', () => {
+    expect(
+      computeForcedToolPrefix(
+        { tools: [BASH_TOOL], messages: [{ role: 'user', content: 'go' }] },
+        'onnx-community/gemma-3-270m-ONNX',
+      ),
+    ).toBe('');
+  });
+
+  test('does not force after a tool result', () => {
+    expect(
+      computeForcedToolPrefix(
+        {
+          tools: [BASH_TOOL],
+          messages: [
+            { role: 'user', content: 'go' },
+            { role: 'tool', tool_call_id: 'c', content: 'done' },
+          ],
+        },
+        LIQUID,
+      ),
+    ).toBe('');
+  });
+
+  test('honors tool_choice required and none', () => {
+    expect(
+      computeForcedToolPrefix(
+        {
+          tools: [BASH_TOOL],
+          tool_choice: 'required',
+          messages: [{ role: 'tool', content: 'done' }],
+        },
+        LIQUID,
+      ),
+    ).toBe('<|tool_call_start|>[');
+    expect(
+      computeForcedToolPrefix(
+        {
+          tools: [BASH_TOOL],
+          tool_choice: 'none',
+          messages: [{ role: 'user', content: 'go' }],
+        },
+        LIQUID,
+      ),
+    ).toBe('');
+  });
+
+  test('forces a specific named function', () => {
+    expect(
+      computeForcedToolPrefix(
+        {
+          tools: [BASH_TOOL],
+          tool_choice: { type: 'function', function: { name: 'bash' } },
+          messages: [{ role: 'user', content: 'go' }],
+        },
+        LIQUID,
+      ),
+    ).toBe('<|tool_call_start|>[bash(');
+  });
+});
+
+describe('parseLiquidToolCalls', () => {
+  test('parses a single quoted-argument tool call', () => {
+    const result = parseLiquidToolCalls(
+      '<|tool_call_start|>[bash(command="ls -la")]<|tool_call_end|>',
+    );
+    expect(result.content).toBe('');
+    expect(result.toolCalls).toEqual([
+      expect.objectContaining({
+        type: 'function',
+        function: { name: 'bash', arguments: '{"command":"ls -la"}' },
+      }),
+    ]);
+  });
+
+  test('parses multiple calls and strips the tools. prefix', () => {
+    const result = parseLiquidToolCalls(
+      "<|tool_call_start|>[tools.bash(command='id'), get_weather(city='Paris', units=2)]<|tool_call_end|>",
+    );
+    expect(result.toolCalls.map((call) => call.function)).toEqual([
+      { name: 'bash', arguments: '{"command":"id"}' },
+      { name: 'get_weather', arguments: '{"city":"Paris","units":2}' },
+    ]);
+  });
+
+  test('preserves surrounding prose and tolerates a missing end token', () => {
+    const result = parseLiquidToolCalls(
+      'Sure. <|tool_call_start|>[bash(command="pwd")]',
+    );
+    expect(result.content).toBe('Sure.');
+    expect(result.toolCalls[0]?.function).toEqual({
+      name: 'bash',
+      arguments: '{"command":"pwd"}',
+    });
+  });
+
+  test('returns text unchanged when there is no tool call', () => {
+    const result = parseLiquidToolCalls('just a plain answer');
+    expect(result.content).toBe('just a plain answer');
+    expect(result.toolCalls).toEqual([]);
   });
 });
