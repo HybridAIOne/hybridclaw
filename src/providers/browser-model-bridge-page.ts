@@ -813,9 +813,12 @@ async function generate(id, request) {
     // onnxruntime sizes the prefill logits tensor ([seq, vocab] float32) with an
     // int32 byte count, so seq * vocab * 4 must stay under 2^31. Large
     // vocabularies (e.g. Gemma's ~262K) cap the usable prompt far below the
-    // model's context window (~2K tokens), and crossing it loses the WebGPU
-    // device — which a page reload can't recover from in time. Failing here
-    // keeps the session healthy for later (shorter) requests.
+    // model's context window, and crossing it loses the WebGPU device — which a
+    // page reload can't recover from in time. Failing here keeps the session
+    // healthy for later (shorter) requests. Measured on gemma-4-E2B (vocab
+    // 262144): 1740 prompt tokens succeed but 2001 fail, so the 0.85 factor caps
+    // the limit (~1740) at the highest confirmed-good length, independent of
+    // max_new_tokens (decode logits are [1, vocab], so only the prompt matters).
     const vocabSize = resolveVocabSize(generator);
     if (Number.isFinite(vocabSize) && vocabSize > 0) {
       let promptTokens = 0;
@@ -825,7 +828,7 @@ async function generate(id, request) {
       } catch (error) {
         log('Prompt token count failed', errorToData(error));
       }
-      const safeMaxTokens = Math.floor(((2 ** 31 - 1) / (vocabSize * 4)) * 0.9);
+      const safeMaxTokens = Math.floor(((2 ** 31 - 1) / (vocabSize * 4)) * 0.85);
       log('Prompt length check', { promptTokens, vocabSize, safeMaxTokens });
       if (promptTokens > safeMaxTokens) {
         throw new Error(
