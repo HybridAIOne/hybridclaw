@@ -369,7 +369,7 @@ describe('ModelsPage', () => {
       host: '127.0.0.1',
       port: 8789,
       device: 'webgpu',
-      dtype: 'q4f16',
+      dtype: 'q4',
       maxNewTokens: 2048,
       setDefault: true,
     });

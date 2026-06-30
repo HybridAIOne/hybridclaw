@@ -214,7 +214,7 @@ export function printLocalUsage(): void {
 Commands:
   hybridclaw local status
   hybridclaw local configure <ollama|lmstudio|llamacpp|vllm|browser> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
-  hybridclaw local bridge [model-id] [--host <host>] [--port <port>] [--device webgpu] [--dtype q4f16] [--api-key <key>] [--max-new-tokens <n>] [--no-open]
+  hybridclaw local bridge [model-id] [--host <host>] [--port <port>] [--device webgpu] [--dtype q4] [--api-key <key>] [--max-new-tokens <n>] [--no-open]
 
 Use Instead:
   hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm|browser> [model-id] ...

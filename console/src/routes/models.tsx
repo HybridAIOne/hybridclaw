@@ -171,7 +171,7 @@ const DEFAULT_BROWSER_BRIDGE_DRAFT: BrowserBridgeDraft = {
   host: '127.0.0.1',
   port: '8789',
   device: 'webgpu',
-  dtype: 'q4f16',
+  dtype: 'q4',
   maxNewTokens: '2048',
   apiKey: '',
   setDefault: true,
@@ -559,6 +559,7 @@ export function ModelsPage() {
                       }))
                     }
                   >
+                    <NativeSelectOption value="q4">q4</NativeSelectOption>
                     <NativeSelectOption value="q4f16">q4f16</NativeSelectOption>
                     <NativeSelectOption value="q8">q8</NativeSelectOption>
                     <NativeSelectOption value="fp16">fp16</NativeSelectOption>

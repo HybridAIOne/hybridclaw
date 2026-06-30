@@ -12,7 +12,7 @@ export const DEFAULT_BROWSER_MODEL_BRIDGE_MODEL = 'LiquidAI/LFM2.5-230M-ONNX';
 export const DEFAULT_BROWSER_MODEL_BRIDGE_HOST = '127.0.0.1';
 export const DEFAULT_BROWSER_MODEL_BRIDGE_PORT = 8789;
 export const DEFAULT_BROWSER_MODEL_BRIDGE_DEVICE = 'webgpu';
-export const DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE = 'q4f16';
+export const DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE = 'q4';
 export const DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS = 2048;
 const MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15 * 60_000;
@@ -80,6 +80,16 @@ type PendingRequest = {
   timeout: NodeJS.Timeout;
 };
 
+type JsonValue =
+  | null
+  | string
+  | number
+  | boolean
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+type JsonObject = { [key: string]: JsonValue };
+
 type BridgeStatus = {
   connected: boolean;
   state: 'idle' | 'loading' | 'ready' | 'generating' | 'error';
@@ -118,7 +128,7 @@ function normalizePositiveInteger(
 function jsonResponse(
   res: ServerResponse,
   statusCode: number,
-  payload: unknown,
+  payload: JsonValue,
 ): void {
   if (res.headersSent) {
     if (!res.writableEnded) res.end();
@@ -207,7 +217,7 @@ function checkApiKey(req: IncomingMessage, apiKey: string): boolean {
   return extractBearerToken(req) === apiKey;
 }
 
-function createModelList(model: string): Record<string, unknown> {
+function createModelList(model: string): JsonObject {
   return {
     object: 'list',
     data: [
@@ -226,7 +236,7 @@ function createChatCompletion(params: {
   model: string;
   content: string;
   created: number;
-}): Record<string, unknown> {
+}): JsonObject {
   return {
     id: params.id,
     object: 'chat.completion',
