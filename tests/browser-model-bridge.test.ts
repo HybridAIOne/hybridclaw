@@ -95,6 +95,9 @@ describe('browser model bridge', () => {
     expect(page).toContain('"onnxruntime-common": "/vendor/onnxruntime-common/index.js"');
     expect(page).toContain('"onnxruntime-web": "/vendor/onnxruntime-web.js"');
     expect(page).toContain("new Worker('/bridge/worker.js'");
+    // Log panel is collapsed by default (a <details> with no `open` attribute).
+    expect(page).toContain('<details class="panel log-panel">');
+    expect(page).not.toContain('log-panel" open');
     expect(page).toContain('progress.is-generating::-webkit-progress-value');
     expect(page).toContain(
       "progressEl.classList.toggle('is-generating', state === 'generating')",

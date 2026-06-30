@@ -1012,6 +1012,31 @@ export function buildBrowserBridgeHtml(config: {
         background: #5eead4;
       }
     }
+    .log-panel {
+      display: block;
+      padding: 0;
+    }
+    .log-summary {
+      cursor: pointer;
+      padding: 16px 18px;
+      font-size: 13px;
+      color: #a1a1aa;
+      user-select: none;
+      list-style: none;
+    }
+    .log-summary::-webkit-details-marker {
+      display: none;
+    }
+    .log-summary::before {
+      content: '▶';
+      display: inline-block;
+      margin-right: 8px;
+      font-size: 10px;
+      transition: transform 120ms ease;
+    }
+    .log-panel[open] .log-summary::before {
+      transform: rotate(90deg);
+    }
     .log {
       min-height: 140px;
       max-height: 260px;
@@ -1021,6 +1046,7 @@ export function buildBrowserBridgeHtml(config: {
       font-size: 12px;
       line-height: 1.5;
       color: #d4d4d8;
+      padding: 0 18px 18px;
     }
   </style>
 </head>
@@ -1034,9 +1060,10 @@ export function buildBrowserBridgeHtml(config: {
       <div class="row"><span class="label">Runtime</span><span class="value" id="runtime">idle</span></div>
       <progress id="progress" max="100" value="0"></progress>
     </section>
-    <section class="panel">
+    <details class="panel log-panel">
+      <summary class="log-summary">Log</summary>
       <div class="log" id="log"></div>
-    </section>
+    </details>
   </main>
   <script type="importmap">
     {
