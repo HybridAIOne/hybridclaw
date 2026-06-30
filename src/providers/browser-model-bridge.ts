@@ -585,6 +585,17 @@ export async function startBrowserModelBridge(
         );
         return;
       }
+      if (type === 'log') {
+        logger.debug(
+          {
+            message:
+              typeof payload.message === 'string' ? payload.message : null,
+            data: payload.data ?? null,
+          },
+          'Browser model bridge page log',
+        );
+        return;
+      }
 
       const id = typeof payload.id === 'string' ? payload.id : '';
       const pending = id ? pendingRequests.get(id) : undefined;

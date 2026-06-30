@@ -98,7 +98,11 @@ describe('browser model bridge', () => {
     expect(workerBody).toContain('apply_chat_template');
     expect(workerBody).toContain('return_full_text: false');
     expect(workerBody).toContain('errorToData');
+    expect(workerBody).toContain('reportLoadProgress');
+    expect(workerBody).toContain('Browser console error');
+    expect(workerBody).toContain('Model load failed');
     expect(workerBody).not.toContain('Try a smaller max token limit');
+    expect(workerBody).not.toContain("info.status !== 'progress_total'");
 
     const workerRuntimeResponse = await fetch(
       `${handle.pageUrl}vendor/transformers.worker.js`,

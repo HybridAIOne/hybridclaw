@@ -170,6 +170,9 @@ let generatorPromise = null;
 let busy = false;
 let lastLoadProgressAt = 0;
 let lastLoadProgressPercent = -1;
+let lastLoadProgressSignature = '';
+let lastModelLoadProgress = null;
+let consoleForwardingInstalled = false;
 
 function post(payload) {
   self.postMessage(payload);
@@ -227,11 +230,27 @@ function workerEnvironment() {
   };
 }
 
+function installConsoleForwarding() {
+  if (consoleForwardingInstalled) return;
+  consoleForwardingInstalled = true;
+  const originalWarn = console.warn.bind(console);
+  const originalError = console.error.bind(console);
+  console.warn = (...args) => {
+    log('Browser console warning', args.map((arg) => stringifyUnknown(arg)));
+    originalWarn(...args);
+  };
+  console.error = (...args) => {
+    log('Browser console error', args.map((arg) => stringifyUnknown(arg)));
+    originalError(...args);
+  };
+}
+
 async function loadTransformersRuntime() {
   if (transformersRuntime) return transformersRuntime;
   if (!transformersPromise) {
     setRuntime('loading', 'loading Transformers.js runtime', 0);
     log('Loading Transformers.js runtime', workerEnvironment());
+    installConsoleForwarding();
     transformersPromise = import('/vendor/transformers.worker.js')
       .then((runtime) => {
         if (
@@ -362,6 +381,112 @@ function extractGeneratedText(result) {
   return '';
 }
 
+function finiteNumber(value) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function formatBytes(value) {
+  if (!Number.isFinite(value) || value <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let scaled = value;
+  let unitIndex = 0;
+  while (scaled >= 1000 && unitIndex < units.length - 1) {
+    scaled /= 1000;
+    unitIndex += 1;
+  }
+  const decimals = unitIndex === 0 ? 0 : 2;
+  return scaled.toFixed(decimals) + ' ' + units[unitIndex];
+}
+
+function normalizeProgressInfo(info) {
+  const status = String(info && info.status ? info.status : 'loading');
+  const name = String(info && info.name ? info.name : '');
+  const file = String(info && info.file ? info.file : '');
+  const loaded = finiteNumber(info && info.loaded);
+  const total = finiteNumber(info && info.total);
+  let progress = finiteNumber(info && info.progress);
+  if (progress === null && loaded !== null && total !== null && total > 0) {
+    progress = loaded / total * 100;
+  }
+  const roundedProgress =
+    progress === null ? -1 : Math.max(0, Math.min(100, Math.round(progress)));
+  const label = file || name || CONFIG.model;
+  let message = status;
+  if (label) message += ' ' + label;
+  if (loaded !== null && total !== null && total > 0) {
+    message += ': ' + formatBytes(loaded) + ' of ' + formatBytes(total);
+    if (roundedProgress >= 0) message += ' (' + roundedProgress + '%)';
+  } else if (roundedProgress >= 0) {
+    message += ' (' + roundedProgress + '%)';
+  }
+  return {
+    status,
+    name,
+    file,
+    loaded,
+    total,
+    progress,
+    roundedProgress,
+    message,
+  };
+}
+
+function shouldReportProgress(progress) {
+  const now = performance.now();
+
+  if (progress.status === 'progress') {
+    return false;
+  }
+
+  if (progress.status === 'progress_total') {
+    if (progress.roundedProgress < 0) return false;
+    if (
+      lastLoadProgressPercent >= 0 &&
+      Math.abs(progress.roundedProgress - lastLoadProgressPercent) < 5 &&
+      now - lastLoadProgressAt < 2000
+    ) {
+      return false;
+    }
+    lastLoadProgressAt = now;
+    lastLoadProgressPercent = progress.roundedProgress;
+    return true;
+  }
+
+  const signature =
+    progress.status + '|' + progress.file + '|' + progress.roundedProgress;
+  if (
+    signature === lastLoadProgressSignature &&
+    now - lastLoadProgressAt < 1000
+  ) {
+    return false;
+  }
+
+  lastLoadProgressSignature = signature;
+  lastLoadProgressAt = now;
+  return true;
+}
+
+function reportLoadProgress(info) {
+  if (!info) return;
+  const progress = normalizeProgressInfo(info);
+  lastModelLoadProgress = {
+    status: progress.status,
+    name: progress.name || undefined,
+    file: progress.file || undefined,
+    loaded: progress.loaded ?? undefined,
+    total: progress.total ?? undefined,
+    progress: progress.progress ?? undefined,
+  };
+  if (!shouldReportProgress(progress)) return;
+  setRuntime(
+    'loading',
+    progress.message,
+    progress.progress === null ? undefined : progress.progress,
+  );
+  log('Model load progress', lastModelLoadProgress);
+}
+
 async function loadGenerator() {
   if (generatorPromise) return generatorPromise;
   if (!CONFIG) throw new Error('Bridge worker is not initialized.');
@@ -375,29 +500,12 @@ async function loadGenerator() {
   });
   lastLoadProgressAt = 0;
   lastLoadProgressPercent = -1;
+  lastLoadProgressSignature = '';
+  lastModelLoadProgress = null;
   generatorPromise = runtime.pipeline('text-generation', CONFIG.model, {
     dtype: CONFIG.dtype,
     device: CONFIG.device,
-    progress_callback: (info) => {
-      if (!info || info.status !== 'progress_total') return;
-      const loaded = Number(info.loaded || 0);
-      const total = Number(info.total || 0);
-      const progress = Number(info.progress || 0);
-      const roundedProgress = Math.max(0, Math.min(100, Math.round(progress)));
-      const now = performance.now();
-      if (
-        roundedProgress === lastLoadProgressPercent &&
-        now - lastLoadProgressAt < 500
-      ) {
-        return;
-      }
-      lastLoadProgressAt = now;
-      lastLoadProgressPercent = roundedProgress;
-      const message = total > 0
-        ? (loaded / 1e9).toFixed(2) + ' GB of ' + (total / 1e9).toFixed(2) + ' GB (' + roundedProgress + '%)'
-        : 'Downloading model';
-      setRuntime('loading', message, progress);
-    }
+    progress_callback: reportLoadProgress
   })
     .then((generator) => {
       setRuntime('ready', 'ready', 100);
@@ -413,7 +521,11 @@ async function loadGenerator() {
     .catch((error) => {
       generatorPromise = null;
       setRuntime('error', formatError(error), undefined);
-      log('Model load failed', errorToData(error));
+      log('Model load failed', {
+        error: errorToData(error),
+        lastProgress: lastModelLoadProgress,
+        environment: workerEnvironment(),
+      });
       throw error;
     });
   return generatorPromise;
@@ -429,6 +541,7 @@ async function generate(id, request) {
   let tokens = 0;
   let firstTokenAt = 0;
   let phase = 'runtime';
+  let failed = false;
 
   try {
     const runtime = await loadTransformersRuntime();
@@ -508,6 +621,7 @@ async function generate(id, request) {
       tps
     });
   } catch (error) {
+    failed = true;
     const details = {
       error: errorToData(error),
       environment: workerEnvironment(),
@@ -516,6 +630,7 @@ async function generate(id, request) {
         messageCount: Array.isArray(request.messages) ? request.messages.length : 0,
         maxTokens: request.max_tokens || CONFIG.maxNewTokens,
       },
+      modelLoad: phase === 'model' ? { lastProgress: lastModelLoadProgress } : undefined,
     };
     log('Generation failed', details);
     setRuntime('error', formatError(error), undefined);
@@ -527,7 +642,7 @@ async function generate(id, request) {
     });
   } finally {
     busy = false;
-    if (transformersRuntime) setRuntime('ready', 'ready', 100);
+    if (!failed && generatorPromise) setRuntime('ready', 'ready', 100);
   }
 }
 
@@ -742,10 +857,12 @@ export function buildBrowserBridgeHtml(config: {
     const workerRequests = new Map();
     const modelWorker = new Worker('/bridge/worker.js', { type: 'module' });
 
-    function log(message) {
+    function log(message, data) {
       const stamp = new Date().toLocaleTimeString();
-      logEl.textContent += '[' + stamp + '] ' + message + '\\n';
+      const suffix = data === undefined ? '' : ': ' + describe(data);
+      logEl.textContent += '[' + stamp + '] ' + message + suffix + '\\n';
       logEl.scrollTop = logEl.scrollHeight;
+      send({ type: 'log', message, data });
     }
 
     window.addEventListener('error', (event) => {
@@ -787,7 +904,7 @@ export function buildBrowserBridgeHtml(config: {
     modelWorker.addEventListener('message', (event) => {
       const payload = event.data || {};
       if (payload.type === 'log') {
-        log(payload.message + (payload.data === undefined ? '' : ': ' + describe(payload.data)));
+        log(payload.message, payload.data);
         return;
       }
       if (payload.type === 'status') {
