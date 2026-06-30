@@ -73,6 +73,10 @@ describe('browser model bridge', () => {
     expect(page).toContain('"onnxruntime-common": "/vendor/onnxruntime-common/index.js"');
     expect(page).toContain('"onnxruntime-web": "/vendor/onnxruntime-web.js"');
     expect(page).toContain("import('/vendor/transformers.web.js')");
+    expect(page).toContain('progress.is-generating::-webkit-progress-value');
+    expect(page).toContain(
+      "progressEl.classList.toggle('is-generating', state === 'generating')",
+    );
 
     const webResponse = await fetch(`${handle.pageUrl}vendor/onnxruntime-web.js`);
     const webBody = await webResponse.text();

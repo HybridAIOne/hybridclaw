@@ -192,7 +192,51 @@ export function buildBrowserBridgeHtml(config: {
     progress {
       width: 100%;
       height: 12px;
-      accent-color: #5eead4;
+      appearance: none;
+      -webkit-appearance: none;
+      border: 0;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #2a2e35;
+    }
+    progress::-webkit-progress-bar {
+      background: #2a2e35;
+      border-radius: 999px;
+    }
+    progress::-webkit-progress-value {
+      background: #e4e4e7;
+      border-radius: 999px;
+      transition: width 160ms ease;
+    }
+    progress::-moz-progress-bar {
+      background: #e4e4e7;
+      border-radius: 999px;
+      transition: width 160ms ease;
+    }
+    progress.is-generating::-webkit-progress-value {
+      background: linear-gradient(90deg, #e4e4e7 0%, #e4e4e7 30%, #5eead4 48%, #22d3ee 52%, #e4e4e7 70%, #e4e4e7 100%);
+      background-size: 220% 100%;
+      animation: bridge-progress-scan 1.1s linear infinite;
+    }
+    progress.is-generating::-moz-progress-bar {
+      background: linear-gradient(90deg, #e4e4e7 0%, #e4e4e7 30%, #5eead4 48%, #22d3ee 52%, #e4e4e7 70%, #e4e4e7 100%);
+      background-size: 220% 100%;
+      animation: bridge-progress-scan 1.1s linear infinite;
+    }
+    @keyframes bridge-progress-scan {
+      from {
+        background-position: 220% 0;
+      }
+      to {
+        background-position: 0 0;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      progress.is-generating::-webkit-progress-value,
+      progress.is-generating::-moz-progress-bar {
+        animation: none;
+        background: #5eead4;
+      }
     }
     .log {
       min-height: 140px;
@@ -264,6 +308,7 @@ export function buildBrowserBridgeHtml(config: {
 
     function setRuntime(state, message, progress) {
       runtimeEl.textContent = message || state;
+      progressEl.classList.toggle('is-generating', state === 'generating');
       if (typeof progress === 'number' && Number.isFinite(progress)) {
         progressEl.value = Math.max(0, Math.min(100, progress));
       }
@@ -440,9 +485,9 @@ export function buildBrowserBridgeHtml(config: {
       try {
         runtime = await loadTransformersRuntime();
         runtime.stoppingCriteria.reset();
-        setRuntime('generating', 'generating');
 
         const generator = await loadGenerator();
+        setRuntime('generating', 'generating', 100);
         const streamer = new runtime.TextStreamer(generator.tokenizer, {
           skip_prompt: true,
           skip_special_tokens: true,
