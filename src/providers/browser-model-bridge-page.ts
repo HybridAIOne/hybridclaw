@@ -317,6 +317,17 @@ function contentToText(content) {
     .join('\\n');
 }
 
+function toToolCallArguments(value) {
+  if (value && typeof value === 'object') return value;
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch {}
+  }
+  return {};
+}
+
 function normalizeMessages(messages) {
   if (!Array.isArray(messages)) return [];
   return messages
@@ -341,10 +352,11 @@ function normalizeMessages(messages) {
                     typeof functionRecord.name === 'string'
                       ? functionRecord.name
                       : '',
-                  arguments:
-                    typeof functionRecord.arguments === 'string'
-                      ? functionRecord.arguments
-                      : '{}',
+                  // The chat template iterates arguments with .items(), so it
+                  // must be an object. OpenAI sends a JSON string; parse it back
+                  // so multi-turn tool histories render via the native template
+                  // instead of falling back to a plain prompt.
+                  arguments: toToolCallArguments(functionRecord.arguments),
                 },
               };
             })

@@ -119,6 +119,10 @@ describe('browser model bridge', () => {
     expect(workerBody).toContain('promptText');
     expect(workerBody).toContain('tool_calls');
     expect(workerBody).toContain('tool_call_id');
+    // Tool-call arguments must be parsed to an object so the native chat
+    // template (which calls .items()) renders multi-turn histories instead of
+    // falling back to a plain prompt.
+    expect(workerBody).toContain('toToolCallArguments');
     expect(workerBody).toContain('Tool call format: call:<tool_name>{key:value}');
     expect(workerBody).toContain(
       'Liquid tool call format: <|tool_call_start|>[tools.<tool_name>(key=value)]<|tool_call_end|>',
