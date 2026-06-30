@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import WebSocket, * as wsModule from 'ws';
+import {
+  writeLastPromptDebugText,
+  writeModelResponseDebugText,
+} from '../infra/model-response-debug.js';
 import { logger } from '../logger.js';
 import {
   buildBrowserBridgeHtml,
@@ -371,6 +375,35 @@ function failPendingRequest(
   });
 }
 
+function writeBrowserModelDebugRecord(params: {
+  message: string;
+  model: string;
+  data: unknown;
+}): void {
+  if (params.message === 'Debug model request') {
+    writeLastPromptDebugText(
+      `${JSON.stringify({
+        ts: new Date().toISOString(),
+        provider: 'browser',
+        model: params.model,
+        kind: 'browser_bridge_rendered_prompt',
+        request: params.data,
+      })}\n`,
+    );
+    return;
+  }
+
+  if (params.message !== 'Debug model response') return;
+  writeModelResponseDebugText(
+    `[model-response-debug] ${JSON.stringify({
+      provider: 'browser',
+      model: params.model,
+      kind: 'browser_bridge_worker_response',
+      response: params.data,
+    })}\n`,
+  );
+}
+
 export async function startBrowserModelBridge(
   options: BrowserModelBridgeOptions = {},
 ): Promise<BrowserModelBridgeHandle> {
@@ -617,10 +650,16 @@ export async function startBrowserModelBridge(
         return;
       }
       if (type === 'log') {
+        const message =
+          typeof payload.message === 'string' ? payload.message : null;
+        writeBrowserModelDebugRecord({
+          message: message || '',
+          model,
+          data: payload.data ?? null,
+        });
         logger.debug(
           {
-            message:
-              typeof payload.message === 'string' ? payload.message : null,
+            message,
             data: payload.data ?? null,
           },
           'Browser model bridge page log',

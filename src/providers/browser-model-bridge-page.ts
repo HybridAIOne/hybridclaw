@@ -448,18 +448,27 @@ function renderPrompt(generator, messages, tools) {
   const normalized = normalizeMessages(messages);
   const tokenizer = generator && generator.tokenizer;
   if (tokenizer && typeof tokenizer.apply_chat_template === 'function') {
+    const template = typeof tokenizer.chat_template === 'string'
+      ? tokenizer.chat_template
+      : '';
+    const strippedTemplate = template
+      ? stripUnsupportedChatTemplateBlocks(template)
+      : '';
+    const renderTemplate =
+      strippedTemplate && strippedTemplate !== template
+        ? strippedTemplate
+        : undefined;
     try {
-      return applyChatTemplate(tokenizer, normalized, undefined, tools);
+      const rendered = applyChatTemplate(tokenizer, normalized, renderTemplate, tools);
+      if (renderTemplate) {
+        log('Chat template rendered with unsupported generation blocks removed');
+      }
+      return rendered;
     } catch (error) {
-      const template = typeof tokenizer.chat_template === 'string'
-        ? tokenizer.chat_template
-        : '';
-      const strippedTemplate = template
-        ? stripUnsupportedChatTemplateBlocks(template)
-        : '';
       const canRetry =
         strippedTemplate &&
         strippedTemplate !== template &&
+        !renderTemplate &&
         /Unknown statement type:\\s*(generation|endgeneration)/.test(
           String(error && error.message ? error.message : error),
         );
@@ -505,6 +514,23 @@ function extractGeneratedText(result) {
 function finiteNumber(value) {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function shouldDebugModelRequest(request) {
+  return request && request.hybridclaw_debug_model_responses === true;
+}
+
+function debugGenerationOptions(options) {
+  return {
+    add_special_tokens: options.add_special_tokens,
+    return_full_text: options.return_full_text,
+    max_new_tokens: options.max_new_tokens,
+    temperature: options.temperature,
+    top_k: options.top_k,
+    top_p: options.top_p,
+    repetition_penalty: options.repetition_penalty,
+    do_sample: options.do_sample,
+  };
 }
 
 function formatBytes(value) {
@@ -723,13 +749,50 @@ async function generate(id, request) {
       generationOptions.top_p = topP;
     }
 
+    if (shouldDebugModelRequest(request)) {
+      log('Debug model request', {
+        id,
+        model: CONFIG.model,
+        device: CONFIG.device,
+        dtype: CONFIG.dtype,
+        promptText,
+        generationOptions: debugGenerationOptions(generationOptions),
+        request: {
+          messages: request.messages,
+          tools: request.tools,
+          tool_choice: request.tool_choice,
+          max_tokens: request.max_tokens,
+          temperature: request.temperature,
+          top_p: request.top_p,
+          top_k: request.top_k,
+          repetition_penalty: request.repetition_penalty,
+        },
+        environment: workerEnvironment(),
+      });
+    }
+
     phase = 'generation';
     const result = await generator(promptText, generationOptions);
     const fallbackText = extractGeneratedText(result);
+    const content = (output || fallbackText).trim();
     const elapsed = Math.max(0.001, (performance.now() - started) / 1000);
     const tps = tokens > 1 && firstTokenAt
       ? Math.round(((tokens - 1) / ((performance.now() - firstTokenAt) / 1000)) * 10) / 10
       : Math.round((tokens / elapsed) * 10) / 10;
+    if (shouldDebugModelRequest(request)) {
+      log('Debug model response', {
+        id,
+        model: CONFIG.model,
+        streamedText: output,
+        fallbackText,
+        content,
+        tokens,
+        tps,
+        rawResult: result,
+        elapsedMs: Math.round(performance.now() - started),
+        environment: workerEnvironment(),
+      });
+    }
     log('Completed request ' + id + ' (' + tps + ' tok/s)', {
       streamedChars: output.length,
       fallbackChars: fallbackText.length,
@@ -738,7 +801,7 @@ async function generate(id, request) {
     post({
       type: 'complete',
       id,
-      content: (output || fallbackText).trim(),
+      content,
       tokens,
       tps
     });

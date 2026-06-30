@@ -580,6 +580,9 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
         ? Math.min(Math.floor(args.maxTokens), BROWSER_MODEL_MAX_REQUEST_TOKENS)
         : Math.floor(args.maxTokens);
   }
+  if (args.provider === 'browser' && args.debugModelResponses) {
+    request.hybridclaw_debug_model_responses = true;
+  }
   return request;
 }
 

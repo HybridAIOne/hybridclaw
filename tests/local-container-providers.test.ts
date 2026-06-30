@@ -1010,6 +1010,7 @@ describe('local container providers', () => {
       expect(body.model).toBe('LiquidAI/LFM2.5-230M-ONNX');
       expect(body.tools).toEqual(tools);
       expect(body.tool_choice).toBe('auto');
+      expect(body.hybridclaw_debug_model_responses).toBe(true);
       expect(messages).toEqual([
         {
           role: 'system',
@@ -1080,6 +1081,7 @@ describe('local container providers', () => {
       ],
       tools,
       maxTokens: 128,
+      debugModelResponses: true,
       isLocal: true,
       contextWindow: 32_768,
     });

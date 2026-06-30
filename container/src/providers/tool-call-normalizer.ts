@@ -248,6 +248,8 @@ function normalizeToolCallLike(rawToolCall: unknown): ToolCall | null {
 
 function parseToolCallObject(raw: unknown): ToolCall | null {
   if (!isRecord(raw)) return null;
+  const rawArguments =
+    raw.arguments ?? raw.parameters ?? raw.args ?? raw.input ?? raw.kwargs;
   if (isRecord(raw.function)) {
     return normalizeToolCallLike(raw);
   }
@@ -256,7 +258,16 @@ function parseToolCallObject(raw: unknown): ToolCall | null {
       id: typeof raw.id === 'string' ? raw.id : '',
       function: {
         name: raw.name,
-        arguments: raw.arguments,
+        arguments: rawArguments,
+      },
+    });
+  }
+  if (typeof raw.tool === 'string' || typeof raw.tool_name === 'string') {
+    return normalizeToolCallLike({
+      id: typeof raw.id === 'string' ? raw.id : '',
+      function: {
+        name: typeof raw.tool === 'string' ? raw.tool : raw.tool_name,
+        arguments: rawArguments,
       },
     });
   }
@@ -596,10 +607,57 @@ function extractMistralToolCalls(content: string): {
     : { content, toolCalls: [] };
 }
 
+function parsePythonStringLiteral(value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed.length < 2) return null;
+  const quote = trimmed[0];
+  if ((quote !== "'" && quote !== '"') || trimmed.at(-1) !== quote) {
+    return null;
+  }
+
+  let out = '';
+  let escaped = false;
+  for (let index = 1; index < trimmed.length - 1; index += 1) {
+    const char = trimmed[index] || '';
+    if (!escaped) {
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      out += char;
+      continue;
+    }
+
+    escaped = false;
+    switch (char) {
+      case 'n':
+        out += '\n';
+        break;
+      case 'r':
+        out += '\r';
+        break;
+      case 't':
+        out += '\t';
+        break;
+      case 'b':
+        out += '\b';
+        break;
+      case 'f':
+        out += '\f';
+        break;
+      default:
+        out += char;
+        break;
+    }
+  }
+  if (escaped) out += '\\';
+  return out;
+}
+
 function tryConvertParameterValue(value: string): unknown {
   const trimmed = value.trim();
   const lower = trimmed.toLowerCase();
-  if (lower === 'null') return null;
+  if (lower === 'null' || lower === 'none') return null;
   if (lower === 'true') return true;
   if (lower === 'false') return false;
   if (/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(trimmed)) {
@@ -613,7 +671,7 @@ function tryConvertParameterValue(value: string): unknown {
   try {
     return JSON.parse(trimmed);
   } catch {
-    return trimmed;
+    return parsePythonStringLiteral(trimmed) ?? trimmed;
   }
 }
 
@@ -797,7 +855,7 @@ function extractLiquidToolCalls(content: string): {
   const startToken = '<|tool_call_start|>';
   const endToken = '<|tool_call_end|>';
   if (!content.includes(startToken)) {
-    return { content, toolCalls: [] };
+    return extractBareLiquidToolCalls(content);
   }
 
   const toolCalls: ToolCall[] = [];
@@ -822,7 +880,7 @@ function extractLiquidToolCalls(content: string): {
 
   return toolCalls.length > 0
     ? { content: stripMarkedRanges(content, removals), toolCalls }
-    : { content, toolCalls: [] };
+    : extractBareLiquidToolCalls(content);
 }
 
 function findTopLevelSeparator(text: string, separator: string): number {
@@ -869,14 +927,41 @@ function findTopLevelSeparator(text: string, separator: string): number {
 
 function parseLiquidToolCallList(payload: string): ToolCall[] {
   const trimmed = payload.trim();
-  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) {
+  const jsonCalls = parseJsonToolCallPayload(trimmed);
+  if (jsonCalls.length > 0) return jsonCalls;
+
+  const inner =
+    trimmed.startsWith('[') && trimmed.endsWith(']')
+      ? trimmed.slice(1, -1).trim()
+      : trimmed;
+  if (!inner) return [];
+
+  const innerJsonCalls = parseJsonToolCallPayload(inner);
+  if (innerJsonCalls.length > 0) return innerJsonCalls;
+
+  const callSegments = splitTopLevelSegments(inner, ',');
+  return callSegments
+    .map((segment) => parseLiquidToolCall(segment))
+    .filter((toolCall): toolCall is ToolCall => toolCall !== null);
+}
+
+function parseJsonToolCallPayload(payload: string): ToolCall[] {
+  if (!/^\s*[[{]/.test(payload)) return [];
+  let parsed: unknown;
+  try {
+    parsed = parseJsonCandidate(payload);
+  } catch {
     return [];
   }
 
-  const callSegments = splitTopLevelSegments(trimmed.slice(1, -1).trim(), ',');
+  const rawCalls = Array.isArray(parsed)
+    ? parsed
+    : isRecord(parsed) && Array.isArray(parsed.tool_calls)
+      ? parsed.tool_calls
+      : [parsed];
   const toolCalls: ToolCall[] = [];
-  for (const segment of callSegments) {
-    const toolCall = parseLiquidToolCall(segment);
+  for (const rawCall of rawCalls) {
+    const toolCall = parseToolCallObject(rawCall);
     if (toolCall) toolCalls.push(toolCall);
   }
   return toolCalls;
@@ -911,6 +996,115 @@ function parseLiquidToolCall(segment: string): ToolCall | null {
       arguments: argumentsObject,
     },
   });
+}
+
+function findMatchingDelimiter(
+  text: string,
+  openIndex: number,
+  openChar: string,
+  closeChar: string,
+): number {
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let index = openIndex; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === openChar) {
+      depth += 1;
+      continue;
+    }
+    if (char === closeChar) {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+
+  return -1;
+}
+
+function extractBareLiquidToolCalls(content: string): {
+  content: string | null;
+  toolCalls: ToolCall[];
+} {
+  const protectedRanges = findCodeFenceRanges(content);
+  const removals: Array<{ start: number; end: number }> = [];
+  const toolCalls: ToolCall[] = [];
+
+  let cursor = 0;
+  while (cursor < content.length) {
+    const start = content.indexOf('[', cursor);
+    if (start < 0) break;
+    if (isProtectedIndex(start, protectedRanges)) {
+      cursor = start + 1;
+      continue;
+    }
+
+    const end = findMatchingDelimiter(content, start, '[', ']');
+    if (end < 0) break;
+    const payload = content.slice(start, end + 1);
+    const parsedCalls = parseLiquidToolCallList(payload);
+    if (parsedCalls.length > 0) {
+      toolCalls.push(...parsedCalls);
+      removals.push({ start, end: end + 1 });
+    }
+    cursor = end + 1;
+  }
+
+  if (toolCalls.length > 0) {
+    return { content: stripMarkedRanges(content, removals), toolCalls };
+  }
+
+  return extractBareLiquidFunctionCalls(content, protectedRanges);
+}
+
+function extractBareLiquidFunctionCalls(
+  content: string,
+  protectedRanges: Array<[number, number]>,
+): { content: string | null; toolCalls: ToolCall[] } {
+  const removals: Array<{ start: number; end: number }> = [];
+  const toolCalls: ToolCall[] = [];
+  const pattern = /\b(?:tools?\.)?[A-Za-z_][A-Za-z0-9_.-]*\s*\(/g;
+  let match: RegExpExecArray | null = pattern.exec(content);
+
+  while (match) {
+    if (isProtectedIndex(match.index, protectedRanges)) {
+      match = pattern.exec(content);
+      continue;
+    }
+
+    const openIndex = content.indexOf('(', match.index);
+    const closeIndex = findMatchingDelimiter(content, openIndex, '(', ')');
+    if (closeIndex < 0) break;
+    const payload = content.slice(match.index, closeIndex + 1);
+    const toolCall = parseLiquidToolCall(payload);
+    if (toolCall) {
+      toolCalls.push(toolCall);
+      removals.push({ start: match.index, end: closeIndex + 1 });
+    }
+
+    pattern.lastIndex = closeIndex + 1;
+    match = pattern.exec(content);
+  }
+
+  return toolCalls.length > 0
+    ? { content: stripMarkedRanges(content, removals), toolCalls }
+    : { content, toolCalls: [] };
 }
 
 function splitTopLevelSegments(text: string, separator: string): string[] {

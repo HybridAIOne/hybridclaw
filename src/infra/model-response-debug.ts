@@ -55,8 +55,7 @@ export function consumeModelResponseDebugFileLine(line: string): boolean {
       const decoded = Buffer.from(modelResponseMatch[1], 'base64').toString(
         'utf-8',
       );
-      ensureDebugDir(GATEWAY_MODEL_RESPONSE_DEBUG_PATH);
-      fs.appendFileSync(GATEWAY_MODEL_RESPONSE_DEBUG_PATH, decoded, 'utf-8');
+      writeModelResponseDebugText(decoded);
     } catch {
       // Debug logging must not disrupt model execution.
     }
@@ -70,11 +69,30 @@ export function consumeModelResponseDebugFileLine(line: string): boolean {
 
   try {
     const decoded = Buffer.from(lastPromptMatch[1], 'base64').toString('utf-8');
-    ensureDebugDir(LAST_PROMPT_PATH);
-    fs.writeFileSync(LAST_PROMPT_PATH, decoded, 'utf-8');
+    writeLastPromptDebugText(decoded);
   } catch {
     // Debug logging must not disrupt model execution.
   }
 
   return true;
+}
+
+export function writeModelResponseDebugText(text: string): void {
+  if (!isModelResponseDebugEnabled()) return;
+  try {
+    ensureDebugDir(GATEWAY_MODEL_RESPONSE_DEBUG_PATH);
+    fs.appendFileSync(GATEWAY_MODEL_RESPONSE_DEBUG_PATH, text, 'utf-8');
+  } catch {
+    // Debug logging must not disrupt model execution.
+  }
+}
+
+export function writeLastPromptDebugText(text: string): void {
+  if (!isModelResponseDebugEnabled()) return;
+  try {
+    ensureDebugDir(LAST_PROMPT_PATH);
+    fs.writeFileSync(LAST_PROMPT_PATH, text, 'utf-8');
+  } catch {
+    // Debug logging must not disrupt model execution.
+  }
 }

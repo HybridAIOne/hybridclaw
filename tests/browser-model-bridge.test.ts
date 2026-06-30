@@ -98,6 +98,10 @@ describe('browser model bridge', () => {
     expect(workerBody).toContain('apply_chat_template');
     expect(workerBody).toContain('normalizeTools');
     expect(workerBody).toContain('tools: normalizedTools');
+    expect(workerBody).toContain('hybridclaw_debug_model_responses');
+    expect(workerBody).toContain('Debug model request');
+    expect(workerBody).toContain('Debug model response');
+    expect(workerBody).toContain('promptText');
     expect(workerBody).toContain('tool_calls');
     expect(workerBody).toContain('tool_call_id');
     expect(workerBody).toContain('Tool call format: call:<tool_name>{key:value}');
