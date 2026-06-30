@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../auth';
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -46,12 +47,28 @@ interface BrowserBridgeDraft {
 }
 
 type ModelEntry = Awaited<ReturnType<typeof fetchModels>>['models'][number];
+type CatalogScope = 'active' | 'all';
 type ModelWithDailyUsage = ModelEntry & {
   usageDaily: NonNullable<ModelEntry['usageDaily']>;
 };
 
 function hasDailyUsage(model: ModelEntry): model is ModelWithDailyUsage {
   return model.usageDaily !== null;
+}
+
+function hasUsageSummary(summary: ModelEntry['usageMonthly']): boolean {
+  return (
+    (summary?.totalTokens ?? 0) > 0 ||
+    (summary?.callCount ?? 0) > 0 ||
+    (summary?.totalToolCalls ?? 0) > 0 ||
+    (summary?.totalCostUsd ?? 0) > 0
+  );
+}
+
+function hasRecordedModelUsage(model: ModelEntry): boolean {
+  return (
+    hasUsageSummary(model.usageMonthly) || hasUsageSummary(model.usageDaily)
+  );
 }
 
 function compareModelsByUsage(left: ModelEntry, right: ModelEntry): number {
@@ -202,6 +219,7 @@ export function ModelsPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [filter, setFilter] = useState('');
+  const [catalogScope, setCatalogScope] = useState<CatalogScope>('active');
   const [draft, setDraft] = useState<ModelDraft>(createDraft());
   const [bridgeDraft, setBridgeDraft] = useState<BrowserBridgeDraft>(
     createBrowserBridgeDraft(),
@@ -298,7 +316,12 @@ export function ModelsPage() {
     setBridgeDraftInitialized(true);
   }, [bridgeDraftInitialized, bridgeQuery.data]);
 
-  const filteredModels = (modelsQuery.data?.models || []).filter((model) => {
+  const allCatalogModels = modelsQuery.data?.models || [];
+  const scopedCatalogModels =
+    catalogScope === 'active'
+      ? allCatalogModels.filter(hasRecordedModelUsage)
+      : allCatalogModels;
+  const filteredModels = scopedCatalogModels.filter((model) => {
     const haystack = [
       model.id,
       model.backend || '',
@@ -326,6 +349,9 @@ export function ModelsPage() {
   const modelsWithDailyUsage = (modelsQuery.data?.models || []).filter(
     hasDailyUsage,
   );
+  const activeModelCount = allCatalogModels.filter(
+    hasRecordedModelUsage,
+  ).length;
   const bridgeStatus = bridgeQuery.data?.bridge;
   const bridgeConfiguredModel =
     bridgeStatus?.configuredModel ||
@@ -665,6 +691,25 @@ export function ModelsPage() {
           <CardDescription>
             {`${pluralize(models.length, 'model')} visible`}
           </CardDescription>
+          <CardAction>
+            <Field>
+              <FieldLabel>Catalog view</FieldLabel>
+              <NativeSelect
+                size="sm"
+                value={catalogScope}
+                onChange={(event) =>
+                  setCatalogScope(event.target.value as CatalogScope)
+                }
+              >
+                <NativeSelectOption value="active">
+                  {`Active (${activeModelCount})`}
+                </NativeSelectOption>
+                <NativeSelectOption value="all">
+                  {`All (${allCatalogModels.length})`}
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          </CardAction>
         </CardHeader>
         <CardContent>
           {modelsQuery.isLoading ? (
@@ -746,7 +791,9 @@ export function ModelsPage() {
                     <tr>
                       <td colSpan={4}>
                         <div className="empty-state">
-                          No models match this filter.
+                          {catalogScope === 'active'
+                            ? 'No active models match this filter.'
+                            : 'No models match this filter.'}
                         </div>
                       </td>
                     </tr>

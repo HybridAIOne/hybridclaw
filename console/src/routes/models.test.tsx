@@ -224,7 +224,7 @@ describe('ModelsPage', () => {
     renderModelsPage();
 
     const rows = await screen.findAllByRole('row');
-    const bodyRows = rows.slice(1, 4);
+    const bodyRows = rows.slice(1, 3);
     expect(
       within(bodyRows[0] as HTMLElement).getByText('gpt-5'),
     ).not.toBeNull();
@@ -233,8 +233,77 @@ describe('ModelsPage', () => {
         'openrouter/anthropic/claude-sonnet-4',
       ),
     ).not.toBeNull();
+    expect(bodyRows).toHaveLength(2);
+  });
+
+  it('defaults the catalog to active models and can switch to all models', async () => {
+    fetchModelsMock.mockResolvedValue(
+      makeModelsResponse({
+        models: [
+          {
+            id: 'active-model',
+            provider: 'hybridai',
+            discovered: false,
+            backend: null,
+            contextWindow: 128000,
+            maxTokens: 8192,
+            ...modelMetadataDefaults,
+            isReasoning: false,
+            thinkingFormat: null,
+            family: null,
+            parameterSize: null,
+            usageDaily: null,
+            usageMonthly: {
+              totalInputTokens: 10,
+              totalOutputTokens: 5,
+              totalTokens: 15,
+              totalCostUsd: 0.02,
+              callCount: 1,
+              totalToolCalls: 0,
+            },
+          },
+          {
+            id: 'inactive-model',
+            provider: 'hybridai',
+            discovered: false,
+            backend: null,
+            contextWindow: 128000,
+            maxTokens: 8192,
+            ...modelMetadataDefaults,
+            isReasoning: false,
+            thinkingFormat: null,
+            family: null,
+            parameterSize: null,
+            usageDaily: null,
+            usageMonthly: null,
+          },
+        ],
+      }),
+    );
+
+    renderModelsPage();
+
+    const catalogView = (await screen.findByLabelText(
+      'Catalog view',
+    )) as HTMLSelectElement;
+    expect(catalogView.value).toBe('active');
+    await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(2));
+    let bodyRows = screen.getAllByRole('row').slice(1);
+    expect(bodyRows).toHaveLength(1);
     expect(
-      within(bodyRows[2] as HTMLElement).getByText('openai-codex/gpt-5.4'),
+      within(bodyRows[0] as HTMLElement).getByText('active-model'),
+    ).not.toBeNull();
+
+    fireEvent.change(catalogView, { target: { value: 'all' } });
+
+    await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(3));
+    bodyRows = screen.getAllByRole('row').slice(1);
+    expect(bodyRows).toHaveLength(2);
+    expect(
+      within(bodyRows[0] as HTMLElement).getByText('active-model'),
+    ).not.toBeNull();
+    expect(
+      within(bodyRows[1] as HTMLElement).getByText('inactive-model'),
     ).not.toBeNull();
   });
 
