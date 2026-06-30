@@ -100,6 +100,7 @@ describe('browser model bridge', () => {
     expect(workerBody).toContain('tools: normalizedTools');
     expect(workerBody).toContain('tool_calls');
     expect(workerBody).toContain('tool_call_id');
+    expect(workerBody).toContain('Tool call format: call:<tool_name>{key:value}');
     expect(workerBody).toContain('return_full_text: false');
     expect(workerBody).toContain('errorToData');
     expect(workerBody).toContain('reportLoadProgress');

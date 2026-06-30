@@ -389,7 +389,9 @@ function renderPlainPrompt(messages, tools) {
   const normalizedTools = normalizeTools(tools);
   const toolInstruction =
     normalizedTools.length > 0
-      ? 'List of tools: ' + JSON.stringify(normalizedTools) + '\\n\\n'
+      ? 'Tool call format: call:<tool_name>{key:value}.\\nList of tools: ' +
+        JSON.stringify(normalizedTools) +
+        '\\n\\n'
       : '';
   return toolInstruction + messages
     .map((message) => {

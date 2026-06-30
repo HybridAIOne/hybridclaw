@@ -180,7 +180,7 @@ function estimatePromptToolInstructionTokens(instruction: string): number {
 }
 
 const BROWSER_MODEL_SYSTEM_PROMPT =
-  'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed.';
+  'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed. Tool call format: call:<tool_name>{key:value}.';
 const BROWSER_MODEL_HISTORY_LIMIT = 6;
 const BROWSER_MODEL_TOTAL_PROMPT_CHARS = 12_000;
 const BROWSER_MODEL_MESSAGE_CHARS = 6_000;
@@ -661,6 +661,7 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
     '[tool_call]',
     '<function=',
     '<|tool_call_start|>',
+    'call:',
   ];
   const endMarkerByStartMarker = new Map([
     ['<tool_call>', '</tool_call>'],
@@ -668,6 +669,7 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
     ['[tool_call]', '[/tool_call]'],
     ['<function=', '</function>'],
     ['<|tool_call_start|>', '<|tool_call_end|>'],
+    ['call:', '}'],
   ]);
   let buffer = '';
   let insideToolMarkup = false;
@@ -704,10 +706,14 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
   };
 
   const stripTrailingPartialToolMarker = (text: string): string =>
-    text.replace(
-      /(?:<|<\/|<tool|<tool_|<tool_call|<function=?|<\|?|<\|tool|<\|tool_call|<\|tool_call_start)$/i,
-      '',
-    );
+    text
+      .replace(
+        /(?:<|<\/|<tool|<tool_|<tool_call|<function=?|<\|?|<\|tool|<\|tool_call|<\|tool_call_start)$/i,
+        '',
+      )
+      .replace(/(?:^|[\s#])call:?$/i, (match) =>
+        match.startsWith(' ') ? ' ' : '',
+      );
 
   const emit = (text: string): void => {
     if (text) onTextDelta(text);

@@ -289,6 +289,126 @@ function parseEmbeddedToolCall(payloadText: string): ToolCall | null {
   }
 }
 
+function findMatchingBrace(text: string, openIndex: number): number {
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let index = openIndex; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '{') {
+      depth += 1;
+      continue;
+    }
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+
+  return -1;
+}
+
+function parseCallStyleArguments(
+  payload: string,
+): Record<string, unknown> | null {
+  const trimmed = payload.trim();
+  if (!trimmed) return {};
+
+  try {
+    const parsed = JSON.parse(repairJsonLike(`{${trimmed}}`));
+    if (isRecord(parsed)) return parsed;
+  } catch {
+    // Fall through to the relaxed key:value parser.
+  }
+
+  const args: Record<string, unknown> = {};
+  for (const segment of splitTopLevelSegments(trimmed, ',')) {
+    const colon = findTopLevelSeparator(segment, ':');
+    const equals = findTopLevelSeparator(segment, '=');
+    const separator =
+      colon >= 0 && equals >= 0
+        ? Math.min(colon, equals)
+        : colon >= 0
+          ? colon
+          : equals;
+    if (separator <= 0) return null;
+    const key = segment.slice(0, separator).trim();
+    const value = segment.slice(separator + 1).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key) || !value) return null;
+    args[key] = tryConvertParameterValue(value);
+  }
+  return args;
+}
+
+function extractCallStyleToolCalls(content: string): {
+  content: string | null;
+  toolCalls: ToolCall[];
+} {
+  const protectedRanges = findCodeFenceRanges(content);
+  const removals: Array<{ start: number; end: number }> = [];
+  const toolCalls: ToolCall[] = [];
+  const pattern = /\bcall:([A-Za-z_][A-Za-z0-9_.-]*)\s*\{/gi;
+  let match: RegExpExecArray | null = pattern.exec(content);
+
+  while (match) {
+    if (isProtectedIndex(match.index, protectedRanges)) {
+      match = pattern.exec(content);
+      continue;
+    }
+
+    const name = match[1] || '';
+    const openIndex = match.index + match[0].lastIndexOf('{');
+    const closeIndex = findMatchingBrace(content, openIndex);
+    if (closeIndex < 0) {
+      match = pattern.exec(content);
+      continue;
+    }
+
+    const args = parseCallStyleArguments(
+      content.slice(openIndex + 1, closeIndex),
+    );
+    if (!args) {
+      pattern.lastIndex = closeIndex + 1;
+      match = pattern.exec(content);
+      continue;
+    }
+
+    const toolCall = normalizeToolCallLike({
+      function: {
+        name,
+        arguments: args,
+      },
+    });
+    if (toolCall) {
+      toolCalls.push(toolCall);
+      removals.push({ start: match.index, end: closeIndex + 1 });
+    }
+
+    pattern.lastIndex = closeIndex + 1;
+    match = pattern.exec(content);
+  }
+
+  return toolCalls.length > 0
+    ? { content: stripMarkedRanges(content, removals), toolCalls }
+    : { content, toolCalls: [] };
+}
+
 function stripMarkedRanges(
   text: string,
   ranges: Array<{ start: number; end: number }>,
@@ -858,6 +978,9 @@ function parseTextToolCalls(
   parser: ToolCallTextParser | null | undefined,
   responseContent: string,
 ): { content: string | null; toolCalls: ToolCall[] } {
+  const callStyle = extractCallStyleToolCalls(responseContent);
+  if (callStyle.toolCalls.length > 0) return callStyle;
+
   switch (parser) {
     case 'hermes':
       return extractTaggedToolCalls(responseContent);

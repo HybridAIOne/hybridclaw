@@ -1014,7 +1014,7 @@ describe('local container providers', () => {
         {
           role: 'system',
           content:
-            'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed.',
+            'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed. Tool call format: call:<tool_name>{key:value}.',
         },
         { role: 'user', content: 'old question' },
         {
@@ -1143,6 +1143,57 @@ describe('local container providers', () => {
         function: {
           name: 'shell',
           arguments: '{"command":"pwd"}',
+        },
+      },
+    ]);
+    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
+  test('browser provider stream filters compact call-style tool markup', async () => {
+    const deltas: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.tools).toEqual(tools);
+        expect(body.tool_choice).toBe('auto');
+        return makeEventStreamResponse([
+          'data: {"id":"resp_1","model":"LiquidAI/LFM2.5-230M-ONNX","choices":[{"delta":{"content":"Checking call:shell{command:"}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"ls -la}"}}]}\n\n',
+          'data: {"choices":[{"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]);
+      }),
+    );
+
+    const result = await callLocalOpenAICompatProviderStream({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools,
+      onTextDelta: (delta) => deltas.push(delta),
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(deltas).toEqual(['Checking ']);
+    expect(result.choices[0]?.message.content).toBe('Checking');
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: '',
+        type: 'function',
+        function: {
+          name: 'shell',
+          arguments: '{"command":"ls -la"}',
         },
       },
     ]);

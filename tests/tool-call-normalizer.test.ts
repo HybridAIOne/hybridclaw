@@ -508,6 +508,27 @@ describe('tool call normalizer', () => {
     });
   });
 
+  test('extracts compact call-style tool calls without a model parser', () => {
+    const result = normalizeToolCalls(
+      undefined,
+      'Checking files call:bash{command:ls -la} after',
+    );
+
+    expect(result.content).toBe('Checking files  after');
+    expect(result.toolCalls[0]?.function).toEqual({
+      name: 'bash',
+      arguments: '{"command":"ls -la"}',
+    });
+  });
+
+  test('ignores compact call-style tool calls inside fenced code blocks', () => {
+    const content = ['```text', 'call:bash{command:ls -la}', '```'].join('\n');
+    const result = normalizeToolCalls(undefined, content);
+
+    expect(result.toolCalls).toEqual([]);
+    expect(result.content).toBe(content);
+  });
+
   test('extracts multiple liquid tool calls and preserves non-tool text', () => {
     const result = normalizeToolCalls(
       undefined,
