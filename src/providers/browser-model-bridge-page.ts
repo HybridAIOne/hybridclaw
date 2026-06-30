@@ -947,15 +947,27 @@ export function buildBrowserBridgeHtml(config: {
     }
     body {
       margin: 0;
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
+      height: 100vh;
+      box-sizing: border-box;
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
       background: #101113;
+      overflow: hidden;
     }
     main {
       width: min(760px, calc(100vw - 32px));
-      display: grid;
+      max-height: 100%;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
       gap: 18px;
+    }
+    main > h1,
+    section.panel {
+      flex: 0 0 auto;
     }
     h1 {
       margin: 0;
@@ -1043,8 +1055,23 @@ export function buildBrowserBridgeHtml(config: {
       }
     }
     .log-panel {
-      display: block;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
       padding: 0;
+      flex: 0 0 auto;
+    }
+    .log-panel[open] {
+      flex: 1 1 auto;
+    }
+    /* Chrome wraps <details> content in ::details-content; make it the flex
+       scroll container so the log fills the panel and scrolls internally
+       instead of overflowing and growing the page. */
+    .log-panel::details-content {
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
     .log-summary {
       cursor: pointer;
@@ -1068,8 +1095,8 @@ export function buildBrowserBridgeHtml(config: {
       transform: rotate(90deg);
     }
     .log {
-      min-height: 140px;
-      max-height: 260px;
+      flex: 1 1 auto;
+      min-height: 0;
       overflow: auto;
       white-space: pre-wrap;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
