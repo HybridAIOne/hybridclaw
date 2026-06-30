@@ -58,6 +58,9 @@ export interface BrowserModelBridgeHandle {
   host: string;
   port: number;
   model: string;
+  device: string;
+  dtype: string;
+  maxNewTokens: number;
   pageUrl: string;
   endpointUrl: string;
   close: () => Promise<void>;
@@ -674,6 +677,9 @@ export async function startBrowserModelBridge(
     host,
     port,
     model,
+    device,
+    dtype,
+    maxNewTokens,
     pageUrl: `${baseUrl}/`,
     endpointUrl: `${baseUrl}/v1`,
     close: () =>

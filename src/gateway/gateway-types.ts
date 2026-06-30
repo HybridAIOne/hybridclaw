@@ -1371,6 +1371,9 @@ export interface GatewayBrowserModelBridgeStatus {
   host: string;
   port: number;
   model: string;
+  device: string;
+  dtype: string;
+  maxNewTokens: number;
   pageUrl: string;
   endpointUrl: string;
   configuredModel: string;

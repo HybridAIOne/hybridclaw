@@ -7058,6 +7058,13 @@ function getGatewayBrowserModelBridgeStatus(): GatewayBrowserModelBridgeStatus {
     host,
     port,
     model: configuredModel,
+    device:
+      browserModelBridgeHandle?.device || DEFAULT_BROWSER_MODEL_BRIDGE_DEVICE,
+    dtype:
+      browserModelBridgeHandle?.dtype || DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE,
+    maxNewTokens:
+      browserModelBridgeHandle?.maxNewTokens ||
+      DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS,
     pageUrl: browserModelBridgeHandle?.pageUrl || `${baseUrl}/`,
     endpointUrl: browserModelBridgeHandle?.endpointUrl || `${baseUrl}/v1`,
     configuredModel: modelName,

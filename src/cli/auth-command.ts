@@ -2747,7 +2747,7 @@ async function runLocalBrowserBridge(args: string[]): Promise<void> {
   console.log('Browser model bridge started.');
   console.log(`Model: ${model}`);
   console.log(`Device: ${device}`);
-  console.log(`Dtype: ${dtype}`);
+  console.log(`Quantization: ${dtype}`);
   console.log(`Max new tokens: ${maxNewTokens}`);
   console.log(`Page: ${handle.pageUrl}`);
   console.log(`OpenAI endpoint: ${handle.endpointUrl}`);

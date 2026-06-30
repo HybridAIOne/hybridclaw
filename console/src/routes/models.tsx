@@ -177,6 +177,10 @@ const DEFAULT_BROWSER_BRIDGE_DRAFT: BrowserBridgeDraft = {
   setDefault: true,
 };
 
+const BROWSER_BRIDGE_MODEL_QUANTIZATIONS: Record<string, readonly string[]> = {
+  'liquidai/lfm2.5-230m-onnx': ['q4', 'q4f32', 'q8', 'fp16', 'fp32'],
+};
+
 function createDraft(
   payload?: Awaited<ReturnType<typeof fetchModels>>,
 ): ModelDraft {
@@ -185,16 +189,70 @@ function createDraft(
   };
 }
 
+function normalizeBrowserBridgeModelId(model: string): string {
+  const trimmed = model.trim();
+  return (
+    trimmed.toLowerCase().startsWith('browser/')
+      ? trimmed.slice('browser/'.length)
+      : trimmed
+  ).toLowerCase();
+}
+
+function getBrowserBridgeQuantizations(
+  model: string,
+  currentDtype?: string,
+): readonly string[] {
+  const modelId = normalizeBrowserBridgeModelId(
+    model || DEFAULT_BROWSER_BRIDGE_DRAFT.model,
+  );
+  const quantizations = BROWSER_BRIDGE_MODEL_QUANTIZATIONS[modelId];
+  if (quantizations) return quantizations;
+  const current = String(currentDtype || '').trim();
+  return [current || DEFAULT_BROWSER_BRIDGE_DRAFT.dtype];
+}
+
+function resolveBrowserBridgeDtype(model: string, dtype: string): string {
+  const quantizations = getBrowserBridgeQuantizations(model, dtype);
+  const normalized = dtype.trim();
+  return quantizations.includes(normalized)
+    ? normalized
+    : quantizations[0] || DEFAULT_BROWSER_BRIDGE_DRAFT.dtype;
+}
+
 function createBrowserBridgeDraft(
   payload?: Awaited<ReturnType<typeof fetchBrowserModelBridge>>,
+  current?: BrowserBridgeDraft,
 ): BrowserBridgeDraft {
   const bridge = payload?.bridge;
-  return {
+  const runningBridge = bridge?.running ? bridge : null;
+  const model =
+    bridge?.model || current?.model || DEFAULT_BROWSER_BRIDGE_DRAFT.model;
+  const draft = {
     ...DEFAULT_BROWSER_BRIDGE_DRAFT,
-    model: bridge?.model || DEFAULT_BROWSER_BRIDGE_DRAFT.model,
-    host: bridge?.host || DEFAULT_BROWSER_BRIDGE_DRAFT.host,
-    port: String(bridge?.port ?? DEFAULT_BROWSER_BRIDGE_DRAFT.port),
-    setDefault: true,
+    ...current,
+    model,
+    host: bridge?.host || current?.host || DEFAULT_BROWSER_BRIDGE_DRAFT.host,
+    port: String(
+      bridge?.port ?? current?.port ?? DEFAULT_BROWSER_BRIDGE_DRAFT.port,
+    ),
+    device:
+      runningBridge?.device ||
+      current?.device ||
+      DEFAULT_BROWSER_BRIDGE_DRAFT.device,
+    dtype:
+      runningBridge?.dtype ||
+      current?.dtype ||
+      DEFAULT_BROWSER_BRIDGE_DRAFT.dtype,
+    maxNewTokens: String(
+      runningBridge?.maxNewTokens ??
+        current?.maxNewTokens ??
+        DEFAULT_BROWSER_BRIDGE_DRAFT.maxNewTokens,
+    ),
+    setDefault: current?.setDefault ?? true,
+  };
+  return {
+    ...draft,
+    dtype: resolveBrowserBridgeDtype(draft.model, draft.dtype),
   };
 }
 
@@ -255,8 +313,10 @@ export function ModelsPage() {
   const startBridgeMutation = useMutation({
     mutationFn: () => {
       const apiKey = bridgeDraft.apiKey.trim();
+      const model =
+        bridgeDraft.model.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.model;
       return startBrowserModelBridge(auth.token, {
-        model: bridgeDraft.model.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.model,
+        model,
         host: bridgeDraft.host.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.host,
         port: parseBridgeInteger(
           bridgeDraft.port,
@@ -264,7 +324,7 @@ export function ModelsPage() {
         ),
         device:
           bridgeDraft.device.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.device,
-        dtype: bridgeDraft.dtype.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.dtype,
+        dtype: resolveBrowserBridgeDtype(model, bridgeDraft.dtype),
         maxNewTokens: parseBridgeInteger(
           bridgeDraft.maxNewTokens,
           Number(DEFAULT_BROWSER_BRIDGE_DRAFT.maxNewTokens),
@@ -277,7 +337,7 @@ export function ModelsPage() {
       queryClient.setQueryData(['browser-model-bridge', auth.token], payload);
       queryClient.setQueryData(['models', auth.token], payload.models);
       setDraft(createDraft(payload.models));
-      setBridgeDraft(createBrowserBridgeDraft(payload));
+      setBridgeDraft((current) => createBrowserBridgeDraft(payload, current));
       setBridgeDraftInitialized(true);
       void queryClient.invalidateQueries({ queryKey: ['overview'] });
       window.open(payload.bridge.pageUrl, '_blank', 'noopener,noreferrer');
@@ -293,7 +353,7 @@ export function ModelsPage() {
     onSuccess: (payload) => {
       queryClient.setQueryData(['browser-model-bridge', auth.token], payload);
       queryClient.setQueryData(['models', auth.token], payload.models);
-      setBridgeDraft(createBrowserBridgeDraft(payload));
+      setBridgeDraft((current) => createBrowserBridgeDraft(payload, current));
       setBridgeDraftInitialized(true);
       void queryClient.invalidateQueries({ queryKey: ['overview'] });
       toast.success('Browser bridge stopped.');
@@ -312,7 +372,9 @@ export function ModelsPage() {
 
   useEffect(() => {
     if (!bridgeQuery.data || bridgeDraftInitialized) return;
-    setBridgeDraft(createBrowserBridgeDraft(bridgeQuery.data));
+    setBridgeDraft((current) =>
+      createBrowserBridgeDraft(bridgeQuery.data, current),
+    );
     setBridgeDraftInitialized(true);
   }, [bridgeDraftInitialized, bridgeQuery.data]);
 
@@ -361,6 +423,14 @@ export function ModelsPage() {
     `http://${bridgeDraft.host || DEFAULT_BROWSER_BRIDGE_DRAFT.host}:${
       bridgeDraft.port || DEFAULT_BROWSER_BRIDGE_DRAFT.port
     }/`;
+  const bridgeQuantizations = getBrowserBridgeQuantizations(
+    bridgeDraft.model,
+    bridgeDraft.dtype,
+  );
+  const bridgeDtype = resolveBrowserBridgeDtype(
+    bridgeDraft.model,
+    bridgeDraft.dtype,
+  );
 
   return (
     <div className="page-stack">
@@ -496,10 +566,17 @@ export function ModelsPage() {
                   <Input
                     value={bridgeDraft.model}
                     onChange={(event) =>
-                      setBridgeDraft((current) => ({
-                        ...current,
-                        model: event.target.value,
-                      }))
+                      setBridgeDraft((current) => {
+                        const model = event.target.value;
+                        return {
+                          ...current,
+                          model,
+                          dtype: resolveBrowserBridgeDtype(
+                            model,
+                            current.dtype,
+                          ),
+                        };
+                      })
                     }
                     placeholder="LiquidAI/LFM2.5-230M-ONNX"
                   />
@@ -549,9 +626,9 @@ export function ModelsPage() {
                   </NativeSelect>
                 </Field>
                 <Field>
-                  <FieldLabel>Dtype</FieldLabel>
+                  <FieldLabel>Quantization</FieldLabel>
                   <NativeSelect
-                    value={bridgeDraft.dtype}
+                    value={bridgeDtype}
                     onChange={(event) =>
                       setBridgeDraft((current) => ({
                         ...current,
@@ -559,11 +636,14 @@ export function ModelsPage() {
                       }))
                     }
                   >
-                    <NativeSelectOption value="q4">q4</NativeSelectOption>
-                    <NativeSelectOption value="q4f16">q4f16</NativeSelectOption>
-                    <NativeSelectOption value="q8">q8</NativeSelectOption>
-                    <NativeSelectOption value="fp16">fp16</NativeSelectOption>
-                    <NativeSelectOption value="fp32">fp32</NativeSelectOption>
+                    {bridgeQuantizations.map((quantization) => (
+                      <NativeSelectOption
+                        key={quantization}
+                        value={quantization}
+                      >
+                        {quantization}
+                      </NativeSelectOption>
+                    ))}
                   </NativeSelect>
                 </Field>
                 <Field>

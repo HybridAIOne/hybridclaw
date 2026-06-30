@@ -106,6 +106,9 @@ function makeBrowserBridgeResponse(
       host: '127.0.0.1',
       port: 8789,
       model: 'LiquidAI/LFM2.5-230M-ONNX',
+      device: 'webgpu',
+      dtype: 'q4',
+      maxNewTokens: 2048,
       pageUrl: 'http://127.0.0.1:8789/',
       endpointUrl: 'http://127.0.0.1:8789/v1',
       configuredModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
@@ -378,6 +381,62 @@ describe('ModelsPage', () => {
       '_blank',
       'noopener,noreferrer',
     );
+    openMock.mockRestore();
+  });
+
+  it('shows only supported quantizations for the selected browser model', async () => {
+    fetchModelsMock.mockResolvedValue(makeModelsResponse());
+
+    renderModelsPage();
+
+    const select = (await screen.findByLabelText(
+      'Quantization',
+    )) as HTMLSelectElement;
+
+    expect(Array.from(select.options).map((option) => option.value)).toEqual([
+      'q4',
+      'q4f32',
+      'q8',
+      'fp16',
+      'fp32',
+    ]);
+    expect(screen.queryByText('Dtype')).toBeNull();
+    expect(screen.queryByRole('option', { name: 'q4f16' })).toBeNull();
+  });
+
+  it('preserves the selected quantization after starting the browser bridge', async () => {
+    fetchModelsMock.mockResolvedValue(makeModelsResponse());
+    const startedPayload = makeBrowserBridgeResponse({
+      bridge: {
+        running: true,
+        configuredDefault: true,
+        dtype: 'q8',
+      },
+      models: makeModelsResponse({
+        defaultModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      }),
+    });
+    startBrowserModelBridgeMock.mockResolvedValue(startedPayload);
+    const openMock = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+    renderModelsPage();
+
+    const select = (await screen.findByLabelText(
+      'Quantization',
+    )) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: 'q8' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start bridge' }));
+
+    await waitFor(() =>
+      expect(startBrowserModelBridgeMock).toHaveBeenCalledTimes(1),
+    );
+    expect(startBrowserModelBridgeMock).toHaveBeenCalledWith(
+      'test-token',
+      expect.objectContaining({ dtype: 'q8' }),
+    );
+    await waitFor(() => expect(select.value).toBe('q8'));
+
     openMock.mockRestore();
   });
 });
