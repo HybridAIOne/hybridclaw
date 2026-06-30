@@ -4,6 +4,8 @@ import {
   DEFAULT_BROWSER_MODEL_BRIDGE_MODEL,
   type BrowserModelBridgeHandle,
   computeForcedToolPrefix,
+  parseBrowserToolCalls,
+  parseGemmaToolCalls,
   parseLiquidToolCalls,
   startBrowserModelBridge,
 } from '../src/providers/browser-model-bridge.ts';
@@ -135,6 +137,11 @@ describe('browser model bridge', () => {
     expect(workerBody).toContain('return_full_text: false');
     expect(workerBody).toContain('errorToData');
     expect(workerBody).toContain('reportLoadProgress');
+    // Guard that rejects over-long prompts before they overflow the runtime,
+    // plus the self-heal that drops a poisoned generator.
+    expect(workerBody).toContain('resolveVocabSize');
+    expect(workerBody).toContain('safeMaxTokens');
+    expect(workerBody).toContain('loadedGenerator');
     expect(workerBody).toContain('Browser console error');
     expect(workerBody).toContain('Model load failed');
     expect(workerBody).toContain('transformersVersion');
@@ -684,5 +691,66 @@ describe('parseLiquidToolCalls', () => {
     const result = parseLiquidToolCalls('just a plain answer');
     expect(result.content).toBe('just a plain answer');
     expect(result.toolCalls).toEqual([]);
+  });
+});
+
+describe('parseGemmaToolCalls', () => {
+  test('parses a marker-less call with an unquoted string value', () => {
+    // Gemma's <|tool_call>/<|"|> markers are stripped by skip_special_tokens.
+    const result = parseGemmaToolCalls('call:bash{command:ls -la}');
+    expect(result.content).toBe('');
+    expect(result.toolCalls).toEqual([
+      expect.objectContaining({
+        type: 'function',
+        function: { name: 'bash', arguments: '{"command":"ls -la"}' },
+      }),
+    ]);
+  });
+
+  test('parses multiple args and preserves surrounding prose', () => {
+    const result = parseGemmaToolCalls(
+      "Sure. call:run{cmd:echo hi, retries:3} done",
+    );
+    expect(result.content).toBe('Sure.  done');
+    expect(result.toolCalls[0]?.function).toEqual({
+      name: 'run',
+      arguments: '{"cmd":"echo hi","retries":3}',
+    });
+  });
+
+  test('returns text unchanged when there is no call', () => {
+    const result = parseGemmaToolCalls('I cannot run commands.');
+    expect(result.toolCalls).toEqual([]);
+    expect(result.content).toBe('I cannot run commands.');
+  });
+});
+
+describe('parseBrowserToolCalls', () => {
+  test('uses the Liquid parser for LFM models', () => {
+    const result = parseBrowserToolCalls(
+      'LiquidAI/LFM2.5-230M-ONNX',
+      '<|tool_call_start|>[bash(command="id")]<|tool_call_end|>',
+    );
+    expect(result.toolCalls[0]?.function).toEqual({
+      name: 'bash',
+      arguments: '{"command":"id"}',
+    });
+  });
+
+  test('uses the Gemma parser for Gemma models', () => {
+    const result = parseBrowserToolCalls(
+      'onnx-community/gemma-4-E2B-it-ONNX',
+      'call:bash{command:id}',
+    );
+    expect(result.toolCalls[0]?.function).toEqual({
+      name: 'bash',
+      arguments: '{"command":"id"}',
+    });
+  });
+
+  test('passes content through for unknown families', () => {
+    const result = parseBrowserToolCalls('some/other-model', 'call:bash{x:1}');
+    expect(result.toolCalls).toEqual([]);
+    expect(result.content).toBe('call:bash{x:1}');
   });
 });

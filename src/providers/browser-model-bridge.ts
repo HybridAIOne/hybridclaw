@@ -76,9 +76,10 @@ type PendingRequest = {
   id: string;
   model: string;
   stream: boolean;
-  // True when the assistant turn was force-prefilled to require a tool call, so
-  // the whole response is buffered and emitted as OpenAI tool_calls.
-  forced: boolean;
+  // True when the response is buffered rather than streamed as text, so it can
+  // be parsed into OpenAI tool_calls at completion: forced LFM turns, and Gemma
+  // models (which emit `call:name{...}` we must convert).
+  buffered: boolean;
   res: ServerResponse;
   content: string;
   created: number;
@@ -122,6 +123,10 @@ function isLiquidBrowserModel(model: string): boolean {
     normalized.includes('/liquid/') ||
     normalized.includes('lfm')
   );
+}
+
+function isGemmaBrowserModel(model: string): boolean {
+  return model.trim().toLowerCase().includes('gemma');
 }
 
 export function normalizeBrowserModelBridgeDtype(params: {
@@ -429,6 +434,91 @@ export function parseLiquidToolCalls(text: string): {
   return { content, toolCalls };
 }
 
+function findMatchingBrace(text: string, openIndex: number): number {
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  for (let index = openIndex; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") quote = char;
+    else if (char === '{') depth += 1;
+    else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function stripRanges(
+  text: string,
+  ranges: Array<{ start: number; end: number }>,
+): string {
+  const sorted = [...ranges].sort((left, right) => left.start - right.start);
+  let result = '';
+  let cursor = 0;
+  for (const range of sorted) {
+    if (range.start < cursor) continue;
+    result += text.slice(cursor, range.start);
+    cursor = range.end;
+  }
+  return result + text.slice(cursor);
+}
+
+// Gemma emits Pythonic-ish calls `call:name{key:value, ...}`. The model's
+// `<|tool_call>`/`<|"|>` markers are stripped by skip_special_tokens, so string
+// values arrive unquoted (e.g. `command:ls -la`). Parse those into OpenAI
+// tool_calls, leaving any surrounding prose as content.
+export function parseGemmaToolCalls(text: string): {
+  content: string;
+  toolCalls: JsonObject[];
+} {
+  const toolCalls: JsonObject[] = [];
+  const removals: Array<{ start: number; end: number }> = [];
+  const callRegex = /call:([A-Za-z_][A-Za-z0-9_.-]*)\s*\{/g;
+  let match: RegExpExecArray | null = callRegex.exec(text);
+  while (match !== null) {
+    const braceOpen = match.index + match[0].length - 1;
+    const braceClose = findMatchingBrace(text, braceOpen);
+    if (braceClose < 0) break;
+    const name = (match[1] || '').replace(/^tools\./, '');
+    const argsText = text.slice(braceOpen + 1, braceClose).trim();
+    const args: JsonObject = {};
+    for (const pair of splitTopLevelSegments(argsText, ',')) {
+      const colon = pair.indexOf(':');
+      if (colon < 1) continue;
+      const key = pair.slice(0, colon).trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key)) continue;
+      args[key] = parseLiquidArgValue(pair.slice(colon + 1));
+    }
+    toolCalls.push({
+      id: `call_${randomUUID().replace(/-/g, '').slice(0, 16)}`,
+      type: 'function',
+      function: { name, arguments: JSON.stringify(args) },
+    });
+    removals.push({ start: match.index, end: braceClose + 1 });
+    callRegex.lastIndex = braceClose + 1;
+    match = callRegex.exec(text);
+  }
+  if (toolCalls.length === 0) return { content: text, toolCalls: [] };
+  return { content: stripRanges(text, removals).trim(), toolCalls };
+}
+
+// Dispatch tool-call parsing by model family: LFM uses the bracketed
+// `<|tool_call_start|>` form, Gemma uses `call:name{...}`. Unknown families pass
+// their content through unparsed.
+export function parseBrowserToolCalls(
+  model: string,
+  text: string,
+): { content: string; toolCalls: JsonObject[] } {
+  if (isLiquidBrowserModel(model)) return parseLiquidToolCalls(text);
+  if (isGemmaBrowserModel(model)) return parseGemmaToolCalls(text);
+  return { content: text, toolCalls: [] };
+}
+
 function toolCallsStreamDelta(
   toolCalls: JsonObject[],
 ): Record<string, unknown> {
@@ -715,7 +805,7 @@ export async function startBrowserModelBridge(
         model:
           typeof body.model === 'string' && body.model ? body.model : model,
         stream,
-        forced: forcedToolPrefix.length > 0,
+        buffered: forcedToolPrefix.length > 0 || isGemmaBrowserModel(model),
         res,
         content: '',
         created,
@@ -858,8 +948,8 @@ export async function startBrowserModelBridge(
         if (!delta) return;
         pending.content += delta;
         // Forced turns are buffered and emitted as structured tool_calls on
-        // completion; only stream plain-text deltas for non-forced turns.
-        if (pending.stream && !pending.forced && !pending.res.writableEnded) {
+        // completion; only stream plain-text deltas for non-buffered turns.
+        if (pending.stream && !pending.buffered && !pending.res.writableEnded) {
           pending.res.write(
             ssePayload(
               pending.id,
@@ -886,8 +976,10 @@ export async function startBrowserModelBridge(
           total_tokens: typeof payload.tokens === 'number' ? payload.tokens : 0,
         };
         if (pending.stream) {
-          const { content: cleanedContent, toolCalls } =
-            parseLiquidToolCalls(content);
+          const { content: cleanedContent, toolCalls } = parseBrowserToolCalls(
+            model,
+            content,
+          );
           if (toolCalls.length > 0) {
             pending.res.write(
               ssePayload(
@@ -909,8 +1001,8 @@ export async function startBrowserModelBridge(
               ),
             );
           } else {
-            // No tool call parsed: flush any buffered (forced) text, then stop.
-            if (pending.forced && cleanedContent) {
+            // No tool call parsed: flush any buffered text, then stop.
+            if (pending.buffered && cleanedContent) {
               pending.res.write(
                 ssePayload(
                   pending.id,
@@ -935,8 +1027,10 @@ export async function startBrowserModelBridge(
           pending.res.write('data: [DONE]\n\n');
           pending.res.end();
         } else {
-          const { content: cleanedContent, toolCalls } =
-            parseLiquidToolCalls(content);
+          const { content: cleanedContent, toolCalls } = parseBrowserToolCalls(
+            model,
+            content,
+          );
           jsonResponse(
             pending.res,
             200,

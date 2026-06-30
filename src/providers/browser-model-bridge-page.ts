@@ -167,6 +167,7 @@ let CONFIG = null;
 let transformersPromise = null;
 let transformersRuntime = null;
 let generatorPromise = null;
+let loadedGenerator = null;
 let busy = false;
 let lastLoadProgressAt = 0;
 let lastLoadProgressPercent = -1;
@@ -715,6 +716,7 @@ async function loadGenerator() {
     progress_callback: reportLoadProgress
   })
     .then((generator) => {
+      loadedGenerator = generator;
       setRuntime('ready', 'ready', 100);
       log('Model loaded', {
         model: CONFIG.model,
@@ -736,6 +738,42 @@ async function loadGenerator() {
       throw error;
     });
   return generatorPromise;
+}
+
+function resolveVocabSize(generator) {
+  const candidates = [];
+  try {
+    const config = generator && generator.model && generator.model.config;
+    if (config) {
+      candidates.push(config.vocab_size);
+      if (config.text_config) candidates.push(config.text_config.vocab_size);
+      if (config.decoder) candidates.push(config.decoder.vocab_size);
+    }
+    const tokenizer = generator && generator.tokenizer;
+    if (tokenizer) {
+      if (typeof tokenizer.getVocabSize === 'function') {
+        try {
+          candidates.push(tokenizer.getVocabSize());
+        } catch {}
+      }
+      const model = tokenizer.model;
+      if (model && model.vocab) {
+        candidates.push(
+          Array.isArray(model.vocab)
+            ? model.vocab.length
+            : Object.keys(model.vocab).length,
+        );
+      }
+    }
+  } catch {}
+  const valid = candidates
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  // The logits projection (which overflows) is the largest vocabulary, so take
+  // the max candidate to keep the safe-length estimate conservative.
+  const vocabSize = valid.length > 0 ? Math.max(...valid) : 0;
+  log('Resolved vocab size', { candidates, vocabSize });
+  return vocabSize;
 }
 
 async function generate(id, request) {
@@ -770,6 +808,36 @@ async function generate(id, request) {
       maxNewTokens: request.max_tokens || CONFIG.maxNewTokens,
       environment: workerEnvironment(),
     });
+
+    // Reject prompts that would overflow the runtime BEFORE running the model.
+    // onnxruntime sizes the prefill logits tensor ([seq, vocab] float32) with an
+    // int32 byte count, so seq * vocab * 4 must stay under 2^31. Large
+    // vocabularies (e.g. Gemma's ~262K) cap the usable prompt far below the
+    // model's context window (~2K tokens), and crossing it loses the WebGPU
+    // device — which a page reload can't recover from in time. Failing here
+    // keeps the session healthy for later (shorter) requests.
+    const vocabSize = resolveVocabSize(generator);
+    if (Number.isFinite(vocabSize) && vocabSize > 0) {
+      let promptTokens = 0;
+      try {
+        const encoded = generator.tokenizer.encode(promptText);
+        promptTokens = Array.isArray(encoded) ? encoded.length : 0;
+      } catch (error) {
+        log('Prompt token count failed', errorToData(error));
+      }
+      const safeMaxTokens = Math.floor(((2 ** 31 - 1) / (vocabSize * 4)) * 0.9);
+      log('Prompt length check', { promptTokens, vocabSize, safeMaxTokens });
+      if (promptTokens > safeMaxTokens) {
+        throw new Error(
+          'Prompt is too long for ' + CONFIG.model + ': ' + promptTokens +
+            " tokens exceeds this model's safe in-browser limit of ~" +
+            safeMaxTokens + ' tokens (its ' + vocabSize +
+            '-token vocabulary overflows the runtime at longer sequences). ' +
+            'Reduce the prompt, or the number/size of tools.',
+        );
+      }
+    }
+
     setRuntime('generating', 'generating', 100);
 
     // When the assistant turn is force-prefilled (e.g. to require a tool call),
@@ -877,6 +945,24 @@ async function generate(id, request) {
     });
   } catch (error) {
     failed = true;
+    const rawMessage = formatError(error);
+    // A runtime fault during execution (e.g. onnxruntime "Integer overflow" on
+    // an over-long prompt) leaves the ONNX session unusable, so discard the
+    // cached generator and let the next request rebuild a fresh one instead of
+    // every later request failing on the poisoned session.
+    if (phase === 'generation' || phase === 'model') {
+      try {
+        if (loadedGenerator && typeof loadedGenerator.dispose === 'function') {
+          void loadedGenerator.dispose();
+        }
+      } catch {}
+      loadedGenerator = null;
+      generatorPromise = null;
+    }
+    const isRuntimeOverflow = /integer overflow|OrtRun/i.test(rawMessage);
+    const userMessage = isRuntimeOverflow
+      ? 'The model runtime hit an integer overflow, which means the prompt is too long for this browser model. Reduce the prompt size (fewer or smaller tools, shorter messages) or use a model with a smaller vocabulary.'
+      : rawMessage;
     const details = {
       error: errorToData(error),
       environment: workerEnvironment(),
@@ -888,11 +974,11 @@ async function generate(id, request) {
       modelLoad: phase === 'model' ? { lastProgress: lastModelLoadProgress } : undefined,
     };
     log('Generation failed', details);
-    setRuntime('error', formatError(error), undefined);
+    setRuntime('error', userMessage, undefined);
     post({
       type: 'error',
       id,
-      error: formatError(error),
+      error: userMessage,
       details
     });
   } finally {
