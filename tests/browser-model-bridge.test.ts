@@ -116,6 +116,8 @@ describe('browser model bridge', () => {
     expect(workerBody).toContain('apply_chat_template');
     expect(workerBody).toContain('normalizeTools');
     expect(workerBody).toContain('tools: normalizedTools');
+    // Non-LFM templates (Gemma, Qwen) need the nested {type,function} tool shape.
+    expect(workerBody).toContain('toolsForChatTemplate');
     expect(workerBody).toContain('hybridclaw_debug_model_responses');
     expect(workerBody).toContain('Debug model request');
     expect(workerBody).toContain('Debug model response');

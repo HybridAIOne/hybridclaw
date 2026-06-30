@@ -407,6 +407,24 @@ function isLiquidModel(model) {
     normalized.includes('lfm');
 }
 
+// LFM/Liquid chat templates were trained on the flattened tool shape
+// ({name, description, parameters} rendered as "List of tools: [...]"), but the
+// standard HF templates (Gemma, Qwen, ...) read the nested OpenAI shape and
+// access tool.function.name/.description/.parameters. Passing the flattened
+// shape to those templates renders empty tool declarations, so wrap tools in
+// the nested shape for every non-Liquid model.
+function toolsForChatTemplate(normalizedTools) {
+  if (isLiquidModel(CONFIG && CONFIG.model)) return normalizedTools;
+  return normalizedTools.map((tool) => ({
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    },
+  }));
+}
+
 function stripUnsupportedChatTemplateBlocks(template) {
   return template
     .replace(/\\{%-?\\s*generation\\s*-?%\\}/g, '')
@@ -414,7 +432,7 @@ function stripUnsupportedChatTemplateBlocks(template) {
 }
 
 function applyChatTemplate(tokenizer, messages, chatTemplate, tools) {
-  const normalizedTools = normalizeTools(tools);
+  const normalizedTools = toolsForChatTemplate(normalizeTools(tools));
   return tokenizer.apply_chat_template(messages, {
     tokenize: false,
     add_generation_prompt: true,
