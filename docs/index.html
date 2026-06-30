@@ -889,45 +889,25 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest release: v0.25.3</div>
+    <div class="section-label">Latest release: v0.25.8</div>
     <h2 class="section-title">Current release highlights</h2>
-    <p class="section-desc">HybridClaw v0.25.3 adds the bundled Langfuse skill, A2A public URL hardening, Apple desktop release diagnostics, dependency maintenance, MCP startup failure isolation, and cleaner workspace bootstrap context.</p>
+    <p class="section-desc">HybridClaw v0.25.8 tightens cloud public URL handling and email channel administration: MCP OAuth callbacks use public deployment origins, default allowlist additions save immediately, and advanced email settings stay tucked away.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f50d;</div>
-      <h3>Langfuse skill</h3>
-      <p>Read traces, observations, sessions, scores, prompts, datasets, models, and metrics, and create guarded scores, comments, datasets, dataset items, and prompt versions.</p>
+      <div class="feature-icon">&#x1f310;</div>
+      <h3>Cloud MCP callbacks</h3>
+      <p>MCP OAuth setup now prefers configured public deployment URLs and other public gateway origins over private internal request hosts.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f5a5;</div>
-      <h3>Apple Desktop App</h3>
-      <p>Download the signed Apple Silicon DMG from GitHub Releases, with desktop gateway startup logs and recent child output available for packaged app launch diagnostics.</p>
+      <div class="feature-icon">&#x1f4e7;</div>
+      <h3>Email allowlist autosave</h3>
+      <p>Adding a default allowed sender in the admin console saves immediately, so the new address is persisted as soon as admins click Add.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f9e9;</div>
-      <h3>MCP resilience</h3>
-      <p>A single MCP server that fails to connect or disconnect is logged and skipped instead of aborting the whole chat turn or retrying unchanged failures every turn.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f4dd;</div>
-      <h3>Cleaner bootstrap</h3>
-      <p>Workspace startup context skips default empty <code>HEARTBEAT.md</code> templates and legacy no-task placeholders so agents receive less bootstrap noise.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f517;</div>
-      <h3>A2A public URL</h3>
-      <p>Agent Cards advertise the configured public deployment URL when present and fail closed when <code>deployment.public_url</code> is invalid.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f512;</div>
-      <h3>Dependency hygiene</h3>
-      <p>npm audit remediation, Nodemailer 9.0.0, refreshed dependency policy baselines, and clearer lockfile update guidance tighten release maintenance.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
-      <h3>Governance evidence</h3>
-      <p>Admin RBAC role bundles, ISO/IEC 27001 evidence docs, ISO/IEC 42001 readiness docs, SBOM/provenance attestations, CodeQL, and secret scanning improve audit readiness.</p>
+      <div class="feature-icon">&#x1f5c2;</div>
+      <h3>Focused email settings</h3>
+      <p>Poll interval, text chunk limit, media limit, and channel instructions now live under collapsed advanced settings above additional mailboxes.</p>
     </div>
   </div>
 </section>

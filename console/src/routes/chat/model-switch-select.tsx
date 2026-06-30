@@ -21,6 +21,7 @@ import {
   DashScopeLogo,
   DeepSeekLogo,
   GeminiLogo,
+  GoogleLogo,
   HuggingFaceLogo,
   HybridAILogo,
   KiloLogo,
@@ -284,7 +285,7 @@ const PROVIDER_LOGOS: Partial<Record<KnownProvider, LogoComponent>> = {
 const VENDOR_LOGOS: Record<string, LogoComponent> = {
   Anthropic: AnthropicLogo,
   OpenAI: OpenAILogo,
-  Google: GeminiLogo,
+  Google: GoogleLogo,
   Mistral: MistralLogo,
   Meta: MetaLogo,
   DeepSeek: DeepSeekLogo,

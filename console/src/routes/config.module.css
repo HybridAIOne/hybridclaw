@@ -82,6 +82,25 @@
   resize: vertical;
 }
 
+.navigationList {
+  display: grid;
+  gap: var(--radius-sm);
+}
+
+.navigationRow {
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 0.45fr) minmax(180px, 1fr) minmax(150px, 0.75fr)
+    auto;
+  gap: var(--radius-sm);
+  align-items: start;
+  min-width: 0;
+}
+
+.navigationControl {
+  gap: calc(var(--radius-sm) / 2);
+}
+
 .unavailable {
   display: flex;
   flex-direction: column;
@@ -99,5 +118,13 @@
 @media (max-width: 1080px) {
   .content {
     grid-template-columns: 1fr;
+  }
+
+  .navigationRow {
+    grid-template-columns: 1fr;
+  }
+
+  .navigationRow button {
+    justify-self: end;
   }
 }

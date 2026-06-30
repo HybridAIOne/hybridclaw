@@ -44,7 +44,7 @@ import {
   getSandboxDiagnostics,
   stopAllExecutions,
 } from '../agent/executor.js';
-import type { PromptMode } from '../agent/prompt-hooks.js';
+import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import {
   buildToolsSummary,
@@ -181,7 +181,11 @@ import {
   isGoogleApisUrlPrefix,
   isGoogleOAuthSecretRef,
   isGoogleOAuthSpecifier,
+  isMicrosoftGraphUrlPrefix,
+  isMicrosoftOAuthSecretRef,
+  isMicrosoftOAuthSpecifier,
   makeGoogleOAuthSecretRef,
+  makeMicrosoftOAuthSecretRef,
   normalizeHttpRequestAuthRuleUrlPrefix,
   type RuntimeAuxiliaryModelPolicyConfig,
   type RuntimeConfig,
@@ -257,6 +261,7 @@ import {
   getSessionCount,
   getSessionFileChangeCounts,
   getSessionMessageCounts,
+  getSessionsByChannelId,
   getSessionToolCallBreakdown,
   getSessionUsageTotals,
   getSessionUsageTotalsSince,
@@ -274,6 +279,7 @@ import {
   listUsageBySession,
   listUsageDailyBreakdown,
   recordRequestLog,
+  sessionHasUserMessages,
   setMemoryValue,
   updateSessionAgent,
   updateSessionChatbot,
@@ -455,6 +461,7 @@ import {
   WORKSPACE_BOOTSTRAP_FILES,
 } from '../workspace.js';
 import {
+  getActiveThreadAgentId,
   resolveAgentAddressing,
   setActiveThreadAgentId,
 } from './agent-addressing.js';
@@ -594,11 +601,16 @@ import {
   type GatewayCommandResult,
   type GatewayHistorySummary,
   type GatewayModelProviderKey,
+  type GatewayNoUserChatSessionCleanupResult,
   type GatewayRecentChatSession,
   type GatewayRemoteAgentListPeer,
   type GatewayStatus,
   renderGatewayCommand,
 } from './gateway-types.js';
+import {
+  isPrivateHttpBaseUrl,
+  normalizeHttpBaseUrl,
+} from './gateway-url-utils.js';
 import {
   firstNumber,
   numberFromUnknown,
@@ -606,10 +618,7 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { initializeGoalContinuationRunner } from './goal-continuation-runner.js';
-import {
-  appendHatchingChannelSetupLinks,
-  recordBootstrapHatchingTurnResult,
-} from './hatching-completion.js';
+import { recordBootstrapHatchingTurnResult } from './hatching-completion.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -642,7 +651,16 @@ const MAX_HISTORY_MESSAGES = 40;
 const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
 const BOOTSTRAP_PRELUDE_MAX_TOKENS = 48;
-const BOOTSTRAP_PRELUDE_TIMEOUT_MS = 1500;
+const BOOTSTRAP_PRELUDE_TIMEOUT_MS = 5000;
+const BOOTSTRAP_HATCHING_PROMPT_PARTS = [
+  'soul',
+  'identity',
+  'user',
+  'memory-file',
+  'bootstrap-file',
+  'skills',
+  'runtime',
+] satisfies PromptPartName[];
 const OPENING_AUTOSTART_MAX_TOKENS = 512;
 const OPENING_AUTOSTART_TIMEOUT_MS = 5000;
 const activeBootstrapAutostartSessions = new Set<string>();
@@ -706,15 +724,16 @@ type StoredAdminAgentMarkdownRevision =
 function buildBootstrapAutostartPrompt(
   fileName: 'BOOTSTRAP.md' | 'OPENING.md',
 ): string {
+  if (fileName === 'BOOTSTRAP.md') {
+    return "Greet the user like you are his new coworker or companion. Ask a few questions from the BOOTSTRAP.md file. Don't forget to ask for the email, because you need this for sending him a welcome email. Make it conversational and friendly.";
+  }
+
   return [
-    `A startup instruction file (${fileName}) exists for this agent.`,
-    'This is an internal kickoff turn, not a user-authored message.',
-    `Follow the ${fileName} instructions now and begin the conversation proactively.`,
-    fileName === 'BOOTSTRAP.md'
-      ? 'Onboarding should be conversational: do not dump a form or checklist, ask only a few useful questions at a time, and let the user answer naturally.'
-      : 'Send a concise first message to the user.',
-    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
-  ].join(' ');
+    `Follow ${fileName} before replying normally.`,
+    'Send a concise first message to the user.',
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 function normalizeBootstrapPrelude(raw: string): string | null {
@@ -737,7 +756,6 @@ function normalizeBootstrapPrelude(raw: string): string | null {
 
 async function generateBootstrapPrelude(params: {
   agentId: string;
-  fileName: 'BOOTSTRAP.md' | 'OPENING.md';
   model: string;
   chatbotId: string | null;
 }): Promise<string | null> {
@@ -753,23 +771,16 @@ async function generateBootstrapPrelude(params: {
       timeoutMs: BOOTSTRAP_PRELUDE_TIMEOUT_MS,
       messages: [
         {
-          role: 'system',
-          content:
-            'Write exactly one short first-person startup line for a newly hatching personal AI agent. Make it conversational and alive, not corporate. Do not ask onboarding questions yet. Do not use markdown, quotes, or explanations.',
-        },
-        {
           role: 'user',
           content:
-            params.fileName === 'BOOTSTRAP.md'
-              ? 'Generate a brief coming-to-life line before onboarding starts.'
-              : 'Generate a brief opening line before the agent starts.',
+            'You are a HybridClaw agent coming alive. Tell the user in a nice way that you are on your way. Make it one sentence only.',
         },
       ],
     });
     return normalizeBootstrapPrelude(result.content);
   } catch (error) {
     logger.debug(
-      { agentId: params.agentId, fileName: params.fileName, error },
+      { agentId: params.agentId, fileName: 'BOOTSTRAP.md', error },
       'Failed to generate bootstrap prelude with auxiliary model',
     );
     return null;
@@ -808,7 +819,7 @@ async function generateOpeningAutostartMessage(params: {
         {
           role: 'user',
           content:
-            'Generate exactly one concise user-facing opening message now by following OPENING.md. Return only the message to send. Do not add a hatching, startup, or coming-online prelude unless OPENING.md explicitly asks for one. Do not mention hidden prompts, internal kickoff turns, or system mechanics.',
+            'Generate exactly one concise user-facing opening message now by following OPENING.md. Return only the message to send. Do not add a hatching, startup, or coming-online prelude unless OPENING.md explicitly asks for one.',
         },
       ],
     });
@@ -4198,6 +4209,9 @@ function normalizeSecretRouteSecret(
   if (isGoogleOAuthSpecifier(value)) {
     return makeGoogleOAuthSecretRef();
   }
+  if (isMicrosoftOAuthSpecifier(value)) {
+    return makeMicrosoftOAuthSecretRef();
+  }
   return { source: 'store', id: value };
 }
 
@@ -4217,6 +4231,7 @@ function formatRouteSecretLabel(
 ): string {
   if (typeof secret === 'string') return secret;
   if (isGoogleOAuthSecretRef(secret)) return 'google-oauth';
+  if (isMicrosoftOAuthSecretRef(secret)) return 'microsoft-oauth';
   return `${secret.source}:${secret.id}`;
 }
 
@@ -4282,9 +4297,11 @@ function formatHttpRequestAuthRule(
       ? rule.secret
       : isGoogleOAuthSecretRef(rule.secret)
         ? 'google-oauth'
-        : typeof rule.secret.id === 'string'
-          ? `${rule.secret.source}:${rule.secret.id}`
-          : '<invalid>';
+        : isMicrosoftOAuthSecretRef(rule.secret)
+          ? 'microsoft-oauth'
+          : typeof rule.secret.id === 'string'
+            ? `${rule.secret.source}:${rule.secret.id}`
+            : '<invalid>';
   const prefix = rule.prefix ? ` ${rule.prefix}` : '';
   return `${index + 1}. ${rule.urlPrefix} -> ${rule.header}:${prefix} ${parsedSecret}`.trim();
 }
@@ -5819,7 +5836,24 @@ export async function deleteGatewayAdminEmailMessage(params: {
 
 export function deleteGatewayAdminSession(
   sessionId: string,
+  options?: {
+    onlyWithoutUserMessages?: boolean;
+  },
 ): GatewayAdminDeleteSessionResult {
+  if (options?.onlyWithoutUserMessages && sessionHasUserMessages(sessionId)) {
+    return {
+      deleted: false,
+      sessionId,
+      skippedReason: 'has_user_messages',
+      deletedMessages: 0,
+      deletedTasks: 0,
+      deletedSemanticMemories: 0,
+      deletedUsageEvents: 0,
+      deletedAuditEntries: 0,
+      deletedStructuredAuditEntries: 0,
+      deletedApprovalEntries: 0,
+    };
+  }
   interruptGatewaySessionExecution(sessionId);
   return deleteSessionData(sessionId);
 }
@@ -6945,15 +6979,47 @@ function requireConfiguredMcpServer(name: string): {
 }
 
 export function resolveMcpOAuthRedirectUri(requestBaseUrl?: string): string {
-  const base = String(requestBaseUrl || GATEWAY_BASE_URL || '')
-    .trim()
-    .replace(/\/+$/, '');
+  const config = getRuntimeConfig();
+  const configuredPublicUrl = normalizeConfiguredMcpOAuthPublicUrl(
+    config.deployment.public_url,
+  );
+  if (configuredPublicUrl) return buildMcpOAuthRedirectUri(configuredPublicUrl);
+
+  // Prefer public callback bases; private fallbacks only keep local dev working
+  // when no public deployment URL or public request/gateway URL is available.
+  const configuredGatewayUrl = normalizeHttpBaseUrl(GATEWAY_BASE_URL);
+  if (configuredGatewayUrl && !isPrivateHttpBaseUrl(configuredGatewayUrl)) {
+    return buildMcpOAuthRedirectUri(configuredGatewayUrl);
+  }
+
+  const requestUrl = normalizeHttpBaseUrl(requestBaseUrl);
+  if (requestUrl && !isPrivateHttpBaseUrl(requestUrl)) {
+    return buildMcpOAuthRedirectUri(requestUrl);
+  }
+
+  const base = requestUrl || configuredGatewayUrl || '';
   if (!base) {
     throw new Error(
       'Cannot determine the gateway base URL for the OAuth redirect.',
     );
   }
-  return `${base}/api/mcp/oauth/callback`;
+  return buildMcpOAuthRedirectUri(base);
+}
+
+function normalizeConfiguredMcpOAuthPublicUrl(value?: string): string {
+  const normalized = normalizeHttpBaseUrl(value);
+  if (normalized || !String(value || '').trim()) return normalized || '';
+  logger.warn(
+    { publicUrl: value },
+    'Invalid deployment.public_url for MCP OAuth callback',
+  );
+  throw new Error(
+    'deployment.public_url must be an HTTP(S) URL for MCP OAuth callbacks.',
+  );
+}
+
+function buildMcpOAuthRedirectUri(baseUrl: string): string {
+  return `${baseUrl}/api/mcp/oauth/callback`;
 }
 
 export async function startGatewayAdminMcpOAuth(input: {
@@ -8453,11 +8519,31 @@ function resolveBootstrapAutostartContext(params: {
     requestedSessionId,
     params.channelId,
   );
+  const requestedAgentId = String(params.agentId || '').trim();
+  const existingSession = memoryService.getSessionById(requestedSessionId);
+  if (
+    existingSession &&
+    !params.allowExistingSessionMessages &&
+    (existingSession.message_count > 0 ||
+      String(existingSession.session_summary || '').trim().length > 0)
+  ) {
+    return null;
+  }
+  const existingSessionAgentId = String(existingSession?.agent_id || '').trim();
+  const activeThreadAgentId = existingSession
+    ? getActiveThreadAgentId(existingSession)
+    : null;
+  const autostartAgentId =
+    requestedAgentId ||
+    activeThreadAgentId ||
+    existingSessionAgentId ||
+    undefined;
   const session = memoryService.getOrCreateSession(
     requestedSessionId,
     null,
     channelId,
-    params.agentId ?? undefined,
+    autostartAgentId,
+    { touch: false },
   );
   if (
     !params.allowExistingSessionMessages &&
@@ -8468,7 +8554,7 @@ function resolveBootstrapAutostartContext(params: {
   }
 
   const resolved = resolveAgentForRequest({
-    agentId: params.agentId,
+    agentId: autostartAgentId,
     session,
   });
   ensureBootstrapFiles(resolved.agentId);
@@ -8557,19 +8643,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
         source: BOOTSTRAP_AUTOSTART_SOURCE,
       },
     });
-    recordAuditEvent({
-      sessionId: session.id,
-      runId,
-      event: {
-        type: 'turn.start',
-        turnIndex,
-        userInput: buildBootstrapAutostartPrompt(bootstrapFile),
-        username: normalizedUsername,
-        mediaCount: 0,
-        source: BOOTSTRAP_AUTOSTART_SOURCE,
-      },
-    });
-
     const chatbotResolution = await resolveGatewayChatbotId({
       model,
       chatbotId: resolved.chatbotId,
@@ -8632,12 +8705,67 @@ export async function ensureGatewayBootstrapAutostart(params: {
       return;
     }
 
+    const storeBootstrapAssistantMessage = (content: string): number => {
+      const assistantMessageId = memoryService.storeMessage({
+        sessionId: session.id,
+        userId: 'assistant',
+        username: null,
+        role: 'assistant',
+        content,
+        agentId: resolved.agentId,
+      });
+      appendSessionTranscript(resolved.agentId, {
+        sessionId: session.id,
+        channelId,
+        role: 'assistant',
+        userId: 'assistant',
+        username: null,
+        content,
+      });
+      return assistantMessageId;
+    };
+    let preludeText: string | null = null;
+    if (bootstrapFile === 'BOOTSTRAP.md') {
+      preludeText = await generateBootstrapPrelude({
+        agentId: resolved.agentId,
+        model,
+        chatbotId,
+      });
+    }
+    const hasPrelude = Boolean(preludeText);
+    const bootstrapAutostartPrompt =
+      buildBootstrapAutostartPrompt(bootstrapFile);
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'turn.start',
+        turnIndex,
+        userInput: bootstrapAutostartPrompt,
+        username: normalizedUsername,
+        mediaCount: 0,
+        source: BOOTSTRAP_AUTOSTART_SOURCE,
+      },
+    });
+    if (preludeText) {
+      storeBootstrapAssistantMessage(preludeText);
+    }
+    const baseAssistantMessages = hasPrelude ? 1 : 0;
+
     const { messages } = buildConversationContext({
       agentId: resolved.agentId,
       history: [],
-      currentUserContent: buildBootstrapAutostartPrompt(bootstrapFile),
+      currentUserContent: bootstrapAutostartPrompt,
+      ...(bootstrapFile === 'BOOTSTRAP.md'
+        ? {
+            skillPromptMode: 'compact' as const,
+            includePromptParts: BOOTSTRAP_HATCHING_PROMPT_PARTS,
+          }
+        : {}),
       extraSafetyText:
-        'Bootstrap kickoff turn. Start the conversation proactively with a concise user-facing opening message.',
+        bootstrapFile === 'BOOTSTRAP.md'
+          ? 'Bootstrap kickoff turn. Continue after the brief hatching prelude with setup questions.'
+          : 'Opening kickoff turn. Follow OPENING.md and send the opening message.',
       runtimeInfo: {
         chatbotId,
         model,
@@ -8651,7 +8779,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     });
     messages.push({
       role: 'user',
-      content: buildBootstrapAutostartPrompt(bootstrapFile),
+      content: bootstrapAutostartPrompt,
     });
 
     const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway(
@@ -8679,25 +8807,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
       });
     }
 
-    const storeBootstrapAssistantMessage = (content: string): number => {
-      const assistantMessageId = memoryService.storeMessage({
-        sessionId: session.id,
-        userId: 'assistant',
-        username: null,
-        role: 'assistant',
-        content,
-        agentId: resolved.agentId,
-      });
-      appendSessionTranscript(resolved.agentId, {
-        sessionId: session.id,
-        channelId,
-        role: 'assistant',
-        userId: 'assistant',
-        username: null,
-        content,
-      });
-      return assistantMessageId;
-    };
     if (bootstrapFile === 'OPENING.md') {
       recordAuditEvent({
         sessionId: session.id,
@@ -8835,18 +8944,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
       return;
     }
 
-    const preludeText = await generateBootstrapPrelude({
-      agentId: resolved.agentId,
-      fileName: bootstrapFile,
-      model,
-      chatbotId,
-    });
-    const hasPrelude = Boolean(preludeText);
-    if (preludeText) {
-      storeBootstrapAssistantMessage(preludeText);
-    }
-    const baseAssistantMessages = hasPrelude ? 1 : 0;
-
     recordAuditEvent({
       sessionId: session.id,
       runId,
@@ -8908,10 +9005,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
       output.status === 'success'
         ? normalizeBootstrapAutostartResult(output)
         : '';
-    const resultTextWithHatchingLinks = appendHatchingChannelSetupLinks({
-      resultText,
-      hatchingCompletion,
-    });
 
     const usagePayload = buildTokenUsageAuditPayload(
       messages,
@@ -8956,7 +9049,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       enqueueTokenUsage(event);
     }
 
-    if (output.status !== 'success' || !resultTextWithHatchingLinks) {
+    if (output.status !== 'success' || !resultText) {
       deleteMemoryValue(session.id, markerKey);
       recordAuditEvent({
         sessionId: session.id,
@@ -8984,9 +9077,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       return;
     }
 
-    const assistantMessageId = storeBootstrapAssistantMessage(
-      resultTextWithHatchingLinks,
-    );
+    const assistantMessageId = storeBootstrapAssistantMessage(resultText);
     setMemoryValue(session.id, markerKey, {
       status: 'completed',
       fileName: bootstrapFile,
@@ -9349,6 +9440,55 @@ export async function getGatewayAgentList(): Promise<GatewayAgentListResponse> {
   return {
     agents: getGatewayLocalAgentListItems(),
     ...(remotePeers.length > 0 ? { remotePeers } : {}),
+  };
+}
+
+function isProtectedNoUserChatCleanupSession(session: Session): boolean {
+  const sessionKey = String(session.session_key || '').trim();
+  return (
+    session.full_auto_enabled === 1 ||
+    session.channel_id === 'scheduler' ||
+    session.id.startsWith('scheduler:') ||
+    session.id.startsWith('cron:') ||
+    session.id.includes(':chat:cron:') ||
+    sessionKey.includes(':chat:cron:')
+  );
+}
+
+export function cleanupGatewayNoUserChatSessions(params: {
+  channelId?: string | null;
+  keepSessionId?: string | null;
+}): GatewayNoUserChatSessionCleanupResult {
+  const channelId = String(params.channelId || 'web').trim() || 'web';
+  const keepSessionId = String(params.keepSessionId || '').trim();
+  const keptSessionId = keepSessionId
+    ? memoryService.getSessionById(keepSessionId)?.id || keepSessionId
+    : '';
+  const keepSessionIds = new Set(
+    [keepSessionId, keptSessionId].filter((value) => value.length > 0),
+  );
+  const deletedSessionIds: string[] = [];
+
+  for (const session of getSessionsByChannelId(channelId)) {
+    if (
+      keepSessionIds.has(session.id) ||
+      keepSessionIds.has(session.session_key || '') ||
+      keepSessionIds.has(session.main_session_key || '')
+    ) {
+      continue;
+    }
+    if (isProtectedNoUserChatCleanupSession(session)) continue;
+    if (sessionHasUserMessages(session.id)) continue;
+    const result = deleteGatewayAdminSession(session.id, {
+      onlyWithoutUserMessages: true,
+    });
+    if (result.deleted) deletedSessionIds.push(result.sessionId);
+  }
+
+  return {
+    deletedCount: deletedSessionIds.length,
+    deletedSessionIds,
+    ...(keptSessionId ? { keptSessionId } : {}),
   };
 }
 
@@ -12025,7 +12165,7 @@ export async function handleGatewayCommand(
             if (!rawPrefix || !secretName) {
               return badCommand(
                 'Usage',
-                'Usage: `secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]`',
+                'Usage: `secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]`',
               );
             }
             const secret = normalizeSecretRouteSecret(secretName);
@@ -12057,6 +12197,15 @@ export async function handleGatewayCommand(
                 return badCommand(
                   'Invalid Google OAuth Route',
                   '`google-oauth` routes can only target googleapis.com or *.googleapis.com URL prefixes.',
+                );
+              }
+              if (
+                isMicrosoftOAuthSecretRef(secret) &&
+                !isMicrosoftGraphUrlPrefix(urlPrefix)
+              ) {
+                return badCommand(
+                  'Invalid Microsoft OAuth Route',
+                  '`microsoft-oauth` routes can only target graph.microsoft.com URL prefixes.',
                 );
               }
               const header = normalizeSecretRouteHeader(rawHeader);
@@ -12184,7 +12333,7 @@ export async function handleGatewayCommand(
 
           return badCommand(
             'Usage',
-            'Usage: `secret route list`, `secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]`, or `secret route remove <url-prefix> [header]`',
+            'Usage: `secret route list`, `secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]`, or `secret route remove <url-prefix> [header]`',
           );
         }
 
@@ -12501,16 +12650,13 @@ export async function handleGatewayCommand(
           }
           try {
             const value = parseRuntimeConfigCommandValue(rawValue);
-            const nextConfig = updateRuntimeConfig((draft) => {
+            updateRuntimeConfig((draft) => {
               setRuntimeConfigValueAtPath(draft, key, value);
             });
             const check = await runRuntimeConfigCheck();
             const text = [
               `Path: ${runtimeConfigPath()}`,
               `Key: ${key}`,
-              'Config:',
-              formatRuntimeConfigJson(nextConfig),
-              '',
               'Check:',
               check.text,
             ].join('\n');

@@ -159,16 +159,13 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
   );
   expect(userMessage?.role).toBe('user');
   expect(userMessage?.content).toContain(
-    'Hatching mode is active for this agent.',
+    'Continue the in-progress BOOTSTRAP.md conversation using the full chat history above.',
   );
   expect(userMessage?.content).toContain(
-    'A startup instruction file (BOOTSTRAP.md) exists',
+    'Do not restart, reintroduce yourself, or repeat questions you already asked.',
   );
   expect(userMessage?.content).toContain(
-    'Continue the in-progress hatching conversation using the full chat history above.',
-  );
-  expect(userMessage?.content).toContain(
-    'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
+    "Acknowledge the user's latest reply and keep going naturally.",
   );
   expect(userMessage?.content).not.toContain(
     'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool.',
@@ -193,12 +190,12 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
   expect(storedUsers).toContain('Hi');
   expect(
     storedUsers.every(
-      (content) => !content.includes('Hatching mode is active'),
+      (content) => !content.includes('Continue the in-progress BOOTSTRAP.md'),
     ),
   ).toBe(true);
 });
 
-test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-mini', async () => {
+test('handleGatewayMessage adds GPT-5 hatching email action guidance', async () => {
   setupHome();
 
   runAgentMock.mockResolvedValue({
@@ -238,20 +235,16 @@ test('handleGatewayMessage injects GPT-5 onboarding send directive for gpt-5.4-m
 
   expect(userMessage?.role).toBe('user');
   expect(userMessage?.content).toContain(
-    'If the user has introduced themselves and given an email address, send a useful welcome email with the message tool.',
+    'Continue the in-progress BOOTSTRAP.md conversation',
   );
   expect(userMessage?.content).toContain(
-    'Follow the short welcome email template in BOOTSTRAP.md',
+    'send the welcome email in this turn with the message tool',
   );
   expect(userMessage?.content).toContain(
-    '3 concrete first tasks, 2 or 3 copy-paste prompt ideas',
+    'Do not say the email is being sent',
   );
-  expect(userMessage?.content).toContain(
-    'Do not include channel setup links in the email; post those links as Markdown links in the hatching chat.',
-  );
-  expect(userMessage?.content).toContain(
-    'Do not ask for separate confirmation.',
-  );
+  expect(userMessage?.content).toContain('call message with action="send"');
+  expect(userMessage?.content).toContain('Follow the Welcome Email section');
   expect(userMessage?.content).toContain('User message:\nHi');
 });
 
@@ -373,15 +366,9 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
   });
 
   expect(result.status).toBe('success');
-  expect(result.result).toContain('Optional channel setup:');
-  expect(result.result).toContain(
-    '[Set up WhatsApp](/admin/channels#whatsapp)',
-  );
-  expect(result.result).toContain('[Set up Discord](/admin/channels#discord)');
-  expect(result.result).toContain(
-    '[Set up Telegram](/admin/channels#telegram)',
-  );
-  expect(result.result).not.toContain('`/admin/channels#whatsapp`');
+  expect(result.result).toBe('I sent the welcome message.');
+  expect(result.result).not.toContain('Optional channel setup:');
+  expect(result.result).not.toContain('/admin/channels#whatsapp');
   expect(fs.existsSync(path.join(workspaceDir, 'BOOTSTRAP.md'))).toBe(false);
   const userMarkdown = fs.readFileSync(
     path.join(workspaceDir, 'USER.md'),

@@ -2,6 +2,94 @@
 
 ## Unreleased
 
+### Added
+
+- **Console navigation config**: The top navigation strip can be customized
+  from runtime config with local console paths or HTTP(S) URLs and link text.
+
+## [0.25.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.8) - 2026-06-27
+
+### Changed
+
+- **Email admin layout**: Email channel advanced settings now collapse by
+  default above additional mailboxes, keeping default allowlist management
+  prominent while poll interval, chunk limit, media limit, and channel
+  instructions remain available on demand.
+
+### Fixed
+
+- **Cloud MCP OAuth callbacks**: MCP OAuth setup now prefers the configured
+  deployment public URL and other public gateway origins over private internal
+  request hosts, rejects invalid configured public URLs, and covers IPv4, IPv6,
+  and local development fallback cases.
+- **Cloud request origins**: Admin session-cookie origin checks and mobile chat
+  QR launch links now honor `deployment.public_url` when requests arrive through
+  internal gateway hosts.
+- **Email allowlist autosave**: Adding a default allowed sender in the admin
+  console now saves immediately instead of leaving the new entry only in the
+  unsaved draft state.
+
+## [0.25.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.7) - 2026-06-25
+
+### Added
+
+- **Admin sender allowlists**: Channel settings in the admin console can edit
+  allowed sender lists for WhatsApp, Telegram, Threema, Signal, email
+  (including mailbox-level allowlists), Microsoft Teams, Slack, and iMessage,
+  with wildcard confirmation and explicit all-senders labeling.
+
+### Changed
+
+- **Hatching first run**: Fresh agents start with a shorter, conversational
+  setup message that asks two or three natural questions, captures the user's
+  email for the welcome note, and keeps model-generated hatching preludes
+  limited to `BOOTSTRAP.md` sessions.
+- **Session timestamps**: Gateway status and session displays render timestamps
+  in the local timezone without noisy seconds or UTC suffixes.
+
+### Fixed
+
+- **Web chat drafts**: Starting a new conversation keeps the newly created
+  no-user session selected and deletes older empty or assistant-only web chat
+  drafts without touching sessions that already have user messages or scheduler
+  sessions.
+- **Bootstrap autostart reliability**: Hatching and `OPENING.md` autostarts no
+  longer refresh already-started sessions on history probes, avoid duplicate
+  concurrent runs, fall back cleanly when auxiliary prelude generation fails,
+  and keep selected-agent autostart concrete.
+- **Resource hygiene cleanup**: Doctor resource hygiene now labels stale no-user
+  histories as unstarted sessions and cleans up empty or assistant-only rows
+  while preserving sessions with user messages.
+
+## [0.25.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.6) - 2026-06-24
+
+### Added
+
+- **Launch-agent chat sessions**: `/chat?agent=<id>` links now mint a web chat
+  session, preselect the requested local agent, and pass that agent through the
+  history bootstrap path so the correct agent autostart runs for the new
+  session.
+
+### Fixed
+
+- **Foreground gateway logging**: `gateway start --foreground` restores
+  mirroring to the gateway log file even when the logger initializes before the
+  foreground command configures the log path, while avoiding duplicate file
+  streams when stdio is already redirected to the gateway log.
+
+## [0.25.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.5) - 2026-06-22
+
+### Fixed
+
+- **Remote agent mentions**: Selecting a remote agent in chat now places the
+  caret after the inserted address and keeps the styled composer overlay caret
+  aligned with the real textarea selection.
+- **Streaming text deltas**: Container streaming now emits visible model text
+  deltas live instead of buffering answer text until the model turn completes.
+- **Host bootstrap cleanup**: Host-mode approval policy now recognizes the
+  actual workspace-root `BOOTSTRAP.md` path as one-time onboarding cleanup while
+  keeping nested or rootless delete calls approval-gated.
+
 ## [0.25.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.4) - 2026-06-22
 
 ### Added

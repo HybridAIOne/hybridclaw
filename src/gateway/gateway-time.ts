@@ -46,7 +46,6 @@ export function formatDisplayTimestamp(raw: string | null | undefined): string {
   if (!date) return 'unknown';
 
   const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'UTC',
     year: 'numeric',
     month: 'short',
     day: 'numeric',

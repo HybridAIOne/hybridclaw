@@ -86,6 +86,7 @@ import type {
 } from '../config/runtime-config.js';
 import {
   getRuntimeConfig,
+  onRuntimeConfigChange,
   parseSchedulerBoardStatus,
   reloadRuntimeConfig,
   resolveDefaultAgentId,
@@ -163,6 +164,14 @@ import {
 } from './chat-result.js';
 import { escapeHtml, serveDocs } from './docs.js';
 import {
+  completeGatewayAdminConnectorOAuthCallback,
+  getGatewayAdminConnectorsWithPlatformState,
+  logoutGatewayAdminConnector,
+  saveGatewayAdminHybridAIConnectorApiKey,
+  startGatewayAdminConnectorOAuth,
+  testGatewayAdminConnector,
+} from './gateway-admin-connectors.js';
+import {
   getGatewayAdminSecrets,
   overwriteGatewayAdminSecret,
   recordGatewayAdminSecretMutationFailure,
@@ -209,6 +218,7 @@ import { handleApiSecretInject } from './gateway-secret-injection.js';
 import {
   applyGatewayAdminPolicyPreset,
   approveGatewayAdminA2APairingRequest,
+  cleanupGatewayNoUserChatSessions,
   completeGatewayMcpOAuthCallback,
   createGatewayAdminAgent,
   createGatewayAdminSkill,
@@ -301,6 +311,7 @@ import type {
   GatewayChatResultMessageRole,
   GatewayCommandRequest,
 } from './gateway-types.js';
+import { normalizeHttpOrigin } from './gateway-url-utils.js';
 import {
   extensionToMimeType,
   resolveWorkspaceRelativePath,
@@ -368,6 +379,7 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
 );
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
+const HISTORY_AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -1625,6 +1637,10 @@ type MobileLaunchTokenEntry = {
   expiresAt: number;
 };
 const mobileLaunchTokens = new Map<string, MobileLaunchTokenEntry>();
+let deploymentPublicUrl = getRuntimeConfig().deployment.public_url;
+onRuntimeConfigChange((next) => {
+  deploymentPublicUrl = next.deployment.public_url;
+});
 
 function parseApiAdminPolicyIndex(value: unknown): number {
   const parsed = parsePositiveInteger(value);
@@ -2271,27 +2287,15 @@ function resolveMobileLaunchToken(token: string):
   };
 }
 
-function normalizePublicBaseUrl(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  try {
-    const url = new URL(trimmed);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return undefined;
-    }
-    return url.origin;
-  } catch {
-    return undefined;
-  }
-}
-
 function resolveRequestOrigin(
   req: IncomingMessage,
   bodyBaseUrl?: unknown,
 ): string {
-  const explicitBaseUrl = normalizePublicBaseUrl(bodyBaseUrl);
+  const explicitBaseUrl = normalizeHttpOrigin(bodyBaseUrl);
   if (explicitBaseUrl) return explicitBaseUrl;
+
+  const configuredPublicUrl = normalizeHttpOrigin(deploymentPublicUrl);
+  if (configuredPublicUrl) return configuredPublicUrl;
 
   const forwardedHost = String(req.headers['x-forwarded-host'] || '')
     .split(',')[0]
@@ -2302,9 +2306,9 @@ function resolveRequestOrigin(
 }
 
 function resolveA2AAgentCardOrigin(req: IncomingMessage): string | null {
-  const configuredPublicUrl = getRuntimeConfig().deployment.public_url.trim();
+  const configuredPublicUrl = deploymentPublicUrl.trim();
   if (configuredPublicUrl) {
-    const origin = normalizePublicBaseUrl(configuredPublicUrl);
+    const origin = normalizeHttpOrigin(configuredPublicUrl);
     if (origin) return origin;
     logger.warn(
       { publicUrl: configuredPublicUrl },
@@ -3496,19 +3500,33 @@ async function handleApiHistory(
     10,
   );
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
-  void ensureGatewayBootstrapAutostart({
-    sessionId,
-  }).catch((error) => {
-    logger.warn(
-      { sessionId, error },
-      'Failed to start gateway bootstrap autostart',
-    );
-  });
+  const rawAgentId = url.searchParams.get('agentId')?.trim() || '';
+  if (rawAgentId && !HISTORY_AGENT_ID_PATTERN.test(rawAgentId)) {
+    sendJson(res, 400, { error: 'Invalid `agentId` query parameter.' });
+    return;
+  }
+  const requestedAgentId = rawAgentId || undefined;
+  if (requestedAgentId && !getAgentById(requestedAgentId)) {
+    sendJson(res, 404, { error: 'Agent not found.' });
+    return;
+  }
   const operatorUserId = resolveGatewayRequestUserId({
     req,
     channelId: 'web',
     requestedUserId: url.searchParams.get('userId'),
     fallbackUserId: 'web',
+  });
+  void ensureGatewayBootstrapAutostart({
+    sessionId,
+    channelId: 'web',
+    userId: operatorUserId,
+    username: operatorUserId,
+    agentId: requestedAgentId,
+  }).catch((error) => {
+    logger.warn(
+      { sessionId, agentId: requestedAgentId ?? null, error },
+      'Failed to start gateway bootstrap autostart',
+    );
   });
   const historyPage = getGatewayHistory(sessionId, limit, {
     operatorUserId,
@@ -3518,6 +3536,8 @@ async function handleApiHistory(
   });
   const bootstrapAutostart = getGatewayBootstrapAutostartState({
     sessionId,
+    channelId: 'web',
+    agentId: requestedAgentId,
     allowExistingSessionMessages: true,
   });
   // These keys are returned only as chat-routing metadata for the web client.
@@ -3613,6 +3633,17 @@ function handleApiChatRecent(
         : {}),
     }),
   });
+}
+
+function handleApiChatCleanup(res: ServerResponse, url: URL): void {
+  sendJson(
+    res,
+    200,
+    cleanupGatewayNoUserChatSessions({
+      channelId: url.searchParams.get('channelId') || 'web',
+      keepSessionId: url.searchParams.get('keepSessionId'),
+    }),
+  );
 }
 
 async function handleApiChatMobileQr(
@@ -4849,7 +4880,13 @@ function handleApiAdminSessionDelete(res: ServerResponse, url: URL): void {
     sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
     return;
   }
-  sendJson(res, 200, deleteGatewayAdminSession(sessionId));
+  sendJson(
+    res,
+    200,
+    deleteGatewayAdminSession(sessionId, {
+      onlyWithoutUserMessages: url.searchParams.get('ifNoUserMessages') === '1',
+    }),
+  );
 }
 
 async function handleApiAdminChannels(
@@ -5520,6 +5557,57 @@ async function handleApiAdminMcpOAuth(
   sendJson(res, 200, logoutGatewayAdminMcpOAuth(name));
 }
 
+async function handleApiAdminConnectors(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const pathname = url.pathname;
+  if (pathname === '/api/admin/connectors' && req.method === 'GET') {
+    sendJson(res, 200, await getGatewayAdminConnectorsWithPlatformState());
+    return;
+  }
+
+  if (
+    pathname === '/api/admin/connectors/hybridai/key' &&
+    req.method === 'PUT'
+  ) {
+    const body = (await readJsonBody(req)) as { apiKey?: unknown };
+    sendJson(res, 200, saveGatewayAdminHybridAIConnectorApiKey(body));
+    return;
+  }
+
+  if (
+    pathname === '/api/admin/connectors/oauth/start' &&
+    req.method === 'POST'
+  ) {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    sendJson(
+      res,
+      200,
+      await startGatewayAdminConnectorOAuth({
+        body,
+        requestBaseUrl: resolveRequestOrigin(req),
+      }),
+    );
+    return;
+  }
+
+  if (pathname === '/api/admin/connectors/logout' && req.method === 'POST') {
+    const body = (await readJsonBody(req)) as { provider?: unknown };
+    sendJson(res, 200, logoutGatewayAdminConnector(body));
+    return;
+  }
+
+  if (pathname === '/api/admin/connectors/test' && req.method === 'POST') {
+    const body = (await readJsonBody(req)) as { provider?: unknown };
+    sendJson(res, 200, await testGatewayAdminConnector(body));
+    return;
+  }
+
+  sendMethodNotAllowed(res);
+}
+
 function sendMcpOAuthCallbackPage(
   res: ServerResponse,
   status: number,
@@ -5546,14 +5634,11 @@ async function handleApiMcpOAuthCallback(
 ): Promise<void> {
   const error = (url.searchParams.get('error') || '').trim();
   if (error) {
-    const description = (
-      url.searchParams.get('error_description') || ''
-    ).trim();
     sendMcpOAuthCallbackPage(
       res,
       400,
       'MCP authorization failed',
-      description || error,
+      'The provider returned an authorization error. Please close this tab and try again.',
     );
     return;
   }
@@ -5569,20 +5654,67 @@ async function handleApiMcpOAuthCallback(
     return;
   }
   try {
-    const result = await completeGatewayMcpOAuthCallback({ state, code });
+    await completeGatewayMcpOAuthCallback({ state, code });
     sendMcpOAuthCallbackPage(
       res,
       200,
-      `Connected to ${result.serverName}`,
+      'MCP connected',
       'Authorization complete. You can close this tab and return to HybridClaw.',
       { autoClose: true },
     );
-  } catch (err) {
+  } catch {
     sendMcpOAuthCallbackPage(
       res,
       400,
       'MCP authorization failed',
-      err instanceof Error ? err.message : String(err),
+      'Authorization could not be completed. Please close this tab and try again.',
+    );
+  }
+}
+
+async function handleApiConnectorOAuthCallback(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const state = (url.searchParams.get('state') || '').trim();
+  const code = (url.searchParams.get('code') || '').trim();
+  const providerError = (url.searchParams.get('error') || '').trim();
+  if (providerError) {
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'Connector authorization failed',
+      'The provider returned an authorization error. Please close this tab and try again.',
+    );
+    return;
+  }
+  if (!state || !code) {
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'Connector authorization failed',
+      'The callback is missing the authorization code or state parameter.',
+    );
+    return;
+  }
+  try {
+    await completeGatewayAdminConnectorOAuthCallback({
+      state,
+      code,
+    });
+    sendMcpOAuthCallbackPage(
+      res,
+      200,
+      'Connector connected',
+      'Authorization complete. You can close this tab and return to HybridClaw.',
+      { autoClose: true },
+    );
+  } catch {
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'Connector authorization failed',
+      'Authorization could not be completed. Please close this tab and try again.',
     );
   }
 }
@@ -7228,6 +7360,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         });
         return;
       }
+      if (pathname === '/api/connectors/oauth/callback' && method === 'GET') {
+        // Public by design: the OAuth provider redirects the user's browser
+        // here without gateway credentials. The flow is bound to a
+        // single-use `state` nonce validated by the pending-flow registry.
+        void handleApiConnectorOAuthCallback(res, url).catch((err: unknown) => {
+          if (res.writableEnded) return;
+          sendJson(res, 500, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        return;
+      }
       if (pathname === '/api/agent-avatar' && method === 'GET') {
         try {
           handleApiAgentAvatar(req, res, url);
@@ -7423,6 +7567,16 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT' || method === 'DELETE')
           ) {
             await handleApiAdminMcp(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/connectors' ||
+            pathname === '/api/admin/connectors/hybridai/key' ||
+            pathname === '/api/admin/connectors/oauth/start' ||
+            pathname === '/api/admin/connectors/test' ||
+            pathname === '/api/admin/connectors/logout'
+          ) {
+            await handleApiAdminConnectors(req, res, url);
             return;
           }
           if (
@@ -7656,6 +7810,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiChatRecent(req, res, url);
             return;
           }
+          if (pathname === '/api/chat/cleanup' && method === 'POST') {
+            handleApiChatCleanup(res, url);
+            return;
+          }
           if (pathname === '/api/chat/mobile-qr' && method === 'POST') {
             await handleApiChatMobileQr(req, res);
             return;
@@ -7809,6 +7967,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (pathname.startsWith('/assets/')) {
+      if (serveConsoleAsset(pathname, res)) return;
+      sendText(res, 404, 'Not Found');
+      return;
+    }
+
+    if (pathname.startsWith('/icons/')) {
       if (serveConsoleAsset(pathname, res)) return;
       sendText(res, 404, 'Not Found');
       return;

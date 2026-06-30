@@ -1187,6 +1187,14 @@ async function importFreshCli(options?: {
   const removeGatewayPidFile = vi.fn();
   const writeGatewayPid = vi.fn();
   const isPidRunning = vi.fn(() => true);
+  const enableGatewayLogFileMirror = vi.fn();
+  const setLoggerStartupLevel = vi.fn();
+  const logger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
   const gatewayModuleLoaded = vi.fn();
   const tuiModuleLoaded = vi.fn();
   const runTui = vi.fn(async () => {
@@ -1296,6 +1304,11 @@ async function importFreshCli(options?: {
     readGatewayPid,
     removeGatewayPidFile,
     writeGatewayPid,
+  }));
+  vi.doMock('../src/logger.js', () => ({
+    enableGatewayLogFileMirror,
+    logger,
+    setLoggerStartupLevel,
   }));
   vi.doMock('../src/gateway/gateway.ts', () => {
     if (options?.gatewayModuleError) throw options.gatewayModuleError;
@@ -1496,6 +1509,9 @@ async function importFreshCli(options?: {
     removeGatewayPidFile,
     writeGatewayPid,
     isPidRunning,
+    enableGatewayLogFileMirror,
+    setLoggerStartupLevel,
+    logger,
     gatewayModuleLoaded,
     loadSkillCatalog,
     initDatabase,
@@ -3825,6 +3841,9 @@ describe('CLI hybridai commands', () => {
       'Updated runtime config at /tmp/config.json.',
     );
     expect(logSpy).toHaveBeenCalledWith('Key: hybridai.maxTokens');
+    expect(logSpy).not.toHaveBeenCalledWith(
+      JSON.stringify(getRuntimeConfig(), null, 2),
+    );
   });
 
   it('runs hybridai login with explicit browser mode', async () => {
@@ -4803,6 +4822,7 @@ describe('CLI hybridai commands', () => {
   it('writes and cleans up a managed PID file for gateway start --foreground', async () => {
     const {
       cli,
+      enableGatewayLogFileMirror,
       ensureGatewayRunDir,
       ensureRuntimeCredentials,
       gatewayModuleLoaded,
@@ -4834,6 +4854,12 @@ describe('CLI hybridai commands', () => {
       requireCredentials: false,
     });
     expect(ensureGatewayRunDir).toHaveBeenCalled();
+    expect(process.env.HYBRIDCLAW_GATEWAY_LOG_FILE).toBe(
+      '/tmp/hybridclaw-data/gateway/gateway.log',
+    );
+    expect(enableGatewayLogFileMirror).toHaveBeenCalledWith(
+      '/tmp/hybridclaw-data/gateway/gateway.log',
+    );
     expect(writeGatewayPid).toHaveBeenCalledWith(
       expect.objectContaining({
         pid: process.pid,

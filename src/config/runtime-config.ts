@@ -144,7 +144,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 31;
+export const CONFIG_VERSION = 33;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -337,6 +337,19 @@ export interface RuntimeDeploymentConfig {
   mode: RuntimeDeploymentMode;
   public_url: string;
   tunnel: RuntimeDeploymentTunnelConfig;
+}
+
+export interface RuntimeUiNavigationItem {
+  label: string;
+  href: string;
+  icon?: RuntimeUiNavigationIcon;
+  image?: string;
+}
+
+export type RuntimeUiNavigationIcon = 'admin' | 'agents' | 'chat' | 'docs';
+
+export interface RuntimeUiConfig {
+  navigation: RuntimeUiNavigationItem[];
 }
 
 export interface RuntimeBrowserLocalConfig {
@@ -803,9 +816,14 @@ export interface RuntimeHttpRequestGoogleOAuthSecretRef {
   source: 'google-oauth';
 }
 
+export interface RuntimeHttpRequestMicrosoftOAuthSecretRef {
+  source: 'microsoft-oauth';
+}
+
 export type RuntimeHttpRequestAuthRuleSecret =
   | SecretInput
-  | RuntimeHttpRequestGoogleOAuthSecretRef;
+  | RuntimeHttpRequestGoogleOAuthSecretRef
+  | RuntimeHttpRequestMicrosoftOAuthSecretRef;
 
 export interface RuntimeHttpRequestAuthRule {
   urlPrefix: string;
@@ -862,12 +880,28 @@ export function makeGoogleOAuthSecretRef(): RuntimeHttpRequestGoogleOAuthSecretR
   return { source: 'google-oauth' };
 }
 
+export function makeMicrosoftOAuthSecretRef(): RuntimeHttpRequestMicrosoftOAuthSecretRef {
+  return { source: 'microsoft-oauth' };
+}
+
 export function isGoogleOAuthSpecifier(value: string): boolean {
   const normalized = String(value || '')
     .trim()
     .toLowerCase();
   return (
     normalized === 'google-oauth' || normalized === 'google-oauth:workspace'
+  );
+}
+
+export function isMicrosoftOAuthSpecifier(value: string): boolean {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return (
+    normalized === 'microsoft-oauth' ||
+    normalized === 'microsoft365-oauth' ||
+    normalized === 'm365-oauth' ||
+    normalized === 'graph-oauth'
   );
 }
 
@@ -881,11 +915,26 @@ export function isGoogleOAuthSecretRef(
   );
 }
 
+export function isMicrosoftOAuthSecretRef(
+  value: unknown,
+): value is RuntimeHttpRequestMicrosoftOAuthSecretRef {
+  return isRecord(value) && value.source === 'microsoft-oauth';
+}
+
 export function isGoogleApisUrlPrefix(value: string): boolean {
   try {
     const parsed = new URL(value);
     const host = parsed.hostname.trim().toLowerCase();
     return host === 'googleapis.com' || host.endsWith('.googleapis.com');
+  } catch {
+    return false;
+  }
+}
+
+export function isMicrosoftGraphUrlPrefix(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.hostname.trim().toLowerCase() === 'graph.microsoft.com';
   } catch {
     return false;
   }
@@ -962,6 +1011,7 @@ export interface RuntimeConfig {
   audit: RuntimeAuditConfig;
   security: RuntimeSecurityConfig;
   deployment: RuntimeDeploymentConfig;
+  ui: RuntimeUiConfig;
   browser: RuntimeBrowserConfig;
   agents: AgentsConfig;
   skills: {
@@ -1347,6 +1397,17 @@ const DEFAULT_MINIMAX_MODEL_LIST = ['minimax/MiniMax-M2'] as const;
 const DEFAULT_DASHSCOPE_MODEL_LIST = ['dashscope/qwen3-coder-plus'] as const;
 const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
 const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
+const DEFAULT_UI_NAVIGATION_ITEMS: ReadonlyArray<RuntimeUiNavigationItem> = [
+  { href: '/chat', label: 'Chat', icon: 'chat' },
+  { href: '/agents', label: 'Agents', icon: 'agents' },
+  { href: '/admin', label: 'Admin', icon: 'admin' },
+  {
+    href: 'https://github.com/HybridAIOne/hybridclaw',
+    label: 'GitHub',
+    image: '/icons/github.svg',
+  },
+  { href: '/docs', label: 'Docs', icon: 'docs' },
+];
 
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
@@ -1370,6 +1431,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       provider: 'manual',
       health_check_interval_ms: DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS,
     },
+  },
+  ui: {
+    navigation: DEFAULT_UI_NAVIGATION_ITEMS.map((item) => ({ ...item })),
   },
   browser: {
     provider: 'local',
@@ -4923,6 +4987,92 @@ function normalizeBaseUrl(value: unknown, fallback: string): string {
   return candidate.replace(/\/+$/, '') || fallback;
 }
 
+const MAX_UI_NAVIGATION_ITEMS = 12;
+const MAX_UI_NAVIGATION_LABEL_LENGTH = 48;
+const UI_NAVIGATION_ICONS = new Set<RuntimeUiNavigationIcon>([
+  'admin',
+  'agents',
+  'chat',
+  'docs',
+]);
+
+function normalizeUiNavigationHref(value: unknown): string | null {
+  const candidate = normalizeString(value, '', { allowEmpty: false });
+  if (!candidate) return null;
+
+  if (candidate.startsWith('/')) {
+    if (candidate.startsWith('//')) return null;
+    try {
+      const parsed = new URL(candidate, 'http://127.0.0.1');
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeUiNavigationImage(value: unknown): string | undefined {
+  const normalized = normalizeUiNavigationHref(value);
+  return normalized ?? undefined;
+}
+
+function normalizeUiNavigationIcon(
+  value: unknown,
+): RuntimeUiNavigationIcon | undefined {
+  const normalized = normalizeString(value, '', {
+    allowEmpty: false,
+  }).toLowerCase();
+  return UI_NAVIGATION_ICONS.has(normalized as RuntimeUiNavigationIcon)
+    ? (normalized as RuntimeUiNavigationIcon)
+    : undefined;
+}
+
+function normalizeUiNavigationItems(
+  value: unknown,
+  fallback: ReadonlyArray<RuntimeUiNavigationItem>,
+): RuntimeUiNavigationItem[] {
+  if (!Array.isArray(value)) return fallback.map((item) => ({ ...item }));
+
+  const normalized: RuntimeUiNavigationItem[] = [];
+  for (const rawItem of value) {
+    if (!isRecord(rawItem)) continue;
+    const label = normalizeString(rawItem.label, '', { allowEmpty: false });
+    const href = normalizeUiNavigationHref(rawItem.href);
+    if (!label || !href) continue;
+    const item: RuntimeUiNavigationItem = {
+      href,
+      label: label.slice(0, MAX_UI_NAVIGATION_LABEL_LENGTH),
+    };
+    const icon = normalizeUiNavigationIcon(rawItem.icon);
+    if (icon) item.icon = icon;
+    const image = normalizeUiNavigationImage(rawItem.image);
+    if (image) item.image = image;
+    normalized.push(item);
+    if (normalized.length >= MAX_UI_NAVIGATION_ITEMS) break;
+  }
+  return normalized;
+}
+
+function normalizeUiConfig(
+  value: unknown,
+  fallback: RuntimeUiConfig,
+): RuntimeUiConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    navigation: normalizeUiNavigationItems(raw.navigation, fallback.navigation),
+  };
+}
+
 const LOCAL_ENDPOINT_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
 
 function normalizeLocalEndpointName(value: unknown): string | null {
@@ -5473,6 +5623,9 @@ function normalizeHttpRequestAuthRuleSecret(
   if (isGoogleOAuthSecretRef(value)) {
     return makeGoogleOAuthSecretRef();
   }
+  if (isMicrosoftOAuthSecretRef(value)) {
+    return makeMicrosoftOAuthSecretRef();
+  }
 
   const parsed = parseSecretInput(value);
   if (parsed.kind === 'invalid') {
@@ -5480,7 +5633,7 @@ function normalizeHttpRequestAuthRuleSecret(
   }
   if (parsed.kind === 'plain') {
     throw new Error(
-      `${path} must use a stored secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`{ "source": "google-oauth" }\``,
+      `${path} must use a stored secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\`, \`{ "source": "google-oauth" }\`, or \`{ "source": "microsoft-oauth" }\``,
     );
   }
   return cloneConfig(parsed.ref);
@@ -6498,6 +6651,7 @@ function normalizeRuntimeConfig(
 
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
   const rawDeployment = isRecord(raw.deployment) ? raw.deployment : {};
+  const rawUi = isRecord(raw.ui) ? raw.ui : {};
   const rawBrowser = isRecord(raw.browser) ? raw.browser : {};
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
@@ -6955,6 +7109,7 @@ function normalizeRuntimeConfig(
       rawDeployment,
       DEFAULT_RUNTIME_CONFIG.deployment,
     ),
+    ui: normalizeUiConfig(rawUi, DEFAULT_RUNTIME_CONFIG.ui),
     browser: normalizeBrowserConfig(rawBrowser, DEFAULT_RUNTIME_CONFIG.browser),
     agents: normalizeAgentsConfig(rawAgents, DEFAULT_RUNTIME_CONFIG.agents),
     skills: {

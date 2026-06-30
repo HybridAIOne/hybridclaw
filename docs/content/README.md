@@ -27,8 +27,27 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
-- HybridClaw v0.25.3 ships the bundled Langfuse skill for LLM observability
-  and evaluation workflows through guarded gateway-proxied tools.
+- HybridClaw v0.25.8 uses configured public deployment URLs for cloud MCP OAuth
+  callbacks, admin origin checks, and mobile chat QR links when requests arrive
+  through internal hosts.
+- HybridClaw v0.25.8 autosaves default email allowed-sender additions as soon
+  as admins click Add.
+- Email channel advanced settings are collapsed by default so additional
+  mailboxes stay easier to scan while lower-frequency options remain available.
+- HybridClaw v0.25.7 uses a conversational first-run hatching flow with a
+  natural email ask for the welcome note and shorter setup prompts.
+- Web chat keeps new no-user drafts concrete, prunes older empty or
+  assistant-only drafts, and preserves sessions that already have user
+  messages.
+- Admin channel settings expose sender allowlist editors for WhatsApp,
+  Telegram, Threema, Signal, email, Microsoft Teams, Slack, and iMessage, with
+  wildcard confirmation for all-sender entries.
+- Gateway session timestamps render in the local timezone without seconds or a
+  UTC suffix.
+- Doctor resource hygiene reports stale histories with no user messages as
+  unstarted sessions and can clean up those empty or assistant-only rows.
+- The bundled Langfuse skill covers LLM observability and evaluation workflows
+  through guarded gateway-proxied tools.
 - The Apple desktop wrapper records gateway startup logs and recent child
   output so packaged app launch failures are easier to diagnose.
 - A2A Agent Cards advertise the configured public deployment URL and fail closed

@@ -276,6 +276,7 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
 
 - Treat existing uncommitted changes as user work unless you created them.
 - Run `npm run format` before creating commits that will be pushed to GitHub.
+- Always run `npm run lint` before creating any commit.
 - Conventional Commits preferred: `feat:`, `fix:`, `test:`, `refactor:`,
   `chore:`, `docs:`.
 - Group related changes; avoid bundling unrelated refactors.

@@ -73,6 +73,12 @@ function makeTempDocsDir(options?: {
     'console.log("admin")',
     'utf8',
   );
+  fs.mkdirSync(path.join(consoleDistDir, 'icons'), { recursive: true });
+  fs.writeFileSync(
+    path.join(consoleDistDir, 'icons', 'github.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" />',
+    'utf8',
+  );
   fs.writeFileSync(
     path.join(contentDocsDir, '_category_.json'),
     JSON.stringify({ label: 'Docs', position: 1, collapsed: false }),
@@ -1436,6 +1442,11 @@ async function importFreshHealth(options?: {
     }),
   );
   const getGatewayAdminSessions = vi.fn(() => []);
+  const cleanupGatewayNoUserChatSessions = vi.fn(() => ({
+    deletedCount: 2,
+    deletedSessionIds: ['old-empty', 'old-opening'],
+    keptSessionId: 'new-session',
+  }));
   const getGatewayAdminScheduler = vi.fn(() => ({
     jobs: [],
   }));
@@ -1466,6 +1477,38 @@ async function importFreshHealth(options?: {
   }));
   const getGatewayAdminMcp = vi.fn(() => ({
     servers: [],
+  }));
+  const getGatewayAdminConnectors = vi.fn(() => ({
+    secretsPath: '/tmp/credentials.json',
+    connectors: [],
+  }));
+  const getGatewayAdminConnectorsWithPlatformState = vi.fn(async () => ({
+    secretsPath: '/tmp/credentials.json',
+    connectors: [],
+  }));
+  const saveGatewayAdminHybridAIConnectorApiKey = vi.fn(() => ({
+    secretsPath: '/tmp/credentials.json',
+    connectors: [],
+  }));
+  const startGatewayAdminConnectorOAuth = vi.fn(() => ({
+    provider: 'microsoft365',
+    authorizationUrl: 'https://login.example.test/authorize',
+    state: 'connector-state',
+    expiresAt: Date.now() + 600_000,
+  }));
+  const logoutGatewayAdminConnector = vi.fn(() => ({
+    secretsPath: '/tmp/credentials.json',
+    connectors: [],
+  }));
+  const testGatewayAdminConnector = vi.fn(async () => ({
+    provider: 'github',
+    name: 'GitHub',
+    ok: true,
+    message: 'GitHub is connected.',
+  }));
+  const completeGatewayAdminConnectorOAuthCallback = vi.fn(async () => ({
+    provider: 'microsoft365',
+    name: 'Microsoft 365',
   }));
   const getGatewayAdminAudit = vi.fn(() => ({
     query: '',
@@ -2108,6 +2151,7 @@ async function importFreshHealth(options?: {
     deleteGatewayAdminAgent,
     deleteGatewayAdminSession,
     ensureGatewayBootstrapAutostart,
+    cleanupGatewayNoUserChatSessions,
     GatewayRequestError,
     getGatewayAgentList,
     getGatewayAgents,
@@ -2182,6 +2226,15 @@ async function importFreshHealth(options?: {
     overwriteGatewayAdminSecret,
     recordGatewayAdminSecretMutationFailure,
     unsetGatewayAdminSecret,
+  }));
+  vi.doMock('../src/gateway/gateway-admin-connectors.js', () => ({
+    completeGatewayAdminConnectorOAuthCallback,
+    getGatewayAdminConnectors,
+    getGatewayAdminConnectorsWithPlatformState,
+    logoutGatewayAdminConnector,
+    saveGatewayAdminHybridAIConnectorApiKey,
+    startGatewayAdminConnectorOAuth,
+    testGatewayAdminConnector,
   }));
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage,
@@ -2262,6 +2315,7 @@ async function importFreshHealth(options?: {
     listenArgs,
     getGatewayStatus,
     ensureGatewayBootstrapAutostart,
+    cleanupGatewayNoUserChatSessions,
     getGatewayAgentList,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
@@ -2282,6 +2336,7 @@ async function importFreshHealth(options?: {
     stopTunnelStatus,
     stopGatewayAdminTunnel,
     deleteGatewayAdminEmailMessage,
+    deleteGatewayAdminSession,
     getGatewayAdminEmailFolder,
     getGatewayAdminEmailMailbox,
     getGatewayAdminEmailMessage,
@@ -2313,6 +2368,8 @@ async function importFreshHealth(options?: {
     getGatewayAdminPlugins,
     getGatewayAdminScheduler,
     getGatewayAdminMcp,
+    getGatewayAdminConnectorsWithPlatformState,
+    testGatewayAdminConnector,
     getGatewayAdminAudit,
     getGatewayAdminSkills,
     getGatewayAdminSkillPackageFile,
@@ -2913,6 +2970,37 @@ describe('gateway HTTP server', () => {
         origin: 'https://u-example.sbx.hybridai.one',
         'x-forwarded-host': 'u-example.sbx.hybridai.one',
         'x-forwarded-proto': 'https',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
+  });
+
+  test('allows signed session cookie API mutations with configured public URL and internal host', async () => {
+    const authSecret = 'api-session-cloud-public-origin-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      deploymentPublicUrl: 'https://u-public.sbx.hybridai.one',
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          role: 'admin.config_manager',
+        }),
+        host: '172.19.0.21:9090',
+        origin: 'https://u-public.sbx.hybridai.one',
       },
       noAuth: true,
       remoteAddress: '203.0.113.10',
@@ -4515,6 +4603,29 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('<h1>Admin</h1>');
   });
 
+  test('serves admin console public icon assets', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/icons/github.svg' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('image/svg+xml');
+    expect(res.body).toContain('<svg');
+  });
+
+  test('does not serve traversal-looking admin console icon paths', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/icons/%2e%2e/%2e%2e/config.json' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toBe('Not Found');
+  });
+
   test('accepts a valid launch token on /auth/callback, sets a session cookie, and redirects to /admin', async () => {
     const authSecret = 'health-secret';
     const launchToken = signAuthPayload(
@@ -4776,6 +4887,10 @@ describe('gateway HTTP server', () => {
 
     expect(state.ensureGatewayBootstrapAutostart).toHaveBeenCalledWith({
       sessionId: 's1',
+      channelId: 'web',
+      userId: 'web',
+      username: 'web',
+      agentId: undefined,
     });
     expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2, {
       operatorUserId: 'web',
@@ -5490,6 +5605,36 @@ describe('gateway HTTP server', () => {
     expect(replayRes.body).toBe('Mobile launch QR code is invalid or expired.');
   });
 
+  test('mobile chat QR uses configured public URL when request host is internal', async () => {
+    const state = await importFreshHealth({
+      authSecret: 'mobile-qr-public-url-secret',
+      deploymentPublicUrl: 'https://u-public.sbx.hybridai.one',
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/mobile-qr',
+      headers: {
+        authorization: 'Bearer web-token',
+        host: '172.19.0.21:9090',
+      },
+      body: {
+        userId: 'web-user-a',
+        sessionId: 'agent:main:channel:web:chat:dm:peer:1234567890abcdef',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    const payload = JSON.parse(res.body) as { launchUrl: string };
+    expect(payload.launchUrl).toMatch(
+      /^https:\/\/u-public\.sbx\.hybridai\.one\/chat\/continue\?token=/,
+    );
+  });
+
   test('rejects protected mobile chat QR creation when auth secret is missing', async () => {
     const state = await importFreshHealth({
       runningInsideContainer: true,
@@ -5703,6 +5848,50 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(200);
     expect(state.getGatewayAdminSkills).toHaveBeenCalledTimes(1);
+  });
+
+  test('passes no-user guard to admin session deletion', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/sessions?sessionId=session-a&ifNoUserMessages=1',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.deleteGatewayAdminSession).toHaveBeenCalledWith('session-a', {
+      onlyWithoutUserMessages: true,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      deleted: true,
+      sessionId: 's1',
+    });
+  });
+
+  test('cleans no-user web chat sessions through the chat cleanup endpoint', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/cleanup?channelId=web&keepSessionId=new-session',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.cleanupGatewayNoUserChatSessions).toHaveBeenCalledWith({
+      channelId: 'web',
+      keepSessionId: 'new-session',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      deletedCount: 2,
+      deletedSessionIds: ['old-empty', 'old-opening'],
+      keptSessionId: 'new-session',
+    });
   });
 
   test('allows scoped admin sessions with a matching wildcard route action', async () => {
@@ -6806,6 +6995,33 @@ describe('gateway HTTP server', () => {
           name: 'Research Bot',
         },
       ],
+    });
+  });
+
+  test('routes admin connector test requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/connectors/test',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: { provider: 'github' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.testGatewayAdminConnector).toHaveBeenCalledWith({
+      provider: 'github',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      provider: 'github',
+      name: 'GitHub',
+      ok: true,
+      message: 'GitHub is connected.',
     });
   });
 
@@ -11319,6 +11535,128 @@ describe('gateway HTTP server', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test('injects Microsoft 365 OAuth runtime bearer tokens for Graph hosts', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-microsoft-365-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    vi.doMock('../src/auth/microsoft-auth.js', () => ({
+      MICROSOFT_365_ACCESS_TOKEN_SECRET: 'MICROSOFT_365_ACCESS_TOKEN',
+      resolveMicrosoft365AccessToken: vi.fn(async () => ({
+        accessToken: 'minted-microsoft-access-token',
+        source: 'microsoft-oauth',
+      })),
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '20.190.151.1', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      url: 'https://graph.microsoft.com/v1.0/me',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      arrayBuffer: async () =>
+        Buffer.from(JSON.stringify({ id: 'user-id', displayName: 'User' })),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://graph.microsoft.com/v1.0/me',
+        bearerSecretName: 'MICROSOFT_365_ACCESS_TOKEN',
+        sessionId: 'microsoft-365-audit',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer minted-microsoft-access-token',
+        }),
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).json).toEqual({
+      id: 'user-id',
+      displayName: 'User',
+    });
+    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const auditRecords = fs
+      .readFileSync(getAuditWirePath('microsoft-365-audit'), 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    expect(auditRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            type: 'secret.resolved',
+            secretRef: {
+              source: 'microsoft-oauth',
+              id: 'MICROSOFT_365_ACCESS_TOKEN',
+            },
+          }),
+        }),
+      ]),
+    );
+  });
+
+  test('blocks Microsoft 365 OAuth runtime bearer tokens for non-Graph hosts', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-microsoft-365-block-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    vi.doMock('../src/auth/microsoft-auth.js', () => ({
+      MICROSOFT_365_ACCESS_TOKEN_SECRET: 'MICROSOFT_365_ACCESS_TOKEN',
+      resolveMicrosoft365AccessToken: vi.fn(async () => ({
+        accessToken: 'minted-microsoft-access-token',
+        source: 'microsoft-oauth',
+      })),
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://example.com/steal',
+        bearerSecretName: 'MICROSOFT_365_ACCESS_TOKEN',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).error).toContain(
+      'MICROSOFT_365_ACCESS_TOKEN can only be injected into Microsoft Graph requests',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('exchanges Google service-account JWTs and injects short-lived bearer tokens', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-google-sa-');
     process.env.HOME = homeDir;
@@ -12715,6 +13053,39 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body).error).toContain(
       'OTC_ACCESS_KEY_ID contains a placeholder value',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects managed connector tokens as T Cloud Public signing material', async () => {
+    const fetchMock = vi.fn();
+    const { state } = await setupOtcGatewayRequestTest({
+      dnsAddress: '80.158.59.140',
+      fetchMock,
+    });
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://ecs.eu-de.otc.t-systems.com/v2.1/project123/servers/detail?limit=50',
+        method: 'GET',
+        skillName: 't-cloud-public',
+        otcAkSk: {
+          accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
+          secretAccessKeySecretName: 'MICROSOFT_365_ACCESS_TOKEN',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain(
+      'MICROSOFT_365_ACCESS_TOKEN is a managed connector token',
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });

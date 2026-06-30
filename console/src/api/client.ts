@@ -25,6 +25,10 @@ import type {
   AdminConfig,
   AdminConfigReloadResponse,
   AdminConfigResponse,
+  AdminConnectorId,
+  AdminConnectorOAuthStartResponse,
+  AdminConnectorsResponse,
+  AdminConnectorTestResponse,
   AdminCreateSkillPayload,
   AdminDistillConsentPayload,
   AdminDistillResponse,
@@ -972,8 +976,14 @@ export function deleteAdminEmailMessage(
 export function deleteSession(
   token: string,
   sessionId: string,
+  options?: {
+    onlyWithoutUserMessages?: boolean;
+  },
 ): Promise<DeleteSessionResult> {
   const params = new URLSearchParams({ sessionId });
+  if (options?.onlyWithoutUserMessages) {
+    params.set('ifNoUserMessages', '1');
+  }
   return requestJson<DeleteSessionResult>(
     `/api/admin/sessions?${params.toString()}`,
     {
@@ -1264,6 +1274,71 @@ export function moveSchedulerJob(
 
 export function fetchMcp(token: string): Promise<AdminMcpResponse> {
   return requestJson<AdminMcpResponse>('/api/admin/mcp', { token });
+}
+
+export function fetchConnectors(
+  token: string,
+): Promise<AdminConnectorsResponse> {
+  return requestJson<AdminConnectorsResponse>('/api/admin/connectors', {
+    token,
+  });
+}
+
+export function saveHybridAIConnectorKey(
+  token: string,
+  apiKey: string,
+): Promise<AdminConnectorsResponse> {
+  return requestJson<AdminConnectorsResponse>(
+    '/api/admin/connectors/hybridai/key',
+    {
+      token,
+      method: 'PUT',
+      body: { apiKey },
+    },
+  );
+}
+
+export function startConnectorOAuth(
+  token: string,
+  payload: {
+    provider: Exclude<AdminConnectorId, 'hybridai'>;
+    account?: string;
+    tenantId?: string;
+    clientId?: string;
+    clientSecret?: string;
+    scopes?: string;
+  },
+): Promise<AdminConnectorOAuthStartResponse> {
+  return requestJson<AdminConnectorOAuthStartResponse>(
+    '/api/admin/connectors/oauth/start',
+    {
+      token,
+      method: 'POST',
+      body: payload,
+    },
+  );
+}
+
+export function logoutConnector(
+  token: string,
+  provider: AdminConnectorId,
+): Promise<AdminConnectorsResponse> {
+  return requestJson<AdminConnectorsResponse>('/api/admin/connectors/logout', {
+    token,
+    method: 'POST',
+    body: { provider },
+  });
+}
+
+export function testConnector(
+  token: string,
+  provider: AdminConnectorId,
+): Promise<AdminConnectorTestResponse> {
+  return requestJson<AdminConnectorTestResponse>('/api/admin/connectors/test', {
+    token,
+    method: 'POST',
+    body: { provider },
+  });
 }
 
 export function saveMcpServer(

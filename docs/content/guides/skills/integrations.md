@@ -709,6 +709,73 @@ and injects only Google Workspace CLI access-token environment variables plus
 
 ---
 
+## microsoft-365
+
+Read Microsoft 365 data through Microsoft Graph: Outlook mail, calendar events,
+OneDrive and SharePoint-backed files, Teams, chats, and profile details.
+
+**Prerequisites** — a Microsoft 365 work or school account, a Microsoft Entra
+app registration, and delegated Microsoft Graph read scopes consented for the
+tenant/user.
+
+**Install and authorize**
+
+1. Open Microsoft Entra admin center.
+2. Open **App registrations** and create or select the app HybridClaw should use.
+3. Add a **Mobile and desktop applications** redirect URI matching the localhost
+   callback URL printed by `hybridclaw auth login microsoft365`.
+4. Add delegated Microsoft Graph permissions for the data you want HybridClaw
+   to read. The default setup requests `User.Read`, `Mail.Read`,
+   `Calendars.Read`, `Files.Read.All`, `Sites.Read.All`,
+   `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `ChannelMessage.Read.All`, `Chat.Read`, and
+   `offline_access`.
+5. Have a tenant admin grant consent when your organization requires admin
+   consent for those read scopes.
+6. Store the OAuth material in HybridClaw and complete the consent link:
+
+```bash
+hybridclaw auth login microsoft365 \
+  --client-id "<client-id>" \
+  --tenant-id organizations \
+  --account you@example.com
+hybridclaw auth status microsoft365
+```
+
+HybridClaw stores the refresh token in encrypted runtime secrets. At run time,
+the gateway mints a short-lived access token on the host and injects it only
+into `graph.microsoft.com` requests as `MICROSOFT_365_ACCESS_TOKEN`.
+
+For direct Microsoft Graph calls outside the helper:
+
+```bash
+hybridclaw secret route add https://graph.microsoft.com/v1.0/ microsoft-oauth Authorization Bearer
+```
+
+> 💡 **Tips & Tricks**
+>
+> Use the bundled helper rather than handcrafting Graph URLs:
+>
+> ```bash
+> node skills/microsoft-365/m365.cjs --format json run mail recent --top 10
+> node skills/microsoft-365/m365.cjs --format json run calendar events --start 2026-06-26T00:00:00Z --end 2026-06-27T00:00:00Z
+> node skills/microsoft-365/m365.cjs --format json run drive search --query "quarterly plan"
+> ```
+>
+> This bundled connector is read-only. If Graph returns 401 or 403, check
+> `hybridclaw auth status microsoft365` and tenant admin consent before retrying.
+
+> 🎯 **Try it yourself**
+>
+> `Summarize my latest unread Outlook messages`
+>
+> `List my Microsoft 365 calendar meetings tomorrow`
+>
+> `Find OneDrive files about the quarterly plan`
+>
+> `Show my joined Teams and the channels in the product team`
+
+---
+
 ## google-workspace
 
 Work with Gmail, Calendar, Drive, Docs, and Sheets via browser automation or

@@ -864,6 +864,14 @@ export interface AdminConfig {
       health_check_interval_ms: number;
     };
   };
+  ui?: {
+    navigation: Array<{
+      label: string;
+      href: string;
+      icon?: 'admin' | 'agents' | 'chat' | 'docs';
+      image?: string;
+    }>;
+  };
   ops: {
     healthHost: string;
     healthPort: number;
@@ -1440,6 +1448,51 @@ export interface AdminMcpOAuthStartResponse {
 export interface AdminMcpOAuthStatusResponse {
   name: string;
   auth: AdminMcpAuthStatus;
+}
+
+export type AdminConnectorId =
+  | 'hybridai'
+  | 'github'
+  | 'google'
+  | 'microsoft365';
+
+export type AdminConnectorState = 'connected' | 'not_connected' | 'needs_setup';
+
+export interface AdminConnector {
+  id: AdminConnectorId;
+  name: string;
+  description: string;
+  state: AdminConnectorState;
+  authKind: 'api-key' | 'oauth';
+  account: string | null;
+  detail: string;
+  scopes: string[];
+  routesConfigured: boolean;
+  clientConfigured: boolean;
+  clientSecretConfigured: boolean;
+  tenantId: string | null;
+  loginUrl: string | null;
+  adminConsentUrl: string | null;
+  setupSecretNames: string[];
+}
+
+export interface AdminConnectorsResponse {
+  connectors: AdminConnector[];
+  secretsPath: string;
+}
+
+export interface AdminConnectorOAuthStartResponse {
+  provider: Exclude<AdminConnectorId, 'hybridai'>;
+  authorizationUrl: string;
+  state: string;
+  expiresAt: number;
+}
+
+export interface AdminConnectorTestResponse {
+  provider: AdminConnectorId;
+  name: string;
+  ok: boolean;
+  message: string;
 }
 
 export interface AdminAuditEntry {
@@ -2448,6 +2501,7 @@ export interface AdminSecretMutationResponse {
 export interface DeleteSessionResult {
   deleted: boolean;
   sessionId: string;
+  skippedReason?: 'has_user_messages';
   deletedMessages: number;
   deletedTasks: number;
   deletedSemanticMemories: number;

@@ -41,13 +41,35 @@ const DEFAULT_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 const BOT_LIST_PATH = '/api/v1/bot-management/bots';
 const API_KEY_RE = /\bhai-[A-Za-z0-9]{16,}\b/;
 
+function isDefaultHybridAIBaseUrl(): boolean {
+  return normalizeBaseUrl(HYBRIDAI_BASE_URL) === DEFAULT_BASE_URL;
+}
+
+function resolveCurrentApiKey(): {
+  apiKey: string;
+  source: HybridAIAuthStatus['source'];
+} {
+  const envApiKey = (process.env.HYBRIDAI_API_KEY || '').trim();
+  if (envApiKey) return { apiKey: envApiKey, source: 'env' };
+
+  const localPlatformApiKey = (process.env.API_KEY || '').trim();
+  if (!isDefaultHybridAIBaseUrl() && localPlatformApiKey) {
+    return { apiKey: localPlatformApiKey, source: 'env' };
+  }
+
+  const storedApiKey = readStoredRuntimeSecret('HYBRIDAI_API_KEY') || '';
+  if (storedApiKey) {
+    return { apiKey: storedApiKey, source: 'runtime-secrets' };
+  }
+
+  const configuredApiKey = (HYBRIDAI_API_KEY || '').trim();
+  if (configuredApiKey) return { apiKey: configuredApiKey, source: 'env' };
+
+  return { apiKey: '', source: null };
+}
+
 function readCurrentApiKey(): string {
-  return (
-    process.env.HYBRIDAI_API_KEY ||
-    readStoredRuntimeSecret('HYBRIDAI_API_KEY') ||
-    HYBRIDAI_API_KEY ||
-    ''
-  ).trim();
+  return resolveCurrentApiKey().apiKey;
 }
 
 function maskToken(value: string): string {
@@ -337,9 +359,7 @@ export async function loginHybridAIInteractive(options?: {
 
 export function getHybridAIAuthStatus(): HybridAIAuthStatus {
   const path = runtimeSecretsPath();
-  const envApiKey = (process.env.HYBRIDAI_API_KEY || '').trim();
-  const storedApiKey = readStoredRuntimeSecret('HYBRIDAI_API_KEY') || '';
-  const apiKey = readCurrentApiKey();
+  const { apiKey, source } = resolveCurrentApiKey();
   if (!apiKey) {
     return {
       authenticated: false,
@@ -353,12 +373,6 @@ export function getHybridAIAuthStatus(): HybridAIAuthStatus {
     authenticated: true,
     path,
     maskedApiKey: maskToken(apiKey),
-    source: envApiKey
-      ? storedApiKey && storedApiKey === envApiKey
-        ? 'runtime-secrets'
-        : 'env'
-      : storedApiKey
-        ? 'runtime-secrets'
-        : null,
+    source,
   };
 }
