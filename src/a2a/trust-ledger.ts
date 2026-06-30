@@ -23,6 +23,7 @@ import { resolveLocalInstanceId } from '../identity/agent-id.js';
 import { parseSecretInput, type SecretRef } from '../security/secret-refs.js';
 import { writeFileAtomicExclusive } from '../utils/atomic-file.js';
 import type { A2AAgentCard } from './a2a-json-rpc.js';
+import { getOrCreateA2ADelegationTokenKeyPair } from './delegation-token.js';
 import { A2AEnvelopeValidationError, classifyA2AAgentId } from './envelope.js';
 import { resolveA2AAgentId } from './identity.js';
 import { invalidateA2AIdentityResolvers } from './identity-resolver-invalidation.js';
@@ -484,6 +485,7 @@ export function buildLocalA2AAgentCard(
 ): A2AAgentCard {
   const url = new URL(baseUrl);
   const identity = ensureA2AInstanceKeypair();
+  const delegationKey = getOrCreateA2ADelegationTokenKeyPair();
   const peerTrustLevel = options.peerTrustLevel || 'public';
   const agents = visibleA2AAgents(peerTrustLevel).map((agent) => ({
     agent,
@@ -509,10 +511,16 @@ export function buildLocalA2AAgentCard(
       instanceId: identity.instanceId,
       peerTrustLevel,
       peerId: options.peerId || null,
-      // This TOFU identity key identifies Agent Cards; delegation JWT verification
-      // uses delegation-token.ts until key distribution is unified.
+      // The TOFU identity key pins Agent Cards; the delegation key verifies
+      // signed A2A bearer tokens after pairing approval.
       publicKeyJwk: identity.publicKeyJwk,
       publicKeyFingerprint: identity.publicKeyFingerprint,
+      delegation: {
+        algorithm: delegationKey.algorithm,
+        keyId: delegationKey.keyId,
+        publicKeyPem: delegationKey.publicKeyPem,
+        senderAgentIds: agents.map(({ canonicalAgentId }) => canonicalAgentId),
+      },
       version: APP_VERSION,
       trustModel: 'tofu-ed25519-v1',
     },
