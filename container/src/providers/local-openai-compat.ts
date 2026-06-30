@@ -8,6 +8,7 @@ import {
 import type {
   ChatCompletionResponse,
   ChatMessage,
+  ChatMessageContent,
   ToolCall,
   ToolDefinition,
 } from '../types.js';
@@ -178,12 +179,20 @@ function estimatePromptToolInstructionTokens(instruction: string): number {
   return Math.max(1, Math.ceil(instruction.length / 4) + 16);
 }
 
+const BROWSER_MODEL_SYSTEM_PROMPT =
+  'You are HybridClaw, a concise helpful assistant. Answer directly. This browser runtime cannot call tools.';
+const BROWSER_MODEL_HISTORY_LIMIT = 6;
+const BROWSER_MODEL_TOTAL_PROMPT_CHARS = 12_000;
+const BROWSER_MODEL_MESSAGE_CHARS = 6_000;
+const TRUNCATED_TEXT_SUFFIX = '\n\n[truncated]';
+
 export function estimateLocalOpenAICompatPromptOverheadTokens(args: {
   provider: string | undefined;
   model: string;
   tools?: ToolDefinition[];
   modelBehavior?: NormalizedCallArgs['modelBehavior'];
 }): number {
+  if (args.provider === 'browser') return 0;
   const tools = Array.isArray(args.tools) ? args.tools : [];
   if (tools.length === 0) return 0;
   if (usesLiquidCompat(args)) {
@@ -192,6 +201,61 @@ export function estimateLocalOpenAICompatPromptOverheadTokens(args: {
     );
   }
   return 0;
+}
+
+function contentToText(content: ChatMessageContent): string {
+  if (typeof content === 'string') return replaceUnpairedSurrogates(content);
+  if (!Array.isArray(content)) return '';
+  const chunks: string[] = [];
+  for (const part of content) {
+    if (part.type !== 'text' || !part.text) continue;
+    chunks.push(replaceUnpairedSurrogates(part.text));
+  }
+  return chunks.join('\n');
+}
+
+function truncateBrowserPromptText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  if (maxChars <= TRUNCATED_TEXT_SUFFIX.length) return text.slice(0, maxChars);
+  return `${text.slice(0, maxChars - TRUNCATED_TEXT_SUFFIX.length)}${TRUNCATED_TEXT_SUFFIX}`;
+}
+
+function normalizeBrowserRequestRole(
+  role: ChatMessage['role'],
+): 'user' | 'assistant' | null {
+  if (role === 'user' || role === 'assistant') return role;
+  return null;
+}
+
+function buildBrowserRequestMessages(
+  messages: ChatMessage[],
+): Array<Record<string, unknown>> {
+  const selected: Array<Record<string, unknown>> = [];
+  let remainingChars = BROWSER_MODEL_TOTAL_PROMPT_CHARS;
+
+  for (
+    let index = messages.length - 1;
+    index >= 0 && selected.length < BROWSER_MODEL_HISTORY_LIMIT;
+    index -= 1
+  ) {
+    const message = messages[index];
+    if (!message) continue;
+    const role = normalizeBrowserRequestRole(message.role);
+    if (!role) continue;
+    const text = contentToText(message.content).trim();
+    if (!text) continue;
+    const maxChars = Math.min(BROWSER_MODEL_MESSAGE_CHARS, remainingChars);
+    if (maxChars <= 0) break;
+    const content = truncateBrowserPromptText(text, maxChars);
+    selected.push({ role, content });
+    remainingChars -= content.length;
+  }
+
+  selected.reverse();
+  return [
+    { role: 'system', content: BROWSER_MODEL_SYSTEM_PROMPT },
+    ...selected,
+  ];
 }
 
 function normalizeMessageContent(
@@ -310,6 +374,9 @@ function sanitizeMistralToolCallIds(
 function buildRequestMessages(
   args: NormalizedCallArgs,
 ): Array<Record<string, unknown>> {
+  if (args.provider === 'browser') {
+    return buildBrowserRequestMessages(args.messages);
+  }
   let messages = usesQwenCompat(args)
     ? buildQwenRequestMessages(args.messages)
     : collapseSystemMessages(args.messages).map((message) => ({
@@ -335,12 +402,13 @@ function buildRequestMessages(
 }
 
 function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
+  const tools = args.provider === 'browser' ? [] : args.tools;
   const request: Record<string, unknown> = {
     model: normalizeLocalModelName(args.provider, args.model),
     messages: buildRequestMessages(args),
   };
-  if (args.tools.length > 0) {
-    request.tools = args.tools;
+  if (tools.length > 0) {
+    request.tools = tools;
     request.tool_choice = 'auto';
   }
   if (
@@ -358,6 +426,9 @@ function buildToolCallNormalizationOptions(params: {
   model: string;
   modelBehavior?: NormalizedCallArgs['modelBehavior'];
 }) {
+  if (params.provider === 'browser') {
+    return { parser: null, recoverBlankStructuredNameFromContent: false };
+  }
   const parser =
     params.modelBehavior?.thinkingFormat === 'qwen'
       ? 'qwen'

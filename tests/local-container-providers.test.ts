@@ -992,6 +992,90 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBe('ok');
   });
 
+  test('browser provider keeps LFM prompts compact and disables tools', async () => {
+    expect(
+      estimateLocalOpenAICompatPromptOverheadTokens({
+        provider: 'browser',
+        model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+        tools,
+      }),
+    ).toBe(0);
+
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      const messages = body.messages as Array<Record<string, unknown>>;
+      expect(body.model).toBe('LiquidAI/LFM2.5-230M-ONNX');
+      expect(body.tools).toBeUndefined();
+      expect(body.tool_choice).toBeUndefined();
+      expect(messages).toEqual([
+        {
+          role: 'system',
+          content:
+            'You are HybridClaw, a concise helpful assistant. Answer directly. This browser runtime cannot call tools.',
+        },
+        { role: 'user', content: 'old question' },
+        { role: 'assistant', content: 'old answer' },
+        { role: 'user', content: 'hello' },
+      ]);
+      expect(JSON.stringify(messages)).not.toContain('Full HybridClaw prompt');
+      expect(JSON.stringify(messages)).not.toContain('List of tools:');
+      expect(JSON.stringify(messages)).not.toContain('tool result');
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'LiquidAI/LFM2.5-230M-ONNX',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'ok',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callLocalOpenAICompatProvider({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: [
+        { role: 'system', content: 'Full HybridClaw prompt' },
+        { role: 'user', content: 'old question' },
+        {
+          role: 'assistant',
+          content: 'old answer',
+          tool_calls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'shell', arguments: '{}' },
+            },
+          ],
+        },
+        { role: 'tool', content: 'tool result', tool_call_id: 'call_1' },
+        { role: 'user', content: 'hello' },
+      ],
+      tools,
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(result.choices[0]?.message.content).toBe('ok');
+  });
+
   test('OpenAI-compatible stream preserves think blocks and normalizes tool calls', async () => {
     const deltas: string[] = [];
     vi.stubGlobal(

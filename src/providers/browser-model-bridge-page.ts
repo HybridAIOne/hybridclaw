@@ -323,6 +323,13 @@ async function loadGenerator() {
   if (generatorPromise) return generatorPromise;
   if (!CONFIG) throw new Error('Bridge worker is not initialized.');
   const runtime = await loadTransformersRuntime();
+  setRuntime('loading', 'loading model', 0);
+  log('Loading model', {
+    model: CONFIG.model,
+    device: CONFIG.device,
+    dtype: CONFIG.dtype,
+    environment: workerEnvironment(),
+  });
   generatorPromise = runtime.pipeline('text-generation', CONFIG.model, {
     dtype: CONFIG.dtype,
     device: CONFIG.device,
@@ -351,6 +358,7 @@ async function loadGenerator() {
     .catch((error) => {
       generatorPromise = null;
       setRuntime('error', formatError(error), undefined);
+      log('Model load failed', errorToData(error));
       throw error;
     });
   return generatorPromise;
@@ -365,12 +373,15 @@ async function generate(id, request) {
   let output = '';
   let tokens = 0;
   let firstTokenAt = 0;
+  let phase = 'runtime';
 
   try {
     const runtime = await loadTransformersRuntime();
     runtime.stoppingCriteria.reset();
 
+    phase = 'model';
     const generator = await loadGenerator();
+    phase = 'prompt';
     const promptText = renderPrompt(generator, request.messages);
     log('Prompt rendered', {
       messageCount: Array.isArray(request.messages) ? request.messages.length : 0,
@@ -422,6 +433,7 @@ async function generate(id, request) {
       generationOptions.top_p = topP;
     }
 
+    phase = 'generation';
     const result = await generator(promptText, generationOptions);
     const fallbackText = extractGeneratedText(result);
     const elapsed = Math.max(0.001, (performance.now() - started) / 1000);
@@ -445,6 +457,7 @@ async function generate(id, request) {
       error: errorToData(error),
       environment: workerEnvironment(),
       request: {
+        phase,
         messageCount: Array.isArray(request.messages) ? request.messages.length : 0,
         maxTokens: request.max_tokens || CONFIG.maxNewTokens,
       },
