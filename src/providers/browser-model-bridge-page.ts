@@ -170,7 +170,7 @@ let generatorPromise = null;
 let busy = false;
 let lastLoadProgressAt = 0;
 let lastLoadProgressPercent = -1;
-let lastLoadProgressSignature = '';
+let fileLoadBytes = {};
 let lastModelLoadProgress = null;
 let consoleForwardingInstalled = false;
 let transformersVersion = null;
@@ -591,44 +591,46 @@ function normalizeProgressInfo(info) {
   };
 }
 
-function shouldReportProgress(progress) {
-  const now = performance.now();
-
-  if (progress.status === 'progress') {
-    return false;
+// Track each downloaded file's bytes so we can report one smooth aggregate.
+// Large models (e.g. LFM2.5-8B) ship as several multi-GB shards; transformers.js
+// stops emitting 'progress_total' between shards and reports the rest as per-file
+// 'progress' events, so relying on a single status freezes the bar mid-download.
+function trackFileBytes(progress) {
+  if (!progress.file) return;
+  const entry = fileLoadBytes[progress.file] || { loaded: 0, total: 0 };
+  if (progress.total !== null && progress.total > entry.total) {
+    entry.total = progress.total;
   }
+  if (progress.status === 'done' && entry.total > 0) {
+    entry.loaded = entry.total;
+  } else if (progress.loaded !== null && progress.loaded > entry.loaded) {
+    entry.loaded = progress.loaded;
+  }
+  fileLoadBytes[progress.file] = entry;
+}
 
-  if (progress.status === 'progress_total') {
-    if (progress.roundedProgress < 0) return false;
-    if (
-      lastLoadProgressPercent >= 0 &&
-      Math.abs(progress.roundedProgress - lastLoadProgressPercent) < 5 &&
-      now - lastLoadProgressAt < 2000
-    ) {
-      return false;
+function aggregateLoadProgress() {
+  let loaded = 0;
+  let total = 0;
+  for (const file in fileLoadBytes) {
+    const entry = fileLoadBytes[file];
+    if (entry.total > 0) {
+      total += entry.total;
+      loaded += Math.min(entry.loaded, entry.total);
     }
-    lastLoadProgressAt = now;
-    lastLoadProgressPercent = progress.roundedProgress;
-    return true;
   }
-
-  const signature =
-    progress.status + '|' + progress.file + '|' + progress.roundedProgress;
-  if (
-    signature === lastLoadProgressSignature &&
-    now - lastLoadProgressAt < 1000
-  ) {
-    return false;
-  }
-
-  lastLoadProgressSignature = signature;
-  lastLoadProgressAt = now;
-  return true;
+  if (total <= 0) return null;
+  return {
+    loaded,
+    total,
+    percent: Math.max(0, Math.min(100, (loaded / total) * 100)),
+  };
 }
 
 function reportLoadProgress(info) {
   if (!info) return;
   const progress = normalizeProgressInfo(info);
+  trackFileBytes(progress);
   lastModelLoadProgress = {
     status: progress.status,
     name: progress.name || undefined,
@@ -637,13 +639,41 @@ function reportLoadProgress(info) {
     total: progress.total ?? undefined,
     progress: progress.progress ?? undefined,
   };
-  if (!shouldReportProgress(progress)) return;
-  setRuntime(
-    'loading',
-    progress.message,
-    progress.progress === null ? undefined : progress.progress,
-  );
-  log('Model load progress', lastModelLoadProgress);
+
+  const aggregate = aggregateLoadProgress();
+  const percent = aggregate ? Math.round(aggregate.percent) : -1;
+  const milestone =
+    progress.status !== 'progress' && progress.status !== 'progress_total';
+  const now = performance.now();
+  const moved =
+    percent >= 0 &&
+    percent !== lastLoadProgressPercent &&
+    now - lastLoadProgressAt >= 300;
+  if (!milestone && !moved) return;
+  lastLoadProgressAt = now;
+  if (percent >= 0) lastLoadProgressPercent = percent;
+
+  const barValue = aggregate
+    ? aggregate.percent
+    : progress.progress === null
+      ? undefined
+      : progress.progress;
+  const message = aggregate
+    ? 'downloading ' +
+      formatBytes(aggregate.loaded) +
+      ' of ' +
+      formatBytes(aggregate.total) +
+      ' (' +
+      percent +
+      '%)'
+    : progress.message;
+  setRuntime('loading', message, barValue);
+  log('Model load progress', {
+    ...lastModelLoadProgress,
+    aggregateLoaded: aggregate ? aggregate.loaded : undefined,
+    aggregateTotal: aggregate ? aggregate.total : undefined,
+    aggregatePercent: percent >= 0 ? percent : undefined,
+  });
 }
 
 async function loadGenerator() {
@@ -659,7 +689,7 @@ async function loadGenerator() {
   });
   lastLoadProgressAt = 0;
   lastLoadProgressPercent = -1;
-  lastLoadProgressSignature = '';
+  fileLoadBytes = {};
   lastModelLoadProgress = null;
   generatorPromise = runtime.pipeline('text-generation', CONFIG.model, {
     dtype: CONFIG.dtype,
