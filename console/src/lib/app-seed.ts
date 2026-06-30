@@ -11,7 +11,7 @@ export function stripAppBuildDirective(content: string): string {
 }
 
 const CLIENT_NOTE =
-  'Build one self-contained, fully client-side HTML file (no backend).';
+  'Build one self-contained, fully client-side HTML file (no backend), and save it into the workspace `apps/` folder (e.g. apps/<short-name>.html).';
 
 const STACK_NOTE =
   'Default to React via CDN — load React, ReactDOM, and Babel standalone from a CDN and put your JSX in an inline <script type="text/babel"> so it stays a single HTML file. Use a different stack only if I ask.';

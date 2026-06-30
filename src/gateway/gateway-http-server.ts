@@ -7146,6 +7146,11 @@ async function handleApiAppGenerate(
  * the assistant text and tag the entry with category / kind.
  * Best-effort: never throws into the chat response path.
  */
+/** Workspace folder the Apps builder asks the agent to write app files into. */
+const APP_BUILD_OUTPUT_DIR = 'apps';
+/** Only auto-capture app files written around this turn, not stale ones. */
+const APP_BUILD_FRESHNESS_MS = 15 * 60 * 1000;
+
 async function maybeCaptureChatArtifacts(
   chatRequest: GatewayChatRequest,
   result: GatewayChatResult,
@@ -7185,13 +7190,75 @@ async function maybeCaptureChatArtifacts(
         'Captured HTML artifact into Apps gallery',
       );
     }
-    // App-builder turns often write the HTML to a workspace file and only
-    // reference it in the reply (e.g. "apps/dashboard.html"). Resolve those
-    // references inside the agent workspace and capture them.
-    if (captured.length === 0 && chatRequest.appBuild) {
-      const workspaceDir = agentWorkspaceDir(
-        agentId || resolveDefaultAgentId(getRuntimeConfig()),
+    const workspaceDir =
+      captured.length === 0 && chatRequest.appBuild
+        ? agentWorkspaceDir(
+            agentId || resolveDefaultAgentId(getRuntimeConfig()),
+          )
+        : null;
+
+    const captureWorkspaceHtml = async (
+      ref: string,
+      filePath: string,
+    ): Promise<void> => {
+      let content: string;
+      try {
+        content = await fs.promises.readFile(filePath, 'utf8');
+      } catch {
+        return;
+      }
+      const html = extractHtmlDocument(content) ?? content;
+      if (!/<html|<!doctype html/i.test(html)) return;
+      const app = upsertAppArtifact({
+        sessionId,
+        sourceKey: ref,
+        title: deriveAppTitle(html, path.basename(ref)),
+        html,
+        category,
+        kind,
+        agentId,
+      });
+      captured.push({ id: app.id, title: app.title, kind: app.kind });
+      logger.debug(
+        { sessionId, appId: app.id, title: app.title, kind, ref },
+        'Captured workspace HTML file into Apps gallery',
       );
+    };
+
+    // App-builder turns write the HTML to a file in the `apps/` folder (per the
+    // build instructions). Capture the newest .html there — even if the agent
+    // never names the file in its reply.
+    if (workspaceDir) {
+      const appsDir = path.join(workspaceDir, APP_BUILD_OUTPUT_DIR);
+      try {
+        const entries = await fs.promises.readdir(appsDir, {
+          withFileTypes: true,
+        });
+        let newest: { ref: string; path: string; mtime: number } | null = null;
+        for (const entry of entries) {
+          if (!entry.isFile()) continue;
+          if (!entry.name.toLowerCase().endsWith('.html')) continue;
+          const filePath = path.join(appsDir, entry.name);
+          const stat = await fs.promises.stat(filePath);
+          // Skip files that weren't written around this turn (e.g. a plan turn
+          // that didn't build anything shouldn't re-capture an old app).
+          if (Date.now() - stat.mtimeMs > APP_BUILD_FRESHNESS_MS) continue;
+          if (!newest || stat.mtimeMs > newest.mtime) {
+            newest = {
+              ref: `${APP_BUILD_OUTPUT_DIR}/${entry.name}`,
+              path: filePath,
+              mtime: stat.mtimeMs,
+            };
+          }
+        }
+        if (newest) await captureWorkspaceHtml(newest.ref, newest.path);
+      } catch {
+        // No apps/ folder this turn — fall through to the other strategies.
+      }
+    }
+
+    // Otherwise, resolve any *.html paths referenced in the reply.
+    if (workspaceDir && captured.length === 0) {
       const seen = new Set<string>();
       for (const match of (result.result ?? '').matchAll(
         /([A-Za-z0-9_][A-Za-z0-9_./-]*\.html)\b/g,
@@ -7200,29 +7267,7 @@ async function maybeCaptureChatArtifacts(
         if (seen.has(ref)) continue;
         seen.add(ref);
         const filePath = resolveWorkspaceRelativePath(workspaceDir, ref);
-        if (!filePath) continue;
-        let content: string;
-        try {
-          content = await fs.promises.readFile(filePath, 'utf8');
-        } catch {
-          continue;
-        }
-        const html = extractHtmlDocument(content) ?? content;
-        if (!/<html|<!doctype html/i.test(html)) continue;
-        const app = upsertAppArtifact({
-          sessionId,
-          sourceKey: ref,
-          title: deriveAppTitle(html, path.basename(ref)),
-          html,
-          category,
-          kind,
-          agentId,
-        });
-        captured.push({ id: app.id, title: app.title, kind: app.kind });
-        logger.debug(
-          { sessionId, appId: app.id, title: app.title, kind, ref },
-          'Captured workspace HTML file into Apps gallery',
-        );
+        if (filePath) await captureWorkspaceHtml(ref, filePath);
       }
     }
     // Or the HTML may be inlined in the reply instead of a file.
