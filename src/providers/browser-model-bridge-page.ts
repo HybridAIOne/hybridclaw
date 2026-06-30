@@ -22,8 +22,8 @@ function textResponse(
 }
 
 function getTransformersDistPath(fileName: string): string {
-  const packageJson = require.resolve('@huggingface/transformers/package.json');
-  return path.join(path.dirname(packageJson), 'dist', fileName);
+  const entryPoint = require.resolve('@huggingface/transformers');
+  return path.join(path.dirname(entryPoint), fileName);
 }
 
 export function serveBrowserBridgeAsset(

@@ -51,6 +51,17 @@ describe('browser model bridge', () => {
     ]);
   });
 
+  test('serves the Transformers.js browser asset', async () => {
+    const handle = await startTestBridge();
+
+    const response = await fetch(`${handle.pageUrl}vendor/transformers.web.js`);
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/javascript');
+    expect(body).toContain('Transformers.js');
+  });
+
   test('returns 503 for chat requests until a browser tab connects', async () => {
     const handle = await startTestBridge();
 
@@ -117,4 +128,3 @@ describe('browser model bridge', () => {
     expect(payload.choices[0]?.message.content).toBe(generated);
   });
 });
-
