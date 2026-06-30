@@ -59,11 +59,17 @@ function resolveBrowserBridgeAssetPath(vendorPath: string): string | null {
   const transformersAssets = new Set([
     'transformers.web.js',
     'transformers.web.min.js',
-    'ort-wasm-simd-threaded.jsep.mjs',
-    'ort-wasm-simd-threaded.jsep.wasm',
   ]);
   if (transformersAssets.has(assetPath)) {
     return getTransformersDistPath(assetPath);
+  }
+
+  const onnxRuntimeAssets = new Set([
+    'ort-wasm-simd-threaded.jsep.mjs',
+    'ort-wasm-simd-threaded.jsep.wasm',
+  ]);
+  if (onnxRuntimeAssets.has(assetPath)) {
+    return path.join(getPackageRoot('onnxruntime-web'), 'dist', assetPath);
   }
   if (assetPath === 'onnxruntime-web.js') {
     return path.join(
@@ -111,6 +117,10 @@ export function serveBrowserBridgeAsset(
       .replace(
         'from "onnxruntime-common";',
         'from "/vendor/onnxruntime-common/index.js";',
+      )
+      .replace(
+        'from "onnxruntime-web/webgpu";',
+        'from "/vendor/onnxruntime-web.js";',
       )
       .replace('from "onnxruntime-web";', 'from "/vendor/onnxruntime-web.js";');
     textResponse(res, 200, source, 'text/javascript; charset=utf-8');

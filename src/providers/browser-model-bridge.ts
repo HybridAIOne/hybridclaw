@@ -165,6 +165,9 @@ function writeCorsHeaders(res: ServerResponse): void {
     'authorization, content-type, accept',
   );
   res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
+  res.setHeader('cross-origin-opener-policy', 'same-origin');
+  res.setHeader('cross-origin-embedder-policy', 'require-corp');
+  res.setHeader('cross-origin-resource-policy', 'same-origin');
 }
 
 function parseUrl(req: IncomingMessage): URL {

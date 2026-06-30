@@ -62,7 +62,8 @@ describe('browser model bridge', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/javascript');
-    expect(body).toContain('Transformers.js');
+    expect(body.length).toBeGreaterThan(1000);
+    expect(body).toContain('pipeline');
   });
 
   test('serves browser runtime import map dependencies', async () => {
@@ -70,6 +71,12 @@ describe('browser model bridge', () => {
 
     const pageResponse = await fetch(handle.pageUrl);
     const page = await pageResponse.text();
+    expect(pageResponse.headers.get('cross-origin-opener-policy')).toBe(
+      'same-origin',
+    );
+    expect(pageResponse.headers.get('cross-origin-embedder-policy')).toBe(
+      'require-corp',
+    );
     expect(page).toContain('"onnxruntime-common": "/vendor/onnxruntime-common/index.js"');
     expect(page).toContain('"onnxruntime-web": "/vendor/onnxruntime-web.js"');
     expect(page).toContain("new Worker('/bridge/worker.js'");
@@ -83,6 +90,9 @@ describe('browser model bridge', () => {
     expect(workerResponse.status).toBe(200);
     expect(workerResponse.headers.get('content-type')).toContain(
       'text/javascript',
+    );
+    expect(workerResponse.headers.get('cross-origin-embedder-policy')).toBe(
+      'require-corp',
     );
     expect(workerBody).toContain("import('/vendor/transformers.worker.js')");
     expect(workerBody).toContain('apply_chat_template');
@@ -103,6 +113,7 @@ describe('browser model bridge', () => {
     expect(workerRuntimeBody).toContain('from "/vendor/onnxruntime-web.js";');
     expect(workerRuntimeBody).not.toContain('from "onnxruntime-common";');
     expect(workerRuntimeBody).not.toContain('from "onnxruntime-web";');
+    expect(workerRuntimeBody).not.toContain('from "onnxruntime-web/webgpu";');
 
     const webResponse = await fetch(`${handle.pageUrl}vendor/onnxruntime-web.js`);
     const webBody = await webResponse.text();
@@ -111,6 +122,17 @@ describe('browser model bridge', () => {
       'text/javascript',
     );
     expect(webBody).toContain('ONNX Runtime Web');
+
+    const wasmLoaderResponse = await fetch(
+      `${handle.pageUrl}vendor/ort-wasm-simd-threaded.jsep.mjs`,
+    );
+    expect(wasmLoaderResponse.status).toBe(200);
+    expect(wasmLoaderResponse.headers.get('content-type')).toContain(
+      'text/javascript',
+    );
+    expect(wasmLoaderResponse.headers.get('cross-origin-resource-policy')).toBe(
+      'same-origin',
+    );
 
     const commonResponse = await fetch(
       `${handle.pageUrl}vendor/onnxruntime-common/index.js`,

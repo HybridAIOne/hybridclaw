@@ -181,7 +181,7 @@ const BROWSER_BRIDGE_MODEL_PRESETS = [
   {
     id: 'LiquidAI/LFM2.5-230M-ONNX',
     label: 'LFM 2.5 230M',
-    quantizations: ['q4', 'fp16', 'fp32'],
+    quantizations: ['q4', 'q8', 'fp16', 'fp32'],
   },
   {
     id: 'LiquidAI/LFM2.5-350M-ONNX',
@@ -194,6 +194,21 @@ const BROWSER_BRIDGE_MODEL_PRESETS = [
     quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
   },
   {
+    id: 'LiquidAI/LFM2.5-1.2B-Thinking-ONNX',
+    label: 'LFM 2.5 1.2B Thinking',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'LiquidAI/LFM2.5-8B-A1B-ONNX',
+    label: 'LFM 2.5 8B A1B',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'LiquidAI/LFM2.5-VL-1.6B-ONNX',
+    label: 'LFM 2.5 VL 1.6B',
+    quantizations: ['q4', 'q8', 'fp16', 'fp32'],
+  },
+  {
     id: 'onnx-community/gemma-3-270m-it-ONNX',
     label: 'Gemma 3 270M Instruct',
     quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
@@ -201,6 +216,41 @@ const BROWSER_BRIDGE_MODEL_PRESETS = [
   {
     id: 'onnx-community/gemma-3-1b-it-ONNX',
     label: 'Gemma 3 1B Instruct',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'onnx-community/gemma-4-E2B-it-ONNX',
+    label: 'Gemma 4 E2B Instruct',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'onnx-community/gemma-4-E4B-it-ONNX',
+    label: 'Gemma 4 E4B Instruct',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'huggingworld/Qwen3.5-0.8B-ONNX',
+    label: 'Qwen 3.5 0.8B',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'huggingworld/Qwen3.5-2B-ONNX',
+    label: 'Qwen 3.5 2B',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'huggingworld/Qwen3.5-4B-ONNX',
+    label: 'Qwen 3.5 4B',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'onnx-community/Phi-4-mini-instruct-ONNX',
+    label: 'Phi-4 Mini Instruct',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'mistralai/Ministral-3-3B-Instruct-2512-ONNX',
+    label: 'Ministral 3 3B Instruct',
     quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
   },
 ] as const;

@@ -16,12 +16,23 @@ const stopBrowserModelBridgeMock = vi.fn();
 const useAuthMock = vi.fn();
 const defaultBrowserModel = 'LiquidAI/LFM2.5-230M-ONNX';
 const gemmaBrowserModel = 'onnx-community/gemma-3-270m-it-ONNX';
+const qwenBrowserModel = 'huggingworld/Qwen3.5-4B-ONNX';
 const browserModelOptions = [
   defaultBrowserModel,
   'LiquidAI/LFM2.5-350M-ONNX',
   'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
+  'LiquidAI/LFM2.5-1.2B-Thinking-ONNX',
+  'LiquidAI/LFM2.5-8B-A1B-ONNX',
+  'LiquidAI/LFM2.5-VL-1.6B-ONNX',
   gemmaBrowserModel,
   'onnx-community/gemma-3-1b-it-ONNX',
+  'onnx-community/gemma-4-E2B-it-ONNX',
+  'onnx-community/gemma-4-E4B-it-ONNX',
+  'huggingworld/Qwen3.5-0.8B-ONNX',
+  'huggingworld/Qwen3.5-2B-ONNX',
+  qwenBrowserModel,
+  'onnx-community/Phi-4-mini-instruct-ONNX',
+  'mistralai/Ministral-3-3B-Instruct-2512-ONNX',
 ];
 
 const modelMetadataDefaults = {
@@ -411,16 +422,16 @@ describe('ModelsPage', () => {
 
     expect(
       Array.from(quantizationSelect.options).map((option) => option.value),
-    ).toEqual(['q4', 'fp16', 'fp32']);
+    ).toEqual(['q4', 'q8', 'fp16', 'fp32']);
     expect(screen.queryByText('Dtype')).toBeNull();
     expect(
       Array.from(modelSelect.options).some((option) =>
-        option.value.toLowerCase().includes('jpn'),
+        /\bjp\b|jpn/i.test(option.value),
       ),
     ).toBe(false);
 
     fireEvent.change(modelSelect, {
-      target: { value: gemmaBrowserModel },
+      target: { value: qwenBrowserModel },
     });
     expect(
       Array.from(quantizationSelect.options).map((option) => option.value),
