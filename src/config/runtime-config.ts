@@ -144,7 +144,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 33;
+export const CONFIG_VERSION = 34;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -1846,6 +1846,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
         baseUrl: 'http://127.0.0.1:8000/v1',
         apiKey: '',
       },
+      browser: {
+        enabled: false,
+        baseUrl: 'http://127.0.0.1:8789/v1',
+        apiKey: '',
+      },
     },
     endpoints: [],
     discovery: {
@@ -2098,6 +2103,7 @@ const SECRET_INPUT_PATHS = [
   'threema.secret',
   'voice.twilio.authToken',
   'local.backends.vllm.apiKey',
+  'local.backends.browser.apiKey',
 ] as const;
 type RuntimeConfigSecretInputPath = (typeof SECRET_INPUT_PATHS)[number];
 
@@ -5122,7 +5128,9 @@ function normalizeLocalEndpointConfigs(value: unknown): LocalEndpointConfig[] {
           ? DEFAULT_RUNTIME_CONFIG.local.backends.lmstudio.baseUrl
           : type === 'llamacpp'
             ? DEFAULT_RUNTIME_CONFIG.local.backends.llamacpp.baseUrl
-            : DEFAULT_RUNTIME_CONFIG.local.backends.vllm.baseUrl;
+            : type === 'vllm'
+              ? DEFAULT_RUNTIME_CONFIG.local.backends.vllm.baseUrl
+              : DEFAULT_RUNTIME_CONFIG.local.backends.browser.baseUrl;
     const resolvedApiKey = resolveConfiguredSecretInput(raw.apiKey, {
       path: `local.endpoints.${name}.apiKey`,
       required: isSecretRefInput(raw.apiKey) && enabled,
@@ -5245,8 +5253,13 @@ function getSecretInputFromSource(
 
   const local = isRecord(source.local) ? source.local : null;
   const backends = local && isRecord(local.backends) ? local.backends : null;
-  const vllm = backends && isRecord(backends.vllm) ? backends.vllm : null;
-  return vllm && hasOwn(vllm, 'apiKey') ? vllm.apiKey : undefined;
+  const backendKey =
+    secretPath === 'local.backends.browser.apiKey' ? 'browser' : 'vllm';
+  const backend =
+    backends && isRecord(backends[backendKey])
+      ? (backends[backendKey] as Record<string, unknown>)
+      : null;
+  return backend && hasOwn(backend, 'apiKey') ? backend.apiKey : undefined;
 }
 
 function setSecretInputOnSource(
@@ -5301,9 +5314,13 @@ function setSecretInputOnSource(
   source.local = local;
   const backends = isRecord(local.backends) ? local.backends : {};
   local.backends = backends;
-  const vllm = isRecord(backends.vllm) ? backends.vllm : {};
-  backends.vllm = vllm;
-  vllm.apiKey = value;
+  const backendKey =
+    secretPath === 'local.backends.browser.apiKey' ? 'browser' : 'vllm';
+  const backend = isRecord(backends[backendKey])
+    ? (backends[backendKey] as Record<string, unknown>)
+    : {};
+  backends[backendKey] = backend;
+  backend.apiKey = value;
 }
 
 function preserveSlackWebhookSecretInputs(
@@ -6771,6 +6788,9 @@ function normalizeRuntimeConfig(
   const rawVllmBackend = isRecord(rawLocalBackends.vllm)
     ? rawLocalBackends.vllm
     : {};
+  const rawBrowserBackend = isRecord(rawLocalBackends.browser)
+    ? rawLocalBackends.browser
+    : {};
   const rawLocalDiscovery = isRecord(rawLocal.discovery)
     ? rawLocal.discovery
     : {};
@@ -6851,6 +6871,10 @@ function normalizeRuntimeConfig(
     rawVllmBackend.enabled,
     DEFAULT_RUNTIME_CONFIG.local.backends.vllm.enabled,
   );
+  const browserEnabled = normalizeBoolean(
+    rawBrowserBackend.enabled,
+    DEFAULT_RUNTIME_CONFIG.local.backends.browser.enabled,
+  );
   const resolvedWebApiToken = resolveConfiguredSecretInput(rawOps.webApiToken, {
     path: 'ops.webApiToken',
     required: isSecretRefInput(rawOps.webApiToken),
@@ -6904,6 +6928,13 @@ function normalizeRuntimeConfig(
     {
       path: 'local.backends.vllm.apiKey',
       required: isSecretRefInput(rawVllmBackend.apiKey) && vllmEnabled,
+    },
+  );
+  const resolvedBrowserApiKey = resolveConfiguredSecretInput(
+    rawBrowserBackend.apiKey,
+    {
+      path: 'local.backends.browser.apiKey',
+      required: isSecretRefInput(rawBrowserBackend.apiKey) && browserEnabled,
     },
   );
   const resolvedTelegramBotToken = resolveConfiguredSecretInput(
@@ -7674,6 +7705,21 @@ function normalizeRuntimeConfig(
           ),
           modelBehavior: normalizeModelBehaviorConfig(
             rawVllmBackend.modelBehavior,
+          ),
+        },
+        browser: {
+          enabled: browserEnabled,
+          baseUrl: normalizeBaseUrl(
+            rawBrowserBackend.baseUrl,
+            DEFAULT_RUNTIME_CONFIG.local.backends.browser.baseUrl,
+          ),
+          apiKey: normalizeString(
+            resolvedBrowserApiKey,
+            DEFAULT_RUNTIME_CONFIG.local.backends.browser.apiKey || '',
+            { allowEmpty: true },
+          ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawBrowserBackend.modelBehavior,
           ),
         },
       },

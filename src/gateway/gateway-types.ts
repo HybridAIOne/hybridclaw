@@ -525,7 +525,7 @@ export interface GatewayStatus {
   >;
   localBackends?: Partial<
     Record<
-      'ollama' | 'lmstudio' | 'llamacpp' | 'vllm',
+      'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'browser',
       {
         reachable: boolean;
         latencyMs: number;
@@ -1310,7 +1310,7 @@ export interface GatewayAdminModelCatalogEntry {
   id: string;
   provider: GatewayModelProviderKey;
   discovered: boolean;
-  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
+  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'browser' | null;
   contextWindow: number | null;
   maxTokens: number | null;
   pricingUsdPerToken: {
@@ -1357,12 +1357,43 @@ export interface GatewayAdminModelsResponse {
         | 'ollama'
         | 'lmstudio'
         | 'llamacpp'
-        | 'vllm';
+        | 'vllm'
+        | 'browser';
       model: string | null;
     };
   };
   providerStatus: GatewayStatus['providerHealth'];
   models: GatewayAdminModelCatalogEntry[];
+}
+
+export interface GatewayBrowserModelBridgeStatus {
+  running: boolean;
+  host: string;
+  port: number;
+  model: string;
+  device: string;
+  dtype: string;
+  maxNewTokens: number;
+  pageUrl: string;
+  endpointUrl: string;
+  configuredModel: string;
+  configuredDefault: boolean;
+}
+
+export interface GatewayBrowserModelBridgeStartRequest {
+  model?: unknown;
+  host?: unknown;
+  port?: unknown;
+  device?: unknown;
+  dtype?: unknown;
+  apiKey?: unknown;
+  maxNewTokens?: unknown;
+  setDefault?: unknown;
+}
+
+export interface GatewayBrowserModelBridgeResponse {
+  bridge: GatewayBrowserModelBridgeStatus;
+  models: GatewayAdminModelsResponse;
 }
 
 export interface GatewayAdminSchedulerJob {

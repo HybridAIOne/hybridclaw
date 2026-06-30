@@ -57,6 +57,7 @@ const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
   lmstudio: 'lmstudio/',
   llamacpp: 'llamacpp/',
   vllm: 'vllm/',
+  browser: 'browser/',
 };
 
 export function normalizeMaxTokens(value: unknown): number | undefined {

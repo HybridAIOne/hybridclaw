@@ -18,6 +18,10 @@ export const PROVIDER_ALIASES: Readonly<Record<string, RuntimeProviderId>> = {
   mimo: 'xiaomi',
   kilocode: 'kilo',
   'kilo-code': 'kilo',
+  webllm: 'browser',
+  webgpu: 'browser',
+  'transformers-js': 'browser',
+  'transformers.js': 'browser',
 };
 
 export function getProviderAliasesFor(id: RuntimeProviderId): string[] {

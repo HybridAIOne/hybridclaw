@@ -130,7 +130,8 @@ export interface TaskModelPolicy {
     | 'ollama'
     | 'lmstudio'
     | 'llamacpp'
-    | 'vllm';
+    | 'vllm'
+    | 'browser';
   providerMethod?: string;
   baseUrl?: string;
   apiKey?: string;
@@ -233,7 +234,8 @@ export interface ContainerInput {
     | 'ollama'
     | 'lmstudio'
     | 'llamacpp'
-    | 'vllm';
+    | 'vllm'
+    | 'browser';
   providerMethod?: string;
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;

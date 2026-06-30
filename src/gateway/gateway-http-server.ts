@@ -238,6 +238,7 @@ import {
   getGatewayAdminAgents,
   getGatewayAdminApprovals,
   getGatewayAdminAudit,
+  getGatewayAdminBrowserModelBridge,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
   getGatewayAdminEmailFolder,
@@ -288,7 +289,9 @@ import {
   saveGatewayAdminTunnelConfig,
   setGatewayAdminSkillEnabled,
   startGatewayAdminA2APairing,
+  startGatewayAdminBrowserModelBridge,
   startGatewayAdminMcpOAuth,
+  stopGatewayAdminBrowserModelBridge,
   stopGatewayAdminTunnel,
   unblockGatewayAdminSkill,
   updateGatewayAdminAgent,
@@ -304,6 +307,7 @@ import type {
   GatewayAdminDiscordWebhookTargetRequest,
   GatewayAdminFleetTopologyUpsertRequest,
   GatewayAdminSlackWebhookTargetRequest,
+  GatewayBrowserModelBridgeStartRequest,
   GatewayChatBranchRequestBody,
   GatewayChatRequest,
   GatewayChatRequestBody,
@@ -5408,6 +5412,29 @@ async function handleApiAdminModels(
   sendJson(res, 200, await saveGatewayAdminModels(body));
 }
 
+async function handleApiAdminModelsBrowserBridge(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const method = String(req.method || 'GET').toUpperCase();
+  if (method === 'GET') {
+    sendJson(res, 200, await getGatewayAdminBrowserModelBridge());
+    return;
+  }
+  if (method === 'POST') {
+    const body = (await readJsonBody(
+      req,
+    )) as GatewayBrowserModelBridgeStartRequest;
+    sendJson(res, 200, await startGatewayAdminBrowserModelBridge(body));
+    return;
+  }
+  if (method === 'DELETE') {
+    sendJson(res, 200, await stopGatewayAdminBrowserModelBridge());
+    return;
+  }
+  sendMethodNotAllowed(res);
+}
+
 async function handleApiAdminScheduler(
   req: IncomingMessage,
   res: ServerResponse,
@@ -7512,6 +7539,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/harness-evolution' && method === 'GET') {
             await handleApiAdminHarnessEvolution(res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/models/browser-bridge' &&
+            (method === 'GET' || method === 'POST' || method === 'DELETE')
+          ) {
+            await handleApiAdminModelsBrowserBridge(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/models/browser-bridge') {
+            sendMethodNotAllowed(res);
             return;
           }
           if (

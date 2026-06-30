@@ -113,6 +113,40 @@ describe('local providers', () => {
     ).toBe(false);
   });
 
+  test('explicit browser model prefixes resolve to the browser provider', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = false;
+      config.local.backends.browser.enabled = true;
+      config.local.backends.browser.baseUrl = 'http://127.0.0.1:8789/v1';
+      config.local.backends.browser.apiKey = 'browser-secret';
+    });
+    const { factory } = await importFreshModules(homeDir);
+
+    expect(
+      factory.resolveModelProvider('browser/LiquidAI/LFM2.5-230M-ONNX'),
+    ).toBe('browser');
+    expect(
+      factory.modelRequiresChatbotId('browser/LiquidAI/LFM2.5-230M-ONNX'),
+    ).toBe(false);
+
+    const credentials = await factory.resolveModelRuntimeCredentials({
+      model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      agentId: 'main',
+    });
+
+    expect(credentials).toMatchObject({
+      provider: 'browser',
+      model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      apiKey: 'browser-secret',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      chatbotId: '',
+      enableRag: false,
+      isLocal: true,
+      agentId: 'main',
+    });
+  });
+
   test('discovered bare model names resolve to the local backend', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir);
@@ -196,6 +230,7 @@ describe('local providers', () => {
       config.local.backends.lmstudio.enabled = true;
       config.local.backends.llamacpp.enabled = true;
       config.local.backends.vllm.enabled = true;
+      config.local.backends.browser.enabled = true;
     });
     const { factory } = await importFreshModules(homeDir);
 
@@ -207,6 +242,11 @@ describe('local providers', () => {
       factory.resolveModelProvider('llamacpp/Meta-Llama-3-8B-Instruct'),
     ).toBe('llamacpp');
     expect(factory.resolveModelProvider('vllm/granite-3.2')).toBe('vllm');
+    expect(
+      factory.resolveModelProvider('browser/LiquidAI/LFM2.5-230M-ONNX'),
+    ).toBe(
+      'browser',
+    );
     expect(factory.resolveModelProvider('gpt-5-nano')).toBe('hybridai');
   });
 

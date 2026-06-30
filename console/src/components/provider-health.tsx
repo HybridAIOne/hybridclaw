@@ -5,6 +5,7 @@ const LOCAL_PROVIDER_NAMES = new Set([
   'lmstudio',
   'llamacpp',
   'vllm',
+  'browser',
 ]);
 
 type HealthStatus = 'healthy' | 'warning' | 'inactive' | 'down';

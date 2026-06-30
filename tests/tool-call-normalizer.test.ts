@@ -508,6 +508,83 @@ describe('tool call normalizer', () => {
     });
   });
 
+  test('extracts documented unprefixed Liquid tool calls', () => {
+    const result = normalizeToolCalls(
+      undefined,
+      '<|tool_call_start|>[get_candidate_status(candidate_id="12345")]<|tool_call_end|>',
+      liquidOptions,
+    );
+
+    expect(result.content).toBeNull();
+    expect(result.toolCalls[0]?.function).toEqual({
+      name: 'get_candidate_status',
+      arguments: '{"candidate_id":"12345"}',
+    });
+  });
+
+  test('extracts Liquid JSON tool calls', () => {
+    const result = normalizeToolCalls(
+      undefined,
+      '<|tool_call_start|>[{"name":"tools.shell","arguments":{"command":"pwd"}}]<|tool_call_end|>',
+      liquidOptions,
+    );
+
+    expect(result.content).toBeNull();
+    expect(result.toolCalls[0]?.function).toEqual({
+      name: 'shell',
+      arguments: '{"command":"pwd"}',
+    });
+  });
+
+  test('extracts Liquid calls after special markers are stripped', () => {
+    const result = normalizeToolCalls(
+      undefined,
+      "Checking files [tools.shell(command='ls -la', cwd=None, recursive=False)]",
+      liquidOptions,
+    );
+
+    expect(result.content).toBe('Checking files');
+    expect(result.toolCalls[0]?.function).toEqual({
+      name: 'shell',
+      arguments: '{"command":"ls -la","cwd":null,"recursive":false}',
+    });
+  });
+
+  test('extracts bare Liquid function calls after template stripping', () => {
+    const result = normalizeToolCalls(
+      undefined,
+      'Checking files tools.shell(command="ls -la")',
+      liquidOptions,
+    );
+
+    expect(result.content).toBe('Checking files');
+    expect(result.toolCalls[0]?.function).toEqual({
+      name: 'shell',
+      arguments: '{"command":"ls -la"}',
+    });
+  });
+
+  test('extracts compact call-style tool calls without a model parser', () => {
+    const result = normalizeToolCalls(
+      undefined,
+      'Checking files call:bash{command:ls -la} after',
+    );
+
+    expect(result.content).toBe('Checking files  after');
+    expect(result.toolCalls[0]?.function).toEqual({
+      name: 'bash',
+      arguments: '{"command":"ls -la"}',
+    });
+  });
+
+  test('ignores compact call-style tool calls inside fenced code blocks', () => {
+    const content = ['```text', 'call:bash{command:ls -la}', '```'].join('\n');
+    const result = normalizeToolCalls(undefined, content);
+
+    expect(result.toolCalls).toEqual([]);
+    expect(result.content).toBe(content);
+  });
+
   test('extracts multiple liquid tool calls and preserves non-tool text', () => {
     const result = normalizeToolCalls(
       undefined,

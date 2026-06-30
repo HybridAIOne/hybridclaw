@@ -81,6 +81,7 @@ async function readRuntimeSecrets(
       'LOCAL_ENDPOINT_HAIGPU2_API_KEY',
     ),
     VLLM_API_KEY: runtimeSecrets.readStoredRuntimeSecret('VLLM_API_KEY'),
+    BROWSER_API_KEY: runtimeSecrets.readStoredRuntimeSecret('BROWSER_API_KEY'),
   };
 }
 
@@ -967,6 +968,49 @@ test('local configure vllm stores api key in runtime secrets and writes a store 
     'vllm/meta-llama/Llama-3.1-8B-Instruct',
   );
   expect(secrets.VLLM_API_KEY).toBe('vllm-secret-key');
+});
+
+test('local configure browser stores api key and selects a browser model', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'local',
+    'configure',
+    'browser',
+    'LiquidAI/LFM2.5-230M-ONNX',
+    '--base-url',
+    'http://127.0.0.1:8000',
+    '--api-key',
+    'browser-secret-key',
+  ]);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  vi.resetModules();
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  const config = runtimeConfig.getRuntimeConfig();
+  const rawConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const rawLocal = rawConfig.local as Record<string, unknown>;
+  const rawBackends = rawLocal.backends as Record<string, unknown>;
+  const rawBrowser = rawBackends.browser as Record<string, unknown>;
+  const secrets = await readRuntimeSecrets(homeDir);
+
+  expect(config.local.backends.browser.enabled).toBe(true);
+  expect(config.local.backends.browser.baseUrl).toBe(
+    'http://127.0.0.1:8000/v1',
+  );
+  expect(config.local.backends.browser.apiKey).toBe('browser-secret-key');
+  expect(rawBrowser.apiKey).toEqual({
+    source: 'store',
+    id: 'BROWSER_API_KEY',
+  });
+  expect(config.hybridai.defaultModel).toBe(
+    'browser/LiquidAI/LFM2.5-230M-ONNX',
+  );
+  expect(secrets.BROWSER_API_KEY).toBe('browser-secret-key');
 });
 
 test('local configure vllm with name stores a named endpoint secret ref', async () => {

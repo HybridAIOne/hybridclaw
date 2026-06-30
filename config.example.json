@@ -1,5 +1,5 @@
 {
-  "version": 32,
+  "version": 34,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -427,6 +427,11 @@
       "vllm": {
         "enabled": false,
         "baseUrl": "http://127.0.0.1:8000/v1",
+        "apiKey": ""
+      },
+      "browser": {
+        "enabled": false,
+        "baseUrl": "http://127.0.0.1:8789/v1",
         "apiKey": ""
       }
     },

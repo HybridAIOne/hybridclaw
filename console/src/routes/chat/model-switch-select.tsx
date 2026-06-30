@@ -96,7 +96,8 @@ type KnownProvider =
   | 'Ollama'
   | 'LM Studio'
   | 'llama.cpp'
-  | 'vLLM';
+  | 'vLLM'
+  | 'Browser bridge';
 
 // `Record<GatewayModelProviderKey, …>` makes the compiler flag any new gateway
 // provider that ships without an explicit display label — without it, new
@@ -121,6 +122,7 @@ const PROVIDER_LABELS: Record<GatewayModelProviderKey, KnownProvider> = {
   lmstudio: 'LM Studio',
   llamacpp: 'llama.cpp',
   vllm: 'vLLM',
+  browser: 'Browser bridge',
 };
 
 const VENDOR_LABELS: Record<string, string> = {
@@ -237,6 +239,7 @@ function inferBackendForSelectedModel(
   if (provider === 'lmstudio') return 'lmstudio';
   if (provider === 'llamacpp') return 'llamacpp';
   if (provider === 'vllm') return 'vllm';
+  if (provider === 'browser') return 'browser';
   return null;
 }
 

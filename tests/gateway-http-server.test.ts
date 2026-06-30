@@ -1292,6 +1292,26 @@ async function importFreshHealth(options?: {
     providerStatus: {},
     models: [],
   }));
+  const getGatewayAdminBrowserModelBridge = vi.fn(async () => ({
+    bridge: {
+      running: false,
+      host: '127.0.0.1',
+      port: 8789,
+      model: 'LiquidAI/LFM2.5-230M-ONNX',
+      device: 'webgpu',
+      dtype: 'q4',
+      maxNewTokens: 1024,
+      pageUrl: 'http://127.0.0.1:8789/',
+      endpointUrl: 'http://127.0.0.1:8789/v1',
+      configuredModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      configuredDefault: false,
+    },
+    models: {
+      defaultModel: 'gpt-5',
+      providerStatus: {},
+      models: [],
+    },
+  }));
   const mainAdminAgentMarkdownFiles = [
     {
       name: 'AGENTS.md',
@@ -1912,6 +1932,46 @@ async function importFreshHealth(options?: {
     providerStatus: {},
     models: [],
   }));
+  const startGatewayAdminBrowserModelBridge = vi.fn(async () => ({
+    bridge: {
+      running: true,
+      host: '127.0.0.1',
+      port: 8789,
+      model: 'LiquidAI/LFM2.5-230M-ONNX',
+      device: 'webgpu',
+      dtype: 'q4',
+      maxNewTokens: 1024,
+      pageUrl: 'http://127.0.0.1:8789/',
+      endpointUrl: 'http://127.0.0.1:8789/v1',
+      configuredModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      configuredDefault: true,
+    },
+    models: {
+      defaultModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      providerStatus: {},
+      models: [],
+    },
+  }));
+  const stopGatewayAdminBrowserModelBridge = vi.fn(async () => ({
+    bridge: {
+      running: false,
+      host: '127.0.0.1',
+      port: 8789,
+      model: 'LiquidAI/LFM2.5-230M-ONNX',
+      device: 'webgpu',
+      dtype: 'q4',
+      maxNewTokens: 1024,
+      pageUrl: 'http://127.0.0.1:8789/',
+      endpointUrl: 'http://127.0.0.1:8789/v1',
+      configuredModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      configuredDefault: true,
+    },
+    models: {
+      defaultModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      providerStatus: {},
+      models: [],
+    },
+  }));
   const upsertGatewayAdminChannel = vi.fn(() => ({
     channels: [],
   }));
@@ -2176,6 +2236,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminEmailMessage,
     getGatewayAdminJobsContext,
     getGatewayAdminMcp,
+    getGatewayAdminBrowserModelBridge,
     getGatewayAdminModels,
     getGatewayAdminOverview,
     getGatewayAdminSessions,
@@ -2213,7 +2274,9 @@ async function importFreshHealth(options?: {
     saveGatewayAdminSkillPackageFile,
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
+    startGatewayAdminBrowserModelBridge,
     startGatewayAdminA2APairing,
+    stopGatewayAdminBrowserModelBridge,
     stopGatewayAdminTunnel,
     updateGatewayAdminAgent,
     uploadGatewayAdminSkillZip,
@@ -2364,6 +2427,7 @@ async function importFreshHealth(options?: {
     saveGatewayAdminPolicyRule,
     deleteGatewayAdminPolicyRule,
     runGatewayPluginTool,
+    getGatewayAdminBrowserModelBridge,
     getGatewayAdminModels,
     getGatewayAdminPlugins,
     getGatewayAdminScheduler,
@@ -2404,6 +2468,8 @@ async function importFreshHealth(options?: {
     deleteGatewayAdminAgent,
     GatewayRequestError,
     setGatewayAdminSkillEnabled,
+    startGatewayAdminBrowserModelBridge,
+    stopGatewayAdminBrowserModelBridge,
     uploadGatewayAdminSkillZip,
     saveGatewayAdminSkillPackageFile,
     handleGatewayMessage,
@@ -7691,6 +7757,76 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({
       defaultModel: 'gpt-5',
+    });
+  });
+
+  test('returns browser model bridge status for authorized admin requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/models/browser-bridge' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminBrowserModelBridge).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      bridge: {
+        running: false,
+        configuredModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      },
+    });
+  });
+
+  test('starts browser model bridge for authorized admin requests', async () => {
+    const state = await importFreshHealth();
+    const body = {
+      model: 'LiquidAI/LFM2.5-230M-ONNX',
+      host: '127.0.0.1',
+      port: 8789,
+      setDefault: true,
+    };
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/models/browser-bridge',
+      body,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.startGatewayAdminBrowserModelBridge).toHaveBeenCalledWith(
+      body,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      bridge: {
+        running: true,
+      },
+      models: {
+        defaultModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      },
+    });
+  });
+
+  test('stops browser model bridge for authorized admin requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/models/browser-bridge',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.stopGatewayAdminBrowserModelBridge).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      bridge: {
+        running: false,
+      },
     });
   });
 

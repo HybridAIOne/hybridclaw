@@ -1,4 +1,8 @@
 import {
+  LOCAL_BROWSER_API_KEY,
+  LOCAL_BROWSER_BASE_URL,
+  LOCAL_BROWSER_ENABLED,
+  LOCAL_BROWSER_MODEL_BEHAVIOR,
   LOCAL_DEFAULT_CONTEXT_WINDOW,
   LOCAL_DEFAULT_MAX_TOKENS,
   LOCAL_DISCOVERY_CONCURRENCY,
@@ -45,6 +49,7 @@ function hasEnabledLocalBackend(): boolean {
     LOCAL_LMSTUDIO_ENABLED ||
     LOCAL_LLAMACPP_ENABLED ||
     LOCAL_VLLM_ENABLED ||
+    LOCAL_BROWSER_ENABLED ||
     LOCAL_ENDPOINTS.some((endpoint) => endpoint.enabled)
   );
 }
@@ -237,7 +242,10 @@ function resolveOpenAICompatBaseUrl(configuredBaseUrl: string): string {
 }
 
 async function fetchOpenAICompatModels(
-  backend: Extract<LocalBackendType, 'llamacpp' | 'lmstudio' | 'vllm'>,
+  backend: Extract<
+    LocalBackendType,
+    'browser' | 'llamacpp' | 'lmstudio' | 'vllm'
+  >,
   baseUrl: string,
   apiKey?: string,
   endpointName?: string,
@@ -409,6 +417,14 @@ async function discoverLlamacppModels(
   return fetchOpenAICompatModels('llamacpp', baseUrl, apiKey, endpointName);
 }
 
+async function discoverBrowserModels(
+  baseUrl = LOCAL_BROWSER_BASE_URL,
+  apiKey = LOCAL_BROWSER_API_KEY,
+  endpointName?: string,
+): Promise<LocalModelInfo[]> {
+  return fetchOpenAICompatModels('browser', baseUrl, apiKey, endpointName);
+}
+
 async function discoverEndpointModels(
   endpoint: LocalEndpointConfig,
 ): Promise<LocalModelInfo[]> {
@@ -438,6 +454,16 @@ async function discoverEndpointModels(
         endpoint.baseUrl,
         endpoint.name,
         endpoint.apiKey,
+      ),
+      endpoint.modelBehavior,
+    );
+  }
+  if (endpoint.type === 'browser') {
+    return applyModelBehavior(
+      await discoverBrowserModels(
+        endpoint.baseUrl,
+        endpoint.apiKey,
+        endpoint.name,
       ),
       endpoint.modelBehavior,
     );
@@ -594,6 +620,15 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
             discoverVllmModels(LOCAL_VLLM_BASE_URL, LOCAL_VLLM_API_KEY)
               .then((models) =>
                 applyModelBehavior(models, LOCAL_VLLM_MODEL_BEHAVIOR),
+              )
+              .catch(() => []),
+          );
+        }
+        if (LOCAL_BROWSER_ENABLED) {
+          tasks.push(
+            discoverBrowserModels(LOCAL_BROWSER_BASE_URL, LOCAL_BROWSER_API_KEY)
+              .then((models) =>
+                applyModelBehavior(models, LOCAL_BROWSER_MODEL_BEHAVIOR),
               )
               .catch(() => []),
           );

@@ -813,6 +813,10 @@ function printLocalProviderSetupHint(commandLabel: string): void {
   console.log(
     '  hybridclaw auth login local vllm --base-url http://127.0.0.1:8000 --api-key <key>',
   );
+  console.log('  hybridclaw local bridge LiquidAI/LFM2.5-230M-ONNX');
+  console.log(
+    '  hybridclaw auth login local browser --base-url http://127.0.0.1:8789',
+  );
   printInfo('Then browse models and choose one from the TUI:');
   console.log('  hybridclaw tui');
   console.log('  /model list local');

@@ -8,6 +8,7 @@ import {
 import type {
   ChatCompletionResponse,
   ChatMessage,
+  ChatMessageContent,
   ToolCall,
   ToolDefinition,
 } from '../types.js';
@@ -117,7 +118,8 @@ function isMistralCompatModel(
     provider !== 'mistral' &&
     provider !== 'vllm' &&
     provider !== 'lmstudio' &&
-    provider !== 'llamacpp'
+    provider !== 'llamacpp' &&
+    provider !== 'browser'
   ) {
     return false;
   }
@@ -169,7 +171,7 @@ function buildLiquidToolCallInstruction(tools: ToolDefinition[]): string {
     description: tool.function.description,
     parameters: tool.function.parameters,
   }));
-  return `List of tools: ${JSON.stringify(toolList)}`;
+  return `Use tools when needed. Liquid tool call format: <|tool_call_start|>[tools.<tool_name>(key=value)]<|tool_call_end|>. List of tools: ${JSON.stringify(toolList)}`;
 }
 
 function estimatePromptToolInstructionTokens(instruction: string): number {
@@ -177,12 +179,25 @@ function estimatePromptToolInstructionTokens(instruction: string): number {
   return Math.max(1, Math.ceil(instruction.length / 4) + 16);
 }
 
+const BROWSER_MODEL_SYSTEM_PROMPT =
+  'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed.';
+const BROWSER_MODEL_HISTORY_LIMIT = 6;
+const BROWSER_MODEL_TOTAL_PROMPT_CHARS = 12_000;
+const BROWSER_MODEL_MESSAGE_CHARS = 6_000;
+const BROWSER_MODEL_TOOL_LIMIT = 64;
+const BROWSER_MODEL_TOOL_TOTAL_CHARS = 20_000;
+const BROWSER_MODEL_TOOL_DESCRIPTION_CHARS = 500;
+const BROWSER_MODEL_TOOL_PROPERTY_LIMIT = 32;
+const BROWSER_MODEL_MAX_REQUEST_TOKENS = 256;
+const TRUNCATED_TEXT_SUFFIX = '\n\n[truncated]';
+
 export function estimateLocalOpenAICompatPromptOverheadTokens(args: {
   provider: string | undefined;
   model: string;
   tools?: ToolDefinition[];
   modelBehavior?: NormalizedCallArgs['modelBehavior'];
 }): number {
+  if (args.provider === 'browser') return 0;
   const tools = Array.isArray(args.tools) ? args.tools : [];
   if (tools.length === 0) return 0;
   if (usesLiquidCompat(args)) {
@@ -191,6 +206,208 @@ export function estimateLocalOpenAICompatPromptOverheadTokens(args: {
     );
   }
   return 0;
+}
+
+function contentToText(content: ChatMessageContent): string {
+  if (typeof content === 'string') return replaceUnpairedSurrogates(content);
+  if (!Array.isArray(content)) return '';
+  const chunks: string[] = [];
+  for (const part of content) {
+    if (part.type !== 'text' || !part.text) continue;
+    chunks.push(replaceUnpairedSurrogates(part.text));
+  }
+  return chunks.join('\n');
+}
+
+function truncateBrowserPromptText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  if (maxChars <= TRUNCATED_TEXT_SUFFIX.length) return text.slice(0, maxChars);
+  return `${text.slice(0, maxChars - TRUNCATED_TEXT_SUFFIX.length)}${TRUNCATED_TEXT_SUFFIX}`;
+}
+
+function truncateBrowserToolText(text: string, maxChars: number): string {
+  const normalized = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (normalized.length <= maxChars) return normalized;
+  if (maxChars <= 3) return normalized.slice(0, maxChars);
+  return `${normalized.slice(0, maxChars - 3)}...`;
+}
+
+function browserToolPriority(tool: ToolDefinition, index: number): number {
+  const name = tool.function.name.toLowerCase();
+  if (name === 'bash' || name === 'shell') return index - 10_000;
+  if (
+    name.includes('bash') ||
+    name.includes('shell') ||
+    name.includes('exec') ||
+    name.includes('terminal')
+  ) {
+    return index - 8_000;
+  }
+  if (
+    name.includes('read') ||
+    name.includes('write') ||
+    name.includes('edit') ||
+    name.includes('patch') ||
+    name.includes('file')
+  ) {
+    return index - 6_000;
+  }
+  if (
+    name.includes('web') ||
+    name.includes('browser') ||
+    name.includes('search') ||
+    name.includes('fetch')
+  ) {
+    return index - 4_000;
+  }
+  return index;
+}
+
+function compactBrowserToolParameters(
+  parameters: ToolDefinition['function']['parameters'],
+): ToolDefinition['function']['parameters'] {
+  const properties: ToolDefinition['function']['parameters']['properties'] = {};
+  const propertyNames = Object.keys(parameters.properties || {}).slice(
+    0,
+    BROWSER_MODEL_TOOL_PROPERTY_LIMIT,
+  );
+  for (const name of propertyNames) {
+    const property = parameters.properties[name];
+    if (!property) continue;
+    properties[name] = {
+      type: property.type,
+      ...(property.description
+        ? {
+            description: truncateBrowserToolText(
+              property.description,
+              BROWSER_MODEL_TOOL_DESCRIPTION_CHARS,
+            ),
+          }
+        : {}),
+    };
+  }
+  return {
+    type: 'object',
+    properties,
+    required: (parameters.required || []).filter((name) =>
+      Object.hasOwn(properties, name),
+    ),
+  };
+}
+
+function compactBrowserTool(tool: ToolDefinition): ToolDefinition | null {
+  const name = String(tool.function.name || '').trim();
+  if (!name) return null;
+  return {
+    type: 'function',
+    function: {
+      name,
+      description: truncateBrowserToolText(
+        tool.function.description,
+        BROWSER_MODEL_TOOL_DESCRIPTION_CHARS,
+      ),
+      parameters: compactBrowserToolParameters(tool.function.parameters),
+    },
+  };
+}
+
+function buildBrowserRequestTools(tools: ToolDefinition[]): ToolDefinition[] {
+  const compactTools = tools
+    .map((tool, index) => ({ index, tool: compactBrowserTool(tool) }))
+    .filter(
+      (entry): entry is { index: number; tool: ToolDefinition } =>
+        entry.tool !== null,
+    )
+    .sort(
+      (left, right) =>
+        browserToolPriority(left.tool, left.index) -
+        browserToolPriority(right.tool, right.index),
+    );
+
+  const selected: ToolDefinition[] = [];
+  let totalChars = 2;
+  for (const entry of compactTools) {
+    if (selected.length >= BROWSER_MODEL_TOOL_LIMIT) break;
+    const serialized = JSON.stringify(entry.tool);
+    if (
+      selected.length > 0 &&
+      totalChars + serialized.length > BROWSER_MODEL_TOOL_TOTAL_CHARS
+    ) {
+      break;
+    }
+    selected.push(entry.tool);
+    totalChars += serialized.length + 1;
+  }
+  return selected;
+}
+
+function normalizeBrowserRequestRole(
+  role: ChatMessage['role'],
+): 'user' | 'assistant' | 'tool' | null {
+  if (role === 'user' || role === 'assistant' || role === 'tool') return role;
+  return null;
+}
+
+function normalizeBrowserToolCalls(
+  toolCalls: ChatMessage['tool_calls'],
+): ToolCall[] {
+  if (!Array.isArray(toolCalls)) return [];
+  return toolCalls
+    .map((toolCall) => ({
+      id: String(toolCall.id || ''),
+      type: 'function' as const,
+      function: {
+        name: String(toolCall.function?.name || ''),
+        arguments: String(toolCall.function?.arguments || '{}'),
+      },
+    }))
+    .filter((toolCall) => toolCall.function.name);
+}
+
+function buildBrowserRequestMessages(
+  messages: ChatMessage[],
+  model: string,
+): Array<Record<string, unknown>> {
+  const selected: Array<Record<string, unknown>> = [];
+  let remainingChars = BROWSER_MODEL_TOTAL_PROMPT_CHARS;
+
+  for (
+    let index = messages.length - 1;
+    index >= 0 && selected.length < BROWSER_MODEL_HISTORY_LIMIT;
+    index -= 1
+  ) {
+    const message = messages[index];
+    if (!message) continue;
+    const role = normalizeBrowserRequestRole(message.role);
+    if (!role) continue;
+    const text = contentToText(message.content).trim();
+    const toolCalls =
+      role === 'assistant' ? normalizeBrowserToolCalls(message.tool_calls) : [];
+    if (!text && toolCalls.length === 0) continue;
+    const maxChars = Math.min(BROWSER_MODEL_MESSAGE_CHARS, remainingChars);
+    if (maxChars <= 0) break;
+    const content = truncateBrowserPromptText(text, maxChars);
+    selected.push({
+      role,
+      content,
+      ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+      ...(role === 'tool' && message.tool_call_id
+        ? { tool_call_id: message.tool_call_id }
+        : {}),
+    });
+    remainingChars -= content.length;
+  }
+
+  selected.reverse();
+  return [
+    {
+      role: 'system',
+      content: BROWSER_MODEL_SYSTEM_PROMPT,
+    },
+    ...selected,
+  ];
 }
 
 function normalizeMessageContent(
@@ -309,6 +526,9 @@ function sanitizeMistralToolCallIds(
 function buildRequestMessages(
   args: NormalizedCallArgs,
 ): Array<Record<string, unknown>> {
+  if (args.provider === 'browser') {
+    return buildBrowserRequestMessages(args.messages, args.model);
+  }
   let messages = usesQwenCompat(args)
     ? buildQwenRequestMessages(args.messages)
     : collapseSystemMessages(args.messages).map((message) => ({
@@ -334,12 +554,16 @@ function buildRequestMessages(
 }
 
 function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
+  const tools =
+    args.provider === 'browser'
+      ? buildBrowserRequestTools(args.tools)
+      : args.tools;
   const request: Record<string, unknown> = {
     model: normalizeLocalModelName(args.provider, args.model),
     messages: buildRequestMessages(args),
   };
-  if (args.tools.length > 0) {
-    request.tools = args.tools;
+  if (tools.length > 0) {
+    request.tools = tools;
     request.tool_choice = 'auto';
   }
   if (
@@ -347,7 +571,13 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
     Number.isFinite(args.maxTokens) &&
     args.maxTokens > 0
   ) {
-    request.max_tokens = Math.floor(args.maxTokens);
+    request.max_tokens =
+      args.provider === 'browser'
+        ? Math.min(Math.floor(args.maxTokens), BROWSER_MODEL_MAX_REQUEST_TOKENS)
+        : Math.floor(args.maxTokens);
+  }
+  if (args.provider === 'browser' && args.debugModelResponses) {
+    request.hybridclaw_debug_model_responses = true;
   }
   return request;
 }
@@ -561,12 +791,21 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
   push: (delta: string) => void;
   close: () => void;
 } {
-  const startMarkers = ['<tool_call>', '<tool>', '[tool_call]', '<function='];
+  const startMarkers = [
+    '<tool_call>',
+    '<tool>',
+    '[tool_call]',
+    '<function=',
+    '<|tool_call_start|>',
+    'call:',
+  ];
   const endMarkerByStartMarker = new Map([
     ['<tool_call>', '</tool_call>'],
     ['<tool>', '</tool>'],
     ['[tool_call]', '[/tool_call]'],
     ['<function=', '</function>'],
+    ['<|tool_call_start|>', '<|tool_call_end|>'],
+    ['call:', '}'],
   ]);
   let buffer = '';
   let insideToolMarkup = false;
@@ -603,7 +842,14 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
   };
 
   const stripTrailingPartialToolMarker = (text: string): string =>
-    text.replace(/(?:<|<\/|<tool|<tool_|<tool_call|<function=?)$/i, '');
+    text
+      .replace(
+        /(?:<|<\/|<tool|<tool_|<tool_call|<function=?|<\|?|<\|tool|<\|tool_call|<\|tool_call_start)$/i,
+        '',
+      )
+      .replace(/(?:^|[\s#])call:?$/i, (match) =>
+        match.startsWith(' ') ? ' ' : '',
+      );
 
   const emit = (text: string): void => {
     if (text) onTextDelta(text);
@@ -796,18 +1042,20 @@ export async function callLocalOpenAICompatProviderStream(
     model: args.model,
     modelBehavior: args.modelBehavior,
   });
-  const shouldFilterQwenMarkup =
+  const shouldFilterToolMarkup =
     args.modelBehavior?.thinkingFormat === 'qwen' ||
     args.thinkingFormat === 'qwen' ||
     normalizationOptions.parser === 'qwen' ||
-    normalizationOptions.parser === 'qwen3_coder';
+    normalizationOptions.parser === 'qwen3_coder' ||
+    normalizationOptions.parser === 'hermes' ||
+    normalizationOptions.parser === 'liquid';
   const streamEmitter = createThinkingStreamEmitter(args.onTextDelta, {
     onThinkingDelta: args.onThinkingDelta,
   });
-  const visibleToolFilter = shouldFilterQwenMarkup
+  const visibleToolFilter = shouldFilterToolMarkup
     ? createToolMarkupStreamFilter((delta) => streamEmitter.pushVisible(delta))
     : null;
-  const reasoningToolFilter = shouldFilterQwenMarkup
+  const reasoningToolFilter = shouldFilterToolMarkup
     ? createToolMarkupStreamFilter((delta) => streamEmitter.pushThinking(delta))
     : null;
   const flushReasoningPreview = (): void => {

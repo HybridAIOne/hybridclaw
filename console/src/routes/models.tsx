@@ -1,9 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { fetchModels, saveModels } from '../api/client';
+import {
+  fetchBrowserModelBridge,
+  fetchModels,
+  saveModels,
+  startBrowserModelBridge,
+  stopBrowserModelBridge,
+} from '../api/client';
 import { useAuth } from '../auth';
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -28,13 +35,40 @@ interface ModelDraft {
   defaultModel: string;
 }
 
+interface BrowserBridgeDraft {
+  model: string;
+  host: string;
+  port: string;
+  device: string;
+  dtype: string;
+  maxNewTokens: string;
+  apiKey: string;
+  setDefault: boolean;
+}
+
 type ModelEntry = Awaited<ReturnType<typeof fetchModels>>['models'][number];
+type CatalogScope = 'active' | 'all';
 type ModelWithDailyUsage = ModelEntry & {
   usageDaily: NonNullable<ModelEntry['usageDaily']>;
 };
 
 function hasDailyUsage(model: ModelEntry): model is ModelWithDailyUsage {
   return model.usageDaily !== null;
+}
+
+function hasUsageSummary(summary: ModelEntry['usageMonthly']): boolean {
+  return (
+    (summary?.totalTokens ?? 0) > 0 ||
+    (summary?.callCount ?? 0) > 0 ||
+    (summary?.totalToolCalls ?? 0) > 0 ||
+    (summary?.totalCostUsd ?? 0) > 0
+  );
+}
+
+function hasRecordedModelUsage(model: ModelEntry): boolean {
+  return (
+    hasUsageSummary(model.usageMonthly) || hasUsageSummary(model.usageDaily)
+  );
 }
 
 function compareModelsByUsage(left: ModelEntry, right: ModelEntry): number {
@@ -68,6 +102,7 @@ const PROVIDER_DISPLAY_ORDER = [
   'lmstudio',
   'llamacpp',
   'vllm',
+  'browser',
 ] as const;
 
 function inferProviderName(
@@ -131,12 +166,188 @@ const MODEL_DEFAULT_DIRECTIONS = {
   monthlyUsage: 'desc',
 } as const;
 
+const DEFAULT_BROWSER_BRIDGE_DRAFT: BrowserBridgeDraft = {
+  model: 'LiquidAI/LFM2.5-230M-ONNX',
+  host: '127.0.0.1',
+  port: '8789',
+  device: 'webgpu',
+  dtype: 'q4',
+  maxNewTokens: '256',
+  apiKey: '',
+  setDefault: true,
+};
+
+const LFM_WEBGPU_QUANTIZATIONS = ['q4', 'fp16'] as const;
+
+const BROWSER_BRIDGE_MODEL_PRESETS = [
+  {
+    id: 'LiquidAI/LFM2.5-230M-ONNX',
+    label: 'LFM 2.5 230M',
+    quantizations: LFM_WEBGPU_QUANTIZATIONS,
+  },
+  {
+    id: 'LiquidAI/LFM2.5-350M-ONNX',
+    label: 'LFM 2.5 350M',
+    quantizations: LFM_WEBGPU_QUANTIZATIONS,
+  },
+  {
+    id: 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
+    label: 'LFM 2.5 1.2B Instruct',
+    quantizations: LFM_WEBGPU_QUANTIZATIONS,
+  },
+  {
+    id: 'LiquidAI/LFM2.5-1.2B-Thinking-ONNX',
+    label: 'LFM 2.5 1.2B Thinking',
+    quantizations: LFM_WEBGPU_QUANTIZATIONS,
+  },
+  {
+    id: 'LiquidAI/LFM2.5-8B-A1B-ONNX',
+    label: 'LFM 2.5 8B A1B',
+    quantizations: LFM_WEBGPU_QUANTIZATIONS,
+  },
+  {
+    id: 'LiquidAI/LFM2.5-VL-1.6B-ONNX',
+    label: 'LFM 2.5 VL 1.6B',
+    quantizations: LFM_WEBGPU_QUANTIZATIONS,
+  },
+  {
+    id: 'onnx-community/gemma-3-270m-it-ONNX',
+    label: 'Gemma 3 270M Instruct',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'onnx-community/gemma-3-1b-it-ONNX',
+    label: 'Gemma 3 1B Instruct',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'onnx-community/gemma-4-E2B-it-ONNX',
+    label: 'Gemma 4 E2B Instruct',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'onnx-community/gemma-4-E4B-it-ONNX',
+    label: 'Gemma 4 E4B Instruct',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'huggingworld/Qwen3.5-0.8B-ONNX',
+    label: 'Qwen 3.5 0.8B',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'huggingworld/Qwen3.5-2B-ONNX',
+    label: 'Qwen 3.5 2B',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'huggingworld/Qwen3.5-4B-ONNX',
+    label: 'Qwen 3.5 4B',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'onnx-community/Phi-4-mini-instruct-ONNX',
+    label: 'Phi-4 Mini Instruct',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'mistralai/Ministral-3-3B-Instruct-2512-ONNX',
+    label: 'Ministral 3 3B Instruct',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+] as const;
+
 function createDraft(
   payload?: Awaited<ReturnType<typeof fetchModels>>,
 ): ModelDraft {
   return {
     defaultModel: payload?.defaultModel || '',
   };
+}
+
+function normalizeBrowserBridgeModelId(model: string): string {
+  const trimmed = model.trim();
+  return (
+    trimmed.toLowerCase().startsWith('browser/')
+      ? trimmed.slice('browser/'.length)
+      : trimmed
+  ).toLowerCase();
+}
+
+function findBrowserBridgeModelPreset(model: string) {
+  const modelId = normalizeBrowserBridgeModelId(model);
+  return BROWSER_BRIDGE_MODEL_PRESETS.find(
+    (preset) => normalizeBrowserBridgeModelId(preset.id) === modelId,
+  );
+}
+
+function resolveBrowserBridgeModel(model: string): string {
+  const preset = findBrowserBridgeModelPreset(model);
+  return preset?.id || DEFAULT_BROWSER_BRIDGE_DRAFT.model;
+}
+
+function getBrowserBridgeQuantizations(
+  model: string,
+  currentDtype?: string,
+): readonly string[] {
+  const preset = findBrowserBridgeModelPreset(
+    model || DEFAULT_BROWSER_BRIDGE_DRAFT.model,
+  );
+  if (preset) return preset.quantizations;
+  const current = String(currentDtype || '').trim();
+  return [current || DEFAULT_BROWSER_BRIDGE_DRAFT.dtype];
+}
+
+function resolveBrowserBridgeDtype(model: string, dtype: string): string {
+  const quantizations = getBrowserBridgeQuantizations(model, dtype);
+  const normalized = dtype.trim();
+  return quantizations.includes(normalized)
+    ? normalized
+    : quantizations[0] || DEFAULT_BROWSER_BRIDGE_DRAFT.dtype;
+}
+
+function createBrowserBridgeDraft(
+  payload?: Awaited<ReturnType<typeof fetchBrowserModelBridge>>,
+  current?: BrowserBridgeDraft,
+): BrowserBridgeDraft {
+  const bridge = payload?.bridge;
+  const runningBridge = bridge?.running ? bridge : null;
+  const model = resolveBrowserBridgeModel(
+    bridge?.model || current?.model || DEFAULT_BROWSER_BRIDGE_DRAFT.model,
+  );
+  const draft = {
+    ...DEFAULT_BROWSER_BRIDGE_DRAFT,
+    ...current,
+    model,
+    host: bridge?.host || current?.host || DEFAULT_BROWSER_BRIDGE_DRAFT.host,
+    port: String(
+      bridge?.port ?? current?.port ?? DEFAULT_BROWSER_BRIDGE_DRAFT.port,
+    ),
+    device:
+      runningBridge?.device ||
+      current?.device ||
+      DEFAULT_BROWSER_BRIDGE_DRAFT.device,
+    dtype:
+      runningBridge?.dtype ||
+      current?.dtype ||
+      DEFAULT_BROWSER_BRIDGE_DRAFT.dtype,
+    maxNewTokens: String(
+      runningBridge?.maxNewTokens ??
+        current?.maxNewTokens ??
+        DEFAULT_BROWSER_BRIDGE_DRAFT.maxNewTokens,
+    ),
+    setDefault: current?.setDefault ?? true,
+  };
+  return {
+    ...draft,
+    dtype: resolveBrowserBridgeDtype(draft.model, draft.dtype),
+  };
+}
+
+function parseBridgeInteger(value: string, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return fallback;
+  return parsed;
 }
 
 function formatModelMetadata(model: ModelEntry): string {
@@ -154,11 +365,21 @@ export function ModelsPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [filter, setFilter] = useState('');
+  const [catalogScope, setCatalogScope] = useState<CatalogScope>('active');
   const [draft, setDraft] = useState<ModelDraft>(createDraft());
+  const [bridgeDraft, setBridgeDraft] = useState<BrowserBridgeDraft>(
+    createBrowserBridgeDraft(),
+  );
+  const [bridgeDraftInitialized, setBridgeDraftInitialized] = useState(false);
 
   const modelsQuery = useQuery({
     queryKey: ['models', auth.token],
     queryFn: () => fetchModels(auth.token),
+  });
+
+  const bridgeQuery = useQuery({
+    queryKey: ['browser-model-bridge', auth.token],
+    queryFn: () => fetchBrowserModelBridge(auth.token),
   });
 
   const saveMutation = useMutation({
@@ -177,6 +398,58 @@ export function ModelsPage() {
     },
   });
 
+  const startBridgeMutation = useMutation({
+    mutationFn: () => {
+      const apiKey = bridgeDraft.apiKey.trim();
+      const model = resolveBrowserBridgeModel(bridgeDraft.model);
+      return startBrowserModelBridge(auth.token, {
+        model,
+        host: bridgeDraft.host.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.host,
+        port: parseBridgeInteger(
+          bridgeDraft.port,
+          Number(DEFAULT_BROWSER_BRIDGE_DRAFT.port),
+        ),
+        device:
+          bridgeDraft.device.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.device,
+        dtype: resolveBrowserBridgeDtype(model, bridgeDraft.dtype),
+        maxNewTokens: parseBridgeInteger(
+          bridgeDraft.maxNewTokens,
+          Number(DEFAULT_BROWSER_BRIDGE_DRAFT.maxNewTokens),
+        ),
+        setDefault: bridgeDraft.setDefault,
+        ...(apiKey ? { apiKey } : {}),
+      });
+    },
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['browser-model-bridge', auth.token], payload);
+      queryClient.setQueryData(['models', auth.token], payload.models);
+      setDraft(createDraft(payload.models));
+      setBridgeDraft((current) => createBrowserBridgeDraft(payload, current));
+      setBridgeDraftInitialized(true);
+      void queryClient.invalidateQueries({ queryKey: ['overview'] });
+      window.open(payload.bridge.pageUrl, '_blank', 'noopener,noreferrer');
+      toast.success('Browser bridge started.', payload.bridge.pageUrl);
+    },
+    onError: (error) => {
+      toast.error('Bridge start failed', getErrorMessage(error));
+    },
+  });
+
+  const stopBridgeMutation = useMutation({
+    mutationFn: () => stopBrowserModelBridge(auth.token),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['browser-model-bridge', auth.token], payload);
+      queryClient.setQueryData(['models', auth.token], payload.models);
+      setBridgeDraft((current) => createBrowserBridgeDraft(payload, current));
+      setBridgeDraftInitialized(true);
+      void queryClient.invalidateQueries({ queryKey: ['overview'] });
+      toast.success('Browser bridge stopped.');
+    },
+    onError: (error) => {
+      toast.error('Bridge stop failed', getErrorMessage(error));
+    },
+  });
+
   useEffect(() => {
     if (!modelsQuery.data) return;
     setDraft((current) =>
@@ -184,7 +457,20 @@ export function ModelsPage() {
     );
   }, [modelsQuery.data]);
 
-  const filteredModels = (modelsQuery.data?.models || []).filter((model) => {
+  useEffect(() => {
+    if (!bridgeQuery.data || bridgeDraftInitialized) return;
+    setBridgeDraft((current) =>
+      createBrowserBridgeDraft(bridgeQuery.data, current),
+    );
+    setBridgeDraftInitialized(true);
+  }, [bridgeDraftInitialized, bridgeQuery.data]);
+
+  const allCatalogModels = modelsQuery.data?.models || [];
+  const scopedCatalogModels =
+    catalogScope === 'active'
+      ? allCatalogModels.filter(hasRecordedModelUsage)
+      : allCatalogModels;
+  const filteredModels = scopedCatalogModels.filter((model) => {
     const haystack = [
       model.id,
       model.backend || '',
@@ -211,6 +497,27 @@ export function ModelsPage() {
   const providerEntries = buildProviderSummaries(modelsQuery.data);
   const modelsWithDailyUsage = (modelsQuery.data?.models || []).filter(
     hasDailyUsage,
+  );
+  const activeModelCount = allCatalogModels.filter(
+    hasRecordedModelUsage,
+  ).length;
+  const bridgeStatus = bridgeQuery.data?.bridge;
+  const bridgeConfiguredModel =
+    bridgeStatus?.running && bridgeStatus.configuredModel
+      ? bridgeStatus.configuredModel
+      : `browser/${resolveBrowserBridgeModel(bridgeDraft.model)}`;
+  const bridgePageUrl =
+    bridgeStatus?.pageUrl ||
+    `http://${bridgeDraft.host || DEFAULT_BROWSER_BRIDGE_DRAFT.host}:${
+      bridgeDraft.port || DEFAULT_BROWSER_BRIDGE_DRAFT.port
+    }/`;
+  const bridgeQuantizations = getBrowserBridgeQuantizations(
+    bridgeDraft.model,
+    bridgeDraft.dtype,
+  );
+  const bridgeDtype = resolveBrowserBridgeDtype(
+    bridgeDraft.model,
+    bridgeDraft.dtype,
   );
 
   return (
@@ -329,10 +636,254 @@ export function ModelsPage() {
 
       <Card>
         <CardHeader>
+          <CardTitle>Browser model bridge</CardTitle>
+          <CardDescription>
+            {bridgeStatus?.running
+              ? `Serving ${bridgeConfiguredModel}`
+              : 'Stopped'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {bridgeQuery.isLoading ? (
+            <div className="empty-state">Loading browser bridge...</div>
+          ) : (
+            <div className="stack-form">
+              <div className="two-column-grid">
+                <Field>
+                  <FieldLabel>Model</FieldLabel>
+                  <NativeSelect
+                    value={resolveBrowserBridgeModel(bridgeDraft.model)}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => {
+                        const model = event.target.value;
+                        return {
+                          ...current,
+                          model,
+                          dtype: resolveBrowserBridgeDtype(
+                            model,
+                            current.dtype,
+                          ),
+                        };
+                      })
+                    }
+                  >
+                    {BROWSER_BRIDGE_MODEL_PRESETS.map((preset) => (
+                      <NativeSelectOption key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel>Host</FieldLabel>
+                  <Input
+                    value={bridgeDraft.host}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => ({
+                        ...current,
+                        host: event.target.value,
+                      }))
+                    }
+                    placeholder="127.0.0.1"
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>Port</FieldLabel>
+                  <Input
+                    inputMode="numeric"
+                    value={bridgeDraft.port}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => ({
+                        ...current,
+                        port: event.target.value,
+                      }))
+                    }
+                    placeholder="8789"
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>Device</FieldLabel>
+                  <NativeSelect
+                    value={bridgeDraft.device}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => ({
+                        ...current,
+                        device: event.target.value,
+                      }))
+                    }
+                  >
+                    <NativeSelectOption value="webgpu">
+                      webgpu
+                    </NativeSelectOption>
+                    <NativeSelectOption value="wasm">wasm</NativeSelectOption>
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel>Quantization</FieldLabel>
+                  <NativeSelect
+                    value={bridgeDtype}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => ({
+                        ...current,
+                        dtype: event.target.value,
+                      }))
+                    }
+                  >
+                    {bridgeQuantizations.map((quantization) => (
+                      <NativeSelectOption
+                        key={quantization}
+                        value={quantization}
+                      >
+                        {quantization}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel>Max new tokens</FieldLabel>
+                  <Input
+                    inputMode="numeric"
+                    value={bridgeDraft.maxNewTokens}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => ({
+                        ...current,
+                        maxNewTokens: event.target.value,
+                      }))
+                    }
+                    placeholder="1024"
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>API key</FieldLabel>
+                  <Input
+                    type="password"
+                    value={bridgeDraft.apiKey}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => ({
+                        ...current,
+                        apiKey: event.target.value,
+                      }))
+                    }
+                    placeholder="optional"
+                  />
+                </Field>
+              </div>
+
+              <label className="inline-checkbox">
+                <input
+                  type="checkbox"
+                  checked={bridgeDraft.setDefault}
+                  onChange={(event) =>
+                    setBridgeDraft((current) => ({
+                      ...current,
+                      setDefault: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Set as default model</span>
+              </label>
+
+              <div className="info-row">
+                <div>
+                  <strong>
+                    {bridgeStatus?.running ? 'Running' : 'Not running'}
+                  </strong>
+                  <small>
+                    {bridgeStatus?.running
+                      ? bridgeStatus.endpointUrl
+                      : bridgeConfiguredModel}
+                  </small>
+                  {bridgeStatus?.running ? (
+                    <small>Keep the opened browser tab active.</small>
+                  ) : null}
+                  {bridgeQuery.isError ? (
+                    <small className="row-status-note-danger">
+                      {getErrorMessage(bridgeQuery.error)}
+                    </small>
+                  ) : null}
+                </div>
+                <span
+                  className={
+                    bridgeStatus?.running
+                      ? 'list-status list-status-success'
+                      : 'list-status'
+                  }
+                >
+                  <span
+                    className={
+                      bridgeStatus?.running
+                        ? 'status-dot status-dot-success'
+                        : 'status-dot'
+                    }
+                  />
+                  {bridgeStatus?.running ? 'running' : 'stopped'}
+                </span>
+              </div>
+
+              <div className="button-row">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={
+                    startBridgeMutation.isPending || !bridgeDraft.model.trim()
+                  }
+                  onClick={() => startBridgeMutation.mutate()}
+                >
+                  {startBridgeMutation.isPending
+                    ? 'Starting...'
+                    : 'Start bridge'}
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={
+                    !bridgeStatus?.running || stopBridgeMutation.isPending
+                  }
+                  onClick={() => stopBridgeMutation.mutate()}
+                >
+                  {stopBridgeMutation.isPending ? 'Stopping...' : 'Stop'}
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={!bridgeStatus?.running}
+                  onClick={() =>
+                    window.open(bridgePageUrl, '_blank', 'noopener,noreferrer')
+                  }
+                >
+                  Open tab
+                </button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Catalog</CardTitle>
           <CardDescription>
             {`${pluralize(models.length, 'model')} visible`}
           </CardDescription>
+          <CardAction>
+            <Field>
+              <FieldLabel>Catalog view</FieldLabel>
+              <NativeSelect
+                size="sm"
+                value={catalogScope}
+                onChange={(event) =>
+                  setCatalogScope(event.target.value as CatalogScope)
+                }
+              >
+                <NativeSelectOption value="active">
+                  {`Active (${activeModelCount})`}
+                </NativeSelectOption>
+                <NativeSelectOption value="all">
+                  {`All (${allCatalogModels.length})`}
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          </CardAction>
         </CardHeader>
         <CardContent>
           {modelsQuery.isLoading ? (
@@ -414,7 +965,9 @@ export function ModelsPage() {
                     <tr>
                       <td colSpan={4}>
                         <div className="empty-state">
-                          No models match this filter.
+                          {catalogScope === 'active'
+                            ? 'No active models match this filter.'
+                            : 'No models match this filter.'}
                         </div>
                       </td>
                     </tr>

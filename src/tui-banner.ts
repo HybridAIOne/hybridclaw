@@ -260,6 +260,8 @@ function resolveProviderLabel(model: string): string {
       return 'llama.cpp';
     case 'vllm':
       return 'vLLM';
+    case 'browser':
+      return 'Browser bridge';
     default:
       return 'HybridAI';
   }

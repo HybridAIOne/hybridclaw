@@ -1,4 +1,7 @@
 import {
+  LOCAL_BROWSER_API_KEY,
+  LOCAL_BROWSER_BASE_URL,
+  LOCAL_BROWSER_ENABLED,
   LOCAL_ENDPOINTS,
   LOCAL_HEALTH_CHECK_ENABLED,
   LOCAL_HEALTH_CHECK_TIMEOUT_MS,
@@ -29,6 +32,7 @@ function hasEnabledLocalBackend(): boolean {
     LOCAL_LMSTUDIO_ENABLED ||
     LOCAL_LLAMACPP_ENABLED ||
     LOCAL_VLLM_ENABLED ||
+    LOCAL_BROWSER_ENABLED ||
     LOCAL_ENDPOINTS.some((endpoint) => endpoint.enabled)
   );
 }
@@ -188,6 +192,16 @@ export async function checkAllBackends(): Promise<
         LOCAL_VLLM_BASE_URL,
         LOCAL_HEALTH_CHECK_TIMEOUT_MS,
         LOCAL_VLLM_API_KEY,
+      ),
+    );
+  }
+  if (LOCAL_BROWSER_ENABLED) {
+    tasks.push(
+      checkConnection(
+        'browser',
+        LOCAL_BROWSER_BASE_URL,
+        LOCAL_HEALTH_CHECK_TIMEOUT_MS,
+        LOCAL_BROWSER_API_KEY,
       ),
     );
   }

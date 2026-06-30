@@ -47,6 +47,7 @@ export interface LocalProviderConfig {
     lmstudio: LocalBackendConfig;
     llamacpp: LocalBackendConfig;
     vllm: LocalBackendConfig;
+    browser: LocalBackendConfig;
   };
   endpoints: LocalEndpointConfig[];
   discovery: {

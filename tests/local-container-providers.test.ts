@@ -992,6 +992,291 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBe('ok');
   });
 
+  test('browser provider keeps compact prompts and emits tool calls', async () => {
+    expect(
+      estimateLocalOpenAICompatPromptOverheadTokens({
+        provider: 'browser',
+        model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+        tools,
+      }),
+    ).toBe(0);
+
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      const messages = body.messages as Array<Record<string, unknown>>;
+      expect(body.model).toBe('LiquidAI/LFM2.5-230M-ONNX');
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
+      expect(body.hybridclaw_debug_model_responses).toBe(true);
+      expect(messages).toEqual([
+        {
+          role: 'system',
+          content:
+            'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed.',
+        },
+        { role: 'user', content: 'old question' },
+        {
+          role: 'assistant',
+          content: 'old answer',
+          tool_calls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'shell', arguments: '{}' },
+            },
+          ],
+        },
+        { role: 'tool', content: 'tool result', tool_call_id: 'call_1' },
+        { role: 'user', content: 'hello' },
+      ]);
+      expect(JSON.stringify(messages)).not.toContain('Full HybridClaw prompt');
+      expect(JSON.stringify(messages)).not.toContain('List of tools:');
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'LiquidAI/LFM2.5-230M-ONNX',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content:
+                  'Working <|tool_call_start|>[tools.shell(command="ls -la")]<|tool_call_end|>',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callLocalOpenAICompatProvider({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: [
+        { role: 'system', content: 'Full HybridClaw prompt' },
+        { role: 'user', content: 'old question' },
+        {
+          role: 'assistant',
+          content: 'old answer',
+          tool_calls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'shell', arguments: '{}' },
+            },
+          ],
+        },
+        { role: 'tool', content: 'tool result', tool_call_id: 'call_1' },
+        { role: 'user', content: 'hello' },
+      ],
+      tools,
+      maxTokens: 128,
+      debugModelResponses: true,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(result.choices[0]?.message.content).toBe('Working');
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: '',
+        type: 'function',
+        function: {
+          name: 'shell',
+          arguments: '{"command":"ls -la"}',
+        },
+      },
+    ]);
+    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
+  test('browser provider compacts large tool catalogs before sending to bridge', async () => {
+    const largeTools: ToolDefinition[] = Array.from(
+      { length: 80 },
+      (_, index) => ({
+        type: 'function',
+        function: {
+          name: index === 40 ? 'bash' : `tool_${index}`,
+          description: `Tool ${index} ${'with a long description '.repeat(20)}`,
+          parameters: {
+            type: 'object',
+            properties: Object.fromEntries(
+              Array.from({ length: 24 }, (_unused, propertyIndex) => [
+                `param_${propertyIndex}`,
+                {
+                  type: 'string',
+                  description: `Parameter ${propertyIndex} ${'details '.repeat(20)}`,
+                },
+              ]),
+            ),
+            required: ['param_0', 'param_1'],
+          },
+        },
+      }),
+    );
+
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      const sentTools = body.tools as ToolDefinition[];
+      expect(body.max_tokens).toBe(256);
+      expect(sentTools.length).toBeLessThanOrEqual(64);
+      expect(JSON.stringify(sentTools).length).toBeLessThanOrEqual(20_500);
+      expect(sentTools[0]?.function.name).toBe('bash');
+      expect(
+        Object.keys(sentTools[0]?.function.parameters.properties || {}),
+      ).toHaveLength(24);
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'LiquidAI/LFM2.5-230M-ONNX',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'ok',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callLocalOpenAICompatProvider({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools: largeTools,
+      maxTokens: 1024,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(result.choices[0]?.message.content).toBe('ok');
+  });
+
+  test('browser provider stream filters Liquid tool markup from visible deltas', async () => {
+    const deltas: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.tools).toEqual(tools);
+        expect(body.tool_choice).toBe('auto');
+        return makeEventStreamResponse([
+          'data: {"id":"resp_1","model":"LiquidAI/LFM2.5-230M-ONNX","choices":[{"delta":{"content":"Thinking <|tool_call_start|>[tools."}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"shell(command=\\"pwd\\")]<|tool_call_end|>"}}]}\n\n',
+          'data: {"choices":[{"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]);
+      }),
+    );
+
+    const result = await callLocalOpenAICompatProviderStream({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools,
+      onTextDelta: (delta) => deltas.push(delta),
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(deltas).toEqual(['Thinking ']);
+    expect(result.choices[0]?.message.content).toBe('Thinking');
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: '',
+        type: 'function',
+        function: {
+          name: 'shell',
+          arguments: '{"command":"pwd"}',
+        },
+      },
+    ]);
+    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
+  test('browser provider stream filters compact call-style tool markup', async () => {
+    const deltas: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.tools).toEqual(tools);
+        expect(body.tool_choice).toBe('auto');
+        return makeEventStreamResponse([
+          'data: {"id":"resp_1","model":"LiquidAI/LFM2.5-230M-ONNX","choices":[{"delta":{"content":"Checking call:shell{command:"}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"ls -la}"}}]}\n\n',
+          'data: {"choices":[{"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]);
+      }),
+    );
+
+    const result = await callLocalOpenAICompatProviderStream({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools,
+      onTextDelta: (delta) => deltas.push(delta),
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(deltas).toEqual(['Checking ']);
+    expect(result.choices[0]?.message.content).toBe('Checking');
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: '',
+        type: 'function',
+        function: {
+          name: 'shell',
+          arguments: '{"command":"ls -la"}',
+        },
+      },
+    ]);
+    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
   test('OpenAI-compatible stream preserves think blocks and normalizes tool calls', async () => {
     const deltas: string[] = [];
     vi.stubGlobal(

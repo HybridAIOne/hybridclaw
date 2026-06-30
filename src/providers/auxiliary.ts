@@ -73,6 +73,7 @@ const LOCAL_AUXILIARY_FALLBACK_ORDER: RuntimeProvider[] = [
   'lmstudio',
   'llamacpp',
   'ollama',
+  'browser',
 ];
 const FALLBACK_PROVIDER_STATUS_TTL_MS = 30_000;
 
