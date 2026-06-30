@@ -196,6 +196,7 @@ import {
   runtimeConfigPath,
   saveRuntimeConfig,
   setRuntimeConfigDiscordWebhookSecretInput,
+  setRuntimeConfigSecretInput,
   setRuntimeConfigSlackWebhookSecretInput,
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
@@ -330,6 +331,16 @@ import {
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
+import {
+  DEFAULT_BROWSER_MODEL_BRIDGE_DEVICE,
+  DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE,
+  DEFAULT_BROWSER_MODEL_BRIDGE_HOST,
+  DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS,
+  DEFAULT_BROWSER_MODEL_BRIDGE_MODEL,
+  DEFAULT_BROWSER_MODEL_BRIDGE_PORT,
+  type BrowserModelBridgeHandle,
+  startBrowserModelBridge,
+} from '../providers/browser-model-bridge.js';
 import { getLocalModelInfo } from '../providers/local-discovery.js';
 import {
   discoverMistralModels,
@@ -569,6 +580,9 @@ import {
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
+  type GatewayBrowserModelBridgeResponse,
+  type GatewayBrowserModelBridgeStartRequest,
+  type GatewayBrowserModelBridgeStatus,
   type GatewayAdminOverview,
   type GatewayAdminPendingApproval,
   type GatewayAdminPolicyPresetSummary,
@@ -2870,7 +2884,8 @@ function isLocalModelProvider(model: string | null | undefined): boolean {
     provider === 'ollama' ||
     provider === 'lmstudio' ||
     provider === 'llamacpp' ||
-    provider === 'vllm'
+    provider === 'vllm' ||
+    provider === 'browser'
   );
 }
 
@@ -3533,8 +3548,10 @@ function buildLocalAuthStatusLines(): string[] {
     lines.push(
       `${backend}: ${settings.enabled ? 'enabled' : 'disabled'} (${settings.baseUrl})`,
     );
-    if (backend === 'vllm') {
-      lines.push(`vllm api key: ${settings.apiKey ? 'configured' : 'not set'}`);
+    if (backend === 'vllm' || backend === 'browser') {
+      lines.push(
+        `${backend} api key: ${settings.apiKey ? 'configured' : 'not set'}`,
+      );
     }
   }
   return lines;
@@ -6844,7 +6861,13 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     number
   >();
   const localProviderHints = new Map<string, GatewayModelProviderKey>();
-  for (const provider of ['ollama', 'lmstudio', 'llamacpp', 'vllm'] as const) {
+  for (const provider of [
+    'ollama',
+    'lmstudio',
+    'llamacpp',
+    'vllm',
+    'browser',
+  ] as const) {
     for (const modelId of getAvailableModelList(provider)) {
       if (!localProviderHints.has(modelId)) {
         localProviderHints.set(modelId, provider);
@@ -6948,6 +6971,194 @@ export async function saveGatewayAdminModels(input: {
   });
 
   return getGatewayAdminModels();
+}
+
+let browserModelBridgeHandle: BrowserModelBridgeHandle | null = null;
+
+function normalizeBrowserBridgeString(
+  value: unknown,
+  fallback: string,
+): string {
+  const normalized = String(value ?? '').trim();
+  return normalized || fallback;
+}
+
+function normalizeBrowserBridgePort(value: unknown, fallback: number): number {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65_535) {
+    throw new Error('Bridge port must be an integer from 0 to 65535.');
+  }
+  return parsed;
+}
+
+function normalizeBrowserBridgeMaxNewTokens(
+  value: unknown,
+  fallback: number,
+): number {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error('Bridge max new tokens must be a positive integer.');
+  }
+  return parsed;
+}
+
+function normalizeBrowserBridgeModelForRuntime(model: string): string {
+  const trimmed = model.trim();
+  return trimmed.toLowerCase().startsWith('browser/')
+    ? trimmed.slice('browser/'.length)
+    : trimmed;
+}
+
+function readBrowserBridgeConfiguredModel(): string {
+  const config = getRuntimeConfig();
+  const defaultModel = config.hybridai.defaultModel.trim();
+  if (defaultModel.toLowerCase().startsWith('browser/')) {
+    return normalizeBrowserBridgeModelForRuntime(defaultModel);
+  }
+  return DEFAULT_BROWSER_MODEL_BRIDGE_MODEL;
+}
+
+function parseBrowserBridgeBaseUrl(baseUrl: string): {
+  host: string;
+  port: number;
+} {
+  try {
+    const parsed = new URL(baseUrl);
+    return {
+      host: parsed.hostname || DEFAULT_BROWSER_MODEL_BRIDGE_HOST,
+      port: parsed.port ? Number(parsed.port) : DEFAULT_BROWSER_MODEL_BRIDGE_PORT,
+    };
+  } catch {
+    return {
+      host: DEFAULT_BROWSER_MODEL_BRIDGE_HOST,
+      port: DEFAULT_BROWSER_MODEL_BRIDGE_PORT,
+    };
+  }
+}
+
+function getGatewayBrowserModelBridgeStatus(): GatewayBrowserModelBridgeStatus {
+  const config = getRuntimeConfig();
+  const configuredBackend = config.local.backends.browser;
+  const configuredModel = browserModelBridgeHandle
+    ? browserModelBridgeHandle.model
+    : readBrowserBridgeConfiguredModel();
+  const configuredEndpoint = parseBrowserBridgeBaseUrl(
+    configuredBackend.baseUrl,
+  );
+  const host = browserModelBridgeHandle?.host || configuredEndpoint.host;
+  const port = browserModelBridgeHandle?.port || configuredEndpoint.port;
+  const baseUrl = `http://${host}:${port}`;
+  const modelName = `browser/${configuredModel}`;
+  return {
+    running: Boolean(browserModelBridgeHandle),
+    host,
+    port,
+    model: configuredModel,
+    pageUrl: browserModelBridgeHandle?.pageUrl || `${baseUrl}/`,
+    endpointUrl: browserModelBridgeHandle?.endpointUrl || `${baseUrl}/v1`,
+    configuredModel: modelName,
+    configuredDefault: config.hybridai.defaultModel === modelName,
+  };
+}
+
+export async function getGatewayAdminBrowserModelBridge(): Promise<GatewayBrowserModelBridgeResponse> {
+  return {
+    bridge: getGatewayBrowserModelBridgeStatus(),
+    models: await getGatewayAdminModels(),
+  };
+}
+
+export async function startGatewayAdminBrowserModelBridge(
+  input: GatewayBrowserModelBridgeStartRequest,
+): Promise<GatewayBrowserModelBridgeResponse> {
+  const runtimeConfig = getRuntimeConfig();
+  const model = normalizeBrowserBridgeModelForRuntime(
+    normalizeBrowserBridgeString(
+      input.model,
+      readBrowserBridgeConfiguredModel(),
+    ),
+  );
+  const configuredEndpoint = parseBrowserBridgeBaseUrl(
+    runtimeConfig.local.backends.browser.baseUrl,
+  );
+  const host = normalizeBrowserBridgeString(input.host, configuredEndpoint.host);
+  const port = normalizeBrowserBridgePort(input.port, configuredEndpoint.port);
+  const device = normalizeBrowserBridgeString(
+    input.device,
+    DEFAULT_BROWSER_MODEL_BRIDGE_DEVICE,
+  );
+  const dtype = normalizeBrowserBridgeString(
+    input.dtype,
+    DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE,
+  );
+  const maxNewTokens = normalizeBrowserBridgeMaxNewTokens(
+    input.maxNewTokens,
+    DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS,
+  );
+  const apiKey =
+    input.apiKey === undefined || input.apiKey === null
+      ? runtimeConfig.local.backends.browser.apiKey || ''
+      : String(input.apiKey || '').trim();
+  const setDefault = input.setDefault === true;
+
+  if (browserModelBridgeHandle) {
+    await browserModelBridgeHandle.close();
+    browserModelBridgeHandle = null;
+  }
+  browserModelBridgeHandle = await startBrowserModelBridge({
+    model,
+    host,
+    port,
+    device,
+    dtype,
+    apiKey,
+    maxNewTokens,
+  });
+
+  updateRuntimeConfig((draft) => {
+    draft.local.backends.browser.enabled = true;
+    draft.local.backends.browser.baseUrl = browserModelBridgeHandle
+      ? browserModelBridgeHandle.endpointUrl
+      : `http://${host}:${port}/v1`;
+    if (input.apiKey !== undefined) {
+      draft.local.backends.browser.apiKey = '';
+    }
+    if (setDefault) {
+      draft.hybridai.defaultModel = `browser/${model}`;
+    }
+  });
+  if (input.apiKey !== undefined) {
+    if (apiKey) {
+      saveNamedRuntimeSecrets({ BROWSER_API_KEY: apiKey });
+      setRuntimeConfigSecretInput(
+        'local.backends.browser.apiKey',
+        { source: 'store', id: 'BROWSER_API_KEY' },
+        {
+          route: 'admin.models.browser-bridge-secret-ref',
+          source: 'user',
+        },
+      );
+    } else {
+      saveNamedRuntimeSecrets({ BROWSER_API_KEY: null });
+      setRuntimeConfigSecretInput('local.backends.browser.apiKey', '', {
+        route: 'admin.models.browser-bridge-secret-ref',
+        source: 'user',
+      });
+    }
+  }
+  invalidateGatewayProviderHealth();
+  return getGatewayAdminBrowserModelBridge();
+}
+
+export async function stopGatewayAdminBrowserModelBridge(): Promise<GatewayBrowserModelBridgeResponse> {
+  if (browserModelBridgeHandle) {
+    await browserModelBridgeHandle.close();
+    browserModelBridgeHandle = null;
+  }
+  invalidateGatewayProviderHealth();
+  return getGatewayAdminBrowserModelBridge();
 }
 
 export function getGatewayAdminMcp(): GatewayAdminMcpResponse {
@@ -11609,13 +11820,13 @@ export async function handleGatewayCommand(
           if (providerFilterArg && !providerFilter) {
             return badCommand(
               'Unknown Provider',
-              'Usage: `model list [hybridai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
+              'Usage: `model list [hybridai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm|browser]`',
             );
           }
           if (listModifierArg && !expandedModelList) {
             return badCommand(
               'Usage',
-              'Usage: `model list [hybridai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
+              'Usage: `model list [hybridai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm|browser]`',
             );
           }
           if (providerFilter && gatewayStatus) {
@@ -11750,7 +11961,9 @@ export async function handleGatewayCommand(
           const pricing = metadata.pricingUsdPerToken;
           const pricingLine = normalizedRuntimeModel.startsWith('openai-codex/')
             ? 'Pricing: subscription included (0 EUR)'
-            : /^(ollama|lmstudio|llamacpp|vllm)\//.test(normalizedRuntimeModel)
+            : /^(ollama|lmstudio|llamacpp|vllm|browser)\//.test(
+                  normalizedRuntimeModel,
+                )
               ? 'Pricing: local model (0 EUR)'
               : pricing.input != null || pricing.output != null
                 ? `Pricing: ${

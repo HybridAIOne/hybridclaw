@@ -67,6 +67,7 @@ import {
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import type { ModelBehavior } from '../types/model-behavior.js';
+import { tryOpenUrlInBrowser } from '../utils/open-url.js';
 import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { makeLazyApi, normalizeArgs, parseValueFlag } from './common.js';
 import {
@@ -1104,7 +1105,7 @@ function parseUnifiedProviderArgs(args: string[]): {
 }
 
 function isLocalProviderModel(modelName: string): boolean {
-  return /^(ollama|lmstudio|llamacpp|vllm)\//i.test(modelName.trim());
+  return /^(ollama|lmstudio|llamacpp|vllm|browser)\//i.test(modelName.trim());
 }
 
 type ApiKeyProviderConfigKey =
@@ -2158,17 +2159,21 @@ function clearSlackCredentials(): void {
 
 function clearLocalBackends(): void {
   ensureRuntimeConfigFile();
-  saveRuntimeSecrets({ VLLM_API_KEY: null });
+  saveRuntimeSecrets({ VLLM_API_KEY: null, BROWSER_API_KEY: null });
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.local.backends.ollama.enabled = false;
     draft.local.backends.lmstudio.enabled = false;
     draft.local.backends.llamacpp.enabled = false;
     draft.local.backends.vllm.enabled = false;
     draft.local.backends.vllm.apiKey = '';
+    draft.local.backends.browser.enabled = false;
+    draft.local.backends.browser.apiKey = '';
   });
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log('Disabled local backends: ollama, lmstudio, llamacpp, vllm.');
+  console.log(
+    'Disabled local backends: ollama, lmstudio, llamacpp, vllm, browser.',
+  );
   if (isLocalProviderModel(nextConfig.hybridai.defaultModel)) {
     console.log(
       `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
@@ -2253,7 +2258,7 @@ function normalizeLocalModelId(
   if (trimmed.toLowerCase().startsWith(ownPrefix)) {
     return trimmed.slice(ownPrefix.length).trim();
   }
-  if (/^(ollama|lmstudio|llamacpp|vllm)\//i.test(trimmed)) {
+  if (/^(ollama|lmstudio|llamacpp|vllm|browser)\//i.test(trimmed)) {
     throw new Error(
       `Model "${trimmed}" already includes a different local provider prefix.`,
     );
@@ -2270,7 +2275,8 @@ function normalizeLocalBaseUrl(
     if (backend === 'ollama') return 'http://127.0.0.1:11434';
     if (backend === 'lmstudio') return 'http://127.0.0.1:1234/v1';
     if (backend === 'llamacpp') return 'http://127.0.0.1:8081/v1';
-    return 'http://127.0.0.1:8000/v1';
+    if (backend === 'vllm') return 'http://127.0.0.1:8000/v1';
+    return 'http://127.0.0.1:8789/v1';
   }
   if (backend === 'ollama') {
     return trimmed.replace(/\/v1$/i, '');
@@ -2367,19 +2373,25 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
 
   if (positional.length < 1) {
     throw new Error(
-      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]`',
+      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm|browser> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]`',
     );
   }
 
   const backendRaw = (positional[0] || '').trim().toLowerCase();
   if (!isLocalBackendType(backendRaw)) {
     throw new Error(
-      `Unknown local backend "${positional[0]}". Use \`ollama\`, \`lmstudio\`, \`llamacpp\`, or \`vllm\`.`,
+      `Unknown local backend "${positional[0]}". Use \`ollama\`, \`lmstudio\`, \`llamacpp\`, \`vllm\`, or \`browser\`.`,
     );
   }
 
-  if (backendRaw !== 'vllm' && apiKey !== undefined) {
-    throw new Error('`--api-key` is only supported for the `vllm` backend.');
+  if (
+    backendRaw !== 'vllm' &&
+    backendRaw !== 'browser' &&
+    apiKey !== undefined
+  ) {
+    throw new Error(
+      '`--api-key` is only supported for the `vllm` and `browser` backends.',
+    );
   }
 
   const endpointName = parsedName?.trim();
@@ -2414,9 +2426,9 @@ function printLocalStatus(): void {
     console.log(
       `${backend}: ${settings.enabled ? 'enabled' : 'disabled'} (${settings.baseUrl})`,
     );
-    if (backend === 'vllm') {
+    if (backend === 'vllm' || backend === 'browser') {
       console.log(
-        `vllm api key: ${settings.apiKey ? 'configured' : 'not set'}`,
+        `${backend} api key: ${settings.apiKey ? 'configured' : 'not set'}`,
       );
     }
   }
@@ -2476,8 +2488,11 @@ function configureLocalBackend(args: string[]): void {
         draft.local.backends[parsed.backend].modelBehavior =
           parsed.modelBehavior;
       }
-      if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
-        draft.local.backends.vllm.apiKey = '';
+      if (
+        (parsed.backend === 'vllm' || parsed.backend === 'browser') &&
+        parsed.apiKey !== undefined
+      ) {
+        draft.local.backends[parsed.backend].apiKey = '';
       }
     }
     if (parsed.setDefault) {
@@ -2498,16 +2513,21 @@ function configureLocalBackend(args: string[]): void {
         source: 'user',
       },
     );
-  } else if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
-    saveRuntimeSecrets({ VLLM_API_KEY: parsed.apiKey });
+  } else if (
+    (parsed.backend === 'vllm' || parsed.backend === 'browser') &&
+    parsed.apiKey !== undefined
+  ) {
+    const secretName =
+      parsed.backend === 'vllm' ? 'VLLM_API_KEY' : 'BROWSER_API_KEY';
+    saveRuntimeSecrets({ [secretName]: parsed.apiKey });
     setRuntimeConfigSecretInput(
-      'local.backends.vllm.apiKey',
+      `local.backends.${parsed.backend}.apiKey`,
       {
         source: 'store',
-        id: 'VLLM_API_KEY',
+        id: secretName,
       },
       {
-        route: 'cli.auth.local.configure-vllm-secret-ref',
+        route: `cli.auth.local.configure-${parsed.backend}-secret-ref`,
         source: 'user',
       },
     );
@@ -2549,7 +2569,7 @@ function configureLocalBackend(args: string[]): void {
     console.log(
       parsed.name
         ? `${parsed.name} api key: configured`
-        : 'vllm api key: configured',
+        : `${parsed.backend} api key: configured`,
     );
   }
   if (parsed.setDefault) {
@@ -2571,6 +2591,191 @@ function configureLocalBackend(args: string[]): void {
   }
 }
 
+interface ParsedLocalBridgeArgs {
+  model?: string;
+  host?: string;
+  port?: number;
+  device?: string;
+  dtype?: string;
+  apiKey?: string;
+  maxNewTokens?: number;
+  openBrowser: boolean;
+}
+
+function parsePositiveIntegerFlag(name: string, value: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`\`${name}\` must be a positive integer.`);
+  }
+  return parsed;
+}
+
+function parseLocalBridgeArgs(args: string[]): ParsedLocalBridgeArgs {
+  const positional: string[] = [];
+  let host: string | undefined;
+  let port: number | undefined;
+  let device: string | undefined;
+  let dtype: string | undefined;
+  let apiKey: string | undefined;
+  let maxNewTokens: number | undefined;
+  let openBrowser = true;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--no-open') {
+      openBrowser = false;
+      continue;
+    }
+    if (arg === '--open') {
+      openBrowser = true;
+      continue;
+    }
+    const hostFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--host',
+      placeholder: '<host>',
+    });
+    if (hostFlag) {
+      host = hostFlag.value.trim();
+      index = hostFlag.nextIndex;
+      continue;
+    }
+    const portFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--port',
+      placeholder: '<port>',
+    });
+    if (portFlag) {
+      const parsed = Number(portFlag.value);
+      if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65_535) {
+        throw new Error('`--port` must be an integer from 0 to 65535.');
+      }
+      port = parsed;
+      index = portFlag.nextIndex;
+      continue;
+    }
+    const deviceFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--device',
+      placeholder: '<device>',
+    });
+    if (deviceFlag) {
+      device = deviceFlag.value.trim();
+      index = deviceFlag.nextIndex;
+      continue;
+    }
+    const dtypeFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--dtype',
+      placeholder: '<dtype>',
+    });
+    if (dtypeFlag) {
+      dtype = dtypeFlag.value.trim();
+      index = dtypeFlag.nextIndex;
+      continue;
+    }
+    const apiKeyFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--api-key',
+      placeholder: '<key>',
+      allowEmptyEquals: true,
+    });
+    if (apiKeyFlag) {
+      apiKey = apiKeyFlag.value;
+      index = apiKeyFlag.nextIndex;
+      continue;
+    }
+    const maxTokensFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      names: ['--max-new-tokens', '--max-tokens'],
+      placeholder: '<tokens>',
+    });
+    if (maxTokensFlag) {
+      maxNewTokens = parsePositiveIntegerFlag(
+        arg.startsWith('--max-tokens') ? '--max-tokens' : '--max-new-tokens',
+        maxTokensFlag.value,
+      );
+      index = maxTokensFlag.nextIndex;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    positional.push(arg);
+  }
+
+  return {
+    ...(positional.length > 0 ? { model: positional.join(' ') } : {}),
+    ...(host ? { host } : {}),
+    ...(port !== undefined ? { port } : {}),
+    ...(device ? { device } : {}),
+    ...(dtype ? { dtype } : {}),
+    ...(apiKey !== undefined ? { apiKey } : {}),
+    ...(maxNewTokens !== undefined ? { maxNewTokens } : {}),
+    openBrowser,
+  };
+}
+
+async function runLocalBrowserBridge(args: string[]): Promise<void> {
+  const parsed = parseLocalBridgeArgs(args);
+  const {
+    DEFAULT_BROWSER_MODEL_BRIDGE_DEVICE,
+    DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE,
+    DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS,
+    DEFAULT_BROWSER_MODEL_BRIDGE_MODEL,
+    startBrowserModelBridge,
+  } = await import('../providers/browser-model-bridge.js');
+  const handle = await startBrowserModelBridge(parsed);
+  const model = parsed.model || DEFAULT_BROWSER_MODEL_BRIDGE_MODEL;
+  const device = parsed.device || DEFAULT_BROWSER_MODEL_BRIDGE_DEVICE;
+  const dtype = parsed.dtype || DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE;
+  const maxNewTokens =
+    parsed.maxNewTokens || DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS;
+
+  console.log('Browser model bridge started.');
+  console.log(`Model: ${model}`);
+  console.log(`Device: ${device}`);
+  console.log(`Dtype: ${dtype}`);
+  console.log(`Max new tokens: ${maxNewTokens}`);
+  console.log(`Page: ${handle.pageUrl}`);
+  console.log(`OpenAI endpoint: ${handle.endpointUrl}`);
+  console.log(
+    `Configure HybridClaw: hybridclaw local configure browser ${model} --base-url http://${handle.host}:${handle.port}`,
+  );
+  if (parsed.apiKey !== undefined) {
+    console.log('API key: configured for this bridge process');
+  }
+  if (parsed.openBrowser) {
+    const opened = await tryOpenUrlInBrowser(handle.pageUrl);
+    if (!opened) {
+      console.log(
+        `Open this URL in a WebGPU-capable browser: ${handle.pageUrl}`,
+      );
+    }
+  }
+  console.log('Keep the browser tab open. Press Ctrl-C to stop the bridge.');
+
+  await new Promise<void>((resolve) => {
+    const stop = (): void => resolve();
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+  });
+  await handle.close();
+  console.log('Browser model bridge stopped.');
+}
+
 export async function handleLocalCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
@@ -2585,6 +2790,14 @@ export async function handleLocalCommand(args: string[]): Promise<void> {
   }
   if (sub === 'configure') {
     configureLocalBackend(normalized.slice(1));
+    return;
+  }
+  if (sub === 'bridge' || sub === 'browser-bridge') {
+    if (isHelpRequest(normalized.slice(1))) {
+      printLocalUsage();
+      return;
+    }
+    await runLocalBrowserBridge(normalized.slice(1));
     return;
   }
 

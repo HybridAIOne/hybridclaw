@@ -1,11 +1,18 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AdminModelsResponse } from '../api/types';
+import type {
+  AdminBrowserModelBridgeResponse,
+  AdminModelsResponse,
+} from '../api/types';
 import { renderWithProviders } from '../test-utils';
 import { ModelsPage } from './models';
 
 const fetchModelsMock = vi.fn<() => Promise<AdminModelsResponse>>();
 const saveModelsMock = vi.fn();
+const fetchBrowserModelBridgeMock =
+  vi.fn<() => Promise<AdminBrowserModelBridgeResponse>>();
+const startBrowserModelBridgeMock = vi.fn();
+const stopBrowserModelBridgeMock = vi.fn();
 const useAuthMock = vi.fn();
 
 const modelMetadataDefaults = {
@@ -20,9 +27,13 @@ const modelMetadataDefaults = {
 };
 
 vi.mock('../api/client', () => ({
+  fetchBrowserModelBridge: () => fetchBrowserModelBridgeMock(),
   fetchModels: () => fetchModelsMock(),
   saveModels: (token: string, payload: unknown) =>
     saveModelsMock(token, payload),
+  startBrowserModelBridge: (token: string, payload: unknown) =>
+    startBrowserModelBridgeMock(token, payload),
+  stopBrowserModelBridge: (token: string) => stopBrowserModelBridgeMock(token),
 }));
 
 vi.mock('../auth', () => ({
@@ -83,6 +94,28 @@ function makeModelsResponse(
   };
 }
 
+function makeBrowserBridgeResponse(
+  overrides: {
+    bridge?: Partial<AdminBrowserModelBridgeResponse['bridge']>;
+    models?: AdminModelsResponse;
+  } = {},
+): AdminBrowserModelBridgeResponse {
+  return {
+    bridge: {
+      running: false,
+      host: '127.0.0.1',
+      port: 8789,
+      model: 'LiquidAI/LFM2.5-230M-ONNX',
+      pageUrl: 'http://127.0.0.1:8789/',
+      endpointUrl: 'http://127.0.0.1:8789/v1',
+      configuredModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      configuredDefault: false,
+      ...overrides.bridge,
+    },
+    models: overrides.models || makeModelsResponse(),
+  };
+}
+
 function renderModelsPage(): void {
   renderWithProviders(<ModelsPage />);
 }
@@ -91,10 +124,14 @@ describe('ModelsPage', () => {
   beforeEach(() => {
     fetchModelsMock.mockReset();
     saveModelsMock.mockReset();
+    fetchBrowserModelBridgeMock.mockReset();
+    startBrowserModelBridgeMock.mockReset();
+    stopBrowserModelBridgeMock.mockReset();
     useAuthMock.mockReset();
     useAuthMock.mockReturnValue({
       token: 'test-token',
     });
+    fetchBrowserModelBridgeMock.mockResolvedValue(makeBrowserBridgeResponse());
   });
 
   it('surfaces providers inferred from the catalog when health data is missing', async () => {
@@ -233,5 +270,45 @@ describe('ModelsPage', () => {
     expect(saveModelsMock).toHaveBeenCalledWith('test-token', {
       defaultModel: 'openrouter/anthropic/claude-sonnet-4',
     });
+  });
+
+  it('starts the browser model bridge from the models page', async () => {
+    fetchModelsMock.mockResolvedValue(makeModelsResponse());
+    const startedPayload = makeBrowserBridgeResponse({
+      bridge: {
+        running: true,
+        configuredDefault: true,
+      },
+      models: makeModelsResponse({
+        defaultModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      }),
+    });
+    startBrowserModelBridgeMock.mockResolvedValue(startedPayload);
+    const openMock = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+    renderModelsPage();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Start bridge' }),
+    );
+
+    await waitFor(() =>
+      expect(startBrowserModelBridgeMock).toHaveBeenCalledTimes(1),
+    );
+    expect(startBrowserModelBridgeMock).toHaveBeenCalledWith('test-token', {
+      model: 'LiquidAI/LFM2.5-230M-ONNX',
+      host: '127.0.0.1',
+      port: 8789,
+      device: 'webgpu',
+      dtype: 'q4f16',
+      maxNewTokens: 2048,
+      setDefault: true,
+    });
+    expect(openMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8789/',
+      '_blank',
+      'noopener,noreferrer',
+    );
+    openMock.mockRestore();
   });
 });

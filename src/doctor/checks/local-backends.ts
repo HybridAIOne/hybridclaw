@@ -12,6 +12,7 @@ function labelForBackend(backend: LocalBackendType): string {
   if (backend === 'lmstudio') return 'LM Studio';
   if (backend === 'llamacpp') return 'llama.cpp';
   if (backend === 'vllm') return 'vLLM';
+  if (backend === 'browser') return 'Browser bridge';
   return 'Ollama';
 }
 

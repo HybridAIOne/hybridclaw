@@ -476,6 +476,12 @@ export let LOCAL_VLLM_API_KEY = '';
 export let LOCAL_VLLM_MODEL_BEHAVIOR:
   | RuntimeConfig['local']['backends']['vllm']['modelBehavior']
   | undefined;
+export let LOCAL_BROWSER_ENABLED = false;
+export let LOCAL_BROWSER_BASE_URL = 'http://127.0.0.1:8789/v1';
+export let LOCAL_BROWSER_API_KEY = '';
+export let LOCAL_BROWSER_MODEL_BEHAVIOR:
+  | RuntimeConfig['local']['backends']['browser']['modelBehavior']
+  | undefined;
 export let LOCAL_ENDPOINTS: RuntimeConfig['local']['endpoints'] = [];
 export let LOCAL_DISCOVERY_ENABLED = true;
 export let LOCAL_DISCOVERY_INTERVAL_MS = 3_600_000;
@@ -1052,6 +1058,12 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   LOCAL_VLLM_API_KEY = config.local.backends.vllm.apiKey || '';
   LOCAL_VLLM_MODEL_BEHAVIOR = config.local.backends.vllm.modelBehavior
     ? structuredClone(config.local.backends.vllm.modelBehavior)
+    : undefined;
+  LOCAL_BROWSER_ENABLED = config.local.backends.browser.enabled;
+  LOCAL_BROWSER_BASE_URL = config.local.backends.browser.baseUrl;
+  LOCAL_BROWSER_API_KEY = config.local.backends.browser.apiKey || '';
+  LOCAL_BROWSER_MODEL_BEHAVIOR = config.local.backends.browser.modelBehavior
+    ? structuredClone(config.local.backends.browser.modelBehavior)
     : undefined;
   LOCAL_ENDPOINTS = structuredClone(config.local.endpoints);
   LOCAL_DISCOVERY_ENABLED = config.local.discovery.enabled;

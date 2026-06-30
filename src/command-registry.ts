@@ -164,6 +164,7 @@ const MODEL_PROVIDER_CHOICES = [
   { name: 'lmstudio', value: 'lmstudio' },
   { name: 'llamacpp', value: 'llamacpp' },
   { name: 'vllm', value: 'vllm' },
+  { name: 'browser', value: 'browser' },
 ] satisfies Array<{ name: string; value: string }>;
 
 const AUTH_STATUS_PROVIDERS = [

@@ -1,5 +1,8 @@
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
+  LOCAL_BROWSER_API_KEY,
+  LOCAL_BROWSER_BASE_URL,
+  LOCAL_BROWSER_MODEL_BEHAVIOR,
   LOCAL_DEFAULT_CONTEXT_WINDOW,
   LOCAL_LLAMACPP_BASE_URL,
   LOCAL_LLAMACPP_MODEL_BEHAVIOR,
@@ -56,7 +59,10 @@ function resolveLocalRuntimeModel(
 }
 
 function createLocalOpenAICompatProvider(params: {
-  backend: Extract<LocalBackendType, 'llamacpp' | 'lmstudio' | 'vllm'>;
+  backend: Extract<
+    LocalBackendType,
+    'browser' | 'llamacpp' | 'lmstudio' | 'vllm'
+  >;
   baseUrl: () => string;
   apiKey?: () => string;
   modelBehavior?: () => LocalModelBehavior | undefined;
@@ -153,4 +159,11 @@ export const vllmProvider = createLocalOpenAICompatProvider({
   baseUrl: () => LOCAL_VLLM_BASE_URL,
   apiKey: () => LOCAL_VLLM_API_KEY,
   modelBehavior: () => LOCAL_VLLM_MODEL_BEHAVIOR,
+});
+
+export const browserProvider = createLocalOpenAICompatProvider({
+  backend: 'browser',
+  baseUrl: () => LOCAL_BROWSER_BASE_URL,
+  apiKey: () => LOCAL_BROWSER_API_KEY,
+  modelBehavior: () => LOCAL_BROWSER_MODEL_BEHAVIOR,
 });

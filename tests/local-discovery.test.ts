@@ -337,6 +337,59 @@ describe('local discovery', () => {
     );
   });
 
+  test('discoverBrowserModels reads OpenAI-compatible browser bridge models', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = false;
+      config.local.backends.lmstudio.enabled = false;
+      config.local.backends.llamacpp.enabled = false;
+      config.local.backends.vllm.enabled = false;
+      config.local.backends.browser.enabled = true;
+      config.local.backends.browser.baseUrl = 'http://127.0.0.1:8789/v1';
+      config.local.backends.browser.apiKey = 'browser-secret';
+    });
+    const discovery = await importFreshDiscovery(homeDir);
+
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'LiquidAI/LFM2.5-230M-ONNX',
+              context_length: 32_768,
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const models = await discovery.discoverAllLocalModels({ force: true });
+
+    expect(models).toEqual([
+      expect.objectContaining({
+        backend: 'browser',
+        id: 'LiquidAI/LFM2.5-230M-ONNX',
+        contextWindow: 32_768,
+      }),
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8789/v1/models',
+      expect.objectContaining({
+        headers: {
+          Authorization: 'Bearer browser-secret',
+        },
+      }),
+    );
+    expect(discovery.getDiscoveredLocalModelNames()).toEqual([
+      'browser/LiquidAI/LFM2.5-230M-ONNX',
+    ]);
+  });
+
   test('discoverAllLocalModels reloads vLLM discovery after the cache expires', async () => {
     const homeDir = makeTempHome();
     vi.useFakeTimers();

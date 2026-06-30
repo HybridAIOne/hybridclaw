@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { fetchModels, saveModels } from '../api/client';
+import {
+  fetchBrowserModelBridge,
+  fetchModels,
+  saveModels,
+  startBrowserModelBridge,
+  stopBrowserModelBridge,
+} from '../api/client';
 import { useAuth } from '../auth';
 import {
   Card,
@@ -26,6 +32,17 @@ import { compareNumber, compareText } from '../lib/sort';
 
 interface ModelDraft {
   defaultModel: string;
+}
+
+interface BrowserBridgeDraft {
+  model: string;
+  host: string;
+  port: string;
+  device: string;
+  dtype: string;
+  maxNewTokens: string;
+  apiKey: string;
+  setDefault: boolean;
 }
 
 type ModelEntry = Awaited<ReturnType<typeof fetchModels>>['models'][number];
@@ -68,6 +85,7 @@ const PROVIDER_DISPLAY_ORDER = [
   'lmstudio',
   'llamacpp',
   'vllm',
+  'browser',
 ] as const;
 
 function inferProviderName(
@@ -131,12 +149,42 @@ const MODEL_DEFAULT_DIRECTIONS = {
   monthlyUsage: 'desc',
 } as const;
 
+const DEFAULT_BROWSER_BRIDGE_DRAFT: BrowserBridgeDraft = {
+  model: 'LiquidAI/LFM2.5-230M-ONNX',
+  host: '127.0.0.1',
+  port: '8789',
+  device: 'webgpu',
+  dtype: 'q4f16',
+  maxNewTokens: '2048',
+  apiKey: '',
+  setDefault: true,
+};
+
 function createDraft(
   payload?: Awaited<ReturnType<typeof fetchModels>>,
 ): ModelDraft {
   return {
     defaultModel: payload?.defaultModel || '',
   };
+}
+
+function createBrowserBridgeDraft(
+  payload?: Awaited<ReturnType<typeof fetchBrowserModelBridge>>,
+): BrowserBridgeDraft {
+  const bridge = payload?.bridge;
+  return {
+    ...DEFAULT_BROWSER_BRIDGE_DRAFT,
+    model: bridge?.model || DEFAULT_BROWSER_BRIDGE_DRAFT.model,
+    host: bridge?.host || DEFAULT_BROWSER_BRIDGE_DRAFT.host,
+    port: String(bridge?.port ?? DEFAULT_BROWSER_BRIDGE_DRAFT.port),
+    setDefault: true,
+  };
+}
+
+function parseBridgeInteger(value: string, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return fallback;
+  return parsed;
 }
 
 function formatModelMetadata(model: ModelEntry): string {
@@ -155,10 +203,19 @@ export function ModelsPage() {
   const toast = useToast();
   const [filter, setFilter] = useState('');
   const [draft, setDraft] = useState<ModelDraft>(createDraft());
+  const [bridgeDraft, setBridgeDraft] = useState<BrowserBridgeDraft>(
+    createBrowserBridgeDraft(),
+  );
+  const [bridgeDraftInitialized, setBridgeDraftInitialized] = useState(false);
 
   const modelsQuery = useQuery({
     queryKey: ['models', auth.token],
     queryFn: () => fetchModels(auth.token),
+  });
+
+  const bridgeQuery = useQuery({
+    queryKey: ['browser-model-bridge', auth.token],
+    queryFn: () => fetchBrowserModelBridge(auth.token),
   });
 
   const saveMutation = useMutation({
@@ -177,12 +234,73 @@ export function ModelsPage() {
     },
   });
 
+  const startBridgeMutation = useMutation({
+    mutationFn: () => {
+      const apiKey = bridgeDraft.apiKey.trim();
+      return startBrowserModelBridge(auth.token, {
+        model: bridgeDraft.model.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.model,
+        host: bridgeDraft.host.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.host,
+        port: parseBridgeInteger(
+          bridgeDraft.port,
+          Number(DEFAULT_BROWSER_BRIDGE_DRAFT.port),
+        ),
+        device:
+          bridgeDraft.device.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.device,
+        dtype: bridgeDraft.dtype.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.dtype,
+        maxNewTokens: parseBridgeInteger(
+          bridgeDraft.maxNewTokens,
+          Number(DEFAULT_BROWSER_BRIDGE_DRAFT.maxNewTokens),
+        ),
+        setDefault: bridgeDraft.setDefault,
+        ...(apiKey ? { apiKey } : {}),
+      });
+    },
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['browser-model-bridge', auth.token], payload);
+      queryClient.setQueryData(['models', auth.token], payload.models);
+      setDraft(createDraft(payload.models));
+      setBridgeDraft(createBrowserBridgeDraft(payload));
+      setBridgeDraftInitialized(true);
+      void queryClient.invalidateQueries({ queryKey: ['overview'] });
+      window.open(payload.bridge.pageUrl, '_blank', 'noopener,noreferrer');
+      toast.success('Browser bridge started.', payload.bridge.pageUrl);
+    },
+    onError: (error) => {
+      toast.error('Bridge start failed', getErrorMessage(error));
+    },
+  });
+
+  const stopBridgeMutation = useMutation({
+    mutationFn: () => stopBrowserModelBridge(auth.token),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['browser-model-bridge', auth.token], payload);
+      queryClient.setQueryData(['models', auth.token], payload.models);
+      setBridgeDraft(createBrowserBridgeDraft(payload));
+      setBridgeDraftInitialized(true);
+      void queryClient.invalidateQueries({ queryKey: ['overview'] });
+      toast.success('Browser bridge stopped.');
+    },
+    onError: (error) => {
+      toast.error('Bridge stop failed', getErrorMessage(error));
+    },
+  });
+
   useEffect(() => {
     if (!modelsQuery.data) return;
     setDraft((current) =>
       current.defaultModel ? current : createDraft(modelsQuery.data),
     );
   }, [modelsQuery.data]);
+
+  useEffect(() => {
+    setBridgeDraftInitialized(false);
+  }, [auth.token]);
+
+  useEffect(() => {
+    if (!bridgeQuery.data || bridgeDraftInitialized) return;
+    setBridgeDraft(createBrowserBridgeDraft(bridgeQuery.data));
+    setBridgeDraftInitialized(true);
+  }, [bridgeDraftInitialized, bridgeQuery.data]);
 
   const filteredModels = (modelsQuery.data?.models || []).filter((model) => {
     const haystack = [
@@ -212,6 +330,15 @@ export function ModelsPage() {
   const modelsWithDailyUsage = (modelsQuery.data?.models || []).filter(
     hasDailyUsage,
   );
+  const bridgeStatus = bridgeQuery.data?.bridge;
+  const bridgeConfiguredModel =
+    bridgeStatus?.configuredModel ||
+    `browser/${bridgeDraft.model.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.model}`;
+  const bridgePageUrl =
+    bridgeStatus?.pageUrl ||
+    `http://${bridgeDraft.host || DEFAULT_BROWSER_BRIDGE_DRAFT.host}:${
+      bridgeDraft.port || DEFAULT_BROWSER_BRIDGE_DRAFT.port
+    }/`;
 
   return (
     <div className="page-stack">
@@ -326,6 +453,215 @@ export function ModelsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Browser model bridge</CardTitle>
+          <CardDescription>
+            {bridgeStatus?.running
+              ? `Serving ${bridgeConfiguredModel}`
+              : 'Stopped'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {bridgeQuery.isLoading ? (
+            <div className="empty-state">Loading browser bridge...</div>
+          ) : (
+            <div className="stack-form">
+              <div className="two-column-grid">
+                <Field>
+                  <FieldLabel>Model</FieldLabel>
+                  <Input
+                    value={bridgeDraft.model}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => ({
+                        ...current,
+                        model: event.target.value,
+                      }))
+                    }
+                    placeholder="LiquidAI/LFM2.5-230M-ONNX"
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>Host</FieldLabel>
+                  <Input
+                    value={bridgeDraft.host}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => ({
+                        ...current,
+                        host: event.target.value,
+                      }))
+                    }
+                    placeholder="127.0.0.1"
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>Port</FieldLabel>
+                  <Input
+                    inputMode="numeric"
+                    value={bridgeDraft.port}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => ({
+                        ...current,
+                        port: event.target.value,
+                      }))
+                    }
+                    placeholder="8789"
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>Device</FieldLabel>
+                  <NativeSelect
+                    value={bridgeDraft.device}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => ({
+                        ...current,
+                        device: event.target.value,
+                      }))
+                    }
+                  >
+                    <NativeSelectOption value="webgpu">
+                      webgpu
+                    </NativeSelectOption>
+                    <NativeSelectOption value="wasm">wasm</NativeSelectOption>
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel>Dtype</FieldLabel>
+                  <NativeSelect
+                    value={bridgeDraft.dtype}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => ({
+                        ...current,
+                        dtype: event.target.value,
+                      }))
+                    }
+                  >
+                    <NativeSelectOption value="q4f16">q4f16</NativeSelectOption>
+                    <NativeSelectOption value="q8">q8</NativeSelectOption>
+                    <NativeSelectOption value="fp16">fp16</NativeSelectOption>
+                    <NativeSelectOption value="fp32">fp32</NativeSelectOption>
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel>Max new tokens</FieldLabel>
+                  <Input
+                    inputMode="numeric"
+                    value={bridgeDraft.maxNewTokens}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => ({
+                        ...current,
+                        maxNewTokens: event.target.value,
+                      }))
+                    }
+                    placeholder="2048"
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>API key</FieldLabel>
+                  <Input
+                    type="password"
+                    value={bridgeDraft.apiKey}
+                    onChange={(event) =>
+                      setBridgeDraft((current) => ({
+                        ...current,
+                        apiKey: event.target.value,
+                      }))
+                    }
+                    placeholder="optional"
+                  />
+                </Field>
+              </div>
+
+              <label className="inline-checkbox">
+                <input
+                  type="checkbox"
+                  checked={bridgeDraft.setDefault}
+                  onChange={(event) =>
+                    setBridgeDraft((current) => ({
+                      ...current,
+                      setDefault: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Set as default model</span>
+              </label>
+
+              <div className="info-row">
+                <div>
+                  <strong>
+                    {bridgeStatus?.running ? 'Running' : 'Not running'}
+                  </strong>
+                  <small>
+                    {bridgeStatus?.running
+                      ? bridgeStatus.endpointUrl
+                      : bridgeConfiguredModel}
+                  </small>
+                  {bridgeStatus?.running ? (
+                    <small>Keep the opened browser tab active.</small>
+                  ) : null}
+                  {bridgeQuery.isError ? (
+                    <small className="row-status-note-danger">
+                      {getErrorMessage(bridgeQuery.error)}
+                    </small>
+                  ) : null}
+                </div>
+                <span
+                  className={
+                    bridgeStatus?.running
+                      ? 'list-status list-status-success'
+                      : 'list-status'
+                  }
+                >
+                  <span
+                    className={
+                      bridgeStatus?.running
+                        ? 'status-dot status-dot-success'
+                        : 'status-dot'
+                    }
+                  />
+                  {bridgeStatus?.running ? 'running' : 'stopped'}
+                </span>
+              </div>
+
+              <div className="button-row">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={
+                    startBridgeMutation.isPending || !bridgeDraft.model.trim()
+                  }
+                  onClick={() => startBridgeMutation.mutate()}
+                >
+                  {startBridgeMutation.isPending
+                    ? 'Starting...'
+                    : 'Start bridge'}
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={
+                    !bridgeStatus?.running || stopBridgeMutation.isPending
+                  }
+                  onClick={() => stopBridgeMutation.mutate()}
+                >
+                  {stopBridgeMutation.isPending ? 'Stopping...' : 'Stop'}
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={!bridgeStatus?.running}
+                  onClick={() =>
+                    window.open(bridgePageUrl, '_blank', 'noopener,noreferrer')
+                  }
+                >
+                  Open tab
+                </button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

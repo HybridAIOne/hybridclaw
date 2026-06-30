@@ -52,6 +52,7 @@ const PROVIDER_META: Record<
   lmstudio: { label: 'LM Studio', loginName: null },
   llamacpp: { label: 'llama.cpp', loginName: null },
   vllm: { label: 'vLLM', loginName: null },
+  browser: { label: 'Browser bridge', loginName: null },
 };
 
 const AUTH_ERROR_RE =
@@ -244,7 +245,8 @@ export function diagnoseProviderForModels(
     case 'ollama':
     case 'lmstudio':
     case 'llamacpp':
-    case 'vllm': {
+    case 'vllm':
+    case 'browser': {
       if (config.local.backends[filter]?.enabled !== true) {
         return disabled(
           filter,

@@ -107,7 +107,7 @@ function mockHealthProbes(options?: {
   hybridaiReachable?: boolean;
   hybridaiError?: string;
   localBackends?: Array<{
-    backend: 'ollama' | 'lmstudio' | 'vllm';
+    backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'browser';
     reachable: boolean;
     latencyMs?: number;
     error?: string;

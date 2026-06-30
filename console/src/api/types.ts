@@ -974,7 +974,7 @@ export interface ChatModel {
   id: string;
   /** Gateway provider key (matches `GatewayStatus.providerHealth` keys). */
   provider: string;
-  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
+  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'browser' | null;
   contextWindow: number | null;
   isReasoning: boolean;
   family: string | null;
@@ -1025,12 +1025,40 @@ export interface AdminModelsResponse {
         | 'ollama'
         | 'lmstudio'
         | 'llamacpp'
-        | 'vllm';
+        | 'vllm'
+        | 'browser';
       model: string | null;
     };
   };
   providerStatus: GatewayStatus['providerHealth'];
   models: AdminModelCatalogEntry[];
+}
+
+export interface AdminBrowserModelBridgeStatus {
+  running: boolean;
+  host: string;
+  port: number;
+  model: string;
+  pageUrl: string;
+  endpointUrl: string;
+  configuredModel: string;
+  configuredDefault: boolean;
+}
+
+export interface AdminBrowserModelBridgeStartRequest {
+  model: string;
+  host: string;
+  port: number;
+  device: string;
+  dtype: string;
+  apiKey?: string;
+  maxNewTokens: number;
+  setDefault: boolean;
+}
+
+export interface AdminBrowserModelBridgeResponse {
+  bridge: AdminBrowserModelBridgeStatus;
+  models: AdminModelsResponse;
 }
 
 export type AdminSchedulerBoardStatus =

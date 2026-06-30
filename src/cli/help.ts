@@ -213,10 +213,11 @@ export function printLocalUsage(): void {
 
 Commands:
   hybridclaw local status
-  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
+  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm|browser> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
+  hybridclaw local bridge [model-id] [--host <host>] [--port <port>] [--device webgpu] [--dtype q4f16] [--api-key <key>] [--max-new-tokens <n>] [--no-open]
 
 Use Instead:
-  hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] ...
+  hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm|browser> [model-id] ...
   hybridclaw auth status local
   hybridclaw auth logout local
 
@@ -227,11 +228,14 @@ Examples:
   hybridclaw local configure ollama llama3.2
   hybridclaw local configure vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
   hybridclaw local configure vllm google/gemma-4-e4b-it --name haigpu2 --base-url http://haigpu2:8000 --api-key secret --no-default
+  hybridclaw local bridge LiquidAI/LFM2.5-230M-ONNX
+  hybridclaw local configure browser LiquidAI/LFM2.5-230M-ONNX --base-url http://127.0.0.1:8789
 
 Notes:
   - \`hybridclaw local ...\` is deprecated and will be removed in a future release.
-  - LM Studio, llama.cpp, and vLLM URLs are normalized to include \`/v1\`.
+  - LM Studio, llama.cpp, vLLM, and browser bridge URLs are normalized to include \`/v1\`.
   - Ollama URLs are normalized to omit \`/v1\`.
+  - \`local bridge\` opens a localhost page that runs Transformers.js models in the browser with WebGPU, then relays OpenAI-compatible requests through localhost.
   - When a model id is provided, \`configure\` also sets \`hybridai.defaultModel\` to that local model by default.
     Use \`--no-default\` to leave the global default model unchanged.
   - Use \`--name <endpoint>\` to configure another endpoint of the same backend type. Named models use \`<endpoint>/<model>\`, for example \`haigpu2/google/gemma-4-e4b-it\`.
@@ -265,6 +269,7 @@ Examples:
   hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
   hybridclaw auth login local ollama llama3.2
   hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
+  hybridclaw auth login local browser LiquidAI/LFM2.5-230M-ONNX --base-url http://127.0.0.1:8789
   hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
   hybridclaw auth login slack --bot-token xoxb-... --app-token xapp-...
   hybridclaw auth whatsapp reset

@@ -54,6 +54,7 @@ const ENABLED_BY_ID: Record<RuntimeProviderId, (() => boolean) | undefined> = {
   lmstudio: undefined,
   llamacpp: undefined,
   vllm: undefined,
+  browser: undefined,
 };
 
 function readModelEntries(payload: unknown): unknown[] {

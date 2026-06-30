@@ -112,6 +112,7 @@ describe('runtime config secret refs', () => {
       IMESSAGE_PASSWORD: 'bluebubbles-password',
       TWILIO_AUTH_TOKEN: 'twilio-auth-token',
       VLLM_API_KEY: 'vllm-token-from-store',
+      BROWSER_API_KEY: 'browser-token-from-store',
     });
 
     writeRawRuntimeConfig(homeDir, (config) => {
@@ -156,6 +157,9 @@ describe('runtime config secret refs', () => {
       const vllm = backends.vllm as Record<string, unknown>;
       vllm.enabled = true;
       vllm.apiKey = { source: 'store', id: 'VLLM_API_KEY' };
+      const browser = backends.browser as Record<string, unknown>;
+      browser.enabled = true;
+      browser.apiKey = { source: 'store', id: 'BROWSER_API_KEY' };
     });
 
     const runtimeConfig = await importFreshRuntimeConfig(homeDir);
@@ -168,6 +172,9 @@ describe('runtime config secret refs', () => {
     expect(config.imessage.password).toBe('bluebubbles-password');
     expect(config.voice.twilio.authToken).toBe('twilio-auth-token');
     expect(config.local.backends.vllm.apiKey).toBe('vllm-token-from-store');
+    expect(config.local.backends.browser.apiKey).toBe(
+      'browser-token-from-store',
+    );
   });
 
   test('preserves email account password refs during config writes', async () => {

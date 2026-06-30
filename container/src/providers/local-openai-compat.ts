@@ -117,7 +117,8 @@ function isMistralCompatModel(
     provider !== 'mistral' &&
     provider !== 'vllm' &&
     provider !== 'lmstudio' &&
-    provider !== 'llamacpp'
+    provider !== 'llamacpp' &&
+    provider !== 'browser'
   ) {
     return false;
   }

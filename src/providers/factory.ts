@@ -7,6 +7,7 @@ import { getLocalModelInfo } from './local-discovery.js';
 import { resolveLocalBackendFromEndpointModel } from './local-endpoints.js';
 import { ollamaProvider } from './local-ollama.js';
 import {
+  browserProvider,
   llamacppProvider,
   lmstudioProvider,
   vllmProvider,
@@ -51,6 +52,7 @@ const KNOWN_PROVIDERS: AIProvider[] = [
   lmstudioProvider,
   llamacppProvider,
   vllmProvider,
+  browserProvider,
   hybridAIProvider,
 ];
 
@@ -78,6 +80,7 @@ const ACTIVE_PROVIDERS: AIProvider[] = [
   ...(runtimeConfig.local.backends.lmstudio.enabled ? [lmstudioProvider] : []),
   ...(runtimeConfig.local.backends.llamacpp.enabled ? [llamacppProvider] : []),
   ...(runtimeConfig.local.backends.vllm.enabled ? [vllmProvider] : []),
+  ...(runtimeConfig.local.backends.browser.enabled ? [browserProvider] : []),
   hybridAIProvider,
 ];
 

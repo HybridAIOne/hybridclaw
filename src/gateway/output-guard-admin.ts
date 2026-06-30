@@ -46,6 +46,7 @@ const MODEL_PROVIDER_PREFIXES = [
   'lmstudio',
   'llamacpp',
   'vllm',
+  'browser',
 ] as const;
 const MAX_PROFILE_LIST_ITEMS = 200;
 const MAX_PREVIEW_SAMPLE_CHARS = 50_000;

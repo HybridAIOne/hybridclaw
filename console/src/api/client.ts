@@ -16,6 +16,8 @@ import type {
   AdminApprovalsResponse,
   AdminAuditResponse,
   AdminBoardBudgetResponse,
+  AdminBrowserModelBridgeResponse,
+  AdminBrowserModelBridgeStartRequest,
   AdminBrowserPoolHealthResponse,
   AdminBrowserPoolLaunchResponse,
   AdminChannelConfig,
@@ -1201,6 +1203,41 @@ export function saveModels(
     method: 'PUT',
     body: payload,
   });
+}
+
+export function fetchBrowserModelBridge(
+  token: string,
+): Promise<AdminBrowserModelBridgeResponse> {
+  return requestJson<AdminBrowserModelBridgeResponse>(
+    '/api/admin/models/browser-bridge',
+    { token },
+  );
+}
+
+export function startBrowserModelBridge(
+  token: string,
+  payload: AdminBrowserModelBridgeStartRequest,
+): Promise<AdminBrowserModelBridgeResponse> {
+  return requestJson<AdminBrowserModelBridgeResponse>(
+    '/api/admin/models/browser-bridge',
+    {
+      token,
+      method: 'POST',
+      body: payload,
+    },
+  );
+}
+
+export function stopBrowserModelBridge(
+  token: string,
+): Promise<AdminBrowserModelBridgeResponse> {
+  return requestJson<AdminBrowserModelBridgeResponse>(
+    '/api/admin/models/browser-bridge',
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
 }
 
 export function fetchScheduler(token: string): Promise<AdminSchedulerResponse> {

@@ -1083,14 +1083,21 @@ async function importFreshCli(options?: {
         const imessage = (draft.imessage as Record<string, unknown>) || {};
         draft.imessage = imessage;
         imessage.password = value;
-      } else if (secretPath === 'local.backends.vllm.apiKey') {
+      } else if (
+        secretPath === 'local.backends.vllm.apiKey' ||
+        secretPath === 'local.backends.browser.apiKey'
+      ) {
         const local = (draft.local as Record<string, unknown>) || {};
         draft.local = local;
         const backends = (local.backends as Record<string, unknown>) || {};
         local.backends = backends;
-        const vllm = (backends.vllm as Record<string, unknown>) || {};
-        backends.vllm = vllm;
-        vllm.apiKey = value;
+        const backendKey = secretPath.includes('.browser.')
+          ? 'browser'
+          : 'vllm';
+        const backend =
+          (backends[backendKey] as Record<string, unknown>) || {};
+        backends[backendKey] = backend;
+        backend.apiKey = value;
       }
       runtimeConfigState = draft as typeof runtimeConfigState;
       persistRuntimeConfigState();
@@ -4670,7 +4677,7 @@ describe('CLI hybridai commands', () => {
 
     expect(updateRuntimeConfig).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
-      'Disabled local backends: ollama, lmstudio, llamacpp, vllm.',
+      'Disabled local backends: ollama, lmstudio, llamacpp, vllm, browser.',
     );
     expect(logSpy).toHaveBeenCalledWith('Default model: hybridai/gpt-4.1-mini');
   });
