@@ -46,6 +46,7 @@ export type A2APolicyAuthorityKind =
 
 const TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION = 1;
 const TRUSTED_A2A_PEER_SCHEMA_VERSION = 1;
+const SHARED_TRUSTED_PEER_SCHEMA_VERSION = 1;
 const TRUSTED_WEBHOOK_PEER_ASSET_PREFIX = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'a2a',
@@ -57,6 +58,12 @@ const TRUSTED_A2A_PEER_ASSET_PREFIX = path.join(
   'a2a',
   'trust-ledger',
   'a2a',
+);
+const SHARED_TRUSTED_PEER_ASSET_PREFIX = path.join(
+  DEFAULT_RUNTIME_HOME_DIR,
+  'a2a',
+  'trust-ledger',
+  'peers',
 );
 const TRUSTED_PUBLIC_KEY_PEER_SCHEMA_VERSION = 1;
 const INSTANCE_KEYPAIR_SCHEMA_VERSION = 1;
@@ -76,6 +83,15 @@ export const A2A_TRUST_LEDGER_DEFAULT_REVOKE_REASON = 'operator revocation';
 const PEER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const EPOCH_ISO = new Date(0).toISOString();
 const TOFU_AUDIT_SESSION_ID = 'a2a:trust-ledger';
+export const SHARED_TRUSTED_PEER_TRANSPORT_KINDS = ['a2a', 'webhook'] as const;
+export type SharedTrustedPeerTransportKind =
+  (typeof SHARED_TRUSTED_PEER_TRANSPORT_KINDS)[number];
+export type SharedTrustedPeerTrustMode = 'operator' | 'tofu';
+export type SharedTrustedPeerAuditOrigin =
+  | 'operator'
+  | 'legacy-a2a'
+  | 'legacy-webhook'
+  | 'tofu';
 
 export class A2APeerUntrustedError extends Error {
   readonly code = 'peer-untrusted';
@@ -86,9 +102,14 @@ export class A2APeerUntrustedError extends Error {
   }
 }
 
-let trustedA2APeersBySenderCache: Map<string, A2ATrustedA2APeer> | null = null;
-let trustedA2APeersByPublicKeyCache: Map<string, A2ATrustedA2APeer> | null =
-  null;
+let trustedA2APeersBySenderCache: Map<
+  string,
+  SharedTrustedA2AJsonRpcPeer
+> | null = null;
+let trustedA2APeersByPublicKeyCache: Map<
+  string,
+  SharedTrustedA2AJsonRpcPeer
+> | null = null;
 let cachedInstanceKeypair: A2AInstanceKeypair | null = null;
 let cachedInstancePrivateKey: KeyObject | null = null;
 let cachedInstancePublicKey: KeyObject | null = null;
@@ -107,6 +128,70 @@ export interface A2ATrustedWebhookPeer {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface SharedTrustedPeerTrustMetadata {
+  mode: SharedTrustedPeerTrustMode;
+  establishedAt: string;
+  updatedAt: string;
+}
+
+export interface SharedTrustedPeerAuditLineage {
+  source: 'a2a-trust-ledger';
+  origin: SharedTrustedPeerAuditOrigin;
+  legacyAssetPath?: string;
+  migratedAt?: string;
+}
+
+interface SharedTrustedPeerBase {
+  schemaVersion: typeof SHARED_TRUSTED_PEER_SCHEMA_VERSION;
+  transport: SharedTrustedPeerTransportKind;
+  peerId: string;
+  senderAgentId?: string;
+  trust: SharedTrustedPeerTrustMetadata;
+  auditLineage: SharedTrustedPeerAuditLineage;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SharedTrustedWebhookPeer extends SharedTrustedPeerBase {
+  transport: 'webhook';
+  senderAgentId: string;
+  policyAuthority?: A2APolicyAuthorityKind;
+  capabilities: string[];
+  webhook: {
+    secretRef: SecretRef;
+    signatureHeader: string;
+    version: string;
+    replayWindowMs: number;
+    rateLimitPerMinute: number;
+  };
+}
+
+export interface SharedTrustedA2APeer extends SharedTrustedPeerBase {
+  transport: 'a2a';
+  a2a: {
+    publicKeyPem?: string;
+    bearerTokenRef?: SecretRef;
+    agentCardUrl?: string;
+    deliveryUrl?: string;
+    publicKeyJwk?: JsonWebKey | null;
+    publicKeyFingerprint?: string;
+    publicKeyStatus?: A2APublicKeyTrustStatus;
+    trustedAt?: string;
+    lastSeenAt?: string;
+    revokedAt?: string;
+    revokedReason?: string;
+    lastMismatchAt?: string;
+    lastMismatchFingerprint?: string;
+  };
+}
+
+export type SharedTrustedA2AJsonRpcPeer = SharedTrustedA2APeer & {
+  senderAgentId: string;
+  a2a: SharedTrustedA2APeer['a2a'] & { publicKeyPem: string };
+};
+
+export type SharedTrustedPeer = SharedTrustedWebhookPeer | SharedTrustedA2APeer;
 
 export interface A2AInstanceKeypair {
   schemaVersion: typeof INSTANCE_KEYPAIR_SCHEMA_VERSION;
@@ -187,6 +272,8 @@ export interface UpsertA2ATrustedA2APeerInput {
   peerId: string;
   senderAgentId: string;
   publicKeyPem: string;
+  bearerTokenRef?: SecretRef;
+  agentCardUrl?: string;
 }
 
 export function normalizeA2APeerId(peerId: string): string {
@@ -209,6 +296,22 @@ function trustedWebhookPeerAssetPath(peerId: string): string {
 function trustedA2APeerAssetPath(peerId: string): string {
   return path.join(
     TRUSTED_A2A_PEER_ASSET_PREFIX,
+    `${encodeURIComponent(normalizeA2APeerId(peerId))}.json`,
+  );
+}
+
+function sharedTrustedPeerTransportAssetPrefix(
+  transport: SharedTrustedPeerTransportKind,
+): string {
+  return path.join(SHARED_TRUSTED_PEER_ASSET_PREFIX, transport);
+}
+
+function sharedTrustedPeerAssetPath(
+  transport: SharedTrustedPeerTransportKind,
+  peerId: string,
+): string {
+  return path.join(
+    sharedTrustedPeerTransportAssetPrefix(transport),
     `${encodeURIComponent(normalizeA2APeerId(peerId))}.json`,
   );
 }
@@ -604,6 +707,52 @@ function parseTimestampOr(value: unknown, fallback: string): string {
   return typeof value === 'string' && value ? value : fallback;
 }
 
+function normalizeSharedTrustMode(value: unknown): SharedTrustedPeerTrustMode {
+  return value === 'tofu' ? 'tofu' : 'operator';
+}
+
+function normalizeSharedAuditOrigin(
+  value: unknown,
+): SharedTrustedPeerAuditOrigin {
+  if (
+    value === 'legacy-a2a' ||
+    value === 'legacy-webhook' ||
+    value === 'tofu'
+  ) {
+    return value;
+  }
+  return 'operator';
+}
+
+function normalizeSharedTrustMetadata(
+  value: unknown,
+  fallback: { createdAt: string; updatedAt: string },
+): SharedTrustedPeerTrustMetadata {
+  const record = isRecord(value) ? value : {};
+  return {
+    mode: normalizeSharedTrustMode(record.mode),
+    establishedAt: parseTimestampOr(record.establishedAt, fallback.createdAt),
+    updatedAt: parseTimestampOr(record.updatedAt, fallback.updatedAt),
+  };
+}
+
+function normalizeSharedAuditLineage(
+  value: unknown,
+  fallbackOrigin: SharedTrustedPeerAuditOrigin,
+): SharedTrustedPeerAuditLineage {
+  const record = isRecord(value) ? value : {};
+  return {
+    source: 'a2a-trust-ledger',
+    origin: normalizeSharedAuditOrigin(record.origin || fallbackOrigin),
+    ...(typeof record.legacyAssetPath === 'string' && record.legacyAssetPath
+      ? { legacyAssetPath: record.legacyAssetPath }
+      : {}),
+    ...(typeof record.migratedAt === 'string' && record.migratedAt
+      ? { migratedAt: record.migratedAt }
+      : {}),
+  };
+}
+
 function normalizeCapabilities(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [
@@ -725,6 +874,248 @@ function parseTrustedA2APeer(raw: string): A2ATrustedA2APeer | null {
   }
 }
 
+function normalizeSharedTrustedWebhookConfig(
+  value: unknown,
+): SharedTrustedWebhookPeer['webhook'] {
+  if (!isRecord(value)) {
+    throw new A2AEnvelopeValidationError(['webhook must be an object']);
+  }
+  const webhookConfig = normalizeTrustedWebhookPeerConfig({
+    secretRef: value.secretRef,
+    signatureHeader: value.signatureHeader,
+    version: value.version,
+  });
+  return {
+    secretRef: webhookConfig.secretRef,
+    signatureHeader: webhookConfig.signatureHeader,
+    version: webhookConfig.version,
+    replayWindowMs: normalizePositiveInteger(
+      value.replayWindowMs,
+      WEBHOOK_REPLAY_WINDOW_MS,
+    ),
+    rateLimitPerMinute: normalizePositiveInteger(
+      value.rateLimitPerMinute,
+      A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE,
+    ),
+  };
+}
+
+function normalizeSharedTrustedA2AConfig(
+  value: unknown,
+): SharedTrustedA2APeer['a2a'] {
+  if (!isRecord(value)) {
+    throw new A2AEnvelopeValidationError(['a2a must be an object']);
+  }
+  const publicKeyPem =
+    value.publicKeyPem === undefined
+      ? undefined
+      : normalizePublicKeyPem(value.publicKeyPem);
+  const bearerTokenRef =
+    value.bearerTokenRef === undefined
+      ? undefined
+      : normalizeSecretRef(value.bearerTokenRef);
+  const agentCardUrl = normalizeOptionalUrl(value.agentCardUrl, 'agentCardUrl');
+  const deliveryUrl = normalizeOptionalUrl(value.deliveryUrl, 'deliveryUrl');
+  const publicKeyJwk =
+    value.publicKeyJwk === undefined
+      ? undefined
+      : value.publicKeyJwk === null
+        ? null
+        : normalizePublicKeyJwk(value.publicKeyJwk);
+  const derivedPublicKeyFingerprint = publicKeyJwk
+    ? fingerprintA2APublicKey(publicKeyJwk)
+    : undefined;
+  const providedPublicKeyFingerprint =
+    value.publicKeyFingerprint === undefined
+      ? undefined
+      : normalizePublicKeyFingerprint(value.publicKeyFingerprint);
+  if (
+    derivedPublicKeyFingerprint &&
+    providedPublicKeyFingerprint &&
+    derivedPublicKeyFingerprint !== providedPublicKeyFingerprint
+  ) {
+    throw new A2AEnvelopeValidationError([
+      'a2a.publicKeyFingerprint does not match a2a.publicKeyJwk',
+    ]);
+  }
+  const publicKeyFingerprint =
+    providedPublicKeyFingerprint || derivedPublicKeyFingerprint;
+  if (!publicKeyPem && !publicKeyFingerprint) {
+    throw new A2AEnvelopeValidationError([
+      'a2a.publicKeyPem or a2a.publicKeyFingerprint is required',
+    ]);
+  }
+  return {
+    ...(publicKeyPem ? { publicKeyPem } : {}),
+    ...(bearerTokenRef ? { bearerTokenRef } : {}),
+    ...(agentCardUrl ? { agentCardUrl } : {}),
+    ...(deliveryUrl ? { deliveryUrl } : {}),
+    ...(publicKeyJwk !== undefined ? { publicKeyJwk } : {}),
+    ...(publicKeyFingerprint
+      ? {
+          publicKeyFingerprint,
+          publicKeyStatus: normalizeTrustStatus(value.publicKeyStatus),
+          trustedAt: parseTimestampOr(value.trustedAt, EPOCH_ISO),
+          lastSeenAt: parseTimestampOr(value.lastSeenAt, EPOCH_ISO),
+        }
+      : {}),
+    ...(typeof value.revokedAt === 'string' && value.revokedAt
+      ? { revokedAt: value.revokedAt }
+      : {}),
+    ...(typeof value.revokedReason === 'string' && value.revokedReason
+      ? { revokedReason: value.revokedReason }
+      : {}),
+    ...(typeof value.lastMismatchAt === 'string' && value.lastMismatchAt
+      ? { lastMismatchAt: value.lastMismatchAt }
+      : {}),
+    ...(typeof value.lastMismatchFingerprint === 'string' &&
+    value.lastMismatchFingerprint
+      ? { lastMismatchFingerprint: value.lastMismatchFingerprint }
+      : {}),
+  };
+}
+
+function parseSharedTrustedPeer(raw: string): SharedTrustedPeer | null {
+  try {
+    const parsed = JSON.parse(raw) as SharedTrustedPeer;
+    if (parsed.schemaVersion !== SHARED_TRUSTED_PEER_SCHEMA_VERSION)
+      return null;
+    if (
+      !SHARED_TRUSTED_PEER_TRANSPORT_KINDS.includes(
+        parsed.transport as SharedTrustedPeerTransportKind,
+      )
+    ) {
+      return null;
+    }
+    const createdAt = parseTimestampOr(parsed.createdAt, EPOCH_ISO);
+    const updatedAt = parseTimestampOr(parsed.updatedAt, EPOCH_ISO);
+    const base: Pick<
+      SharedTrustedPeerBase,
+      'schemaVersion' | 'peerId' | 'trust' | 'createdAt' | 'updatedAt'
+    > = {
+      schemaVersion: SHARED_TRUSTED_PEER_SCHEMA_VERSION,
+      peerId: normalizeA2APeerId(parsed.peerId),
+      trust: normalizeSharedTrustMetadata(parsed.trust, {
+        createdAt,
+        updatedAt,
+      }),
+      createdAt,
+      updatedAt,
+    };
+
+    if (parsed.transport === 'webhook') {
+      const policyAuthority = normalizePolicyAuthority(parsed.policyAuthority);
+      return {
+        ...base,
+        transport: 'webhook',
+        senderAgentId: normalizeSenderAgentId(parsed.senderAgentId),
+        ...(policyAuthority ? { policyAuthority } : {}),
+        capabilities: normalizeCapabilities(parsed.capabilities),
+        auditLineage: normalizeSharedAuditLineage(
+          parsed.auditLineage,
+          'operator',
+        ),
+        webhook: normalizeSharedTrustedWebhookConfig(parsed.webhook),
+      };
+    }
+
+    const senderAgentId =
+      typeof parsed.senderAgentId === 'string' && parsed.senderAgentId.trim()
+        ? normalizeCanonicalSenderAgentId(parsed.senderAgentId)
+        : undefined;
+    return {
+      ...base,
+      transport: 'a2a',
+      ...(senderAgentId ? { senderAgentId } : {}),
+      auditLineage: normalizeSharedAuditLineage(
+        parsed.auditLineage,
+        'operator',
+      ),
+      a2a: normalizeSharedTrustedA2AConfig(parsed.a2a),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function sharedWebhookPeerToLegacy(
+  peer: SharedTrustedWebhookPeer,
+): A2ATrustedWebhookPeer {
+  return {
+    schemaVersion: TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION,
+    peerId: peer.peerId,
+    senderAgentId: peer.senderAgentId,
+    ...(peer.policyAuthority ? { policyAuthority: peer.policyAuthority } : {}),
+    capabilities: peer.capabilities,
+    secretRef: peer.webhook.secretRef,
+    signatureHeader: peer.webhook.signatureHeader,
+    version: peer.webhook.version,
+    replayWindowMs: peer.webhook.replayWindowMs,
+    rateLimitPerMinute: peer.webhook.rateLimitPerMinute,
+    createdAt: peer.createdAt,
+    updatedAt: peer.updatedAt,
+  };
+}
+
+function sharedA2APeerToLegacy(
+  peer: SharedTrustedA2AJsonRpcPeer,
+): A2ATrustedA2APeer {
+  return {
+    schemaVersion: TRUSTED_A2A_PEER_SCHEMA_VERSION,
+    peerId: peer.peerId,
+    senderAgentId: peer.senderAgentId,
+    publicKeyPem: peer.a2a.publicKeyPem,
+    createdAt: peer.createdAt,
+    updatedAt: peer.updatedAt,
+  };
+}
+
+function isSharedTrustedA2AJsonRpcPeer(
+  peer: SharedTrustedPeer | null,
+): peer is SharedTrustedA2AJsonRpcPeer {
+  return (
+    peer?.transport === 'a2a' &&
+    typeof peer.senderAgentId === 'string' &&
+    typeof peer.a2a.publicKeyPem === 'string'
+  );
+}
+
+function sharedA2APublicKeyPeerToLegacy(
+  peer: SharedTrustedA2APeer,
+): A2ATrustedPublicKeyPeer | null {
+  if (
+    !peer.a2a.publicKeyFingerprint ||
+    !peer.a2a.publicKeyStatus ||
+    !peer.a2a.trustedAt ||
+    !peer.a2a.lastSeenAt
+  ) {
+    return null;
+  }
+  return {
+    schemaVersion: TRUSTED_PUBLIC_KEY_PEER_SCHEMA_VERSION,
+    peerId: peer.peerId,
+    agentCardUrl: peer.a2a.agentCardUrl || '',
+    deliveryUrl: peer.a2a.deliveryUrl || '',
+    publicKeyJwk: peer.a2a.publicKeyJwk ?? null,
+    publicKeyFingerprint: peer.a2a.publicKeyFingerprint,
+    status: peer.a2a.publicKeyStatus,
+    trustedAt: peer.a2a.trustedAt,
+    createdAt: peer.createdAt,
+    updatedAt: peer.updatedAt,
+    lastSeenAt: peer.a2a.lastSeenAt,
+    ...(peer.a2a.revokedAt ? { revokedAt: peer.a2a.revokedAt } : {}),
+    ...(peer.a2a.revokedReason
+      ? { revokedReason: peer.a2a.revokedReason }
+      : {}),
+    ...(peer.a2a.lastMismatchAt
+      ? { lastMismatchAt: peer.a2a.lastMismatchAt }
+      : {}),
+    ...(peer.a2a.lastMismatchFingerprint
+      ? { lastMismatchFingerprint: peer.a2a.lastMismatchFingerprint }
+      : {}),
+  };
+}
+
 function normalizeTrustStatus(value: unknown): A2APublicKeyTrustStatus {
   return value === 'revoked' ? 'revoked' : 'trusted';
 }
@@ -794,7 +1185,13 @@ function shouldRefreshTrustedPublicKeyPeer(
   );
 }
 
-function persistTrustedPublicKeyPeer(peer: A2ATrustedPublicKeyPeer): void {
+function persistTrustedPublicKeyPeer(
+  peer: A2ATrustedPublicKeyPeer,
+  params: {
+    mode?: SharedTrustedPeerTrustMode;
+    origin?: SharedTrustedPeerAuditOrigin;
+  } = {},
+): void {
   syncRuntimeAssetRevisionState(
     'a2a',
     trustedPublicKeyPeerAssetPath(peer.peerId),
@@ -806,6 +1203,12 @@ function persistTrustedPublicKeyPeer(peer: A2ATrustedPublicKeyPeer): void {
       exists: true,
       content: JSON.stringify(peer),
     },
+  );
+  persistSharedTrustedPeer(
+    trustedPublicKeyPeerToShared(peer, {
+      mode: params.mode,
+      origin: params.origin,
+    }),
   );
 }
 
@@ -886,18 +1289,21 @@ export function extractA2APeerPublicKey(
 export function getA2ATrustedPublicKeyPeer(
   peerId: string,
 ): A2ATrustedPublicKeyPeer | null {
-  const state = getRuntimeAssetRevisionState(
-    'a2a',
-    trustedPublicKeyPeerAssetPath(peerId),
-  );
-  return state ? parseTrustedPublicKeyPeer(state.content) : null;
+  const peer = getSharedTrustedPeer('a2a', peerId);
+  if (peer?.transport === 'a2a') {
+    const publicKeyPeer = sharedA2APublicKeyPeerToLegacy(peer);
+    if (publicKeyPeer) return publicKeyPeer;
+  }
+  const migrated = migrateLegacySharedTrustedPublicKeyPeer(peerId);
+  if (migrated) return sharedA2APublicKeyPeerToLegacy(migrated);
+  return null;
 }
 
 export function listA2ATrustedPublicKeyPeers(): A2ATrustedPublicKeyPeer[] {
-  return listRuntimeAssetRevisionStates('a2a', {
-    assetPathPrefix: TRUSTED_PUBLIC_KEY_PEER_ASSET_PREFIX,
-  })
-    .map((state) => parseTrustedPublicKeyPeer(state.content))
+  return listSharedTrustedPeers('a2a')
+    .map((peer) =>
+      peer.transport === 'a2a' ? sharedA2APublicKeyPeerToLegacy(peer) : null,
+    )
     .filter((peer): peer is A2ATrustedPublicKeyPeer => peer !== null)
     .sort((left, right) => left.peerId.localeCompare(right.peerId));
 }
@@ -1084,7 +1490,10 @@ export function upsertA2ATrustedPublicKeyPeer(
     updatedAt: timestamp,
     lastSeenAt: timestamp,
   };
-  persistTrustedPublicKeyPeer(peer);
+  persistTrustedPublicKeyPeer(peer, {
+    mode: 'operator',
+    origin: 'operator',
+  });
   invalidateA2AIdentityResolvers();
   recordTrustAudit({
     event: {
@@ -1118,6 +1527,7 @@ export function deleteA2ATrustedPublicKeyPeer(
     },
     { exists: false, content: null },
   );
+  deleteSharedA2APublicKeyTrust(normalizedPeerId);
   invalidateA2AIdentityResolvers();
   if (existing) {
     recordTrustAudit({
@@ -1132,6 +1542,447 @@ export function deleteA2ATrustedPublicKeyPeer(
   }
 }
 
+function buildSharedTrustMetadata(
+  createdAt: string,
+  updatedAt: string,
+  mode: SharedTrustedPeerTrustMode = 'operator',
+): SharedTrustedPeerTrustMetadata {
+  return {
+    mode,
+    establishedAt: createdAt,
+    updatedAt,
+  };
+}
+
+function legacyWebhookPeerToShared(
+  peer: A2ATrustedWebhookPeer,
+  params: { legacyAssetPath: string; migratedAt?: string },
+): SharedTrustedWebhookPeer {
+  return {
+    schemaVersion: SHARED_TRUSTED_PEER_SCHEMA_VERSION,
+    transport: 'webhook',
+    peerId: peer.peerId,
+    senderAgentId: peer.senderAgentId,
+    ...(peer.policyAuthority ? { policyAuthority: peer.policyAuthority } : {}),
+    capabilities: peer.capabilities,
+    trust: buildSharedTrustMetadata(peer.createdAt, peer.updatedAt),
+    auditLineage: {
+      source: 'a2a-trust-ledger',
+      origin: 'legacy-webhook',
+      legacyAssetPath: params.legacyAssetPath,
+      migratedAt: params.migratedAt || new Date().toISOString(),
+    },
+    webhook: {
+      secretRef: peer.secretRef,
+      signatureHeader: peer.signatureHeader,
+      version: peer.version,
+      replayWindowMs: peer.replayWindowMs,
+      rateLimitPerMinute: peer.rateLimitPerMinute,
+    },
+    createdAt: peer.createdAt,
+    updatedAt: peer.updatedAt,
+  };
+}
+
+function legacyA2APeerToShared(
+  peer: A2ATrustedA2APeer,
+  params: { legacyAssetPath: string; migratedAt?: string },
+): SharedTrustedA2AJsonRpcPeer {
+  return {
+    schemaVersion: SHARED_TRUSTED_PEER_SCHEMA_VERSION,
+    transport: 'a2a',
+    peerId: peer.peerId,
+    senderAgentId: peer.senderAgentId,
+    trust: buildSharedTrustMetadata(peer.createdAt, peer.updatedAt),
+    auditLineage: {
+      source: 'a2a-trust-ledger',
+      origin: 'legacy-a2a',
+      legacyAssetPath: params.legacyAssetPath,
+      migratedAt: params.migratedAt || new Date().toISOString(),
+    },
+    a2a: {
+      publicKeyPem: peer.publicKeyPem,
+    },
+    createdAt: peer.createdAt,
+    updatedAt: peer.updatedAt,
+  };
+}
+
+function trustedPublicKeyPeerToShared(
+  peer: A2ATrustedPublicKeyPeer,
+  params: {
+    mode?: SharedTrustedPeerTrustMode;
+    origin?: SharedTrustedPeerAuditOrigin;
+    legacyAssetPath?: string;
+    migratedAt?: string;
+  } = {},
+): SharedTrustedA2APeer {
+  return {
+    schemaVersion: SHARED_TRUSTED_PEER_SCHEMA_VERSION,
+    transport: 'a2a',
+    peerId: peer.peerId,
+    trust: buildSharedTrustMetadata(
+      peer.trustedAt,
+      peer.updatedAt,
+      params.mode || 'tofu',
+    ),
+    auditLineage: {
+      source: 'a2a-trust-ledger',
+      origin: params.origin || 'tofu',
+      ...(params.legacyAssetPath
+        ? { legacyAssetPath: params.legacyAssetPath }
+        : {}),
+      ...(params.migratedAt || params.legacyAssetPath
+        ? { migratedAt: params.migratedAt || new Date().toISOString() }
+        : {}),
+    },
+    a2a: {
+      agentCardUrl: peer.agentCardUrl,
+      deliveryUrl: peer.deliveryUrl,
+      publicKeyJwk: peer.publicKeyJwk,
+      publicKeyFingerprint: peer.publicKeyFingerprint,
+      publicKeyStatus: peer.status,
+      trustedAt: peer.trustedAt,
+      lastSeenAt: peer.lastSeenAt,
+      ...(peer.revokedAt ? { revokedAt: peer.revokedAt } : {}),
+      ...(peer.revokedReason ? { revokedReason: peer.revokedReason } : {}),
+      ...(peer.lastMismatchAt ? { lastMismatchAt: peer.lastMismatchAt } : {}),
+      ...(peer.lastMismatchFingerprint
+        ? { lastMismatchFingerprint: peer.lastMismatchFingerprint }
+        : {}),
+    },
+    createdAt: peer.createdAt,
+    updatedAt: peer.updatedAt,
+  };
+}
+
+function mergeSharedA2APeer(
+  existing: SharedTrustedA2APeer,
+  incoming: SharedTrustedA2APeer,
+): SharedTrustedA2APeer {
+  return {
+    ...incoming,
+    senderAgentId: incoming.senderAgentId || existing.senderAgentId,
+    a2a: {
+      ...existing.a2a,
+      ...incoming.a2a,
+    },
+    createdAt: existing.createdAt || incoming.createdAt,
+  };
+}
+
+function writeSharedTrustedPeerState(peer: SharedTrustedPeer): void {
+  syncRuntimeAssetRevisionState(
+    'a2a',
+    sharedTrustedPeerAssetPath(peer.transport, peer.peerId),
+    {
+      route: `a2a.trust-ledger.peer#${peer.transport}:${peer.peerId}`,
+      source: 'a2a-trust-ledger',
+    },
+    {
+      exists: true,
+      content: JSON.stringify(peer),
+    },
+  );
+  if (peer.transport === 'a2a') {
+    trustedA2APeersBySenderCache = null;
+    trustedA2APeersByPublicKeyCache = null;
+  }
+}
+
+function persistSharedTrustedPeer(peer: SharedTrustedPeer): void {
+  const existing =
+    peer.transport === 'a2a' ? readSharedTrustedPeer('a2a', peer.peerId) : null;
+  writeSharedTrustedPeerState(
+    peer.transport === 'a2a' && existing?.transport === 'a2a'
+      ? mergeSharedA2APeer(existing, peer)
+      : peer,
+  );
+}
+
+function readSharedTrustedPeer(
+  transport: SharedTrustedPeerTransportKind,
+  peerId: string,
+): SharedTrustedPeer | null {
+  const state = getRuntimeAssetRevisionState(
+    'a2a',
+    sharedTrustedPeerAssetPath(transport, peerId),
+  );
+  const peer = state ? parseSharedTrustedPeer(state.content) : null;
+  return peer?.transport === transport ? peer : null;
+}
+
+function migrateLegacySharedTrustedPeer(
+  transport: SharedTrustedPeerTransportKind,
+  peerId: string,
+): SharedTrustedPeer | null {
+  if (transport === 'webhook') {
+    const legacyPath = trustedWebhookPeerAssetPath(peerId);
+    const state = getRuntimeAssetRevisionState('a2a', legacyPath);
+    const legacy = state ? parseTrustedWebhookPeer(state.content) : null;
+    if (!legacy) return null;
+    const peer = legacyWebhookPeerToShared(legacy, {
+      legacyAssetPath: legacyPath,
+    });
+    persistSharedTrustedPeer(peer);
+    return peer;
+  }
+
+  return migrateLegacySharedTrustedA2APeerComponents(peerId);
+}
+
+function migrateLegacySharedTrustedPublicKeyPeer(
+  peerId: string,
+): SharedTrustedA2APeer | null {
+  const legacyPath = trustedPublicKeyPeerAssetPath(peerId);
+  const state = getRuntimeAssetRevisionState('a2a', legacyPath);
+  const legacy = state ? parseTrustedPublicKeyPeer(state.content) : null;
+  if (!legacy) return null;
+  const peer = trustedPublicKeyPeerToShared(legacy, {
+    origin: 'tofu',
+    legacyAssetPath: legacyPath,
+  });
+  persistSharedTrustedPeer(peer);
+  const shared = readSharedTrustedPeer('a2a', peer.peerId);
+  return shared?.transport === 'a2a' ? shared : peer;
+}
+
+function migrateLegacySharedTrustedA2AJsonRpcPeer(
+  peerId: string,
+): SharedTrustedA2APeer | null {
+  const legacyPath = trustedA2APeerAssetPath(peerId);
+  const state = getRuntimeAssetRevisionState('a2a', legacyPath);
+  const legacy = state ? parseTrustedA2APeer(state.content) : null;
+  if (!legacy) return null;
+  const peer = legacyA2APeerToShared(legacy, { legacyAssetPath: legacyPath });
+  persistSharedTrustedPeer(peer);
+  const shared = readSharedTrustedPeer('a2a', peer.peerId);
+  return shared?.transport === 'a2a' ? shared : peer;
+}
+
+function migrateLegacySharedTrustedA2APeerComponents(
+  peerId: string,
+): SharedTrustedA2APeer | null {
+  let peer = readSharedTrustedPeer('a2a', peerId);
+  if (peer?.transport !== 'a2a') peer = null;
+
+  if (!isSharedTrustedA2AJsonRpcPeer(peer)) {
+    const migrated = migrateLegacySharedTrustedA2AJsonRpcPeer(peerId);
+    if (migrated) peer = migrated;
+  }
+
+  if (!peer || !sharedA2APublicKeyPeerToLegacy(peer)) {
+    const migrated = migrateLegacySharedTrustedPublicKeyPeer(peerId);
+    if (migrated) peer = migrated;
+  }
+
+  return peer;
+}
+
+function migrateLegacySharedTrustedPublicKeyPeers(): void {
+  const legacyStates = listRuntimeAssetRevisionStates('a2a', {
+    assetPathPrefix: TRUSTED_PUBLIC_KEY_PEER_ASSET_PREFIX,
+  });
+  for (const state of legacyStates) {
+    const legacy = parseTrustedPublicKeyPeer(state.content);
+    if (!legacy) continue;
+    const existing = readSharedTrustedPeer('a2a', legacy.peerId);
+    if (
+      existing?.transport === 'a2a' &&
+      sharedA2APublicKeyPeerToLegacy(existing)
+    ) {
+      continue;
+    }
+    persistSharedTrustedPeer(
+      trustedPublicKeyPeerToShared(legacy, {
+        origin: 'tofu',
+        legacyAssetPath: state.assetPath,
+      }),
+    );
+  }
+}
+
+function deleteSharedA2APublicKeyTrust(peerId: string): void {
+  const existing = readSharedTrustedPeer('a2a', peerId);
+  if (existing?.transport !== 'a2a') return;
+  const a2a = { ...existing.a2a };
+  delete a2a.deliveryUrl;
+  delete a2a.publicKeyJwk;
+  delete a2a.publicKeyFingerprint;
+  delete a2a.publicKeyStatus;
+  delete a2a.trustedAt;
+  delete a2a.lastSeenAt;
+  delete a2a.revokedAt;
+  delete a2a.revokedReason;
+  delete a2a.lastMismatchAt;
+  delete a2a.lastMismatchFingerprint;
+
+  if (!existing.senderAgentId && !a2a.publicKeyPem && !a2a.bearerTokenRef) {
+    delete a2a.agentCardUrl;
+  }
+
+  if (!existing.senderAgentId && Object.keys(a2a).length === 0) {
+    syncRuntimeAssetRevisionState(
+      'a2a',
+      sharedTrustedPeerAssetPath('a2a', existing.peerId),
+      {
+        route: `a2a.trust-ledger.peer#a2a:${existing.peerId}`,
+        source: 'a2a-trust-ledger',
+      },
+      { exists: false, content: null },
+    );
+    trustedA2APeersBySenderCache = null;
+    trustedA2APeersByPublicKeyCache = null;
+    return;
+  }
+
+  writeSharedTrustedPeerState({
+    ...existing,
+    a2a,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+function migrateLegacySharedTrustedPeers(
+  transport: SharedTrustedPeerTransportKind,
+): void {
+  const legacyStates = listRuntimeAssetRevisionStates('a2a', {
+    assetPathPrefix:
+      transport === 'webhook'
+        ? TRUSTED_WEBHOOK_PEER_ASSET_PREFIX
+        : TRUSTED_A2A_PEER_ASSET_PREFIX,
+  });
+  for (const state of legacyStates) {
+    if (transport === 'webhook') {
+      const legacy = parseTrustedWebhookPeer(state.content);
+      if (!legacy) continue;
+      if (readSharedTrustedPeer('webhook', legacy.peerId)) continue;
+      persistSharedTrustedPeer(
+        legacyWebhookPeerToShared(legacy, { legacyAssetPath: state.assetPath }),
+      );
+      continue;
+    }
+
+    const legacy = parseTrustedA2APeer(state.content);
+    if (!legacy) continue;
+    const existing = readSharedTrustedPeer('a2a', legacy.peerId);
+    if (isSharedTrustedA2AJsonRpcPeer(existing)) continue;
+    persistSharedTrustedPeer(
+      legacyA2APeerToShared(legacy, { legacyAssetPath: state.assetPath }),
+    );
+  }
+  if (transport === 'a2a') migrateLegacySharedTrustedPublicKeyPeers();
+}
+
+export function getSharedTrustedPeer(
+  transport: SharedTrustedPeerTransportKind,
+  peerId: string,
+): SharedTrustedPeer | null {
+  if (transport === 'a2a') {
+    return migrateLegacySharedTrustedA2APeerComponents(peerId);
+  }
+  const shared = readSharedTrustedPeer(transport, peerId);
+  return shared || migrateLegacySharedTrustedPeer(transport, peerId);
+}
+
+export function listSharedTrustedPeers(
+  transport?: SharedTrustedPeerTransportKind,
+): SharedTrustedPeer[] {
+  const transports = transport
+    ? [transport]
+    : [...SHARED_TRUSTED_PEER_TRANSPORT_KINDS];
+  for (const kind of transports) migrateLegacySharedTrustedPeers(kind);
+
+  const states = listRuntimeAssetRevisionStates('a2a', {
+    assetPathPrefix: transport
+      ? sharedTrustedPeerTransportAssetPrefix(transport)
+      : SHARED_TRUSTED_PEER_ASSET_PREFIX,
+  });
+  return states
+    .map((state) => parseSharedTrustedPeer(state.content))
+    .filter(
+      (peer): peer is SharedTrustedPeer =>
+        peer !== null && (!transport || peer.transport === transport),
+    )
+    .sort((left, right) => {
+      const transportOrder = left.transport.localeCompare(right.transport);
+      return transportOrder || left.peerId.localeCompare(right.peerId);
+    });
+}
+
+export function getSharedTrustedWebhookPeer(
+  peerId: string,
+): SharedTrustedWebhookPeer | null {
+  const peer = getSharedTrustedPeer('webhook', peerId);
+  return peer?.transport === 'webhook' ? peer : null;
+}
+
+export function listSharedTrustedWebhookPeers(): SharedTrustedWebhookPeer[] {
+  return listSharedTrustedPeers('webhook').filter(
+    (peer): peer is SharedTrustedWebhookPeer => peer.transport === 'webhook',
+  );
+}
+
+export function getSharedTrustedA2AJsonRpcPeer(
+  peerId: string,
+): SharedTrustedA2AJsonRpcPeer | null {
+  const peer = getSharedTrustedPeer('a2a', peerId);
+  return isSharedTrustedA2AJsonRpcPeer(peer) ? peer : null;
+}
+
+export function listSharedTrustedA2AJsonRpcPeers(): SharedTrustedA2AJsonRpcPeer[] {
+  return listSharedTrustedPeers('a2a').filter(isSharedTrustedA2AJsonRpcPeer);
+}
+
+function sharedTrustedA2AJsonRpcPeersBySender(): Map<
+  string,
+  SharedTrustedA2AJsonRpcPeer
+> {
+  if (trustedA2APeersBySenderCache) return trustedA2APeersBySenderCache;
+  trustedA2APeersBySenderCache = new Map(
+    listSharedTrustedA2AJsonRpcPeers().map((peer) => [
+      peer.senderAgentId,
+      peer,
+    ]),
+  );
+  return trustedA2APeersBySenderCache;
+}
+
+function sharedTrustedA2AJsonRpcPeersByPublicKey(): Map<
+  string,
+  SharedTrustedA2AJsonRpcPeer
+> {
+  if (trustedA2APeersByPublicKeyCache) return trustedA2APeersByPublicKeyCache;
+  trustedA2APeersByPublicKeyCache = new Map();
+  for (const peer of listSharedTrustedA2AJsonRpcPeers()) {
+    const publicKey = normalizePublicKeyPemText(peer.a2a.publicKeyPem);
+    if (!trustedA2APeersByPublicKeyCache.has(publicKey)) {
+      trustedA2APeersByPublicKeyCache.set(publicKey, peer);
+    }
+  }
+  return trustedA2APeersByPublicKeyCache;
+}
+
+export function getSharedTrustedA2AJsonRpcPeerBySender(
+  senderAgentId: string,
+): SharedTrustedA2AJsonRpcPeer | null {
+  const normalizedSenderAgentId =
+    normalizeCanonicalSenderAgentId(senderAgentId);
+  return (
+    sharedTrustedA2AJsonRpcPeersBySender().get(normalizedSenderAgentId) ?? null
+  );
+}
+
+export function getSharedTrustedA2AJsonRpcPeerByPublicKeyPem(
+  publicKeyPem: string,
+): SharedTrustedA2AJsonRpcPeer | null {
+  return (
+    sharedTrustedA2AJsonRpcPeersByPublicKey().get(
+      normalizePublicKeyPemText(publicKeyPem),
+    ) ?? null
+  );
+}
+
 export function upsertA2ATrustedWebhookPeer(
   input: UpsertA2ATrustedWebhookPeerInput,
   now = new Date(),
@@ -1141,39 +1992,37 @@ export function upsertA2ATrustedWebhookPeer(
   const existing = getA2ATrustedWebhookPeer(peerId);
   const updatedAt = now.toISOString();
   const policyAuthority = normalizePolicyAuthority(input.policyAuthority);
-  const peer: A2ATrustedWebhookPeer = {
-    schemaVersion: TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION,
+  const createdAt = existing?.createdAt || updatedAt;
+  const peer: SharedTrustedWebhookPeer = {
+    schemaVersion: SHARED_TRUSTED_PEER_SCHEMA_VERSION,
+    transport: 'webhook',
     peerId,
     senderAgentId: normalizeSenderAgentId(input.senderAgentId),
     ...(policyAuthority ? { policyAuthority } : {}),
     capabilities: normalizeCapabilities(input.capabilities),
-    secretRef: webhookConfig.secretRef,
-    signatureHeader: webhookConfig.signatureHeader,
-    version: webhookConfig.version,
-    replayWindowMs: normalizePositiveInteger(
-      input.replayWindowMs,
-      WEBHOOK_REPLAY_WINDOW_MS,
-    ),
-    rateLimitPerMinute: normalizePositiveInteger(
-      input.rateLimitPerMinute,
-      A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE,
-    ),
-    createdAt: existing?.createdAt || updatedAt,
+    trust: buildSharedTrustMetadata(createdAt, updatedAt),
+    auditLineage: {
+      source: 'a2a-trust-ledger',
+      origin: 'operator',
+    },
+    webhook: {
+      secretRef: webhookConfig.secretRef,
+      signatureHeader: webhookConfig.signatureHeader,
+      version: webhookConfig.version,
+      replayWindowMs: normalizePositiveInteger(
+        input.replayWindowMs,
+        WEBHOOK_REPLAY_WINDOW_MS,
+      ),
+      rateLimitPerMinute: normalizePositiveInteger(
+        input.rateLimitPerMinute,
+        A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE,
+      ),
+    },
+    createdAt,
     updatedAt,
   };
-  syncRuntimeAssetRevisionState(
-    'a2a',
-    trustedWebhookPeerAssetPath(peerId),
-    {
-      route: `a2a.trust-ledger.webhook#${peerId}`,
-      source: 'a2a-trust-ledger',
-    },
-    {
-      exists: true,
-      content: JSON.stringify(peer),
-    },
-  );
-  return peer;
+  persistSharedTrustedPeer(peer);
+  return sharedWebhookPeerToLegacy(peer);
 }
 
 export function upsertA2ATrustedA2APeer(
@@ -1183,100 +2032,69 @@ export function upsertA2ATrustedA2APeer(
   const peerId = normalizeA2APeerId(input.peerId);
   const existing = getA2ATrustedA2APeer(peerId);
   const updatedAt = now.toISOString();
-  const peer: A2ATrustedA2APeer = {
-    schemaVersion: TRUSTED_A2A_PEER_SCHEMA_VERSION,
+  const createdAt = existing?.createdAt || updatedAt;
+  const bearerTokenRef = input.bearerTokenRef
+    ? normalizeSecretRef(input.bearerTokenRef)
+    : undefined;
+  const agentCardUrl = normalizeOptionalUrl(input.agentCardUrl, 'agentCardUrl');
+  const peer: SharedTrustedA2AJsonRpcPeer = {
+    schemaVersion: SHARED_TRUSTED_PEER_SCHEMA_VERSION,
+    transport: 'a2a',
     peerId,
     senderAgentId: normalizeCanonicalSenderAgentId(input.senderAgentId),
-    publicKeyPem: normalizePublicKeyPem(input.publicKeyPem),
-    createdAt: existing?.createdAt || updatedAt,
+    trust: buildSharedTrustMetadata(createdAt, updatedAt),
+    auditLineage: {
+      source: 'a2a-trust-ledger',
+      origin: 'operator',
+    },
+    a2a: {
+      publicKeyPem: normalizePublicKeyPem(input.publicKeyPem),
+      ...(bearerTokenRef ? { bearerTokenRef } : {}),
+      ...(agentCardUrl ? { agentCardUrl } : {}),
+    },
+    createdAt,
     updatedAt,
   };
-  syncRuntimeAssetRevisionState(
-    'a2a',
-    trustedA2APeerAssetPath(peerId),
-    {
-      route: `a2a.trust-ledger.a2a#${peerId}`,
-      source: 'a2a-trust-ledger',
-    },
-    {
-      exists: true,
-      content: JSON.stringify(peer),
-    },
-  );
+  persistSharedTrustedPeer(peer);
   trustedA2APeersBySenderCache = null;
   trustedA2APeersByPublicKeyCache = null;
-  return peer;
+  return sharedA2APeerToLegacy(peer);
 }
 
 export function getA2ATrustedWebhookPeer(
   peerId: string,
 ): A2ATrustedWebhookPeer | null {
-  const state = getRuntimeAssetRevisionState(
-    'a2a',
-    trustedWebhookPeerAssetPath(peerId),
-  );
-  return state ? parseTrustedWebhookPeer(state.content) : null;
+  const peer = getSharedTrustedWebhookPeer(peerId);
+  return peer ? sharedWebhookPeerToLegacy(peer) : null;
 }
 
 export function getA2ATrustedA2APeer(peerId: string): A2ATrustedA2APeer | null {
-  const state = getRuntimeAssetRevisionState(
-    'a2a',
-    trustedA2APeerAssetPath(peerId),
-  );
-  return state ? parseTrustedA2APeer(state.content) : null;
+  const peer = getSharedTrustedA2AJsonRpcPeer(peerId);
+  return peer ? sharedA2APeerToLegacy(peer) : null;
 }
 
 export function listA2ATrustedWebhookPeers(): A2ATrustedWebhookPeer[] {
-  return listRuntimeAssetRevisionStates('a2a', {
-    assetPathPrefix: TRUSTED_WEBHOOK_PEER_ASSET_PREFIX,
-  })
-    .map((state) => parseTrustedWebhookPeer(state.content))
-    .filter((peer): peer is A2ATrustedWebhookPeer => peer !== null)
-    .sort((left, right) => left.peerId.localeCompare(right.peerId));
+  return listSharedTrustedWebhookPeers().map((peer) =>
+    sharedWebhookPeerToLegacy(peer),
+  );
 }
 
 export function listA2ATrustedA2APeers(): A2ATrustedA2APeer[] {
-  return listRuntimeAssetRevisionStates('a2a', {
-    assetPathPrefix: TRUSTED_A2A_PEER_ASSET_PREFIX,
-  })
-    .map((state) => parseTrustedA2APeer(state.content))
-    .filter((peer): peer is A2ATrustedA2APeer => peer !== null)
-    .sort((left, right) => left.peerId.localeCompare(right.peerId));
-}
-
-function trustedA2APeersBySender(): Map<string, A2ATrustedA2APeer> {
-  if (trustedA2APeersBySenderCache) return trustedA2APeersBySenderCache;
-  trustedA2APeersBySenderCache = new Map(
-    listA2ATrustedA2APeers().map((peer) => [peer.senderAgentId, peer]),
+  return listSharedTrustedA2AJsonRpcPeers().map((peer) =>
+    sharedA2APeerToLegacy(peer),
   );
-  return trustedA2APeersBySenderCache;
-}
-
-function trustedA2APeersByPublicKey(): Map<string, A2ATrustedA2APeer> {
-  if (trustedA2APeersByPublicKeyCache) return trustedA2APeersByPublicKeyCache;
-  trustedA2APeersByPublicKeyCache = new Map();
-  for (const peer of listA2ATrustedA2APeers()) {
-    const publicKey = normalizePublicKeyPemText(peer.publicKeyPem);
-    if (!trustedA2APeersByPublicKeyCache.has(publicKey)) {
-      trustedA2APeersByPublicKeyCache.set(publicKey, peer);
-    }
-  }
-  return trustedA2APeersByPublicKeyCache;
 }
 
 export function getA2ATrustedA2APeerBySender(
   senderAgentId: string,
 ): A2ATrustedA2APeer | null {
-  const normalizedSenderAgentId =
-    normalizeCanonicalSenderAgentId(senderAgentId);
-  return trustedA2APeersBySender().get(normalizedSenderAgentId) ?? null;
+  const peer = getSharedTrustedA2AJsonRpcPeerBySender(senderAgentId);
+  return peer ? sharedA2APeerToLegacy(peer) : null;
 }
 
 export function getA2ATrustedA2APeerByPublicKeyPem(
   publicKeyPem: string,
 ): A2ATrustedA2APeer | null {
-  return (
-    trustedA2APeersByPublicKey().get(normalizePublicKeyPemText(publicKeyPem)) ??
-    null
-  );
+  const peer = getSharedTrustedA2AJsonRpcPeerByPublicKeyPem(publicKeyPem);
+  return peer ? sharedA2APeerToLegacy(peer) : null;
 }
