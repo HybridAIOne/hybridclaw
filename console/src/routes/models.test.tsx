@@ -14,6 +14,14 @@ const fetchBrowserModelBridgeMock =
 const startBrowserModelBridgeMock = vi.fn();
 const stopBrowserModelBridgeMock = vi.fn();
 const useAuthMock = vi.fn();
+const defaultBrowserModel = 'onnx-community/gemma-3-270m-it-ONNX';
+const browserModelOptions = [
+  defaultBrowserModel,
+  'onnx-community/gemma-3-270m-ONNX',
+  'onnx-community/gemma-3-1b-it-ONNX',
+  'onnx-community/gemma-3-1b-it-ONNX-GQA',
+  'onnx-community/gemma-2-2b-jpn-it',
+];
 
 const modelMetadataDefaults = {
   pricingUsdPerToken: { input: null, output: null },
@@ -105,13 +113,13 @@ function makeBrowserBridgeResponse(
       running: false,
       host: '127.0.0.1',
       port: 8789,
-      model: 'LiquidAI/LFM2.5-230M-ONNX',
+      model: defaultBrowserModel,
       device: 'webgpu',
       dtype: 'q4',
       maxNewTokens: 2048,
       pageUrl: 'http://127.0.0.1:8789/',
       endpointUrl: 'http://127.0.0.1:8789/v1',
-      configuredModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      configuredModel: `browser/${defaultBrowserModel}`,
       configuredDefault: false,
       ...overrides.bridge,
     },
@@ -352,7 +360,7 @@ describe('ModelsPage', () => {
         configuredDefault: true,
       },
       models: makeModelsResponse({
-        defaultModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+        defaultModel: `browser/${defaultBrowserModel}`,
       }),
     });
     startBrowserModelBridgeMock.mockResolvedValue(startedPayload);
@@ -368,7 +376,7 @@ describe('ModelsPage', () => {
       expect(startBrowserModelBridgeMock).toHaveBeenCalledTimes(1),
     );
     expect(startBrowserModelBridgeMock).toHaveBeenCalledWith('test-token', {
-      model: 'LiquidAI/LFM2.5-230M-ONNX',
+      model: defaultBrowserModel,
       host: '127.0.0.1',
       port: 8789,
       device: 'webgpu',
@@ -384,24 +392,33 @@ describe('ModelsPage', () => {
     openMock.mockRestore();
   });
 
-  it('shows only supported quantizations for the selected browser model', async () => {
+  it('shows browser model presets and supported quantizations', async () => {
     fetchModelsMock.mockResolvedValue(makeModelsResponse());
 
     renderModelsPage();
 
-    const select = (await screen.findByLabelText(
+    const modelSelect = (await screen.findByLabelText(
+      'Model',
+    )) as HTMLSelectElement;
+    expect(
+      Array.from(modelSelect.options).map((option) => option.value),
+    ).toEqual(browserModelOptions);
+
+    const quantizationSelect = (await screen.findByLabelText(
       'Quantization',
     )) as HTMLSelectElement;
 
-    expect(Array.from(select.options).map((option) => option.value)).toEqual([
-      'q4',
-      'q4f32',
-      'q8',
-      'fp16',
-      'fp32',
-    ]);
+    expect(
+      Array.from(quantizationSelect.options).map((option) => option.value),
+    ).toEqual(['q4', 'q4f16', 'q8', 'fp16', 'fp32']);
     expect(screen.queryByText('Dtype')).toBeNull();
-    expect(screen.queryByRole('option', { name: 'q4f16' })).toBeNull();
+
+    fireEvent.change(modelSelect, {
+      target: { value: 'onnx-community/gemma-2-2b-jpn-it' },
+    });
+    expect(
+      Array.from(quantizationSelect.options).map((option) => option.value),
+    ).toEqual(['q4f16']);
   });
 
   it('preserves the selected quantization after starting the browser bridge', async () => {
@@ -413,7 +430,7 @@ describe('ModelsPage', () => {
         dtype: 'q8',
       },
       models: makeModelsResponse({
-        defaultModel: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+        defaultModel: `browser/${defaultBrowserModel}`,
       }),
     });
     startBrowserModelBridgeMock.mockResolvedValue(startedPayload);

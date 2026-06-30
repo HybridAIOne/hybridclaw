@@ -167,7 +167,7 @@ const MODEL_DEFAULT_DIRECTIONS = {
 } as const;
 
 const DEFAULT_BROWSER_BRIDGE_DRAFT: BrowserBridgeDraft = {
-  model: 'LiquidAI/LFM2.5-230M-ONNX',
+  model: 'onnx-community/gemma-3-270m-it-ONNX',
   host: '127.0.0.1',
   port: '8789',
   device: 'webgpu',
@@ -177,9 +177,33 @@ const DEFAULT_BROWSER_BRIDGE_DRAFT: BrowserBridgeDraft = {
   setDefault: true,
 };
 
-const BROWSER_BRIDGE_MODEL_QUANTIZATIONS: Record<string, readonly string[]> = {
-  'liquidai/lfm2.5-230m-onnx': ['q4', 'q4f32', 'q8', 'fp16', 'fp32'],
-};
+const BROWSER_BRIDGE_MODEL_PRESETS = [
+  {
+    id: 'onnx-community/gemma-3-270m-it-ONNX',
+    label: 'Gemma 3 270M Instruct',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'onnx-community/gemma-3-270m-ONNX',
+    label: 'Gemma 3 270M',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'onnx-community/gemma-3-1b-it-ONNX',
+    label: 'Gemma 3 1B Instruct',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'onnx-community/gemma-3-1b-it-ONNX-GQA',
+    label: 'Gemma 3 1B Instruct GQA',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'onnx-community/gemma-2-2b-jpn-it',
+    label: 'Gemma 2 2B Japanese Instruct',
+    quantizations: ['q4f16'],
+  },
+] as const;
 
 function createDraft(
   payload?: Awaited<ReturnType<typeof fetchModels>>,
@@ -198,15 +222,26 @@ function normalizeBrowserBridgeModelId(model: string): string {
   ).toLowerCase();
 }
 
+function findBrowserBridgeModelPreset(model: string) {
+  const modelId = normalizeBrowserBridgeModelId(model);
+  return BROWSER_BRIDGE_MODEL_PRESETS.find(
+    (preset) => normalizeBrowserBridgeModelId(preset.id) === modelId,
+  );
+}
+
+function resolveBrowserBridgeModel(model: string): string {
+  const preset = findBrowserBridgeModelPreset(model);
+  return preset?.id || DEFAULT_BROWSER_BRIDGE_DRAFT.model;
+}
+
 function getBrowserBridgeQuantizations(
   model: string,
   currentDtype?: string,
 ): readonly string[] {
-  const modelId = normalizeBrowserBridgeModelId(
+  const preset = findBrowserBridgeModelPreset(
     model || DEFAULT_BROWSER_BRIDGE_DRAFT.model,
   );
-  const quantizations = BROWSER_BRIDGE_MODEL_QUANTIZATIONS[modelId];
-  if (quantizations) return quantizations;
+  if (preset) return preset.quantizations;
   const current = String(currentDtype || '').trim();
   return [current || DEFAULT_BROWSER_BRIDGE_DRAFT.dtype];
 }
@@ -225,8 +260,9 @@ function createBrowserBridgeDraft(
 ): BrowserBridgeDraft {
   const bridge = payload?.bridge;
   const runningBridge = bridge?.running ? bridge : null;
-  const model =
-    bridge?.model || current?.model || DEFAULT_BROWSER_BRIDGE_DRAFT.model;
+  const model = resolveBrowserBridgeModel(
+    bridge?.model || current?.model || DEFAULT_BROWSER_BRIDGE_DRAFT.model,
+  );
   const draft = {
     ...DEFAULT_BROWSER_BRIDGE_DRAFT,
     ...current,
@@ -313,8 +349,7 @@ export function ModelsPage() {
   const startBridgeMutation = useMutation({
     mutationFn: () => {
       const apiKey = bridgeDraft.apiKey.trim();
-      const model =
-        bridgeDraft.model.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.model;
+      const model = resolveBrowserBridgeModel(bridgeDraft.model);
       return startBrowserModelBridge(auth.token, {
         model,
         host: bridgeDraft.host.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.host,
@@ -416,8 +451,9 @@ export function ModelsPage() {
   ).length;
   const bridgeStatus = bridgeQuery.data?.bridge;
   const bridgeConfiguredModel =
-    bridgeStatus?.configuredModel ||
-    `browser/${bridgeDraft.model.trim() || DEFAULT_BROWSER_BRIDGE_DRAFT.model}`;
+    bridgeStatus?.running && bridgeStatus.configuredModel
+      ? bridgeStatus.configuredModel
+      : `browser/${resolveBrowserBridgeModel(bridgeDraft.model)}`;
   const bridgePageUrl =
     bridgeStatus?.pageUrl ||
     `http://${bridgeDraft.host || DEFAULT_BROWSER_BRIDGE_DRAFT.host}:${
@@ -563,8 +599,8 @@ export function ModelsPage() {
               <div className="two-column-grid">
                 <Field>
                   <FieldLabel>Model</FieldLabel>
-                  <Input
-                    value={bridgeDraft.model}
+                  <NativeSelect
+                    value={resolveBrowserBridgeModel(bridgeDraft.model)}
                     onChange={(event) =>
                       setBridgeDraft((current) => {
                         const model = event.target.value;
@@ -578,8 +614,13 @@ export function ModelsPage() {
                         };
                       })
                     }
-                    placeholder="LiquidAI/LFM2.5-230M-ONNX"
-                  />
+                  >
+                    {BROWSER_BRIDGE_MODEL_PRESETS.map((preset) => (
+                      <NativeSelectOption key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
                 </Field>
                 <Field>
                   <FieldLabel>Host</FieldLabel>
