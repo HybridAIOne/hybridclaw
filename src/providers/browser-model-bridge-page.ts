@@ -65,8 +65,14 @@ function resolveBrowserBridgeAssetPath(vendorPath: string): string | null {
   }
 
   const onnxRuntimeAssets = new Set([
+    'ort-wasm-simd-threaded.asyncify.mjs',
+    'ort-wasm-simd-threaded.asyncify.wasm',
     'ort-wasm-simd-threaded.jsep.mjs',
     'ort-wasm-simd-threaded.jsep.wasm',
+    'ort-wasm-simd-threaded.jspi.mjs',
+    'ort-wasm-simd-threaded.jspi.wasm',
+    'ort-wasm-simd-threaded.mjs',
+    'ort-wasm-simd-threaded.wasm',
   ]);
   if (onnxRuntimeAssets.has(assetPath)) {
     return path.join(getPackageRoot('onnxruntime-web'), 'dist', assetPath);
@@ -162,6 +168,8 @@ let transformersPromise = null;
 let transformersRuntime = null;
 let generatorPromise = null;
 let busy = false;
+let lastLoadProgressAt = 0;
+let lastLoadProgressPercent = -1;
 
 function post(payload) {
   self.postMessage(payload);
@@ -205,9 +213,6 @@ function errorToData(error) {
 
 function formatError(error) {
   const data = errorToData(error);
-  if (/^\\d+$/.test(data.message)) {
-    return 'Browser runtime failed with code ' + data.message + '. Try a smaller max token limit, q4 quantization, or the wasm device fallback.';
-  }
   return data.message || String(error);
 }
 
@@ -288,17 +293,55 @@ function normalizeMessages(messages) {
     .filter((message) => message.content);
 }
 
+function stripUnsupportedChatTemplateBlocks(template) {
+  return template
+    .replace(/\\{%-?\\s*generation\\s*-?%\\}/g, '')
+    .replace(/\\{%-?\\s*endgeneration\\s*-?%\\}/g, '');
+}
+
+function applyChatTemplate(tokenizer, messages, chatTemplate) {
+  return tokenizer.apply_chat_template(messages, {
+    tokenize: false,
+    add_generation_prompt: true,
+    ...(chatTemplate ? { chat_template: chatTemplate } : {}),
+  });
+}
+
 function renderPrompt(generator, messages) {
   const normalized = normalizeMessages(messages);
   const tokenizer = generator && generator.tokenizer;
   if (tokenizer && typeof tokenizer.apply_chat_template === 'function') {
     try {
-      return tokenizer.apply_chat_template(normalized, {
-        tokenize: false,
-        add_generation_prompt: true,
-      });
+      return applyChatTemplate(tokenizer, normalized);
     } catch (error) {
-      log('Chat template failed; falling back to plain prompt', errorToData(error));
+      const template = typeof tokenizer.chat_template === 'string'
+        ? tokenizer.chat_template
+        : '';
+      const strippedTemplate = template
+        ? stripUnsupportedChatTemplateBlocks(template)
+        : '';
+      const canRetry =
+        strippedTemplate &&
+        strippedTemplate !== template &&
+        /Unknown statement type:\\s*(generation|endgeneration)/.test(
+          String(error && error.message ? error.message : error),
+        );
+      if (canRetry) {
+        try {
+          const rendered = applyChatTemplate(tokenizer, normalized, strippedTemplate);
+          log('Chat template rendered after removing unsupported generation blocks', {
+            originalError: errorToData(error),
+          });
+          return rendered;
+        } catch (retryError) {
+          log('Chat template retry failed; falling back to plain prompt', {
+            originalError: errorToData(error),
+            retryError: errorToData(retryError),
+          });
+        }
+      } else {
+        log('Chat template failed; falling back to plain prompt', errorToData(error));
+      }
     }
   }
   return normalized
@@ -330,6 +373,8 @@ async function loadGenerator() {
     dtype: CONFIG.dtype,
     environment: workerEnvironment(),
   });
+  lastLoadProgressAt = 0;
+  lastLoadProgressPercent = -1;
   generatorPromise = runtime.pipeline('text-generation', CONFIG.model, {
     dtype: CONFIG.dtype,
     device: CONFIG.device,
@@ -338,8 +383,18 @@ async function loadGenerator() {
       const loaded = Number(info.loaded || 0);
       const total = Number(info.total || 0);
       const progress = Number(info.progress || 0);
+      const roundedProgress = Math.max(0, Math.min(100, Math.round(progress)));
+      const now = performance.now();
+      if (
+        roundedProgress === lastLoadProgressPercent &&
+        now - lastLoadProgressAt < 500
+      ) {
+        return;
+      }
+      lastLoadProgressAt = now;
+      lastLoadProgressPercent = roundedProgress;
       const message = total > 0
-        ? (loaded / 1e9).toFixed(2) + ' GB of ' + (total / 1e9).toFixed(2) + ' GB (' + Math.round(progress) + '%)'
+        ? (loaded / 1e9).toFixed(2) + ' GB of ' + (total / 1e9).toFixed(2) + ' GB (' + roundedProgress + '%)'
         : 'Downloading model';
       setRuntime('loading', message, progress);
     }

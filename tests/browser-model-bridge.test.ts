@@ -98,6 +98,7 @@ describe('browser model bridge', () => {
     expect(workerBody).toContain('apply_chat_template');
     expect(workerBody).toContain('return_full_text: false');
     expect(workerBody).toContain('errorToData');
+    expect(workerBody).not.toContain('Try a smaller max token limit');
 
     const workerRuntimeResponse = await fetch(
       `${handle.pageUrl}vendor/transformers.worker.js`,
@@ -132,6 +133,22 @@ describe('browser model bridge', () => {
     );
     expect(wasmLoaderResponse.headers.get('cross-origin-resource-policy')).toBe(
       'same-origin',
+    );
+
+    const asyncifyLoaderResponse = await fetch(
+      `${handle.pageUrl}vendor/ort-wasm-simd-threaded.asyncify.mjs`,
+    );
+    expect(asyncifyLoaderResponse.status).toBe(200);
+    expect(asyncifyLoaderResponse.headers.get('content-type')).toContain(
+      'text/javascript',
+    );
+
+    const asyncifyWasmResponse = await fetch(
+      `${handle.pageUrl}vendor/ort-wasm-simd-threaded.asyncify.wasm`,
+    );
+    expect(asyncifyWasmResponse.status).toBe(200);
+    expect(asyncifyWasmResponse.headers.get('content-type')).toBe(
+      'application/wasm',
     );
 
     const commonResponse = await fetch(
