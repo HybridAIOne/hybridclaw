@@ -14,13 +14,14 @@ const fetchBrowserModelBridgeMock =
 const startBrowserModelBridgeMock = vi.fn();
 const stopBrowserModelBridgeMock = vi.fn();
 const useAuthMock = vi.fn();
-const defaultBrowserModel = 'onnx-community/gemma-3-270m-it-ONNX';
+const defaultBrowserModel = 'LiquidAI/LFM2.5-230M-ONNX';
+const gemmaBrowserModel = 'onnx-community/gemma-3-270m-it-ONNX';
 const browserModelOptions = [
   defaultBrowserModel,
-  'onnx-community/gemma-3-270m-ONNX',
+  'LiquidAI/LFM2.5-350M-ONNX',
+  'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
+  gemmaBrowserModel,
   'onnx-community/gemma-3-1b-it-ONNX',
-  'onnx-community/gemma-3-1b-it-ONNX-GQA',
-  'onnx-community/gemma-2-2b-jpn-it',
 ];
 
 const modelMetadataDefaults = {
@@ -410,15 +411,20 @@ describe('ModelsPage', () => {
 
     expect(
       Array.from(quantizationSelect.options).map((option) => option.value),
-    ).toEqual(['q4', 'q4f16', 'q8', 'fp16', 'fp32']);
+    ).toEqual(['q4', 'fp16', 'fp32']);
     expect(screen.queryByText('Dtype')).toBeNull();
+    expect(
+      Array.from(modelSelect.options).some((option) =>
+        option.value.toLowerCase().includes('jpn'),
+      ),
+    ).toBe(false);
 
     fireEvent.change(modelSelect, {
-      target: { value: 'onnx-community/gemma-2-2b-jpn-it' },
+      target: { value: gemmaBrowserModel },
     });
     expect(
       Array.from(quantizationSelect.options).map((option) => option.value),
-    ).toEqual(['q4f16']);
+    ).toEqual(['q4', 'q4f16', 'q8', 'fp16', 'fp32']);
   });
 
   it('preserves the selected quantization after starting the browser bridge', async () => {
@@ -427,10 +433,12 @@ describe('ModelsPage', () => {
       bridge: {
         running: true,
         configuredDefault: true,
+        model: gemmaBrowserModel,
         dtype: 'q8',
+        configuredModel: `browser/${gemmaBrowserModel}`,
       },
       models: makeModelsResponse({
-        defaultModel: `browser/${defaultBrowserModel}`,
+        defaultModel: `browser/${gemmaBrowserModel}`,
       }),
     });
     startBrowserModelBridgeMock.mockResolvedValue(startedPayload);
@@ -438,10 +446,15 @@ describe('ModelsPage', () => {
 
     renderModelsPage();
 
-    const select = (await screen.findByLabelText(
+    const modelSelect = (await screen.findByLabelText(
+      'Model',
+    )) as HTMLSelectElement;
+    fireEvent.change(modelSelect, { target: { value: gemmaBrowserModel } });
+
+    const quantizationSelect = (await screen.findByLabelText(
       'Quantization',
     )) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: 'q8' } });
+    fireEvent.change(quantizationSelect, { target: { value: 'q8' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Start bridge' }));
 
@@ -450,9 +463,10 @@ describe('ModelsPage', () => {
     );
     expect(startBrowserModelBridgeMock).toHaveBeenCalledWith(
       'test-token',
-      expect.objectContaining({ dtype: 'q8' }),
+      expect.objectContaining({ dtype: 'q8', model: gemmaBrowserModel }),
     );
-    await waitFor(() => expect(select.value).toBe('q8'));
+    await waitFor(() => expect(quantizationSelect.value).toBe('q8'));
+    expect(modelSelect.value).toBe(gemmaBrowserModel);
 
     openMock.mockRestore();
   });

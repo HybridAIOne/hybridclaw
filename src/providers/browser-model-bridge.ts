@@ -284,6 +284,15 @@ function ssePayload(
   })}\n\n`;
 }
 
+function sseErrorPayload(message: string): string {
+  return `data: ${JSON.stringify({
+    error: {
+      message,
+      type: 'browser_bridge_error',
+    },
+  })}\n\n`;
+}
+
 function writeSseHeaders(res: ServerResponse): void {
   res.statusCode = 200;
   res.setHeader('content-type', 'text/event-stream; charset=utf-8');
@@ -317,15 +326,7 @@ function failPendingRequest(
   clearTimeout(pending.timeout);
   if (pending.stream) {
     if (!pending.res.headersSent) writeSseHeaders(pending.res);
-    pending.res.write(
-      ssePayload(
-        pending.id,
-        pending.model,
-        pending.created,
-        { content: message },
-        'stop',
-      ),
-    );
+    pending.res.write(sseErrorPayload(message));
     pending.res.write('data: [DONE]\n\n');
     pending.res.end();
     return;

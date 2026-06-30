@@ -210,4 +210,47 @@ describe('browser model bridge', () => {
     expect(response.status).toBe(200);
     expect(payload.choices[0]?.message.content).toBe(generated);
   });
+
+  test('streams browser disconnects as provider errors', async () => {
+    const handle = await startTestBridge();
+    const ws = await connectFakeBrowser(handle);
+    handles.push({
+      ...handle,
+      close: async () => {
+        ws.close();
+      },
+    });
+
+    const generateMessage = new Promise<Record<string, unknown>>((resolve) => {
+      ws.on('message', (raw) => {
+        const payload = JSON.parse(String(raw)) as Record<string, unknown>;
+        if (payload.type === 'generate') resolve(payload);
+      });
+    });
+
+    const responsePromise = fetch(`${handle.endpointUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: DEFAULT_BROWSER_MODEL_BRIDGE_MODEL,
+        stream: true,
+        messages: [{ role: 'user', content: 'hello' }],
+      }),
+    });
+
+    await generateMessage;
+    ws.close();
+
+    const response = await responsePromise;
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('"error"');
+    expect(body).toContain(
+      '"message":"Browser tab disconnected before generation completed."',
+    );
+    expect(body).not.toContain(
+      '"delta":{"content":"Browser tab disconnected before generation completed."}',
+    );
+  });
 });

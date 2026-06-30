@@ -167,7 +167,7 @@ const MODEL_DEFAULT_DIRECTIONS = {
 } as const;
 
 const DEFAULT_BROWSER_BRIDGE_DRAFT: BrowserBridgeDraft = {
-  model: 'onnx-community/gemma-3-270m-it-ONNX',
+  model: 'LiquidAI/LFM2.5-230M-ONNX',
   host: '127.0.0.1',
   port: '8789',
   device: 'webgpu',
@@ -179,29 +179,29 @@ const DEFAULT_BROWSER_BRIDGE_DRAFT: BrowserBridgeDraft = {
 
 const BROWSER_BRIDGE_MODEL_PRESETS = [
   {
-    id: 'onnx-community/gemma-3-270m-it-ONNX',
-    label: 'Gemma 3 270M Instruct',
+    id: 'LiquidAI/LFM2.5-230M-ONNX',
+    label: 'LFM 2.5 230M',
+    quantizations: ['q4', 'fp16', 'fp32'],
+  },
+  {
+    id: 'LiquidAI/LFM2.5-350M-ONNX',
+    label: 'LFM 2.5 350M',
     quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
   },
   {
-    id: 'onnx-community/gemma-3-270m-ONNX',
-    label: 'Gemma 3 270M',
+    id: 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
+    label: 'LFM 2.5 1.2B Instruct',
+    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+  },
+  {
+    id: 'onnx-community/gemma-3-270m-it-ONNX',
+    label: 'Gemma 3 270M Instruct',
     quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
   },
   {
     id: 'onnx-community/gemma-3-1b-it-ONNX',
     label: 'Gemma 3 1B Instruct',
     quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
-  },
-  {
-    id: 'onnx-community/gemma-3-1b-it-ONNX-GQA',
-    label: 'Gemma 3 1B Instruct GQA',
-    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
-  },
-  {
-    id: 'onnx-community/gemma-2-2b-jpn-it',
-    label: 'Gemma 2 2B Japanese Instruct',
-    quantizations: ['q4f16'],
   },
 ] as const;
 
