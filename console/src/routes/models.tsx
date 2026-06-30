@@ -172,41 +172,43 @@ const DEFAULT_BROWSER_BRIDGE_DRAFT: BrowserBridgeDraft = {
   port: '8789',
   device: 'webgpu',
   dtype: 'q4',
-  maxNewTokens: '1024',
+  maxNewTokens: '256',
   apiKey: '',
   setDefault: true,
 };
+
+const LFM_WEBGPU_QUANTIZATIONS = ['q4', 'fp16'] as const;
 
 const BROWSER_BRIDGE_MODEL_PRESETS = [
   {
     id: 'LiquidAI/LFM2.5-230M-ONNX',
     label: 'LFM 2.5 230M',
-    quantizations: ['q4', 'q8', 'fp16', 'fp32'],
+    quantizations: LFM_WEBGPU_QUANTIZATIONS,
   },
   {
     id: 'LiquidAI/LFM2.5-350M-ONNX',
     label: 'LFM 2.5 350M',
-    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+    quantizations: LFM_WEBGPU_QUANTIZATIONS,
   },
   {
     id: 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
     label: 'LFM 2.5 1.2B Instruct',
-    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+    quantizations: LFM_WEBGPU_QUANTIZATIONS,
   },
   {
     id: 'LiquidAI/LFM2.5-1.2B-Thinking-ONNX',
     label: 'LFM 2.5 1.2B Thinking',
-    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+    quantizations: LFM_WEBGPU_QUANTIZATIONS,
   },
   {
     id: 'LiquidAI/LFM2.5-8B-A1B-ONNX',
     label: 'LFM 2.5 8B A1B',
-    quantizations: ['q4', 'q4f16', 'q8', 'fp16', 'fp32'],
+    quantizations: LFM_WEBGPU_QUANTIZATIONS,
   },
   {
     id: 'LiquidAI/LFM2.5-VL-1.6B-ONNX',
     label: 'LFM 2.5 VL 1.6B',
-    quantizations: ['q4', 'q8', 'fp16', 'fp32'],
+    quantizations: LFM_WEBGPU_QUANTIZATIONS,
   },
   {
     id: 'onnx-community/gemma-3-270m-it-ONNX',

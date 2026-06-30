@@ -388,6 +388,13 @@ function normalizeTools(tools) {
     .filter(Boolean);
 }
 
+function isLiquidModel(model) {
+  const normalized = String(model || '').trim().toLowerCase();
+  return normalized.includes('liquidai') ||
+    normalized.includes('/liquid/') ||
+    normalized.includes('lfm');
+}
+
 function stripUnsupportedChatTemplateBlocks(template) {
   return template
     .replace(/\\{%-?\\s*generation\\s*-?%\\}/g, '')
@@ -408,7 +415,10 @@ function renderPlainPrompt(messages, tools) {
   const normalizedTools = normalizeTools(tools);
   const toolInstruction =
     normalizedTools.length > 0
-      ? 'Tool call format: call:<tool_name>{key:value}.\\nList of tools: ' +
+      ? (isLiquidModel(CONFIG && CONFIG.model)
+          ? 'Liquid tool call format: <|tool_call_start|>[tools.<tool_name>(key=value)]<|tool_call_end|>.\\n'
+          : 'Tool call format: call:<tool_name>{key:value}.\\n') +
+        'List of tools: ' +
         JSON.stringify(normalizedTools) +
         '\\n\\n'
       : '';

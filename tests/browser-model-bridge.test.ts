@@ -101,6 +101,9 @@ describe('browser model bridge', () => {
     expect(workerBody).toContain('tool_calls');
     expect(workerBody).toContain('tool_call_id');
     expect(workerBody).toContain('Tool call format: call:<tool_name>{key:value}');
+    expect(workerBody).toContain(
+      'Liquid tool call format: <|tool_call_start|>[tools.<tool_name>(key=value)]<|tool_call_end|>',
+    );
     expect(workerBody).toContain('return_full_text: false');
     expect(workerBody).toContain('errorToData');
     expect(workerBody).toContain('reportLoadProgress');
@@ -171,6 +174,20 @@ describe('browser model bridge', () => {
       'text/javascript',
     );
     expect(commonBody).toContain('ONNX Runtime JavaScript API');
+  });
+
+  test('rejects unsupported Liquid WebGPU quantization', async () => {
+    await expect(
+      startBrowserModelBridge({
+        host: '127.0.0.1',
+        port: 0,
+        model: 'LiquidAI/LFM2.5-230M-ONNX',
+        device: 'webgpu',
+        dtype: 'q8',
+      }),
+    ).rejects.toThrow(
+      'LiquidAI LFM WebGPU models support only q4 or fp16 quantization, not q8.',
+    );
   });
 
   test('returns 503 for chat requests until a browser tab connects', async () => {

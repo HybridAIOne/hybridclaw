@@ -15,6 +15,7 @@ export const DEFAULT_BROWSER_MODEL_BRIDGE_PORT = 8789;
 export const DEFAULT_BROWSER_MODEL_BRIDGE_DEVICE = 'webgpu';
 export const DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE = 'q4';
 export const DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS = 256;
+const LFM_WEBGPU_DTYPES = new Set(['q4', 'fp16']);
 const MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15 * 60_000;
 const REQUEST_BODY_TOO_LARGE_MESSAGE = 'Request body is too large.';
@@ -105,6 +106,33 @@ function normalizeHost(value: string | undefined): string {
 
 function normalizeModel(value: string | undefined): string {
   return String(value || '').trim() || DEFAULT_BROWSER_MODEL_BRIDGE_MODEL;
+}
+
+function isLiquidBrowserModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return (
+    normalized.includes('liquidai') ||
+    normalized.includes('/liquid/') ||
+    normalized.includes('lfm')
+  );
+}
+
+export function normalizeBrowserModelBridgeDtype(params: {
+  model: string;
+  device: string;
+  dtype: string;
+}): string {
+  const dtype = params.dtype.trim() || DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE;
+  if (
+    params.device.trim().toLowerCase() === 'webgpu' &&
+    isLiquidBrowserModel(params.model) &&
+    !LFM_WEBGPU_DTYPES.has(dtype)
+  ) {
+    throw new Error(
+      `LiquidAI LFM WebGPU models support only q4 or fp16 quantization, not ${dtype}.`,
+    );
+  }
+  return dtype;
 }
 
 function normalizePort(value: number | undefined): number {
@@ -351,8 +379,11 @@ export async function startBrowserModelBridge(
   const requestedPort = normalizePort(options.port);
   const device =
     String(options.device || '').trim() || DEFAULT_BROWSER_MODEL_BRIDGE_DEVICE;
-  const dtype =
-    String(options.dtype || '').trim() || DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE;
+  const dtype = normalizeBrowserModelBridgeDtype({
+    model,
+    device,
+    dtype: String(options.dtype || ''),
+  });
   const apiKey = String(options.apiKey || '').trim();
   const maxNewTokens = normalizePositiveInteger(
     options.maxNewTokens,

@@ -171,7 +171,7 @@ function buildLiquidToolCallInstruction(tools: ToolDefinition[]): string {
     description: tool.function.description,
     parameters: tool.function.parameters,
   }));
-  return `List of tools: ${JSON.stringify(toolList)}`;
+  return `Use tools when needed. Liquid tool call format: <|tool_call_start|>[tools.<tool_name>(key=value)]<|tool_call_end|>. List of tools: ${JSON.stringify(toolList)}`;
 }
 
 function estimatePromptToolInstructionTokens(instruction: string): number {
@@ -181,6 +181,8 @@ function estimatePromptToolInstructionTokens(instruction: string): number {
 
 const BROWSER_MODEL_SYSTEM_PROMPT =
   'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed. Tool call format: call:<tool_name>{key:value}.';
+const BROWSER_LIQUID_MODEL_SYSTEM_PROMPT =
+  'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed. Liquid tool call format: <|tool_call_start|>[tools.<tool_name>(key=value)]<|tool_call_end|>.';
 const BROWSER_MODEL_HISTORY_LIMIT = 6;
 const BROWSER_MODEL_TOTAL_PROMPT_CHARS = 12_000;
 const BROWSER_MODEL_MESSAGE_CHARS = 6_000;
@@ -368,6 +370,7 @@ function normalizeBrowserToolCalls(
 
 function buildBrowserRequestMessages(
   messages: ChatMessage[],
+  model: string,
 ): Array<Record<string, unknown>> {
   const selected: Array<Record<string, unknown>> = [];
   let remainingChars = BROWSER_MODEL_TOTAL_PROMPT_CHARS;
@@ -401,7 +404,12 @@ function buildBrowserRequestMessages(
 
   selected.reverse();
   return [
-    { role: 'system', content: BROWSER_MODEL_SYSTEM_PROMPT },
+    {
+      role: 'system',
+      content: usesLiquidCompat({ provider: 'browser', model })
+        ? BROWSER_LIQUID_MODEL_SYSTEM_PROMPT
+        : BROWSER_MODEL_SYSTEM_PROMPT,
+    },
     ...selected,
   ];
 }
@@ -523,7 +531,7 @@ function buildRequestMessages(
   args: NormalizedCallArgs,
 ): Array<Record<string, unknown>> {
   if (args.provider === 'browser') {
-    return buildBrowserRequestMessages(args.messages);
+    return buildBrowserRequestMessages(args.messages, args.model);
   }
   let messages = usesQwenCompat(args)
     ? buildQwenRequestMessages(args.messages)

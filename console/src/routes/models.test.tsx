@@ -128,7 +128,7 @@ function makeBrowserBridgeResponse(
       model: defaultBrowserModel,
       device: 'webgpu',
       dtype: 'q4',
-      maxNewTokens: 1024,
+      maxNewTokens: 256,
       pageUrl: 'http://127.0.0.1:8789/',
       endpointUrl: 'http://127.0.0.1:8789/v1',
       configuredModel: `browser/${defaultBrowserModel}`,
@@ -393,7 +393,7 @@ describe('ModelsPage', () => {
       port: 8789,
       device: 'webgpu',
       dtype: 'q4',
-      maxNewTokens: 1024,
+      maxNewTokens: 256,
       setDefault: true,
     });
     expect(openMock).toHaveBeenCalledWith(
@@ -422,7 +422,7 @@ describe('ModelsPage', () => {
 
     expect(
       Array.from(quantizationSelect.options).map((option) => option.value),
-    ).toEqual(['q4', 'q8', 'fp16', 'fp32']);
+    ).toEqual(['q4', 'fp16']);
     expect(screen.queryByText('Dtype')).toBeNull();
     expect(
       Array.from(modelSelect.options).some((option) =>

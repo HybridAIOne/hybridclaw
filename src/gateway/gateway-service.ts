@@ -328,6 +328,7 @@ import {
   DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS,
   DEFAULT_BROWSER_MODEL_BRIDGE_MODEL,
   DEFAULT_BROWSER_MODEL_BRIDGE_PORT,
+  normalizeBrowserModelBridgeDtype,
   startBrowserModelBridge,
 } from '../providers/browser-model-bridge.js';
 import { discoverCodexModels } from '../providers/codex-discovery.js';
@@ -7101,10 +7102,14 @@ export async function startGatewayAdminBrowserModelBridge(
     input.device,
     DEFAULT_BROWSER_MODEL_BRIDGE_DEVICE,
   );
-  const dtype = normalizeBrowserBridgeString(
-    input.dtype,
-    DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE,
-  );
+  const dtype = normalizeBrowserModelBridgeDtype({
+    model,
+    device,
+    dtype: normalizeBrowserBridgeString(
+      input.dtype,
+      DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE,
+    ),
+  });
   const maxNewTokens = normalizeBrowserBridgeMaxNewTokens(
     input.maxNewTokens,
     DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS,

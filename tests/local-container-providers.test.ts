@@ -1014,7 +1014,7 @@ describe('local container providers', () => {
         {
           role: 'system',
           content:
-            'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed. Tool call format: call:<tool_name>{key:value}.',
+            'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed. Liquid tool call format: <|tool_call_start|>[tools.<tool_name>(key=value)]<|tool_call_end|>.',
         },
         { role: 'user', content: 'old question' },
         {
