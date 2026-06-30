@@ -7,6 +7,7 @@ import {
   callLocalOpenAICompatProvider,
   callLocalOpenAICompatProviderStream,
   estimateLocalOpenAICompatPromptOverheadTokens,
+  unwrapBrowserDispatcherToolCalls,
 } from '../container/src/providers/local-openai-compat.js';
 import { normalizeOpenRouterRuntimeModelName } from '../container/src/providers/shared.js';
 import type { ChatMessage, ToolDefinition } from '../container/src/types.js';
@@ -64,6 +65,7 @@ const tools: ToolDefinition[] = [
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('local container providers', () => {
@@ -159,6 +161,126 @@ describe('local container providers', () => {
     expect(fn.parameters.properties.frame.description).toBeUndefined();
     // ...but structure (enums) preserved so calls stay valid.
     expect(fn.parameters.properties.mode.enum).toEqual(['default', 'full']);
+  });
+
+  test('unwrapBrowserDispatcherToolCalls restores the real tool call', () => {
+    const result = unwrapBrowserDispatcherToolCalls([
+      {
+        id: 'c1',
+        type: 'function',
+        function: {
+          name: 'tool_call',
+          arguments: '{"name":"bash","arguments":{"command":"ls -la"}}',
+        },
+      },
+      {
+        id: 'c2',
+        type: 'function',
+        function: { name: 'read', arguments: '{"path":"a.txt"}' },
+      },
+    ]);
+    // dispatcher call unwrapped to the real tool...
+    expect(result[0]?.function).toEqual({
+      name: 'bash',
+      arguments: '{"command":"ls -la"}',
+    });
+    // ...non-dispatcher calls pass through unchanged.
+    expect(result[1]?.function).toEqual({
+      name: 'read',
+      arguments: '{"path":"a.txt"}',
+    });
+  });
+
+  test('browser catalog mode sends one dispatcher tool + a catalog, and unwraps the call', async () => {
+    vi.stubEnv('HYBRIDCLAW_BROWSER_TOOL_CATALOG', '1');
+    const catalogTools: ToolDefinition[] = [
+      {
+        type: 'function',
+        function: {
+          name: 'bash',
+          description: 'Run a shell command and return its output.',
+          parameters: {
+            type: 'object',
+            properties: { command: { type: 'string', description: 'cmd' } },
+            required: ['command'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'read',
+          description: 'Read a file.',
+          parameters: {
+            type: 'object',
+            properties: { path: { type: 'string' } },
+            required: ['path'],
+          },
+        },
+      },
+    ];
+    let body: {
+      tools: Array<{ function: { name: string } }>;
+      messages: Array<{ role: string; content: string }>;
+    } = { tools: [], messages: [] };
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body || '{}'));
+      return new Response(
+        JSON.stringify({
+          id: 'r',
+          model: 'm',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'd1',
+                    type: 'function',
+                    function: {
+                      name: 'tool_call',
+                      arguments:
+                        '{"name":"bash","arguments":{"command":"ls -la"}}',
+                    },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callLocalOpenAICompatProvider({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/onnx-community/gemma-4-E2B-it-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools: catalogTools,
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    // Only the dispatcher tool is sent.
+    expect(body.tools.map((tool) => tool.function.name)).toEqual(['tool_call']);
+    // Catalog is injected into the system prompt with names + required params.
+    expect(body.messages[0]?.role).toBe('system');
+    expect(body.messages[0]?.content).toContain('bash(command*)');
+    expect(body.messages[0]?.content).toContain('read(path*)');
+    // The dispatcher call is unwrapped back to the real bash tool call.
+    expect(result.choices[0]?.message.tool_calls?.[0]?.function).toEqual({
+      name: 'bash',
+      arguments: '{"command":"ls -la"}',
+    });
   });
 
   test('Ollama provider builds native /api/chat requests and extracts data URI images', async () => {

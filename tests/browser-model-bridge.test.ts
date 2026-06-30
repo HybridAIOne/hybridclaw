@@ -723,6 +723,15 @@ describe('parseGemmaToolCalls', () => {
     expect(result.toolCalls).toEqual([]);
     expect(result.content).toBe('I cannot run commands.');
   });
+
+  test('parses nested unquoted objects (dispatcher arguments)', () => {
+    const result = parseGemmaToolCalls(
+      'call:tool_call{name:bash, arguments:{command:ls -la}}',
+    );
+    expect(JSON.parse(result.toolCalls[0]?.function.arguments as string)).toEqual(
+      { name: 'bash', arguments: { command: 'ls -la' } },
+    );
+  });
 });
 
 describe('parseBrowserToolCalls', () => {

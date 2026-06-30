@@ -370,14 +370,35 @@ function parseLiquidArgValue(raw: string): JsonValue {
   if (trimmed === 'false') return false;
   if (trimmed === 'null' || trimmed === 'None') return null;
   if (/^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
-  if (
-    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-    (trimmed.startsWith('[') && trimmed.endsWith(']'))
-  ) {
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
     try {
       return JSON.parse(trimmed) as JsonValue;
     } catch {
-      return trimmed;
+      // Gemma renders nested objects unquoted ({command:ls -la}); parse them
+      // recursively so dispatcher arguments survive as real JSON.
+      const object: JsonObject = {};
+      for (const pair of splitTopLevelSegments(trimmed.slice(1, -1), ',')) {
+        const colon = pair.indexOf(':');
+        if (colon < 1) continue;
+        const key = pair
+          .slice(0, colon)
+          .trim()
+          .replace(/^["']|["']$/g, '');
+        if (!key) continue;
+        object[key] = parseLiquidArgValue(pair.slice(colon + 1));
+      }
+      return object;
+    }
+  }
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      return JSON.parse(trimmed) as JsonValue;
+    } catch {
+      const inner = trimmed.slice(1, -1).trim();
+      if (!inner) return [];
+      return splitTopLevelSegments(inner, ',').map((item) =>
+        parseLiquidArgValue(item),
+      );
     }
   }
   return trimmed;

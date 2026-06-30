@@ -373,6 +373,101 @@ function buildBrowserRequestTools(tools: ToolDefinition[]): ToolDefinition[] {
   return selected;
 }
 
+// --- Phase 2: tool catalog + dispatcher (opt-in via env) -------------------
+// Instead of sending every tool's schema (which blows a small model's prompt
+// budget), expose a single `tool_call(name, arguments)` dispatcher plus a
+// compact name/param catalog in the system prompt. The model emits
+// tool_call(name="bash", arguments={...}); the provider unwraps it back into a
+// real tool call for the agent, and rewrites prior real tool calls in history
+// into the same dispatcher framing so the model only ever sees one tool.
+const BROWSER_TOOL_DISPATCHER_NAME = 'tool_call';
+
+function browserToolCatalogEnabled(): boolean {
+  const value = String(process.env.HYBRIDCLAW_BROWSER_TOOL_CATALOG || '')
+    .trim()
+    .toLowerCase();
+  return value === '1' || value === 'true' || value === 'on';
+}
+
+function safeParseArguments(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function buildBrowserToolCatalog(tools: ToolDefinition[]): string {
+  const lines = buildBrowserRequestTools(tools).map((tool) => {
+    const required = new Set(tool.function.parameters.required || []);
+    const signature = Object.keys(tool.function.parameters.properties || {})
+      .map((name) => (required.has(name) ? `${name}*` : name))
+      .join(', ');
+    const summary = truncateBrowserToolText(tool.function.description, 100);
+    return `- ${tool.function.name}(${signature})${summary ? `: ${summary}` : ''}`;
+  });
+  return [
+    'Available tools — call one with the tool_call function, setting name to the',
+    'tool name and arguments to its parameters. * marks a required parameter.',
+    ...lines,
+  ].join('\n');
+}
+
+function buildBrowserToolDispatcher(): ToolDefinition {
+  return {
+    type: 'function',
+    function: {
+      name: BROWSER_TOOL_DISPATCHER_NAME,
+      description:
+        'Call one of the available tools listed in the system prompt. Set name to the tool name and arguments to an object of its parameters.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          arguments: { type: 'object' },
+        },
+        required: ['name', 'arguments'],
+      },
+    },
+  };
+}
+
+// Rewrite a real tool call (e.g. bash) into a dispatcher call so the model's
+// history stays consistent with the single tool it was given.
+function wrapBrowserToolCallAsDispatcher(toolCall: ToolCall): ToolCall {
+  return {
+    ...toolCall,
+    function: {
+      name: BROWSER_TOOL_DISPATCHER_NAME,
+      arguments: JSON.stringify({
+        name: toolCall.function.name,
+        arguments: safeParseArguments(toolCall.function.arguments),
+      }),
+    },
+  };
+}
+
+// Unwrap a model-emitted dispatcher call back into the real tool call.
+export function unwrapBrowserDispatcherToolCalls(
+  toolCalls: ToolCall[],
+): ToolCall[] {
+  return toolCalls.map((call) => {
+    if (call.function.name !== BROWSER_TOOL_DISPATCHER_NAME) return call;
+    const payload = safeParseArguments(call.function.arguments);
+    const name = typeof payload.name === 'string' ? payload.name : '';
+    if (!name) return call;
+    const innerArgs = payload.arguments;
+    const argumentsText =
+      typeof innerArgs === 'string'
+        ? innerArgs
+        : JSON.stringify(innerArgs ?? {});
+    return { ...call, function: { name, arguments: argumentsText } };
+  });
+}
+
 function normalizeBrowserRequestRole(
   role: ChatMessage['role'],
 ): 'user' | 'assistant' | 'tool' | null {
@@ -398,6 +493,7 @@ function normalizeBrowserToolCalls(
 
 function buildBrowserRequestMessages(
   messages: ChatMessage[],
+  catalog?: string | null,
 ): Array<Record<string, unknown>> {
   const selected: Array<Record<string, unknown>> = [];
   let remainingChars = BROWSER_MODEL_TOTAL_PROMPT_CHARS;
@@ -412,8 +508,13 @@ function buildBrowserRequestMessages(
     const role = normalizeBrowserRequestRole(message.role);
     if (!role) continue;
     const text = contentToText(message.content).trim();
-    const toolCalls =
+    const realToolCalls =
       role === 'assistant' ? normalizeBrowserToolCalls(message.tool_calls) : [];
+    // In catalog mode the model only knows the dispatcher, so rewrite prior
+    // real tool calls in history into dispatcher framing.
+    const toolCalls = catalog
+      ? realToolCalls.map(wrapBrowserToolCallAsDispatcher)
+      : realToolCalls;
     if (!text && toolCalls.length === 0) continue;
     const maxChars = Math.min(BROWSER_MODEL_MESSAGE_CHARS, remainingChars);
     if (maxChars <= 0) break;
@@ -433,7 +534,9 @@ function buildBrowserRequestMessages(
   return [
     {
       role: 'system',
-      content: BROWSER_MODEL_SYSTEM_PROMPT,
+      content: catalog
+        ? `${BROWSER_MODEL_SYSTEM_PROMPT}\n\n${catalog}`
+        : BROWSER_MODEL_SYSTEM_PROMPT,
     },
     ...selected,
   ];
@@ -556,7 +659,13 @@ function buildRequestMessages(
   args: NormalizedCallArgs,
 ): Array<Record<string, unknown>> {
   if (args.provider === 'browser') {
-    return buildBrowserRequestMessages(args.messages);
+    const catalog =
+      browserToolCatalogEnabled() &&
+      Array.isArray(args.tools) &&
+      args.tools.length > 0
+        ? buildBrowserToolCatalog(args.tools)
+        : null;
+    return buildBrowserRequestMessages(args.messages, catalog);
   }
   let messages = usesQwenCompat(args)
     ? buildQwenRequestMessages(args.messages)
@@ -583,9 +692,16 @@ function buildRequestMessages(
 }
 
 function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
+  const browserCatalogMode =
+    args.provider === 'browser' &&
+    browserToolCatalogEnabled() &&
+    Array.isArray(args.tools) &&
+    args.tools.length > 0;
   const tools =
     args.provider === 'browser'
-      ? buildBrowserRequestTools(args.tools)
+      ? browserCatalogMode
+        ? [buildBrowserToolDispatcher()]
+        : buildBrowserRequestTools(args.tools)
       : args.tools;
   const request: Record<string, unknown> = {
     model: normalizeLocalModelName(args.provider, args.model),
@@ -779,6 +895,16 @@ function adaptLocalOpenAICompatResponse(
         toolCalls: thinkingToolCalls.toolCalls,
       };
     }
+  }
+  if (
+    params.provider === 'browser' &&
+    browserToolCatalogEnabled() &&
+    normalized.toolCalls.length > 0
+  ) {
+    normalized = {
+      content: normalized.content,
+      toolCalls: unwrapBrowserDispatcherToolCalls(normalized.toolCalls),
+    };
   }
   return {
     ...payload,
