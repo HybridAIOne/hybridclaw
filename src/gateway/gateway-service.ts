@@ -320,6 +320,16 @@ import {
   restoreHttpSecretRoutePolicySnapshot,
 } from '../policy/secret-route-policy.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import {
+  type BrowserModelBridgeHandle,
+  DEFAULT_BROWSER_MODEL_BRIDGE_DEVICE,
+  DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE,
+  DEFAULT_BROWSER_MODEL_BRIDGE_HOST,
+  DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS,
+  DEFAULT_BROWSER_MODEL_BRIDGE_MODEL,
+  DEFAULT_BROWSER_MODEL_BRIDGE_PORT,
+  startBrowserModelBridge,
+} from '../providers/browser-model-bridge.js';
 import { discoverCodexModels } from '../providers/codex-discovery.js';
 import {
   modelRequiresChatbotId,
@@ -331,16 +341,6 @@ import {
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
-import {
-  DEFAULT_BROWSER_MODEL_BRIDGE_DEVICE,
-  DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE,
-  DEFAULT_BROWSER_MODEL_BRIDGE_HOST,
-  DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS,
-  DEFAULT_BROWSER_MODEL_BRIDGE_MODEL,
-  DEFAULT_BROWSER_MODEL_BRIDGE_PORT,
-  type BrowserModelBridgeHandle,
-  startBrowserModelBridge,
-} from '../providers/browser-model-bridge.js';
 import { getLocalModelInfo } from '../providers/local-discovery.js';
 import {
   discoverMistralModels,
@@ -580,9 +580,6 @@ import {
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
-  type GatewayBrowserModelBridgeResponse,
-  type GatewayBrowserModelBridgeStartRequest,
-  type GatewayBrowserModelBridgeStatus,
   type GatewayAdminOverview,
   type GatewayAdminPendingApproval,
   type GatewayAdminPolicyPresetSummary,
@@ -609,6 +606,9 @@ import {
   type GatewayAgentListResponse,
   type GatewayAgentsResponse,
   type GatewayAssistantPresentation,
+  type GatewayBrowserModelBridgeResponse,
+  type GatewayBrowserModelBridgeStartRequest,
+  type GatewayBrowserModelBridgeStatus,
   type GatewayChatRequest,
   type GatewayChatResult,
   type GatewayCommandRequest,
@@ -7028,7 +7028,9 @@ function parseBrowserBridgeBaseUrl(baseUrl: string): {
     const parsed = new URL(baseUrl);
     return {
       host: parsed.hostname || DEFAULT_BROWSER_MODEL_BRIDGE_HOST,
-      port: parsed.port ? Number(parsed.port) : DEFAULT_BROWSER_MODEL_BRIDGE_PORT,
+      port: parsed.port
+        ? Number(parsed.port)
+        : DEFAULT_BROWSER_MODEL_BRIDGE_PORT,
     };
   } catch {
     return {
@@ -7083,7 +7085,10 @@ export async function startGatewayAdminBrowserModelBridge(
   const configuredEndpoint = parseBrowserBridgeBaseUrl(
     runtimeConfig.local.backends.browser.baseUrl,
   );
-  const host = normalizeBrowserBridgeString(input.host, configuredEndpoint.host);
+  const host = normalizeBrowserBridgeString(
+    input.host,
+    configuredEndpoint.host,
+  );
   const port = normalizeBrowserBridgePort(input.port, configuredEndpoint.port);
   const device = normalizeBrowserBridgeString(
     input.device,

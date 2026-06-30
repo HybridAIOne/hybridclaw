@@ -293,10 +293,6 @@ export function ModelsPage() {
   }, [modelsQuery.data]);
 
   useEffect(() => {
-    setBridgeDraftInitialized(false);
-  }, [auth.token]);
-
-  useEffect(() => {
     if (!bridgeQuery.data || bridgeDraftInitialized) return;
     setBridgeDraft(createBrowserBridgeDraft(bridgeQuery.data));
     setBridgeDraftInitialized(true);
