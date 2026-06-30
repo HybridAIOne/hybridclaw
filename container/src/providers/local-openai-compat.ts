@@ -180,16 +180,14 @@ function estimatePromptToolInstructionTokens(instruction: string): number {
 }
 
 const BROWSER_MODEL_SYSTEM_PROMPT =
-  'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed. Tool call format: call:<tool_name>{key:value}.';
-const BROWSER_LIQUID_MODEL_SYSTEM_PROMPT =
-  'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed. Liquid tool call format: <|tool_call_start|>[tools.<tool_name>(key=value)]<|tool_call_end|>.';
+  'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed.';
 const BROWSER_MODEL_HISTORY_LIMIT = 6;
 const BROWSER_MODEL_TOTAL_PROMPT_CHARS = 12_000;
 const BROWSER_MODEL_MESSAGE_CHARS = 6_000;
-const BROWSER_MODEL_TOOL_LIMIT = 32;
-const BROWSER_MODEL_TOOL_TOTAL_CHARS = 6_000;
-const BROWSER_MODEL_TOOL_DESCRIPTION_CHARS = 160;
-const BROWSER_MODEL_TOOL_PROPERTY_LIMIT = 16;
+const BROWSER_MODEL_TOOL_LIMIT = 64;
+const BROWSER_MODEL_TOOL_TOTAL_CHARS = 20_000;
+const BROWSER_MODEL_TOOL_DESCRIPTION_CHARS = 500;
+const BROWSER_MODEL_TOOL_PROPERTY_LIMIT = 32;
 const BROWSER_MODEL_MAX_REQUEST_TOKENS = 256;
 const TRUNCATED_TEXT_SUFFIX = '\n\n[truncated]';
 
@@ -406,9 +404,7 @@ function buildBrowserRequestMessages(
   return [
     {
       role: 'system',
-      content: usesLiquidCompat({ provider: 'browser', model })
-        ? BROWSER_LIQUID_MODEL_SYSTEM_PROMPT
-        : BROWSER_MODEL_SYSTEM_PROMPT,
+      content: BROWSER_MODEL_SYSTEM_PROMPT,
     },
     ...selected,
   ];

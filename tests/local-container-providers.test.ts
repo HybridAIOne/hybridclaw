@@ -1015,7 +1015,7 @@ describe('local container providers', () => {
         {
           role: 'system',
           content:
-            'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed. Liquid tool call format: <|tool_call_start|>[tools.<tool_name>(key=value)]<|tool_call_end|>.',
+            'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed.',
         },
         { role: 'user', content: 'old question' },
         {
@@ -1132,12 +1132,12 @@ describe('local container providers', () => {
       >;
       const sentTools = body.tools as ToolDefinition[];
       expect(body.max_tokens).toBe(256);
-      expect(sentTools.length).toBeLessThanOrEqual(32);
-      expect(JSON.stringify(sentTools).length).toBeLessThanOrEqual(6_500);
+      expect(sentTools.length).toBeLessThanOrEqual(64);
+      expect(JSON.stringify(sentTools).length).toBeLessThanOrEqual(20_500);
       expect(sentTools[0]?.function.name).toBe('bash');
       expect(
         Object.keys(sentTools[0]?.function.parameters.properties || {}),
-      ).toHaveLength(16);
+      ).toHaveLength(24);
       return new Response(
         JSON.stringify({
           id: 'resp_1',
