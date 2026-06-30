@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
-import path from 'node:path';
 import type { Duplex } from 'node:stream';
 import WebSocket, * as wsModule from 'ws';
+import { logger } from '../logger.js';
 import {
   buildBrowserBridgeHtml,
   serveBrowserBridgeAsset,
@@ -351,7 +351,11 @@ export async function startBrowserModelBridge(
       return;
     }
     if (method === 'GET' && url.pathname.startsWith('/vendor/')) {
-      serveBrowserBridgeAsset(res, path.basename(url.pathname));
+      logger.debug(
+        { assetPath: url.pathname },
+        'Browser model bridge serving vendor asset',
+      );
+      serveBrowserBridgeAsset(res, url.pathname);
       return;
     }
     if (method === 'GET' && url.pathname === '/health') {
@@ -464,15 +468,23 @@ export async function startBrowserModelBridge(
   server.on('upgrade', (req, socket, head) => {
     const url = parseUrl(req);
     if (url.pathname !== '/bridge/ws') {
+      logger.debug(
+        { pathname: url.pathname },
+        'Browser model bridge rejected websocket upgrade',
+      );
       socket.destroy();
       return;
     }
+    logger.debug(
+      { remoteAddress: req.socket.remoteAddress },
+      'Browser model bridge websocket upgrade',
+    );
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
     });
   });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
     if (activeBrowser && activeBrowser.readyState === WebSocket.OPEN) {
       activeBrowser.close(1000, 'Another bridge tab connected.');
     }
@@ -480,11 +492,26 @@ export async function startBrowserModelBridge(
     status.connected = true;
     status.state = 'idle';
     status.message = 'connected';
+    logger.debug(
+      { remoteAddress: req.socket.remoteAddress },
+      'Browser model bridge tab connected',
+    );
 
     ws.on('message', (raw) => {
       const payload = safeJsonParse(String(raw));
       if (!isRecord(payload)) return;
       const type = typeof payload.type === 'string' ? payload.type : '';
+      if (type === 'hello') {
+        logger.debug(
+          {
+            model: typeof payload.model === 'string' ? payload.model : null,
+            device: typeof payload.device === 'string' ? payload.device : null,
+            dtype: typeof payload.dtype === 'string' ? payload.dtype : null,
+          },
+          'Browser model bridge tab hello',
+        );
+        return;
+      }
       if (type === 'status') {
         const state = String(payload.state || '').trim();
         if (
@@ -500,6 +527,14 @@ export async function startBrowserModelBridge(
         if (typeof payload.progress === 'number') {
           status.progress = payload.progress;
         }
+        logger.debug(
+          {
+            state: status.state,
+            message: status.message,
+            progress: status.progress,
+          },
+          'Browser model bridge status update',
+        );
         return;
       }
 
@@ -566,7 +601,15 @@ export async function startBrowserModelBridge(
       }
     });
 
-    ws.on('close', () => {
+    ws.on('error', (err) => {
+      logger.debug({ err }, 'Browser model bridge websocket error');
+    });
+
+    ws.on('close', (code, reason) => {
+      logger.debug(
+        { code, reason: reason.toString() },
+        'Browser model bridge tab disconnected',
+      );
       if (activeBrowser !== ws) return;
       activeBrowser = null;
       status.connected = false;

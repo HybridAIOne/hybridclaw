@@ -1,4 +1,4 @@
-import { createReadStream, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import type { ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -26,21 +26,78 @@ function getTransformersDistPath(fileName: string): string {
   return path.join(path.dirname(entryPoint), fileName);
 }
 
-export function serveBrowserBridgeAsset(
-  res: ServerResponse,
-  fileName: string,
-): void {
-  const allowed = new Set([
+function getPackageRoot(packageName: string): string {
+  let dir = path.dirname(require.resolve(packageName));
+  while (dir !== path.dirname(dir)) {
+    const packageJsonPath = path.join(dir, 'package.json');
+    if (existsSync(packageJsonPath)) {
+      const raw = readFileSync(packageJsonPath, 'utf-8');
+      const parsed = JSON.parse(raw) as { name?: string };
+      if (parsed.name === packageName) return dir;
+    }
+    dir = path.dirname(dir);
+  }
+  throw new Error(`Could not resolve package root for ${packageName}.`);
+}
+
+function resolveBrowserBridgeAssetPath(vendorPath: string): string | null {
+  let assetPath: string;
+  try {
+    assetPath = decodeURIComponent(vendorPath).replace(/^\/vendor\/+/u, '');
+  } catch {
+    return null;
+  }
+  if (
+    !assetPath ||
+    assetPath.includes('..') ||
+    assetPath.includes('\\') ||
+    path.isAbsolute(assetPath)
+  ) {
+    return null;
+  }
+
+  const transformersAssets = new Set([
     'transformers.web.js',
     'transformers.web.min.js',
     'ort-wasm-simd-threaded.jsep.mjs',
     'ort-wasm-simd-threaded.jsep.wasm',
   ]);
-  if (!allowed.has(fileName)) {
+  if (transformersAssets.has(assetPath)) {
+    return getTransformersDistPath(assetPath);
+  }
+  if (assetPath === 'onnxruntime-web.js') {
+    return path.join(
+      getPackageRoot('onnxruntime-web'),
+      'dist',
+      'ort.webgpu.bundle.min.mjs',
+    );
+  }
+
+  const commonPrefix = 'onnxruntime-common/';
+  if (!assetPath.startsWith(commonPrefix)) return null;
+  const relativePath = assetPath.slice(commonPrefix.length);
+  if (!relativePath.endsWith('.js') && !relativePath.endsWith('.map')) {
+    return null;
+  }
+  const basePath = path.join(
+    getPackageRoot('onnxruntime-common'),
+    'dist',
+    'esm',
+  );
+  const filePath = path.resolve(basePath, relativePath);
+  if (!filePath.startsWith(`${basePath}${path.sep}`)) return null;
+  return filePath;
+}
+
+export function serveBrowserBridgeAsset(
+  res: ServerResponse,
+  vendorPath: string,
+): void {
+  const filePath = resolveBrowserBridgeAssetPath(vendorPath);
+  if (!filePath) {
     textResponse(res, 404, 'Not found');
     return;
   }
-  const filePath = getTransformersDistPath(fileName);
   let stat: ReturnType<typeof statSync>;
   try {
     stat = statSync(filePath);
@@ -48,9 +105,15 @@ export function serveBrowserBridgeAsset(
     textResponse(res, 404, 'Not found');
     return;
   }
+  if (!stat.isFile()) {
+    textResponse(res, 404, 'Not found');
+    return;
+  }
   res.statusCode = 200;
-  if (fileName.endsWith('.wasm')) {
+  if (filePath.endsWith('.wasm')) {
     res.setHeader('content-type', 'application/wasm');
+  } else if (filePath.endsWith('.map')) {
+    res.setHeader('content-type', 'application/json; charset=utf-8');
   } else {
     res.setHeader('content-type', 'text/javascript; charset=utf-8');
   }
@@ -157,16 +220,15 @@ export function buildBrowserBridgeHtml(config: {
       <div class="log" id="log"></div>
     </section>
   </main>
+  <script type="importmap">
+    {
+      "imports": {
+        "onnxruntime-common": "/vendor/onnxruntime-common/index.js",
+        "onnxruntime-web": "/vendor/onnxruntime-web.js"
+      }
+    }
+  </script>
   <script type="module">
-    import {
-      pipeline,
-      TextStreamer,
-      InterruptableStoppingCriteria,
-      env
-    } from '/vendor/transformers.web.js';
-
-    env.backends.onnx.wasm.wasmPaths = '/vendor/';
-
     const CONFIG = ${configJson};
     const modelEl = document.getElementById('model');
     const deviceEl = document.getElementById('device');
@@ -180,15 +242,25 @@ export function buildBrowserBridgeHtml(config: {
 
     let socket;
     let generatorPromise = null;
+    let transformersPromise = null;
+    let transformersRuntime = null;
     let busy = false;
     let queue = Promise.resolve();
-    const stoppingCriteria = new InterruptableStoppingCriteria();
 
     function log(message) {
       const stamp = new Date().toLocaleTimeString();
       logEl.textContent += '[' + stamp + '] ' + message + '\\n';
       logEl.scrollTop = logEl.scrollHeight;
     }
+
+    window.addEventListener('error', (event) => {
+      log('Page error: ' + (event.message || String(event.error || 'unknown error')));
+    });
+
+    window.addEventListener('unhandledrejection', (event) => {
+      const reason = event.reason;
+      log('Unhandled rejection: ' + (reason instanceof Error ? reason.message : String(reason || 'unknown error')));
+    });
 
     function setRuntime(state, message, progress) {
       runtimeEl.textContent = message || state;
@@ -208,11 +280,54 @@ export function buildBrowserBridgeHtml(config: {
       socket.send(JSON.stringify(payload));
     }
 
+    async function loadTransformersRuntime() {
+      if (transformersRuntime) return transformersRuntime;
+      if (!transformersPromise) {
+        setRuntime('loading', 'loading Transformers.js runtime', 0);
+        log('Loading Transformers.js runtime');
+        transformersPromise = import('/vendor/transformers.web.js')
+          .then((runtime) => {
+            if (
+              !runtime.pipeline ||
+              !runtime.TextStreamer ||
+              !runtime.InterruptableStoppingCriteria ||
+              !runtime.env
+            ) {
+              throw new Error('Transformers.js browser runtime is missing expected exports.');
+            }
+            runtime.env.backends.onnx.wasm.wasmPaths = '/vendor/';
+            transformersRuntime = {
+              pipeline: runtime.pipeline,
+              TextStreamer: runtime.TextStreamer,
+              stoppingCriteria: new runtime.InterruptableStoppingCriteria()
+            };
+            log('Transformers.js runtime loaded');
+            setRuntime('idle', 'idle', progressEl.value);
+            return transformersRuntime;
+          })
+          .catch((error) => {
+            transformersPromise = null;
+            const message = error instanceof Error ? error.message : String(error);
+            setRuntime('error', 'runtime import failed: ' + message, progressEl.value);
+            log('Transformers.js runtime failed: ' + message);
+            throw error;
+          });
+      }
+      return transformersPromise;
+    }
+
     function connect() {
       const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      log('Opening WebSocket ' + scheme + '//' + location.host + '/bridge/ws');
       socket = new WebSocket(scheme + '//' + location.host + '/bridge/ws');
+      const connectTimer = setTimeout(() => {
+        if (socket && socket.readyState === WebSocket.CONNECTING) {
+          log('WebSocket still connecting after 5s');
+        }
+      }, 5000);
 
       socket.addEventListener('open', () => {
+        clearTimeout(connectTimer);
         bridgeEl.textContent = 'connected';
         log('Connected to local OpenAI bridge');
         send({
@@ -223,14 +338,17 @@ export function buildBrowserBridgeHtml(config: {
         });
       });
 
-      socket.addEventListener('close', () => {
+      socket.addEventListener('close', (event) => {
+        clearTimeout(connectTimer);
         bridgeEl.textContent = 'disconnected';
-        log('Bridge disconnected; reconnecting');
+        log('Bridge disconnected (' + event.code + ' ' + (event.reason || 'no reason') + '); reconnecting');
         setTimeout(connect, 1000);
       });
 
       socket.addEventListener('error', () => {
+        clearTimeout(connectTimer);
         bridgeEl.textContent = 'error';
+        log('WebSocket error');
       });
 
       socket.addEventListener('message', (event) => {
@@ -281,7 +399,8 @@ export function buildBrowserBridgeHtml(config: {
 
     async function loadGenerator() {
       if (generatorPromise) return generatorPromise;
-      generatorPromise = pipeline('text-generation', CONFIG.model, {
+      const runtime = await loadTransformersRuntime();
+      generatorPromise = runtime.pipeline('text-generation', CONFIG.model, {
         dtype: CONFIG.dtype,
         device: CONFIG.device,
         progress_callback: (info) => {
@@ -311,17 +430,20 @@ export function buildBrowserBridgeHtml(config: {
     async function generate(id, request) {
       if (busy) throw new Error('Browser model is already generating.');
       busy = true;
-      stoppingCriteria.reset();
-      setRuntime('generating', 'generating');
 
       const started = performance.now();
       let output = '';
       let tokens = 0;
       let firstTokenAt = 0;
+      let runtime = null;
 
       try {
+        runtime = await loadTransformersRuntime();
+        runtime.stoppingCriteria.reset();
+        setRuntime('generating', 'generating');
+
         const generator = await loadGenerator();
-        const streamer = new TextStreamer(generator.tokenizer, {
+        const streamer = new runtime.TextStreamer(generator.tokenizer, {
           skip_prompt: true,
           skip_special_tokens: true,
           callback_function: (delta) => {
@@ -343,7 +465,7 @@ export function buildBrowserBridgeHtml(config: {
         const generationOptions = {
           max_new_tokens: Math.max(1, Math.floor(maxNewTokens)),
           streamer,
-          stopping_criteria: stoppingCriteria,
+          stopping_criteria: runtime.stoppingCriteria,
           do_sample: Number.isFinite(temperature) && temperature > 0,
         };
         if (Number.isFinite(temperature) && temperature > 0) {
@@ -378,17 +500,19 @@ export function buildBrowserBridgeHtml(config: {
         });
       } finally {
         busy = false;
-        setRuntime('ready', 'ready', 100);
+        if (runtime) setRuntime('ready', 'ready', 100);
       }
     }
 
-    if (!navigator.gpu && CONFIG.device === 'webgpu') {
-      setRuntime('error', 'WebGPU is not available in this browser');
-      log('WebGPU is not available. Use current Chrome or Edge, or start with --device wasm.');
-    }
-
+    log('Bridge page initialized for ' + CONFIG.model + ' on ' + CONFIG.device + ' / ' + CONFIG.dtype);
     connect();
-    setRuntime('idle', 'idle', 0);
+    if (!navigator.gpu && CONFIG.device === 'webgpu') {
+      setRuntime('error', 'WebGPU is not available in this browser', 0);
+      log('WebGPU is not available. Use current Chrome or Edge, or start with --device wasm.');
+    } else {
+      setRuntime('idle', 'idle', 0);
+      void loadTransformersRuntime().catch(() => {});
+    }
   </script>
 </body>
 </html>`;

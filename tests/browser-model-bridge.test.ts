@@ -62,6 +62,34 @@ describe('browser model bridge', () => {
     expect(body).toContain('Transformers.js');
   });
 
+  test('serves browser runtime import map dependencies', async () => {
+    const handle = await startTestBridge();
+
+    const pageResponse = await fetch(handle.pageUrl);
+    const page = await pageResponse.text();
+    expect(page).toContain('"onnxruntime-common": "/vendor/onnxruntime-common/index.js"');
+    expect(page).toContain('"onnxruntime-web": "/vendor/onnxruntime-web.js"');
+    expect(page).toContain("import('/vendor/transformers.web.js')");
+
+    const webResponse = await fetch(`${handle.pageUrl}vendor/onnxruntime-web.js`);
+    const webBody = await webResponse.text();
+    expect(webResponse.status).toBe(200);
+    expect(webResponse.headers.get('content-type')).toContain(
+      'text/javascript',
+    );
+    expect(webBody).toContain('ONNX Runtime Web');
+
+    const commonResponse = await fetch(
+      `${handle.pageUrl}vendor/onnxruntime-common/index.js`,
+    );
+    const commonBody = await commonResponse.text();
+    expect(commonResponse.status).toBe(200);
+    expect(commonResponse.headers.get('content-type')).toContain(
+      'text/javascript',
+    );
+    expect(commonBody).toContain('ONNX Runtime JavaScript API');
+  });
+
   test('returns 503 for chat requests until a browser tab connects', async () => {
     const handle = await startTestBridge();
 
