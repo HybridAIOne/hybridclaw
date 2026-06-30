@@ -173,6 +173,7 @@ let lastLoadProgressPercent = -1;
 let lastLoadProgressSignature = '';
 let lastModelLoadProgress = null;
 let consoleForwardingInstalled = false;
+let transformersVersion = null;
 
 function post(payload) {
   self.postMessage(payload);
@@ -227,6 +228,7 @@ function workerEnvironment() {
     crossOriginIsolated: self.crossOriginIsolated,
     hardwareConcurrency: self.navigator.hardwareConcurrency,
     deviceMemory: 'deviceMemory' in self.navigator ? self.navigator.deviceMemory : undefined,
+    transformersVersion,
   };
 }
 
@@ -262,6 +264,7 @@ async function loadTransformersRuntime() {
           throw new Error('Transformers.js browser runtime is missing expected exports.');
         }
         runtime.env.backends.onnx.wasm.wasmPaths = '/vendor/';
+        transformersVersion = runtime.env.version || null;
         transformersRuntime = {
           pipeline: runtime.pipeline,
           TextStreamer: runtime.TextStreamer,

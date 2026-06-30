@@ -101,6 +101,7 @@ describe('browser model bridge', () => {
     expect(workerBody).toContain('reportLoadProgress');
     expect(workerBody).toContain('Browser console error');
     expect(workerBody).toContain('Model load failed');
+    expect(workerBody).toContain('transformersVersion');
     expect(workerBody).not.toContain('Try a smaller max token limit');
     expect(workerBody).not.toContain("info.status !== 'progress_total'");
 
@@ -116,6 +117,7 @@ describe('browser model bridge', () => {
       'from "/vendor/onnxruntime-common/index.js";',
     );
     expect(workerRuntimeBody).toContain('from "/vendor/onnxruntime-web.js";');
+    expect(workerRuntimeBody).toContain('Gemma4ForCausalLM');
     expect(workerRuntimeBody).not.toContain('from "onnxruntime-common";');
     expect(workerRuntimeBody).not.toContain('from "onnxruntime-web";');
     expect(workerRuntimeBody).not.toContain('from "onnxruntime-web/webgpu";');
