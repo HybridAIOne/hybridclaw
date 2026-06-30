@@ -5,6 +5,7 @@ import WebSocket, * as wsModule from 'ws';
 import { logger } from '../logger.js';
 import {
   buildBrowserBridgeHtml,
+  buildBrowserBridgeWorkerScript,
   serveBrowserBridgeAsset,
 } from './browser-model-bridge-page.js';
 
@@ -13,7 +14,7 @@ export const DEFAULT_BROWSER_MODEL_BRIDGE_HOST = '127.0.0.1';
 export const DEFAULT_BROWSER_MODEL_BRIDGE_PORT = 8789;
 export const DEFAULT_BROWSER_MODEL_BRIDGE_DEVICE = 'webgpu';
 export const DEFAULT_BROWSER_MODEL_BRIDGE_DTYPE = 'q4';
-export const DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS = 2048;
+export const DEFAULT_BROWSER_MODEL_BRIDGE_MAX_NEW_TOKENS = 1024;
 const MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15 * 60_000;
 const REQUEST_BODY_TOO_LARGE_MESSAGE = 'Request body is too large.';
@@ -374,6 +375,15 @@ export async function startBrowserModelBridge(
     }
 
     const url = parseUrl(req);
+    if (method === 'GET' && url.pathname === '/bridge/worker.js') {
+      textResponse(
+        res,
+        200,
+        buildBrowserBridgeWorkerScript(),
+        'text/javascript; charset=utf-8',
+      );
+      return;
+    }
     if (method === 'GET' && url.pathname === '/') {
       textResponse(
         res,
@@ -628,6 +638,13 @@ export async function startBrowserModelBridge(
       }
       if (type === 'error') {
         pendingRequests.delete(id);
+        logger.debug(
+          {
+            error: payload.error,
+            details: payload.details,
+          },
+          'Browser model bridge generation failed',
+        );
         failPendingRequest(
           pending,
           500,

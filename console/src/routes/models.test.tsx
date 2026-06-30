@@ -117,7 +117,7 @@ function makeBrowserBridgeResponse(
       model: defaultBrowserModel,
       device: 'webgpu',
       dtype: 'q4',
-      maxNewTokens: 2048,
+      maxNewTokens: 1024,
       pageUrl: 'http://127.0.0.1:8789/',
       endpointUrl: 'http://127.0.0.1:8789/v1',
       configuredModel: `browser/${defaultBrowserModel}`,
@@ -382,7 +382,7 @@ describe('ModelsPage', () => {
       port: 8789,
       device: 'webgpu',
       dtype: 'q4',
-      maxNewTokens: 2048,
+      maxNewTokens: 1024,
       setDefault: true,
     });
     expect(openMock).toHaveBeenCalledWith(

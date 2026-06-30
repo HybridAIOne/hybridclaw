@@ -172,7 +172,7 @@ const DEFAULT_BROWSER_BRIDGE_DRAFT: BrowserBridgeDraft = {
   port: '8789',
   device: 'webgpu',
   dtype: 'q4',
-  maxNewTokens: '2048',
+  maxNewTokens: '1024',
   apiKey: '',
   setDefault: true,
 };
@@ -698,7 +698,7 @@ export function ModelsPage() {
                         maxNewTokens: event.target.value,
                       }))
                     }
-                    placeholder="2048"
+                    placeholder="1024"
                   />
                 </Field>
                 <Field>

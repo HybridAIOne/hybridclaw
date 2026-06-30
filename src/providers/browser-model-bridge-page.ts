@@ -93,6 +93,30 @@ export function serveBrowserBridgeAsset(
   res: ServerResponse,
   vendorPath: string,
 ): void {
+  let normalizedAssetPath: string;
+  try {
+    normalizedAssetPath = decodeURIComponent(vendorPath).replace(
+      /^\/vendor\/+/u,
+      '',
+    );
+  } catch {
+    textResponse(res, 404, 'Not found');
+    return;
+  }
+  if (normalizedAssetPath === 'transformers.worker.js') {
+    const source = readFileSync(
+      getTransformersDistPath('transformers.web.js'),
+      'utf-8',
+    )
+      .replace(
+        'from "onnxruntime-common";',
+        'from "/vendor/onnxruntime-common/index.js";',
+      )
+      .replace('from "onnxruntime-web";', 'from "/vendor/onnxruntime-web.js";');
+    textResponse(res, 200, source, 'text/javascript; charset=utf-8');
+    return;
+  }
+
   const filePath = resolveBrowserBridgeAssetPath(vendorPath);
   if (!filePath) {
     textResponse(res, 404, 'Not found');
@@ -119,6 +143,356 @@ export function serveBrowserBridgeAsset(
   }
   res.setHeader('content-length', stat.size);
   createReadStream(filePath).pipe(res);
+}
+
+export function buildBrowserBridgeWorkerScript(): string {
+  return `
+let CONFIG = null;
+let transformersPromise = null;
+let transformersRuntime = null;
+let generatorPromise = null;
+let busy = false;
+
+function post(payload) {
+  self.postMessage(payload);
+}
+
+function log(message, data) {
+  post({ type: 'log', message, data });
+}
+
+function setRuntime(state, message, progress) {
+  post({ type: 'status', state, message: message || state, progress });
+}
+
+function stringifyUnknown(value) {
+  try {
+    return JSON.stringify(value, (_key, next) => {
+      if (typeof next === 'bigint') return String(next);
+      if (next instanceof Error) return errorToData(next);
+      return next;
+    });
+  } catch {
+    return String(value);
+  }
+}
+
+function errorToData(error) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      cause: error.cause instanceof Error ? errorToData(error.cause) : stringifyUnknown(error.cause),
+    };
+  }
+  return {
+    name: typeof error,
+    message: String(error),
+    raw: stringifyUnknown(error),
+  };
+}
+
+function formatError(error) {
+  const data = errorToData(error);
+  if (/^\\d+$/.test(data.message)) {
+    return 'Browser runtime failed with code ' + data.message + '. Try a smaller max token limit, q4 quantization, or the wasm device fallback.';
+  }
+  return data.message || String(error);
+}
+
+function workerEnvironment() {
+  return {
+    href: self.location.href,
+    userAgent: self.navigator.userAgent,
+    hasWebGpu: 'gpu' in self.navigator,
+    crossOriginIsolated: self.crossOriginIsolated,
+    hardwareConcurrency: self.navigator.hardwareConcurrency,
+    deviceMemory: 'deviceMemory' in self.navigator ? self.navigator.deviceMemory : undefined,
+  };
+}
+
+async function loadTransformersRuntime() {
+  if (transformersRuntime) return transformersRuntime;
+  if (!transformersPromise) {
+    setRuntime('loading', 'loading Transformers.js runtime', 0);
+    log('Loading Transformers.js runtime', workerEnvironment());
+    transformersPromise = import('/vendor/transformers.worker.js')
+      .then((runtime) => {
+        if (
+          !runtime.pipeline ||
+          !runtime.TextStreamer ||
+          !runtime.InterruptableStoppingCriteria ||
+          !runtime.env
+        ) {
+          throw new Error('Transformers.js browser runtime is missing expected exports.');
+        }
+        runtime.env.backends.onnx.wasm.wasmPaths = '/vendor/';
+        transformersRuntime = {
+          pipeline: runtime.pipeline,
+          TextStreamer: runtime.TextStreamer,
+          stoppingCriteria: new runtime.InterruptableStoppingCriteria()
+        };
+        log('Transformers.js runtime loaded', workerEnvironment());
+        setRuntime('idle', 'idle', undefined);
+        return transformersRuntime;
+      })
+      .catch((error) => {
+        transformersPromise = null;
+        const message = 'runtime import failed: ' + formatError(error);
+        setRuntime('error', message, undefined);
+        log('Transformers.js runtime failed', errorToData(error));
+        throw error;
+      });
+  }
+  return transformersPromise;
+}
+
+function contentToText(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => {
+      if (!part || typeof part !== 'object') return '';
+      if (part.type === 'text') return String(part.text || '');
+      return '';
+    })
+    .filter(Boolean)
+    .join('\\n');
+}
+
+function normalizeMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages
+    .map((message) => {
+      const role = typeof message.role === 'string' ? message.role : 'user';
+      const normalizedRole =
+        role === 'system' || role === 'assistant'
+          ? role
+          : 'user';
+      return {
+        role: normalizedRole,
+        content: contentToText(message.content)
+      };
+    })
+    .filter((message) => message.content);
+}
+
+function renderPrompt(generator, messages) {
+  const normalized = normalizeMessages(messages);
+  const tokenizer = generator && generator.tokenizer;
+  if (tokenizer && typeof tokenizer.apply_chat_template === 'function') {
+    try {
+      return tokenizer.apply_chat_template(normalized, {
+        tokenize: false,
+        add_generation_prompt: true,
+      });
+    } catch (error) {
+      log('Chat template failed; falling back to plain prompt', errorToData(error));
+    }
+  }
+  return normalized
+    .map((message) => message.role.toUpperCase() + ':\\n' + message.content)
+    .join('\\n\\n') + '\\n\\nASSISTANT:\\n';
+}
+
+function extractGeneratedText(result) {
+  if (!Array.isArray(result) || !result[0] || typeof result[0] !== 'object') {
+    return '';
+  }
+  const generated = result[0].generated_text;
+  if (typeof generated === 'string') return generated;
+  if (Array.isArray(generated)) {
+    const last = generated[generated.length - 1];
+    return last && typeof last === 'object' ? contentToText(last.content) : '';
+  }
+  return '';
+}
+
+async function loadGenerator() {
+  if (generatorPromise) return generatorPromise;
+  if (!CONFIG) throw new Error('Bridge worker is not initialized.');
+  const runtime = await loadTransformersRuntime();
+  generatorPromise = runtime.pipeline('text-generation', CONFIG.model, {
+    dtype: CONFIG.dtype,
+    device: CONFIG.device,
+    progress_callback: (info) => {
+      if (!info || info.status !== 'progress_total') return;
+      const loaded = Number(info.loaded || 0);
+      const total = Number(info.total || 0);
+      const progress = Number(info.progress || 0);
+      const message = total > 0
+        ? (loaded / 1e9).toFixed(2) + ' GB of ' + (total / 1e9).toFixed(2) + ' GB (' + Math.round(progress) + '%)'
+        : 'Downloading model';
+      setRuntime('loading', message, progress);
+    }
+  })
+    .then((generator) => {
+      setRuntime('ready', 'ready', 100);
+      log('Model loaded', {
+        model: CONFIG.model,
+        device: CONFIG.device,
+        dtype: CONFIG.dtype,
+        hasTokenizer: Boolean(generator.tokenizer),
+        hasChatTemplate: Boolean(generator.tokenizer && generator.tokenizer.chat_template),
+      });
+      return generator;
+    })
+    .catch((error) => {
+      generatorPromise = null;
+      setRuntime('error', formatError(error), undefined);
+      throw error;
+    });
+  return generatorPromise;
+}
+
+async function generate(id, request) {
+  if (!CONFIG) throw new Error('Bridge worker is not initialized.');
+  if (busy) throw new Error('Browser model is already generating.');
+  busy = true;
+
+  const started = performance.now();
+  let output = '';
+  let tokens = 0;
+  let firstTokenAt = 0;
+
+  try {
+    const runtime = await loadTransformersRuntime();
+    runtime.stoppingCriteria.reset();
+
+    const generator = await loadGenerator();
+    const promptText = renderPrompt(generator, request.messages);
+    log('Prompt rendered', {
+      messageCount: Array.isArray(request.messages) ? request.messages.length : 0,
+      promptChars: promptText.length,
+      maxNewTokens: request.max_tokens || CONFIG.maxNewTokens,
+      environment: workerEnvironment(),
+    });
+    setRuntime('generating', 'generating', 100);
+
+    const streamer = new runtime.TextStreamer(generator.tokenizer, {
+      skip_prompt: true,
+      skip_special_tokens: true,
+      callback_function: (delta) => {
+        if (!delta) return;
+        output += delta;
+        post({ type: 'delta', id, delta });
+      },
+      token_callback_function: () => {
+        tokens += 1;
+        if (tokens === 1) firstTokenAt = performance.now();
+      }
+    });
+
+    const maxNewTokens = Number.isFinite(Number(request.max_tokens))
+      ? Number(request.max_tokens)
+      : CONFIG.maxNewTokens;
+    const temperature = Number.isFinite(Number(request.temperature))
+      ? Number(request.temperature)
+      : 0.1;
+    const topP = Number(request.top_p);
+    const topK = Number.isFinite(Number(request.top_k))
+      ? Number(request.top_k)
+      : 50;
+    const repetitionPenalty = Number.isFinite(Number(request.repetition_penalty))
+      ? Number(request.repetition_penalty)
+      : 1.05;
+    const generationOptions = {
+      add_special_tokens: false,
+      return_full_text: false,
+      max_new_tokens: Math.max(1, Math.floor(maxNewTokens)),
+      temperature,
+      top_k: topK,
+      repetition_penalty: repetitionPenalty,
+      streamer,
+      stopping_criteria: runtime.stoppingCriteria,
+      do_sample: temperature > 0,
+    };
+    if (Number.isFinite(topP) && topP > 0 && topP <= 1) {
+      generationOptions.top_p = topP;
+    }
+
+    const result = await generator(promptText, generationOptions);
+    const fallbackText = extractGeneratedText(result);
+    const elapsed = Math.max(0.001, (performance.now() - started) / 1000);
+    const tps = tokens > 1 && firstTokenAt
+      ? Math.round(((tokens - 1) / ((performance.now() - firstTokenAt) / 1000)) * 10) / 10
+      : Math.round((tokens / elapsed) * 10) / 10;
+    log('Completed request ' + id + ' (' + tps + ' tok/s)', {
+      streamedChars: output.length,
+      fallbackChars: fallbackText.length,
+      elapsedMs: Math.round(performance.now() - started),
+    });
+    post({
+      type: 'complete',
+      id,
+      content: (output || fallbackText).trim(),
+      tokens,
+      tps
+    });
+  } catch (error) {
+    const details = {
+      error: errorToData(error),
+      environment: workerEnvironment(),
+      request: {
+        messageCount: Array.isArray(request.messages) ? request.messages.length : 0,
+        maxTokens: request.max_tokens || CONFIG.maxNewTokens,
+      },
+    };
+    log('Generation failed', details);
+    setRuntime('error', formatError(error), undefined);
+    post({
+      type: 'error',
+      id,
+      error: formatError(error),
+      details
+    });
+  } finally {
+    busy = false;
+    if (transformersRuntime) setRuntime('ready', 'ready', 100);
+  }
+}
+
+self.addEventListener('message', (event) => {
+  const payload = event.data || {};
+  if (payload.type === 'init') {
+    CONFIG = payload.config;
+    log('Bridge worker initialized', { config: CONFIG, environment: workerEnvironment() });
+    void loadTransformersRuntime().catch(() => {});
+    return;
+  }
+  if (payload.type === 'generate') {
+    void generate(payload.id, payload.request || {});
+  }
+});
+
+self.addEventListener('error', (event) => {
+  post({
+    type: 'error',
+    id: null,
+    error: event.error ? formatError(event.error) : event.message,
+    details: {
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+      error: event.error ? errorToData(event.error) : null,
+      environment: workerEnvironment(),
+    }
+  });
+});
+
+self.addEventListener('unhandledrejection', (event) => {
+  post({
+    type: 'error',
+    id: null,
+    error: formatError(event.reason),
+    details: {
+      error: errorToData(event.reason),
+      environment: workerEnvironment(),
+    }
+  });
+});
+`;
 }
 
 export function buildBrowserBridgeHtml(config: {
@@ -285,11 +659,10 @@ export function buildBrowserBridgeHtml(config: {
     deviceEl.textContent = CONFIG.device + ' / ' + CONFIG.dtype;
 
     let socket;
-    let generatorPromise = null;
-    let transformersPromise = null;
-    let transformersRuntime = null;
     let busy = false;
     let queue = Promise.resolve();
+    const workerRequests = new Map();
+    const modelWorker = new Worker('/bridge/worker.js', { type: 'module' });
 
     function log(message) {
       const stamp = new Date().toLocaleTimeString();
@@ -325,41 +698,72 @@ export function buildBrowserBridgeHtml(config: {
       socket.send(JSON.stringify(payload));
     }
 
-    async function loadTransformersRuntime() {
-      if (transformersRuntime) return transformersRuntime;
-      if (!transformersPromise) {
-        setRuntime('loading', 'loading Transformers.js runtime', 0);
-        log('Loading Transformers.js runtime');
-        transformersPromise = import('/vendor/transformers.web.js')
-          .then((runtime) => {
-            if (
-              !runtime.pipeline ||
-              !runtime.TextStreamer ||
-              !runtime.InterruptableStoppingCriteria ||
-              !runtime.env
-            ) {
-              throw new Error('Transformers.js browser runtime is missing expected exports.');
-            }
-            runtime.env.backends.onnx.wasm.wasmPaths = '/vendor/';
-            transformersRuntime = {
-              pipeline: runtime.pipeline,
-              TextStreamer: runtime.TextStreamer,
-              stoppingCriteria: new runtime.InterruptableStoppingCriteria()
-            };
-            log('Transformers.js runtime loaded');
-            setRuntime('idle', 'idle', progressEl.value);
-            return transformersRuntime;
-          })
-          .catch((error) => {
-            transformersPromise = null;
-            const message = error instanceof Error ? error.message : String(error);
-            setRuntime('error', 'runtime import failed: ' + message, progressEl.value);
-            log('Transformers.js runtime failed: ' + message);
-            throw error;
-          });
+    function describe(value) {
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
       }
-      return transformersPromise;
     }
+
+    modelWorker.addEventListener('message', (event) => {
+      const payload = event.data || {};
+      if (payload.type === 'log') {
+        log(payload.message + (payload.data === undefined ? '' : ': ' + describe(payload.data)));
+        return;
+      }
+      if (payload.type === 'status') {
+        setRuntime(payload.state, payload.message, payload.progress);
+        return;
+      }
+      const id = typeof payload.id === 'string' ? payload.id : '';
+      if (payload.type === 'delta') {
+        send({ type: 'delta', id, delta: payload.delta || '' });
+        return;
+      }
+      if (payload.type === 'complete') {
+        send({
+          type: 'complete',
+          id,
+          content: payload.content || '',
+          tokens: typeof payload.tokens === 'number' ? payload.tokens : 0,
+          tps: payload.tps
+        });
+        const pending = workerRequests.get(id);
+        workerRequests.delete(id);
+        busy = false;
+        pending?.resolve();
+        return;
+      }
+      if (payload.type === 'error') {
+        log('Generation failed: ' + (payload.error || 'Browser generation failed.'));
+        if (payload.details) log('Generation details: ' + describe(payload.details));
+        if (id) {
+          send({
+            type: 'error',
+            id,
+            error: payload.error || 'Browser generation failed.',
+            details: payload.details
+          });
+          const pending = workerRequests.get(id);
+          workerRequests.delete(id);
+          pending?.resolve();
+        }
+        busy = false;
+      }
+    });
+
+    modelWorker.addEventListener('error', (event) => {
+      log('Bridge worker error: ' + (event.message || 'unknown error'));
+      for (const [id, pending] of workerRequests) {
+        send({ type: 'error', id, error: event.message || 'Bridge worker error.' });
+        pending.resolve();
+      }
+      workerRequests.clear();
+      busy = false;
+    });
+
+    modelWorker.postMessage({ type: 'init', config: CONFIG });
 
     function connect() {
       const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -419,134 +823,14 @@ export function buildBrowserBridgeHtml(config: {
       }
     }
 
-    function contentToText(content) {
-      if (typeof content === 'string') return content;
-      if (!Array.isArray(content)) return '';
-      return content
-        .map((part) => {
-          if (!part || typeof part !== 'object') return '';
-          if (part.type === 'text') return String(part.text || '');
-          return '';
-        })
-        .filter(Boolean)
-        .join('\\n');
-    }
-
-    function normalizeMessages(messages) {
-      if (!Array.isArray(messages)) return [];
-      return messages
-        .map((message) => ({
-          role: typeof message.role === 'string' ? message.role : 'user',
-          content: contentToText(message.content)
-        }))
-        .filter((message) => message.content);
-    }
-
-    async function loadGenerator() {
-      if (generatorPromise) return generatorPromise;
-      const runtime = await loadTransformersRuntime();
-      generatorPromise = runtime.pipeline('text-generation', CONFIG.model, {
-        dtype: CONFIG.dtype,
-        device: CONFIG.device,
-        progress_callback: (info) => {
-          if (!info || info.status !== 'progress_total') return;
-          const loaded = Number(info.loaded || 0);
-          const total = Number(info.total || 0);
-          const progress = Number(info.progress || 0);
-          const message = total > 0
-            ? (loaded / 1e9).toFixed(2) + ' GB of ' + (total / 1e9).toFixed(2) + ' GB (' + Math.round(progress) + '%)'
-            : 'Downloading model';
-          setRuntime('loading', message, progress);
-        }
-      })
-        .then((generator) => {
-          setRuntime('ready', 'ready', 100);
-          log('Model loaded');
-          return generator;
-        })
-        .catch((error) => {
-          generatorPromise = null;
-          setRuntime('error', error instanceof Error ? error.message : String(error));
-          throw error;
-        });
-      return generatorPromise;
-    }
-
     async function generate(id, request) {
       if (busy) throw new Error('Browser model is already generating.');
       busy = true;
-
-      const started = performance.now();
-      let output = '';
-      let tokens = 0;
-      let firstTokenAt = 0;
-      let runtime = null;
-
-      try {
-        runtime = await loadTransformersRuntime();
-        runtime.stoppingCriteria.reset();
-
-        const generator = await loadGenerator();
-        setRuntime('generating', 'generating', 100);
-        const streamer = new runtime.TextStreamer(generator.tokenizer, {
-          skip_prompt: true,
-          skip_special_tokens: true,
-          callback_function: (delta) => {
-            if (!delta) return;
-            output += delta;
-            send({ type: 'delta', id, delta });
-          },
-          token_callback_function: () => {
-            tokens += 1;
-            if (tokens === 1) firstTokenAt = performance.now();
-          }
-        });
-
-        const maxNewTokens = Number.isFinite(Number(request.max_tokens))
-          ? Number(request.max_tokens)
-          : CONFIG.maxNewTokens;
-        const temperature = Number(request.temperature);
-        const topP = Number(request.top_p);
-        const generationOptions = {
-          max_new_tokens: Math.max(1, Math.floor(maxNewTokens)),
-          streamer,
-          stopping_criteria: runtime.stoppingCriteria,
-          do_sample: Number.isFinite(temperature) && temperature > 0,
-        };
-        if (Number.isFinite(temperature) && temperature > 0) {
-          generationOptions.temperature = temperature;
-        }
-        if (Number.isFinite(topP) && topP > 0 && topP <= 1) {
-          generationOptions.top_p = topP;
-        }
-
-        const result = await generator(normalizeMessages(request.messages), generationOptions);
-        if (!output && Array.isArray(result) && result[0]?.generated_text) {
-          const generated = result[0].generated_text;
-          if (Array.isArray(generated)) {
-            output = contentToText(generated[generated.length - 1]?.content || '');
-          } else {
-            output = String(generated || '');
-          }
-        }
-
-        const elapsed = Math.max(0.001, (performance.now() - started) / 1000);
-        const tps = tokens > 1 && firstTokenAt
-          ? Math.round(((tokens - 1) / ((performance.now() - firstTokenAt) / 1000)) * 10) / 10
-          : Math.round((tokens / elapsed) * 10) / 10;
-        log('Completed request ' + id + ' (' + tps + ' tok/s)');
-        send({ type: 'complete', id, content: output.trim(), tokens, tps });
-      } catch (error) {
-        log('Generation failed: ' + (error instanceof Error ? error.message : String(error)));
-        send({
-          type: 'error',
-          id,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      } finally {
-        busy = false;
-        if (runtime) setRuntime('ready', 'ready', 100);
-      }
+      setRuntime('loading', 'queued', progressEl.value);
+      return new Promise((resolve) => {
+        workerRequests.set(id, { resolve });
+        modelWorker.postMessage({ type: 'generate', id, request });
+      });
     }
 
     log('Bridge page initialized for ' + CONFIG.model + ' on ' + CONFIG.device + ' / ' + CONFIG.dtype);
@@ -556,7 +840,6 @@ export function buildBrowserBridgeHtml(config: {
       log('WebGPU is not available. Use current Chrome or Edge, or start with --device wasm.');
     } else {
       setRuntime('idle', 'idle', 0);
-      void loadTransformersRuntime().catch(() => {});
     }
   </script>
 </body>

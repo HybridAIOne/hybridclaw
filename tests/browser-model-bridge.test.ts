@@ -72,11 +72,37 @@ describe('browser model bridge', () => {
     const page = await pageResponse.text();
     expect(page).toContain('"onnxruntime-common": "/vendor/onnxruntime-common/index.js"');
     expect(page).toContain('"onnxruntime-web": "/vendor/onnxruntime-web.js"');
-    expect(page).toContain("import('/vendor/transformers.web.js')");
+    expect(page).toContain("new Worker('/bridge/worker.js'");
     expect(page).toContain('progress.is-generating::-webkit-progress-value');
     expect(page).toContain(
       "progressEl.classList.toggle('is-generating', state === 'generating')",
     );
+
+    const workerResponse = await fetch(`${handle.pageUrl}bridge/worker.js`);
+    const workerBody = await workerResponse.text();
+    expect(workerResponse.status).toBe(200);
+    expect(workerResponse.headers.get('content-type')).toContain(
+      'text/javascript',
+    );
+    expect(workerBody).toContain("import('/vendor/transformers.worker.js')");
+    expect(workerBody).toContain('apply_chat_template');
+    expect(workerBody).toContain('return_full_text: false');
+    expect(workerBody).toContain('errorToData');
+
+    const workerRuntimeResponse = await fetch(
+      `${handle.pageUrl}vendor/transformers.worker.js`,
+    );
+    const workerRuntimeBody = await workerRuntimeResponse.text();
+    expect(workerRuntimeResponse.status).toBe(200);
+    expect(workerRuntimeResponse.headers.get('content-type')).toContain(
+      'text/javascript',
+    );
+    expect(workerRuntimeBody).toContain(
+      'from "/vendor/onnxruntime-common/index.js";',
+    );
+    expect(workerRuntimeBody).toContain('from "/vendor/onnxruntime-web.js";');
+    expect(workerRuntimeBody).not.toContain('from "onnxruntime-common";');
+    expect(workerRuntimeBody).not.toContain('from "onnxruntime-web";');
 
     const webResponse = await fetch(`${handle.pageUrl}vendor/onnxruntime-web.js`);
     const webBody = await webResponse.text();
