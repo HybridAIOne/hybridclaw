@@ -91,6 +91,76 @@ describe('local container providers', () => {
     ).toBe(0);
   });
 
+  test('browser models compact tool schemas (strip param prose, keep structure)', async () => {
+    const verboseTool: ToolDefinition = {
+      type: 'function',
+      function: {
+        name: 'browser_snapshot',
+        description: `Snapshot the page. ${'detail '.repeat(80)}`,
+        parameters: {
+          type: 'object',
+          properties: {
+            mode: {
+              type: 'string',
+              enum: ['default', 'full'],
+              description: `Mode. ${'explanation '.repeat(40)}`,
+            },
+            frame: { type: 'string', description: 'Optional frame selector.' },
+          },
+          required: ['mode'],
+        },
+      },
+    };
+    let sentTools: Array<{
+      function: {
+        description: string;
+        parameters: {
+          properties: Record<string, { description?: string; enum?: string[] }>;
+        };
+      };
+    }> = [];
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      sentTools = (
+        JSON.parse(String(init?.body || '{}')) as { tools: typeof sentTools }
+      ).tools;
+      return new Response(
+        JSON.stringify({
+          id: 'r',
+          model: 'm',
+          choices: [
+            { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await callLocalOpenAICompatProvider({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/onnx-community/gemma-4-E2B-it-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools: [verboseTool],
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    const fn = sentTools[0]?.function;
+    // Tool description capped to the one-line budget.
+    expect(fn.description.length).toBeLessThanOrEqual(240);
+    // Per-parameter description prose stripped...
+    expect(fn.parameters.properties.mode.description).toBeUndefined();
+    expect(fn.parameters.properties.frame.description).toBeUndefined();
+    // ...but structure (enums) preserved so calls stay valid.
+    expect(fn.parameters.properties.mode.enum).toEqual(['default', 'full']);
+  });
+
   test('Ollama provider builds native /api/chat requests and extracts data URI images', async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body || '{}')) as Record<

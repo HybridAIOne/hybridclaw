@@ -186,7 +186,9 @@ const BROWSER_MODEL_TOTAL_PROMPT_CHARS = 12_000;
 const BROWSER_MODEL_MESSAGE_CHARS = 6_000;
 const BROWSER_MODEL_TOOL_LIMIT = 64;
 const BROWSER_MODEL_TOOL_TOTAL_CHARS = 20_000;
-const BROWSER_MODEL_TOOL_DESCRIPTION_CHARS = 500;
+// Browser models get a one-line tool description (NemoClaw-style); per-parameter
+// description prose is stripped entirely (see compactBrowserToolProperty).
+const BROWSER_MODEL_TOOL_DESCRIPTION_CHARS = 240;
 const BROWSER_MODEL_TOOL_PROPERTY_LIMIT = 32;
 const BROWSER_MODEL_MAX_REQUEST_TOKENS = 256;
 const TRUNCATED_TEXT_SUFFIX = '\n\n[truncated]';
@@ -265,6 +267,44 @@ function browserToolPriority(tool: ToolDefinition, index: number): number {
   return index;
 }
 
+type BrowserToolProperty =
+  ToolDefinition['function']['parameters']['properties'][string];
+
+// NemoClaw-style schema compaction: keep the structure a weak model needs to
+// emit a valid call (types, enums, nested properties, required, item/array
+// bounds) but drop the description prose, which dominates browser prompt size.
+function compactBrowserToolProperty(
+  property: BrowserToolProperty,
+): BrowserToolProperty {
+  const compacted: BrowserToolProperty = { type: property.type };
+  if (property.enum) compacted.enum = property.enum;
+  if (typeof property.minItems === 'number') {
+    compacted.minItems = property.minItems;
+  }
+  if (typeof property.maxItems === 'number') {
+    compacted.maxItems = property.maxItems;
+  }
+  if (property.required) compacted.required = property.required;
+  if (property.items) {
+    compacted.items = compactBrowserToolProperty(property.items);
+  }
+  if (property.properties) {
+    const nested: Record<string, BrowserToolProperty> = {};
+    for (const [key, value] of Object.entries(property.properties)) {
+      if (value) nested[key] = compactBrowserToolProperty(value);
+    }
+    compacted.properties = nested;
+  }
+  if (typeof property.additionalProperties === 'boolean') {
+    compacted.additionalProperties = property.additionalProperties;
+  } else if (property.additionalProperties) {
+    compacted.additionalProperties = compactBrowserToolProperty(
+      property.additionalProperties,
+    );
+  }
+  return compacted;
+}
+
 function compactBrowserToolParameters(
   parameters: ToolDefinition['function']['parameters'],
 ): ToolDefinition['function']['parameters'] {
@@ -276,17 +316,7 @@ function compactBrowserToolParameters(
   for (const name of propertyNames) {
     const property = parameters.properties[name];
     if (!property) continue;
-    properties[name] = {
-      type: property.type,
-      ...(property.description
-        ? {
-            description: truncateBrowserToolText(
-              property.description,
-              BROWSER_MODEL_TOOL_DESCRIPTION_CHARS,
-            ),
-          }
-        : {}),
-    };
+    properties[name] = compactBrowserToolProperty(property);
   }
   return {
     type: 'object',
@@ -368,7 +398,6 @@ function normalizeBrowserToolCalls(
 
 function buildBrowserRequestMessages(
   messages: ChatMessage[],
-  model: string,
 ): Array<Record<string, unknown>> {
   const selected: Array<Record<string, unknown>> = [];
   let remainingChars = BROWSER_MODEL_TOTAL_PROMPT_CHARS;
@@ -527,7 +556,7 @@ function buildRequestMessages(
   args: NormalizedCallArgs,
 ): Array<Record<string, unknown>> {
   if (args.provider === 'browser') {
-    return buildBrowserRequestMessages(args.messages, args.model);
+    return buildBrowserRequestMessages(args.messages);
   }
   let messages = usesQwenCompat(args)
     ? buildQwenRequestMessages(args.messages)
