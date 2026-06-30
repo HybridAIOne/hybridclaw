@@ -19,13 +19,6 @@ const REQUEST_TIMEOUT_MS = 15 * 60_000;
 const REQUEST_BODY_TOO_LARGE_MESSAGE = 'Request body is too large.';
 const REQUEST_BODY_READ_FAILED_MESSAGE = 'Unable to read request body.';
 
-class RequestBodyTooLargeError extends Error {
-  constructor() {
-    super(REQUEST_BODY_TOO_LARGE_MESSAGE);
-    this.name = 'RequestBodyTooLargeError';
-  }
-}
-
 type WebSocketServerLike = {
   on: (
     event: 'connection',
@@ -97,6 +90,10 @@ type BridgeStatus = {
   progress?: number;
   error?: string;
 };
+
+type RequestBodyReadResult =
+  | { ok: true; body: string }
+  | { ok: false; reason: 'too_large' | 'read_failed' };
 
 function normalizeHost(value: string | undefined): string {
   return String(value || '').trim() || DEFAULT_BROWSER_MODEL_BRIDGE_HOST;
@@ -170,8 +167,8 @@ function parseUrl(req: IncomingMessage): URL {
   return new URL(req.url || '/', 'http://127.0.0.1');
 }
 
-function readRequestBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
+function readRequestBody(req: IncomingMessage): Promise<RequestBodyReadResult> {
+  return new Promise((resolve) => {
     let total = 0;
     const chunks: Buffer[] = [];
     let failed = false;
@@ -181,19 +178,19 @@ function readRequestBody(req: IncomingMessage): Promise<string> {
       if (total > MAX_REQUEST_BODY_BYTES) {
         failed = true;
         chunks.length = 0;
-        reject(new RequestBodyTooLargeError());
+        resolve({ ok: false, reason: 'too_large' });
         return;
       }
       chunks.push(chunk);
     });
     req.on('end', () => {
       if (failed) return;
-      resolve(Buffer.concat(chunks).toString('utf-8'));
+      resolve({ ok: true, body: Buffer.concat(chunks).toString('utf-8') });
     });
     req.on('error', () => {
       if (failed) return;
       failed = true;
-      reject(new Error(REQUEST_BODY_READ_FAILED_MESSAGE));
+      resolve({ ok: false, reason: 'read_failed' });
     });
   });
 }
@@ -426,11 +423,9 @@ export async function startBrowserModelBridge(
         return;
       }
 
-      let body: unknown;
-      try {
-        body = safeJsonParse(await readRequestBody(req));
-      } catch (error) {
-        const bodyTooLarge = error instanceof RequestBodyTooLargeError;
+      const requestBody = await readRequestBody(req);
+      if (!requestBody.ok) {
+        const bodyTooLarge = requestBody.reason === 'too_large';
         jsonResponse(res, bodyTooLarge ? 413 : 400, {
           error: {
             message: bodyTooLarge
@@ -441,6 +436,7 @@ export async function startBrowserModelBridge(
         });
         return;
       }
+      const body = safeJsonParse(requestBody.body);
       if (!isRecord(body) || !Array.isArray(body.messages)) {
         jsonResponse(res, 400, {
           error: {
