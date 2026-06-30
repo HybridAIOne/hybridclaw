@@ -715,6 +715,7 @@ test('getGatewayAdminModels tags each row with its providerHealth key', async ()
       'openrouter/anthropic/claude-sonnet-4',
       'gemini/gemini-2.5-pro',
       'ollama/llama-3.1',
+      'browser/LiquidAI/LFM2.5-230M-ONNX',
       'haigpu2/google/gemma-4-e4b-it',
     ];
     return {
@@ -744,6 +745,7 @@ test('getGatewayAdminModels tags each row with its providerHealth key', async ()
   expect(byId['openrouter/anthropic/claude-sonnet-4']).toBe('openrouter');
   expect(byId['gemini/gemini-2.5-pro']).toBe('gemini');
   expect(byId['ollama/llama-3.1']).toBe('ollama');
+  expect(byId['browser/LiquidAI/LFM2.5-230M-ONNX']).toBe('browser');
   expect(byId['haigpu2/google/gemma-4-e4b-it']).toBe('vllm');
 });
 

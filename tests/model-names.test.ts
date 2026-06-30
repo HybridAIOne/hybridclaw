@@ -51,6 +51,9 @@ describe('model name helpers', () => {
     expect(formatModelForDisplay('dashscope/qwen3-coder-plus')).toBe(
       'dashscope/qwen3-coder-plus',
     );
+    expect(formatModelForDisplay('browser/LiquidAI/LFM2.5-230M-ONNX')).toBe(
+      'browser/LiquidAI/LFM2.5-230M-ONNX',
+    );
   });
 
   test('formatModelForDisplay wraps bare and unknown-prefix models as hybridai/', () => {
