@@ -1098,6 +1098,81 @@ describe('local container providers', () => {
     expect(result.choices[0]?.finish_reason).toBe('tool_calls');
   });
 
+  test('browser provider compacts large tool catalogs before sending to bridge', async () => {
+    const largeTools: ToolDefinition[] = Array.from(
+      { length: 80 },
+      (_, index) => ({
+        type: 'function',
+        function: {
+          name: index === 40 ? 'bash' : `tool_${index}`,
+          description: `Tool ${index} ${'with a long description '.repeat(20)}`,
+          parameters: {
+            type: 'object',
+            properties: Object.fromEntries(
+              Array.from({ length: 24 }, (_unused, propertyIndex) => [
+                `param_${propertyIndex}`,
+                {
+                  type: 'string',
+                  description: `Parameter ${propertyIndex} ${'details '.repeat(20)}`,
+                },
+              ]),
+            ),
+            required: ['param_0', 'param_1'],
+          },
+        },
+      }),
+    );
+
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      const sentTools = body.tools as ToolDefinition[];
+      expect(body.max_tokens).toBe(256);
+      expect(sentTools.length).toBeLessThanOrEqual(32);
+      expect(JSON.stringify(sentTools).length).toBeLessThanOrEqual(6_500);
+      expect(sentTools[0]?.function.name).toBe('bash');
+      expect(
+        Object.keys(sentTools[0]?.function.parameters.properties || {}),
+      ).toHaveLength(16);
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'LiquidAI/LFM2.5-230M-ONNX',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'ok',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callLocalOpenAICompatProvider({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools: largeTools,
+      maxTokens: 1024,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(result.choices[0]?.message.content).toBe('ok');
+  });
+
   test('browser provider stream filters Liquid tool markup from visible deltas', async () => {
     const deltas: string[] = [];
     vi.stubGlobal(

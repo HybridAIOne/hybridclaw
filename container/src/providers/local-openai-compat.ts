@@ -184,6 +184,11 @@ const BROWSER_MODEL_SYSTEM_PROMPT =
 const BROWSER_MODEL_HISTORY_LIMIT = 6;
 const BROWSER_MODEL_TOTAL_PROMPT_CHARS = 12_000;
 const BROWSER_MODEL_MESSAGE_CHARS = 6_000;
+const BROWSER_MODEL_TOOL_LIMIT = 32;
+const BROWSER_MODEL_TOOL_TOTAL_CHARS = 6_000;
+const BROWSER_MODEL_TOOL_DESCRIPTION_CHARS = 160;
+const BROWSER_MODEL_TOOL_PROPERTY_LIMIT = 16;
+const BROWSER_MODEL_MAX_REQUEST_TOKENS = 256;
 const TRUNCATED_TEXT_SUFFIX = '\n\n[truncated]';
 
 export function estimateLocalOpenAICompatPromptOverheadTokens(args: {
@@ -218,6 +223,124 @@ function truncateBrowserPromptText(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   if (maxChars <= TRUNCATED_TEXT_SUFFIX.length) return text.slice(0, maxChars);
   return `${text.slice(0, maxChars - TRUNCATED_TEXT_SUFFIX.length)}${TRUNCATED_TEXT_SUFFIX}`;
+}
+
+function truncateBrowserToolText(text: string, maxChars: number): string {
+  const normalized = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (normalized.length <= maxChars) return normalized;
+  if (maxChars <= 3) return normalized.slice(0, maxChars);
+  return `${normalized.slice(0, maxChars - 3)}...`;
+}
+
+function browserToolPriority(tool: ToolDefinition, index: number): number {
+  const name = tool.function.name.toLowerCase();
+  if (name === 'bash' || name === 'shell') return index - 10_000;
+  if (
+    name.includes('bash') ||
+    name.includes('shell') ||
+    name.includes('exec') ||
+    name.includes('terminal')
+  ) {
+    return index - 8_000;
+  }
+  if (
+    name.includes('read') ||
+    name.includes('write') ||
+    name.includes('edit') ||
+    name.includes('patch') ||
+    name.includes('file')
+  ) {
+    return index - 6_000;
+  }
+  if (
+    name.includes('web') ||
+    name.includes('browser') ||
+    name.includes('search') ||
+    name.includes('fetch')
+  ) {
+    return index - 4_000;
+  }
+  return index;
+}
+
+function compactBrowserToolParameters(
+  parameters: ToolDefinition['function']['parameters'],
+): ToolDefinition['function']['parameters'] {
+  const properties: ToolDefinition['function']['parameters']['properties'] = {};
+  const propertyNames = Object.keys(parameters.properties || {}).slice(
+    0,
+    BROWSER_MODEL_TOOL_PROPERTY_LIMIT,
+  );
+  for (const name of propertyNames) {
+    const property = parameters.properties[name];
+    if (!property) continue;
+    properties[name] = {
+      type: property.type,
+      ...(property.description
+        ? {
+            description: truncateBrowserToolText(
+              property.description,
+              BROWSER_MODEL_TOOL_DESCRIPTION_CHARS,
+            ),
+          }
+        : {}),
+    };
+  }
+  return {
+    type: 'object',
+    properties,
+    required: (parameters.required || []).filter((name) =>
+      Object.hasOwn(properties, name),
+    ),
+  };
+}
+
+function compactBrowserTool(tool: ToolDefinition): ToolDefinition | null {
+  const name = String(tool.function.name || '').trim();
+  if (!name) return null;
+  return {
+    type: 'function',
+    function: {
+      name,
+      description: truncateBrowserToolText(
+        tool.function.description,
+        BROWSER_MODEL_TOOL_DESCRIPTION_CHARS,
+      ),
+      parameters: compactBrowserToolParameters(tool.function.parameters),
+    },
+  };
+}
+
+function buildBrowserRequestTools(tools: ToolDefinition[]): ToolDefinition[] {
+  const compactTools = tools
+    .map((tool, index) => ({ index, tool: compactBrowserTool(tool) }))
+    .filter(
+      (entry): entry is { index: number; tool: ToolDefinition } =>
+        entry.tool !== null,
+    )
+    .sort(
+      (left, right) =>
+        browserToolPriority(left.tool, left.index) -
+        browserToolPriority(right.tool, right.index),
+    );
+
+  const selected: ToolDefinition[] = [];
+  let totalChars = 2;
+  for (const entry of compactTools) {
+    if (selected.length >= BROWSER_MODEL_TOOL_LIMIT) break;
+    const serialized = JSON.stringify(entry.tool);
+    if (
+      selected.length > 0 &&
+      totalChars + serialized.length > BROWSER_MODEL_TOOL_TOTAL_CHARS
+    ) {
+      break;
+    }
+    selected.push(entry.tool);
+    totalChars += serialized.length + 1;
+  }
+  return selected;
 }
 
 function normalizeBrowserRequestRole(
@@ -427,7 +550,10 @@ function buildRequestMessages(
 }
 
 function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
-  const tools = args.tools;
+  const tools =
+    args.provider === 'browser'
+      ? buildBrowserRequestTools(args.tools)
+      : args.tools;
   const request: Record<string, unknown> = {
     model: normalizeLocalModelName(args.provider, args.model),
     messages: buildRequestMessages(args),
@@ -441,7 +567,10 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
     Number.isFinite(args.maxTokens) &&
     args.maxTokens > 0
   ) {
-    request.max_tokens = Math.floor(args.maxTokens);
+    request.max_tokens =
+      args.provider === 'browser'
+        ? Math.min(Math.floor(args.maxTokens), BROWSER_MODEL_MAX_REQUEST_TOKENS)
+        : Math.floor(args.maxTokens);
   }
   return request;
 }

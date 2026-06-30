@@ -174,6 +174,8 @@ let lastLoadProgressSignature = '';
 let lastModelLoadProgress = null;
 let consoleForwardingInstalled = false;
 let transformersVersion = null;
+const CONSOLE_FORWARD_ARG_LIMIT = 4;
+const CONSOLE_FORWARD_VALUE_CHARS = 2000;
 
 function post(payload) {
   self.postMessage(payload);
@@ -197,6 +199,23 @@ function stringifyUnknown(value) {
   } catch {
     return String(value);
   }
+}
+
+function truncateForwardedConsoleValue(value) {
+  const text = stringifyUnknown(value);
+  if (text.length <= CONSOLE_FORWARD_VALUE_CHARS) return text;
+  return text.slice(0, CONSOLE_FORWARD_VALUE_CHARS) +
+    '... [truncated ' + (text.length - CONSOLE_FORWARD_VALUE_CHARS) + ' chars]';
+}
+
+function sanitizeForwardedConsoleArgs(args) {
+  const values = args
+    .slice(0, CONSOLE_FORWARD_ARG_LIMIT)
+    .map((arg) => truncateForwardedConsoleValue(arg));
+  if (args.length > CONSOLE_FORWARD_ARG_LIMIT) {
+    values.push('[truncated ' + (args.length - CONSOLE_FORWARD_ARG_LIMIT) + ' args]');
+  }
+  return values;
 }
 
 function errorToData(error) {
@@ -238,11 +257,11 @@ function installConsoleForwarding() {
   const originalWarn = console.warn.bind(console);
   const originalError = console.error.bind(console);
   console.warn = (...args) => {
-    log('Browser console warning', args.map((arg) => stringifyUnknown(arg)));
+    log('Browser console warning', sanitizeForwardedConsoleArgs(args));
     originalWarn(...args);
   };
   console.error = (...args) => {
-    log('Browser console error', args.map((arg) => stringifyUnknown(arg)));
+    log('Browser console error', sanitizeForwardedConsoleArgs(args));
     originalError(...args);
   };
 }
