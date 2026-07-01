@@ -285,6 +285,156 @@ describe('local container providers', () => {
     });
   });
 
+  test('vision browser model preserves image content and skips the tool catalog', async () => {
+    const imageMessages: ChatMessage[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: 'https://example.com/cat.jpg' } },
+          { type: 'text', text: 'What animal is this?' },
+        ],
+      },
+    ];
+    let body: {
+      tools?: unknown[];
+      messages: Array<{ role: string; content: unknown }>;
+    } = { messages: [] };
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body || '{}'));
+      return new Response(
+        JSON.stringify({
+          id: 'r',
+          model: 'm',
+          choices: [
+            { message: { role: 'assistant', content: 'Cat' }, finish_reason: 'stop' },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await callLocalOpenAICompatProvider({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/onnx-community/LFM2.5-VL-450M-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: imageMessages,
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'bash',
+            description: 'Run a shell command.',
+            parameters: {
+              type: 'object',
+              properties: { command: { type: 'string' } },
+              required: ['command'],
+            },
+          },
+        },
+      ],
+      maxTokens: 32,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    // The image content part survives to the bridge (not flattened to text).
+    const userMessage = body.messages.find((m) => m.role === 'user');
+    expect(Array.isArray(userMessage?.content)).toBe(true);
+    const parts = userMessage?.content as Array<{ type: string }>;
+    expect(parts.some((p) => p.type === 'image_url')).toBe(true);
+    // No dispatcher tool / catalog is imposed on a vision model.
+    const toolNames = (body.tools || []).map(
+      (t) => (t as { function: { name: string } }).function.name,
+    );
+    expect(toolNames).not.toContain('tool_call');
+  });
+
+  test('tight-budget model bounds the TOTAL prompt as tool results accumulate', async () => {
+    // Regression: after a successful tool call, the follow-up turn carries the
+    // catalog + the whole conversation + a large tool result. The total content
+    // must stay bounded so the rendered prompt fits under Gemma's token guard;
+    // previously only per-message caps existed and the sum blew past the guard.
+    const tools: ToolDefinition[] = [
+      {
+        type: 'function',
+        function: {
+          name: 'bash',
+          description: 'Run a shell command and return its output.',
+          parameters: {
+            type: 'object',
+            properties: { command: { type: 'string', description: 'cmd' } },
+            required: ['command'],
+          },
+        },
+      },
+    ];
+    const hugeToolResult = Array.from(
+      { length: 400 },
+      (_, i) => `drwxr-xr-x@ ${i} bkoehler staff ${i * 32} Jun 30 entry_${i}`,
+    ).join('\n');
+    const accumulated: ChatMessage[] = [
+      { role: 'user', content: 'Hi' },
+      { role: 'assistant', content: 'Hello! How can I help you today?' },
+      { role: 'user', content: 'Run ls -la as bash command' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'c1',
+            type: 'function',
+            function: { name: 'bash', arguments: '{"command":"ls -la"}' },
+          },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'c1', content: hugeToolResult },
+    ];
+    let body: { messages: Array<{ content: string }> } = { messages: [] };
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body || '{}'));
+      return new Response(
+        JSON.stringify({
+          id: 'r',
+          model: 'm',
+          choices: [
+            { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await callLocalOpenAICompatProvider({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/onnx-community/gemma-4-E2B-it-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: accumulated,
+      tools,
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    const totalContentChars = body.messages.reduce(
+      (sum, message) => sum + String(message.content || '').length,
+      0,
+    );
+    // Even with a 20k+ char tool result, the total content is bounded well under
+    // the ~3400 chars that render to Gemma's 1740-token guard.
+    expect(hugeToolResult.length).toBeGreaterThan(15_000);
+    expect(totalContentChars).toBeLessThanOrEqual(3400);
+  });
+
   test('catalog auto-enables for tight-budget models (Gemma) but not LFM', async () => {
     const catalogTools: ToolDefinition[] = [
       {

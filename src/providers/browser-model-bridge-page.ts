@@ -288,7 +288,14 @@ async function loadTransformersRuntime() {
         transformersRuntime = {
           pipeline: runtime.pipeline,
           TextStreamer: runtime.TextStreamer,
-          stoppingCriteria: new runtime.InterruptableStoppingCriteria()
+          stoppingCriteria: new runtime.InterruptableStoppingCriteria(),
+          // Multimodal (vision) models can't go through the text-generation
+          // pipeline; they load as AutoModelForImageTextToText + AutoProcessor
+          // and generate directly. Exposed here so loadGenerator can branch.
+          AutoConfig: runtime.AutoConfig,
+          AutoProcessor: runtime.AutoProcessor,
+          AutoModelForImageTextToText: runtime.AutoModelForImageTextToText,
+          RawImage: runtime.RawImage
         };
         log('Transformers.js runtime loaded', workerEnvironment());
         setRuntime('idle', 'idle', undefined);
@@ -710,11 +717,7 @@ async function loadGenerator() {
   lastLoadProgressPercent = -1;
   fileLoadBytes = {};
   lastModelLoadProgress = null;
-  generatorPromise = runtime.pipeline('text-generation', CONFIG.model, {
-    dtype: CONFIG.dtype,
-    device: CONFIG.device,
-    progress_callback: reportLoadProgress
-  })
+  generatorPromise = buildGenerator(runtime)
     .then((generator) => {
       loadedGenerator = generator;
       setRuntime('ready', 'ready', 100);
@@ -722,6 +725,7 @@ async function loadGenerator() {
         model: CONFIG.model,
         device: CONFIG.device,
         dtype: CONFIG.dtype,
+        multimodal: Boolean(generator.multimodal),
         hasTokenizer: Boolean(generator.tokenizer),
         hasChatTemplate: Boolean(generator.tokenizer && generator.tokenizer.chat_template),
       });
@@ -738,6 +742,49 @@ async function loadGenerator() {
       throw error;
     });
   return generatorPromise;
+}
+
+// Vision-language models (e.g. lfm2_vl) declare a vision_config and cannot load
+// through the text-generation pipeline (AutoModelForCausalLM rejects them with
+// "Unsupported model type"). Detect them from the config and pick the loader.
+async function isMultimodalModel(runtime) {
+  if (!runtime.AutoConfig) return false;
+  try {
+    const config = await runtime.AutoConfig.from_pretrained(CONFIG.model);
+    const raw = (config && config.config) || config || {};
+    return Boolean(raw.vision_config);
+  } catch (error) {
+    log('Config probe failed; assuming text model', errorToData(error));
+    return false;
+  }
+}
+
+async function buildGenerator(runtime) {
+  if (await isMultimodalModel(runtime)) {
+    log('Loading vision-language model', { model: CONFIG.model });
+    const [processor, model] = await Promise.all([
+      runtime.AutoProcessor.from_pretrained(CONFIG.model, {
+        progress_callback: reportLoadProgress,
+      }),
+      runtime.AutoModelForImageTextToText.from_pretrained(CONFIG.model, {
+        dtype: CONFIG.dtype,
+        device: CONFIG.device,
+        progress_callback: reportLoadProgress,
+      }),
+    ]);
+    return {
+      multimodal: true,
+      model,
+      processor,
+      tokenizer: processor.tokenizer,
+      config: model.config,
+    };
+  }
+  return runtime.pipeline('text-generation', CONFIG.model, {
+    dtype: CONFIG.dtype,
+    device: CONFIG.device,
+    progress_callback: reportLoadProgress,
+  });
 }
 
 function resolveVocabSize(generator) {
@@ -776,6 +823,87 @@ function resolveVocabSize(generator) {
   return vocabSize;
 }
 
+// Build the input tensors for a vision-language model. OpenAI messages carry
+// images as content parts ({type:'image_url'}); the chat template turns those
+// into <image> placeholders which the processor expands into vision tokens.
+// Text-only turns skip the processor (and thus the vision encoder) entirely.
+async function buildMultimodalInputs(generator, messages) {
+  const runtime = await loadTransformersRuntime();
+  const templateMessages = [];
+  const images = [];
+  const list = Array.isArray(messages) ? messages : [];
+  for (let i = 0; i < list.length; i += 1) {
+    const message = list[i];
+    if (!message) continue;
+    const role =
+      message.role === 'assistant' || message.role === 'system'
+        ? message.role
+        : 'user';
+    const parts = [];
+    const content = message.content;
+    if (Array.isArray(content)) {
+      for (let j = 0; j < content.length; j += 1) {
+        const part = content[j];
+        if (!part || typeof part !== 'object') continue;
+        if (part.type === 'text') {
+          parts.push({ type: 'text', text: String(part.text || '') });
+        } else if (part.type === 'image_url' || part.type === 'image') {
+          const url =
+            part.image_url && part.image_url.url
+              ? part.image_url.url
+              : part.url || part.image;
+          if (url && runtime.RawImage) {
+            parts.push({ type: 'image' });
+            images.push(await runtime.RawImage.read(url));
+          }
+        }
+      }
+    } else if (content) {
+      parts.push({ type: 'text', text: String(content) });
+    }
+    if (parts.length === 0) continue;
+    templateMessages.push({ role, content: parts });
+  }
+
+  const tokenizer = generator.tokenizer;
+  const chatTemplate = tokenizer.chat_template
+    ? stripUnsupportedChatTemplateBlocks(tokenizer.chat_template)
+    : undefined;
+  const templateOptions = {
+    add_generation_prompt: true,
+    tokenize: false,
+  };
+  if (chatTemplate) templateOptions.chat_template = chatTemplate;
+  const text = tokenizer.apply_chat_template(templateMessages, templateOptions);
+
+  const inputs =
+    images.length > 0
+      ? await generator.processor(images, text)
+      : tokenizer(text, { add_special_tokens: false });
+  return { inputs, text, imageCount: images.length };
+}
+
+// The streamer usually supplies the streamed text; this decodes the generated
+// token span (everything after the prompt) as a fallback / final content.
+function decodeMultimodalOutput(generator, inputs, result) {
+  try {
+    const inputIds = inputs && inputs.input_ids;
+    const inputLen =
+      inputIds && inputIds.dims ? inputIds.dims[inputIds.dims.length - 1] : 0;
+    const sliced =
+      result && typeof result.slice === 'function'
+        ? result.slice(null, [inputLen, null])
+        : result;
+    const decoded = generator.tokenizer.batch_decode(sliced, {
+      skip_special_tokens: true,
+    });
+    return Array.isArray(decoded) ? decoded[0] || '' : String(decoded || '');
+  } catch (error) {
+    log('Multimodal decode failed', errorToData(error));
+    return '';
+  }
+}
+
 async function generate(id, request) {
   if (!CONFIG) throw new Error('Bridge worker is not initialized.');
   if (busy) throw new Error('Browser model is already generating.');
@@ -795,49 +923,69 @@ async function generate(id, request) {
     phase = 'model';
     const generator = await loadGenerator();
     phase = 'prompt';
+    const multimodal = Boolean(generator.multimodal);
+    // Tool-call forcing is a text-only concern (Liquid models); vision models
+    // generate via model.generate() and don't take a forced prefix.
     const forcedPrefix =
-      typeof request.force_assistant_prefix === 'string'
+      !multimodal && typeof request.force_assistant_prefix === 'string'
         ? request.force_assistant_prefix
         : '';
-    const promptText =
-      renderPrompt(generator, request.messages, request.tools) + forcedPrefix;
-    log('Prompt rendered', {
-      messageCount: Array.isArray(request.messages) ? request.messages.length : 0,
-      toolCount: Array.isArray(request.tools) ? request.tools.length : 0,
-      promptChars: promptText.length,
-      maxNewTokens: request.max_tokens || CONFIG.maxNewTokens,
-      environment: workerEnvironment(),
-    });
 
-    // Reject prompts that would overflow the runtime BEFORE running the model.
-    // onnxruntime sizes the prefill logits tensor ([seq, vocab] float32) with an
-    // int32 byte count, so seq * vocab * 4 must stay under 2^31. Large
-    // vocabularies (e.g. Gemma's ~262K) cap the usable prompt far below the
-    // model's context window, and crossing it loses the WebGPU device — which a
-    // page reload can't recover from in time. Failing here keeps the session
-    // healthy for later (shorter) requests. Measured on gemma-4-E2B (vocab
-    // 262144): 1740 prompt tokens succeed but 2001 fail, so the 0.85 factor caps
-    // the limit (~1740) at the highest confirmed-good length, independent of
-    // max_new_tokens (decode logits are [1, vocab], so only the prompt matters).
-    const vocabSize = resolveVocabSize(generator);
-    if (Number.isFinite(vocabSize) && vocabSize > 0) {
-      let promptTokens = 0;
-      try {
-        const encoded = generator.tokenizer.encode(promptText);
-        promptTokens = Array.isArray(encoded) ? encoded.length : 0;
-      } catch (error) {
-        log('Prompt token count failed', errorToData(error));
-      }
-      const safeMaxTokens = Math.floor(((2 ** 31 - 1) / (vocabSize * 4)) * 0.85);
-      log('Prompt length check', { promptTokens, vocabSize, safeMaxTokens });
-      if (promptTokens > safeMaxTokens) {
-        throw new Error(
-          'Prompt is too long for ' + CONFIG.model + ': ' + promptTokens +
-            " tokens exceeds this model's safe in-browser limit of ~" +
-            safeMaxTokens + ' tokens (its ' + vocabSize +
-            '-token vocabulary overflows the runtime at longer sequences). ' +
-            'Reduce the prompt, or the number/size of tools.',
-        );
+    let promptText = '';
+    let multimodalInputs = null;
+    if (multimodal) {
+      const built = await buildMultimodalInputs(generator, request.messages);
+      multimodalInputs = built.inputs;
+      promptText = built.text;
+      log('Prompt rendered', {
+        messageCount: Array.isArray(request.messages) ? request.messages.length : 0,
+        imageCount: built.imageCount,
+        promptChars: promptText.length,
+        maxNewTokens: request.max_tokens || CONFIG.maxNewTokens,
+        environment: workerEnvironment(),
+      });
+    } else {
+      promptText =
+        renderPrompt(generator, request.messages, request.tools) + forcedPrefix;
+      log('Prompt rendered', {
+        messageCount: Array.isArray(request.messages) ? request.messages.length : 0,
+        toolCount: Array.isArray(request.tools) ? request.tools.length : 0,
+        promptChars: promptText.length,
+        maxNewTokens: request.max_tokens || CONFIG.maxNewTokens,
+        environment: workerEnvironment(),
+      });
+
+      // Reject prompts that would overflow the runtime BEFORE running the model.
+      // The text-generation pipeline computes prefill logits for the whole
+      // sequence ([seq, vocab] float32), whose int32 byte count must stay under
+      // 2^31. Large vocabularies (e.g. Gemma's ~262K) cap the usable prompt far
+      // below the model's context window, and crossing it loses the WebGPU
+      // device — which a page reload can't recover from in time. Failing here
+      // keeps the session healthy for later (shorter) requests. Measured on
+      // gemma-4-E2B (vocab 262144): 1740 prompt tokens succeed but 2001 fail, so
+      // the 0.85 factor caps the limit (~1740) at the highest confirmed-good
+      // length. (Vision models generate via model.generate(), which keeps only
+      // the last-token logits, so they don't need this guard.)
+      const vocabSize = resolveVocabSize(generator);
+      if (Number.isFinite(vocabSize) && vocabSize > 0) {
+        let promptTokens = 0;
+        try {
+          const encoded = generator.tokenizer.encode(promptText);
+          promptTokens = Array.isArray(encoded) ? encoded.length : 0;
+        } catch (error) {
+          log('Prompt token count failed', errorToData(error));
+        }
+        const safeMaxTokens = Math.floor(((2 ** 31 - 1) / (vocabSize * 4)) * 0.85);
+        log('Prompt length check', { promptTokens, vocabSize, safeMaxTokens });
+        if (promptTokens > safeMaxTokens) {
+          throw new Error(
+            'Prompt is too long for ' + CONFIG.model + ': ' + promptTokens +
+              " tokens exceeds this model's safe in-browser limit of ~" +
+              safeMaxTokens + ' tokens (its ' + vocabSize +
+              '-token vocabulary overflows the runtime at longer sequences). ' +
+              'Reduce the prompt, or the number/size of tools.',
+          );
+        }
       }
     }
 
@@ -913,8 +1061,30 @@ async function generate(id, request) {
     }
 
     phase = 'generation';
-    const result = await generator(promptText, generationOptions);
-    const fallbackText = extractGeneratedText(result);
+    let result = null;
+    let fallbackText = '';
+    if (multimodal) {
+      // Vision models generate directly off the processor's input tensors.
+      // Pipeline-only options (add_special_tokens, return_full_text) don't apply.
+      const genInputs = {
+        ...multimodalInputs,
+        max_new_tokens: generationOptions.max_new_tokens,
+        do_sample: generationOptions.do_sample,
+        temperature: generationOptions.temperature,
+        top_k: generationOptions.top_k,
+        repetition_penalty: generationOptions.repetition_penalty,
+        streamer: generationOptions.streamer,
+        stopping_criteria: generationOptions.stopping_criteria,
+      };
+      if (generationOptions.top_p !== undefined) {
+        genInputs.top_p = generationOptions.top_p;
+      }
+      result = await generator.model.generate(genInputs);
+      fallbackText = decodeMultimodalOutput(generator, multimodalInputs, result);
+    } else {
+      result = await generator(promptText, generationOptions);
+      fallbackText = extractGeneratedText(result);
+    }
     const content = (forcedPrefix + (output || fallbackText)).trim();
     const elapsed = Math.max(0.001, (performance.now() - started) / 1000);
     const tps = tokens > 1 && firstTokenAt

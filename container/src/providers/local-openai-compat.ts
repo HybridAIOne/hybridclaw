@@ -391,6 +391,30 @@ function isTightBudgetBrowserModel(model: string): boolean {
   return model.toLowerCase().includes('gemma');
 }
 
+// Vision-language browser models (e.g. .../LFM2.5-VL-450M-ONNX) accept image
+// content parts and load via AutoModelForImageTextToText in the bridge. They
+// must NOT go through the text tool-catalog path, which flattens content to
+// text and would drop images.
+function isVisionBrowserModel(model: string): boolean {
+  return /(^|[/_.-])vl([/_.-]|$)|vision/i.test(model);
+}
+
+// Total char budget for the whole browser prompt (system + catalog + messages).
+// Gemma's ~1740-token guard is on the *rendered* prompt, which adds ~575 chars
+// of chat-template + tool scaffolding on top of this content budget. Measured
+// live: 3400 content chars -> 3976 rendered -> 1637 tokens (only ~6% headroom).
+// 3200 content chars -> ~1550 rendered tokens leaves ~11% headroom below the
+// guard even as tool results accumulate across turns, since this caps the total
+// content (older messages are truncated to fit). Larger-budget models keep the
+// default.
+const BROWSER_MODEL_TIGHT_CONTENT_CHARS = 3200;
+
+function browserModelContentBudgetChars(model: string): number {
+  return isTightBudgetBrowserModel(model)
+    ? BROWSER_MODEL_TIGHT_CONTENT_CHARS
+    : BROWSER_MODEL_TOTAL_PROMPT_CHARS;
+}
+
 function browserToolCatalogEnabled(model: string): boolean {
   const value = String(process.env.HYBRIDCLAW_BROWSER_TOOL_CATALOG || '')
     .trim()
@@ -411,14 +435,10 @@ function safeParseArguments(value: string): Record<string, unknown> {
   }
 }
 
-// Keep the catalog within the tightest browser budget (Gemma's ~1.7K tokens ≈
-// ~4.7K rendered chars). Reserve room for the system prompt, dispatcher tool
-// and messages, then spend the rest on the catalog: first drop per-tool
-// summaries, then, if the names alone are still too long, truncate the
-// (priority-sorted) tool list so the important tools stay.
-const BROWSER_TOOL_CATALOG_MAX_CHARS = 3000;
-
-function buildBrowserToolCatalog(tools: ToolDefinition[]): string {
+function buildBrowserToolCatalog(
+  tools: ToolDefinition[],
+  maxChars: number,
+): string {
   const compact = buildBrowserRequestTools(tools);
   const header = [
     'Available tools — call one with the tool_call function, setting name to the',
@@ -435,7 +455,7 @@ function buildBrowserToolCatalog(tools: ToolDefinition[]): string {
     return `- ${tool.function.name}(${signature})${summary ? `: ${summary}` : ''}`;
   };
   let lines = compact.map((tool) => toLine(tool, true));
-  if (lines.join('\n').length > BROWSER_TOOL_CATALOG_MAX_CHARS) {
+  if (lines.join('\n').length > maxChars) {
     lines = compact.map((tool) => toLine(tool, false));
   }
   // Hard cap: truncate the priority-sorted list so long tool names can't blow
@@ -443,12 +463,7 @@ function buildBrowserToolCatalog(tools: ToolDefinition[]): string {
   const kept: string[] = [];
   let total = 0;
   for (const line of lines) {
-    if (
-      kept.length > 0 &&
-      total + line.length + 1 > BROWSER_TOOL_CATALOG_MAX_CHARS
-    ) {
-      break;
-    }
+    if (kept.length > 0 && total + line.length + 1 > maxChars) break;
     kept.push(line);
     total += line.length + 1;
   }
@@ -536,9 +551,10 @@ function normalizeBrowserToolCalls(
 function buildBrowserRequestMessages(
   messages: ChatMessage[],
   catalog?: string | null,
+  messageBudgetChars: number = BROWSER_MODEL_TOTAL_PROMPT_CHARS,
 ): Array<Record<string, unknown>> {
   const selected: Array<Record<string, unknown>> = [];
-  let remainingChars = BROWSER_MODEL_TOTAL_PROMPT_CHARS;
+  let remainingChars = messageBudgetChars;
 
   for (
     let index = messages.length - 1;
@@ -701,13 +717,34 @@ function buildRequestMessages(
   args: NormalizedCallArgs,
 ): Array<Record<string, unknown>> {
   if (args.provider === 'browser') {
+    // Vision-language models take image content parts and don't use the text
+    // tool catalog; preserve message content (including images) and pass through.
+    if (isVisionBrowserModel(args.model)) {
+      return collapseSystemMessages(args.messages).map((message) => ({
+        ...message,
+        content: normalizeMessageContent(message.content),
+      }));
+    }
+    // Tight-budget models (Gemma) must fit system + catalog + the whole
+    // conversation (including accumulating tool results) under the token guard,
+    // so split one total char budget across the catalog and the messages rather
+    // than capping each independently.
+    const contentBudget = browserModelContentBudgetChars(args.model);
+    const systemChars = BROWSER_MODEL_SYSTEM_PROMPT.length + 2;
     const catalog =
       browserToolCatalogEnabled(args.model) &&
       Array.isArray(args.tools) &&
       args.tools.length > 0
-        ? buildBrowserToolCatalog(args.tools)
+        ? buildBrowserToolCatalog(
+            args.tools,
+            Math.floor((contentBudget - systemChars) / 2),
+          )
         : null;
-    return buildBrowserRequestMessages(args.messages, catalog);
+    const messageBudget = Math.max(
+      500,
+      contentBudget - systemChars - (catalog ? catalog.length : 0),
+    );
+    return buildBrowserRequestMessages(args.messages, catalog, messageBudget);
   }
   let messages = usesQwenCompat(args)
     ? buildQwenRequestMessages(args.messages)

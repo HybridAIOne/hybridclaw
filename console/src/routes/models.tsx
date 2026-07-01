@@ -206,9 +206,19 @@ const BROWSER_BRIDGE_MODEL_PRESETS = [
     quantizations: LFM_WEBGPU_QUANTIZATIONS,
   },
   {
-    id: 'LiquidAI/LFM2.5-VL-1.6B-ONNX',
-    label: 'LFM 2.5 VL 1.6B',
+    // Vision-language models load via AutoModelForImageTextToText, which needs
+    // the transformers.js session layout (decoder_model_merged / vision_encoder
+    // / embed_tokens). The onnx-community mirrors ship that layout; LiquidAI's
+    // own *-ONNX repos use a custom split for their hand-rolled demo loader and
+    // do not load here.
+    id: 'onnx-community/LFM2.5-VL-450M-ONNX',
+    label: 'LFM 2.5 VL 450M',
     quantizations: LFM_WEBGPU_QUANTIZATIONS,
+  },
+  {
+    id: 'onnx-community/LFM2-VL-1.6B-ONNX',
+    label: 'LFM 2 VL 1.6B',
+    quantizations: ['fp16'],
   },
   {
     id: 'onnx-community/gemma-3-270m-it-ONNX',
