@@ -411,20 +411,32 @@ function safeParseArguments(value: string): Record<string, unknown> {
   }
 }
 
+// Keep the catalog small enough to fit the tightest browser budget (Gemma's
+// ~1.7K tokens): with a big tool belt the one-line summaries push it over, so
+// drop them and fall back to name(params) only once the catalog gets large.
+const BROWSER_TOOL_CATALOG_SUMMARY_MAX_CHARS = 3000;
+
 function buildBrowserToolCatalog(tools: ToolDefinition[]): string {
-  const lines = buildBrowserRequestTools(tools).map((tool) => {
+  const compact = buildBrowserRequestTools(tools);
+  const header = [
+    'Available tools — call one with the tool_call function, setting name to the',
+    'tool name and arguments to its parameters. * marks a required parameter.',
+  ];
+  const toLine = (tool: ToolDefinition, withSummary: boolean): string => {
     const required = new Set(tool.function.parameters.required || []);
     const signature = Object.keys(tool.function.parameters.properties || {})
       .map((name) => (required.has(name) ? `${name}*` : name))
       .join(', ');
-    const summary = truncateBrowserToolText(tool.function.description, 60);
+    const summary = withSummary
+      ? truncateBrowserToolText(tool.function.description, 60)
+      : '';
     return `- ${tool.function.name}(${signature})${summary ? `: ${summary}` : ''}`;
-  });
-  return [
-    'Available tools — call one with the tool_call function, setting name to the',
-    'tool name and arguments to its parameters. * marks a required parameter.',
-    ...lines,
-  ].join('\n');
+  };
+  let lines = compact.map((tool) => toLine(tool, true));
+  if (lines.join('\n').length > BROWSER_TOOL_CATALOG_SUMMARY_MAX_CHARS) {
+    lines = compact.map((tool) => toLine(tool, false));
+  }
+  return [...header, ...lines].join('\n');
 }
 
 function buildBrowserToolDispatcher(): ToolDefinition {
