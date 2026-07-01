@@ -474,7 +474,11 @@ hybridclaw skill uninstall <skill-name>
 hybridclaw skill revisions <skill-name>
 hybridclaw skill rollback <skill-name> <revision-id>
 hybridclaw skill setup <skill-name>
-hybridclaw skill learn <skill-name> [--apply|--reject|--rollback]
+hybridclaw skill create-from [--name <name>] [--category <category>] <source>
+hybridclaw skill create-from --apply <proposal-id>
+hybridclaw skill create-from --reject <proposal-id>
+hybridclaw skill amend <skill-name> [--apply|--reject|--rollback]
+hybridclaw skill learn <skill-name> [--apply|--reject|--rollback] # alias for amend
 hybridclaw skill history <skill-name>
 hybridclaw skill sync [--skip-skill-scan] <source>
 hybridclaw skill import [--force] [--skip-skill-scan] <source>
@@ -761,10 +765,10 @@ reserved for the R5.3 signal when that spend-tracking enforcement lands.
   surfacing progress for managed runs such as `tau2` and
   `terminal-bench-2.0`
 - TUI and chat surfaces use `/agent`, `/agent install`, `/model`, `/mcp`,
-  `/plugin`, `/skill`, `/compact`, `/reset`, `/plugin enable`,
+  `/plugin`, `/skill`, `/learn`, `/compact`, `/reset`, `/plugin enable`,
   `/plugin disable`, `/plugin install`, `/plugin reinstall`, `/plugin reload`,
-  `/skill install`, `/skill import`, `/skill learn`, `/schedule`, `/status`,
-  and related slash commands
+  `/skill install`, `/skill import`, `/skill create-from`, `/skill amend`,
+  `/skill learn`, `/schedule`, `/status`, and related slash commands
 - TUI also supports `/paste` to queue a copied local file or clipboard image
 - TUI `/skill config` opens the interactive skill availability checklist
 - local TUI and web chat support `/skill list` to inspect dependency ids.

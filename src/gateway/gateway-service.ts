@@ -13850,6 +13850,18 @@ export async function handleGatewayCommand(
         });
       }
 
+      case 'learn': {
+        return await handleSkillCommand({
+          args: ['skill', 'create-from', ...req.args.slice(1)],
+          sessionAgentId: resolveSessionAgentId(session),
+          guildId: req.guildId,
+          channelId: req.channelId,
+          badCommand,
+          infoCommand: (title, text) => infoCommand(title, text),
+          plainCommand,
+        });
+      }
+
       case 'schedule': {
         const sub = parseLowerArg(req.args, 1);
         if (sub === 'add') {
