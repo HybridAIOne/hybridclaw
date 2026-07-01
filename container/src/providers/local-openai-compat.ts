@@ -411,10 +411,12 @@ function safeParseArguments(value: string): Record<string, unknown> {
   }
 }
 
-// Keep the catalog small enough to fit the tightest browser budget (Gemma's
-// ~1.7K tokens): with a big tool belt the one-line summaries push it over, so
-// drop them and fall back to name(params) only once the catalog gets large.
-const BROWSER_TOOL_CATALOG_SUMMARY_MAX_CHARS = 3000;
+// Keep the catalog within the tightest browser budget (Gemma's ~1.7K tokens ≈
+// ~4.7K rendered chars). Reserve room for the system prompt, dispatcher tool
+// and messages, then spend the rest on the catalog: first drop per-tool
+// summaries, then, if the names alone are still too long, truncate the
+// (priority-sorted) tool list so the important tools stay.
+const BROWSER_TOOL_CATALOG_MAX_CHARS = 3000;
 
 function buildBrowserToolCatalog(tools: ToolDefinition[]): string {
   const compact = buildBrowserRequestTools(tools);
@@ -433,10 +435,27 @@ function buildBrowserToolCatalog(tools: ToolDefinition[]): string {
     return `- ${tool.function.name}(${signature})${summary ? `: ${summary}` : ''}`;
   };
   let lines = compact.map((tool) => toLine(tool, true));
-  if (lines.join('\n').length > BROWSER_TOOL_CATALOG_SUMMARY_MAX_CHARS) {
+  if (lines.join('\n').length > BROWSER_TOOL_CATALOG_MAX_CHARS) {
     lines = compact.map((tool) => toLine(tool, false));
   }
-  return [...header, ...lines].join('\n');
+  // Hard cap: truncate the priority-sorted list so long tool names can't blow
+  // the budget. Note how many were dropped so the model knows the list is cut.
+  const kept: string[] = [];
+  let total = 0;
+  for (const line of lines) {
+    if (
+      kept.length > 0 &&
+      total + line.length + 1 > BROWSER_TOOL_CATALOG_MAX_CHARS
+    ) {
+      break;
+    }
+    kept.push(line);
+    total += line.length + 1;
+  }
+  const omitted = lines.length - kept.length;
+  const footer =
+    omitted > 0 ? [`- (+${omitted} more tools available but not listed)`] : [];
+  return [...header, ...kept, ...footer].join('\n');
 }
 
 function buildBrowserToolDispatcher(): ToolDefinition {
