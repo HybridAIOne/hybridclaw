@@ -382,11 +382,22 @@ function buildBrowserRequestTools(tools: ToolDefinition[]): ToolDefinition[] {
 // into the same dispatcher framing so the model only ever sees one tool.
 const BROWSER_TOOL_DISPATCHER_NAME = 'tool_call';
 
-function browserToolCatalogEnabled(): boolean {
+// Large-vocabulary models have a tiny in-browser prompt budget (the prefill
+// logits overflow caps Gemma near ~1.7K tokens), so full tool schemas don't
+// fit and the catalog/dispatcher is required. Smaller-vocab models (LFM) have a
+// generous budget AND handle the flat call format better than the nested
+// dispatcher, so they keep full schemas by default.
+function isTightBudgetBrowserModel(model: string): boolean {
+  return model.toLowerCase().includes('gemma');
+}
+
+function browserToolCatalogEnabled(model: string): boolean {
   const value = String(process.env.HYBRIDCLAW_BROWSER_TOOL_CATALOG || '')
     .trim()
     .toLowerCase();
-  return value === '1' || value === 'true' || value === 'on';
+  if (value === '1' || value === 'true' || value === 'on') return true;
+  if (value === '0' || value === 'false' || value === 'off') return false;
+  return isTightBudgetBrowserModel(model);
 }
 
 function safeParseArguments(value: string): Record<string, unknown> {
@@ -406,7 +417,7 @@ function buildBrowserToolCatalog(tools: ToolDefinition[]): string {
     const signature = Object.keys(tool.function.parameters.properties || {})
       .map((name) => (required.has(name) ? `${name}*` : name))
       .join(', ');
-    const summary = truncateBrowserToolText(tool.function.description, 100);
+    const summary = truncateBrowserToolText(tool.function.description, 60);
     return `- ${tool.function.name}(${signature})${summary ? `: ${summary}` : ''}`;
   });
   return [
@@ -660,7 +671,7 @@ function buildRequestMessages(
 ): Array<Record<string, unknown>> {
   if (args.provider === 'browser') {
     const catalog =
-      browserToolCatalogEnabled() &&
+      browserToolCatalogEnabled(args.model) &&
       Array.isArray(args.tools) &&
       args.tools.length > 0
         ? buildBrowserToolCatalog(args.tools)
@@ -694,7 +705,7 @@ function buildRequestMessages(
 function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
   const browserCatalogMode =
     args.provider === 'browser' &&
-    browserToolCatalogEnabled() &&
+    browserToolCatalogEnabled(args.model) &&
     Array.isArray(args.tools) &&
     args.tools.length > 0;
   const tools =
@@ -898,7 +909,7 @@ function adaptLocalOpenAICompatResponse(
   }
   if (
     params.provider === 'browser' &&
-    browserToolCatalogEnabled() &&
+    browserToolCatalogEnabled(params.model) &&
     normalized.toolCalls.length > 0
   ) {
     normalized = {

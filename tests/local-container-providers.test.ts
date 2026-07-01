@@ -142,7 +142,9 @@ describe('local container providers', () => {
       provider: 'browser',
       baseUrl: 'http://127.0.0.1:8789/v1',
       apiKey: '',
-      model: 'browser/onnx-community/gemma-4-E2B-it-ONNX',
+      // LFM keeps full (compacted) schemas — the catalog only auto-enables for
+      // tight-budget models like Gemma.
+      model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
       chatbotId: '',
       enableRag: false,
       requestHeaders: undefined,
@@ -281,6 +283,70 @@ describe('local container providers', () => {
       name: 'bash',
       arguments: '{"command":"ls -la"}',
     });
+  });
+
+  test('catalog auto-enables for tight-budget models (Gemma) but not LFM', async () => {
+    const catalogTools: ToolDefinition[] = [
+      {
+        type: 'function',
+        function: {
+          name: 'bash',
+          description: 'Run a shell command.',
+          parameters: {
+            type: 'object',
+            properties: { command: { type: 'string' } },
+            required: ['command'],
+          },
+        },
+      },
+    ];
+    const sentToolNamesFor = async (model: string): Promise<string[]> => {
+      let names: string[] = [];
+      const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || '{}')) as {
+          tools?: Array<{ function: { name: string } }>;
+        };
+        names = (body.tools || []).map((tool) => tool.function.name);
+        return new Response(
+          JSON.stringify({
+            id: 'r',
+            model: 'm',
+            choices: [
+              {
+                message: { role: 'assistant', content: 'ok' },
+                finish_reason: 'stop',
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      await callLocalOpenAICompatProvider({
+        provider: 'browser',
+        baseUrl: 'http://127.0.0.1:8789/v1',
+        apiKey: '',
+        model,
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: undefined,
+        messages: baseMessages,
+        tools: catalogTools,
+        maxTokens: 128,
+        isLocal: true,
+        contextWindow: 32_768,
+      });
+      return names;
+    };
+
+    // No env flag: Gemma (large vocab) auto-uses the dispatcher...
+    expect(
+      await sentToolNamesFor('browser/onnx-community/gemma-4-E2B-it-ONNX'),
+    ).toEqual(['tool_call']);
+    // ...LFM keeps its real (compacted) tools.
+    expect(await sentToolNamesFor('browser/LiquidAI/LFM2.5-230M-ONNX')).toEqual([
+      'bash',
+    ]);
   });
 
   test('Ollama provider builds native /api/chat requests and extracts data URI images', async () => {
