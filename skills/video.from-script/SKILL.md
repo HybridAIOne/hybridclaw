@@ -13,7 +13,7 @@ credentials:
       source: store
       id: HEYGEN_API_KEY
     scope: HeyGen Direct API avatar video generation.
-    how_to_obtain: Create or regenerate the API token from HeyGen account settings, then store it with `hybridclaw secret set HEYGEN_API_KEY "<api-key>"`.
+    how_to_obtain: "Create or regenerate the API token from HeyGen account settings. Set `HEYGEN_API_KEY` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set HEYGEN_API_KEY \"<api-key>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set HEYGEN_API_KEY \"<api-key>\"`."
 metadata:
   hybridclaw:
     category: media

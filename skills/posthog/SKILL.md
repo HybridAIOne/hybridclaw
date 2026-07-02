@@ -13,7 +13,7 @@ credentials:
       source: store
       id: POSTHOG_PROJECT_TOKEN
     scope: "PostHog public capture and flags endpoints on the configured ingestion host"
-    how_to_obtain: "Open PostHog project settings, copy the project token, and store it with `/secret set POSTHOG_PROJECT_TOKEN <token>` or `hybridclaw secret set POSTHOG_PROJECT_TOKEN <token>`."
+    how_to_obtain: "Open PostHog project settings and copy the project token. Set `POSTHOG_PROJECT_TOKEN` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set POSTHOG_PROJECT_TOKEN <token>` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set POSTHOG_PROJECT_TOKEN <token>`."
   - id: posthog-personal-api-key
     kind: bearer
     required: true
@@ -21,7 +21,7 @@ credentials:
       source: store
       id: POSTHOG_PERSONAL_API_KEY
     scope: "PostHog private API for persons, feature flags, and query endpoints"
-    how_to_obtain: "Create a PostHog personal API key with only the needed scopes, then store it with `/secret set POSTHOG_PERSONAL_API_KEY <key>` or `hybridclaw secret set POSTHOG_PERSONAL_API_KEY <key>`."
+    how_to_obtain: "Create a PostHog personal API key with only the needed scopes. Set `POSTHOG_PERSONAL_API_KEY` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set POSTHOG_PERSONAL_API_KEY <key>` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set POSTHOG_PERSONAL_API_KEY <key>`."
 config_variables:
   - id: posthog-host
     env: POSTHOG_HOST
@@ -118,7 +118,11 @@ Never paste either token into chat or helper arguments. The helper emits
 `bearerSecretName: "POSTHOG_PERSONAL_API_KEY"` for private APIs, so the gateway
 injects credentials server-side.
 
-Recommended chat setup:
+Recommended setup order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `POSTHOG_PROJECT_TOKEN` and `POSTHOG_PERSONAL_API_KEY`.
+2. Browser `/chat` or TUI fallback:
 
 ```bash
 /secret set POSTHOG_PROJECT_TOKEN <project-token>
@@ -129,7 +133,7 @@ Recommended chat setup:
 /env set POSTHOG_ENVIRONMENT_ID "12345"
 ```
 
-Local-terminal equivalent:
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set POSTHOG_PROJECT_TOKEN "<project-token>"

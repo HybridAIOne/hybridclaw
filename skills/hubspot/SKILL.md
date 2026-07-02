@@ -13,7 +13,7 @@ credentials:
       source: store
       id: HUBSPOT_ACCESS_TOKEN
     scope: "api.hubapi.com and api.hubspot.com"
-    how_to_obtain: "Create a HubSpot Service Key from Development > Keys > Service keys, copy the key, and store it as HUBSPOT_ACCESS_TOKEN. Service keys are the recommended single-account system-to-system credential for HubSpot REST APIs. Legacy private app access tokens and OAuth access tokens are also accepted bearer credentials; HubSpot personal access keys and developer keys are not valid CRM REST bearer tokens."
+    how_to_obtain: "Create a HubSpot Service Key from Development > Keys > Service keys and copy the key. Set `HUBSPOT_ACCESS_TOKEN` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set HUBSPOT_ACCESS_TOKEN <token>` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set HUBSPOT_ACCESS_TOKEN <token>`. Service keys are the recommended single-account system-to-system credential for HubSpot REST APIs. Legacy private app access tokens and OAuth access tokens are also accepted bearer credentials; HubSpot personal access keys and developer keys are not valid CRM REST bearer tokens."
 metadata:
   hybridclaw:
     category: business
@@ -86,7 +86,13 @@ valid CRM REST bearer tokens for these calls.
 HubSpot Service Key docs:
 <https://developers.hubspot.com/docs/apps/developer-platform/build-apps/authentication/account-service-keys>.
 
-Recommended setup:
+Recommended setup order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `HUBSPOT_ACCESS_TOKEN`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set HUBSPOT_ACCESS_TOKEN <token>`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set HUBSPOT_ACCESS_TOKEN

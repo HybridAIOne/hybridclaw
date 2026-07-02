@@ -12,7 +12,7 @@ credentials:
       source: store
       id: HERMES3000_JWT
     scope: "hermes3000.ai"
-    how_to_obtain: "Store HERMES3000_EMAIL and HERMES3000_PASSWORD in HybridClaw runtime secrets, then run the bundled auth.login helper so the gateway captures the login JWT into HERMES3000_JWT without exposing it to the agent."
+    how_to_obtain: "Set `HERMES3000_EMAIL` and `HERMES3000_PASSWORD` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set HERMES3000_EMAIL ...` and `/secret set HERMES3000_PASSWORD ...` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set ...`. Then run the bundled auth.login helper so the gateway captures the login JWT into `HERMES3000_JWT` without exposing it to the agent."
 metadata:
   hybridclaw:
     category: productivity
@@ -60,14 +60,18 @@ secrets with chat/TUI secret commands; do not ask them to run `node`, `curl`, or
 or password; it resolves `HERMES3000_EMAIL` and `HERMES3000_PASSWORD` from the
 gateway secret store.
 
-Ask the user to set the login inputs once from chat or TUI:
+Ask the user to set the login inputs once through browser admin first:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `HERMES3000_EMAIL` and `HERMES3000_PASSWORD`.
+2. Browser `/chat` or TUI fallback:
 
 ```text
 /secret set HERMES3000_EMAIL you@example.com
 /secret set HERMES3000_PASSWORD <password>
 ```
 
-For local operator setup only, the shell-side equivalent is:
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set HERMES3000_EMAIL you@example.com

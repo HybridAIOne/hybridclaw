@@ -13,7 +13,7 @@ credentials:
       source: store
       id: LEXWARE_OFFICE_API_KEY
     scope: "https://api.lexware.io/"
-    how_to_obtain: "Create a Lexware Office Public API key at https://app.lexware.de/addons/public-api, then store it with `hybridclaw secret set LEXWARE_OFFICE_API_KEY \"<api-key>\"`."
+    how_to_obtain: "Create a Lexware Office Public API key at https://app.lexware.de/addons/public-api. Set `LEXWARE_OFFICE_API_KEY` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set LEXWARE_OFFICE_API_KEY \"<api-key>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set LEXWARE_OFFICE_API_KEY \"<api-key>\"`."
 metadata:
   hybridclaw:
     category: accounting
@@ -93,7 +93,13 @@ Public API gateway at `https://api.lexware.io`.
 Lexware Office authenticates with a bearer API key. Store the API key in
 HybridClaw encrypted runtime secrets; never paste it into the prompt.
 
-Recommended setup:
+Recommended setup order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `LEXWARE_OFFICE_API_KEY`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set LEXWARE_OFFICE_API_KEY "<api-key>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set LEXWARE_OFFICE_API_KEY "<api-key>"

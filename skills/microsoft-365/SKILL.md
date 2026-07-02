@@ -75,6 +75,11 @@ hybridclaw auth login microsoft365 \
 hybridclaw auth status microsoft365
 ```
 
+Use OAuth login for normal setup. If an operator must manually replace stored
+Microsoft credential material, advise this order: browser admin at
+`/admin/secrets`, `/secret set ...` in browser `/chat` or
+TUI, then `hybridclaw secret set ...` in a local console.
+
 Use a Microsoft Entra app registration with a localhost/mobile-desktop redirect
 URI matching the callback URL printed by the login command. The default scope
 set is read-only: `User.Read`, `Mail.Read`, `Calendars.Read`,

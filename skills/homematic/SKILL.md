@@ -16,7 +16,11 @@ credentials:
     how_to_obtain: |
       Enable HCU developer mode, generate an activation key, use
       `node skills/homematic/homematic.cjs http-request auth-token` and
-      `confirm-token`, then store the confirmed Connect API auth token with
+      `confirm-token`, then set the confirmed Connect API auth token as
+      `HOMEMATIC_HCU_AUTH_TOKEN` through browser admin at
+      `/admin/secrets`; if browser admin is unavailable,
+      use `/secret set HOMEMATIC_HCU_AUTH_TOKEN "<token>"` in browser `/chat`
+      or TUI; local console fallback:
       `hybridclaw secret set HOMEMATIC_HCU_AUTH_TOKEN "<token>"`.
   - id: homematic-hcu-activation-key
     kind: header
@@ -26,8 +30,12 @@ credentials:
       id: HOMEMATIC_HCU_ACTIVATION_KEY
     scope: "One-time HCU Connect API token enrollment"
     how_to_obtain: |
-      Generate an activation key from HCUweb developer mode and store it only
-      long enough to enroll the Connect API client:
+      Generate an activation key from HCUweb developer mode and set it only
+      long enough to enroll the Connect API client as
+      `HOMEMATIC_HCU_ACTIVATION_KEY` through browser admin at
+      `/admin/secrets`; if browser admin is unavailable,
+      use `/secret set HOMEMATIC_HCU_ACTIVATION_KEY "<activation-key>"` in
+      browser `/chat` or TUI; local console fallback:
       `hybridclaw secret set HOMEMATIC_HCU_ACTIVATION_KEY "<activation-key>"`.
 metadata:
   hybridclaw:

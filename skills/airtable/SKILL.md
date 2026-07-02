@@ -13,7 +13,7 @@ credentials:
       source: store
       id: AIRTABLE_PAT
     scope: "api.airtable.com/v0"
-    how_to_obtain: "Create an Airtable Personal Access Token or OAuth bearer token with the needed scopes, then store it with `hybridclaw secret set AIRTABLE_PAT \"<token>\"`."
+    how_to_obtain: "Create an Airtable Personal Access Token or OAuth bearer token with the needed scopes. Set `AIRTABLE_PAT` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set AIRTABLE_PAT \"<token>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set AIRTABLE_PAT \"<token>\"`."
 metadata:
   hybridclaw:
     category: productivity
@@ -73,7 +73,13 @@ field payloads, formula/lookup/rollup reads, and carefully gated deletes.
 Airtable uses Personal Access Tokens or OAuth bearer tokens. Store the token in
 HybridClaw encrypted runtime secrets; never paste it into the prompt.
 
-Recommended setup:
+Recommended setup order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `AIRTABLE_PAT`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set AIRTABLE_PAT "<pat-or-oauth-access-token>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set AIRTABLE_PAT "<pat-or-oauth-access-token>"
@@ -108,8 +114,10 @@ Required Airtable PAT scopes depend on the task:
 
 - Gateway errors saying `AIRTABLE_PAT` is not set, unavailable, missing, or
   unresolved: the active gateway runtime cannot resolve that stored secret. Ask
-  the operator to set it in the same HybridClaw runtime/session using
-  `/secret set AIRTABLE_PAT <pat>` or
+  the operator to set it in the same HybridClaw runtime/session in this order:
+  browser admin at the active `/admin/secrets` route,
+  `/secret set AIRTABLE_PAT <pat>` in browser `/chat` or TUI, then local
+  console fallback
   `hybridclaw secret set AIRTABLE_PAT <pat>`, then start a fresh agent runtime
   if the gateway was already running.
 - Gateway errors saying `AIRTABLE_PAT` is blocked by secret resolution policy:

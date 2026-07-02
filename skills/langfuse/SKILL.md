@@ -16,8 +16,12 @@ credentials:
     how_to_obtain: |
       In Langfuse, open Project Settings → API Keys and create a key pair
       (public key `pk-lf-...` and secret key `sk-lf-...`). Locally base64-encode
-      `public-key:secret-key` and store only that encoded credential in chat with
-      `/secret set LANGFUSE_BASIC_AUTH "<base64-public-colon-secret>"`.
+      `public-key:secret-key`. Set only that encoded credential as
+      `LANGFUSE_BASIC_AUTH` through browser admin at
+      `/admin/secrets`; if browser admin is unavailable,
+      use `/secret set LANGFUSE_BASIC_AUTH "<base64-public-colon-secret>"` in
+      browser `/chat` or TUI; local console fallback:
+      `hybridclaw secret set LANGFUSE_BASIC_AUTH "<base64-public-colon-secret>"`.
       The same key reads observability data and writes scores, comments,
       datasets, and prompt versions.
 config_variables:
@@ -105,7 +109,12 @@ and evaluating outputs.
 
 ## HybridClaw setup
 
-The helper never sees credentials. Store two values once:
+The helper never sees credentials. Store two values once. For secrets, use this
+order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback.
+3. Local console fallback.
 
 1. `LANGFUSE_BASIC_AUTH` — base64 of `public-key:secret-key`:
    `/secret set LANGFUSE_BASIC_AUTH "<base64-public-colon-secret>"`
@@ -114,7 +123,7 @@ The helper never sees credentials. Store two values once:
    `https://us.cloud.langfuse.com` for US, `https://jp.cloud.langfuse.com` for
    JP, or your self-hosted origin).
 
-Local-terminal alternative: `hybridclaw secret set LANGFUSE_BASIC_AUTH "<...>"`
+Local console fallback: `hybridclaw secret set LANGFUSE_BASIC_AUTH "<...>"`
 and `hybridclaw env set LANGFUSE_HOST https://cloud.langfuse.com`.
 
 See [references/operator-setup.md](references/operator-setup.md) for key scope,

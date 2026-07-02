@@ -13,7 +13,7 @@ credentials:
       source: store
       id: SINCH_FAX_BASIC_AUTH
     scope: "fax.api.sinch.com"
-    how_to_obtain: "Create Sinch Fax API credentials for the target EU project/service, base64-encode username:password, and store the value with `hybridclaw secret set SINCH_FAX_BASIC_AUTH \"<base64>\"`."
+    how_to_obtain: "Create Sinch Fax API credentials for the target EU project/service and base64-encode username:password. Set `SINCH_FAX_BASIC_AUTH` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set SINCH_FAX_BASIC_AUTH \"<base64>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set SINCH_FAX_BASIC_AUTH \"<base64>\"`."
   - id: sinch-fax-oauth-token
     kind: bearer
     required: false
@@ -21,7 +21,7 @@ credentials:
       source: store
       id: SINCH_FAX_OAUTH_TOKEN
     scope: "fax.api.sinch.com"
-    how_to_obtain: "Use only when the operator has an OAuth token minting path for Sinch Fax; store the current bearer token as `SINCH_FAX_OAUTH_TOKEN`."
+    how_to_obtain: "Use only when the operator has an OAuth token minting path for Sinch Fax. Set `SINCH_FAX_OAUTH_TOKEN` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set SINCH_FAX_OAUTH_TOKEN \"<access-token>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set SINCH_FAX_OAUTH_TOKEN \"<access-token>\"`."
 metadata:
   hybridclaw:
     category: communication
@@ -103,14 +103,27 @@ cover-page templating are outside this skill slice.
 Store credentials in HybridClaw encrypted runtime secrets. Never paste them into
 chat or helper arguments.
 
-For Sinch Basic auth, store the base64 value of `username:password`:
+For Sinch Basic auth, set the base64 value of `username:password` in this
+order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `SINCH_FAX_BASIC_AUTH`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set SINCH_FAX_BASIC_AUTH "<base64-username-password>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set SINCH_FAX_BASIC_AUTH "<base64-username-password>"
 ```
 
-For Sinch OAuth, store a bearer token only if the operator has a token minting
-process:
+For Sinch OAuth, set a bearer token only if the operator has a token minting
+process, using the same setup order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `SINCH_FAX_OAUTH_TOKEN`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set SINCH_FAX_OAUTH_TOKEN "<access-token>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set SINCH_FAX_OAUTH_TOKEN "<access-token>"
@@ -120,8 +133,14 @@ The helper emits either `secretHeaders: [{ name: "Authorization", secretName:
 "SINCH_FAX_BASIC_AUTH", prefix: "Basic" }]` or `bearerSecretName:
 "SINCH_FAX_OAUTH_TOKEN"` so the gateway injects the secret server-side.
 
-Store the Sinch project default once so normal sends do not need provider
-account arguments:
+Set the Sinch project default once so normal sends do not need provider account
+arguments:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `SINCH_FAX_PROJECT_ID`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set SINCH_FAX_PROJECT_ID "<sinch-project-id>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set SINCH_FAX_PROJECT_ID "<sinch-project-id>"

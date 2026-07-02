@@ -16,14 +16,18 @@ amber/grant gating for changes.
 ## Store the Credential and Host
 
 The Langfuse public API uses HTTP Basic auth. Base64-encode `public:secret`
-locally and store only the encoded value, plus your deployment base URL:
+locally and store only the encoded value, plus your deployment base URL. For
+the secret value, use this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
 
 ```text
 /secret set LANGFUSE_BASIC_AUTH "<base64-of-public-key:secret-key>"
 /env set LANGFUSE_HOST https://cloud.langfuse.com
 ```
 
-Local-terminal alternative:
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set LANGFUSE_BASIC_AUTH "<base64-of-public-key:secret-key>"

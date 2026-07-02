@@ -44,8 +44,10 @@ Subsequent helper requests use `bearerSecretName: "HERMES3000_JWT"`.
 
 Do not ask chat/TUI users to run this command. If `HERMES3000_JWT` is missing or
 blocked, the agent should run `auth.login`; the user should only be asked to set
-`HERMES3000_EMAIL` and `HERMES3000_PASSWORD` with `/secret set ...` if those
-stored login inputs are missing. The helper does not prompt for credentials.
+`HERMES3000_EMAIL` and `HERMES3000_PASSWORD` if those stored login inputs are
+missing. Prefer browser admin at the active `/admin/secrets` route; fall
+back to `/secret set ...` in browser `/chat` or TUI only if the admin page is
+unavailable. The helper does not prompt for credentials.
 
 Do not use `curl` with a raw Hermes3000 `Authorization` header. If a runtime
 does not allow direct helper execution but does expose the built-in

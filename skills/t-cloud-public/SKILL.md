@@ -13,7 +13,7 @@ credentials:
       source: store
       id: OTC_ACCESS_KEY_ID
     scope: "T Cloud Public / Open Telekom Cloud AK/SK request signing"
-    how_to_obtain: "Create an OTC access key in My Credentials > Access Keys and store the Access Key Id as OTC_ACCESS_KEY_ID. Use a least-privilege IAM user for inventory work."
+    how_to_obtain: "Create an OTC access key in My Credentials > Access Keys. Set `OTC_ACCESS_KEY_ID` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set OTC_ACCESS_KEY_ID \"<access-key-id>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set OTC_ACCESS_KEY_ID \"<access-key-id>\"`. Use a least-privilege IAM user for inventory work."
   - id: otc-secret-access-key
     kind: header
     required: true
@@ -21,7 +21,7 @@ credentials:
       source: store
       id: OTC_SECRET_ACCESS_KEY
     scope: "T Cloud Public / Open Telekom Cloud AK/SK request signing"
-    how_to_obtain: "Save the Secret Access Key from the OTC access key CSV as OTC_SECRET_ACCESS_KEY. Never paste it into chat or project files."
+    how_to_obtain: "Save the Secret Access Key from the OTC access key CSV. Set `OTC_SECRET_ACCESS_KEY` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set OTC_SECRET_ACCESS_KEY \"<secret-access-key>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set OTC_SECRET_ACCESS_KEY \"<secret-access-key>\"`. Never paste it into chat or project files."
   - id: otc-project-id
     kind: header
     required: true
@@ -29,7 +29,7 @@ credentials:
       source: store
       id: OTC_PROJECT_ID
     scope: "T Cloud Public / Open Telekom Cloud regional project paths"
-    how_to_obtain: "Copy the target regional project ID from My Credentials > API Credentials and store it as OTC_PROJECT_ID."
+    how_to_obtain: "Copy the target regional project ID from My Credentials > API Credentials. Set `OTC_PROJECT_ID` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set OTC_PROJECT_ID \"<project-id>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set OTC_PROJECT_ID \"<project-id>\"`."
   - id: otc-enterprise-dashboard-token
     kind: header
     required: false
@@ -37,7 +37,7 @@ credentials:
       source: store
       id: OTC_ENTERPRISE_DASHBOARD_TOKEN
     scope: "T Cloud Public Enterprise Dashboard consumption and spend data"
-    how_to_obtain: "Create an Enterprise Dashboard API key with Admin security level in the organization settings and store it as OTC_ENTERPRISE_DASHBOARD_TOKEN."
+    how_to_obtain: "Create an Enterprise Dashboard API key with Admin security level in organization settings. Set `OTC_ENTERPRISE_DASHBOARD_TOKEN` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set OTC_ENTERPRISE_DASHBOARD_TOKEN \"<enterprise-dashboard-api-token>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set OTC_ENTERPRISE_DASHBOARD_TOKEN \"<enterprise-dashboard-api-token>\"`."
 metadata:
   hybridclaw:
     category: infrastructure

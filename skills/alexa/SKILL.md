@@ -14,8 +14,12 @@ credentials:
       id: ALEXA_ASK_SKILL_ID
     scope: "Alexa Skills Kit applicationId verification for inbound custom skill requests"
     how_to_obtain: |
-      Create a custom Alexa skill in the Alexa developer console and store the
-      skill id with `hybridclaw secret set ALEXA_ASK_SKILL_ID "amzn1.ask.skill.<uuid>"`.
+      Create a custom Alexa skill in the Alexa developer console. Set the skill
+      id as `ALEXA_ASK_SKILL_ID` through browser admin at
+      `/admin/secrets`; if browser admin is unavailable,
+      use `/secret set ALEXA_ASK_SKILL_ID "amzn1.ask.skill.<uuid>"` in browser
+      `/chat` or TUI; local console fallback:
+      `hybridclaw secret set ALEXA_ASK_SKILL_ID "amzn1.ask.skill.<uuid>"`.
   - id: alexa-lwa-client-id
     kind: oauth
     required: true
@@ -24,8 +28,12 @@ credentials:
       id: ALEXA_LWA_CLIENT_ID
     scope: "Login with Amazon account linking client id"
     how_to_obtain: |
-      Configure Login with Amazon account linking for the Alexa skill and store
-      the OAuth client id with `hybridclaw secret set ALEXA_LWA_CLIENT_ID "amzn1.application-oa2-client.<id>"`.
+      Configure Login with Amazon account linking for the Alexa skill. Set the
+      OAuth client id as `ALEXA_LWA_CLIENT_ID` through browser admin at
+      `/admin/secrets`; if browser admin is unavailable,
+      use `/secret set ALEXA_LWA_CLIENT_ID "amzn1.application-oa2-client.<id>"`
+      in browser `/chat` or TUI; local console fallback:
+      `hybridclaw secret set ALEXA_LWA_CLIENT_ID "amzn1.application-oa2-client.<id>"`.
   - id: alexa-lwa-client-secret
     kind: oauth
     required: true
@@ -34,7 +42,10 @@ credentials:
       id: ALEXA_LWA_CLIENT_SECRET
     scope: "Login with Amazon account linking client secret"
     how_to_obtain: |
-      Store the LWA client secret with
+      Set the LWA client secret as `ALEXA_LWA_CLIENT_SECRET` through browser
+      admin at the active `/admin/secrets` route; if browser admin is
+      unavailable, use `/secret set ALEXA_LWA_CLIENT_SECRET "<client secret>"`
+      in browser `/chat` or TUI; local console fallback:
       `hybridclaw secret set ALEXA_LWA_CLIENT_SECRET "<client secret>"`.
   - id: alexa-smarthome-refresh-token
     kind: oauth
@@ -44,7 +55,11 @@ credentials:
       id: ALEXA_SMARTHOME_REFRESH_TOKEN
     scope: "Alexa Smart Home Skill API token refresh"
     how_to_obtain: |
-      Complete the Smart Home Skill OAuth flow and store the refresh token with
+      Complete the Smart Home Skill OAuth flow. Set the refresh token as
+      `ALEXA_SMARTHOME_REFRESH_TOKEN` through browser admin at
+      `/admin/secrets`; if browser admin is unavailable,
+      use `/secret set ALEXA_SMARTHOME_REFRESH_TOKEN "<refresh token>"` in
+      browser `/chat` or TUI; local console fallback:
       `hybridclaw secret set ALEXA_SMARTHOME_REFRESH_TOKEN "<refresh token>"`.
   - id: alexa-smarthome-access-token
     kind: bearer
@@ -368,7 +383,13 @@ successful verification or a separate read confirms the selected track.
 
 ## Required Setup
 
-Path A custom ASK skill:
+Set or update required secrets in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback with `/secret set NAME value`.
+3. Local console fallback with `hybridclaw secret set NAME value`.
+
+Path A custom ASK skill local-console examples:
 
 ```bash
 hybridclaw secret set ALEXA_ASK_SKILL_ID "amzn1.ask.skill.<uuid>"
@@ -376,7 +397,7 @@ hybridclaw secret set ALEXA_LWA_CLIENT_ID "amzn1.application-oa2-client.<id>"
 hybridclaw secret set ALEXA_LWA_CLIENT_SECRET "<lwa client secret>"
 ```
 
-Path B Smart Home Skill API:
+Path B Smart Home Skill API local-console examples:
 
 ```bash
 hybridclaw secret set ALEXA_SMARTHOME_CLIENT_ID "<smart-home oauth client id>"
@@ -384,7 +405,7 @@ hybridclaw secret set ALEXA_SMARTHOME_CLIENT_SECRET "<smart-home oauth client se
 hybridclaw secret set ALEXA_SMARTHOME_REFRESH_TOKEN "<refresh token>"
 ```
 
-Path B community Alexa Remote / `alexapy` surface:
+Path B community Alexa Remote / `alexapy` surface local-console example:
 
 ```bash
 hybridclaw secret set ALEXA_AMAZON_DOMAIN "amazon.de"
