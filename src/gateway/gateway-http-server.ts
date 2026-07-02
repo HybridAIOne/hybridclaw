@@ -25,6 +25,11 @@ import {
   normalizeAgentProxyConfig,
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
+import {
+  deriveAppTitle,
+  extractHtmlDocument,
+  generateApp,
+} from '../apps/app-generator.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getBoardBudgetSummaries } from '../board/budget-chip.js';
 import {
@@ -102,6 +107,13 @@ import {
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
   writeUploadedMediaCacheFile,
 } from '../media/uploaded-media-cache.js';
+import {
+  createApp,
+  deleteApp,
+  getApp,
+  listApps,
+  upsertAppArtifact,
+} from '../memory/apps.js';
 import {
   claimQueuedProactiveMessages,
   enqueueProactiveMessage,
@@ -2341,13 +2353,19 @@ function isConsoleSpaPath(pathname: string): boolean {
     pathname === '/admin' ||
     pathname.startsWith('/admin/') ||
     pathname === '/chat' ||
-    pathname.startsWith('/chat/')
+    pathname.startsWith('/chat/') ||
+    pathname === '/apps' ||
+    pathname.startsWith('/apps/')
   );
 }
 
 function resolveConsolePageTitle(pathname: string): string {
   if (pathname === '/chat' || pathname.startsWith('/chat/')) {
     return 'HybridClaw Chat';
+  }
+
+  if (pathname === '/apps' || pathname.startsWith('/apps/')) {
+    return 'HybridClaw Apps';
   }
 
   if (pathname === '/agents' || pathname.startsWith('/agents/')) {
@@ -2957,6 +2975,13 @@ async function handleApiChat(
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
     model: body.model,
+    ...(body.appBuild ? { appBuild: true } : {}),
+    ...(typeof body.appCategory === 'string'
+      ? { appCategory: body.appCategory }
+      : {}),
+    ...(body.appKind === 'live' || body.appKind === 'web'
+      ? { appKind: body.appKind }
+      : {}),
   };
   logger.debug(
     {
@@ -2989,6 +3014,8 @@ async function handleApiChat(
     processedResult.sessionId || chatRequest.sessionId,
     processedResult,
   );
+  const capturedApps = await maybeCaptureChatArtifacts(chatRequest, result);
+  if (capturedApps.length > 0) result.apps = capturedApps;
   sendJson(res, result.status === 'success' ? 200 : 500, result);
 }
 
@@ -3290,6 +3317,11 @@ async function handleApiChatStream(
     if (pendingApproval && pendingApproval.approvalId !== streamedApprovalId) {
       sendEvent(pendingApproval);
     }
+    const capturedApps = await maybeCaptureChatArtifacts(
+      chatRequest,
+      filteredResult,
+    );
+    if (capturedApps.length > 0) filteredResult.apps = capturedApps;
     sendEvent({
       type: 'result',
       result: filteredResult,
@@ -6978,6 +7010,257 @@ async function handleApiArtifact(
   });
 }
 
+/**
+ * Parse `/api/apps/<id>` (or `/api/apps/<id><suffix>`, e.g. `/view`) into the
+ * app id. Returns null for non-matching paths or malformed ids rather than
+ * throwing, so it is safe to call from the pre-auth dispatch section.
+ */
+function parseApiAppId(pathname: string, suffix = ''): string | null {
+  const prefix = '/api/apps/';
+  if (!pathname.startsWith(prefix)) return null;
+  let rest = pathname.slice(prefix.length);
+  if (suffix) {
+    if (!rest.endsWith(suffix)) return null;
+    rest = rest.slice(0, rest.length - suffix.length);
+  }
+  if (!rest || rest.includes('/')) return null;
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+}
+
+async function handleApiAppView(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  id: string,
+): Promise<void> {
+  if (
+    !hasApiAuth(req, url, {
+      allowLocalWebSession: true,
+      allowQueryToken: true,
+      allowSessionCookie: true,
+    })
+  ) {
+    sendJson(res, 401, {
+      error:
+        'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass `?token=<WEB_API_TOKEN>`.',
+    });
+    return;
+  }
+  const app = getApp(id);
+  if (!app) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(app.html);
+}
+
+function handleApiAppsList(res: ServerResponse, url: URL): void {
+  const category = url.searchParams.get('category') ?? undefined;
+  const search =
+    url.searchParams.get('q') ?? url.searchParams.get('search') ?? undefined;
+  const apps = listApps({
+    ...(category ? { category } : {}),
+    ...(search ? { search } : {}),
+  });
+  sendJson(res, 200, { apps, total: apps.length });
+}
+
+function handleApiAppDetail(res: ServerResponse, id: string): void {
+  const app = getApp(id);
+  if (!app) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  sendJson(res, 200, { app });
+}
+
+function handleApiAppDelete(res: ServerResponse, id: string): void {
+  if (!deleteApp(id)) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleApiAppGenerate(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as {
+    description?: unknown;
+    category?: unknown;
+    agentId?: unknown;
+    model?: unknown;
+    sessionId?: unknown;
+    chatbotId?: unknown;
+  };
+  const description =
+    typeof body.description === 'string' ? body.description.trim() : '';
+  if (!description) {
+    throw new GatewayRequestError(
+      400,
+      'A non-empty `description` is required.',
+    );
+  }
+  const agentId =
+    (typeof body.agentId === 'string' && body.agentId.trim()) ||
+    resolveDefaultAgentId(getRuntimeConfig());
+  const generated = await generateApp({
+    description,
+    ...(typeof body.category === 'string' ? { category: body.category } : {}),
+    agentId,
+    ...(typeof body.model === 'string' && body.model.trim()
+      ? { model: body.model.trim() }
+      : {}),
+    ...(typeof body.chatbotId === 'string' && body.chatbotId.trim()
+      ? { chatbotId: body.chatbotId.trim() }
+      : {}),
+  });
+  const app = createApp({
+    title: generated.title,
+    html: generated.html,
+    category: generated.category,
+    description,
+    prompt: description,
+    agentId,
+    sessionId:
+      typeof body.sessionId === 'string' ? body.sessionId.trim() || null : null,
+  });
+  sendJson(res, 201, { app });
+}
+
+/**
+ * Persist self-contained HTML produced in a chat turn into the Apps gallery.
+ * Runs for every chat (not just the Apps builder): each HTML artifact file
+ * becomes a gallery entry keyed by (session, filename), updated in place as the
+ * conversation iterates. App-builder turns additionally capture HTML inlined in
+ * the assistant text and tag the entry with category / kind.
+ * Best-effort: never throws into the chat response path.
+ */
+async function maybeCaptureChatArtifacts(
+  chatRequest: GatewayChatRequest,
+  result: GatewayChatResult,
+): Promise<NonNullable<GatewayChatResult['apps']>> {
+  const captured: NonNullable<GatewayChatResult['apps']> = [];
+  if (result.status !== 'success') return captured;
+  const sessionId = result.sessionId || chatRequest.sessionId;
+  if (!sessionId) return captured;
+  const kind = chatRequest.appKind === 'live' ? 'live' : 'web';
+  const category = chatRequest.appBuild
+    ? (chatRequest.appCategory ?? null)
+    : null;
+  const agentId = result.agentId ?? chatRequest.agentId ?? null;
+  try {
+    for (const artifact of result.artifacts ?? []) {
+      if (!artifact.mimeType?.toLowerCase().includes('html')) continue;
+      if (!artifact.path) continue;
+      let html: string;
+      try {
+        const content = await fs.promises.readFile(artifact.path, 'utf8');
+        html = extractHtmlDocument(content) ?? content;
+      } catch {
+        continue;
+      }
+      const app = upsertAppArtifact({
+        sessionId,
+        sourceKey: artifact.filename || artifact.path,
+        title: deriveAppTitle(html, artifact.filename || ''),
+        html,
+        category,
+        kind,
+        agentId,
+      });
+      captured.push({ id: app.id, title: app.title, kind: app.kind });
+      logger.debug(
+        { sessionId, appId: app.id, title: app.title, kind },
+        'Captured HTML artifact into Apps gallery',
+      );
+    }
+    const workspaceDir =
+      captured.length === 0 && chatRequest.appBuild
+        ? agentWorkspaceDir(
+            agentId || resolveDefaultAgentId(getRuntimeConfig()),
+          )
+        : null;
+
+    const captureWorkspaceHtml = async (
+      ref: string,
+      filePath: string,
+    ): Promise<void> => {
+      let content: string;
+      try {
+        content = await fs.promises.readFile(filePath, 'utf8');
+      } catch {
+        return;
+      }
+      const html = extractHtmlDocument(content) ?? content;
+      if (!/<html|<!doctype html/i.test(html)) return;
+      const app = upsertAppArtifact({
+        sessionId,
+        sourceKey: ref,
+        title: deriveAppTitle(html, path.basename(ref)),
+        html,
+        category,
+        kind,
+        agentId,
+      });
+      captured.push({ id: app.id, title: app.title, kind: app.kind });
+      logger.debug(
+        { sessionId, appId: app.id, title: app.title, kind, ref },
+        'Captured workspace HTML file into Apps gallery',
+      );
+    };
+
+    // App-builder turns write the HTML to a file in the `apps/` folder (per the
+    // build instructions) and reference it in the reply (e.g.
+    // "apps/dashboard.html"). Resolve those *.html references inside the agent
+    // workspace and capture them.
+    if (workspaceDir) {
+      const seen = new Set<string>();
+      for (const match of (result.result ?? '').matchAll(
+        /([A-Za-z0-9_][A-Za-z0-9_./-]*\.html)\b/g,
+      )) {
+        const ref = match[1];
+        if (seen.has(ref)) continue;
+        seen.add(ref);
+        const filePath = resolveWorkspaceRelativePath(workspaceDir, ref);
+        if (filePath) await captureWorkspaceHtml(ref, filePath);
+      }
+    }
+    // Or the HTML may be inlined in the reply instead of a file.
+    if (captured.length === 0 && chatRequest.appBuild) {
+      const html = extractHtmlDocument(result.result ?? '');
+      if (!html) return captured;
+      const app = upsertAppArtifact({
+        sessionId,
+        sourceKey: 'inline',
+        title: deriveAppTitle(html, ''),
+        html,
+        category,
+        kind,
+        agentId,
+      });
+      captured.push({ id: app.id, title: app.title, kind: app.kind });
+      logger.debug(
+        { sessionId, appId: app.id, title: app.title, kind },
+        'Captured inline app build into Apps gallery',
+      );
+    }
+  } catch (err) {
+    logger.warn({ err, sessionId }, 'Failed to capture chat artifacts');
+  }
+  return captured;
+}
+
 async function handleApiAdminTerminal(
   req: IncomingMessage,
   res: ServerResponse,
@@ -7348,6 +7631,25 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         });
         return;
       }
+      {
+        // App viewer renders generated HTML inline in a (sandboxed) browser
+        // frame, so — like /api/artifact — it accepts query-token / cookie auth
+        // instead of requiring an Authorization header.
+        const appViewId = parseApiAppId(pathname, '/view');
+        if (appViewId !== null && method === 'GET') {
+          void handleApiAppView(req, res, url, appViewId).catch(
+            (err: unknown) => {
+              if (res.writableEnded) return;
+              const errorText =
+                err instanceof Error ? err.message : String(err);
+              const statusCode =
+                err instanceof GatewayRequestError ? err.statusCode : 500;
+              sendJson(res, statusCode, { error: errorText });
+            },
+          );
+          return;
+        }
+      }
       if (pathname === '/api/mcp/oauth/callback' && method === 'GET') {
         // Public by design: the OAuth provider redirects the user's browser
         // here without gateway credentials. The flow is bound to a
@@ -7425,6 +7727,29 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           if (pathname === '/api/admin/overview' && method === 'GET') {
             await handleApiAdminOverview(res);
             return;
+          }
+          if (pathname === '/api/apps' && method === 'GET') {
+            handleApiAppsList(res, url);
+            return;
+          }
+          if (pathname === '/api/apps/generate' && method === 'POST') {
+            await handleApiAppGenerate(req, res);
+            return;
+          }
+          {
+            const appId = parseApiAppId(pathname);
+            if (appId !== null) {
+              if (method === 'GET') {
+                handleApiAppDetail(res, appId);
+                return;
+              }
+              if (method === 'DELETE') {
+                handleApiAppDelete(res, appId);
+                return;
+              }
+              sendMethodNotAllowed(res);
+              return;
+            }
           }
           if (pathname === '/api/admin/secrets' && method === 'GET') {
             handleApiAdminSecrets(req, res);
