@@ -40,7 +40,11 @@ test('Zabbix skill manifest declares SecretRef credential metadata', () => {
       },
       scope: 'https://<zabbix-frontend>/api_jsonrpc.php Authorization bearer',
       howToObtain:
-        'Create a Zabbix API token in the Zabbix frontend and store it with\n' +
+        'Create a Zabbix API token in the Zabbix frontend. Set\n' +
+        '`ZABBIX_API_TOKEN` through browser admin at\n' +
+        '`/admin/secrets`; if browser admin is unavailable,\n' +
+        'use `/secret set ZABBIX_API_TOKEN "<token>"` in browser `/chat` or TUI;\n' +
+        'local console fallback:\n' +
         '`hybridclaw secret set ZABBIX_API_TOKEN "<token>"`.',
     },
   ]);
