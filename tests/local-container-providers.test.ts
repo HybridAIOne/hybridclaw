@@ -284,6 +284,101 @@ describe('local container providers', () => {
     expect(parts.some((p) => p.type === 'image_url')).toBe(true);
   });
 
+  test('vision browser model bounds history, text, images, and tools', async () => {
+    // Regression for a host crash: an unbounded vision request once reached the
+    // worker with 47 tools and a 91K-char prompt, and the resulting prefill
+    // overflow froze the machine. Every dimension must be capped.
+    const manyTools: ToolDefinition[] = Array.from({ length: 47 }, (_, i) => ({
+      type: 'function',
+      function: {
+        name: i === 0 ? 'bash' : `mcp__service__operation_${i}`,
+        description: `Perform operation ${i}.`,
+        parameters: {
+          type: 'object',
+          properties: { arg: { type: 'string' } },
+          required: [],
+        },
+      },
+    }));
+    const hugeText = 'x'.repeat(30_000);
+    const imagePart = (n: number) => ({
+      type: 'image_url' as const,
+      image_url: { url: `https://example.com/img${n}.jpg` },
+    });
+    const longHistory: ChatMessage[] = [
+      { role: 'system', content: 'You are HybridClaw.' },
+      ...Array.from({ length: 10 }, (_, i): ChatMessage => ({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content:
+          i % 3 === 0
+            ? [imagePart(i), { type: 'text' as const, text: hugeText }]
+            : hugeText,
+      })),
+    ];
+    let body: {
+      tools?: unknown[];
+      messages: Array<{ role: string; content: unknown }>;
+    } = { messages: [] };
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body || '{}'));
+      return new Response(
+        JSON.stringify({
+          id: 'r',
+          model: 'm',
+          choices: [
+            { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await callLocalOpenAICompatProvider({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/onnx-community/LFM2.5-VL-450M-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: longHistory,
+      tools: manyTools,
+      maxTokens: 64,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    // Small VL model gets the short tool list.
+    expect((body.tools || []).length).toBeLessThanOrEqual(16);
+    // Total text stays within the browser prompt budget.
+    const totalText = body.messages.reduce((sum, message) => {
+      if (typeof message.content === 'string') return sum + message.content.length;
+      if (!Array.isArray(message.content)) return sum;
+      return (
+        sum +
+        (message.content as Array<{ type: string; text?: string }>)
+          .filter((part) => part.type === 'text')
+          .reduce((s, part) => s + (part.text || '').length, 0)
+      );
+    }, 0);
+    expect(totalText).toBeLessThanOrEqual(12_100);
+    // History capped, images capped to the newest two, and they still survive.
+    expect(body.messages.length).toBeLessThanOrEqual(7);
+    const imageCount = body.messages.reduce(
+      (sum, message) =>
+        sum +
+        (Array.isArray(message.content)
+          ? (message.content as Array<{ type: string }>).filter(
+              (part) => part.type === 'image_url',
+            ).length
+          : 0),
+      0,
+    );
+    expect(imageCount).toBeGreaterThanOrEqual(1);
+    expect(imageCount).toBeLessThanOrEqual(2);
+  });
+
   test('tight-budget model bounds the TOTAL prompt as tool results accumulate', async () => {
     // Regression: after a successful tool call, the follow-up turn carries the
     // whole conversation + a large tool result. The total content must stay

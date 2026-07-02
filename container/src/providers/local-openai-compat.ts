@@ -426,15 +426,14 @@ function browserModelContentBudgetChars(model: string): number {
     : BROWSER_MODEL_TOTAL_PROMPT_CHARS;
 }
 
-// Small Liquid/LFM text models (≤~1.2B) reliably use tool calls, but only with
-// a short tool list — Liquid's own guidance is to include just the relevant
-// tools. Given a long noisy list (dozens of tools) a 350M hallucinates a
-// non-existent tool name (e.g. "browser_watch"). They also need the call-shape
-// example in the tool description to produce argument values (see
-// compactBrowserTool).
+// Small Liquid/LFM models (≤~1.2B, including the vision variants) reliably use
+// tool calls, but only with a short tool list — Liquid's own guidance is to
+// include just the relevant tools. Given a long noisy list (dozens of tools) a
+// 350M hallucinates a non-existent tool name (e.g. "browser_watch"). They also
+// need the call-shape example in the tool description to produce argument
+// values (see compactBrowserTool).
 function isSmallLiquidBrowserModel(model: string): boolean {
   const lower = model.toLowerCase();
-  if (isVisionBrowserModel(lower)) return false;
   if (!(lower.includes('lfm') || lower.includes('liquid'))) return false;
   return /(^|[^0-9])(230m|350m|450m|700m|1\.2b)([^0-9]|$)/.test(lower);
 }
@@ -473,6 +472,74 @@ function normalizeBrowserToolCalls(
       },
     }))
     .filter((toolCall) => toolCall.function.name);
+}
+
+// Newest images win; each one expands into hundreds of prompt tokens.
+const BROWSER_MODEL_IMAGE_LIMIT = 2;
+
+// Bounded message builder for vision models: same history/char caps as the
+// text path, but image parts are preserved (up to the image limit) instead of
+// being flattened away.
+function buildVisionBrowserMessages(
+  messages: ChatMessage[],
+): Array<Record<string, unknown>> {
+  const collapsed = collapseSystemMessages(messages);
+  const system = collapsed[0]?.role === 'system' ? collapsed[0] : null;
+  const rest = system ? collapsed.slice(1) : collapsed;
+  const selected: Array<Record<string, unknown>> = [];
+  let remainingChars = BROWSER_MODEL_TOTAL_PROMPT_CHARS;
+  let imagesKept = 0;
+
+  for (
+    let index = rest.length - 1;
+    index >= 0 && selected.length < BROWSER_MODEL_HISTORY_LIMIT;
+    index -= 1
+  ) {
+    const message = rest[index];
+    if (!message || remainingChars <= 0) break;
+    const normalized = normalizeMessageContent(message.content);
+    let content: ChatMessage['content'];
+    if (Array.isArray(normalized)) {
+      const parts: typeof normalized = [];
+      for (const part of normalized) {
+        if (part.type === 'text') {
+          const maxChars = Math.max(
+            0,
+            Math.min(BROWSER_MODEL_MESSAGE_CHARS, remainingChars),
+          );
+          const text = truncateBrowserPromptText(part.text, maxChars);
+          remainingChars -= text.length;
+          parts.push({ ...part, text });
+        } else if (part.type === 'image_url') {
+          if (imagesKept < BROWSER_MODEL_IMAGE_LIMIT) {
+            imagesKept += 1;
+            parts.push(part);
+          }
+        } else {
+          parts.push(part);
+        }
+      }
+      content = parts;
+    } else {
+      const text = contentToText(message.content).trim();
+      const maxChars = Math.max(
+        0,
+        Math.min(BROWSER_MODEL_MESSAGE_CHARS, remainingChars),
+      );
+      const truncated = truncateBrowserPromptText(text, maxChars);
+      remainingChars -= truncated.length;
+      content = truncated;
+    }
+    selected.push({ ...message, content });
+  }
+
+  selected.reverse();
+  return system
+    ? [
+        { ...system, content: normalizeMessageContent(system.content) },
+        ...selected,
+      ]
+    : selected;
 }
 
 function buildBrowserRequestMessages(
@@ -640,15 +707,19 @@ function buildBrowserRequest(args: NormalizedCallArgs): {
   tools: ToolDefinition[];
   messages: Array<Record<string, unknown>>;
 } {
-  // Vision-language models take image content parts, which must pass through
-  // untouched (flattening to text would drop the images).
+  // Vision-language models take image content parts, which must survive (never
+  // flatten to text) — but the request still needs bounds: an unbounded
+  // history once produced a 91K-char prompt that overflowed the runtime and
+  // took the host machine down. Same caps as text models, applied around the
+  // image parts.
   if (isVisionBrowserModel(args.model)) {
     return {
-      tools: buildBrowserRequestTools(args.tools),
-      messages: collapseSystemMessages(args.messages).map((message) => ({
-        ...message,
-        content: normalizeMessageContent(message.content),
-      })),
+      tools: buildBrowserRequestTools(
+        args.tools,
+        browserModelToolLimit(args.model),
+        isSmallLiquidBrowserModel(args.model),
+      ),
+      messages: buildVisionBrowserMessages(args.messages),
     };
   }
   const tools = buildBrowserRequestTools(

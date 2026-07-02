@@ -965,38 +965,46 @@ async function generate(id, request) {
         maxNewTokens: request.max_tokens || CONFIG.maxNewTokens,
         environment: workerEnvironment(),
       });
+    }
 
-      // Reject prompts that would overflow the runtime BEFORE running the model.
-      // The text-generation pipeline computes prefill logits for the whole
-      // sequence ([seq, vocab] float32), whose int32 byte count must stay under
-      // 2^31. Large vocabularies (e.g. Gemma's ~262K) cap the usable prompt far
-      // below the model's context window, and crossing it loses the WebGPU
-      // device — which a page reload can't recover from in time. Failing here
-      // keeps the session healthy for later (shorter) requests. Measured on
-      // gemma-4-E2B (vocab 262144): 1740 prompt tokens succeed but 2001 fail, so
-      // the 0.85 factor caps the limit (~1740) at the highest confirmed-good
-      // length. Multimodal generators are exempt: they call model.generate()
-      // directly, which keeps only the last-token logits.
-      const vocabSize = multimodal ? 0 : resolveVocabSize(generator);
-      if (Number.isFinite(vocabSize) && vocabSize > 0) {
-        let promptTokens = 0;
-        try {
+    // Reject prompts that would overflow the runtime BEFORE running the model —
+    // on EVERY path. Prefill computes logits for the whole sequence
+    // ([seq, vocab] float32), whose int32 byte count must stay under 2^31.
+    // Large vocabularies cap the usable prompt far below the model's context
+    // window, and crossing the limit does not fail cleanly: the runtime
+    // attempts a multi-gigabyte GPU allocation that can lose the WebGPU device
+    // or freeze the whole machine on unified-memory systems (observed live: a
+    // 23K-token prompt on LFM2.5-VL-450M crashed the host). Multimodal
+    // generators are NOT exempt — lfm2_vl's decoder also computes full prefill
+    // logits. Measured on gemma-4-E2B (vocab 262144): 1740 prompt tokens
+    // succeed but 2001 fail, so the 0.85 factor caps the limit at the highest
+    // confirmed-good length.
+    const vocabSize = resolveVocabSize(generator);
+    if (Number.isFinite(vocabSize) && vocabSize > 0) {
+      let promptTokens = 0;
+      try {
+        if (multimodalInputs && multimodalInputs.input_ids
+            && multimodalInputs.input_ids.dims) {
+          // Image turns: input_ids already include the expanded image tokens.
+          const dims = multimodalInputs.input_ids.dims;
+          promptTokens = Number(dims[dims.length - 1]) || 0;
+        } else {
           const encoded = generator.tokenizer.encode(promptText);
           promptTokens = Array.isArray(encoded) ? encoded.length : 0;
-        } catch (error) {
-          log('Prompt token count failed', errorToData(error));
         }
-        const safeMaxTokens = Math.floor(((2 ** 31 - 1) / (vocabSize * 4)) * 0.85);
-        log('Prompt length check', { promptTokens, vocabSize, safeMaxTokens });
-        if (promptTokens > safeMaxTokens) {
-          throw new Error(
-            'Prompt is too long for ' + CONFIG.model + ': ' + promptTokens +
-              " tokens exceeds this model's safe in-browser limit of ~" +
-              safeMaxTokens + ' tokens (its ' + vocabSize +
-              '-token vocabulary overflows the runtime at longer sequences). ' +
-              'Reduce the prompt, or the number/size of tools.',
-          );
-        }
+      } catch (error) {
+        log('Prompt token count failed', errorToData(error));
+      }
+      const safeMaxTokens = Math.floor(((2 ** 31 - 1) / (vocabSize * 4)) * 0.85);
+      log('Prompt length check', { promptTokens, vocabSize, safeMaxTokens });
+      if (promptTokens > safeMaxTokens) {
+        throw new Error(
+          'Prompt is too long for ' + CONFIG.model + ': ' + promptTokens +
+            " tokens exceeds this model's safe in-browser limit of ~" +
+            safeMaxTokens + ' tokens (its ' + vocabSize +
+            '-token vocabulary overflows the runtime at longer sequences). ' +
+            'Reduce the prompt, or the number/size of tools.',
+        );
       }
     }
 
