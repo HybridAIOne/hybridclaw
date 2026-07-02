@@ -13,7 +13,7 @@ credentials:
       source: store
       id: FASTBILL_BASIC_AUTH
     scope: "https://my.fastbill.com/api/1.0/"
-    how_to_obtain: "Base64-encode the FastBill login email and API key as email:api-key, then store it with `hybridclaw secret set FASTBILL_BASIC_AUTH \"<base64>\"`."
+    how_to_obtain: "Base64-encode the FastBill login email and API key as email:api-key. Set `FASTBILL_BASIC_AUTH` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set FASTBILL_BASIC_AUTH \"<base64>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set FASTBILL_BASIC_AUTH \"<base64>\"`."
 metadata:
   hybridclaw:
     category: accounting

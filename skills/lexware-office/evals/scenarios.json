@@ -61,6 +61,37 @@
     }
   },
   {
+    "id": "quotation-read-open",
+    "category": "quotation_read",
+    "prompt": "Show the open quotations in Lexware Office.",
+    "expected": {
+      "operation": "list-quotations",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "quotation-create-draft",
+    "category": "quotation_write",
+    "prompt": "Create a draft quotation for Acme GmbH.",
+    "expected": {
+      "operation": "create-quotation",
+      "requiresEscalation": true,
+      "requiredGrant": "approve-lexware-office-create-quotation",
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "quotation-file",
+    "category": "quotation_read",
+    "prompt": "Download the quotation PDF from Lexware Office.",
+    "expected": {
+      "operation": "download-quotation-file",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
     "id": "customer-list",
     "category": "customer_read",
     "prompt": "Find the Lexware customer record for Acme.",

@@ -3,6 +3,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { describe, expect, it, vi } from 'vitest';
+import type {
+  InstructionIntegrityResult,
+  InstructionSyncResult,
+} from '../src/security/instruction-integrity.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const ORIGINAL_HYBRIDCLAW_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR;
@@ -1200,6 +1204,27 @@ async function importFreshCli(options?: {
   const runTui = vi.fn(async () => {
     tuiModuleLoaded();
   });
+  const summarizeInstructionIntegrity = vi.fn(() => 'ok');
+  const defaultInstructionSyncResult: InstructionSyncResult = {
+    syncedAt: '2026-07-02T00:00:00.000Z',
+    runtimeRoot: '/tmp/.hybridclaw/instructions',
+    files: {
+      'SECURITY.md': 'security-hash',
+      'TRUST_MODEL.md': 'trust-model-hash',
+    },
+  };
+  const defaultInstructionIntegrityResult: InstructionIntegrityResult = {
+    ok: true,
+    installRoot: '/repo',
+    runtimeRoot: '/tmp/.hybridclaw/instructions',
+    files: [],
+  };
+  const syncRuntimeInstructionCopies = vi.fn(
+    () => defaultInstructionSyncResult,
+  );
+  const verifyInstructionIntegrity = vi.fn(
+    () => defaultInstructionIntegrityResult,
+  );
   const readlineQuestion = vi.fn(async () => promptResponses.shift() ?? '');
   const readlineClose = vi.fn();
   const readlineCreateInterface = vi.fn(() => ({
@@ -1364,9 +1389,9 @@ async function importFreshCli(options?: {
     completeInstructionApprovalAudit: vi.fn(),
   }));
   vi.doMock('../src/security/instruction-integrity.ts', () => ({
-    summarizeInstructionIntegrity: vi.fn(() => 'ok'),
-    syncRuntimeInstructionCopies: vi.fn(),
-    verifyInstructionIntegrity: vi.fn(() => ({ ok: true })),
+    summarizeInstructionIntegrity,
+    syncRuntimeInstructionCopies,
+    verifyInstructionIntegrity,
   }));
   vi.doMock('../src/security/runtime-secrets.ts', () => ({
     loadRuntimeSecrets: vi.fn(),
@@ -1513,6 +1538,9 @@ async function importFreshCli(options?: {
     setLoggerStartupLevel,
     logger,
     gatewayModuleLoaded,
+    summarizeInstructionIntegrity,
+    syncRuntimeInstructionCopies,
+    verifyInstructionIntegrity,
     loadSkillCatalog,
     initDatabase,
     isDatabaseInitialized,
@@ -5252,6 +5280,53 @@ describe('CLI hybridai commands', () => {
       }),
     );
     expect(tuiModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('explains why tui instruction restore is requested', async () => {
+    const {
+      cli,
+      readlineQuestion,
+      runTui,
+      syncRuntimeInstructionCopies,
+      verifyInstructionIntegrity,
+    } = await importFreshCli({
+      gatewayReachable: true,
+      promptResponses: ['yes'],
+      sandboxMode: 'host',
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    verifyInstructionIntegrity.mockReturnValue({
+      ok: false,
+      installRoot: '/repo',
+      runtimeRoot: '/tmp/.hybridclaw/instructions',
+      files: [
+        {
+          path: 'SECURITY.md',
+          sourcePath: '/repo/SECURITY.md',
+          runtimePath: '/tmp/.hybridclaw/instructions/SECURITY.md',
+          expectedHash: 'expected-hash',
+          actualHash: 'actual-hash',
+          status: 'modified',
+        },
+      ],
+    });
+
+    await cli.main(['tui']);
+
+    expect(readlineQuestion).toHaveBeenCalledTimes(1);
+    const prompt = String(readlineQuestion.mock.calls[0]?.[0] || '');
+    expect(prompt).toContain(
+      'HybridClaw paused TUI startup because its runtime instruction files do not match the installed defaults.',
+    );
+    expect(prompt).toContain('Runtime copies: /tmp/.hybridclaw/instructions');
+    expect(prompt).toContain('Installed defaults: /repo');
+    expect(prompt).toContain(
+      'Choosing yes overwrites the runtime copies with the installed defaults. Choosing no leaves them unchanged and exits.',
+    );
+    expect(prompt).toContain('Restore the runtime instruction files now? [y/N]');
+    expect(syncRuntimeInstructionCopies).toHaveBeenCalledTimes(1);
+    expect(runTui).toHaveBeenCalledTimes(1);
   });
 
   it('uses the reachable gateway sandbox mode for tui preflight', async () => {

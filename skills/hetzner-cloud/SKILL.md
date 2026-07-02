@@ -13,7 +13,7 @@ credentials:
       source: store
       id: HETZNER_API_TOKEN
     scope: "api.hetzner.cloud/v1"
-    how_to_obtain: "Create a Hetzner Console API token for the target project with read-only scope for inventory work or read-write scope only when provisioning, snapshotting, restoring, or deleting resources."
+    how_to_obtain: "Create a Hetzner Console API token for the target project with read-only scope for inventory work or read-write scope only when provisioning, snapshotting, restoring, or deleting resources. Set `HETZNER_API_TOKEN` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set HETZNER_API_TOKEN \"<hetzner-console-api-token>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set HETZNER_API_TOKEN \"<hetzner-console-api-token>\"`."
 metadata:
   hybridclaw:
     category: infrastructure

@@ -70,7 +70,11 @@ response and stores it as `SF_ACCESS_TOKEN`; it also captures
 or the agent context. Subsequent API calls reference it via `bearerSecretName`,
 so the gateway injects the bearer token server-side.
 
-Ask the user to set them once from a local HybridClaw session:
+Ask the user to set them once in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set the
+   `SF_*` secrets.
+2. Browser `/chat` or TUI fallback:
 
 ```text
 /secret set SF_FULL_USERNAME you@example.com
@@ -80,7 +84,7 @@ Ask the user to set them once from a local HybridClaw session:
 /secret set SF_DOMAIN login
 ```
 
-Shell-side equivalent:
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set SF_FULL_USERNAME you@example.com

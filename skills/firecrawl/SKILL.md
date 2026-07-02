@@ -13,7 +13,7 @@ credentials:
       source: store
       id: FIRECRAWL_API_KEY
     scope: "api.firecrawl.dev"
-    how_to_obtain: "Create a managed Firecrawl API key in the Firecrawl dashboard."
+    how_to_obtain: "Create a managed Firecrawl API key in the Firecrawl dashboard. Set `FIRECRAWL_API_KEY` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set FIRECRAWL_API_KEY \"<fc-api-key>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set FIRECRAWL_API_KEY \"<fc-api-key>\"`."
   - id: firecrawl-self-host-api-key
     kind: api_key
     required: false
@@ -21,7 +21,7 @@ credentials:
       source: store
       id: FIRECRAWL_SELF_HOST_API_KEY
     scope: "self-hosted Firecrawl"
-    how_to_obtain: "Set this only when your self-hosted Firecrawl instance has API authentication enabled."
+    how_to_obtain: "Set this only when your self-hosted Firecrawl instance has API authentication enabled. Set `FIRECRAWL_SELF_HOST_API_KEY` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set FIRECRAWL_SELF_HOST_API_KEY \"<self-host-api-key>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set FIRECRAWL_SELF_HOST_API_KEY \"<self-host-api-key>\"`."
 metadata:
   hybridclaw:
     category: research
@@ -62,7 +62,13 @@ bypass access controls.
 
 ## Credential Rules
 
-For managed mode, store the Firecrawl API key in HybridClaw encrypted runtime secrets:
+For managed mode, set or update the Firecrawl API key in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `FIRECRAWL_API_KEY`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set FIRECRAWL_API_KEY "<fc-api-key>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set FIRECRAWL_API_KEY "<fc-api-key>"
@@ -77,7 +83,13 @@ export FIRECRAWL_SELF_HOST_BASE_URL="http://firecrawl:3002"
 
 The helper accepts base URLs with or without `/v2` and normalizes them to the
 v2 API path. If your self-hosted Firecrawl deployment enables API
-authentication, store that token separately:
+authentication, set that token separately in the same order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `FIRECRAWL_SELF_HOST_API_KEY`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set FIRECRAWL_SELF_HOST_API_KEY "<self-host-api-key>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set FIRECRAWL_SELF_HOST_API_KEY "<self-host-api-key>"

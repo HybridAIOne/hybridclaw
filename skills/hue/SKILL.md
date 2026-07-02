@@ -19,7 +19,7 @@ credentials:
       source: store
       id: HUE_APPLICATION_KEY
     scope: "Philips Hue CLIP v2 hue-application-key header"
-    how_to_obtain: "Press the bridge link button, build the link request with `node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab`, send its `httpRequest` through the gateway, then store the returned Hue credential secret in chat with `/secret set HUE_APPLICATION_KEY \"<application-key>\"`."
+    how_to_obtain: "Press the bridge link button, build the link request with `node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab`, and send its `httpRequest` through the gateway. Set the returned `HUE_APPLICATION_KEY` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set HUE_APPLICATION_KEY \"<application-key>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set HUE_APPLICATION_KEY \"<application-key>\"`."
   - id: hue-remote-refresh-token
     kind: bearer
     required: false
@@ -27,7 +27,7 @@ credentials:
       source: store
       id: HUE_REMOTE_REFRESH_TOKEN
     scope: "Hue Remote API OAuth token used for off-LAN API calls"
-    how_to_obtain: "Create a Hue developer app, complete the Hue Remote API OAuth flow, and store the refresh/access token in chat with `/secret set HUE_REMOTE_REFRESH_TOKEN \"<token>\"`."
+    how_to_obtain: "Create a Hue developer app and complete the Hue Remote API OAuth flow. Set `HUE_REMOTE_REFRESH_TOKEN` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set HUE_REMOTE_REFRESH_TOKEN \"<token>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set HUE_REMOTE_REFRESH_TOKEN \"<token>\"`."
   - id: hue-remote-access-token
     kind: bearer
     required: false
@@ -284,7 +284,11 @@ Managed LAN HTTP access covers local RFC1918 bridge reads according to the
 workspace policy setting. The helper does not create or modify that setting.
 
 For the Hue Remote API, create a developer app, complete the OAuth flow, then
-store the resulting values:
+set the resulting values in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set the
+   `HUE_REMOTE_*` secrets.
+2. Browser `/chat` or TUI fallback:
 
 ```text
 /secret set HUE_REMOTE_CLIENT_ID "<oauth-client-id>"
@@ -294,7 +298,7 @@ node skills/hue/hue.cjs --format json remote oauth-token
 /secret set HUE_REMOTE_BRIDGE_ID "<bridge-id>"
 ```
 
-Or from a local terminal:
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set HUE_REMOTE_CLIENT_ID "<oauth-client-id>"

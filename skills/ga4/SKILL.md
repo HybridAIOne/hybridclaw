@@ -102,6 +102,14 @@ PEM `private_key` as encrypted runtime secrets. The gateway reads those named
 secrets, signs the JWT assertion server-side, exchanges it for a short-lived
 Google access token, and injects that token into the GA4 request.
 
+Set or update those secrets in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set GA4_SERVICE_ACCOUNT_EMAIL "<client-email>"` and
+   `/secret set GA4_SERVICE_ACCOUNT_PRIVATE_KEY "<pem-private-key>"`.
+3. Local console fallback:
+
 ```bash
 hybridclaw secret set GA4_SERVICE_ACCOUNT_EMAIL "<client-email>"
 hybridclaw secret set GA4_SERVICE_ACCOUNT_PRIVATE_KEY '<pem-private-key>'
@@ -111,7 +119,9 @@ Do not paste OAuth access tokens, refresh tokens, service-account private keys,
 or downloaded JSON key files into the prompt. Real credentials stay in the
 HybridClaw secret runtime and are used server-side by the gateway.
 
-Optional stored defaults:
+Optional stored defaults use the same setup order: browser admin at
+`/admin/secrets`, then `/secret set` in browser `/chat` or
+TUI, then local console fallback.
 
 ```bash
 hybridclaw secret set GA4_PROPERTY_ID "<numeric-property-id>"

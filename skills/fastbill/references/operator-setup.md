@@ -20,7 +20,12 @@ FastBill classic API authentication uses HTTP Basic auth with the account email
 address as the username and the account API key as the password. API access is
 stateless, so the credentials are submitted for every request.
 
-Store the Basic credential as a HybridClaw runtime secret:
+Set the Basic credential as a HybridClaw runtime secret in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set FASTBILL_BASIC_AUTH <base64-output>`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set FASTBILL_EMAIL you@example.com
@@ -36,7 +41,9 @@ auth requires `base64(email:api-key)` as one header value. Keeping
 credential pair without exposing either value to the model.
 
 Do not paste the API key into the model context. If a user provides it in chat,
-ask them to rotate the key and store the replacement through `/secret set`.
+ask them to rotate the key and store the replacement through browser admin at
+`/admin/secrets`, falling back to `/secret set` in browser
+`/chat` or TUI only if the admin page is unavailable.
 
 ## Gateway Proxy Authentication
 

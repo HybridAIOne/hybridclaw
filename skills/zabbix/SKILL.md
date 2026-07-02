@@ -14,7 +14,11 @@ credentials:
       id: ZABBIX_API_TOKEN
     scope: "https://<zabbix-frontend>/api_jsonrpc.php Authorization bearer"
     how_to_obtain: |
-      Create a Zabbix API token in the Zabbix frontend and store it with
+      Create a Zabbix API token in the Zabbix frontend. Set
+      `ZABBIX_API_TOKEN` through browser admin at
+      `/admin/secrets`; if browser admin is unavailable,
+      use `/secret set ZABBIX_API_TOKEN "<token>"` in browser `/chat` or TUI;
+      local console fallback:
       `hybridclaw secret set ZABBIX_API_TOKEN "<token>"`.
 metadata:
   hybridclaw:
@@ -66,7 +70,13 @@ and include the Zabbix event id and action in the approval text.
 
 ## Credential Rules
 
-Store the API token in HybridClaw encrypted runtime secrets:
+Set or update the API token in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `ZABBIX_API_TOKEN`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set ZABBIX_API_TOKEN "<zabbix-api-token>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set ZABBIX_API_TOKEN "<zabbix-api-token>"

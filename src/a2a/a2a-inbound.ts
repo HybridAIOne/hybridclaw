@@ -36,9 +36,10 @@ import { getA2AEnvelope } from './store.js';
 import {
   type A2AAgentCardTrustLevel,
   type A2ATrustedA2APeer,
-  getA2ATrustedA2APeerByPublicKeyPem,
-  getA2ATrustedA2APeerBySender,
+  getSharedTrustedA2AJsonRpcPeerByPublicKeyPem,
+  getSharedTrustedA2AJsonRpcPeerBySender,
   listA2ATrustedA2APeers,
+  type SharedTrustedA2AJsonRpcPeer,
   type UpsertA2ATrustedA2APeerInput,
   upsertA2ATrustedA2APeer,
 } from './trust-ledger.js';
@@ -62,7 +63,7 @@ export type A2AJsonRpcInboundDownstreamDisposition =
 export type A2AAgentCardPeerTrustLevel = A2AAgentCardTrustLevel;
 type A2AInboundAuthMode = 'signed_bearer' | 'peer_public_key';
 type A2AAuthenticatedPeer = {
-  peer: A2ATrustedA2APeer;
+  peer: SharedTrustedA2AJsonRpcPeer;
   authMode: A2AInboundAuthMode;
 };
 type A2AInboundHandler = (params: {
@@ -235,7 +236,7 @@ function peerInstanceIdFromEnvelope(
   return parts.length === 3 && parts[2] ? parts[2] : null;
 }
 
-function peerInstanceId(peer: A2ATrustedA2APeer): string {
+function peerInstanceId(peer: SharedTrustedA2AJsonRpcPeer): string {
   return parseAgentIdentity(peer.senderAgentId).instanceId;
 }
 
@@ -257,7 +258,7 @@ function parseCanonicalEnvelopeAgentId(
 
 function assertEnvelopeSenderMatchesPeer(
   envelope: A2AEnvelope,
-  peer: A2ATrustedA2APeer,
+  peer: SharedTrustedA2AJsonRpcPeer,
 ): void {
   if (envelope.sender_agent_id !== peer.senderAgentId) {
     throw new A2AEnvelopeValidationError([
@@ -359,9 +360,11 @@ function jsonRpcErrorMessage(error: unknown): string {
 
 function resolveTrustedPeerForToken(params: {
   token: string;
-}): A2ATrustedA2APeer {
+}): SharedTrustedA2AJsonRpcPeer {
   const unverifiedClaims = decodeA2ADelegationTokenClaims(params.token);
-  const peer = getA2ATrustedA2APeerBySender(unverifiedClaims.sender_agent_id);
+  const peer = getSharedTrustedA2AJsonRpcPeerBySender(
+    unverifiedClaims.sender_agent_id,
+  );
   if (!peer) {
     throw new A2AMissingTrustedPeerError();
   }
@@ -370,10 +373,10 @@ function resolveTrustedPeerForToken(params: {
 
 function resolveTrustedPeerForMtlsPublicKey(
   mtlsPublicKeyPem: string,
-): A2ATrustedA2APeer | null {
+): SharedTrustedA2AJsonRpcPeer | null {
   // Agent Card reads may not include a sender agent id, so trust is resolved
   // from the presented certificate key alone.
-  return getA2ATrustedA2APeerByPublicKeyPem(mtlsPublicKeyPem);
+  return getSharedTrustedA2AJsonRpcPeerByPublicKeyPem(mtlsPublicKeyPem);
 }
 
 function verifySignedRequest(params: {
@@ -382,11 +385,11 @@ function verifySignedRequest(params: {
   method?: 'message/send' | 'tasks/send';
   audience: string;
   now?: Date;
-  peer: A2ATrustedA2APeer;
+  peer: SharedTrustedA2AJsonRpcPeer;
 }): void {
   verifyA2ADelegationToken({
     token: params.token,
-    publicKeyPem: params.peer.publicKeyPem,
+    publicKeyPem: params.peer.a2a.publicKeyPem,
     audience: params.audience,
     requiredScope:
       params.method === 'tasks/send'
@@ -414,7 +417,7 @@ function resolveAuthenticatedPeer(params: {
   method?: 'message/send' | 'tasks/send';
   // Test-only clock hook for direct unit tests; HTTP handlers always use wall time.
   now?: Date;
-  onPeerResolved?: (peer: A2ATrustedA2APeer) => void;
+  onPeerResolved?: (peer: SharedTrustedA2AJsonRpcPeer) => void;
 }): A2AAuthenticatedPeer {
   const authorization = String(params.rawAuthorization || '').trim();
   if (authorization) {
@@ -432,14 +435,16 @@ function resolveAuthenticatedPeer(params: {
     return { peer, authMode: 'signed_bearer' };
   }
   if (params.mtlsPublicKeyPem) {
-    const peer = getA2ATrustedA2APeerBySender(params.envelope.sender_agent_id);
+    const peer = getSharedTrustedA2AJsonRpcPeerBySender(
+      params.envelope.sender_agent_id,
+    );
     if (!peer) {
       throw new A2AMissingTrustedPeerError(
         'No trusted A2A peer for mTLS sender',
       );
     }
     params.onPeerResolved?.(peer);
-    if (!publicKeysMatch(params.mtlsPublicKeyPem, peer.publicKeyPem)) {
+    if (!publicKeysMatch(params.mtlsPublicKeyPem, peer.a2a.publicKeyPem)) {
       throw new A2ADelegationTokenError(
         'mTLS certificate public key does not match trusted A2A peer',
       );
@@ -495,7 +500,7 @@ export function acceptA2AHttpEnvelopeInboundRequest(params: {
 }): A2AInboundResult {
   const runId = makeAuditRunId('a2a-http-inbound');
   let envelope: A2AEnvelope | null = null;
-  let peer: A2ATrustedA2APeer | null = null;
+  let peer: SharedTrustedA2AJsonRpcPeer | null = null;
   let authMode: A2AInboundAuthMode | null = null;
 
   try {
@@ -645,7 +650,7 @@ export function acceptA2AJsonRpcInboundRequest(params: {
 }): A2AInboundResult {
   const runId = makeAuditRunId('a2a-inbound');
   let envelope: A2AEnvelope | null = null;
-  let peer: A2ATrustedA2APeer | null = null;
+  let peer: SharedTrustedA2AJsonRpcPeer | null = null;
   let method: 'message/send' | 'tasks/send' | null = null;
   let requestId: JsonRpcId = null;
   let authMode: A2AInboundAuthMode | null = null;
@@ -775,7 +780,7 @@ export function resolveA2AAgentCardPeerTrust(params: {
       const peer = resolveTrustedPeerForToken({ token });
       verifyA2ADelegationToken({
         token,
-        publicKeyPem: peer.publicKeyPem,
+        publicKeyPem: peer.a2a.publicKeyPem,
         audience: params.audience,
         requiredScope: A2A_AGENT_CARD_READ_SCOPE,
         now: params.now,

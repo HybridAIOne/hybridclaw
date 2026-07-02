@@ -113,7 +113,10 @@ the `http_request` tool with `bearerSecretName: "GH_TOKEN"`. The gateway resolve
 `GH_TOKEN` from the encrypted secret store; do not ask the shell for `GH_TOKEN`,
 do not echo tokens, and do not use `curl` for authenticated GitHub API calls. If
 neither `gh` auth nor stored secret `GH_TOKEN` works, ask the user to run
-`gh auth login` or store a GitHub token with `/secret set GH_TOKEN <token>`.
+`gh auth login` or store a GitHub token in this order: browser admin at
+`/admin/secrets`, `/secret set GH_TOKEN <token>` in
+browser `/chat` or TUI, then local console fallback
+`hybridclaw secret set GH_TOKEN <token>`.
 
 When not in `--reviews-only`, fetch issues with a current-turn GitHub data call.
 Primary `gh` path:

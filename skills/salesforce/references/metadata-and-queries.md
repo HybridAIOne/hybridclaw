@@ -18,6 +18,10 @@ The helper defaults to these store-backed secret refs:
 
 Primary setup flow:
 
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set the
+   `SF_*` secrets.
+2. Browser `/chat` or TUI fallback:
+
 ```text
 /secret set SF_FULL_USERNAME you@example.com
 /secret set SF_FULL_PASSWORD <password-plus-token>
@@ -26,7 +30,7 @@ Primary setup flow:
 /secret set SF_DOMAIN login
 ```
 
-Shell-side equivalent:
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set SF_FULL_USERNAME you@example.com

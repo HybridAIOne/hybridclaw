@@ -1,6 +1,6 @@
 ---
 name: lexware-office
-description: "Work with Lexware Office contacts, products, invoices, bookkeeping vouchers, receipts, payment status, and guarded invoice or expense writes through the Public API."
+description: "Work with Lexware Office contacts, products, invoices, quotations, bookkeeping vouchers, receipts, payment status, and guarded invoice, quotation, or expense writes through the Public API."
 user-invocable: true
 requires:
   bins:
@@ -13,14 +13,15 @@ credentials:
       source: store
       id: LEXWARE_OFFICE_API_KEY
     scope: "https://api.lexware.io/"
-    how_to_obtain: "Create a Lexware Office Public API key at https://app.lexware.de/addons/public-api, then store it with `hybridclaw secret set LEXWARE_OFFICE_API_KEY \"<api-key>\"`."
+    how_to_obtain: "Create a Lexware Office Public API key at https://app.lexware.de/addons/public-api. Set `LEXWARE_OFFICE_API_KEY` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set LEXWARE_OFFICE_API_KEY \"<api-key>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set LEXWARE_OFFICE_API_KEY \"<api-key>\"`."
 metadata:
   hybridclaw:
     category: accounting
-    short_description: "Lexware Office invoices, contacts, vouchers, receipts, and payment status."
+    short_description: "Lexware Office invoices, quotations, contacts, vouchers, receipts, and payment status."
     tags:
       - accounting
       - invoices
+      - quotations
       - lexware
       - lexoffice
       - receipts
@@ -34,12 +35,14 @@ metadata:
         - contact-read
         - product-read
         - invoice-read
+        - quotation-read
         - voucher-read
         - payment-read
         - reporting-plan
       amber:
         - contact-create
         - invoice-create
+        - quotation-create
         - expense-log
         - voucher-update
         - receipt-upload
@@ -57,8 +60,8 @@ metadata:
 
 Use this skill when the user wants to inspect or manage Lexware Office data for
 German SME accounting workflows: customers, products/articles, invoices,
-bookkeeping vouchers, receipt files, posting categories, payment status, and
-high-level revenue or income-statement summaries.
+quotations, bookkeeping vouchers, receipt files, posting categories, payment
+status, and high-level revenue or income-statement summaries.
 
 Lexware Office was formerly branded lexoffice. This skill uses the current
 Public API gateway at `https://api.lexware.io`.
@@ -69,6 +72,8 @@ Public API gateway at `https://api.lexware.io`.
 - read articles/products/services used in invoice line items
 - list invoices through `voucherlist` and retrieve invoice details
 - download invoice files from the invoice file subresource
+- list quotations through `voucherlist`, retrieve quotation details, and
+  download quotation PDF files from the quotation file subresource
 - list and retrieve bookkeeping vouchers, including purchase invoices and
   receipt records
 - read payment status and payment items for vouchers through `/v1/payments`
@@ -80,6 +85,7 @@ Public API gateway at `https://api.lexware.io`.
 - aggregate fetched voucher pages into revenue summaries and income statements
 - create contacts only after explicit operator grant
 - create draft or finalized invoices only after explicit operator grant
+- create draft or finalized quotations only after explicit operator grant
 - log expense vouchers and upload receipt files only after explicit operator
   grant
 - match incoming bank transactions against open invoices locally, then prepare
@@ -93,7 +99,13 @@ Public API gateway at `https://api.lexware.io`.
 Lexware Office authenticates with a bearer API key. Store the API key in
 HybridClaw encrypted runtime secrets; never paste it into the prompt.
 
-Recommended setup:
+Recommended setup order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `LEXWARE_OFFICE_API_KEY`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set LEXWARE_OFFICE_API_KEY "<api-key>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set LEXWARE_OFFICE_API_KEY "<api-key>"
@@ -136,12 +148,20 @@ gateway error that explicitly says `LEXWARE_OFFICE_API_KEY` cannot be resolved.
 4. Pass `--operator-grant` only after explicit approval or an approved F14
    escalation.
 5. Create invoices as drafts unless the user explicitly asks to finalize/send.
-6. Before voucher updates, fetch the current voucher and include its `version`
+6. Create quotations as drafts unless the user explicitly asks to finalize or
+   issue the quotation. Lexware finalizes quotations at creation with
+   `finalize=true`; its public docs say quotation status cannot be changed
+   later through the API.
+7. Only send documents or finalize documents when it is clear the user wants
+   that. If intent is ambiguous, ask whether to keep a draft or produce the
+   final document. The current helper does not expose a Lexware send command,
+   so never claim that a document was sent through Lexware.
+8. Before voucher updates, fetch the current voucher and include its `version`
    property in the write payload.
-7. For income-statement or revenue questions, use `income-statement-plan` or
+9. For income-statement or revenue questions, use `income-statement-plan` or
    `revenue-summary-plan`, execute the returned read requests, then run
    `income-statement` or `revenue-summary` on the saved JSON responses.
-8. For bank-transaction matching, use `list-bank-transactions` and
+10. For bank-transaction matching, use `list-bank-transactions` and
    `match-transaction` to score candidate invoices. Lexware Public API exposes
    payment status and bank-linked payment items but no documented direct bank
    assignment mutation, so the write path records an operator-approved
@@ -169,6 +189,10 @@ node skills/lexware-office/lexware_office.cjs http-request list-contacts --name 
 node skills/lexware-office/lexware_office.cjs http-request list-products --type SERVICE
 node skills/lexware-office/lexware_office.cjs http-request list-invoices --status open --size 25
 node skills/lexware-office/lexware_office.cjs http-request get-invoice --id 11111111-1111-4111-8111-111111111111
+node skills/lexware-office/lexware_office.cjs http-request list-quotations --status open --size 25
+node skills/lexware-office/lexware_office.cjs http-request get-quotation --id 11111111-1111-4111-8111-111111111111
+node skills/lexware-office/lexware_office.cjs http-request download-quotation-file --id 11111111-1111-4111-8111-111111111111
+node skills/lexware-office/lexware_office.cjs http-request render-quotation-document --id 11111111-1111-4111-8111-111111111111
 node skills/lexware-office/lexware_office.cjs http-request list-expenses --status open --start-date 2026-01-01 --end-date 2026-03-31
 node skills/lexware-office/lexware_office.cjs http-request get-payment --voucher-id 11111111-1111-4111-8111-111111111111
 node skills/lexware-office/lexware_office.cjs http-request list-bank-transactions --status paid
@@ -188,6 +212,10 @@ node skills/lexware-office/lexware_office.cjs http-request create-contact \
 
 node skills/lexware-office/lexware_office.cjs http-request create-invoice \
   --json '{"voucherDate":"2026-05-21T00:00:00.000+02:00","address":{"name":"Acme GmbH","street":"Example Str. 1","zip":"10115","city":"Berlin","countryCode":"DE"},"lineItems":[{"type":"custom","name":"Consulting","quantity":8,"unitName":"hours","unitPrice":{"currency":"EUR","netAmount":120,"taxRatePercentage":19}}],"totalPrice":{"currency":"EUR"},"taxConditions":{"taxType":"net"},"paymentConditions":{"paymentTermLabel":"Due in 14 days","paymentTermDuration":14}}' \
+  --operator-grant
+
+node skills/lexware-office/lexware_office.cjs http-request create-quotation \
+  --json '{"voucherDate":"2026-05-21T00:00:00.000+02:00","expirationDate":"2026-06-20T00:00:00.000+02:00","address":{"name":"Acme GmbH","street":"Example Str. 1","zip":"10115","city":"Berlin","countryCode":"DE"},"lineItems":[{"type":"custom","name":"Consulting","quantity":8,"unitName":"hours","unitPrice":{"currency":"EUR","netAmount":120,"taxRatePercentage":19}}],"totalPrice":{"currency":"EUR"},"taxConditions":{"taxType":"net"}}' \
   --operator-grant
 
 node skills/lexware-office/lexware_office.cjs http-request log-expense \
@@ -220,6 +248,7 @@ These helper operations require `--operator-grant`:
 
 - `create-contact`
 - `create-invoice`
+- `create-quotation`
 - `log-expense`
 - `upload-file`
 - `attach-file-to-voucher`
@@ -243,6 +272,12 @@ the voucher after explicit operator grant.
   writing.
 - Default invoice creation to draft. Use `--finalize` only after explicit user
   instruction.
+- Default quotation creation to draft. Use `--finalize` only after explicit
+  user instruction to issue/finalize the quotation, and ask when the wording is
+  ambiguous.
+- Prefer `download-quotation-file` for quotation PDFs. Use the deprecated
+  `render-quotation-document` endpoint only when the user specifically needs a
+  document file id for an older workflow.
 - Treat receipt uploads and voucher changes as account-data mutations.
 - Cost per assistant run is recorded by HybridClaw `UsageTotals`; helper output
   includes `costMeasurement.system = "UsageTotals"` so evals can verify the
@@ -262,6 +297,8 @@ python3 skills/skill-creator/scripts/quick_validate.py skills/lexware-office
 node skills/lexware-office/lexware_office.cjs --help
 node skills/lexware-office/lexware_office.cjs eval-scenarios
 node skills/lexware-office/lexware_office.cjs http-request list-invoices --status open
+node skills/lexware-office/lexware_office.cjs http-request list-quotations --status open
 node skills/lexware-office/lexware_office.cjs http-request list-bank-transactions --status paid
 node skills/lexware-office/lexware_office.cjs http-request create-invoice --json '{"voucherDate":"2026-05-21T00:00:00.000+02:00"}'
+node skills/lexware-office/lexware_office.cjs http-request create-quotation --json '{"voucherDate":"2026-05-21T00:00:00.000+02:00"}'
 ```

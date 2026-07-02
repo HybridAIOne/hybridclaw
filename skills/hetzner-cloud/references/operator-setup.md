@@ -11,7 +11,12 @@ volume, and image reads. Use read-write scope only for a bounded mutation
 window when the operator has approved provisioning, snapshot, restore, network,
 volume, or delete actions.
 
-Store the token in the encrypted runtime secret store:
+Set the token in the encrypted runtime secret store in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set HETZNER_API_TOKEN "<hetzner-console-api-token>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set HETZNER_API_TOKEN "<hetzner-console-api-token>"

@@ -201,9 +201,16 @@ signing material belong in `credentials:` with `secret_ref`, not in
 
 Every skill setup section that mentions `hybridclaw env set`, `hybridclaw env
 list`, `hybridclaw secret set`, or `hybridclaw secret list` must also include
-the slash-command equivalent (`/env ...` or `/secret ...`) for operators using
-chat surfaces without CLI access. For user-invocable chat skills, put slash
-commands in frontmatter `how_to_obtain` text and the first setup example; keep
+the browser or slash-command equivalent (`/env ...` or `/secret ...`) for
+operators using chat surfaces without CLI access. When a skill depends on
+credentials, advise operators to set or update runtime secrets in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI: run `/secret set NAME value`.
+3. Local console fallback: run `hybridclaw secret set NAME value`.
+
+For user-invocable chat skills, put browser-admin and slash-command guidance in
+frontmatter `how_to_obtain` text and the first setup example; keep
 `hybridclaw ...` commands only in a clearly labeled local-terminal alternative.
 Do not tell chat users to run local CLI diagnostics when a gateway error or
 operator-provided slash-command output already identifies the missing value.

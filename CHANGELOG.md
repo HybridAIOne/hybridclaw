@@ -6,6 +6,9 @@
 
 - **Console navigation config**: The top navigation strip can be customized
   from runtime config with local console paths or HTTP(S) URLs and link text.
+- **Lexware quotations**: The `lexware-office` skill now covers quotation
+  listing, retrieval, creation, and PDF downloads with explicit draft vs.
+  finalized document guidance.
 
 ## [0.25.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.8) - 2026-06-27
 

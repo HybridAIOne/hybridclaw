@@ -13,7 +13,7 @@ credentials:
       source: store
       id: BLINK_EMAIL
     scope: "Blink account email for OAuth v2 login"
-    how_to_obtain: "In the TUI, use `/secret set BLINK_EMAIL \"<account email>\"`. From a shell, use `hybridclaw secret set BLINK_EMAIL \"<account email>\"`."
+    how_to_obtain: "Set `BLINK_EMAIL` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set BLINK_EMAIL \"<account email>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set BLINK_EMAIL \"<account email>\"`."
   - id: blink-password
     kind: api_key
     required: true
@@ -21,7 +21,7 @@ credentials:
       source: store
       id: BLINK_PASSWORD
     scope: "Blink account password for OAuth v2 login"
-    how_to_obtain: "In the TUI, use `/secret set BLINK_PASSWORD \"<account password>\"`. From a shell, use `hybridclaw secret set BLINK_PASSWORD \"<account password>\"`."
+    how_to_obtain: "Set `BLINK_PASSWORD` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set BLINK_PASSWORD \"<account password>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set BLINK_PASSWORD \"<account password>\"`."
   - id: blink-auth-token
     kind: bearer
     required: false
@@ -111,14 +111,18 @@ best-effort and stop on the first authentication or verification failure.
 
 ## Setup
 
-Store the initial secrets in the TUI:
+Set the initial secrets in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `BLINK_EMAIL` and `BLINK_PASSWORD`.
+2. Browser `/chat` or TUI fallback:
 
 ```text
 /secret set BLINK_EMAIL "<account email>"
 /secret set BLINK_PASSWORD "<account password>"
 ```
 
-Equivalent shell commands:
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set BLINK_EMAIL "<account email>"

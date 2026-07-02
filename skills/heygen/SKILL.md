@@ -13,7 +13,7 @@ credentials:
       source: store
       id: HEYGEN_API_KEY
     scope: HeyGen Direct API video generation and translation.
-    how_to_obtain: Create or regenerate the API token from HeyGen account settings, then store it with `hybridclaw secret set HEYGEN_API_KEY "<api-key>"`.
+    how_to_obtain: "Create or regenerate the API token from HeyGen account settings. Set `HEYGEN_API_KEY` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set HEYGEN_API_KEY \"<api-key>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set HEYGEN_API_KEY \"<api-key>\"`."
 metadata:
   hybridclaw:
     category: marketing
@@ -75,7 +75,12 @@ and distribution to external channels are outside this adapter slice.
 HeyGen Direct API uses an API key sent as `X-API-KEY`. Store it in HybridClaw
 encrypted runtime secrets; never paste it into the prompt.
 
-Recommended setup:
+Recommended setup order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `HEYGEN_API_KEY`.
+2. Browser `/chat` or TUI fallback: `/secret set HEYGEN_API_KEY "<api-key>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set HEYGEN_API_KEY "<api-key>"

@@ -6,7 +6,12 @@ Create a Hetzner Console API token in the project containing the Storage Box.
 Use read-only scope for inventory. Use read-write scope only for approved
 management changes such as snapshots, settings, creation, and deletion.
 
-Store it in the encrypted runtime secret store:
+Set it in the encrypted runtime secret store in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set HETZNER_API_TOKEN "<hetzner-console-api-token>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set HETZNER_API_TOKEN "<hetzner-console-api-token>"
@@ -18,7 +23,12 @@ For file operations, create a Storage Box subaccount with the narrowest path and
 permission set that fits the task. Prefer read-only subaccounts for inspection
 and dedicated write subaccounts for archive uploads.
 
-Store only the base64 payload for Basic auth:
+Set only the base64 payload for Basic auth in the same order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set HETZNER_STORAGE_BOX_BASIC_AUTH "<base64-username-password>"`.
+3. Local console fallback:
 
 ```bash
 printf '%s' 'u00000:storage-box-password' | base64

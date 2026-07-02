@@ -38,7 +38,11 @@ test('Homematic skill manifest declares HCU credentials and safety metadata', ()
       howToObtain:
         'Enable HCU developer mode, generate an activation key, use\n' +
         '`node skills/homematic/homematic.cjs http-request auth-token` and\n' +
-        '`confirm-token`, then store the confirmed Connect API auth token with\n' +
+        '`confirm-token`, then set the confirmed Connect API auth token as\n' +
+        '`HOMEMATIC_HCU_AUTH_TOKEN` through browser admin at\n' +
+        '`/admin/secrets`; if browser admin is unavailable,\n' +
+        'use `/secret set HOMEMATIC_HCU_AUTH_TOKEN "<token>"` in browser `/chat`\n' +
+        'or TUI; local console fallback:\n' +
         '`hybridclaw secret set HOMEMATIC_HCU_AUTH_TOKEN "<token>"`.',
     },
     {
@@ -51,8 +55,12 @@ test('Homematic skill manifest declares HCU credentials and safety metadata', ()
       },
       scope: 'One-time HCU Connect API token enrollment',
       howToObtain:
-        'Generate an activation key from HCUweb developer mode and store it only\n' +
-        'long enough to enroll the Connect API client:\n' +
+        'Generate an activation key from HCUweb developer mode and set it only\n' +
+        'long enough to enroll the Connect API client as\n' +
+        '`HOMEMATIC_HCU_ACTIVATION_KEY` through browser admin at\n' +
+        '`/admin/secrets`; if browser admin is unavailable,\n' +
+        'use `/secret set HOMEMATIC_HCU_ACTIVATION_KEY "<activation-key>"` in\n' +
+        'browser `/chat` or TUI; local console fallback:\n' +
         '`hybridclaw secret set HOMEMATIC_HCU_ACTIVATION_KEY "<activation-key>"`.',
     },
   ]);

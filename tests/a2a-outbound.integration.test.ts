@@ -52,14 +52,22 @@ async function loadA2AInstance(params: {
   process.env.HYBRIDCLAW_INSTANCE_ID = params.instanceId;
   vi.resetModules();
 
-  const [{ initDatabase }, runtimeConfig, runtime, inbound, outbound, trust] =
-    await Promise.all([
+  const [
+    { initDatabase },
+    runtimeConfig,
+    runtime,
+    inbound,
+    outbound,
+    trust,
+    pairing,
+  ] = await Promise.all([
       import('../src/memory/db.ts'),
       import('../src/config/runtime-config.ts'),
       import('../src/a2a/runtime.ts'),
       import('../src/a2a/a2a-inbound.ts'),
       import('../src/a2a/a2a-outbound.ts'),
       import('../src/a2a/trust-ledger.ts'),
+      import('../src/a2a/pairing.ts'),
     ]);
 
   initDatabase({ quiet: true });
@@ -83,6 +91,7 @@ async function loadA2AInstance(params: {
     inbound,
     outbound,
     trust,
+    pairing,
   };
 }
 
@@ -115,6 +124,14 @@ function createA2AInstanceServer(
             peerTrustLevel: 'trusted',
           }),
         ),
+      );
+      return;
+    }
+    if (url.pathname === '/a2a/pairing/requests') {
+      await instance.pairing.handleA2APairingRequestInbound(
+        request,
+        response,
+        url,
       );
       return;
     }
@@ -440,36 +457,11 @@ describe('A2A outbound integration', () => {
         instanceId: 'inst-a',
         agentId: 'main',
       });
-      const delegationKeyA =
-        instanceA.outbound.getOrCreateA2ADelegationTokenKeyPair({
-          now: new Date('2030-01-01T00:00:00.000Z'),
-        });
-      const instanceKeyA = instanceA.trust.ensureA2AInstanceKeypair(
-        new Date('2030-01-01T00:00:00.000Z'),
-      );
 
       const instanceB = await loadA2AInstance({
         home: homeB,
         instanceId: 'inst-b',
         agentId: 'remote',
-      });
-      const delegationKeyB =
-        instanceB.outbound.getOrCreateA2ADelegationTokenKeyPair({
-          now: new Date('2030-01-01T00:00:00.000Z'),
-        });
-      const instanceKeyB = instanceB.trust.ensureA2AInstanceKeypair(
-        new Date('2030-01-01T00:00:00.000Z'),
-      );
-
-      instanceA.inbound.upsertA2ATrustedA2APeer({
-        peerId: 'instance-b',
-        senderAgentId: 'remote@team@inst-b',
-        publicKeyPem: delegationKeyB.publicKeyPem,
-      });
-      instanceB.inbound.upsertA2ATrustedA2APeer({
-        peerId: 'instance-a',
-        senderAgentId: 'main@team@inst-a',
-        publicKeyPem: delegationKeyA.publicKeyPem,
       });
 
       serverA = createA2AInstanceServer(instanceA);
@@ -480,20 +472,33 @@ describe('A2A outbound integration', () => {
       ]);
       const urlA = `http://127.0.0.1:${portA}`;
       const urlB = `http://127.0.0.1:${portB}`;
+      const fetchFromA: typeof fetch = async (input, init) => {
+        const response = await fetch(input, init);
+        activateA2AInstance(instanceA);
+        return response;
+      };
 
       activateA2AInstance(instanceA);
-      instanceA.trust.upsertA2ATrustedPublicKeyPeer({
-        peerId: 'inst-b',
-        agentCardUrl: `${urlB}/.well-known/agent.json`,
-        deliveryUrl: `${urlB}/a2a`,
-        publicKeyJwk: instanceKeyB.publicKeyJwk,
+      await instanceA.pairing.startA2APairing({
+        peerUrl: urlB,
+        localBaseUrl: urlA,
+        actor: 'operator-a',
+        fetchImpl: fetchFromA,
+        now: new Date('2030-01-01T00:00:00.000Z'),
       });
       activateA2AInstance(instanceB);
-      instanceB.trust.upsertA2ATrustedPublicKeyPeer({
+      const [pairingRequest] =
+        instanceB.pairing.listIncomingA2APairingRequests();
+      expect(pairingRequest).toBeDefined();
+      if (!pairingRequest) throw new Error('expected incoming pairing request');
+      expect(pairingRequest).toMatchObject({
+        status: 'pending',
         peerId: 'inst-a',
-        agentCardUrl: `${urlA}/.well-known/agent.json`,
-        deliveryUrl: `${urlA}/a2a`,
-        publicKeyJwk: instanceKeyA.publicKeyJwk,
+      });
+      instanceB.pairing.approveIncomingA2APairingRequest({
+        requestId: pairingRequest.requestId,
+        actor: 'operator-b',
+        now: new Date('2030-01-01T00:01:00.000Z'),
       });
 
       activateA2AInstance(instanceA);
