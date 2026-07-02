@@ -45,6 +45,7 @@ test('Lexware Office skill manifest declares accounting category and safety meta
   expect(skill).toContain('category: accounting');
   expect(skill).toContain('LEXWARE_OFFICE_API_KEY');
   expect(skill).toContain('https://api.lexware.io');
+  expect(skill).toContain('quotations');
   expect(skill).toContain('stakes_tiers:');
   expect(skill).toContain('transaction-match-plan');
   expect(skill).toContain('UsageTotals');
@@ -67,6 +68,8 @@ test('Lexware Office helper --help exits cleanly', () => {
   expect(result.stdout).toContain('Lexware Office skill helper');
   expect(result.stdout).toContain('list-contacts');
   expect(result.stdout).toContain('list-invoices');
+  expect(result.stdout).toContain('list-quotations');
+  expect(result.stdout).toContain('create-quotation');
   expect(result.stdout).toContain('log-expense');
   expect(result.stdout).toContain('income-statement-plan');
   expect(result.stdout).toContain('income-statement');
@@ -76,6 +79,9 @@ test('Lexware Office helper --help exits cleanly', () => {
   );
   expect(result.stdout).toContain(
     'list-invoices [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]',
+  );
+  expect(result.stdout).toContain(
+    'list-quotations [--status open|accepted|rejected|draft] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]',
   );
   expect(result.stdout).toContain(
     'list-expenses [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]',
@@ -95,6 +101,18 @@ test('Lexware Office helper plans reads, writes, reports, and transaction matchi
     'json',
     'plan',
     'Generate an invoice for Acme GmbH',
+  ]);
+  const quotationRead = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'Show open quotations in Lexware Office',
+  ]);
+  const quotationWrite = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'Create a draft quotation for Acme GmbH',
   ]);
   const report = runHelper([
     '--format',
@@ -117,6 +135,15 @@ test('Lexware Office helper plans reads, writes, reports, and transaction matchi
     operation: 'create-invoice',
     stakesTier: 'amber',
     requiredGrant: 'approve-lexware-office-create-invoice',
+  });
+  expect(JSON.parse(quotationRead.stdout)).toMatchObject({
+    operation: 'list-quotations',
+    requiresEscalation: false,
+  });
+  expect(JSON.parse(quotationWrite.stdout)).toMatchObject({
+    operation: 'create-quotation',
+    stakesTier: 'amber',
+    requiredGrant: 'approve-lexware-office-create-quotation',
   });
   expect(JSON.parse(report.stdout)).toMatchObject({
     operation: 'income-statement-plan',
@@ -156,6 +183,70 @@ test('Lexware Office helper emits gateway-proxied read requests without secrets'
   expect(payload.httpRequest.url).toContain('size=50');
   expect(result.stdout).not.toContain('api-key');
   expect(payload.costMeasurement.system).toBe('UsageTotals');
+});
+
+test('Lexware Office helper emits quotation read requests', () => {
+  const list = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'list-quotations',
+    '--status',
+    'open',
+    '--size',
+    '50',
+  ]);
+  const get = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'get-quotation',
+    '--id',
+    '11111111-1111-4111-8111-111111111111',
+  ]);
+  const download = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'download-quotation-file',
+    '--id',
+    '11111111-1111-4111-8111-111111111111',
+  ]);
+  const render = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'render-quotation-document',
+    '--id',
+    '11111111-1111-4111-8111-111111111111',
+  ]);
+
+  expect(list.status).toBe(0);
+  const listPayload = JSON.parse(list.stdout);
+  expect(listPayload.httpRequest.url).toContain('/v1/voucherlist?');
+  expect(listPayload.httpRequest.url).toContain('voucherType=quotation');
+  expect(listPayload.httpRequest.url).toContain('voucherStatus=open');
+
+  expect(get.status).toBe(0);
+  expect(JSON.parse(get.stdout).httpRequest).toMatchObject({
+    method: 'GET',
+    url: 'https://api.lexware.io/v1/quotations/11111111-1111-4111-8111-111111111111',
+    bearerSecretName: 'LEXWARE_OFFICE_API_KEY',
+  });
+
+  expect(download.status).toBe(0);
+  expect(JSON.parse(download.stdout).httpRequest).toMatchObject({
+    method: 'GET',
+    url: 'https://api.lexware.io/v1/quotations/11111111-1111-4111-8111-111111111111/file',
+    headers: { Accept: '*/*' },
+  });
+
+  expect(render.status).toBe(0);
+  expect(JSON.parse(render.stdout).httpRequest).toMatchObject({
+    method: 'GET',
+    url: 'https://api.lexware.io/v1/quotations/11111111-1111-4111-8111-111111111111/document',
+    headers: { Accept: 'application/json' },
+  });
 });
 
 test('Lexware Office helper builds income statement read sequence', () => {
@@ -333,6 +424,30 @@ test('Lexware Office helper emits invoice write request after grant', () => {
   });
 });
 
+test('Lexware Office helper emits quotation write request after grant', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'create-quotation',
+    '--json',
+    '{"voucherDate":"2026-05-21T00:00:00.000+02:00"}',
+    '--finalize',
+    '--operator-grant',
+  ]);
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.httpRequest).toMatchObject({
+    method: 'POST',
+    url: 'https://api.lexware.io/v1/quotations?finalize=true',
+    bearerSecretName: 'LEXWARE_OFFICE_API_KEY',
+  });
+  expect(payload.httpRequest.json).toEqual({
+    voucherDate: '2026-05-21T00:00:00.000+02:00',
+  });
+});
+
 test('Lexware Office helper validates UUIDs and page size bounds', () => {
   const badUuid = runHelper([
     '--format',
@@ -503,11 +618,13 @@ test('Lexware Office helper eval suite covers roadmap behaviors', () => {
   const categories = new Set(scenarios.map((scenario) => scenario.category));
 
   expect(scenarios.length).toBeGreaterThanOrEqual(25);
-  expect(scenarios.length).toBeLessThanOrEqual(30);
+  expect(scenarios.length).toBeLessThanOrEqual(34);
   expect(categories).toEqual(
     new Set([
       'invoice_read',
       'invoice_write',
+      'quotation_read',
+      'quotation_write',
       'customer_read',
       'customer_write',
       'product_read',

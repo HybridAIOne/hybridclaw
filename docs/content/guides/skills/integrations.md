@@ -245,9 +245,9 @@ hybridclaw auth login hubspot \
 
 ## lexware-office
 
-Work with Lexware Office contacts, invoice articles, invoices, bookkeeping
-vouchers, receipt files, posting categories, payment status, and guarded
-invoice or expense writes through the Lexware Public API.
+Work with Lexware Office contacts, invoice articles, invoices, quotations,
+bookkeeping vouchers, receipt files, posting categories, payment status, and
+guarded invoice, quotation, or expense writes through the Lexware Public API.
 
 **Prerequisites** — a Lexware Office plan with Public API access and an API key
 stored in the encrypted HybridClaw runtime secret store.
@@ -260,9 +260,11 @@ hybridclaw secret set LEXWARE_OFFICE_API_KEY "<api-key>"
 >
 > The helper emits `bearerSecretName: "LEXWARE_OFFICE_API_KEY"` so the gateway injects the API key server-side.
 >
-> Start with read-only calls such as `profile`, `list-contacts`, `list-invoices`, `list-expenses`, `get-payment`, and `posting-categories`.
+> Start with read-only calls such as `profile`, `list-contacts`, `list-invoices`, `list-quotations`, `list-expenses`, `get-payment`, and `posting-categories`.
 >
-> Invoice creation, contact creation, voucher updates, receipt uploads, and expense logging require explicit operator grant.
+> Invoice creation, quotation creation, contact creation, voucher updates, receipt uploads, and expense logging require explicit operator grant.
+>
+> Create invoices and quotations as drafts unless the user clearly asks to finalize or send the document. If intent is ambiguous, ask first.
 >
 > Public API payment reads show payment items. The skill can score bank transactions against open invoices and write an operator-approved reconciliation note, while making clear that the public docs do not expose a direct banking-module assignment mutation.
 
@@ -271,6 +273,8 @@ hybridclaw secret set LEXWARE_OFFICE_API_KEY "<api-key>"
 > `Show the open invoices in Lexware Office`
 >
 > `Generate a draft invoice for Acme GmbH for last month's consulting hours`
+>
+> `Create a draft quotation for Acme GmbH`
 >
 > `Sync this receipt as a Reisekosten expense in Lexware Office`
 >
