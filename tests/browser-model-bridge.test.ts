@@ -7,7 +7,9 @@ import {
   parseBrowserToolCalls,
   parseGemmaToolCalls,
   parseLiquidToolCalls,
+  repairToolCallArguments,
   startBrowserModelBridge,
+  stripGemmaThinking,
 } from '../src/providers/browser-model-bridge.ts';
 
 const BASH_TOOL = {
@@ -724,12 +726,12 @@ describe('parseGemmaToolCalls', () => {
     expect(result.content).toBe('I cannot run commands.');
   });
 
-  test('parses nested unquoted objects (dispatcher arguments)', () => {
+  test('parses nested unquoted objects', () => {
     const result = parseGemmaToolCalls(
-      'call:tool_call{name:bash, arguments:{command:ls -la}}',
+      'call:create_report{title:weekly, options:{format:pdf}}',
     );
     expect(JSON.parse(result.toolCalls[0]?.function.arguments as string)).toEqual(
-      { name: 'bash', arguments: { command: 'ls -la' } },
+      { title: 'weekly', options: { format: 'pdf' } },
     );
   });
 });
@@ -761,5 +763,124 @@ describe('parseBrowserToolCalls', () => {
     const result = parseBrowserToolCalls('some/other-model', 'call:bash{x:1}');
     expect(result.toolCalls).toEqual([]);
     expect(result.content).toBe('call:bash{x:1}');
+  });
+});
+
+describe('Gemma thinking-channel handling', () => {
+  const GEMMA = 'onnx-community/gemma-4-E2B-it-ONNX';
+
+  test('forces the channel opener when resuming after a tool result', () => {
+    expect(
+      computeForcedToolPrefix(
+        {
+          tools: [BASH_TOOL],
+          messages: [
+            { role: 'user', content: 'run ls' },
+            { role: 'tool', tool_call_id: 'c', content: 'total 8' },
+          ],
+        },
+        GEMMA,
+      ),
+    ).toBe('<|channel>');
+  });
+
+  test('does not force on a plain user turn', () => {
+    expect(
+      computeForcedToolPrefix(
+        { tools: [BASH_TOOL], messages: [{ role: 'user', content: 'hi' }] },
+        GEMMA,
+      ),
+    ).toBe('');
+  });
+
+  test('does not force the channel opener for Gemma 3 (no channel tokens)', () => {
+    expect(
+      computeForcedToolPrefix(
+        {
+          tools: [BASH_TOOL],
+          messages: [
+            { role: 'user', content: 'run ls' },
+            { role: 'tool', tool_call_id: 'c', content: 'total 8' },
+          ],
+        },
+        'onnx-community/gemma-3-1b-it-ONNX',
+      ),
+    ).toBe('');
+  });
+
+  test('stripGemmaThinking removes thinking blocks and markers', () => {
+    expect(
+      stripGemmaThinking(
+        '<|channel>thought stuff<channel|>Here are the files<turn|>',
+      ),
+    ).toBe('Here are the files');
+    // Unterminated thinking (ran out of tokens) yields no visible content.
+    expect(stripGemmaThinking('<|channel>endless thinking')).toBe('');
+    // Marker-wrapped tool calls reduce to the plain call shape.
+    expect(
+      stripGemmaThinking(
+        '<|channel>think<channel|><|tool_call>call:bash{command:<|"|>ls -la<|"|>}<tool_call|>',
+      ),
+    ).toBe('call:bash{command:ls -la}');
+    // Marker-free text passes through unchanged.
+    expect(stripGemmaThinking('call:bash{command:ls -la}')).toBe(
+      'call:bash{command:ls -la}',
+    );
+  });
+
+  test('parseBrowserToolCalls strips thinking on resume turns before parsing', () => {
+    const result = parseBrowserToolCalls(
+      GEMMA,
+      '<|channel>let me run it<channel|><|tool_call>call:bash{command:<|"|>id<|"|>}<tool_call|>',
+      { stripThinking: true },
+    );
+    expect(result.toolCalls[0]?.function).toEqual({
+      name: 'bash',
+      arguments: '{"command":"id"}',
+    });
+  });
+
+  test('does not strip on plain turns, so marker-like answer text survives', () => {
+    // Non-resume turns already had special tokens removed by the streamer;
+    // an answer that merely mentions a marker must pass through untouched.
+    const text = 'The opener token is written as <|channel> in the template.';
+    expect(parseBrowserToolCalls(GEMMA, text).content).toBe(text);
+  });
+});
+
+describe('repairToolCallArguments', () => {
+  const toolParams = { bash: ['command'], edit: ['path', 'old', 'new'] };
+  const call = (name: string, args: string) => ({
+    id: 'c1',
+    type: 'function',
+    function: { name, arguments: args },
+  });
+
+  test('moves a mis-keyed single value onto the only schema parameter', () => {
+    const repaired = repairToolCallArguments(
+      [call('bash', '{"bash":"ls -la"}')],
+      toolParams,
+    );
+    expect(repaired[0]?.function).toEqual({
+      name: 'bash',
+      arguments: '{"command":"ls -la"}',
+    });
+  });
+
+  test('leaves correct keys, multi-param tools, and unknown tools alone', () => {
+    const calls = [
+      call('bash', '{"command":"ls"}'),
+      call('edit', '{"file":"a.ts"}'),
+      call('mystery', '{"x":"1"}'),
+      call('bash', '{}'),
+    ];
+    expect(repairToolCallArguments(calls, toolParams)).toEqual(calls);
+  });
+
+  test('ignores Object.prototype members when looking up tool schemas', () => {
+    // A hallucinated call named "constructor" must pass through unchanged
+    // instead of resolving to the inherited function and getting mangled.
+    const calls = [call('constructor', '{"x":"1"}')];
+    expect(repairToolCallArguments(calls, toolParams)).toEqual(calls);
   });
 });

@@ -80,6 +80,12 @@ type PendingRequest = {
   // be parsed into OpenAI tool_calls at completion: forced LFM turns, and Gemma
   // models (which emit `call:name{...}` we must convert).
   buffered: boolean;
+  // Tool name -> parameter names from the request, used to repair the argument
+  // key when a small model names the value wrong (see repairToolCallArguments).
+  toolParams: Record<string, string[]>;
+  // True for Gemma resume-after-tool turns, whose stream keeps special tokens
+  // so the thinking block can be separated from the answer at completion.
+  stripThinking: boolean;
   res: ServerResponse;
   content: string;
   created: number;
@@ -127,6 +133,13 @@ function isLiquidBrowserModel(model: string): boolean {
 
 function isGemmaBrowserModel(model: string): boolean {
   return model.trim().toLowerCase().includes('gemma');
+}
+
+// The thinking channel (`<|channel>…<channel|>`) exists only in Gemma 4's
+// vocabulary and chat template; Gemma 3 models have neither, and forcing the
+// opener there would inject literal marker text into the prompt.
+function isGemma4BrowserModel(model: string): boolean {
+  return /gemma-?4/i.test(model);
 }
 
 export function normalizeBrowserModelBridgeDtype(params: {
@@ -277,6 +290,25 @@ function createModelList(model: string): JsonObject {
 
 const LIQUID_TOOL_CALL_START = '<|tool_call_start|>';
 const LIQUID_TOOL_CALL_END = '<|tool_call_end|>';
+// Gemma 4 markers are asymmetric: opener `<|name>`, closer `<name|>`.
+const GEMMA_CHANNEL_START = '<|channel>';
+
+// Remove Gemma thinking blocks (`<|channel>…<channel|>`) and any remaining
+// marker tokens from a completion. Applied only to resume-after-tool turns,
+// which keep special tokens in the stream so the thinking/answer boundary
+// survives; this reduces the text to the same shape the skip-special path
+// produces before tool-call parsing.
+export function stripGemmaThinking(text: string): string {
+  // Drop completed thinking blocks, then anything after an unterminated opener
+  // (the model ran out of tokens mid-thought).
+  let result = text.replace(/<\|channel>[\s\S]*?<channel\|>/g, '');
+  const dangling = result.indexOf(GEMMA_CHANNEL_START);
+  if (dangling >= 0) result = result.slice(0, dangling);
+  return result
+    .replace(/<\|[a-zA-Z_"|]{1,20}>/g, '')
+    .replace(/<[a-zA-Z_"|]{1,20}\|>/g, '')
+    .trim();
+}
 
 function lastMessageRole(messages: unknown): string {
   if (!Array.isArray(messages)) return '';
@@ -299,6 +331,17 @@ export function computeForcedToolPrefix(
   body: Record<string, unknown>,
   model: string,
 ): string {
+  // Gemma 4 is a thinking model: after a tool response the turn resumes inside
+  // the model's own turn, and greedy decoding immediately emits end-of-turn
+  // unless the thinking channel is opened first. Forcing the opener makes the
+  // model think and then answer (verified live on gemma-4-E2B: without it the
+  // summary turn generates exactly one end-of-turn token).
+  if (isGemmaBrowserModel(model)) {
+    return isGemma4BrowserModel(model) &&
+      lastMessageRole(body.messages) === 'tool'
+      ? GEMMA_CHANNEL_START
+      : '';
+  }
   if (!isLiquidBrowserModel(model)) return '';
   const tools = Array.isArray(body.tools) ? body.tools : [];
   if (tools.length === 0) return '';
@@ -375,7 +418,7 @@ function parseLiquidArgValue(raw: string): JsonValue {
       return JSON.parse(trimmed) as JsonValue;
     } catch {
       // Gemma renders nested objects unquoted ({command:ls -la}); parse them
-      // recursively so dispatcher arguments survive as real JSON.
+      // recursively so nested arguments survive as real JSON.
       const object: JsonObject = {};
       for (const pair of splitTopLevelSegments(trimmed.slice(1, -1), ',')) {
         const colon = pair.indexOf(':');
@@ -528,16 +571,93 @@ export function parseGemmaToolCalls(text: string): {
   return { content: stripRanges(text, removals).trim(), toolCalls };
 }
 
-// Dispatch tool-call parsing by model family: LFM uses the bracketed
-// `<|tool_call_start|>` form, Gemma uses `call:name{...}`. Unknown families pass
-// their content through unparsed.
+export function extractToolParams(tools: unknown): Record<string, string[]> {
+  // Null prototype: tool names come from model output, so lookups must not hit
+  // Object.prototype members (a hallucinated call named "constructor" would
+  // otherwise resolve to a function and get its arguments mangled).
+  const map: Record<string, string[]> = Object.create(null) as Record<
+    string,
+    string[]
+  >;
+  if (!Array.isArray(tools)) return map;
+  for (const tool of tools) {
+    if (!isRecord(tool) || !isRecord(tool.function)) continue;
+    const name =
+      typeof tool.function.name === 'string' ? tool.function.name : '';
+    if (!name) continue;
+    const parameters = isRecord(tool.function.parameters)
+      ? tool.function.parameters
+      : {};
+    const properties = isRecord(parameters.properties)
+      ? parameters.properties
+      : {};
+    map[name] = Object.keys(properties);
+  }
+  return map;
+}
+
+// Small models reliably pick the right tool and value but sometimes name the
+// argument wrong (e.g. LFM2.5-350M emits bash(bash="ls -la") instead of
+// bash(command="ls -la")). When a call's argument keys don't match the tool's
+// schema and the tool takes exactly one parameter, move the single value onto
+// that parameter — the same leniency llama.cpp/vLLM tool parsers apply.
+export function repairToolCallArguments(
+  toolCalls: JsonObject[],
+  toolParams: Record<string, string[]>,
+): JsonObject[] {
+  return toolCalls.map((call) => {
+    const fn = isRecord(call.function) ? call.function : null;
+    if (!fn || typeof fn.name !== 'string') return call;
+    if (!Object.hasOwn(toolParams, fn.name)) return call;
+    const params = toolParams[fn.name];
+    if (!params || params.length !== 1) return call;
+    const parsed = safeJsonParse(
+      typeof fn.arguments === 'string' ? fn.arguments : '{}',
+    );
+    if (!isRecord(parsed)) return call;
+    const args = parsed as Record<string, JsonValue>;
+    const keys = Object.keys(args);
+    if (keys.length !== 1 || keys[0] === params[0]) return call;
+    return {
+      ...call,
+      function: {
+        ...fn,
+        arguments: JSON.stringify({ [params[0]]: args[keys[0]] }),
+      },
+    };
+  });
+}
+
+// Dispatch tool-call parsing by model family (LFM uses the bracketed
+// `<|tool_call_start|>` form, Gemma uses `call:name{...}`; unknown families
+// pass through unparsed), then repair argument keys against the request's tool
+// schemas. `stripThinking` is set for Gemma resume turns, whose stream keeps
+// special tokens (see computeForcedToolPrefix).
 export function parseBrowserToolCalls(
   model: string,
   text: string,
+  options: {
+    toolParams?: Record<string, string[]>;
+    stripThinking?: boolean;
+  } = {},
 ): { content: string; toolCalls: JsonObject[] } {
-  if (isLiquidBrowserModel(model)) return parseLiquidToolCalls(text);
-  if (isGemmaBrowserModel(model)) return parseGemmaToolCalls(text);
-  return { content: text, toolCalls: [] };
+  let parsed: { content: string; toolCalls: JsonObject[] };
+  if (isLiquidBrowserModel(model)) {
+    parsed = parseLiquidToolCalls(text);
+  } else if (isGemmaBrowserModel(model)) {
+    parsed = parseGemmaToolCalls(
+      options.stripThinking ? stripGemmaThinking(text) : text,
+    );
+  } else {
+    return { content: text, toolCalls: [] };
+  }
+  if (options.toolParams && parsed.toolCalls.length > 0) {
+    parsed = {
+      content: parsed.content,
+      toolCalls: repairToolCallArguments(parsed.toolCalls, options.toolParams),
+    };
+  }
+  return parsed;
 }
 
 function toolCallsStreamDelta(
@@ -827,6 +947,8 @@ export async function startBrowserModelBridge(
           typeof body.model === 'string' && body.model ? body.model : model,
         stream,
         buffered: forcedToolPrefix.length > 0 || isGemmaBrowserModel(model),
+        toolParams: extractToolParams(body.tools),
+        stripThinking: forcedToolPrefix === GEMMA_CHANNEL_START,
         res,
         content: '',
         created,
@@ -846,6 +968,12 @@ export async function startBrowserModelBridge(
           ssePayload(id, pending.model, created, { role: 'assistant' }, null),
         );
       }
+      // Resume turns spend part of the budget on the (stripped) thinking
+      // block; give them room so the answer isn't cut off mid-thought.
+      const minResumeTokens =
+        forcedToolPrefix === GEMMA_CHANNEL_START
+          ? Math.max(Number(body.max_tokens) || 0, 384)
+          : 0;
       const sent = sendWebSocket(activeBrowser, {
         type: 'generate',
         id,
@@ -855,6 +983,7 @@ export async function startBrowserModelBridge(
           ...(forcedToolPrefix
             ? { force_assistant_prefix: forcedToolPrefix }
             : {}),
+          ...(minResumeTokens > 0 ? { max_tokens: minResumeTokens } : {}),
         },
       });
       if (!sent) {
@@ -1000,6 +1129,10 @@ export async function startBrowserModelBridge(
           const { content: cleanedContent, toolCalls } = parseBrowserToolCalls(
             model,
             content,
+            {
+              toolParams: pending.toolParams,
+              stripThinking: pending.stripThinking,
+            },
           );
           if (toolCalls.length > 0) {
             pending.res.write(
@@ -1051,6 +1184,10 @@ export async function startBrowserModelBridge(
           const { content: cleanedContent, toolCalls } = parseBrowserToolCalls(
             model,
             content,
+            {
+              toolParams: pending.toolParams,
+              stripThinking: pending.stripThinking,
+            },
           );
           jsonResponse(
             pending.res,

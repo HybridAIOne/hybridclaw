@@ -7,7 +7,6 @@ import {
   callLocalOpenAICompatProvider,
   callLocalOpenAICompatProviderStream,
   estimateLocalOpenAICompatPromptOverheadTokens,
-  unwrapBrowserDispatcherToolCalls,
 } from '../container/src/providers/local-openai-compat.js';
 import { normalizeOpenRouterRuntimeModelName } from '../container/src/providers/shared.js';
 import type { ChatMessage, ToolDefinition } from '../container/src/types.js';
@@ -61,6 +60,15 @@ const tools: ToolDefinition[] = [
     },
   },
 ];
+// What small Liquid browser models receive: same tools with the call-shape
+// example appended to the description (see compactBrowserTool).
+const toolsWithExamples = tools.map((tool) => ({
+  ...tool,
+  function: {
+    ...tool.function,
+    description: `${tool.function.description} Example: shell(command="...")`,
+  },
+}));
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -142,9 +150,7 @@ describe('local container providers', () => {
       provider: 'browser',
       baseUrl: 'http://127.0.0.1:8789/v1',
       apiKey: '',
-      // LFM keeps full (compacted) schemas — the catalog only auto-enables for
-      // tight-budget models like Gemma.
-      model: 'browser/LiquidAI/LFM2.5-230M-ONNX',
+      model: 'browser/huggingworld/Qwen3.5-4B-ONNX',
       chatbotId: '',
       enableRag: false,
       requestHeaders: undefined,
@@ -165,127 +171,56 @@ describe('local container providers', () => {
     expect(fn.parameters.properties.mode.enum).toEqual(['default', 'full']);
   });
 
-  test('unwrapBrowserDispatcherToolCalls restores the real tool call', () => {
-    const result = unwrapBrowserDispatcherToolCalls([
-      {
-        id: 'c1',
-        type: 'function',
-        function: {
-          name: 'tool_call',
-          arguments: '{"name":"bash","arguments":{"command":"ls -la"}}',
-        },
-      },
-      {
-        id: 'c2',
-        type: 'function',
-        function: { name: 'read', arguments: '{"path":"a.txt"}' },
-      },
-    ]);
-    // dispatcher call unwrapped to the real tool...
-    expect(result[0]?.function).toEqual({
-      name: 'bash',
-      arguments: '{"command":"ls -la"}',
-    });
-    // ...non-dispatcher calls pass through unchanged.
-    expect(result[1]?.function).toEqual({
-      name: 'read',
-      arguments: '{"path":"a.txt"}',
-    });
+  test('small Liquid models get call examples in tool descriptions; others do not', async () => {
+    const sentDescriptionsFor = async (model: string): Promise<string[]> => {
+      let descriptions: string[] = [];
+      const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || '{}')) as {
+          tools?: Array<{ function: { description: string } }>;
+        };
+        descriptions = (body.tools || []).map(
+          (tool) => tool.function.description,
+        );
+        return new Response(
+          JSON.stringify({
+            id: 'r',
+            model: 'm',
+            choices: [
+              { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      await callLocalOpenAICompatProvider({
+        provider: 'browser',
+        baseUrl: 'http://127.0.0.1:8789/v1',
+        apiKey: '',
+        model,
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: undefined,
+        messages: baseMessages,
+        tools,
+        maxTokens: 128,
+        isLocal: true,
+        contextWindow: 32_768,
+      });
+      return descriptions;
+    };
+
+    // A 350M needs the call shape spelled out to produce argument values...
+    expect(
+      (await sentDescriptionsFor('browser/LiquidAI/LFM2.5-350M-ONNX'))[0],
+    ).toContain('Example: shell(command="...")');
+    // ...larger models keep the plain compacted description.
+    expect(
+      (await sentDescriptionsFor('browser/LiquidAI/LFM2.5-8B-A1B-ONNX'))[0],
+    ).not.toContain('Example:');
   });
 
-  test('browser catalog mode sends one dispatcher tool + a catalog, and unwraps the call', async () => {
-    vi.stubEnv('HYBRIDCLAW_BROWSER_TOOL_CATALOG', '1');
-    const catalogTools: ToolDefinition[] = [
-      {
-        type: 'function',
-        function: {
-          name: 'bash',
-          description: 'Run a shell command and return its output.',
-          parameters: {
-            type: 'object',
-            properties: { command: { type: 'string', description: 'cmd' } },
-            required: ['command'],
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'read',
-          description: 'Read a file.',
-          parameters: {
-            type: 'object',
-            properties: { path: { type: 'string' } },
-            required: ['path'],
-          },
-        },
-      },
-    ];
-    let body: {
-      tools: Array<{ function: { name: string } }>;
-      messages: Array<{ role: string; content: string }>;
-    } = { tools: [], messages: [] };
-    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
-      body = JSON.parse(String(init?.body || '{}'));
-      return new Response(
-        JSON.stringify({
-          id: 'r',
-          model: 'm',
-          choices: [
-            {
-              message: {
-                role: 'assistant',
-                content: null,
-                tool_calls: [
-                  {
-                    id: 'd1',
-                    type: 'function',
-                    function: {
-                      name: 'tool_call',
-                      arguments:
-                        '{"name":"bash","arguments":{"command":"ls -la"}}',
-                    },
-                  },
-                ],
-              },
-              finish_reason: 'tool_calls',
-            },
-          ],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await callLocalOpenAICompatProvider({
-      provider: 'browser',
-      baseUrl: 'http://127.0.0.1:8789/v1',
-      apiKey: '',
-      model: 'browser/onnx-community/gemma-4-E2B-it-ONNX',
-      chatbotId: '',
-      enableRag: false,
-      requestHeaders: undefined,
-      messages: baseMessages,
-      tools: catalogTools,
-      maxTokens: 128,
-      isLocal: true,
-      contextWindow: 32_768,
-    });
-
-    // Only the dispatcher tool is sent.
-    expect(body.tools.map((tool) => tool.function.name)).toEqual(['tool_call']);
-    // Catalog is injected into the system prompt with names + required params.
-    expect(body.messages[0]?.role).toBe('system');
-    expect(body.messages[0]?.content).toContain('bash(command*)');
-    expect(body.messages[0]?.content).toContain('read(path*)');
-    // The dispatcher call is unwrapped back to the real bash tool call.
-    expect(result.choices[0]?.message.tool_calls?.[0]?.function).toEqual({
-      name: 'bash',
-      arguments: '{"command":"ls -la"}',
-    });
-  });
-
-  test('vision browser model preserves image content and skips the tool catalog', async () => {
+  test('vision browser model preserves image content in messages', async () => {
     const imageMessages: ChatMessage[] = [
       {
         role: 'user',
@@ -347,17 +282,12 @@ describe('local container providers', () => {
     expect(Array.isArray(userMessage?.content)).toBe(true);
     const parts = userMessage?.content as Array<{ type: string }>;
     expect(parts.some((p) => p.type === 'image_url')).toBe(true);
-    // No dispatcher tool / catalog is imposed on a vision model.
-    const toolNames = (body.tools || []).map(
-      (t) => (t as { function: { name: string } }).function.name,
-    );
-    expect(toolNames).not.toContain('tool_call');
   });
 
   test('tight-budget model bounds the TOTAL prompt as tool results accumulate', async () => {
     // Regression: after a successful tool call, the follow-up turn carries the
-    // catalog + the whole conversation + a large tool result. The total content
-    // must stay bounded so the rendered prompt fits under Gemma's token guard;
+    // whole conversation + a large tool result. The total content must stay
+    // bounded so the rendered prompt fits under Gemma's token guard;
     // previously only per-message caps existed and the sum blew past the guard.
     const tools: ToolDefinition[] = [
       {
@@ -435,37 +365,32 @@ describe('local container providers', () => {
     expect(totalContentChars).toBeLessThanOrEqual(3400);
   });
 
-  test('catalog auto-enables for tight-budget models (Gemma) but not LFM', async () => {
-    const catalogTools: ToolDefinition[] = [
-      {
-        type: 'function',
-        function: {
-          name: 'bash',
-          description: 'Run a shell command.',
-          parameters: {
-            type: 'object',
-            properties: { command: { type: 'string' } },
-            required: ['command'],
-          },
+  test('small LFM and Gemma models get a short native tool list; large ones keep more', async () => {
+    const manyTools: ToolDefinition[] = Array.from({ length: 40 }, (_, i) => ({
+      type: 'function',
+      function: {
+        name: i === 0 ? 'bash' : `tool_${i}`,
+        description: `Tool number ${i}`,
+        parameters: {
+          type: 'object',
+          properties: { arg: { type: 'string' } },
+          required: [],
         },
       },
-    ];
-    const sentToolNamesFor = async (model: string): Promise<string[]> => {
-      let names: string[] = [];
+    }));
+    const sentToolCountFor = async (model: string): Promise<number> => {
+      let count = 0;
       const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
         const body = JSON.parse(String(init?.body || '{}')) as {
-          tools?: Array<{ function: { name: string } }>;
+          tools?: unknown[];
         };
-        names = (body.tools || []).map((tool) => tool.function.name);
+        count = (body.tools || []).length;
         return new Response(
           JSON.stringify({
             id: 'r',
             model: 'm',
             choices: [
-              {
-                message: { role: 'assistant', content: 'ok' },
-                finish_reason: 'stop',
-              },
+              { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
             ],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -481,22 +406,91 @@ describe('local container providers', () => {
         enableRag: false,
         requestHeaders: undefined,
         messages: baseMessages,
-        tools: catalogTools,
+        tools: manyTools,
         maxTokens: 128,
         isLocal: true,
         contextWindow: 32_768,
       });
-      return names;
+      return count;
     };
 
-    // No env flag: Gemma (large vocab) auto-uses the dispatcher...
+    // A 350M gets a short list (Liquid guidance) to avoid hallucinating tools,
+    // Gemma's cap keeps the rendered declarations inside its token guard...
+    expect(await sentToolCountFor('browser/LiquidAI/LFM2.5-350M-ONNX')).toBe(16);
     expect(
-      await sentToolNamesFor('browser/onnx-community/gemma-4-E2B-it-ONNX'),
-    ).toEqual(['tool_call']);
-    // ...LFM keeps its real (compacted) tools.
-    expect(await sentToolNamesFor('browser/LiquidAI/LFM2.5-230M-ONNX')).toEqual([
-      'bash',
-    ]);
+      await sentToolCountFor('browser/onnx-community/gemma-4-E2B-it-ONNX'),
+    ).toBe(12);
+    // ...while a large LFM keeps the full compacted set.
+    expect(
+      await sentToolCountFor('browser/LiquidAI/LFM2.5-8B-A1B-ONNX'),
+    ).toBeGreaterThan(16);
+  });
+
+  test('tight-budget model bounds verbose tool declarations by chars and discloses drops', async () => {
+    // Twelve verbose tools would render past Gemma's token guard even under
+    // the count cap, so the list must shrink by serialized size too, and the
+    // system prompt must tell the model that tools were omitted.
+    const verboseTools: ToolDefinition[] = Array.from({ length: 30 }, (_, i) => ({
+      type: 'function',
+      function: {
+        name: i === 0 ? 'bash' : `mcp__service__operation_${i}`,
+        description: `Operation ${i}. ${'It does many detailed things. '.repeat(6)}`,
+        parameters: {
+          type: 'object',
+          properties: Object.fromEntries(
+            Array.from({ length: 4 }, (_, p) => [
+              `parameter_${p}`,
+              { type: 'string' },
+            ]),
+          ),
+          required: ['parameter_0'],
+        },
+      },
+    }));
+    let body: {
+      tools?: unknown[];
+      messages: Array<{ role: string; content: string }>;
+    } = { messages: [] };
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body || '{}'));
+      return new Response(
+        JSON.stringify({
+          id: 'r',
+          model: 'm',
+          choices: [
+            { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await callLocalOpenAICompatProvider({
+      provider: 'browser',
+      baseUrl: 'http://127.0.0.1:8789/v1',
+      apiKey: '',
+      model: 'browser/onnx-community/gemma-4-E2B-it-ONNX',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools: verboseTools,
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    // Rendered tool share (~0.6x serialized) stays within half the content
+    // budget so system + tools + messages fit under the worker's token guard;
+    // the list shrank below the 12-tool count cap but kept the core tools.
+    const serialized = JSON.stringify(body.tools || []).length;
+    expect(Math.floor(serialized * 0.6)).toBeLessThanOrEqual(1500);
+    expect((body.tools || []).length).toBeGreaterThanOrEqual(4);
+    expect((body.tools || []).length).toBeLessThan(12);
+    // The model is told the list was cut, so it won't deny real capabilities.
+    expect(body.messages[0]?.role).toBe('system');
+    expect(body.messages[0]?.content).toContain('more tools exist');
   });
 
   test('Ollama provider builds native /api/chat requests and extracts data URI images', async () => {
@@ -1416,14 +1410,17 @@ describe('local container providers', () => {
       >;
       const messages = body.messages as Array<Record<string, unknown>>;
       expect(body.model).toBe('LiquidAI/LFM2.5-230M-ONNX');
-      expect(body.tools).toEqual(tools);
+      expect(body.tools).toEqual(toolsWithExamples);
       expect(body.tool_choice).toBe('auto');
       expect(body.hybridclaw_debug_model_responses).toBe(true);
       expect(messages).toEqual([
         {
           role: 'system',
           content:
-            'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed.',
+            'You are HybridClaw, a concise helpful assistant. Answer directly. ' +
+            'Use a tool only when it helps, and only tools that are explicitly ' +
+            'listed — never invent tool or function names. If no listed tool ' +
+            'fits, answer normally without a tool call.',
         },
         { role: 'user', content: 'old question' },
         {
@@ -1592,7 +1589,7 @@ describe('local container providers', () => {
           string,
           unknown
         >;
-        expect(body.tools).toEqual(tools);
+        expect(body.tools).toEqual(toolsWithExamples);
         expect(body.tool_choice).toBe('auto');
         return makeEventStreamResponse([
           'data: {"id":"resp_1","model":"LiquidAI/LFM2.5-230M-ONNX","choices":[{"delta":{"content":"Thinking <|tool_call_start|>[tools."}}]}\n\n',
@@ -1643,7 +1640,7 @@ describe('local container providers', () => {
           string,
           unknown
         >;
-        expect(body.tools).toEqual(tools);
+        expect(body.tools).toEqual(toolsWithExamples);
         expect(body.tool_choice).toBe('auto');
         return makeEventStreamResponse([
           'data: {"id":"resp_1","model":"LiquidAI/LFM2.5-230M-ONNX","choices":[{"delta":{"content":"Checking call:shell{command:"}}]}\n\n',

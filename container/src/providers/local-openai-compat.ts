@@ -180,7 +180,10 @@ function estimatePromptToolInstructionTokens(instruction: string): number {
 }
 
 const BROWSER_MODEL_SYSTEM_PROMPT =
-  'You are HybridClaw, a concise helpful assistant. Answer directly. Use available tools when needed.';
+  'You are HybridClaw, a concise helpful assistant. Answer directly. ' +
+  'Use a tool only when it helps, and only tools that are explicitly listed — ' +
+  'never invent tool or function names. If no listed tool fits, answer ' +
+  'normally without a tool call.';
 const BROWSER_MODEL_HISTORY_LIMIT = 6;
 const BROWSER_MODEL_TOTAL_PROMPT_CHARS = 12_000;
 const BROWSER_MODEL_MESSAGE_CHARS = 6_000;
@@ -327,25 +330,48 @@ function compactBrowserToolParameters(
   };
 }
 
-function compactBrowserTool(tool: ToolDefinition): ToolDefinition | null {
+function compactBrowserTool(
+  tool: ToolDefinition,
+  withCallExample = false,
+): ToolDefinition | null {
   const name = String(tool.function.name || '').trim();
   if (!name) return null;
+  const parameters = compactBrowserToolParameters(tool.function.parameters);
+  let description = truncateBrowserToolText(
+    tool.function.description,
+    BROWSER_MODEL_TOOL_DESCRIPTION_CHARS,
+  );
+  if (withCallExample) {
+    // Small models produce the argument value far more reliably when the
+    // description shows the call shape (measured on LFM2.5-350M: without an
+    // example it emits empty arguments). Derive the parameter from the
+    // COMPACTED schema so the example never names a stripped property.
+    const properties = Object.keys(parameters.properties || {});
+    const required = Array.isArray(parameters.required)
+      ? parameters.required.filter(
+          (entry): entry is string =>
+            typeof entry === 'string' && properties.includes(entry),
+        )
+      : [];
+    const first = required[0] || properties[0] || '';
+    if (first) description = `${description} Example: ${name}(${first}="...")`;
+  }
   return {
     type: 'function',
-    function: {
-      name,
-      description: truncateBrowserToolText(
-        tool.function.description,
-        BROWSER_MODEL_TOOL_DESCRIPTION_CHARS,
-      ),
-      parameters: compactBrowserToolParameters(tool.function.parameters),
-    },
+    function: { name, description, parameters },
   };
 }
 
-function buildBrowserRequestTools(tools: ToolDefinition[]): ToolDefinition[] {
+function buildBrowserRequestTools(
+  tools: ToolDefinition[],
+  toolLimit: number = BROWSER_MODEL_TOOL_LIMIT,
+  withCallExamples = false,
+): ToolDefinition[] {
   const compactTools = tools
-    .map((tool, index) => ({ index, tool: compactBrowserTool(tool) }))
+    .map((tool, index) => ({
+      index,
+      tool: compactBrowserTool(tool, withCallExamples),
+    }))
     .filter(
       (entry): entry is { index: number; tool: ToolDefinition } =>
         entry.tool !== null,
@@ -359,7 +385,7 @@ function buildBrowserRequestTools(tools: ToolDefinition[]): ToolDefinition[] {
   const selected: ToolDefinition[] = [];
   let totalChars = 2;
   for (const entry of compactTools) {
-    if (selected.length >= BROWSER_MODEL_TOOL_LIMIT) break;
+    if (selected.length >= toolLimit) break;
     const serialized = JSON.stringify(entry.tool);
     if (
       selected.length > 0 &&
@@ -373,40 +399,25 @@ function buildBrowserRequestTools(tools: ToolDefinition[]): ToolDefinition[] {
   return selected;
 }
 
-// --- Phase 2: tool catalog + dispatcher (opt-in via env) -------------------
-// Instead of sending every tool's schema (which blows a small model's prompt
-// budget), expose a single `tool_call(name, arguments)` dispatcher plus a
-// compact name/param catalog in the system prompt. The model emits
-// tool_call(name="bash", arguments={...}); the provider unwraps it back into a
-// real tool call for the agent, and rewrites prior real tool calls in history
-// into the same dispatcher framing so the model only ever sees one tool.
-const BROWSER_TOOL_DISPATCHER_NAME = 'tool_call';
-
-// Large-vocabulary models have a tiny in-browser prompt budget (the prefill
-// logits overflow caps Gemma near ~1.7K tokens), so full tool schemas don't
-// fit and the catalog/dispatcher is required. Smaller-vocab models (LFM) have a
-// generous budget AND handle the flat call format better than the nested
-// dispatcher, so they keep full schemas by default.
+// Large-vocabulary models have a tiny in-browser prompt budget: the prefill
+// logits overflow caps Gemma's rendered prompt near ~1.7K tokens, so the whole
+// conversation (system + tools + messages) must be budgeted to fit.
 function isTightBudgetBrowserModel(model: string): boolean {
   return model.toLowerCase().includes('gemma');
 }
 
 // Vision-language browser models (e.g. .../LFM2.5-VL-450M-ONNX) accept image
-// content parts and load via AutoModelForImageTextToText in the bridge. They
-// must NOT go through the text tool-catalog path, which flattens content to
-// text and would drop images.
+// content parts and load via AutoModelForImageTextToText in the bridge. Their
+// message content (including images) must pass through untouched.
 function isVisionBrowserModel(model: string): boolean {
   return /(^|[/_.-])vl([/_.-]|$)|vision/i.test(model);
 }
 
-// Total char budget for the whole browser prompt (system + catalog + messages).
-// Gemma's ~1740-token guard is on the *rendered* prompt, which adds ~575 chars
-// of chat-template + tool scaffolding on top of this content budget. Measured
-// live: 3400 content chars -> 3976 rendered -> 1637 tokens (only ~6% headroom).
-// 3200 content chars -> ~1550 rendered tokens leaves ~11% headroom below the
-// guard even as tool results accumulate across turns, since this caps the total
-// content (older messages are truncated to fit). Larger-budget models keep the
-// default.
+// Total char budget for the tight-model message content (system + messages).
+// Gemma's ~1740-token guard is on the *rendered* prompt, which also carries the
+// chat template scaffolding and the rendered tool declarations; the tool share
+// is subtracted per-request (see buildRequestMessages). Measured live with 12
+// native tools and a 21-line tool result: 1413/1740 tokens.
 const BROWSER_MODEL_TIGHT_CONTENT_CHARS = 3200;
 
 function browserModelContentBudgetChars(model: string): number {
@@ -415,114 +426,30 @@ function browserModelContentBudgetChars(model: string): number {
     : BROWSER_MODEL_TOTAL_PROMPT_CHARS;
 }
 
-function browserToolCatalogEnabled(model: string): boolean {
-  const value = String(process.env.HYBRIDCLAW_BROWSER_TOOL_CATALOG || '')
-    .trim()
-    .toLowerCase();
-  if (value === '1' || value === 'true' || value === 'on') return true;
-  if (value === '0' || value === 'false' || value === 'off') return false;
-  return isTightBudgetBrowserModel(model);
+// Small Liquid/LFM text models (≤~1.2B) reliably use tool calls, but only with
+// a short tool list — Liquid's own guidance is to include just the relevant
+// tools. Given a long noisy list (dozens of tools) a 350M hallucinates a
+// non-existent tool name (e.g. "browser_watch"). They also need the call-shape
+// example in the tool description to produce argument values (see
+// compactBrowserTool).
+function isSmallLiquidBrowserModel(model: string): boolean {
+  const lower = model.toLowerCase();
+  if (isVisionBrowserModel(lower)) return false;
+  if (!(lower.includes('lfm') || lower.includes('liquid'))) return false;
+  return /(^|[^0-9])(230m|350m|450m|700m|1\.2b)([^0-9]|$)/.test(lower);
 }
 
-function safeParseArguments(value: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(value || '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function buildBrowserToolCatalog(
-  tools: ToolDefinition[],
-  maxChars: number,
-): string {
-  const compact = buildBrowserRequestTools(tools);
-  const header = [
-    'Available tools — call one with the tool_call function, setting name to the',
-    'tool name and arguments to its parameters. * marks a required parameter.',
-  ];
-  const toLine = (tool: ToolDefinition, withSummary: boolean): string => {
-    const required = new Set(tool.function.parameters.required || []);
-    const signature = Object.keys(tool.function.parameters.properties || {})
-      .map((name) => (required.has(name) ? `${name}*` : name))
-      .join(', ');
-    const summary = withSummary
-      ? truncateBrowserToolText(tool.function.description, 60)
-      : '';
-    return `- ${tool.function.name}(${signature})${summary ? `: ${summary}` : ''}`;
-  };
-  let lines = compact.map((tool) => toLine(tool, true));
-  if (lines.join('\n').length > maxChars) {
-    lines = compact.map((tool) => toLine(tool, false));
-  }
-  // Hard cap: truncate the priority-sorted list so long tool names can't blow
-  // the budget. Note how many were dropped so the model knows the list is cut.
-  const kept: string[] = [];
-  let total = 0;
-  for (const line of lines) {
-    if (kept.length > 0 && total + line.length + 1 > maxChars) break;
-    kept.push(line);
-    total += line.length + 1;
-  }
-  const omitted = lines.length - kept.length;
-  const footer =
-    omitted > 0 ? [`- (+${omitted} more tools available but not listed)`] : [];
-  return [...header, ...kept, ...footer].join('\n');
-}
-
-function buildBrowserToolDispatcher(): ToolDefinition {
-  return {
-    type: 'function',
-    function: {
-      name: BROWSER_TOOL_DISPATCHER_NAME,
-      description:
-        'Call one of the available tools listed in the system prompt. Set name to the tool name and arguments to an object of its parameters.',
-      parameters: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          arguments: { type: 'object' },
-        },
-        required: ['name', 'arguments'],
-      },
-    },
-  };
-}
-
-// Rewrite a real tool call (e.g. bash) into a dispatcher call so the model's
-// history stays consistent with the single tool it was given.
-function wrapBrowserToolCallAsDispatcher(toolCall: ToolCall): ToolCall {
-  return {
-    ...toolCall,
-    function: {
-      name: BROWSER_TOOL_DISPATCHER_NAME,
-      arguments: JSON.stringify({
-        name: toolCall.function.name,
-        arguments: safeParseArguments(toolCall.function.arguments),
-      }),
-    },
-  };
-}
-
-// Unwrap a model-emitted dispatcher call back into the real tool call.
-export function unwrapBrowserDispatcherToolCalls(
-  toolCalls: ToolCall[],
-): ToolCall[] {
-  return toolCalls.map((call) => {
-    if (call.function.name !== BROWSER_TOOL_DISPATCHER_NAME) return call;
-    const payload = safeParseArguments(call.function.arguments);
-    const name = typeof payload.name === 'string' ? payload.name : '';
-    if (!name) return call;
-    const innerArgs = payload.arguments;
-    const argumentsText =
-      typeof innerArgs === 'string'
-        ? innerArgs
-        : JSON.stringify(innerArgs ?? {});
-    return { ...call, function: { name, arguments: argumentsText } };
-  });
+// Tool-list caps, applied to the priority-sorted native list (bash and file
+// tools first). Small Liquid models get a short list per Liquid's guidance;
+// Gemma's cap keeps the rendered declarations inside its token guard (12 tools
+// measured ≈500 rendered tokens); everything else keeps the full compacted set.
+const BROWSER_MODEL_SMALL_TOOL_LIMIT = 16;
+const BROWSER_MODEL_TIGHT_TOOL_LIMIT = 12;
+function browserModelToolLimit(model: string): number {
+  if (isTightBudgetBrowserModel(model)) return BROWSER_MODEL_TIGHT_TOOL_LIMIT;
+  return isSmallLiquidBrowserModel(model)
+    ? BROWSER_MODEL_SMALL_TOOL_LIMIT
+    : BROWSER_MODEL_TOOL_LIMIT;
 }
 
 function normalizeBrowserRequestRole(
@@ -550,8 +477,8 @@ function normalizeBrowserToolCalls(
 
 function buildBrowserRequestMessages(
   messages: ChatMessage[],
-  catalog?: string | null,
   messageBudgetChars: number = BROWSER_MODEL_TOTAL_PROMPT_CHARS,
+  systemSuffix = '',
 ): Array<Record<string, unknown>> {
   const selected: Array<Record<string, unknown>> = [];
   let remainingChars = messageBudgetChars;
@@ -566,13 +493,8 @@ function buildBrowserRequestMessages(
     const role = normalizeBrowserRequestRole(message.role);
     if (!role) continue;
     const text = contentToText(message.content).trim();
-    const realToolCalls =
+    const toolCalls =
       role === 'assistant' ? normalizeBrowserToolCalls(message.tool_calls) : [];
-    // In catalog mode the model only knows the dispatcher, so rewrite prior
-    // real tool calls in history into dispatcher framing.
-    const toolCalls = catalog
-      ? realToolCalls.map(wrapBrowserToolCallAsDispatcher)
-      : realToolCalls;
     if (!text && toolCalls.length === 0) continue;
     const maxChars = Math.min(BROWSER_MODEL_MESSAGE_CHARS, remainingChars);
     if (maxChars <= 0) break;
@@ -592,9 +514,7 @@ function buildBrowserRequestMessages(
   return [
     {
       role: 'system',
-      content: catalog
-        ? `${BROWSER_MODEL_SYSTEM_PROMPT}\n\n${catalog}`
-        : BROWSER_MODEL_SYSTEM_PROMPT,
+      content: `${BROWSER_MODEL_SYSTEM_PROMPT}${systemSuffix}`,
     },
     ...selected,
   ];
@@ -713,39 +633,79 @@ function sanitizeMistralToolCallIds(
   });
 }
 
+// Assemble the tools and messages of a browser-model request together, so the
+// compaction/cap runs once and the tight-model message budget is derived from
+// the exact tool list that is sent.
+function buildBrowserRequest(args: NormalizedCallArgs): {
+  tools: ToolDefinition[];
+  messages: Array<Record<string, unknown>>;
+} {
+  // Vision-language models take image content parts, which must pass through
+  // untouched (flattening to text would drop the images).
+  if (isVisionBrowserModel(args.model)) {
+    return {
+      tools: buildBrowserRequestTools(args.tools),
+      messages: collapseSystemMessages(args.messages).map((message) => ({
+        ...message,
+        content: normalizeMessageContent(message.content),
+      })),
+    };
+  }
+  const tools = buildBrowserRequestTools(
+    args.tools,
+    browserModelToolLimit(args.model),
+    isSmallLiquidBrowserModel(args.model),
+  );
+  // Tight-budget models (Gemma) must fit system + rendered tools + the whole
+  // conversation (including accumulating tool results) under the token guard,
+  // so bound the tool declarations and subtract their share from the message
+  // budget rather than capping each part independently.
+  const contentBudget = browserModelContentBudgetChars(args.model);
+  const systemChars = BROWSER_MODEL_SYSTEM_PROMPT.length + 2;
+  let toolShareChars = 0;
+  if (isTightBudgetBrowserModel(args.model)) {
+    // The chat template renders declarations slightly denser than the
+    // serialized JSON (measured on gemma-4: ~0.6x the serialized length). A
+    // count cap alone doesn't bound verbose schemas, so also shrink the
+    // (priority-sorted) list until its rendered share leaves at least half the
+    // content budget for messages. Keep a handful of core tools regardless.
+    const shareOf = (list: ToolDefinition[]): number =>
+      Math.floor(JSON.stringify(list).length * 0.6);
+    while (
+      tools.length > 4 &&
+      shareOf(tools) > (contentBudget - systemChars) / 2
+    ) {
+      tools.pop();
+    }
+    toolShareChars = shareOf(tools);
+  }
+  const dropped = args.tools.length - tools.length;
+  if (dropped > 0) {
+    console.warn(
+      `[local-openai-compat] browser tool list capped for ${args.model}: ` +
+        `sending ${tools.length} of ${args.tools.length} tools ` +
+        `(priority-ordered).`,
+    );
+  }
+  const messageBudget = Math.max(
+    1200,
+    contentBudget - systemChars - toolShareChars,
+  );
+  return {
+    tools,
+    messages: buildBrowserRequestMessages(
+      args.messages,
+      messageBudget,
+      dropped > 0
+        ? ` ${dropped} more tools exist but are not listed; if a needed tool is missing, say so.`
+        : '',
+    ),
+  };
+}
+
 function buildRequestMessages(
   args: NormalizedCallArgs,
 ): Array<Record<string, unknown>> {
-  if (args.provider === 'browser') {
-    // Vision-language models take image content parts and don't use the text
-    // tool catalog; preserve message content (including images) and pass through.
-    if (isVisionBrowserModel(args.model)) {
-      return collapseSystemMessages(args.messages).map((message) => ({
-        ...message,
-        content: normalizeMessageContent(message.content),
-      }));
-    }
-    // Tight-budget models (Gemma) must fit system + catalog + the whole
-    // conversation (including accumulating tool results) under the token guard,
-    // so split one total char budget across the catalog and the messages rather
-    // than capping each independently.
-    const contentBudget = browserModelContentBudgetChars(args.model);
-    const systemChars = BROWSER_MODEL_SYSTEM_PROMPT.length + 2;
-    const catalog =
-      browserToolCatalogEnabled(args.model) &&
-      Array.isArray(args.tools) &&
-      args.tools.length > 0
-        ? buildBrowserToolCatalog(
-            args.tools,
-            Math.floor((contentBudget - systemChars) / 2),
-          )
-        : null;
-    const messageBudget = Math.max(
-      500,
-      contentBudget - systemChars - (catalog ? catalog.length : 0),
-    );
-    return buildBrowserRequestMessages(args.messages, catalog, messageBudget);
-  }
   let messages = usesQwenCompat(args)
     ? buildQwenRequestMessages(args.messages)
     : collapseSystemMessages(args.messages).map((message) => ({
@@ -771,20 +731,14 @@ function buildRequestMessages(
 }
 
 function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
-  const browserCatalogMode =
-    args.provider === 'browser' &&
-    browserToolCatalogEnabled(args.model) &&
-    Array.isArray(args.tools) &&
-    args.tools.length > 0;
-  const tools =
-    args.provider === 'browser'
-      ? browserCatalogMode
-        ? [buildBrowserToolDispatcher()]
-        : buildBrowserRequestTools(args.tools)
-      : args.tools;
+  const browserRequest =
+    args.provider === 'browser' ? buildBrowserRequest(args) : null;
+  const tools = browserRequest ? browserRequest.tools : args.tools;
   const request: Record<string, unknown> = {
     model: normalizeLocalModelName(args.provider, args.model),
-    messages: buildRequestMessages(args),
+    messages: browserRequest
+      ? browserRequest.messages
+      : buildRequestMessages(args),
   };
   if (tools.length > 0) {
     request.tools = tools;
@@ -974,16 +928,6 @@ function adaptLocalOpenAICompatResponse(
         toolCalls: thinkingToolCalls.toolCalls,
       };
     }
-  }
-  if (
-    params.provider === 'browser' &&
-    browserToolCatalogEnabled(params.model) &&
-    normalized.toolCalls.length > 0
-  ) {
-    normalized = {
-      content: normalized.content,
-      toolCalls: unwrapBrowserDispatcherToolCalls(normalized.toolCalls),
-    };
   }
   return {
     ...payload,

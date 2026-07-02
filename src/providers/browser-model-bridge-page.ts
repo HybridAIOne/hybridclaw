@@ -292,7 +292,6 @@ async function loadTransformersRuntime() {
           // Multimodal (vision) models can't go through the text-generation
           // pipeline; they load as AutoModelForImageTextToText + AutoProcessor
           // and generate directly. Exposed here so loadGenerator can branch.
-          AutoConfig: runtime.AutoConfig,
           AutoProcessor: runtime.AutoProcessor,
           AutoModelForImageTextToText: runtime.AutoModelForImageTextToText,
           RawImage: runtime.RawImage
@@ -744,24 +743,30 @@ async function loadGenerator() {
   return generatorPromise;
 }
 
-// Vision-language models (e.g. lfm2_vl) declare a vision_config and cannot load
-// through the text-generation pipeline (AutoModelForCausalLM rejects them with
-// "Unsupported model type"). Detect them from the config and pick the loader.
-async function isMultimodalModel(runtime) {
-  if (!runtime.AutoConfig) return false;
-  try {
-    const config = await runtime.AutoConfig.from_pretrained(CONFIG.model);
-    const raw = (config && config.config) || config || {};
-    return Boolean(raw.vision_config);
-  } catch (error) {
-    log('Config probe failed; assuming text model', errorToData(error));
-    return false;
-  }
-}
-
+// Text models load through the standard text-generation pipeline. Pure
+// vision-language exports (e.g. lfm2_vl) are rejected by AutoModelForCausalLM
+// with "Unsupported model type" — those fall back to the multimodal loader
+// (AutoProcessor + AutoModelForImageTextToText). The rejection happens at the
+// config check, before any weights download, so the failed attempt is cheap.
+// Note: multimodal-capable models that ALSO load as text (e.g. gemma-4) stay on
+// the pipeline path — its chat template expects string message content there.
 async function buildGenerator(runtime) {
-  if (await isMultimodalModel(runtime)) {
-    log('Loading vision-language model', { model: CONFIG.model });
+  try {
+    return await runtime.pipeline('text-generation', CONFIG.model, {
+      dtype: CONFIG.dtype,
+      device: CONFIG.device,
+      progress_callback: reportLoadProgress,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // Matches the rejection text of the vendored transformers.js bundle
+    // (/vendor/transformers.worker.js); revisit if that bundle is updated.
+    const visionOnly =
+      /unsupported model type/i.test(message) &&
+      runtime.AutoProcessor &&
+      runtime.AutoModelForImageTextToText;
+    if (!visionOnly) throw error;
+    log('Loading vision-language model', { model: CONFIG.model, reason: message });
     const [processor, model] = await Promise.all([
       runtime.AutoProcessor.from_pretrained(CONFIG.model, {
         progress_callback: reportLoadProgress,
@@ -780,11 +785,6 @@ async function buildGenerator(runtime) {
       config: model.config,
     };
   }
-  return runtime.pipeline('text-generation', CONFIG.model, {
-    dtype: CONFIG.dtype,
-    device: CONFIG.device,
-    progress_callback: reportLoadProgress,
-  });
 }
 
 function resolveVocabSize(generator) {
@@ -823,10 +823,20 @@ function resolveVocabSize(generator) {
   return vocabSize;
 }
 
+function messagesContainImages(messages) {
+  if (!Array.isArray(messages)) return false;
+  return messages.some((message) =>
+    Array.isArray(message && message.content) &&
+    message.content.some(
+      (part) =>
+        part && (part.type === 'image_url' || part.type === 'image'),
+    ),
+  );
+}
+
 // Build the input tensors for a vision-language model. OpenAI messages carry
 // images as content parts ({type:'image_url'}); the chat template turns those
 // into <image> placeholders which the processor expands into vision tokens.
-// Text-only turns skip the processor (and thus the vision encoder) entirely.
 async function buildMultimodalInputs(generator, messages) {
   const runtime = await loadTransformersRuntime();
   const templateMessages = [];
@@ -876,10 +886,9 @@ async function buildMultimodalInputs(generator, messages) {
   if (chatTemplate) templateOptions.chat_template = chatTemplate;
   const text = tokenizer.apply_chat_template(templateMessages, templateOptions);
 
-  const inputs =
-    images.length > 0
-      ? await generator.processor(images, text)
-      : tokenizer(text, { add_special_tokens: false });
+  // Only called for turns that contain images (text turns take the rendered
+  // prompt path in generate()).
+  const inputs = await generator.processor(images, text);
   return { inputs, text, imageCount: images.length };
 }
 
@@ -924,16 +933,18 @@ async function generate(id, request) {
     const generator = await loadGenerator();
     phase = 'prompt';
     const multimodal = Boolean(generator.multimodal);
-    // Tool-call forcing is a text-only concern (Liquid models); vision models
-    // generate via model.generate() and don't take a forced prefix.
+    // Only turns that actually carry images need the processor's image inputs;
+    // text turns — including tool calls — use the rendered chat template even
+    // on a vision-language model, so tools and forcing behave identically.
+    const withImages = multimodal && messagesContainImages(request.messages);
     const forcedPrefix =
-      !multimodal && typeof request.force_assistant_prefix === 'string'
+      !withImages && typeof request.force_assistant_prefix === 'string'
         ? request.force_assistant_prefix
         : '';
 
     let promptText = '';
     let multimodalInputs = null;
-    if (multimodal) {
+    if (withImages) {
       const built = await buildMultimodalInputs(generator, request.messages);
       multimodalInputs = built.inputs;
       promptText = built.text;
@@ -964,9 +975,9 @@ async function generate(id, request) {
       // keeps the session healthy for later (shorter) requests. Measured on
       // gemma-4-E2B (vocab 262144): 1740 prompt tokens succeed but 2001 fail, so
       // the 0.85 factor caps the limit (~1740) at the highest confirmed-good
-      // length. (Vision models generate via model.generate(), which keeps only
-      // the last-token logits, so they don't need this guard.)
-      const vocabSize = resolveVocabSize(generator);
+      // length. Multimodal generators are exempt: they call model.generate()
+      // directly, which keeps only the last-token logits.
+      const vocabSize = multimodal ? 0 : resolveVocabSize(generator);
       if (Number.isFinite(vocabSize) && vocabSize > 0) {
         let promptTokens = 0;
         try {
@@ -996,9 +1007,14 @@ async function generate(id, request) {
     // emit it as the first delta to keep streamed and final content aligned.
     if (forcedPrefix) post({ type: 'delta', id, delta: forcedPrefix });
 
+    // When the assistant turn is force-prefilled with Gemma's thinking-channel
+    // opener, the closing marker must survive into the output text so the
+    // bridge can separate thinking from the answer (it strips both markers and
+    // thinking blocks before returning content).
+    const keepSpecialTokens = forcedPrefix.indexOf('<|channel>') >= 0;
     const streamer = new runtime.TextStreamer(generator.tokenizer, {
       skip_prompt: true,
-      skip_special_tokens: true,
+      skip_special_tokens: !keepSpecialTokens,
       callback_function: (delta) => {
         if (!delta) return;
         output += delta;
@@ -1064,10 +1080,14 @@ async function generate(id, request) {
     let result = null;
     let fallbackText = '';
     if (multimodal) {
-      // Vision models generate directly off the processor's input tensors.
-      // Pipeline-only options (add_special_tokens, return_full_text) don't apply.
+      // Multimodal models generate directly off input tensors (there is no
+      // pipeline task for them): the processor's tensors when the turn has
+      // images, otherwise the tokenized rendered prompt.
+      const inputs =
+        multimodalInputs ||
+        generator.tokenizer(promptText, { add_special_tokens: false });
       const genInputs = {
-        ...multimodalInputs,
+        ...inputs,
         max_new_tokens: generationOptions.max_new_tokens,
         do_sample: generationOptions.do_sample,
         temperature: generationOptions.temperature,
@@ -1080,7 +1100,7 @@ async function generate(id, request) {
         genInputs.top_p = generationOptions.top_p;
       }
       result = await generator.model.generate(genInputs);
-      fallbackText = decodeMultimodalOutput(generator, multimodalInputs, result);
+      fallbackText = decodeMultimodalOutput(generator, inputs, result);
     } else {
       result = await generator(promptText, generationOptions);
       fallbackText = extractGeneratedText(result);
@@ -1597,6 +1617,20 @@ export function buildBrowserBridgeHtml(config: {
     }
 
     log('Bridge page initialized for ' + CONFIG.model + ' on ' + CONFIG.device + ' / ' + CONFIG.dtype);
+    // Chrome's energy saver freezes occluded tabs after a few minutes, which
+    // suspends this page's event loop — in-flight and future requests then hang
+    // silently until the bridge's 15-minute timeout. Holding a Web Lock marks
+    // the tab as doing protected work, which exempts it from freezing.
+    // Shared mode: a replacement tab (the server closes the old socket when a
+    // new tab connects) must also be able to hold the lock while the old tab
+    // is still open, or it would queue forever and get no freeze protection.
+    if (navigator.locks && typeof navigator.locks.request === 'function') {
+      navigator.locks.request(
+        'hybridclaw-bridge-active',
+        { mode: 'shared' },
+        () => new Promise(() => {}),
+      );
+    }
     connect();
     if (!navigator.gpu && CONFIG.device === 'webgpu') {
       setRuntime('error', 'WebGPU is not available in this browser', 0);
