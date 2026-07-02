@@ -53,6 +53,12 @@ node skills/lexware-office/lexware_office.cjs http-request profile
   endpoints. Use small pages and back off on `429`.
 - Contacts, articles, vouchers, and voucherlist are paginated. Use `--page` and
   `--size`; the helper caps `--size` at 250.
+- Quotations can be created as drafts or finalized at creation time with
+  `--finalize`. Only pass `--finalize` when the user clearly asks to issue or
+  finalize the quotation; otherwise keep a draft and ask when intent is unclear.
+- Quotation PDFs should use `download-quotation-file`. The documented
+  `render-quotation-document` endpoint is deprecated and should only be used
+  when a legacy workflow explicitly needs a document file id.
 - Voucher updates require the current `version` property for optimistic locking.
   Read the voucher first, then update with the returned version.
 - The public payments endpoint is read-only. It can show payment items and
@@ -68,6 +74,7 @@ node skills/lexware-office/lexware_office.cjs http-request profile
 node skills/lexware-office/lexware_office.cjs http-request profile
 node skills/lexware-office/lexware_office.cjs http-request list-contacts --size 5
 node skills/lexware-office/lexware_office.cjs http-request list-invoices --status open --size 5
+node skills/lexware-office/lexware_office.cjs http-request list-quotations --status open --size 5
 node skills/lexware-office/lexware_office.cjs http-request posting-categories
 ```
 
