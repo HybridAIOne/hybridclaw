@@ -23,10 +23,10 @@ import { sendToDiscordWebhookTarget } from '../discord-webhook/runtime.js';
 import { normalizeDiscordWebhookChannelTarget } from '../discord-webhook/target.js';
 import { isEmailAddress, normalizeEmailAddress } from '../email/allowlist.js';
 import {
+  type EmailMailboxReadResult,
   readEmailMailbox,
   sendEmailAttachmentTo,
   sendToEmail,
-  type EmailMailboxReadResult,
 } from '../email/runtime.js';
 import { sendToSignalChat } from '../signal/runtime.js';
 import { normalizeSignalChannelId } from '../signal/target.js';
@@ -782,7 +782,9 @@ type EmailMailboxMessage = Extract<
   { kind: 'search' }
 >['snapshot']['messages'][number];
 
-function truncateEmailMailboxText(value: string | null | undefined): string | null {
+function truncateEmailMailboxText(
+  value: string | null | undefined,
+): string | null {
   const normalized = String(value || '').trim();
   if (!normalized) return null;
   if (normalized.length <= MESSAGE_TOOL_EMAIL_BODY_MAX_LENGTH) {

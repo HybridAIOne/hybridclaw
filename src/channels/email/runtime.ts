@@ -12,10 +12,10 @@ import { EMAIL_CAPABILITIES } from '../channel.js';
 import { createChannelRuntime } from '../channel-runtime-factory.js';
 import {
   fetchLiveAdminEmailMessage,
-  searchLiveEmailMailbox,
   type LiveAdminEmailMessageThreadSnapshot,
   type LiveEmailMailboxSearchParams,
   type LiveEmailMailboxSearchSnapshot,
+  searchLiveEmailMailbox,
 } from './admin-mailbox.js';
 import { createEmailConnectionManager } from './connection.js';
 import { type EmailSendParams, sendEmail } from './delivery.js';

@@ -2,8 +2,8 @@ import {
   type FetchMessageObject,
   ImapFlow,
   type MessageAddressObject,
-  type SearchObject,
   type MessageStructureObject,
+  type SearchObject,
 } from 'imapflow';
 import { type AddressObject, type ParsedMail, simpleParser } from 'mailparser';
 import sanitizeHtml from 'sanitize-html';
@@ -281,16 +281,16 @@ function normalizeSearchLimit(limit: number | undefined): number {
   );
 }
 
-function normalizeSearchFolders(params: LiveEmailMailboxSearchParams): string[] {
+function normalizeSearchFolders(
+  params: LiveEmailMailboxSearchParams,
+): string[] {
   const values = [
     params.folder,
     ...(Array.isArray(params.folders) ? params.folders : []),
   ];
   return [
     ...new Set(
-      values
-        .map((folder) => String(folder || '').trim())
-        .filter(Boolean),
+      values.map((folder) => String(folder || '').trim()).filter(Boolean),
     ),
   ];
 }
