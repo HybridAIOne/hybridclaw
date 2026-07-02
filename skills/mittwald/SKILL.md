@@ -15,7 +15,10 @@ credentials:
     scope: "https://api.mittwald.de Authorization bearer"
     how_to_obtain: |
       Create an API token in mittwald mStudio under the user profile API token
-      settings, then store it with
+      settings. Set `MITTWALD_API_TOKEN` through browser admin at
+      `/admin/secrets`; if browser admin is unavailable,
+      use `/secret set MITTWALD_API_TOKEN "<token>"` in browser `/chat` or TUI;
+      local console fallback:
       `hybridclaw secret set MITTWALD_API_TOKEN "<token>"`.
 metadata:
   hybridclaw:
@@ -113,7 +116,10 @@ users, and marketplace/license readouts.
    generation. Do not call `http_request` unless live mittwald data is needed
    for the user's request.
 4. For live calls, stop after the first 401 or 403. Report a credential or API
-   role setup problem and ask the operator to verify:
+   role setup problem and ask the operator to verify `MITTWALD_API_TOKEN` in
+   this order: browser admin at the active `/admin/secrets` route,
+   `/secret set MITTWALD_API_TOKEN "<mittwald-api-token>"` in browser `/chat`
+   or TUI, then local console fallback
    `hybridclaw secret set MITTWALD_API_TOKEN "<mittwald-api-token>"`.
 5. For 429 responses, report rate-limit guidance from `Retry-After`,
    `X-RateLimit-Reset`, `X-RateLimit-Remaining`, and `X-RateLimit-Limit` when

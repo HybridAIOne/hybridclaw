@@ -13,7 +13,7 @@ credentials:
       source: store
       id: HETZNER_API_TOKEN
     scope: "api.hetzner.com/v1/storage_boxes"
-    how_to_obtain: "Create a Hetzner Console API token for the project containing the Storage Box. Use read-only scope for inventory and read-write scope only for approved Storage Box management changes."
+    how_to_obtain: "Create a Hetzner Console API token for the project containing the Storage Box. Use read-only scope for inventory and read-write scope only for approved Storage Box management changes. Set `HETZNER_API_TOKEN` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set HETZNER_API_TOKEN \"<hetzner-console-api-token>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set HETZNER_API_TOKEN \"<hetzner-console-api-token>\"`."
   - id: hetzner-storage-box-basic-auth
     kind: header
     required: false
@@ -21,7 +21,7 @@ credentials:
       source: store
       id: HETZNER_STORAGE_BOX_BASIC_AUTH
     scope: "*.your-storagebox.de WebDAV Authorization header"
-    how_to_obtain: "Base64-encode '<storage-box-username>:<password>' and store only that encoded value. The helper injects it as 'Authorization: Basic <secret>' for WebDAV file operations."
+    how_to_obtain: "Base64-encode '<storage-box-username>:<password>' and store only that encoded value. Set `HETZNER_STORAGE_BOX_BASIC_AUTH` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set HETZNER_STORAGE_BOX_BASIC_AUTH \"<base64-username-password>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set HETZNER_STORAGE_BOX_BASIC_AUTH \"<base64-username-password>\"`. The helper injects it as 'Authorization: Basic <secret>' for WebDAV file operations."
 metadata:
   hybridclaw:
     category: infrastructure
@@ -90,7 +90,12 @@ plus WebDAV file reads and guarded uploads/archives.
 
 ## Secret Setup
 
-API management calls use `HETZNER_API_TOKEN`:
+API management calls use `HETZNER_API_TOKEN`. Set or update it in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set HETZNER_API_TOKEN "<hetzner-console-api-token>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set HETZNER_API_TOKEN "<hetzner-console-api-token>"
@@ -101,7 +106,12 @@ management APIs. DNS uses its own `HETZNER_DNS_API_TOKEN` because Hetzner DNS is
 served by a separate DNS API and `Auth-API-Token` header.
 
 WebDAV file operations use a Basic-auth secret containing only the base64
-encoded `username:password` payload:
+encoded `username:password` payload. Set it in the same order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set HETZNER_STORAGE_BOX_BASIC_AUTH "<base64-username-password>"`.
+3. Local console fallback:
 
 ```bash
 printf '%s' 'u00000:storage-box-password' | base64

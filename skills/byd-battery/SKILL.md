@@ -13,7 +13,7 @@ credentials:
       source: store
       id: BYD_BMU_HOST
     scope: "LAN hostname or IP address of the BYD BMU Modbus endpoint"
-    how_to_obtain: "Find the BMU LAN address from the router, inverter installer page, or Be Connect Plus commissioning notes, then store it with `hybridclaw secret set BYD_BMU_HOST \"192.168.1.50\"`."
+    how_to_obtain: "Find the BMU LAN address from the router, inverter page, or Be Connect Plus notes. Set `BYD_BMU_HOST` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set BYD_BMU_HOST \"192.168.1.50\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set BYD_BMU_HOST \"192.168.1.50\"`."
   - id: byd-bmu-modbus-port
     kind: header
     required: false
@@ -21,7 +21,7 @@ credentials:
       source: store
       id: BYD_BMU_MODBUS_PORT
     scope: "BYD BMU Modbus TCP port, usually 8080 or 502 depending on firmware and wiring"
-    how_to_obtain: "Confirm the port in the installer documentation or LAN scan and store it with `hybridclaw secret set BYD_BMU_MODBUS_PORT \"8080\"`."
+    how_to_obtain: "Confirm the port in the installer documentation or LAN scan. Set `BYD_BMU_MODBUS_PORT` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set BYD_BMU_MODBUS_PORT \"8080\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set BYD_BMU_MODBUS_PORT \"8080\"`."
   - id: byd-bmu-unit-id
     kind: header
     required: false
@@ -29,7 +29,7 @@ credentials:
       source: store
       id: BYD_BMU_UNIT_ID
     scope: "Pinned Modbus unit id for the BMU, usually 1"
-    how_to_obtain: "Confirm the unit id from the installer handoff or Modbus adapter configuration and store it with `hybridclaw secret set BYD_BMU_UNIT_ID \"1\"`."
+    how_to_obtain: "Confirm the unit id from the installer handoff or Modbus adapter configuration. Set `BYD_BMU_UNIT_ID` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set BYD_BMU_UNIT_ID \"1\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set BYD_BMU_UNIT_ID \"1\"`."
   - id: byd-bmu-model
     kind: header
     required: false
@@ -37,7 +37,7 @@ credentials:
       source: store
       id: BYD_BMU_MODEL
     scope: "Operator-declared Battery-Box model family such as Premium HVS, HVM, LVS, LVL, HV, or LV"
-    how_to_obtain: "Read the battery nameplate or installer handoff and store it with `hybridclaw secret set BYD_BMU_MODEL \"Premium HVS\"`."
+    how_to_obtain: "Read the battery nameplate or installer handoff. Set `BYD_BMU_MODEL` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set BYD_BMU_MODEL \"Premium HVS\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set BYD_BMU_MODEL \"Premium HVS\"`."
 metadata:
   hybridclaw:
     category: home-automation
@@ -109,7 +109,14 @@ are well known.
 
 ## Setup
 
-Store local BMU connection values in HybridClaw runtime secrets:
+Set local BMU connection values in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set the
+   `BYD_BMU_*` values.
+2. Browser `/chat` or TUI fallback:
+   `/secret set BYD_BMU_HOST "192.168.1.50"` plus the matching port, unit id,
+   and model values.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set BYD_BMU_HOST "192.168.1.50"

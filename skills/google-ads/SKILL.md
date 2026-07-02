@@ -112,15 +112,24 @@ hybridclaw auth login google \
   --scopes "https://www.googleapis.com/auth/adwords"
 
 hybridclaw auth status google
-hybridclaw secret set GOOGLEADS_DEVELOPER_TOKEN "<developer-token>"
 ```
+
+Set `GOOGLEADS_DEVELOPER_TOKEN` in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set GOOGLEADS_DEVELOPER_TOKEN "<developer-token>"`.
+3. Local console fallback:
+   `hybridclaw secret set GOOGLEADS_DEVELOPER_TOKEN "<developer-token>"`.
 
 Do not ask the user to add `secret route` entries for normal Google Ads skill
 use. The skill should pass `bearerSecretName: "GOOGLE_WORKSPACE_CLI_TOKEN"` and
 `secretHeaders: [{ "name": "developer-token", "secretName":
 "GOOGLEADS_DEVELOPER_TOKEN", "prefix": "" }]` in each `http_request` call.
 
-Optional stored defaults:
+Optional stored defaults use the same setup order: browser admin at
+`/admin/secrets`, then `/secret set` in browser `/chat` or
+TUI, then local console fallback.
 
 ```bash
 hybridclaw secret set GOOGLEADS_CUSTOMER_ID "<customer-id-without-hyphens>"

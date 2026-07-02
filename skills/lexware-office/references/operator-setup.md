@@ -9,7 +9,12 @@ Lexware Office account under the Public API add-on page:
 https://app.lexware.de/addons/public-api
 ```
 
-Store the value in the encrypted HybridClaw runtime secret store:
+Set the value in the encrypted HybridClaw runtime secret store in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set LEXWARE_OFFICE_API_KEY "<api-key>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set LEXWARE_OFFICE_API_KEY "<api-key>"

@@ -4,7 +4,12 @@
 
 Google Ads API calls require a Google Ads developer token in addition to OAuth.
 Create or reuse a Google Ads manager account, open API Center, request a
-developer token, and store it in HybridClaw:
+developer token, and set it in HybridClaw in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set GOOGLEADS_DEVELOPER_TOKEN "<developer-token>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set GOOGLEADS_DEVELOPER_TOKEN "<developer-token>"
@@ -45,7 +50,11 @@ python3 skills/google-ads/scripts/google_ads.py gaql 1234567890 \
   "SELECT campaign.id, campaign.name FROM campaign LIMIT 20"
 ```
 
-Store defaults when useful:
+Store defaults when useful in the same setup order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback with `/secret set GOOGLEADS_* ...`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set GOOGLEADS_CUSTOMER_ID "1234567890"

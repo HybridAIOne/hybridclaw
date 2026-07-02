@@ -19,7 +19,7 @@ credentials:
       source: store
       id: FRONIUS_SOLARWEB_ACCESS_KEY_ID
     scope: "Solar.web Query API AccessKeyId header"
-    how_to_obtain: "Apply for Solar.web Query API access in Solar.web, create an API key, and store the key id with `hybridclaw secret set FRONIUS_SOLARWEB_ACCESS_KEY_ID \"<access-key-id>\"`."
+    how_to_obtain: "Apply for Solar.web Query API access in Solar.web and create an API key. Set `FRONIUS_SOLARWEB_ACCESS_KEY_ID` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set FRONIUS_SOLARWEB_ACCESS_KEY_ID \"<access-key-id>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set FRONIUS_SOLARWEB_ACCESS_KEY_ID \"<access-key-id>\"`."
   - id: fronius-solarweb-access-key-value
     kind: api_key
     required: false
@@ -27,7 +27,7 @@ credentials:
       source: store
       id: FRONIUS_SOLARWEB_ACCESS_KEY_VALUE
     scope: "Solar.web Query API AccessKeyValue header"
-    how_to_obtain: "Save the API key value when Solar.web shows it and store it with `hybridclaw secret set FRONIUS_SOLARWEB_ACCESS_KEY_VALUE \"<access-key-value>\"`."
+    how_to_obtain: "Save the API key value when Solar.web shows it. Set `FRONIUS_SOLARWEB_ACCESS_KEY_VALUE` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set FRONIUS_SOLARWEB_ACCESS_KEY_VALUE \"<access-key-value>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set FRONIUS_SOLARWEB_ACCESS_KEY_VALUE \"<access-key-value>\"`."
 metadata:
   hybridclaw:
     category: home-automation
@@ -121,7 +121,15 @@ The inverter LAN URL is configuration, not credential material. It can also be
 passed per request with `--local-host http://<fronius-ip>` or exported as
 `FRONIUS_LOCAL_HOST`.
 
-Solar.web cloud path:
+Solar.web cloud path setup order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set
+   `FRONIUS_SOLARWEB_ACCESS_KEY_ID` and
+   `FRONIUS_SOLARWEB_ACCESS_KEY_VALUE`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set FRONIUS_SOLARWEB_ACCESS_KEY_ID "<access-key-id>"` and
+   `/secret set FRONIUS_SOLARWEB_ACCESS_KEY_VALUE "<access-key-value>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set FRONIUS_SOLARWEB_ACCESS_KEY_ID "<access-key-id>"

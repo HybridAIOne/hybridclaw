@@ -13,7 +13,7 @@ credentials:
       source: store
       id: MIRO_ACCESS_TOKEN
     scope: "api.miro.com/v2 boards:read boards:write"
-    how_to_obtain: "Create a Miro OAuth app or access token with the narrowest needed board scopes, then store it with `hybridclaw secret set MIRO_ACCESS_TOKEN \"<token>\"`."
+    how_to_obtain: "Create a Miro OAuth app or access token with the narrowest needed board scopes. Set `MIRO_ACCESS_TOKEN` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set MIRO_ACCESS_TOKEN \"<token>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set MIRO_ACCESS_TOKEN \"<token>\"`."
   - id: miro-discovery-access-token
     kind: bearer
     required: false
@@ -21,7 +21,7 @@ credentials:
       source: store
       id: MIRO_DISCOVERY_ACCESS_TOKEN
     scope: "api.miro.com/v2 boards:export"
-    how_to_obtain: "Enterprise admins can enable eDiscovery in Miro Enterprise Integrations and store the Discovery token with `hybridclaw secret set MIRO_DISCOVERY_ACCESS_TOKEN \"<token>\"`."
+    how_to_obtain: "Enterprise admins can enable eDiscovery in Miro Enterprise Integrations. Set `MIRO_DISCOVERY_ACCESS_TOKEN` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set MIRO_DISCOVERY_ACCESS_TOKEN \"<token>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set MIRO_DISCOVERY_ACCESS_TOKEN \"<token>\"`."
   - id: miro-oauth-client-id
     kind: oauth
     required: false
@@ -29,7 +29,7 @@ credentials:
       source: store
       id: MIRO_CLIENT_ID
     scope: "https://miro.com/oauth/authorize"
-    how_to_obtain: "Create a Miro app and store its client id with `hybridclaw secret set MIRO_CLIENT_ID \"<client-id>\"` before token exchange."
+    how_to_obtain: "Create a Miro app. Set `MIRO_CLIENT_ID` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set MIRO_CLIENT_ID \"<client-id>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set MIRO_CLIENT_ID \"<client-id>\"`. Do this before token exchange."
   - id: miro-oauth-client-secret
     kind: oauth
     required: false
@@ -37,7 +37,7 @@ credentials:
       source: store
       id: MIRO_CLIENT_SECRET
     scope: "https://api.miro.com/v1/oauth/token"
-    how_to_obtain: "Store the Miro app client secret with `hybridclaw secret set MIRO_CLIENT_SECRET \"<client-secret>\"`; never paste it into prompts or helper arguments."
+    how_to_obtain: "Set the Miro app client secret as `MIRO_CLIENT_SECRET` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set MIRO_CLIENT_SECRET \"<client-secret>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set MIRO_CLIENT_SECRET \"<client-secret>\"`. Never paste it into prompts or helper arguments."
   - id: miro-oauth-code
     kind: oauth
     required: false
@@ -45,7 +45,7 @@ credentials:
       source: store
       id: MIRO_OAUTH_CODE
     scope: "one-time OAuth authorization code"
-    how_to_obtain: "After approving the Miro authorize URL, store the one-time code with `hybridclaw secret set MIRO_OAUTH_CODE \"<code>\"`, then exchange it immediately."
+    how_to_obtain: "After approving the Miro authorize URL, set the one-time code as `MIRO_OAUTH_CODE` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set MIRO_OAUTH_CODE \"<code>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set MIRO_OAUTH_CODE \"<code>\"`. Exchange it immediately."
   - id: miro-refresh-token
     kind: oauth
     required: false
@@ -119,7 +119,14 @@ operator has Discovery access.
 Store Miro tokens in HybridClaw runtime secrets. Never paste a raw Miro token
 into the prompt, a helper argument, a shell environment dump, or a log.
 
-Recommended setup:
+Recommended setup order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets` and set the
+   needed `MIRO_*` secrets.
+2. Browser `/chat` or TUI fallback:
+   `/secret set MIRO_ACCESS_TOKEN "<oauth-or-access-token>"` plus any needed
+   Discovery or OAuth client secrets.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set MIRO_ACCESS_TOKEN "<oauth-or-access-token>"
