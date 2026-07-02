@@ -1662,9 +1662,22 @@ function normalizeDelegationTaskList(params: {
   return { tasks };
 }
 
+function extractArtifactUrlLocalPath(rawPath: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawPath, 'http://hybridclaw.invalid');
+  } catch {
+    return null;
+  }
+  if (parsed.pathname !== '/api/artifact') return null;
+  const pathParam = parsed.searchParams.get('path');
+  return pathParam ? pathParam.trim() : null;
+}
+
 function normalizeVisionLocalPath(rawPath: string): string | null {
-  const normalized = String(rawPath || '').trim();
-  if (!normalized) return null;
+  const trimmed = String(rawPath || '').trim();
+  if (!trimmed) return null;
+  const normalized = extractArtifactUrlLocalPath(trimmed) || trimmed;
 
   const workspacePath = resolveWorkspacePath(normalized);
   if (workspacePath) return workspacePath;
@@ -4652,7 +4665,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           image_url: {
             type: 'string',
-            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.`,
+            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, an \`/api/artifact?path=...\` URL copied from chat history, or a Discord CDN HTTPS URL.`,
           },
           question: {
             type: 'string',
