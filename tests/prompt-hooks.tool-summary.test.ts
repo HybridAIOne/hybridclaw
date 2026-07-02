@@ -434,7 +434,7 @@ test('buildSystemPromptFromHooks includes email signature guidance for email con
     expect(prompt).toContain(
       'Use the `message` tool for sending or reading messages on active communication channels: email.',
     );
-    expect(prompt).toContain('Email: send email and read ingested email');
+    expect(prompt).toContain('Email: send and read email.');
     expect(prompt).not.toContain('WhatsApp: send messages');
     expect(prompt).toContain(
       'append a polished corporate signature block derived from the identity details already loaded from `IDENTITY.md`',
@@ -443,6 +443,7 @@ test('buildSystemPromptFromHooks includes email signature guidance for email con
     expect(prompt).toContain(
       'make a reasonable best-effort assumption, do the useful work first, and mention the assumption after the answer',
     );
+    expect(prompt).not.toContain('Search my email for invoices');
   } finally {
     unregisterChannel('email');
   }

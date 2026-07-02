@@ -43,3 +43,29 @@ test('message tool email threading schema defines references array items', () =>
   expect(references.type).toContain('array');
   expect(references.items).toEqual({ type: 'string' });
 });
+
+test('message tool mailbox read schema defines search fields', () => {
+  const messageTool = TOOL_DEFINITIONS.find(
+    (entry) => entry.type === 'function' && entry.function.name === 'message',
+  );
+  expect(messageTool).toBeDefined();
+
+  const parameters = messageTool?.function.parameters as {
+    properties?: Record<string, unknown>;
+  };
+  const folders = (parameters.properties?.folders || {}) as {
+    type?: unknown;
+    items?: unknown;
+  };
+  const unreadOnly = (parameters.properties?.unreadOnly || {}) as {
+    type?: unknown;
+  };
+
+  expect(parameters.properties?.query).toMatchObject({ type: 'string' });
+  expect(parameters.properties?.folder).toMatchObject({ type: 'string' });
+  expect(Array.isArray(folders.type)).toBe(true);
+  expect(folders.type).toContain('array');
+  expect(folders.items).toEqual({ type: 'string' });
+  expect(parameters.properties?.uid).toMatchObject({ type: 'number' });
+  expect(unreadOnly.type).toBe('boolean');
+});

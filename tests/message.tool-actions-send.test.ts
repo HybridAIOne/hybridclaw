@@ -3,6 +3,87 @@ import { expect, test, vi } from 'vitest';
 async function importFreshMessageToolActions() {
   vi.resetModules();
 
+  const readEmailMailbox = vi.fn(async (params: Record<string, unknown>) => {
+    if (params.folder === 'INBOX' && params.uid === 44) {
+      return {
+        kind: 'message',
+        accountAddress: 'bot@example.com',
+        agentId: params.agentId || 'main',
+        folder: 'INBOX',
+        uid: 44,
+        snapshot: {
+          message: {
+            folder: 'INBOX',
+            uid: 44,
+            messageId: '<msg-44@example.com>',
+            subject: 'Invoice due',
+            fromAddress: 'billing@example.com',
+            fromName: 'Billing',
+            preview: 'Invoice due Friday',
+            receivedAt: '2026-03-14T09:00:00.000Z',
+            seen: false,
+            flagged: false,
+            answered: false,
+            hasAttachments: true,
+            to: [{ name: null, address: 'bot@example.com' }],
+            cc: [],
+            bcc: [],
+            replyTo: [],
+            text: 'Invoice due Friday.',
+            attachments: [
+              {
+                filename: 'invoice.pdf',
+                contentType: 'application/pdf',
+                size: 1234,
+              },
+            ],
+            metadata: null,
+          },
+          thread: [],
+        },
+      };
+    }
+    return {
+      kind: 'search',
+      accountAddress: 'bot@example.com',
+      agentId: params.agentId || 'main',
+      snapshot: {
+        address: 'bot@example.com',
+        query: String(params.query || '').trim() || null,
+        folders: params.folders || ['INBOX', 'Sent'],
+        limit: params.limit || 20,
+        messages: [
+          {
+            folder: 'INBOX',
+            uid: 44,
+            messageId: '<msg-44@example.com>',
+            subject: 'Invoice due',
+            fromAddress: 'billing@example.com',
+            fromName: 'Billing',
+            preview: 'Invoice due Friday',
+            receivedAt: '2026-03-14T09:00:00.000Z',
+            seen: false,
+            flagged: false,
+            answered: false,
+            hasAttachments: true,
+            to: [{ name: null, address: 'bot@example.com' }],
+            cc: [],
+            bcc: [],
+            replyTo: [],
+            text: 'Invoice due Friday.',
+            attachments: [
+              {
+                filename: 'invoice.pdf',
+                contentType: 'application/pdf',
+                size: 1234,
+              },
+            ],
+            metadata: null,
+          },
+        ],
+      },
+    };
+  });
   const sendEmailAttachmentTo = vi.fn(async () => {});
   const sendToEmail = vi.fn(async () => {});
   const sendToSignalChat = vi.fn(async () => {});
@@ -166,6 +247,7 @@ async function importFreshMessageToolActions() {
     getWhatsAppAuthStatus,
   }));
   vi.doMock('../src/channels/email/runtime.js', () => ({
+    readEmailMailbox,
     sendEmailAttachmentTo,
     sendToEmail,
   }));
@@ -220,6 +302,7 @@ async function importFreshMessageToolActions() {
     ...module,
     sendEmailAttachmentTo,
     sendToEmail,
+    readEmailMailbox,
     getAgentById,
     resolveAgentForRequest,
     sendToSignalChat,
@@ -947,6 +1030,102 @@ test('read action uses current email session when channelId is omitted', async (
     sessionId: 'email:peer@example.com',
     transport: 'email',
     count: 1,
+  });
+});
+
+test('read action searches live email mailbox when no channel target is provided', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'read',
+    sessionId: 'assist-session',
+    query: 'invoice',
+    limit: 7,
+    unreadOnly: true,
+  });
+
+  expect(state.readEmailMailbox).toHaveBeenCalledWith(
+    expect.objectContaining({
+      agentId: 'assist',
+      query: 'invoice',
+      limit: 7,
+      unreadOnly: true,
+    }),
+  );
+  expect(state.getRecentMessages).not.toHaveBeenCalled();
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'read',
+    channelId: 'email:mailbox',
+    scope: 'mailbox-search',
+    transport: 'email',
+    accountAddress: 'bot@example.com',
+    agentId: 'assist',
+    count: 1,
+  });
+  expect(result.messages).toEqual([
+    expect.objectContaining({
+      id: 'INBOX:44',
+      subject: 'Invoice due',
+      from: expect.objectContaining({ address: 'billing@example.com' }),
+      text: 'Invoice due Friday.',
+    }),
+  ]);
+});
+
+test('read action searches explicit live email mailbox folders', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'read',
+    channelId: 'email:INBOX',
+    from: 'billing@example.com',
+    since: '2026-03-01',
+    limit: 5,
+  });
+
+  expect(state.readEmailMailbox).toHaveBeenCalledWith(
+    expect.objectContaining({
+      folder: 'INBOX',
+      folders: ['INBOX'],
+      from: 'billing@example.com',
+      since: '2026-03-01',
+      limit: 5,
+    }),
+  );
+  expect(result).toMatchObject({
+    scope: 'mailbox-search',
+    channelId: 'email:INBOX',
+    count: 1,
+  });
+});
+
+test('read action fetches a live email mailbox message by folder and uid', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'read',
+    channelId: 'email:mailbox',
+    folder: 'INBOX',
+    uid: 44,
+  });
+
+  expect(state.readEmailMailbox).toHaveBeenCalledWith(
+    expect.objectContaining({
+      folder: 'INBOX',
+      folders: ['INBOX'],
+      uid: 44,
+    }),
+  );
+  expect(result).toMatchObject({
+    scope: 'mailbox-message',
+    folder: 'INBOX',
+    uid: 44,
+    message: expect.objectContaining({
+      id: 'INBOX:44',
+      subject: 'Invoice due',
+    }),
   });
 });
 
