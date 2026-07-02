@@ -3,6 +3,7 @@ import {
   ImapFlow,
   type MessageAddressObject,
   type MessageStructureObject,
+  type SearchObject,
 } from 'imapflow';
 import { type AddressObject, type ParsedMail, simpleParser } from 'mailparser';
 import sanitizeHtml from 'sanitize-html';
@@ -34,6 +35,8 @@ import {
 
 const DEFAULT_MESSAGE_LIMIT = 40;
 const MAX_MESSAGE_LIMIT = 100;
+const DEFAULT_SEARCH_LIMIT = 20;
+const MAX_SEARCH_LIMIT = 50;
 const PREVIEW_MAX_LENGTH = 220;
 const PREVIEW_MAX_BYTES = 12_000;
 const METADATA_FALLBACK_WINDOW_MS = 15 * 60 * 1000;
@@ -120,6 +123,31 @@ export interface LiveAdminEmailDeleteResult {
   permanent: boolean;
 }
 
+export interface LiveEmailMailboxSearchParams {
+  query?: string;
+  folder?: string;
+  folders?: string[];
+  limit?: number;
+  unreadOnly?: boolean;
+  from?: string;
+  subject?: string;
+  since?: string;
+  beforeDate?: string;
+}
+
+export interface LiveEmailMailboxSearchSnapshot {
+  address: string;
+  query: string | null;
+  folders: string[];
+  limit: number;
+  messages: LiveAdminEmailMessageDetail[];
+}
+
+export type LiveEmailMailboxConnectionConfig = Pick<
+  RuntimeEmailConfig,
+  'address' | 'folders' | 'imapHost' | 'imapPort' | 'imapSecure'
+>;
+
 function resolveConfiguredFolders(folders: string[]): string[] {
   const resolved = folders
     .map((folder) => String(folder || '').trim())
@@ -134,7 +162,7 @@ function normalizeFolderPath(value: string | null | undefined): string {
 }
 
 function createImapClient(
-  config: RuntimeEmailConfig,
+  config: LiveEmailMailboxConnectionConfig,
   password: string,
 ): ImapFlow {
   return new ImapFlow({
@@ -151,7 +179,7 @@ function createImapClient(
 }
 
 async function withLiveEmailClient<T>(
-  config: RuntimeEmailConfig,
+  config: LiveEmailMailboxConnectionConfig,
   password: string,
   fn: (client: ImapFlow) => Promise<T>,
 ): Promise<T> {
@@ -244,6 +272,75 @@ function hasFlag(
 function trimText(value: string | null | undefined): string | null {
   const trimmed = String(value || '').trim();
   return trimmed || null;
+}
+
+function normalizeSearchLimit(limit: number | undefined): number {
+  return Math.max(
+    1,
+    Math.min(MAX_SEARCH_LIMIT, Math.trunc(limit || DEFAULT_SEARCH_LIMIT)),
+  );
+}
+
+function normalizeSearchFolders(
+  params: LiveEmailMailboxSearchParams,
+): string[] {
+  const values = [
+    params.folder,
+    ...(Array.isArray(params.folders) ? params.folders : []),
+  ];
+  return [
+    ...new Set(
+      values.map((folder) => String(folder || '').trim()).filter(Boolean),
+    ),
+  ];
+}
+
+function normalizeSearchDate(value: string | undefined, label: string): string {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return '';
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${label} must be a valid date or ISO timestamp.`);
+  }
+  return parsed.toISOString();
+}
+
+function buildMailboxSearchQuery(
+  params: LiveEmailMailboxSearchParams,
+): SearchObject {
+  const search: SearchObject = {};
+  const query = trimText(params.query || null);
+  const from = trimText(params.from || null);
+  const subject = trimText(params.subject || null);
+  const since = normalizeSearchDate(params.since, 'since');
+  const before = normalizeSearchDate(params.beforeDate, 'beforeDate');
+
+  if (query) search.text = query;
+  if (from) search.from = from;
+  if (subject) search.subject = subject;
+  if (since) search.since = since;
+  if (before) search.before = before;
+  if (params.unreadOnly) search.seen = false;
+  if (Object.keys(search).length === 0) search.all = true;
+
+  return search;
+}
+
+async function resolveMailboxSearchFolders(
+  client: ImapFlow,
+  config: LiveEmailMailboxConnectionConfig,
+  params: LiveEmailMailboxSearchParams,
+): Promise<string[]> {
+  const explicit = normalizeSearchFolders(params);
+  if (explicit.length > 0) return explicit;
+
+  const listed = await listSelectableFolders(client);
+  const selectable = listed
+    .map((entry) => String(entry.path || '').trim())
+    .filter(Boolean);
+  return selectable.length > 0
+    ? [...new Set(selectable)]
+    : resolveConfiguredFolders(config.folders);
 }
 
 function normalizeComparableEmailAddress(
@@ -1459,7 +1556,7 @@ async function fetchHeaderLinkedMessagesAcrossFolders(
 }
 
 export async function fetchLiveAdminEmailMailbox(
-  config: RuntimeEmailConfig,
+  config: LiveEmailMailboxConnectionConfig,
   password: string,
 ): Promise<LiveAdminEmailMailboxSnapshot> {
   return withLiveEmailClient(config, password, async (client) => {
@@ -1493,8 +1590,78 @@ export async function fetchLiveAdminEmailMailbox(
   });
 }
 
+async function fetchMailboxSearchFolderMessages(
+  client: ImapFlow,
+  params: {
+    folder: string;
+    search: SearchObject;
+    limit: number;
+  },
+): Promise<LiveAdminEmailMessageDetail[]> {
+  const lock = await client.getMailboxLock(params.folder);
+  try {
+    const uids = (await client.search(params.search, { uid: true })) || [];
+    const selectedUids = [...new Set(uids)]
+      .sort((left, right) => right - left)
+      .slice(0, params.limit);
+    if (selectedUids.length === 0) return [];
+
+    const fetched = await client.fetchAll(
+      selectedUids,
+      MESSAGE_DETAIL_FETCH_QUERY,
+      { uid: true },
+    );
+    const messages = await Promise.all(
+      fetched.map((message) => buildMessageDetail(message, params.folder)),
+    );
+    return messages.filter(
+      (message): message is LiveAdminEmailMessageDetail => message !== null,
+    );
+  } finally {
+    lock.release();
+  }
+}
+
+export async function searchLiveEmailMailbox(
+  config: LiveEmailMailboxConnectionConfig,
+  password: string,
+  params: LiveEmailMailboxSearchParams,
+): Promise<LiveEmailMailboxSearchSnapshot> {
+  return withLiveEmailClient(config, password, async (client) => {
+    const limit = normalizeSearchLimit(params.limit);
+    const folders = await resolveMailboxSearchFolders(client, config, params);
+    const search = buildMailboxSearchQuery(params);
+    const messages = (
+      await Promise.all(
+        folders.map((folder) =>
+          fetchMailboxSearchFolderMessages(client, {
+            folder,
+            search,
+            limit,
+          }),
+        ),
+      )
+    ).flat();
+
+    messages.sort((left, right) => {
+      const leftMs = parseTimestampMs(left.receivedAt);
+      const rightMs = parseTimestampMs(right.receivedAt);
+      if (rightMs !== leftMs) return rightMs - leftMs;
+      return right.uid - left.uid;
+    });
+
+    return {
+      address: config.address,
+      query: trimText(params.query || null),
+      folders,
+      limit,
+      messages: messages.slice(0, limit),
+    };
+  });
+}
+
 export async function fetchLiveAdminEmailFolder(
-  config: RuntimeEmailConfig,
+  config: LiveEmailMailboxConnectionConfig,
   password: string,
   params: {
     folder: string;
@@ -1577,7 +1744,7 @@ export async function fetchLiveAdminEmailFolder(
 }
 
 export async function fetchLiveAdminEmailMessage(
-  config: RuntimeEmailConfig,
+  config: LiveEmailMailboxConnectionConfig,
   password: string,
   params: {
     folder: string;
@@ -1692,7 +1859,7 @@ export async function fetchLiveAdminEmailMessage(
 }
 
 export async function deleteLiveAdminEmailMessage(
-  config: RuntimeEmailConfig,
+  config: LiveEmailMailboxConnectionConfig,
   password: string,
   params: {
     folder: string;

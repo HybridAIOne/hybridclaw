@@ -210,7 +210,7 @@ test('resolves email hints with read support from explicit email context', () =>
     hints.some((entry) =>
       entry.includes('does not do arbitrary mailbox-wide unread searches'),
     ),
-  ).toBe(true);
+  ).toBe(false);
   expect(
     hints.some((entry) =>
       entry.includes('append a polished corporate signature block'),

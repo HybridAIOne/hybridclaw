@@ -98,6 +98,14 @@ export interface DiscordToolActionRequest {
   bcc?: string[];
   inReplyTo?: string;
   references?: string[];
+  query?: string;
+  folder?: string;
+  folders?: string[];
+  uid?: number;
+  unreadOnly?: boolean;
+  from?: string;
+  since?: string;
+  beforeDate?: string;
   filePath?: string;
   components?: unknown;
   contextChannelId?: string;
