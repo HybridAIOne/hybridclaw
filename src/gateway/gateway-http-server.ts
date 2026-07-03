@@ -406,8 +406,7 @@ const HISTORY_AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const LIVE_APP_BRIDGE_MAX_ARGS_BYTES = 64 * 1024;
 const LIVE_APP_BRIDGE_TIMEOUT_MS = 120_000;
 const LIVE_APP_BRIDGE_INACTIVITY_TIMEOUT_MS = 60_000;
-const LIVE_APP_BRIDGE_TOOL_NAME_PATTERN =
-  /^[A-Za-z0-9][A-Za-z0-9_-]*(?:__[A-Za-z0-9][A-Za-z0-9_-]*)+$/;
+const LIVE_APP_BRIDGE_MAX_TOOL_NAME_LENGTH = 512;
 const LIVE_APP_BRIDGE_READ_ONLY_TOOL_PREFIXES = new Set([
   'describe',
   'fetch',
@@ -7076,6 +7075,32 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isAsciiAlphanumericCode(code: number): boolean {
+  return (
+    (code >= 48 && code <= 57) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122)
+  );
+}
+
+function isLiveAppBridgeToolNameSegment(segment: string): boolean {
+  if (!segment) return false;
+  if (!isAsciiAlphanumericCode(segment.charCodeAt(0))) return false;
+  for (let index = 1; index < segment.length; index += 1) {
+    const code = segment.charCodeAt(index);
+    if (!isAsciiAlphanumericCode(code) && code !== 95 && code !== 45) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isLiveAppBridgeToolName(toolName: string): boolean {
+  if (toolName.length > LIVE_APP_BRIDGE_MAX_TOOL_NAME_LENGTH) return false;
+  const segments = toolName.split('__');
+  return segments.length >= 2 && segments.every(isLiveAppBridgeToolNameSegment);
+}
+
 function normalizeLiveAppBridgeToolRequest(body: unknown): {
   toolName: string;
   args: Record<string, unknown>;
@@ -7089,7 +7114,7 @@ function normalizeLiveAppBridgeToolRequest(body: unknown): {
   if (!toolName) {
     throw new GatewayRequestError(400, 'Missing `toolName`.');
   }
-  if (!LIVE_APP_BRIDGE_TOOL_NAME_PATTERN.test(toolName)) {
+  if (!isLiveAppBridgeToolName(toolName)) {
     throw new GatewayRequestError(400, 'Invalid MCP tool name.');
   }
   if (!isReadOnlyLiveAppBridgeToolName(toolName)) {

@@ -3281,6 +3281,38 @@ describe('gateway HTTP server', () => {
     expect(state.runAgent).not.toHaveBeenCalled();
   });
 
+  test('rejects pathological live app bridge tool names before running an agent', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const liveApp = state.createApp({
+      title: 'Mail Wordcloud',
+      html: '<!doctype html><html><head></head><body>mail</body></html>',
+      kind: 'live',
+      sessionId: 'sess-live-app',
+      agentId: 'main',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: `/api/apps/${liveApp.id}/bridge/tool`,
+      headers: { authorization: 'Bearer web-token' },
+      body: {
+        toolName: `0__0${'__0'.repeat(100)}!`,
+        arguments: {},
+      },
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: false,
+      error: 'Invalid MCP tool name.',
+    });
+    expect(state.runAgent).not.toHaveBeenCalled();
+  });
+
   test('rejects unauthorized OpenAI-compatible API requests from non-loopback addresses', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
