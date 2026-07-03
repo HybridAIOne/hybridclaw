@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   ChatStreamApproval,
   ChatStreamResult,
+  ChatStreamToolEvent,
   MediaItem,
 } from '../../api/chat-types';
 import { buildApprovalSummary, nextMsgId } from '../../lib/chat-helpers';
@@ -15,7 +16,13 @@ import {
   type ChatHistoryUiData,
   chatHistoryQueryKey,
 } from './chat-history-query';
-import type { ChatUiMessage, ThinkingChatMessage } from './chat-ui-message';
+import type {
+  ChatUiMessage,
+  ThinkingChatMessage,
+  TraceChatMessage,
+  TraceStep,
+  TraceToolStep,
+} from './chat-ui-message';
 
 interface ActiveRequest {
   controller: AbortController;
@@ -24,6 +31,11 @@ interface ActiveRequest {
   assistantText: string;
   lastRenderedText: string;
   pendingApproval: ChatStreamApproval | null;
+  // Mutable working copy of the run's activity trace; copied into the cached
+  // trace message on each render so React sees fresh identities.
+  trace: TraceStep[];
+  traceVersion: number;
+  lastRenderedTraceVersion: number;
   renderFrame: number;
   stopping: boolean;
 }
@@ -169,8 +181,20 @@ export function useChatStream(
       }
 
       const thinkingId = nextMsgId();
+      const traceId = nextMsgId();
+      // The trace block precedes the thinking dots (and later the answer
+      // bubble): activity rows stream in above the "still working" indicator.
       setMessages((prev) => [
         ...prev,
+        {
+          id: traceId,
+          role: 'trace',
+          content: '',
+          sessionId: targetSessionId,
+          steps: [],
+          done: false,
+          startedAt: Date.now(),
+        } satisfies TraceChatMessage,
         {
           id: thinkingId,
           role: 'thinking',
@@ -189,6 +213,9 @@ export function useChatStream(
         assistantText: '',
         lastRenderedText: '',
         pendingApproval: null,
+        trace: [],
+        traceVersion: 0,
+        lastRenderedTraceVersion: 0,
         renderFrame: 0,
         stopping: false,
       };
@@ -198,19 +225,36 @@ export function useChatStream(
 
       const doRender = () => {
         req.renderFrame = 0;
+        const traceChanged = req.traceVersion !== req.lastRenderedTraceVersion;
         if (
           req.assistantText === req.lastRenderedText &&
-          !req.pendingApproval
+          !req.pendingApproval &&
+          !traceChanged
         ) {
           return;
         }
         req.lastRenderedText = req.assistantText;
+        req.lastRenderedTraceVersion = req.traceVersion;
 
         const text = req.assistantText;
         const approval = req.pendingApproval;
+        // Fresh step copies so React re-renders on later in-place mutations.
+        const traceSteps = traceChanged
+          ? req.trace.map((step) => ({ ...step }))
+          : null;
 
         setMessages((prev) => {
-          const withoutThinking = prev.filter((m) => m.id !== thinkingId);
+          const withTrace = traceSteps
+            ? prev.map((m) =>
+                m.id === traceId && m.role === 'trace'
+                  ? { ...m, steps: traceSteps }
+                  : m,
+              )
+            : prev;
+          // Trace-only update: keep the thinking dots until the answer (or an
+          // approval card) actually starts, so no empty bubble flashes in.
+          if (!text && !approval) return withTrace;
+          const withoutThinking = withTrace.filter((m) => m.id !== thinkingId);
           const existing = withoutThinking.find((m) => m.id === streamId);
           if (existing) {
             return withoutThinking.map((m) =>
@@ -251,6 +295,73 @@ export function useChatStream(
         req.renderFrame = requestAnimationFrame(doRender);
       };
 
+      const pushThinkingDelta = (delta: string) => {
+        if (!delta) return;
+        const last = req.trace.at(-1);
+        if (last?.kind === 'thinking') {
+          last.text += delta;
+        } else {
+          req.trace.push({ kind: 'thinking', text: delta });
+        }
+        req.traceVersion += 1;
+        scheduleRender();
+      };
+
+      const pushToolEvent = (event: ChatStreamToolEvent) => {
+        if (event.phase === 'start') {
+          req.trace.push({
+            kind: 'tool',
+            toolName: event.toolName,
+            status: 'running',
+            argsPreview: event.preview || undefined,
+          });
+        } else {
+          // Match the most recent running call of this tool — parallel tools
+          // can finish out of order.
+          let started: TraceToolStep | undefined;
+          for (let i = req.trace.length - 1; i >= 0; i--) {
+            const step = req.trace[i];
+            if (
+              step?.kind === 'tool' &&
+              step.status === 'running' &&
+              step.toolName === event.toolName
+            ) {
+              started = step;
+              break;
+            }
+          }
+          if (started) {
+            started.status = 'done';
+            started.durationMs = event.durationMs;
+            started.resultPreview = event.preview || undefined;
+          } else {
+            req.trace.push({
+              kind: 'tool',
+              toolName: event.toolName,
+              status: 'done',
+              durationMs: event.durationMs,
+              resultPreview: event.preview || undefined,
+            });
+          }
+        }
+        req.traceVersion += 1;
+        scheduleRender();
+      };
+
+      // Collapse the trace once the run ends; a run with no activity leaves no
+      // trace row at all.
+      const finalizeTrace = (msgs: ChatUiMessage[]): ChatUiMessage[] => {
+        if (req.trace.length === 0) {
+          return msgs.filter((m) => m.id !== traceId);
+        }
+        const steps = req.trace.map((step) => ({ ...step }));
+        return msgs.map((m) =>
+          m.id === traceId && m.role === 'trace'
+            ? { ...m, steps, done: true, finishedAt: Date.now() }
+            : m,
+        );
+      };
+
       try {
         const result: ChatStreamResult = await requestChatStream('/api/chat', {
           token,
@@ -277,6 +388,8 @@ export function useChatStream(
               }
               scheduleRender();
             },
+            onThinkingDelta: pushThinkingDelta,
+            onToolEvent: pushToolEvent,
           },
         });
 
@@ -331,7 +444,9 @@ export function useChatStream(
         });
 
         setMessages((prev) => {
-          const withoutThinking = prev.filter((m) => m.id !== thinkingId);
+          const withoutThinking = finalizeTrace(prev).filter(
+            (m) => m.id !== thinkingId,
+          );
           const hasAssistant = withoutThinking.some((m) => m.id === streamId);
           const finalizeMessage = (m: ChatUiMessage): ChatUiMessage => {
             if (m.id === streamId) {
@@ -415,7 +530,9 @@ export function useChatStream(
         if (req.renderFrame) cancelAnimationFrame(req.renderFrame);
         const errorText = getErrorMessage(err);
         setMessages((prev) => {
-          const withoutThinking = prev.filter((m) => m.id !== thinkingId);
+          const withoutThinking = finalizeTrace(prev).filter(
+            (m) => m.id !== thinkingId,
+          );
           if (req.stopping) return withoutThinking;
           return [
             ...withoutThinking,

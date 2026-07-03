@@ -109,6 +109,19 @@ export interface ChatStreamTextDelta {
   delta: string;
 }
 
+export interface ChatStreamThinkingDelta {
+  type: 'thinking';
+  delta: string;
+}
+
+export interface ChatStreamToolEvent {
+  type: 'tool';
+  toolName: string;
+  phase: 'start' | 'finish';
+  preview?: string;
+  durationMs?: number;
+}
+
 export interface ChatStreamApproval {
   type: 'approval';
   approvalId: string;
@@ -126,7 +139,11 @@ export interface ChatStreamApproval {
   expiresAt?: number | null;
 }
 
-export type ChatStreamEvent = ChatStreamTextDelta | ChatStreamApproval;
+export type ChatStreamEvent =
+  | ChatStreamTextDelta
+  | ChatStreamThinkingDelta
+  | ChatStreamToolEvent
+  | ChatStreamApproval;
 
 export type ChatResultMessageRole = 'assistant' | 'approval' | 'command';
 

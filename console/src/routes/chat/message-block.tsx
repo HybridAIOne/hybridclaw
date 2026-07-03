@@ -23,6 +23,7 @@ import { findAgentMentions } from './agent-mention-display';
 import { ApprovalCard } from './approval-card';
 import css from './chat-page.module.css';
 import type { ChatUiMessage } from './chat-ui-message';
+import { TraceBlock } from './trace-block';
 
 const STREAM_MARKDOWN_RENDER_INTERVAL_MS = 120;
 
@@ -432,6 +433,10 @@ export const MessageBlock = memo(function MessageBlock(props: {
     token,
     imageUrl: presentation?.imageUrl,
   });
+
+  if (msg.role === 'trace') {
+    return <TraceBlock message={msg} />;
+  }
 
   if (msg.role === 'thinking') {
     return (

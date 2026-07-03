@@ -1283,6 +1283,161 @@ aside[data-state="collapsed"] .chatSidebarContent {
   }
 }
 
+/* Run-activity trace: light-grey collapsible rows (thinking + tool calls)
+   shown above the answer bubble. Expanded while streaming, collapsed to the
+   summary row once the run finishes. */
+.traceBlock {
+  min-width: 0;
+  max-width: 85%;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+
+.traceHeader {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 2px 8px 2px 2px;
+  margin-left: -2px;
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.traceHeader:hover,
+.traceHeader:focus-visible {
+  color: var(--text);
+  background: var(--chat-hover-bg);
+}
+
+.traceChevron {
+  display: inline-flex;
+  justify-content: center;
+  width: 12px;
+  font-size: 0.95rem;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.traceChevronOpen {
+  transform: rotate(90deg);
+}
+
+.traceSummary {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.traceSummaryLive {
+  animation: tracePulse 1.6s ease-in-out infinite;
+}
+
+@keyframes tracePulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.traceSteps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 2px 0 2px 5px;
+  padding-left: 13px;
+  border-left: 1px solid var(--line);
+}
+
+.traceStep {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+}
+
+.traceStepMarker {
+  flex: none;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 12px;
+  min-height: 1.2rem;
+  font-size: 0.7rem;
+  color: color-mix(in srgb, var(--muted-foreground) 75%, transparent);
+}
+
+.traceStepMarkerRunning::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--muted-foreground);
+  animation: thinkingBounce 1.2s infinite ease-in-out;
+}
+
+.traceStepBody {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.traceToolLine {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.traceToolName {
+  flex: none;
+  font-weight: 600;
+}
+
+.traceToolPreview {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.74rem;
+  color: color-mix(in srgb, var(--muted-foreground) 85%, transparent);
+}
+
+.traceToolDuration {
+  flex: none;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
+}
+
+.traceToolResult {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
+}
+
+.traceThinkingText {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  font-style: italic;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--muted-foreground) 88%, transparent);
+}
+
 .composerWrapper {
   flex-shrink: 0;
   margin-top: auto;
@@ -1880,6 +2035,11 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 @media (prefers-reduced-motion: reduce) {
   .thinkingDot {
+    animation: none;
+  }
+
+  .traceSummaryLive,
+  .traceStepMarkerRunning::after {
     animation: none;
   }
 

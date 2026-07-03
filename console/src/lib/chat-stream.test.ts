@@ -58,6 +58,86 @@ describe('requestChatStream', () => {
     window.removeEventListener(AUTH_REQUIRED_EVENT, listener);
   });
 
+  it('dispatches thinking deltas and tool progress events to their callbacks', async () => {
+    const onTextDelta = vi.fn();
+    const onApproval = vi.fn();
+    const onThinkingDelta = vi.fn();
+    const onToolEvent = vi.fn();
+
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      body: null,
+      text: async () =>
+        [
+          '{"type":"thinking","delta":"Hmm"}',
+          '{"type":"tool","toolName":"exec","phase":"start","preview":"ls"}',
+          '{"type":"tool","toolName":"exec","phase":"finish","preview":"ok","durationMs":12}',
+          '{"type":"tool","phase":"start"}',
+          '{"type":"result","result":{"status":"ok","result":"Done"}}',
+        ].join('\n'),
+    } as Response);
+
+    await expect(
+      requestChatStream('/api/chat', {
+        token: 'test-token',
+        body: { sessionId: 'session-a', stream: true },
+        callbacks: {
+          onTextDelta,
+          onApproval,
+          onThinkingDelta,
+          onToolEvent,
+        },
+      }),
+    ).resolves.toMatchObject({ status: 'ok', result: 'Done' });
+
+    expect(onThinkingDelta).toHaveBeenCalledWith('Hmm');
+    expect(onToolEvent).toHaveBeenNthCalledWith(1, {
+      type: 'tool',
+      toolName: 'exec',
+      phase: 'start',
+      preview: 'ls',
+    });
+    expect(onToolEvent).toHaveBeenNthCalledWith(2, {
+      type: 'tool',
+      toolName: 'exec',
+      phase: 'finish',
+      preview: 'ok',
+      durationMs: 12,
+    });
+    // The toolName-less line is malformed and must not reach the callback.
+    expect(onToolEvent).toHaveBeenCalledTimes(2);
+    expect(onTextDelta).not.toHaveBeenCalled();
+  });
+
+  it('ignores thinking and tool lines when their callbacks are not provided', async () => {
+    const onTextDelta = vi.fn();
+
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      body: null,
+      text: async () =>
+        [
+          '{"type":"thinking","delta":"Hmm"}',
+          '{"type":"tool","toolName":"exec","phase":"start"}',
+          '{"type":"text","delta":"Hi"}',
+          '{"type":"result","result":{"status":"ok","result":"Hi"}}',
+        ].join('\n'),
+    } as Response);
+
+    await expect(
+      requestChatStream('/api/chat', {
+        token: 'test-token',
+        body: { sessionId: 'session-a', stream: true },
+        callbacks: {
+          onTextDelta,
+          onApproval: vi.fn(),
+        },
+      }),
+    ).resolves.toMatchObject({ status: 'ok', result: 'Hi' });
+
+    expect(onTextDelta).toHaveBeenCalledWith('Hi');
+  });
+
   it('warns when malformed NDJSON lines are ignored and still returns the final result', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const onTextDelta = vi.fn();

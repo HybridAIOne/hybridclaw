@@ -1,9 +1,15 @@
-import type { ChatStreamApproval, ChatStreamResult } from '../api/chat-types';
+import type {
+  ChatStreamApproval,
+  ChatStreamResult,
+  ChatStreamToolEvent,
+} from '../api/chat-types';
 import { requestHeaders, throwResponseError } from '../api/client';
 
 export interface ChatStreamCallbacks {
   onTextDelta: (delta: string) => void;
   onApproval: (event: ChatStreamApproval) => void;
+  onThinkingDelta?: (delta: string) => void;
+  onToolEvent?: (event: ChatStreamToolEvent) => void;
 }
 
 export async function requestChatStream(
@@ -46,6 +52,20 @@ export async function requestChatStream(
 
     if (payload.type === 'text' && typeof payload.delta === 'string') {
       callbacks.onTextDelta(payload.delta as string);
+      return null;
+    }
+
+    if (payload.type === 'thinking' && typeof payload.delta === 'string') {
+      callbacks.onThinkingDelta?.(payload.delta as string);
+      return null;
+    }
+
+    if (
+      payload.type === 'tool' &&
+      typeof payload.toolName === 'string' &&
+      (payload.phase === 'start' || payload.phase === 'finish')
+    ) {
+      callbacks.onToolEvent?.(payload as unknown as ChatStreamToolEvent);
       return null;
     }
 
