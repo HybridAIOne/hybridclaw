@@ -17,8 +17,13 @@ import {
   handleA2AWebhookInbound,
   parseA2AWebhookInboundPath,
 } from '../a2a/webhook-inbound.js';
+import { runAgent } from '../agent/agent.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
-import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
+import {
+  getAgentById,
+  resolveAgentConfig,
+  resolveAgentForRequest,
+} from '../agents/agent-registry.js';
 import {
   type AgentProxyConfig,
   DEFAULT_AGENT_ID,
@@ -112,6 +117,7 @@ import {
   deleteApp,
   getApp,
   listApps,
+  type StoredApp,
   upsertAppArtifact,
 } from '../memory/apps.js';
 import {
@@ -142,7 +148,11 @@ import {
   rankTuiSlashMenuEntries,
 } from '../tui-slash-menu.js';
 import type { MediaContextItem } from '../types/container.js';
-import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import type {
+  PendingApproval,
+  ToolExecution,
+  ToolProgressEvent,
+} from '../types/execution.js';
 import {
   normalizeOptionalTrimmedString as normalizeOptionalString,
   normalizeTrimmedUniqueStringArray,
@@ -285,6 +295,7 @@ import {
   reconnectGatewayAdminTunnel,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
+  resolveGatewayChatbotId,
   restoreGatewayAdminAgentMarkdownRevision,
   restoreGatewayAdminTeamStructureRevision,
   revokeGatewayAdminA2ATrustPeer,
@@ -392,6 +403,23 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 const HISTORY_AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const LIVE_APP_BRIDGE_MAX_ARGS_BYTES = 64 * 1024;
+const LIVE_APP_BRIDGE_TIMEOUT_MS = 120_000;
+const LIVE_APP_BRIDGE_INACTIVITY_TIMEOUT_MS = 60_000;
+const LIVE_APP_BRIDGE_TOOL_NAME_PATTERN =
+  /^[A-Za-z0-9][A-Za-z0-9_-]*(?:__[A-Za-z0-9][A-Za-z0-9_-]*)+$/;
+const LIVE_APP_BRIDGE_READ_ONLY_TOOL_PREFIXES = new Set([
+  'describe',
+  'fetch',
+  'find',
+  'get',
+  'list',
+  'lookup',
+  'query',
+  'read',
+  'retrieve',
+  'search',
+]);
 
 const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -7031,6 +7059,331 @@ function parseApiAppId(pathname: string, suffix = ''): string | null {
   }
 }
 
+type LiveAppBridgeToolRunResult =
+  | {
+      status: 'success';
+      toolName: string;
+      result: string;
+      toolExecutions: ToolExecution[];
+    }
+  | {
+      status: 'pending_approval';
+      pendingApproval: PendingApproval;
+      toolExecutions: ToolExecution[];
+    };
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeLiveAppBridgeToolRequest(body: unknown): {
+  toolName: string;
+  args: Record<string, unknown>;
+} {
+  if (!isJsonObject(body)) {
+    throw new GatewayRequestError(400, 'Expected JSON object request body.');
+  }
+
+  const toolName =
+    typeof body.toolName === 'string' ? body.toolName.trim() : '';
+  if (!toolName) {
+    throw new GatewayRequestError(400, 'Missing `toolName`.');
+  }
+  if (!LIVE_APP_BRIDGE_TOOL_NAME_PATTERN.test(toolName)) {
+    throw new GatewayRequestError(400, 'Invalid MCP tool name.');
+  }
+  if (!isReadOnlyLiveAppBridgeToolName(toolName)) {
+    throw new GatewayRequestError(
+      403,
+      'Live apps can only call read-only MCP connector tools.',
+    );
+  }
+
+  const rawArgs = body.arguments ?? body.args ?? {};
+  if (!isJsonObject(rawArgs)) {
+    throw new GatewayRequestError(400, '`arguments` must be a JSON object.');
+  }
+  if (
+    Buffer.byteLength(JSON.stringify(rawArgs), 'utf8') >
+    LIVE_APP_BRIDGE_MAX_ARGS_BYTES
+  ) {
+    throw new GatewayRequestError(413, '`arguments` is too large.');
+  }
+
+  return { toolName, args: rawArgs };
+}
+
+function isReadOnlyLiveAppBridgeToolName(toolName: string): boolean {
+  const action = toolName.split('__').at(-1)?.toLowerCase() ?? '';
+  if (!action) return false;
+  const [prefix] = action.split(/[_-]/);
+  return Boolean(prefix && LIVE_APP_BRIDGE_READ_ONLY_TOOL_PREFIXES.has(prefix));
+}
+
+function buildLiveAppBridgeScript(appId: string): string {
+  return `<script data-hybridclaw-live-app-bridge="${escapeHtml(appId)}">
+(function(){
+  var appId = ${JSON.stringify(appId)};
+  var pending = new Map();
+  var timeoutMs = ${LIVE_APP_BRIDGE_TIMEOUT_MS};
+
+  function nextRequestId(){
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+    return 'bridge-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+  }
+
+  function callTool(toolName, args){
+    if (!toolName || typeof toolName !== 'string') {
+      return Promise.reject(new Error('toolName must be a non-empty string'));
+    }
+    if (!window.parent || window.parent === window) {
+      return Promise.reject(new Error('HybridClaw live app bridge is unavailable outside the Apps viewer'));
+    }
+    var requestId = nextRequestId();
+    return new Promise(function(resolve, reject){
+      var timer = window.setTimeout(function(){
+        pending.delete(requestId);
+        reject(new Error('HybridClaw live app bridge timed out'));
+      }, timeoutMs);
+      pending.set(requestId, { resolve: resolve, reject: reject, timer: timer });
+      window.parent.postMessage({
+        type: 'hybridclaw:live-app-tool-call',
+        appId: appId,
+        requestId: requestId,
+        toolName: toolName,
+        arguments: args || {}
+      }, '*');
+    });
+  }
+
+  window.addEventListener('message', function(event){
+    var message = event.data;
+    if (!message || message.type !== 'hybridclaw:live-app-tool-result') return;
+    if (message.appId !== appId || typeof message.requestId !== 'string') return;
+    var entry = pending.get(message.requestId);
+    if (!entry) return;
+    pending.delete(message.requestId);
+    window.clearTimeout(entry.timer);
+    if (message.ok) {
+      entry.resolve(message.payload);
+    } else {
+      entry.reject(new Error(message.error || 'HybridClaw live app bridge call failed'));
+    }
+  });
+
+  var existing = window.hybridclaw && typeof window.hybridclaw === 'object' ? window.hybridclaw : {};
+  existing.callTool = callTool;
+  existing.callMcpTool = callTool;
+  window.hybridclaw = existing;
+})();
+</script>`;
+}
+
+function injectLiveAppBridge(html: string, app: StoredApp): string {
+  if (app.kind !== 'live') return html;
+  if (html.includes('data-hybridclaw-live-app-bridge')) return html;
+
+  const script = buildLiveAppBridgeScript(app.id);
+  const headMatch = /<head\b[^>]*>/i.exec(html);
+  if (headMatch?.index !== undefined) {
+    const insertAt = headMatch.index + headMatch[0].length;
+    return `${html.slice(0, insertAt)}${script}${html.slice(insertAt)}`;
+  }
+
+  const htmlMatch = /<html\b[^>]*>/i.exec(html);
+  if (htmlMatch?.index !== undefined) {
+    const insertAt = htmlMatch.index + htmlMatch[0].length;
+    return `${html.slice(0, insertAt)}${script}${html.slice(insertAt)}`;
+  }
+
+  return `${script}${html}`;
+}
+
+function summarizeBridgeToolExecutions(
+  toolExecutions: ToolExecution[] | undefined,
+): ToolExecution[] {
+  return (toolExecutions ?? []).map((execution) => ({
+    name: execution.name,
+    arguments: execution.arguments,
+    result: execution.result,
+    durationMs: execution.durationMs,
+    ...(execution.isError === undefined ? {} : { isError: execution.isError }),
+    ...(execution.blocked === undefined ? {} : { blocked: execution.blocked }),
+    ...(execution.blockedReason === undefined
+      ? {}
+      : { blockedReason: execution.blockedReason }),
+    ...(execution.approvalTier === undefined
+      ? {}
+      : { approvalTier: execution.approvalTier }),
+    ...(execution.approvalDecision === undefined
+      ? {}
+      : { approvalDecision: execution.approvalDecision }),
+  }));
+}
+
+function buildLiveAppBridgePrompt(params: {
+  toolName: string;
+  args: Record<string, unknown>;
+}): string {
+  return [
+    'Call exactly this MCP connector tool once and return no extra commentary.',
+    `Tool name: ${params.toolName}`,
+    `Arguments JSON: ${JSON.stringify(params.args)}`,
+  ].join('\n');
+}
+
+async function runLiveAppBridgeTool(params: {
+  app: StoredApp;
+  toolName: string;
+  args: Record<string, unknown>;
+}): Promise<LiveAppBridgeToolRunResult> {
+  if (!params.app.sessionId) {
+    throw new GatewayRequestError(400, 'Live app is not linked to a session.');
+  }
+
+  const session = memoryService.getSessionById(params.app.sessionId);
+  if (!session) {
+    throw new GatewayRequestError(404, 'Live app session not found.');
+  }
+
+  const resolved = resolveAgentForRequest({
+    agentId: params.app.agentId,
+    session,
+  });
+  const chatbotResolution = await resolveGatewayChatbotId({
+    model: resolved.model,
+    chatbotId: resolved.chatbotId,
+    sessionId: session.id,
+    channelId: 'web',
+    agentId: resolved.agentId,
+    trigger: 'chat',
+  });
+  if (chatbotResolution.error) {
+    throw new GatewayRequestError(503, chatbotResolution.error);
+  }
+
+  const output = await runAgent({
+    sessionId: session.id,
+    agentId: resolved.agentId,
+    model: resolved.model,
+    chatbotId: chatbotResolution.chatbotId,
+    enableRag: session.enable_rag === 1,
+    channelId: 'web',
+    messages: [
+      {
+        role: 'user',
+        content: buildLiveAppBridgePrompt({
+          toolName: params.toolName,
+          args: params.args,
+        }),
+      },
+    ],
+    allowedTools: [params.toolName],
+    scheduledTasks: [],
+    fullAutoEnabled: false,
+    scheduleSideEffectsEnabled: false,
+    maxTokens: 512,
+    maxWallClockMs: LIVE_APP_BRIDGE_TIMEOUT_MS,
+    inactivityTimeoutMs: LIVE_APP_BRIDGE_INACTIVITY_TIMEOUT_MS,
+  });
+
+  const toolExecutions = summarizeBridgeToolExecutions(output.toolExecutions);
+  if (output.pendingApproval) {
+    return {
+      status: 'pending_approval',
+      pendingApproval: output.pendingApproval,
+      toolExecutions,
+    };
+  }
+  if (output.error) {
+    throw new GatewayRequestError(502, output.error);
+  }
+
+  const execution = [...(output.toolExecutions ?? [])]
+    .reverse()
+    .find((item) => item.name === params.toolName);
+  if (!execution) {
+    throw new GatewayRequestError(502, 'Connector tool was not called.');
+  }
+  if (execution.isError) {
+    throw new GatewayRequestError(
+      502,
+      execution.result || 'Connector tool failed.',
+    );
+  }
+
+  return {
+    status: 'success',
+    toolName: params.toolName,
+    result: execution.result,
+    toolExecutions,
+  };
+}
+
+async function handleApiAppBridgeTool(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  id: string,
+): Promise<void> {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
+
+  if (
+    !hasApiAuth(req, url, {
+      allowLocalWebSession: true,
+      allowSessionCookie: true,
+      requireSameOrigin: true,
+    })
+  ) {
+    sendJson(res, 401, { error: 'Unauthorized.' });
+    return;
+  }
+
+  const app = getApp(id);
+  if (!app) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  if (app.kind !== 'live') {
+    sendJson(res, 400, { error: 'App is not a live app.' });
+    return;
+  }
+
+  try {
+    const request = normalizeLiveAppBridgeToolRequest(await readJsonBody(req));
+    const result = await runLiveAppBridgeTool({ app, ...request });
+    if (result.status === 'pending_approval') {
+      sendJson(res, 409, {
+        ok: false,
+        error: 'Connector tool requires approval.',
+        pendingApproval: result.pendingApproval,
+        toolExecutions: result.toolExecutions,
+      });
+      return;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      toolName: result.toolName,
+      result: result.result,
+      text: result.result,
+      toolExecutions: result.toolExecutions,
+    });
+  } catch (err) {
+    const statusCode =
+      err instanceof GatewayRequestError ? err.statusCode : 500;
+    sendJson(res, statusCode, {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 async function handleApiAppView(
   req: IncomingMessage,
   res: ServerResponse,
@@ -7060,7 +7413,7 @@ async function handleApiAppView(
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
   });
-  res.end(app.html);
+  res.end(injectLiveAppBridge(app.html, app));
 }
 
 function handleApiAppsList(res: ServerResponse, url: URL): void {
@@ -7645,6 +7998,21 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               const statusCode =
                 err instanceof GatewayRequestError ? err.statusCode : 500;
               sendJson(res, statusCode, { error: errorText });
+            },
+          );
+          return;
+        }
+
+        const appBridgeToolId = parseApiAppId(pathname, '/bridge/tool');
+        if (appBridgeToolId !== null) {
+          void handleApiAppBridgeTool(req, res, url, appBridgeToolId).catch(
+            (err: unknown) => {
+              if (res.writableEnded) return;
+              const errorText =
+                err instanceof Error ? err.message : String(err);
+              const statusCode =
+                err instanceof GatewayRequestError ? err.statusCode : 500;
+              sendJson(res, statusCode, { ok: false, error: errorText });
             },
           );
           return;

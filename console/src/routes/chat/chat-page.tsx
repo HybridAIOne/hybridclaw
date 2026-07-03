@@ -45,6 +45,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../../components/dialog';
+import { LiveAppFrame } from '../../components/live-app-frame';
 import { MobileTopbarTrigger } from '../../components/sidebar/index';
 import {
   useConfiguredViewSwitchItems,
@@ -1449,12 +1450,11 @@ export function ChatPage() {
               </div>
             </div>
             {previewApp ? (
-              <iframe
-                key={previewApp.id}
+              <LiveAppFrame
+                appId={previewApp.id}
                 className={css.appPreviewFrame}
                 title={previewApp.title}
-                src={appViewUrl(previewApp.id, auth.token)}
-                sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-popups-to-escape-sandbox"
+                token={auth.token}
               />
             ) : null}
           </DialogContent>

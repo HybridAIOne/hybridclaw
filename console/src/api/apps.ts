@@ -50,6 +50,32 @@ export interface AppMutationResponse {
   app: AppDetail;
 }
 
+export interface LiveAppToolCallRequest {
+  toolName: string;
+  arguments?: Record<string, unknown>;
+  args?: Record<string, unknown>;
+}
+
+export interface LiveAppToolExecutionSummary {
+  name: string;
+  arguments: string;
+  result: string;
+  durationMs: number;
+  isError?: boolean;
+  blocked?: boolean;
+  blockedReason?: string;
+  approvalTier?: string;
+  approvalDecision?: string;
+}
+
+export interface LiveAppToolCallResponse {
+  ok: true;
+  toolName: string;
+  result: string;
+  text: string;
+  toolExecutions?: LiveAppToolExecutionSummary[];
+}
+
 export function fetchApps(
   token: string,
   options: { category?: string; search?: string } = {},
@@ -91,6 +117,21 @@ export function deleteApp(token: string, id: string): Promise<{ ok: boolean }> {
     token,
     method: 'DELETE',
   });
+}
+
+export function callLiveAppTool(
+  token: string,
+  id: string,
+  request: LiveAppToolCallRequest,
+): Promise<LiveAppToolCallResponse> {
+  return requestJson<LiveAppToolCallResponse>(
+    `/api/apps/${encodeURIComponent(id)}/bridge/tool`,
+    {
+      token,
+      method: 'POST',
+      body: request,
+    },
+  );
 }
 
 /** Token-bearing URL for embedding a generated app in a sandboxed iframe. */

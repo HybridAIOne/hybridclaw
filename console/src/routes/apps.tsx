@@ -29,6 +29,7 @@ import {
   DropdownTrigger,
 } from '../components/dropdown';
 import { ChevronDown, Search, Trash } from '../components/icons';
+import { LiveAppFrame } from '../components/live-app-frame';
 import { MobileTopbarTrigger } from '../components/sidebar/index';
 import { useToast } from '../components/toast';
 import { buildAppSeed, buildLiveAppSeed } from '../lib/app-seed';
@@ -666,15 +667,11 @@ function AppViewer(props: {
           </div>
         </div>
         {app ? (
-          <iframe
-            key={app.id}
+          <LiveAppFrame
+            appId={app.id}
             className={styles.viewerFrame}
             title={app.title}
-            src={appViewUrl(app.id, props.token)}
-            // AI-generated HTML is served from the gateway origin, so it runs in
-            // an opaque sandbox origin (no allow-same-origin) and cannot reach
-            // gateway cookies or APIs.
-            sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-popups-to-escape-sandbox"
+            token={props.token}
           />
         ) : null}
       </DialogContent>

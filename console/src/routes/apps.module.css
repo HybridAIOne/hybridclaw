@@ -152,14 +152,11 @@
   border-radius: 14px;
   background: var(--card);
   box-shadow: var(--shadow-card);
-  transition:
-    border-color 120ms ease,
-    transform 120ms ease;
+  transition: border-color 120ms ease;
 }
 
 .card:hover {
   border-color: var(--border-strong);
-  transform: translateY(-2px);
 }
 
 .cardMain {

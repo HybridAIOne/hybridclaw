@@ -24,6 +24,9 @@ const PUBLISH_NOTE =
 
 const BUILD_NOTE = `${CLIENT_NOTE} ${STACK_NOTE} ${DESIGN_NOTE} ${PUBLISH_NOTE}`;
 
+const LIVE_APP_BRIDGE_NOTE =
+  'For live refresh inside the Apps viewer, never call `/api/mcp/...` or other gateway URLs directly. Generated HTML runs in a sandbox and must use `window.hybridclaw.callMcpTool("<namespaced_mcp_tool>", { ... })` (or `window.hybridclaw.callTool`) from its refresh action. Keep an embedded snapshot fallback so the app still works outside the Apps viewer or when the bridge is unavailable.';
+
 function compose(briefing: string, directiveLines: string[]): string {
   return `${briefing}${APP_BUILD_DIRECTIVE_MARKER}${directiveLines.join('\n')}`;
 }
@@ -65,7 +68,7 @@ export function buildAppSeed(
  */
 export function buildLiveAppSeed(description: string): string {
   const desc = description.trim();
-  const liveTail = `build it as a live app that embeds the latest data pulled from those connectors, with a refresh action. ${BUILD_NOTE}`;
+  const liveTail = `build it as a live app that embeds the latest data pulled from those connectors, with a refresh action. ${LIVE_APP_BRIDGE_NOTE} ${BUILD_NOTE}`;
   const mcpRule =
     'Assume my connected MCP servers / tools are the data source: if a relevant connector is available, use it directly to fetch the data — do not ask me which data source or connector to use.';
   if (desc) {
