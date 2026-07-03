@@ -3233,6 +3233,8 @@ describe('gateway HTTP server', () => {
     expect(liveRes.body).toContain('data-hybridclaw-live-app-bridge');
     expect(liveRes.body).toContain(`var appId = ${JSON.stringify(liveApp.id)};`);
     expect(liveRes.body).toContain('existing.callMcpTool = callTool');
+    expect(liveRes.body).toContain('existing.setRefreshHandler');
+    expect(liveRes.body).toContain('hybridclaw:live-app-refresh');
     expect(liveRes.body).toContain('<body>mail</body>');
 
     const staticReq = makeRequest({

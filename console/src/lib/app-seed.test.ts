@@ -43,6 +43,7 @@ describe('buildLiveAppSeed', () => {
     expect(seed).toMatch(/wait for my ok/i);
     expect(seed).not.toMatch(/suggest a few useful live apps/i);
     expect(seed).toMatch(/embeds the latest data/i);
+    expect(seed).toMatch(/setRefreshHandler\(refresh\)/i);
   });
 
   it('recommends an option when no idea is given', () => {

@@ -1,4 +1,10 @@
-import { useEffect, useRef } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+} from 'react';
 import { appViewUrl, callLiveAppTool } from '../api/apps';
 
 interface LiveAppFrameProps {
@@ -6,6 +12,7 @@ interface LiveAppFrameProps {
   title: string;
   token: string;
   className?: string;
+  refreshNonce?: number;
 }
 
 interface LiveAppBridgeMessage {
@@ -14,6 +21,10 @@ interface LiveAppBridgeMessage {
   requestId: string;
   toolName: string;
   arguments?: Record<string, unknown>;
+}
+
+export interface LiveAppFrameHandle {
+  refreshData: () => boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -37,66 +48,104 @@ function parseBridgeMessage(value: unknown): LiveAppBridgeMessage | null {
   };
 }
 
-export function LiveAppFrame(props: LiveAppFrameProps) {
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+export const LiveAppFrame = forwardRef<LiveAppFrameHandle, LiveAppFrameProps>(
+  function LiveAppFrame(props, ref) {
+    const iframeRef = useRef<HTMLIFrameElement | null>(null);
+    const loadedRef = useRef(false);
+    const appIdRef = useRef(props.appId);
+    if (appIdRef.current !== props.appId) {
+      appIdRef.current = props.appId;
+      loadedRef.current = false;
+    }
 
-  useEffect(() => {
-    let active = true;
-
-    const postResult = (
-      requestId: string,
-      result: { ok: true; payload: unknown } | { ok: false; error: string },
-    ) => {
+    const postRefreshRequest = useCallback((): boolean => {
       const target = iframeRef.current?.contentWindow;
-      if (!target) return;
+      if (!target || !loadedRef.current) return false;
       target.postMessage(
         {
-          type: 'hybridclaw:live-app-tool-result',
+          type: 'hybridclaw:live-app-refresh',
           appId: props.appId,
-          requestId,
-          ...result,
         },
         '*',
       );
-    };
+      return true;
+    }, [props.appId]);
 
-    const handleMessage = (event: MessageEvent) => {
-      if (event.source !== iframeRef.current?.contentWindow) return;
-      const message = parseBridgeMessage(event.data);
-      if (!message || message.appId !== props.appId) return;
+    useImperativeHandle(
+      ref,
+      () => ({
+        refreshData: postRefreshRequest,
+      }),
+      [postRefreshRequest],
+    );
 
-      void callLiveAppTool(props.token, props.appId, {
-        toolName: message.toolName,
-        arguments: message.arguments ?? {},
-      })
-        .then((payload) => {
-          if (!active) return;
-          postResult(message.requestId, { ok: true, payload });
+    useEffect(() => {
+      let active = true;
+
+      const postResult = (
+        requestId: string,
+        result: { ok: true; payload: unknown } | { ok: false; error: string },
+      ) => {
+        const target = iframeRef.current?.contentWindow;
+        if (!target) return;
+        target.postMessage(
+          {
+            type: 'hybridclaw:live-app-tool-result',
+            appId: props.appId,
+            requestId,
+            ...result,
+          },
+          '*',
+        );
+      };
+
+      const handleMessage = (event: MessageEvent) => {
+        if (event.source !== iframeRef.current?.contentWindow) return;
+        const message = parseBridgeMessage(event.data);
+        if (!message || message.appId !== props.appId) return;
+
+        void callLiveAppTool(props.token, props.appId, {
+          toolName: message.toolName,
+          arguments: message.arguments ?? {},
         })
-        .catch((error: unknown) => {
-          if (!active) return;
-          postResult(message.requestId, {
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
+          .then((payload) => {
+            if (!active) return;
+            postResult(message.requestId, { ok: true, payload });
+          })
+          .catch((error: unknown) => {
+            if (!active) return;
+            postResult(message.requestId, {
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
           });
-        });
-    };
+      };
 
-    window.addEventListener('message', handleMessage);
-    return () => {
-      active = false;
-      window.removeEventListener('message', handleMessage);
-    };
-  }, [props.appId, props.token]);
+      window.addEventListener('message', handleMessage);
+      return () => {
+        active = false;
+        window.removeEventListener('message', handleMessage);
+      };
+    }, [props.appId, props.token]);
 
-  return (
-    <iframe
-      ref={iframeRef}
-      key={props.appId}
-      className={props.className}
-      title={props.title}
-      src={appViewUrl(props.appId, props.token)}
-      sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-popups-to-escape-sandbox"
-    />
-  );
-}
+    useEffect(() => {
+      if (!props.refreshNonce || !loadedRef.current) return;
+      postRefreshRequest();
+    }, [postRefreshRequest, props.refreshNonce]);
+
+    return (
+      <iframe
+        ref={iframeRef}
+        key={props.appId}
+        className={props.className}
+        title={props.title}
+        src={appViewUrl(props.appId, props.token)}
+        sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-popups-to-escape-sandbox"
+        onLoad={() => {
+          loadedRef.current = true;
+          if (props.refreshNonce) postRefreshRequest();
+        }}
+      />
+    );
+  },
+);

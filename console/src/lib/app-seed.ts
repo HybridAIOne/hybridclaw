@@ -25,7 +25,7 @@ const PUBLISH_NOTE =
 const BUILD_NOTE = `${CLIENT_NOTE} ${STACK_NOTE} ${DESIGN_NOTE} ${PUBLISH_NOTE}`;
 
 const LIVE_APP_BRIDGE_NOTE =
-  'For live refresh inside the Apps viewer, never call `/api/mcp/...` or other gateway URLs directly. Generated HTML runs in a sandbox and must use `window.hybridclaw.callMcpTool("<namespaced_mcp_tool>", { ... })` (or `window.hybridclaw.callTool`) from its refresh action. Keep an embedded snapshot fallback so the app still works outside the Apps viewer or when the bridge is unavailable.';
+  'For live refresh inside the Apps viewer, never call `/api/mcp/...` or other gateway URLs directly. Generated HTML runs in a sandbox and must use `window.hybridclaw.callMcpTool("<namespaced_mcp_tool>", { ... })` (or `window.hybridclaw.callTool`) from its refresh action. Register the same refresh function with `window.hybridclaw.setRefreshHandler(refresh)` when that API exists, so the Apps viewer Refresh button updates data in place instead of rebuilding the app. Keep an embedded snapshot fallback so the app still works outside the Apps viewer or when the bridge is unavailable.';
 
 function compose(briefing: string, directiveLines: string[]): string {
   return `${briefing}${APP_BUILD_DIRECTIVE_MARKER}${directiveLines.join('\n')}`;

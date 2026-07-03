@@ -7151,6 +7151,7 @@ function buildLiveAppBridgeScript(appId: string): string {
   var appId = ${JSON.stringify(appId)};
   var pending = new Map();
   var timeoutMs = ${LIVE_APP_BRIDGE_TIMEOUT_MS};
+  var refreshHandler = null;
 
   function nextRequestId(){
     if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -7183,24 +7184,90 @@ function buildLiveAppBridgeScript(appId: string): string {
     });
   }
 
+  function isVisibleRefreshControl(element){
+    if (!element || element.disabled || element.getAttribute('aria-disabled') === 'true') return false;
+    var rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    var text = [
+      element.getAttribute('aria-label') || '',
+      element.getAttribute('title') || '',
+      element.value || '',
+      element.innerText || '',
+      element.textContent || ''
+    ].join(' ').toLowerCase();
+    return /\\b(refresh|reload|aktualisieren)\\b|neu laden/.test(text);
+  }
+
+  function clickRefreshControl(){
+    var controls = Array.prototype.slice.call(document.querySelectorAll(
+      '[data-hybridclaw-refresh], button, [role="button"], input[type="button"], input[type="submit"], a'
+    ));
+    for (var index = 0; index < controls.length; index += 1) {
+      if (isVisibleRefreshControl(controls[index])) {
+        controls[index].click();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function triggerRefresh(){
+    if (typeof refreshHandler === 'function') {
+      Promise.resolve().then(function(){ return refreshHandler(); }).catch(function(error){
+        console.error('HybridClaw live app refresh failed', error);
+      });
+      return true;
+    }
+    var event = new CustomEvent('hybridclaw:refresh', {
+      cancelable: true,
+      detail: { appId: appId }
+    });
+    var notCanceled = window.dispatchEvent(event);
+    if (!notCanceled) return true;
+    return clickRefreshControl();
+  }
+
   window.addEventListener('message', function(event){
     var message = event.data;
-    if (!message || message.type !== 'hybridclaw:live-app-tool-result') return;
-    if (message.appId !== appId || typeof message.requestId !== 'string') return;
-    var entry = pending.get(message.requestId);
-    if (!entry) return;
-    pending.delete(message.requestId);
-    window.clearTimeout(entry.timer);
-    if (message.ok) {
-      entry.resolve(message.payload);
-    } else {
-      entry.reject(new Error(message.error || 'HybridClaw live app bridge call failed'));
+    if (!message || message.appId !== appId) return;
+    if (message.type === 'hybridclaw:live-app-refresh') {
+      var handled = triggerRefresh();
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({
+          type: 'hybridclaw:live-app-refresh-result',
+          appId: appId,
+          ok: handled
+        }, '*');
+      }
+      return;
+    }
+    if (message.type === 'hybridclaw:live-app-tool-result') {
+      if (typeof message.requestId !== 'string') return;
+      var entry = pending.get(message.requestId);
+      if (!entry) return;
+      pending.delete(message.requestId);
+      window.clearTimeout(entry.timer);
+      if (message.ok) {
+        entry.resolve(message.payload);
+      } else {
+        entry.reject(new Error(message.error || 'HybridClaw live app bridge call failed'));
+      }
     }
   });
 
   var existing = window.hybridclaw && typeof window.hybridclaw === 'object' ? window.hybridclaw : {};
   existing.callTool = callTool;
   existing.callMcpTool = callTool;
+  existing.setRefreshHandler = function(handler){
+    if (typeof handler !== 'function') {
+      throw new Error('refresh handler must be a function');
+    }
+    refreshHandler = handler;
+    return function(){
+      if (refreshHandler === handler) refreshHandler = null;
+    };
+  };
+  existing.refresh = triggerRefresh;
   window.hybridclaw = existing;
 })();
 </script>`;

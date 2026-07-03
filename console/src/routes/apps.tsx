@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { useEffect, useMemo, useState } from 'react';
+import { type RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type AppCategory,
   type AppDetail,
@@ -29,7 +29,10 @@ import {
   DropdownTrigger,
 } from '../components/dropdown';
 import { ChevronDown, Search, Trash } from '../components/icons';
-import { LiveAppFrame } from '../components/live-app-frame';
+import {
+  LiveAppFrame,
+  type LiveAppFrameHandle,
+} from '../components/live-app-frame';
 import { MobileTopbarTrigger } from '../components/sidebar/index';
 import { useToast } from '../components/toast';
 import { buildAppSeed, buildLiveAppSeed } from '../lib/app-seed';
@@ -144,7 +147,9 @@ export function AppsPage() {
   );
   const [newKind, setNewKind] = useState<AppKind | null>(null);
   const [viewer, setViewer] = useState<AppDetail | null>(null);
+  const [viewerRefreshNonce, setViewerRefreshNonce] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState<AppSummary | null>(null);
+  const viewerFrameRef = useRef<LiveAppFrameHandle | null>(null);
 
   const query = useQuery({
     queryKey: ['apps', token],
@@ -182,23 +187,21 @@ export function AppsPage() {
     });
   }
 
-  function refreshApp(app: AppSummary) {
-    if (!app.sessionId) {
-      toast.error('This app has no conversation to refresh.');
+  async function refreshApp(app: AppSummary) {
+    if (app.kind !== 'live') {
+      toast.error('Only live apps can refresh connector data.');
       return;
     }
-    setViewer(null);
-    void navigate({
-      to: '/chat/$sessionId',
-      params: { sessionId: app.sessionId },
-      search: {
-        prompt:
-          'Refresh this live app with the latest data from my connectors and rebuild it as a single self-contained web app.',
-        send: '1',
-        app: '1',
-        kind: 'live',
-      },
-    });
+    if (viewer?.id === app.id && viewerFrameRef.current?.refreshData()) {
+      return;
+    }
+    try {
+      const result = await fetchApp(token, app.id);
+      setViewer(result.app);
+      setViewerRefreshNonce((current) => current + 1);
+    } catch (error) {
+      toast.error(`Could not refresh app: ${getErrorMessage(error)}`);
+    }
   }
 
   const deleteMutation = useMutation({
@@ -360,6 +363,8 @@ export function AppsPage() {
         app={viewer}
         token={token}
         onClose={() => setViewer(null)}
+        frameRef={viewerFrameRef}
+        refreshNonce={viewerRefreshNonce}
         onRefresh={viewer ? () => refreshApp(viewer) : undefined}
       />
 
@@ -630,6 +635,8 @@ function AppViewer(props: {
   app: AppDetail | null;
   token: string;
   onClose: () => void;
+  frameRef: RefObject<LiveAppFrameHandle | null>;
+  refreshNonce: number;
   onRefresh?: () => void;
 }) {
   const { app } = props;
@@ -648,7 +655,10 @@ function AppViewer(props: {
               <button
                 type="button"
                 className={styles.secondaryButton}
-                onClick={props.onRefresh}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  props.onRefresh?.();
+                }}
               >
                 <Refresh className={styles.inlineIcon} /> Refresh
               </button>
@@ -659,17 +669,25 @@ function AppViewer(props: {
                 href={appViewUrl(app.id, props.token)}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(event) => event.stopPropagation()}
               >
                 Open in new tab ↗
               </a>
             ) : null}
-            <DialogClose className={styles.secondaryButton}>Close</DialogClose>
+            <DialogClose
+              className={styles.secondaryButton}
+              onClick={(event) => event.stopPropagation()}
+            >
+              Close
+            </DialogClose>
           </div>
         </div>
         {app ? (
           <LiveAppFrame
+            ref={props.frameRef}
             appId={app.id}
             className={styles.viewerFrame}
+            refreshNonce={props.refreshNonce}
             title={app.title}
             token={props.token}
           />
