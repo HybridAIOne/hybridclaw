@@ -75,50 +75,101 @@ test('unknown category normalizes to apps', async () => {
   expect(created.category).toBe('apps');
 });
 
-test('upsertAppArtifact creates then updates the same (session, source) entry', async () => {
-  const { upsertAppArtifact, listApps, getApp } = await setup();
+test('upsertAppArtifact updates file-backed artifacts across sessions for the same agent', async () => {
+  const { createApp, upsertAppArtifact, listApps, getApp } = await setup();
   const first = upsertAppArtifact({
     sessionId: 'sess-app-1',
-    sourceKey: 'app.html',
+    sourceKey: 'apps/app.html',
     title: 'Draft',
     html: '<html><body>v1</body></html>',
     category: 'productivity',
     kind: 'live',
+    agentId: 'agent-a',
   });
   expect(listApps()).toHaveLength(1);
   expect(first.kind).toBe('live');
 
   const second = upsertAppArtifact({
-    sessionId: 'sess-app-1',
-    sourceKey: 'app.html',
+    sessionId: 'sess-app-2',
+    sourceKey: 'apps/app.html',
     title: 'Final Dashboard',
     html: '<html><body>v2</body></html>',
     category: 'productivity',
     kind: 'live',
+    agentId: 'agent-a',
   });
-  // Same row updated in place, not a duplicate.
+  // Same workspace file updated in place, not duplicated by session.
   expect(second.id).toBe(first.id);
   expect(listApps()).toHaveLength(1);
   expect(getApp(first.id)?.html).toContain('v2');
   expect(getApp(first.id)?.title).toBe('Final Dashboard');
+  expect(getApp(first.id)?.sessionId).toBe('sess-app-2');
 
-  // A different artifact in the same session is a separate entry.
-  upsertAppArtifact({
-    sessionId: 'sess-app-1',
-    sourceKey: 'report.html',
-    title: 'Report',
-    html: '<html></html>',
+  const laterDuplicate = createApp({
+    sessionId: 'sess-app-old',
+    sourceKey: 'apps/app.html',
+    title: 'Duplicate',
+    html: '<html><body>old</body></html>',
+    agentId: 'agent-a',
   });
   expect(listApps()).toHaveLength(2);
 
-  // A different session is also separate.
+  const third = upsertAppArtifact({
+    sessionId: 'sess-app-3',
+    sourceKey: 'apps/app.html',
+    title: 'Latest Dashboard',
+    html: '<html><body>v3</body></html>',
+    category: 'productivity',
+    kind: 'live',
+    agentId: 'agent-a',
+  });
+  const survivingApp = getApp(third.id);
+  expect(survivingApp?.html).toContain('v3');
+  expect(survivingApp?.title).toBe('Latest Dashboard');
+  const remainingDuplicateCandidates = [
+    getApp(first.id),
+    getApp(laterDuplicate.id),
+  ].filter(Boolean);
+  expect(remainingDuplicateCandidates).toHaveLength(1);
+  expect(listApps()).toHaveLength(1);
+
+  // A different file in the same session is a separate entry.
   upsertAppArtifact({
     sessionId: 'sess-app-2',
-    sourceKey: 'app.html',
-    title: 'Other',
+    sourceKey: 'apps/report.html',
+    title: 'Report',
     html: '<html></html>',
+    agentId: 'agent-a',
   });
+  expect(listApps()).toHaveLength(2);
+
+  // A different agent owns a different workspace, so the same relative file is separate.
+  const otherAgent = upsertAppArtifact({
+    sessionId: 'sess-app-3',
+    sourceKey: 'apps/app.html',
+    title: 'Other Agent App',
+    html: '<html></html>',
+    agentId: 'agent-b',
+  });
+  expect(otherAgent.id).not.toBe(first.id);
   expect(listApps()).toHaveLength(3);
+
+  // Inline HTML has no stable file path and remains session-scoped.
+  upsertAppArtifact({
+    sessionId: 'sess-app-4',
+    sourceKey: 'inline',
+    title: 'Inline One',
+    html: '<html></html>',
+    agentId: 'agent-a',
+  });
+  upsertAppArtifact({
+    sessionId: 'sess-app-5',
+    sourceKey: 'inline',
+    title: 'Inline Two',
+    html: '<html></html>',
+    agentId: 'agent-a',
+  });
+  expect(listApps()).toHaveLength(5);
 });
 
 test('deleteApp removes the record', async () => {

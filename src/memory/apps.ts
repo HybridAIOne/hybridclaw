@@ -186,7 +186,7 @@ export function listApps(query: ListAppsQuery = {}): AppSummary[] {
 
 export interface UpsertAppArtifactInput {
   sessionId: string;
-  /** Stable identity within a session (artifact filename, or 'inline'). */
+  /** Stable artifact identity: workspace file path, or 'inline'. */
   sourceKey: string;
   title: string;
   html: string;
@@ -197,31 +197,75 @@ export interface UpsertAppArtifactInput {
   agentId?: string | null;
 }
 
+function isFileBackedAppSourceKey(sourceKey: string): boolean {
+  return sourceKey.length > 0 && sourceKey !== 'inline';
+}
+
+function findExistingAppArtifact(params: {
+  database: Database.Database;
+  agentId: string | null;
+  sessionId: string;
+  sourceKey: string;
+}): { id: string; duplicateIds: string[] } | null {
+  if (isFileBackedAppSourceKey(params.sourceKey) && params.agentId) {
+    const rows = params.database
+      .prepare<unknown[], { id: string }>(
+        `SELECT id FROM apps
+           WHERE agent_id = ? AND source_key = ?
+           ORDER BY updated_at DESC, created_at DESC`,
+      )
+      .all(params.agentId, params.sourceKey);
+    const [existing, ...duplicates] = rows;
+    if (!existing) return null;
+    return { id: existing.id, duplicateIds: duplicates.map((row) => row.id) };
+  }
+
+  if (!params.sessionId) return null;
+  const row =
+    params.database
+      .prepare<unknown[], { id: string }>(
+        `SELECT id FROM apps
+           WHERE session_id = ? AND source_key = ?
+           ORDER BY updated_at DESC, created_at DESC
+           LIMIT 1`,
+      )
+      .get(params.sessionId, params.sourceKey) ?? null;
+  return row ? { id: row.id, duplicateIds: [] } : null;
+}
+
 /**
- * Create or update the gallery entry for one artifact within a chat session,
- * identified by (session_id, source_key). Capturing the same artifact again as
- * a conversation iterates updates the entry in place instead of duplicating.
+ * Create or update the gallery entry for one app artifact. File-backed apps are
+ * identified by the agent workspace file path, so rebuilding
+ * `apps/dashboard.html` in a later chat updates the same gallery app. Inline
+ * HTML has no stable file path, so it remains scoped to a chat session.
  */
 export function upsertAppArtifact(input: UpsertAppArtifactInput): StoredApp {
   return withMemoryDatabase((database: Database.Database) => {
     const session = input.sessionId.trim();
     const sourceKey = input.sourceKey.trim() || 'inline';
+    const agentId = input.agentId?.trim() || null;
     const category = normalizeAppCategory(input.category);
     const kind = normalizeAppKind(input.kind);
     const title = input.title.trim() || 'Untitled App';
-    const existing = session
-      ? (database
-          .prepare<unknown[], { id: string }>(
-            `SELECT id FROM apps WHERE session_id = ? AND source_key = ? ORDER BY created_at DESC LIMIT 1`,
-          )
-          .get(session, sourceKey) ?? null)
-      : null;
+    const existing = findExistingAppArtifact({
+      database,
+      agentId,
+      sessionId: session,
+      sourceKey,
+    });
     if (existing) {
+      for (const duplicateId of existing.duplicateIds) {
+        database.prepare(`DELETE FROM apps WHERE id = ?`).run(duplicateId);
+      }
       database
         .prepare(
           `UPDATE apps
              SET title = ?, html = ?, category = ?, kind = ?,
                  description = COALESCE(?, description),
+                 prompt = COALESCE(?, prompt),
+                 agent_id = COALESCE(?, agent_id),
+                 session_id = COALESCE(?, session_id),
+                 source_key = ?,
                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
            WHERE id = ?`,
         )
@@ -231,6 +275,10 @@ export function upsertAppArtifact(input: UpsertAppArtifactInput): StoredApp {
           category,
           kind,
           input.description?.trim() || null,
+          input.prompt?.trim() || null,
+          agentId,
+          session || null,
+          sourceKey,
           existing.id,
         );
       const row = database
@@ -246,7 +294,7 @@ export function upsertAppArtifact(input: UpsertAppArtifactInput): StoredApp {
       kind,
       description: input.description ?? null,
       prompt: input.prompt ?? null,
-      agentId: input.agentId ?? null,
+      agentId,
       sessionId: session || null,
       sourceKey,
     });
