@@ -15,9 +15,9 @@ optimized for practical work on compact models instead of prompt-only demos.
 A few notable categories:
 
 - office workflows: `pdf`, `xlsx`, `docx`, `pptx`, `office-workflows`
-- planning, coworker creation, and engineering: `project-manager`, `feature-planning`, `human-distill`, `code-review`, `code-simplification`, `gh-issues`, `warehouse-sql`
+- planning, coworker creation, and engineering: `project-manager`, `feature-planning`, `human-distill`, `miro`, `code-review`, `code-simplification`, `gh-issues`, `warehouse-sql`
 - visual explainers, image, video, and speech: `diagram`, `manim-video`, `excalidraw`, `image-generation`, `video-generation`, `video.from-script`, `speech.transcribe`, `speech.detect-language`
-- platform integrations: `github-pr-workflow`, `notion`, `trello`, `stripe`, `mailchimp`, `posthog`, `langfuse`, `download-platform-invoices`, `wordpress`, `gog`, `google-workspace`, `microsoft-365`, `google-ads`, `ga4`, `airtable`, `fastbill`, `hubspot`, `lexware-office`, `firecrawl`, `heygen`, `hermes3000-writing`, `discord`
+- platform integrations: `github-pr-workflow`, `notion`, `trello`, `stripe`, `mailchimp`, `posthog`, `langfuse`, `download-platform-invoices`, `wordpress`, `gog`, `google-workspace`, `microsoft-365`, `zoho`, `google-ads`, `ga4`, `airtable`, `fastbill`, `hubspot`, `lexware-office`, `firecrawl`, `heygen`, `hermes3000-writing`, `discord`
 - infrastructure, production ops, home automation, and energy monitoring: `hetzner-cloud`, `hetzner-dns`, `hetzner-storage-box`, `mittwald`, `t-cloud-public`, `zabbix`, `shelly`, `homematic`, `fronius`, `byd-battery`, `alexa`, `blink`, `hue`, `warehouse-sql`
 - security and privacy: `distil-pii-redactor`
 - knowledge workflows: `llm-wiki`, `obsidian`, `zettelkasten`

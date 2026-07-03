@@ -10,6 +10,13 @@ import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { EMAIL_CAPABILITIES } from '../channel.js';
 import { createChannelRuntime } from '../channel-runtime-factory.js';
+import {
+  fetchLiveAdminEmailMessage,
+  type LiveAdminEmailMessageThreadSnapshot,
+  type LiveEmailMailboxSearchParams,
+  type LiveEmailMailboxSearchSnapshot,
+  searchLiveEmailMailbox,
+} from './admin-mailbox.js';
 import { createEmailConnectionManager } from './connection.js';
 import { type EmailSendParams, sendEmail } from './delivery.js';
 import { cleanupEmailInboundMedia, processInboundEmail } from './inbound.js';
@@ -93,6 +100,27 @@ export interface EmailTextSendOptions {
   metadata?: EmailDeliveryMetadata | null;
   fromName?: string | null;
 }
+
+export interface EmailMailboxReadParams extends LiveEmailMailboxSearchParams {
+  agentId?: string;
+  uid?: number;
+}
+
+export type EmailMailboxReadResult =
+  | {
+      kind: 'message';
+      accountAddress: string;
+      agentId: string;
+      folder: string;
+      uid: number;
+      snapshot: LiveAdminEmailMessageThreadSnapshot;
+    }
+  | {
+      kind: 'search';
+      accountAddress: string;
+      agentId: string;
+      snapshot: LiveEmailMailboxSearchSnapshot;
+    };
 
 function createEmailShutdownAbortError(): Error {
   return new Error('Email runtime shutting down.');
@@ -493,6 +521,42 @@ export function createEmailRuntime() {
     );
   };
 
+  const readMailboxFromAccount = async (
+    state: EmailAccountState,
+    params: EmailMailboxReadParams,
+  ): Promise<EmailMailboxReadResult> => {
+    const folder = String(params.folder || '').trim();
+    const uid =
+      typeof params.uid === 'number' && Number.isFinite(params.uid)
+        ? Math.trunc(params.uid)
+        : 0;
+    if (folder && uid > 0) {
+      return {
+        kind: 'message',
+        accountAddress: state.account.address,
+        agentId: state.account.agentId,
+        folder,
+        uid,
+        snapshot: await fetchLiveAdminEmailMessage(
+          state.account.config,
+          state.account.password,
+          { folder, uid },
+        ),
+      };
+    }
+
+    return {
+      kind: 'search',
+      accountAddress: state.account.address,
+      agentId: state.account.agentId,
+      snapshot: await searchLiveEmailMailbox(
+        state.account.config,
+        state.account.password,
+        params,
+      ),
+    };
+  };
+
   const ensureConnectionManagers = (
     messageHandler?: EmailMessageHandler,
   ): EmailAccountState[] => {
@@ -638,6 +702,14 @@ export function createEmailRuntime() {
     ): Promise<void> {
       await sendAttachmentToAddress(params);
     },
+    async readEmailMailbox(
+      params: EmailMailboxReadParams,
+    ): Promise<EmailMailboxReadResult> {
+      return readMailboxFromAccount(
+        resolveSendAccountState(params.agentId),
+        params,
+      );
+    },
     shutdownEmail: runtimeLifecycle.shutdown,
   };
 }
@@ -661,6 +733,11 @@ export const sendToEmail = (
 export const sendEmailAttachmentTo = (
   params: EmailAttachmentSendParams,
 ): Promise<void> => ensureDefaultRuntime().sendEmailAttachmentTo(params);
+
+export const readEmailMailbox = (
+  params: EmailMailboxReadParams,
+): Promise<EmailMailboxReadResult> =>
+  ensureDefaultRuntime().readEmailMailbox(params);
 
 export async function shutdownEmail(): Promise<void> {
   const runtime = defaultRuntime;

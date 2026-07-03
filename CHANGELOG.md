@@ -2,10 +2,64 @@
 
 ## Unreleased
 
+## [0.26.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.26.0) - 2026-07-03
+
 ### Added
 
+- **Admin connector setup**: `/admin/connectors` can connect HybridAI with an
+  API key, run Google Workspace OAuth from the browser, show connector
+  connection state, test connector health, and launch HybridAI-managed GitHub
+  and Microsoft 365 authorization flows.
+- **HybridAI connector MCP**: Gateways with HybridAI credentials now
+  auto-register the HybridAI connector MCP server unless an operator disables
+  or overrides the `hybridai` MCP server entry.
+- **Live email mailbox reads**: The `message` tool can search and read
+  configured email mailboxes directly, with folder, unread, sender, subject,
+  date, query, and UID filters plus thread snapshots for individual messages.
+- **Microsoft 365 Graph skill**: Added a read-only `microsoft-365` skill for
+  Outlook mail, calendars, OneDrive/SharePoint files, Teams, chats, and profile
+  reads through Microsoft Graph, plus `hybridclaw auth login microsoft365` and
+  `microsoft-oauth` secret routes for gateway-injected Graph access tokens.
+- **Miro skill**: Added the `miro` skill for board discovery, metadata and item
+  reads, guarded sticky/text/shape/connector/frame writes, OAuth token
+  exchange helpers, and Enterprise board export workflows.
+- **Zoho MCP skill**: Added the `zoho` skill for Zoho CRM, Desk, Mail,
+  Calendar, Books, Projects, WorkDrive, Cliq, Campaigns, and related workflows
+  through a configured Zoho MCP server.
+- **A2A trust ledger**: A2A JSON-RPC and webhook trust now share a durable
+  trusted-peer ledger with legacy migration, TOFU audit lineage, revocation
+  state, and sender/public-key lookup paths.
+- **A2A delegation trust pairing**: Agent Cards can advertise delegation
+  signing keys and canonical sender ids, and pairing approval records the
+  advertised A2A senders for trusted outbound delegation.
 - **Console navigation config**: The top navigation strip can be customized
   from runtime config with local console paths or HTTP(S) URLs and link text.
+- **Lexware quotations**: The `lexware-office` skill now covers quotation
+  listing, retrieval, creation, and PDF downloads with explicit draft vs.
+  finalized document guidance.
+
+### Changed
+
+- **Skill credential guidance**: Bundled API-backed skills now point operators
+  to browser admin secrets first, then `/secret set` from chat or TUI, with
+  local `hybridclaw secret set` commands as the fallback path.
+- **Admin console docs**: Public docs and examples cover the connector setup
+  surface, Microsoft Graph OAuth routes, the updated bundled-skill count, and
+  the new Microsoft 365, Miro, Zoho, and live email mailbox-read surfaces.
+
+### Fixed
+
+- **Dependency security updates**: Resolved high npm audit findings, refreshed
+  lockfiles and shrinkwrap files, and updated dependency policy baselines.
+- **Connector auth hardening**: Connector flows isolate signed-payload secrets,
+  keep return URLs result-neutral, restrict TLS pin secret resolution, and avoid
+  connector taint paths flagged by CodeQL.
+- **Vision artifact URLs**: `vision_analyze` accepts local
+  `/api/artifact?path=...` URLs copied from chat history and resolves them to
+  the underlying workspace or media-cache file.
+- **Instruction restore prompt**: The TUI config restore prompt more clearly
+  distinguishes restoring the last known-good config from manually repairing an
+  invalid config file.
 
 ## [0.25.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.8) - 2026-06-27
 

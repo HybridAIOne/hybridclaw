@@ -13,7 +13,7 @@ credentials:
       source: store
       id: HETZNER_DNS_API_TOKEN
     scope: "dns.hetzner.com/api/v1"
-    how_to_obtain: "Create a DNS API access token in the Hetzner DNS Console and store it as HETZNER_DNS_API_TOKEN. The helper injects it into the Auth-API-Token header server-side."
+    how_to_obtain: "Create a DNS API access token in the Hetzner DNS Console. Set `HETZNER_DNS_API_TOKEN` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set HETZNER_DNS_API_TOKEN \"<hetzner-dns-api-token>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set HETZNER_DNS_API_TOKEN \"<hetzner-dns-api-token>\"`. The helper injects it into the Auth-API-Token header server-side."
 metadata:
   hybridclaw:
     category: infrastructure

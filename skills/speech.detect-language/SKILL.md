@@ -13,7 +13,7 @@ credentials:
       source: store
       id: OPENAI_API_KEY
     scope: OpenAI speech-to-text language detection through transcription metadata.
-    how_to_obtain: Create an OpenAI API key, then store it with `hybridclaw secret set OPENAI_API_KEY "<api-key>"`.
+    how_to_obtain: "Create an OpenAI API key. Set `OPENAI_API_KEY` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set OPENAI_API_KEY \"<api-key>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set OPENAI_API_KEY \"<api-key>\"`."
   - id: deepgram-api-key
     kind: api_key
     required: false
@@ -21,7 +21,7 @@ credentials:
       source: store
       id: DEEPGRAM_API_KEY
     scope: Deepgram speech-to-text language detection.
-    how_to_obtain: Create a Deepgram API key, then store it with `hybridclaw secret set DEEPGRAM_API_KEY "<api-key>"`.
+    how_to_obtain: "Create a Deepgram API key. Set `DEEPGRAM_API_KEY` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set DEEPGRAM_API_KEY \"<api-key>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set DEEPGRAM_API_KEY \"<api-key>\"`."
   - id: assemblyai-api-key
     kind: api_key
     required: false
@@ -29,7 +29,7 @@ credentials:
       source: store
       id: ASSEMBLYAI_API_KEY
     scope: AssemblyAI speech-to-text language detection.
-    how_to_obtain: Create an AssemblyAI API key, then store it with `hybridclaw secret set ASSEMBLYAI_API_KEY "<api-key>"`.
+    how_to_obtain: "Create an AssemblyAI API key. Set `ASSEMBLYAI_API_KEY` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set ASSEMBLYAI_API_KEY \"<api-key>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set ASSEMBLYAI_API_KEY \"<api-key>\"`."
 metadata:
   hybridclaw:
     category: media

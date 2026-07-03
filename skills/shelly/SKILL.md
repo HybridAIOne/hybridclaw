@@ -13,7 +13,7 @@ credentials:
       source: store
       id: SHELLY_CLOUD_AUTH_KEY
     scope: "Shelly Cloud Control API tenant host auth_key query parameter"
-    how_to_obtain: "Generate an Authorization cloud key in Shelly Smart Control user settings and store it with `hybridclaw secret set SHELLY_CLOUD_AUTH_KEY \"<key>\"`."
+    how_to_obtain: "Generate an Authorization cloud key in Shelly Smart Control user settings. Set `SHELLY_CLOUD_AUTH_KEY` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set SHELLY_CLOUD_AUTH_KEY \"<key>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set SHELLY_CLOUD_AUTH_KEY \"<key>\"`."
   - id: shelly-cloud-access-token
     kind: bearer
     required: false
@@ -21,7 +21,7 @@ credentials:
       source: store
       id: SHELLY_CLOUD_ACCESS_TOKEN
     scope: "Shelly Cloud Real Time Events HTTP API Authorization bearer"
-    how_to_obtain: "Use Shelly's documented OAuth flow for the Real Time Events API and store the resulting access token with `hybridclaw secret set SHELLY_CLOUD_ACCESS_TOKEN \"<access-token>\"`."
+    how_to_obtain: "Use Shelly's documented OAuth flow for the Real Time Events API. Set `SHELLY_CLOUD_ACCESS_TOKEN` through browser admin at the active `/admin/secrets` route; if browser admin is unavailable, use `/secret set SHELLY_CLOUD_ACCESS_TOKEN \"<access-token>\"` in browser `/chat` or TUI; local console fallback: `hybridclaw secret set SHELLY_CLOUD_ACCESS_TOKEN \"<access-token>\"`."
 metadata:
   hybridclaw:
     category: home-automation

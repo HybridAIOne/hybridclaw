@@ -1662,9 +1662,22 @@ function normalizeDelegationTaskList(params: {
   return { tasks };
 }
 
+function extractArtifactUrlLocalPath(rawPath: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawPath, 'http://hybridclaw.invalid');
+  } catch {
+    return null;
+  }
+  if (parsed.pathname !== '/api/artifact') return null;
+  const pathParam = parsed.searchParams.get('path');
+  return pathParam ? pathParam.trim() : null;
+}
+
 function normalizeVisionLocalPath(rawPath: string): string | null {
-  const normalized = String(rawPath || '').trim();
-  if (!normalized) return null;
+  const trimmed = String(rawPath || '').trim();
+  if (!trimmed) return null;
+  const normalized = extractArtifactUrlLocalPath(trimmed) || trimmed;
 
   const workspacePath = resolveWorkspacePath(normalized);
   if (workspacePath) return workspacePath;
@@ -3073,19 +3086,36 @@ async function executeToolInternal(
 
       if (action === 'read') {
         const channelId = resolveDiscordMessageChannelTarget(args);
-        if (!channelId) {
-          return failTool(
-            'Error: channelId is required for message action "read".',
-          );
-        }
-        payload.channelId = channelId;
+        if (channelId) payload.channelId = channelId;
 
         if (typeof args.limit === 'number' && Number.isFinite(args.limit)) {
           payload.limit = Math.max(1, Math.min(100, Math.floor(args.limit)));
         }
+        const query =
+          readStringValue(args.query) ||
+          readStringValue(args.search) ||
+          readStringValue(args.text);
+        const folder = readStringValue(args.folder);
+        const folders = readStringListValue(args.folders);
+        const uid = readPositiveNumberValue(args.uid);
+        const from = readStringValue(args.from);
+        const subject =
+          readStringValue(args.subject) || readStringValue(args.title);
+        const since = readStringValue(args.since);
+        const beforeDate =
+          readStringValue(args.beforeDate) || readStringValue(args.until);
         const before = readStringValue(args.before);
         const after = readStringValue(args.after);
         const around = readStringValue(args.around);
+        if (query) payload.query = query;
+        if (folder) payload.folder = folder;
+        if (folders) payload.folders = folders;
+        if (uid !== null) payload.uid = Math.floor(uid);
+        if (args.unreadOnly === true) payload.unreadOnly = true;
+        if (from) payload.from = from;
+        if (subject) payload.subject = subject;
+        if (since) payload.since = since;
+        if (beforeDate) payload.beforeDate = beforeDate;
         if (before) payload.before = before;
         if (after) payload.after = after;
         if (around) payload.around = around;
@@ -4120,6 +4150,53 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'number',
             description: 'Read limit for action="read" (default 20, max 100).',
           },
+          query: {
+            type: 'string',
+            description:
+              'Optional search text for action="read" when the active channel supports mailbox or conversation search.',
+          },
+          search: {
+            type: 'string',
+            description: 'Alias for query in action="read".',
+          },
+          folder: {
+            type: 'string',
+            description:
+              'Optional mailbox folder for action="read" when supported by the active channel.',
+          },
+          folders: {
+            type: ['string', 'array'],
+            items: {
+              type: 'string',
+            },
+            description:
+              'Optional mailbox folder list for action="read" when supported by the active channel.',
+          },
+          uid: {
+            type: 'number',
+            description:
+              'Optional mailbox message UID for action="read" when folder is also provided.',
+          },
+          unreadOnly: {
+            type: 'boolean',
+            description:
+              'Only return unread messages for action="read" when supported by the active channel.',
+          },
+          from: {
+            type: 'string',
+            description:
+              'Optional sender filter for action="read" when supported by the active channel.',
+          },
+          since: {
+            type: 'string',
+            description:
+              'Optional received-after date or ISO timestamp for action="read" when supported by the active channel.',
+          },
+          beforeDate: {
+            type: 'string',
+            description:
+              'Optional received-before date or ISO timestamp for action="read" when supported by the active channel.',
+          },
           before: {
             type: 'string',
             description: 'Read messages before this message id.',
@@ -4652,7 +4729,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           image_url: {
             type: 'string',
-            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.`,
+            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, an \`/api/artifact?path=...\` URL copied from chat history, or a Discord CDN HTTPS URL.`,
           },
           question: {
             type: 'string',

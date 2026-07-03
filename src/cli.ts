@@ -650,7 +650,13 @@ async function ensureTuiInstructionApproval(
   try {
     answer = (
       await rl.question(
-        'Restore runtime instruction files from installed defaults now? [y/N] ',
+        [
+          'HybridClaw paused TUI startup because its runtime instruction files do not match the installed defaults.',
+          `Runtime copies: ${result.runtimeRoot}`,
+          `Installed defaults: ${result.installRoot}`,
+          'Choosing yes overwrites the runtime copies with the installed defaults. Choosing no leaves them unchanged and exits.',
+          'Restore the runtime instruction files now? [y/N] ',
+        ].join('\n'),
       )
     )
       .trim()

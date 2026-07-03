@@ -22,7 +22,12 @@ import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { sendToDiscordWebhookTarget } from '../discord-webhook/runtime.js';
 import { normalizeDiscordWebhookChannelTarget } from '../discord-webhook/target.js';
 import { isEmailAddress, normalizeEmailAddress } from '../email/allowlist.js';
-import { sendEmailAttachmentTo, sendToEmail } from '../email/runtime.js';
+import {
+  type EmailMailboxReadResult,
+  readEmailMailbox,
+  sendEmailAttachmentTo,
+  sendToEmail,
+} from '../email/runtime.js';
 import { sendToSignalChat } from '../signal/runtime.js';
 import { normalizeSignalChannelId } from '../signal/target.js';
 import { maybeRunSlackToolAction } from '../slack/tool-actions.js';
@@ -54,6 +59,8 @@ const LOCAL_MESSAGE_QUEUE_LIMIT = 100;
 const MESSAGE_TOOL_READ_DEFAULT_LIMIT = 20;
 const MESSAGE_TOOL_READ_MAX_LIMIT = 100;
 const MESSAGE_TOOL_EMAIL_SESSION_PREFIX = 'email:';
+const MESSAGE_TOOL_EMAIL_MAILBOX_TARGET_RE =
+  /^(?:mailbox|email(?::(?:mailbox|all|inbox|folder:.+|[^@\s]+))?)$/i;
 const MESSAGE_TOOL_DISCORD_WEBHOOK_PREFIX_RE = /^discord[_-]?webhook(?::|$)/i;
 const MESSAGE_TOOL_EMAIL_PREFIX_RE = /^email:/i;
 const MESSAGE_TOOL_SIGNAL_PREFIX_RE = /^signal:/i;
@@ -67,6 +74,7 @@ const MESSAGE_TOOL_DISCORD_CHANNEL_MENTION_RE = /^<#\d{16,22}>$/;
 const MESSAGE_TOOL_DISCORD_PREFIXED_ID_RE =
   /^(?:channel:|discord:|user:)\d{16,22}$/i;
 const MESSAGE_TOOL_LOCAL_SOURCE = 'message-tool';
+const MESSAGE_TOOL_EMAIL_BODY_MAX_LENGTH = 6_000;
 const MESSAGE_TOOL_CHANNEL_INSTRUCTIONS =
   'No message channel matched the request. Specify the channel explicitly: Signal `signal:+15551234567`, Telegram `telegram:<chatId>`, Threema `threema:<id>`/`threema:phone:<number>`/`threema:email:<address>`, WhatsApp `whatsapp:+15551234567` or a WhatsApp JID, Slack `slack:<channelId>`, Slack webhook `slack_webhook`/`slack_webhook:<target>`, Discord webhook `discord_webhook`/`discord_webhook:<target>`, email `user@example.com` or `email:user@example.com`, local `tui`, or Discord with a channel snowflake/`discord:<id>`/`<#id>`/`#name` plus `guildId`.';
 
@@ -296,6 +304,60 @@ function resolveEmailReadTarget(request: DiscordToolActionRequest): {
     channelId,
     sessionId: session.id,
   };
+}
+
+function resolveEmailMailboxTargetFolder(rawChannelId: string): string {
+  const trimmed = String(rawChannelId || '').trim();
+  if (!trimmed) return '';
+  const normalized = trimmed.toLowerCase();
+  if (
+    normalized === 'email' ||
+    normalized === 'mailbox' ||
+    normalized === 'email:mailbox' ||
+    normalized === 'email:all'
+  ) {
+    return '';
+  }
+  if (normalized === 'email:inbox') {
+    return 'INBOX';
+  }
+  const folderMatch = trimmed.match(/^email:folder:(.+)$/i);
+  if (folderMatch) {
+    return folderMatch[1].trim();
+  }
+  const prefixedFolder = trimmed.match(/^email:(.+)$/i);
+  return prefixedFolder ? prefixedFolder[1].trim() : '';
+}
+
+function isEmailMailboxReadTarget(request: DiscordToolActionRequest): boolean {
+  const rawChannelId = String(request.channelId || '').trim();
+  if (!rawChannelId) return true;
+  if (normalizeEmailMessageTarget(rawChannelId)) return false;
+  return MESSAGE_TOOL_EMAIL_MAILBOX_TARGET_RE.test(rawChannelId);
+}
+
+function resolveMessageToolRequestAgentId(
+  request: DiscordToolActionRequest,
+): string | undefined {
+  const sessionId = String(request.sessionId || '').trim();
+  if (!sessionId) return undefined;
+  const session = getSessionById(sessionId);
+  if (!session) return undefined;
+  return resolveAgentForRequest({ session }).agentId;
+}
+
+function normalizeEmailMailboxFolders(
+  request: DiscordToolActionRequest,
+  targetFolder: string,
+): string[] | undefined {
+  const folders = [
+    targetFolder,
+    String(request.folder || '').trim(),
+    ...(Array.isArray(request.folders) ? request.folders : []),
+  ]
+    .map((folder) => String(folder || '').trim())
+    .filter(Boolean);
+  return folders.length > 0 ? [...new Set(folders)] : undefined;
 }
 
 function hasMessageComponents(request: DiscordToolActionRequest): boolean {
@@ -715,6 +777,126 @@ async function runEmailReadAction(
   };
 }
 
+type EmailMailboxMessage = Extract<
+  EmailMailboxReadResult,
+  { kind: 'search' }
+>['snapshot']['messages'][number];
+
+function truncateEmailMailboxText(
+  value: string | null | undefined,
+): string | null {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+  if (normalized.length <= MESSAGE_TOOL_EMAIL_BODY_MAX_LENGTH) {
+    return normalized;
+  }
+  return `${normalized.slice(0, MESSAGE_TOOL_EMAIL_BODY_MAX_LENGTH).trimEnd()}\n[truncated]`;
+}
+
+function mapEmailMailboxParticipants(
+  participants: EmailMailboxMessage['to'],
+): Array<{ name: string | null; address: string | null }> {
+  return participants.map((participant) => ({
+    name: participant.name,
+    address: participant.address,
+  }));
+}
+
+function mapEmailMailboxMessage(message: EmailMailboxMessage) {
+  return {
+    id: `${message.folder}:${message.uid}`,
+    folder: message.folder,
+    uid: message.uid,
+    messageId: message.messageId,
+    subject: message.subject,
+    from: {
+      name: message.fromName,
+      address: message.fromAddress,
+    },
+    to: mapEmailMailboxParticipants(message.to),
+    cc: mapEmailMailboxParticipants(message.cc),
+    replyTo: mapEmailMailboxParticipants(message.replyTo),
+    receivedAt: message.receivedAt,
+    seen: message.seen,
+    flagged: message.flagged,
+    answered: message.answered,
+    hasAttachments: message.hasAttachments,
+    attachments: message.attachments,
+    preview: message.preview,
+    text: truncateEmailMailboxText(message.text),
+  };
+}
+
+async function runEmailMailboxReadAction(
+  request: DiscordToolActionRequest,
+): Promise<Record<string, unknown>> {
+  if (
+    String(request.before || '').trim() ||
+    String(request.after || '').trim() ||
+    String(request.around || '').trim()
+  ) {
+    throw new Error(
+      'before, after, and around are not supported for live email mailbox reads. Use since or beforeDate for date filtering.',
+    );
+  }
+
+  const rawChannelId = String(request.channelId || '').trim();
+  const targetFolder = resolveEmailMailboxTargetFolder(rawChannelId);
+  const folders = normalizeEmailMailboxFolders(request, targetFolder);
+  const uid =
+    typeof request.uid === 'number' && Number.isFinite(request.uid)
+      ? Math.trunc(request.uid)
+      : undefined;
+  const result = await readEmailMailbox({
+    agentId: resolveMessageToolRequestAgentId(request),
+    query: String(request.query || '').trim() || undefined,
+    folder: folders?.[0],
+    folders,
+    limit: resolveMessageToolReadLimit(request.limit),
+    unreadOnly: request.unreadOnly === true,
+    from: String(request.from || '').trim() || undefined,
+    subject: String(request.subject || '').trim() || undefined,
+    since: String(request.since || '').trim() || undefined,
+    beforeDate: String(request.beforeDate || '').trim() || undefined,
+    uid,
+  });
+
+  if (result.kind === 'message') {
+    return {
+      ok: true,
+      action: 'read',
+      channelId: rawChannelId || 'email:mailbox',
+      scope: 'mailbox-message',
+      transport: 'email',
+      accountAddress: result.accountAddress,
+      agentId: result.agentId,
+      folder: result.folder,
+      uid: result.uid,
+      message: result.snapshot.message
+        ? mapEmailMailboxMessage(result.snapshot.message)
+        : null,
+      thread: result.snapshot.thread.map(mapEmailMailboxMessage),
+      count: result.snapshot.thread.length,
+    };
+  }
+
+  const messages = result.snapshot.messages.map(mapEmailMailboxMessage);
+  return {
+    ok: true,
+    action: 'read',
+    channelId: rawChannelId || 'email:mailbox',
+    scope: 'mailbox-search',
+    transport: 'email',
+    accountAddress: result.accountAddress,
+    agentId: result.agentId,
+    query: result.snapshot.query,
+    folders: result.snapshot.folders,
+    limit: result.snapshot.limit,
+    count: messages.length,
+    messages,
+  };
+}
+
 async function runLocalMessageSendAction(
   request: DiscordToolActionRequest,
   channelId: string,
@@ -793,6 +975,9 @@ export async function runMessageToolAction(
     }
     if (shouldDelegateToDiscordToolAction(request)) {
       return await runDiscordToolAction(request);
+    }
+    if (isEmailMailboxReadTarget(request)) {
+      return await runEmailMailboxReadAction(request);
     }
     throw new Error(MESSAGE_TOOL_CHANNEL_INSTRUCTIONS);
   }

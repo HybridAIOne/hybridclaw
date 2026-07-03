@@ -32,6 +32,10 @@ const READ_OPERATIONS = new Set([
   'list-invoices',
   'get-invoice',
   'download-invoice-file',
+  'list-quotations',
+  'get-quotation',
+  'render-quotation-document',
+  'download-quotation-file',
   'list-expenses',
   'get-voucher',
   'get-payment',
@@ -44,6 +48,7 @@ const READ_OPERATIONS = new Set([
 const WRITE_OPERATIONS = new Set([
   'create-contact',
   'create-invoice',
+  'create-quotation',
   'log-expense',
   'upload-file',
   'attach-file-to-voucher',
@@ -52,6 +57,8 @@ const WRITE_OPERATIONS = new Set([
 ]);
 
 const INVOICE_RE = /\b(invoices?|rechnung|rechnungen|receivables?)\b/i;
+const QUOTATION_RE =
+  /\b(quotations?|quotes?|proposals?|angebot(?:e|s)?)\b/i;
 const CUSTOMER_RE = /\b(customers?|clients?|contacts?|kunden?)\b/i;
 const PRODUCT_RE = /\b(products?|articles?|items?|services?|artikel)\b/i;
 const EXPENSE_RE =
@@ -64,9 +71,11 @@ const REPORT_RE =
 const CREATE_RE =
   /\b(create|generate|draft|add|new|send|log|upload|attach|book|match|sync|erstell(?:e|en)?)\b/i;
 const UPDATE_RE = /\b(update|change|correct|edit|void|remove|replace)\b/i;
+const FINALIZE_RE =
+  /\b(finali[sz]e|final|issue|freigeb(?:e|en)|abschlie(?:ss|ß)(?:e|en)?)\b/i;
 const POSTING_RE =
   /\b(posting categories?|booking categor(?:y|ies)|category ids?|kontierungs?kategorien?)\b/i;
-const FILE_RE = /\b(download|file|pdf|document)\b/i;
+const FILE_RE = /\b(download|file|pdf|document|render)\b/i;
 const READ_ONLY_VOUCHER_FIELDS = new Set([
   'id',
   'organizationId',
@@ -301,6 +310,33 @@ function buildReadRequest(operation, args) {
       headers: { Accept: '*/*' },
     });
   }
+  if (operation === 'list-quotations') {
+    return buildVoucherListRequest(args, {
+      voucherType: 'quotation',
+      voucherStatus: popFlag(args, '--status'),
+    });
+  }
+  if (operation === 'get-quotation') {
+    const id = popFlag(args, '--id');
+    validateUuid(id, '--id');
+    return buildHttpRequest({ url: `${API_BASE}/v1/quotations/${id}` });
+  }
+  if (operation === 'render-quotation-document') {
+    const id = popFlag(args, '--id');
+    validateUuid(id, '--id');
+    return buildHttpRequest({
+      url: `${API_BASE}/v1/quotations/${id}/document`,
+      headers: { Accept: 'application/json' },
+    });
+  }
+  if (operation === 'download-quotation-file') {
+    const id = popFlag(args, '--id');
+    validateUuid(id, '--id');
+    return buildHttpRequest({
+      url: `${API_BASE}/v1/quotations/${id}/file`,
+      headers: { Accept: '*/*' },
+    });
+  }
   if (operation === 'list-expenses') {
     return buildVoucherListRequest(args, {
       voucherType: 'purchaseinvoice,purchasecreditnote',
@@ -425,6 +461,14 @@ function buildWriteRequest(operation, args) {
     const finalize = popBoolean(args, '--finalize');
     return buildHttpRequest({
       url: appendQuery(`${API_BASE}/v1/invoices`, { finalize }),
+      method: 'POST',
+      json: requireJsonPayload(args),
+    });
+  }
+  if (operation === 'create-quotation') {
+    const finalize = popBoolean(args, '--finalize');
+    return buildHttpRequest({
+      url: appendQuery(`${API_BASE}/v1/quotations`, { finalize }),
       method: 'POST',
       json: requireJsonPayload(args),
     });
@@ -572,7 +616,8 @@ function makePlan({
 
 function planRequest(request) {
   const text = request.toLowerCase();
-  const isWrite = CREATE_RE.test(text) || UPDATE_RE.test(text);
+  const isWrite =
+    CREATE_RE.test(text) || UPDATE_RE.test(text) || FINALIZE_RE.test(text);
 
   if (BANK_RE.test(text) && isWrite) {
     return makePlan({
@@ -606,6 +651,19 @@ function planRequest(request) {
       stakesTier: 'amber',
       requiresEscalation: true,
       requiredGrant: 'approve-lexware-office-create-invoice',
+    });
+  }
+  if (QUOTATION_RE.test(text) && isWrite) {
+    return makePlan({
+      request,
+      operation: 'create-quotation',
+      resource: 'quotations',
+      stakesTier: 'amber',
+      requiresEscalation: true,
+      requiredGrant: 'approve-lexware-office-create-quotation',
+      findings: [
+        'Create quotations as drafts unless the user clearly asks to finalize. Lexware finalizes quotations at creation with finalize=true; its public docs say quotation status cannot be changed later via the API.',
+      ],
     });
   }
   if (CUSTOMER_RE.test(text) && isWrite) {
@@ -655,6 +713,13 @@ function planRequest(request) {
       resource: 'articles',
     });
   }
+  if (QUOTATION_RE.test(text) && FILE_RE.test(text)) {
+    return makePlan({
+      request,
+      operation: 'download-quotation-file',
+      resource: 'quotations',
+    });
+  }
   if (INVOICE_RE.test(text) && FILE_RE.test(text)) {
     return makePlan({
       request,
@@ -671,8 +736,15 @@ function planRequest(request) {
   }
   return makePlan({
     request,
-    operation: INVOICE_RE.test(text) ? 'list-invoices' : 'profile',
-    resource: INVOICE_RE.test(text) ? 'voucherlist' : 'profile',
+    operation: QUOTATION_RE.test(text)
+      ? 'list-quotations'
+      : INVOICE_RE.test(text)
+        ? 'list-invoices'
+        : 'profile',
+    resource:
+      QUOTATION_RE.test(text) || INVOICE_RE.test(text)
+        ? 'voucherlist'
+        : 'profile',
   });
 }
 
@@ -914,6 +986,10 @@ Usage:
   node skills/lexware-office/lexware_office.cjs http-request list-products [--article-number VALUE] [--type PRODUCT|SERVICE] [--page N] [--size N]
   node skills/lexware-office/lexware_office.cjs http-request list-invoices [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]
   node skills/lexware-office/lexware_office.cjs http-request get-invoice --id UUID
+  node skills/lexware-office/lexware_office.cjs http-request list-quotations [--status open|accepted|rejected|draft] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]
+  node skills/lexware-office/lexware_office.cjs http-request get-quotation --id UUID
+  node skills/lexware-office/lexware_office.cjs http-request download-quotation-file --id UUID
+  node skills/lexware-office/lexware_office.cjs http-request render-quotation-document --id UUID
   node skills/lexware-office/lexware_office.cjs http-request list-expenses [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]
   node skills/lexware-office/lexware_office.cjs http-request get-voucher --id UUID
   node skills/lexware-office/lexware_office.cjs http-request get-payment --voucher-id UUID
@@ -925,6 +1001,7 @@ Usage:
   node skills/lexware-office/lexware_office.cjs match-transaction --transaction-json JSON --invoices-file PATH
   node skills/lexware-office/lexware_office.cjs http-request create-contact --json JSON --operator-grant
   node skills/lexware-office/lexware_office.cjs http-request create-invoice --json JSON [--finalize] --operator-grant
+  node skills/lexware-office/lexware_office.cjs http-request create-quotation --json JSON [--finalize] --operator-grant
   node skills/lexware-office/lexware_office.cjs http-request log-expense --json JSON --operator-grant
   node skills/lexware-office/lexware_office.cjs http-request upload-file --file PATH [--type voucher] --operator-grant
   node skills/lexware-office/lexware_office.cjs http-request attach-file-to-voucher --voucher-id UUID --file PATH --operator-grant

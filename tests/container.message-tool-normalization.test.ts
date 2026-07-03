@@ -174,6 +174,79 @@ describe.sequential('container message tool normalization', () => {
     ]);
   });
 
+  test('read allows omitted channelId for mailbox search', async () => {
+    const fetchMock = mockGatewayFetch({
+      ok: true,
+      action: 'read',
+      channelId: 'email:mailbox',
+    });
+    setGatewayContext('http://gateway.local', 'token', '');
+    setSessionContext('web:session-a');
+
+    const result = await executeTool(
+      'message',
+      JSON.stringify({
+        action: 'read',
+        query: 'invoice',
+        limit: 12,
+        unreadOnly: true,
+      }),
+    );
+
+    expect(result).toContain('"ok": true');
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const payload = JSON.parse(String(init.body || '{}')) as Record<
+      string,
+      unknown
+    >;
+    expect(payload).toMatchObject({
+      action: 'read',
+      query: 'invoice',
+      limit: 12,
+      unreadOnly: true,
+      sessionId: 'web:session-a',
+    });
+    expect(payload.channelId).toBeUndefined();
+  });
+
+  test('read forwards mailbox folder filters to the gateway', async () => {
+    const fetchMock = mockGatewayFetch({
+      ok: true,
+      action: 'read',
+      channelId: 'email:mailbox',
+    });
+    setGatewayContext('http://gateway.local', 'token', '');
+
+    const result = await executeTool(
+      'message',
+      JSON.stringify({
+        action: 'read',
+        channelId: 'email:mailbox',
+        folder: 'INBOX',
+        uid: 44,
+        from: 'billing@example.com',
+        since: '2026-03-01',
+        beforeDate: '2026-04-01',
+      }),
+    );
+
+    expect(result).toContain('"ok": true');
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const payload = JSON.parse(String(init.body || '{}')) as Record<
+      string,
+      unknown
+    >;
+    expect(payload).toMatchObject({
+      action: 'read',
+      channelId: 'email:mailbox',
+      folder: 'INBOX',
+      uid: 44,
+      from: 'billing@example.com',
+      since: '2026-03-01',
+      beforeDate: '2026-04-01',
+    });
+  });
+
   test('send payload includes filePath and sessionId for local uploads', async () => {
     const fetchMock = mockGatewayFetch({
       ok: true,

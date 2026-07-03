@@ -6,7 +6,11 @@ match the provider's credentials, API docs, and endpoint domains.
 
 ## Secrets
 
-Store OTC credentials in HybridClaw encrypted runtime secrets:
+Set OTC credentials in HybridClaw encrypted runtime secrets in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback with `/secret set OTC_* ...`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set OTC_ACCESS_KEY_ID "<access-key-id>"
@@ -15,13 +19,23 @@ hybridclaw secret set OTC_PROJECT_ID "<project-id>"
 ```
 
 For Enterprise Dashboard billing and spend data, create an Enterprise Dashboard
-API key with Admin security level and store it separately:
+API key with Admin security level and set it separately in the same order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set OTC_ENTERPRISE_DASHBOARD_TOKEN "<enterprise-dashboard-api-token>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set OTC_ENTERPRISE_DASHBOARD_TOKEN "<enterprise-dashboard-api-token>"
 ```
 
-If the access key is temporary, also store:
+If the access key is temporary, also set:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set OTC_SECURITY_TOKEN "<session-token>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set OTC_SECURITY_TOKEN "<session-token>"

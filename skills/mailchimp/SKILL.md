@@ -15,10 +15,12 @@ credentials:
     scope: "Mailchimp Marketing API Authorization Basic header secret for https://<dc>.api.mailchimp.com/3.0"
     how_to_obtain: |
       Create a Mailchimp Marketing API key with the narrowest useful role for
-      the account. Locally base64-encode `anystring:<api-key>` and store only
-      that encoded credential in chat with
-      `/secret set MAILCHIMP_MARKETING_BASIC_AUTH "<base64-user-colon-api-key>"`.
-      From a local terminal, use
+      the account. Locally base64-encode `anystring:<api-key>`. Set only that
+      encoded credential as `MAILCHIMP_MARKETING_BASIC_AUTH` through browser
+      admin at the active `/admin/secrets` route; if browser admin is
+      unavailable, use
+      `/secret set MAILCHIMP_MARKETING_BASIC_AUTH "<base64-user-colon-api-key>"`
+      in browser `/chat` or TUI; local console fallback:
       `hybridclaw secret set MAILCHIMP_MARKETING_BASIC_AUTH "<base64-user-colon-api-key>"`.
       Set `MAILCHIMP_SERVER_PREFIX` to the data-center suffix after the last
       hyphen, for example `us21` from a key ending in `-us21`.
@@ -30,10 +32,12 @@ credentials:
       id: MAILCHIMP_MARKETING_OAUTH_TOKEN
     scope: "Mailchimp Marketing OAuth bearer token for https://login.mailchimp.com/oauth2/metadata and https://<dc>.api.mailchimp.com/3.0"
     how_to_obtain: |
-      Complete Mailchimp's OAuth authorization flow outside this helper and
-      store the resulting access token in chat with
-      `/secret set MAILCHIMP_MARKETING_OAUTH_TOKEN "<oauth-token>"`.
-      From a local terminal, use
+      Complete Mailchimp's OAuth authorization flow outside this helper. Set
+      the resulting access token as `MAILCHIMP_MARKETING_OAUTH_TOKEN` through
+      browser admin at the active `/admin/secrets` route; if browser admin
+      is unavailable, use
+      `/secret set MAILCHIMP_MARKETING_OAUTH_TOKEN "<oauth-token>"` in browser
+      `/chat` or TUI; local console fallback:
       `hybridclaw secret set MAILCHIMP_MARKETING_OAUTH_TOKEN "<oauth-token>"`.
       Use helper commands with `--auth oauth`.
   - id: mandrill-api-key
@@ -45,9 +49,10 @@ credentials:
     scope: "Mailchimp Transactional / Mandrill API key for https://mandrillapp.com/api/1.0"
     how_to_obtain: |
       In a Mailchimp account with Transactional Email provisioned, create a
-      Transactional API key and store it in chat with
-      `/secret set MANDRILL_API_KEY "<mandrill-key>"`.
-      From a local terminal, use
+      Transactional API key. Set `MANDRILL_API_KEY` through browser admin at
+      `/admin/secrets`; if browser admin is unavailable,
+      use `/secret set MANDRILL_API_KEY "<mandrill-key>"` in browser `/chat` or
+      TUI; local console fallback:
       `hybridclaw secret set MANDRILL_API_KEY "<mandrill-key>"`.
 config_variables:
   - id: mailchimp-server-prefix

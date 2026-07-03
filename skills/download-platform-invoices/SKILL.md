@@ -82,6 +82,9 @@ The runtime implementation is colocated with this skill:
 - Store secrets in HybridClaw encrypted runtime secrets with provider-specific
   uppercase names such as `STRIPE_INVOICE_API_KEY`,
   `OPENAI_INVOICE_PASSWORD`, or `GITHUB_INVOICE_TOTP_SECRET`.
+- When advising an operator to set or update those secrets, use this order:
+  browser admin at the active `/admin/secrets` route, `/secret set ...` in
+  browser `/chat` or TUI, then `hybridclaw secret set ...` in a local console.
 - Resolve credentials through `resolveInvoiceCredentials`; do not inline or log
   cleartext secrets.
 - Keep provider credential references in invoice harvester config as

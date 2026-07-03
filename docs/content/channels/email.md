@@ -140,6 +140,25 @@ Replies use the same mailbox that received the message. Agent-initiated email
 sends through the `message` tool prefer the account mapped to the active agent
 and fall back to the first configured account.
 
+## Reading Mailboxes From The Message Tool
+
+Agents can use the `message` tool with `action: "read"` to inspect configured
+email mailboxes, not only already-ingested email threads. Use these `channelId`
+values:
+
+- `mailbox` or `email:mailbox` searches the active agent's mailbox
+- `email:inbox` searches `INBOX`
+- `email:folder:<folder-name>` searches a specific folder
+- `email:customer@example.com` still refers to an ingested thread with that
+  sender instead of a mailbox-wide search
+
+Supported read filters include `query`, `folder`, `folders`, `unreadOnly`,
+`from`, `subject`, `since`, `beforeDate`, `limit`, and `uid`. When `uid` is
+set with a folder, HybridClaw returns that message plus its mailbox thread
+snapshot. Mailbox reads use the same configured account resolution as outbound
+email: the active agent's `email.accounts[]` mailbox first, then the default
+mailbox.
+
 ## Step 2: Start Or Restart The Gateway
 
 ```bash

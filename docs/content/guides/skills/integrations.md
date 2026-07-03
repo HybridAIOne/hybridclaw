@@ -1,6 +1,6 @@
 ---
 title: Integrations & Utilities
-description: 1Password, Stripe, Mailchimp, Google Ads, GA4, Firecrawl, Sokosumi, Google Workspace, and utility skills.
+description: Business app integrations, SecretRef-backed API skills, MCP-backed workflows, and utility skills.
 sidebar_position: 9
 ---
 
@@ -245,9 +245,9 @@ hybridclaw auth login hubspot \
 
 ## lexware-office
 
-Work with Lexware Office contacts, invoice articles, invoices, bookkeeping
-vouchers, receipt files, posting categories, payment status, and guarded
-invoice or expense writes through the Lexware Public API.
+Work with Lexware Office contacts, invoice articles, invoices, quotations,
+bookkeeping vouchers, receipt files, posting categories, payment status, and
+guarded invoice, quotation, or expense writes through the Lexware Public API.
 
 **Prerequisites** — a Lexware Office plan with Public API access and an API key
 stored in the encrypted HybridClaw runtime secret store.
@@ -260,9 +260,11 @@ hybridclaw secret set LEXWARE_OFFICE_API_KEY "<api-key>"
 >
 > The helper emits `bearerSecretName: "LEXWARE_OFFICE_API_KEY"` so the gateway injects the API key server-side.
 >
-> Start with read-only calls such as `profile`, `list-contacts`, `list-invoices`, `list-expenses`, `get-payment`, and `posting-categories`.
+> Start with read-only calls such as `profile`, `list-contacts`, `list-invoices`, `list-quotations`, `list-expenses`, `get-payment`, and `posting-categories`.
 >
-> Invoice creation, contact creation, voucher updates, receipt uploads, and expense logging require explicit operator grant.
+> Invoice creation, quotation creation, contact creation, voucher updates, receipt uploads, and expense logging require explicit operator grant.
+>
+> Create invoices and quotations as drafts unless the user clearly asks to finalize or send the document. If intent is ambiguous, ask first.
 >
 > Public API payment reads show payment items. The skill can score bank transactions against open invoices and write an operator-approved reconciliation note, while making clear that the public docs do not expose a direct banking-module assignment mutation.
 
@@ -271,6 +273,8 @@ hybridclaw secret set LEXWARE_OFFICE_API_KEY "<api-key>"
 > `Show the open invoices in Lexware Office`
 >
 > `Generate a draft invoice for Acme GmbH for last month's consulting hours`
+>
+> `Create a draft quotation for Acme GmbH`
 >
 > `Sync this receipt as a Reisekosten expense in Lexware Office`
 >
@@ -773,6 +777,57 @@ hybridclaw secret route add https://graph.microsoft.com/v1.0/ microsoft-oauth Au
 > `Find OneDrive files about the quarterly plan`
 >
 > `Show my joined Teams and the channels in the product team`
+
+---
+
+## zoho
+
+Use the configured Zoho MCP server for Zoho CRM, Desk, Mail, Calendar, Books,
+Projects, WorkDrive, Cliq, Campaigns, and related Zoho business workflows.
+
+**Prerequisites** — a Zoho MCP server configured in HybridClaw, normally under
+the `zoho` MCP namespace. The MCP server owns the Zoho app connections, OAuth
+scopes, tool schemas, and allowed actions.
+
+```text
+/mcp add zoho {"transport":"http","url":"<zoho-mcp-server-url>","auth":"oauth","enabled":true}
+/mcp login zoho
+/mcp status zoho
+```
+
+Use `sse` instead of `http` only when Zoho's connection details specify SSE.
+
+> 💡 **Tips & Tricks**
+>
+> Prefer visible MCP tools named `zoho__<tool>` and follow each tool's schema.
+>
+> Start with reads or searches to resolve exact IDs and current state before
+> creating, updating, sending, scheduling, or invoicing.
+>
+> Confirm each write step separately. Stop after the first failed step and
+> report what did and did not run.
+>
+> Do not ask for Zoho OAuth tokens, passwords, cookies, or refresh tokens in
+> chat.
+
+> 🎯 **Try it yourself**
+>
+> `Search Zoho CRM for open deals owned by Maya`
+>
+> `Summarize recent Zoho Desk tickets for Acme GmbH`
+>
+> `Prepare a Zoho Books invoice draft for this approved line-item list`
+>
+> `Find WorkDrive files related to the Q4 launch plan`
+
+**Troubleshooting**
+
+- **No Zoho tools are visible** — run `/mcp list`, `/mcp status zoho`, or
+  `/mcp login zoho`.
+- **OAuth, scope, or permission errors** — reconnect the Zoho MCP server or
+  adjust the Zoho scopes in the MCP provider; do not retry unrelated tools.
+- **Unexpected namespace** — confirm the visible MCP server is actually Zoho
+  before using non-`zoho__...` tool names.
 
 ---
 

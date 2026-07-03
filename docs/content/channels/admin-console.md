@@ -1,6 +1,6 @@
 ---
 title: Admin Console
-description: Manage channels, agents, human distillation, approvals, config, secrets, output guard, audit, jobs, and browser-based operator workflows from /admin.
+description: Manage channels, connectors, agents, human distillation, approvals, config, secrets, output guard, audit, jobs, and browser-based operator workflows from /admin.
 sidebar_position: 10
 ---
 
@@ -12,6 +12,8 @@ instead of the CLI. The channel setup page lives at `/admin/channels`, and the
 agent prompt-file editor lives at `/admin/agents`. The approvals page at
 `/admin/approvals` shows live pending approvals and lets operators add, edit,
 and delete the current workspace network policy rules for a selected agent.
+The connector setup page at `/admin/connectors` manages HybridAI, Google
+Workspace, GitHub, and Microsoft 365 connection flows.
 The human distillation page at `/admin/distill` manages subjects, consent,
 corpus documents, source uploads, and distillation runs.
 The A2A inbox at `/admin/a2a-inbox` shows instance-wide agent-to-agent message threads and uses the same web-console authentication as the rest of `/admin`: `WEB_API_TOKEN` when configured, or loopback-only local web access.
@@ -88,6 +90,9 @@ pairing requests.
   schedule context while keeping navigation inside the SPA
 - `/admin/scheduler` edits scheduled jobs through the shared form controls and
   surfaces validation errors before saving
+- `/admin/connectors` manages HybridAI API-key setup, Google Workspace OAuth,
+  HybridAI-managed GitHub and Microsoft 365 connectors, and connector health
+  tests from one browser surface
 - `/admin/skills` shows catalog metadata, blocked-skill review controls,
   dependency/setup information, and adaptive-skill amendment review
 - `/admin/statistics` shows activity trends, token totals, cost estimates, and
@@ -151,6 +156,8 @@ scoped to the built-in allowlist and is not a general workspace file browser.
 - you want explicit browser confirmation before destructive operator actions
 - you want to reload runtime config and secrets from `/admin/gateway` without
   switching back to the CLI
+- you want to connect HybridAI, Google Workspace, GitHub, or Microsoft 365 from
+  the browser and test the resulting connector state
 - you want to verify the active public URL or tunnel state before sharing a
   remote access link
 - you want to monitor usage, cost, and channel activity without querying the

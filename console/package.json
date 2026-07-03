@@ -1,7 +1,7 @@
 {
   "name": "@hybridaione/hybridclaw-console",
   "private": true,
-  "version": "0.25.8",
+  "version": "0.26.0",
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",
@@ -29,6 +29,6 @@
     "@vitejs/plugin-react": "5.2.0",
     "jsdom": "26.1.0",
     "typescript": "5.9.3",
-    "vite": "8.0.14"
+    "vite": "8.0.16"
   }
 }

@@ -6,7 +6,12 @@ Hetzner DNS uses the DNS Console and DNS API, not the Hetzner Cloud bearer-token
 API. Create a DNS API token in the Hetzner DNS Console for the account that owns
 the target zones.
 
-Store the token in the encrypted runtime secret store:
+Set the token in the encrypted runtime secret store in this order:
+
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+2. Browser `/chat` or TUI fallback:
+   `/secret set HETZNER_DNS_API_TOKEN "<hetzner-dns-api-token>"`.
+3. Local console fallback:
 
 ```bash
 hybridclaw secret set HETZNER_DNS_API_TOKEN "<hetzner-dns-api-token>"
