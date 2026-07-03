@@ -41,6 +41,7 @@ const baseArgs = {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -121,6 +122,46 @@ describe('OpenAI Codex provider', () => {
     });
 
     expect(result.choices[0]?.message.content).toBe('ls -la');
+  });
+
+  test('times out a stalled streaming response after the first event', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        const encoder = new TextEncoder();
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode(
+                  'event: response.created\r\n' +
+                    'data: {"type":"response.created","response":{"id":"resp_4","model":"gpt-5.4"}}\r\n\r\n',
+                ),
+              );
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' },
+          },
+        );
+      }),
+    );
+
+    const resultPromise = callOpenAICodexProviderStream({
+      ...baseArgs,
+      onTextDelta: () => undefined,
+    });
+    const assertion = expect(resultPromise).rejects.toThrow(
+      'Stream idle timeout after 90000ms',
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(90_000);
+
+    await assertion;
   });
 
   test('fails explicitly when Codex returns no output at all', async () => {
