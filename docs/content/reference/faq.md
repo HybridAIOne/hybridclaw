@@ -126,8 +126,8 @@ with linked-identity routing available when operators want shared continuity.
 Yes. The gateway serves `/admin` for the operator console, `/chat` for the web
 chat UI, `/agents` for the agent/session dashboard, and `/admin/terminal` for
 a browser-based PTY session. The admin console includes Dashboard, Terminal,
-Gateway, Sessions, Jobs, Channels, Email, Models, Scheduler, MCP, Audit,
-Agent Files, Skills, Plugins, Tools, and Config pages. The Channels page
+Gateway, Sessions, Jobs, Channels, Email, Models, Scheduler, Connectors, MCP,
+Audit, Agent Files, Skills, Plugins, Tools, and Config pages. The Channels page
 centralizes transport status, managed secrets, and setup controls for Discord,
 Slack Incoming Webhooks, Telegram, WhatsApp, email, Microsoft Teams, and
 iMessage. The Agent Files page at `/admin/agents` lets operators edit the

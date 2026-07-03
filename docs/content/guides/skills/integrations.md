@@ -1,6 +1,6 @@
 ---
 title: Integrations & Utilities
-description: 1Password, Stripe, Mailchimp, Google Ads, GA4, Firecrawl, Sokosumi, Google Workspace, and utility skills.
+description: Business app integrations, SecretRef-backed API skills, MCP-backed workflows, and utility skills.
 sidebar_position: 9
 ---
 
@@ -777,6 +777,57 @@ hybridclaw secret route add https://graph.microsoft.com/v1.0/ microsoft-oauth Au
 > `Find OneDrive files about the quarterly plan`
 >
 > `Show my joined Teams and the channels in the product team`
+
+---
+
+## zoho
+
+Use the configured Zoho MCP server for Zoho CRM, Desk, Mail, Calendar, Books,
+Projects, WorkDrive, Cliq, Campaigns, and related Zoho business workflows.
+
+**Prerequisites** — a Zoho MCP server configured in HybridClaw, normally under
+the `zoho` MCP namespace. The MCP server owns the Zoho app connections, OAuth
+scopes, tool schemas, and allowed actions.
+
+```text
+/mcp add zoho {"transport":"http","url":"<zoho-mcp-server-url>","auth":"oauth","enabled":true}
+/mcp login zoho
+/mcp status zoho
+```
+
+Use `sse` instead of `http` only when Zoho's connection details specify SSE.
+
+> 💡 **Tips & Tricks**
+>
+> Prefer visible MCP tools named `zoho__<tool>` and follow each tool's schema.
+>
+> Start with reads or searches to resolve exact IDs and current state before
+> creating, updating, sending, scheduling, or invoicing.
+>
+> Confirm each write step separately. Stop after the first failed step and
+> report what did and did not run.
+>
+> Do not ask for Zoho OAuth tokens, passwords, cookies, or refresh tokens in
+> chat.
+
+> 🎯 **Try it yourself**
+>
+> `Search Zoho CRM for open deals owned by Maya`
+>
+> `Summarize recent Zoho Desk tickets for Acme GmbH`
+>
+> `Prepare a Zoho Books invoice draft for this approved line-item list`
+>
+> `Find WorkDrive files related to the Q4 launch plan`
+
+**Troubleshooting**
+
+- **No Zoho tools are visible** — run `/mcp list`, `/mcp status zoho`, or
+  `/mcp login zoho`.
+- **OAuth, scope, or permission errors** — reconnect the Zoho MCP server or
+  adjust the Zoho scopes in the MCP provider; do not retry unrelated tools.
+- **Unexpected namespace** — confirm the visible MCP server is actually Zoho
+  before using non-`zoho__...` tool names.
 
 ---
 

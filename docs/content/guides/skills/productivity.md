@@ -1,6 +1,6 @@
 ---
 title: Productivity Skills
-description: Feature planning, human distillation, project management, and Trello board integration.
+description: Feature planning, human distillation, project management, Miro boards, and Trello board integration.
 sidebar_position: 6
 ---
 
@@ -116,6 +116,64 @@ updates for team delivery.
 > `1. Create a 6-week roadmap for launching a new billing system with milestones for design, implementation, testing, and rollout`
 > `2. Add a risk register for the top 5 risks, each with impact, probability, and mitigation plan`
 > `3. Draft a stakeholder update email summarizing the roadmap and calling out the two highest risks`
+
+---
+
+## miro
+
+Discover Miro boards, read board items for planning and summaries, prepare
+guarded board writes, and run Enterprise board export workflows through
+SecretRef-backed API requests.
+
+**Prerequisites** — a Miro OAuth app or access token with the narrowest board
+scopes needed for the task. Enterprise board export also requires a Discovery
+token with `boards:export`, a Miro Enterprise plan, Company Admin role, and
+enabled eDiscovery.
+
+Set normal board access:
+
+```bash
+hybridclaw secret set MIRO_ACCESS_TOKEN "<oauth-or-access-token>"
+```
+
+For Enterprise exports:
+
+```bash
+hybridclaw secret set MIRO_DISCOVERY_ACCESS_TOKEN "<enterprise-discovery-token>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Use `MIRO_ACCESS_TOKEN` for board discovery, item reads, and guarded board
+> writes. Use `MIRO_DISCOVERY_ACCESS_TOKEN` only for Enterprise export APIs.
+>
+> Start with `list-boards`, `get-board`, and `list-items` before summarizing a
+> board or planning a change.
+>
+> Board writes require an approval plan and explicit operator grant. Supported
+> writes are sticky notes, text items, shapes, connectors, and frames.
+>
+> The v1 skill refuses board deletes, item deletes, and permission/share
+> changes.
+
+> 🎯 **Try it yourself**
+>
+> `List my accessible Miro boards matching "roadmap"`
+>
+> `Summarize sticky notes on the product planning board`
+>
+> `Prepare an approval plan to add a decision sticky note to this board`
+>
+> `Create an Enterprise export plan for the quarterly roadmap board`
+
+**Troubleshooting**
+
+- **Missing `MIRO_ACCESS_TOKEN`** — set it in `/admin/secrets`, with
+  `/secret set`, or with `hybridclaw secret set` in a local console.
+- **401 or 403** — Miro rejected the token or the token lacks the required
+  board, organization, Enterprise, or OAuth scope.
+- **429** — back off and preserve cursor or request ids for idempotent
+  retries.
 
 ---
 

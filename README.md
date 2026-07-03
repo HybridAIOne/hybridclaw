@@ -21,9 +21,9 @@ approval tiers, and are validated against `Qwen/Qwen3.6-27B-FP8` as the
 small-model baseline.
 
 That is the useful difference: a compact model can operate Salesforce,
-HubSpot, GA4, Google Ads, Lexware, Airtable, warehouse SQL, invoices, cloud
-ops, and office documents through structured rails instead of fragile
-free-form prompting.
+HubSpot, GA4, Google Ads, Lexware, Airtable, Miro, Zoho, Microsoft 365,
+warehouse SQL, invoices, cloud ops, and office documents through structured
+rails instead of fragile free-form prompting.
 
 HybridClaw also treats agents as networked coworkers. Local agents, hosted
 HybridAI proxy agents, and trusted peer HybridClaw instances can address one
@@ -101,7 +101,7 @@ After the gateway starts, open:
 | Surface | URL / command | Use it for |
 | --- | --- | --- |
 | Web Chat | `http://127.0.0.1:9090/chat` | Chat, slash commands, model and agent switching |
-| Admin Console | `http://127.0.0.1:9090/admin` | Channels, agents, approvals, audit, config, secrets, skills, distillation |
+| Admin Console | `http://127.0.0.1:9090/admin` | Channels, connectors, agents, approvals, audit, config, secrets, skills, distillation |
 | Agents UI | `http://127.0.0.1:9090/agents` | Agent fleet overview and prompt-file editing |
 | TUI | `hybridclaw tui` | Terminal chat, approvals, status, resume |
 | OpenAI-compatible API | `http://127.0.0.1:9090/v1/chat/completions` | Local evals and compatible clients |
@@ -127,7 +127,7 @@ npm run desktop
 | Governance | Encrypted runtime secrets, SecretRef credential isolation, approval policies, sandbox controls, audit trails with hash-chain integrity |
 | Memory | Local memory files, SQLite persistence, semantic recall, session compaction, optional HybridAI cloud memory sync |
 | Agents | Guided hatching, per-agent workspaces, models, budgets, prompt files, explicit addressing, proxy agents, A2A trust, peer-instance communication |
-| Extensibility | Packaged business skills, plugins, MCP servers, SecretRef-backed HTTP tools |
+| Extensibility | Packaged business skills, plugins, MCP servers, admin connector flows, SecretRef-backed HTTP tools |
 
 ## Product Strengths
 
@@ -153,9 +153,9 @@ npm run desktop
 - **Model freedom**: use HybridAI, major hosted providers, local engines, or
   named OpenAI-compatible endpoints from the same model picker and config
   surface.
-- **Operator visibility**: `/admin` covers channels, approvals, audit,
-  statistics, output guard, secrets, fleet topology, A2A inbox/trust, and
-  distillation without requiring shell access.
+- **Operator visibility**: `/admin` covers channels, connectors, approvals,
+  audit, statistics, output guard, secrets, fleet topology, A2A inbox/trust,
+  and distillation without requiring shell access.
 - **Business-ready extension model**: packaged skills, plugins, MCP servers,
   and SecretRef-backed HTTP tools share the same approval and credential
   boundaries.
@@ -228,7 +228,7 @@ Core pieces:
 | Build desktop releases | [Desktop Release Builds](https://hybridaione.github.io/hybridclaw/docs/developer-guide/desktop-release) |
 | Contribute | [CONTRIBUTING.md](./CONTRIBUTING.md), [docs/content/README.md](./docs/content/README.md) |
 
-Latest release: [v0.25.8](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.25.8).
+Latest release: [v0.26.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.26.0).
 Release notes: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Development
