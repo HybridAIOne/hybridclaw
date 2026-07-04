@@ -45,7 +45,7 @@ function TraceStepRow(props: { step: TraceStep; live: boolean }) {
     return (
       <div className={css.traceStep}>
         <span className={css.traceStepMarker} aria-hidden="true">
-          ✻
+          <span className={css.traceDot} />
         </span>
         <div className={css.traceThinkingText}>{step.text}</div>
       </div>
@@ -55,14 +55,8 @@ function TraceStepRow(props: { step: TraceStep; live: boolean }) {
   const running = live && step.status === 'running';
   return (
     <div className={css.traceStep}>
-      <span
-        className={cx(
-          css.traceStepMarker,
-          running && css.traceStepMarkerRunning,
-        )}
-        aria-hidden="true"
-      >
-        {running ? '' : '•'}
+      <span className={css.traceStepMarker} aria-hidden="true">
+        <span className={cx(css.traceDot, running && css.traceDotRunning)} />
       </span>
       <div className={css.traceStepBody}>
         <div className={css.traceToolLine}>

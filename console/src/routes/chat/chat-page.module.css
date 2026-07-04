@@ -1430,24 +1430,28 @@ aside[data-state="collapsed"] .chatSidebarContent {
   align-items: flex-start;
   gap: 7px;
   min-width: 0;
+  line-height: 1.5;
 }
 
+/* Fixed to one line-height so the dot centers on the first text line of every
+   row — single-line or wrapped, thinking or tool — for a uniform left column. */
 .traceStepMarker {
   flex: none;
   display: inline-flex;
   justify-content: center;
   align-items: center;
   width: 12px;
-  min-height: 1.2rem;
-  font-size: 0.7rem;
-  color: color-mix(in srgb, var(--muted-foreground) 75%, transparent);
+  height: calc(0.8rem * 1.5);
 }
 
-.traceStepMarkerRunning::after {
-  content: "";
-  width: 7px;
-  height: 7px;
+.traceDot {
+  width: 5px;
+  height: 5px;
   border-radius: 999px;
+  background: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
+}
+
+.traceDotRunning {
   background: var(--muted-foreground);
   animation: thinkingBounce 1.2s infinite ease-in-out;
 }
@@ -2109,7 +2113,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
   }
 
   .traceSummaryLive,
-  .traceStepMarkerRunning::after {
+  .traceDotRunning {
     animation: none;
   }
 
