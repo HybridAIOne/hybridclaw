@@ -43,6 +43,7 @@ describe.sequential('container bash tool persistence', () => {
   afterEach(() => {
     tools?.resetPersistentBashSessions();
     tools = null;
+    vi.doUnmock('node:child_process');
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.resetModules();
@@ -112,6 +113,53 @@ describe.sequential('container bash tool persistence', () => {
     );
 
     expect(result).toBe('|||||||http://127.0.0.1:9090|gateway-token|visible');
+  });
+
+  test('keeps user command text out of host bash argv', async () => {
+    const persistentMarker = 'HYBRIDCLAW_PERSISTENT_COMMAND_MARKER';
+    const statelessMarker = 'HYBRIDCLAW_STATELESS_COMMAND_MARKER';
+    const spawnSyncMock = vi.fn(() => ({
+      status: 0,
+      stdout: 'ok',
+      stderr: '',
+      error: undefined,
+    }));
+    vi.doMock('node:child_process', async () => {
+      const actual =
+        await vi.importActual<typeof import('node:child_process')>(
+          'node:child_process',
+        );
+      return {
+        ...actual,
+        spawnSync: spawnSyncMock,
+      };
+    });
+
+    const { executeTool, setPersistentBashStateEnabled } =
+      await createBashTestRuntime({
+        sessionId: `bash-session-argv-${Date.now()}`,
+      });
+
+    const persistentResult = await executeTool(
+      'bash',
+      bashCommand(`printf %s ${persistentMarker}`),
+    );
+    setPersistentBashStateEnabled(false);
+    const statelessResult = await executeTool(
+      'bash',
+      bashCommand(`printf %s ${statelessMarker}`),
+    );
+
+    expect(persistentResult).toBe('ok');
+    expect(statelessResult).toBe('ok');
+    expect(spawnSyncMock).toHaveBeenCalledTimes(2);
+    for (const call of spawnSyncMock.mock.calls) {
+      const [executable, args] = call as unknown as [string, string[]];
+      expect(executable).toBe('/bin/bash');
+      expect(args).toContain('-l');
+      expect(args.join('\0')).not.toContain(persistentMarker);
+      expect(args.join('\0')).not.toContain(statelessMarker);
+    }
   });
 
   test('persists aliases across bash calls', async () => {
