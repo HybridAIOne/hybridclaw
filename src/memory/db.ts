@@ -6888,8 +6888,8 @@ export function forkSessionBranch(
     ).run(nextSessionId, sourceSession.id, beforeMessageId, copiedMessageCount);
     copySessionKvStore(sourceSession.id, nextSessionId);
     db.prepare(
-      `INSERT INTO messages (session_id, user_id, username, role, agent_id, content, artifacts_json, created_at)
-       SELECT ?, user_id, username, role, agent_id, content, artifacts_json, created_at
+      `INSERT INTO messages (session_id, user_id, username, role, agent_id, content, artifacts_json, activity_trace_json, created_at)
+       SELECT ?, user_id, username, role, agent_id, content, artifacts_json, activity_trace_json, created_at
        FROM messages
        WHERE session_id = ?
          AND id < ?

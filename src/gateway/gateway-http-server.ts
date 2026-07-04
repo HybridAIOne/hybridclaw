@@ -133,6 +133,7 @@ import {
   isAdminActionAllowed,
   resolveAdminRbacAction,
 } from '../security/admin-rbac.js';
+import { redactSecretsDeep } from '../security/redact.js';
 import { createSecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
 import { hardenSecretRef } from '../security/secret-refs.js';
@@ -3374,7 +3375,9 @@ async function handleApiChatStream(
       const trace = traceBuilder.build(Date.now() - traceStartedAt);
       if (trace) {
         try {
-          setMessageActivityTrace(assistantMessageId, trace);
+          // Tool arg/result previews and thinking text are now stored at rest;
+          // redact any secrets echoed in them before they land in SQLite.
+          setMessageActivityTrace(assistantMessageId, redactSecretsDeep(trace));
         } catch (traceError) {
           logger.warn(
             { error: traceError, sessionId: chatRequest.sessionId },

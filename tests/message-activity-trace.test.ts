@@ -58,6 +58,52 @@ describe('message activity trace persistence', () => {
     expect(user?.activityTrace).toBeUndefined();
   });
 
+  it('preserves activity traces when a session is branched', async () => {
+    const dbModule = await import('../src/memory/db.js');
+    const dbPath = path.join(makeTempDir(), 'hybridclaw.db');
+    dbModule.initDatabase({ quiet: true, dbPath });
+
+    const session = dbModule.getOrCreateSession(
+      'agent:main:channel:web:chat:dm:peer:activity-trace-branch',
+      null,
+      'web',
+      'main',
+    );
+    dbModule.storeMessage(session.id, 'user_a', 'User A', 'user', 'First');
+    const assistantId = dbModule.storeMessage(
+      session.id,
+      'assistant',
+      null,
+      'assistant',
+      'First answer',
+      'main',
+    );
+    dbModule.setMessageActivityTrace(assistantId, {
+      steps: [{ kind: 'thinking', text: 'reasoning' }],
+      elapsedMs: 1200,
+    });
+    const cutoffId = dbModule.storeMessage(
+      session.id,
+      'user_a',
+      'User A',
+      'user',
+      'Second',
+    );
+
+    const fork = dbModule.forkSessionBranch({
+      sessionId: session.id,
+      beforeMessageId: cutoffId,
+    });
+
+    const branched = dbModule.getConversationHistoryPage(fork.session.id, 50);
+    const assistant = branched.history.find((m) => m.role === 'assistant');
+    // The trace must ride along with the copied message, not be dropped.
+    expect(assistant?.activityTrace).toEqual({
+      steps: [{ kind: 'thinking', text: 'reasoning' }],
+      elapsedMs: 1200,
+    });
+  });
+
   it('survives the schema migration on a pre-existing database', async () => {
     const dbModule = await import('../src/memory/db.js');
     const dbPath = path.join(makeTempDir(), 'hybridclaw.db');
