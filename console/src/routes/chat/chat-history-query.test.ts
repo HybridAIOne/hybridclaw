@@ -284,6 +284,72 @@ describe('buildChatHistoryUiData', () => {
     });
   });
 
+  it('hydrates a collapsed trace immediately before its assistant message', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        { id: 1, role: 'user', content: 'Read my email' },
+        {
+          id: 2,
+          role: 'assistant',
+          content: 'Here are your emails.',
+          activityTrace: {
+            steps: [
+              { kind: 'thinking', text: 'Listing their messages' },
+              {
+                kind: 'tool',
+                toolName: 'list_messages',
+                status: 'done',
+                argsPreview: '{"top":20}',
+                durationMs: 903,
+              },
+            ],
+            elapsedMs: 34_000,
+          },
+        },
+      ],
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    const assistantIndex = ui.messages.findIndex((m) => m.role === 'assistant');
+    const trace = ui.messages[assistantIndex - 1];
+    expect(trace?.role).toBe('trace');
+    if (trace?.role !== 'trace') throw new Error('expected a trace message');
+    expect(trace.done).toBe(true);
+    expect(trace.finishedAt).toBe(34_000);
+    expect(trace.steps).toEqual([
+      { kind: 'thinking', text: 'Listing their messages' },
+      {
+        kind: 'tool',
+        toolName: 'list_messages',
+        status: 'done',
+        argsPreview: '{"top":20}',
+        durationMs: 903,
+      },
+    ]);
+  });
+
+  it('does not add a trace message when history omits activityTrace', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        { id: 1, role: 'user', content: 'hi' },
+        { id: 2, role: 'assistant', content: 'hello' },
+        {
+          id: 3,
+          role: 'assistant',
+          content: 'empty trace',
+          activityTrace: { steps: [] },
+        },
+      ],
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    expect(ui.messages.some((m) => m.role === 'trace')).toBe(false);
+  });
+
   it('uses per-message assistantPresentation instead of session-level presentation', () => {
     const raw: ChatHistoryResponse = {
       sessionId: 'session-a',

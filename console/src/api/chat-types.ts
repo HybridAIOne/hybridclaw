@@ -22,6 +22,30 @@ export interface ChatMobileQrResponse {
   qrSvg: string;
 }
 
+export interface ChatActivityTraceThinkingStep {
+  kind: 'thinking';
+  text: string;
+}
+
+export interface ChatActivityTraceToolStep {
+  kind: 'tool';
+  toolName: string;
+  status?: 'running' | 'done';
+  argsPreview?: string;
+  resultPreview?: string;
+  durationMs?: number;
+}
+
+export type ChatActivityTraceStep =
+  | ChatActivityTraceThinkingStep
+  | ChatActivityTraceToolStep;
+
+/** Persisted per-message activity trace replayed from chat history. */
+export interface ChatActivityTrace {
+  steps: ChatActivityTraceStep[];
+  elapsedMs?: number;
+}
+
 export interface ChatHistoryMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -30,6 +54,7 @@ export interface ChatHistoryMessage {
   response_rating?: ResponseRatingValue | null;
   artifacts?: ChatArtifact[];
   assistantPresentation?: AssistantPresentation | null;
+  activityTrace?: ChatActivityTrace | null;
 }
 
 export type ResponseRatingValue = 'up' | 'down';

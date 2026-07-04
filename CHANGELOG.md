@@ -11,6 +11,8 @@
   auto-collapses to a one-line summary once the final answer, an approval, or
   an error arrives. It consumes the `thinking` and `tool` NDJSON events the
   gateway already emits on `/api/chat`, gated by the session `/show` mode.
+  The ordered trace is persisted per assistant message (schema v46), so a page
+  reload replays the same activity instead of dropping it.
 
   `Manifesto: Principle IV - A coworker is a colleague, not a chatbot.`
 

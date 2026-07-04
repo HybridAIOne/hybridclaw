@@ -1,3 +1,4 @@
+import type { ActivityTrace } from './activity-trace.js';
 import type { ArtifactMetadata } from './execution.js';
 
 export type SessionShowMode = 'all' | 'thinking' | 'tools' | 'none';
@@ -43,6 +44,8 @@ export interface StoredMessage {
   agent_id?: string | null;
   response_rating?: ResponseRatingValue | null;
   artifacts?: ArtifactMetadata[];
+  /** Web-chat activity trace (thinking + tool calls) for assistant turns. */
+  activityTrace?: ActivityTrace;
   created_at: string;
 }
 

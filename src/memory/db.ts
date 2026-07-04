@@ -94,6 +94,11 @@ import type {
   SkillOptLiteRejectedEditMemory,
 } from '../skills/adaptive-skills-types.js';
 import type { SkillGuardVerdict } from '../skills/skills-guard.js';
+import {
+  type ActivityTrace,
+  parseActivityTrace,
+  serializeActivityTrace,
+} from '../types/activity-trace.js';
 import type {
   ApprovalAuditEntry,
   AuditEntry,
@@ -162,7 +167,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 47;
+export const DATABASE_SCHEMA_VERSION = 48;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -247,6 +252,7 @@ interface ConversationHistoryPageRow {
   agent_id: string | null;
   content: string | null;
   artifacts_json: string | null;
+  activity_trace_json: string | null;
   created_at: string | null;
 }
 
@@ -808,6 +814,7 @@ function migrateV1(database: Database.Database): void {
       agent_id TEXT,
       content TEXT NOT NULL,
       artifacts_json TEXT,
+      activity_trace_json TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
@@ -3154,6 +3161,20 @@ function migrateV47(
   recordMigration(database, 47, 'Add app kind (web/live) and source key');
 }
 
+function migrateV48(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'messages',
+    column: 'activity_trace_json',
+    ddl: 'activity_trace_json TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 48, 'Persist web-chat activity traces per message');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3273,6 +3294,7 @@ function runMigrations(
   if (currentVersion < 47 || appsKindNeedMigration(database)) {
     migrateV47(database, opts);
   }
+  if (currentVersion < 48) migrateV48(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -7867,6 +7889,21 @@ export function storeMessage(
   return result.lastInsertRowid as number;
 }
 
+/**
+ * Attaches a web-chat activity trace to an already-persisted assistant message.
+ * Written as a post-insert update because the trace is only fully known once
+ * the streamed turn completes, after the message row exists.
+ */
+export function setMessageActivityTrace(
+  messageId: number,
+  trace: ActivityTrace,
+): void {
+  db.prepare('UPDATE messages SET activity_trace_json = ? WHERE id = ?').run(
+    serializeActivityTrace(trace),
+    messageId,
+  );
+}
+
 export function getConversationHistory(
   sessionId: string,
   limit = 50,
@@ -8215,6 +8252,7 @@ export function getConversationHistoryPage(
          m.agent_id,
          m.content,
          m.artifacts_json,
+         m.activity_trace_json,
          m.created_at
        FROM sessions s
        LEFT JOIN (
@@ -8256,6 +8294,7 @@ export function getConversationHistoryPage(
     ) {
       continue;
     }
+    const activityTrace = parseActivityTrace(row.activity_trace_json);
     history.push({
       id: row.id,
       session_id: row.session_id,
@@ -8265,6 +8304,7 @@ export function getConversationHistoryPage(
       agent_id: row.agent_id,
       content: row.content,
       artifacts: parseMessageArtifacts(row.artifacts_json),
+      ...(activityTrace ? { activityTrace } : {}),
       created_at: row.created_at,
     });
   }
