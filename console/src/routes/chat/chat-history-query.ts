@@ -1,11 +1,16 @@
 import { fetchChatHistory } from '../../api/chat';
 import type {
   BranchVariant,
+  ChatActivityTrace,
   ChatHistoryResponse,
   ChatMessage,
 } from '../../api/chat-types';
 import { nextMsgId } from '../../lib/chat-helpers';
-import type { ChatUiMessage } from './chat-ui-message';
+import type {
+  ChatUiMessage,
+  TraceChatMessage,
+  TraceStep,
+} from './chat-ui-message';
 
 export interface ChatHistoryUiData {
   messages: ChatUiMessage[];
@@ -22,6 +27,49 @@ function normalizeAgentIdForComparison(agentId: string | null | undefined) {
   return String(agentId ?? '')
     .trim()
     .toLowerCase();
+}
+
+// Rebuild a collapsed (done) trace message from persisted history so a reload
+// shows the same thinking/tool activity the live stream rendered. Positioned
+// just before its assistant bubble by the caller.
+function hydrateActivityTrace(
+  trace: ChatActivityTrace | null | undefined,
+  sessionId: string,
+): TraceChatMessage | null {
+  if (!trace || !Array.isArray(trace.steps) || trace.steps.length === 0) {
+    return null;
+  }
+  const steps: TraceStep[] = trace.steps.map(
+    (step): TraceStep =>
+      step.kind === 'thinking'
+        ? { kind: 'thinking', text: step.text }
+        : {
+            kind: 'tool',
+            toolName: step.toolName,
+            status: 'done',
+            ...(step.argsPreview ? { argsPreview: step.argsPreview } : {}),
+            ...(step.resultPreview
+              ? { resultPreview: step.resultPreview }
+              : {}),
+            ...(typeof step.durationMs === 'number'
+              ? { durationMs: step.durationMs }
+              : {}),
+          },
+  );
+  return {
+    id: nextMsgId(),
+    role: 'trace',
+    content: '',
+    sessionId,
+    steps,
+    done: true,
+    startedAt: 0,
+    // startedAt is 0, so finishedAt carries the persisted elapsed for the
+    // summary's duration; omitted when unknown.
+    ...(typeof trace.elapsedMs === 'number'
+      ? { finishedAt: trace.elapsedMs }
+      : {}),
+  };
 }
 
 export function buildChatHistoryUiData(
@@ -49,7 +97,8 @@ export function buildChatHistoryUiData(
   const history = raw.history ?? [];
   const sessionAgentId = normalizeAgentIdForComparison(raw.agentId);
   let lastUserContent: string | null = null;
-  const messages: ChatMessage[] = history.map((msg, index) => {
+  const messages: ChatUiMessage[] = [];
+  history.forEach((msg, index) => {
     const nextAssistant = history
       .slice(index + 1)
       .find((candidate) => candidate.role !== 'system');
@@ -71,7 +120,7 @@ export function buildChatHistoryUiData(
         : msg.role === 'assistant'
           ? lastUserContent
           : null;
-    return {
+    const chatMessage: ChatMessage = {
       id: nextMsgId(),
       role: msg.role,
       content: msg.content,
@@ -90,6 +139,11 @@ export function buildChatHistoryUiData(
           ? (branchKeysByMessageId.get(msg.id) ?? null)
           : null,
     };
+    if (msg.role === 'assistant') {
+      const trace = hydrateActivityTrace(msg.activityTrace, resolvedSessionId);
+      if (trace) messages.push(trace);
+    }
+    messages.push(chatMessage);
   });
 
   return {

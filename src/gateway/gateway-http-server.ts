@@ -123,6 +123,7 @@ import {
 import {
   claimQueuedProactiveMessages,
   enqueueProactiveMessage,
+  setMessageActivityTrace,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
@@ -132,6 +133,7 @@ import {
   isAdminActionAllowed,
   resolveAdminRbacAction,
 } from '../security/admin-rbac.js';
+import { redactSecretsDeep } from '../security/redact.js';
 import { createSecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
 import { hardenSecretRef } from '../security/secret-refs.js';
@@ -147,6 +149,7 @@ import {
   buildTuiSlashMenuEntries,
   rankTuiSlashMenuEntries,
 } from '../tui-slash-menu.js';
+import { ActivityTraceBuilder } from '../types/activity-trace.js';
 import type { MediaContextItem } from '../types/container.js';
 import type {
   PendingApproval,
@@ -3272,7 +3275,18 @@ async function handleApiChatStream(
     return;
   }
 
+  // Accumulate the same thinking/tool events the client sees into an ordered
+  // trace, then persist it against the assistant message so a reload replays
+  // exactly what streamed.
+  const traceStartedAt = Date.now();
+  const traceBuilder = new ActivityTraceBuilder();
+
   const onToolProgress = (event: ToolProgressEvent): void => {
+    if (event.phase === 'start') {
+      traceBuilder.startTool(event.toolName, event.preview);
+    } else {
+      traceBuilder.finishTool(event.toolName, event.durationMs, event.preview);
+    }
     sendEvent({
       type: 'tool',
       toolName: event.toolName,
@@ -3293,6 +3307,7 @@ async function handleApiChatStream(
   };
   const onThinkingDelta = (delta: string): void => {
     if (!delta) return;
+    traceBuilder.pushThinking(delta);
     sendEvent({
       type: 'thinking',
       delta,
@@ -3353,6 +3368,24 @@ async function handleApiChatStream(
       type: 'result',
       result: filteredResult,
     });
+    // Best-effort: persistence failure must never corrupt the already-sent
+    // response, so it is swallowed after logging.
+    const assistantMessageId = result.assistantMessageId;
+    if (typeof assistantMessageId === 'number' && !traceBuilder.isEmpty()) {
+      const trace = traceBuilder.build(Date.now() - traceStartedAt);
+      if (trace) {
+        try {
+          // Tool arg/result previews and thinking text are now stored at rest;
+          // redact any secrets echoed in them before they land in SQLite.
+          setMessageActivityTrace(assistantMessageId, redactSecretsDeep(trace));
+        } catch (traceError) {
+          logger.warn(
+            { error: traceError, sessionId: chatRequest.sessionId },
+            'Failed to persist chat activity trace',
+          );
+        }
+      }
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     sendEvent({

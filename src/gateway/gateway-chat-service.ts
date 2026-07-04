@@ -167,6 +167,7 @@ import {
 } from './secret-command-guard.js';
 import {
   normalizeSessionShowMode,
+  sessionShowModeShowsThinking,
   sessionShowModeShowsTools,
 } from './show-mode.js';
 
@@ -1156,6 +1157,7 @@ async function handleGatewayMessageInner(
   });
   const showMode = normalizeSessionShowMode(session.show_mode);
   const shouldEmitTools = sessionShowModeShowsTools(showMode);
+  const shouldEmitThinking = sessionShowModeShowsThinking(showMode);
   const enableRag = req.enableRag ?? session.enable_rag === 1;
   const audioPrelude = await prependAudioTranscriptionsToUserContent({
     content: req.content,
@@ -1847,9 +1849,13 @@ async function handleGatewayMessageInner(
     };
     const emitTextDeltas =
       req.onTextDelta && !outputGuardActive ? onTextDelta : undefined;
-    const emitThinkingDeltas = req.onThinkingDelta
-      ? (delta: string): void => req.onThinkingDelta?.(delta)
-      : undefined;
+    // Gate thinking by the session show mode, mirroring `shouldEmitTools`, so a
+    // session that hides thinking neither streams nor persists it into the
+    // activity trace (the web streaming handler only records what it receives).
+    const emitThinkingDeltas =
+      req.onThinkingDelta && shouldEmitThinking
+        ? (delta: string): void => req.onThinkingDelta?.(delta)
+        : undefined;
     const onToolProgress = (event: ToolProgressEvent): void => {
       logger.debug(
         {

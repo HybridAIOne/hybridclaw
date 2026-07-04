@@ -1300,7 +1300,9 @@ export function ChatPage() {
             <div className={css.messageArea} ref={messageAreaRef}>
               <div className={css.messageList} ref={messageListRef}>
                 {visibleMessages.map((msg) =>
-                  editingId === msg.id && msg.role !== 'thinking' ? (
+                  editingId === msg.id &&
+                  msg.role !== 'thinking' &&
+                  msg.role !== 'trace' ? (
                     <div key={msg.id} className={css.messageBlock}>
                       <EditInline
                         initial={msg.rawContent ?? msg.content}

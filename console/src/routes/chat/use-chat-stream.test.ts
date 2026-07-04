@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ChatStreamApproval,
   ChatStreamResult,
+  ChatStreamToolEvent,
 } from '../../api/chat-types';
 import {
   type ChatHistoryUiData,
@@ -92,9 +93,12 @@ describe('useChatStream', () => {
     nextMsgIdMock.mockReset();
     let nextId = 0;
     nextMsgIdMock.mockImplementation(() => `msg-${++nextId}`);
+    // Return 0 so the synchronous callback's `renderFrame = 0` reset is not
+    // clobbered by the handle assignment — a real rAF assigns the handle
+    // before the callback ever runs.
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       cb(0);
-      return 1;
+      return 0;
     });
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
   });
@@ -433,11 +437,12 @@ describe('useChatStream', () => {
       await result.current.sendMessage('hello', []);
     });
 
-    expect(nextMsgIdMock).toHaveBeenCalledTimes(3);
+    // user, thinking placeholder, trace, streamed assistant
+    expect(nextMsgIdMock).toHaveBeenCalledTimes(4);
     expect(harness.messages).toHaveLength(2);
     expect(harness.messages[0]?.id).toBe('msg-1');
     expect(harness.messages[1]).toMatchObject({
-      id: 'msg-3',
+      id: 'msg-4',
       role: 'assistant',
       content: 'Answer',
       sessionId: SESSION_ID,
@@ -488,7 +493,7 @@ describe('useChatStream', () => {
     // console block, not as an assistant message (and not as a plain `system`
     // notice, which is reserved for errors).
     expect(harness.messages[1]).toMatchObject({
-      id: 'msg-3',
+      id: 'msg-4',
       role: 'command',
       content: 'Session agent set to `research` (model: `gpt-5`).',
       messageId: null,
@@ -828,6 +833,209 @@ describe('useChatStream', () => {
         messageRole: 'assistant',
       });
       await firstSend;
+    });
+  });
+
+  it('collects thinking and tool events into a trace and collapses it on finalize', async () => {
+    const harness = makeHarness();
+
+    requestChatStreamMock.mockImplementation(
+      async (
+        _url: string,
+        params: {
+          callbacks: {
+            onTextDelta: (delta: string) => void;
+            onThinkingDelta?: (delta: string) => void;
+            onToolEvent?: (event: ChatStreamToolEvent) => void;
+          };
+        },
+      ): Promise<ChatStreamResult> => {
+        params.callbacks.onThinkingDelta?.('Weighing ');
+        params.callbacks.onThinkingDelta?.('options');
+        params.callbacks.onToolEvent?.({
+          type: 'tool',
+          toolName: 'exec',
+          phase: 'start',
+          preview: 'npm test',
+        });
+        params.callbacks.onToolEvent?.({
+          type: 'tool',
+          toolName: 'exec',
+          phase: 'finish',
+          preview: 'ok',
+          durationMs: 420,
+        });
+        params.callbacks.onTextDelta('Answer');
+        return {
+          status: 'ok',
+          sessionId: SESSION_ID,
+          userMessageId: 'server-user-1',
+          assistantMessageId: 'assistant-1',
+          result: 'Answer',
+          messageRole: 'assistant',
+        };
+      },
+    );
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('hello', []);
+    });
+
+    // Consecutive thinking deltas merge into one step; the tool start/finish
+    // pair collapses into a single completed step.
+    const trace = harness.messages.find((msg) => msg.role === 'trace');
+    expect(trace).toMatchObject({
+      role: 'trace',
+      done: true,
+      steps: [
+        { kind: 'thinking', text: 'Weighing options' },
+        {
+          kind: 'tool',
+          toolName: 'exec',
+          status: 'done',
+          argsPreview: 'npm test',
+          resultPreview: 'ok',
+          durationMs: 420,
+        },
+      ],
+    });
+    const roles = harness.messages.map((msg) => msg.role);
+    expect(roles.indexOf('trace')).toBeLessThan(roles.indexOf('assistant'));
+  });
+
+  it('keeps the thinking dots during trace-only updates until answer text streams', async () => {
+    const harness = makeHarness();
+    let resolveStream!: (value: ChatStreamResult) => void;
+    let callbacks!: {
+      onTextDelta: (delta: string) => void;
+      onToolEvent?: (event: ChatStreamToolEvent) => void;
+    };
+
+    requestChatStreamMock.mockImplementation(
+      (_url: string, params: { callbacks: typeof callbacks }) =>
+        new Promise<ChatStreamResult>((resolve) => {
+          callbacks = params.callbacks;
+          resolveStream = resolve;
+        }),
+    );
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    let sendPromise!: Promise<boolean>;
+    act(() => {
+      sendPromise = result.current.sendMessage('hello', []);
+    });
+
+    act(() => {
+      callbacks.onToolEvent?.({
+        type: 'tool',
+        toolName: 'read',
+        phase: 'start',
+        preview: 'apps.ts',
+      });
+    });
+
+    // Tool activity alone must not spawn an (empty) answer bubble.
+    expect(harness.messages.some((msg) => msg.role === 'thinking')).toBe(true);
+    expect(harness.messages.some((msg) => msg.role === 'assistant')).toBe(
+      false,
+    );
+    expect(harness.messages.find((msg) => msg.role === 'trace')).toMatchObject({
+      done: false,
+      steps: [{ kind: 'tool', toolName: 'read', status: 'running' }],
+    });
+
+    act(() => {
+      callbacks.onTextDelta('Hi');
+    });
+    expect(harness.messages.some((msg) => msg.role === 'thinking')).toBe(false);
+
+    await act(async () => {
+      resolveStream({
+        status: 'ok',
+        sessionId: SESSION_ID,
+        userMessageId: 'server-user-1',
+        assistantMessageId: 'assistant-1',
+        result: 'Hi',
+        messageRole: 'assistant',
+      });
+      await sendPromise;
+    });
+  });
+
+  it('keeps a finalized trace when the stream fails', async () => {
+    const harness = makeHarness();
+
+    requestChatStreamMock.mockImplementation(
+      async (
+        _url: string,
+        params: {
+          callbacks: {
+            onToolEvent?: (event: ChatStreamToolEvent) => void;
+          };
+        },
+      ): Promise<ChatStreamResult> => {
+        params.callbacks.onToolEvent?.({
+          type: 'tool',
+          toolName: 'exec',
+          phase: 'start',
+          preview: 'do things',
+        });
+        throw new Error('boom');
+      },
+    );
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('hello', []);
+    });
+
+    // The trace survives (collapsed) so the failed run stays inspectable.
+    expect(harness.messages.map((msg) => msg.role)).toEqual([
+      'user',
+      'trace',
+      'system',
+    ]);
+    expect(harness.messages[1]).toMatchObject({
+      role: 'trace',
+      done: true,
+      steps: [{ kind: 'tool', toolName: 'exec', status: 'running' }],
     });
   });
 
