@@ -669,11 +669,45 @@ async function importFreshHealth(options?: {
   const resolveAgentWorkspaceId = vi.fn(
     (agentId?: string | null) => agentId?.trim() || 'main',
   );
-  const getSessionById = vi.fn(() => ({ show_mode: 'all' }));
+  const resolveAgentForRequest = vi.fn(
+    (params?: {
+      agentId?: string | null;
+      session?: {
+        agent_id?: string | null;
+        model?: string | null;
+        chatbot_id?: string | null;
+      } | null;
+      model?: string | null;
+      chatbotId?: string | null;
+    }) => ({
+      agentId:
+        params?.agentId?.trim() || params?.session?.agent_id?.trim() || 'main',
+      model:
+        params?.model?.trim() || params?.session?.model?.trim() || 'gpt-5',
+      chatbotId:
+        params?.chatbotId?.trim() ||
+        params?.session?.chatbot_id?.trim() ||
+        'bot_1',
+    }),
+  );
+  const getSessionById = vi.fn((sessionId: string) => ({
+    id: sessionId,
+    session_key: sessionId,
+    main_session_key: sessionId,
+    agent_id: 'main',
+    model: 'gpt-5',
+    chatbot_id: 'bot_1',
+    enable_rag: 1,
+    show_mode: 'all',
+  }));
   const getOrCreateSession = vi.fn((sessionId: string) => ({
     id: sessionId,
     session_key: sessionId,
     main_session_key: sessionId,
+    agent_id: 'main',
+    model: 'gpt-5',
+    chatbot_id: 'bot_1',
+    enable_rag: 1,
   }));
   const storeMessage = vi.fn(() => 1);
   const buildConversationContext = vi.fn(() => ({
@@ -751,6 +785,10 @@ async function importFreshHealth(options?: {
     kind: 'plain' as const,
     text: 'ok',
   }));
+  const runAgent = vi.fn(async () => ({
+    result: '',
+    toolExecutions: [],
+  }));
   const getGatewaySessionContextUsage = vi.fn((sessionId: string) => ({
     sessionId,
     snapshot: null,
@@ -776,6 +814,70 @@ async function importFreshHealth(options?: {
       result.title ? `${result.title}\n${result.text}` : result.text,
   );
   const runGatewayPluginTool = vi.fn(async () => 'plugin-tool-result');
+  type TestStoredApp = {
+    id: string;
+    title: string;
+    description: string | null;
+    category:
+      | 'apps'
+      | 'documents'
+      | 'games'
+      | 'productivity'
+      | 'creative'
+      | 'quiz'
+      | 'scratch';
+    kind: 'web' | 'live';
+    html: string;
+    prompt: string | null;
+    agentId: string | null;
+    sessionId: string | null;
+    sourceKey: string | null;
+    visibility: 'private' | 'public';
+    createdAt: string;
+    updatedAt: string;
+  };
+  type TestCreateAppInput = {
+    title: string;
+    html: string;
+    description?: string | null;
+    category?: string | null;
+    kind?: 'web' | 'live';
+    prompt?: string | null;
+    agentId?: string | null;
+    sessionId?: string | null;
+    sourceKey?: string | null;
+    visibility?: 'private' | 'public';
+  };
+  const apps = new Map<string, TestStoredApp>();
+  let nextAppId = 1;
+  const createApp = vi.fn((input: TestCreateAppInput): TestStoredApp => {
+    const now = '2026-07-03T00:00:00.000Z';
+    const app: TestStoredApp = {
+      id: `app-${nextAppId++}`,
+      title: input.title,
+      description: input.description ?? null,
+      category: (input.category || 'apps') as TestStoredApp['category'],
+      kind: input.kind ?? 'web',
+      html: input.html,
+      prompt: input.prompt ?? null,
+      agentId: input.agentId ?? null,
+      sessionId: input.sessionId ?? null,
+      sourceKey: input.sourceKey ?? null,
+      visibility: input.visibility ?? 'private',
+      createdAt: now,
+      updatedAt: now,
+    };
+    apps.set(app.id, app);
+    return app;
+  });
+  const getApp = vi.fn((id: string) => apps.get(id) ?? null);
+  const listApps = vi.fn(() =>
+    Array.from(apps.values()).map(({ html: _html, ...summary }) => summary),
+  );
+  const deleteApp = vi.fn((id: string) => apps.delete(id));
+  const upsertAppArtifact = vi.fn((input: TestCreateAppInput) =>
+    createApp(input),
+  );
   const getGatewayAdminOverview = vi.fn(async () => ({
     status: { status: 'ok', sessions: 2, version: '0.7.1', uptime: 60 },
     configPath: '/tmp/config.json',
@@ -2117,12 +2219,24 @@ async function importFreshHealth(options?: {
     memoryService: {
       forkSessionBranch,
       getOrCreateSession,
+      getSessionById,
       storeMessage,
     },
+  }));
+  vi.doMock('../src/memory/apps.js', () => ({
+    createApp,
+    deleteApp,
+    getApp,
+    listApps,
+    upsertAppArtifact,
+  }));
+  vi.doMock('../src/agent/agent.js', () => ({
+    runAgent,
   }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
     getAgentById,
     resolveAgentConfig,
+    resolveAgentForRequest,
     resolveAgentWorkspaceId,
   }));
   vi.doMock('../src/board/budget-chip.js', () => ({
@@ -2408,6 +2522,9 @@ async function importFreshHealth(options?: {
     saveGatewayAdminSkillPackageFile,
     handleGatewayMessage,
     handleGatewayCommand,
+    runAgent,
+    createApp,
+    getApp,
     getGatewaySessionContextUsage,
     handleGatewayPluginWebhook,
     renderGatewayCommand,
@@ -2462,6 +2579,8 @@ useCleanMocks({
     '../src/logger.js',
     '../src/agent/conversation.js',
     '../src/memory/db.js',
+    '../src/memory/apps.js',
+    '../src/agent/agent.js',
     '../src/gateway/gateway-service.js',
     '../src/gateway/gateway-chat-service.js',
     '../src/gateway/openai-compatible-model.ts',
@@ -3084,6 +3203,116 @@ describe('gateway HTTP server', () => {
         status: 'ok',
       }),
     );
+  });
+
+  test('injects the live app bridge only into live app views', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const liveApp = state.createApp({
+      title: 'Mail Wordcloud',
+      html: '<!doctype html><html><head><title>Mail</title></head><body>mail</body></html>',
+      kind: 'live',
+      sessionId: 'sess-live-app',
+      agentId: 'main',
+    });
+    const staticApp = state.createApp({
+      title: 'Static App',
+      html: '<!doctype html><html><head><title>Static</title></head><body>static</body></html>',
+      kind: 'web',
+    });
+
+    const liveReq = makeRequest({
+      url: `/api/apps/${liveApp.id}/view?token=web-token`,
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const liveRes = makeResponse();
+    state.handler(liveReq as never, liveRes as never);
+    await waitForResponse(liveRes, (next) => next.writableEnded);
+
+    expect(liveRes.statusCode).toBe(200);
+    expect(liveRes.body).toContain('data-hybridclaw-live-app-bridge');
+    expect(liveRes.body).toContain(`var appId = ${JSON.stringify(liveApp.id)};`);
+    expect(liveRes.body).toContain('existing.callMcpTool = callTool');
+    expect(liveRes.body).toContain('existing.setRefreshHandler');
+    expect(liveRes.body).toContain('hybridclaw:live-app-refresh');
+    expect(liveRes.body).toContain('<body>mail</body>');
+
+    const staticReq = makeRequest({
+      url: `/api/apps/${staticApp.id}/view?token=web-token`,
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const staticRes = makeResponse();
+    state.handler(staticReq as never, staticRes as never);
+    await waitForResponse(staticRes, (next) => next.writableEnded);
+
+    expect(staticRes.statusCode).toBe(200);
+    expect(staticRes.body).not.toContain('data-hybridclaw-live-app-bridge');
+    expect(staticRes.body).toContain('<body>static</body>');
+  });
+
+  test('rejects mutating live app bridge tool requests before running an agent', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const liveApp = state.createApp({
+      title: 'Mail Wordcloud',
+      html: '<!doctype html><html><head></head><body>mail</body></html>',
+      kind: 'live',
+      sessionId: 'sess-live-app',
+      agentId: 'main',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: `/api/apps/${liveApp.id}/bridge/tool`,
+      headers: { authorization: 'Bearer web-token' },
+      body: {
+        toolName: 'hybridai__microsoft_graph__send_message',
+        arguments: { id: 'message-1' },
+      },
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: false,
+      error: 'Live apps can only call read-only MCP connector tools.',
+    });
+    expect(state.runAgent).not.toHaveBeenCalled();
+  });
+
+  test('rejects pathological live app bridge tool names before running an agent', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const liveApp = state.createApp({
+      title: 'Mail Wordcloud',
+      html: '<!doctype html><html><head></head><body>mail</body></html>',
+      kind: 'live',
+      sessionId: 'sess-live-app',
+      agentId: 'main',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: `/api/apps/${liveApp.id}/bridge/tool`,
+      headers: { authorization: 'Bearer web-token' },
+      body: {
+        toolName: `0__0${'__0'.repeat(100)}!`,
+        arguments: {},
+      },
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: false,
+      error: 'Invalid MCP tool name.',
+    });
+    expect(state.runAgent).not.toHaveBeenCalled();
   });
 
   test('rejects unauthorized OpenAI-compatible API requests from non-loopback addresses', async () => {

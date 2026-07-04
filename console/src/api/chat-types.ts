@@ -148,6 +148,7 @@ export interface ChatStreamResult {
   model?: string;
   provider?: string;
   artifacts?: ChatArtifact[];
+  apps?: Array<{ id: string; title: string; kind: 'web' | 'live' }>;
   toolsUsed?: string[];
 }
 

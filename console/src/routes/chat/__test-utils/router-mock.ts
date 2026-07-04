@@ -11,6 +11,7 @@ export interface TestRouter {
 export interface RouterMockModule {
   useNavigate: () => TestRouter['navigate'];
   useParams: () => { sessionId: string | null };
+  useSearch: () => Record<string, string | undefined>;
   __testRouter: TestRouter;
 }
 
@@ -65,6 +66,8 @@ export async function createRouterMock(
   };
   return {
     useNavigate: () => navigate,
+    useSearch: () =>
+      Object.fromEntries(new URLSearchParams(window.location.search)),
     useParams: () =>
       React.useSyncExternalStore(
         (cb) => {

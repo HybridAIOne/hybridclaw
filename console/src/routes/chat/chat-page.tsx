@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import {
   type SetStateAction,
   useCallback,
@@ -7,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { appViewUrl } from '../../api/apps';
 import {
   cleanupNoUserChatSessions,
   createChatBranch,
@@ -43,11 +45,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../../components/dialog';
+import { LiveAppFrame } from '../../components/live-app-frame';
 import { MobileTopbarTrigger } from '../../components/sidebar/index';
 import {
   useConfiguredViewSwitchItems,
   ViewSwitchNav,
 } from '../../components/view-switch';
+import { buildAppSeed } from '../../lib/app-seed';
 import {
   type ApprovalAction,
   buildApprovalCommand,
@@ -140,14 +144,76 @@ function chatContextQueryKey(token: string, sessionId: string) {
   return ['chat-context', token, sessionId] as const;
 }
 
+type AppBuildSessionInfo = { category?: string; kind?: 'web' | 'live' };
+const APP_BUILD_SESSIONS_KEY = 'hybridclaw.appBuildSessions';
+
+// App-build session tags are persisted so follow-up build turns (and the
+// finished-build popup) keep working after a page reload.
+function loadAppBuildSessions(): Map<string, AppBuildSessionInfo> {
+  try {
+    const raw = localStorage.getItem(APP_BUILD_SESSIONS_KEY);
+    if (!raw) return new Map();
+    return new Map(
+      Object.entries(JSON.parse(raw) as Record<string, AppBuildSessionInfo>),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+function saveAppBuildSessions(map: Map<string, AppBuildSessionInfo>): void {
+  try {
+    localStorage.setItem(
+      APP_BUILD_SESSIONS_KEY,
+      JSON.stringify(Object.fromEntries(map)),
+    );
+  } catch {
+    // ignore storage failures (private mode, quota)
+  }
+}
+
 export function ChatPage() {
   const auth = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const userId = useRef(readStoredUserId()).current;
-  const initialComposerPrompt = useMemo(
-    () => new URLSearchParams(window.location.search).get('prompt') || '',
+  // A `?prompt=` seed prefills the composer. When paired with `?send=1` (used
+  // by the Apps builder and `/app`), it is auto-sent instead of prefilled.
+  // Read from router state (not window.location) — the URL lags client-side
+  // navigation, so window.location.search can be empty at first render.
+  const chatSearch = useSearch({ strict: false }) as {
+    prompt?: string;
+    send?: string;
+    app?: string;
+    category?: string;
+    kind?: string;
+  };
+  const [initialChatSeed] = useState(() => {
+    const kind = chatSearch.kind;
+    const appKind: 'web' | 'live' | undefined =
+      kind === 'live' ? 'live' : kind === 'web' ? 'web' : undefined;
+    return {
+      prompt: chatSearch.prompt ?? '',
+      autoSend: chatSearch.send === '1',
+      appBuild: chatSearch.app === '1',
+      appCategory: chatSearch.category,
+      appKind,
+    };
+  });
+  // Sessions started as app builds: each app-build turn is tagged so the
+  // gateway captures the produced HTML into the Apps gallery. Persisted so a
+  // reload mid-conversation doesn't drop the tag.
+  const appBuildSessionsRef = useRef(loadAppBuildSessions());
+  const markAppBuildSession = useCallback(
+    (sessionId: string, info: AppBuildSessionInfo) => {
+      appBuildSessionsRef.current.set(sessionId, info);
+      saveAppBuildSessions(appBuildSessionsRef.current);
+    },
     [],
   );
+  const initialComposerPrompt = initialChatSeed.autoSend
+    ? ''
+    : initialChatSeed.prompt;
   const launchAgentId = useMemo(readLaunchAgentId, []);
 
   const [errorState, setErrorState] = useState({ message: '', version: 0 });
@@ -378,6 +444,12 @@ export function ChatPage() {
   );
   const modelOptions = modelsQuery.data?.models ?? EMPTY_MODELS;
 
+  const [previewApp, setPreviewApp] = useState<{
+    id: string;
+    title: string;
+    kind: 'web' | 'live';
+  } | null>(null);
+
   const stream = useChatStream({
     token: auth.token,
     userId,
@@ -386,6 +458,8 @@ export function ChatPage() {
     refreshRecent,
     onSessionIdCorrection: handleSessionIdCorrection,
     onModelResolved: setSelectedModelId,
+    // When a build is captured into the gallery, pop it open as a preview.
+    onAppsCaptured: (apps) => setPreviewApp(apps[apps.length - 1] ?? null),
     resolveAddressedAgentPresentation,
   });
 
@@ -787,15 +861,81 @@ export function ChatPage() {
 
   const handleSendMessage = useCallback(
     (content: string, media: MediaItem[]) => {
-      ensureSessionForSend();
+      // `/app <idea>` starts an app-building conversation: the message is
+      // reframed as a build request so the agent gathers requirements and then
+      // builds a self-contained web app. Bare `/app` opens the Apps gallery.
+      const appCommand = /^\/apps?\b[ \t]*([\s\S]*)$/i.exec(content.trim());
+      if (appCommand && media.length === 0) {
+        const description = appCommand[1].trim();
+        if (!description) {
+          void navigate({ to: '/apps' });
+          return;
+        }
+        const sid = ensureSessionForSend();
+        markAppBuildSession(sid, { kind: 'web' });
+        jumpToBottom();
+        void stream.sendMessage(buildAppSeed(null, description), [], {
+          appBuild: true,
+          appKind: 'web',
+        });
+        return;
+      }
+      const sid = ensureSessionForSend();
       // Sending re-engages the user with the live conversation — snap back so
       // their bubble and the incoming stream are visible without the "↓ Latest"
       // chip getting in the way.
       jumpToBottom();
+      const appBuild = appBuildSessionsRef.current.get(sid);
+      if (appBuild) {
+        void stream.sendMessage(content, media, {
+          appBuild: true,
+          ...(appBuild.category ? { appCategory: appBuild.category } : {}),
+          ...(appBuild.kind ? { appKind: appBuild.kind } : {}),
+        });
+        return;
+      }
       void stream.sendMessage(content, media);
     },
-    [ensureSessionForSend, jumpToBottom, stream.sendMessage],
+    [
+      ensureSessionForSend,
+      jumpToBottom,
+      navigate,
+      markAppBuildSession,
+      stream.sendMessage,
+    ],
   );
+
+  // Auto-send a seeded conversation (Apps builder / `/app`): when arriving at
+  // `/chat?prompt=…&send=1`, fire the first message once the chat API is ready.
+  const autoSentSeedRef = useRef(false);
+  useEffect(() => {
+    if (autoSentSeedRef.current) return;
+    if (!initialChatSeed.autoSend) return;
+    const seed = initialChatSeed.prompt.trim();
+    if (!seed) return;
+    if (!chatApiReady) return;
+    // Wait for the session's initial (empty) history to settle first — sending
+    // before it resolves lets the empty fetch clobber the optimistic message.
+    if (!historyQuery.isFetched) return;
+    autoSentSeedRef.current = true;
+    // Drop the params so a refresh doesn't resend.
+    window.history.replaceState(null, '', window.location.pathname);
+    if (initialChatSeed.appBuild) {
+      const sid = ensureSessionForSend();
+      markAppBuildSession(sid, {
+        category: initialChatSeed.appCategory,
+        kind: initialChatSeed.appKind,
+      });
+    }
+    handleSendMessage(seed, []);
+  }, [
+    initialChatSeed,
+    chatApiReady,
+    historyQuery.isFetched,
+    ensureSessionForSend,
+    markAppBuildSession,
+    handleSendMessage,
+  ]);
 
   const appendLocalCommandResult = useCallback(
     (targetSessionId: string, content: string) => {
@@ -1268,6 +1408,55 @@ export function ChatPage() {
                 {deleteSessionMutation.isPending ? 'Deleting...' : 'Delete'}
               </button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={previewApp !== null}
+          onOpenChange={(open) => {
+            if (!open) setPreviewApp(null);
+          }}
+        >
+          <DialogContent
+            className={css.appPreviewDialog}
+            aria-label="App preview"
+          >
+            <div className={css.appPreviewHeader}>
+              <DialogTitle className={css.appPreviewTitle}>
+                {previewApp?.title}
+              </DialogTitle>
+              <div className={css.appPreviewActions}>
+                <button
+                  type="button"
+                  className={css.appPreviewLink}
+                  onClick={() => {
+                    setPreviewApp(null);
+                    void navigate({ to: '/apps' });
+                  }}
+                >
+                  View in Apps
+                </button>
+                {previewApp ? (
+                  <a
+                    className={css.appPreviewLink}
+                    href={appViewUrl(previewApp.id, auth.token)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open in new tab ↗
+                  </a>
+                ) : null}
+                <DialogClose className={css.appPreviewLink}>Close</DialogClose>
+              </div>
+            </div>
+            {previewApp ? (
+              <LiveAppFrame
+                appId={previewApp.id}
+                className={css.appPreviewFrame}
+                title={previewApp.title}
+                token={auth.token}
+              />
+            ) : null}
           </DialogContent>
         </Dialog>
       </div>
