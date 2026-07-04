@@ -19,6 +19,7 @@ import {
   type NormalizedStreamCallArgs,
   ProviderRequestError,
 } from './shared.js';
+import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 
 interface CodexAccumulatedContentPart {
   type: string;
@@ -836,7 +837,10 @@ export async function callOpenAICodexProviderStream(
 
   try {
     while (!streamDone) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithIdleTimeout(
+        reader,
+        STREAM_IDLE_TIMEOUT_MS,
+      );
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
