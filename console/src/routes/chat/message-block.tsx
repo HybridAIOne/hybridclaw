@@ -16,6 +16,7 @@ import type {
 } from '../../api/chat-types';
 import { Button } from '../../components/button';
 import { ThumbsDown, ThumbsUp } from '../../components/icons';
+import { stripAppBuildDirective } from '../../lib/app-seed';
 import { type ApprovalAction, copyToClipboard } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { renderMarkdown } from '../../lib/markdown';
@@ -511,7 +512,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
             />
           ) : isUser ? (
             <UserMessageContent
-              content={msg.content}
+              content={stripAppBuildDirective(msg.content)}
               presentation={msg.addressedAgentPresentation}
               skillInvocationTargets={props.skillInvocationTargets}
               token={token}

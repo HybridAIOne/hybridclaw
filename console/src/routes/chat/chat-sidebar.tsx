@@ -1,3 +1,4 @@
+import { useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import type { ChatRecentSession } from '../../api/chat-types';
 import { useAuth } from '../../auth';
@@ -18,6 +19,7 @@ import sidebarStyles from '../../components/sidebar/index.module.css';
 import { ThemeToggle } from '../../components/theme-toggle';
 import { cx } from '../../lib/cx';
 import { formatRelativeTime } from '../../lib/format';
+import { AppsGridIcon } from '../apps-icons';
 import css from './chat-page.module.css';
 
 export { SidebarProvider as ChatSidebarProvider } from '../../components/sidebar/index';
@@ -42,6 +44,7 @@ export interface ChatSidebarProps {
 export function ChatSidebarPanel(props: ChatSidebarProps) {
   const auth = useAuth();
   const sidebar = useSidebar();
+  const navigate = useNavigate();
   const isSearching = props.searchQuery.trim().length > 0;
 
   useEffect(() => {
@@ -63,6 +66,16 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
         >
           <span aria-hidden="true">+</span>
           <span>New Conversation</span>
+        </button>
+        <button
+          type="button"
+          className={css.newChatButton}
+          onClick={() => navigate({ to: '/apps' })}
+        >
+          <span aria-hidden="true" className={css.navLinkIcon}>
+            <AppsGridIcon />
+          </span>
+          <span>Apps</span>
         </button>
         <div className={css.sidebarSearchWrap}>
           <input

@@ -107,6 +107,8 @@ export interface GatewayChatResult {
     filename: string;
     mimeType: string;
   }>;
+  /** Apps captured into the gallery from this turn (Apps builder / artifacts). */
+  apps?: Array<{ id: string; title: string; kind: 'web' | 'live' }>;
   toolExecutions?: ToolExecution[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
@@ -166,9 +168,20 @@ export interface GatewayChatRequestBody {
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
+  /**
+   * Marks an Apps-builder conversation. HTML artifacts are captured into the
+   * gallery for every chat, but `appBuild` also captures inline HTML from the
+   * assistant text and tags the entry with `appCategory` / `appKind`.
+   */
+  appBuild?: boolean;
+  appCategory?: string | null;
+  appKind?: 'web' | 'live';
 }
 
 export interface GatewayChatRequest {
+  appBuild?: boolean;
+  appCategory?: string | null;
+  appKind?: 'web' | 'live';
   sessionId: GatewayChatRequestBody['sessionId'];
   executionSessionId?: string;
   executorModeOverride?: 'host' | 'container';

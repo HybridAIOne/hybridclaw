@@ -17,14 +17,24 @@ import {
   handleA2AWebhookInbound,
   parseA2AWebhookInboundPath,
 } from '../a2a/webhook-inbound.js';
+import { runAgent } from '../agent/agent.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
-import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
+import {
+  getAgentById,
+  resolveAgentConfig,
+  resolveAgentForRequest,
+} from '../agents/agent-registry.js';
 import {
   type AgentProxyConfig,
   DEFAULT_AGENT_ID,
   normalizeAgentProxyConfig,
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
+import {
+  deriveAppTitle,
+  extractHtmlDocument,
+  generateApp,
+} from '../apps/app-generator.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getBoardBudgetSummaries } from '../board/budget-chip.js';
 import {
@@ -103,6 +113,14 @@ import {
   writeUploadedMediaCacheFile,
 } from '../media/uploaded-media-cache.js';
 import {
+  createApp,
+  deleteApp,
+  getApp,
+  listApps,
+  type StoredApp,
+  upsertAppArtifact,
+} from '../memory/apps.js';
+import {
   claimQueuedProactiveMessages,
   enqueueProactiveMessage,
 } from '../memory/db.js';
@@ -130,7 +148,11 @@ import {
   rankTuiSlashMenuEntries,
 } from '../tui-slash-menu.js';
 import type { MediaContextItem } from '../types/container.js';
-import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import type {
+  PendingApproval,
+  ToolExecution,
+  ToolProgressEvent,
+} from '../types/execution.js';
 import {
   normalizeOptionalTrimmedString as normalizeOptionalString,
   normalizeTrimmedUniqueStringArray,
@@ -273,6 +295,7 @@ import {
   reconnectGatewayAdminTunnel,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
+  resolveGatewayChatbotId,
   restoreGatewayAdminAgentMarkdownRevision,
   restoreGatewayAdminTeamStructureRevision,
   revokeGatewayAdminA2ATrustPeer,
@@ -380,6 +403,22 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 const HISTORY_AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const LIVE_APP_BRIDGE_MAX_ARGS_BYTES = 64 * 1024;
+const LIVE_APP_BRIDGE_TIMEOUT_MS = 120_000;
+const LIVE_APP_BRIDGE_INACTIVITY_TIMEOUT_MS = 60_000;
+const LIVE_APP_BRIDGE_MAX_TOOL_NAME_LENGTH = 512;
+const LIVE_APP_BRIDGE_READ_ONLY_TOOL_PREFIXES = new Set([
+  'describe',
+  'fetch',
+  'find',
+  'get',
+  'list',
+  'lookup',
+  'query',
+  'read',
+  'retrieve',
+  'search',
+]);
 
 const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -2341,13 +2380,19 @@ function isConsoleSpaPath(pathname: string): boolean {
     pathname === '/admin' ||
     pathname.startsWith('/admin/') ||
     pathname === '/chat' ||
-    pathname.startsWith('/chat/')
+    pathname.startsWith('/chat/') ||
+    pathname === '/apps' ||
+    pathname.startsWith('/apps/')
   );
 }
 
 function resolveConsolePageTitle(pathname: string): string {
   if (pathname === '/chat' || pathname.startsWith('/chat/')) {
     return 'HybridClaw Chat';
+  }
+
+  if (pathname === '/apps' || pathname.startsWith('/apps/')) {
+    return 'HybridClaw Apps';
   }
 
   if (pathname === '/agents' || pathname.startsWith('/agents/')) {
@@ -2957,6 +3002,13 @@ async function handleApiChat(
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
     model: body.model,
+    ...(body.appBuild ? { appBuild: true } : {}),
+    ...(typeof body.appCategory === 'string'
+      ? { appCategory: body.appCategory }
+      : {}),
+    ...(body.appKind === 'live' || body.appKind === 'web'
+      ? { appKind: body.appKind }
+      : {}),
   };
   logger.debug(
     {
@@ -2989,6 +3041,8 @@ async function handleApiChat(
     processedResult.sessionId || chatRequest.sessionId,
     processedResult,
   );
+  const capturedApps = await maybeCaptureChatArtifacts(chatRequest, result);
+  if (capturedApps.length > 0) result.apps = capturedApps;
   sendJson(res, result.status === 'success' ? 200 : 500, result);
 }
 
@@ -3290,6 +3344,11 @@ async function handleApiChatStream(
     if (pendingApproval && pendingApproval.approvalId !== streamedApprovalId) {
       sendEvent(pendingApproval);
     }
+    const capturedApps = await maybeCaptureChatArtifacts(
+      chatRequest,
+      filteredResult,
+    );
+    if (capturedApps.length > 0) filteredResult.apps = capturedApps;
     sendEvent({
       type: 'result',
       result: filteredResult,
@@ -6978,6 +7037,675 @@ async function handleApiArtifact(
   });
 }
 
+/**
+ * Parse `/api/apps/<id>` (or `/api/apps/<id><suffix>`, e.g. `/view`) into the
+ * app id. Returns null for non-matching paths or malformed ids rather than
+ * throwing, so it is safe to call from the pre-auth dispatch section.
+ */
+function parseApiAppId(pathname: string, suffix = ''): string | null {
+  const prefix = '/api/apps/';
+  if (!pathname.startsWith(prefix)) return null;
+  let rest = pathname.slice(prefix.length);
+  if (suffix) {
+    if (!rest.endsWith(suffix)) return null;
+    rest = rest.slice(0, rest.length - suffix.length);
+  }
+  if (!rest || rest.includes('/')) return null;
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+}
+
+type LiveAppBridgeToolRunResult =
+  | {
+      status: 'success';
+      toolName: string;
+      result: string;
+      toolExecutions: ToolExecution[];
+    }
+  | {
+      status: 'pending_approval';
+      pendingApproval: PendingApproval;
+      toolExecutions: ToolExecution[];
+    };
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isAsciiAlphanumericCode(code: number): boolean {
+  return (
+    (code >= 48 && code <= 57) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122)
+  );
+}
+
+function isLiveAppBridgeToolNameSegment(segment: string): boolean {
+  if (!segment) return false;
+  if (!isAsciiAlphanumericCode(segment.charCodeAt(0))) return false;
+  for (let index = 1; index < segment.length; index += 1) {
+    const code = segment.charCodeAt(index);
+    if (!isAsciiAlphanumericCode(code) && code !== 95 && code !== 45) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isLiveAppBridgeToolName(toolName: string): boolean {
+  if (toolName.length > LIVE_APP_BRIDGE_MAX_TOOL_NAME_LENGTH) return false;
+  const segments = toolName.split('__');
+  return segments.length >= 2 && segments.every(isLiveAppBridgeToolNameSegment);
+}
+
+function normalizeLiveAppBridgeToolRequest(body: unknown): {
+  toolName: string;
+  args: Record<string, unknown>;
+} {
+  if (!isJsonObject(body)) {
+    throw new GatewayRequestError(400, 'Expected JSON object request body.');
+  }
+
+  const toolName =
+    typeof body.toolName === 'string' ? body.toolName.trim() : '';
+  if (!toolName) {
+    throw new GatewayRequestError(400, 'Missing `toolName`.');
+  }
+  if (!isLiveAppBridgeToolName(toolName)) {
+    throw new GatewayRequestError(400, 'Invalid MCP tool name.');
+  }
+  if (!isReadOnlyLiveAppBridgeToolName(toolName)) {
+    throw new GatewayRequestError(
+      403,
+      'Live apps can only call read-only MCP connector tools.',
+    );
+  }
+
+  const rawArgs = body.arguments ?? body.args ?? {};
+  if (!isJsonObject(rawArgs)) {
+    throw new GatewayRequestError(400, '`arguments` must be a JSON object.');
+  }
+  if (
+    Buffer.byteLength(JSON.stringify(rawArgs), 'utf8') >
+    LIVE_APP_BRIDGE_MAX_ARGS_BYTES
+  ) {
+    throw new GatewayRequestError(413, '`arguments` is too large.');
+  }
+
+  return { toolName, args: rawArgs };
+}
+
+function isReadOnlyLiveAppBridgeToolName(toolName: string): boolean {
+  const action = toolName.split('__').at(-1)?.toLowerCase() ?? '';
+  if (!action) return false;
+  const [prefix] = action.split(/[_-]/);
+  return Boolean(prefix && LIVE_APP_BRIDGE_READ_ONLY_TOOL_PREFIXES.has(prefix));
+}
+
+function buildLiveAppBridgeScript(appId: string): string {
+  return `<script data-hybridclaw-live-app-bridge="${escapeHtml(appId)}">
+(function(){
+  var appId = ${JSON.stringify(appId)};
+  var pending = new Map();
+  var timeoutMs = ${LIVE_APP_BRIDGE_TIMEOUT_MS};
+  var refreshHandler = null;
+
+  function nextRequestId(){
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+    return 'bridge-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+  }
+
+  function callTool(toolName, args){
+    if (!toolName || typeof toolName !== 'string') {
+      return Promise.reject(new Error('toolName must be a non-empty string'));
+    }
+    if (!window.parent || window.parent === window) {
+      return Promise.reject(new Error('HybridClaw live app bridge is unavailable outside the Apps viewer'));
+    }
+    var requestId = nextRequestId();
+    return new Promise(function(resolve, reject){
+      var timer = window.setTimeout(function(){
+        pending.delete(requestId);
+        reject(new Error('HybridClaw live app bridge timed out'));
+      }, timeoutMs);
+      pending.set(requestId, { resolve: resolve, reject: reject, timer: timer });
+      window.parent.postMessage({
+        type: 'hybridclaw:live-app-tool-call',
+        appId: appId,
+        requestId: requestId,
+        toolName: toolName,
+        arguments: args || {}
+      }, '*');
+    });
+  }
+
+  function isVisibleRefreshControl(element){
+    if (!element || element.disabled || element.getAttribute('aria-disabled') === 'true') return false;
+    var rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    var text = [
+      element.getAttribute('aria-label') || '',
+      element.getAttribute('title') || '',
+      element.value || '',
+      element.innerText || '',
+      element.textContent || ''
+    ].join(' ').toLowerCase();
+    return /\\b(refresh|reload|aktualisieren)\\b|neu laden/.test(text);
+  }
+
+  function clickRefreshControl(){
+    var controls = Array.prototype.slice.call(document.querySelectorAll(
+      '[data-hybridclaw-refresh], button, [role="button"], input[type="button"], input[type="submit"], a'
+    ));
+    for (var index = 0; index < controls.length; index += 1) {
+      if (isVisibleRefreshControl(controls[index])) {
+        controls[index].click();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function triggerRefresh(){
+    if (typeof refreshHandler === 'function') {
+      Promise.resolve().then(function(){ return refreshHandler(); }).catch(function(error){
+        console.error('HybridClaw live app refresh failed', error);
+      });
+      return true;
+    }
+    var event = new CustomEvent('hybridclaw:refresh', {
+      cancelable: true,
+      detail: { appId: appId }
+    });
+    var notCanceled = window.dispatchEvent(event);
+    if (!notCanceled) return true;
+    return clickRefreshControl();
+  }
+
+  window.addEventListener('message', function(event){
+    var message = event.data;
+    if (!message || message.appId !== appId) return;
+    if (message.type === 'hybridclaw:live-app-refresh') {
+      var handled = triggerRefresh();
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({
+          type: 'hybridclaw:live-app-refresh-result',
+          appId: appId,
+          ok: handled
+        }, '*');
+      }
+      return;
+    }
+    if (message.type === 'hybridclaw:live-app-tool-result') {
+      if (typeof message.requestId !== 'string') return;
+      var entry = pending.get(message.requestId);
+      if (!entry) return;
+      pending.delete(message.requestId);
+      window.clearTimeout(entry.timer);
+      if (message.ok) {
+        entry.resolve(message.payload);
+      } else {
+        entry.reject(new Error(message.error || 'HybridClaw live app bridge call failed'));
+      }
+    }
+  });
+
+  var existing = window.hybridclaw && typeof window.hybridclaw === 'object' ? window.hybridclaw : {};
+  existing.callTool = callTool;
+  existing.callMcpTool = callTool;
+  existing.setRefreshHandler = function(handler){
+    if (typeof handler !== 'function') {
+      throw new Error('refresh handler must be a function');
+    }
+    refreshHandler = handler;
+    return function(){
+      if (refreshHandler === handler) refreshHandler = null;
+    };
+  };
+  existing.refresh = triggerRefresh;
+  window.hybridclaw = existing;
+})();
+</script>`;
+}
+
+function injectLiveAppBridge(html: string, app: StoredApp): string {
+  if (app.kind !== 'live') return html;
+  if (html.includes('data-hybridclaw-live-app-bridge')) return html;
+
+  const script = buildLiveAppBridgeScript(app.id);
+  const headMatch = /<head\b[^>]*>/i.exec(html);
+  if (headMatch?.index !== undefined) {
+    const insertAt = headMatch.index + headMatch[0].length;
+    return `${html.slice(0, insertAt)}${script}${html.slice(insertAt)}`;
+  }
+
+  const htmlMatch = /<html\b[^>]*>/i.exec(html);
+  if (htmlMatch?.index !== undefined) {
+    const insertAt = htmlMatch.index + htmlMatch[0].length;
+    return `${html.slice(0, insertAt)}${script}${html.slice(insertAt)}`;
+  }
+
+  return `${script}${html}`;
+}
+
+function summarizeBridgeToolExecutions(
+  toolExecutions: ToolExecution[] | undefined,
+): ToolExecution[] {
+  return (toolExecutions ?? []).map((execution) => ({
+    name: execution.name,
+    arguments: execution.arguments,
+    result: execution.result,
+    durationMs: execution.durationMs,
+    ...(execution.isError === undefined ? {} : { isError: execution.isError }),
+    ...(execution.blocked === undefined ? {} : { blocked: execution.blocked }),
+    ...(execution.blockedReason === undefined
+      ? {}
+      : { blockedReason: execution.blockedReason }),
+    ...(execution.approvalTier === undefined
+      ? {}
+      : { approvalTier: execution.approvalTier }),
+    ...(execution.approvalDecision === undefined
+      ? {}
+      : { approvalDecision: execution.approvalDecision }),
+  }));
+}
+
+function buildLiveAppBridgePrompt(params: {
+  toolName: string;
+  args: Record<string, unknown>;
+}): string {
+  return [
+    'Call exactly this MCP connector tool once and return no extra commentary.',
+    `Tool name: ${params.toolName}`,
+    `Arguments JSON: ${JSON.stringify(params.args)}`,
+  ].join('\n');
+}
+
+async function runLiveAppBridgeTool(params: {
+  app: StoredApp;
+  toolName: string;
+  args: Record<string, unknown>;
+}): Promise<LiveAppBridgeToolRunResult> {
+  if (!params.app.sessionId) {
+    throw new GatewayRequestError(400, 'Live app is not linked to a session.');
+  }
+
+  const session = memoryService.getSessionById(params.app.sessionId);
+  if (!session) {
+    throw new GatewayRequestError(404, 'Live app session not found.');
+  }
+
+  const resolved = resolveAgentForRequest({
+    agentId: params.app.agentId,
+    session,
+  });
+  const chatbotResolution = await resolveGatewayChatbotId({
+    model: resolved.model,
+    chatbotId: resolved.chatbotId,
+    sessionId: session.id,
+    channelId: 'web',
+    agentId: resolved.agentId,
+    trigger: 'chat',
+  });
+  if (chatbotResolution.error) {
+    throw new GatewayRequestError(503, chatbotResolution.error);
+  }
+
+  const output = await runAgent({
+    sessionId: session.id,
+    agentId: resolved.agentId,
+    model: resolved.model,
+    chatbotId: chatbotResolution.chatbotId,
+    enableRag: session.enable_rag === 1,
+    channelId: 'web',
+    messages: [
+      {
+        role: 'user',
+        content: buildLiveAppBridgePrompt({
+          toolName: params.toolName,
+          args: params.args,
+        }),
+      },
+    ],
+    allowedTools: [params.toolName],
+    scheduledTasks: [],
+    fullAutoEnabled: false,
+    scheduleSideEffectsEnabled: false,
+    maxTokens: 512,
+    maxWallClockMs: LIVE_APP_BRIDGE_TIMEOUT_MS,
+    inactivityTimeoutMs: LIVE_APP_BRIDGE_INACTIVITY_TIMEOUT_MS,
+  });
+
+  const toolExecutions = summarizeBridgeToolExecutions(output.toolExecutions);
+  if (output.pendingApproval) {
+    return {
+      status: 'pending_approval',
+      pendingApproval: output.pendingApproval,
+      toolExecutions,
+    };
+  }
+  if (output.error) {
+    throw new GatewayRequestError(502, output.error);
+  }
+
+  const execution = [...(output.toolExecutions ?? [])]
+    .reverse()
+    .find((item) => item.name === params.toolName);
+  if (!execution) {
+    throw new GatewayRequestError(502, 'Connector tool was not called.');
+  }
+  if (execution.isError) {
+    throw new GatewayRequestError(
+      502,
+      execution.result || 'Connector tool failed.',
+    );
+  }
+
+  return {
+    status: 'success',
+    toolName: params.toolName,
+    result: execution.result,
+    toolExecutions,
+  };
+}
+
+async function handleApiAppBridgeTool(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  id: string,
+): Promise<void> {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
+
+  if (
+    !hasApiAuth(req, url, {
+      allowLocalWebSession: true,
+      allowSessionCookie: true,
+      requireSameOrigin: true,
+    })
+  ) {
+    sendJson(res, 401, { error: 'Unauthorized.' });
+    return;
+  }
+
+  const app = getApp(id);
+  if (!app) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  if (app.kind !== 'live') {
+    sendJson(res, 400, { error: 'App is not a live app.' });
+    return;
+  }
+
+  try {
+    const request = normalizeLiveAppBridgeToolRequest(await readJsonBody(req));
+    const result = await runLiveAppBridgeTool({ app, ...request });
+    if (result.status === 'pending_approval') {
+      sendJson(res, 409, {
+        ok: false,
+        error: 'Connector tool requires approval.',
+        pendingApproval: result.pendingApproval,
+        toolExecutions: result.toolExecutions,
+      });
+      return;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      toolName: result.toolName,
+      result: result.result,
+      text: result.result,
+      toolExecutions: result.toolExecutions,
+    });
+  } catch (err) {
+    const statusCode =
+      err instanceof GatewayRequestError ? err.statusCode : 500;
+    sendJson(res, statusCode, {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function handleApiAppView(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  id: string,
+): Promise<void> {
+  if (
+    !hasApiAuth(req, url, {
+      allowLocalWebSession: true,
+      allowQueryToken: true,
+      allowSessionCookie: true,
+    })
+  ) {
+    sendJson(res, 401, {
+      error:
+        'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass `?token=<WEB_API_TOKEN>`.',
+    });
+    return;
+  }
+  const app = getApp(id);
+  if (!app) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(injectLiveAppBridge(app.html, app));
+}
+
+function handleApiAppsList(res: ServerResponse, url: URL): void {
+  const category = url.searchParams.get('category') ?? undefined;
+  const search =
+    url.searchParams.get('q') ?? url.searchParams.get('search') ?? undefined;
+  const apps = listApps({
+    ...(category ? { category } : {}),
+    ...(search ? { search } : {}),
+  });
+  sendJson(res, 200, { apps, total: apps.length });
+}
+
+function handleApiAppDetail(res: ServerResponse, id: string): void {
+  const app = getApp(id);
+  if (!app) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  sendJson(res, 200, { app });
+}
+
+function handleApiAppDelete(res: ServerResponse, id: string): void {
+  if (!deleteApp(id)) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleApiAppGenerate(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as {
+    description?: unknown;
+    category?: unknown;
+    agentId?: unknown;
+    model?: unknown;
+    sessionId?: unknown;
+    chatbotId?: unknown;
+  };
+  const description =
+    typeof body.description === 'string' ? body.description.trim() : '';
+  if (!description) {
+    throw new GatewayRequestError(
+      400,
+      'A non-empty `description` is required.',
+    );
+  }
+  const agentId =
+    (typeof body.agentId === 'string' && body.agentId.trim()) ||
+    resolveDefaultAgentId(getRuntimeConfig());
+  const generated = await generateApp({
+    description,
+    ...(typeof body.category === 'string' ? { category: body.category } : {}),
+    agentId,
+    ...(typeof body.model === 'string' && body.model.trim()
+      ? { model: body.model.trim() }
+      : {}),
+    ...(typeof body.chatbotId === 'string' && body.chatbotId.trim()
+      ? { chatbotId: body.chatbotId.trim() }
+      : {}),
+  });
+  const app = createApp({
+    title: generated.title,
+    html: generated.html,
+    category: generated.category,
+    description,
+    prompt: description,
+    agentId,
+    sessionId:
+      typeof body.sessionId === 'string' ? body.sessionId.trim() || null : null,
+  });
+  sendJson(res, 201, { app });
+}
+
+/**
+ * Persist self-contained HTML produced in a chat turn into the Apps gallery.
+ * Runs for every chat (not just the Apps builder): each HTML artifact file
+ * becomes a gallery entry keyed by (session, filename), updated in place as the
+ * conversation iterates. App-builder turns additionally capture HTML inlined in
+ * the assistant text and tag the entry with category / kind.
+ * Best-effort: never throws into the chat response path.
+ */
+async function maybeCaptureChatArtifacts(
+  chatRequest: GatewayChatRequest,
+  result: GatewayChatResult,
+): Promise<NonNullable<GatewayChatResult['apps']>> {
+  const captured: NonNullable<GatewayChatResult['apps']> = [];
+  if (result.status !== 'success') return captured;
+  const sessionId = result.sessionId || chatRequest.sessionId;
+  if (!sessionId) return captured;
+  const kind = chatRequest.appKind === 'live' ? 'live' : 'web';
+  const category = chatRequest.appBuild
+    ? (chatRequest.appCategory ?? null)
+    : null;
+  const agentId = result.agentId ?? chatRequest.agentId ?? null;
+  try {
+    for (const artifact of result.artifacts ?? []) {
+      if (!artifact.mimeType?.toLowerCase().includes('html')) continue;
+      if (!artifact.path) continue;
+      let html: string;
+      try {
+        const content = await fs.promises.readFile(artifact.path, 'utf8');
+        html = extractHtmlDocument(content) ?? content;
+      } catch {
+        continue;
+      }
+      const app = upsertAppArtifact({
+        sessionId,
+        sourceKey: artifact.filename || artifact.path,
+        title: deriveAppTitle(html, artifact.filename || ''),
+        html,
+        category,
+        kind,
+        agentId,
+      });
+      captured.push({ id: app.id, title: app.title, kind: app.kind });
+      logger.debug(
+        { sessionId, appId: app.id, title: app.title, kind },
+        'Captured HTML artifact into Apps gallery',
+      );
+    }
+    const workspaceDir =
+      captured.length === 0 && chatRequest.appBuild
+        ? agentWorkspaceDir(
+            agentId || resolveDefaultAgentId(getRuntimeConfig()),
+          )
+        : null;
+
+    const captureWorkspaceHtml = async (
+      ref: string,
+      filePath: string,
+    ): Promise<void> => {
+      let content: string;
+      try {
+        content = await fs.promises.readFile(filePath, 'utf8');
+      } catch {
+        return;
+      }
+      const html = extractHtmlDocument(content) ?? content;
+      if (!/<html|<!doctype html/i.test(html)) return;
+      const app = upsertAppArtifact({
+        sessionId,
+        sourceKey: ref,
+        title: deriveAppTitle(html, path.basename(ref)),
+        html,
+        category,
+        kind,
+        agentId,
+      });
+      captured.push({ id: app.id, title: app.title, kind: app.kind });
+      logger.debug(
+        { sessionId, appId: app.id, title: app.title, kind, ref },
+        'Captured workspace HTML file into Apps gallery',
+      );
+    };
+
+    // App-builder turns write the HTML to a file in the `apps/` folder (per the
+    // build instructions) and reference it in the reply (e.g.
+    // "apps/dashboard.html"). Resolve those *.html references inside the agent
+    // workspace and capture them.
+    if (workspaceDir) {
+      const seen = new Set<string>();
+      for (const match of (result.result ?? '').matchAll(
+        /([A-Za-z0-9_][A-Za-z0-9_./-]*\.html)\b/g,
+      )) {
+        const ref = match[1];
+        if (seen.has(ref)) continue;
+        seen.add(ref);
+        const filePath = resolveWorkspaceRelativePath(workspaceDir, ref);
+        if (filePath) await captureWorkspaceHtml(ref, filePath);
+      }
+    }
+    // Or the HTML may be inlined in the reply instead of a file.
+    if (captured.length === 0 && chatRequest.appBuild) {
+      const html = extractHtmlDocument(result.result ?? '');
+      if (!html) return captured;
+      const app = upsertAppArtifact({
+        sessionId,
+        sourceKey: 'inline',
+        title: deriveAppTitle(html, ''),
+        html,
+        category,
+        kind,
+        agentId,
+      });
+      captured.push({ id: app.id, title: app.title, kind: app.kind });
+      logger.debug(
+        { sessionId, appId: app.id, title: app.title, kind },
+        'Captured inline app build into Apps gallery',
+      );
+    }
+  } catch (err) {
+    logger.warn({ err, sessionId }, 'Failed to capture chat artifacts');
+  }
+  return captured;
+}
+
 async function handleApiAdminTerminal(
   req: IncomingMessage,
   res: ServerResponse,
@@ -7348,6 +8076,40 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         });
         return;
       }
+      {
+        // App viewer renders generated HTML inline in a (sandboxed) browser
+        // frame, so — like /api/artifact — it accepts query-token / cookie auth
+        // instead of requiring an Authorization header.
+        const appViewId = parseApiAppId(pathname, '/view');
+        if (appViewId !== null && method === 'GET') {
+          void handleApiAppView(req, res, url, appViewId).catch(
+            (err: unknown) => {
+              if (res.writableEnded) return;
+              const errorText =
+                err instanceof Error ? err.message : String(err);
+              const statusCode =
+                err instanceof GatewayRequestError ? err.statusCode : 500;
+              sendJson(res, statusCode, { error: errorText });
+            },
+          );
+          return;
+        }
+
+        const appBridgeToolId = parseApiAppId(pathname, '/bridge/tool');
+        if (appBridgeToolId !== null) {
+          void handleApiAppBridgeTool(req, res, url, appBridgeToolId).catch(
+            (err: unknown) => {
+              if (res.writableEnded) return;
+              const errorText =
+                err instanceof Error ? err.message : String(err);
+              const statusCode =
+                err instanceof GatewayRequestError ? err.statusCode : 500;
+              sendJson(res, statusCode, { ok: false, error: errorText });
+            },
+          );
+          return;
+        }
+      }
       if (pathname === '/api/mcp/oauth/callback' && method === 'GET') {
         // Public by design: the OAuth provider redirects the user's browser
         // here without gateway credentials. The flow is bound to a
@@ -7425,6 +8187,29 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           if (pathname === '/api/admin/overview' && method === 'GET') {
             await handleApiAdminOverview(res);
             return;
+          }
+          if (pathname === '/api/apps' && method === 'GET') {
+            handleApiAppsList(res, url);
+            return;
+          }
+          if (pathname === '/api/apps/generate' && method === 'POST') {
+            await handleApiAppGenerate(req, res);
+            return;
+          }
+          {
+            const appId = parseApiAppId(pathname);
+            if (appId !== null) {
+              if (method === 'GET') {
+                handleApiAppDetail(res, appId);
+                return;
+              }
+              if (method === 'DELETE') {
+                handleApiAppDelete(res, appId);
+                return;
+              }
+              sendMethodNotAllowed(res);
+              return;
+            }
           }
           if (pathname === '/api/admin/secrets' && method === 'GET') {
             handleApiAdminSecrets(req, res);

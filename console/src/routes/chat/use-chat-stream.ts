@@ -48,6 +48,9 @@ interface UseChatStreamOptions {
   refreshRecent: () => void;
   onSessionIdCorrection: (serverSessionId: string) => void;
   onModelResolved?: (modelId: string) => void;
+  onAppsCaptured?: (
+    apps: Array<{ id: string; title: string; kind: 'web' | 'live' }>,
+  ) => void;
   resolveAddressedAgentPresentation?: (
     content: string,
   ) => AssistantPresentation | null;
@@ -85,7 +88,12 @@ export interface UseChatStreamReturn {
   sendMessage: (
     content: string,
     media: MediaItem[],
-    opts?: { hideUser?: boolean },
+    opts?: {
+      hideUser?: boolean;
+      appBuild?: boolean;
+      appCategory?: string;
+      appKind?: 'web' | 'live';
+    },
   ) => Promise<boolean>;
   stopRequest: () => Promise<void>;
   isStreaming: boolean;
@@ -107,6 +115,7 @@ export function useChatStream(
     refreshRecent,
     onSessionIdCorrection,
     onModelResolved,
+    onAppsCaptured,
     resolveAddressedAgentPresentation,
   } = options;
 
@@ -147,7 +156,12 @@ export function useChatStream(
     async (
       content: string,
       media: MediaItem[],
-      opts?: { hideUser?: boolean },
+      opts?: {
+        hideUser?: boolean;
+        appBuild?: boolean;
+        appCategory?: string;
+        appKind?: 'web' | 'live';
+      },
     ) => {
       if (activeRequestRef.current) {
         setError(
@@ -373,6 +387,9 @@ export function useChatStream(
             content,
             stream: true,
             ...(media.length > 0 ? { media } : {}),
+            ...(opts?.appBuild ? { appBuild: true } : {}),
+            ...(opts?.appCategory ? { appCategory: opts.appCategory } : {}),
+            ...(opts?.appKind ? { appKind: opts.appKind } : {}),
           },
           signal: req.controller.signal,
           callbacks: {
@@ -404,6 +421,12 @@ export function useChatStream(
         const resolvedModel = result.model?.trim();
         if (resolvedModel) {
           onModelResolved?.(resolvedModel);
+        }
+
+        // Only pop the preview for explicit app builds/refreshes — regular
+        // chats still capture HTML to the gallery, just without interrupting.
+        if (opts?.appBuild && result.apps && result.apps.length > 0) {
+          onAppsCaptured?.(result.apps);
         }
 
         flushRender();
@@ -560,6 +583,7 @@ export function useChatStream(
       writeMessages,
       onSessionIdCorrection,
       onModelResolved,
+      onAppsCaptured,
       resolveAddressedAgentPresentation,
       queryClient,
       setError,

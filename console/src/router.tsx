@@ -64,6 +64,19 @@ function ChatRouteComponent() {
   );
 }
 
+const LazyAppsPage = lazy(async () => {
+  const mod = await import('./routes/apps');
+  return { default: mod.AppsPage };
+});
+
+function AppsRouteComponent() {
+  return (
+    <Suspense fallback={<div className="empty-state">Loading apps…</div>}>
+      <LazyAppsPage />
+    </Suspense>
+  );
+}
+
 function optionalStringSearchValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
@@ -300,12 +313,43 @@ const secretsRoute = createRoute({
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/chat',
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): {
+    prompt?: string;
+    send?: string;
+    agent?: string;
+    app?: string;
+    category?: string;
+    kind?: string;
+  } => {
+    const prompt = optionalStringSearchValue(search.prompt);
+    const send = optionalStringSearchValue(search.send);
+    const agent = optionalStringSearchValue(search.agent);
+    const app = optionalStringSearchValue(search.app);
+    const category = optionalStringSearchValue(search.category);
+    const kind = optionalStringSearchValue(search.kind);
+    return {
+      ...(prompt ? { prompt } : {}),
+      ...(send ? { send } : {}),
+      ...(agent ? { agent } : {}),
+      ...(app ? { app } : {}),
+      ...(category ? { category } : {}),
+      ...(kind ? { kind } : {}),
+    };
+  },
   component: ChatRouteComponent,
 });
 
 const chatSessionRoute = createRoute({
   getParentRoute: () => chatRoute,
   path: '$sessionId',
+});
+
+const appsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/apps',
+  component: AppsRouteComponent,
 });
 
 const routeTree = rootRoute.addChildren([
@@ -342,6 +386,7 @@ const routeTree = rootRoute.addChildren([
   ]),
   agentsOverviewRoute,
   chatRoute.addChildren([chatSessionRoute]),
+  appsRoute,
 ]);
 
 export const router = createRouter({
