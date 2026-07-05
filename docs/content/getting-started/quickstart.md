@@ -92,7 +92,7 @@ With the gateway running locally, open either surface:
 - **Terminal UI:** `hybridclaw tui`
 
 If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt; if
-it is set, `/chat`, `/agents`, and `/admin` reuse the same token. The
+it is set, `/chat`, `/apps`, `/agents`, and `/admin` reuse the same token. The
 [desktop app](./installation.md#install-the-apple-desktop-app) opens this chat
 surface automatically.
 
@@ -159,6 +159,8 @@ Other built-in surfaces on the running gateway (`http://127.0.0.1:9090`):
 
 - `/agents` — agent and session dashboard; the `/chat` sidebar also searches
   past sessions by title
+- `/apps` — generated app gallery for self-contained HTML apps, documents,
+  games, tools, and live connector-backed views
 - `/admin` — channels, agents, and skills, plus saved-revision editing
 - `/admin/statistics` and `/admin/agent-scoreboard` — activity, cost, and skill
   scores

@@ -246,8 +246,9 @@ saved revision history directly.
   from `/admin/config` only when you want configured confidential rules enforced
 - `HYBRIDCLAW_CONFIDENTIAL_DISABLE=1` forces confidential-info redaction off for
   local debugging, even when `security.confidentialRedactionEnabled` is enabled
-- `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`;
-  when unset, localhost browser access stays open without a login prompt
+- `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/apps`, `/agents`, and
+  `/admin`; when unset, localhost browser access stays open without a login
+  prompt
 - `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` or `GATEWAY_API_TOKEN` for
   the local TUI, eval workflows, and client-side gateway commands that should
   target an already-running HybridClaw instance; if `ops.gatewayApiToken` is

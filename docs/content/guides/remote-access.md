@@ -39,7 +39,7 @@ hybridclaw config set ops.healthPort 9090
 hybridclaw config set ops.webApiToken "replace-with-a-long-random-token"
 ```
 
-`ops.webApiToken` gates `/chat`, `/agents`, and `/admin`.
+`ops.webApiToken` gates `/chat`, `/apps`, `/agents`, and `/admin`.
 `ops.gatewayApiToken` is optional. If you leave it unset, client-side gateway
 calls fall back to the same token automatically. Set a separate
 `ops.gatewayApiToken` only when you want the CLI or TUI to use a different
@@ -51,9 +51,10 @@ storing plaintext tokens in `config.json`.
 
 ### Troubleshooting: Console unavailable on a public URL
 
-If `/admin`, `/chat`, or `/agents` shows `Console unavailable` with a message
-that the console is localhost-only unless `WEB_API_TOKEN` is configured, the
-gateway is reachable through a non-loopback URL without browser auth enabled.
+If `/admin`, `/chat`, `/apps`, or `/agents` shows `Console unavailable` with a
+message that the console is localhost-only unless `WEB_API_TOKEN` is
+configured, the gateway is reachable through a non-loopback URL without browser
+auth enabled.
 This is expected for ngrok, Cloudflare Tunnel, Tailscale Funnel, reverse
 proxies, and other remote origins.
 

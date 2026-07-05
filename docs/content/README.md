@@ -27,6 +27,20 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
+- Web chat renders thinking and tool calls as a light-grey, collapsible
+  activity trace above each answer, streams it while a run is active, and
+  persists the ordered trace so reloads keep the same activity history.
+- The Apps gallery at `/apps` stores generated HTML apps, websites, documents,
+  games, quizzes, and productivity tools from app-build chat sessions, with
+  category filtering, search, previews, new-tab links, and deletion.
+- Web chat `/app <description>` starts a plan-first app-building conversation
+  and captures the resulting file-backed or inline HTML artifact into the Apps
+  gallery.
+- Live apps can refresh connector data inside the Apps viewer through a
+  sandbox bridge for read-only MCP connector tool calls while keeping an
+  embedded snapshot fallback.
+- OpenAI Codex streams use an idle timeout so a stalled SSE connection fails
+  cleanly instead of hanging a turn indefinitely.
 - HybridClaw v0.25.8 uses configured public deployment URLs for cloud MCP OAuth
   callbacks, admin origin checks, and mobile chat QR links when requests arrive
   through internal hosts.
@@ -159,8 +173,8 @@ doc at once, start from [For Agents](./agents.md).
   onboarding, provider authentication, and connecting the first transport
 - [Channels](./channels/README.md) for the full supported channel catalog and
   transport-specific setup details
-- [Guides](./guides/README.md) for local providers, MCP, bundled skills,
-  remote access, voice/TTS, and optional office tooling
+- [Guides](./guides/README.md) for generated apps, local providers, MCP,
+  bundled skills, remote access, voice/TTS, and optional office tooling
 - [Tutorials](./tutorials/README.md) for practical owner, GTM, marketing,
   sales, and community workflows
 - [Extensibility](./extensibility/README.md) for tools, skills, plugins,
@@ -180,11 +194,14 @@ doc at once, start from [For Agents](./agents.md).
   [Quick Start](./getting-started/quickstart.md).
 - Need to connect one transport without reading the full channel manual? Go to
   [Connect Your First Channel](./getting-started/first-channel.md).
+- Need to build a generated app, dashboard, game, or live connector-backed
+  view? Go to [Apps Gallery](./guides/apps.md).
 - Need command lookup or troubleshooting help? Go to
   [Commands](./reference/commands.md) and
   [Diagnostics](./reference/diagnostics.md).
 - Need setup answers before deploying? Go to [FAQ](./reference/faq.md).
-- Need to reach `/chat`, `/agents`, or `/admin` from another machine? Go to
+- Need to reach `/chat`, `/apps`, `/agents`, or `/admin` from another machine?
+  Go to
   [Remote Access](./guides/remote-access.md).
 - Need one markdown page that links the whole docs tree? Go to
   [For Agents](./agents.md).

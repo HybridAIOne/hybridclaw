@@ -647,6 +647,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | Command | Main surface | Purpose |
 |---|---|---|
 | `/agent [info|list|switch|create|install|model]` | local and chat channels | Inspect, create, switch, install, or set models for agents; web `/agent switch` starts hatching when `BOOTSTRAP.md` is active |
+| `/app <description>` or `/apps` | web chat | Start an app-building conversation or open the Apps gallery |
 | `/approve [view|yes|session|agent|all|no] [approval_id]` | local and chat channels | View or answer pending tool approval requests |
 | `/audit [sessionId]|last|turn <n>|run <runId>` | local and chat channels | Show recent audit events or focused turn traces |
 | `/auth status <provider>` | local TUI/web | Show local auth and provider config state |
@@ -746,6 +747,8 @@ reserved for the R5.3 signal when that spend-tracking enforcement lands.
   current run is active
 - local TUI/web sessions support `/memory query <query>` to preview the exact
   prompt-memory block the current session would attach for that query
+- web chat supports `/app <description>` to start an app-building conversation;
+  bare `/app` and `/apps` open the Apps gallery
 - local TUI/web sessions support `/context` to inspect context-window usage,
   remaining headroom, and compaction count for the active session
 - local TUI and web chat expose `/voice info` and `/voice call <e164-number>`

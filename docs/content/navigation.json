@@ -111,6 +111,10 @@
           "path": "guides/README.md"
         },
         {
+          "title": "Apps Gallery",
+          "path": "guides/apps.md"
+        },
+        {
           "title": "Hatching Task Ideas",
           "path": "guides/hatching-task-ideas.md"
         },

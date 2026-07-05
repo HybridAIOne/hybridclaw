@@ -1,6 +1,6 @@
 ---
 title: Guides
-description: Practical workflows for local providers, remote access, MCP, bundled skills, Twilio voice, local speech tooling, and optional office tooling.
+description: Practical workflows for generated apps, local providers, remote access, MCP, bundled skills, Twilio voice, local speech tooling, and optional office tooling.
 sidebar_position: 1
 ---
 
@@ -11,6 +11,8 @@ These pages focus on common operator workflows after the base install works.
 ## In This Section
 
 - [Local Providers](./local-providers.md) for LM Studio, Ollama, and vLLM
+- [Apps Gallery](./apps.md) for generated web apps, documents, games, tools,
+  and live connector-backed apps
 - [Remote Access](./remote-access.md) for SSH tunnels, Tailscale, and
   persistent macOS LaunchAgent forwarding
 - [Tailscale Funnel](./tailscale-funnel.md) for managed public `*.ts.net`

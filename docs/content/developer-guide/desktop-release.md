@@ -7,7 +7,7 @@ sidebar_position: 9
 # Desktop Release Builds
 
 HybridClaw's desktop app is an Electron wrapper around the existing `/chat`,
-`/agents`, and `/admin` gateway surfaces. The release build bundles the
+`/apps`, `/agents`, and `/admin` gateway surfaces. The release build bundles the
 compiled gateway, console, container runtime files, production dependencies,
 and a Node.js runtime into the app package.
 

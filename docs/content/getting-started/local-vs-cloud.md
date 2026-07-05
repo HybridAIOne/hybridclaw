@@ -34,7 +34,8 @@ Choose a public URL when you use:
 - remote BlueBubbles iMessage relay webhooks
 - plugin inbound webhooks or external callbacks that target this gateway
 - hierarchical swarm or cross-instance delegation where another HybridClaw instance must reach this gateway over HTTP
-- an operator workflow where teammates open `/chat`, `/agents`, or `/admin` from outside the gateway host
+- an operator workflow where teammates open `/chat`, `/apps`, `/agents`, or
+  `/admin` from outside the gateway host
 
 You usually do not need a public URL for:
 
@@ -179,8 +180,8 @@ Internet HTTPS
 
 If your platform requires the Node process to bind a non-loopback interface,
 put the host behind the platform's HTTPS router or firewall and keep
-`ops.webApiToken` set. Do not publish an unauthenticated `/chat`, `/agents`, or
-`/admin` surface.
+`ops.webApiToken` set. Do not publish an unauthenticated `/chat`, `/apps`,
+`/agents`, or `/admin` surface.
 
 For server packages and host-managed tunnels, see
 [Installation](./installation.md), [Remote Access](../guides/remote-access.md),

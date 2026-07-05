@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.27.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.27.0) - 2026-07-05
+
 ### Added
 
 - **Chat activity traces**: The web `/chat` view now renders the agent's
@@ -15,6 +17,20 @@
   reload replays the same activity instead of dropping it.
 
   `Manifesto: Principle IV - A coworker is a colleague, not a chatbot.`
+
+- **Apps gallery**: Web chat includes an `/apps` gallery and `/app <description>`
+  flow for building self-contained HTML apps, documents, games, dashboards, and
+  tools, then saving captured HTML artifacts with search, category filtering,
+  previews, new-tab links, and deletion controls.
+- **Live apps**: Apps can be marked as connector-aware live apps that embed a
+  snapshot fallback and refresh inside the Apps viewer through a sandbox bridge
+  for read-only MCP connector tool calls.
+
+### Fixed
+
+- **OpenAI Codex stream stalls**: Codex SSE reads now use an idle timeout so a
+  stalled upstream stream is cancelled and surfaced as a retryable error instead
+  of hanging indefinitely.
 
 ## [0.26.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.26.0) - 2026-07-03
 

@@ -32,6 +32,7 @@ Main docs landing pages:
 ## Guides
 
 - [Guides](./guides/README.md)
+- [Apps Gallery](./guides/apps.md)
 - [Bundled Skills](./guides/bundled-skills.md)
 - [Local Providers](./guides/local-providers.md)
 - [Remote Access](./guides/remote-access.md)
