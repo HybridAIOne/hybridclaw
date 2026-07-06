@@ -96,6 +96,10 @@ import {
   takeCachedValue,
 } from './tool-parallelism.js';
 import {
+  formatLineSafeToolProgressText,
+  formatToolCallStartProgressText,
+} from './tool-progress-log.js';
+import {
   executeToolWithMetadata,
   getMessageToolDescription,
   getPendingSideEffects,
@@ -579,16 +583,13 @@ function logToolCallStart(
   argsJson: string,
   approval: ToolApprovalEvaluation,
 ): void {
-  const yellowNarration = approvalRuntime.formatYellowNarration(approval);
-  const toolPreview =
-    approval.tier === 'yellow'
-      ? toolName === 'web_search'
-        ? approval.commandPreview
-        : yellowNarration
-      : argsJson.length > 100
-        ? `${argsJson.slice(0, 99)}…`
-        : argsJson;
-  console.error(`[tool] ${formatToolNameForLog(toolName)}: ${toolPreview}`);
+  console.error(
+    `[tool] ${formatToolNameForLog(toolName)}: ${formatToolCallStartProgressText(
+      toolName,
+      argsJson,
+      approval,
+    )}`,
+  );
 }
 
 function formatToolNameForLog(toolName: string): string {
@@ -712,7 +713,7 @@ async function executePreparedToolCall(
   console.error(
     `[tool] ${formatToolNameForLog(
       toolName,
-    )} result (${toolDuration}ms): ${result.slice(0, 100)}`,
+    )} result (${toolDuration}ms): ${formatLineSafeToolProgressText(result)}`,
   );
 
   return {

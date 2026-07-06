@@ -16,6 +16,41 @@ test('parses plain tool start and result progress lines', () => {
   });
 });
 
+test('parses complete line-safe tool progress payloads', () => {
+  const args = JSON.stringify({
+    action: 'send',
+    subject: 'HERE',
+    content: 'line 1\nline 2',
+  });
+  expect(
+    parseToolProgressLine(`[tool] message: json:${JSON.stringify(args)}`),
+  ).toEqual({
+    toolName: 'message',
+    phase: 'start',
+    preview: args,
+  });
+
+  const result = JSON.stringify(
+    {
+      ok: true,
+      action: 'send',
+      nested: { status: 'queued' },
+    },
+    null,
+    2,
+  );
+  expect(
+    parseToolProgressLine(
+      `[tool] message result (1332ms): json:${JSON.stringify(result)}`,
+    ),
+  ).toEqual({
+    toolName: 'message',
+    phase: 'finish',
+    durationMs: 1332,
+    preview: result,
+  });
+});
+
 test('parses labelled browser tool progress lines using the canonical tool name', () => {
   expect(
     parseToolProgressLine(

@@ -8,6 +8,7 @@ const TOOL_RESULT_RE = new RegExp(
 const TOOL_START_RE = new RegExp(
   `^\\[tool\\]\\s+${TOOL_NAME_PATTERN}${TOOL_LABEL_PATTERN}:\\s*(.*)$`,
 );
+const LINE_SAFE_TOOL_PROGRESS_PREFIX = 'json:';
 
 export type ParsedToolProgressLine = Pick<
   ToolProgressEvent,
@@ -23,7 +24,7 @@ export function parseToolProgressLine(
       toolName: resultMatch[1] || 'tool',
       phase: 'finish',
       durationMs: parseInt(resultMatch[2] || '0', 10),
-      preview: resultMatch[3] || '',
+      preview: parseToolProgressPreview(resultMatch[3] || ''),
     };
   }
 
@@ -32,6 +33,16 @@ export function parseToolProgressLine(
   return {
     toolName: startMatch[1] || 'tool',
     phase: 'start',
-    preview: startMatch[2] || '',
+    preview: parseToolProgressPreview(startMatch[2] || ''),
   };
+}
+
+function parseToolProgressPreview(raw: string): string {
+  if (!raw.startsWith(LINE_SAFE_TOOL_PROGRESS_PREFIX)) return raw;
+  try {
+    const parsed = JSON.parse(raw.slice(LINE_SAFE_TOOL_PROGRESS_PREFIX.length));
+    return typeof parsed === 'string' ? parsed : raw;
+  } catch {
+    return raw;
+  }
 }
