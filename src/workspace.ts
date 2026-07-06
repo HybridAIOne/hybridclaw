@@ -101,6 +101,7 @@ export interface ContextFile {
 export interface EnsureBootstrapFilesResult {
   workspacePath: string;
   workspaceInitialized: boolean;
+  onboardingTransition?: WorkspaceOnboardingTransition;
 }
 
 export interface ResetWorkspaceResult {
@@ -122,6 +123,14 @@ interface WorkspaceOnboardingState {
   bootstrapSeededAt?: string;
   onboardingCompletedAt?: string;
   hatchingTurnsWithoutMessage?: number;
+}
+
+export interface WorkspaceOnboardingTransition {
+  type: 'abort';
+  bootstrapFile: 'BOOTSTRAP.md';
+  completedAt: string;
+  reason: string;
+  rule: 'missing_bootstrap_after_seed' | 'existing_workspace_without_bootstrap';
 }
 
 function resolveWorkspaceStatePath(wsDir: string): string {
@@ -656,6 +665,7 @@ export function ensureBootstrapFiles(
   const statePath = resolveWorkspaceStatePath(wsDir);
   let state = readWorkspaceOnboardingState(statePath);
   let stateDirty = false;
+  let onboardingTransition: WorkspaceOnboardingTransition | undefined;
   const markState = (next: Partial<WorkspaceOnboardingState>) => {
     state = { ...state, ...next };
     stateDirty = true;
@@ -697,10 +707,23 @@ export function ensureBootstrapFiles(
     state.bootstrapSeededAt ||
     (!workspaceInitialized && !options.seedOneTimeBootstrap)
   ) {
+    const completedAt = nowIso();
+    const seededBefore = Boolean(state.bootstrapSeededAt);
     markState({
-      onboardingCompletedAt: nowIso(),
+      onboardingCompletedAt: completedAt,
       hatchingTurnsWithoutMessage: 0,
     });
+    onboardingTransition = {
+      type: 'abort',
+      bootstrapFile: 'BOOTSTRAP.md',
+      completedAt,
+      reason: seededBefore
+        ? 'BOOTSTRAP.md was absent after onboarding had been seeded'
+        : 'Existing workspace did not have BOOTSTRAP.md',
+      rule: seededBefore
+        ? 'missing_bootstrap_after_seed'
+        : 'existing_workspace_without_bootstrap',
+    };
   } else {
     const templatePath = path.join(TEMPLATES_DIR, 'BOOTSTRAP.md');
     if (fs.existsSync(templatePath)) {
@@ -744,6 +767,7 @@ export function ensureBootstrapFiles(
   return {
     workspacePath: wsDir,
     workspaceInitialized,
+    onboardingTransition,
   };
 }
 
