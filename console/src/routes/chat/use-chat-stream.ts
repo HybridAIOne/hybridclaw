@@ -217,7 +217,7 @@ export function useChatStream(
         } satisfies ThinkingChatMessage,
       ]);
 
-      const streamId = nextMsgId();
+      let streamId = nextMsgId();
       setStreamingMsgId(streamId);
 
       const req: ActiveRequest = {
@@ -270,8 +270,7 @@ export function useChatStream(
               )
             : prev;
           // Trace-only update: keep the thinking dots until the answer (or an
-          // approval card) actually starts, so no empty bubble flashes in. If
-          // a prior tool-call-turn preview was discarded, remove its bubble too.
+          // approval card) actually starts, so no empty bubble flashes in.
           if (!text && !approval) {
             return withTrace.filter((m) => m.id !== streamId);
           }
@@ -328,13 +327,46 @@ export function useChatStream(
         scheduleRender();
       };
 
-      const discardAssistantTextBeforeTool = () => {
+      const freezeAssistantTextBeforeTool = () => {
+        const draftText = req.assistantText;
+        if (!draftText.trim()) return;
+        const draftId = streamId;
+        setMessages((prev) => {
+          let foundDraft = false;
+          const next = prev
+            .filter((m) => m.id !== thinkingId)
+            .map((m) => {
+              if (m.id !== draftId) return m;
+              foundDraft = true;
+              return {
+                ...m,
+                role: 'draft' as const,
+                content: draftText,
+                pendingApproval: null,
+              };
+            });
+          if (foundDraft) return next;
+          return [
+            ...next,
+            {
+              id: draftId,
+              role: 'draft' as const,
+              content: draftText,
+              sessionId: req.sessionId,
+              artifacts: [],
+              pendingApproval: null,
+            },
+          ];
+        });
+        streamId = nextMsgId();
+        setStreamingMsgId(streamId);
         req.assistantText = '';
+        req.lastRenderedText = '';
       };
 
       const pushToolEvent = (event: ChatStreamToolEvent) => {
         if (event.phase === 'start') {
-          discardAssistantTextBeforeTool();
+          freezeAssistantTextBeforeTool();
           req.trace.push({
             kind: 'tool',
             toolName: event.toolName,
