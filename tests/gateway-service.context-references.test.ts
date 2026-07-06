@@ -418,9 +418,13 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
   const assistantMessageEvent = auditRows.find(
     (row) => row.event_type === 'onboarding.assistant_message',
   );
+  const mailEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.mail',
+  );
   expect(startEvent).toBeTruthy();
   expect(userReplyEvent).toBeTruthy();
   expect(assistantMessageEvent).toBeTruthy();
+  expect(mailEvent).toBeTruthy();
   expect(completeEvent).toBeTruthy();
   expect(JSON.parse(String(startEvent?.payload || '{}'))).toMatchObject({
     type: 'onboarding.start',
@@ -457,6 +461,314 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
     gatewayRule: 'message_send',
     reason: 'message sent',
   });
+  expect(JSON.parse(String(mailEvent?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.mail',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    recipient: '***EMAIL_REDACTED***',
+    subject: 'HybridClaw release support is ready',
+    transport: 'email',
+    contentLength: expect.any(Number),
+    reason: 'onboarding welcome mail sent',
+  });
+  expect(assistantMessageEvent?.seq ?? 0).toBeLessThan(
+    mailEvent?.seq ?? 0,
+  );
+  expect(mailEvent?.seq ?? 0).toBeLessThan(
+    completeEvent?.seq ?? 0,
+  );
+});
+
+test('handleGatewayMessage records terminal hatching audit when persistence fails after completion', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'I sent the welcome message.',
+    toolsUsed: ['message'],
+    toolExecutions: [
+      {
+        name: 'message',
+        arguments: JSON.stringify({
+          action: 'send',
+          to: 'ben@example.com',
+          subject: 'HybridClaw release support is ready',
+          content: 'Welcome to HybridClaw.',
+        }),
+        result: JSON.stringify({
+          ok: true,
+          action: 'send',
+          channelId: 'ben@example.com',
+          transport: 'email',
+          subject: 'HybridClaw release support is ready',
+        }),
+        durationMs: 12,
+      },
+    ],
+  });
+
+  const { getRecentStructuredAuditForSession, initDatabase } = await import(
+    '../src/memory/db.ts'
+  );
+  const { memoryService } = await import(
+    '../src/memory/memory-service.ts'
+  );
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+
+  initDatabase({ quiet: true });
+  ensureBootstrapFiles('research');
+
+  const workspaceDir = agentWorkspaceDir('research');
+  const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+  const storeTurnSpy = vi
+    .spyOn(memoryService, 'storeTurn')
+    .mockImplementation(() => {
+      throw new Error('store failed after hatching');
+    });
+
+  let result: Awaited<ReturnType<typeof handleGatewayMessage>> | null = null;
+  try {
+    result = await handleGatewayMessage({
+      sessionId: 'session-onboarding-complete-store-failure',
+      guildId: null,
+      channelId: 'web',
+      userId: 'user-1',
+      username: 'user',
+      agentId: 'research',
+      content: 'I am Ben and my email is ben@example.com.',
+      chatbotId: 'bot-1',
+    });
+  } finally {
+    storeTurnSpy.mockRestore();
+  }
+
+  expect(result?.status).toBe('error');
+  expect(result?.error).toContain('store failed after hatching');
+  expect(fs.existsSync(bootstrapPath)).toBe(false);
+
+  const auditRows = getRecentStructuredAuditForSession(
+    'session-onboarding-complete-store-failure',
+    100,
+  );
+  const completeEvents = auditRows.filter(
+    (row) => row.event_type === 'onboarding.complete',
+  );
+  const assistantMessageEvents = auditRows.filter(
+    (row) => row.event_type === 'onboarding.assistant_message',
+  );
+  const mailEvents = auditRows.filter(
+    (row) => row.event_type === 'onboarding.mail',
+  );
+  const turnEndEvent = auditRows.find((row) => row.event_type === 'turn.end');
+
+  expect(completeEvents).toHaveLength(1);
+  expect(mailEvents).toHaveLength(1);
+  expect(assistantMessageEvents).toHaveLength(0);
+  expect(JSON.parse(String(completeEvents[0]?.payload || '{}'))).toMatchObject(
+    {
+      type: 'onboarding.complete',
+      workspaceAgentId: 'research',
+      source: 'gateway.chat',
+      bootstrapFile: 'BOOTSTRAP.md',
+      gatewayRule: 'message_send',
+    },
+  );
+  expect(JSON.parse(String(mailEvents[0]?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.mail',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    transport: 'email',
+    contentLength: expect.any(Number),
+  });
+  expect(mailEvents[0]?.seq ?? 0).toBeLessThan(completeEvents[0]?.seq ?? 0);
+  expect(completeEvents[0]?.seq ?? 0).toBeLessThan(turnEndEvent?.seq ?? 0);
+});
+
+test('handleGatewayMessage completes hatching when the agent deletes BOOTSTRAP.md after sending the welcome message', async () => {
+  setupHome();
+
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  updateRuntimeConfig((draft) => {
+    draft.hybridai.defaultModel = 'gpt-5-mini';
+    draft.hybridai.onboardingModel = 'gpt-5.5';
+  });
+  const { getRecentStructuredAuditForSession, initDatabase } = await import(
+    '../src/memory/db.ts'
+  );
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+
+  initDatabase({ quiet: true });
+  ensureBootstrapFiles('research');
+
+  const workspaceDir = agentWorkspaceDir('research');
+  const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+  const statePath = path.join(
+    workspaceDir,
+    '.hybridclaw',
+    'workspace-state.json',
+  );
+  expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+  runAgentMock.mockImplementationOnce(async () => {
+    fs.unlinkSync(bootstrapPath);
+    return {
+      status: 'success',
+      result: 'I sent the welcome message and cleaned up onboarding.',
+      toolsUsed: ['message', 'edit', 'write', 'memory', 'delete'],
+      toolExecutions: [
+        {
+          name: 'message',
+          arguments: JSON.stringify({
+            action: 'send',
+            to: 'ben@example.com',
+            subject: 'HybridClaw release support is ready',
+            content: 'Welcome to HybridClaw.',
+          }),
+          result: JSON.stringify({
+            ok: true,
+            action: 'send',
+            channelId: 'ben@example.com',
+            transport: 'email',
+            subject: 'HybridClaw release support is ready',
+          }),
+          durationMs: 12,
+        },
+        {
+          name: 'edit',
+          arguments: JSON.stringify({
+            path: path.join(workspaceDir, 'USER.md'),
+            old: 'Name: TBD',
+            new: 'Name: Ben',
+          }),
+          result: 'Edited USER.md',
+          durationMs: 2,
+        },
+        {
+          name: 'write',
+          arguments: JSON.stringify({
+            path: path.join(workspaceDir, 'MEMORY.md'),
+            content: 'Remember Ben prefers release support.',
+          }),
+          result: 'Wrote MEMORY.md',
+          durationMs: 3,
+        },
+        {
+          name: 'memory',
+          arguments: JSON.stringify({
+            action: 'write',
+            file_path: 'memory/2026-07-06.md',
+            content: 'Ben completed onboarding.',
+          }),
+          result: 'Saved memory.',
+          durationMs: 4,
+        },
+        {
+          name: 'delete',
+          arguments: JSON.stringify({ path: bootstrapPath }),
+          result: `Deleted ${bootstrapPath}`,
+          durationMs: 1,
+        },
+      ],
+    };
+  });
+
+  const result = await handleGatewayMessage({
+    sessionId: 'session-onboarding-agent-delete-complete',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    agentId: 'research',
+    content: 'I am Ben and my email is ben@example.com.',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+  expect(fs.existsSync(bootstrapPath)).toBe(false);
+  expect(JSON.parse(fs.readFileSync(statePath, 'utf-8'))).toMatchObject({
+    hatchingTurnsWithoutMessage: 0,
+    onboardingCompletedAt: expect.stringMatching(/\d{4}-\d{2}-\d{2}T/),
+  });
+
+  const auditRows = getRecentStructuredAuditForSession(
+    'session-onboarding-agent-delete-complete',
+    100,
+  );
+  const assistantMessageEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.assistant_message',
+  );
+  const mailEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.mail',
+  );
+  const filesEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.files',
+  );
+  const completeEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.complete',
+  );
+
+  expect(assistantMessageEvent).toBeTruthy();
+  expect(filesEvent).toBeTruthy();
+  expect(mailEvent).toBeTruthy();
+  expect(completeEvent).toBeTruthy();
+  expect(JSON.parse(String(filesEvent?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.files',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    fileCount: 4,
+    actions: ['delete', 'edit', 'write'],
+    files: [
+      {
+        action: 'edit',
+        toolName: 'edit',
+        path: 'USER.md',
+      },
+      {
+        action: 'write',
+        toolName: 'write',
+        path: 'MEMORY.md',
+      },
+      {
+        action: 'write',
+        toolName: 'memory',
+        path: 'memory/2026-07-06.md',
+      },
+      {
+        action: 'delete',
+        toolName: 'delete',
+        path: 'BOOTSTRAP.md',
+      },
+    ],
+  });
+  expect(JSON.parse(String(completeEvent?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.complete',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    gatewayRule: 'message_send',
+  });
+  expect(assistantMessageEvent?.seq ?? 0).toBeLessThan(
+    filesEvent?.seq ?? 0,
+  );
+  expect(filesEvent?.seq ?? 0).toBeLessThan(
+    mailEvent?.seq ?? 0,
+  );
+  expect(mailEvent?.seq ?? 0).toBeLessThan(
+    completeEvent?.seq ?? 0,
+  );
 });
 
 test('handleGatewayMessage completes hatching after three turns without a message send', async () => {
@@ -547,6 +859,13 @@ test('handleGatewayMessage completes hatching after three turns without a messag
   const abortEvent = auditRows.find(
     (row) => row.event_type === 'onboarding.abort',
   );
+  const onboardingTurnEvents = auditRows
+    .filter(
+      (row) =>
+        row.event_type === 'onboarding.start' ||
+        row.event_type === 'onboarding.continue',
+    )
+    .sort((left, right) => left.seq - right.seq);
   const userReplyEvents = auditRows.filter(
     (row) => row.event_type === 'onboarding.user_reply',
   );
@@ -554,6 +873,30 @@ test('handleGatewayMessage completes hatching after three turns without a messag
     (row) => row.event_type === 'onboarding.assistant_message',
   );
   expect(abortEvent).toBeTruthy();
+  expect(onboardingTurnEvents.map((row) => row.event_type)).toEqual([
+    'onboarding.start',
+    'onboarding.continue',
+    'onboarding.continue',
+  ]);
+  const startPayload = JSON.parse(
+    String(onboardingTurnEvents[0]?.payload || '{}'),
+  );
+  expect(startPayload).toMatchObject({
+    type: 'onboarding.start',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+  });
+  expect(startPayload.onboardingStartedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+  for (const row of onboardingTurnEvents.slice(1)) {
+    expect(JSON.parse(String(row.payload || '{}'))).toMatchObject({
+      type: 'onboarding.continue',
+      workspaceAgentId: 'research',
+      source: 'gateway.chat',
+      bootstrapFile: 'BOOTSTRAP.md',
+      onboardingStartedAt: startPayload.onboardingStartedAt,
+    });
+  }
   expect(userReplyEvents).toHaveLength(3);
   expect(assistantMessageEvents).toHaveLength(3);
   expect(JSON.parse(String(abortEvent?.payload || '{}'))).toMatchObject({

@@ -6,6 +6,7 @@ describe('categorize', () => {
     expect(categorize('session.end')).toBe('session');
     expect(categorize('tool.call')).toBe('tool');
     expect(categorize('autonomy.decision')).toBe('autonomy');
+    expect(categorize('onboarding.complete')).toBe('onboarding');
   });
 
   it("returns 'default' for unknown prefixes", () => {

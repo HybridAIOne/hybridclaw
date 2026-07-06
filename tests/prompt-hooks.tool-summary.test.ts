@@ -136,6 +136,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'Default: do not narrate routine, low-risk tool calls; just call the tool.',
   );
   expect(prompt).toContain(
+    'When you call any tool, emit no user-facing assistant prose in that same response. Make the tool call with empty assistant content, then write the user-facing answer after the tool result is available.',
+  );
+  expect(prompt).toContain(
     'If the user has already asked you to perform an action, do not ask for a separate natural-language "yes" just to trigger approvals; attempt the tool call and let the runtime approval flow interrupt if approval is required.',
   );
   expect(prompt).toContain(

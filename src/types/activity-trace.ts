@@ -1,6 +1,6 @@
 /**
- * Ordered activity trace for one assistant turn — thinking segments,
- * intermediate assistant drafts, and tool calls the gateway streams to the web
+ * Ordered activity trace for one assistant turn — intermediate assistant
+ * drafts, thinking segments, and tool calls the gateway streams to the web
  * chat, in the order they occurred.
  *
  * Persisted per assistant message so a page reload can replay the same trace
@@ -39,10 +39,10 @@ export interface ActivityTrace {
 }
 
 /**
- * Accumulates streamed thinking/draft/tool events into an ordered trace,
- * mirroring the console's live accumulation: consecutive thinking deltas merge,
- * and a tool `finish` collapses into the most recent matching running `start`
- * (parallel same-name tools can finish out of order).
+ * Accumulates streamed draft/thinking/tool events into an ordered trace.
+ * Consecutive thinking deltas merge, and a tool `finish` collapses into the
+ * most recent matching running `start` (parallel same-name tools can finish out
+ * of order).
  */
 export class ActivityTraceBuilder {
   private readonly steps: ActivityTraceStep[] = [];

@@ -3275,9 +3275,9 @@ async function handleApiChatStream(
     return;
   }
 
-  // Accumulate the same thinking/tool events the client sees into an ordered
-  // trace, then persist it against the assistant message so a reload replays
-  // exactly what streamed.
+  // Accumulate draft/thinking/tool events into an ordered trace, then persist it
+  // against the assistant message so a reload can replay the same collapsed run
+  // activity the live web chat rendered.
   const traceStartedAt = Date.now();
   const traceBuilder = new ActivityTraceBuilder();
   let streamedTextBeforeNextTool = '';
