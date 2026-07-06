@@ -418,9 +418,13 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
   const assistantMessageEvent = auditRows.find(
     (row) => row.event_type === 'onboarding.assistant_message',
   );
+  const mailEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.mail',
+  );
   expect(startEvent).toBeTruthy();
   expect(userReplyEvent).toBeTruthy();
   expect(assistantMessageEvent).toBeTruthy();
+  expect(mailEvent).toBeTruthy();
   expect(completeEvent).toBeTruthy();
   expect(JSON.parse(String(startEvent?.payload || '{}'))).toMatchObject({
     type: 'onboarding.start',
@@ -457,7 +461,21 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
     gatewayRule: 'message_send',
     reason: 'message sent',
   });
+  expect(JSON.parse(String(mailEvent?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.mail',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    recipient: '***EMAIL_REDACTED***',
+    subject: 'HybridClaw release support is ready',
+    transport: 'email',
+    contentLength: expect.any(Number),
+    reason: 'onboarding welcome mail sent',
+  });
   expect(assistantMessageEvent?.seq ?? 0).toBeLessThan(
+    mailEvent?.seq ?? 0,
+  );
+  expect(mailEvent?.seq ?? 0).toBeLessThan(
     completeEvent?.seq ?? 0,
   );
 });
@@ -543,9 +561,13 @@ test('handleGatewayMessage records terminal hatching audit when persistence fail
   const assistantMessageEvents = auditRows.filter(
     (row) => row.event_type === 'onboarding.assistant_message',
   );
+  const mailEvents = auditRows.filter(
+    (row) => row.event_type === 'onboarding.mail',
+  );
   const turnEndEvent = auditRows.find((row) => row.event_type === 'turn.end');
 
   expect(completeEvents).toHaveLength(1);
+  expect(mailEvents).toHaveLength(1);
   expect(assistantMessageEvents).toHaveLength(0);
   expect(JSON.parse(String(completeEvents[0]?.payload || '{}'))).toMatchObject(
     {
@@ -556,6 +578,15 @@ test('handleGatewayMessage records terminal hatching audit when persistence fail
       gatewayRule: 'message_send',
     },
   );
+  expect(JSON.parse(String(mailEvents[0]?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.mail',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    transport: 'email',
+    contentLength: expect.any(Number),
+  });
+  expect(mailEvents[0]?.seq ?? 0).toBeLessThan(completeEvents[0]?.seq ?? 0);
   expect(completeEvents[0]?.seq ?? 0).toBeLessThan(turnEndEvent?.seq ?? 0);
 });
 
@@ -649,11 +680,15 @@ test('handleGatewayMessage completes hatching when the agent deletes BOOTSTRAP.m
   const assistantMessageEvent = auditRows.find(
     (row) => row.event_type === 'onboarding.assistant_message',
   );
+  const mailEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.mail',
+  );
   const completeEvent = auditRows.find(
     (row) => row.event_type === 'onboarding.complete',
   );
 
   expect(assistantMessageEvent).toBeTruthy();
+  expect(mailEvent).toBeTruthy();
   expect(completeEvent).toBeTruthy();
   expect(JSON.parse(String(completeEvent?.payload || '{}'))).toMatchObject({
     type: 'onboarding.complete',
@@ -663,6 +698,9 @@ test('handleGatewayMessage completes hatching when the agent deletes BOOTSTRAP.m
     gatewayRule: 'message_send',
   });
   expect(assistantMessageEvent?.seq ?? 0).toBeLessThan(
+    mailEvent?.seq ?? 0,
+  );
+  expect(mailEvent?.seq ?? 0).toBeLessThan(
     completeEvent?.seq ?? 0,
   );
 });

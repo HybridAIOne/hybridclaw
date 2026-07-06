@@ -321,12 +321,26 @@ test('ensureGatewayBootstrapAutostart records terminal hatching audit when a pos
   const completeEvents = auditRows.filter(
     (row) => row.event_type === 'onboarding.complete',
   );
+  const mailEvents = auditRows.filter(
+    (row) => row.event_type === 'onboarding.mail',
+  );
   const assistantMessageEvents = auditRows.filter(
     (row) => row.event_type === 'onboarding.assistant_message',
   );
 
   expect(completeEvents).toHaveLength(1);
+  expect(mailEvents).toHaveLength(1);
   expect(assistantMessageEvents).toHaveLength(0);
+  expect(JSON.parse(String(mailEvents[0]?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.mail',
+    workspaceAgentId: 'main',
+    source: 'gateway.bootstrap',
+    bootstrapFile: 'BOOTSTRAP.md',
+    recipient: '***EMAIL_REDACTED***',
+    subject: 'HybridClaw release support is ready',
+    transport: 'email',
+    contentLength: expect.any(Number),
+  });
   expect(JSON.parse(String(completeEvents[0]?.payload || '{}'))).toMatchObject(
     {
       type: 'onboarding.complete',
@@ -336,6 +350,7 @@ test('ensureGatewayBootstrapAutostart records terminal hatching audit when a pos
       gatewayRule: 'message_send',
     },
   );
+  expect(mailEvents[0]?.seq ?? 0).toBeLessThan(completeEvents[0]?.seq ?? 0);
 });
 
 test('ensureGatewayBootstrapAutostart records later onboarding turns as continue', async () => {

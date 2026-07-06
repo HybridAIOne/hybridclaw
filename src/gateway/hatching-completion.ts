@@ -10,6 +10,8 @@ import {
 type MessageSend = {
   recipient?: string;
   subject?: string;
+  transport?: string;
+  contentLength?: number;
 };
 
 export type BootstrapHatchingTurnResult = {
@@ -17,6 +19,7 @@ export type BootstrapHatchingTurnResult = {
   updated: boolean;
   reason: string;
   turnsWithoutMessage?: number;
+  mail?: MessageSend;
 };
 
 type BootstrapFileName = 'BOOTSTRAP.md' | 'OPENING.md';
@@ -188,6 +191,36 @@ function recordBootstrapOnboardingComplete(
   });
 }
 
+function isEmailLikeRecipient(value: string | undefined): boolean {
+  return /[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/.test(String(value || '').trim());
+}
+
+function isOnboardingMail(send: MessageSend | undefined): send is MessageSend {
+  if (!send) return false;
+  if (send.transport?.toLowerCase() === 'email') return true;
+  return isEmailLikeRecipient(send.recipient);
+}
+
+function recordBootstrapOnboardingMail(
+  context: BootstrapOnboardingAuditContext,
+  send: MessageSend,
+): void {
+  if (context.bootstrapFile !== 'BOOTSTRAP.md') return;
+  recordAuditEvent({
+    sessionId: context.sessionId,
+    runId: context.runId,
+    event: {
+      type: 'onboarding.mail',
+      ...buildBaseOnboardingPayload(context),
+      recipient: send.recipient || null,
+      subject: send.subject || null,
+      transport: send.transport || null,
+      contentLength: send.contentLength ?? null,
+      reason: 'onboarding welcome mail sent',
+    },
+  });
+}
+
 export function recordBootstrapHatchingTerminalAudit(params: {
   audit?: BootstrapOnboardingAuditContext | null;
   result?: BootstrapHatchingTurnResult | null;
@@ -202,6 +235,9 @@ export function recordBootstrapHatchingTerminalAudit(params: {
     return;
   }
 
+  if (isOnboardingMail(params.result.mail)) {
+    recordBootstrapOnboardingMail(params.audit, params.result.mail);
+  }
   recordBootstrapOnboardingComplete(params.audit, params.result);
 }
 
@@ -228,6 +264,11 @@ function firstRecipientCandidate(...values: unknown[]): string {
   return '';
 }
 
+function readNumber(value: unknown): number | undefined {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : undefined;
+}
+
 function readSuccessfulMessageSend(
   execution: ToolExecution,
 ): MessageSend | null {
@@ -248,10 +289,17 @@ function readSuccessfulMessageSend(
   );
 
   const subject = readString(args.subject) || readString(result?.subject);
+  const transport = readString(result?.transport) || readString(args.transport);
+  const contentLength =
+    readNumber(result?.contentLength) ??
+    readNumber(args.contentLength) ??
+    readString(args.content).length;
 
   return {
     recipient,
     subject,
+    transport,
+    contentLength,
   };
 }
 
@@ -272,10 +320,13 @@ export function recordBootstrapHatchingTurnResult(params: {
     });
   }
 
-  return completeHatchingAfterMessageSend({
-    agentId: params.agentId,
-    recipient: send.recipient,
-    subject: send.subject,
-    handledAt: params.handledAt,
-  });
+  return {
+    ...completeHatchingAfterMessageSend({
+      agentId: params.agentId,
+      recipient: send.recipient,
+      subject: send.subject,
+      handledAt: params.handledAt,
+    }),
+    mail: send,
+  };
 }
