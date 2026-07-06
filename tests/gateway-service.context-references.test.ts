@@ -626,7 +626,7 @@ test('handleGatewayMessage completes hatching when the agent deletes BOOTSTRAP.m
     return {
       status: 'success',
       result: 'I sent the welcome message and cleaned up onboarding.',
-      toolsUsed: ['message', 'delete'],
+      toolsUsed: ['message', 'edit', 'write', 'memory', 'delete'],
       toolExecutions: [
         {
           name: 'message',
@@ -644,6 +644,35 @@ test('handleGatewayMessage completes hatching when the agent deletes BOOTSTRAP.m
             subject: 'HybridClaw release support is ready',
           }),
           durationMs: 12,
+        },
+        {
+          name: 'edit',
+          arguments: JSON.stringify({
+            path: path.join(workspaceDir, 'USER.md'),
+            old: 'Name: TBD',
+            new: 'Name: Ben',
+          }),
+          result: 'Edited USER.md',
+          durationMs: 2,
+        },
+        {
+          name: 'write',
+          arguments: JSON.stringify({
+            path: path.join(workspaceDir, 'MEMORY.md'),
+            content: 'Remember Ben prefers release support.',
+          }),
+          result: 'Wrote MEMORY.md',
+          durationMs: 3,
+        },
+        {
+          name: 'memory',
+          arguments: JSON.stringify({
+            action: 'write',
+            file_path: 'memory/2026-07-06.md',
+            content: 'Ben completed onboarding.',
+          }),
+          result: 'Saved memory.',
+          durationMs: 4,
         },
         {
           name: 'delete',
@@ -683,13 +712,47 @@ test('handleGatewayMessage completes hatching when the agent deletes BOOTSTRAP.m
   const mailEvent = auditRows.find(
     (row) => row.event_type === 'onboarding.mail',
   );
+  const filesEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.files',
+  );
   const completeEvent = auditRows.find(
     (row) => row.event_type === 'onboarding.complete',
   );
 
   expect(assistantMessageEvent).toBeTruthy();
+  expect(filesEvent).toBeTruthy();
   expect(mailEvent).toBeTruthy();
   expect(completeEvent).toBeTruthy();
+  expect(JSON.parse(String(filesEvent?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.files',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    fileCount: 4,
+    actions: ['delete', 'edit', 'write'],
+    files: [
+      {
+        action: 'edit',
+        toolName: 'edit',
+        path: 'USER.md',
+      },
+      {
+        action: 'write',
+        toolName: 'write',
+        path: 'MEMORY.md',
+      },
+      {
+        action: 'write',
+        toolName: 'memory',
+        path: 'memory/2026-07-06.md',
+      },
+      {
+        action: 'delete',
+        toolName: 'delete',
+        path: 'BOOTSTRAP.md',
+      },
+    ],
+  });
   expect(JSON.parse(String(completeEvent?.payload || '{}'))).toMatchObject({
     type: 'onboarding.complete',
     workspaceAgentId: 'research',
@@ -698,6 +761,9 @@ test('handleGatewayMessage completes hatching when the agent deletes BOOTSTRAP.m
     gatewayRule: 'message_send',
   });
   expect(assistantMessageEvent?.seq ?? 0).toBeLessThan(
+    filesEvent?.seq ?? 0,
+  );
+  expect(filesEvent?.seq ?? 0).toBeLessThan(
     mailEvent?.seq ?? 0,
   );
   expect(mailEvent?.seq ?? 0).toBeLessThan(

@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { recordAuditEvent } from '../audit/audit-events.js';
 import type { ToolExecution } from '../types/execution.js';
 import {
@@ -14,12 +16,21 @@ type MessageSend = {
   contentLength?: number;
 };
 
+type OnboardingFileAction = 'write' | 'edit' | 'delete';
+
+type OnboardingFileUpdate = {
+  action: OnboardingFileAction;
+  toolName: string;
+  path: string;
+};
+
 export type BootstrapHatchingTurnResult = {
   completed: boolean;
   updated: boolean;
   reason: string;
   turnsWithoutMessage?: number;
   mail?: MessageSend;
+  files?: OnboardingFileUpdate[];
 };
 
 type BootstrapFileName = 'BOOTSTRAP.md' | 'OPENING.md';
@@ -221,11 +232,68 @@ function recordBootstrapOnboardingMail(
   });
 }
 
+function normalizeOnboardingFilePath(
+  context: BootstrapOnboardingAuditContext,
+  filePath: string,
+): string {
+  const trimmed = filePath.trim();
+  if (!trimmed || !context.workspacePath || !path.isAbsolute(trimmed)) {
+    return trimmed;
+  }
+
+  const workspacePath = path.resolve(context.workspacePath);
+  const relativePath = path.relative(workspacePath, path.resolve(trimmed));
+  if (
+    relativePath &&
+    !relativePath.startsWith('..') &&
+    !path.isAbsolute(relativePath)
+  ) {
+    return relativePath;
+  }
+  return trimmed;
+}
+
+function recordBootstrapOnboardingFiles(
+  context: BootstrapOnboardingAuditContext,
+  files: OnboardingFileUpdate[],
+): void {
+  if (context.bootstrapFile !== 'BOOTSTRAP.md') return;
+  const normalizedFiles = files
+    .map((file) => ({
+      action: file.action,
+      toolName: file.toolName,
+      path: normalizeOnboardingFilePath(context, file.path),
+    }))
+    .filter((file) => file.path);
+  if (normalizedFiles.length === 0) return;
+
+  recordAuditEvent({
+    sessionId: context.sessionId,
+    runId: context.runId,
+    event: {
+      type: 'onboarding.files',
+      ...buildBaseOnboardingPayload(context),
+      fileCount: normalizedFiles.length,
+      actions: Array.from(
+        new Set(normalizedFiles.map((file) => file.action)),
+      ).sort(),
+      files: normalizedFiles,
+      reason: 'onboarding files updated',
+    },
+  });
+}
+
 export function recordBootstrapHatchingTerminalAudit(params: {
   audit?: BootstrapOnboardingAuditContext | null;
   result?: BootstrapHatchingTurnResult | null;
 }): void {
-  if (!params.audit || !params.result?.completed) return;
+  if (!params.audit || !params.result) return;
+
+  if (params.result.files?.length) {
+    recordBootstrapOnboardingFiles(params.audit, params.result.files);
+  }
+
+  if (!params.result.completed) return;
   if (params.result.turnsWithoutMessage) {
     recordBootstrapOnboardingAbort(params.audit, {
       reason: params.result.reason,
@@ -269,6 +337,14 @@ function readNumber(value: unknown): number | undefined {
   return Number.isFinite(numeric) && numeric >= 0 ? numeric : undefined;
 }
 
+function firstPathCandidate(...values: unknown[]): string {
+  for (const value of values) {
+    const candidate = readString(value);
+    if (candidate) return candidate;
+  }
+  return '';
+}
+
 function readSuccessfulMessageSend(
   execution: ToolExecution,
 ): MessageSend | null {
@@ -303,6 +379,36 @@ function readSuccessfulMessageSend(
   };
 }
 
+function readSuccessfulFileUpdate(
+  execution: ToolExecution,
+): OnboardingFileUpdate | null {
+  if (execution.isError || execution.blocked) return null;
+
+  const args = parseJsonObject(execution.arguments);
+  if (!args) return null;
+
+  const filePath = firstPathCandidate(args.path, args.filePath, args.file_path);
+  if (!filePath) return null;
+
+  if (execution.name === 'write') {
+    return { action: 'write', toolName: execution.name, path: filePath };
+  }
+  if (execution.name === 'edit') {
+    return { action: 'edit', toolName: execution.name, path: filePath };
+  }
+  if (execution.name === 'delete') {
+    return { action: 'delete', toolName: execution.name, path: filePath };
+  }
+  if (
+    execution.name === 'memory' &&
+    readString(args.action).toLowerCase() === 'write'
+  ) {
+    return { action: 'write', toolName: execution.name, path: filePath };
+  }
+
+  return null;
+}
+
 export function recordBootstrapHatchingTurnResult(params: {
   agentId: string;
   bootstrapFile: 'BOOTSTRAP.md' | 'OPENING.md' | null;
@@ -311,13 +417,21 @@ export function recordBootstrapHatchingTurnResult(params: {
 }): BootstrapHatchingTurnResult | null {
   if (params.bootstrapFile !== 'BOOTSTRAP.md') return null;
 
+  const files = params.toolExecutions
+    .map(readSuccessfulFileUpdate)
+    .filter((candidate): candidate is OnboardingFileUpdate =>
+      Boolean(candidate),
+    );
   const send = params.toolExecutions
     .map(readSuccessfulMessageSend)
     .find((candidate): candidate is MessageSend => Boolean(candidate));
   if (!send) {
-    return recordHatchingTurnWithoutMessage({
-      agentId: params.agentId,
-    });
+    return {
+      ...recordHatchingTurnWithoutMessage({
+        agentId: params.agentId,
+      }),
+      files,
+    };
   }
 
   return {
@@ -328,5 +442,6 @@ export function recordBootstrapHatchingTurnResult(params: {
       handledAt: params.handledAt,
     }),
     mail: send,
+    files,
   };
 }
