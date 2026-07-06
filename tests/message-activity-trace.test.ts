@@ -36,6 +36,7 @@ describe('message activity trace persistence', () => {
     const trace = {
       steps: [
         { kind: 'thinking' as const, text: 'Listing their messages' },
+        { kind: 'draft' as const, text: 'I will check the inbox first.' },
         {
           kind: 'tool' as const,
           toolName: 'list_messages',

@@ -27,6 +27,11 @@ export interface ChatActivityTraceThinkingStep {
   text: string;
 }
 
+export interface ChatActivityTraceDraftStep {
+  kind: 'draft';
+  text: string;
+}
+
 export interface ChatActivityTraceToolStep {
   kind: 'tool';
   toolName: string;
@@ -38,6 +43,7 @@ export interface ChatActivityTraceToolStep {
 
 export type ChatActivityTraceStep =
   | ChatActivityTraceThinkingStep
+  | ChatActivityTraceDraftStep
   | ChatActivityTraceToolStep;
 
 /** Persisted per-message activity trace replayed from chat history. */

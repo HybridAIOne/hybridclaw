@@ -973,6 +973,12 @@ describe('useChatStream', () => {
       callbacks.onTextDelta('Hi');
     });
     expect(harness.messages.some((msg) => msg.role === 'thinking')).toBe(false);
+    expect(harness.messages.find((msg) => msg.role === 'draft')).toMatchObject({
+      content: 'Hi',
+    });
+    expect(harness.messages.some((msg) => msg.role === 'assistant')).toBe(
+      false,
+    );
 
     await act(async () => {
       resolveStream({
@@ -984,6 +990,183 @@ describe('useChatStream', () => {
         messageRole: 'assistant',
       });
       await sendPromise;
+    });
+
+    expect(
+      harness.messages.find((msg) => msg.role === 'assistant'),
+    ).toMatchObject({
+      content: 'Hi',
+    });
+    expect(harness.messages.some((msg) => msg.role === 'draft')).toBe(false);
+  });
+
+  it('streams no-trace assistant text as an assistant preview', async () => {
+    const harness = makeHarness();
+    let resolveStream!: (value: ChatStreamResult) => void;
+    let callbacks!: {
+      onTextDelta: (delta: string) => void;
+    };
+
+    requestChatStreamMock.mockImplementation(
+      (_url: string, params: { callbacks: typeof callbacks }) =>
+        new Promise<ChatStreamResult>((resolve) => {
+          callbacks = params.callbacks;
+          resolveStream = resolve;
+        }),
+    );
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    let sendPromise!: Promise<boolean>;
+    act(() => {
+      sendPromise = result.current.sendMessage('hello', []);
+    });
+
+    act(() => {
+      callbacks.onTextDelta('Plain answer.');
+    });
+
+    expect(
+      harness.messages.find((msg) => msg.role === 'assistant'),
+    ).toMatchObject({
+      content: 'Plain answer.',
+    });
+    expect(harness.messages.some((msg) => msg.role === 'draft')).toBe(false);
+
+    await act(async () => {
+      resolveStream({
+        status: 'ok',
+        sessionId: SESSION_ID,
+        userMessageId: 'server-user-1',
+        assistantMessageId: 'assistant-1',
+        result: 'Plain answer.',
+        messageRole: 'assistant',
+      });
+      await sendPromise;
+    });
+  });
+
+  it('demotes streamed assistant text into the trace when a tool starts', async () => {
+    const harness = makeHarness();
+    let resolveStream!: (value: ChatStreamResult) => void;
+    let callbacks!: {
+      onTextDelta: (delta: string) => void;
+      onToolEvent?: (event: ChatStreamToolEvent) => void;
+    };
+
+    requestChatStreamMock.mockImplementation(
+      (_url: string, params: { callbacks: typeof callbacks }) =>
+        new Promise<ChatStreamResult>((resolve) => {
+          callbacks = params.callbacks;
+          resolveStream = resolve;
+        }),
+    );
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    let sendPromise!: Promise<boolean>;
+    act(() => {
+      sendPromise = result.current.sendMessage('hello', []);
+    });
+
+    act(() => {
+      callbacks.onTextDelta('I need a location first.');
+    });
+    expect(
+      harness.messages.find((msg) => msg.role === 'assistant'),
+    ).toMatchObject({
+      content: 'I need a location first.',
+    });
+    expect(harness.messages.some((msg) => msg.role === 'draft')).toBe(false);
+
+    act(() => {
+      callbacks.onToolEvent?.({
+        type: 'tool',
+        toolName: 'message',
+        phase: 'start',
+        preview: 'run message send',
+      });
+    });
+
+    expect(harness.messages.some((msg) => msg.role === 'assistant')).toBe(
+      false,
+    );
+    expect(harness.messages.find((msg) => msg.role === 'trace')).toMatchObject({
+      done: false,
+      steps: [
+        { kind: 'draft', text: 'I need a location first.' },
+        {
+          kind: 'tool',
+          toolName: 'message',
+          status: 'running',
+          argsPreview: 'run message send',
+        },
+      ],
+    });
+
+    act(() => {
+      callbacks.onToolEvent?.({
+        type: 'tool',
+        toolName: 'message',
+        phase: 'finish',
+        preview: 'ok',
+        durationMs: 200,
+      });
+      callbacks.onTextDelta('Final answer.');
+    });
+
+    await act(async () => {
+      resolveStream({
+        status: 'ok',
+        sessionId: SESSION_ID,
+        userMessageId: 'server-user-1',
+        assistantMessageId: 'assistant-1',
+        result: 'Final answer.',
+        messageRole: 'assistant',
+      });
+      await sendPromise;
+    });
+
+    expect(
+      harness.messages.find((msg) => msg.role === 'assistant'),
+    ).toMatchObject({
+      content: 'Final answer.',
+    });
+    expect(harness.messages.find((msg) => msg.role === 'trace')).toMatchObject({
+      done: true,
+      steps: [
+        { kind: 'draft', text: 'I need a location first.' },
+        {
+          kind: 'tool',
+          toolName: 'message',
+          status: 'done',
+          argsPreview: 'run message send',
+          resultPreview: 'ok',
+          durationMs: 200,
+        },
+      ],
     });
   });
 

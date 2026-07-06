@@ -39,23 +39,24 @@ function hydrateActivityTrace(
   if (!trace || !Array.isArray(trace.steps) || trace.steps.length === 0) {
     return null;
   }
-  const steps: TraceStep[] = trace.steps.map(
-    (step): TraceStep =>
-      step.kind === 'thinking'
-        ? { kind: 'thinking', text: step.text }
-        : {
-            kind: 'tool',
-            toolName: step.toolName,
-            status: 'done',
-            ...(step.argsPreview ? { argsPreview: step.argsPreview } : {}),
-            ...(step.resultPreview
-              ? { resultPreview: step.resultPreview }
-              : {}),
-            ...(typeof step.durationMs === 'number'
-              ? { durationMs: step.durationMs }
-              : {}),
-          },
-  );
+  const steps: TraceStep[] = trace.steps.map((step): TraceStep => {
+    if (step.kind === 'thinking') {
+      return { kind: 'thinking', text: step.text };
+    }
+    if (step.kind === 'draft') {
+      return { kind: 'draft', text: step.text };
+    }
+    return {
+      kind: 'tool',
+      toolName: step.toolName,
+      status: 'done',
+      ...(step.argsPreview ? { argsPreview: step.argsPreview } : {}),
+      ...(step.resultPreview ? { resultPreview: step.resultPreview } : {}),
+      ...(typeof step.durationMs === 'number'
+        ? { durationMs: step.durationMs }
+        : {}),
+    };
+  });
   return {
     id: nextMsgId(),
     role: 'trace',

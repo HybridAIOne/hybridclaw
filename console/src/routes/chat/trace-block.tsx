@@ -1,7 +1,14 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { cx } from '../../lib/cx';
+import { renderMarkdown } from '../../lib/markdown';
 import css from './chat-page.module.css';
 import type { TraceChatMessage, TraceStep } from './chat-ui-message';
+
+type TraceActivityStep = Exclude<TraceStep, { kind: 'draft' }>;
+
+type TracePart =
+  | { kind: 'activity'; steps: TraceActivityStep[] }
+  | { kind: 'draft'; text: string };
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
@@ -13,8 +20,11 @@ function formatDuration(ms: number): string {
   return rest > 0 ? `${minutes}m ${rest}s` : `${minutes}m`;
 }
 
-function summaryLabel(message: TraceChatMessage): string {
-  const steps = message.steps;
+function summaryLabel(
+  message: TraceChatMessage,
+  steps: TraceActivityStep[],
+  includeDuration: boolean,
+): string {
   if (!message.done) {
     const last = steps[steps.length - 1];
     if (last?.kind === 'tool' && last.status === 'running') {
@@ -35,11 +45,36 @@ function summaryLabel(message: TraceChatMessage): string {
   const elapsed = message.finishedAt
     ? message.finishedAt - message.startedAt
     : 0;
-  if (elapsed >= 1000) parts.push(formatDuration(elapsed));
+  if (includeDuration && elapsed >= 1000) parts.push(formatDuration(elapsed));
   return parts.join(' · ') || 'Agent activity';
 }
 
-function TraceStepRow(props: { step: TraceStep; live: boolean }) {
+function splitTraceParts(steps: TraceStep[]): TracePart[] {
+  const parts: TracePart[] = [];
+  let activitySteps: TraceActivityStep[] = [];
+
+  const flushActivity = () => {
+    if (activitySteps.length === 0) return;
+    parts.push({ kind: 'activity', steps: activitySteps });
+    activitySteps = [];
+  };
+
+  for (const step of steps) {
+    if (step.kind === 'draft') {
+      flushActivity();
+      if (step.text.trim()) {
+        parts.push({ kind: 'draft', text: step.text });
+      }
+      continue;
+    }
+    activitySteps.push(step);
+  }
+
+  flushActivity();
+  return parts;
+}
+
+function TraceStepRow(props: { step: TraceActivityStep; live: boolean }) {
   const { step, live } = props;
   if (step.kind === 'thinking') {
     return (
@@ -82,15 +117,29 @@ function TraceStepRow(props: { step: TraceStep; live: boolean }) {
   );
 }
 
-/**
- * Collapsible run-activity trace (thinking + tool calls). Expanded while the
- * run streams so every step is visible as it happens; auto-collapses to a
- * single grey summary row once the final answer lands.
- */
-export const TraceBlock = memo(function TraceBlock(props: {
+function TraceDraftInterim(props: { text: string }) {
+  const renderedHtml = useMemo(
+    () => renderMarkdown(props.text, { highlight: false }),
+    [props.text],
+  );
+
+  return (
+    <div className={css.traceDraftInterim}>
+      <div
+        className={css.markdownContent}
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
+        dangerouslySetInnerHTML={{ __html: renderedHtml }}
+      />
+    </div>
+  );
+}
+
+function TraceActivityBlock(props: {
   message: TraceChatMessage;
+  steps: TraceActivityStep[];
+  includeDuration: boolean;
 }) {
-  const { message } = props;
+  const { message, steps, includeDuration } = props;
   const [expandedOverride, setExpandedOverride] = useState<boolean | null>(
     null,
   );
@@ -101,7 +150,7 @@ export const TraceBlock = memo(function TraceBlock(props: {
     if (message.done) setExpandedOverride(null);
   }, [message.done]);
 
-  if (message.steps.length === 0) return null;
+  if (steps.length === 0) return null;
 
   const expanded = expandedOverride ?? !message.done;
 
@@ -128,14 +177,14 @@ export const TraceBlock = memo(function TraceBlock(props: {
             !message.done && css.traceSummaryLive,
           )}
         >
-          {summaryLabel(message)}
+          {summaryLabel(message, steps, includeDuration)}
         </span>
       </button>
       {expanded ? (
         <div className={css.traceSteps}>
-          {message.steps.map((step, index) => (
+          {steps.map((step, index) => (
             <TraceStepRow
-              // Steps are append-only within a run, so the index is stable.
+              // Steps are append-only within a segment, so the index is stable.
               // biome-ignore lint/suspicious/noArrayIndexKey: append-only list
               key={index}
               step={step}
@@ -144,6 +193,50 @@ export const TraceBlock = memo(function TraceBlock(props: {
           ))}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Collapsible run-activity trace (thinking + tool calls) plus visible interim
+ * assistant drafts. Drafts stay outside the collapsible grey trace so they
+ * remain readable after the run finishes.
+ */
+export const TraceBlock = memo(function TraceBlock(props: {
+  message: TraceChatMessage;
+}) {
+  const { message } = props;
+
+  if (message.steps.length === 0) return null;
+
+  const parts = splitTraceParts(message.steps);
+  if (parts.length === 0) return null;
+  const activityPartCount = parts.filter(
+    (part) => part.kind === 'activity',
+  ).length;
+  let activityPartIndex = -1;
+
+  return (
+    <div className={css.traceSequence}>
+      {parts.map((part, index) => {
+        if (part.kind === 'draft') {
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: trace parts are append-only
+            <TraceDraftInterim key={index} text={part.text} />
+          );
+        }
+
+        activityPartIndex += 1;
+        return (
+          <TraceActivityBlock
+            // biome-ignore lint/suspicious/noArrayIndexKey: trace parts are append-only
+            key={index}
+            message={message}
+            steps={part.steps}
+            includeDuration={activityPartIndex === activityPartCount - 1}
+          />
+        );
+      })}
     </div>
   );
 });

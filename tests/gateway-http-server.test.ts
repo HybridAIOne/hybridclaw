@@ -710,6 +710,7 @@ async function importFreshHealth(options?: {
     enable_rag: 1,
   }));
   const storeMessage = vi.fn(() => 1);
+  const setMessageActivityTrace = vi.fn();
   const buildConversationContext = vi.fn(() => ({
     messages: [{ role: 'system', content: 'Mock HybridClaw system prompt' }],
     skills: [],
@@ -2214,6 +2215,7 @@ async function importFreshHealth(options?: {
     claimQueuedProactiveMessages,
     getSessionById,
     resetSessionIfExpired: vi.fn(() => null),
+    setMessageActivityTrace,
   }));
   vi.doMock('../src/memory/memory-service.js', () => ({
     memoryService: {
@@ -2531,6 +2533,7 @@ async function importFreshHealth(options?: {
     getSessionById,
     getOrCreateSession,
     storeMessage,
+    setMessageActivityTrace,
     getAgentById,
     buildConversationContext,
     callOpenAICompatibleModel,
@@ -9831,6 +9834,89 @@ describe('gateway HTTP server', () => {
         }),
       },
     ]);
+  });
+
+  test('persists streamed assistant drafts before tool calls in activity traces', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayMessage.mockImplementationOnce(
+      async (request: {
+        sessionId: string;
+        onTextDelta?: (delta: string) => void;
+        onToolProgress?: (event: {
+          toolName: string;
+          phase: 'start' | 'finish';
+          preview?: string;
+          durationMs?: number;
+        }) => void;
+      }) => {
+        request.onTextDelta?.('I need a location first.');
+        request.onToolProgress?.({
+          toolName: 'message',
+          phase: 'start',
+          preview: 'run message send',
+        });
+        request.onToolProgress?.({
+          toolName: 'message',
+          phase: 'finish',
+          preview: 'ok',
+          durationMs: 200,
+        });
+        request.onTextDelta?.('Final answer.');
+        return {
+          status: 'success' as const,
+          result: 'Final answer.',
+          sessionId: request.sessionId,
+          toolsUsed: ['message'],
+          toolExecutions: [],
+          assistantMessageId: 42,
+          artifacts: [],
+        };
+      },
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-draft-trace',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: 'send a forecast',
+        stream: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    const events = res.body
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(events.map((event) => event.type)).toEqual([
+      'text',
+      'tool',
+      'tool',
+      'text',
+      'result',
+    ]);
+    expect(state.setMessageActivityTrace).toHaveBeenCalledWith(
+      42,
+      expect.objectContaining({
+        steps: [
+          { kind: 'draft', text: 'I need a location first.' },
+          {
+            kind: 'tool',
+            toolName: 'message',
+            status: 'done',
+            argsPreview: 'run message send',
+            resultPreview: 'ok',
+            durationMs: 200,
+          },
+        ],
+      }),
+    );
   });
 
   test('blocks shell secret set commands from streaming /api/chat before the model sees them', async () => {

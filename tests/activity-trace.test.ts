@@ -30,6 +30,28 @@ describe('ActivityTraceBuilder', () => {
     });
   });
 
+  it('records assistant drafts separately from thinking before tools', () => {
+    const builder = new ActivityTraceBuilder();
+    builder.pushThinking('Checking context.');
+    builder.pushDraft('\n\nI need a location before I can continue.');
+    builder.startTool('message', 'run message send');
+
+    const trace = builder.build();
+    expect(trace?.steps).toEqual([
+      { kind: 'thinking', text: 'Checking context.' },
+      {
+        kind: 'draft',
+        text: 'I need a location before I can continue.',
+      },
+      {
+        kind: 'tool',
+        toolName: 'message',
+        status: 'done',
+        argsPreview: 'run message send',
+      },
+    ]);
+  });
+
   it('matches finish to the most recent running call of the same tool', () => {
     const builder = new ActivityTraceBuilder();
     builder.startTool('read', 'a.ts');
@@ -109,7 +131,9 @@ describe('serialize/parseActivityTrace round-trip', () => {
       JSON.stringify({
         steps: [
           { kind: 'thinking', text: 'ok' },
+          { kind: 'draft', text: 'draft text' },
           { kind: 'thinking' },
+          { kind: 'draft' },
           { kind: 'tool' },
           { kind: 'tool', toolName: 'exec', durationMs: 'nan' },
           { kind: 'mystery' },
@@ -120,6 +144,7 @@ describe('serialize/parseActivityTrace round-trip', () => {
     expect(parsed).toEqual({
       steps: [
         { kind: 'thinking', text: 'ok' },
+        { kind: 'draft', text: 'draft text' },
         { kind: 'tool', toolName: 'exec', status: 'done' },
       ],
       elapsedMs: 7,
