@@ -1,6 +1,7 @@
 import { recordAuditEvent } from '../audit/audit-events.js';
 import type { ToolExecution } from '../types/execution.js';
 import {
+  claimWorkspaceOnboardingStart,
   completeHatchingAfterMessageSend,
   recordHatchingTurnWithoutMessage,
   type WorkspaceOnboardingTransition,
@@ -49,13 +50,22 @@ export function recordBootstrapOnboardingStart(
   context: BootstrapOnboardingAuditContext,
 ): void {
   if (context.bootstrapFile !== 'BOOTSTRAP.md') return;
+  const start = claimWorkspaceOnboardingStart({
+    agentId: context.agentId,
+  });
   recordAuditEvent({
     sessionId: context.sessionId,
     runId: context.runId,
     event: {
-      type: 'onboarding.start',
+      type: start.eventType,
       ...buildBaseOnboardingPayload(context),
-      reason: 'bootstrap hatching turn started',
+      ...(start.onboardingStartedAt
+        ? { onboardingStartedAt: start.onboardingStartedAt }
+        : {}),
+      reason:
+        start.eventType === 'onboarding.start'
+          ? 'bootstrap hatching started'
+          : 'bootstrap hatching continued',
     },
   });
 }
@@ -178,6 +188,23 @@ function recordBootstrapOnboardingComplete(
   });
 }
 
+export function recordBootstrapHatchingTerminalAudit(params: {
+  audit: BootstrapOnboardingAuditContext;
+  result: BootstrapHatchingTurnResult | null;
+}): void {
+  if (!params.result?.completed) return;
+  if (params.result.turnsWithoutMessage) {
+    recordBootstrapOnboardingAbort(params.audit, {
+      reason: params.result.reason,
+      rule: 'hatching_no_message_limit',
+      turnsWithoutMessage: params.result.turnsWithoutMessage,
+    });
+    return;
+  }
+
+  recordBootstrapOnboardingComplete(params.audit, params.result);
+}
+
 function parseJsonObject(value: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(value);
@@ -234,6 +261,7 @@ export function recordBootstrapHatchingTurnResult(params: {
   toolExecutions: ToolExecution[];
   handledAt?: string;
   audit?: BootstrapOnboardingAuditContext;
+  deferTerminalAudit?: boolean;
 }): BootstrapHatchingTurnResult | null {
   if (params.bootstrapFile !== 'BOOTSTRAP.md') return null;
 
@@ -244,11 +272,10 @@ export function recordBootstrapHatchingTurnResult(params: {
     const result = recordHatchingTurnWithoutMessage({
       agentId: params.agentId,
     });
-    if (params.audit && result.completed) {
-      recordBootstrapOnboardingAbort(params.audit, {
-        reason: result.reason,
-        rule: 'hatching_no_message_limit',
-        turnsWithoutMessage: result.turnsWithoutMessage,
+    if (params.audit && result.completed && !params.deferTerminalAudit) {
+      recordBootstrapHatchingTerminalAudit({
+        audit: params.audit,
+        result,
       });
     }
     return result;
@@ -260,8 +287,11 @@ export function recordBootstrapHatchingTurnResult(params: {
     subject: send.subject,
     handledAt: params.handledAt,
   });
-  if (params.audit && result.completed) {
-    recordBootstrapOnboardingComplete(params.audit, result);
+  if (params.audit && result.completed && !params.deferTerminalAudit) {
+    recordBootstrapHatchingTerminalAudit({
+      audit: params.audit,
+      result,
+    });
   }
   return result;
 }

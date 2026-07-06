@@ -17,10 +17,34 @@ const {
   pluginManagerMock,
 } = vi.hoisted(() => {
   const pluginManager = {
+    collectPromptContextDetails: vi.fn(async () => ({
+      sections: [],
+      pluginIds: [],
+      replacesBuiltInMemory: false,
+    })),
+    collectPromptContext: vi.fn(async () => []),
     getToolDefinitions: vi.fn(() => []),
+    getMemoryLayerBehavior: vi.fn(async () => ({
+      replacesBuiltInMemory: false,
+    })),
+    hasMiddleware: vi.fn(() => false),
+    applyMiddleware: vi.fn(async () => ({
+      userContent: '',
+      resultText: '',
+      blocked: false,
+      events: [],
+    })),
+    hasOutputGuards: vi.fn(() => false),
+    applyOutputGuards: vi.fn(async (context: { resultText: string }) => ({
+      resultText: context.resultText,
+      blocked: false,
+      events: [],
+    })),
     notifyBeforeAgentStart: vi.fn(async () => {}),
+    notifyAgentEnd: vi.fn(async () => {}),
     notifyMemoryWrites: vi.fn(async () => {}),
     notifySessionStart: vi.fn(async () => {}),
+    notifyTurnComplete: vi.fn(async () => {}),
   };
   return {
     runAgentMock: vi.fn(),
@@ -62,10 +86,19 @@ const { setupHome } = setupGatewayTest({
     fetchHybridAIAccountChatbotIdMock.mockClear();
     ensurePluginManagerInitializedMock.mockClear();
     setPluginInboundMessageDispatcherMock.mockClear();
+    pluginManagerMock.collectPromptContextDetails.mockClear();
+    pluginManagerMock.collectPromptContext.mockClear();
     pluginManagerMock.getToolDefinitions.mockClear();
+    pluginManagerMock.getMemoryLayerBehavior.mockClear();
+    pluginManagerMock.hasMiddleware.mockClear();
+    pluginManagerMock.applyMiddleware.mockClear();
+    pluginManagerMock.hasOutputGuards.mockClear();
+    pluginManagerMock.applyOutputGuards.mockClear();
     pluginManagerMock.notifyBeforeAgentStart.mockClear();
+    pluginManagerMock.notifyAgentEnd.mockClear();
     pluginManagerMock.notifyMemoryWrites.mockClear();
     pluginManagerMock.notifySessionStart.mockClear();
+    pluginManagerMock.notifyTurnComplete.mockClear();
   },
 });
 
@@ -230,6 +263,79 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   await ensureGatewayBootstrapAutostart({ sessionId });
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   expect(getGatewayHistory(sessionId, 10).history).toHaveLength(2);
+});
+
+test('ensureGatewayBootstrapAutostart records later onboarding turns as continue', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Still onboarding.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const {
+    getRecentStructuredAuditForSession,
+    getSessionById,
+    initDatabase,
+  } = await import('../src/memory/db.ts');
+  const { ensureGatewayBootstrapAutostart } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const sessionId =
+    'agent:main:channel:web:chat:dm:peer:bootstrap-continue-audit';
+  await ensureGatewayBootstrapAutostart({ sessionId });
+  await handleGatewayMessage({
+    sessionId,
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    agentId: 'main',
+    content: 'My email is ben@example.com',
+    chatbotId: 'bot-1',
+  });
+
+  const storedSessionId = getSessionById(sessionId)?.id || sessionId;
+  const auditRows = getRecentStructuredAuditForSession(storedSessionId, 100);
+  const onboardingTurnEvents = auditRows
+    .filter(
+      (row) =>
+        row.event_type === 'onboarding.start' ||
+        row.event_type === 'onboarding.continue',
+    )
+    .sort((left, right) => left.seq - right.seq);
+
+  expect(onboardingTurnEvents.map((row) => row.event_type)).toEqual([
+    'onboarding.start',
+    'onboarding.continue',
+  ]);
+  const startPayload = JSON.parse(
+    String(onboardingTurnEvents[0]?.payload || '{}'),
+  );
+  const continuePayload = JSON.parse(
+    String(onboardingTurnEvents[1]?.payload || '{}'),
+  );
+  expect(startPayload).toMatchObject({
+    type: 'onboarding.start',
+    workspaceAgentId: 'main',
+    source: 'gateway.bootstrap',
+    bootstrapFile: 'BOOTSTRAP.md',
+  });
+  expect(continuePayload).toMatchObject({
+    type: 'onboarding.continue',
+    workspaceAgentId: 'main',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    onboardingStartedAt: startPayload.onboardingStartedAt,
+  });
 });
 
 test('ensureGatewayBootstrapAutostart audits onboarding abort when bootstrap is already absent', async () => {

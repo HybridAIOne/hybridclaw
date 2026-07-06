@@ -619,6 +619,7 @@ import {
 } from './gateway-utils.js';
 import { initializeGoalContinuationRunner } from './goal-continuation-runner.js';
 import {
+  recordBootstrapHatchingTerminalAudit,
   recordBootstrapHatchingTurnResult,
   recordBootstrapOnboardingAbort,
   recordBootstrapOnboardingAssistantMessage,
@@ -9023,6 +9024,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       bootstrapFile,
       toolExecutions: output.toolExecutions || [],
       audit: onboardingAuditContext || undefined,
+      deferTerminalAudit: true,
     });
     if (hatchingCompletion) {
       logger.info(
@@ -9095,6 +9097,12 @@ export async function ensureGatewayBootstrapAutostart(params: {
 
     if (output.status !== 'success' || !resultText) {
       deleteMemoryValue(session.id, markerKey);
+      if (onboardingAuditContext) {
+        recordBootstrapHatchingTerminalAudit({
+          audit: onboardingAuditContext,
+          result: hatchingCompletion,
+        });
+      }
       recordAuditEvent({
         sessionId: session.id,
         runId,
@@ -9128,6 +9136,10 @@ export async function ensureGatewayBootstrapAutostart(params: {
         assistantMessageId,
         messageChars: resultText.length,
         toolCallCount: (output.toolExecutions || []).length,
+      });
+      recordBootstrapHatchingTerminalAudit({
+        audit: onboardingAuditContext,
+        result: hatchingCompletion,
       });
     }
     setMemoryValue(session.id, markerKey, {

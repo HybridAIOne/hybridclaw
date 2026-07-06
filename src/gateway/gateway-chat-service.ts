@@ -159,6 +159,7 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import {
+  recordBootstrapHatchingTerminalAudit,
   recordBootstrapHatchingTurnResult,
   recordBootstrapOnboardingAbort,
   recordBootstrapOnboardingAssistantMessage,
@@ -2004,6 +2005,7 @@ async function handleGatewayMessageInner(
       bootstrapFile: startupBootstrapFile,
       toolExecutions,
       audit: onboardingAuditContext || undefined,
+      deferTerminalAudit: true,
     });
     if (hatchingCompletion) {
       logger.info(
@@ -2221,6 +2223,12 @@ async function handleGatewayMessageInner(
           stage: agentStage,
         },
       });
+      if (onboardingAuditContext) {
+        recordBootstrapHatchingTerminalAudit({
+          audit: onboardingAuditContext,
+          result: hatchingCompletion,
+        });
+      }
       recordAuditEvent({
         sessionId: req.sessionId,
         runId,
@@ -2396,6 +2404,10 @@ async function handleGatewayMessageInner(
         messageChars: resultText.length,
         toolCallCount: toolExecutions.length,
         messageRole: output.pendingApproval ? 'approval' : 'assistant',
+      });
+      recordBootstrapHatchingTerminalAudit({
+        audit: onboardingAuditContext,
+        result: hatchingCompletion,
       });
     }
     const storedTurnMessages = buildStoredTurnMessages({

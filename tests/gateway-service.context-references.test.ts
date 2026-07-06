@@ -457,6 +457,9 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
     gatewayRule: 'message_send',
     reason: 'message sent',
   });
+  expect(assistantMessageEvent?.seq ?? 0).toBeLessThan(
+    completeEvent?.seq ?? 0,
+  );
 });
 
 test('handleGatewayMessage completes hatching after three turns without a message send', async () => {
@@ -547,6 +550,13 @@ test('handleGatewayMessage completes hatching after three turns without a messag
   const abortEvent = auditRows.find(
     (row) => row.event_type === 'onboarding.abort',
   );
+  const onboardingTurnEvents = auditRows
+    .filter(
+      (row) =>
+        row.event_type === 'onboarding.start' ||
+        row.event_type === 'onboarding.continue',
+    )
+    .sort((left, right) => left.seq - right.seq);
   const userReplyEvents = auditRows.filter(
     (row) => row.event_type === 'onboarding.user_reply',
   );
@@ -554,6 +564,30 @@ test('handleGatewayMessage completes hatching after three turns without a messag
     (row) => row.event_type === 'onboarding.assistant_message',
   );
   expect(abortEvent).toBeTruthy();
+  expect(onboardingTurnEvents.map((row) => row.event_type)).toEqual([
+    'onboarding.start',
+    'onboarding.continue',
+    'onboarding.continue',
+  ]);
+  const startPayload = JSON.parse(
+    String(onboardingTurnEvents[0]?.payload || '{}'),
+  );
+  expect(startPayload).toMatchObject({
+    type: 'onboarding.start',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+  });
+  expect(startPayload.onboardingStartedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+  for (const row of onboardingTurnEvents.slice(1)) {
+    expect(JSON.parse(String(row.payload || '{}'))).toMatchObject({
+      type: 'onboarding.continue',
+      workspaceAgentId: 'research',
+      source: 'gateway.chat',
+      bootstrapFile: 'BOOTSTRAP.md',
+      onboardingStartedAt: startPayload.onboardingStartedAt,
+    });
+  }
   expect(userReplyEvents).toHaveLength(3);
   expect(assistantMessageEvents).toHaveLength(3);
   expect(JSON.parse(String(abortEvent?.payload || '{}'))).toMatchObject({

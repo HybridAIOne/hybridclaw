@@ -121,8 +121,14 @@ export interface WorkspaceNodeModulesLinkOptions {
 interface WorkspaceOnboardingState {
   version: typeof WORKSPACE_STATE_VERSION;
   bootstrapSeededAt?: string;
+  onboardingStartedAt?: string;
   onboardingCompletedAt?: string;
   hatchingTurnsWithoutMessage?: number;
+}
+
+export interface WorkspaceOnboardingStartState {
+  eventType: 'onboarding.start' | 'onboarding.continue';
+  onboardingStartedAt?: string;
 }
 
 export interface WorkspaceOnboardingTransition {
@@ -158,6 +164,7 @@ function readWorkspaceOnboardingState(
     const raw = fs.readFileSync(statePath, 'utf-8');
     const parsed = JSON.parse(raw) as {
       bootstrapSeededAt?: unknown;
+      onboardingStartedAt?: unknown;
       onboardingCompletedAt?: unknown;
       hatchingTurnsWithoutMessage?: unknown;
     };
@@ -169,6 +176,10 @@ function readWorkspaceOnboardingState(
       bootstrapSeededAt:
         typeof parsed.bootstrapSeededAt === 'string'
           ? parsed.bootstrapSeededAt
+          : undefined,
+      onboardingStartedAt:
+        typeof parsed.onboardingStartedAt === 'string'
+          ? parsed.onboardingStartedAt
           : undefined,
       onboardingCompletedAt:
         typeof parsed.onboardingCompletedAt === 'string'
@@ -442,6 +453,41 @@ function cleanMarkdownInline(value: string | undefined): string {
     .replace(/\s+/g, ' ')
     .replace(/[<>]/g, '')
     .trim();
+}
+
+export function claimWorkspaceOnboardingStart(params: {
+  agentId: string;
+  startedAt?: string;
+}): WorkspaceOnboardingStartState {
+  const wsDir = agentWorkspaceDir(params.agentId);
+  const statePath = resolveWorkspaceStatePath(wsDir);
+  const state = readWorkspaceOnboardingState(statePath);
+  if (state.onboardingStartedAt) {
+    return {
+      eventType: 'onboarding.continue',
+      onboardingStartedAt: state.onboardingStartedAt,
+    };
+  }
+
+  const onboardingStartedAt =
+    cleanMarkdownInline(params.startedAt) || new Date().toISOString();
+  try {
+    writeWorkspaceOnboardingState(statePath, {
+      ...state,
+      version: WORKSPACE_STATE_VERSION,
+      onboardingStartedAt,
+    });
+  } catch (error) {
+    logger.warn(
+      { agentId: params.agentId, error },
+      'Failed to mark onboarding start',
+    );
+  }
+
+  return {
+    eventType: 'onboarding.start',
+    onboardingStartedAt,
+  };
 }
 
 function completeHatchingByRemovingBootstrap(params: {
