@@ -36,6 +36,11 @@ describe('email connection manager', () => {
     let uidNext = 3;
     const processedUids: number[] = [];
     const search = vi.fn(async () => [...mailboxUids]);
+    const status = vi.fn(async (folder: string) => ({
+      path: folder,
+      uidNext,
+      uidValidity: 1n,
+    }));
     const messageFlagsAdd = vi.fn(async () => true);
     const fetch = vi.fn(async function* (uids: number[]) {
       for (const uid of uids) {
@@ -71,6 +76,7 @@ describe('email connection manager', () => {
             release: vi.fn(),
           };
         });
+        status = status;
         search = search;
         fetch = fetch;
         messageFlagsAdd = messageFlagsAdd;
@@ -109,7 +115,7 @@ describe('email connection manager', () => {
     uidNext = 4;
     await runManager();
     expect(processedUids).toEqual([3]);
-    expect(search).toHaveBeenCalledWith({ all: true }, { uid: true });
+    expect(search).toHaveBeenCalledWith({ uid: '3:*' }, { uid: true });
     expect(messageFlagsAdd).toHaveBeenCalledTimes(1);
     expect(messageFlagsAdd).toHaveBeenCalledWith([3], ['\\Seen'], {
       uid: true,
@@ -144,6 +150,11 @@ describe('email connection manager', () => {
 
     const processedUids: number[] = [];
     const search = vi.fn(async () => [1, 2, 3]);
+    const status = vi.fn(async (folder: string) => ({
+      path: folder,
+      uidNext: 4,
+      uidValidity: 1n,
+    }));
     const messageFlagsAdd = vi.fn(async () => true);
     const fetch = vi.fn(async function* (uids: number[]) {
       for (const uid of uids) {
@@ -179,6 +190,7 @@ describe('email connection manager', () => {
             release: vi.fn(),
           };
         });
+        status = status;
         search = search;
         fetch = fetch;
         messageFlagsAdd = messageFlagsAdd;
@@ -201,12 +213,114 @@ describe('email connection manager', () => {
     await manager.start();
     await manager.stop();
 
-    expect(search).toHaveBeenCalledWith({ all: true }, { uid: true });
+    expect(search).toHaveBeenCalledWith({ uid: '2:*' }, { uid: true });
     expect(processedUids).toEqual([2, 3]);
     expect(messageFlagsAdd).toHaveBeenNthCalledWith(1, [2], ['\\Seen'], {
       uid: true,
     });
     expect(messageFlagsAdd).toHaveBeenNthCalledWith(2, [3], ['\\Seen'], {
+      uid: true,
+    });
+  });
+
+  test('does not trust stale mailbox uidNext when polling for later UIDs', async () => {
+    const dataDir = makeTempDir('hybridclaw-email-connection-');
+
+    const cursorStatePath = path.join(
+      dataDir,
+      'email',
+      `${Buffer.from(BASE_EMAIL_CONFIG.address).toString('base64url').replace(/=+$/g, '')}-cursor-state.json`,
+    );
+    fs.mkdirSync(path.dirname(cursorStatePath), { recursive: true });
+    fs.writeFileSync(
+      cursorStatePath,
+      JSON.stringify(
+        {
+          version: 1,
+          folders: {
+            INBOX: {
+              uidValidity: '1',
+              lastProcessedUid: 3,
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const processedUids: number[] = [];
+    const search = vi.fn(async () => [4]);
+    const status = vi.fn(async (folder: string) => ({
+      path: folder,
+      uidNext: 4,
+      uidValidity: 1n,
+    }));
+    const messageFlagsAdd = vi.fn(async () => true);
+    const fetch = vi.fn(async function* (uids: number[]) {
+      for (const uid of uids) {
+        yield {
+          uid,
+          source: Buffer.from(`raw-${uid}`, 'utf8'),
+        };
+      }
+    });
+
+    vi.doMock('../src/config/config.js', () => ({
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('imapflow', () => ({
+      ImapFlow: class {
+        mailbox = {
+          path: 'INBOX',
+          uidNext: 4,
+          uidValidity: 1n,
+        };
+        connect = vi.fn(async () => {});
+        logout = vi.fn(async () => {});
+        close = vi.fn(() => {});
+        removeAllListeners = vi.fn(() => {});
+        on = vi.fn(() => this);
+        getMailboxLock = vi.fn(async (folder: string) => {
+          this.mailbox = {
+            path: folder,
+            uidNext: 4,
+            uidValidity: 1n,
+          };
+          return {
+            release: vi.fn(),
+          };
+        });
+        status = status;
+        search = search;
+        fetch = fetch;
+        messageFlagsAdd = messageFlagsAdd;
+      },
+    }));
+
+    const { createEmailConnectionManager } = await import(
+      '../src/channels/email/connection.js'
+    );
+    const manager = createEmailConnectionManager(
+      BASE_EMAIL_CONFIG,
+      'secret',
+      async (messages) => {
+        for (const message of messages) {
+          processedUids.push(message.uid);
+        }
+      },
+    );
+
+    await manager.start();
+    await manager.stop();
+
+    expect(status).toHaveBeenCalledWith('INBOX', {
+      uidNext: true,
+      uidValidity: true,
+    });
+    expect(search).toHaveBeenCalledWith({ uid: '4:*' }, { uid: true });
+    expect(processedUids).toEqual([4]);
+    expect(messageFlagsAdd).toHaveBeenCalledWith([4], ['\\Seen'], {
       uid: true,
     });
   });
@@ -331,6 +445,11 @@ describe('email connection manager', () => {
             release: vi.fn(),
           };
         });
+        status = vi.fn(async (folder: string) => ({
+          path: folder,
+          uidNext: 1,
+          uidValidity: 1n,
+        }));
         search = vi.fn(async () => []);
         fetch = vi.fn(async function* () {});
         messageFlagsAdd = vi.fn(async () => true);
