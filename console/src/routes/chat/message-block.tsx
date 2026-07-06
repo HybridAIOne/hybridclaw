@@ -20,6 +20,7 @@ import { stripAppBuildDirective } from '../../lib/app-seed';
 import { type ApprovalAction, copyToClipboard } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { renderMarkdown } from '../../lib/markdown';
+import { A2ADeliveryChip } from './a2a-delivery-chip';
 import { findAgentMentions } from './agent-mention-display';
 import { ApprovalCard } from './approval-card';
 import css from './chat-page.module.css';
@@ -535,6 +536,9 @@ export const MessageBlock = memo(function MessageBlock(props: {
           ) : (
             msg.content
           )}
+          {msg.a2aDelivery ? (
+            <A2ADeliveryChip descriptor={msg.a2aDelivery} token={token} />
+          ) : null}
         </div>
       ) : null}
 

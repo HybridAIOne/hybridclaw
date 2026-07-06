@@ -1,4 +1,5 @@
 import type {
+  A2ADeliveryStatusResponse,
   AdminA2AInboxResponse,
   AdminA2APairingPreviewResponse,
   AdminA2APairingStartRequest,
@@ -574,6 +575,17 @@ export function fetchA2AInbox(
   return requestJson<AdminA2AInboxResponse>(`/api/admin/a2a/inbox${search}`, {
     token,
   });
+}
+
+export function fetchA2ADeliveryStatus(
+  token: string,
+  messageId: string,
+): Promise<A2ADeliveryStatusResponse> {
+  const search = new URLSearchParams({ messageId }).toString();
+  return requestJson<A2ADeliveryStatusResponse>(
+    `/api/admin/a2a/outbox/status?${search}`,
+    { token },
+  );
 }
 
 export function revokeA2ATrustPeer(

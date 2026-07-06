@@ -909,6 +909,12 @@ async function handleGatewayMessageInner(
       toolsUsed: [],
       messageRole: 'command',
       addressEnvelope: addressed.envelope,
+      a2aDelivery: {
+        messageId: confirmation.message_id,
+        threadId: confirmation.thread_id,
+        recipientAgentId: confirmation.recipient_agent_id,
+        status: confirmation.delivered === true ? 'delivered' : 'pending',
+      },
     });
   }
   if (addressed.kind === 'agent') {

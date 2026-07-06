@@ -1686,6 +1686,17 @@ export interface AdminA2AInboxResponse {
   messages: AdminA2AThreadMessage[];
 }
 
+export interface A2ADeliveryStatusResponse {
+  status: 'pending' | 'delivered' | 'failed' | 'unknown';
+  attempts?: number;
+  maxAttempts?: number;
+  lastError?: string;
+  lastStatusCode?: number;
+  deliveredAt?: string;
+  failedAt?: string;
+  nextAttemptAt?: string;
+}
+
 export interface AdminApprovalAgent {
   id: string;
   name: string | null;

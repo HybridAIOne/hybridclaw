@@ -1,4 +1,7 @@
-import { listAgents } from '../agents/agent-registry.js';
+import {
+  listAgents,
+  resolveAgentEscalationTarget,
+} from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   parseAgentIdentity,
@@ -14,8 +17,13 @@ import {
   persistA2AInboxDispatchItem,
 } from './a2a-inbox-dispatch-store.js';
 import { getA2AAuditSessionId, recordA2AMessageAudit } from './audit.js';
-import { type A2AEnvelope, summarizeA2AEnvelopeForAudit } from './envelope.js';
+import {
+  type A2AEnvelope,
+  createA2AEnvelope,
+  summarizeA2AEnvelopeForAudit,
+} from './envelope.js';
 import { resolveA2AAgentId } from './identity.js';
+import { sendMessage } from './runtime.js';
 import { normalizePositiveInteger } from './utils.js';
 
 export const A2A_INBOX_DISPATCH_CONCURRENCY = 2;
@@ -305,6 +313,77 @@ function markTerminal(params: {
       : 'failed';
 }
 
+/**
+ * Send the addressed agent's response back to the original sender as an
+ * outbound A2A message on the same thread, so a remote chat sees the reply
+ * (store-and-forward, not live streaming).
+ *
+ * Guards keep any agent<->agent exchange bounded: we only reply to `chat`
+ * intents, only when the agent produced text, and never to a message that is
+ * itself a reply (`parent_message_id` set). That caps a symmetric two-agent
+ * conversation at one round trip, in addition to the per-thread loop budget.
+ */
+function enqueueA2AReply(params: {
+  inbound: A2AEnvelope;
+  recipientLocalAgentId: string;
+  replyText: string | null | undefined;
+  dispatchRunId: string;
+  dispatchSessionId: string;
+}): void {
+  const text = params.replyText?.trim();
+  if (!text) return;
+  if (params.inbound.intent !== 'chat') return;
+  if (params.inbound.parent_message_id) return;
+
+  try {
+    const replyEnvelope = createA2AEnvelope({
+      sender_agent_id: params.inbound.recipient_agent_id,
+      recipient_agent_id: params.inbound.sender_agent_id,
+      thread_id: params.inbound.thread_id,
+      intent: 'chat',
+      content: text,
+      parent_message_id: params.inbound.id,
+    });
+    const confirmation = sendMessage(replyEnvelope, {
+      actor: params.inbound.recipient_agent_id,
+      auditRole: 'sender',
+      sessionId: params.dispatchSessionId,
+      auditRunId: params.dispatchRunId,
+      peerDescriptor: {
+        transport: 'a2a',
+        canonicalId: params.inbound.sender_agent_id,
+      },
+      escalationTarget: resolveAgentEscalationTarget(
+        params.recipientLocalAgentId,
+      ),
+    });
+    if (confirmation.delivered === false) {
+      logger.warn(
+        {
+          reason: confirmation.failure_reason,
+          threadId: params.inbound.thread_id,
+          recipient: params.inbound.sender_agent_id,
+        },
+        'A2A reply-back could not be delivered',
+      );
+      return;
+    }
+    logger.info(
+      {
+        messageId: confirmation.message_id,
+        threadId: confirmation.thread_id,
+        recipient: confirmation.recipient_agent_id,
+      },
+      'A2A reply-back enqueued',
+    );
+  } catch (error) {
+    logger.warn(
+      { err: error, threadId: params.inbound.thread_id },
+      'Failed to enqueue A2A reply-back',
+    );
+  }
+}
+
 async function processA2AInboxDispatchItem(
   item: A2AInboxDispatchItem,
   opts: Required<
@@ -421,6 +500,13 @@ async function processA2AInboxDispatchItem(
       source: 'a2a-inbox-dispatcher',
       transport: 'internal',
       attempts: succeeded.attempts,
+    });
+    enqueueA2AReply({
+      inbound: succeeded.envelope,
+      recipientLocalAgentId: recipient.agentId,
+      replyText: result?.result,
+      dispatchRunId,
+      dispatchSessionId: invocation.sessionId,
     });
     return 'dispatched';
   } catch (error) {
