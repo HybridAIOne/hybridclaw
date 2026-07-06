@@ -78,19 +78,9 @@ async function resolveMailboxStatus(
     uidNext: true,
     uidValidity: true,
   });
-  const statusRecord =
-    status && typeof status === 'object'
-      ? (status as { uidNext?: unknown; uidValidity?: unknown })
-      : null;
-  const mailbox =
-    client.mailbox && typeof client.mailbox === 'object'
-      ? client.mailbox
-      : null;
   return {
-    uidNext: normalizeUidNext(statusRecord?.uidNext ?? mailbox?.uidNext),
-    uidValidity: normalizeUidValidity(
-      statusRecord?.uidValidity ?? mailbox?.uidValidity,
-    ),
+    uidNext: normalizeUidNext(status.uidNext),
+    uidValidity: normalizeUidValidity(status.uidValidity),
   };
 }
 
@@ -369,6 +359,24 @@ export function createEmailConnectionManager(
         );
         return;
       }
+      if (maxKnownUid <= lastProcessedUid) {
+        if (
+          !storedCursor ||
+          storedCursor.uidValidity !== uidValidity ||
+          storedCursor.lastProcessedUid !== lastProcessedUid
+        ) {
+          persistedCursorState.set(folder, {
+            uidValidity,
+            lastProcessedUid,
+          });
+          await savePersistedFolderCursorState(
+            config.address,
+            persistedCursorState,
+          );
+        }
+        return;
+      }
+
       const allUids =
         (await activeClient.search(
           { uid: `${lastProcessedUid + 1}:*` },

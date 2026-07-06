@@ -253,7 +253,7 @@ describe('email connection manager', () => {
     const search = vi.fn(async () => [4]);
     const status = vi.fn(async (folder: string) => ({
       path: folder,
-      uidNext: 4,
+      uidNext: 5,
       uidValidity: 1n,
     }));
     const messageFlagsAdd = vi.fn(async () => true);
@@ -323,6 +323,98 @@ describe('email connection manager', () => {
     expect(messageFlagsAdd).toHaveBeenCalledWith([4], ['\\Seen'], {
       uid: true,
     });
+  });
+
+  test('skips UID search when fresh mailbox status shows no new mail', async () => {
+    const dataDir = makeTempDir('hybridclaw-email-connection-');
+
+    const cursorStatePath = path.join(
+      dataDir,
+      'email',
+      `${Buffer.from(BASE_EMAIL_CONFIG.address).toString('base64url').replace(/=+$/g, '')}-cursor-state.json`,
+    );
+    fs.mkdirSync(path.dirname(cursorStatePath), { recursive: true });
+    fs.writeFileSync(
+      cursorStatePath,
+      JSON.stringify(
+        {
+          version: 1,
+          folders: {
+            INBOX: {
+              uidValidity: '1',
+              lastProcessedUid: 3,
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const processedUids: number[] = [];
+    const search = vi.fn(async () => [4]);
+    const status = vi.fn(async (folder: string) => ({
+      path: folder,
+      uidNext: 4,
+      uidValidity: 1n,
+    }));
+    const messageFlagsAdd = vi.fn(async () => true);
+
+    vi.doMock('../src/config/config.js', () => ({
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('imapflow', () => ({
+      ImapFlow: class {
+        mailbox = {
+          path: 'INBOX',
+          uidNext: 4,
+          uidValidity: 1n,
+        };
+        connect = vi.fn(async () => {});
+        logout = vi.fn(async () => {});
+        close = vi.fn(() => {});
+        removeAllListeners = vi.fn(() => {});
+        on = vi.fn(() => this);
+        getMailboxLock = vi.fn(async (folder: string) => {
+          this.mailbox = {
+            path: folder,
+            uidNext: 4,
+            uidValidity: 1n,
+          };
+          return {
+            release: vi.fn(),
+          };
+        });
+        status = status;
+        search = search;
+        fetch = vi.fn(async function* () {});
+        messageFlagsAdd = messageFlagsAdd;
+      },
+    }));
+
+    const { createEmailConnectionManager } = await import(
+      '../src/channels/email/connection.js'
+    );
+    const manager = createEmailConnectionManager(
+      BASE_EMAIL_CONFIG,
+      'secret',
+      async (messages) => {
+        for (const message of messages) {
+          processedUids.push(message.uid);
+        }
+      },
+    );
+
+    await manager.start();
+    await manager.stop();
+
+    expect(status).toHaveBeenCalledWith('INBOX', {
+      uidNext: true,
+      uidValidity: true,
+    });
+    expect(search).not.toHaveBeenCalled();
+    expect(processedUids).toEqual([]);
+    expect(messageFlagsAdd).not.toHaveBeenCalled();
   });
 
   test('keeps expected DNS failures local and logs a readable reconnect warning', async () => {
