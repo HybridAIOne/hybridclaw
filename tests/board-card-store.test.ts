@@ -29,6 +29,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.doUnmock('node:crypto');
   if (originalDataDir === undefined) delete process.env.HYBRIDCLAW_DATA_DIR;
   else process.env.HYBRIDCLAW_DATA_DIR = originalDataDir;
   if (originalHome === undefined) delete process.env.HOME;
@@ -548,6 +549,16 @@ describe.sequential('board card store', () => {
   });
 
   test('emits board edge mutations through F2 runtime events and structured audit', async () => {
+    vi.doMock('node:crypto', async () => {
+      const actual =
+        await vi.importActual<typeof import('node:crypto')>('node:crypto');
+      const uuids = ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'];
+      return {
+        ...actual,
+        randomUUID: vi.fn(() => uuids.shift() || actual.randomUUID()),
+      };
+    });
+
     const { boardModule, dbModule } = await loadBoardStore();
     const { subscribeRuntimeEvents, subscribeSkillRunEvents } = await import(
       '../src/skills/skill-run-events.js'
