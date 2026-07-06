@@ -2764,6 +2764,9 @@ describe('gateway HTTP server', () => {
       expect(res.headers['Content-Security-Policy']).toContain(
         "default-src 'self'",
       );
+      expect(res.headers['Content-Security-Policy']).toContain(
+        "frame-src 'self' blob:",
+      );
     }
   });
 
