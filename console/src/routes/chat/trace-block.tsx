@@ -214,23 +214,29 @@ export const TraceBlock = memo(function TraceBlock(props: {
   const activityPartCount = parts.filter(
     (part) => part.kind === 'activity',
   ).length;
+  let activityPartIndex = -1;
 
   return (
     <div className={css.traceSequence}>
-      {parts.map((part, index) =>
-        part.kind === 'draft' ? (
-          // biome-ignore lint/suspicious/noArrayIndexKey: trace parts are append-only
-          <TraceDraftInterim key={index} text={part.text} />
-        ) : (
+      {parts.map((part, index) => {
+        if (part.kind === 'draft') {
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: trace parts are append-only
+            <TraceDraftInterim key={index} text={part.text} />
+          );
+        }
+
+        activityPartIndex += 1;
+        return (
           <TraceActivityBlock
             // biome-ignore lint/suspicious/noArrayIndexKey: trace parts are append-only
             key={index}
             message={message}
             steps={part.steps}
-            includeDuration={activityPartCount === 1}
+            includeDuration={activityPartIndex === activityPartCount - 1}
           />
-        ),
-      )}
+        );
+      })}
     </div>
   );
 });

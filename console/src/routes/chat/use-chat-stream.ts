@@ -253,7 +253,7 @@ export function useChatStream(
         const text = req.assistantText;
         const approval = req.pendingApproval;
         const liveRole =
-          req.messageRole === 'assistant' && !approval
+          req.messageRole === 'assistant' && !approval && req.trace.length > 0
             ? 'draft'
             : req.messageRole;
         // Fresh step copies so React re-renders on later in-place mutations.

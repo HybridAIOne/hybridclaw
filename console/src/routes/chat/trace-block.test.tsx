@@ -114,7 +114,9 @@ describe('TraceBlock', () => {
     const secondControl = controls[1];
     if (!firstControl || !secondControl) throw new Error('expected controls');
     expect(firstControl.textContent).toContain('Thought');
-    expect(secondControl.textContent).toContain('1 tool call · thinking');
+    expect(secondControl.textContent).toContain(
+      '1 tool call · thinking · 4.0s',
+    );
     expect(screen.queryByText('I need a location first.')).not.toBeNull();
     expect(screen.queryByText('Considering the request')).toBeNull();
     expect(screen.queryByText('send email')).toBeNull();
