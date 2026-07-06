@@ -9836,7 +9836,7 @@ describe('gateway HTTP server', () => {
     ]);
   });
 
-  test('persists streamed assistant drafts before tool calls in activity traces', async () => {
+  test('does not persist streamed assistant drafts before tool calls in activity traces', async () => {
     const state = await importFreshHealth();
     state.handleGatewayMessage.mockImplementationOnce(
       async (request: {
@@ -9905,7 +9905,6 @@ describe('gateway HTTP server', () => {
       42,
       expect.objectContaining({
         steps: [
-          { kind: 'draft', text: 'I need a location first.' },
           {
             kind: 'tool',
             toolName: 'message',

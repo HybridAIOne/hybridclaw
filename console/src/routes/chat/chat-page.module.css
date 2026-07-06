@@ -1353,9 +1353,8 @@ aside[data-state="collapsed"] .chatSidebarContent {
   }
 }
 
-/* Run-activity trace: light-grey collapsible rows (thinking and tool calls)
-   with visible interim drafts kept outside the collapsible rows. Expanded
-   while streaming, collapsed to summary rows once the run finishes. */
+/* Run-activity trace: light-grey collapsible rows (thinking and tool calls).
+   Expanded while streaming, collapsed to summary rows once the run finishes. */
 .traceSequence {
   display: flex;
   flex-direction: column;

@@ -42,17 +42,13 @@ describe('TraceBlock', () => {
     );
 
     const controls = screen.getAllByRole('button');
-    expect(controls).toHaveLength(2);
+    expect(controls).toHaveLength(1);
     const firstControl = controls[0];
-    const secondControl = controls[1];
-    if (!firstControl || !secondControl) throw new Error('expected controls');
+    if (!firstControl) throw new Error('expected controls');
     expect(firstControl.getAttribute('aria-expanded')).toBe('true');
-    expect(secondControl.getAttribute('aria-expanded')).toBe('true');
     expect(screen.queryByText('exec…')).not.toBeNull();
     expect(screen.queryByText('Considering the request')).not.toBeNull();
-    expect(
-      screen.queryByText('I need to check one thing first.'),
-    ).not.toBeNull();
+    expect(screen.queryByText('I need to check one thing first.')).toBeNull();
     expect(screen.queryByText('npm test')).not.toBeNull();
   });
 
@@ -81,13 +77,11 @@ describe('TraceBlock', () => {
       'false',
     );
     expect(screen.queryByText('1 tool call · thinking · 12s')).not.toBeNull();
-    expect(
-      screen.queryByText('I need to check one thing first.'),
-    ).not.toBeNull();
+    expect(screen.queryByText('I need to check one thing first.')).toBeNull();
     expect(screen.queryByText('npm test')).toBeNull();
   });
 
-  it('keeps interim drafts outside collapsed trace segments', () => {
+  it('ignores legacy draft steps in trace rendering', () => {
     render(
       <TraceBlock
         message={makeTrace(
@@ -109,21 +103,30 @@ describe('TraceBlock', () => {
     );
 
     const controls = screen.getAllByRole('button');
-    expect(controls).toHaveLength(2);
+    expect(controls).toHaveLength(1);
     const firstControl = controls[0];
-    const secondControl = controls[1];
-    if (!firstControl || !secondControl) throw new Error('expected controls');
-    expect(firstControl.textContent).toContain('Thought');
-    expect(secondControl.textContent).toContain(
-      '1 tool call · thinking · 4.0s',
-    );
-    expect(screen.queryByText('I need a location first.')).not.toBeNull();
+    if (!firstControl) throw new Error('expected controls');
+    expect(firstControl.textContent).toContain('1 tool call · thinking · 4.0s');
+    expect(screen.queryByText('I need a location first.')).toBeNull();
     expect(screen.queryByText('Considering the request')).toBeNull();
     expect(screen.queryByText('send email')).toBeNull();
 
     fireEvent.click(firstControl);
     expect(screen.queryByText('Considering the request')).not.toBeNull();
-    expect(screen.queryByText('I need a location first.')).not.toBeNull();
+    expect(screen.queryByText('Waiting for the tool result')).not.toBeNull();
+    expect(screen.queryByText('I need a location first.')).toBeNull();
+  });
+
+  it('renders nothing for legacy draft-only traces', () => {
+    const { container } = render(
+      <TraceBlock
+        message={makeTrace([{ kind: 'draft', text: 'Intermediate text.' }], {
+          done: true,
+        })}
+      />,
+    );
+
+    expect(container.firstChild).toBeNull();
   });
 
   it('auto-collapses a manually expanded trace when the run finishes', () => {

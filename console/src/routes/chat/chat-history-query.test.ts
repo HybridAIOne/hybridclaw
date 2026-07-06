@@ -321,7 +321,6 @@ describe('buildChatHistoryUiData', () => {
     expect(trace.finishedAt).toBe(34_000);
     expect(trace.steps).toEqual([
       { kind: 'thinking', text: 'Listing their messages' },
-      { kind: 'draft', text: 'I will check the inbox first.' },
       {
         kind: 'tool',
         toolName: 'list_messages',
@@ -330,6 +329,29 @@ describe('buildChatHistoryUiData', () => {
         durationMs: 903,
       },
     ]);
+  });
+
+  it('does not hydrate a trace when persisted activity only has draft steps', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        {
+          id: 1,
+          role: 'assistant',
+          content: 'Done.',
+          activityTrace: {
+            steps: [{ kind: 'draft', text: 'Intermediate text.' }],
+            elapsedMs: 1200,
+          },
+        },
+      ],
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    expect(ui.messages.some((m) => m.role === 'trace')).toBe(false);
+    expect(ui.messages).toHaveLength(1);
+    expect(ui.messages[0]?.role).toBe('assistant');
   });
 
   it('does not add a trace message when history omits activityTrace', () => {

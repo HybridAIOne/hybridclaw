@@ -30,8 +30,8 @@ function normalizeAgentIdForComparison(agentId: string | null | undefined) {
 }
 
 // Rebuild a collapsed (done) trace message from persisted history so a reload
-// shows the same thinking/tool activity the live stream rendered. Positioned
-// just before its assistant bubble by the caller.
+// shows thinking/tool activity without replaying intermediate assistant drafts.
+// Positioned just before its assistant bubble by the caller.
 function hydrateActivityTrace(
   trace: ChatActivityTrace | null | undefined,
   sessionId: string,
@@ -39,14 +39,16 @@ function hydrateActivityTrace(
   if (!trace || !Array.isArray(trace.steps) || trace.steps.length === 0) {
     return null;
   }
-  const steps: TraceStep[] = trace.steps.map((step): TraceStep => {
+  const steps: TraceStep[] = [];
+  for (const step of trace.steps) {
     if (step.kind === 'thinking') {
-      return { kind: 'thinking', text: step.text };
+      steps.push({ kind: 'thinking', text: step.text });
+      continue;
     }
     if (step.kind === 'draft') {
-      return { kind: 'draft', text: step.text };
+      continue;
     }
-    return {
+    steps.push({
       kind: 'tool',
       toolName: step.toolName,
       status: 'done',
@@ -55,8 +57,9 @@ function hydrateActivityTrace(
       ...(typeof step.durationMs === 'number'
         ? { durationMs: step.durationMs }
         : {}),
-    };
-  });
+    });
+  }
+  if (steps.length === 0) return null;
   return {
     id: nextMsgId(),
     role: 'trace',
