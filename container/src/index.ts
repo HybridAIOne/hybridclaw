@@ -574,26 +574,21 @@ interface CompletedToolCallExecution {
   artifacts: ArtifactMetadata[];
 }
 
-function logToolCallStart(
-  toolName: string,
-  argsJson: string,
-  approval: ToolApprovalEvaluation,
-): void {
-  const yellowNarration = approvalRuntime.formatYellowNarration(approval);
-  const toolPreview =
-    approval.tier === 'yellow'
-      ? toolName === 'web_search'
-        ? approval.commandPreview
-        : yellowNarration
-      : argsJson.length > 100
-        ? `${argsJson.slice(0, 99)}…`
-        : argsJson;
-  console.error(`[tool] ${formatToolNameForLog(toolName)}: ${toolPreview}`);
+function logToolCallStart(toolName: string, argsJson: string): void {
+  console.error(
+    `[tool] ${formatToolNameForLog(toolName)}: ${formatToolProgressText(
+      argsJson,
+    )}`,
+  );
 }
 
 function formatToolNameForLog(toolName: string): string {
   if (!toolName.startsWith('browser_')) return toolName;
   return `${toolName} [browser=${getBrowserProviderLogLabel()}]`;
+}
+
+function formatToolProgressText(text: string): string {
+  return `json:${JSON.stringify(text)}`;
 }
 
 function appendCompletedToolCall(params: {
@@ -712,7 +707,7 @@ async function executePreparedToolCall(
   console.error(
     `[tool] ${formatToolNameForLog(
       toolName,
-    )} result (${toolDuration}ms): ${result.slice(0, 100)}`,
+    )} result (${toolDuration}ms): ${formatToolProgressText(result)}`,
   );
 
   return {
@@ -1194,11 +1189,7 @@ async function processRequest(
         arguments: approvedToolCall.argsJson,
       },
     };
-    logToolCallStart(
-      approvedToolCall.toolName,
-      approvedToolCall.argsJson,
-      approval,
-    );
+    logToolCallStart(approvedToolCall.toolName, approvedToolCall.argsJson);
     history.push({
       role: 'assistant',
       content: null,
@@ -1644,7 +1635,6 @@ async function processRequest(
           logToolCallStart(
             candidate.function.name,
             candidate.function.arguments,
-            candidateApproval,
           );
           preparedBatch.push({
             call: candidate,
@@ -1720,7 +1710,7 @@ async function processRequest(
           toolName,
           argsJson: call.function.arguments,
         }));
-      logToolCallStart(toolName, call.function.arguments, approval);
+      logToolCallStart(toolName, call.function.arguments);
 
       if (approval.decision === 'required') {
         toolsUsed.push(toolName);
