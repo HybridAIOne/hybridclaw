@@ -27,6 +27,18 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
+- HybridClaw v0.27.1 records first-run hatching as structured onboarding audit
+  events, including start/continue, quick messages, user and assistant turns,
+  welcome mail, workspace file updates, completion, and abort paths.
+- `/admin/audit` treats onboarding as a first-class event category so
+  operators can search and filter bootstrap hatching activity without reading
+  raw audit files.
+- Web chat keeps interim assistant and tool-turn activity visible while a run
+  is active, collapses completed tool turns into the activity trace, and keeps
+  non-final assistant drafts out of persisted chat history.
+- Tool progress traces retain complete progress output for activity rendering
+  while masking and capping retained previews, and email mailbox polling
+  refreshes status before searching so stale UID state does not block new mail.
 - Web chat renders thinking and tool calls as a light-grey, collapsible
   activity trace above each answer, streams it while a run is active, and
   persists the ordered trace so reloads keep the same activity history.

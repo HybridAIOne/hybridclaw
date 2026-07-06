@@ -83,7 +83,8 @@ pairing requests.
   guard rules, blocked terms, rewrite behavior, and model/provider settings
   without editing runtime config by hand
 - `/admin/audit` includes filter and search controls for audit event types,
-  actors, resources, date ranges, and text queries
+  actors, resources, date ranges, and text queries, including onboarding
+  lifecycle events from first-run hatching
 - `/admin/audit` and local `/audit turn` or `/audit run` commands can inspect
   focused turn traces when a single request needs debugging
 - `/admin/jobs` shows richer job rows with status, queue, owner, budget, and

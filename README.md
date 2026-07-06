@@ -32,7 +32,9 @@ channels.
 
 First-run onboarding is built around hatching: a new agent asks about the
 user's work, records useful context, keeps setup links visible in chat, and can
-send a tailored first-jobs welcome email when an email route is available.
+send a tailored first-jobs welcome email when an email route is available. The
+bootstrap lifecycle is recorded as structured onboarding audit events, including
+messages, welcome mail, workspace file updates, completion, and abort paths.
 
 Credentials stay outside the model context. Secrets live in the encrypted
 runtime store and SecretRef-backed tools resolve them at execution time, so
@@ -55,7 +57,7 @@ HybridClaw on HybridAI Cloud in a few minutes at
 
 | You need | HybridClaw gives you |
 | --- | --- |
-| A first run that becomes useful quickly | Guided hatching with setup links, tailored first-job suggestions, optional onboarding-specific model routing, and welcome-email handoff |
+| A first run that becomes useful quickly | Guided hatching with setup links, tailored first-job suggestions, optional onboarding-specific model routing, welcome-email handoff, and structured audit events |
 | Business workflows that survive real use | Production skill helpers with fixtures, eval scenarios, targeted tests, approval tiers, and a `Qwen/Qwen3.6-27B-FP8` validation baseline |
 | Generated work artifacts you can reuse | An Apps gallery for self-contained HTML apps, dashboards, documents, games, tools, and live connector-backed views |
 | Multi-agent workflows across installations | Local agents, hosted proxy agents, A2A trust, explicit addressing, inbound envelopes, and admin-visible peer pairing |
@@ -139,7 +141,7 @@ npm run desktop
 - **Guided onboarding**: hatching collects useful work context, keeps setup
   links handy, writes first-job suggestions, and can route the first-run
   conversation through a stronger onboarding model before returning to the
-  normal default.
+  normal default. Its lifecycle is searchable in audit as onboarding events.
 - **Multi-agent operations**: agents can coordinate across local workspaces,
   hosted HybridAI proxies, and trusted peer HybridClaw instances with A2A
   pairing, explicit addressing, inbound envelopes, and admin-visible trust.
@@ -234,7 +236,7 @@ Core pieces:
 | Build desktop releases | [Desktop Release Builds](https://hybridaione.github.io/hybridclaw/docs/developer-guide/desktop-release) |
 | Contribute | [CONTRIBUTING.md](./CONTRIBUTING.md), [docs/content/README.md](./docs/content/README.md) |
 
-Latest release: [v0.27.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.27.0).
+Latest release: [v0.27.1](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.27.1).
 Release notes: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Development

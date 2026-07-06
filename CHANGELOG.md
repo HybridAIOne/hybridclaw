@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+## [0.27.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.27.1) - 2026-07-06
+
+### Added
+
+- **Onboarding audit trail**: First-run `BOOTSTRAP.md` hatching now records
+  structured onboarding events for start/continue, quick prelude messages,
+  user replies, assistant messages, welcome mail, workspace file updates,
+  completion, and abort paths. The admin audit view recognizes `onboarding`
+  as a first-class event category so operators can search and filter the
+  hatching lifecycle directly.
+- **Agent email e2e coverage**: Added an end-to-end agent email flow test and
+  expanded focused coverage around onboarding audits, chat activity traces,
+  tool progress parsing, mailbox polling, bootstrap autostart, and workspace
+  bootstrap behavior.
+
+### Changed
+
+- **Tool progress retention**: Container tool progress now preserves complete
+  progress output for chat activity traces while masking and capping retained
+  log previews so long or sensitive tool progress does not overwhelm the UI or
+  audit-adjacent surfaces.
+
+### Fixed
+
+- **Chat activity drafts**: Web chat preserves interim assistant drafts and
+  tool-turn activity while a run is active, renders live drafts without answer
+  bubbles, suppresses tool-call-only prose traces, collapses completed tool
+  turns into the activity trace, and keeps non-final assistant drafts out of
+  persisted chat history.
+- **Email mailbox polling**: Mailbox status is refreshed before polling and
+  idle email searches are skipped, avoiding stale UID state and unnecessary
+  search work when there is no new mailbox activity.
+- **Onboarding completion audits**: Hatching completion now survives agent
+  cleanup, terminal audit records are preserved on error paths, onboarding mail
+  and file-update events are captured, and lifecycle events are ordered so the
+  audit trail reads from start through completion or abort.
+
 ## [0.27.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.27.0) - 2026-07-05
 
 ### Added
