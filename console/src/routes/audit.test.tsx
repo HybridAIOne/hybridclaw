@@ -348,6 +348,21 @@ describe('AuditPage', () => {
     ).toBeTruthy();
   });
 
+  it('category chip click supports onboarding events', async () => {
+    fetchAuditMock.mockResolvedValue(
+      makeResponse([makeEntry({ eventType: 'onboarding.complete' })]),
+    );
+    renderWithProviders(<AuditPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'onboarding' }));
+    const input = screen.getByLabelText<HTMLInputElement>('Audit search');
+    await waitFor(() => {
+      expect(input.value).toBe('type:onboarding');
+    });
+    expect(
+      screen.getByRole('button', { name: 'onboarding', pressed: true }),
+    ).toBeTruthy();
+  });
+
   it('clicking the active category chip clears the type filter', async () => {
     window.history.replaceState(null, '', '/admin/audit?q=type%3Atool');
     fetchAuditMock.mockResolvedValue(makeResponse([]));

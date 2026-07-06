@@ -1,6 +1,7 @@
 export const CATEGORIES = [
   'session',
   'turn',
+  'onboarding',
   'model',
   'tool',
   'autonomy',
