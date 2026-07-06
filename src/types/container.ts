@@ -116,6 +116,7 @@ export interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
+  outputPresentation?: OutputPresentationMetadata;
   codexRuntime?: CodexTurnRuntime;
   artifacts?: ArtifactMetadata[];
   memoryCitations?: MemoryCitation[];
@@ -128,4 +129,18 @@ export interface ContainerOutput {
     schedules?: ScheduleSideEffect[];
     delegations?: DelegationSideEffect[];
   };
+}
+
+export type OutputSegmentKind =
+  | 'draft'
+  | 'final'
+  | 'tool_request'
+  | 'approval'
+  | 'status';
+export type OutputDisplaySurface = 'none' | 'assistant_bubble' | 'approval';
+
+export interface OutputPresentationMetadata {
+  segmentKind: OutputSegmentKind;
+  visible: boolean;
+  displaySurface: OutputDisplaySurface;
 }

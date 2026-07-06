@@ -2301,6 +2301,7 @@ async function handleGatewayMessageInner(
       status: 'success',
       result: unnormalizedResultText,
       toolsUsed: output.toolsUsed || [],
+      outputPresentation: output.outputPresentation,
       toolExecutions,
     });
     let resultText = String(normalizedResult.result || unnormalizedResultText);
@@ -2465,6 +2466,7 @@ async function handleGatewayMessageInner(
       result: resultText,
       messageRole: output.pendingApproval ? 'approval' : 'assistant',
       toolsUsed: output.toolsUsed || [],
+      outputPresentation: normalizedResult.outputPresentation,
       pluginsUsed,
       skillUsed: observedSkillName ?? undefined,
       agentId,

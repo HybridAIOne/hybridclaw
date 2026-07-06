@@ -420,7 +420,8 @@ export function useChatStream(
           },
           signal: req.controller.signal,
           callbacks: {
-            onTextDelta: (delta) => {
+            onTextDelta: (delta, event) => {
+              if (event?.outputPresentation?.visible === false) return;
               req.assistantText += delta;
               scheduleRender();
             },
@@ -475,6 +476,10 @@ export function useChatStream(
           finalRole === 'command' &&
           finalText.trim().length === 0 &&
           finalArtifacts.length === 0;
+        const isHiddenByPresentation =
+          result.outputPresentation?.visible === false &&
+          finalArtifacts.length === 0 &&
+          !finalApproval;
         const buildFinalizedMessage = (
           id: string,
           sessionId: string,
@@ -519,9 +524,9 @@ export function useChatStream(
             return m;
           };
 
-          // Drop the placeholder bubble for a silent command, but still
+          // Drop the placeholder bubble for metadata-hidden output, but still
           // finalize the user echo (e.g. its server messageId).
-          if (isSilentCommand) {
+          if (isSilentCommand || isHiddenByPresentation) {
             return withoutThinking
               .filter((m) => m.id !== streamId)
               .map(finalizeMessage);

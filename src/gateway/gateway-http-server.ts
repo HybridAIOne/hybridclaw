@@ -3304,6 +3304,11 @@ async function handleApiChatStream(
   };
 
   const streamFilter = createSilentReplyStreamFilter();
+  const assistantBubblePresentation = {
+    segmentKind: 'final' as const,
+    visible: true,
+    displaySurface: 'assistant_bubble' as const,
+  };
   const onTextDelta = (delta: string): void => {
     const filteredDelta = streamFilter.push(delta);
     if (!filteredDelta) return;
@@ -3311,6 +3316,7 @@ async function handleApiChatStream(
     sendEvent({
       type: 'text',
       delta: filteredDelta,
+      outputPresentation: assistantBubblePresentation,
     });
   };
   const onThinkingDelta = (delta: string): void => {
@@ -3350,6 +3356,7 @@ async function handleApiChatStream(
         sendEvent({
           type: 'text',
           delta: bufferedDelta,
+          outputPresentation: assistantBubblePresentation,
         });
       }
       if (streamFilter.isSilent() && hasMessageSendToolExecution(result)) {
