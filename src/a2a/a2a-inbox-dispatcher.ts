@@ -23,7 +23,6 @@ import {
   summarizeA2AEnvelopeForAudit,
 } from './envelope.js';
 import { resolveA2AAgentId } from './identity.js';
-import { sendMessage } from './runtime.js';
 import { normalizePositiveInteger } from './utils.js';
 
 export const A2A_INBOX_DISPATCH_CONCURRENCY = 2;
@@ -323,19 +322,23 @@ function markTerminal(params: {
  * itself a reply (`parent_message_id` set). That caps a symmetric two-agent
  * conversation at one round trip, in addition to the per-thread loop budget.
  */
-function enqueueA2AReply(params: {
+async function enqueueA2AReply(params: {
   inbound: A2AEnvelope;
   recipientLocalAgentId: string;
   replyText: string | null | undefined;
   dispatchRunId: string;
   dispatchSessionId: string;
-}): void {
+}): Promise<void> {
   const text = params.replyText?.trim();
   if (!text) return;
   if (params.inbound.intent !== 'chat') return;
   if (params.inbound.parent_message_id) return;
 
   try {
+    // Imported lazily so the reply path stays a runtime side-effect rather than
+    // pulling the transport registry into the dispatcher's static import graph
+    // (which callers like the gateway load eagerly).
+    const { sendMessage } = await import('./runtime.js');
     const replyEnvelope = createA2AEnvelope({
       sender_agent_id: params.inbound.recipient_agent_id,
       recipient_agent_id: params.inbound.sender_agent_id,
@@ -501,7 +504,9 @@ async function processA2AInboxDispatchItem(
       transport: 'internal',
       attempts: succeeded.attempts,
     });
-    enqueueA2AReply({
+    // Best-effort reply back to the sender; failures are logged inside and must
+    // never fail the (already successful) dispatch.
+    void enqueueA2AReply({
       inbound: succeeded.envelope,
       recipientLocalAgentId: recipient.agentId,
       replyText: result?.result,
