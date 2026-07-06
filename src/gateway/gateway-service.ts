@@ -619,6 +619,9 @@ import {
 } from './gateway-utils.js';
 import { initializeGoalContinuationRunner } from './goal-continuation-runner.js';
 import {
+  type BootstrapHatchingTurnResult,
+  type BootstrapOnboardingAuditContext,
+  recordBootstrapHatchingTerminalAudit,
   recordBootstrapHatchingTurnResult,
   recordBootstrapOnboardingAbort,
   recordBootstrapOnboardingAssistantMessage,
@@ -8612,6 +8615,15 @@ export async function ensureGatewayBootstrapAutostart(params: {
     return;
   }
   activeBootstrapAutostartSessions.add(lockKey);
+  let onboardingAuditContext: BootstrapOnboardingAuditContext | null = null;
+  let hatchingCompletion: BootstrapHatchingTurnResult | null = null;
+  const recordPendingHatchingTerminalAudit = (): void => {
+    recordBootstrapHatchingTerminalAudit({
+      audit: onboardingAuditContext,
+      result: hatchingCompletion,
+    });
+    hatchingCompletion = null;
+  };
 
   try {
     const markerStartedAt = new Date().toISOString();
@@ -8652,7 +8664,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     });
     const provider = resolveModelProvider(model);
     const turnIndex = Math.max(1, session.message_count + 1);
-    const onboardingAuditContext =
+    onboardingAuditContext =
       bootstrapFile === 'BOOTSTRAP.md'
         ? {
             sessionId: session.id,
@@ -9018,11 +9030,10 @@ export async function ensureGatewayBootstrapAutostart(params: {
       scheduledTasks: [],
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
-    const hatchingCompletion = recordBootstrapHatchingTurnResult({
+    hatchingCompletion = recordBootstrapHatchingTurnResult({
       agentId: resolved.agentId,
       bootstrapFile,
       toolExecutions: output.toolExecutions || [],
-      audit: onboardingAuditContext || undefined,
     });
     if (hatchingCompletion) {
       logger.info(
@@ -9095,6 +9106,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
 
     if (output.status !== 'success' || !resultText) {
       deleteMemoryValue(session.id, markerKey);
+      recordPendingHatchingTerminalAudit();
       recordAuditEvent({
         sessionId: session.id,
         runId,
@@ -9129,6 +9141,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         messageChars: resultText.length,
         toolCallCount: (output.toolExecutions || []).length,
       });
+      recordPendingHatchingTerminalAudit();
     }
     setMemoryValue(session.id, markerKey, {
       status: 'completed',
@@ -9162,6 +9175,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     });
   } catch (error) {
     deleteMemoryValue(session.id, markerKey);
+    recordPendingHatchingTerminalAudit();
     logger.warn(
       { sessionId: session.id, agentId: resolved.agentId, channelId, error },
       'Failed to run bootstrap autostart turn',

@@ -5,6 +5,13 @@ import {
   getBrowserProviderLogLabel,
 } from './browser-tools.js';
 import {
+  approvalOutputPresentation,
+  classifyAssistantChatSegment,
+  finalOutputPresentation,
+  outputPresentationForAssistantSegment,
+  statusOutputPresentation,
+} from './chat-segments.js';
+import {
   resumePendingCodexAppServerApproval,
   runCodexAppServerTurn,
 } from './codex-app-server.js';
@@ -39,12 +46,7 @@ import {
   ProviderRequestError,
   summarizeHybridAICompletionForDebug,
 } from './providers/shared.js';
-import {
-  buildRalphPrompt,
-  normalizeMessageContentToText,
-  parseRalphChoice,
-  stripRalphChoiceTags,
-} from './ralph.js';
+import { buildRalphPrompt, normalizeMessageContentToText } from './ralph.js';
 import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
 import {
   resolveWorkspacePath,
@@ -625,7 +627,7 @@ function appendCompletedToolCall(params: {
 }
 
 function buildContextOverflowOutput(params: {
-  latestVisibleAssistantText: string | null;
+  latestFinalAssistantText: string | null;
   toolsUsed: string[];
   artifacts: ArtifactMetadata[];
   toolExecutions: ToolExecution[];
@@ -634,11 +636,14 @@ function buildContextOverflowOutput(params: {
 }): ContainerOutput {
   const overflowMessage =
     'Context window exhausted inside the container tool loop after repeated in-loop compaction attempts. Compact or reset the session and retry.';
-  if (params.latestVisibleAssistantText) {
+  if (params.latestFinalAssistantText) {
     return {
       status: 'success',
-      result: `${params.latestVisibleAssistantText}\n\n[${overflowMessage}]`,
+      result: `${params.latestFinalAssistantText}\n\n[${overflowMessage}]`,
       toolsUsed: [...new Set(params.toolsUsed)],
+      outputPresentation: finalOutputPresentation(
+        params.latestFinalAssistantText,
+      ),
       ...(params.artifacts.length > 0 ? { artifacts: params.artifacts } : {}),
       toolExecutions: params.toolExecutions,
       tokenUsage: params.tokenUsage,
@@ -1050,7 +1055,7 @@ async function processRequest(
   let ralphExtraIterations = 0;
   let stalledTurns = 0;
   let emptyVisibleCompletionRetries = 0;
-  let latestVisibleAssistantText: string | null = null;
+  let latestFinalAssistantText: string | null = null;
   let compactionRetries = 0;
   const tokenEstimateCache = createTokenEstimateCache();
   const promptOverheadTokens = estimateRoutedPromptOverheadTokens({
@@ -1162,6 +1167,7 @@ async function processRequest(
         status: 'success',
         result: prompt,
         toolsUsed: [approvedToolCall.toolName],
+        outputPresentation: approvalOutputPresentation(),
         toolExecutions: [
           buildApprovalRequiredToolExecution({
             toolName: approvedToolCall.toolName,
@@ -1239,7 +1245,7 @@ async function processRequest(
     if (guardResult.tier3Triggered) {
       if (compactionRetries >= maxContextGuardRetries) {
         const overflow = buildContextOverflowOutput({
-          latestVisibleAssistantText,
+          latestFinalAssistantText,
           toolsUsed,
           artifacts,
           toolExecutions,
@@ -1289,7 +1295,7 @@ async function processRequest(
       });
       if (!compacted.changed) {
         const overflow = buildContextOverflowOutput({
-          latestVisibleAssistantText,
+          latestFinalAssistantText,
           toolsUsed,
           artifacts,
           toolExecutions,
@@ -1317,6 +1323,11 @@ async function processRequest(
     tokenUsage.estimatedPromptTokens += estimatedPromptTokensForCall;
 
     let response: Awaited<ReturnType<typeof callHybridAIWithRetry>>;
+    // Provider chunks are suppressed until this turn is classified as final.
+    const suppressTextDelta = (_delta: string): void => {};
+    const emitFinalTextDelta = (text: string | null): void => {
+      if (streamTextDeltas && text) emitStreamDelta(text);
+    };
     try {
       response = await callHybridAIWithRetry({
         sessionId,
@@ -1330,9 +1341,7 @@ async function processRequest(
         requestHeaders,
         history,
         tools,
-        onTextDelta: streamTextDeltas
-          ? (delta) => emitStreamDelta(delta)
-          : undefined,
+        onTextDelta: streamTextDeltas ? suppressTextDelta : undefined,
         onThinkingDelta: streamTextDeltas
           ? (delta) => emitStreamThinkingDelta(delta)
           : undefined,
@@ -1435,7 +1444,12 @@ async function processRequest(
       });
       return failed;
     }
-    const branchChoice = parseRalphChoice(choice.message.content);
+    const assistantSegment = classifyAssistantChatSegment({
+      content: choice.message.content,
+      hasToolCalls: toolCalls.length > 0,
+      ralphEnabled,
+    });
+    const branchChoice = assistantSegment.ralphChoice;
     if (
       provider === 'hybridai' &&
       branchChoice === null &&
@@ -1495,22 +1509,22 @@ async function processRequest(
     }
 
     history.push(assistantMessage);
-    const visibleAssistantText = stripRalphChoiceTags(choice.message.content);
-    if (visibleAssistantText) {
-      latestVisibleAssistantText = visibleAssistantText;
-    }
     if (toolCalls.length === 0) {
       if (ralphEnabled) {
-        if (branchChoice === 'STOP') {
+        if (assistantSegment.kind === 'final') {
           collectRequestedArtifacts({
             artifacts,
             artifactPaths,
             startedAtMs: processStartedAt,
           });
+          latestFinalAssistantText = assistantSegment.text;
+          emitFinalTextDelta(latestFinalAssistantText);
           const completed: ContainerOutput = {
             status: 'success',
-            result: latestVisibleAssistantText,
+            result: latestFinalAssistantText,
             toolsUsed: [...new Set(toolsUsed)],
+            outputPresentation:
+              outputPresentationForAssistantSegment(assistantSegment),
             ...(artifacts.length > 0 ? { artifacts } : {}),
             toolExecutions,
             tokenUsage: finalizeTokenUsage(tokenUsage),
@@ -1546,6 +1560,13 @@ async function processRequest(
           );
           continue;
         }
+
+        stalledTurns = advanceStalledTurnCount({
+          current: stalledTurns,
+          toolCalls: 0,
+          successfulToolCalls: 0,
+        });
+        break;
       }
 
       collectRequestedArtifacts({
@@ -1555,7 +1576,7 @@ async function processRequest(
       });
       if (
         shouldRetryEmptyFinalResponse({
-          visibleAssistantText: latestVisibleAssistantText,
+          visibleAssistantText: assistantSegment.text,
           toolExecutionCount: toolExecutions.length,
           artifactCount: artifacts.length,
         })
@@ -1574,10 +1595,14 @@ async function processRequest(
         continue;
       }
 
+      latestFinalAssistantText = assistantSegment.text;
+      emitFinalTextDelta(latestFinalAssistantText);
       const completed: ContainerOutput = {
         status: 'success',
-        result: latestVisibleAssistantText,
+        result: latestFinalAssistantText,
         toolsUsed: [...new Set(toolsUsed)],
+        outputPresentation:
+          outputPresentationForAssistantSegment(assistantSegment),
         ...(artifacts.length > 0 ? { artifacts } : {}),
         toolExecutions,
         tokenUsage: finalizeTokenUsage(tokenUsage),
@@ -1744,6 +1769,7 @@ async function processRequest(
           status: 'success',
           result: prompt,
           toolsUsed: [...new Set(toolsUsed)],
+          outputPresentation: approvalOutputPresentation(),
           ...(artifacts.length > 0 ? { artifacts } : {}),
           toolExecutions,
           pendingApproval,
@@ -1773,6 +1799,7 @@ async function processRequest(
           status: 'success',
           result: denialText,
           toolsUsed: [...new Set(toolsUsed)],
+          outputPresentation: statusOutputPresentation(true),
           ...(artifacts.length > 0 ? { artifacts } : {}),
           toolExecutions,
           tokenUsage: finalizeTokenUsage(tokenUsage),
@@ -1822,9 +1849,12 @@ async function processRequest(
   const completed: ContainerOutput = {
     status: 'success',
     result:
-      latestVisibleAssistantText ||
+      latestFinalAssistantText ||
       `No successful tool progress for ${maxStalledTurns} consecutive model turns.`,
     toolsUsed: [...new Set(toolsUsed)],
+    outputPresentation: latestFinalAssistantText
+      ? finalOutputPresentation(latestFinalAssistantText)
+      : statusOutputPresentation(true),
     ...(artifacts.length > 0 ? { artifacts } : {}),
     toolExecutions,
     codexRuntime,

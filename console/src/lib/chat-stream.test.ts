@@ -119,7 +119,7 @@ describe('requestChatStream', () => {
         [
           '{"type":"thinking","delta":"Hmm"}',
           '{"type":"tool","toolName":"exec","phase":"start"}',
-          '{"type":"text","delta":"Hi"}',
+          '{"type":"text","delta":"Hi","outputPresentation":{"segmentKind":"final","visible":true,"displaySurface":"assistant_bubble"}}',
           '{"type":"result","result":{"status":"ok","result":"Hi"}}',
         ].join('\n'),
     } as Response);
@@ -135,7 +135,15 @@ describe('requestChatStream', () => {
       }),
     ).resolves.toMatchObject({ status: 'ok', result: 'Hi' });
 
-    expect(onTextDelta).toHaveBeenCalledWith('Hi');
+    expect(onTextDelta).toHaveBeenCalledWith('Hi', {
+      type: 'text',
+      delta: 'Hi',
+      outputPresentation: {
+        segmentKind: 'final',
+        visible: true,
+        displaySurface: 'assistant_bubble',
+      },
+    });
   });
 
   it('warns when malformed NDJSON lines are ignored and still returns the final result', async () => {
@@ -164,7 +172,10 @@ describe('requestChatStream', () => {
       result: 'Done',
     });
 
-    expect(onTextDelta).toHaveBeenCalledWith('Hello');
+    expect(onTextDelta).toHaveBeenCalledWith('Hello', {
+      type: 'text',
+      delta: 'Hello',
+    });
     expect(onApproval).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(
       'Ignoring malformed chat stream line',

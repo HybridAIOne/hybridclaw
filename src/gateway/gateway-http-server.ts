@@ -3275,9 +3275,9 @@ async function handleApiChatStream(
     return;
   }
 
-  // Accumulate the same thinking/tool events the client sees into an ordered
-  // trace, then persist it against the assistant message so a reload replays
-  // exactly what streamed.
+  // Accumulate draft/thinking/tool events into an ordered trace, then persist it
+  // against the assistant message so a reload can replay the same collapsed run
+  // activity the live web chat rendered.
   const traceStartedAt = Date.now();
   const traceBuilder = new ActivityTraceBuilder();
   let streamedTextBeforeNextTool = '';
@@ -3304,6 +3304,11 @@ async function handleApiChatStream(
   };
 
   const streamFilter = createSilentReplyStreamFilter();
+  const assistantBubblePresentation = {
+    segmentKind: 'final' as const,
+    visible: true,
+    displaySurface: 'assistant_bubble' as const,
+  };
   const onTextDelta = (delta: string): void => {
     const filteredDelta = streamFilter.push(delta);
     if (!filteredDelta) return;
@@ -3311,6 +3316,7 @@ async function handleApiChatStream(
     sendEvent({
       type: 'text',
       delta: filteredDelta,
+      outputPresentation: assistantBubblePresentation,
     });
   };
   const onThinkingDelta = (delta: string): void => {
@@ -3350,6 +3356,7 @@ async function handleApiChatStream(
         sendEvent({
           type: 'text',
           delta: bufferedDelta,
+          outputPresentation: assistantBubblePresentation,
         });
       }
       if (streamFilter.isSilent() && hasMessageSendToolExecution(result)) {

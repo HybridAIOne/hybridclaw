@@ -331,6 +331,9 @@ HybridClaw records forensic audit events by default:
   `~/.hybridclaw/data/audit/<session>/wire.jsonl`
 - tamper-evident hash chain from `_prevHash` to `_hash`
 - normalized SQLite tables: `audit_events` and `approvals`
+- first-run `BOOTSTRAP.md` hatching emits structured `onboarding.*` events
+  for lifecycle state, visible messages, welcome mail, workspace file updates,
+  completion, and abort paths
 
 Useful maintainer commands:
 

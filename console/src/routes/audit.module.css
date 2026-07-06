@@ -164,6 +164,9 @@
 .categoryChip[data-category="turn"] {
   --cat-color: #8b5cf6;
 }
+.categoryChip[data-category="onboarding"] {
+  --cat-color: #7dd3fc;
+}
 .categoryChip[data-category="model"] {
   --cat-color: #14b8a6;
 }
@@ -405,6 +408,10 @@
 
 .eventPill[data-category="turn"] {
   --cat-color: #8b5cf6;
+}
+
+.eventPill[data-category="onboarding"] {
+  --cat-color: #7dd3fc;
 }
 
 .eventPill[data-category="model"] {

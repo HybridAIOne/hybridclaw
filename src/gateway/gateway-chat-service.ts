@@ -159,6 +159,8 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import {
+  type BootstrapHatchingTurnResult,
+  recordBootstrapHatchingTerminalAudit,
   recordBootstrapHatchingTurnResult,
   recordBootstrapOnboardingAbort,
   recordBootstrapOnboardingAssistantMessage,
@@ -1865,6 +1867,14 @@ async function handleGatewayMessageInner(
     | 'pre-agent'
     | 'awaiting-agent-output'
     | 'processing-agent-output' = 'pre-agent';
+  let hatchingCompletion: BootstrapHatchingTurnResult | null = null;
+  const recordPendingHatchingTerminalAudit = (): void => {
+    recordBootstrapHatchingTerminalAudit({
+      audit: onboardingAuditContext,
+      result: hatchingCompletion,
+    });
+    hatchingCompletion = null;
+  };
 
   try {
     const scheduledTasks = getAllJobs({
@@ -1999,11 +2009,10 @@ async function handleGatewayMessageInner(
       media,
     );
     const toolExecutions = output.toolExecutions || [];
-    const hatchingCompletion = recordBootstrapHatchingTurnResult({
+    hatchingCompletion = recordBootstrapHatchingTurnResult({
       agentId,
       bootstrapFile: startupBootstrapFile,
       toolExecutions,
-      audit: onboardingAuditContext || undefined,
     });
     if (hatchingCompletion) {
       logger.info(
@@ -2221,6 +2230,7 @@ async function handleGatewayMessageInner(
           stage: agentStage,
         },
       });
+      recordPendingHatchingTerminalAudit();
       recordAuditEvent({
         sessionId: req.sessionId,
         runId,
@@ -2301,6 +2311,7 @@ async function handleGatewayMessageInner(
       status: 'success',
       result: unnormalizedResultText,
       toolsUsed: output.toolsUsed || [],
+      outputPresentation: output.outputPresentation,
       toolExecutions,
     });
     let resultText = String(normalizedResult.result || unnormalizedResultText);
@@ -2397,6 +2408,7 @@ async function handleGatewayMessageInner(
         toolCallCount: toolExecutions.length,
         messageRole: output.pendingApproval ? 'approval' : 'assistant',
       });
+      recordPendingHatchingTerminalAudit();
     }
     const storedTurnMessages = buildStoredTurnMessages({
       sessionId: req.sessionId,
@@ -2465,6 +2477,7 @@ async function handleGatewayMessageInner(
       result: resultText,
       messageRole: output.pendingApproval ? 'approval' : 'assistant',
       toolsUsed: output.toolsUsed || [],
+      outputPresentation: normalizedResult.outputPresentation,
       pluginsUsed,
       skillUsed: observedSkillName ?? undefined,
       agentId,
@@ -2526,6 +2539,7 @@ async function handleGatewayMessageInner(
         stage: agentStage,
       },
     });
+    recordPendingHatchingTerminalAudit();
     recordAuditEvent({
       sessionId: req.sessionId,
       runId,

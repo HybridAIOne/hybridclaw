@@ -4,12 +4,6 @@ import { renderMarkdown } from '../../lib/markdown';
 import css from './chat-page.module.css';
 import type { TraceChatMessage, TraceStep } from './chat-ui-message';
 
-type TraceActivityStep = Exclude<TraceStep, { kind: 'draft' }>;
-
-type TracePart =
-  | { kind: 'activity'; steps: TraceActivityStep[] }
-  | { kind: 'draft'; text: string };
-
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
   const seconds = ms / 1000;
@@ -22,11 +16,15 @@ function formatDuration(ms: number): string {
 
 function summaryLabel(
   message: TraceChatMessage,
-  steps: TraceActivityStep[],
+  steps: TraceStep[],
   includeDuration: boolean,
 ): string {
   if (!message.done) {
-    const last = steps[steps.length - 1];
+    const last =
+      steps
+        .slice()
+        .reverse()
+        .find((step) => step.kind !== 'draft') ?? steps[steps.length - 1];
     if (last?.kind === 'tool' && last.status === 'running') {
       return `${last.toolName}…`;
     }
@@ -41,6 +39,8 @@ function summaryLabel(
     if (thought) parts.push('thinking');
   } else if (thought) {
     parts.push('Thought');
+  } else if (steps.some((step) => step.kind === 'draft')) {
+    parts.push('Agent activity');
   }
   const elapsed = message.finishedAt
     ? message.finishedAt - message.startedAt
@@ -49,33 +49,29 @@ function summaryLabel(
   return parts.join(' · ') || 'Agent activity';
 }
 
-function splitTraceParts(steps: TraceStep[]): TracePart[] {
-  const parts: TracePart[] = [];
-  let activitySteps: TraceActivityStep[] = [];
+function TraceDraftInterim(props: { text: string }) {
+  const renderedHtml = useMemo(
+    () => renderMarkdown(props.text, { highlight: false }),
+    [props.text],
+  );
 
-  const flushActivity = () => {
-    if (activitySteps.length === 0) return;
-    parts.push({ kind: 'activity', steps: activitySteps });
-    activitySteps = [];
-  };
-
-  for (const step of steps) {
-    if (step.kind === 'draft') {
-      flushActivity();
-      if (step.text.trim()) {
-        parts.push({ kind: 'draft', text: step.text });
-      }
-      continue;
-    }
-    activitySteps.push(step);
-  }
-
-  flushActivity();
-  return parts;
+  return (
+    <div className={css.traceDraftInterim}>
+      <div
+        className={css.markdownContent}
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
+        dangerouslySetInnerHTML={{ __html: renderedHtml }}
+      />
+    </div>
+  );
 }
 
-function TraceStepRow(props: { step: TraceActivityStep; live: boolean }) {
+function TraceStepRow(props: { step: TraceStep; live: boolean }) {
   const { step, live } = props;
+  if (step.kind === 'draft') {
+    return <TraceDraftInterim text={step.text} />;
+  }
+
   if (step.kind === 'thinking') {
     return (
       <div className={css.traceStep}>
@@ -117,29 +113,11 @@ function TraceStepRow(props: { step: TraceActivityStep; live: boolean }) {
   );
 }
 
-function TraceDraftInterim(props: { text: string }) {
-  const renderedHtml = useMemo(
-    () => renderMarkdown(props.text, { highlight: false }),
-    [props.text],
-  );
-
-  return (
-    <div className={css.traceDraftInterim}>
-      <div
-        className={css.markdownContent}
-        // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
-        dangerouslySetInnerHTML={{ __html: renderedHtml }}
-      />
-    </div>
-  );
-}
-
 function TraceActivityBlock(props: {
   message: TraceChatMessage;
-  steps: TraceActivityStep[];
-  includeDuration: boolean;
+  steps: TraceStep[];
 }) {
-  const { message, steps, includeDuration } = props;
+  const { message, steps } = props;
   const [expandedOverride, setExpandedOverride] = useState<boolean | null>(
     null,
   );
@@ -177,7 +155,7 @@ function TraceActivityBlock(props: {
             !message.done && css.traceSummaryLive,
           )}
         >
-          {summaryLabel(message, steps, includeDuration)}
+          {summaryLabel(message, steps, true)}
         </span>
       </button>
       {expanded ? (
@@ -198,9 +176,9 @@ function TraceActivityBlock(props: {
 }
 
 /**
- * Collapsible run-activity trace (thinking + tool calls) plus visible interim
- * assistant drafts. Drafts stay outside the collapsible grey trace so they
- * remain readable after the run finishes.
+ * Collapsible run-activity trace. Draft trace steps are intermediate provider
+ * content from tool-call turns: visible while the run is open, then collapsed
+ * together with thinking/tool rows once the final answer arrives.
  */
 export const TraceBlock = memo(function TraceBlock(props: {
   message: TraceChatMessage;
@@ -209,34 +187,9 @@ export const TraceBlock = memo(function TraceBlock(props: {
 
   if (message.steps.length === 0) return null;
 
-  const parts = splitTraceParts(message.steps);
-  if (parts.length === 0) return null;
-  const activityPartCount = parts.filter(
-    (part) => part.kind === 'activity',
-  ).length;
-  let activityPartIndex = -1;
-
   return (
     <div className={css.traceSequence}>
-      {parts.map((part, index) => {
-        if (part.kind === 'draft') {
-          return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: trace parts are append-only
-            <TraceDraftInterim key={index} text={part.text} />
-          );
-        }
-
-        activityPartIndex += 1;
-        return (
-          <TraceActivityBlock
-            // biome-ignore lint/suspicious/noArrayIndexKey: trace parts are append-only
-            key={index}
-            message={message}
-            steps={part.steps}
-            includeDuration={activityPartIndex === activityPartCount - 1}
-          />
-        );
-      })}
+      <TraceActivityBlock message={message} steps={message.steps} />
     </div>
   );
 });

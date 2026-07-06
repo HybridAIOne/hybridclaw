@@ -1,6 +1,9 @@
+import path from 'node:path';
+
 import { recordAuditEvent } from '../audit/audit-events.js';
 import type { ToolExecution } from '../types/execution.js';
 import {
+  claimWorkspaceOnboardingStart,
   completeHatchingAfterMessageSend,
   recordHatchingTurnWithoutMessage,
   type WorkspaceOnboardingTransition,
@@ -9,6 +12,16 @@ import {
 type MessageSend = {
   recipient?: string;
   subject?: string;
+  transport?: string;
+  contentLength?: number;
+};
+
+type OnboardingFileAction = 'write' | 'edit' | 'delete';
+
+type OnboardingFileUpdate = {
+  action: OnboardingFileAction;
+  toolName: string;
+  path: string;
 };
 
 export type BootstrapHatchingTurnResult = {
@@ -16,6 +29,8 @@ export type BootstrapHatchingTurnResult = {
   updated: boolean;
   reason: string;
   turnsWithoutMessage?: number;
+  mail?: MessageSend;
+  files?: OnboardingFileUpdate[];
 };
 
 type BootstrapFileName = 'BOOTSTRAP.md' | 'OPENING.md';
@@ -49,13 +64,22 @@ export function recordBootstrapOnboardingStart(
   context: BootstrapOnboardingAuditContext,
 ): void {
   if (context.bootstrapFile !== 'BOOTSTRAP.md') return;
+  const start = claimWorkspaceOnboardingStart({
+    agentId: context.agentId,
+  });
   recordAuditEvent({
     sessionId: context.sessionId,
     runId: context.runId,
     event: {
-      type: 'onboarding.start',
+      type: start.eventType,
       ...buildBaseOnboardingPayload(context),
-      reason: 'bootstrap hatching turn started',
+      ...(start.onboardingStartedAt
+        ? { onboardingStartedAt: start.onboardingStartedAt }
+        : {}),
+      reason:
+        start.eventType === 'onboarding.start'
+          ? 'bootstrap hatching started'
+          : 'bootstrap hatching continued',
     },
   });
 }
@@ -178,6 +202,113 @@ function recordBootstrapOnboardingComplete(
   });
 }
 
+function isEmailLikeRecipient(value: string | undefined): boolean {
+  return /[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/.test(String(value || '').trim());
+}
+
+function isOnboardingMail(send: MessageSend | undefined): send is MessageSend {
+  if (!send) return false;
+  if (send.transport?.toLowerCase() === 'email') return true;
+  return isEmailLikeRecipient(send.recipient);
+}
+
+function recordBootstrapOnboardingMail(
+  context: BootstrapOnboardingAuditContext,
+  send: MessageSend,
+): void {
+  if (context.bootstrapFile !== 'BOOTSTRAP.md') return;
+  recordAuditEvent({
+    sessionId: context.sessionId,
+    runId: context.runId,
+    event: {
+      type: 'onboarding.mail',
+      ...buildBaseOnboardingPayload(context),
+      recipient: send.recipient || null,
+      subject: send.subject || null,
+      transport: send.transport || null,
+      contentLength: send.contentLength ?? null,
+      reason: 'onboarding welcome mail sent',
+    },
+  });
+}
+
+function normalizeOnboardingFilePath(
+  context: BootstrapOnboardingAuditContext,
+  filePath: string,
+): string {
+  const trimmed = filePath.trim();
+  if (!trimmed || !context.workspacePath || !path.isAbsolute(trimmed)) {
+    return trimmed;
+  }
+
+  const workspacePath = path.resolve(context.workspacePath);
+  const relativePath = path.relative(workspacePath, path.resolve(trimmed));
+  if (
+    relativePath &&
+    !relativePath.startsWith('..') &&
+    !path.isAbsolute(relativePath)
+  ) {
+    return relativePath;
+  }
+  return trimmed;
+}
+
+function recordBootstrapOnboardingFiles(
+  context: BootstrapOnboardingAuditContext,
+  files: OnboardingFileUpdate[],
+): void {
+  if (context.bootstrapFile !== 'BOOTSTRAP.md') return;
+  const normalizedFiles = files
+    .map((file) => ({
+      action: file.action,
+      toolName: file.toolName,
+      path: normalizeOnboardingFilePath(context, file.path),
+    }))
+    .filter((file) => file.path);
+  if (normalizedFiles.length === 0) return;
+
+  recordAuditEvent({
+    sessionId: context.sessionId,
+    runId: context.runId,
+    event: {
+      type: 'onboarding.files',
+      ...buildBaseOnboardingPayload(context),
+      fileCount: normalizedFiles.length,
+      actions: Array.from(
+        new Set(normalizedFiles.map((file) => file.action)),
+      ).sort(),
+      files: normalizedFiles,
+      reason: 'onboarding files updated',
+    },
+  });
+}
+
+export function recordBootstrapHatchingTerminalAudit(params: {
+  audit?: BootstrapOnboardingAuditContext | null;
+  result?: BootstrapHatchingTurnResult | null;
+}): void {
+  if (!params.audit || !params.result) return;
+
+  if (params.result.files?.length) {
+    recordBootstrapOnboardingFiles(params.audit, params.result.files);
+  }
+
+  if (!params.result.completed) return;
+  if (params.result.turnsWithoutMessage) {
+    recordBootstrapOnboardingAbort(params.audit, {
+      reason: params.result.reason,
+      rule: 'hatching_no_message_limit',
+      turnsWithoutMessage: params.result.turnsWithoutMessage,
+    });
+    return;
+  }
+
+  if (isOnboardingMail(params.result.mail)) {
+    recordBootstrapOnboardingMail(params.audit, params.result.mail);
+  }
+  recordBootstrapOnboardingComplete(params.audit, params.result);
+}
+
 function parseJsonObject(value: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(value);
@@ -194,6 +325,19 @@ function readString(value: unknown): string {
 }
 
 function firstRecipientCandidate(...values: unknown[]): string {
+  for (const value of values) {
+    const candidate = readString(value);
+    if (candidate) return candidate;
+  }
+  return '';
+}
+
+function readNumber(value: unknown): number | undefined {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : undefined;
+}
+
+function firstPathCandidate(...values: unknown[]): string {
   for (const value of values) {
     const candidate = readString(value);
     if (candidate) return candidate;
@@ -221,11 +365,48 @@ function readSuccessfulMessageSend(
   );
 
   const subject = readString(args.subject) || readString(result?.subject);
+  const transport = readString(result?.transport) || readString(args.transport);
+  const contentLength =
+    readNumber(result?.contentLength) ??
+    readNumber(args.contentLength) ??
+    readString(args.content).length;
 
   return {
     recipient,
     subject,
+    transport,
+    contentLength,
   };
+}
+
+function readSuccessfulFileUpdate(
+  execution: ToolExecution,
+): OnboardingFileUpdate | null {
+  if (execution.isError || execution.blocked) return null;
+
+  const args = parseJsonObject(execution.arguments);
+  if (!args) return null;
+
+  const filePath = firstPathCandidate(args.path, args.filePath, args.file_path);
+  if (!filePath) return null;
+
+  if (execution.name === 'write') {
+    return { action: 'write', toolName: execution.name, path: filePath };
+  }
+  if (execution.name === 'edit') {
+    return { action: 'edit', toolName: execution.name, path: filePath };
+  }
+  if (execution.name === 'delete') {
+    return { action: 'delete', toolName: execution.name, path: filePath };
+  }
+  if (
+    execution.name === 'memory' &&
+    readString(args.action).toLowerCase() === 'write'
+  ) {
+    return { action: 'write', toolName: execution.name, path: filePath };
+  }
+
+  return null;
 }
 
 export function recordBootstrapHatchingTurnResult(params: {
@@ -233,35 +414,34 @@ export function recordBootstrapHatchingTurnResult(params: {
   bootstrapFile: 'BOOTSTRAP.md' | 'OPENING.md' | null;
   toolExecutions: ToolExecution[];
   handledAt?: string;
-  audit?: BootstrapOnboardingAuditContext;
 }): BootstrapHatchingTurnResult | null {
   if (params.bootstrapFile !== 'BOOTSTRAP.md') return null;
 
+  const files = params.toolExecutions
+    .map(readSuccessfulFileUpdate)
+    .filter((candidate): candidate is OnboardingFileUpdate =>
+      Boolean(candidate),
+    );
   const send = params.toolExecutions
     .map(readSuccessfulMessageSend)
     .find((candidate): candidate is MessageSend => Boolean(candidate));
   if (!send) {
-    const result = recordHatchingTurnWithoutMessage({
-      agentId: params.agentId,
-    });
-    if (params.audit && result.completed) {
-      recordBootstrapOnboardingAbort(params.audit, {
-        reason: result.reason,
-        rule: 'hatching_no_message_limit',
-        turnsWithoutMessage: result.turnsWithoutMessage,
-      });
-    }
-    return result;
+    return {
+      ...recordHatchingTurnWithoutMessage({
+        agentId: params.agentId,
+      }),
+      files,
+    };
   }
 
-  const result = completeHatchingAfterMessageSend({
-    agentId: params.agentId,
-    recipient: send.recipient,
-    subject: send.subject,
-    handledAt: params.handledAt,
-  });
-  if (params.audit && result.completed) {
-    recordBootstrapOnboardingComplete(params.audit, result);
-  }
-  return result;
+  return {
+    ...completeHatchingAfterMessageSend({
+      agentId: params.agentId,
+      recipient: send.recipient,
+      subject: send.subject,
+      handledAt: params.handledAt,
+    }),
+    mail: send,
+    files,
+  };
 }

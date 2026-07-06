@@ -332,6 +332,33 @@ describe('buildChatHistoryUiData', () => {
     ]);
   });
 
+  it('hydrates a trace when persisted activity only has draft steps', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        {
+          id: 1,
+          role: 'assistant',
+          content: 'Done.',
+          activityTrace: {
+            steps: [{ kind: 'draft', text: 'Intermediate text.' }],
+            elapsedMs: 1200,
+          },
+        },
+      ],
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    const trace = ui.messages.find((m) => m.role === 'trace');
+    expect(trace).toMatchObject({
+      role: 'trace',
+      steps: [{ kind: 'draft', text: 'Intermediate text.' }],
+      done: true,
+      finishedAt: 1200,
+    });
+  });
+
   it('does not add a trace message when history omits activityTrace', () => {
     const raw: ChatHistoryResponse = {
       sessionId: 'session-a',

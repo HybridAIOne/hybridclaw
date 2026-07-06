@@ -135,9 +135,24 @@ export interface ChatArtifact {
   type?: string;
 }
 
+export type OutputSegmentKind =
+  | 'draft'
+  | 'final'
+  | 'tool_request'
+  | 'approval'
+  | 'status';
+export type OutputDisplaySurface = 'none' | 'assistant_bubble' | 'approval';
+
+export interface OutputPresentationMetadata {
+  segmentKind: OutputSegmentKind;
+  visible: boolean;
+  displaySurface: OutputDisplaySurface;
+}
+
 export interface ChatStreamTextDelta {
   type: 'text';
   delta: string;
+  outputPresentation?: OutputPresentationMetadata;
 }
 
 export interface ChatStreamThinkingDelta {
@@ -183,6 +198,7 @@ export interface ChatStreamResult {
   error?: string;
   /** UI role for the result message. */
   messageRole?: ChatResultMessageRole;
+  outputPresentation?: OutputPresentationMetadata;
   sessionId?: string;
   userMessageId?: number | string | null;
   assistantMessageId?: number | string | null;
