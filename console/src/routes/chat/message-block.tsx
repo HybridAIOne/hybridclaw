@@ -417,9 +417,11 @@ export const MessageBlock = memo(function MessageBlock(props: {
   }, [msg.artifacts]);
 
   const isApproval = msg.role === 'approval';
+  const isDraft = msg.role === 'draft';
   const shouldRenderApprovalCard = isApproval && Boolean(msg.pendingApproval);
   const isMarkdownMessage =
     msg.role === 'assistant' ||
+    isDraft ||
     msg.role === 'command' ||
     (isApproval && !shouldRenderApprovalCard);
   const renderedHtml = useRenderedMarkdown(
@@ -449,6 +451,19 @@ export const MessageBlock = memo(function MessageBlock(props: {
         <span className={css.thinkingDot} />
         <span className={css.thinkingDot} />
         <span className={css.thinkingDot} />
+      </div>
+    );
+  }
+
+  if (isDraft) {
+    return (
+      <div className={css.traceDraftInterim}>
+        <div
+          ref={markdownRef}
+          className={css.markdownContent}
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
+          dangerouslySetInnerHTML={{ __html: renderedHtml }}
+        />
       </div>
     );
   }

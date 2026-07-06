@@ -5,6 +5,10 @@ export type ThinkingChatMessage = Omit<ChatMessage, 'role' | 'content'> & {
   content: '';
 };
 
+export type DraftChatMessage = Omit<ChatMessage, 'role'> & {
+  role: 'draft';
+};
+
 export interface TraceThinkingStep {
   kind: 'thinking';
   text: string;
@@ -43,5 +47,6 @@ export type TraceChatMessage = Omit<ChatMessage, 'role' | 'content'> & {
 
 export type ChatUiMessage =
   | ChatMessage
+  | DraftChatMessage
   | ThinkingChatMessage
   | TraceChatMessage;

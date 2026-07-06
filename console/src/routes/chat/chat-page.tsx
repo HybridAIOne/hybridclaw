@@ -1302,7 +1302,8 @@ export function ChatPage() {
                 {visibleMessages.map((msg) =>
                   editingId === msg.id &&
                   msg.role !== 'thinking' &&
-                  msg.role !== 'trace' ? (
+                  msg.role !== 'trace' &&
+                  msg.role !== 'draft' ? (
                     <div key={msg.id} className={css.messageBlock}>
                       <EditInline
                         initial={msg.rawContent ?? msg.content}

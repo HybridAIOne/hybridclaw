@@ -252,6 +252,10 @@ export function useChatStream(
 
         const text = req.assistantText;
         const approval = req.pendingApproval;
+        const liveRole =
+          req.messageRole === 'assistant' && !approval
+            ? 'draft'
+            : req.messageRole;
         // Fresh step copies so React re-renders on later in-place mutations.
         const traceSteps = traceChanged
           ? req.trace.map((step) => ({ ...step }))
@@ -279,7 +283,7 @@ export function useChatStream(
               m === existing
                 ? {
                     ...m,
-                    role: req.messageRole,
+                    role: liveRole,
                     content: text,
                     pendingApproval: approval,
                   }
@@ -290,7 +294,7 @@ export function useChatStream(
             ...withoutThinking,
             {
               id: streamId,
-              role: req.messageRole,
+              role: liveRole,
               content: text,
               sessionId: req.sessionId,
               artifacts: [],

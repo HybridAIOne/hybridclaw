@@ -93,6 +93,37 @@ describe('MessageBlock artifacts', () => {
     expect(bubble.classList.contains(css.bubbleUser)).toBe(true);
   });
 
+  it('renders streaming draft assistant text without bubble chrome', () => {
+    const draft: ChatUiMessage = {
+      id: 'draft-1',
+      role: 'draft',
+      content: 'Got the weather. Sending the email now.',
+      sessionId: 'session-a',
+      artifacts: [],
+      replayRequest: null,
+    };
+
+    render(
+      <MessageBlock
+        message={draft}
+        token="test-token"
+        isStreaming={true}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    const text = screen.getByText('Got the weather. Sending the email now.');
+    expect(text.closest(`.${css.traceDraftInterim}`)).not.toBeNull();
+    expect(text.closest(`.${css.bubbleAssistant}`)).toBeNull();
+    expect(screen.queryByText('Assistant')).toBeNull();
+  });
+
   it('links a leading user skill slash command to the skill detail page', () => {
     const content = '/blink List my Blink cameras and summarize events';
     render(

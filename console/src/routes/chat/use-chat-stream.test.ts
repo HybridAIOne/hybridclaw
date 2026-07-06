@@ -973,6 +973,12 @@ describe('useChatStream', () => {
       callbacks.onTextDelta('Hi');
     });
     expect(harness.messages.some((msg) => msg.role === 'thinking')).toBe(false);
+    expect(harness.messages.find((msg) => msg.role === 'draft')).toMatchObject({
+      content: 'Hi',
+    });
+    expect(harness.messages.some((msg) => msg.role === 'assistant')).toBe(
+      false,
+    );
 
     await act(async () => {
       resolveStream({
@@ -1024,11 +1030,12 @@ describe('useChatStream', () => {
     act(() => {
       callbacks.onTextDelta('I need a location first.');
     });
-    expect(
-      harness.messages.find((msg) => msg.role === 'assistant'),
-    ).toMatchObject({
+    expect(harness.messages.find((msg) => msg.role === 'draft')).toMatchObject({
       content: 'I need a location first.',
     });
+    expect(harness.messages.some((msg) => msg.role === 'assistant')).toBe(
+      false,
+    );
 
     act(() => {
       callbacks.onToolEvent?.({
