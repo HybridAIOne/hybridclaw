@@ -38,7 +38,11 @@ import type {
 } from '../skills/skills.js';
 import type { SkillGuardFinding } from '../skills/skills-guard.js';
 import type { TunnelState } from '../tunnel/tunnel-provider.js';
-import type { AddressEnvelope, MediaContextItem } from '../types/container.js';
+import type {
+  AddressEnvelope,
+  MediaContextItem,
+  OutputPresentationMetadata,
+} from '../types/container.js';
 import type {
   ArtifactMetadata,
   PendingApproval,
@@ -85,6 +89,7 @@ export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
+  outputPresentation?: OutputPresentationMetadata;
   /**
    * UI presentation role for the result message. This is separate from persisted
    * history roles and avoids inferring rendering from command/approval metadata.
@@ -129,6 +134,7 @@ export interface GatewayChatToolProgressEvent {
 export interface GatewayChatTextDeltaEvent {
   type: 'text';
   delta: string;
+  outputPresentation?: OutputPresentationMetadata;
 }
 
 export interface GatewayChatThinkingDeltaEvent {
