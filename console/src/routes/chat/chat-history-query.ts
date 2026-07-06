@@ -30,7 +30,7 @@ function normalizeAgentIdForComparison(agentId: string | null | undefined) {
 }
 
 // Rebuild a collapsed (done) trace message from persisted history so a reload
-// shows thinking/tool activity without replaying intermediate assistant drafts.
+// shows the same draft/thinking/tool activity the live stream rendered.
 // Positioned just before its assistant bubble by the caller.
 function hydrateActivityTrace(
   trace: ChatActivityTrace | null | undefined,
@@ -46,6 +46,7 @@ function hydrateActivityTrace(
       continue;
     }
     if (step.kind === 'draft') {
+      steps.push({ kind: 'draft', text: step.text });
       continue;
     }
     steps.push({
@@ -59,7 +60,6 @@ function hydrateActivityTrace(
         : {}),
     });
   }
-  if (steps.length === 0) return null;
   return {
     id: nextMsgId(),
     role: 'trace',

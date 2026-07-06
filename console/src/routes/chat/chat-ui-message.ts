@@ -31,9 +31,8 @@ export interface TraceToolStep {
 export type TraceStep = TraceThinkingStep | TraceDraftStep | TraceToolStep;
 
 /**
- * Live activity trace for one assistant turn. Thinking/tool steps render as
- * collapsible grey activity rows; legacy draft steps are ignored by the trace
- * renderer because they are not final assistant answers.
+ * Live activity trace for one assistant turn. Draft/thinking/tool steps render
+ * expanded while the run is active and collapse once the final answer arrives.
  */
 export type TraceChatMessage = Omit<ChatMessage, 'role' | 'content'> & {
   role: 'trace';

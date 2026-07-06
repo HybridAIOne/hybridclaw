@@ -3275,14 +3275,21 @@ async function handleApiChatStream(
     return;
   }
 
-  // Accumulate thinking/tool events into an ordered trace, then persist it
-  // against the assistant message so a reload can replay run activity without
-  // surfacing intermediate tool-call-turn text as user-facing drafts.
+  // Accumulate draft/thinking/tool events into an ordered trace, then persist it
+  // against the assistant message so a reload can replay the same collapsed run
+  // activity the live web chat rendered.
   const traceStartedAt = Date.now();
   const traceBuilder = new ActivityTraceBuilder();
+  let streamedTextBeforeNextTool = '';
+
+  const pushStreamedTextDraft = (): void => {
+    traceBuilder.pushDraft(streamedTextBeforeNextTool);
+    streamedTextBeforeNextTool = '';
+  };
 
   const onToolProgress = (event: ToolProgressEvent): void => {
     if (event.phase === 'start') {
+      pushStreamedTextDraft();
       traceBuilder.startTool(event.toolName, event.preview);
     } else {
       traceBuilder.finishTool(event.toolName, event.durationMs, event.preview);
@@ -3300,6 +3307,7 @@ async function handleApiChatStream(
   const onTextDelta = (delta: string): void => {
     const filteredDelta = streamFilter.push(delta);
     if (!filteredDelta) return;
+    streamedTextBeforeNextTool += filteredDelta;
     sendEvent({
       type: 'text',
       delta: filteredDelta,

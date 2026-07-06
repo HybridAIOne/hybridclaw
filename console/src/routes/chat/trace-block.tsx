@@ -1,9 +1,8 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { cx } from '../../lib/cx';
+import { renderMarkdown } from '../../lib/markdown';
 import css from './chat-page.module.css';
 import type { TraceChatMessage, TraceStep } from './chat-ui-message';
-
-type TraceActivityStep = Exclude<TraceStep, { kind: 'draft' }>;
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
@@ -17,11 +16,15 @@ function formatDuration(ms: number): string {
 
 function summaryLabel(
   message: TraceChatMessage,
-  steps: TraceActivityStep[],
+  steps: TraceStep[],
   includeDuration: boolean,
 ): string {
   if (!message.done) {
-    const last = steps[steps.length - 1];
+    const last =
+      steps
+        .slice()
+        .reverse()
+        .find((step) => step.kind !== 'draft') ?? steps[steps.length - 1];
     if (last?.kind === 'tool' && last.status === 'running') {
       return `${last.toolName}…`;
     }
@@ -36,6 +39,8 @@ function summaryLabel(
     if (thought) parts.push('thinking');
   } else if (thought) {
     parts.push('Thought');
+  } else if (steps.some((step) => step.kind === 'draft')) {
+    parts.push('Agent activity');
   }
   const elapsed = message.finishedAt
     ? message.finishedAt - message.startedAt
@@ -44,14 +49,29 @@ function summaryLabel(
   return parts.join(' · ') || 'Agent activity';
 }
 
-function activityStepsOnly(steps: TraceStep[]): TraceActivityStep[] {
-  return steps.filter(
-    (step): step is TraceActivityStep => step.kind !== 'draft',
+function TraceDraftInterim(props: { text: string }) {
+  const renderedHtml = useMemo(
+    () => renderMarkdown(props.text, { highlight: false }),
+    [props.text],
+  );
+
+  return (
+    <div className={css.traceDraftInterim}>
+      <div
+        className={css.markdownContent}
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
+        dangerouslySetInnerHTML={{ __html: renderedHtml }}
+      />
+    </div>
   );
 }
 
-function TraceStepRow(props: { step: TraceActivityStep; live: boolean }) {
+function TraceStepRow(props: { step: TraceStep; live: boolean }) {
   const { step, live } = props;
+  if (step.kind === 'draft') {
+    return <TraceDraftInterim text={step.text} />;
+  }
+
   if (step.kind === 'thinking') {
     return (
       <div className={css.traceStep}>
@@ -95,7 +115,7 @@ function TraceStepRow(props: { step: TraceActivityStep; live: boolean }) {
 
 function TraceActivityBlock(props: {
   message: TraceChatMessage;
-  steps: TraceActivityStep[];
+  steps: TraceStep[];
 }) {
   const { message, steps } = props;
   const [expandedOverride, setExpandedOverride] = useState<boolean | null>(
@@ -156,9 +176,9 @@ function TraceActivityBlock(props: {
 }
 
 /**
- * Collapsible run-activity trace (thinking + tool calls). Draft trace steps
- * are intentionally ignored: they are intermediate provider content from
- * tool-call turns, not final assistant answers.
+ * Collapsible run-activity trace. Draft trace steps are intermediate provider
+ * content from tool-call turns: visible while the run is open, then collapsed
+ * together with thinking/tool rows once the final answer arrives.
  */
 export const TraceBlock = memo(function TraceBlock(props: {
   message: TraceChatMessage;
@@ -167,12 +187,9 @@ export const TraceBlock = memo(function TraceBlock(props: {
 
   if (message.steps.length === 0) return null;
 
-  const steps = activityStepsOnly(message.steps);
-  if (steps.length === 0) return null;
-
   return (
     <div className={css.traceSequence}>
-      <TraceActivityBlock message={message} steps={steps} />
+      <TraceActivityBlock message={message} steps={message.steps} />
     </div>
   );
 });

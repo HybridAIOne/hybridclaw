@@ -1057,7 +1057,7 @@ describe('useChatStream', () => {
     });
   });
 
-  it('keeps streamed assistant text as a draft when a tool starts', async () => {
+  it('moves streamed assistant text into the trace when a tool starts', async () => {
     const harness = makeHarness();
     let resolveStream!: (value: ChatStreamResult) => void;
     let callbacks!: {
@@ -1113,12 +1113,11 @@ describe('useChatStream', () => {
     expect(harness.messages.some((msg) => msg.role === 'assistant')).toBe(
       false,
     );
-    expect(harness.messages.find((msg) => msg.role === 'draft')).toMatchObject({
-      content: 'I need a location first.',
-    });
+    expect(harness.messages.some((msg) => msg.role === 'draft')).toBe(false);
     expect(harness.messages.find((msg) => msg.role === 'trace')).toMatchObject({
       done: false,
       steps: [
+        { kind: 'draft', text: 'I need a location first.' },
         {
           kind: 'tool',
           toolName: 'message',
@@ -1156,12 +1155,11 @@ describe('useChatStream', () => {
     ).toMatchObject({
       content: 'Final answer.',
     });
-    expect(harness.messages.find((msg) => msg.role === 'draft')).toMatchObject({
-      content: 'I need a location first.',
-    });
+    expect(harness.messages.some((msg) => msg.role === 'draft')).toBe(false);
     expect(harness.messages.find((msg) => msg.role === 'trace')).toMatchObject({
       done: true,
       steps: [
+        { kind: 'draft', text: 'I need a location first.' },
         {
           kind: 'tool',
           toolName: 'message',

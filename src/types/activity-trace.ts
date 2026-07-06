@@ -1,8 +1,7 @@
 /**
- * Ordered activity trace for one assistant turn — thinking segments and tool
- * calls the gateway streams to the web chat, in the order they occurred.
- * Draft steps are retained as a legacy persisted shape, but normal trace
- * rendering ignores them because they are not final assistant answers.
+ * Ordered activity trace for one assistant turn — intermediate assistant
+ * drafts, thinking segments, and tool calls the gateway streams to the web
+ * chat, in the order they occurred.
  *
  * Persisted per assistant message so a page reload can replay the same trace
  * the web client rendered live. The step shape mirrors the console's live
@@ -40,9 +39,10 @@ export interface ActivityTrace {
 }
 
 /**
- * Accumulates streamed thinking/tool events into an ordered trace. Consecutive
- * thinking deltas merge, and a tool `finish` collapses into the most recent
- * matching running `start` (parallel same-name tools can finish out of order).
+ * Accumulates streamed draft/thinking/tool events into an ordered trace.
+ * Consecutive thinking deltas merge, and a tool `finish` collapses into the
+ * most recent matching running `start` (parallel same-name tools can finish out
+ * of order).
  */
 export class ActivityTraceBuilder {
   private readonly steps: ActivityTraceStep[] = [];

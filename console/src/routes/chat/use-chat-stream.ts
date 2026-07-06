@@ -217,7 +217,7 @@ export function useChatStream(
         } satisfies ThinkingChatMessage,
       ]);
 
-      let streamId = nextMsgId();
+      const streamId = nextMsgId();
       setStreamingMsgId(streamId);
 
       const req: ActiveRequest = {
@@ -327,46 +327,17 @@ export function useChatStream(
         scheduleRender();
       };
 
-      const freezeAssistantTextBeforeTool = () => {
-        const draftText = req.assistantText;
+      const moveAssistantTextIntoTraceDraft = () => {
+        const draftText = req.assistantText.trim();
         if (!draftText.trim()) return;
-        const draftId = streamId;
-        setMessages((prev) => {
-          let foundDraft = false;
-          const next = prev
-            .filter((m) => m.id !== thinkingId)
-            .map((m) => {
-              if (m.id !== draftId) return m;
-              foundDraft = true;
-              return {
-                ...m,
-                role: 'draft' as const,
-                content: draftText,
-                pendingApproval: null,
-              };
-            });
-          if (foundDraft) return next;
-          return [
-            ...next,
-            {
-              id: draftId,
-              role: 'draft' as const,
-              content: draftText,
-              sessionId: req.sessionId,
-              artifacts: [],
-              pendingApproval: null,
-            },
-          ];
-        });
-        streamId = nextMsgId();
-        setStreamingMsgId(streamId);
+        req.trace.push({ kind: 'draft', text: draftText });
         req.assistantText = '';
         req.lastRenderedText = '';
       };
 
       const pushToolEvent = (event: ChatStreamToolEvent) => {
         if (event.phase === 'start') {
-          freezeAssistantTextBeforeTool();
+          moveAssistantTextIntoTraceDraft();
           req.trace.push({
             kind: 'tool',
             toolName: event.toolName,

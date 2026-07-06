@@ -48,7 +48,9 @@ describe('TraceBlock', () => {
     expect(firstControl.getAttribute('aria-expanded')).toBe('true');
     expect(screen.queryByText('exec…')).not.toBeNull();
     expect(screen.queryByText('Considering the request')).not.toBeNull();
-    expect(screen.queryByText('I need to check one thing first.')).toBeNull();
+    expect(
+      screen.queryByText('I need to check one thing first.'),
+    ).not.toBeNull();
     expect(screen.queryByText('npm test')).not.toBeNull();
   });
 
@@ -79,9 +81,15 @@ describe('TraceBlock', () => {
     expect(screen.queryByText('1 tool call · thinking · 12s')).not.toBeNull();
     expect(screen.queryByText('I need to check one thing first.')).toBeNull();
     expect(screen.queryByText('npm test')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button'));
+    expect(
+      screen.queryByText('I need to check one thing first.'),
+    ).not.toBeNull();
+    expect(screen.queryByText('npm test')).not.toBeNull();
   });
 
-  it('ignores legacy draft steps in trace rendering', () => {
+  it('renders draft steps inside the expanded trace', () => {
     render(
       <TraceBlock
         message={makeTrace(
@@ -114,19 +122,24 @@ describe('TraceBlock', () => {
     fireEvent.click(firstControl);
     expect(screen.queryByText('Considering the request')).not.toBeNull();
     expect(screen.queryByText('Waiting for the tool result')).not.toBeNull();
-    expect(screen.queryByText('I need a location first.')).toBeNull();
+    expect(screen.queryByText('I need a location first.')).not.toBeNull();
   });
 
-  it('renders nothing for legacy draft-only traces', () => {
-    const { container } = render(
+  it('renders draft-only traces as collapsed activity', () => {
+    render(
       <TraceBlock
         message={makeTrace([{ kind: 'draft', text: 'Intermediate text.' }], {
           done: true,
+          finishedAt: 2_500,
         })}
       />,
     );
 
-    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText('Agent activity · 1.5s')).not.toBeNull();
+    expect(screen.queryByText('Intermediate text.')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.queryByText('Intermediate text.')).not.toBeNull();
   });
 
   it('auto-collapses a manually expanded trace when the run finishes', () => {
