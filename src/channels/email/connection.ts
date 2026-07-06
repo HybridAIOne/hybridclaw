@@ -65,19 +65,26 @@ function resolveCursorStatePath(address: string): string {
   );
 }
 
-function resolveMailboxUidNext(client: ImapFlow): number {
-  return Math.max(1, client.mailbox ? client.mailbox.uidNext : 1);
+function normalizeUidNext(value: unknown): number {
+  const normalized = Math.max(1, Math.trunc(Number(value) || 1));
+  return Number.isFinite(normalized) ? normalized : 1;
 }
 
-function resolveMailboxUidValidity(client: ImapFlow): string | null {
-  return client.mailbox
-    ? normalizeUidValidity(client.mailbox.uidValidity)
-    : null;
+async function resolveMailboxStatus(
+  client: ImapFlow,
+  folder: string,
+): Promise<{ uidNext: number; uidValidity: string | null }> {
+  const status = await client.status(folder, {
+    uidNext: true,
+    uidValidity: true,
+  });
+  return {
+    uidNext: normalizeUidNext(status.uidNext),
+    uidValidity: normalizeUidValidity(status.uidValidity),
+  };
 }
 
-function normalizeUidValidity(
-  value: bigint | string | null | undefined,
-): string | null {
+function normalizeUidValidity(value: unknown): string | null {
   if (typeof value === 'bigint') {
     return value.toString();
   }
@@ -329,7 +336,8 @@ export function createEmailConnectionManager(
 
     const lock = await activeClient.getMailboxLock(folder);
     try {
-      const uidValidity = resolveMailboxUidValidity(activeClient);
+      const mailboxStatus = await resolveMailboxStatus(activeClient, folder);
+      const uidValidity = mailboxStatus.uidValidity;
       const storedCursor = persistedCursorState.get(folder);
       const compatibleStoredCursor =
         storedCursor && storedCursor.uidValidity === uidValidity
@@ -339,7 +347,7 @@ export function createEmailConnectionManager(
         ? compatibleStoredCursor.lastProcessedUid
         : 0;
 
-      const maxKnownUid = resolveMailboxUidNext(activeClient) - 1;
+      const maxKnownUid = mailboxStatus.uidNext - 1;
       if (!compatibleStoredCursor) {
         persistedCursorState.set(folder, {
           uidValidity,
@@ -370,15 +378,23 @@ export function createEmailConnectionManager(
       }
 
       const allUids =
-        (await activeClient.search({ all: true }, { uid: true })) || [];
+        (await activeClient.search(
+          { uid: `${lastProcessedUid + 1}:*` },
+          { uid: true },
+        )) || [];
       const pending = [...new Set(allUids)]
         .filter((uid) => uid > lastProcessedUid)
         .sort((left, right) => left - right);
       if (pending.length === 0) {
-        if (!storedCursor || storedCursor.uidValidity !== uidValidity) {
+        const nextLastProcessedUid = Math.max(lastProcessedUid, maxKnownUid);
+        if (
+          !storedCursor ||
+          storedCursor.uidValidity !== uidValidity ||
+          storedCursor.lastProcessedUid !== nextLastProcessedUid
+        ) {
           persistedCursorState.set(folder, {
             uidValidity,
-            lastProcessedUid: maxKnownUid,
+            lastProcessedUid: nextLastProcessedUid,
           });
           await savePersistedFolderCursorState(
             config.address,
