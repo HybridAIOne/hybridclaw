@@ -162,7 +162,7 @@ npm run desktop
   surface.
 - **Operator visibility**: `/admin` covers channels, connectors, approvals,
   audit, statistics, output guard, secrets, fleet topology, A2A inbox/trust,
-  and distillation without requiring shell access.
+  distillation, and browser PDF previews without requiring shell access.
 - **Business-ready extension model**: packaged skills, plugins, MCP servers,
   and SecretRef-backed HTTP tools share the same approval and credential
   boundaries.
@@ -236,7 +236,7 @@ Core pieces:
 | Build desktop releases | [Desktop Release Builds](https://hybridaione.github.io/hybridclaw/docs/developer-guide/desktop-release) |
 | Contribute | [CONTRIBUTING.md](./CONTRIBUTING.md), [docs/content/README.md](./docs/content/README.md) |
 
-Latest release: [v0.27.1](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.27.1).
+Latest release: [v0.27.2](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.27.2).
 Release notes: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Development

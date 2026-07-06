@@ -82,6 +82,8 @@ pairing requests.
 - `/admin/output-guard` configures plugin-backed response classification,
   guard rules, blocked terms, rewrite behavior, and model/provider settings
   without editing runtime config by hand
+- PDF previews opened from console file and artifact surfaces render through
+  browser-backed `blob:` iframes under the console Content Security Policy
 - `/admin/audit` includes filter and search controls for audit event types,
   actors, resources, date ranges, and text queries, including onboarding
   lifecycle events from first-run hatching

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.27.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.27.2) - 2026-07-06
+
+### Fixed
+
+- **Console PDF previews**: Console pages now allow `blob:` iframe sources in
+  the defensive Content Security Policy, so browser-backed PDF previews render
+  instead of being blocked by the `default-src 'self'` fallback. Gateway HTTP
+  server tests cover the `frame-src 'self' blob:` directive.
+
 ## [0.27.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.27.1) - 2026-07-06
 
 ### Added

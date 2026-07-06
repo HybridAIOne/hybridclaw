@@ -27,6 +27,9 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
+- HybridClaw v0.27.2 allows console PDF previews to render in browser-backed
+  `blob:` iframes while retaining the console's defensive Content Security
+  Policy for other sources.
 - HybridClaw v0.27.1 records first-run hatching as structured onboarding audit
   events, including start/continue, quick messages, user and assistant turns,
   welcome mail, workspace file updates, completion, and abort paths.
