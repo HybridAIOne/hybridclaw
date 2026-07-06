@@ -189,10 +189,10 @@ function recordBootstrapOnboardingComplete(
 }
 
 export function recordBootstrapHatchingTerminalAudit(params: {
-  audit: BootstrapOnboardingAuditContext;
-  result: BootstrapHatchingTurnResult | null;
+  audit?: BootstrapOnboardingAuditContext | null;
+  result?: BootstrapHatchingTurnResult | null;
 }): void {
-  if (!params.result?.completed) return;
+  if (!params.audit || !params.result?.completed) return;
   if (params.result.turnsWithoutMessage) {
     recordBootstrapOnboardingAbort(params.audit, {
       reason: params.result.reason,
@@ -260,8 +260,6 @@ export function recordBootstrapHatchingTurnResult(params: {
   bootstrapFile: 'BOOTSTRAP.md' | 'OPENING.md' | null;
   toolExecutions: ToolExecution[];
   handledAt?: string;
-  audit?: BootstrapOnboardingAuditContext;
-  deferTerminalAudit?: boolean;
 }): BootstrapHatchingTurnResult | null {
   if (params.bootstrapFile !== 'BOOTSTRAP.md') return null;
 
@@ -269,29 +267,15 @@ export function recordBootstrapHatchingTurnResult(params: {
     .map(readSuccessfulMessageSend)
     .find((candidate): candidate is MessageSend => Boolean(candidate));
   if (!send) {
-    const result = recordHatchingTurnWithoutMessage({
+    return recordHatchingTurnWithoutMessage({
       agentId: params.agentId,
     });
-    if (params.audit && result.completed && !params.deferTerminalAudit) {
-      recordBootstrapHatchingTerminalAudit({
-        audit: params.audit,
-        result,
-      });
-    }
-    return result;
   }
 
-  const result = completeHatchingAfterMessageSend({
+  return completeHatchingAfterMessageSend({
     agentId: params.agentId,
     recipient: send.recipient,
     subject: send.subject,
     handledAt: params.handledAt,
   });
-  if (params.audit && result.completed && !params.deferTerminalAudit) {
-    recordBootstrapHatchingTerminalAudit({
-      audit: params.audit,
-      result,
-    });
-  }
-  return result;
 }

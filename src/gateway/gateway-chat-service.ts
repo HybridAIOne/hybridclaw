@@ -159,6 +159,7 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import {
+  type BootstrapHatchingTurnResult,
   recordBootstrapHatchingTerminalAudit,
   recordBootstrapHatchingTurnResult,
   recordBootstrapOnboardingAbort,
@@ -1866,6 +1867,14 @@ async function handleGatewayMessageInner(
     | 'pre-agent'
     | 'awaiting-agent-output'
     | 'processing-agent-output' = 'pre-agent';
+  let hatchingCompletion: BootstrapHatchingTurnResult | null = null;
+  const recordPendingHatchingTerminalAudit = (): void => {
+    recordBootstrapHatchingTerminalAudit({
+      audit: onboardingAuditContext,
+      result: hatchingCompletion,
+    });
+    hatchingCompletion = null;
+  };
 
   try {
     const scheduledTasks = getAllJobs({
@@ -2000,12 +2009,10 @@ async function handleGatewayMessageInner(
       media,
     );
     const toolExecutions = output.toolExecutions || [];
-    const hatchingCompletion = recordBootstrapHatchingTurnResult({
+    hatchingCompletion = recordBootstrapHatchingTurnResult({
       agentId,
       bootstrapFile: startupBootstrapFile,
       toolExecutions,
-      audit: onboardingAuditContext || undefined,
-      deferTerminalAudit: true,
     });
     if (hatchingCompletion) {
       logger.info(
@@ -2223,12 +2230,7 @@ async function handleGatewayMessageInner(
           stage: agentStage,
         },
       });
-      if (onboardingAuditContext) {
-        recordBootstrapHatchingTerminalAudit({
-          audit: onboardingAuditContext,
-          result: hatchingCompletion,
-        });
-      }
+      recordPendingHatchingTerminalAudit();
       recordAuditEvent({
         sessionId: req.sessionId,
         runId,
@@ -2405,10 +2407,7 @@ async function handleGatewayMessageInner(
         toolCallCount: toolExecutions.length,
         messageRole: output.pendingApproval ? 'approval' : 'assistant',
       });
-      recordBootstrapHatchingTerminalAudit({
-        audit: onboardingAuditContext,
-        result: hatchingCompletion,
-      });
+      recordPendingHatchingTerminalAudit();
     }
     const storedTurnMessages = buildStoredTurnMessages({
       sessionId: req.sessionId,
@@ -2538,6 +2537,7 @@ async function handleGatewayMessageInner(
         stage: agentStage,
       },
     });
+    recordPendingHatchingTerminalAudit();
     recordAuditEvent({
       sessionId: req.sessionId,
       runId,

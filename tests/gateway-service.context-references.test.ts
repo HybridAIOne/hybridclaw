@@ -462,6 +462,103 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
   );
 });
 
+test('handleGatewayMessage records terminal hatching audit when persistence fails after completion', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'I sent the welcome message.',
+    toolsUsed: ['message'],
+    toolExecutions: [
+      {
+        name: 'message',
+        arguments: JSON.stringify({
+          action: 'send',
+          to: 'ben@example.com',
+          subject: 'HybridClaw release support is ready',
+          content: 'Welcome to HybridClaw.',
+        }),
+        result: JSON.stringify({
+          ok: true,
+          action: 'send',
+          channelId: 'ben@example.com',
+          transport: 'email',
+          subject: 'HybridClaw release support is ready',
+        }),
+        durationMs: 12,
+      },
+    ],
+  });
+
+  const { getRecentStructuredAuditForSession, initDatabase } = await import(
+    '../src/memory/db.ts'
+  );
+  const { memoryService } = await import(
+    '../src/memory/memory-service.ts'
+  );
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+
+  initDatabase({ quiet: true });
+  ensureBootstrapFiles('research');
+
+  const workspaceDir = agentWorkspaceDir('research');
+  const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+  const storeTurnSpy = vi
+    .spyOn(memoryService, 'storeTurn')
+    .mockImplementation(() => {
+      throw new Error('store failed after hatching');
+    });
+
+  let result: Awaited<ReturnType<typeof handleGatewayMessage>> | null = null;
+  try {
+    result = await handleGatewayMessage({
+      sessionId: 'session-onboarding-complete-store-failure',
+      guildId: null,
+      channelId: 'web',
+      userId: 'user-1',
+      username: 'user',
+      agentId: 'research',
+      content: 'I am Ben and my email is ben@example.com.',
+      chatbotId: 'bot-1',
+    });
+  } finally {
+    storeTurnSpy.mockRestore();
+  }
+
+  expect(result?.status).toBe('error');
+  expect(result?.error).toContain('store failed after hatching');
+  expect(fs.existsSync(bootstrapPath)).toBe(false);
+
+  const auditRows = getRecentStructuredAuditForSession(
+    'session-onboarding-complete-store-failure',
+    100,
+  );
+  const completeEvents = auditRows.filter(
+    (row) => row.event_type === 'onboarding.complete',
+  );
+  const assistantMessageEvents = auditRows.filter(
+    (row) => row.event_type === 'onboarding.assistant_message',
+  );
+  const turnEndEvent = auditRows.find((row) => row.event_type === 'turn.end');
+
+  expect(completeEvents).toHaveLength(1);
+  expect(assistantMessageEvents).toHaveLength(0);
+  expect(JSON.parse(String(completeEvents[0]?.payload || '{}'))).toMatchObject(
+    {
+      type: 'onboarding.complete',
+      workspaceAgentId: 'research',
+      source: 'gateway.chat',
+      bootstrapFile: 'BOOTSTRAP.md',
+      gatewayRule: 'message_send',
+    },
+  );
+  expect(completeEvents[0]?.seq ?? 0).toBeLessThan(turnEndEvent?.seq ?? 0);
+});
+
 test('handleGatewayMessage completes hatching after three turns without a message send', async () => {
   setupHome();
 
