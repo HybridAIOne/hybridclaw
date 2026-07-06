@@ -266,8 +266,12 @@ export function useChatStream(
               )
             : prev;
           // Trace-only update: keep the thinking dots until the answer (or an
-          // approval card) actually starts, so no empty bubble flashes in.
-          if (!text && !approval) return withTrace;
+          // approval card) actually starts, so no empty bubble flashes in. If
+          // a previously streamed assistant draft was demoted into the trace,
+          // remove its live answer bubble too.
+          if (!text && !approval) {
+            return withTrace.filter((m) => m.id !== streamId);
+          }
           const withoutThinking = withTrace.filter((m) => m.id !== thinkingId);
           const existing = withoutThinking.find((m) => m.id === streamId);
           if (existing) {
@@ -321,8 +325,27 @@ export function useChatStream(
         scheduleRender();
       };
 
+      const pushDraftText = (text: string) => {
+        const draft = text.trim();
+        if (!draft) return;
+        const last = req.trace.at(-1);
+        if (last?.kind === 'draft') {
+          last.text = `${last.text}\n\n${draft}`;
+        } else {
+          req.trace.push({ kind: 'draft', text: draft });
+        }
+        req.traceVersion += 1;
+      };
+
+      const demoteAssistantTextToDraft = () => {
+        if (!req.assistantText.trim()) return;
+        pushDraftText(req.assistantText);
+        req.assistantText = '';
+      };
+
       const pushToolEvent = (event: ChatStreamToolEvent) => {
         if (event.phase === 'start') {
+          demoteAssistantTextToDraft();
           req.trace.push({
             kind: 'tool',
             toolName: event.toolName,

@@ -296,6 +296,7 @@ describe('buildChatHistoryUiData', () => {
           activityTrace: {
             steps: [
               { kind: 'thinking', text: 'Listing their messages' },
+              { kind: 'draft', text: 'I will check the inbox first.' },
               {
                 kind: 'tool',
                 toolName: 'list_messages',
@@ -320,6 +321,7 @@ describe('buildChatHistoryUiData', () => {
     expect(trace.finishedAt).toBe(34_000);
     expect(trace.steps).toEqual([
       { kind: 'thinking', text: 'Listing their messages' },
+      { kind: 'draft', text: 'I will check the inbox first.' },
       {
         kind: 'tool',
         toolName: 'list_messages',

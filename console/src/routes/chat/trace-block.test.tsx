@@ -30,6 +30,7 @@ describe('TraceBlock', () => {
       <TraceBlock
         message={makeTrace([
           { kind: 'thinking', text: 'Considering the request' },
+          { kind: 'draft', text: 'I need to check one thing first.' },
           {
             kind: 'tool',
             toolName: 'exec',
@@ -40,11 +41,18 @@ describe('TraceBlock', () => {
       />,
     );
 
-    expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe(
-      'true',
-    );
+    const controls = screen.getAllByRole('button');
+    expect(controls).toHaveLength(2);
+    const firstControl = controls[0];
+    const secondControl = controls[1];
+    if (!firstControl || !secondControl) throw new Error('expected controls');
+    expect(firstControl.getAttribute('aria-expanded')).toBe('true');
+    expect(secondControl.getAttribute('aria-expanded')).toBe('true');
     expect(screen.queryByText('exec…')).not.toBeNull();
     expect(screen.queryByText('Considering the request')).not.toBeNull();
+    expect(
+      screen.queryByText('I need to check one thing first.'),
+    ).not.toBeNull();
     expect(screen.queryByText('npm test')).not.toBeNull();
   });
 
@@ -62,6 +70,7 @@ describe('TraceBlock', () => {
               resultPreview: 'ok',
               durationMs: 1_200,
             },
+            { kind: 'draft', text: 'I need to check one thing first.' },
           ],
           { done: true, finishedAt: 13_000 },
         )}
@@ -72,7 +81,47 @@ describe('TraceBlock', () => {
       'false',
     );
     expect(screen.queryByText('1 tool call · thinking · 12s')).not.toBeNull();
+    expect(
+      screen.queryByText('I need to check one thing first.'),
+    ).not.toBeNull();
     expect(screen.queryByText('npm test')).toBeNull();
+  });
+
+  it('keeps interim drafts outside collapsed trace segments', () => {
+    render(
+      <TraceBlock
+        message={makeTrace(
+          [
+            { kind: 'thinking', text: 'Considering the request' },
+            { kind: 'draft', text: 'I need a location first.' },
+            {
+              kind: 'tool',
+              toolName: 'message',
+              status: 'done',
+              argsPreview: 'send email',
+              durationMs: 250,
+            },
+            { kind: 'thinking', text: 'Waiting for the tool result' },
+          ],
+          { done: true, finishedAt: 5_000 },
+        )}
+      />,
+    );
+
+    const controls = screen.getAllByRole('button');
+    expect(controls).toHaveLength(2);
+    const firstControl = controls[0];
+    const secondControl = controls[1];
+    if (!firstControl || !secondControl) throw new Error('expected controls');
+    expect(firstControl.textContent).toContain('Thought');
+    expect(secondControl.textContent).toContain('1 tool call · thinking');
+    expect(screen.queryByText('I need a location first.')).not.toBeNull();
+    expect(screen.queryByText('Considering the request')).toBeNull();
+    expect(screen.queryByText('send email')).toBeNull();
+
+    fireEvent.click(firstControl);
+    expect(screen.queryByText('Considering the request')).not.toBeNull();
+    expect(screen.queryByText('I need a location first.')).not.toBeNull();
   });
 
   it('auto-collapses a manually expanded trace when the run finishes', () => {

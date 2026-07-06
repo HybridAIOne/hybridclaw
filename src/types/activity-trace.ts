@@ -1,6 +1,7 @@
 /**
- * Ordered activity trace for one assistant turn — the thinking segments and
- * tool calls the gateway streams to the web chat, in the order they occurred.
+ * Ordered activity trace for one assistant turn — thinking segments,
+ * intermediate assistant drafts, and tool calls the gateway streams to the web
+ * chat, in the order they occurred.
  *
  * Persisted per assistant message so a page reload can replay the same trace
  * the web client rendered live. The step shape mirrors the console's live
@@ -9,6 +10,11 @@
 
 export interface ActivityTraceThinkingStep {
   kind: 'thinking';
+  text: string;
+}
+
+export interface ActivityTraceDraftStep {
+  kind: 'draft';
   text: string;
 }
 
@@ -23,6 +29,7 @@ export interface ActivityTraceToolStep {
 
 export type ActivityTraceStep =
   | ActivityTraceThinkingStep
+  | ActivityTraceDraftStep
   | ActivityTraceToolStep;
 
 export interface ActivityTrace {
@@ -32,9 +39,9 @@ export interface ActivityTrace {
 }
 
 /**
- * Accumulates streamed thinking/tool events into an ordered trace, mirroring
- * the console's live accumulation: consecutive thinking deltas merge, and a
- * tool `finish` collapses into the most recent matching running `start`
+ * Accumulates streamed thinking/draft/tool events into an ordered trace,
+ * mirroring the console's live accumulation: consecutive thinking deltas merge,
+ * and a tool `finish` collapses into the most recent matching running `start`
  * (parallel same-name tools can finish out of order).
  */
 export class ActivityTraceBuilder {
@@ -47,6 +54,17 @@ export class ActivityTraceBuilder {
       last.text += delta;
     } else {
       this.steps.push({ kind: 'thinking', text: delta });
+    }
+  }
+
+  pushDraft(text: string): void {
+    const draft = text.trim();
+    if (!draft) return;
+    const last = this.steps.at(-1);
+    if (last?.kind === 'draft') {
+      last.text = `${last.text}\n\n${draft}`;
+    } else {
+      this.steps.push({ kind: 'draft', text: draft });
     }
   }
 
@@ -141,6 +159,9 @@ export function parseActivityTrace(
     if (source.kind === 'thinking') {
       const text = source.text;
       if (typeof text === 'string') steps.push({ kind: 'thinking', text });
+    } else if (source.kind === 'draft') {
+      const text = source.text;
+      if (typeof text === 'string') steps.push({ kind: 'draft', text });
     } else if (source.kind === 'tool') {
       const toolName = readString(source, 'toolName');
       if (!toolName) continue;

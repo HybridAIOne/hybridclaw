@@ -3280,9 +3280,16 @@ async function handleApiChatStream(
   // exactly what streamed.
   const traceStartedAt = Date.now();
   const traceBuilder = new ActivityTraceBuilder();
+  let streamedTextBeforeNextTool = '';
+
+  const pushStreamedTextDraft = (): void => {
+    traceBuilder.pushDraft(streamedTextBeforeNextTool);
+    streamedTextBeforeNextTool = '';
+  };
 
   const onToolProgress = (event: ToolProgressEvent): void => {
     if (event.phase === 'start') {
+      pushStreamedTextDraft();
       traceBuilder.startTool(event.toolName, event.preview);
     } else {
       traceBuilder.finishTool(event.toolName, event.durationMs, event.preview);
@@ -3300,6 +3307,7 @@ async function handleApiChatStream(
   const onTextDelta = (delta: string): void => {
     const filteredDelta = streamFilter.push(delta);
     if (!filteredDelta) return;
+    streamedTextBeforeNextTool += filteredDelta;
     sendEvent({
       type: 'text',
       delta: filteredDelta,
