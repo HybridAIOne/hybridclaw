@@ -158,7 +158,13 @@ import {
   firstNumber,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
-import { recordBootstrapHatchingTurnResult } from './hatching-completion.js';
+import {
+  recordBootstrapHatchingTurnResult,
+  recordBootstrapOnboardingAbort,
+  recordBootstrapOnboardingAssistantMessage,
+  recordBootstrapOnboardingStart,
+  recordBootstrapOnboardingUserReply,
+} from './hatching-completion.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
 import {
@@ -1086,6 +1092,7 @@ async function handleGatewayMessageInner(
     ? {
         workspacePath,
         workspaceInitialized: false,
+        onboardingTransition: undefined,
       }
     : ensureBootstrapFiles(agentId);
   const startupBootstrapFile = req.workspacePathOverride
@@ -1408,6 +1415,40 @@ async function handleGatewayMessageInner(
       source,
     },
   });
+  const onboardingAuditContext =
+    startupBootstrapFile === 'BOOTSTRAP.md'
+      ? {
+          sessionId: req.sessionId,
+          runId,
+          agentId,
+          source,
+          bootstrapFile: startupBootstrapFile,
+          channelId: req.channelId,
+          workspacePath,
+        }
+      : null;
+  if (workspaceBootstrap.onboardingTransition) {
+    recordBootstrapOnboardingAbort(
+      {
+        sessionId: req.sessionId,
+        runId,
+        agentId,
+        source,
+        bootstrapFile: workspaceBootstrap.onboardingTransition.bootstrapFile,
+        channelId: req.channelId,
+        workspacePath,
+      },
+      workspaceBootstrap.onboardingTransition,
+    );
+  }
+  if (onboardingAuditContext) {
+    recordBootstrapOnboardingStart(onboardingAuditContext);
+    recordBootstrapOnboardingUserReply(onboardingAuditContext, {
+      turnIndex,
+      messageChars: userTurnContent.length,
+      mediaCount: media.length,
+    });
+  }
 
   if (modelRequiresChatbotId(model) && !chatbotId) {
     const error =
@@ -1962,6 +2003,7 @@ async function handleGatewayMessageInner(
       agentId,
       bootstrapFile: startupBootstrapFile,
       toolExecutions,
+      audit: onboardingAuditContext || undefined,
     });
     if (hatchingCompletion) {
       logger.info(
@@ -2347,6 +2389,15 @@ async function handleGatewayMessageInner(
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
     });
+    if (onboardingAuditContext) {
+      recordBootstrapOnboardingAssistantMessage(onboardingAuditContext, {
+        turnIndex,
+        assistantMessageId: storedTurn.assistantMessageId,
+        messageChars: resultText.length,
+        toolCallCount: toolExecutions.length,
+        messageRole: output.pendingApproval ? 'approval' : 'assistant',
+      });
+    }
     const storedTurnMessages = buildStoredTurnMessages({
       sessionId: req.sessionId,
       userId: req.userId,

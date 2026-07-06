@@ -618,7 +618,13 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { initializeGoalContinuationRunner } from './goal-continuation-runner.js';
-import { recordBootstrapHatchingTurnResult } from './hatching-completion.js';
+import {
+  recordBootstrapHatchingTurnResult,
+  recordBootstrapOnboardingAbort,
+  recordBootstrapOnboardingAssistantMessage,
+  recordBootstrapOnboardingQuickMessage,
+  recordBootstrapOnboardingStart,
+} from './hatching-completion.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -8557,9 +8563,25 @@ function resolveBootstrapAutostartContext(params: {
     agentId: autostartAgentId,
     session,
   });
-  ensureBootstrapFiles(resolved.agentId);
+  const workspaceBootstrap = ensureBootstrapFiles(resolved.agentId);
   const bootstrapFile = resolveStartupBootstrapFile(resolved.agentId);
-  if (!bootstrapFile) return null;
+  if (!bootstrapFile) {
+    if (workspaceBootstrap.onboardingTransition) {
+      recordBootstrapOnboardingAbort(
+        {
+          sessionId: session.id,
+          runId: makeAuditRunId('onboarding'),
+          agentId: resolved.agentId,
+          source: BOOTSTRAP_AUTOSTART_SOURCE,
+          bootstrapFile: workspaceBootstrap.onboardingTransition.bootstrapFile,
+          channelId,
+          workspacePath: path.resolve(agentWorkspaceDir(resolved.agentId)),
+        },
+        workspaceBootstrap.onboardingTransition,
+      );
+    }
+    return null;
+  }
 
   return {
     channelId,
@@ -8630,6 +8652,18 @@ export async function ensureGatewayBootstrapAutostart(params: {
     });
     const provider = resolveModelProvider(model);
     const turnIndex = Math.max(1, session.message_count + 1);
+    const onboardingAuditContext =
+      bootstrapFile === 'BOOTSTRAP.md'
+        ? {
+            sessionId: session.id,
+            runId,
+            agentId: resolved.agentId,
+            source: BOOTSTRAP_AUTOSTART_SOURCE,
+            bootstrapFile,
+            channelId,
+            workspacePath,
+          }
+        : null;
 
     recordAuditEvent({
       sessionId: session.id,
@@ -8643,6 +8677,9 @@ export async function ensureGatewayBootstrapAutostart(params: {
         source: BOOTSTRAP_AUTOSTART_SOURCE,
       },
     });
+    if (onboardingAuditContext) {
+      recordBootstrapOnboardingStart(onboardingAuditContext);
+    }
     const chatbotResolution = await resolveGatewayChatbotId({
       model,
       chatbotId: resolved.chatbotId,
@@ -8748,7 +8785,13 @@ export async function ensureGatewayBootstrapAutostart(params: {
       },
     });
     if (preludeText) {
-      storeBootstrapAssistantMessage(preludeText);
+      const preludeMessageId = storeBootstrapAssistantMessage(preludeText);
+      if (onboardingAuditContext) {
+        recordBootstrapOnboardingQuickMessage(onboardingAuditContext, {
+          assistantMessageId: preludeMessageId,
+          messageChars: preludeText.length,
+        });
+      }
     }
     const baseAssistantMessages = hasPrelude ? 1 : 0;
 
@@ -8979,6 +9022,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       agentId: resolved.agentId,
       bootstrapFile,
       toolExecutions: output.toolExecutions || [],
+      audit: onboardingAuditContext || undefined,
     });
     if (hatchingCompletion) {
       logger.info(
@@ -9078,6 +9122,14 @@ export async function ensureGatewayBootstrapAutostart(params: {
     }
 
     const assistantMessageId = storeBootstrapAssistantMessage(resultText);
+    if (onboardingAuditContext) {
+      recordBootstrapOnboardingAssistantMessage(onboardingAuditContext, {
+        turnIndex,
+        assistantMessageId,
+        messageChars: resultText.length,
+        toolCallCount: (output.toolExecutions || []).length,
+      });
+    }
     setMemoryValue(session.id, markerKey, {
       status: 'completed',
       fileName: bootstrapFile,

@@ -79,7 +79,9 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
     toolExecutions: [],
   });
 
-  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getRecentStructuredAuditForSession, initDatabase } = await import(
+    '../src/memory/db.ts'
+  );
   const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -183,6 +185,37 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
 
   const storedSession = memoryService.getSessionById(sessionId);
   expect(storedSession?.message_count).toBe(2);
+  const auditRows = getRecentStructuredAuditForSession(
+    storedSession?.id || sessionId,
+    100,
+  );
+  const quickMessageEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.quick_message',
+  );
+  const assistantMessageEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.assistant_message',
+  );
+  expect(quickMessageEvent).toBeTruthy();
+  expect(assistantMessageEvent).toBeTruthy();
+  expect(JSON.parse(String(quickMessageEvent?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.quick_message',
+    workspaceAgentId: 'main',
+    source: 'gateway.bootstrap',
+    bootstrapFile: 'BOOTSTRAP.md',
+    messageRole: 'assistant',
+    messageChars: DEFAULT_GATEWAY_AUXILIARY_PRELUDE.length,
+  });
+  expect(
+    JSON.parse(String(assistantMessageEvent?.payload || '{}')),
+  ).toMatchObject({
+    type: 'onboarding.assistant_message',
+    workspaceAgentId: 'main',
+    source: 'gateway.bootstrap',
+    bootstrapFile: 'BOOTSTRAP.md',
+    messageRole: 'assistant',
+    messageChars: 'Hello. I am ready to get you oriented.'.length,
+    toolCallCount: 0,
+  });
   expect(pluginManagerMock.notifySessionStart).toHaveBeenCalledTimes(1);
   expect(pluginManagerMock.notifyBeforeAgentStart).toHaveBeenCalledTimes(1);
   expect(pluginManagerMock.notifyMemoryWrites).toHaveBeenCalledWith(
@@ -197,6 +230,56 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   await ensureGatewayBootstrapAutostart({ sessionId });
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   expect(getGatewayHistory(sessionId, 10).history).toHaveLength(2);
+});
+
+test('ensureGatewayBootstrapAutostart audits onboarding abort when bootstrap is already absent', async () => {
+  setupHome();
+
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const {
+    getRecentStructuredAuditForSession,
+    getSessionById,
+    initDatabase,
+  } = await import('../src/memory/db.ts');
+  const { ensureGatewayBootstrapAutostart } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({ id: 'research' });
+  ensureBootstrapFiles('research');
+
+  const workspaceDir = agentWorkspaceDir('research');
+  fs.unlinkSync(path.join(workspaceDir, 'BOOTSTRAP.md'));
+
+  const sessionId =
+    'agent:main:channel:web:chat:dm:peer:bootstrap-missing-abort';
+  await ensureGatewayBootstrapAutostart({
+    sessionId,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    agentId: 'research',
+  });
+
+  expect(runAgentMock).not.toHaveBeenCalled();
+  const storedSessionId = getSessionById(sessionId)?.id || sessionId;
+  const auditRows = getRecentStructuredAuditForSession(storedSessionId, 20);
+  const abortEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.abort',
+  );
+  expect(abortEvent).toBeTruthy();
+  expect(JSON.parse(String(abortEvent?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.abort',
+    workspaceAgentId: 'research',
+    source: 'gateway.bootstrap',
+    bootstrapFile: 'BOOTSTRAP.md',
+    gatewayRule: 'missing_bootstrap_after_seed',
+  });
 });
 
 test('ensureGatewayBootstrapAutostart does not refresh started sessions on history probes', async () => {

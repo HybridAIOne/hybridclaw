@@ -340,7 +340,9 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
     draft.hybridai.defaultModel = 'gpt-5-mini';
     draft.hybridai.onboardingModel = 'gpt-5.5';
   });
-  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getRecentStructuredAuditForSession, initDatabase } = await import(
+    '../src/memory/db.ts'
+  );
   const { handleGatewayMessage } = await import(
     '../src/gateway/gateway-chat-service.ts'
   );
@@ -399,6 +401,62 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
   expect(
     (runAgentMock.mock.calls[1]?.[0] as { model?: string } | undefined)?.model,
   ).toBe('gpt-5-mini');
+
+  const auditRows = getRecentStructuredAuditForSession(
+    'session-onboarding-email-complete',
+    100,
+  );
+  const startEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.start',
+  );
+  const completeEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.complete',
+  );
+  const userReplyEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.user_reply',
+  );
+  const assistantMessageEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.assistant_message',
+  );
+  expect(startEvent).toBeTruthy();
+  expect(userReplyEvent).toBeTruthy();
+  expect(assistantMessageEvent).toBeTruthy();
+  expect(completeEvent).toBeTruthy();
+  expect(JSON.parse(String(startEvent?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.start',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    channelId: 'web',
+  });
+  expect(JSON.parse(String(userReplyEvent?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.user_reply',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    turnIndex: 1,
+    mediaCount: 0,
+    messageRole: 'user',
+  });
+  expect(
+    JSON.parse(String(assistantMessageEvent?.payload || '{}')),
+  ).toMatchObject({
+    type: 'onboarding.assistant_message',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    turnIndex: 1,
+    messageRole: 'assistant',
+    toolCallCount: 1,
+  });
+  expect(JSON.parse(String(completeEvent?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.complete',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    gatewayRule: 'message_send',
+    reason: 'message sent',
+  });
 });
 
 test('handleGatewayMessage completes hatching after three turns without a message send', async () => {
@@ -418,7 +476,9 @@ test('handleGatewayMessage completes hatching after three turns without a messag
     draft.hybridai.defaultModel = 'gpt-5-mini';
     draft.hybridai.onboardingModel = 'gpt-5.5';
   });
-  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getRecentStructuredAuditForSession, initDatabase } = await import(
+    '../src/memory/db.ts'
+  );
   const { handleGatewayMessage } = await import(
     '../src/gateway/gateway-chat-service.ts'
   );
@@ -479,6 +539,31 @@ test('handleGatewayMessage completes hatching after three turns without a messag
   expect(
     (runAgentMock.mock.calls[3]?.[0] as { model?: string } | undefined)?.model,
   ).toBe('gpt-5-mini');
+
+  const auditRows = getRecentStructuredAuditForSession(
+    'session-onboarding-no-message-fallback',
+    100,
+  );
+  const abortEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.abort',
+  );
+  const userReplyEvents = auditRows.filter(
+    (row) => row.event_type === 'onboarding.user_reply',
+  );
+  const assistantMessageEvents = auditRows.filter(
+    (row) => row.event_type === 'onboarding.assistant_message',
+  );
+  expect(abortEvent).toBeTruthy();
+  expect(userReplyEvents).toHaveLength(3);
+  expect(assistantMessageEvents).toHaveLength(3);
+  expect(JSON.parse(String(abortEvent?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.abort',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    gatewayRule: 'hatching_no_message_limit',
+    turnsWithoutMessage: 3,
+  });
 });
 
 test('handleGatewayMessage returns to regular model after onboarding completes', async () => {
