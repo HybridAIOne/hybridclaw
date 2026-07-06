@@ -559,6 +559,114 @@ test('handleGatewayMessage records terminal hatching audit when persistence fail
   expect(completeEvents[0]?.seq ?? 0).toBeLessThan(turnEndEvent?.seq ?? 0);
 });
 
+test('handleGatewayMessage completes hatching when the agent deletes BOOTSTRAP.md after sending the welcome message', async () => {
+  setupHome();
+
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  updateRuntimeConfig((draft) => {
+    draft.hybridai.defaultModel = 'gpt-5-mini';
+    draft.hybridai.onboardingModel = 'gpt-5.5';
+  });
+  const { getRecentStructuredAuditForSession, initDatabase } = await import(
+    '../src/memory/db.ts'
+  );
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+
+  initDatabase({ quiet: true });
+  ensureBootstrapFiles('research');
+
+  const workspaceDir = agentWorkspaceDir('research');
+  const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+  const statePath = path.join(
+    workspaceDir,
+    '.hybridclaw',
+    'workspace-state.json',
+  );
+  expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+  runAgentMock.mockImplementationOnce(async () => {
+    fs.unlinkSync(bootstrapPath);
+    return {
+      status: 'success',
+      result: 'I sent the welcome message and cleaned up onboarding.',
+      toolsUsed: ['message', 'delete'],
+      toolExecutions: [
+        {
+          name: 'message',
+          arguments: JSON.stringify({
+            action: 'send',
+            to: 'ben@example.com',
+            subject: 'HybridClaw release support is ready',
+            content: 'Welcome to HybridClaw.',
+          }),
+          result: JSON.stringify({
+            ok: true,
+            action: 'send',
+            channelId: 'ben@example.com',
+            transport: 'email',
+            subject: 'HybridClaw release support is ready',
+          }),
+          durationMs: 12,
+        },
+        {
+          name: 'delete',
+          arguments: JSON.stringify({ path: bootstrapPath }),
+          result: `Deleted ${bootstrapPath}`,
+          durationMs: 1,
+        },
+      ],
+    };
+  });
+
+  const result = await handleGatewayMessage({
+    sessionId: 'session-onboarding-agent-delete-complete',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    agentId: 'research',
+    content: 'I am Ben and my email is ben@example.com.',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+  expect(fs.existsSync(bootstrapPath)).toBe(false);
+  expect(JSON.parse(fs.readFileSync(statePath, 'utf-8'))).toMatchObject({
+    hatchingTurnsWithoutMessage: 0,
+    onboardingCompletedAt: expect.stringMatching(/\d{4}-\d{2}-\d{2}T/),
+  });
+
+  const auditRows = getRecentStructuredAuditForSession(
+    'session-onboarding-agent-delete-complete',
+    100,
+  );
+  const assistantMessageEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.assistant_message',
+  );
+  const completeEvent = auditRows.find(
+    (row) => row.event_type === 'onboarding.complete',
+  );
+
+  expect(assistantMessageEvent).toBeTruthy();
+  expect(completeEvent).toBeTruthy();
+  expect(JSON.parse(String(completeEvent?.payload || '{}'))).toMatchObject({
+    type: 'onboarding.complete',
+    workspaceAgentId: 'research',
+    source: 'gateway.chat',
+    bootstrapFile: 'BOOTSTRAP.md',
+    gatewayRule: 'message_send',
+  });
+  expect(assistantMessageEvent?.seq ?? 0).toBeLessThan(
+    completeEvent?.seq ?? 0,
+  );
+});
+
 test('handleGatewayMessage completes hatching after three turns without a message send', async () => {
   setupHome();
 

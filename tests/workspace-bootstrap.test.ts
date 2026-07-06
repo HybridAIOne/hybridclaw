@@ -535,6 +535,44 @@ describe('workspace bootstrap lifecycle', () => {
     expect(state.hatchingTurnsWithoutMessage).toBe(0);
   });
 
+  test('completes hatching after a message send when BOOTSTRAP.md was already deleted', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+    fs.writeFileSync(
+      path.join(workspaceDir, 'USER.md'),
+      completedUserMarkdown(),
+      'utf-8',
+    );
+    fs.unlinkSync(bootstrapPath);
+
+    const completion = workspace.completeHatchingAfterMessageSend({
+      agentId: 'agent-test',
+      recipient: 'ben@example.com',
+      subject: 'Welcome',
+    });
+
+    expect(completion).toMatchObject({
+      completed: true,
+      reason: 'message sent',
+    });
+    expect(fs.existsSync(bootstrapPath)).toBe(false);
+    const state = readWorkspaceState(workspaceDir);
+    expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.hatchingTurnsWithoutMessage).toBe(0);
+  });
+
   test('keeps BOOTSTRAP.md while the welcome message is still pending', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');

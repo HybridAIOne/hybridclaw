@@ -494,17 +494,27 @@ function completeHatchingByRemovingBootstrap(params: {
   agentId: string;
   reason: string;
   statePatch?: Partial<WorkspaceOnboardingState>;
+  completeIfAlreadyRemoved?: boolean;
 }): { completed: boolean; updated: boolean; reason: string } {
   const wsDir = agentWorkspaceDir(params.agentId);
   const bootstrapPath = path.join(wsDir, 'BOOTSTRAP.md');
-  if (!fs.existsSync(bootstrapPath)) {
-    return { completed: false, updated: false, reason: 'BOOTSTRAP.md absent' };
-  }
-
   const statePath = resolveWorkspaceStatePath(wsDir);
   const state = readWorkspaceOnboardingState(statePath);
+  const bootstrapExists = fs.existsSync(bootstrapPath);
+  if (!bootstrapExists) {
+    if (!params.completeIfAlreadyRemoved || state.onboardingCompletedAt) {
+      return {
+        completed: false,
+        updated: false,
+        reason: 'BOOTSTRAP.md absent',
+      };
+    }
+  }
+
   try {
-    fs.unlinkSync(bootstrapPath);
+    if (bootstrapExists) {
+      fs.unlinkSync(bootstrapPath);
+    }
     writeWorkspaceOnboardingState(statePath, {
       ...state,
       ...params.statePatch,
@@ -560,6 +570,7 @@ export function completeHatchingAfterMessageSend(params: {
   const completion = completeHatchingByRemovingBootstrap({
     agentId: params.agentId,
     reason: 'message sent',
+    completeIfAlreadyRemoved: true,
   });
   return { ...completion, updated: completion.updated || updated };
 }
