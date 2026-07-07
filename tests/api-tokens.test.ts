@@ -43,7 +43,9 @@ describe('api token registry', () => {
     );
 
     expect(row?.stored_token).toBeNull();
-    expect(row?.token_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(row?.token_hash).toMatch(
+      /^scrypt:v1:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/,
+    );
     expect(row?.token_hash).not.toBe(result.token);
     expect(JSON.stringify(row)).not.toContain(result.token);
   });

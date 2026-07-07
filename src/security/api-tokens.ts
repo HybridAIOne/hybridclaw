@@ -1,13 +1,21 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { withMemoryDatabase } from '../memory/db.js';
 
 export const API_TOKEN_PREFIX = 'hck';
 const API_TOKEN_ID_BYTES = 6;
 const API_TOKEN_SECRET_BYTES = 32;
+const API_TOKEN_SALT_BYTES = 16;
+const API_TOKEN_VERIFIER_BYTES = 32;
 const API_TOKEN_LAST_USED_UPDATE_MS = 60_000;
 const API_TOKEN_RE = /^hck_([a-f0-9]{12})_([A-Za-z0-9_-]+)$/;
 const API_TOKEN_LABEL_MAX_LENGTH = 120;
-const API_TOKEN_VERIFIER_KEY = 'hybridclaw-api-token-verifier-v1';
+const API_TOKEN_VERIFIER_PREFIX = 'scrypt:v1';
+const API_TOKEN_SCRYPT_OPTIONS = {
+  N: 16_384,
+  r: 8,
+  p: 1,
+  maxmem: 64 * 1024 * 1024,
+} as const;
 
 export interface ApiTokenMetadata {
   id: string;
@@ -50,19 +58,59 @@ interface ApiTokenRow {
   revoked_at: string | null;
 }
 
-function apiTokenVerifierHex(value: string): string {
-  // lgtm[js/insufficient-password-hash] API tokens are 256-bit random bearer
-  // secrets; this HMAC is a deterministic lookup verifier, not a password hash.
-  return createHmac('sha256', API_TOKEN_VERIFIER_KEY)
-    .update(value)
-    .digest('hex');
+function deriveApiTokenVerifier(token: string, salt: Buffer): Buffer {
+  return scryptSync(
+    token,
+    salt,
+    API_TOKEN_VERIFIER_BYTES,
+    API_TOKEN_SCRYPT_OPTIONS,
+  );
 }
 
-function safeEqualHex(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left, 'hex');
-  const rightBuffer = Buffer.from(right, 'hex');
-  if (leftBuffer.length !== rightBuffer.length) return false;
-  return timingSafeEqual(leftBuffer, rightBuffer);
+function createApiTokenVerifier(token: string): string {
+  const salt = randomBytes(API_TOKEN_SALT_BYTES);
+  const verifier = deriveApiTokenVerifier(token, salt);
+  return [
+    API_TOKEN_VERIFIER_PREFIX,
+    salt.toString('base64url'),
+    verifier.toString('base64url'),
+  ].join(':');
+}
+
+function parseStoredApiTokenVerifier(value: string): {
+  salt: Buffer;
+  verifier: Buffer;
+} | null {
+  const [scheme, version, rawSalt, rawVerifier, extra] = value.split(':');
+  if (
+    scheme !== 'scrypt' ||
+    version !== 'v1' ||
+    !rawSalt ||
+    !rawVerifier ||
+    extra !== undefined
+  ) {
+    return null;
+  }
+  const salt = Buffer.from(rawSalt, 'base64url');
+  const verifier = Buffer.from(rawVerifier, 'base64url');
+  if (
+    salt.length !== API_TOKEN_SALT_BYTES ||
+    verifier.length !== API_TOKEN_VERIFIER_BYTES
+  ) {
+    return null;
+  }
+  return { salt, verifier };
+}
+
+function isApiTokenVerifierMatch(
+  token: string,
+  storedVerifier: string,
+): boolean {
+  const parsed = parseStoredApiTokenVerifier(storedVerifier);
+  if (!parsed) return false;
+  const presentedVerifier = deriveApiTokenVerifier(token, parsed.salt);
+  if (presentedVerifier.length !== parsed.verifier.length) return false;
+  return timingSafeEqual(presentedVerifier, parsed.verifier);
 }
 
 function normalizeApiTokenLabel(value: string): string {
@@ -175,7 +223,7 @@ export function createApiToken(
   const createdBy = normalizeCreatedBy(input.createdBy);
   const id = generateApiTokenId();
   const token = buildApiToken(id);
-  const tokenHash = apiTokenVerifierHex(token);
+  const tokenHash = createApiTokenVerifier(token);
 
   return withMemoryDatabase((database) => {
     database
@@ -256,8 +304,6 @@ export function verifyApiToken(
   const parsed = parseApiToken(bearer);
   if (!parsed) return null;
   const now = options.now ?? new Date();
-  const presentedHash = apiTokenVerifierHex(parsed.token);
-
   return withMemoryDatabase((database) => {
     const row = database
       .prepare<[string], ApiTokenRow>('SELECT * FROM api_tokens WHERE id = ?')
@@ -265,7 +311,7 @@ export function verifyApiToken(
     if (!row) return null;
     if (row.revoked_at) return null;
     if (isExpired(row, now)) return null;
-    if (!safeEqualHex(presentedHash, row.token_hash)) return null;
+    if (!isApiTokenVerifierMatch(parsed.token, row.token_hash)) return null;
 
     if (shouldTouchLastUsed(row, now)) {
       database

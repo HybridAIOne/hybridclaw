@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { hash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -58,9 +58,7 @@ interface SessionAuditState {
 const sessionStateCache = new Map<string, SessionAuditState>();
 
 function sha256(text: string): string {
-  // lgtm[js/insufficient-password-hash] Audit wire hashes provide deterministic
-  // record-chain integrity, not password or bearer-token storage.
-  return createHash('sha256').update(text).digest('hex');
+  return hash('sha256', text, 'hex');
 }
 
 function stableStringify(value: unknown): string {
