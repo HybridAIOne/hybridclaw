@@ -89,6 +89,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       { to: '/admin/output-guard', label: 'Output Guard', icon: Policy },
       { to: '/admin/tools', label: 'Tools', icon: Tools },
       { to: '/admin/secrets', label: 'Secrets', icon: Secrets },
+      { to: '/admin/tokens', label: 'API Tokens', icon: Secrets },
       { to: '/admin/config', label: 'Config', icon: Config },
     ],
   },

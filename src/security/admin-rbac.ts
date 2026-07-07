@@ -4,8 +4,19 @@ export const ADMIN_SECRET_RBAC_ACTIONS = [
   'secret.unset',
 ] as const;
 
+export const ADMIN_TOKEN_RBAC_ACTIONS = [
+  'admin.tokens.read',
+  'admin.tokens.create',
+  'admin.tokens.revoke',
+] as const;
+
 export const ADMIN_RBAC_ACTIONS = [
   ...ADMIN_SECRET_RBAC_ACTIONS,
+  ...ADMIN_TOKEN_RBAC_ACTIONS,
+  'openai.api',
+  'chat.send',
+  'status.read',
+  'agents.read',
   'admin.overview.read',
   'admin.tunnel.read',
   'admin.tunnel.write',
@@ -166,6 +177,7 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
   'admin.security_manager': [
     ...ADMIN_READ_ACTIONS,
     ...ADMIN_SECRET_RBAC_ACTIONS,
+    ...ADMIN_TOKEN_RBAC_ACTIONS,
     'admin.policy.write',
     'admin.policy.delete',
     'admin.output_guard.write',
@@ -357,6 +369,33 @@ export function resolveAdminRbacAction(
     if (method === 'PUT') return 'secret.overwrite';
     if (method === 'DELETE') return 'secret.unset';
     return null;
+  }
+  if (pathname === '/api/admin/tokens') {
+    if (method === 'GET') return 'admin.tokens.read';
+    if (method === 'POST') return 'admin.tokens.create';
+    return null;
+  }
+  if (pathname.startsWith('/api/admin/tokens/')) {
+    if (method === 'DELETE') return 'admin.tokens.revoke';
+    return null;
+  }
+  if (pathname.startsWith('/v1/')) {
+    return 'openai.api';
+  }
+  if (pathname === '/api/chat' && method === 'POST') {
+    return 'chat.send';
+  }
+  if (pathname === '/api/command' && method === 'POST') {
+    return 'chat.send';
+  }
+  if (pathname === '/api/status' && method === 'GET') {
+    return 'status.read';
+  }
+  if (
+    (pathname === '/api/agents' || pathname === '/api/agents/list') &&
+    method === 'GET'
+  ) {
+    return 'agents.read';
   }
   if (pathname === '/api/admin/tunnel') {
     if (method === 'GET') return 'admin.tunnel.read';

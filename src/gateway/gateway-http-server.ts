@@ -130,9 +130,11 @@ import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import {
   type AdminRbacAction,
+  collectAdminActionClaims,
   isAdminActionAllowed,
   resolveAdminRbacAction,
 } from '../security/admin-rbac.js';
+import { isApiTokenString, verifyApiToken } from '../security/api-tokens.js';
 import { redactSecretsDeep } from '../security/redact.js';
 import { createSecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
@@ -202,6 +204,11 @@ import {
   recordGatewayAdminSecretMutationFailure,
   unsetGatewayAdminSecret,
 } from './gateway-admin-secrets.js';
+import {
+  createGatewayAdminToken,
+  getGatewayAdminTokens,
+  revokeGatewayAdminToken,
+} from './gateway-admin-tokens.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import {
   deleteGatewayAdminDistillCorpusDocument,
@@ -2104,27 +2111,68 @@ function hasSameGatewayOrigin(req: IncomingMessage): boolean {
   );
 }
 
-function hasApiAuth(
+type ResolvedAuthKind =
+  | 'master'
+  | 'apiToken'
+  | 'session'
+  | 'localSession'
+  | 'none';
+
+interface ResolvedAuthContext {
+  kind: ResolvedAuthKind;
+  payload: Record<string, unknown> | null;
+  tokenId?: string;
+  tokenLabel?: string;
+}
+
+interface ResolveAuthContextOptions {
+  allowApiTokens?: boolean;
+  allowLocalWebSession?: boolean;
+  allowQueryToken?: boolean;
+  allowSessionCookie?: boolean;
+  requireSameOrigin?: boolean;
+}
+
+function extractBearerToken(req: IncomingMessage): string {
+  const authHeader = normalizeHeaderValue(req.headers.authorization) || '';
+  const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+  return match?.[1]?.trim() || '';
+}
+
+function resolveAuthContext(
   req: IncomingMessage,
   url?: URL,
-  opts?: {
-    allowLocalWebSession?: boolean;
-    allowQueryToken?: boolean;
-    allowSessionCookie?: boolean;
-    requireSameOrigin?: boolean;
-  },
-): boolean {
-  const authHeader = req.headers.authorization || '';
-  const gatewayTokenMatch = hasBearerToken(authHeader, GATEWAY_API_TOKEN);
-  if (opts?.allowQueryToken && url && hasQueryToken(url)) return true;
+  opts?: ResolveAuthContextOptions,
+): ResolvedAuthContext {
+  if (opts?.allowQueryToken && url && hasQueryToken(url)) {
+    return { kind: 'master', payload: null };
+  }
 
-  if (hasBearerToken(authHeader, WEB_API_TOKEN)) return true;
+  const authHeader = req.headers.authorization || '';
+  const bearer = extractBearerToken(req);
+  const hasWebBearer = hasBearerToken(authHeader, WEB_API_TOKEN);
+  const hasGatewayBearer = hasBearerToken(authHeader, GATEWAY_API_TOKEN);
+  const hasMasterBearer = hasWebBearer || hasGatewayBearer;
+  if (opts?.allowApiTokens !== false && bearer && isApiTokenString(bearer)) {
+    const verified = verifyApiToken(bearer);
+    if (verified) {
+      return {
+        kind: 'apiToken',
+        payload: verified.claims,
+        tokenId: verified.id,
+        tokenLabel: verified.label,
+      };
+    }
+  }
+
   if (
     opts?.allowSessionCookie &&
-    hasSessionAuth(req) &&
-    (!opts.requireSameOrigin || hasSameGatewayOrigin(req))
+    (!opts.requireSameOrigin || hasSameGatewayOrigin(req) || hasMasterBearer)
   ) {
-    return true;
+    const sessionPayload = getSessionAuthPayload(req);
+    if (sessionPayload) {
+      return { kind: 'session', payload: sessionPayload };
+    }
   }
   if (
     opts?.allowLocalWebSession &&
@@ -2132,9 +2180,12 @@ function hasApiAuth(
     hasLocalWebSessionAuth(req) &&
     (!opts.requireSameOrigin || hasSameGatewayOrigin(req))
   ) {
-    return true;
+    return { kind: 'localSession', payload: null };
   }
-  return gatewayTokenMatch;
+  if (hasMasterBearer) {
+    return { kind: 'master', payload: null };
+  }
+  return { kind: 'none', payload: null };
 }
 
 function hasGatewayApiAuth(req: IncomingMessage): boolean {
@@ -2192,17 +2243,29 @@ function resolveAdminSessionAuditId(
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function resolveApiTokenActor(context: ResolvedAuthContext): string | null {
+  if (context.kind !== 'apiToken' || !context.tokenId) return null;
+  const label = context.tokenLabel?.trim();
+  return label
+    ? `apiToken:${context.tokenId}:${label}`
+    : `apiToken:${context.tokenId}`;
+}
+
 function resolveAdminSecretAuditContext(
   req: IncomingMessage,
-  sessionPayload: Record<string, unknown> | null,
+  authContext: ResolvedAuthContext,
 ): {
   sessionId?: string;
   actor?: string | null;
   sourceIp?: string | null;
 } {
+  const apiTokenActor = resolveApiTokenActor(authContext);
   return {
-    sessionId: resolveAdminSessionAuditId(sessionPayload) || undefined,
-    actor: resolveAdminSessionActor(sessionPayload),
+    sessionId:
+      resolveAdminSessionAuditId(authContext.payload) ||
+      apiTokenActor ||
+      undefined,
+    actor: apiTokenActor || resolveAdminSessionActor(authContext.payload),
     sourceIp: req.socket.remoteAddress || null,
   };
 }
@@ -2212,21 +2275,53 @@ function shouldDeferAdminRbacToHandler(action: AdminRbacAction): boolean {
 }
 
 function isAdminRouteActionAllowed(
-  req: IncomingMessage,
+  authContext: ResolvedAuthContext,
   action: AdminRbacAction,
 ): boolean {
-  return isAdminActionAllowed(getSessionAuthPayload(req), action);
+  return isAdminActionAllowed(authContext.payload, action);
+}
+
+function isAdminPath(pathname: string): boolean {
+  return pathname === '/api/admin' || pathname.startsWith('/api/admin/');
+}
+
+function hasFullApiTokenWildcard(context: ResolvedAuthContext): boolean {
+  if (context.kind !== 'apiToken') return false;
+  return collectAdminActionClaims(context.payload)?.has('*') === true;
+}
+
+function isApiTokenAllowedForRoute(
+  context: ResolvedAuthContext,
+  pathname: string,
+  method: string,
+): boolean {
+  if (context.kind !== 'apiToken') return true;
+  const action = resolveAdminRbacAction(pathname, method);
+  if (!action) return hasFullApiTokenWildcard(context);
+  return isAdminActionAllowed(context.payload, action);
 }
 
 function enforceAdminRouteRbac(
-  req: IncomingMessage,
+  authContext: ResolvedAuthContext,
   res: ServerResponse,
   pathname: string,
   method: string,
 ): boolean {
   const action = resolveAdminRbacAction(pathname, method);
+  if (authContext.kind === 'apiToken') {
+    if (!action && hasFullApiTokenWildcard(authContext)) return true;
+    if (!action) {
+      sendJson(res, 403, { error: 'Forbidden.' });
+      return false;
+    }
+    if (shouldDeferAdminRbacToHandler(action)) return true;
+    if (isAdminRouteActionAllowed(authContext, action)) return true;
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return false;
+  }
+  if (!isAdminPath(pathname)) return true;
   if (!action || shouldDeferAdminRbacToHandler(action)) return true;
-  if (isAdminRouteActionAllowed(req, action)) return true;
+  if (isAdminRouteActionAllowed(authContext, action)) return true;
   sendJson(res, 403, { error: 'Forbidden.' });
   return false;
 }
@@ -3670,15 +3765,20 @@ function handleApiAgentAvatar(
   res: ServerResponse,
   url: URL,
 ): void {
-  if (
-    !hasApiAuth(req, url, {
-      allowLocalWebSession: true,
-      allowSessionCookie: true,
-    })
-  ) {
+  const authContext = resolveAuthContext(req, url, {
+    allowLocalWebSession: true,
+    allowSessionCookie: true,
+  });
+  if (authContext.kind === 'none') {
     sendJson(res, 401, {
       error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
     });
+    return;
+  }
+  if (
+    !isApiTokenAllowedForRoute(authContext, url.pathname, req.method || 'GET')
+  ) {
+    sendJson(res, 403, { error: 'Forbidden.' });
     return;
   }
 
@@ -4199,9 +4299,9 @@ async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
 function handleApiAdminSecrets(
   req: IncomingMessage,
   res: ServerResponse,
+  authContext: ResolvedAuthContext,
 ): void {
-  const sessionPayload = getSessionAuthPayload(req);
-  if (!isAdminActionAllowed(sessionPayload, 'secret.list_metadata')) {
+  if (!isAdminActionAllowed(authContext.payload, 'secret.list_metadata')) {
     sendJson(res, 403, { error: 'Forbidden.' });
     return;
   }
@@ -4210,8 +4310,8 @@ function handleApiAdminSecrets(
     res,
     200,
     getGatewayAdminSecrets({
-      audit: resolveAdminSecretAuditContext(req, sessionPayload),
-      sessionPayload,
+      audit: resolveAdminSecretAuditContext(req, authContext),
+      sessionPayload: authContext.payload,
     }),
   );
 }
@@ -4235,14 +4335,110 @@ function readAdminSecretBodyValue(body: unknown): unknown {
   return undefined;
 }
 
+function parseApiAdminTokenId(pathname: string): string | null {
+  const prefix = '/api/admin/tokens/';
+  if (!pathname.startsWith(prefix)) return null;
+  const encoded = pathname.slice(prefix.length);
+  if (!encoded || encoded.includes('/')) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    throw new GatewayRequestError(400, 'Invalid token id in request path.');
+  }
+}
+
+function resolveAdminTokenAuditContext(
+  req: IncomingMessage,
+  authContext: ResolvedAuthContext,
+): {
+  sessionId?: string;
+  actor?: string | null;
+  sourceIp?: string | null;
+} {
+  const apiTokenActor = resolveApiTokenActor(authContext);
+  return {
+    sessionId:
+      resolveAdminSessionAuditId(authContext.payload) ||
+      apiTokenActor ||
+      undefined,
+    actor: apiTokenActor || resolveAdminSessionActor(authContext.payload),
+    sourceIp: req.socket.remoteAddress || null,
+  };
+}
+
+function handleApiAdminTokens(
+  res: ServerResponse,
+  authContext: ResolvedAuthContext,
+): void {
+  if (!isAdminActionAllowed(authContext.payload, 'admin.tokens.read')) {
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+  sendJson(
+    res,
+    200,
+    getGatewayAdminTokens({
+      authPayload: authContext.payload,
+    }),
+  );
+}
+
+async function handleApiAdminTokenCreate(
+  req: IncomingMessage,
+  res: ServerResponse,
+  authContext: ResolvedAuthContext,
+): Promise<void> {
+  if (authContext.kind === 'apiToken') {
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+  if (!isAdminActionAllowed(authContext.payload, 'admin.tokens.create')) {
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+  const body = await readJsonBody(req);
+  sendJson(
+    res,
+    201,
+    createGatewayAdminToken({
+      body,
+      audit: resolveAdminTokenAuditContext(req, authContext),
+    }),
+  );
+}
+
+function handleApiAdminTokenRevoke(
+  req: IncomingMessage,
+  res: ServerResponse,
+  id: string,
+  authContext: ResolvedAuthContext,
+): void {
+  if (authContext.kind === 'apiToken') {
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+  if (!isAdminActionAllowed(authContext.payload, 'admin.tokens.revoke')) {
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+  sendJson(
+    res,
+    200,
+    revokeGatewayAdminToken({
+      id,
+      audit: resolveAdminTokenAuditContext(req, authContext),
+    }),
+  );
+}
+
 async function handleApiAdminSecretOverwrite(
   req: IncomingMessage,
   res: ServerResponse,
   name: string,
+  authContext: ResolvedAuthContext,
 ): Promise<void> {
-  const sessionPayload = getSessionAuthPayload(req);
-  const audit = resolveAdminSecretAuditContext(req, sessionPayload);
-  if (!isAdminActionAllowed(sessionPayload, 'secret.overwrite')) {
+  const audit = resolveAdminSecretAuditContext(req, authContext);
+  if (!isAdminActionAllowed(authContext.payload, 'secret.overwrite')) {
     recordGatewayAdminSecretMutationFailure({
       type: 'secret.overwritten',
       name,
@@ -4281,10 +4477,10 @@ async function handleApiAdminSecretUnset(
   req: IncomingMessage,
   res: ServerResponse,
   name: string,
+  authContext: ResolvedAuthContext,
 ): Promise<void> {
-  const sessionPayload = getSessionAuthPayload(req);
-  const audit = resolveAdminSecretAuditContext(req, sessionPayload);
-  if (!isAdminActionAllowed(sessionPayload, 'secret.unset')) {
+  const audit = resolveAdminSecretAuditContext(req, authContext);
+  if (!isAdminActionAllowed(authContext.payload, 'secret.unset')) {
     recordGatewayAdminSecretMutationFailure({
       type: 'secret.unset',
       name,
@@ -7057,17 +7253,22 @@ async function handleApiArtifact(
   res: ServerResponse,
   url: URL,
 ): Promise<void> {
-  if (
-    !hasApiAuth(req, url, {
-      allowLocalWebSession: true,
-      allowQueryToken: true,
-      allowSessionCookie: true,
-    })
-  ) {
+  const authContext = resolveAuthContext(req, url, {
+    allowLocalWebSession: true,
+    allowQueryToken: true,
+    allowSessionCookie: true,
+  });
+  if (authContext.kind === 'none') {
     sendJson(res, 401, {
       error:
         'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass `?token=<WEB_API_TOKEN>`.',
     });
+    return;
+  }
+  if (
+    !isApiTokenAllowedForRoute(authContext, url.pathname, req.method || 'GET')
+  ) {
+    sendJson(res, 403, { error: 'Forbidden.' });
     return;
   }
 
@@ -7473,14 +7674,19 @@ async function handleApiAppBridgeTool(
     return;
   }
 
-  if (
-    !hasApiAuth(req, url, {
-      allowLocalWebSession: true,
-      allowSessionCookie: true,
-      requireSameOrigin: true,
-    })
-  ) {
+  const authContext = resolveAuthContext(req, url, {
+    allowLocalWebSession: true,
+    allowSessionCookie: true,
+    requireSameOrigin: true,
+  });
+  if (authContext.kind === 'none') {
     sendJson(res, 401, { error: 'Unauthorized.' });
+    return;
+  }
+  if (
+    !isApiTokenAllowedForRoute(authContext, url.pathname, req.method || 'POST')
+  ) {
+    sendJson(res, 403, { error: 'Forbidden.' });
     return;
   }
 
@@ -7530,17 +7736,22 @@ async function handleApiAppView(
   url: URL,
   id: string,
 ): Promise<void> {
-  if (
-    !hasApiAuth(req, url, {
-      allowLocalWebSession: true,
-      allowQueryToken: true,
-      allowSessionCookie: true,
-    })
-  ) {
+  const authContext = resolveAuthContext(req, url, {
+    allowLocalWebSession: true,
+    allowQueryToken: true,
+    allowSessionCookie: true,
+  });
+  if (authContext.kind === 'none') {
     sendJson(res, 401, {
       error:
         'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass `?token=<WEB_API_TOKEN>`.',
     });
+    return;
+  }
+  if (
+    !isApiTokenAllowedForRoute(authContext, url.pathname, req.method || 'GET')
+  ) {
+    sendJson(res, 403, { error: 'Forbidden.' });
     return;
   }
   const app = getApp(id);
@@ -8194,14 +8405,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         return;
       }
 
-      if (
-        !hasApiAuth(req, url, {
-          allowQueryToken: false,
-          allowLocalWebSession: true,
-          allowSessionCookie: true,
-          requireSameOrigin: method !== 'GET',
-        })
-      ) {
+      const authContext = resolveAuthContext(req, url, {
+        allowQueryToken: false,
+        allowLocalWebSession: true,
+        allowSessionCookie: true,
+        requireSameOrigin: method !== 'GET',
+      });
+      if (authContext.kind === 'none') {
         recordUnauthenticatedAdminSecretMutation(req, pathname, method);
         sendJson(res, 401, {
           error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
@@ -8209,7 +8419,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         return;
       }
 
-      if (!enforceAdminRouteRbac(req, res, pathname, method)) {
+      if (!enforceAdminRouteRbac(authContext, res, pathname, method)) {
         return;
       }
 
@@ -8260,7 +8470,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             }
           }
           if (pathname === '/api/admin/secrets' && method === 'GET') {
-            handleApiAdminSecrets(req, res);
+            handleApiAdminSecrets(req, res, authContext);
             return;
           }
           const adminSecretName = parseApiAdminSecretName(pathname);
@@ -8272,17 +8482,48 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             if (method === 'PUT') {
-              await handleApiAdminSecretOverwrite(req, res, adminSecretName);
+              await handleApiAdminSecretOverwrite(
+                req,
+                res,
+                adminSecretName,
+                authContext,
+              );
               return;
             }
             if (method === 'DELETE') {
-              await handleApiAdminSecretUnset(req, res, adminSecretName);
+              await handleApiAdminSecretUnset(
+                req,
+                res,
+                adminSecretName,
+                authContext,
+              );
               return;
             }
             sendMethodNotAllowed(res);
             return;
           }
           if (pathname === '/api/admin/secrets') {
+            sendMethodNotAllowed(res);
+            return;
+          }
+          if (pathname === '/api/admin/tokens' && method === 'GET') {
+            handleApiAdminTokens(res, authContext);
+            return;
+          }
+          if (pathname === '/api/admin/tokens' && method === 'POST') {
+            await handleApiAdminTokenCreate(req, res, authContext);
+            return;
+          }
+          const adminTokenId = parseApiAdminTokenId(pathname);
+          if (adminTokenId !== null) {
+            if (method === 'DELETE') {
+              handleApiAdminTokenRevoke(req, res, adminTokenId, authContext);
+              return;
+            }
+            sendMethodNotAllowed(res);
+            return;
+          }
+          if (pathname === '/api/admin/tokens') {
             sendMethodNotAllowed(res);
             return;
           }
@@ -8754,11 +8995,26 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (pathname.startsWith('/v1/')) {
-      if (!hasApiAuth(req, url)) {
+      const authContext = resolveAuthContext(req, url);
+      if (authContext.kind === 'none') {
         sendJson(res, 401, {
           error: {
             message:
               'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+            type: 'authentication_error',
+            param: null,
+            code: null,
+          },
+        });
+        return;
+      }
+      if (
+        authContext.payload !== null &&
+        !isAdminActionAllowed(authContext.payload, 'openai.api')
+      ) {
+        sendJson(res, 403, {
+          error: {
+            message: 'Forbidden.',
             type: 'authentication_error',
             param: null,
             code: null,
@@ -8869,9 +9125,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
-    const sessionAuthenticated = hasSessionAuth(req);
-    const tokenAuthenticated = hasApiAuth(req, url, {
+    const sessionPayload = getSessionAuthPayload(req);
+    const sessionAuthenticated = sessionPayload !== null;
+    const tokenAuthenticated =
+      resolveAuthContext(req, url, {
+        allowApiTokens: false,
+        allowQueryToken: false,
+      }).kind !== 'none';
+    const requestAuthContext = resolveAuthContext(req, url, {
+      allowApiTokens: false,
       allowQueryToken: false,
+      allowLocalWebSession: true,
+      requireSameOrigin: true,
     });
     if (
       !sessionAuthenticated &&
@@ -8883,11 +9148,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       writeUpgradeError(socket, 401, 'Unauthorized');
       return;
     }
-    const requestAuthenticated = hasApiAuth(req, url, {
-      allowQueryToken: false,
-      allowLocalWebSession: true,
-      requireSameOrigin: true,
-    });
+    const requestAuthenticated = requestAuthContext.kind !== 'none';
     if (
       !sessionAuthenticated &&
       !WEB_API_TOKEN &&
@@ -8899,9 +9160,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     const terminalStreamAction = resolveAdminRbacAction(url.pathname, 'GET');
+    const terminalRbacContext: ResolvedAuthContext = sessionAuthenticated
+      ? { kind: 'session', payload: sessionPayload }
+      : requestAuthContext;
     if (
       terminalStreamAction &&
-      !isAdminRouteActionAllowed(req, terminalStreamAction)
+      !isAdminRouteActionAllowed(terminalRbacContext, terminalStreamAction)
     ) {
       writeUpgradeError(socket, 403, 'Forbidden');
       return;
