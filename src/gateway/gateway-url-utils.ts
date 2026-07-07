@@ -1,3 +1,5 @@
+import type { IncomingMessage } from 'node:http';
+
 export function normalizeHttpBaseUrl(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim().replace(/\/+$/, '');
@@ -17,6 +19,38 @@ export function normalizeHttpOrigin(value: unknown): string | undefined {
   const baseUrl = normalizeHttpBaseUrl(value);
   if (!baseUrl) return undefined;
   return new URL(baseUrl).origin;
+}
+
+/**
+ * Whether the request reached us over HTTPS, honoring the `X-Forwarded-Proto`
+ * header set by TLS-terminating proxies/tunnels (e.g. ngrok) before falling
+ * back to the socket's own encryption state.
+ */
+export function requestUsesHttps(req: IncomingMessage): boolean {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
+    .split(',')[0]
+    ?.trim()
+    .toLowerCase();
+  if (forwardedProto) return forwardedProto === 'https';
+  return (req.socket as { encrypted?: boolean }).encrypted === true;
+}
+
+/**
+ * Reconstruct the public origin a request arrived on, honoring the
+ * `X-Forwarded-Host`/`X-Forwarded-Proto` headers a TLS-terminating tunnel adds.
+ * This mirrors how the Agent Card advertises its own origin so that inbound
+ * audience checks agree with the URL senders sign against.
+ */
+export function resolveForwardedRequestOrigin(
+  req: IncomingMessage,
+  fallbackHost = '127.0.0.1',
+): string {
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '')
+    .split(',')[0]
+    ?.trim();
+  const proto = requestUsesHttps(req) ? 'https' : 'http';
+  const host = forwardedHost || req.headers.host || fallbackHost;
+  return `${proto}://${host}`;
 }
 
 export function isPrivateHttpBaseUrl(value: string): boolean {

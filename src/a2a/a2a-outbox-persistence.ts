@@ -193,6 +193,43 @@ export function listA2AOutboxItems(
     });
 }
 
+export interface A2AOutboxDeliveryStatus {
+  status: A2AOutboundStatus | 'unknown';
+  attempts?: number;
+  maxAttempts?: number;
+  lastError?: string;
+  lastStatusCode?: number;
+  deliveredAt?: string;
+  failedAt?: string;
+  nextAttemptAt?: string;
+}
+
+/**
+ * Look up the current delivery state of an outbound A2A message by its envelope
+ * message id. Returns `unknown` when no outbox item is found (e.g. the message
+ * was delivered in-process to a local recipient and never entered the outbox).
+ */
+export function getA2AOutboxDeliveryStatus(
+  messageId: string,
+): A2AOutboxDeliveryStatus {
+  const id = messageId.trim();
+  if (!id) return { status: 'unknown' };
+  const item = listA2AOutboxItems().find((entry) => entry.envelope.id === id);
+  if (!item) return { status: 'unknown' };
+  return {
+    status: item.status,
+    attempts: item.attempts,
+    maxAttempts: item.maxAttempts,
+    ...(item.lastError ? { lastError: item.lastError } : {}),
+    ...(item.lastStatusCode !== undefined
+      ? { lastStatusCode: item.lastStatusCode }
+      : {}),
+    ...(item.deliveredAt ? { deliveredAt: item.deliveredAt } : {}),
+    ...(item.failedAt ? { failedAt: item.failedAt } : {}),
+    nextAttemptAt: item.nextAttemptAt,
+  };
+}
+
 function makeOutboxItem(
   envelope: A2AEnvelope,
   descriptor: Partial<

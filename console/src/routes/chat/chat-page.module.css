@@ -2151,3 +2151,63 @@ aside[data-state="collapsed"] .chatSidebarContent {
     animation: none;
   }
 }
+
+/* Live delivery-status chip for outbound A2A chat sends. Sits under the command
+   bubble so the send stops reading as a dead end. */
+.a2aDeliveryChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  background: var(--accent-soft);
+  color: var(--muted-foreground);
+  border: 1px solid var(--line-strong);
+}
+
+.a2aDeliveryChipDelivered {
+  background: var(--success-soft);
+  color: var(--success-foreground);
+  border-color: var(--success-border);
+}
+
+.a2aDeliveryChipFailed {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+.a2aDeliveryDot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.a2aDeliveryDotPulse {
+  animation: a2aDeliveryPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes a2aDeliveryPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.a2aDeliveryDetail {
+  opacity: 0.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .a2aDeliveryDotPulse {
+    animation: none;
+  }
+}

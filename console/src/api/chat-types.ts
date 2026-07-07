@@ -193,6 +193,19 @@ export type ChatStreamEvent =
 
 export type ChatResultMessageRole = 'assistant' | 'approval' | 'command';
 
+export type A2ADeliveryState = 'pending' | 'delivered' | 'failed' | 'unknown';
+
+/**
+ * Describes an outbound A2A message a chat send produced, so the UI can render
+ * a live delivery-status chip and poll for its final state.
+ */
+export interface A2ADeliveryDescriptor {
+  messageId: string;
+  threadId: string;
+  recipientAgentId: string;
+  status: A2ADeliveryState;
+}
+
 export interface ChatStreamResult {
   status?: string;
   error?: string;
@@ -214,6 +227,7 @@ export interface ChatStreamResult {
   artifacts?: ChatArtifact[];
   apps?: Array<{ id: string; title: string; kind: 'web' | 'live' }>;
   toolsUsed?: string[];
+  a2aDelivery?: A2ADeliveryDescriptor | null;
 }
 
 export interface MediaItem {
@@ -260,4 +274,5 @@ export interface ChatMessage {
   addressedAgentPresentation?: AssistantPresentation | null;
   responseRating?: ResponseRatingValue | null;
   branchKey?: string | null;
+  a2aDelivery?: A2ADeliveryDescriptor | null;
 }

@@ -5,6 +5,7 @@ import {
 import { IDENTITY_DISCOVERY_ZONE_ENV } from '../identity/resolver.js';
 import { logger } from '../logger.js';
 import type { EscalationTarget } from '../types/execution.js';
+import { enqueueA2AInboxDispatch } from './a2a-inbox-dispatch-store.js';
 import { enqueueUnresolvedA2AEnvelope } from './a2a-outbound.js';
 import { recordA2AMessageAudit } from './audit.js';
 import {
@@ -204,6 +205,15 @@ export function sendMessage(
     actor: meta?.actor,
     route: 'a2a.sendMessage',
     source: 'a2a-runtime',
+  });
+  enqueueA2AInboxDispatch(deliveredEnvelope, {
+    actor: meta?.actor,
+    source:
+      (meta?.auditRole ?? 'sender') === 'receiver'
+        ? 'a2a.inbound'
+        : 'a2a.runtime',
+    sessionId: meta?.sessionId,
+    runId: meta?.auditRunId,
   });
   recordSendAudits({
     envelope: deliveredEnvelope,
