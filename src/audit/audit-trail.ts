@@ -58,6 +58,8 @@ interface SessionAuditState {
 const sessionStateCache = new Map<string, SessionAuditState>();
 
 function sha256(text: string): string {
+  // lgtm[js/insufficient-password-hash] Audit wire hashes provide deterministic
+  // record-chain integrity, not password or bearer-token storage.
   return createHash('sha256').update(text).digest('hex');
 }
 

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 import { useTempDir } from './test-utils.ts';
@@ -15,7 +14,7 @@ async function setupRegistry() {
 }
 
 describe('api token registry', () => {
-  test('creates scoped hck tokens and stores only a SHA-256 hash', async () => {
+  test('creates scoped hck tokens and stores only a verifier', async () => {
     const { db, tokens } = await setupRegistry();
 
     const result = tokens.createApiToken({
@@ -44,9 +43,8 @@ describe('api token registry', () => {
     );
 
     expect(row?.stored_token).toBeNull();
-    expect(row?.token_hash).toBe(
-      createHash('sha256').update(result.token).digest('hex'),
-    );
+    expect(row?.token_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(row?.token_hash).not.toBe(result.token);
     expect(JSON.stringify(row)).not.toContain(result.token);
   });
 

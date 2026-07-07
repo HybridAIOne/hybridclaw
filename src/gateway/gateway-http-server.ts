@@ -2135,8 +2135,13 @@ interface ResolveAuthContextOptions {
 
 function extractBearerToken(req: IncomingMessage): string {
   const authHeader = normalizeHeaderValue(req.headers.authorization) || '';
-  const match = /^Bearer\s+(.+)$/i.exec(authHeader);
-  return match?.[1]?.trim() || '';
+  if (authHeader.length <= 'Bearer '.length) return '';
+  if (authHeader.slice(0, 'Bearer'.length).toLowerCase() !== 'bearer') {
+    return '';
+  }
+  const separator = authHeader.charAt('Bearer'.length);
+  if (separator !== ' ' && separator !== '\t') return '';
+  return authHeader.slice('Bearer'.length + 1).trim();
 }
 
 function resolveAuthContext(

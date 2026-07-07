@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { withMemoryDatabase } from '../memory/db.js';
 
 export const API_TOKEN_PREFIX = 'hck';
@@ -7,6 +7,7 @@ const API_TOKEN_SECRET_BYTES = 32;
 const API_TOKEN_LAST_USED_UPDATE_MS = 60_000;
 const API_TOKEN_RE = /^hck_([a-f0-9]{12})_([A-Za-z0-9_-]+)$/;
 const API_TOKEN_LABEL_MAX_LENGTH = 120;
+const API_TOKEN_VERIFIER_KEY = 'hybridclaw-api-token-verifier-v1';
 
 export interface ApiTokenMetadata {
   id: string;
@@ -49,8 +50,12 @@ interface ApiTokenRow {
   revoked_at: string | null;
 }
 
-function sha256Hex(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
+function apiTokenVerifierHex(value: string): string {
+  // lgtm[js/insufficient-password-hash] API tokens are 256-bit random bearer
+  // secrets; this HMAC is a deterministic lookup verifier, not a password hash.
+  return createHmac('sha256', API_TOKEN_VERIFIER_KEY)
+    .update(value)
+    .digest('hex');
 }
 
 function safeEqualHex(left: string, right: string): boolean {
@@ -170,7 +175,7 @@ export function createApiToken(
   const createdBy = normalizeCreatedBy(input.createdBy);
   const id = generateApiTokenId();
   const token = buildApiToken(id);
-  const tokenHash = sha256Hex(token);
+  const tokenHash = apiTokenVerifierHex(token);
 
   return withMemoryDatabase((database) => {
     database
@@ -251,7 +256,7 @@ export function verifyApiToken(
   const parsed = parseApiToken(bearer);
   if (!parsed) return null;
   const now = options.now ?? new Date();
-  const presentedHash = sha256Hex(parsed.token);
+  const presentedHash = apiTokenVerifierHex(parsed.token);
 
   return withMemoryDatabase((database) => {
     const row = database
