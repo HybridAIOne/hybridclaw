@@ -2117,9 +2117,11 @@ const WATCHER_RETRY_BASE_DELAY_MS = 1_000;
 const WATCHER_RETRY_MAX_DELAY_MS = 60_000;
 const WATCHER_RETRY_MAX_ATTEMPTS = 10;
 const WATCHER_STABLE_RESET_DELAY_MS = 1_000;
+const WATCHER_POLL_FALLBACK_INTERVAL_MS = 2_000;
 let watcherRetryAttempt = 0;
 let watcherRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherStableTimer: ReturnType<typeof setTimeout> | null = null;
+let watcherPollFallbackActive = false;
 
 function detachTimer(timer: ReturnType<typeof setTimeout>): void {
   if (
@@ -8583,6 +8585,31 @@ function scheduleReload(trigger: string): void {
   }, 120);
 }
 
+function handleWatcherPollTick(curr: fs.Stats, prev: fs.Stats): void {
+  if (curr.mtimeMs === prev.mtimeMs && curr.size === prev.size) return;
+  scheduleReload('poll');
+}
+
+function startWatcherPollFallback(reason: string): void {
+  if (isRuntimeConfigWatcherDisabled()) return;
+  if (watcherPollFallbackActive) return;
+  watcherPollFallbackActive = true;
+  fs.watchFile(
+    CONFIG_PATH,
+    { persistent: false, interval: WATCHER_POLL_FALLBACK_INTERVAL_MS },
+    handleWatcherPollTick,
+  );
+  console.warn(
+    `[runtime-config] watching config via ${WATCHER_POLL_FALLBACK_INTERVAL_MS}ms stat polling until fs.watch recovers (${reason})`,
+  );
+}
+
+function stopWatcherPollFallback(): void {
+  if (!watcherPollFallbackActive) return;
+  watcherPollFallbackActive = false;
+  fs.unwatchFile(CONFIG_PATH, handleWatcherPollTick);
+}
+
 function scheduleWatcherRestart(reason: string): void {
   if (isRuntimeConfigWatcherDisabled()) return;
   if (watcherRestartTimer) return;
@@ -8592,7 +8619,7 @@ function scheduleWatcherRestart(reason: string): void {
   }
   if (watcherRetryAttempt >= WATCHER_RETRY_MAX_ATTEMPTS) {
     console.warn(
-      `[runtime-config] watcher disabled after ${WATCHER_RETRY_MAX_ATTEMPTS} retries (${reason})`,
+      `[runtime-config] watcher disabled after ${WATCHER_RETRY_MAX_ATTEMPTS} retries (${reason})${watcherPollFallbackActive ? '; config file changes are still detected via stat polling' : ''}`,
     );
     return;
   }
@@ -8614,6 +8641,7 @@ function scheduleWatcherRestart(reason: string): void {
 function markWatcherStable(activeWatcher: fs.FSWatcher): void {
   if (configWatcher !== activeWatcher) return;
   watcherRetryAttempt = 0;
+  stopWatcherPollFallback();
   if (watcherStableTimer) {
     clearTimeout(watcherStableTimer);
     watcherStableTimer = null;
@@ -8656,11 +8684,13 @@ function startWatcher(): void {
         watcherStableTimer = null;
       }
       console.warn(`[runtime-config] watcher error: ${reason}`);
+      startWatcherPollFallback(`watcher error: ${reason}`);
       scheduleWatcherRestart(`watcher error: ${reason}`);
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     console.warn(`[runtime-config] watcher setup failed: ${reason}`);
+    startWatcherPollFallback(`watcher setup failed: ${reason}`);
     scheduleWatcherRestart(`watcher setup failed: ${reason}`);
   }
 }
@@ -8768,10 +8798,16 @@ function initializeRuntimeConfig(): void {
   ensureInitialConfigFile();
   migrateConfigSchemaOnStartup();
   reloadFromDisk('startup');
-  startWatcher();
 }
 
 initializeRuntimeConfig();
+
+// Watching is opt-in for long-running processes (the gateway). One-shot CLI
+// invocations must not hold fs.watch/FSEvents resources they never benefit
+// from — watcher failures (e.g. EMFILE) would only pollute their output.
+export function startRuntimeConfigWatcher(): void {
+  startWatcher();
+}
 
 export function runtimeConfigPath(): string {
   return CONFIG_PATH;

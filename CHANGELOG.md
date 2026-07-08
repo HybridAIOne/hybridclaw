@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Config watcher scope and EMFILE resilience**: The runtime-config file
+  watcher now starts only in the long-running gateway process instead of in
+  every CLI invocation, so one-shot commands such as `hybridclaw gateway
+  status` no longer create `fs.watch` handles or interleave
+  `[runtime-config] watcher error: EMFILE` retry noise into their output.
+  When the gateway's watcher does fail (for example `EMFILE: too many open
+  files`), config hot-reload now falls back to descriptor-free stat polling
+  instead of going dark after ten failed watcher restarts.
+
+  `Manifesto: Principle VIII - A coworker doesn't break overnight.`
+
 ## [0.27.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.27.2) - 2026-07-06
 
 ### Fixed
