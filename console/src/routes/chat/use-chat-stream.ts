@@ -24,6 +24,10 @@ import type {
   TraceToolStep,
 } from './chat-ui-message';
 
+const A2A_REPLY_HISTORY_REFRESH_DELAYS_MS = [
+  3000, 8000, 16_000, 30_000, 60_000,
+];
+
 interface ActiveRequest {
   controller: AbortController;
   sessionId: string;
@@ -572,6 +576,17 @@ export function useChatStream(
           void queryClient.invalidateQueries({
             queryKey: ['agents-list', token],
           });
+        }
+        if (result.a2aDelivery) {
+          const historyKey = chatHistoryQueryKey(
+            token,
+            result.sessionId ?? targetSessionId,
+          );
+          for (const delayMs of A2A_REPLY_HISTORY_REFRESH_DELAYS_MS) {
+            window.setTimeout(() => {
+              void queryClient.invalidateQueries({ queryKey: historyKey });
+            }, delayMs);
+          }
         }
       } catch (err) {
         if (req.renderFrame) cancelAnimationFrame(req.renderFrame);
