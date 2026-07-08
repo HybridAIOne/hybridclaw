@@ -110,6 +110,23 @@ describe('TokensPage', () => {
       target: { value: 'admin:auditor' },
     });
 
+    const expiresSelect = within(dialog).getByLabelText(
+      'Expires at',
+    ) as HTMLSelectElement;
+    expect([...expiresSelect.options].map((option) => option.value)).toEqual([
+      'never',
+      '7d',
+      '30d',
+      '90d',
+      'custom',
+    ]);
+    fireEvent.change(expiresSelect, {
+      target: { value: 'custom' },
+    });
+    fireEvent.change(within(dialog).getByLabelText('Custom expiration'), {
+      target: { value: '2026-09-01T08:30' },
+    });
+
     fireEvent.click(
       within(dialog).getByRole('button', { name: 'Create token' }),
     );
@@ -119,6 +136,7 @@ describe('TokensPage', () => {
         label: 'SDK token',
         actions: ['openai.api', 'chat.send'],
         role: 'admin:auditor',
+        expiresAt: '2026-09-01T08:30',
       }),
     );
   });

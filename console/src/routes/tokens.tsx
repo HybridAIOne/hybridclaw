@@ -187,6 +187,16 @@ const TOKEN_ROLE_GROUPS = [
   },
 ] as const;
 
+const TOKEN_EXPIRY_PRESETS = [
+  ['never', 'No expiration'],
+  ['7d', '7 days'],
+  ['30d', '30 days'],
+  ['90d', '90 days'],
+  ['custom', 'Custom date/time'],
+] as const;
+
+type TokenExpiryPreset = (typeof TOKEN_EXPIRY_PRESETS)[number][0];
+
 type TokenActionOption = {
   value: string;
   label: string;
@@ -290,6 +300,16 @@ function orderTokenActions(actions: string[]): string[] {
   return TOKEN_ACTION_OPTIONS.map((option) => option.value).filter((value) =>
     selected.has(value),
   );
+}
+
+function resolveExpiresAt(
+  preset: TokenExpiryPreset,
+  customExpiresAt: string,
+): string | null {
+  if (preset === 'custom') return customExpiresAt.trim() || null;
+  if (preset === 'never') return null;
+  const days = preset === '7d' ? 7 : preset === '30d' ? 30 : 90;
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 export function TokensPage() {
@@ -494,33 +514,39 @@ function CreateTokenDialog(props: {
   const [label, setLabel] = useState('');
   const [role, setRole] = useState('');
   const [actions, setActions] = useState<string[]>([]);
-  const [expiresAt, setExpiresAt] = useState('');
+  const [expiryPreset, setExpiryPreset] = useState<TokenExpiryPreset>('never');
+  const [customExpiresAt, setCustomExpiresAt] = useState('');
   const labelId = useId();
   const roleId = useId();
   const actionsId = useId();
-  const expiresId = useId();
+  const expiryPresetId = useId();
+  const customExpiresId = useId();
   const canSubmit =
-    label.trim().length > 0 && (role.trim().length > 0 || actions.length > 0);
+    label.trim().length > 0 &&
+    (role.trim().length > 0 || actions.length > 0) &&
+    (expiryPreset !== 'custom' || customExpiresAt.trim().length > 0);
 
   useEffect(() => {
     if (!props.open) return;
     setLabel('');
     setRole('');
     setActions([]);
-    setExpiresAt('');
+    setExpiryPreset('never');
+    setCustomExpiresAt('');
   }, [props.open]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmedLabel = label.trim();
     const trimmedRole = role.trim();
-    const trimmedExpiresAt = expiresAt.trim();
+    const expiresAt = resolveExpiresAt(expiryPreset, customExpiresAt);
     if (!trimmedLabel || (!trimmedRole && actions.length === 0)) return;
+    if (expiryPreset === 'custom' && !expiresAt) return;
     props.onSubmit({
       label: trimmedLabel,
       ...(trimmedRole ? { role: trimmedRole } : {}),
       ...(actions.length > 0 ? { actions } : {}),
-      ...(trimmedExpiresAt ? { expiresAt: trimmedExpiresAt } : {}),
+      ...(expiresAt ? { expiresAt } : {}),
     });
   };
 
@@ -581,16 +607,37 @@ function CreateTokenDialog(props: {
               ))}
             </NativeSelect>
           </Field>
-          <Field>
-            <FieldLabel htmlFor={expiresId}>Expires at</FieldLabel>
-            <Input
-              id={expiresId}
-              value={expiresAt}
-              onChange={(event) => setExpiresAt(event.target.value)}
-              type="datetime-local"
+          <Field controlId={expiryPresetId}>
+            <FieldLabel>Expires at</FieldLabel>
+            <NativeSelect
+              id={expiryPresetId}
+              value={expiryPreset}
+              onChange={(event) =>
+                setExpiryPreset(event.target.value as TokenExpiryPreset)
+              }
               disabled={props.pending}
-            />
+            >
+              {TOKEN_EXPIRY_PRESETS.map(([value, optionLabel]) => (
+                <NativeSelectOption key={value} value={value}>
+                  {optionLabel}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
           </Field>
+          {expiryPreset === 'custom' ? (
+            <Field>
+              <FieldLabel htmlFor={customExpiresId}>
+                Custom expiration
+              </FieldLabel>
+              <Input
+                id={customExpiresId}
+                value={customExpiresAt}
+                onChange={(event) => setCustomExpiresAt(event.target.value)}
+                type="datetime-local"
+                disabled={props.pending}
+              />
+            </Field>
+          ) : null}
           <DialogFooter>
             <DialogClose className="ghost-button" disabled={props.pending}>
               Cancel
