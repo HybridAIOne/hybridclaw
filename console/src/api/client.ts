@@ -64,6 +64,7 @@ import type {
   AdminMcpOAuthStatusResponse,
   AdminMcpResponse,
   AdminModelsResponse,
+  AdminMSTeamsTabStatusResponse,
   AdminOutputGuardPreviewResponse,
   AdminOutputGuardProfile,
   AdminOutputGuardProfileResponse,
@@ -247,7 +248,7 @@ export async function requestJson<T>(
   pathname: string,
   options: {
     token: string;
-    method?: 'GET' | 'PUT' | 'DELETE' | 'POST';
+    method?: 'GET' | 'PATCH' | 'PUT' | 'DELETE' | 'POST';
     body?: unknown;
     rawBody?: BodyInit;
     extraHeaders?: HeadersInit;
@@ -1047,6 +1048,25 @@ export function deleteChannel(
 
 export function fetchConfig(token: string): Promise<AdminConfigResponse> {
   return requestJson<AdminConfigResponse>('/api/admin/config', { token });
+}
+
+export function fetchMSTeamsTabStatus(
+  token: string,
+): Promise<AdminMSTeamsTabStatusResponse> {
+  return requestJson<AdminMSTeamsTabStatusResponse>(
+    '/api/admin/msteams/tab-status',
+    { token },
+  );
+}
+
+export async function downloadMSTeamsOrgManifest(token: string): Promise<Blob> {
+  const response = await fetch('/api/admin/msteams/tab-manifest', {
+    headers: requestHeaders(token),
+  });
+  if (!response.ok) {
+    await throwResponseError(response);
+  }
+  return response.blob();
 }
 
 export function fetchBrowserPoolHealth(

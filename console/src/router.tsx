@@ -36,6 +36,7 @@ import { SessionsPage } from './routes/sessions';
 import { SkillsDetailPage } from './routes/skill-detail';
 import { SkillsPage } from './routes/skills';
 import { StatisticsPage } from './routes/statistics';
+import { TeamsPage } from './routes/teams';
 import { TokensPage } from './routes/tokens';
 import { ToolsPage } from './routes/tools';
 
@@ -208,6 +209,12 @@ const channelsRoute = createRoute({
   component: ChannelsPage,
 });
 
+const teamsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/teams',
+  component: TeamsPage,
+});
+
 const emailRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/email',
@@ -374,6 +381,7 @@ const routeTree = rootRoute.addChildren([
     fleetTopologyRoute,
     sessionsRoute,
     channelsRoute,
+    teamsRoute,
     emailRoute,
     configRoute,
     modelsRoute,

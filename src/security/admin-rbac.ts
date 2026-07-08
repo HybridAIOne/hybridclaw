@@ -18,6 +18,7 @@ export const ADMIN_RBAC_ACTIONS = [
   'status.read',
   'agents.read',
   'apps.read',
+  'apps.write',
   'apps.view',
   'apps.bridge',
   'apps.delete',
@@ -414,7 +415,13 @@ export function resolveAdminRbacAction(
     if (pathname.endsWith('/bridge/tool')) {
       return method === 'POST' ? 'apps.bridge' : null;
     }
+    if (pathname.includes('/publications')) {
+      if (method === 'GET') return 'apps.read';
+      if (method === 'POST' || method === 'DELETE') return 'apps.write';
+      return null;
+    }
     if (method === 'GET') return 'apps.read';
+    if (method === 'PATCH') return 'apps.write';
     if (method === 'DELETE') return 'apps.delete';
     return null;
   }
@@ -489,6 +496,13 @@ export function resolveAdminRbacAction(
       'admin.channels.write',
       'admin.channels.delete',
     );
+  }
+  if (
+    (pathname === '/api/admin/msteams/tab-manifest' ||
+      pathname === '/api/admin/msteams/tab-status') &&
+    method === 'GET'
+  ) {
+    return 'admin.config.read';
   }
   if (pathname === '/api/admin/mcp') {
     return actionForReadWriteDelete(

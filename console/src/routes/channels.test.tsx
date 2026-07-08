@@ -130,6 +130,12 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
         port: 3978,
         path: '/api/msteams/messages',
       },
+      tab: {
+        enabled: false,
+        ssoAppId: '',
+        appIdUri: '',
+        allowFrom: [],
+      },
       groupPolicy: 'allowlist',
       dmPolicy: 'allowlist',
       allowFrom: [],
@@ -482,6 +488,42 @@ describe('ChannelsPage', () => {
         }),
       }),
     );
+  });
+
+  it('links Microsoft Teams settings to Teams app setup', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+
+    renderChannelsPage();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Microsoft Teams/i }),
+    );
+
+    screen.getByText(/Paste values from Microsoft Entra Admin Center/i);
+    screen.getByText(
+      'Application (client) ID from the Entra app registration.',
+    );
+    screen.getByText('Directory (tenant) ID from the same Entra tenant.');
+    expect(screen.queryByText('Team defaults')).toBeNull();
+    expect(screen.queryByText('Channel overrides')).toBeNull();
+    const advancedSettings = screen
+      .getByText('Advanced delivery settings')
+      .closest('details') as HTMLDetailsElement | null;
+    expect(advancedSettings?.open).toBe(false);
+    const appSetupLink = screen.getByRole('link', { name: 'App Setup' });
+    expect(appSetupLink.getAttribute('href')).toBe('/admin/teams');
+    const setupInstructions = screen
+      .getByText('Teams app setup instructions')
+      .closest('details') as HTMLDetailsElement | null;
+    expect(setupInstructions?.open).toBe(false);
+    screen.getByText(/Cloud deployments should already show/i);
+    screen.getByText(/Local installs need a public HTTPS tunnel/i);
+    screen.getByText(/add an `access_as_user` scope/i);
+    screen.getByText(/Authorized client applications/i);
+    screen.getByText(/use Apps, Share, Add to Teams/i);
   });
 
   it('shows the target agent for the default email mailbox', async () => {

@@ -555,6 +555,13 @@ export interface RuntimeMSTeamsWebhookConfig {
   path: string;
 }
 
+export interface RuntimeMSTeamsTabConfig {
+  enabled: boolean;
+  ssoAppId: string;
+  appIdUri: string;
+  allowFrom: string[];
+}
+
 export interface RuntimeMSTeamsChannelConfig {
   requireMention?: boolean;
   tools?: string[];
@@ -577,6 +584,7 @@ export interface RuntimeMSTeamsConfig {
   appId: string;
   tenantId: string;
   webhook: RuntimeMSTeamsWebhookConfig;
+  tab: RuntimeMSTeamsTabConfig;
   groupPolicy: MSTeamsGroupPolicy;
   dmPolicy: MSTeamsDmPolicy;
   allowFrom: string[];
@@ -1592,6 +1600,12 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     webhook: {
       port: 3_978,
       path: '/api/msteams/messages',
+    },
+    tab: {
+      enabled: false,
+      ssoAppId: '',
+      appIdUri: '',
+      allowFrom: [],
     },
     groupPolicy: 'allowlist',
     dmPolicy: 'allowlist',
@@ -4623,6 +4637,23 @@ function normalizeMSTeamsWebhookConfig(
   };
 }
 
+function normalizeMSTeamsTabConfig(
+  value: unknown,
+  fallback: RuntimeMSTeamsTabConfig,
+): RuntimeMSTeamsTabConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    ssoAppId: normalizeString(raw.ssoAppId, fallback.ssoAppId, {
+      allowEmpty: true,
+    }),
+    appIdUri: normalizeString(raw.appIdUri, fallback.appIdUri, {
+      allowEmpty: true,
+    }),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+  };
+}
+
 function normalizeMSTeamsChannelConfig(
   value: unknown,
   fallback: RuntimeMSTeamsChannelConfig,
@@ -4741,6 +4772,7 @@ function normalizeMSTeamsConfig(
       allowEmpty: true,
     }),
     webhook: normalizeMSTeamsWebhookConfig(raw.webhook, fallback.webhook),
+    tab: normalizeMSTeamsTabConfig(raw.tab, fallback.tab),
     groupPolicy: normalizeMSTeamsGroupPolicy(
       raw.groupPolicy,
       fallback.groupPolicy,

@@ -5,12 +5,19 @@ import {
   type AppCategory,
   type AppDetail,
   type AppKind,
+  type AppPublication,
   type AppSummary,
   appViewUrl,
+  createAppPublication,
   deleteApp,
+  downloadAppTeamsManifest,
   fetchApp,
+  fetchAppPublications,
   fetchApps,
+  revokeAppPublication,
+  updateApp,
 } from '../api/apps';
+import { fetchMSTeamsTabStatus } from '../api/client';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import {
@@ -28,7 +35,7 @@ import {
   DropdownItem,
   DropdownTrigger,
 } from '../components/dropdown';
-import { ChevronDown, Search, Trash } from '../components/icons';
+import { ChevronDown, Search, Share, Trash } from '../components/icons';
 import {
   LiveAppFrame,
   type LiveAppFrameHandle,
@@ -151,6 +158,7 @@ export function AppsPage() {
   const [viewerToken, setViewerToken] = useState('');
   const [viewerRefreshNonce, setViewerRefreshNonce] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState<AppSummary | null>(null);
+  const [shareApp, setShareApp] = useState<AppSummary | AppDetail | null>(null);
   const viewerFrameRef = useRef<LiveAppFrameHandle | null>(null);
 
   const query = useQuery({
@@ -358,6 +366,7 @@ export function AppsPage() {
                       <AppCard
                         app={app}
                         onOpen={() => openApp(app)}
+                        onShare={() => setShareApp(app)}
                         onDelete={() => setConfirmDelete(app)}
                         onRefresh={() => refreshApp(app)}
                       />
@@ -384,6 +393,20 @@ export function AppsPage() {
         frameRef={viewerFrameRef}
         refreshNonce={viewerRefreshNonce}
         onRefresh={viewer ? () => refreshApp(viewer) : undefined}
+        onShare={viewer ? () => setShareApp(viewer) : undefined}
+      />
+
+      <ShareAppDialog
+        app={shareApp}
+        token={token}
+        onClose={() => setShareApp(null)}
+        onChanged={async () => {
+          await queryClient.invalidateQueries({ queryKey: ['apps'] });
+          if (viewer) {
+            const result = await fetchApp(token, viewer.id);
+            setViewer(result.app);
+          }
+        }}
       />
 
       <Dialog
@@ -442,6 +465,7 @@ function EmptyState(props: { hasApps: boolean; onCreate: () => void }) {
 function AppCard(props: {
   app: AppSummary;
   onOpen: () => void;
+  onShare: () => void;
   onDelete: () => void;
   onRefresh: () => void;
 }) {
@@ -474,10 +498,19 @@ function AppCard(props: {
           <span className={styles.cardDot}>·</span>
           <span>{formatRelativeTime(app.createdAt)}</span>
           <span className={styles.cardDot}>·</span>
-          <span>{app.visibility === 'public' ? 'Public' : 'Private'}</span>
+          <span>{app.visibility === 'public' ? 'Shared' : 'Not shared'}</span>
         </div>
       </button>
       <div className={styles.cardActions}>
+        <button
+          type="button"
+          className={styles.cardAction}
+          aria-label={`Share ${app.title}`}
+          title="Share"
+          onClick={props.onShare}
+        >
+          <Share className={styles.cardActionIcon} />
+        </button>
         {isLive ? (
           <button
             type="button"
@@ -649,6 +682,463 @@ function NewAppDialog(props: {
   );
 }
 
+function splitShareList(value: string): string[] {
+  return value
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function parsePositiveNumber(value: string, label: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive number.`);
+  }
+  return parsed;
+}
+
+function ShareAppDialog(props: {
+  app: AppSummary | AppDetail | null;
+  token: string;
+  onClose: () => void;
+  onChanged: () => Promise<void>;
+}) {
+  const toast = useToast();
+  const app = props.app;
+  const [mode, setMode] = useState<'link' | 'company' | 'teams' | 'password'>(
+    'link',
+  );
+  const [password, setPassword] = useState('');
+  const [shareLiveData, setShareLiveData] = useState(false);
+  const [embedHosts, setEmbedHosts] = useState('');
+  const [allowFrom, setAllowFrom] = useState('');
+  const [expiresAfterDays, setExpiresAfterDays] = useState('');
+  const [sessionMinutes, setSessionMinutes] = useState('');
+  const [createdUrl, setCreatedUrl] = useState('');
+  const [downloadingManifest, setDownloadingManifest] = useState(false);
+  const open = app !== null;
+
+  const publicationsQuery = useQuery({
+    queryKey: ['app-publications', props.token, app?.id],
+    enabled: open && Boolean(app),
+    queryFn: () => fetchAppPublications(props.token, app?.id || ''),
+    retry: false,
+  });
+
+  const teamsStatusQuery = useQuery({
+    queryKey: ['msteams-tab-status', props.token],
+    enabled: open && mode === 'teams',
+    queryFn: () => fetchMSTeamsTabStatus(props.token),
+    retry: false,
+  });
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when a different app is selected while the dialog is open
+  useEffect(() => {
+    if (!open) return;
+    setMode('link');
+    setPassword('');
+    setShareLiveData(false);
+    setEmbedHosts('');
+    setAllowFrom('');
+    setExpiresAfterDays('');
+    setSessionMinutes('');
+    setCreatedUrl('');
+    setDownloadingManifest(false);
+  }, [open, app?.id]);
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      if (!app) throw new Error('No app selected.');
+      const expiryDays = parsePositiveNumber(expiresAfterDays, 'Link expiry');
+      const ttlMinutes = parsePositiveNumber(sessionMinutes, 'Session length');
+      return createAppPublication(props.token, app.id, {
+        kind: mode,
+        ...(mode === 'password' ? { password } : {}),
+        embedHosts: splitShareList(embedHosts),
+        ...(mode === 'company' || mode === 'teams'
+          ? { allowFrom: splitShareList(allowFrom) }
+          : {}),
+        ...(ttlMinutes ? { ttlSeconds: Math.round(ttlMinutes * 60) } : {}),
+        ...(expiryDays
+          ? {
+              expiresAt: new Date(
+                Date.now() + expiryDays * 24 * 60 * 60 * 1000,
+              ).toISOString(),
+            }
+          : {}),
+        allowBridge: app.kind === 'live' && shareLiveData,
+        acknowledgeAnonymousBridge:
+          app.kind === 'live' &&
+          shareLiveData &&
+          (mode === 'link' || mode === 'password'),
+      });
+    },
+    onSuccess: async (result) => {
+      setCreatedUrl(result.url);
+      toast.success(
+        mode === 'teams' ? 'Teams sharing enabled.' : 'Sharing link created.',
+      );
+      await publicationsQuery.refetch();
+      await props.onChanged();
+    },
+    onError: (error) => {
+      toast.error(`Share failed: ${getErrorMessage(error)}`);
+    },
+  });
+
+  const stopSharingMutation = useMutation({
+    mutationFn: async () => {
+      if (!app) throw new Error('No app selected.');
+      return updateApp(props.token, app.id, { visibility: 'private' });
+    },
+    onSuccess: async () => {
+      setCreatedUrl('');
+      toast.success('Sharing stopped.');
+      await publicationsQuery.refetch();
+      await props.onChanged();
+    },
+    onError: (error) => {
+      toast.error(`Stop sharing failed: ${getErrorMessage(error)}`);
+    },
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: async (publication: AppPublication) => {
+      if (!app) throw new Error('No app selected.');
+      return revokeAppPublication(props.token, app.id, publication.id);
+    },
+    onSuccess: async () => {
+      toast.success('Sharing link revoked.');
+      await publicationsQuery.refetch();
+      await props.onChanged();
+    },
+    onError: (error) => {
+      toast.error(`Revoke failed: ${getErrorMessage(error)}`);
+    },
+  });
+
+  async function copyUrl() {
+    if (!createdUrl) return;
+    try {
+      await navigator.clipboard.writeText(createdUrl);
+      toast.success(mode === 'teams' ? 'Teams link copied.' : 'Link copied.');
+    } catch {
+      toast.error('Could not copy link.');
+    }
+  }
+
+  function openTeams() {
+    const status = teamsStatusQuery.data;
+    if (!status || !app) {
+      window.open(createdUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    const context = encodeURIComponent(
+      JSON.stringify({ subEntityId: app.id, contentUrl: createdUrl }),
+    );
+    window.open(
+      `https://teams.microsoft.com/l/entity/${encodeURIComponent(
+        status.orgAppId,
+      )}/${encodeURIComponent(status.orgAppEntityId)}?context=${context}`,
+      '_blank',
+      'noopener,noreferrer',
+    );
+  }
+
+  async function downloadTeamsManifest() {
+    if (!app || downloadingManifest) return;
+    setDownloadingManifest(true);
+    try {
+      const blob = await downloadAppTeamsManifest(props.token, app.id);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `hybridclaw-${app.id}-teams.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      toast.error(`Download failed: ${getErrorMessage(error)}`);
+    } finally {
+      setDownloadingManifest(false);
+    }
+  }
+
+  const publications = publicationsQuery.data?.publications ?? [];
+  const activePublications = publications.filter(
+    (publication) => !publication.revokedAt,
+  );
+  const teamsStatus = teamsStatusQuery.data;
+  const teamsSetupReady = Boolean(
+    teamsStatus?.enabled &&
+      teamsStatus.tenantId &&
+      teamsStatus.ssoAppId &&
+      teamsStatus.appIdUri &&
+      teamsStatus.publicOrigin,
+  );
+  const canCreate =
+    !createMutation.isPending &&
+    (mode === 'link' ||
+      mode === 'company' ||
+      mode === 'teams' ||
+      password.trim().length > 0);
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) props.onClose();
+      }}
+    >
+      <DialogContent className={styles.shareDialog}>
+        <DialogHeader>
+          <DialogTitle>Share {app?.title}</DialogTitle>
+          <DialogDescription>
+            Choose who can open this app outside the console.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className={styles.shareModes}>
+          <button
+            type="button"
+            className={
+              mode === 'link' ? styles.shareModeActive : styles.shareMode
+            }
+            onClick={() => setMode('link')}
+          >
+            Anyone with the link
+          </button>
+          <button
+            type="button"
+            className={
+              mode === 'company' ? styles.shareModeActive : styles.shareMode
+            }
+            onClick={() => setMode('company')}
+          >
+            Anyone in my company
+          </button>
+          <button
+            type="button"
+            className={
+              mode === 'teams' ? styles.shareModeActive : styles.shareMode
+            }
+            onClick={() => setMode('teams')}
+          >
+            Add to Teams
+          </button>
+          <button
+            type="button"
+            className={
+              mode === 'password' ? styles.shareModeActive : styles.shareMode
+            }
+            onClick={() => setMode('password')}
+          >
+            Password
+          </button>
+        </div>
+
+        {mode === 'teams' ? (
+          <div className={styles.teamsSetupNotice}>
+            <strong>Set up the Teams app in Channels first.</strong>
+            <p>
+              Add to Teams uses the org Teams app. Open Channels, Microsoft
+              Teams, App Setup, finish the Entra SSO setup, and upload the org
+              app package before sharing individual apps here.
+            </p>
+            <div className={styles.teamsSetupNoticeFooter}>
+              <a href="/admin/channels">Open Microsoft Teams settings</a>
+              {teamsStatusQuery.isFetching ? (
+                <span>Checking Teams setup…</span>
+              ) : teamsStatusQuery.isError ? (
+                <span>Setup status unavailable.</span>
+              ) : teamsStatus ? (
+                <span>
+                  Teams app setup: {teamsSetupReady ? 'ready' : 'incomplete'}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {mode === 'password' ? (
+          <label className={styles.shareField}>
+            <span>Password</span>
+            <input
+              type="password"
+              value={password}
+              autoComplete="new-password"
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
+        ) : null}
+
+        {app?.kind === 'live' ? (
+          <div className={styles.exposureBox}>
+            <p>
+              This app pulls live data from your connected tools.
+              {mode === 'link' || mode === 'password'
+                ? ' Anyone with this link would see that data whenever they open it.'
+                : ' Shared viewers would see that data whenever they open it.'}
+            </p>
+            <div className={styles.exposureActions}>
+              <button
+                type="button"
+                className={
+                  !shareLiveData ? styles.shareModeActive : styles.shareMode
+                }
+                onClick={() => setShareLiveData(false)}
+              >
+                Share a static snapshot
+              </button>
+              <button
+                type="button"
+                className={
+                  shareLiveData ? styles.shareModeActive : styles.shareMode
+                }
+                onClick={() => setShareLiveData(true)}
+              >
+                Share live data anyway
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {createdUrl ? (
+          <div className={styles.shareResult}>
+            <input
+              readOnly
+              value={createdUrl}
+              aria-label={mode === 'teams' ? 'Teams link' : 'Sharing link'}
+            />
+            {mode === 'teams' ? (
+              <Button onClick={openTeams}>Open in Teams</Button>
+            ) : (
+              <Button onClick={copyUrl}>Copy link</Button>
+            )}
+          </div>
+        ) : null}
+
+        <details className={styles.advancedShare}>
+          <summary>More options</summary>
+          <div className={styles.advancedSharePanel}>
+            <label className={styles.shareField}>
+              <span>Embed on websites</span>
+              <textarea
+                className={styles.shareTextarea}
+                value={embedHosts}
+                placeholder="https://dashboard.example.com"
+                rows={2}
+                onChange={(event) => setEmbedHosts(event.target.value)}
+              />
+            </label>
+            {mode === 'company' || mode === 'teams' ? (
+              <label className={styles.shareField}>
+                <span>Limit to people</span>
+                <textarea
+                  className={styles.shareTextarea}
+                  value={allowFrom}
+                  placeholder="person@example.com"
+                  rows={2}
+                  onChange={(event) => setAllowFrom(event.target.value)}
+                />
+              </label>
+            ) : null}
+            <div className={styles.advancedShareGrid}>
+              <label className={styles.shareField}>
+                <span>Link expires after</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={expiresAfterDays}
+                  placeholder="Days"
+                  onChange={(event) => setExpiresAfterDays(event.target.value)}
+                />
+              </label>
+              <label className={styles.shareField}>
+                <span>Viewer session length</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={sessionMinutes}
+                  placeholder="Minutes"
+                  onChange={(event) => setSessionMinutes(event.target.value)}
+                />
+              </label>
+            </div>
+            {mode === 'teams' ? (
+              <button
+                type="button"
+                className={styles.secondaryButton}
+                disabled={!app || downloadingManifest}
+                onClick={downloadTeamsManifest}
+              >
+                {downloadingManifest
+                  ? 'Downloading…'
+                  : 'Download standalone Teams app'}
+              </button>
+            ) : null}
+          </div>
+        </details>
+
+        {activePublications.length > 0 ? (
+          <div className={styles.publicationList}>
+            <span className={styles.publicationListTitle}>Shared links</span>
+            {activePublications.map((publication) => (
+              <div key={publication.id} className={styles.publicationRow}>
+                <span>{publicationAudienceLabel(publication)}</span>
+                <button
+                  type="button"
+                  className={styles.secondaryButton}
+                  disabled={revokeMutation.isPending}
+                  onClick={() => revokeMutation.mutate(publication)}
+                >
+                  Revoke
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <DialogFooter>
+          {app?.visibility === 'public' || activePublications.length > 0 ? (
+            <button
+              type="button"
+              className={styles.secondaryButton}
+              disabled={stopSharingMutation.isPending}
+              onClick={() => stopSharingMutation.mutate()}
+            >
+              {stopSharingMutation.isPending ? 'Stopping…' : 'Stop sharing'}
+            </button>
+          ) : null}
+          <DialogClose className={styles.secondaryButton}>Close</DialogClose>
+          <Button disabled={!canCreate} onClick={() => createMutation.mutate()}>
+            {createMutation.isPending
+              ? 'Creating…'
+              : mode === 'teams'
+                ? 'Add to Teams'
+                : 'Share'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function publicationAudienceLabel(publication: AppPublication): string {
+  if (publication.policy.kind === 'password') return 'Password-protected link';
+  if (publication.policy.kind === 'oidc') {
+    return publication.embedHosts.some((host) => host.includes('teams'))
+      ? 'In Teams'
+      : 'Anyone in my company';
+  }
+  return 'Anyone with the link';
+}
+
 function AppViewer(props: {
   app: AppDetail | null;
   token: string;
@@ -656,6 +1146,7 @@ function AppViewer(props: {
   frameRef: RefObject<LiveAppFrameHandle | null>;
   refreshNonce: number;
   onRefresh?: () => void;
+  onShare?: () => void;
 }) {
   const { app } = props;
   return (
@@ -679,6 +1170,18 @@ function AppViewer(props: {
                 }}
               >
                 <Refresh className={styles.inlineIcon} /> Refresh
+              </button>
+            ) : null}
+            {app && props.onShare ? (
+              <button
+                type="button"
+                className={styles.secondaryButton}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  props.onShare?.();
+                }}
+              >
+                <Share className={styles.inlineIcon} /> Share
               </button>
             ) : null}
             {app && props.token ? (

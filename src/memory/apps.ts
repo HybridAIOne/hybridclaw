@@ -323,6 +323,29 @@ export function deleteApp(id: string): boolean {
   });
 }
 
+export function updateAppVisibility(
+  id: string,
+  visibility: AppVisibility,
+): StoredApp | null {
+  return withMemoryDatabase((database: Database.Database) => {
+    const normalized = id.trim();
+    if (!normalized) return null;
+    const nextVisibility = normalizeVisibility(visibility);
+    database
+      .prepare(
+        `UPDATE apps
+           SET visibility = ?,
+               updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?`,
+      )
+      .run(nextVisibility, normalized);
+    const row = database
+      .prepare<unknown[], AppRow>(`SELECT * FROM apps WHERE id = ?`)
+      .get(normalized);
+    return row ? appFromRow(row) : null;
+  });
+}
+
 export function countApps(): number {
   return withMemoryDatabase((database: Database.Database) => {
     const row = database

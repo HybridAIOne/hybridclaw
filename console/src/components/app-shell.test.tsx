@@ -23,6 +23,13 @@ describe('resolveCurrentAdminNavItem', () => {
     });
   });
 
+  it('resolves Teams setup to the app setup page title', () => {
+    expect(resolveCurrentAdminNavItem('/admin/teams')).toMatchObject({
+      to: '/admin/teams',
+      label: 'App Setup',
+    });
+  });
+
   it('falls back to the first nav item when no match is found', () => {
     expect(resolveCurrentAdminNavItem('/admin/unknown')).toMatchObject({
       to: '/admin',

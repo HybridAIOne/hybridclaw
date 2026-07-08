@@ -171,7 +171,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 50;
+export const DATABASE_SCHEMA_VERSION = 51;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -3259,6 +3259,29 @@ function migrateV50(database: Database.Database): void {
   recordMigration(database, 50, 'Persist delegated job status and results');
 }
 
+function migrateV51(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS app_publications (
+      id TEXT PRIMARY KEY,
+      app_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      policy TEXT NOT NULL,
+      embed_hosts TEXT NOT NULL DEFAULT '[]',
+      allow_bridge INTEGER NOT NULL DEFAULT 0,
+      label TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      created_by TEXT,
+      expires_at TEXT,
+      revoked_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_app_publications_token_hash
+      ON app_publications(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_app_publications_app
+      ON app_publications(app_id);
+  `);
+  recordMigration(database, 51, 'Persist app publication records');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3381,6 +3404,7 @@ function runMigrations(
   if (currentVersion < 48) migrateV48(database, opts);
   if (currentVersion < 49) migrateV49(database);
   if (currentVersion < 50) migrateV50(database);
+  if (currentVersion < 51) migrateV51(database);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

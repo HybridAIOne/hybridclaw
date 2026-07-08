@@ -37,6 +37,7 @@
         "iconv-lite": "0.7.2",
         "imapflow": "1.3.5",
         "impit": "0.13.0",
+        "jose": "6.2.2",
         "mailparser": "3.9.9",
         "marked": "17.0.4",
         "node-pty": "1.1.0",
