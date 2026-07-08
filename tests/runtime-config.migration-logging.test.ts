@@ -52,10 +52,14 @@ function writeRuntimeConfig(
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 }
 
-async function importFreshRuntimeConfig(homeDir: string): Promise<void> {
+type RuntimeConfigModule = typeof import('../src/config/runtime-config.ts');
+
+async function importFreshRuntimeConfig(
+  homeDir: string,
+): Promise<RuntimeConfigModule> {
   process.env.HOME = homeDir;
   vi.resetModules();
-  await import('../src/config/runtime-config.ts');
+  return import('../src/config/runtime-config.ts');
 }
 
 type FakeWatcher = EventEmitter &
@@ -67,6 +71,33 @@ function createFakeWatcher(): FakeWatcher {
   const watcher = new EventEmitter() as FakeWatcher;
   watcher.close = vi.fn();
   return watcher;
+}
+
+type WatchFilePollListener = (curr: fs.Stats, prev: fs.Stats) => void;
+
+function stubWatchFilePolling() {
+  const watchedPaths: string[] = [];
+  let pollListener: WatchFilePollListener | undefined;
+  const watchFileSpy = vi.spyOn(fs, 'watchFile').mockImplementation(((
+    watchedPath: fs.PathLike,
+    _options: unknown,
+    onTick: WatchFilePollListener,
+  ) => {
+    watchedPaths.push(String(watchedPath));
+    pollListener = onTick;
+    return {} as fs.StatWatcher;
+  }) as unknown as typeof fs.watchFile);
+  const unwatchFileSpy = vi
+    .spyOn(fs, 'unwatchFile')
+    .mockImplementation(() => {});
+  return {
+    watchFileSpy,
+    unwatchFileSpy,
+    watchedPaths,
+    emitPollTick: (curr: Partial<fs.Stats>, prev: Partial<fs.Stats>) => {
+      pollListener?.(curr as fs.Stats, prev as fs.Stats);
+    },
+  };
 }
 
 afterEach(() => {
@@ -466,18 +497,38 @@ describe('runtime config migration logging', () => {
     expect(stored.msteams.appPassword).toBeUndefined();
   });
 
+  it('does not start the fs watcher at module import, only on explicit start', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+    const fakeWatcher = createFakeWatcher();
+    const watchSpy = vi
+      .spyOn(fs, 'watch')
+      .mockImplementation(() => fakeWatcher as unknown as fs.FSWatcher);
+
+    const configMod = await importFreshRuntimeConfig(homeDir);
+
+    expect(watchSpy).not.toHaveBeenCalled();
+
+    configMod.startRuntimeConfigWatcher();
+    configMod.startRuntimeConfigWatcher();
+
+    expect(watchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('does not start the fs watcher when watcher disable env is set', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir);
     process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
     const watchSpy = vi.spyOn(fs, 'watch');
 
-    await importFreshRuntimeConfig(homeDir);
+    const configMod = await importFreshRuntimeConfig(homeDir);
+    configMod.startRuntimeConfigWatcher();
 
     expect(watchSpy).not.toHaveBeenCalled();
   });
 
-  it('unrefs watcher startup timers so one-shot commands can exit promptly', async () => {
+  it('unrefs watcher timers so the watcher never keeps a process alive', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir);
     delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
@@ -507,7 +558,8 @@ describe('runtime config migration logging', () => {
     );
 
     try {
-      await importFreshRuntimeConfig(homeDir);
+      const configMod = await importFreshRuntimeConfig(homeDir);
+      configMod.startRuntimeConfigWatcher();
     } finally {
       vi.stubGlobal('setTimeout', originalSetTimeout);
       vi.stubGlobal('clearTimeout', originalClearTimeout);
@@ -534,9 +586,11 @@ describe('runtime config migration logging', () => {
       watchers.push(watcher);
       return watcher as unknown as fs.FSWatcher;
     });
+    stubWatchFilePolling();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await importFreshRuntimeConfig(homeDir);
+    const configMod = await importFreshRuntimeConfig(homeDir);
+    configMod.startRuntimeConfigWatcher();
 
     setTimeout(() => {
       watchers[0]?.emit('error', retryableError);
@@ -581,9 +635,11 @@ describe('runtime config migration logging', () => {
       watchers.push(watcher);
       return watcher as unknown as fs.FSWatcher;
     });
+    stubWatchFilePolling();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await importFreshRuntimeConfig(homeDir);
+    const configMod = await importFreshRuntimeConfig(homeDir);
+    configMod.startRuntimeConfigWatcher();
 
     setTimeout(() => {
       watchers[0]?.emit('error', retryableError);
@@ -610,5 +666,98 @@ describe('runtime config migration logging', () => {
     expect(
       restartLogs.filter((message) => message.includes('attempt 2/10')),
     ).toHaveLength(0);
+  });
+
+  it('falls back to stat polling when watcher setup fails and reloads config on poll ticks', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+    vi.useFakeTimers();
+    vi.spyOn(fs, 'watch').mockImplementation(() => {
+      throw Object.assign(new Error('EMFILE: too many open files, watch'), {
+        code: 'EMFILE',
+      });
+    });
+    const polling = stubWatchFilePolling();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const configMod = await importFreshRuntimeConfig(homeDir);
+    configMod.startRuntimeConfigWatcher();
+
+    expect(polling.watchFileSpy).toHaveBeenCalledTimes(1);
+    expect(polling.watchedPaths).toEqual([
+      path.join(homeDir, '.hybridclaw', 'config.json'),
+    ]);
+    expect(
+      warnSpy.mock.calls.some(([message]) =>
+        String(message).includes('stat polling'),
+      ),
+    ).toBe(true);
+
+    writeRuntimeConfig(homeDir, (config) => {
+      config.container.maxConcurrent = 7;
+    });
+    polling.emitPollTick({ mtimeMs: 2, size: 2 }, { mtimeMs: 1, size: 1 });
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(configMod.getRuntimeConfig().container.maxConcurrent).toBe(7);
+  });
+
+  it('stops stat polling once a restarted watcher becomes stable', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+    vi.useFakeTimers();
+    let watchCalls = 0;
+    vi.spyOn(fs, 'watch').mockImplementation(() => {
+      watchCalls += 1;
+      if (watchCalls === 1) {
+        throw Object.assign(new Error('EMFILE: too many open files, watch'), {
+          code: 'EMFILE',
+        });
+      }
+      return createFakeWatcher() as unknown as fs.FSWatcher;
+    });
+    const polling = stubWatchFilePolling();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const configMod = await importFreshRuntimeConfig(homeDir);
+    configMod.startRuntimeConfigWatcher();
+
+    expect(polling.watchFileSpy).toHaveBeenCalledTimes(1);
+    expect(polling.unwatchFileSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(watchCalls).toBe(2);
+    expect(polling.unwatchFileSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps stat polling active after watcher retries are exhausted', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+    vi.useFakeTimers();
+    vi.spyOn(fs, 'watch').mockImplementation(() => {
+      throw Object.assign(new Error('EMFILE: too many open files, watch'), {
+        code: 'EMFILE',
+      });
+    });
+    const polling = stubWatchFilePolling();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const configMod = await importFreshRuntimeConfig(homeDir);
+    configMod.startRuntimeConfigWatcher();
+
+    await vi.advanceTimersByTimeAsync(600_000);
+
+    const disabledLog = warnSpy.mock.calls
+      .map(([message]) => String(message))
+      .find((message) => message.includes('watcher disabled after 10 retries'));
+    expect(disabledLog).toBeDefined();
+    expect(disabledLog).toContain('stat polling');
+    expect(polling.watchFileSpy).toHaveBeenCalledTimes(1);
+    expect(polling.unwatchFileSpy).not.toHaveBeenCalled();
   });
 });
