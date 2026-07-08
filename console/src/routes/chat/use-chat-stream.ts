@@ -25,7 +25,7 @@ import type {
 } from './chat-ui-message';
 
 const A2A_REPLY_HISTORY_REFRESH_DELAYS_MS = [
-  3000, 8000, 16_000, 30_000, 60_000,
+  2000, 5000, 8000, 12_000, 16_000, 20_000, 24_000, 30_000, 45_000, 60_000,
 ];
 
 interface ActiveRequest {

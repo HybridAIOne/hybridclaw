@@ -242,6 +242,58 @@ describe('buildChatHistoryUiData', () => {
     ]);
   });
 
+  it('hydrates A2A delivery metadata from persisted queued cards', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        {
+          id: 1,
+          role: 'assistant',
+          content: [
+            'Queued for delivery to `main@local@inst-i2`.',
+            'Message: `156149ba-490a-4c5e-b2cc-bb79d8c2c976`',
+            'Thread: `sess_20260708_102409_9f38dec6`',
+          ].join('\n'),
+        },
+      ],
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    expect(ui.messages[0]?.a2aDelivery).toEqual({
+      messageId: '156149ba-490a-4c5e-b2cc-bb79d8c2c976',
+      threadId: 'sess_20260708_102409_9f38dec6',
+      recipientAgentId: 'main@local@inst-i2',
+      status: 'pending',
+    });
+  });
+
+  it('hydrates delivered A2A cards as terminal delivery metadata', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        {
+          id: 1,
+          role: 'assistant',
+          content: [
+            'Delivered to `remote@team@peer-instance`.',
+            'Message: `a2a-message-1`',
+            'Thread: `session-a`',
+          ].join('\n'),
+        },
+      ],
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    expect(ui.messages[0]?.a2aDelivery).toEqual({
+      messageId: 'a2a-message-1',
+      threadId: 'session-a',
+      recipientAgentId: 'remote@team@peer-instance',
+      status: 'delivered',
+    });
+  });
+
   it('returns resolvedSessionId from the response when present, even if it differs from the request', () => {
     const raw: ChatHistoryResponse = {
       sessionId: 'session-canonical',
