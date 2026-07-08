@@ -42,6 +42,9 @@ hybridclaw config reload
 hybridclaw config get <key>
 hybridclaw config set <key> <value>
 hybridclaw config revisions [list|rollback <id>|delete <id>|clear]
+hybridclaw token list
+hybridclaw token create --label <label> (--role <role>|--actions <a,b>) [--expires-at <iso>]
+hybridclaw token revoke <id>
 hybridclaw browser login [--url <url>]
 hybridclaw browser status
 hybridclaw browser reset
@@ -75,6 +78,30 @@ local eval and prompt-surface experiments.
 `hybridclaw config get <key>` prints one resolved dotted runtime config value,
 which is useful when checking active settings without dumping the whole config
 file.
+
+## Scoped API Tokens
+
+Scoped gateway API tokens are for local API clients, automation, and delegated
+operator workflows that should not share a broad `WEB_API_TOKEN` or
+`GATEWAY_API_TOKEN`.
+
+```bash
+hybridclaw token list
+hybridclaw token create --label "local evals" --role admin.viewer --expires-at 2026-08-01T00:00:00Z
+hybridclaw token create --label "chat client" --actions openai.api,chat.send
+hybridclaw token revoke <token-id>
+```
+
+- token values start with `hck_` and are shown only once at creation time
+- `token list` shows metadata, status, expiry, last use, and claims; it never
+  returns token secrets
+- `--role` accepts admin RBAC role bundles such as `admin.viewer`,
+  `admin.security_manager`, or `admin.full`
+- `--actions` accepts explicit action names such as `openai.api`,
+  `chat.send`, `status.read`, `admin.tokens.read`,
+  `admin.tokens.create`, and `admin.tokens.revoke`
+- `/admin/tokens` provides the same create/list/revoke workflow in the browser
+  with role presets, action filters, and expiry presets
 
 ## Local Eval Workflows
 

@@ -17,6 +17,8 @@ Workspace, GitHub, and Microsoft 365 connection flows.
 The human distillation page at `/admin/distill` manages subjects, consent,
 corpus documents, source uploads, and distillation runs.
 The A2A inbox at `/admin/a2a-inbox` shows instance-wide agent-to-agent message threads and uses the same web-console authentication as the rest of `/admin`: `WEB_API_TOKEN` when configured, or loopback-only local web access.
+The API tokens page at `/admin/tokens` creates, lists, filters, and revokes
+scoped gateway tokens with action, scope, role, and expiry claims.
 The fleet page at `/admin/fleet-topology` shows the local A2A instance identity
 and trusted child instances from the A2A trust ledger. The A2A trust page at
 `/admin/a2a-trust` pairs this instance with peer instances and reviews incoming
@@ -79,6 +81,9 @@ pairing requests.
 - `/admin/secrets` lists stored and declared-but-empty secrets by metadata
   only, supports overwrite and unset actions, and never returns cleartext
   secret values to the browser
+- `/admin/tokens` lists scoped API token metadata, creates one-time-revealed
+  tokens, supports role presets or explicit actions, applies expiry presets,
+  and revokes tokens without exposing token secrets after creation
 - `/admin/output-guard` configures plugin-backed response classification,
   guard rules, blocked terms, rewrite behavior, and model/provider settings
   without editing runtime config by hand
@@ -156,6 +161,8 @@ scoped to the built-in allowlist and is not a general workspace file browser.
   without hand-editing config files
 - you want to overwrite or unset a runtime secret without exposing its current
   value to the browser
+- you want to create or revoke scoped gateway API tokens without editing
+  runtime config or sharing a broad bearer token
 - you want explicit browser confirmation before destructive operator actions
 - you want to reload runtime config and secrets from `/admin/gateway` without
   switching back to the CLI

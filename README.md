@@ -59,9 +59,9 @@ HybridClaw on HybridAI Cloud in a few minutes at
 | --- | --- |
 | A first run that becomes useful quickly | Guided hatching with setup links, tailored first-job suggestions, optional onboarding-specific model routing, welcome-email handoff, and structured audit events |
 | Business workflows that survive real use | Production skill helpers with fixtures, eval scenarios, targeted tests, approval tiers, and a `Qwen/Qwen3.6-27B-FP8` validation baseline |
-| Generated work artifacts you can reuse | An Apps gallery for self-contained HTML apps, dashboards, documents, games, tools, and live connector-backed views |
-| Multi-agent workflows across installations | Local agents, hosted proxy agents, A2A trust, explicit addressing, inbound envelopes, and admin-visible peer pairing |
-| Credentials the model cannot read | Encrypted runtime secrets and SecretRef-backed execution paths that keep raw keys and passwords out of prompts and tool results |
+| Generated work artifacts you can reuse | An Apps gallery for self-contained HTML apps, dashboards, documents, games, tools, live connector-backed views, sharing links, and Teams tabs |
+| Multi-agent workflows across installations | Local agents, hosted proxy agents, A2A trust, explicit addressing, inbound envelopes, reply-back delivery, and admin-visible peer pairing |
+| Credentials the model cannot read | Encrypted runtime secrets, SecretRef-backed execution paths, and scoped gateway API tokens that keep raw keys and passwords out of prompts and tool results |
 | Assistants that can act, not just chat | A gateway, web chat, Apps gallery, TUI, admin console, scheduler, tools, and OpenAI-compatible API behind one local service |
 | Control over sensitive work | Approval policy, sandbox boundaries, output guardrails, and hash-chained audit trails |
 | Agents that fit existing teams | Discord, Slack, Teams, Telegram, WhatsApp, email, voice, web, and more through the same runtime |
@@ -104,8 +104,8 @@ After the gateway starts, open:
 | Surface | URL / command | Use it for |
 | --- | --- | --- |
 | Web Chat | `http://127.0.0.1:9090/chat` | Chat, slash commands, model and agent switching |
-| Apps Gallery | `http://127.0.0.1:9090/apps` | Generated web apps, documents, games, tools, and live connector-backed views |
-| Admin Console | `http://127.0.0.1:9090/admin` | Channels, connectors, agents, approvals, audit, config, secrets, skills, distillation |
+| Apps Gallery | `http://127.0.0.1:9090/apps` | Generated web apps, documents, games, tools, live connector-backed views, and sharing |
+| Admin Console | `http://127.0.0.1:9090/admin` | Channels, connectors, agents, approvals, audit, config, secrets, tokens, skills, distillation |
 | Agents UI | `http://127.0.0.1:9090/agents` | Agent fleet overview and prompt-file editing |
 | TUI | `hybridclaw tui` | Terminal chat, approvals, status, resume |
 | OpenAI-compatible API | `http://127.0.0.1:9090/v1/chat/completions` | Local evals and compatible clients |
@@ -128,9 +128,9 @@ npm run desktop
 | Skills | 79 bundled skills, production business helpers, eval fixtures, packaged skill lifecycle, and human-distillation workflows |
 | Channels | Discord, Slack, Signal, WhatsApp, Telegram, Microsoft Teams, email, iMessage, fax, Twilio voice, web, and incoming webhooks |
 | Runtime | Gateway service, TUI client, web chat, Apps gallery, admin console, loopback OpenAI-compatible API, Docker or host execution |
-| Governance | Encrypted runtime secrets, SecretRef credential isolation, approval policies, sandbox controls, audit trails with hash-chain integrity |
+| Governance | Encrypted runtime secrets, scoped API tokens, SecretRef credential isolation, approval policies, sandbox controls, audit trails with hash-chain integrity |
 | Memory | Local memory files, SQLite persistence, semantic recall, session compaction, optional HybridAI cloud memory sync |
-| Agents | Guided hatching, per-agent workspaces, models, budgets, prompt files, explicit addressing, proxy agents, A2A trust, peer-instance communication |
+| Agents | Guided hatching, per-agent workspaces, models, budgets, prompt files, explicit addressing, proxy agents, A2A trust, peer-instance communication, reply delivery status |
 | Extensibility | Packaged business skills, plugins, MCP servers, admin connector flows, SecretRef-backed HTTP tools |
 
 ## Product Strengths
@@ -144,7 +144,8 @@ npm run desktop
   normal default. Its lifecycle is searchable in audit as onboarding events.
 - **Multi-agent operations**: agents can coordinate across local workspaces,
   hosted HybridAI proxies, and trusted peer HybridClaw instances with A2A
-  pairing, explicit addressing, inbound envelopes, and admin-visible trust.
+  pairing, explicit addressing, inbound envelopes, reply-back delivery status,
+  and admin-visible trust.
 - **Prompt-level credential isolation**: encrypted secrets and SecretRefs keep
   credential values out of model context while tools receive only the scoped
   credential material needed at execution time.
@@ -153,7 +154,8 @@ npm run desktop
   memory, policy, and audit model.
 - **Generated apps from chat**: describe an app, dashboard, document, game, or
   tool in web chat; HybridClaw saves the generated HTML artifact into the Apps
-  gallery and can refresh live apps through read-only connector calls.
+  gallery, refreshes live apps through read-only connector calls, and can share
+  apps through expiring links or Microsoft Teams tabs.
 - **Secure by default**: LLM output is treated as untrusted, risky actions
   route through approval policy, and every sensitive boundary is visible in
   audit.
@@ -161,8 +163,9 @@ npm run desktop
   named OpenAI-compatible endpoints from the same model picker and config
   surface.
 - **Operator visibility**: `/admin` covers channels, connectors, approvals,
-  audit, statistics, output guard, secrets, fleet topology, A2A inbox/trust,
-  distillation, and browser PDF previews without requiring shell access.
+  audit, statistics, output guard, secrets, scoped tokens, fleet topology, A2A
+  inbox/trust, distillation, and browser PDF previews without requiring shell
+  access.
 - **Business-ready extension model**: packaged skills, plugins, MCP servers,
   and SecretRef-backed HTTP tools share the same approval and credential
   boundaries.
@@ -175,6 +178,7 @@ npm run desktop
 hybridclaw gateway status
 hybridclaw tui --resume <sessionId>
 hybridclaw config get <key>
+hybridclaw token list
 hybridclaw skill list
 hybridclaw agent list
 hybridclaw doctor
@@ -236,7 +240,7 @@ Core pieces:
 | Build desktop releases | [Desktop Release Builds](https://hybridaione.github.io/hybridclaw/docs/developer-guide/desktop-release) |
 | Contribute | [CONTRIBUTING.md](./CONTRIBUTING.md), [docs/content/README.md](./docs/content/README.md) |
 
-Latest release: [v0.27.2](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.27.2).
+Latest release: [v0.28.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.28.0).
 Release notes: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Development

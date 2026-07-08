@@ -27,9 +27,22 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
-- HybridClaw v0.27.2 allows console PDF previews to render in browser-backed
-  `blob:` iframes while retaining the console's defensive Content Security
-  Policy for other sources.
+- HybridClaw v0.28.0 dispatches trusted inbound A2A messages to local agents,
+  sends replies back across reverse trust, and shows delivery status in the
+  origin chat until the remote reply is stored.
+- Scoped gateway API tokens can be managed from `hybridclaw token` or
+  `/admin/tokens`, with one-time reveal, expiry timestamps, explicit
+  actions/scopes/roles, metadata-only listing, revocation, and audit events.
+- Delegated OpenAI-compatible chat completions expose delegation metadata and
+  can be polled at `GET /v1/chat/completions/{completion-id}` until queued work
+  completes, fails, or is cancelled.
+- Apps can be published as scoped sharing links, optional password-protected
+  links, or Microsoft Teams tabs with Entra SSO viewer validation and
+  revocation controls.
+- Public docs include an A2A peer-pairing walkthrough and local two-instance
+  smoke test for trusted remote-agent chat and reply delivery.
+- Runtime config watching is scoped to the gateway process and falls back to
+  descriptor-free stat polling when `fs.watch` cannot be maintained.
 - HybridClaw v0.27.1 records first-run hatching as structured onboarding audit
   events, including start/continue, quick messages, user and assistant turns,
   welcome mail, workspace file updates, completion, and abort paths.

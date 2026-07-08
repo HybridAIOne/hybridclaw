@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+## [0.28.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.0) - 2026-07-08
+
+### Added
+
+- **A2A inbox dispatch and reply-back chat**: Trusted inbound A2A messages now
+  persist through the gateway dispatch store, route to the target local agent,
+  and send the agent's reply back to the originating instance when reverse
+  trust is present. The origin chat renders a compact delivery-status chip while
+  the envelope is sent, received, and waiting for the remote reply.
+- **Scoped API tokens**: Operators can create, list, and revoke gateway API
+  tokens with explicit action, scope, role, or roles claims from the new
+  `hybridclaw token` CLI and `/admin/tokens` console page. Tokens support
+  expiry timestamps, one-time reveal, metadata-only listing, route-level RBAC,
+  and audit events for creation and revocation.
+- **Delegated OpenAI-compatible job retrieval**: Delegated
+  `/v1/chat/completions` requests now expose `hybridclaw.delegation` metadata,
+  return `X-HybridClaw-Delegation-Id` for non-streaming acknowledgements, and
+  can be polled at `GET /v1/chat/completions/{completion-id}` until the queued
+  job completes, fails, or is cancelled.
+- **Published apps and Teams sharing**: Apps can now be published from the Apps
+  gallery as scoped sharing links, optional password-protected links, or
+  Microsoft Teams tabs. Publications are persisted with revocation, expiry,
+  embed-host, and live-data bridge controls, and Teams tabs validate Entra SSO
+  viewers before rendering shared app content.
+- **A2A peer-pairing guide**: Public docs now include a browser pairing
+  walkthrough and deterministic two-instance curl smoke test for trusted A2A
+  chat, reverse trust, and reply delivery.
+
+### Changed
+
+- **Admin token roles and presets**: The token surfaces now prefer current
+  least-privilege admin role bundles and clearer action grants while preserving
+  compatibility role names where needed.
+- **OpenAI-compatible delegated acknowledgements**: Streaming and
+  non-streaming delegated completions carry consistent delegation metadata so
+  local eval harnesses and compatible clients can correlate queued work with
+  later retrieval.
+
 ### Fixed
 
 - **Config watcher scope and EMFILE resilience**: The runtime-config file
@@ -14,6 +52,14 @@
   instead of going dark after ten failed watcher restarts.
 
   `Manifesto: Principle VIII - A coworker doesn't break overnight.`
+- **A2A chat delivery stability**: Remote A2A replies now appear in the origin
+  chat, local A2A smoke replies are stable, inbound audience resolution works
+  behind public tunnels, and the delivery chip remains coherent across history
+  reloads while disappearing after the remote reply is stored.
+- **API token verifier hardening**: Gateway API tokens now use salted scrypt
+  verifiers and CodeQL-clean validation paths instead of raw token hashes.
+- **App view token scope**: Console app-view tokens are scoped to the app route
+  they authorize, reducing token reuse across unrelated app views.
 
 ## [0.27.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.27.2) - 2026-07-06
 

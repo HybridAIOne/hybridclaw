@@ -15,6 +15,11 @@ HybridClaw admin access has two compatibility modes:
 - Scoped admin sessions are restricted only when the signed session payload
   includes `actions`, `scope`, `role`, or `roles` claims.
 
+Scoped gateway API tokens use the same action and role vocabulary. Operators
+can create them from `hybridclaw token create` or `/admin/tokens`; HybridClaw
+shows the token value only once, stores a salted verifier, and keeps later
+lists metadata-only.
+
 Browser admin surfaces prefer HttpOnly session cookies. If a bearer token must
 be entered manually, the console stores it in `sessionStorage` for the current
 browser tab only and deletes any legacy `localStorage` copy. Live admin event
@@ -82,6 +87,7 @@ Before issuing a scoped admin session, record:
 - Requester and human owner.
 - Business reason and expected duration.
 - Granted roles, explicit actions, or scopes.
+- Token label and expiry, when issuing a scoped API token.
 - Approver.
 - Expiration time.
 - Ticket or review record link.
@@ -103,6 +109,7 @@ Reviewers should verify:
 
 - Each grant maps to a current role or explicit approved action.
 - Expired sessions and stale bearer tokens are removed.
+- Expired, stale, or overbroad scoped API tokens are revoked.
 - `admin.full` and `admin.terminal_operator` grants have break-glass or
   time-bound justification.
 - Secret and policy grants are held only by security owners.
