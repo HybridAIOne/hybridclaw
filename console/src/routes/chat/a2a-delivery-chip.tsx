@@ -9,6 +9,7 @@ import css from './chat-page.module.css';
 
 const POLL_INTERVAL_MS = 2_000;
 const RECEIVED_HOLD_MS = 1_200;
+const DELIVERY_STATUS_CACHE_MAX_ENTRIES = 200;
 // Stop polling after ~2 minutes; outbox retries back off well beyond a chat
 // viewer's attention span, and a page reload re-reads the persisted state.
 const MAX_POLLS = 60;
@@ -30,6 +31,64 @@ const LABELS: Record<A2ADeliveryDisplayState, string> = {
   failed: 'Delivery failed',
 };
 
+interface A2ADeliveryStatusSnapshot {
+  state: A2ADeliveryState;
+  displayState: A2ADeliveryDisplayState;
+  detail: string | null;
+}
+
+const deliveryStatusCache = new Map<string, A2ADeliveryStatusSnapshot>();
+
+function cacheDeliveryStatus(
+  messageId: string,
+  snapshot: A2ADeliveryStatusSnapshot,
+): void {
+  if (deliveryStatusCache.has(messageId)) {
+    deliveryStatusCache.delete(messageId);
+  }
+  deliveryStatusCache.set(messageId, snapshot);
+  while (deliveryStatusCache.size > DELIVERY_STATUS_CACHE_MAX_ENTRIES) {
+    const oldestKey = deliveryStatusCache.keys().next().value;
+    if (!oldestKey) break;
+    deliveryStatusCache.delete(oldestKey);
+  }
+}
+
+function mergeDeliveryState(
+  descriptorState: A2ADeliveryState,
+  cachedState: A2ADeliveryState | null,
+): A2ADeliveryState {
+  if (descriptorState === 'failed' || cachedState === 'failed') return 'failed';
+  if (descriptorState === 'delivered' || cachedState === 'delivered') {
+    return 'delivered';
+  }
+  if (descriptorState === 'pending' || cachedState === 'pending') {
+    return 'pending';
+  }
+  return 'unknown';
+}
+
+function initialDisplayState(
+  state: A2ADeliveryState,
+  cached: A2ADeliveryStatusSnapshot | null,
+): A2ADeliveryDisplayState {
+  if (state === 'failed') return 'failed';
+  if (state !== 'delivered') return 'sending';
+  return cached?.state === 'delivered' ? cached.displayState : 'received';
+}
+
+function initialStatusSnapshot(
+  descriptor: A2ADeliveryDescriptor,
+): A2ADeliveryStatusSnapshot {
+  const cached = deliveryStatusCache.get(descriptor.messageId) ?? null;
+  const state = mergeDeliveryState(descriptor.status, cached?.state ?? null);
+  return {
+    state,
+    displayState: initialDisplayState(state, cached),
+    detail: state === cached?.state ? cached.detail : null,
+  };
+}
+
 /**
  * Live delivery-status chip for an outbound A2A chat send. Starts from the
  * status the send returned and polls the outbox until the message reaches a
@@ -40,42 +99,69 @@ export function A2ADeliveryChip(props: {
   token: string;
 }) {
   const { descriptor, token } = props;
-  const [state, setState] = useState<A2ADeliveryState>(descriptor.status);
+  const [initialSnapshot] = useState(() => initialStatusSnapshot(descriptor));
+  const [state, setState] = useState<A2ADeliveryState>(initialSnapshot.state);
   const [displayState, setDisplayState] = useState<A2ADeliveryDisplayState>(
-    descriptor.status === 'failed'
-      ? 'failed'
-      : descriptor.status === 'delivered'
-        ? 'received'
-        : 'sending',
+    initialSnapshot.displayState,
   );
-  const [detail, setDetail] = useState<string | null>(null);
+  const [detail, setDetail] = useState<string | null>(initialSnapshot.detail);
 
   useEffect(() => {
-    setState(descriptor.status);
-  }, [descriptor.status]);
+    const snapshot = initialStatusSnapshot(descriptor);
+    setState(snapshot.state);
+    setDisplayState(snapshot.displayState);
+    setDetail(snapshot.detail);
+  }, [descriptor.messageId, descriptor.status]);
 
   useEffect(() => {
     if (state === 'failed') {
       setDisplayState('failed');
+      cacheDeliveryStatus(descriptor.messageId, {
+        state,
+        displayState: 'failed',
+        detail,
+      });
       return;
     }
     if (state !== 'delivered') {
       setDisplayState('sending');
+      cacheDeliveryStatus(descriptor.messageId, {
+        state,
+        displayState: 'sending',
+        detail,
+      });
+      return;
+    }
+    const cached = deliveryStatusCache.get(descriptor.messageId);
+    if (cached?.state === 'delivered' && cached.displayState === 'waiting') {
+      setDisplayState('waiting');
       return;
     }
     setDisplayState('received');
+    cacheDeliveryStatus(descriptor.messageId, {
+      state,
+      displayState: 'received',
+      detail,
+    });
     const timer = window.setTimeout(
-      () => setDisplayState('waiting'),
+      () => {
+        setDisplayState('waiting');
+        cacheDeliveryStatus(descriptor.messageId, {
+          state,
+          displayState: 'waiting',
+          detail,
+        });
+      },
       RECEIVED_HOLD_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [state]);
+  }, [descriptor.messageId, detail, state]);
 
   useEffect(() => {
     if (isTerminal(state)) return;
     let cancelled = false;
     let polls = 0;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
     const poll = async (): Promise<void> => {
       polls += 1;
@@ -87,14 +173,19 @@ export function A2ADeliveryChip(props: {
         if (cancelled) return;
         if (status.status !== 'unknown') {
           setState(status.status);
-          setDetail(
+          const nextDetail =
             status.status === 'failed'
               ? status.lastError ||
                   (status.lastStatusCode
                     ? `HTTP ${status.lastStatusCode}`
                     : null)
-              : null,
-          );
+              : null;
+          setDetail(nextDetail);
+          cacheDeliveryStatus(descriptor.messageId, {
+            state: status.status,
+            displayState: initialDisplayState(status.status, null),
+            detail: nextDetail,
+          });
         }
         if (isTerminal(status.status) || polls >= MAX_POLLS) return;
       } catch {
@@ -103,10 +194,10 @@ export function A2ADeliveryChip(props: {
       timer = setTimeout(() => void poll(), POLL_INTERVAL_MS);
     };
 
-    timer = setTimeout(() => void poll(), POLL_INTERVAL_MS);
+    void poll();
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
     };
     // descriptor.messageId identifies the send; state drives the terminal guard.
   }, [descriptor.messageId, token, state]);

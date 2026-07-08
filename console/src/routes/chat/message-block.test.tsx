@@ -778,6 +778,7 @@ describe('MessageBlock command vs system output', () => {
     renderMarkdownMock.mockImplementation((content) => `<p>${content}</p>`);
     fetchAgentAvatarBlobMock.mockReset();
     fetchA2ADeliveryStatusMock.mockReset();
+    fetchA2ADeliveryStatusMock.mockResolvedValue({ status: 'unknown' });
   });
 
   afterEach(() => {
@@ -909,6 +910,76 @@ describe('MessageBlock command vs system output', () => {
     act(() => {
       vi.advanceTimersByTime(1200);
     });
+
+    expect(screen.getByRole('status').textContent).toContain('Waiting');
+  });
+
+  it('does not replay delivery states when history refetch remounts a queued A2A card', () => {
+    vi.useFakeTimers();
+    const deliveredMessage = makeMessage([], {
+      role: 'command',
+      content: [
+        'Delivered to `main@local@inst-i2`.',
+        'Message: `a2a-message-stable`',
+        'Thread: `session-a`',
+      ].join('\n'),
+      a2aDelivery: {
+        messageId: 'a2a-message-stable',
+        threadId: 'session-a',
+        recipientAgentId: 'main@local@inst-i2',
+        status: 'delivered',
+      },
+    });
+    const queuedHistoryMessage = {
+      ...deliveredMessage,
+      content: [
+        'Queued for delivery to `main@local@inst-i2`.',
+        'Message: `a2a-message-stable`',
+        'Thread: `session-a`',
+      ].join('\n'),
+      a2aDelivery: {
+        messageId: 'a2a-message-stable',
+        threadId: 'session-a',
+        recipientAgentId: 'main@local@inst-i2',
+        status: 'pending' as const,
+      },
+    };
+
+    const first = render(
+      <MessageBlock
+        message={deliveredMessage}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(1200);
+    });
+    expect(screen.getByRole('status').textContent).toContain('Waiting');
+
+    first.unmount();
+    render(
+      <MessageBlock
+        message={queuedHistoryMessage}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
 
     expect(screen.getByRole('status').textContent).toContain('Waiting');
   });
