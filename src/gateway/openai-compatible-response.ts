@@ -80,8 +80,9 @@ export function buildOpenAICompatibleCompletionResponse(params: {
   model: string;
   content: string | null;
   toolCalls?: ToolCall[];
-  finishReason?: string;
+  finishReason?: string | null;
   tokenUsage?: TokenUsageStats;
+  extensions?: Record<string, unknown>;
 }): Record<string, unknown> {
   return {
     id: params.completionId,
@@ -99,13 +100,15 @@ export function buildOpenAICompatibleCompletionResponse(params: {
             : {}),
         },
         finish_reason:
-          params.finishReason ||
-          (params.toolCalls && params.toolCalls.length > 0
-            ? 'tool_calls'
-            : 'stop'),
+          params.finishReason !== undefined
+            ? params.finishReason
+            : params.toolCalls && params.toolCalls.length > 0
+              ? 'tool_calls'
+              : 'stop',
       },
     ],
     usage: mapOpenAICompatibleUsage(params.tokenUsage),
+    ...(params.extensions || {}),
   };
 }
 
@@ -168,6 +171,7 @@ export function buildOpenAICompatibleStreamStopChunk(params: {
   created: number;
   model: string;
   finishReason?: string;
+  extensions?: Record<string, unknown>;
 }): Record<string, unknown> {
   return {
     id: params.completionId,
@@ -181,6 +185,7 @@ export function buildOpenAICompatibleStreamStopChunk(params: {
         finish_reason: params.finishReason || 'stop',
       },
     ],
+    ...(params.extensions || {}),
   };
 }
 

@@ -139,7 +139,15 @@ test('delegation batch queues status updates and a synthesized final answer for 
             durationMs: 20,
           },
         ],
-        artifacts: [],
+        artifacts: content.includes('furukama')
+          ? [
+              {
+                path: '/tmp/furukama-report.md',
+                filename: 'furukama-report.md',
+                mimeType: 'text/markdown',
+              },
+            ]
+          : [],
       };
     },
   );
@@ -181,7 +189,7 @@ test('delegation batch queues status updates and a synthesized final answer for 
   expect(furukamaPlan?.tasks[0]?.model).toBe('llamacpp/liquidai/lfm');
   expect(hybridaiPlan?.tasks[0]?.model).toBe('llamacpp/liquidai/lfm');
 
-  enqueueDelegationBatchFromSideEffects({
+  const descriptor = enqueueDelegationBatchFromSideEffects({
     plans: [furukamaPlan!, hybridaiPlan!],
     parentSessionId: 'parent-session',
     channelId: 'tui',
@@ -193,6 +201,7 @@ test('delegation batch queues status updates and a synthesized final answer for 
     parentPrompt: 'Summarize furukama.com and hybridai.one.',
     parentResult: 'I will synthesize after delegates return.',
   });
+  expect(descriptor?.publicId).toMatch(/^dlg_[a-f0-9]{24}$/);
 
   await vi.waitFor(() => {
     const messages = listQueuedProactiveMessages(100).filter(
@@ -357,7 +366,61 @@ test('delegation batch queues status updates and a synthesized final answer for 
     messages_json: string | null;
     tool_executions_json: string | null;
   }>;
+  const parentRows = inspect
+    .prepare(
+      `SELECT content, artifacts_json
+       FROM messages
+       WHERE session_id = ?
+         AND role = 'assistant'
+       ORDER BY id ASC`,
+    )
+    .all('parent-session') as Array<{
+    content: string;
+    artifacts_json: string | null;
+  }>;
+  const jobRows = inspect
+    .prepare(
+      `SELECT public_id, status, result_text, result_digest, artifacts_json
+       FROM delegation_jobs
+       WHERE parent_session_id = ?
+       ORDER BY created_at ASC`,
+    )
+    .all('parent-session') as Array<{
+    public_id: string;
+    status: string;
+    result_text: string | null;
+    result_digest: string | null;
+    artifacts_json: string | null;
+  }>;
   inspect.close();
+
+  expect(parentRows).toHaveLength(2);
+  expect(parentRows[0]?.content).toContain('[Delegate:');
+  expect(parentRows[0]?.content).toContain('completed');
+  expect(parentRows[0]?.content).toContain('furukama child summary');
+  expect(parentRows[1]?.content).toBe('final synthesized comparison');
+  expect(JSON.parse(parentRows[1]?.artifacts_json || '[]')).toEqual([
+    {
+      path: '/tmp/furukama-report.md',
+      filename: 'furukama-report.md',
+      mimeType: 'text/markdown',
+    },
+  ]);
+
+  expect(jobRows).toHaveLength(1);
+  expect(jobRows[0]).toMatchObject({
+    public_id: descriptor?.publicId,
+    status: 'completed',
+    result_text: 'final synthesized comparison',
+  });
+  expect(jobRows[0]?.result_digest).toContain('furukama child summary');
+  expect(JSON.parse(jobRows[0]?.artifacts_json || '[]')).toEqual([
+    {
+      path: '/tmp/furukama-report.md',
+      filename: 'furukama-report.md',
+      mimeType: 'text/markdown',
+    },
+  ]);
 
   expect(childRows).toHaveLength(2);
   for (const row of childRows) {
@@ -468,6 +531,56 @@ test('delegation prefers configured delegate model over echoed parent-model over
       model: 'llamacpp/unsloth/LFM2.5-1.2B-Instruct-GGUF',
     },
   ]);
+});
+
+test('delegation disabled returns no descriptor and fails the durable job row', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+
+  const { enqueueDelegationBatchFromSideEffects, normalizeDelegationEffect } =
+    await import('../src/gateway/gateway-service.ts');
+  const { getDelegationJob, initDatabase } = await import(
+    '../src/memory/db.ts'
+  );
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  initDatabase({
+    quiet: true,
+    dbPath: path.join(homeDir, 'hybridclaw.db'),
+  });
+  updateRuntimeConfig((draft) => {
+    draft.proactive.delegation.enabled = false;
+  });
+
+  const plan = normalizeDelegationEffect(
+    {
+      mode: 'single',
+      label: 'disabled-delegation',
+      prompt: 'Research the disabled path.',
+    },
+    'orchestrator-model',
+  ).plan;
+  const descriptor = enqueueDelegationBatchFromSideEffects({
+    plans: [plan!],
+    parentSessionId: 'disabled-parent-session',
+    channelId: 'openai',
+    chatbotId: 'test-bot',
+    enableRag: false,
+    agentId: 'test-agent',
+    parentModel: 'orchestrator-model',
+    parentDepth: 0,
+    publicId: 'chatcmpl_disabled',
+    ackText:
+      "Started 1 delegate job. I'll synthesize the final answer when they finish.",
+  });
+
+  expect(descriptor).toBeNull();
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(getDelegationJob('chatcmpl_disabled')).toMatchObject({
+    status: 'failed',
+    error: 'delegation_disabled',
+  });
 });
 
 test('delegation status tracks duplicate task titles independently', async () => {

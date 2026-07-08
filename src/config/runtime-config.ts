@@ -1311,6 +1311,8 @@ export interface RuntimeConfig {
       maxConcurrent: number;
       maxDepth: number;
       maxPerTurn: number;
+      jobsRetentionDays: number;
+      jobsMaxRows: number;
     };
     autoRetry: {
       enabled: boolean;
@@ -2075,6 +2077,8 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxConcurrent: 3,
       maxDepth: 2,
       maxPerTurn: 3,
+      jobsRetentionDays: 7,
+      jobsMaxRows: 1000,
     },
     autoRetry: {
       enabled: true,
@@ -8369,6 +8373,16 @@ function normalizeRuntimeConfig(
           rawDelegation.maxPerTurn,
           DEFAULT_RUNTIME_CONFIG.proactive.delegation.maxPerTurn,
           { min: 1, max: 8 },
+        ),
+        jobsRetentionDays: normalizeInteger(
+          rawDelegation.jobsRetentionDays,
+          DEFAULT_RUNTIME_CONFIG.proactive.delegation.jobsRetentionDays,
+          { min: 1, max: 365 },
+        ),
+        jobsMaxRows: normalizeInteger(
+          rawDelegation.jobsMaxRows,
+          DEFAULT_RUNTIME_CONFIG.proactive.delegation.jobsMaxRows,
+          { min: 1, max: 100_000 },
         ),
       },
       autoRetry: {

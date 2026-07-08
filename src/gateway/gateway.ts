@@ -148,6 +148,7 @@ import {
 import {
   deleteQueuedProactiveMessage,
   enqueueProactiveMessage,
+  failStaleDelegationJobs,
   getMostRecentSessionChannelId,
   getQueuedProactiveMessageCount,
   initDatabase,
@@ -3535,6 +3536,13 @@ async function main(): Promise<void> {
   logWarmProcessPoolStartup(getConfigSnapshot().container);
   validateGatewayPromptEnvDefaults();
   initDatabase();
+  const failedDelegationJobs = failStaleDelegationJobs('gateway_restart');
+  if (failedDelegationJobs > 0) {
+    logger.warn(
+      { count: failedDelegationJobs },
+      'Marked stale delegation jobs failed after gateway startup',
+    );
+  }
   migrateConfigSchedulerJobsToDatabase();
   listAgents();
   await initGatewayService();

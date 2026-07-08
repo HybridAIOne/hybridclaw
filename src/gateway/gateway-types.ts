@@ -107,6 +107,10 @@ export interface GatewayChatResult {
   agentId?: string;
   addressEnvelope?: GatewayAddressEnvelope;
   a2aDelivery?: GatewayA2ADeliveryDescriptor;
+  delegation?: {
+    id: string;
+    status: 'queued';
+  };
   assistantPresentation?: GatewayAssistantPresentation;
   model?: string;
   provider?: string;
@@ -239,6 +243,7 @@ export interface GatewayChatRequest {
   }) => void | Promise<void>;
   abortSignal?: AbortSignal;
   source?: string;
+  delegationPublicId?: string;
 }
 
 export interface GatewayMediaUploadResult {

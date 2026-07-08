@@ -243,12 +243,16 @@ import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { runMemoryConsolidation } from '../memory/consolidation-runner.js';
 import {
   claimMemoryValue,
+  completeDelegationJob,
   countStructuredAuditEntries,
+  createDelegationJob,
   createFreshSessionInstance,
   deleteMemoryValue,
   deleteSessionData,
   enqueueProactiveMessage,
+  failDelegationJob,
   getAllSessions,
+  getDelegationJob,
   getFullAutoSessionCount,
   getMemoryValue,
   getQueuedProactiveMessageCount,
@@ -278,6 +282,7 @@ import {
   listUsageByModel,
   listUsageBySession,
   listUsageDailyBreakdown,
+  markDelegationJobInProgress,
   recordRequestLog,
   sessionHasUserMessages,
   setMemoryValue,
@@ -10535,6 +10540,27 @@ async function publishDelegationCompletion(params: {
     content: forLLM,
   });
 
+  const trimmedForUser = forUser.trim();
+  if (trimmedForUser && trimmedForUser !== forLLM.trim()) {
+    memoryService.storeMessage({
+      sessionId: parentSessionId,
+      userId: 'assistant',
+      username: null,
+      role: 'assistant',
+      content: trimmedForUser,
+      agentId,
+      artifacts: artifacts?.length ? artifacts : null,
+    });
+    appendSessionTranscript(agentId, {
+      sessionId: parentSessionId,
+      channelId,
+      role: 'assistant',
+      userId: 'assistant',
+      username: null,
+      content: trimmedForUser,
+    });
+  }
+
   if (publishForUser) {
     await publishDelegationLifecycleMessage({
       parentSessionId,
@@ -10560,8 +10586,10 @@ export function enqueueDelegationFromSideEffect(params: {
   parentDepth: number;
   parentPrompt?: string;
   parentResult?: string;
-}): void {
-  enqueueDelegationBatchFromSideEffects({
+  publicId?: string;
+  ackText?: string;
+}): { publicId: string } | null {
+  return enqueueDelegationBatchFromSideEffects({
     ...params,
     plans: [params.plan],
   });
@@ -10581,7 +10609,9 @@ export function enqueueDelegationBatchFromSideEffects(params: {
   parentDepth: number;
   parentPrompt?: string;
   parentResult?: string;
-}): void {
+  publicId?: string;
+  ackText?: string;
+}): { publicId: string } | null {
   const {
     plans,
     parentSessionId,
@@ -10594,16 +10624,18 @@ export function enqueueDelegationBatchFromSideEffects(params: {
     parentDepth,
     parentPrompt,
     parentResult,
+    publicId: requestedPublicId,
+    ackText,
   } = params;
   const activePlans = plans.filter((plan) => plan.tasks.length > 0);
-  if (activePlans.length === 0) return;
+  if (activePlans.length === 0) return null;
   const childDepth = parentDepth + 1;
   if (childDepth > PROACTIVE_DELEGATION_MAX_DEPTH) {
     logger.info(
       { parentSessionId, childDepth, maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH },
       'Delegation skipped — depth limit reached',
     );
-    return;
+    return null;
   }
 
   const statusEntries: DelegationStatusEntry[] = [];
@@ -10633,215 +10665,272 @@ export function enqueueDelegationBatchFromSideEffects(params: {
           .join(', ') || undefined;
 
   const jobId = `${parentSessionId}:${Date.now()}:${randomUUID()}`;
-  enqueueDelegation({
+  const publicId =
+    requestedPublicId?.trim() ||
+    `dlg_${randomUUID().replace(/-/g, '').slice(0, 24)}`;
+  try {
+    createDelegationJob({
+      publicId,
+      internalId: jobId,
+      parentSessionId,
+      channelId,
+      agentId,
+      model: parentModel || null,
+      taskCount: statusEntries.length,
+      ackText: ackText || null,
+    });
+  } catch (err) {
+    logger.error(
+      {
+        err,
+        parentSessionId,
+        channelId,
+        publicId,
+        internalId: jobId,
+      },
+      'Failed to create delegation job row',
+    );
+    return null;
+  }
+
+  const accepted = enqueueDelegation({
     id: jobId,
     run: async () => {
+      if (getDelegationJob(publicId)?.status === 'cancelled') return;
+      markDelegationJobInProgress(publicId);
       const startedAt = Date.now();
       const entries: DelegationCompletionEntry[] = [];
-      await publishDelegationLifecycleMessage({
-        parentSessionId,
-        channelId,
-        text: formatDelegationStatus({
-          label: batchLabel,
-          entries: statusEntries,
-          parentModel,
-        }),
-        onProactiveMessage,
-      });
-
-      let statusPublishChain = Promise.resolve();
-      const publishStatus = (): Promise<void> => {
-        const text = formatDelegationStatus({
-          label: batchLabel,
-          entries: statusEntries,
-          parentModel,
-        });
-        statusPublishChain = statusPublishChain
-          .catch(() => undefined)
-          .then(() =>
-            publishDelegationLifecycleMessage({
-              parentSessionId,
-              channelId,
-              text,
-              onProactiveMessage,
-            }),
-          );
-        return statusPublishChain;
-      };
-      const runTask = async (params: {
-        plan: NormalizedDelegationPlan;
-        task: NormalizedDelegationTask;
-        index: number;
-        statusEntry: DelegationStatusEntry;
-        prompt?: string;
-      }): Promise<DelegationCompletionEntry> => {
-        const { plan, task, statusEntry, prompt } = params;
-        statusEntry.status = 'running';
-        await publishStatus();
-        const run = await runDelegationTaskWithRetry({
-          parentSessionId,
-          childDepth,
-          channelId,
-          chatbotId,
-          enableRag,
-          agentId,
-          mode: plan.mode,
-          task: prompt ? { ...task, prompt } : task,
-          onToolProgress: (event) => {
-            if (event.phase === 'finish') {
-              statusEntry.toolUses += 1;
-              statusEntry.lastTool = statusEntry.currentTool ?? event.toolName;
-              statusEntry.lastToolDetail = statusEntry.currentToolDetail;
-              statusEntry.currentTool = undefined;
-              statusEntry.currentToolDetail = undefined;
-              void publishStatus();
-              return;
-            }
-            statusEntry.currentTool = event.toolName;
-            statusEntry.currentToolDetail = formatDelegationToolDetail(event);
-            void publishStatus();
-          },
-        });
-        statusEntry.status = run.status;
-        statusEntry.currentTool = undefined;
-        statusEntry.currentToolDetail = undefined;
-        statusEntry.lastTool = undefined;
-        statusEntry.lastToolDetail = undefined;
-        statusEntry.toolUses = Math.max(
-          statusEntry.toolUses,
-          run.toolsUsed.length,
-        );
-        statusEntry.tokenCount = run.tokenCount;
-        await publishStatus();
-        return {
-          title: statusEntry.title,
-          run,
-        };
-      };
-
-      const runPlan = async (
-        plan: NormalizedDelegationPlan,
-        planIndex: number,
-      ): Promise<DelegationCompletionEntry[]> => {
-        const planStatusEntries = statusEntriesByPlan[planIndex] || [];
-        if (plan.mode === 'parallel') {
-          return Promise.all(
-            plan.tasks.map(async (task, index) =>
-              runTask({
-                plan,
-                task,
-                index,
-                statusEntry: planStatusEntries[index],
-              }),
-            ),
-          );
-        }
-
-        if (plan.mode === 'chain') {
-          const planEntries: DelegationCompletionEntry[] = [];
-          let previousResult = '';
-          for (let i = 0; i < plan.tasks.length; i++) {
-            const task = plan.tasks[i];
-            const entry = await runTask({
-              plan,
-              task,
-              index: i,
-              statusEntry: planStatusEntries[i],
-              prompt: interpolateChainPrompt(task.prompt, previousResult),
-            });
-            planEntries.push(entry);
-            if (entry.run.status !== 'completed') break;
-            previousResult = entry.run.result || '';
-          }
-          return planEntries;
-        }
-
-        const task = plan.tasks[0];
-        return [
-          await runTask({
-            plan,
-            task,
-            index: 0,
-            statusEntry: planStatusEntries[0],
-          }),
-        ];
-      };
-
-      const planEntries = await Promise.all(
-        activePlans.map(async (plan, planIndex) => runPlan(plan, planIndex)),
-      );
-      entries.push(...planEntries.flat());
-
-      if (entries.length === 0) {
-        logger.warn(
-          { parentSessionId, planCount: activePlans.length },
-          'Delegation produced no entries',
-        );
-        return;
-      }
-
-      const completion = formatDelegationCompletion({
-        mode:
-          activePlans.length === 1
-            ? activePlans[0]?.mode || 'single'
-            : 'parallel',
-        label: batchLabel,
-        entries,
-        totalDurationMs: Date.now() - startedAt,
-      });
-      let finalForUser: string | null = null;
-      let streamedFinal = false;
-      let synthesisStream: ReturnType<
-        typeof createDelegationSynthesisStream
-      > | null = null;
       try {
-        synthesisStream =
-          channelId === 'tui'
-            ? createDelegationSynthesisStream({
+        await publishDelegationLifecycleMessage({
+          parentSessionId,
+          channelId,
+          text: formatDelegationStatus({
+            label: batchLabel,
+            entries: statusEntries,
+            parentModel,
+          }),
+          onProactiveMessage,
+        });
+
+        let statusPublishChain = Promise.resolve();
+        const publishStatus = (): Promise<void> => {
+          const text = formatDelegationStatus({
+            label: batchLabel,
+            entries: statusEntries,
+            parentModel,
+          });
+          statusPublishChain = statusPublishChain
+            .catch(() => undefined)
+            .then(() =>
+              publishDelegationLifecycleMessage({
                 parentSessionId,
                 channelId,
-              })
-            : null;
-        finalForUser = await synthesizeDelegationFinal({
+                text,
+                onProactiveMessage,
+              }),
+            );
+          return statusPublishChain;
+        };
+        const runTask = async (params: {
+          plan: NormalizedDelegationPlan;
+          task: NormalizedDelegationTask;
+          index: number;
+          statusEntry: DelegationStatusEntry;
+          prompt?: string;
+        }): Promise<DelegationCompletionEntry> => {
+          const { plan, task, statusEntry, prompt } = params;
+          statusEntry.status = 'running';
+          await publishStatus();
+          const run = await runDelegationTaskWithRetry({
+            parentSessionId,
+            childDepth,
+            channelId,
+            chatbotId,
+            enableRag,
+            agentId,
+            mode: plan.mode,
+            task: prompt ? { ...task, prompt } : task,
+            onToolProgress: (event) => {
+              if (event.phase === 'finish') {
+                statusEntry.toolUses += 1;
+                statusEntry.lastTool =
+                  statusEntry.currentTool ?? event.toolName;
+                statusEntry.lastToolDetail = statusEntry.currentToolDetail;
+                statusEntry.currentTool = undefined;
+                statusEntry.currentToolDetail = undefined;
+                void publishStatus();
+                return;
+              }
+              statusEntry.currentTool = event.toolName;
+              statusEntry.currentToolDetail = formatDelegationToolDetail(event);
+              void publishStatus();
+            },
+          });
+          statusEntry.status = run.status;
+          statusEntry.currentTool = undefined;
+          statusEntry.currentToolDetail = undefined;
+          statusEntry.lastTool = undefined;
+          statusEntry.lastToolDetail = undefined;
+          statusEntry.toolUses = Math.max(
+            statusEntry.toolUses,
+            run.toolsUsed.length,
+          );
+          statusEntry.tokenCount = run.tokenCount;
+          await publishStatus();
+          return {
+            title: statusEntry.title,
+            run,
+          };
+        };
+
+        const runPlan = async (
+          plan: NormalizedDelegationPlan,
+          planIndex: number,
+        ): Promise<DelegationCompletionEntry[]> => {
+          const planStatusEntries = statusEntriesByPlan[planIndex] || [];
+          if (plan.mode === 'parallel') {
+            return Promise.all(
+              plan.tasks.map(async (task, index) =>
+                runTask({
+                  plan,
+                  task,
+                  index,
+                  statusEntry: planStatusEntries[index],
+                }),
+              ),
+            );
+          }
+
+          if (plan.mode === 'chain') {
+            const planEntries: DelegationCompletionEntry[] = [];
+            let previousResult = '';
+            for (let i = 0; i < plan.tasks.length; i++) {
+              const task = plan.tasks[i];
+              const entry = await runTask({
+                plan,
+                task,
+                index: i,
+                statusEntry: planStatusEntries[i],
+                prompt: interpolateChainPrompt(task.prompt, previousResult),
+              });
+              planEntries.push(entry);
+              if (entry.run.status !== 'completed') break;
+              previousResult = entry.run.result || '';
+            }
+            return planEntries;
+          }
+
+          const task = plan.tasks[0];
+          return [
+            await runTask({
+              plan,
+              task,
+              index: 0,
+              statusEntry: planStatusEntries[0],
+            }),
+          ];
+        };
+
+        const planEntries = await Promise.all(
+          activePlans.map(async (plan, planIndex) => runPlan(plan, planIndex)),
+        );
+        entries.push(...planEntries.flat());
+
+        if (entries.length === 0) {
+          logger.warn(
+            { parentSessionId, planCount: activePlans.length },
+            'Delegation produced no entries',
+          );
+          failDelegationJob(publicId, 'no_delegation_entries');
+          return;
+        }
+
+        const completion = formatDelegationCompletion({
+          mode:
+            activePlans.length === 1
+              ? activePlans[0]?.mode || 'single'
+              : 'parallel',
+          label: batchLabel,
+          entries,
+          totalDurationMs: Date.now() - startedAt,
+        });
+        let finalForUser: string | null = null;
+        let streamedFinal = false;
+        let synthesisStream: ReturnType<
+          typeof createDelegationSynthesisStream
+        > | null = null;
+        try {
+          synthesisStream =
+            channelId === 'tui'
+              ? createDelegationSynthesisStream({
+                  parentSessionId,
+                  channelId,
+                })
+              : null;
+          finalForUser = await synthesizeDelegationFinal({
+            parentSessionId,
+            channelId,
+            chatbotId,
+            enableRag,
+            agentId,
+            model: parentModel || HYBRIDAI_MODEL,
+            parentPrompt,
+            parentResult,
+            delegationResults: completion.forLLM,
+            onTextDelta: synthesisStream?.onTextDelta,
+          });
+          synthesisStream?.finish();
+          streamedFinal =
+            Boolean(finalForUser) &&
+            (synthesisStream?.started() === true ||
+              Boolean(synthesisStream?.text().trim()));
+          if (streamedFinal && synthesisStream) {
+            finalForUser = synthesisStream.text().trim() || finalForUser;
+          }
+        } catch (err) {
+          logger.warn(
+            { parentSessionId, channelId, err },
+            'Delegation final synthesis failed; using completion summary',
+          );
+        } finally {
+          synthesisStream?.finish();
+        }
+        const resultText = finalForUser || completion.forUser;
+        await publishDelegationCompletion({
           parentSessionId,
           channelId,
-          chatbotId,
-          enableRag,
           agentId,
-          model: parentModel || HYBRIDAI_MODEL,
-          parentPrompt,
-          parentResult,
-          delegationResults: completion.forLLM,
-          onTextDelta: synthesisStream?.onTextDelta,
+          forLLM: completion.forLLM,
+          forUser: resultText,
+          artifacts: completion.artifacts,
+          publishForUser: !streamedFinal,
+          onProactiveMessage,
         });
-        synthesisStream?.finish();
-        streamedFinal =
-          Boolean(finalForUser) &&
-          (synthesisStream?.started() === true ||
-            Boolean(synthesisStream?.text().trim()));
-        if (streamedFinal && synthesisStream) {
-          finalForUser = synthesisStream.text().trim() || finalForUser;
-        }
+        completeDelegationJob(publicId, {
+          resultText,
+          resultDigest: completion.forLLM,
+          artifacts: completion.artifacts,
+        });
       } catch (err) {
-        logger.warn(
-          { parentSessionId, channelId, err },
-          'Delegation final synthesis failed; using completion summary',
+        const message = err instanceof Error ? err.message : String(err);
+        failDelegationJob(publicId, message);
+        logger.error(
+          { err, parentSessionId, channelId, publicId, internalId: jobId },
+          'Delegation batch failed',
         );
       } finally {
-        synthesisStream?.finish();
+        const row = getDelegationJob(publicId);
+        if (row?.status === 'queued' || row?.status === 'in_progress') {
+          failDelegationJob(publicId, 'unknown_termination');
+        }
       }
-      await publishDelegationCompletion({
-        parentSessionId,
-        channelId,
-        agentId,
-        forLLM: completion.forLLM,
-        forUser: finalForUser || completion.forUser,
-        artifacts: completion.artifacts,
-        publishForUser: !streamedFinal,
-        onProactiveMessage,
-      });
     },
   });
+  if (!accepted) {
+    failDelegationJob(publicId, 'delegation_disabled');
+    return null;
+  }
+  return { publicId };
 }
 
 export async function prepareSessionAutoReset(params: {

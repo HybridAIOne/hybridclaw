@@ -35,13 +35,14 @@ function pump(): void {
   }
 }
 
-export function enqueueDelegation(job: DelegationJob): void {
+export function enqueueDelegation(job: DelegationJob): boolean {
   if (!PROACTIVE_DELEGATION_ENABLED) {
     logger.info({ jobId: job.id }, 'Delegation skipped — disabled');
-    return;
+    return false;
   }
   queue.push(job);
   pump();
+  return true;
 }
 
 export function delegationQueueStatus(): { queued: number; active: number } {

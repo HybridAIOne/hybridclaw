@@ -2207,25 +2207,29 @@ async function handleGatewayMessageInner(
       },
       allowSchedules: !isGoalContinuationSource(source),
     });
-    const delegationAcknowledgement =
+    const ackText =
       acceptedDelegations > 0
         ? `Started ${acceptedDelegations} delegate ${acceptedDelegations === 1 ? 'job' : 'jobs'}. I'll synthesize the final answer when they finish.`
         : null;
-    if (acceptedDelegationPlans.length > 0) {
-      enqueueDelegationBatchFromSideEffects({
-        plans: acceptedDelegationPlans,
-        parentSessionId: req.sessionId,
-        channelId: req.channelId,
-        chatbotId,
-        enableRag,
-        agentId,
-        parentModel: model,
-        onProactiveMessage: req.onProactiveMessage,
-        parentDepth,
-        parentPrompt: req.content,
-        parentResult: delegationAcknowledgement || '',
-      });
-    }
+    const delegationDescriptor =
+      acceptedDelegationPlans.length > 0
+        ? enqueueDelegationBatchFromSideEffects({
+            plans: acceptedDelegationPlans,
+            parentSessionId: req.sessionId,
+            channelId: req.channelId,
+            chatbotId,
+            enableRag,
+            agentId,
+            parentModel: model,
+            onProactiveMessage: req.onProactiveMessage,
+            parentDepth,
+            parentPrompt: req.content,
+            parentResult: ackText || '',
+            publicId: req.delegationPublicId,
+            ackText: ackText || '',
+          })
+        : null;
+    const delegationAcknowledgement = delegationDescriptor ? ackText : null;
 
     promoteWorkspaceSkills(workspacePath);
 
@@ -2506,6 +2510,14 @@ async function handleGatewayMessageInner(
       skillUsed: observedSkillName ?? undefined,
       agentId,
       addressEnvelope: req.addressEnvelope,
+      ...(delegationDescriptor
+        ? {
+            delegation: {
+              id: delegationDescriptor.publicId,
+              status: 'queued' as const,
+            },
+          }
+        : {}),
       model,
       provider,
       memoryCitations: output.memoryCitations,
