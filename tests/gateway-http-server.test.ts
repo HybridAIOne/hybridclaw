@@ -13,6 +13,7 @@ const OPENAI_SESSION_ID_RE =
   /^agent:[^:]+:channel:openai:chat:dm:peer:[a-f0-9]{16}$/;
 const OPENAI_EXECUTION_SESSION_ID_RE =
   /^agent:[^:]+:channel:openai:chat:dm:peer:(?:[a-f0-9]{16}|exec-[a-f0-9]{24})$/;
+const OPENAI_COMPLETION_ID_RE = /^chatcmpl_[a-f0-9]{32}$/;
 const DEFAULT_TEST_GATEWAY_API_TOKEN = 'gateway-token';
 
 const ORIGINAL_HOME = process.env.HOME;
@@ -2106,6 +2107,7 @@ async function importFreshHealth(options?: {
   const claimQueuedProactiveMessages = vi.fn(() => [
     { id: 1, text: 'queued message' },
   ]);
+  const getDelegationJob = vi.fn((_publicId: string) => null as unknown);
   const consumeGatewayMediaUploadQuota = vi.fn((params: { bytes: number }) => ({
     allowed: true,
     remainingBytes: Number.POSITIVE_INFINITY,
@@ -2254,6 +2256,7 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/memory/db.js', () => ({
     claimQueuedProactiveMessages,
+    getDelegationJob,
     getSessionById,
     resetSessionIfExpired: vi.fn(() => null),
     setMessageActivityTrace,
@@ -2608,6 +2611,7 @@ async function importFreshHealth(options?: {
     runMessageToolAction,
     normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
+    getDelegationJob,
     consumeGatewayMediaUploadQuota,
     listLoadedPluginCommands,
   };
@@ -3004,7 +3008,7 @@ describe('gateway HTTP server', () => {
   });
 
   test('allows unsafe local web-session API requests with a matching origin', async () => {
-    const state = await importFreshHealth();
+    const state = await importFreshHealth({ deploymentPublicUrl: '' });
     const cookie = issueLocalWebSessionCookie(state);
     const req = makeRequest({
       method: 'POST',
@@ -3106,6 +3110,7 @@ describe('gateway HTTP server', () => {
     const authSecret = 'api-session-mutation-auth-secret';
     const state = await importFreshHealth({
       authSecret,
+      deploymentPublicUrl: '',
       webApiToken: 'web-token',
     });
     const req = makeRequest({
@@ -3136,6 +3141,7 @@ describe('gateway HTTP server', () => {
     const authSecret = 'api-session-forwarded-origin-auth-secret';
     const state = await importFreshHealth({
       authSecret,
+      deploymentPublicUrl: '',
       webApiToken: 'web-token',
     });
     const req = makeRequest({
@@ -3746,6 +3752,7 @@ describe('gateway HTTP server', () => {
         },
       ],
       model: 'gpt-5',
+      delegationPublicId: expect.stringMatching(OPENAI_COMPLETION_ID_RE),
       source: 'gateway.chat.openai-compatible',
     });
     expect(state.stopSessionExecution).not.toHaveBeenCalled();
@@ -3767,6 +3774,46 @@ describe('gateway HTTP server', () => {
       completion_tokens: 7,
       total_tokens: 19,
     });
+    expect(payload.hybridclaw).toBeUndefined();
+    expect(res.getHeader('x-hybridclaw-delegation-id')).toBeUndefined();
+  });
+
+  test('adds delegation metadata to non-streaming OpenAI chat completions when a job is created', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayMessage.mockImplementationOnce(
+      async (request: { delegationPublicId?: string }) => ({
+        status: 'success' as const,
+        result:
+          "Started 2 delegate jobs. I'll synthesize the final answer when they finish.",
+        toolsUsed: [],
+        delegation: {
+          id: request.delegationPublicId || 'chatcmpl_missing',
+          status: 'queued' as const,
+        },
+      }),
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5',
+        messages: [{ role: 'user', content: 'Research this deeply.' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    const payload = JSON.parse(res.body);
+    expect(payload.id).toMatch(OPENAI_COMPLETION_ID_RE);
+    expect(payload.hybridclaw).toEqual({
+      delegation: {
+        id: payload.id,
+        status: 'queued',
+      },
+    });
+    expect(res.getHeader('x-hybridclaw-delegation-id')).toBe(payload.id);
   });
 
   test('reuses the OpenAI executor session across repeated requests in the same conversation seed', async () => {
@@ -3907,6 +3954,7 @@ describe('gateway HTTP server', () => {
       agentId: 'charly',
       model: 'gpt-5',
       promptMode: 'none',
+      delegationPublicId: expect.stringMatching(OPENAI_COMPLETION_ID_RE),
       source: 'gateway.chat.openai-compatible',
     });
 
@@ -3994,6 +4042,7 @@ describe('gateway HTTP server', () => {
       agentId: 'charly',
       model: 'gpt-5',
       promptMode: 'none',
+      delegationPublicId: expect.stringMatching(OPENAI_COMPLETION_ID_RE),
       source: 'gateway.chat.openai-compatible',
     });
 
@@ -4066,6 +4115,7 @@ describe('gateway HTTP server', () => {
       agentId: expect.stringMatching(/^eval-[a-f0-9]{16}$/),
       model: 'gpt-5',
       omitPromptParts: ['bootstrap', 'soul'],
+      delegationPublicId: expect.stringMatching(OPENAI_COMPLETION_ID_RE),
       source: 'gateway.chat.openai-compatible',
       executionSessionId: expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
     });
@@ -4137,6 +4187,174 @@ describe('gateway HTTP server', () => {
       '"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}',
     );
     expect(res.body).toContain('data: [DONE]');
+  });
+
+  test('adds delegation metadata to the OpenAI streaming stop chunk when a job is created', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayMessage.mockImplementationOnce(
+      async (request: { delegationPublicId?: string }) => ({
+        status: 'success' as const,
+        result:
+          "Started 1 delegate job. I'll synthesize the final answer when they finish.",
+        toolsUsed: [],
+        delegation: {
+          id: request.delegationPublicId || 'chatcmpl_missing',
+          status: 'queued' as const,
+        },
+      }),
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'gpt-5',
+        stream: true,
+        messages: [{ role: 'user', content: 'Research this deeply.' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    const chunks = res.body
+      .split('\n\n')
+      .filter((chunk) => chunk.startsWith('data: {'))
+      .map((chunk) => JSON.parse(chunk.slice('data: '.length)));
+    const stopChunk = chunks.find(
+      (chunk) => chunk.choices?.[0]?.finish_reason === 'stop',
+    );
+    expect(stopChunk?.id).toMatch(OPENAI_COMPLETION_ID_RE);
+    expect(stopChunk?.hybridclaw).toEqual({
+      delegation: {
+        id: stopChunk.id,
+        status: 'queued',
+      },
+    });
+  });
+
+  test('retrieves OpenAI-compatible delegation jobs by completion id', async () => {
+    const state = await importFreshHealth();
+    const cases = [
+      {
+        status: 'queued',
+        content:
+          "Started 1 delegate job. I'll synthesize the final answer when they finish.",
+        finishReason: null,
+      },
+      {
+        status: 'in_progress',
+        content:
+          "Started 1 delegate job. I'll synthesize the final answer when they finish.",
+        finishReason: null,
+      },
+      {
+        status: 'completed',
+        content: 'Synthesized final answer.',
+        finishReason: 'stop',
+      },
+      {
+        status: 'failed',
+        content: null,
+        finishReason: null,
+        error: {
+          message: 'gateway_restart',
+          type: 'server_error',
+        },
+      },
+      {
+        status: 'cancelled',
+        content: null,
+        finishReason: null,
+      },
+    ] as const;
+
+    for (const item of cases) {
+      const id = `chatcmpl_${item.status}`;
+      state.getDelegationJob.mockReturnValueOnce({
+        public_id: id,
+        internal_id: `internal-${item.status}`,
+        parent_session_id: 'agent:main:channel:openai:chat:dm:peer:abc123',
+        channel_id: 'openai',
+        agent_id: 'main',
+        model: 'gpt-5',
+        status: item.status,
+        task_count: 1,
+        ack_text:
+          "Started 1 delegate job. I'll synthesize the final answer when they finish.",
+        result_text:
+          item.status === 'completed' ? 'Synthesized final answer.' : null,
+        result_digest: item.status === 'completed' ? 'Digest.' : null,
+        artifacts_json: null,
+        error: item.status === 'failed' ? 'gateway_restart' : null,
+        created_at: '2026-07-08 12:34:56',
+        started_at:
+          item.status === 'queued' ? null : '2026-07-08 12:35:00',
+        completed_at:
+          item.status === 'queued' || item.status === 'in_progress'
+            ? null
+            : '2026-07-08 12:36:00',
+      });
+      const req = makeRequest({
+        method: 'GET',
+        url: `/v1/chat/completions/${encodeURIComponent(id)}`,
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+
+      const payload = JSON.parse(res.body);
+      expect(res.statusCode).toBe(200);
+      expect(payload).toMatchObject({
+        id,
+        object: 'chat.completion',
+        model: 'gpt-5',
+        status: item.status,
+      });
+      expect(payload.choices[0]).toEqual({
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: item.content,
+        },
+        finish_reason: item.finishReason,
+      });
+      if (item.error) {
+        expect(payload.error).toEqual(item.error);
+      } else {
+        expect(payload.error).toBeUndefined();
+      }
+      expect(res.getHeader('x-hybridclaw-session-id')).toBe(
+        'agent:main:channel:openai:chat:dm:peer:abc123',
+      );
+      expect(res.getHeader('x-hybridclaw-delegation-status')).toBe(
+        item.status,
+      );
+    }
+  });
+
+  test('returns OpenAI error shape for unknown delegation completion ids', async () => {
+    const state = await importFreshHealth();
+    state.getDelegationJob.mockReturnValueOnce(null);
+    const req = makeRequest({
+      method: 'GET',
+      url: '/v1/chat/completions/chatcmpl_missing',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: {
+        message: 'No delegation job found for this completion id.',
+        type: 'invalid_request_error',
+        param: null,
+        code: 'not_found',
+      },
+    });
   });
 
   test('rejects OpenAI chat completions requests where n is not 1', async () => {
@@ -8755,7 +8973,7 @@ describe('gateway HTTP server', () => {
   });
 
   test('allows terminal websocket upgrades with local web-session cookie and matching origin', async () => {
-    const state = await importFreshHealth();
+    const state = await importFreshHealth({ deploymentPublicUrl: '' });
     const cookie = issueLocalWebSessionCookie(state);
     const socket = {
       write: vi.fn(),

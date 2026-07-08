@@ -12,6 +12,7 @@ import {
 } from '../evals/eval-profile.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { getDelegationJob } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import {
@@ -51,6 +52,7 @@ import {
   buildOpenAICompatibleStreamTextChunk,
   buildOpenAICompatibleStreamToolCallsChunk,
   buildOpenAICompatibleStreamUsageChunk,
+  sendOpenAICompatibleError,
   sendOpenAICompatibleStreamError,
   writeOpenAICompatibleStreamChunk,
 } from './openai-compatible-response.js';
@@ -296,6 +298,7 @@ function prepareOpenAICompatibleRequest(
 function buildGatewayChatRequest(params: {
   input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>;
   prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
+  completionId: string;
   executionSessionId?: string;
 }): GatewayChatRequest {
   const includeAgentId =
@@ -319,6 +322,7 @@ function buildGatewayChatRequest(params: {
     ...(params.input.media.length > 0 ? { media: params.input.media } : {}),
     ...(includeAgentId ? { agentId: params.prepared.requestAgentId } : {}),
     model: params.prepared.model,
+    delegationPublicId: params.completionId,
     ...(params.prepared.profile.ablateSystemPrompt
       ? { promptMode: 'none' as const }
       : {}),
@@ -452,6 +456,69 @@ export async function handleOpenAICompatibleModelList(
   res.end(JSON.stringify(payload, null, 2));
 }
 
+function openAICompatibleCreatedFromTimestamp(timestamp: string): number {
+  const normalized = timestamp.includes('T')
+    ? timestamp
+    : `${timestamp.replace(' ', 'T')}Z`;
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed)
+    ? Math.floor(parsed / 1000)
+    : Math.floor(Date.now() / 1000);
+}
+
+export async function handleOpenAICompatibleCompletionRetrieve(
+  _req: IncomingMessage,
+  res: ServerResponse,
+  completionId: string,
+  _url: URL,
+): Promise<void> {
+  const job = getDelegationJob(completionId);
+  if (!job) {
+    sendOpenAICompatibleError(
+      res,
+      404,
+      'No delegation job found for this completion id.',
+      {
+        type: 'invalid_request_error',
+        code: 'not_found',
+      },
+    );
+    return;
+  }
+
+  const isTerminalSuccess = job.status === 'completed';
+  const isPending = job.status === 'queued' || job.status === 'in_progress';
+  const payload = buildOpenAICompatibleCompletionResponse({
+    completionId: job.public_id,
+    created: openAICompatibleCreatedFromTimestamp(job.created_at),
+    model: job.model || HYBRIDAI_MODEL,
+    content: isPending
+      ? job.ack_text || ''
+      : isTerminalSuccess
+        ? job.result_text || ''
+        : null,
+    finishReason: isTerminalSuccess ? 'stop' : null,
+    extensions: {
+      status: job.status,
+      ...(job.status === 'failed'
+        ? {
+            error: {
+              message: job.error || 'delegation_failed',
+              type: 'server_error',
+            },
+          }
+        : {}),
+    },
+  });
+
+  res.writeHead(200, {
+    'X-HybridClaw-Session-Id': job.parent_session_id,
+    'X-HybridClaw-Delegation-Status': job.status,
+    'Content-Type': 'application/json; charset=utf-8',
+  });
+  res.end(JSON.stringify(payload, null, 2));
+}
+
 async function handleOpenAICompatibleNonStreamingChat(
   res: ServerResponse,
   chatRequest: GatewayChatRequest,
@@ -474,6 +541,9 @@ async function handleOpenAICompatibleNonStreamingChat(
           'X-HybridClaw-Execution-Session-Id': chatRequest.executionSessionId,
         }
       : {}),
+    ...(result.delegation
+      ? { 'X-HybridClaw-Delegation-Id': result.delegation.id }
+      : {}),
     'X-HybridClaw-Artifact-Count': String(result.artifacts?.length || 0),
   };
   const payload = buildOpenAICompatibleCompletionResponse({
@@ -482,6 +552,15 @@ async function handleOpenAICompatibleNonStreamingChat(
     model: responseModel,
     content: typeof result.result === 'string' ? result.result : '',
     tokenUsage: result.tokenUsage,
+    ...(result.delegation
+      ? {
+          extensions: {
+            hybridclaw: {
+              delegation: result.delegation,
+            },
+          },
+        }
+      : {}),
   });
   res.writeHead(200, {
     ...responseTraceHeaders,
@@ -674,6 +753,15 @@ async function handleOpenAICompatibleStreamingChat(
         completionId,
         created,
         model: responseModel,
+        ...(result.delegation
+          ? {
+              extensions: {
+                hybridclaw: {
+                  delegation: result.delegation,
+                },
+              },
+            }
+          : {}),
       }),
     );
 
@@ -878,6 +966,7 @@ export async function handleOpenAICompatibleChatCompletions(
       const chatRequest = buildGatewayChatRequest({
         input,
         prepared,
+        completionId,
         executionSessionId: executionSession?.sessionId,
       });
       if (input.wantsStream) {

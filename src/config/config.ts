@@ -725,6 +725,8 @@ export let PROACTIVE_DELEGATION_MODEL = '';
 export let PROACTIVE_DELEGATION_MAX_CONCURRENT = 3;
 export let PROACTIVE_DELEGATION_MAX_DEPTH = 2;
 export let PROACTIVE_DELEGATION_MAX_PER_TURN = 3;
+export let DELEGATION_JOBS_RETENTION_DAYS = 7;
+export let DELEGATION_JOBS_MAX_ROWS = 1000;
 
 export let PROACTIVE_AUTO_RETRY_ENABLED = true;
 export let PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS = 3;
@@ -1209,6 +1211,14 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   PROACTIVE_DELEGATION_MAX_PER_TURN = Math.max(
     1,
     config.proactive.delegation.maxPerTurn,
+  );
+  DELEGATION_JOBS_RETENTION_DAYS = Math.max(
+    1,
+    config.proactive.delegation.jobsRetentionDays,
+  );
+  DELEGATION_JOBS_MAX_ROWS = Math.max(
+    1,
+    config.proactive.delegation.jobsMaxRows,
   );
 
   PROACTIVE_AUTO_RETRY_ENABLED = config.proactive.autoRetry.enabled;

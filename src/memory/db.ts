@@ -23,7 +23,11 @@ import {
 } from '../agents/team-structure.js';
 import { agentTeamStructureAssetPath } from '../agents/team-structure-revisions.js';
 import type { WireRecord } from '../audit/audit-trail.js';
-import { DB_PATH } from '../config/config.js';
+import {
+  DB_PATH,
+  DELEGATION_JOBS_MAX_ROWS,
+  DELEGATION_JOBS_RETENTION_DAYS,
+} from '../config/config.js';
 import {
   getRuntimeConfig,
   type RuntimeSchedulerJob,
@@ -167,7 +171,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 49;
+export const DATABASE_SCHEMA_VERSION = 50;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -267,6 +271,32 @@ interface ResponseRatingRow {
   skill_name: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type DelegationJobStatus =
+  | 'queued'
+  | 'in_progress'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface DelegationJobRow {
+  public_id: string;
+  internal_id: string;
+  parent_session_id: string;
+  channel_id: string;
+  agent_id: string;
+  model: string | null;
+  status: DelegationJobStatus;
+  task_count: number;
+  ack_text: string | null;
+  result_text: string | null;
+  result_digest: string | null;
+  artifacts_json: string | null;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
 }
 
 export interface ResponseRatingTarget {
@@ -780,6 +810,33 @@ function recordMigration(
     .run(version, description);
 }
 
+function createDelegationJobsSchema(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS delegation_jobs (
+      public_id TEXT PRIMARY KEY,
+      internal_id TEXT NOT NULL,
+      parent_session_id TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      model TEXT,
+      status TEXT NOT NULL CHECK (status IN ('queued','in_progress','completed','failed','cancelled')),
+      task_count INTEGER NOT NULL DEFAULT 0,
+      ack_text TEXT,
+      result_text TEXT,
+      result_digest TEXT,
+      artifacts_json TEXT,
+      error TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      started_at TEXT,
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_delegation_jobs_status
+      ON delegation_jobs(status);
+    CREATE INDEX IF NOT EXISTS idx_delegation_jobs_created
+      ON delegation_jobs(created_at);
+  `);
+}
+
 function migrateV1(database: Database.Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -944,6 +1001,7 @@ function migrateV1(database: Database.Database): void {
       description TEXT
     );
   `);
+  createDelegationJobsSchema(database);
   createResponseRatingsSchema(database);
   recordMigration(database, 1, 'Initial schema');
 }
@@ -3196,6 +3254,11 @@ function migrateV49(database: Database.Database): void {
   recordMigration(database, 49, 'Persist scoped API token registry');
 }
 
+function migrateV50(database: Database.Database): void {
+  createDelegationJobsSchema(database);
+  recordMigration(database, 50, 'Persist delegated job status and results');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3317,6 +3380,7 @@ function runMigrations(
   }
   if (currentVersion < 48) migrateV48(database, opts);
   if (currentVersion < 49) migrateV49(database);
+  if (currentVersion < 50) migrateV50(database);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -11308,6 +11372,196 @@ export function deleteObservabilityIngestToken(tokenKey: string): void {
   db.prepare('DELETE FROM observability_ingest_tokens WHERE token_key = ?').run(
     normalized,
   );
+}
+
+const TERMINAL_DELEGATION_JOB_STATUSES = [
+  'completed',
+  'failed',
+  'cancelled',
+] as const;
+
+function normalizeDelegationJobId(publicId: string): string {
+  return String(publicId || '').trim();
+}
+
+export function pruneDelegationJobs(params?: {
+  retentionDays?: number;
+  maxRows?: number;
+}): void {
+  const retentionDays = Math.max(
+    1,
+    Math.floor(params?.retentionDays ?? DELEGATION_JOBS_RETENTION_DAYS),
+  );
+  const maxRows = Math.max(
+    1,
+    Math.floor(params?.maxRows ?? DELEGATION_JOBS_MAX_ROWS),
+  );
+  const terminalPlaceholders = TERMINAL_DELEGATION_JOB_STATUSES.map(
+    () => '?',
+  ).join(', ');
+
+  db.prepare(
+    `DELETE FROM delegation_jobs
+     WHERE status IN (${terminalPlaceholders})
+       AND created_at < datetime('now', ?)`,
+  ).run(...TERMINAL_DELEGATION_JOB_STATUSES, `-${retentionDays} days`);
+
+  db.prepare(
+    `DELETE FROM delegation_jobs
+     WHERE status IN (${terminalPlaceholders})
+       AND public_id NOT IN (
+         SELECT public_id
+         FROM delegation_jobs
+         WHERE status IN (${terminalPlaceholders})
+         ORDER BY created_at DESC, public_id DESC
+         LIMIT ?
+       )`,
+  ).run(
+    ...TERMINAL_DELEGATION_JOB_STATUSES,
+    ...TERMINAL_DELEGATION_JOB_STATUSES,
+    maxRows,
+  );
+}
+
+export function createDelegationJob(row: {
+  publicId: string;
+  internalId: string;
+  parentSessionId: string;
+  channelId: string;
+  agentId: string;
+  model?: string | null;
+  taskCount: number;
+  ackText?: string | null;
+}): void {
+  const publicId = normalizeDelegationJobId(row.publicId);
+  const internalId = String(row.internalId || '').trim();
+  const parentSessionId = String(row.parentSessionId || '').trim();
+  const channelId = String(row.channelId || '').trim();
+  const agentId = String(row.agentId || '').trim();
+  if (!publicId || !internalId || !parentSessionId || !channelId || !agentId) {
+    throw new Error(
+      'Delegation job requires public, internal, session, channel, and agent ids.',
+    );
+  }
+
+  db.prepare(
+    `INSERT INTO delegation_jobs (
+       public_id,
+       internal_id,
+       parent_session_id,
+       channel_id,
+       agent_id,
+       model,
+       status,
+       task_count,
+       ack_text
+     ) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
+  ).run(
+    publicId,
+    internalId,
+    parentSessionId,
+    channelId,
+    agentId,
+    row.model?.trim() || null,
+    Math.max(0, Math.floor(row.taskCount || 0)),
+    row.ackText?.trim() || null,
+  );
+  pruneDelegationJobs();
+}
+
+export function markDelegationJobInProgress(publicId: string): void {
+  const normalized = normalizeDelegationJobId(publicId);
+  if (!normalized) return;
+  db.prepare(
+    `UPDATE delegation_jobs
+     SET status = 'in_progress',
+         started_at = COALESCE(started_at, datetime('now'))
+     WHERE public_id = ?
+       AND status = 'queued'`,
+  ).run(normalized);
+}
+
+export function completeDelegationJob(
+  publicId: string,
+  result: {
+    resultText?: string | null;
+    resultDigest?: string | null;
+    artifacts?: ArtifactMetadata[] | null;
+  },
+): void {
+  const normalized = normalizeDelegationJobId(publicId);
+  if (!normalized) return;
+  db.prepare(
+    `UPDATE delegation_jobs
+     SET status = 'completed',
+         result_text = ?,
+         result_digest = ?,
+         artifacts_json = ?,
+         error = NULL,
+         completed_at = datetime('now')
+     WHERE public_id = ?
+       AND status IN ('queued', 'in_progress')`,
+  ).run(
+    result.resultText?.trim() || null,
+    result.resultDigest?.trim() || null,
+    serializeMessageArtifacts(result.artifacts),
+    normalized,
+  );
+}
+
+export function failDelegationJob(publicId: string, error: string): void {
+  const normalized = normalizeDelegationJobId(publicId);
+  if (!normalized) return;
+  const normalizedError = String(error || '').trim() || 'delegation_failed';
+  db.prepare(
+    `UPDATE delegation_jobs
+     SET status = 'failed',
+         error = ?,
+         completed_at = datetime('now')
+     WHERE public_id = ?
+       AND status IN ('queued', 'in_progress')`,
+  ).run(normalizedError, normalized);
+}
+
+export function cancelDelegationJob(publicId: string): boolean {
+  const normalized = normalizeDelegationJobId(publicId);
+  if (!normalized) return false;
+  const result = db
+    .prepare(
+      `UPDATE delegation_jobs
+       SET status = 'cancelled',
+           completed_at = datetime('now')
+       WHERE public_id = ?
+         AND status = 'queued'`,
+    )
+    .run(normalized);
+  return result.changes > 0;
+}
+
+export function getDelegationJob(publicId: string): DelegationJobRow | null {
+  const normalized = normalizeDelegationJobId(publicId);
+  if (!normalized) return null;
+  return (
+    queryOne<DelegationJobRow, [string]>(
+      db,
+      'SELECT * FROM delegation_jobs WHERE public_id = ?',
+      normalized,
+    ) || null
+  );
+}
+
+export function failStaleDelegationJobs(error: string): number {
+  const normalizedError = String(error || '').trim() || 'gateway_restart';
+  const result = db
+    .prepare(
+      `UPDATE delegation_jobs
+       SET status = 'failed',
+           error = ?,
+           completed_at = datetime('now')
+       WHERE status IN ('queued', 'in_progress')`,
+    )
+    .run(normalizedError);
+  return result.changes;
 }
 
 export interface QueuedProactiveMessage {

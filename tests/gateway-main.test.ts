@@ -251,6 +251,7 @@ function createGatewayMainTestState(options?: {
     initGatewayService: vi.fn(
       options?.initGatewayServiceImpl || (async () => {}),
     ),
+    failStaleDelegationJobs: vi.fn(() => 0),
     listAgents: vi.fn(() => []),
     stopGatewayPlugins: vi.fn(async () => {}),
     listQueuedProactiveMessages: vi.fn(() => []),
@@ -600,6 +601,7 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/memory/db.js', () => ({
     deleteQueuedProactiveMessage: vi.fn(),
     enqueueProactiveMessage: vi.fn(() => ({ dropped: 0, queued: 1 })),
+    failStaleDelegationJobs: state.failStaleDelegationJobs,
     getMostRecentSessionChannelId: vi.fn(
       () => state.currentMostRecentSessionChannelId,
     ),

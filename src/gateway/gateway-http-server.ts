@@ -369,6 +369,7 @@ import {
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
 import {
   handleOpenAICompatibleChatCompletions,
+  handleOpenAICompatibleCompletionRetrieve,
   handleOpenAICompatibleModelList,
 } from './openai-compatible.js';
 import {
@@ -9097,6 +9098,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         }
         if (pathname === '/v1/chat/completions' && method === 'POST') {
           await handleOpenAICompatibleChatCompletions(req, res);
+          return;
+        }
+        if (method === 'GET' && pathname.startsWith('/v1/chat/completions/')) {
+          const id = decodeURIComponent(
+            pathname.slice('/v1/chat/completions/'.length),
+          );
+          await handleOpenAICompatibleCompletionRetrieve(req, res, id, url);
           return;
         }
         sendJson(res, 404, {

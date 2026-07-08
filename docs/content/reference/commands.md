@@ -223,6 +223,20 @@ curl http://127.0.0.1:9090/v1/chat/completions \
 - requests must include `Authorization: Bearer <WEB_API_TOKEN>` or
   `Authorization: Bearer <GATEWAY_API_TOKEN>`; loopback address alone does not
   authenticate API requests
+- delegated chat completions return an acknowledgement and include
+  `hybridclaw.delegation` with `{ "id": "<completion-id>", "status": "queued" }`;
+  non-streaming responses also set `X-HybridClaw-Delegation-Id`
+- delegated streaming completions carry the same `hybridclaw.delegation`
+  object on the final stop chunk
+- poll `GET /v1/chat/completions/{completion-id}` to retrieve delegated job
+  state; responses include top-level `status` with one of `queued`,
+  `in_progress`, `completed`, `failed`, or `cancelled`
+- while a delegated job is queued or running, retrieval returns the original
+  acknowledgement with `finish_reason: null`; when completed, it returns the
+  synthesized final answer with `finish_reason: "stop"`; failed jobs include a
+  top-level OpenAI-shaped `error`
+- polling intervals around 1-5 seconds are appropriate for delegated jobs,
+  which may wait behind the delegation concurrency limit before running
 - these endpoints are intended for local tooling and eval harnesses rather than
   public exposure
 
