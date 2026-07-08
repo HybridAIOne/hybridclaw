@@ -548,6 +548,10 @@ async function importFreshHealth(options?: {
   hybridAiBaseUrl?: string;
   runningInsideContainer?: boolean;
   deploymentPublicUrl?: string;
+  apiTokens?: Record<
+    string,
+    { id: string; label: string; claims: Record<string, unknown> }
+  >;
   mediaUploadQuotaDecision?: {
     allowed: boolean;
     remainingBytes: number;
@@ -2117,6 +2121,43 @@ async function importFreshHealth(options?: {
     restartSupported: true,
     restartReason: null,
   }));
+  const verifyApiToken = vi.fn((bearer: string) => {
+    return options?.apiTokens?.[bearer] ?? null;
+  });
+  const getGatewayAdminTokens = vi.fn(() => ({
+    tokens: [],
+    total: 0,
+    actions: [
+      'admin.tokens.read',
+      'admin.tokens.create',
+      'admin.tokens.revoke',
+    ],
+  }));
+  const createGatewayAdminToken = vi.fn(() => ({
+    token: 'hck_created_secret',
+    apiToken: {
+      id: 'created000001',
+      label: 'Created token',
+      claims: { actions: ['openai.api'] },
+      created_at: '2026-05-17T10:00:00.000Z',
+      created_by: 'admin-user',
+      expires_at: null,
+      last_used_at: null,
+      revoked_at: null,
+    },
+  }));
+  const revokeGatewayAdminToken = vi.fn((input: { id: string }) => ({
+    apiToken: {
+      id: input.id,
+      label: 'Revoked token',
+      claims: { actions: ['openai.api'] },
+      created_at: '2026-05-17T10:00:00.000Z',
+      created_by: 'admin-user',
+      expires_at: null,
+      last_used_at: null,
+      revoked_at: '2026-05-17T11:00:00.000Z',
+    },
+  }));
   const refreshRuntimeSecretsFromEnv = vi.fn();
   const reloadRuntimeConfig = vi.fn();
   class ResponseRatingNotFoundError extends Error {
@@ -2343,6 +2384,15 @@ async function importFreshHealth(options?: {
     recordGatewayAdminSecretMutationFailure,
     unsetGatewayAdminSecret,
   }));
+  vi.doMock('../src/security/api-tokens.js', () => ({
+    isApiTokenString: (value: string) => value.trim().startsWith('hck_'),
+    verifyApiToken,
+  }));
+  vi.doMock('../src/gateway/gateway-admin-tokens.js', () => ({
+    createGatewayAdminToken,
+    getGatewayAdminTokens,
+    revokeGatewayAdminToken,
+  }));
   vi.doMock('../src/gateway/gateway-admin-connectors.js', () => ({
     completeGatewayAdminConnectorOAuthCallback,
     getGatewayAdminConnectors,
@@ -2443,6 +2493,10 @@ async function importFreshHealth(options?: {
     overwriteGatewayAdminSecret,
     recordGatewayAdminSecretMutationFailure,
     unsetGatewayAdminSecret,
+    verifyApiToken,
+    getGatewayAdminTokens,
+    createGatewayAdminToken,
+    revokeGatewayAdminToken,
     getGatewayAdminStatistics,
     tunnelConfigResponse,
     getGatewayAdminTunnelConfig,
@@ -2586,6 +2640,8 @@ useCleanMocks({
     '../src/agent/agent.js',
     '../src/gateway/gateway-service.js',
     '../src/gateway/gateway-chat-service.js',
+    '../src/gateway/gateway-admin-tokens.js',
+    '../src/security/api-tokens.js',
     '../src/gateway/openai-compatible-model.ts',
     '../src/gateway/gateway-scheduled-task-service.js',
     '../src/providers/factory.js',
@@ -3342,6 +3398,78 @@ describe('gateway HTTP server', () => {
         code: null,
       },
     });
+  });
+
+  test('denies scoped API tokens on /v1 without openai.api', async () => {
+    const apiToken = 'hck_chat_no_openai';
+    const state = await importFreshHealth({
+      apiTokens: {
+        [apiToken]: {
+          id: 'ccc333ccc333',
+          label: 'chat-only',
+          claims: { actions: ['chat.send'] },
+        },
+      },
+    });
+    const req = makeRequest({
+      url: '/v1/models',
+      headers: {
+        authorization: `Bearer ${apiToken}`,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getGatewayAdminModels).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({
+      error: {
+        message: 'Forbidden.',
+        type: 'authentication_error',
+        param: null,
+        code: null,
+      },
+    });
+  });
+
+  test('allows scoped API tokens on /v1 with openai.api', async () => {
+    const apiToken = 'hck_openai_api';
+    const state = await importFreshHealth({
+      apiTokens: {
+        [apiToken]: {
+          id: 'ddd444ddd444',
+          label: 'openai-sdk',
+          claims: { actions: ['openai.api'] },
+        },
+      },
+    });
+    state.getGatewayAdminModels.mockResolvedValueOnce({
+      defaultModel: 'gpt-5',
+      providerStatus: {},
+      models: [{ id: 'gpt-5' }],
+    });
+    const req = makeRequest({
+      url: '/v1/models',
+      headers: {
+        authorization: `Bearer ${apiToken}`,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).data).toEqual([
+      {
+        id: 'gpt-5',
+        object: 'model',
+        created: 0,
+        owned_by: 'hybridclaw',
+      },
+    ]);
   });
 
   test('serves OpenAI-compatible model discovery from /v1/models', async () => {
@@ -6302,6 +6430,82 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(403);
   });
 
+  test('denies scoped API tokens without secret overwrite claims before reading the body', async () => {
+    const apiToken = 'hck_secret_read_only';
+    const state = await importFreshHealth({
+      apiTokens: {
+        [apiToken]: {
+          id: 'abc123abc123',
+          label: 'secret-reader',
+          claims: { actions: ['secret.list_metadata'] },
+        },
+      },
+    });
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/secrets/SET_SECRET',
+      body: { value: 'denied-api-token-secret' },
+      headers: {
+        authorization: `Bearer ${apiToken}`,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.verifyApiToken).toHaveBeenCalledWith(apiToken);
+    expect(state.overwriteGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(state.recordGatewayAdminSecretMutationFailure).toHaveBeenCalledWith({
+      type: 'secret.overwritten',
+      name: 'SET_SECRET',
+      audit: {
+        sessionId: 'apiToken:abc123abc123:secret-reader',
+        actor: 'apiToken:abc123abc123:secret-reader',
+        sourceIp: '127.0.0.1',
+      },
+      errorCode: 'forbidden',
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.body).not.toContain('denied-api-token-secret');
+  });
+
+  test('allows scoped API tokens with matching secret overwrite claims', async () => {
+    const apiToken = 'hck_secret_writer';
+    const state = await importFreshHealth({
+      apiTokens: {
+        [apiToken]: {
+          id: 'def456def456',
+          label: 'secret-writer',
+          claims: { actions: ['secret.overwrite'] },
+        },
+      },
+    });
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/secrets/SET_SECRET',
+      body: { value: 'rotated-by-token' },
+      headers: {
+        authorization: `Bearer ${apiToken}`,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.overwriteGatewayAdminSecret).toHaveBeenCalledWith({
+      name: 'SET_SECRET',
+      value: 'rotated-by-token',
+      audit: {
+        sessionId: 'apiToken:def456def456:secret-writer',
+        actor: 'apiToken:def456def456:secret-writer',
+        sourceIp: '127.0.0.1',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
   test('rejects unsupported admin secret metadata methods before listing names', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -6554,6 +6758,102 @@ describe('gateway HTTP server', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.body).not.toContain('bad-json-secret');
+  });
+
+  test('lists API token metadata for authorized admin sessions', async () => {
+    const authSecret = 'token-list-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/api/admin/tokens',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          actions: ['admin.tokens.read'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminTokens).toHaveBeenCalledWith({
+      authPayload: expect.objectContaining({
+        actions: ['admin.tokens.read'],
+      }),
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('prevents API-token-authenticated requests from creating or revoking tokens', async () => {
+    const apiToken = 'hck_token_admin';
+    const state = await importFreshHealth({
+      apiTokens: {
+        [apiToken]: {
+          id: 'aaa111aaa111',
+          label: 'token-admin',
+          claims: {
+            actions: ['admin.tokens.create', 'admin.tokens.revoke'],
+          },
+        },
+      },
+    });
+    const createReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/tokens',
+      body: { label: 'new', actions: ['openai.api'] },
+      headers: {
+        authorization: `Bearer ${apiToken}`,
+      },
+    });
+    const createRes = makeResponse();
+
+    state.handler(createReq as never, createRes as never);
+    await settle();
+
+    const revokeReq = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/tokens/deadbeef0000',
+      headers: {
+        authorization: `Bearer ${apiToken}`,
+      },
+    });
+    const revokeRes = makeResponse();
+
+    state.handler(revokeReq as never, revokeRes as never);
+    await settle();
+
+    expect(state.createGatewayAdminToken).not.toHaveBeenCalled();
+    expect(state.revokeGatewayAdminToken).not.toHaveBeenCalled();
+    expect(createRes.statusCode).toBe(403);
+    expect(revokeRes.statusCode).toBe(403);
+  });
+
+  test('denies scoped API tokens on unmapped API routes unless wildcarded', async () => {
+    const apiToken = 'hck_chat_only';
+    const state = await importFreshHealth({
+      apiTokens: {
+        [apiToken]: {
+          id: 'bbb222bbb222',
+          label: 'chat-only',
+          claims: { actions: ['chat.send'] },
+        },
+      },
+    });
+    const req = makeRequest({
+      url: '/api/history?sessionId=web-session-1',
+      headers: {
+        authorization: `Bearer ${apiToken}`,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayHistory).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
   });
 
   test('returns admin tunnel config for authorized API requests', async () => {
@@ -8490,6 +8790,11 @@ describe('gateway HTTP server', () => {
         validateToken: expect.any(Function),
       }),
     );
+    const options = state.handleTerminalUpgrade.mock.calls[0]?.[4] as
+      | { validateToken?: (token: string) => boolean }
+      | undefined;
+    expect(options?.validateToken?.('web-token')).toBe(true);
+    expect(options?.validateToken?.('hck_terminal_token')).toBe(false);
     expect(socket.write).not.toHaveBeenCalled();
   });
 

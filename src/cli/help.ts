@@ -11,6 +11,7 @@ export function printMainUsage(): void {
   backup     Create or restore a full-state backup of ~/.hybridclaw
   config     Show or edit the local runtime config
   secret     Manage encrypted runtime secrets and HTTP auth routes
+  token      Manage scoped API tokens for the local gateway
   policy     Manage workspace HTTP/network access rules
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   eval       Run local eval recipes or launch detached benchmark commands
@@ -892,6 +893,24 @@ Notes:
   - Use \`prefix\` for \`Bearer <secret>\` or \`none\` for raw header injection.`);
 }
 
+export function printTokenUsage(): void {
+  console.log(`Usage: hybridclaw token <command>
+
+Commands:
+  hybridclaw token list
+  hybridclaw token create --label <label> (--role <role>|--actions <a,b>) [--expires-at <iso>]
+  hybridclaw token revoke <id>
+
+Examples:
+  hybridclaw token create --label sdk --actions openai.api
+  hybridclaw token create --label admin-read --role admin:auditor
+  hybridclaw token revoke 0123456789ab
+
+Notes:
+  - Tokens are printed once on creation. HybridClaw stores only a SHA-256 hash.
+  - WEB_API_TOKEN and GATEWAY_API_TOKEN remain unscoped master tokens; \`hybridclaw token\` creates revocable scoped tokens.`);
+}
+
 export function printEnvUsage(): void {
   console.log(`Usage: hybridclaw env <command>
 
@@ -1013,6 +1032,7 @@ Topics:
   hermes      Help for Hermes Agent migration
   config      Help for local runtime config commands
   secret      Help for encrypted secret-store commands
+  token       Help for scoped API token commands
   policy      Help for workspace network policy commands
   plugin      Help for plugin management
   msteams     Help for Microsoft Teams auth/setup commands
@@ -1105,6 +1125,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'secret':
       printSecretUsage();
+      return true;
+    case 'token':
+      printTokenUsage();
       return true;
     case 'policy':
       printPolicyUsage();

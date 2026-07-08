@@ -36,6 +36,7 @@ import { SessionsPage } from './routes/sessions';
 import { SkillsDetailPage } from './routes/skill-detail';
 import { SkillsPage } from './routes/skills';
 import { StatisticsPage } from './routes/statistics';
+import { TokensPage } from './routes/tokens';
 import { ToolsPage } from './routes/tools';
 
 const LazyTerminalPage = lazy(async () => {
@@ -310,6 +311,12 @@ const secretsRoute = createRoute({
   component: SecretsPage,
 });
 
+const tokensRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/tokens',
+  component: TokensPage,
+});
+
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/chat',
@@ -383,6 +390,7 @@ const routeTree = rootRoute.addChildren([
     outputGuardRoute,
     toolsRoute,
     secretsRoute,
+    tokensRoute,
   ]),
   agentsOverviewRoute,
   chatRoute.addChildren([chatSessionRoute]),

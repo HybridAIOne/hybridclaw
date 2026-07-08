@@ -45,6 +45,18 @@ describe('admin RBAC role bundles', () => {
     expect(isAdminActionAllowed(payload, 'secret.overwrite')).toBe(false);
   });
 
+  test('grants API token management only to security and full roles', () => {
+    expect(
+      isAdminActionAllowed({ role: 'admin.security_manager' }, 'admin.tokens.create'),
+    ).toBe(true);
+    expect(
+      isAdminActionAllowed({ role: 'admin.viewer' }, 'admin.tokens.read'),
+    ).toBe(false);
+    expect(isAdminActionAllowed({ role: 'admin.full' }, 'openai.api')).toBe(
+      true,
+    );
+  });
+
   test('combines roles arrays with explicit action claims', () => {
     const payload = {
       roles: ['admin.security_manager', 'admin.terminal_operator'],
@@ -145,5 +157,22 @@ describe('admin RBAC role bundles', () => {
     expect(
       resolveAdminRbacAction('/api/admin/connectors/logout', 'POST'),
     ).toBe('secret.unset');
+  });
+
+  test('maps API token and scoped API routes', () => {
+    expect(resolveAdminRbacAction('/api/admin/tokens', 'GET')).toBe(
+      'admin.tokens.read',
+    );
+    expect(resolveAdminRbacAction('/api/admin/tokens', 'POST')).toBe(
+      'admin.tokens.create',
+    );
+    expect(resolveAdminRbacAction('/api/admin/tokens/abc123abc123', 'DELETE')).toBe(
+      'admin.tokens.revoke',
+    );
+    expect(resolveAdminRbacAction('/v1/models', 'GET')).toBe('openai.api');
+    expect(resolveAdminRbacAction('/api/chat', 'POST')).toBe('chat.send');
+    expect(resolveAdminRbacAction('/api/command', 'POST')).toBe('chat.send');
+    expect(resolveAdminRbacAction('/api/status', 'GET')).toBe('status.read');
+    expect(resolveAdminRbacAction('/api/agents', 'GET')).toBe('agents.read');
   });
 });

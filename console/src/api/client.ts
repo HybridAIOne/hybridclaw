@@ -14,6 +14,10 @@ import type {
   AdminAgentProxyConfig,
   AdminAgentScoreboardResponse,
   AdminAgentsResponse,
+  AdminApiTokenCreatePayload,
+  AdminApiTokenCreateResponse,
+  AdminApiTokenRevokeResponse,
+  AdminApiTokensResponse,
   AdminApprovalsResponse,
   AdminAuditResponse,
   AdminBoardBudgetResponse,
@@ -1191,6 +1195,36 @@ export function unsetAdminSecret(
 ): Promise<AdminSecretMutationResponse> {
   return requestJson<AdminSecretMutationResponse>(
     `/api/admin/secrets/${encodeURIComponent(name)}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
+}
+
+export function fetchAdminApiTokens(
+  token: string,
+): Promise<AdminApiTokensResponse> {
+  return requestJson<AdminApiTokensResponse>('/api/admin/tokens', { token });
+}
+
+export function createAdminApiToken(
+  token: string,
+  payload: AdminApiTokenCreatePayload,
+): Promise<AdminApiTokenCreateResponse> {
+  return requestJson<AdminApiTokenCreateResponse>('/api/admin/tokens', {
+    token,
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export function revokeAdminApiToken(
+  token: string,
+  id: string,
+): Promise<AdminApiTokenRevokeResponse> {
+  return requestJson<AdminApiTokenRevokeResponse>(
+    `/api/admin/tokens/${encodeURIComponent(id)}`,
     {
       token,
       method: 'DELETE',

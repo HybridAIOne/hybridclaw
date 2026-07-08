@@ -2509,6 +2509,47 @@ export interface AdminSecretMutationResponse {
   secret: AdminSecretEntry;
 }
 
+export type AdminApiTokenAction =
+  | 'admin.tokens.read'
+  | 'admin.tokens.create'
+  | 'admin.tokens.revoke';
+
+export interface AdminApiTokenEntry {
+  id: string;
+  label: string;
+  claims: Record<string, unknown>;
+  created_at: string;
+  created_by: string | null;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface AdminApiTokensResponse {
+  tokens: AdminApiTokenEntry[];
+  total: number;
+  actions: AdminApiTokenAction[];
+}
+
+export interface AdminApiTokenCreatePayload {
+  label: string;
+  actions?: string[];
+  claims?: Record<string, unknown>;
+  role?: string;
+  roles?: string[];
+  scope?: string | string[];
+  expiresAt?: string;
+}
+
+export interface AdminApiTokenCreateResponse {
+  token: string;
+  apiToken: AdminApiTokenEntry;
+}
+
+export interface AdminApiTokenRevokeResponse {
+  apiToken: AdminApiTokenEntry;
+}
+
 export interface DeleteSessionResult {
   deleted: boolean;
   sessionId: string;

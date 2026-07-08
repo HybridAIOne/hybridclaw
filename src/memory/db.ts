@@ -167,7 +167,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 48;
+export const DATABASE_SCHEMA_VERSION = 49;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -3175,6 +3175,27 @@ function migrateV48(
   recordMigration(database, 48, 'Persist web-chat activity traces per message');
 }
 
+function migrateV49(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      claims TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      created_by TEXT,
+      expires_at TEXT,
+      last_used_at TEXT,
+      revoked_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_token_hash
+      ON api_tokens(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_api_tokens_created_at
+      ON api_tokens(created_at);
+  `);
+  recordMigration(database, 49, 'Persist scoped API token registry');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3295,6 +3316,7 @@ function runMigrations(
     migrateV47(database, opts);
   }
   if (currentVersion < 48) migrateV48(database, opts);
+  if (currentVersion < 49) migrateV49(database);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
