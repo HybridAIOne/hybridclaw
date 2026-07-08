@@ -175,7 +175,32 @@ export function useChatStream(
         updater: ChatUiMessage[] | ((prev: ChatUiMessage[]) => ChatUiMessage[]),
       ) => writeMessages(targetSessionId, updater);
       const userMsgId = !opts?.hideUser ? nextMsgId() : null;
+      const thinkingId = nextMsgId();
+      const traceId = nextMsgId();
+      const streamId = nextMsgId();
+      const req: ActiveRequest = {
+        controller: new AbortController(),
+        sessionId: targetSessionId,
+        messageRole: 'assistant',
+        assistantText: '',
+        lastRenderedText: '',
+        pendingApproval: null,
+        trace: [],
+        traceVersion: 0,
+        lastRenderedTraceVersion: 0,
+        renderFrame: 0,
+        stopping: false,
+      };
+      activeRequestRef.current = req;
       setError('');
+      setStreamingMsgId(streamId);
+      setActiveSessionId(targetSessionId);
+      setIsStreaming(true);
+
+      void queryClient.cancelQueries({
+        queryKey: chatHistoryQueryKey(token, targetSessionId),
+        exact: true,
+      });
 
       if (userMsgId) {
         const addressedAgentPresentation =
@@ -194,8 +219,6 @@ export function useChatStream(
         setMessages((prev) => [...prev, userMsg]);
       }
 
-      const thinkingId = nextMsgId();
-      const traceId = nextMsgId();
       // The trace block precedes the thinking dots (and later the answer
       // bubble): activity rows stream in above the "still working" indicator.
       setMessages((prev) => [
@@ -216,26 +239,6 @@ export function useChatStream(
           sessionId: targetSessionId,
         } satisfies ThinkingChatMessage,
       ]);
-
-      const streamId = nextMsgId();
-      setStreamingMsgId(streamId);
-
-      const req: ActiveRequest = {
-        controller: new AbortController(),
-        sessionId: targetSessionId,
-        messageRole: 'assistant',
-        assistantText: '',
-        lastRenderedText: '',
-        pendingApproval: null,
-        trace: [],
-        traceVersion: 0,
-        lastRenderedTraceVersion: 0,
-        renderFrame: 0,
-        stopping: false,
-      };
-      activeRequestRef.current = req;
-      setActiveSessionId(targetSessionId);
-      setIsStreaming(true);
 
       const doRender = () => {
         req.renderFrame = 0;

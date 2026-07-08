@@ -1,7 +1,3 @@
-import {
-  parseAgentIdentity,
-  resolveLocalInstanceId,
-} from '../identity/agent-id.js';
 import { IDENTITY_DISCOVERY_ZONE_ENV } from '../identity/resolver.js';
 import { logger } from '../logger.js';
 import type { EscalationTarget } from '../types/execution.js';
@@ -14,7 +10,7 @@ import {
   validateA2AEnvelope,
 } from './envelope.js';
 import { attachA2AHandoffContext } from './handoff-context.js';
-import { resolveA2AEnvelopeAgentIds } from './identity.js';
+import { isLocalA2AAgentId, resolveA2AEnvelopeAgentIds } from './identity.js';
 import { normalizePeerDescriptor } from './peer-descriptor.js';
 import {
   type A2AThreadSummary,
@@ -181,8 +177,7 @@ export function sendMessage(
     return deliveryConfirmation('pending', normalizedEnvelope);
   }
 
-  const recipient = parseAgentIdentity(normalizedEnvelope.recipient_agent_id);
-  if (recipient.instanceId !== resolveLocalInstanceId()) {
+  if (!isLocalA2AAgentId(normalizedEnvelope.recipient_agent_id)) {
     warnIfIdentityDiscoveryDisabled(normalizedEnvelope.recipient_agent_id);
     enqueueUnresolvedA2AEnvelope(
       normalizedEnvelope,

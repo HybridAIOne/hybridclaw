@@ -126,6 +126,45 @@ describe('A2A inbox dispatch processor', () => {
     ).toHaveLength(1);
   });
 
+  test('dispatches registered canonical recipients when runtime instance id differs', async () => {
+    const { dispatchStore, dispatcher } = await loadDispatchModules();
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.agents.list = [
+        {
+          id: 'main',
+          canonicalId: 'main@team@agent-card-instance',
+          owner: 'team',
+          role: 'lead',
+        },
+      ];
+    });
+    dispatchStore.enqueueA2AInboxDispatch(
+      a2aEnvelope('msg-dispatch-pinned-canonical', {
+        recipient_agent_id: 'main@team@agent-card-instance',
+      }),
+    );
+
+    const dispatch = vi.fn(async () => ({ status: 'success' as const }));
+    await expect(
+      dispatcher.processA2AInboxDispatchQueue({ dispatch }),
+    ).resolves.toMatchObject({
+      processed: 1,
+      dispatched: 1,
+      failed: 0,
+    });
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
+      agentId: 'main',
+      userId: 'remote@team@peer-instance',
+      addressEnvelope: {
+        to: 'main',
+        from: 'remote@team@peer-instance',
+      },
+    });
+  });
+
   test('does not redispatch an already processed envelope', async () => {
     const { dispatchStore, dispatcher } = await loadDispatchModules();
     const envelope = a2aEnvelope('msg-dispatch-idempotent');

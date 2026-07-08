@@ -76,6 +76,42 @@ export function resolveA2AAgentId(agentId: string): string {
   }).canonicalId;
 }
 
+export function resolveLocalA2AAgentId(agentId: string): string | null {
+  const normalized = agentId.trim();
+  const kind = classifyA2AAgentId(normalized);
+  if (kind === 'local') {
+    try {
+      return findLocalAgent(normalized).id;
+    } catch {
+      return null;
+    }
+  }
+  if (kind !== 'canonical') return null;
+
+  const canonicalAgentId = parseAgentIdentity(normalized).id;
+  for (const agent of listAgents()) {
+    try {
+      if (resolveA2AAgentId(agent.id) === canonicalAgentId) {
+        return agent.id;
+      }
+    } catch {
+      // Agent registry validation owns surfacing malformed local records.
+    }
+  }
+  return null;
+}
+
+export function isLocalA2AAgentId(agentId: string): boolean {
+  const normalized = agentId.trim();
+  const kind = classifyA2AAgentId(normalized);
+  if (kind === 'local') return resolveLocalA2AAgentId(normalized) !== null;
+  if (kind !== 'canonical') return false;
+
+  const parsed = parseAgentIdentity(normalized);
+  if (resolveLocalA2AAgentId(parsed.id)) return true;
+  return parsed.instanceId === resolveLocalInstanceId();
+}
+
 export function resolveA2AEnvelopeAgentIds(envelope: unknown): A2AEnvelope {
   const normalizedEnvelope = validateA2AEnvelope(envelope);
   const senderAgentId = resolveA2AAgentId(normalizedEnvelope.sender_agent_id);

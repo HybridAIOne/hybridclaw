@@ -2170,7 +2170,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .a2aDeliveryChipDelivered {
   background: var(--success-soft);
-  color: var(--success-foreground);
+  color: var(--success);
   border-color: var(--success-border);
 }
 
