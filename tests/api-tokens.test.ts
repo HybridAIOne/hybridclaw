@@ -115,4 +115,26 @@ describe('api token registry', () => {
       actions: [],
     });
   });
+
+  test('prunes expired token rows when minting a new token', async () => {
+    const { tokens } = await setupRegistry();
+    const expired = tokens.createApiToken({
+      label: 'Expired view token',
+      claims: { actions: ['apps.view'], appIds: ['app-1'] },
+      expiresAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    expect(tokens.listApiTokens().map((token) => token.id)).toContain(
+      expired.metadata.id,
+    );
+
+    const active = tokens.createApiToken({
+      label: 'Active view token',
+      claims: { actions: ['apps.view'], appIds: ['app-1'] },
+    });
+
+    expect(tokens.listApiTokens().map((token) => token.id)).toEqual([
+      active.metadata.id,
+    ]);
+  });
 });

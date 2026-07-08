@@ -167,6 +167,7 @@ vi.mock('../../api/client', () => ({
     options === undefined
       ? deleteChatSessionMock(token, sessionId)
       : deleteChatSessionMock(token, sessionId, options),
+  createAdminApiToken: vi.fn(async () => ({ token: 'hck_app_view_token' })),
   fetchAgentList: (token: string) => fetchAgentListMock(token),
   fetchModels: (token: string) => fetchModelsMock(token),
   fetchSkills: (token: string) => fetchSkillsMock(token),

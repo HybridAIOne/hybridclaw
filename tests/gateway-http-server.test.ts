@@ -3292,6 +3292,13 @@ describe('gateway HTTP server', () => {
     await waitForResponse(liveRes, (next) => next.writableEnded);
 
     expect(liveRes.statusCode).toBe(200);
+    expect(liveRes.headers['Referrer-Policy']).toBe('no-referrer');
+    expect(liveRes.headers['Content-Security-Policy']).toContain(
+      'sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads',
+    );
+    expect(liveRes.headers['Content-Security-Policy']).not.toContain(
+      'allow-popups-to-escape-sandbox',
+    );
     expect(liveRes.body).toContain('data-hybridclaw-live-app-bridge');
     expect(liveRes.body).toContain(`var appId = ${JSON.stringify(liveApp.id)};`);
     expect(liveRes.body).toContain('existing.callMcpTool = callTool');
@@ -3311,6 +3318,155 @@ describe('gateway HTTP server', () => {
     expect(staticRes.statusCode).toBe(200);
     expect(staticRes.body).not.toContain('data-hybridclaw-live-app-bridge');
     expect(staticRes.body).toContain('<body>static</body>');
+  });
+
+  test('requires matching appIds on scoped app view query tokens', async () => {
+    const apiToken = 'hck_app_view';
+    const apiTokens = {
+      [apiToken]: {
+        id: 'abc123abc123',
+        label: 'app-view',
+        claims: {
+          actions: ['apps.view', 'apps.bridge'],
+          appIds: [] as string[],
+        },
+      },
+    };
+    const state = await importFreshHealth({
+      apiTokens,
+    });
+    const allowedApp = state.createApp({
+      title: 'Allowed App',
+      html: '<!doctype html><html><head></head><body>allowed</body></html>',
+      kind: 'web',
+    });
+    const deniedApp = state.createApp({
+      title: 'Denied App',
+      html: '<!doctype html><html><head></head><body>denied</body></html>',
+      kind: 'web',
+    });
+    apiTokens[apiToken].claims.appIds = [allowedApp.id];
+
+    const allowedReq = makeRequest({
+      url: `/api/apps/${allowedApp.id}/view?token=${apiToken}`,
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const allowedRes = makeResponse();
+    state.handler(allowedReq as never, allowedRes as never);
+    await waitForResponse(allowedRes, (next) => next.writableEnded);
+
+    expect(state.verifyApiToken).toHaveBeenCalledWith(apiToken);
+    expect(allowedRes.statusCode).toBe(200);
+    expect(allowedRes.body).toContain('<body>allowed</body>');
+
+    const deniedReq = makeRequest({
+      url: `/api/apps/${deniedApp.id}/view?token=${apiToken}`,
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const deniedRes = makeResponse();
+    state.handler(deniedReq as never, deniedRes as never);
+    await waitForResponse(deniedRes, (next) => next.writableEnded);
+
+    expect(deniedRes.statusCode).toBe(403);
+    expect(JSON.parse(deniedRes.body)).toEqual({ error: 'Forbidden.' });
+    expect(deniedRes.body).not.toContain('denied');
+  });
+
+  test('accepts scoped hck query tokens on the live app bridge path', async () => {
+    const apiToken = 'hck_app_bridge';
+    const apiTokens = {
+      [apiToken]: {
+        id: 'def456def456',
+        label: 'app-bridge',
+        claims: {
+          actions: ['apps.bridge'],
+          appIds: [] as string[],
+        },
+      },
+    };
+    const state = await importFreshHealth({
+      apiTokens,
+    });
+    const liveApp = state.createApp({
+      title: 'Mail Wordcloud',
+      html: '<!doctype html><html><head></head><body>mail</body></html>',
+      kind: 'live',
+      sessionId: 'sess-live-app',
+      agentId: 'main',
+    });
+    apiTokens[apiToken].claims.appIds = [liveApp.id];
+    const req = makeRequest({
+      method: 'POST',
+      url: `/api/apps/${liveApp.id}/bridge/tool?token=${apiToken}`,
+      noAuth: true,
+      body: {
+        toolName: 'hybridai__microsoft_graph__send_message',
+        arguments: { id: 'message-1' },
+      },
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.verifyApiToken).toHaveBeenCalledWith(apiToken);
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: false,
+      error: 'Live apps can only call read-only MCP connector tools.',
+    });
+    expect(state.runAgent).not.toHaveBeenCalled();
+  });
+
+  test('uses apps.read for scoped API-token access to the apps API', async () => {
+    const readToken = 'hck_apps_read';
+    const deniedToken = 'hck_apps_denied';
+    const state = await importFreshHealth({
+      apiTokens: {
+        [readToken]: {
+          id: '111111111111',
+          label: 'apps-reader',
+          claims: { actions: ['apps.read'] },
+        },
+        [deniedToken]: {
+          id: '222222222222',
+          label: 'chat-only',
+          claims: { actions: ['chat.send'] },
+        },
+      },
+    });
+    state.createApp({
+      title: 'Listed App',
+      html: '<!doctype html><html><body>listed</body></html>',
+      kind: 'web',
+    });
+
+    const deniedReq = makeRequest({
+      url: '/api/apps',
+      headers: { authorization: `Bearer ${deniedToken}` },
+    });
+    const deniedRes = makeResponse();
+    state.handler(deniedReq as never, deniedRes as never);
+    await waitForResponse(deniedRes, (next) => next.writableEnded);
+
+    expect(deniedRes.statusCode).toBe(403);
+
+    const readReq = makeRequest({
+      url: '/api/apps',
+      headers: { authorization: `Bearer ${readToken}` },
+    });
+    const readRes = makeResponse();
+    state.handler(readReq as never, readRes as never);
+    await waitForResponse(readRes, (next) => next.writableEnded);
+
+    expect(readRes.statusCode).toBe(200);
+    expect(JSON.parse(readRes.body)).toMatchObject({
+      apps: [expect.objectContaining({ title: 'Listed App' })],
+      total: 1,
+    });
   });
 
   test('rejects mutating live app bridge tool requests before running an agent', async () => {

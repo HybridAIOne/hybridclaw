@@ -52,6 +52,7 @@ import {
   ViewSwitchNav,
 } from '../../components/view-switch';
 import { buildAppSeed } from '../../lib/app-seed';
+import { createAppViewToken } from '../../lib/app-view-token';
 import {
   type ApprovalAction,
   buildApprovalCommand,
@@ -449,6 +450,7 @@ export function ChatPage() {
     title: string;
     kind: 'web' | 'live';
   } | null>(null);
+  const [previewAppToken, setPreviewAppToken] = useState('');
 
   const stream = useChatStream({
     token: auth.token,
@@ -462,6 +464,26 @@ export function ChatPage() {
     onAppsCaptured: (apps) => setPreviewApp(apps[apps.length - 1] ?? null),
     resolveAddressedAgentPresentation,
   });
+
+  useEffect(() => {
+    let active = true;
+    setPreviewAppToken('');
+    if (!previewApp) return;
+
+    createAppViewToken(auth.token, previewApp.id)
+      .then((token) => {
+        if (active) setPreviewAppToken(token);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setPreviewApp(null);
+        setError(`Could not open app preview: ${getErrorMessage(error)}`);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [auth.token, previewApp, setError]);
 
   useEffect(() => {
     const message = errorState.message;
@@ -1439,10 +1461,10 @@ export function ChatPage() {
                 >
                   View in Apps
                 </button>
-                {previewApp ? (
+                {previewApp && previewAppToken ? (
                   <a
                     className={css.appPreviewLink}
-                    href={appViewUrl(previewApp.id, auth.token)}
+                    href={appViewUrl(previewApp.id, previewAppToken)}
                     target="_blank"
                     rel="noreferrer"
                   >
@@ -1452,12 +1474,12 @@ export function ChatPage() {
                 <DialogClose className={css.appPreviewLink}>Close</DialogClose>
               </div>
             </div>
-            {previewApp ? (
+            {previewApp && previewAppToken ? (
               <LiveAppFrame
                 appId={previewApp.id}
                 className={css.appPreviewFrame}
                 title={previewApp.title}
-                token={auth.token}
+                token={previewAppToken}
               />
             ) : null}
           </DialogContent>
