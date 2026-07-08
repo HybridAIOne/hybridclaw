@@ -2018,11 +2018,24 @@ function isRuntimeMSTeamsChannelConfig(
   return true;
 }
 
-function hasQueryToken(url: URL): boolean {
+function resolveQueryTokenAuthContext(url: URL): ResolvedAuthContext | null {
   const token = (url.searchParams.get('token') || '').trim();
-  if (!token) return false;
-  if (WEB_API_TOKEN && safeEqualToken(token, WEB_API_TOKEN)) return true;
-  return Boolean(GATEWAY_API_TOKEN) && safeEqualToken(token, GATEWAY_API_TOKEN);
+  if (!token) return null;
+  if (WEB_API_TOKEN && safeEqualToken(token, WEB_API_TOKEN)) {
+    return { kind: 'master', payload: null };
+  }
+  if (GATEWAY_API_TOKEN && safeEqualToken(token, GATEWAY_API_TOKEN)) {
+    return { kind: 'master', payload: null };
+  }
+  if (!isApiTokenString(token)) return null;
+  const verified = verifyApiToken(token);
+  if (!verified) return null;
+  return {
+    kind: 'apiToken',
+    payload: verified.claims,
+    tokenId: verified.id,
+    tokenLabel: verified.label,
+  };
 }
 
 function hasBearerToken(authHeader: string, token: string): boolean {
@@ -2150,8 +2163,9 @@ function resolveAuthContext(
   url?: URL,
   opts?: ResolveAuthContextOptions,
 ): ResolvedAuthContext {
-  if (opts?.allowQueryToken && url && hasQueryToken(url)) {
-    return { kind: 'master', payload: null };
+  if (opts?.allowQueryToken && url) {
+    const queryTokenAuth = resolveQueryTokenAuthContext(url);
+    if (queryTokenAuth) return queryTokenAuth;
   }
 
   const authHeader = req.headers.authorization || '';
@@ -2305,6 +2319,18 @@ function isApiTokenAllowedForRoute(
   const action = resolveAdminRbacAction(pathname, method);
   if (!action) return hasFullApiTokenWildcard(context);
   return isAdminActionAllowed(context.payload, action);
+}
+
+function isApiTokenAllowedForApp(
+  context: ResolvedAuthContext,
+  appId: string,
+): boolean {
+  if (context.kind !== 'apiToken') return true;
+  const appIds = context.payload?.appIds;
+  if (!Array.isArray(appIds)) return false;
+  return appIds.some(
+    (entry) => typeof entry === 'string' && entry.trim() === appId,
+  );
 }
 
 function enforceAdminRouteRbac(
@@ -7700,6 +7726,7 @@ async function handleApiAppBridgeTool(
   }
 
   const authContext = resolveAuthContext(req, url, {
+    allowQueryToken: true,
     allowLocalWebSession: true,
     allowSessionCookie: true,
     requireSameOrigin: true,
@@ -7711,6 +7738,10 @@ async function handleApiAppBridgeTool(
   if (
     !isApiTokenAllowedForRoute(authContext, url.pathname, req.method || 'POST')
   ) {
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+  if (!isApiTokenAllowedForApp(authContext, id)) {
     sendJson(res, 403, { error: 'Forbidden.' });
     return;
   }
@@ -7769,13 +7800,17 @@ async function handleApiAppView(
   if (authContext.kind === 'none') {
     sendJson(res, 401, {
       error:
-        'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass `?token=<WEB_API_TOKEN>`.',
+        'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass a valid `?token=`.',
     });
     return;
   }
   if (
     !isApiTokenAllowedForRoute(authContext, url.pathname, req.method || 'GET')
   ) {
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+  if (!isApiTokenAllowedForApp(authContext, id)) {
     sendJson(res, 403, { error: 'Forbidden.' });
     return;
   }
@@ -7787,6 +7822,9 @@ async function handleApiAppView(
   res.writeHead(200, {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
+    'Content-Security-Policy':
+      "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads; base-uri 'none'; object-src 'none'",
+    'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
   });
   res.end(injectLiveAppBridge(app.html, app));

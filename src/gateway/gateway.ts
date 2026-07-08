@@ -128,7 +128,10 @@ import {
   SLACK_BOT_TOKEN,
   TWILIO_AUTH_TOKEN,
 } from '../config/config.js';
-import type { RuntimeConfig } from '../config/runtime-config.js';
+import {
+  type RuntimeConfig,
+  startRuntimeConfigWatcher,
+} from '../config/runtime-config.js';
 import { resolveLocalInstanceId } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import {
@@ -3523,6 +3526,7 @@ async function main(): Promise<void> {
   await initSentry();
   await initOtel();
   logger.info('Starting HybridClaw gateway');
+  startRuntimeConfigWatcher();
   ensureA2AInstanceKeypair();
   logger.info(
     { instanceId: resolveLocalInstanceId() },

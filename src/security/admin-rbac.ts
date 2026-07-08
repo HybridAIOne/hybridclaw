@@ -17,6 +17,10 @@ export const ADMIN_RBAC_ACTIONS = [
   'chat.send',
   'status.read',
   'agents.read',
+  'apps.read',
+  'apps.view',
+  'apps.bridge',
+  'apps.delete',
   'admin.overview.read',
   'admin.tunnel.read',
   'admin.tunnel.write',
@@ -122,6 +126,9 @@ const ADMIN_READ_ACTIONS = [
   'admin.distill.read',
   'admin.skills.read',
   'admin.jobs.read',
+  'apps.read',
+  'apps.view',
+  'apps.bridge',
 ] as const satisfies readonly AdminRbacAction[];
 
 const ADMIN_AUDITOR_ACTIONS = [
@@ -396,6 +403,20 @@ export function resolveAdminRbacAction(
     method === 'GET'
   ) {
     return 'agents.read';
+  }
+  if (pathname === '/api/apps') {
+    return method === 'GET' ? 'apps.read' : null;
+  }
+  if (pathname.startsWith('/api/apps/')) {
+    if (pathname.endsWith('/view')) {
+      return method === 'GET' ? 'apps.view' : null;
+    }
+    if (pathname.endsWith('/bridge/tool')) {
+      return method === 'POST' ? 'apps.bridge' : null;
+    }
+    if (method === 'GET') return 'apps.read';
+    if (method === 'DELETE') return 'apps.delete';
+    return null;
   }
   if (pathname === '/api/admin/tunnel') {
     if (method === 'GET') return 'admin.tunnel.read';

@@ -6,8 +6,12 @@ sidebar_position: 3
 
 # Configuration
 
-HybridClaw creates `~/.hybridclaw/config.json` on first run and hot-reloads
-most runtime settings.
+HybridClaw creates `~/.hybridclaw/config.json` on first run, and the running
+gateway hot-reloads most runtime settings when the file changes. If the
+gateway's file watcher cannot run (for example under file-descriptor
+pressure), it falls back to detecting config changes via periodic stat
+polling. One-shot CLI commands read the config once at startup and do not
+watch the file.
 
 Use `config.example.json` as the reference shape when you need to inspect the
 full runtime config surface before editing your local file.

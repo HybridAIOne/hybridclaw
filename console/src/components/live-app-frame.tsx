@@ -140,7 +140,7 @@ export const LiveAppFrame = forwardRef<LiveAppFrameHandle, LiveAppFrameProps>(
         className={props.className}
         title={props.title}
         src={appViewUrl(props.appId, props.token)}
-        sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-popups-to-escape-sandbox"
+        sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads"
         onLoad={() => {
           loadedRef.current = true;
           if (props.refreshNonce) postRefreshRequest();

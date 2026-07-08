@@ -1,4 +1,5 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import type Database from 'better-sqlite3';
 import { withMemoryDatabase } from '../memory/db.js';
 
 export const API_TOKEN_PREFIX = 'hck';
@@ -214,6 +215,26 @@ function toMetadata(row: ApiTokenRow): ApiTokenMetadata {
   };
 }
 
+function pruneExpiredApiTokensInDatabase(
+  database: Database.Database,
+  now: Date,
+): number {
+  return database
+    .prepare(
+      `DELETE FROM api_tokens
+       WHERE expires_at IS NOT NULL
+         AND expires_at <= ?`,
+    )
+    .run(now.toISOString()).changes;
+}
+
+export function pruneExpiredApiTokens(options: { now?: Date } = {}): number {
+  const now = options.now ?? new Date();
+  return withMemoryDatabase((database) =>
+    pruneExpiredApiTokensInDatabase(database, now),
+  );
+}
+
 export function createApiToken(
   input: CreateApiTokenInput,
 ): CreateApiTokenResult {
@@ -226,6 +247,7 @@ export function createApiToken(
   const tokenHash = createApiTokenVerifier(token);
 
   return withMemoryDatabase((database) => {
+    pruneExpiredApiTokensInDatabase(database, new Date());
     database
       .prepare(
         `INSERT INTO api_tokens (

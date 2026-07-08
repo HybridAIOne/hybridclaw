@@ -174,5 +174,16 @@ describe('admin RBAC role bundles', () => {
     expect(resolveAdminRbacAction('/api/command', 'POST')).toBe('chat.send');
     expect(resolveAdminRbacAction('/api/status', 'GET')).toBe('status.read');
     expect(resolveAdminRbacAction('/api/agents', 'GET')).toBe('agents.read');
+    expect(resolveAdminRbacAction('/api/apps', 'GET')).toBe('apps.read');
+    expect(resolveAdminRbacAction('/api/apps/app-1', 'GET')).toBe('apps.read');
+    expect(resolveAdminRbacAction('/api/apps/app-1/view', 'GET')).toBe(
+      'apps.view',
+    );
+    expect(resolveAdminRbacAction('/api/apps/app-1/bridge/tool', 'POST')).toBe(
+      'apps.bridge',
+    );
+    expect(resolveAdminRbacAction('/api/apps/app-1', 'DELETE')).toBe(
+      'apps.delete',
+    );
   });
 });

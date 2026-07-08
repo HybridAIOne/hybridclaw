@@ -16,6 +16,9 @@ describe('LiveAppFrame', () => {
     );
     const iframe = container.querySelector('iframe');
     expect(iframe).toBeTruthy();
+    expect(iframe?.getAttribute('sandbox')).toBe(
+      'allow-scripts allow-forms allow-popups allow-modals allow-downloads',
+    );
     const target = iframe?.contentWindow;
     expect(target).toBeTruthy();
     const postMessage = vi

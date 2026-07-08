@@ -36,6 +36,7 @@ import {
 import { MobileTopbarTrigger } from '../components/sidebar/index';
 import { useToast } from '../components/toast';
 import { buildAppSeed, buildLiveAppSeed } from '../lib/app-seed';
+import { createAppViewToken } from '../lib/app-view-token';
 import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
 import styles from './apps.module.css';
@@ -147,6 +148,7 @@ export function AppsPage() {
   );
   const [newKind, setNewKind] = useState<AppKind | null>(null);
   const [viewer, setViewer] = useState<AppDetail | null>(null);
+  const [viewerToken, setViewerToken] = useState('');
   const [viewerRefreshNonce, setViewerRefreshNonce] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState<AppSummary | null>(null);
   const viewerFrameRef = useRef<LiveAppFrameHandle | null>(null);
@@ -187,6 +189,16 @@ export function AppsPage() {
     });
   }
 
+  async function loadAppViewer(appId: string): Promise<AppDetail> {
+    const [result, scopedToken] = await Promise.all([
+      fetchApp(token, appId),
+      createAppViewToken(token, appId),
+    ]);
+    setViewerToken(scopedToken);
+    setViewer(result.app);
+    return result.app;
+  }
+
   async function refreshApp(app: AppSummary) {
     if (app.kind !== 'live') {
       toast.error('Only live apps can refresh connector data.');
@@ -196,8 +208,7 @@ export function AppsPage() {
       return;
     }
     try {
-      const result = await fetchApp(token, app.id);
-      setViewer(result.app);
+      await loadAppViewer(app.id);
       setViewerRefreshNonce((current) => current + 1);
     } catch (error) {
       toast.error(`Could not refresh app: ${getErrorMessage(error)}`);
@@ -208,7 +219,10 @@ export function AppsPage() {
     mutationFn: (id: string) => deleteApp(token, id),
     onSuccess: async (_, id) => {
       await queryClient.invalidateQueries({ queryKey: ['apps'] });
-      if (viewer?.id === id) setViewer(null);
+      if (viewer?.id === id) {
+        setViewer(null);
+        setViewerToken('');
+      }
       setConfirmDelete(null);
       toast.success('App deleted.');
     },
@@ -235,11 +249,15 @@ export function AppsPage() {
 
   async function openApp(summary: AppSummary) {
     try {
-      const result = await fetchApp(token, summary.id);
-      setViewer(result.app);
+      await loadAppViewer(summary.id);
     } catch (error) {
       toast.error(`Could not open app: ${getErrorMessage(error)}`);
     }
+  }
+
+  function closeViewer() {
+    setViewer(null);
+    setViewerToken('');
   }
 
   const filterLabel =
@@ -361,8 +379,8 @@ export function AppsPage() {
 
       <AppViewer
         app={viewer}
-        token={token}
-        onClose={() => setViewer(null)}
+        token={viewerToken}
+        onClose={closeViewer}
         frameRef={viewerFrameRef}
         refreshNonce={viewerRefreshNonce}
         onRefresh={viewer ? () => refreshApp(viewer) : undefined}
@@ -663,7 +681,7 @@ function AppViewer(props: {
                 <Refresh className={styles.inlineIcon} /> Refresh
               </button>
             ) : null}
-            {app ? (
+            {app && props.token ? (
               <a
                 className={styles.secondaryButton}
                 href={appViewUrl(app.id, props.token)}
@@ -682,7 +700,7 @@ function AppViewer(props: {
             </DialogClose>
           </div>
         </div>
-        {app ? (
+        {app && props.token ? (
           <LiveAppFrame
             ref={props.frameRef}
             appId={app.id}
