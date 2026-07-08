@@ -294,6 +294,70 @@ describe('buildChatHistoryUiData', () => {
     });
   });
 
+  it('keeps A2A delivery status messages while no peer reply is present', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        { id: 1, role: 'user', content: '@main@local@inst-i2 Who are you?' },
+        {
+          id: 2,
+          role: 'assistant',
+          content: [
+            'Queued for delivery to `main@local@inst-i2`.',
+            'Message: `a2a-message-1`',
+            'Thread: `session-a`',
+          ].join('\n'),
+        },
+      ],
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    expect(ui.messages.map((message) => message.content)).toContain(
+      [
+        'Queued for delivery to `main@local@inst-i2`.',
+        'Message: `a2a-message-1`',
+        'Thread: `session-a`',
+      ].join('\n'),
+    );
+  });
+
+  it('removes A2A delivery status messages once the peer reply is present', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        { id: 1, role: 'user', content: '@main@local@inst-i2 Who are you?' },
+        {
+          id: 2,
+          role: 'assistant',
+          content: [
+            'Queued for delivery to `main@local@inst-i2`.',
+            'Message: `a2a-message-1`',
+            'Thread: `session-a`',
+          ].join('\n'),
+        },
+        {
+          id: 3,
+          role: 'assistant',
+          agent_id: 'main@local@inst-i2',
+          content: 'I am the remote assistant.',
+          assistantPresentation: {
+            agentId: 'main@local@inst-i2',
+            displayName: 'main@local@inst-i2',
+            imageUrl: null,
+          },
+        },
+      ],
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    expect(ui.messages.map((message) => message.content)).toEqual([
+      '@main@local@inst-i2 Who are you?',
+      'I am the remote assistant.',
+    ]);
+  });
+
   it('returns resolvedSessionId from the response when present, even if it differs from the request', () => {
     const raw: ChatHistoryResponse = {
       sessionId: 'session-canonical',

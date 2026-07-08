@@ -8,19 +8,26 @@ import { cx } from '../../lib/cx';
 import css from './chat-page.module.css';
 
 const POLL_INTERVAL_MS = 2_000;
+const RECEIVED_HOLD_MS = 1_200;
 // Stop polling after ~2 minutes; outbox retries back off well beyond a chat
 // viewer's attention span, and a page reload re-reads the persisted state.
 const MAX_POLLS = 60;
+
+type A2ADeliveryDisplayState =
+  | 'sending'
+  | 'received'
+  | 'waiting'
+  | 'failed';
 
 function isTerminal(state: A2ADeliveryState): boolean {
   return state === 'delivered' || state === 'failed';
 }
 
-const LABELS: Record<A2ADeliveryState, string> = {
-  pending: 'Sending…',
-  delivered: 'Delivered',
+const LABELS: Record<A2ADeliveryDisplayState, string> = {
+  sending: 'Sending',
+  received: 'Received',
+  waiting: 'Waiting',
   failed: 'Delivery failed',
-  unknown: 'Sent',
 };
 
 /**
@@ -34,11 +41,35 @@ export function A2ADeliveryChip(props: {
 }) {
   const { descriptor, token } = props;
   const [state, setState] = useState<A2ADeliveryState>(descriptor.status);
+  const [displayState, setDisplayState] = useState<A2ADeliveryDisplayState>(
+    descriptor.status === 'failed'
+      ? 'failed'
+      : descriptor.status === 'delivered'
+        ? 'received'
+        : 'sending',
+  );
   const [detail, setDetail] = useState<string | null>(null);
 
   useEffect(() => {
     setState(descriptor.status);
   }, [descriptor.status]);
+
+  useEffect(() => {
+    if (state === 'failed') {
+      setDisplayState('failed');
+      return;
+    }
+    if (state !== 'delivered') {
+      setDisplayState('sending');
+      return;
+    }
+    setDisplayState('received');
+    const timer = window.setTimeout(
+      () => setDisplayState('waiting'),
+      RECEIVED_HOLD_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [state]);
 
   useEffect(() => {
     if (isTerminal(state)) return;
@@ -84,8 +115,8 @@ export function A2ADeliveryChip(props: {
     <div
       className={cx(
         css.a2aDeliveryChip,
-        state === 'delivered' && css.a2aDeliveryChipDelivered,
-        state === 'failed' && css.a2aDeliveryChipFailed,
+        displayState === 'received' && css.a2aDeliveryChipDelivered,
+        displayState === 'failed' && css.a2aDeliveryChipFailed,
       )}
       role="status"
       aria-live="polite"
@@ -94,10 +125,11 @@ export function A2ADeliveryChip(props: {
       <span
         className={cx(
           css.a2aDeliveryDot,
-          !isTerminal(state) && css.a2aDeliveryDotPulse,
+          (displayState === 'sending' || displayState === 'waiting') &&
+            css.a2aDeliveryDotPulse,
         )}
       />
-      <span>{LABELS[state]}</span>
+      <span>{LABELS[displayState]}</span>
       {detail ? (
         <span className={css.a2aDeliveryDetail}>· {detail}</span>
       ) : null}

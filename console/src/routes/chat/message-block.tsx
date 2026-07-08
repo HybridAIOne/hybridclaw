@@ -419,12 +419,14 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
   const isApproval = msg.role === 'approval';
   const isDraft = msg.role === 'draft';
+  const isA2ADeliveryStatus = Boolean(msg.a2aDelivery);
   const shouldRenderApprovalCard = isApproval && Boolean(msg.pendingApproval);
   const isMarkdownMessage =
-    msg.role === 'assistant' ||
-    isDraft ||
-    msg.role === 'command' ||
-    (isApproval && !shouldRenderApprovalCard);
+    !isA2ADeliveryStatus &&
+    (msg.role === 'assistant' ||
+      isDraft ||
+      msg.role === 'command' ||
+      (isApproval && !shouldRenderApprovalCard));
   const renderedHtml = useRenderedMarkdown(
     msg.content,
     isMarkdownMessage,
@@ -473,6 +475,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
   const isAssistant = msg.role === 'assistant';
   const shouldRenderBubble =
     isUser ||
+    isA2ADeliveryStatus ||
     msg.content.trim().length > 0 ||
     artifactEntries.length === 0 ||
     isApproval;
@@ -494,11 +497,12 @@ export const MessageBlock = memo(function MessageBlock(props: {
     isApproval && css.bubbleApproval,
     msg.role === 'system' && css.bubbleSystem,
     msg.role === 'command' && css.bubbleCommand,
+    isA2ADeliveryStatus && css.bubbleA2AStatus,
   );
 
   return (
     <div className={blockClass}>
-      {isAssistant ? (
+      {isAssistant && !isA2ADeliveryStatus ? (
         <div className={css.agentLabel}>
           {avatarUrl ? (
             <img className={css.agentAvatar} src={avatarUrl} alt="" />
@@ -513,7 +517,9 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
       {shouldRenderBubble ? (
         <div className={bubbleClass}>
-          {shouldRenderApprovalCard && msg.pendingApproval ? (
+          {isA2ADeliveryStatus && msg.a2aDelivery ? (
+            <A2ADeliveryChip descriptor={msg.a2aDelivery} token={token} />
+          ) : shouldRenderApprovalCard && msg.pendingApproval ? (
             <ApprovalCard
               approval={msg.pendingApproval}
               busy={props.approvalBusy}
@@ -536,9 +542,6 @@ export const MessageBlock = memo(function MessageBlock(props: {
           ) : (
             msg.content
           )}
-          {msg.a2aDelivery ? (
-            <A2ADeliveryChip descriptor={msg.a2aDelivery} token={token} />
-          ) : null}
         </div>
       ) : null}
 
@@ -546,7 +549,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
         <ArtifactCard key={key} artifact={artifact} token={token} />
       ))}
 
-      {!props.isStreaming ? (
+      {!props.isStreaming && !isA2ADeliveryStatus ? (
         <div className={css.messageActions}>
           {isAssistant && msg.replayRequest ? (
             <Button

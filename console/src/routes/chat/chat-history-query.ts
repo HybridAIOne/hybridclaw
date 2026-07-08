@@ -59,6 +59,38 @@ function hydrateA2ADelivery(
   };
 }
 
+function removeResolvedA2ADeliveryStatusMessages(
+  messages: ChatUiMessage[],
+): ChatUiMessage[] {
+  const pendingDeliveryIndexesByRecipient = new Map<string, number[]>();
+  const resolvedDeliveryIndexes = new Set<number>();
+
+  messages.forEach((message, index) => {
+    if (message.a2aDelivery) {
+      const recipient = normalizeAgentIdForComparison(
+        message.a2aDelivery.recipientAgentId,
+      );
+      if (!recipient) return;
+      const indexes = pendingDeliveryIndexesByRecipient.get(recipient) ?? [];
+      indexes.push(index);
+      pendingDeliveryIndexesByRecipient.set(recipient, indexes);
+      return;
+    }
+    if (message.role !== 'assistant') return;
+    const sender = normalizeAgentIdForComparison(
+      message.assistantPresentation?.agentId,
+    );
+    if (!sender) return;
+    const pendingIndexes = pendingDeliveryIndexesByRecipient.get(sender);
+    const deliveryIndex = pendingIndexes?.shift();
+    if (deliveryIndex === undefined) return;
+    resolvedDeliveryIndexes.add(deliveryIndex);
+  });
+
+  if (resolvedDeliveryIndexes.size === 0) return messages;
+  return messages.filter((_, index) => !resolvedDeliveryIndexes.has(index));
+}
+
 // Rebuild a collapsed (done) trace message from persisted history so a reload
 // shows the same draft/thinking/tool activity the live stream rendered.
 // Positioned just before its assistant bubble by the caller.
@@ -183,7 +215,7 @@ export function buildChatHistoryUiData(
   });
 
   return {
-    messages,
+    messages: removeResolvedA2ADeliveryStatusMessages(messages),
     branchFamilies,
     requestedSessionId,
     resolvedSessionId,
