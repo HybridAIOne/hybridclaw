@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, useId, useMemo, useRef, useState } from 'react';
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+} from 'react';
 import {
   createAdminApiToken,
   fetchAdminApiTokens,
@@ -23,7 +30,18 @@ import {
   DialogTitle,
 } from '../components/dialog';
 import { Field, FieldLabel } from '../components/field';
+import { Check, ChevronDown } from '../components/icons';
 import { Input } from '../components/input';
+import {
+  NativeSelect,
+  NativeSelectOptGroup,
+  NativeSelectOption,
+} from '../components/native-select';
+import {
+  Popover,
+  PopoverContent,
+  usePopoverContext,
+} from '../components/popover';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
@@ -55,11 +73,223 @@ function formatClaims(claims: Record<string, unknown>): string {
   );
 }
 
-function splitActions(value: string): string[] {
+const TOKEN_ACTION_VALUES = [
+  'openai.api',
+  'chat.send',
+  'status.read',
+  'agents.read',
+  'secret.list_metadata',
+  'secret.overwrite',
+  'secret.unset',
+  'admin.tokens.read',
+  'admin.overview.read',
+  'admin.tunnel.read',
+  'admin.tunnel.write',
+  'admin.tunnel.reconnect',
+  'admin.tunnel.stop',
+  'admin.statistics.read',
+  'admin.logs.read',
+  'admin.team.read',
+  'admin.team.write',
+  'admin.agents.read',
+  'admin.agents.write',
+  'admin.agents.delete',
+  'admin.hybridai.bots.read',
+  'admin.agent_scoreboard.read',
+  'admin.harness_evolution.read',
+  'admin.models.read',
+  'admin.models.write',
+  'admin.sessions.read',
+  'admin.sessions.delete',
+  'admin.email.read',
+  'admin.email.delete',
+  'admin.scheduler.read',
+  'admin.scheduler.write',
+  'admin.scheduler.delete',
+  'admin.channels.read',
+  'admin.channels.write',
+  'admin.channels.delete',
+  'admin.connectors.read',
+  'admin.mcp.read',
+  'admin.mcp.write',
+  'admin.mcp.delete',
+  'admin.config.read',
+  'admin.config.write',
+  'admin.config.reload',
+  'admin.browser_pool.read',
+  'admin.browser_pool.start',
+  'admin.webhook_targets.write',
+  'admin.a2a.read',
+  'admin.a2a.write',
+  'admin.a2a.delete',
+  'admin.fleet.read',
+  'admin.fleet.write',
+  'admin.fleet.delete',
+  'admin.signal.read',
+  'admin.signal.write',
+  'admin.email_config.fetch',
+  'admin.audit.read',
+  'admin.approvals.read',
+  'admin.policy.write',
+  'admin.policy.delete',
+  'admin.tools.read',
+  'admin.plugins.read',
+  'admin.output_guard.read',
+  'admin.output_guard.write',
+  'admin.output_guard.preview',
+  'admin.distill.read',
+  'admin.distill.write',
+  'admin.distill.delete',
+  'admin.skills.read',
+  'admin.skills.write',
+  'admin.skills.unblock',
+  'admin.skills.upload',
+  'admin.jobs.read',
+  'admin.jobs.write',
+  'admin.jobs.delete',
+  'admin.terminal.start',
+  'admin.terminal.stop',
+  'admin.terminal.stream',
+  'admin.gateway.shutdown',
+  'admin.gateway.restart',
+] as const;
+
+const TOKEN_ROLE_GROUPS = [
+  {
+    label: 'Current roles',
+    options: [
+      ['admin.viewer', 'Viewer - read-only console access'],
+      ['admin.operator', 'Operator - day-to-day operations'],
+      [
+        'admin.integrations_manager',
+        'Integrations manager - agents and channels',
+      ],
+      ['admin.config_manager', 'Config manager - runtime configuration'],
+      [
+        'admin.security_manager',
+        'Security manager - secrets, policy, and skills',
+      ],
+      [
+        'admin.terminal_operator',
+        'Terminal operator - terminal and job access',
+      ],
+      ['admin.full', 'Full admin - every admin action'],
+    ],
+  },
+  {
+    label: 'Compatibility roles',
+    options: [
+      ['admin:auditor', 'Auditor - read-only admin access'],
+      ['admin:operator', 'Operator - broad operational access'],
+      ['admin:owner', 'Owner - full admin access'],
+      ['admin:secret-manager', 'Secret manager - secret metadata and writes'],
+    ],
+  },
+] as const;
+
+type TokenActionOption = {
+  value: string;
+  label: string;
+  description: string;
+  group: string;
+};
+
+function sentenceCase(value: string): string {
   return value
-    .split(/[,\s]+/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function formatActionLabel(value: string): string {
+  const overrides: Record<string, string> = {
+    'openai.api': 'OpenAI API',
+    'chat.send': 'Chat send',
+    'status.read': 'Status read',
+    'agents.read': 'Agents read',
+    'admin.a2a.read': 'A2A read',
+    'admin.a2a.write': 'A2A write',
+    'admin.a2a.delete': 'A2A delete',
+    'admin.mcp.read': 'MCP read',
+    'admin.mcp.write': 'MCP write',
+    'admin.mcp.delete': 'MCP delete',
+  };
+  if (overrides[value]) return overrides[value];
+  return value.split('.').map(sentenceCase).join(' ');
+}
+
+function formatActionDescription(value: string): string {
+  if (value === 'openai.api') return 'Use OpenAI-compatible /v1 endpoints.';
+  if (value === 'chat.send') return 'Send chat and command requests.';
+  if (value === 'status.read') return 'Read gateway status.';
+  if (value === 'agents.read') return 'Read agent metadata.';
+  if (value.startsWith('secret.')) return 'Access admin secret management.';
+  if (value === 'admin.tokens.read') return 'Read admin API token metadata.';
+  if (value.startsWith('admin.terminal.'))
+    return 'Control admin terminal sessions.';
+  if (value.startsWith('admin.gateway.'))
+    return 'Control gateway process actions.';
+  if (value.endsWith('.read') || value.endsWith('.fetch')) {
+    return 'Read this admin console area.';
+  }
+  if (value.endsWith('.write') || value.endsWith('.preview')) {
+    return 'Modify this admin console area.';
+  }
+  if (value.endsWith('.delete') || value.endsWith('.stop')) {
+    return 'Remove or stop resources in this admin console area.';
+  }
+  if (value.endsWith('.start') || value.endsWith('.restart')) {
+    return 'Start or restart resources in this admin console area.';
+  }
+  if (value.endsWith('.reload') || value.endsWith('.reconnect')) {
+    return 'Refresh runtime state in this admin console area.';
+  }
+  if (value.endsWith('.unblock') || value.endsWith('.upload')) {
+    return 'Manage skill trust state and uploads.';
+  }
+  return 'Grant this exact RBAC action.';
+}
+
+function resolveActionGroup(value: string): string {
+  if (
+    ['openai.api', 'chat.send', 'status.read', 'agents.read'].includes(value)
+  ) {
+    return 'API access';
+  }
+  if (value.startsWith('secret.')) return 'Secrets';
+  if (value.startsWith('admin.tokens.')) return 'API tokens';
+  if (
+    value.startsWith('admin.terminal.') ||
+    value.startsWith('admin.gateway.')
+  ) {
+    return 'Runtime controls';
+  }
+  if (value.endsWith('.read') || value.endsWith('.fetch')) return 'Admin reads';
+  return 'Admin changes';
+}
+
+const TOKEN_ACTION_OPTIONS: TokenActionOption[] = TOKEN_ACTION_VALUES.map(
+  (value) => ({
+    value,
+    label: formatActionLabel(value),
+    description: formatActionDescription(value),
+    group: resolveActionGroup(value),
+  }),
+);
+
+const TOKEN_ACTION_GROUP_ORDER = [
+  'API access',
+  'Secrets',
+  'API tokens',
+  'Admin reads',
+  'Admin changes',
+  'Runtime controls',
+];
+
+function orderTokenActions(actions: string[]): string[] {
+  const selected = new Set(actions);
+  return TOKEN_ACTION_OPTIONS.map((option) => option.value).filter((value) =>
+    selected.has(value),
+  );
 }
 
 export function TokensPage() {
@@ -261,27 +491,36 @@ function CreateTokenDialog(props: {
   onClose: () => void;
   onSubmit: (payload: AdminApiTokenCreatePayload) => void;
 }) {
-  const labelRef = useRef<HTMLInputElement>(null);
-  const roleRef = useRef<HTMLInputElement>(null);
-  const actionsRef = useRef<HTMLInputElement>(null);
-  const expiresRef = useRef<HTMLInputElement>(null);
+  const [label, setLabel] = useState('');
+  const [role, setRole] = useState('');
+  const [actions, setActions] = useState<string[]>([]);
+  const [expiresAt, setExpiresAt] = useState('');
   const labelId = useId();
   const roleId = useId();
   const actionsId = useId();
   const expiresId = useId();
+  const canSubmit =
+    label.trim().length > 0 && (role.trim().length > 0 || actions.length > 0);
+
+  useEffect(() => {
+    if (!props.open) return;
+    setLabel('');
+    setRole('');
+    setActions([]);
+    setExpiresAt('');
+  }, [props.open]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const label = labelRef.current?.value.trim() || '';
-    const role = roleRef.current?.value.trim() || '';
-    const actions = splitActions(actionsRef.current?.value || '');
-    const expiresAt = expiresRef.current?.value.trim() || '';
-    if (!label || (!role && actions.length === 0)) return;
+    const trimmedLabel = label.trim();
+    const trimmedRole = role.trim();
+    const trimmedExpiresAt = expiresAt.trim();
+    if (!trimmedLabel || (!trimmedRole && actions.length === 0)) return;
     props.onSubmit({
-      label,
-      ...(role ? { role } : {}),
+      label: trimmedLabel,
+      ...(trimmedRole ? { role: trimmedRole } : {}),
       ...(actions.length > 0 ? { actions } : {}),
-      ...(expiresAt ? { expiresAt } : {}),
+      ...(trimmedExpiresAt ? { expiresAt: trimmedExpiresAt } : {}),
     });
   };
 
@@ -306,31 +545,48 @@ function CreateTokenDialog(props: {
         <form className={styles.overwriteForm} onSubmit={handleSubmit}>
           <Field>
             <FieldLabel htmlFor={labelId}>Label</FieldLabel>
-            <Input id={labelId} ref={labelRef} disabled={props.pending} />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={actionsId}>Actions</FieldLabel>
             <Input
+              id={labelId}
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+              disabled={props.pending}
+            />
+          </Field>
+          <Field controlId={actionsId}>
+            <FieldLabel>Actions</FieldLabel>
+            <ActionMultiSelect
               id={actionsId}
-              ref={actionsRef}
-              placeholder="openai.api, chat.send"
+              value={actions}
+              onChange={setActions}
               disabled={props.pending}
             />
           </Field>
-          <Field>
-            <FieldLabel htmlFor={roleId}>Role</FieldLabel>
-            <Input
+          <Field controlId={roleId}>
+            <FieldLabel>Role</FieldLabel>
+            <NativeSelect
               id={roleId}
-              ref={roleRef}
-              placeholder="admin:auditor"
+              value={role}
+              onChange={(event) => setRole(event.target.value)}
               disabled={props.pending}
-            />
+            >
+              <NativeSelectOption value="">No role preset</NativeSelectOption>
+              {TOKEN_ROLE_GROUPS.map((group) => (
+                <NativeSelectOptGroup key={group.label} label={group.label}>
+                  {group.options.map(([value, optionLabel]) => (
+                    <NativeSelectOption key={value} value={value}>
+                      {optionLabel}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelectOptGroup>
+              ))}
+            </NativeSelect>
           </Field>
           <Field>
             <FieldLabel htmlFor={expiresId}>Expires at</FieldLabel>
             <Input
               id={expiresId}
-              ref={expiresRef}
+              value={expiresAt}
+              onChange={(event) => setExpiresAt(event.target.value)}
               type="datetime-local"
               disabled={props.pending}
             />
@@ -339,13 +595,189 @@ function CreateTokenDialog(props: {
             <DialogClose className="ghost-button" disabled={props.pending}>
               Cancel
             </DialogClose>
-            <Button type="submit" disabled={props.pending}>
+            <Button type="submit" disabled={props.pending || !canSubmit}>
               {props.pending ? 'Creating...' : 'Create token'}
             </Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ActionMultiSelect(props: {
+  id: string;
+  value: string[];
+  onChange: (value: string[]) => void;
+  disabled: boolean;
+}) {
+  const [filter, setFilter] = useState('');
+  const selected = useMemo(() => new Set(props.value), [props.value]);
+  const visibleOptions = useMemo(() => {
+    const needle = filter.trim().toLowerCase();
+    if (!needle) return TOKEN_ACTION_OPTIONS;
+    return TOKEN_ACTION_OPTIONS.filter(
+      (option) =>
+        option.value.toLowerCase().includes(needle) ||
+        option.label.toLowerCase().includes(needle) ||
+        option.description.toLowerCase().includes(needle),
+    );
+  }, [filter]);
+  const selectedOptions = useMemo(
+    () =>
+      TOKEN_ACTION_OPTIONS.filter((option) => selected.has(option.value)).map(
+        (option) => option.label,
+      ),
+    [selected],
+  );
+  const triggerText =
+    selectedOptions.length === 0
+      ? 'Select actions'
+      : selectedOptions.length <= 2
+        ? selectedOptions.join(', ')
+        : `${selectedOptions.length} actions selected`;
+
+  const updateSelection = (nextSelected: Set<string>) => {
+    props.onChange(orderTokenActions([...nextSelected]));
+  };
+
+  const toggleAction = (action: string) => {
+    const nextSelected = new Set(selected);
+    if (nextSelected.has(action)) nextSelected.delete(action);
+    else nextSelected.add(action);
+    updateSelection(nextSelected);
+  };
+
+  const clearSelection = () => {
+    props.onChange([]);
+  };
+
+  return (
+    <Popover
+      onOpenChange={(open) => {
+        if (open) return;
+        setFilter('');
+      }}
+    >
+      <ActionMultiSelectTrigger id={props.id} disabled={props.disabled}>
+        <span
+          className={
+            selectedOptions.length === 0
+              ? styles.selectPlaceholder
+              : styles.selectSummary
+          }
+        >
+          {triggerText}
+        </span>
+      </ActionMultiSelectTrigger>
+      <PopoverContent
+        align="start"
+        className={styles.multiSelectContent}
+        focusOnOpen={(content) => {
+          content.querySelector<HTMLInputElement>('input')?.focus();
+        }}
+        role="dialog"
+        aria-label="Select token actions"
+      >
+        <Input
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+          placeholder="Filter actions"
+          aria-label="Filter actions"
+          size="sm"
+          className={styles.actionFilter}
+        />
+        <div className={styles.choiceList}>
+          {TOKEN_ACTION_GROUP_ORDER.map((group) => {
+            const options = visibleOptions.filter(
+              (option) => option.group === group,
+            );
+            if (options.length === 0) return null;
+            return (
+              <div key={group} className={styles.choiceGroup}>
+                <div className={styles.choiceGroupLabel}>{group}</div>
+                {options.map((option) => {
+                  const checked = selected.has(option.value);
+                  return (
+                    <label key={option.value} className={styles.choiceRow}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={props.disabled}
+                        className={styles.choiceInput}
+                        onChange={() => toggleAction(option.value)}
+                      />
+                      <span
+                        aria-hidden="true"
+                        className={styles.choiceCheck}
+                        data-checked={checked || undefined}
+                      >
+                        {checked ? (
+                          <Check className={styles.choiceIcon} />
+                        ) : null}
+                      </span>
+                      <span className={styles.choiceMeta}>
+                        <span className={styles.choiceTitle}>
+                          {option.label}
+                        </span>
+                        <span className={styles.choiceDescription}>
+                          {option.description}
+                        </span>
+                      </span>
+                      <code className={styles.choiceValue}>{option.value}</code>
+                    </label>
+                  );
+                })}
+              </div>
+            );
+          })}
+          {visibleOptions.length === 0 ? (
+            <div className={styles.choiceEmpty}>No actions match.</div>
+          ) : null}
+        </div>
+        <div className={styles.choiceFooter}>
+          <span className={styles.choiceCount}>
+            {props.value.length === 0
+              ? 'No actions selected'
+              : `${props.value.length} selected`}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={props.disabled || props.value.length === 0}
+            onClick={clearSelection}
+          >
+            Clear
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ActionMultiSelectTrigger(props: {
+  id: string;
+  disabled: boolean;
+  children: ReactNode;
+}) {
+  const popover = usePopoverContext('ActionMultiSelectTrigger');
+  return (
+    <button
+      id={props.id}
+      ref={popover.setTriggerEl}
+      type="button"
+      aria-haspopup="dialog"
+      aria-expanded={popover.open}
+      aria-controls={popover.open ? popover.contentId : undefined}
+      disabled={props.disabled}
+      data-state={popover.open ? 'open' : 'closed'}
+      className={styles.multiSelectTrigger}
+      onClick={popover.toggle}
+    >
+      <span className={styles.multiSelectTriggerText}>{props.children}</span>
+      <ChevronDown aria-hidden="true" className={styles.selectChevron} />
+    </button>
   );
 }
 
