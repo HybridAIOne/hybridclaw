@@ -1,22 +1,17 @@
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { withMemoryDatabase } from '../memory/db.js';
+import {
+  createScryptVerifier,
+  isScryptVerifierMatch,
+} from './token-verifier.js';
 
 export const API_TOKEN_PREFIX = 'hck';
 const API_TOKEN_ID_BYTES = 6;
 const API_TOKEN_SECRET_BYTES = 32;
-const API_TOKEN_SALT_BYTES = 16;
-const API_TOKEN_VERIFIER_BYTES = 32;
 const API_TOKEN_LAST_USED_UPDATE_MS = 60_000;
 const API_TOKEN_RE = /^hck_([a-f0-9]{12})_([A-Za-z0-9_-]+)$/;
 const API_TOKEN_LABEL_MAX_LENGTH = 120;
-const API_TOKEN_VERIFIER_PREFIX = 'scrypt:v1';
-const API_TOKEN_SCRYPT_OPTIONS = {
-  N: 16_384,
-  r: 8,
-  p: 1,
-  maxmem: 64 * 1024 * 1024,
-} as const;
 
 export interface ApiTokenMetadata {
   id: string;
@@ -57,61 +52,6 @@ interface ApiTokenRow {
   expires_at: string | null;
   last_used_at: string | null;
   revoked_at: string | null;
-}
-
-function deriveApiTokenVerifier(token: string, salt: Buffer): Buffer {
-  return scryptSync(
-    token,
-    salt,
-    API_TOKEN_VERIFIER_BYTES,
-    API_TOKEN_SCRYPT_OPTIONS,
-  );
-}
-
-function createApiTokenVerifier(token: string): string {
-  const salt = randomBytes(API_TOKEN_SALT_BYTES);
-  const verifier = deriveApiTokenVerifier(token, salt);
-  return [
-    API_TOKEN_VERIFIER_PREFIX,
-    salt.toString('base64url'),
-    verifier.toString('base64url'),
-  ].join(':');
-}
-
-function parseStoredApiTokenVerifier(value: string): {
-  salt: Buffer;
-  verifier: Buffer;
-} | null {
-  const [scheme, version, rawSalt, rawVerifier, extra] = value.split(':');
-  if (
-    scheme !== 'scrypt' ||
-    version !== 'v1' ||
-    !rawSalt ||
-    !rawVerifier ||
-    extra !== undefined
-  ) {
-    return null;
-  }
-  const salt = Buffer.from(rawSalt, 'base64url');
-  const verifier = Buffer.from(rawVerifier, 'base64url');
-  if (
-    salt.length !== API_TOKEN_SALT_BYTES ||
-    verifier.length !== API_TOKEN_VERIFIER_BYTES
-  ) {
-    return null;
-  }
-  return { salt, verifier };
-}
-
-function isApiTokenVerifierMatch(
-  token: string,
-  storedVerifier: string,
-): boolean {
-  const parsed = parseStoredApiTokenVerifier(storedVerifier);
-  if (!parsed) return false;
-  const presentedVerifier = deriveApiTokenVerifier(token, parsed.salt);
-  if (presentedVerifier.length !== parsed.verifier.length) return false;
-  return timingSafeEqual(presentedVerifier, parsed.verifier);
 }
 
 function normalizeApiTokenLabel(value: string): string {
@@ -244,7 +184,7 @@ export function createApiToken(
   const createdBy = normalizeCreatedBy(input.createdBy);
   const id = generateApiTokenId();
   const token = buildApiToken(id);
-  const tokenHash = createApiTokenVerifier(token);
+  const tokenHash = createScryptVerifier(token);
 
   return withMemoryDatabase((database) => {
     pruneExpiredApiTokensInDatabase(database, new Date());
@@ -333,7 +273,7 @@ export function verifyApiToken(
     if (!row) return null;
     if (row.revoked_at) return null;
     if (isExpired(row, now)) return null;
-    if (!isApiTokenVerifierMatch(parsed.token, row.token_hash)) return null;
+    if (!isScryptVerifierMatch(parsed.token, row.token_hash)) return null;
 
     if (shouldTouchLastUsed(row, now)) {
       database

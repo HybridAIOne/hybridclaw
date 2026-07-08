@@ -629,6 +629,12 @@ export interface AdminConfig {
       port: number;
       path: string;
     };
+    tab: {
+      enabled: boolean;
+      ssoAppId: string;
+      appIdUri: string;
+      allowFrom: string[];
+    };
     groupPolicy: 'open' | 'allowlist' | 'disabled';
     dmPolicy: 'open' | 'allowlist' | 'disabled';
     allowFrom: string[];
@@ -890,6 +896,24 @@ export interface AdminConfig {
 export interface AdminConfigResponse {
   path: string;
   config: AdminConfig;
+}
+
+export interface AdminMSTeamsTabStatusResponse {
+  enabled: boolean;
+  tenantId: string;
+  ssoAppId: string;
+  appIdUri: string;
+  allowFrom: string[];
+  publicOrigin: string;
+  browserRedirectUri: string;
+  orgAppId: string;
+  orgAppEntityId: string;
+  scope: string;
+  teamsClientIds: {
+    desktopMobile: string;
+    web: string;
+  };
+  orgManifestUrl: string;
 }
 
 export interface AdminLogFile {

@@ -1,4 +1,4 @@
-import { requestJson } from './client';
+import { requestHeaders, requestJson, throwResponseError } from './client';
 
 export type AppCategory =
   | 'apps'
@@ -47,6 +47,49 @@ export interface GenerateAppRequest {
 }
 
 export interface AppMutationResponse {
+  app: AppDetail;
+}
+
+export type AppPublicationPolicyKind = 'link' | 'password' | 'oidc';
+
+export interface AppPublication {
+  id: string;
+  appId: string;
+  policy: {
+    kind: AppPublicationPolicyKind;
+    ttlSeconds?: number;
+    provider?: string;
+  };
+  embedHosts: string[];
+  allowBridge: boolean;
+  label: string | null;
+  createdAt: string;
+  createdBy: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+}
+
+export interface AppPublicationsResponse {
+  publications: AppPublication[];
+  total: number;
+}
+
+export interface CreateAppPublicationRequest {
+  kind: 'link' | 'password' | 'company' | 'teams';
+  password?: string;
+  embedHosts?: string[];
+  allowBridge?: boolean;
+  acknowledgeAnonymousBridge?: boolean;
+  allowFrom?: string[];
+  ttlSeconds?: number;
+  label?: string | null;
+  expiresAt?: string | null;
+}
+
+export interface CreateAppPublicationResponse {
+  publication: AppPublication;
+  token: string;
+  url: string;
   app: AppDetail;
 }
 
@@ -117,6 +160,78 @@ export function deleteApp(token: string, id: string): Promise<{ ok: boolean }> {
     token,
     method: 'DELETE',
   });
+}
+
+export function updateApp(
+  token: string,
+  id: string,
+  request: { visibility: AppVisibility },
+): Promise<AppMutationResponse> {
+  return requestJson<AppMutationResponse>(
+    `/api/apps/${encodeURIComponent(id)}`,
+    {
+      token,
+      method: 'PATCH',
+      body: request,
+    },
+  );
+}
+
+export function fetchAppPublications(
+  token: string,
+  id: string,
+): Promise<AppPublicationsResponse> {
+  return requestJson<AppPublicationsResponse>(
+    `/api/apps/${encodeURIComponent(id)}/publications`,
+    { token },
+  );
+}
+
+export function createAppPublication(
+  token: string,
+  id: string,
+  request: CreateAppPublicationRequest,
+): Promise<CreateAppPublicationResponse> {
+  return requestJson<CreateAppPublicationResponse>(
+    `/api/apps/${encodeURIComponent(id)}/publications`,
+    {
+      token,
+      method: 'POST',
+      body: request,
+    },
+  );
+}
+
+export function revokeAppPublication(
+  token: string,
+  appId: string,
+  publicationId: string,
+): Promise<{ publication: AppPublication }> {
+  return requestJson<{ publication: AppPublication }>(
+    `/api/apps/${encodeURIComponent(appId)}/publications/${encodeURIComponent(
+      publicationId,
+    )}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
+}
+
+export async function downloadAppTeamsManifest(
+  token: string,
+  appId: string,
+): Promise<Blob> {
+  const response = await fetch(
+    `/api/apps/${encodeURIComponent(appId)}/teams-manifest`,
+    {
+      headers: requestHeaders(token),
+    },
+  );
+  if (!response.ok) {
+    await throwResponseError(response);
+  }
+  return response.blob();
 }
 
 export function callLiveAppTool(

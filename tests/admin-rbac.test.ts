@@ -176,12 +176,30 @@ describe('admin RBAC role bundles', () => {
     expect(resolveAdminRbacAction('/api/agents', 'GET')).toBe('agents.read');
     expect(resolveAdminRbacAction('/api/apps', 'GET')).toBe('apps.read');
     expect(resolveAdminRbacAction('/api/apps/app-1', 'GET')).toBe('apps.read');
+    expect(resolveAdminRbacAction('/api/apps/app-1', 'PATCH')).toBe(
+      'apps.write',
+    );
+    expect(
+      resolveAdminRbacAction('/api/apps/app-1/publications', 'POST'),
+    ).toBe('apps.write');
+    expect(
+      resolveAdminRbacAction('/api/apps/app-1/publications/pub-1', 'DELETE'),
+    ).toBe('apps.write');
     expect(resolveAdminRbacAction('/api/apps/app-1/view', 'GET')).toBe(
       'apps.view',
     );
     expect(resolveAdminRbacAction('/api/apps/app-1/bridge/tool', 'POST')).toBe(
       'apps.bridge',
     );
+    expect(resolveAdminRbacAction('/api/apps/app-1/teams-manifest', 'GET')).toBe(
+      'apps.read',
+    );
+    expect(resolveAdminRbacAction('/api/admin/msteams/tab-status', 'GET')).toBe(
+      'admin.config.read',
+    );
+    expect(
+      resolveAdminRbacAction('/api/admin/msteams/tab-manifest', 'GET'),
+    ).toBe('admin.config.read');
     expect(resolveAdminRbacAction('/api/apps/app-1', 'DELETE')).toBe(
       'apps.delete',
     );

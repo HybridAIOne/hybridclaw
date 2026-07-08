@@ -574,6 +574,175 @@
   cursor: not-allowed;
 }
 
+/* Share dialog */
+.shareDialog {
+  width: min(560px, 94vw);
+  max-width: min(560px, 94vw);
+}
+
+.shareModes,
+.exposureActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shareMode,
+.shareModeActive {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.shareModeActive {
+  border-color: var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.shareField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.shareField input,
+.shareResult input,
+.shareTextarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input, var(--card));
+  color: var(--foreground);
+  font: inherit;
+}
+
+.shareTextarea {
+  min-height: 74px;
+  resize: vertical;
+}
+
+.exposureBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--muted);
+}
+
+.exposureBox p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.teamsSetupNotice {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--muted);
+  font-size: 0.875rem;
+}
+
+.teamsSetupNotice strong {
+  color: var(--foreground);
+}
+
+.teamsSetupNotice p {
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.45;
+}
+
+.teamsSetupNoticeFooter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+.teamsSetupNoticeFooter a {
+  color: var(--foreground);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.shareResult {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.advancedShare {
+  padding-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+.advancedShare summary {
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.advancedSharePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.advancedShareGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.publicationList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.publicationListTitle {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+}
+
+.publicationRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.875rem;
+}
+
 /* Viewer */
 .viewerDialog {
   width: min(1100px, 95vw);
@@ -629,5 +798,15 @@
   .toolbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .shareResult,
+  .publicationRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .advancedShareGrid {
+    grid-template-columns: 1fr;
   }
 }

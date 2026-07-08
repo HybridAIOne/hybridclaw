@@ -186,6 +186,12 @@
       "port": 3978,
       "path": "/api/msteams/messages"
     },
+    "tab": {
+      "enabled": false,
+      "ssoAppId": "",
+      "appIdUri": "",
+      "allowFrom": []
+    },
     "groupPolicy": "allowlist",
     "dmPolicy": "allowlist",
     "allowFrom": [],

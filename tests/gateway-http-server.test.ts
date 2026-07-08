@@ -4,6 +4,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 
 import { describe, expect, test, vi } from 'vitest';
+import * as yauzl from 'yauzl';
 import type { RuntimeConfig } from '../src/config/runtime-config.ts';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
@@ -46,6 +47,7 @@ function makeTempDocsDir(options?: {
   const developerGuideDir = path.join(contentDocsDir, 'developer-guide');
   const internalDir = path.join(contentDocsDir, 'internal');
   const referenceDir = path.join(contentDocsDir, 'reference');
+  const staticDocsDir = path.join(docsDir, 'static');
   const consoleDistDir = path.join(root, 'console', 'dist');
   fs.mkdirSync(docsDir, { recursive: true });
   fs.mkdirSync(contentDocsDir, { recursive: true });
@@ -56,7 +58,16 @@ function makeTempDocsDir(options?: {
   fs.mkdirSync(developerGuideDir, { recursive: true });
   fs.mkdirSync(internalDir, { recursive: true });
   fs.mkdirSync(referenceDir, { recursive: true });
+  fs.mkdirSync(staticDocsDir, { recursive: true });
   fs.mkdirSync(consoleDistDir, { recursive: true });
+  fs.copyFileSync(
+    path.join(process.cwd(), 'docs', 'static', 'teams-color.png'),
+    path.join(staticDocsDir, 'teams-color.png'),
+  );
+  fs.copyFileSync(
+    path.join(process.cwd(), 'docs', 'static', 'teams-outline.png'),
+    path.join(staticDocsDir, 'teams-outline.png'),
+  );
   fs.writeFileSync(path.join(docsDir, 'index.html'), '<h1>Docs</h1>', 'utf8');
   fs.writeFileSync(
     path.join(docsDir, 'agents.html'),
@@ -458,6 +469,7 @@ function makeResponse() {
     statusCode: 0,
     headers,
     body: '',
+    chunks: [] as Buffer[],
     setHeader(name: string, value: string | string[]) {
       headers[resolveHeaderKey(name)] = value;
     },
@@ -471,6 +483,9 @@ function makeResponse() {
     },
     write(chunk: unknown) {
       response.headersSent = true;
+      response.chunks.push(
+        Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)),
+      );
       response.body += Buffer.isBuffer(chunk)
         ? chunk.toString('utf8')
         : String(chunk);
@@ -478,6 +493,9 @@ function makeResponse() {
     },
     end(chunk?: unknown) {
       if (chunk != null) {
+        response.chunks.push(
+          Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)),
+        );
         response.body += Buffer.isBuffer(chunk)
           ? chunk.toString('utf8')
           : String(chunk);
@@ -491,6 +509,46 @@ function makeResponse() {
     },
   };
   return response;
+}
+
+function readZipEntryBuffer(
+  buffer: Buffer,
+  entryName: string,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    yauzl.fromBuffer(buffer, { lazyEntries: true }, (openError, zipfile) => {
+      if (openError || !zipfile) {
+        reject(openError ?? new Error('Failed to open zip.'));
+        return;
+      }
+      zipfile.readEntry();
+      zipfile.on('entry', (entry) => {
+        if (entry.fileName !== entryName) {
+          zipfile.readEntry();
+          return;
+        }
+        zipfile.openReadStream(entry, (streamError, stream) => {
+          if (streamError || !stream) {
+            reject(streamError ?? new Error('Failed to read zip entry.'));
+            return;
+          }
+          const chunks: Buffer[] = [];
+          stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+          stream.once('error', reject);
+          stream.once('end', () => {
+            zipfile.close();
+            resolve(Buffer.concat(chunks));
+          });
+        });
+      });
+      zipfile.once('end', () => reject(new Error(`Missing ${entryName}.`)));
+      zipfile.once('error', reject);
+    });
+  });
+}
+
+async function readZipEntry(buffer: Buffer, entryName: string): Promise<string> {
+  return (await readZipEntryBuffer(buffer, entryName)).toString('utf8');
 }
 
 function getSetCookieHeader(res: ReturnType<typeof makeResponse>): string {
@@ -549,6 +607,15 @@ async function importFreshHealth(options?: {
   hybridAiBaseUrl?: string;
   runningInsideContainer?: boolean;
   deploymentPublicUrl?: string;
+  activeTunnelPublicUrl?: string | null;
+  msteamsTab?: {
+    enabled?: boolean;
+    appId?: string;
+    tenantId?: string;
+    ssoAppId?: string;
+    appIdUri?: string;
+    allowFrom?: string[];
+  };
   apiTokens?: Record<
     string,
     { id: string; label: string; claims: Record<string, unknown> }
@@ -881,8 +948,130 @@ async function importFreshHealth(options?: {
     Array.from(apps.values()).map(({ html: _html, ...summary }) => summary),
   );
   const deleteApp = vi.fn((id: string) => apps.delete(id));
+  const updateAppVisibility = vi.fn(
+    (id: string, visibility: 'private' | 'public') => {
+      const app = apps.get(id);
+      if (!app) return null;
+      const updated = {
+        ...app,
+        visibility,
+        updatedAt: '2026-07-03T00:01:00.000Z',
+      };
+      apps.set(id, updated);
+      return updated;
+    },
+  );
   const upsertAppArtifact = vi.fn((input: TestCreateAppInput) =>
     createApp(input),
+  );
+  type TestPublicationPolicy =
+    | { kind: 'link'; ttlSeconds?: number }
+    | { kind: 'password'; hash: string; ttlSeconds?: number }
+    | {
+        kind: 'oidc';
+        provider: 'entra';
+        tenantId: string;
+        audience: string;
+        allowFrom: string[];
+        ttlSeconds?: number;
+      };
+  type TestPublication = {
+    id: string;
+    appId: string;
+    policy: TestPublicationPolicy;
+    embedHosts: string[];
+    allowBridge: boolean;
+    label: string | null;
+    created_at: string;
+    created_by: string | null;
+    expires_at: string | null;
+    revoked_at: string | null;
+  };
+  const publications = new Map<string, TestPublication>();
+  const publicationTokens = new Map<string, string>();
+  let nextPublicationId = 1;
+  const createPasswordPublicationPolicy = vi.fn((password: string) => ({
+    kind: 'password' as const,
+    hash: `test-hash:${password.trim()}`,
+  }));
+  const isPublicationPasswordMatch = vi.fn(
+    (policy: { hash: string }, password: string) =>
+      policy.hash === `test-hash:${password.trim()}`,
+  );
+  const createPublication = vi.fn(
+    (input: {
+      appId: string;
+      policy: TestPublicationPolicy;
+      embedHosts?: string[];
+      allowBridge?: boolean;
+      label?: string | null;
+      createdBy?: string | null;
+      expiresAt?: string | null;
+    }) => {
+      const id = String(nextPublicationId++).padStart(12, '0');
+      const token = `hcp_${id}_secret`;
+      const metadata: TestPublication = {
+        id,
+        appId: input.appId,
+        policy: input.policy,
+        embedHosts: input.embedHosts ?? [],
+        allowBridge: input.allowBridge === true,
+        label: input.label ?? null,
+        created_at: '2026-07-03T00:00:00.000Z',
+        created_by: input.createdBy ?? null,
+        expires_at: input.expiresAt ?? null,
+        revoked_at: null,
+      };
+      publications.set(id, metadata);
+      publicationTokens.set(token, id);
+      return { token, metadata };
+    },
+  );
+  const listPublicationsForApp = vi.fn((appId: string) =>
+    Array.from(publications.values()).filter(
+      (publication) => publication.appId === appId,
+    ),
+  );
+  const verifyPublicationToken = vi.fn((token: string) => {
+    if (!token.startsWith('hcp_')) return { status: 'malformed' as const };
+    const id = publicationTokens.get(token);
+    if (!id) return { status: 'missing' as const };
+    const publication = publications.get(id);
+    if (!publication) return { status: 'missing' as const };
+    if (publication.revoked_at) return { status: 'revoked' as const };
+    if (
+      publication.expires_at &&
+      Date.parse(publication.expires_at) <= Date.now()
+    ) {
+      return { status: 'expired' as const };
+    }
+    return { status: 'ok' as const, publication };
+  });
+  const revokePublication = vi.fn((id: string) => {
+    const publication = publications.get(id);
+    if (!publication) return null;
+    const revoked = {
+      ...publication,
+      revoked_at:
+        publication.revoked_at ?? '2026-07-03T00:02:00.000Z',
+    };
+    publications.set(id, revoked);
+    return revoked;
+  });
+  const revokePublicationsForApp = vi.fn((appId: string) => {
+    let count = 0;
+    for (const publication of publications.values()) {
+      if (publication.appId !== appId || publication.revoked_at) continue;
+      publications.set(publication.id, {
+        ...publication,
+        revoked_at: '2026-07-03T00:02:00.000Z',
+      });
+      count += 1;
+    }
+    return count;
+  });
+  const getPublicationPolicyTtlMs = vi.fn((policy: TestPublicationPolicy) =>
+    (policy.ttlSeconds ?? 3600) * 1000,
   );
   const getGatewayAdminOverview = vi.fn(async () => ({
     status: { status: 'ok', sessions: 2, version: '0.7.1', uptime: 60 },
@@ -969,6 +1158,17 @@ async function importFreshHealth(options?: {
     },
   }));
   const recordGatewayAdminSecretMutationFailure = vi.fn();
+  const activeTunnelPublicUrl = options?.activeTunnelPublicUrl ?? null;
+  const activeTunnelStatus = {
+    provider: 'ngrok',
+    publicUrl: activeTunnelPublicUrl,
+    state: activeTunnelPublicUrl ? ('up' as const) : ('down' as const),
+    health: activeTunnelPublicUrl ? ('healthy' as const) : ('down' as const),
+    reconnectSupported: true,
+    lastError: null,
+    lastCheckedAt: null,
+    nextReconnectAt: null,
+  };
   const reconnectTunnelStatus = {
     provider: 'ngrok',
     publicUrl: 'https://next-public.example.test',
@@ -996,7 +1196,7 @@ async function importFreshHealth(options?: {
       publicUrl: 'https://public.example.test',
       healthCheckIntervalMs: 30_000,
     },
-    tunnel: reconnectTunnelStatus,
+    tunnel: activeTunnelStatus,
   };
   const getGatewayAdminTunnelConfig = vi.fn(() => tunnelConfigResponse);
   const saveGatewayAdminTunnelConfig = vi.fn((value) => ({
@@ -2123,9 +2323,43 @@ async function importFreshHealth(options?: {
     restartSupported: true,
     restartReason: null,
   }));
+  const apiTokens = options?.apiTokens ?? {};
+  let nextCreatedApiToken = 1;
   const verifyApiToken = vi.fn((bearer: string) => {
-    return options?.apiTokens?.[bearer] ?? null;
+    return apiTokens[bearer] ?? null;
   });
+  const createApiToken = vi.fn(
+    (input: {
+      label: string;
+      claims: Record<string, unknown>;
+      expiresAt?: Date | string | null;
+      createdBy?: string | null;
+    }) => {
+      const id = String(nextCreatedApiToken++).padStart(12, 'a');
+      const token = `hck_created_${nextCreatedApiToken}`;
+      apiTokens[token] = {
+        id,
+        label: input.label,
+        claims: input.claims,
+      };
+      return {
+        token,
+        metadata: {
+          id,
+          label: input.label,
+          claims: input.claims,
+          created_at: '2026-07-03T00:00:00.000Z',
+          created_by: input.createdBy ?? null,
+          expires_at:
+            input.expiresAt instanceof Date
+              ? input.expiresAt.toISOString()
+              : (input.expiresAt ?? null),
+          last_used_at: null,
+          revoked_at: null,
+        },
+      };
+    },
+  );
   const getGatewayAdminTokens = vi.fn(() => ({
     tokens: [],
     total: 0,
@@ -2212,18 +2446,27 @@ async function importFreshHealth(options?: {
     const actual = await vi.importActual<
       typeof import('../src/config/runtime-config.js')
     >('../src/config/runtime-config.js');
-    if (options?.deploymentPublicUrl === undefined) {
-      return {
-        ...actual,
-        reloadRuntimeConfig,
-      };
-    }
     const runtimeConfig = JSON.parse(
       JSON.stringify(actual.getRuntimeConfig()),
     ) as RuntimeConfig;
-    runtimeConfig.deployment.mode = 'cloud';
-    runtimeConfig.deployment.public_url = options.deploymentPublicUrl;
-    runtimeConfig.deployment.tunnel.provider = 'manual';
+    if (options?.deploymentPublicUrl === undefined) {
+      runtimeConfig.deployment.public_url = '';
+    } else {
+      runtimeConfig.deployment.mode = 'cloud';
+      runtimeConfig.deployment.public_url = options.deploymentPublicUrl;
+      runtimeConfig.deployment.tunnel.provider = 'manual';
+    }
+    if (options?.msteamsTab) {
+      runtimeConfig.msteams.appId = options.msteamsTab.appId ?? '';
+      runtimeConfig.msteams.tenantId = options.msteamsTab.tenantId ?? '';
+      runtimeConfig.msteams.tab = {
+        ...runtimeConfig.msteams.tab,
+        enabled: options.msteamsTab.enabled ?? false,
+        ssoAppId: options.msteamsTab.ssoAppId ?? '',
+        appIdUri: options.msteamsTab.appIdUri ?? '',
+        allowFrom: options.msteamsTab.allowFrom ?? [],
+      };
+    }
     return {
       ...actual,
       getRuntimeConfig: vi.fn(() => runtimeConfig),
@@ -2247,6 +2490,79 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     handleMSTeamsWebhook,
   }));
+  vi.doMock('../src/gateway/msteams-tab.js', () => {
+    const TEAMS_TAB_SCOPE = 'access_as_user';
+    const TEAMS_DESKTOP_CLIENT_ID =
+      '1fec8e78-bce4-4aaf-ab1b-5451cc387264';
+    const TEAMS_WEB_CLIENT_ID = '5e3ce6c0-2b1f-4285-8d4b-75ee78787346';
+    const TEAMS_APP_ENTITY_ID = 'hybridclaw-hub';
+    const TEAMS_JS_SDK_URL =
+      'https://res.cdn.office.net/teams-js/2.0.0/js/MicrosoftTeams.min.js';
+    const TEAMS_FRAME_ANCESTORS = [
+      'https://teams.microsoft.com',
+      'https://*.teams.microsoft.com',
+      'https://*.skype.com',
+      'https://*.office.com',
+      'https://*.office.net',
+      'https://*.microsoft.com',
+    ] as const;
+    class MSTeamsTabTokenError extends Error {
+      code: string;
+      constructor(code: string, message: string) {
+        super(message);
+        this.name = 'MSTeamsTabTokenError';
+        this.code = code;
+      }
+    }
+    const isMSTeamsTabViewerAllowed = (
+      viewer: { sub: string; email?: string },
+      allowFrom: string[],
+    ) => {
+      if (allowFrom.length === 0) return true;
+      const allowed = new Set(allowFrom.map((entry) => entry.toLowerCase()));
+      return [viewer.sub, viewer.email || ''].some((value) =>
+        allowed.has(value.toLowerCase()),
+      );
+    };
+    return {
+      TEAMS_TAB_SCOPE,
+      TEAMS_DESKTOP_CLIENT_ID,
+      TEAMS_WEB_CLIENT_ID,
+      TEAMS_APP_ENTITY_ID,
+      TEAMS_JS_SDK_URL,
+      TEAMS_FRAME_ANCESTORS,
+      MSTeamsTabTokenError,
+      isMSTeamsTabViewerAllowed,
+      resolveMSTeamsTabConfig: (
+        config: RuntimeConfig,
+        publicOrigin?: string | null,
+      ) => {
+        const ssoAppId = config.msteams.tab.ssoAppId || config.msteams.appId;
+        const appIdUri =
+          config.msteams.tab.appIdUri ||
+          (publicOrigin && ssoAppId
+            ? `api://${new URL(publicOrigin).host}/${ssoAppId}`
+            : '');
+        return {
+          enabled: config.msteams.tab.enabled,
+          tenantId: config.msteams.tenantId,
+          ssoAppId,
+          appIdUri,
+          allowFrom: config.msteams.tab.allowFrom,
+        };
+      },
+      validateMSTeamsTabIdToken: vi.fn(async (idToken: string) => {
+        if (idToken !== 'valid-teams-token') {
+          throw new MSTeamsTabTokenError('invalid_token', 'Invalid token.');
+        }
+        return {
+          sub: 'viewer-oid',
+          email: 'viewer@example.test',
+          name: 'Viewer User',
+        };
+      }),
+    };
+  });
   vi.doMock('../src/channels/imessage/runtime.js', () => ({
     handleIMessageWebhook,
   }));
@@ -2274,6 +2590,7 @@ async function importFreshHealth(options?: {
     deleteApp,
     getApp,
     listApps,
+    updateAppVisibility,
     upsertAppArtifact,
   }));
   vi.doMock('../src/agent/agent.js', () => ({
@@ -2388,8 +2705,19 @@ async function importFreshHealth(options?: {
     unsetGatewayAdminSecret,
   }));
   vi.doMock('../src/security/api-tokens.js', () => ({
+    createApiToken,
     isApiTokenString: (value: string) => value.trim().startsWith('hck_'),
     verifyApiToken,
+  }));
+  vi.doMock('../src/security/app-publications.js', () => ({
+    createPasswordPublicationPolicy,
+    createPublication,
+    getPublicationPolicyTtlMs,
+    isPublicationPasswordMatch,
+    listPublicationsForApp,
+    revokePublication,
+    revokePublicationsForApp,
+    verifyPublicationToken,
   }));
   vi.doMock('../src/gateway/gateway-admin-tokens.js', () => ({
     createGatewayAdminToken,
@@ -2583,7 +2911,13 @@ async function importFreshHealth(options?: {
     handleGatewayCommand,
     runAgent,
     createApp,
+    updateAppVisibility,
     getApp,
+    createApiToken,
+    createPublication,
+    listPublicationsForApp,
+    revokePublicationsForApp,
+    verifyPublicationToken,
     getGatewaySessionContextUsage,
     handleGatewayPluginWebhook,
     renderGatewayCommand,
@@ -3326,6 +3660,698 @@ describe('gateway HTTP server', () => {
     expect(staticRes.body).toContain('<body>static</body>');
   });
 
+  test('serves publication shell uniformly with computed frame ancestors', async () => {
+    const state = await importFreshHealth();
+    const publication = state.createPublication({
+      appId: 'app-1',
+      policy: { kind: 'link' },
+      embedHosts: ['https://embed.example'],
+    });
+
+    const knownReq = makeRequest({
+      url: `/pub/${publication.token}`,
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const knownRes = makeResponse();
+    state.handler(knownReq as never, knownRes as never);
+    await waitForResponse(knownRes, (next) => next.writableEnded);
+
+    expect(knownRes.statusCode).toBe(200);
+    expect(knownRes.headers['Content-Security-Policy']).toContain(
+      'frame-ancestors https://embed.example',
+    );
+    expect(knownRes.headers['Referrer-Policy']).toBe('no-referrer');
+    expect(knownRes.body).toContain('/pub-shell.js');
+    expect(knownRes.body).not.toContain('app-1');
+
+    const unknownReq = makeRequest({
+      url: '/pub/hcp_999999999999_secret',
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const unknownRes = makeResponse();
+    state.handler(unknownReq as never, unknownRes as never);
+    await waitForResponse(unknownRes, (next) => next.writableEnded);
+
+    expect(unknownRes.statusCode).toBe(200);
+    expect(unknownRes.headers['Content-Security-Policy']).toContain(
+      "frame-ancestors 'none'",
+    );
+  });
+
+  test('serves Teams publication shells with Teams frame and script policy', async () => {
+    const state = await importFreshHealth();
+    const publication = state.createPublication({
+      appId: 'app-1',
+      policy: {
+        kind: 'oidc',
+        provider: 'entra',
+        tenantId: 'tenant-id',
+        audience: 'api://public.example.test/app-id',
+        allowFrom: [],
+      },
+      embedHosts: [],
+    });
+
+    const req = makeRequest({
+      url: `/pub/${publication.token}?host=teams`,
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Security-Policy']).toContain(
+      "frame-ancestors 'self' https://teams.microsoft.com",
+    );
+    expect(res.headers['Content-Security-Policy']).toContain(
+      'https://res.cdn.office.net',
+    );
+    expect(res.body).toContain('MicrosoftTeams.min.js');
+  });
+
+  test('serves the publication OIDC callback without auth', async () => {
+    const state = await importFreshHealth();
+
+    const req = makeRequest({
+      url: '/pub-oidc-callback',
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Cache-Control']).toBe('no-store');
+    expect(res.headers['Content-Security-Policy']).toContain(
+      "frame-ancestors 'none'",
+    );
+    expect(res.body).toContain('hybridclaw.pub.oidc.token.');
+  });
+
+  test('creates link publications and marks the app public', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const app = state.createApp({
+      title: 'Shared App',
+      html: '<!doctype html><html><body>shared</body></html>',
+      kind: 'web',
+    });
+
+    const req = makeRequest({
+      method: 'POST',
+      url: `/api/apps/${app.id}/publications`,
+      headers: { authorization: 'Bearer web-token' },
+      body: { kind: 'link' },
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(201);
+    const payload = JSON.parse(res.body);
+    expect(payload).toMatchObject({
+      publication: {
+        appId: app.id,
+        policy: { kind: 'link' },
+        allowBridge: false,
+      },
+      token: expect.stringMatching(/^hcp_/),
+      url: expect.stringContaining('/pub/hcp_'),
+      app: { visibility: 'public' },
+    });
+    expect(state.updateAppVisibility).toHaveBeenCalledWith(app.id, 'public');
+  });
+
+  test('creates Teams publications with Entra policy and Teams URL', async () => {
+    const state = await importFreshHealth({
+      webApiToken: 'web-token',
+      deploymentPublicUrl: 'https://public.example.test',
+      msteamsTab: {
+        enabled: true,
+        appId: 'teams-app-id',
+        tenantId: 'tenant-id',
+        appIdUri: 'api://public.example.test/teams-app-id',
+      },
+    });
+    const app = state.createApp({
+      title: 'Teams App',
+      html: '<!doctype html><html><body>teams</body></html>',
+      kind: 'web',
+    });
+
+    const req = makeRequest({
+      method: 'POST',
+      url: `/api/apps/${app.id}/publications`,
+      headers: { authorization: 'Bearer web-token' },
+      body: { kind: 'teams' },
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(201);
+    const payload = JSON.parse(res.body);
+    expect(payload.url).toContain('/pub/hcp_');
+    expect(payload.url).toContain('host=teams');
+    expect(state.createPublication).toHaveBeenCalledWith(
+      expect.objectContaining({
+        policy: {
+          kind: 'oidc',
+          provider: 'entra',
+          tenantId: 'tenant-id',
+          audience: 'api://public.example.test/teams-app-id',
+          allowFrom: [],
+        },
+        embedHosts: expect.arrayContaining(['https://teams.microsoft.com']),
+      }),
+    );
+  });
+
+  test('requires acknowledgement before sharing anonymous live bridge access', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const app = state.createApp({
+      title: 'Live App',
+      html: '<!doctype html><html><body>live</body></html>',
+      kind: 'live',
+      sessionId: 'sess-live-app',
+      agentId: 'main',
+    });
+
+    const deniedReq = makeRequest({
+      method: 'POST',
+      url: `/api/apps/${app.id}/publications`,
+      headers: { authorization: 'Bearer web-token' },
+      body: { kind: 'link', allowBridge: true },
+      remoteAddress: '203.0.113.10',
+    });
+    const deniedRes = makeResponse();
+    state.handler(deniedReq as never, deniedRes as never);
+    await waitForResponse(deniedRes, (next) => next.writableEnded);
+
+    expect(deniedRes.statusCode).toBe(400);
+
+    const allowedReq = makeRequest({
+      method: 'POST',
+      url: `/api/apps/${app.id}/publications`,
+      headers: { authorization: 'Bearer web-token' },
+      body: {
+        kind: 'link',
+        allowBridge: true,
+        acknowledgeAnonymousBridge: true,
+      },
+      remoteAddress: '203.0.113.10',
+    });
+    const allowedRes = makeResponse();
+    state.handler(allowedReq as never, allowedRes as never);
+    await waitForResponse(allowedRes, (next) => next.writableEnded);
+
+    expect(allowedRes.statusCode).toBe(201);
+    expect(JSON.parse(allowedRes.body)).toMatchObject({
+      publication: { allowBridge: true },
+    });
+  });
+
+  test('exchanges link publications for app-scoped view-only tokens', async () => {
+    const state = await importFreshHealth();
+    const app = state.createApp({
+      title: 'Public Live App',
+      html: '<!doctype html><html><body>live</body></html>',
+      kind: 'live',
+      visibility: 'public',
+      sessionId: 'sess-live-app',
+      agentId: 'main',
+    });
+    const publication = state.createPublication({
+      appId: app.id,
+      policy: { kind: 'link' },
+      allowBridge: false,
+    });
+
+    const req = makeRequest({
+      method: 'POST',
+      url: `/api/pub/${publication.token}/session`,
+      noAuth: true,
+      body: {},
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    const payload = JSON.parse(res.body);
+    expect(payload).toMatchObject({
+      viewToken: expect.stringMatching(/^hck_/),
+      app: { id: app.id, kind: 'live', bridge: false },
+    });
+    expect(state.createApiToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        claims: {
+          actions: ['apps.view'],
+          appIds: [app.id],
+          pub: publication.metadata.id,
+        },
+      }),
+    );
+
+    const viewReq = makeRequest({
+      url: `/api/apps/${app.id}/view?token=${payload.viewToken}`,
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const viewRes = makeResponse();
+    state.handler(viewReq as never, viewRes as never);
+    await waitForResponse(viewRes, (next) => next.writableEnded);
+
+    expect(viewRes.statusCode).toBe(200);
+    expect(viewRes.body).toContain('<body>live</body>');
+  });
+
+  test('enforces publication visibility gate and password policy', async () => {
+    const state = await importFreshHealth();
+    const app = state.createApp({
+      title: 'Password App',
+      html: '<!doctype html><html><body>secret</body></html>',
+      kind: 'web',
+      visibility: 'private',
+    });
+    const publication = state.createPublication({
+      appId: app.id,
+      policy: { kind: 'password', hash: 'test-hash:open sesame' },
+    });
+
+    const privateReq = makeRequest({
+      method: 'POST',
+      url: `/api/pub/${publication.token}/session`,
+      noAuth: true,
+      body: { password: 'open sesame' },
+      remoteAddress: '203.0.113.10',
+    });
+    const privateRes = makeResponse();
+    state.handler(privateReq as never, privateRes as never);
+    await waitForResponse(privateRes, (next) => next.writableEnded);
+
+    expect(privateRes.statusCode).toBe(403);
+
+    state.updateAppVisibility(app.id, 'public');
+
+    const wrongReq = makeRequest({
+      method: 'POST',
+      url: `/api/pub/${publication.token}/session`,
+      noAuth: true,
+      body: { password: 'wrong' },
+      remoteAddress: '203.0.113.10',
+    });
+    const wrongRes = makeResponse();
+    state.handler(wrongReq as never, wrongRes as never);
+    await waitForResponse(wrongRes, (next) => next.writableEnded);
+
+    expect(wrongRes.statusCode).toBe(401);
+    expect(JSON.parse(wrongRes.body)).toMatchObject({
+      passwordRequired: true,
+    });
+
+    const rightReq = makeRequest({
+      method: 'POST',
+      url: `/api/pub/${publication.token}/session`,
+      noAuth: true,
+      body: { password: 'open sesame' },
+      remoteAddress: '203.0.113.10',
+    });
+    const rightRes = makeResponse();
+    state.handler(rightReq as never, rightRes as never);
+    await waitForResponse(rightRes, (next) => next.writableEnded);
+
+    expect(rightRes.statusCode).toBe(200);
+    expect(JSON.parse(rightRes.body).viewToken).toMatch(/^hck_/);
+  });
+
+  test('exchanges OIDC publications for viewer-scoped tokens', async () => {
+    const state = await importFreshHealth({
+      deploymentPublicUrl: 'https://public.example.test',
+      msteamsTab: {
+        enabled: true,
+        appId: 'teams-app-id',
+        tenantId: 'tenant-id',
+        appIdUri: 'api://public.example.test/teams-app-id',
+      },
+    });
+    const app = state.createApp({
+      title: 'Company App',
+      html: '<!doctype html><html><body>company</body></html>',
+      kind: 'live',
+      visibility: 'public',
+      sessionId: 'sess-live-app',
+      agentId: 'main',
+    });
+    const publication = state.createPublication({
+      appId: app.id,
+      policy: {
+        kind: 'oidc',
+        provider: 'entra',
+        tenantId: 'tenant-id',
+        audience: 'api://public.example.test/teams-app-id',
+        allowFrom: ['viewer@example.test'],
+      },
+      embedHosts: ['https://teams.microsoft.com'],
+      allowBridge: true,
+    });
+
+    const req = makeRequest({
+      method: 'POST',
+      url: `/api/pub/${publication.token}/session`,
+      noAuth: true,
+      body: { idToken: 'valid-teams-token' },
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      app: { id: app.id, bridge: true },
+      viewer: {
+        sub: 'viewer-oid',
+        email: 'viewer@example.test',
+        name: 'Viewer User',
+      },
+    });
+    expect(state.createApiToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        claims: expect.objectContaining({
+          actions: ['apps.view', 'apps.bridge'],
+          appIds: [app.id],
+          pub: publication.metadata.id,
+          viewer: {
+            sub: 'viewer-oid',
+            email: 'viewer@example.test',
+            name: 'Viewer User',
+          },
+        }),
+      }),
+    );
+  });
+
+  test('returns an OIDC challenge when browser publication sessions need sign-in', async () => {
+    const state = await importFreshHealth({
+      deploymentPublicUrl: 'https://public.example.test',
+      msteamsTab: {
+        enabled: true,
+        appId: 'teams-app-id',
+        tenantId: 'tenant-id',
+        appIdUri: 'api://public.example.test/teams-app-id',
+      },
+    });
+    const app = state.createApp({
+      title: 'Company Browser App',
+      html: '<!doctype html><html><body>company</body></html>',
+      kind: 'web',
+      visibility: 'public',
+    });
+    const publication = state.createPublication({
+      appId: app.id,
+      policy: {
+        kind: 'oidc',
+        provider: 'entra',
+        tenantId: 'tenant-id',
+        audience: 'api://public.example.test/teams-app-id',
+        allowFrom: [],
+      },
+      embedHosts: ['https://teams.microsoft.com'],
+    });
+
+    const req = makeRequest({
+      method: 'POST',
+      url: `/api/pub/${publication.token}/session`,
+      noAuth: true,
+      body: {},
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: 'Unauthorized.',
+      oidc: {
+        authorizationEndpoint:
+          'https://login.microsoftonline.com/tenant-id/oauth2/v2.0/authorize',
+        clientId: 'teams-app-id',
+        redirectUri: 'https://public.example.test/pub-oidc-callback',
+        scope:
+          'openid profile api://public.example.test/teams-app-id/access_as_user',
+      },
+    });
+    expect(state.createApiToken).not.toHaveBeenCalled();
+  });
+
+  test('lists Teams-published apps and creates Teams tab content URLs after SSO', async () => {
+    const state = await importFreshHealth({
+      deploymentPublicUrl: 'https://public.example.test',
+      msteamsTab: {
+        enabled: true,
+        appId: 'teams-app-id',
+        tenantId: 'tenant-id',
+        appIdUri: 'api://public.example.test/teams-app-id',
+      },
+    });
+    const app = state.createApp({
+      title: 'Hub App',
+      html: '<!doctype html><html><body>hub</body></html>',
+      kind: 'web',
+      visibility: 'public',
+    });
+    state.createPublication({
+      appId: app.id,
+      policy: {
+        kind: 'oidc',
+        provider: 'entra',
+        tenantId: 'tenant-id',
+        audience: 'api://public.example.test/teams-app-id',
+        allowFrom: [],
+      },
+      embedHosts: ['https://teams.microsoft.com'],
+    });
+
+    const listReq = makeRequest({
+      method: 'POST',
+      url: '/api/teams/tab/apps',
+      noAuth: true,
+      body: { idToken: 'valid-teams-token' },
+      remoteAddress: '203.0.113.10',
+    });
+    const listRes = makeResponse();
+    state.handler(listReq as never, listRes as never);
+    await waitForResponse(listRes, (next) => next.writableEnded);
+
+    expect(listRes.statusCode).toBe(200);
+    expect(JSON.parse(listRes.body)).toMatchObject({
+      apps: [{ id: app.id, title: 'Hub App' }],
+      viewer: { sub: 'viewer-oid' },
+    });
+
+    const createReq = makeRequest({
+      method: 'POST',
+      url: `/api/teams/tab/apps/${app.id}/publication`,
+      noAuth: true,
+      body: { idToken: 'valid-teams-token' },
+      remoteAddress: '203.0.113.10',
+    });
+    const createRes = makeResponse();
+    state.handler(createReq as never, createRes as never);
+    await waitForResponse(createRes, (next) => next.writableEnded);
+
+    expect(createRes.statusCode).toBe(200);
+    expect(JSON.parse(createRes.body)).toMatchObject({
+      app: { id: app.id, title: 'Hub App' },
+      url: expect.stringContaining('host=teams'),
+      entityId: `hc-app-${app.id}`,
+    });
+  });
+
+  test('generates per-app Teams manifest zips with stable ids', async () => {
+    const state = await importFreshHealth({
+      webApiToken: 'web-token',
+      deploymentPublicUrl: 'https://public.example.test',
+      msteamsTab: {
+        enabled: true,
+        appId: 'teams-app-id',
+        tenantId: 'tenant-id',
+        appIdUri: 'api://public.example.test/teams-app-id',
+      },
+    });
+    const app = state.createApp({
+      title: 'Manifest App',
+      description: 'A Teams manifest test app.',
+      html: '<!doctype html><html><body>manifest</body></html>',
+      kind: 'web',
+      visibility: 'public',
+    });
+
+    const req = makeRequest({
+      method: 'GET',
+      url: `/api/apps/${app.id}/teams-manifest`,
+      headers: { authorization: 'Bearer web-token' },
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('application/zip');
+    const zipBuffer = Buffer.concat(res.chunks);
+    const manifest = JSON.parse(
+      await readZipEntry(zipBuffer, 'manifest.json'),
+    );
+    expect(manifest).toMatchObject({
+      manifestVersion: '1.19',
+      name: { short: 'Manifest App' },
+      staticTabs: [
+        expect.objectContaining({
+          contentUrl: expect.stringContaining('/pub/hcp_'),
+          scopes: ['personal'],
+        }),
+      ],
+      validDomains: ['public.example.test'],
+      webApplicationInfo: {
+        id: 'teams-app-id',
+        resource: 'api://public.example.test/teams-app-id',
+      },
+    });
+    expect(manifest.staticTabs[0].contentUrl).toContain('host=teams');
+    expect(
+      Buffer.compare(
+        await readZipEntryBuffer(zipBuffer, 'color.png'),
+        fs.readFileSync(
+          path.join(process.cwd(), 'docs', 'static', 'teams-color.png'),
+        ),
+      ),
+    ).toBe(0);
+    expect(
+      Buffer.compare(
+        await readZipEntryBuffer(zipBuffer, 'outline.png'),
+        fs.readFileSync(
+          path.join(process.cwd(), 'docs', 'static', 'teams-outline.png'),
+        ),
+      ),
+    ).toBe(0);
+  });
+
+  test('generates the org Teams app manifest zip', async () => {
+    const state = await importFreshHealth({
+      webApiToken: 'web-token',
+      deploymentPublicUrl: 'https://public.example.test',
+      msteamsTab: {
+        enabled: true,
+        appId: 'teams-app-id',
+        tenantId: 'tenant-id',
+        appIdUri: 'api://public.example.test/teams-app-id',
+      },
+    });
+
+    const req = makeRequest({
+      method: 'GET',
+      url: '/api/admin/msteams/tab-manifest',
+      headers: { authorization: 'Bearer web-token' },
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    const manifest = JSON.parse(
+      await readZipEntry(Buffer.concat(res.chunks), 'manifest.json'),
+    );
+    expect(manifest).toMatchObject({
+      name: { short: 'HybridClaw' },
+      staticTabs: [
+        expect.objectContaining({
+          entityId: 'hybridclaw-hub',
+          contentUrl: 'https://public.example.test/teams/hub?host=teams',
+        }),
+      ],
+      configurableTabs: [
+        expect.objectContaining({
+          configurationUrl:
+            'https://public.example.test/teams/tab-config?host=teams',
+          scopes: ['team', 'groupChat'],
+        }),
+      ],
+      validDomains: ['public.example.test'],
+      webApplicationInfo: {
+        id: 'teams-app-id',
+        resource: 'api://public.example.test/teams-app-id',
+      },
+    });
+  });
+
+  test('uses active managed tunnel URL for Teams tab status', async () => {
+    const state = await importFreshHealth({
+      activeTunnelPublicUrl: 'https://managed-ngrok.example.test',
+      msteamsTab: {
+        appId: 'teams-app-id',
+      },
+    });
+
+    const req = makeRequest({
+      method: 'GET',
+      url: '/api/admin/msteams/tab-status',
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      publicOrigin: 'https://managed-ngrok.example.test',
+      browserRedirectUri:
+        'https://managed-ngrok.example.test/pub-oidc-callback',
+      appIdUri: 'api://managed-ngrok.example.test/teams-app-id',
+    });
+  });
+
+  test('setting visibility private revokes app publications', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const app = state.createApp({
+      title: 'Published App',
+      html: '<!doctype html><html><body>published</body></html>',
+      kind: 'web',
+      visibility: 'public',
+    });
+    state.createPublication({
+      appId: app.id,
+      policy: { kind: 'link' },
+    });
+
+    const req = makeRequest({
+      method: 'PATCH',
+      url: `/api/apps/${app.id}`,
+      headers: { authorization: 'Bearer web-token' },
+      body: { visibility: 'private' },
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      app: { id: app.id, visibility: 'private' },
+    });
+    expect(state.revokePublicationsForApp).toHaveBeenCalledWith(app.id);
+  });
+
   test('requires matching appIds on scoped app view query tokens', async () => {
     const apiToken = 'hck_app_view';
     const apiTokens = {
@@ -3425,6 +4451,116 @@ describe('gateway HTTP server', () => {
       error: 'Live apps can only call read-only MCP connector tools.',
     });
     expect(state.runAgent).not.toHaveBeenCalled();
+  });
+
+  test('injects viewer context from scoped app view tokens', async () => {
+    const apiToken = 'hck_viewer_context';
+    const apiTokens = {
+      [apiToken]: {
+        id: '333333333333',
+        label: 'viewer-context',
+        claims: {
+          actions: ['apps.view'],
+          appIds: [] as string[],
+          viewer: {
+            sub: 'viewer-1',
+            email: 'viewer@example.com',
+            name: 'Viewer One',
+          },
+        },
+      },
+    };
+    const state = await importFreshHealth({ apiTokens });
+    const liveApp = state.createApp({
+      title: 'Viewer App',
+      html: '<!doctype html><html><head></head><body>viewer</body></html>',
+      kind: 'live',
+      sessionId: 'sess-live-app',
+      agentId: 'main',
+    });
+    apiTokens[apiToken].claims.appIds = [liveApp.id];
+    const req = makeRequest({
+      url: `/api/apps/${liveApp.id}/view?token=${apiToken}`,
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain(
+      `var viewerContext = ${JSON.stringify({
+        sub: 'viewer-1',
+        email: 'viewer@example.com',
+        name: 'Viewer One',
+      })};`,
+    );
+    expect(res.body).toContain('existing.context = Object.assign');
+  });
+
+  test('uses per-viewer sessions for live app bridge tokens with viewer claims', async () => {
+    const apiToken = 'hck_viewer_bridge';
+    const apiTokens = {
+      [apiToken]: {
+        id: '444444444444',
+        label: 'viewer-bridge',
+        claims: {
+          actions: ['apps.bridge'],
+          appIds: [] as string[],
+          viewer: { sub: 'viewer-1' },
+        },
+      },
+    };
+    const state = await importFreshHealth({ apiTokens });
+    const liveApp = state.createApp({
+      title: 'Viewer Bridge App',
+      html: '<!doctype html><html><head></head><body>viewer</body></html>',
+      kind: 'live',
+      sessionId: 'sess-live-app',
+      agentId: 'main',
+    });
+    apiTokens[apiToken].claims.appIds = [liveApp.id];
+    state.runAgent.mockResolvedValueOnce({
+      result: '',
+      toolExecutions: [
+        {
+          name: 'hybridai__microsoft_graph__get_message',
+          arguments: JSON.stringify({ id: 'message-1' }),
+          result: 'message result',
+          durationMs: 10,
+          isError: false,
+        },
+      ],
+    });
+
+    const req = makeRequest({
+      method: 'POST',
+      url: `/api/apps/${liveApp.id}/bridge/tool?token=${apiToken}`,
+      noAuth: true,
+      body: {
+        toolName: 'hybridai__microsoft_graph__get_message',
+        arguments: { id: 'message-1' },
+      },
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    const expectedSessionId = `agent:main:channel:app:chat:pub:peer:${encodeURIComponent(
+      `${liveApp.id}:viewer-1`,
+    )}`;
+    expect(res.statusCode).toBe(200);
+    expect(state.getOrCreateSession).toHaveBeenCalledWith(
+      expectedSessionId,
+      null,
+      'web',
+      'main',
+    );
+    expect(state.runAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: expectedSessionId }),
+    );
   });
 
   test('uses apps.read for scoped API-token access to the apps API', async () => {

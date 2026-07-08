@@ -20,6 +20,7 @@ import { ChannelLogo } from '../components/channel-logo';
 import {
   Field,
   FieldContent,
+  FieldDescription,
   FieldLabel,
   FieldTitle,
 } from '../components/field';
@@ -40,12 +41,7 @@ import { useFormMutation } from '../hooks/use-form-mutation';
 import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { getErrorMessage } from '../lib/error-message';
 import { joinStringList, parseStringList } from '../lib/format';
-import {
-  buildChannelCatalog,
-  type ChannelKind,
-  countTeams,
-  countTeamsOverrides,
-} from './channels-catalog';
+import { buildChannelCatalog, type ChannelKind } from './channels-catalog';
 
 type SecretSource = 'config' | 'env' | 'runtime-secrets' | null;
 type ChannelInstructionKind = keyof AdminConfig['channelInstructions'];
@@ -2437,28 +2433,12 @@ function VoiceChannelEditor(props: {
   );
 }
 
-function TeamsChannelEditor(props: {
+function TeamsChannelEditor(_props: {
   draft: AdminConfig;
   form: UseFormControllerReturn<AdminConfig>;
 }) {
-  const teamCount = countTeams(props.draft);
-  const overrideCount = countTeamsOverrides(props.draft);
-
   return (
     <>
-      <div className="key-value-grid">
-        <div>
-          <span>Team defaults</span>
-          <strong>{String(teamCount)}</strong>
-          <small>Per-team rules preserved</small>
-        </div>
-        <div>
-          <span>Channel overrides</span>
-          <strong>{String(overrideCount)}</strong>
-          <small>Explicit Teams channel entries</small>
-        </div>
-      </div>
-
       <FormField
         name="msteams.enabled"
         render={({ field }) => (
@@ -2474,12 +2454,20 @@ function TeamsChannelEditor(props: {
         )}
       />
 
+      <p className="muted-copy">
+        Paste values from Microsoft Entra Admin Center. Use the app
+        registration's Application (client) ID and Directory (tenant) ID.
+      </p>
+
       <div className="field-grid">
         <FormField
           name="msteams.appId"
           render={({ field }) => (
             <Field>
               <FieldLabel>App ID</FieldLabel>
+              <FieldDescription>
+                Application (client) ID from the Entra app registration.
+              </FieldDescription>
               <Input {...field} />
             </Field>
           )}
@@ -2489,159 +2477,225 @@ function TeamsChannelEditor(props: {
           render={({ field }) => (
             <Field>
               <FieldLabel>Tenant ID</FieldLabel>
+              <FieldDescription>
+                Directory (tenant) ID from the same Entra tenant.
+              </FieldDescription>
               <Input {...field} />
             </Field>
           )}
         />
       </div>
 
-      <div className="field-grid">
-        <FormField
-          name="msteams.webhook.path"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Webhook path</FieldLabel>
-              <Input {...field} />
-            </Field>
-          )}
+      <div className="button-row">
+        <Button
+          variant="outline"
+          render={<a href="/admin/teams">App Setup</a>}
         />
-        <FormField
-          name="msteams.webhook.port"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Webhook port</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                max={65535}
-                value={field.value as number}
-                onValueChange={field.onChange}
+      </div>
+
+      <details className="channel-advanced-settings">
+        <summary>Teams app setup instructions</summary>
+        <div className="channel-advanced-settings-body">
+          <ol className="channel-setup-list">
+            <li>
+              Open App Setup and check Public origin. Cloud deployments should
+              already show a public HTTPS origin. Local installs need a public
+              HTTPS tunnel or reverse proxy first, then App Setup should stop
+              showing localhost.
+            </li>
+            <li>
+              In Microsoft Entra Admin Center, create or open the app
+              registration for HybridClaw. Copy its Application (client) ID and
+              Directory (tenant) ID.
+            </li>
+            <li>
+              Paste those two values here in Microsoft Teams settings, then save
+              channel settings. This lets App Setup detect the tenant and derive
+              the correct Teams SSO values.
+            </li>
+            <li>
+              In App Setup, copy the App ID URI and Browser redirect URI. In
+              Entra, add the App ID URI under Expose an API, add an
+              `access_as_user` scope, and add the Browser redirect URI under
+              Authentication.
+            </li>
+            <li>
+              In Entra's Authorized client applications, add the Teams desktop
+              and mobile client ID plus the Teams web client ID from App Setup,
+              and authorize them for the `access_as_user` scope.
+            </li>
+            <li>
+              Back in App Setup, enable tab SSO. Save the SSO app ID, usually
+              the same Application (client) ID, and the App ID URI. Use Test to
+              confirm required values are present.
+            </li>
+            <li>
+              Download the org app package from App Setup and upload it in the
+              Teams admin center app catalog so users can install the HybridClaw
+              Teams app.
+            </li>
+            <li>
+              After the org app is available in Teams, use Apps, Share, Add to
+              Teams for individual HybridClaw apps.
+            </li>
+          </ol>
+        </div>
+      </details>
+
+      <details className="channel-advanced-settings">
+        <summary>Advanced delivery settings</summary>
+        <div className="channel-advanced-settings-body">
+          <div className="field-grid">
+            <FormField
+              name="msteams.webhook.path"
+              render={({ field }) => (
+                <Field>
+                  <FieldLabel>Webhook path</FieldLabel>
+                  <Input {...field} />
+                </Field>
+              )}
+            />
+            <FormField
+              name="msteams.webhook.port"
+              render={({ field }) => (
+                <Field>
+                  <FieldLabel>Webhook port</FieldLabel>
+                  <NumberField
+                    integer
+                    min={0}
+                    max={65535}
+                    value={field.value as number}
+                    onValueChange={field.onChange}
+                  />
+                </Field>
+              )}
+            />
+          </div>
+
+          <div className="field-grid">
+            <FormField
+              name="msteams.dmPolicy"
+              render={({ field }) => (
+                <Field>
+                  <FieldLabel>DM policy</FieldLabel>
+                  <NativeSelect
+                    value={field.value as string}
+                    onChange={field.onChange}
+                  >
+                    <NativeSelectOption value="open">open</NativeSelectOption>
+                    <NativeSelectOption value="allowlist">
+                      allowlist
+                    </NativeSelectOption>
+                    <NativeSelectOption value="disabled">
+                      disabled
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </Field>
+              )}
+            />
+            <FormField
+              name="msteams.groupPolicy"
+              render={({ field }) => (
+                <Field>
+                  <FieldLabel>Group policy</FieldLabel>
+                  <NativeSelect
+                    value={field.value as string}
+                    onChange={field.onChange}
+                  >
+                    <NativeSelectOption value="open">open</NativeSelectOption>
+                    <NativeSelectOption value="allowlist">
+                      allowlist
+                    </NativeSelectOption>
+                    <NativeSelectOption value="disabled">
+                      disabled
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </Field>
+              )}
+            />
+          </div>
+
+          <div className="field-grid">
+            <FormField
+              name="msteams.requireMention"
+              render={({ field }) => (
+                <Field orientation="horizontal">
+                  <Switch
+                    checked={Boolean(field.value)}
+                    onCheckedChange={field.onChange}
+                  />
+                  <FieldContent>
+                    <FieldLabel>Require mention</FieldLabel>
+                  </FieldContent>
+                </Field>
+              )}
+            />
+            <FormField
+              name="msteams.replyStyle"
+              render={({ field }) => (
+                <Field>
+                  <FieldLabel>Reply style</FieldLabel>
+                  <NativeSelect
+                    value={field.value as string}
+                    onChange={field.onChange}
+                  >
+                    <NativeSelectOption value="thread">
+                      thread
+                    </NativeSelectOption>
+                    <NativeSelectOption value="top-level">
+                      top-level
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </Field>
+              )}
+            />
+          </div>
+
+          <FormField
+            name="msteams.allowFrom"
+            render={({ field }) => (
+              <AllowListField
+                label="Allowed AAD object IDs"
+                value={field.value as string[]}
+                placeholder="AAD object ID or *"
+                onChange={field.onChange}
               />
-            </Field>
-          )}
-        />
-      </div>
-
-      <div className="field-grid">
-        <FormField
-          name="msteams.dmPolicy"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>DM policy</FieldLabel>
-              <NativeSelect
-                value={field.value as string}
-                onChange={field.onChange}
-              >
-                <NativeSelectOption value="open">open</NativeSelectOption>
-                <NativeSelectOption value="allowlist">
-                  allowlist
-                </NativeSelectOption>
-                <NativeSelectOption value="disabled">
-                  disabled
-                </NativeSelectOption>
-              </NativeSelect>
-            </Field>
-          )}
-        />
-        <FormField
-          name="msteams.groupPolicy"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Group policy</FieldLabel>
-              <NativeSelect
-                value={field.value as string}
-                onChange={field.onChange}
-              >
-                <NativeSelectOption value="open">open</NativeSelectOption>
-                <NativeSelectOption value="allowlist">
-                  allowlist
-                </NativeSelectOption>
-                <NativeSelectOption value="disabled">
-                  disabled
-                </NativeSelectOption>
-              </NativeSelect>
-            </Field>
-          )}
-        />
-      </div>
-
-      <div className="field-grid">
-        <FormField
-          name="msteams.requireMention"
-          render={({ field }) => (
-            <Field orientation="horizontal">
-              <Switch
-                checked={Boolean(field.value)}
-                onCheckedChange={field.onChange}
-              />
-              <FieldContent>
-                <FieldLabel>Require mention</FieldLabel>
-              </FieldContent>
-            </Field>
-          )}
-        />
-        <FormField
-          name="msteams.replyStyle"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Reply style</FieldLabel>
-              <NativeSelect
-                value={field.value as string}
-                onChange={field.onChange}
-              >
-                <NativeSelectOption value="thread">thread</NativeSelectOption>
-                <NativeSelectOption value="top-level">
-                  top-level
-                </NativeSelectOption>
-              </NativeSelect>
-            </Field>
-          )}
-        />
-      </div>
-
-      <FormField
-        name="msteams.allowFrom"
-        render={({ field }) => (
-          <AllowListField
-            label="Allowed AAD object IDs"
-            value={field.value as string[]}
-            placeholder="AAD object ID or *"
-            onChange={field.onChange}
+            )}
           />
-        )}
-      />
 
-      <div className="field-grid">
-        <FormField
-          name="msteams.textChunkLimit"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Text chunk limit</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
-        />
-        <FormField
-          name="msteams.mediaMaxMb"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Media max MB</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
-        />
-      </div>
-      <ChannelInstructionsField kind="msteams" />
+          <div className="field-grid">
+            <FormField
+              name="msteams.textChunkLimit"
+              render={({ field }) => (
+                <Field>
+                  <FieldLabel>Text chunk limit</FieldLabel>
+                  <NumberField
+                    integer
+                    min={0}
+                    value={field.value as number}
+                    onValueChange={field.onChange}
+                  />
+                </Field>
+              )}
+            />
+            <FormField
+              name="msteams.mediaMaxMb"
+              render={({ field }) => (
+                <Field>
+                  <FieldLabel>Media max MB</FieldLabel>
+                  <NumberField
+                    integer
+                    min={0}
+                    value={field.value as number}
+                    onValueChange={field.onChange}
+                  />
+                </Field>
+              )}
+            />
+          </div>
+          <ChannelInstructionsField kind="msteams" />
+        </div>
+      </details>
     </>
   );
 }

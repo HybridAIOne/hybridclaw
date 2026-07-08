@@ -2275,6 +2275,18 @@ th {
   padding: 0 14px 14px;
 }
 
+.channel-setup-list {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.channel-setup-list li + li {
+  margin-top: 8px;
+}
+
 .email-default-agent-target {
   margin-left: 8px;
   color: var(--muted-foreground);

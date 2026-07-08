@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
+import { v5 as uuidv5 } from 'uuid';
+import * as yazl from 'yazl';
 import {
   EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE,
   EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE,
@@ -36,6 +38,7 @@ import {
   extractHtmlDocument,
   generateApp,
 } from '../apps/app-generator.js';
+import { appendAuditEvent } from '../audit/audit-trail.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getBoardBudgetSummaries } from '../board/budget-chip.js';
 import {
@@ -119,6 +122,7 @@ import {
   getApp,
   listApps,
   type StoredApp,
+  updateAppVisibility,
   upsertAppArtifact,
 } from '../memory/apps.js';
 import {
@@ -135,7 +139,23 @@ import {
   isAdminActionAllowed,
   resolveAdminRbacAction,
 } from '../security/admin-rbac.js';
-import { isApiTokenString, verifyApiToken } from '../security/api-tokens.js';
+import {
+  createApiToken,
+  isApiTokenString,
+  verifyApiToken,
+} from '../security/api-tokens.js';
+import {
+  type AppPublicationMetadata,
+  type AppPublicationPolicy,
+  createPasswordPublicationPolicy,
+  createPublication,
+  getPublicationPolicyTtlMs,
+  isPublicationPasswordMatch,
+  listPublicationsForApp,
+  revokePublication,
+  revokePublicationsForApp,
+  verifyPublicationToken,
+} from '../security/app-publications.js';
 import { redactSecretsDeep } from '../security/redact.js';
 import { createSecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
@@ -368,6 +388,20 @@ import {
 } from './interactive-escalation.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
 import {
+  isMSTeamsTabViewerAllowed,
+  type MSTeamsTabSsoConfig,
+  MSTeamsTabTokenError,
+  type MSTeamsTabViewer,
+  resolveMSTeamsTabConfig,
+  TEAMS_APP_ENTITY_ID,
+  TEAMS_DESKTOP_CLIENT_ID,
+  TEAMS_FRAME_ANCESTORS,
+  TEAMS_JS_SDK_URL,
+  TEAMS_TAB_SCOPE,
+  TEAMS_WEB_CLIENT_ID,
+  validateMSTeamsTabIdToken,
+} from './msteams-tab.js';
+import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleCompletionRetrieve,
   handleOpenAICompatibleModelList,
@@ -398,6 +432,16 @@ import {
 
 const SITE_DIR = resolveInstallPath('docs');
 const CONSOLE_DIST_DIR = resolveInstallPath('console', 'dist');
+const TEAMS_COLOR_ICON_PATH = resolveInstallPath(
+  'docs',
+  'static',
+  'teams-color.png',
+);
+const TEAMS_OUTLINE_ICON_PATH = resolveInstallPath(
+  'docs',
+  'static',
+  'teams-outline.png',
+);
 const AGENT_ARTIFACT_ROOT = path.resolve(path.join(DATA_DIR, 'agents'));
 const HARNESS_EVOLUTION_ALLOWED_ROOTS = [
   path.join(DATA_DIR, 'harness-evolution'),
@@ -431,6 +475,17 @@ const LIVE_APP_BRIDGE_READ_ONLY_TOOL_PREFIXES = new Set([
   'retrieve',
   'search',
 ]);
+const APP_PUBLICATION_VIEW_TOKEN_DEFAULT_TTL_MS = 60 * 60 * 1000;
+const APP_PUBLICATION_SESSION_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const APP_PUBLICATION_SESSION_RATE_LIMIT_MAX_FAILURES = 8;
+const APP_PUBLICATION_SHELL_SCRIPT_PATH = '/pub-shell.js';
+const APP_PUBLICATION_OIDC_CALLBACK_PATH = '/pub-oidc-callback';
+const TEAMS_MANIFEST_UUID_NAMESPACE = '9aeaf9e5-ffb9-47c0-8f2f-a496047e1a26';
+
+const publicationSessionFailures = new Map<
+  string,
+  { count: number; resetAt: number }
+>();
 
 const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -2466,6 +2521,11 @@ function resolveRequestOrigin(
 
   const configuredPublicUrl = normalizeHttpOrigin(deploymentPublicUrl);
   if (configuredPublicUrl) return configuredPublicUrl;
+
+  const activeTunnelUrl = normalizeHttpOrigin(
+    getGatewayAdminTunnelConfig().tunnel.publicUrl,
+  );
+  if (activeTunnelUrl) return activeTunnelUrl;
 
   const forwardedHost = String(req.headers['x-forwarded-host'] || '')
     .split(',')[0]
@@ -7359,6 +7419,77 @@ function parseApiAppId(pathname: string, suffix = ''): string | null {
   }
 }
 
+function parsePublicationShellToken(pathname: string): string | null {
+  const prefix = '/pub/';
+  if (!pathname.startsWith(prefix)) return null;
+  const rest = pathname.slice(prefix.length);
+  if (!rest || rest.includes('/')) return null;
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+}
+
+function parsePublicationSessionToken(pathname: string): string | null {
+  const prefix = '/api/pub/';
+  const suffix = '/session';
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) return null;
+  const rest = pathname.slice(prefix.length, pathname.length - suffix.length);
+  if (!rest || rest.includes('/')) return null;
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+}
+
+function parseApiAppPublicationsCollectionPath(
+  pathname: string,
+): string | null {
+  return parseApiAppId(pathname, '/publications');
+}
+
+function parseApiAppPublicationItemPath(
+  pathname: string,
+): { appId: string; publicationId: string } | null {
+  const prefix = '/api/apps/';
+  const marker = '/publications/';
+  if (!pathname.startsWith(prefix)) return null;
+  const rest = pathname.slice(prefix.length);
+  const markerIndex = rest.indexOf(marker);
+  if (markerIndex === -1) return null;
+  const rawAppId = rest.slice(0, markerIndex);
+  const rawPublicationId = rest.slice(markerIndex + marker.length);
+  if (!rawAppId || !rawPublicationId || rawPublicationId.includes('/')) {
+    return null;
+  }
+  try {
+    return {
+      appId: decodeURIComponent(rawAppId),
+      publicationId: decodeURIComponent(rawPublicationId),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseTeamsTabAppPublicationPath(pathname: string): string | null {
+  const prefix = '/api/teams/tab/apps/';
+  const suffix = '/publication';
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) return null;
+  const rawAppId = pathname.slice(
+    prefix.length,
+    pathname.length - suffix.length,
+  );
+  if (!rawAppId || rawAppId.includes('/')) return null;
+  try {
+    return decodeURIComponent(rawAppId);
+  } catch {
+    return null;
+  }
+}
+
 type LiveAppBridgeToolRunResult =
   | {
       status: 'success';
@@ -7374,6 +7505,391 @@ type LiveAppBridgeToolRunResult =
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function serializePublicationPolicy(policy: AppPublicationPolicy): {
+  kind: AppPublicationPolicy['kind'];
+  ttlSeconds?: number;
+  provider?: string;
+} {
+  return {
+    kind: policy.kind,
+    ...(policy.ttlSeconds ? { ttlSeconds: policy.ttlSeconds } : {}),
+    ...(policy.kind === 'oidc' ? { provider: policy.provider } : {}),
+  };
+}
+
+function serializePublication(
+  publication: AppPublicationMetadata,
+): Record<string, unknown> {
+  return {
+    id: publication.id,
+    appId: publication.appId,
+    policy: serializePublicationPolicy(publication.policy),
+    embedHosts: publication.embedHosts,
+    allowBridge: publication.allowBridge,
+    label: publication.label,
+    createdAt: publication.created_at,
+    createdBy: publication.created_by,
+    expiresAt: publication.expires_at,
+    revokedAt: publication.revoked_at,
+  };
+}
+
+function resolvePublicationCreatedBy(
+  authContext: ResolvedAuthContext,
+): string | null {
+  return (
+    resolveApiTokenActor(authContext) ||
+    resolveAdminSessionActor(authContext.payload)
+  );
+}
+
+function buildPublicationUrl(req: IncomingMessage, token: string): string {
+  return `${resolveRequestOrigin(req)}/pub/${encodeURIComponent(token)}`;
+}
+
+function buildPublicationUrlWithOrigin(origin: string, token: string): string {
+  return `${origin.replace(/\/+$/, '')}/pub/${encodeURIComponent(token)}`;
+}
+
+function buildTeamsPublicationUrl(origin: string, token: string): string {
+  const url = new URL(buildPublicationUrlWithOrigin(origin, token));
+  url.searchParams.set('host', 'teams');
+  return url.toString();
+}
+
+function mergeUniqueStrings(...groups: Array<readonly string[]>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const group of groups) {
+    for (const value of group) {
+      const normalized = value.trim();
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      result.push(normalized);
+    }
+  }
+  return result;
+}
+
+function resolveTeamsTabSsoForRequest(req: IncomingMessage): {
+  origin: string;
+  tabConfig: MSTeamsTabSsoConfig;
+} {
+  const origin = resolveRequestOrigin(req);
+  const tabConfig = resolveMSTeamsTabConfig(getRuntimeConfig(), origin);
+  if (!tabConfig.enabled) {
+    throw new GatewayRequestError(400, 'Teams tab SSO is not enabled.');
+  }
+  if (!tabConfig.tenantId) {
+    throw new GatewayRequestError(400, 'Teams tenant ID is not configured.');
+  }
+  if (!tabConfig.ssoAppId) {
+    throw new GatewayRequestError(
+      400,
+      'Teams tab SSO app ID is not configured.',
+    );
+  }
+  if (!tabConfig.appIdUri && !tabConfig.ssoAppId) {
+    throw new GatewayRequestError(
+      400,
+      'Teams tab SSO app ID or App ID URI is not configured.',
+    );
+  }
+  if (!tabConfig.appIdUri) {
+    throw new GatewayRequestError(
+      400,
+      'Teams tab App ID URI is not configured.',
+    );
+  }
+  return { origin, tabConfig };
+}
+
+function buildPublicationOidcChallenge(
+  req: IncomingMessage,
+  publication: AppPublicationMetadata,
+): Record<string, string> {
+  if (publication.policy.kind !== 'oidc') {
+    throw new GatewayRequestError(400, 'Publication is not OIDC protected.');
+  }
+  const { origin, tabConfig } = resolveTeamsTabSsoForRequest(req);
+  return {
+    authorizationEndpoint: `https://login.microsoftonline.com/${encodeURIComponent(
+      publication.policy.tenantId,
+    )}/oauth2/v2.0/authorize`,
+    clientId: tabConfig.ssoAppId,
+    redirectUri: new URL(APP_PUBLICATION_OIDC_CALLBACK_PATH, origin).toString(),
+    scope: `openid profile ${publication.policy.audience.replace(
+      /\/+$/,
+      '',
+    )}/${TEAMS_TAB_SCOPE}`,
+  };
+}
+
+function buildTeamsOidcPolicy(
+  tabConfig: MSTeamsTabSsoConfig,
+  allowFrom: string[] = [],
+  ttlSeconds?: number,
+): Extract<AppPublicationPolicy, { kind: 'oidc' }> {
+  return {
+    kind: 'oidc',
+    provider: 'entra',
+    tenantId: tabConfig.tenantId,
+    audience: tabConfig.appIdUri,
+    allowFrom,
+    ...(ttlSeconds ? { ttlSeconds } : {}),
+  };
+}
+
+function parsePublicationCreatePolicy(
+  body: Record<string, unknown>,
+  options: { req: IncomingMessage },
+): AppPublicationPolicy {
+  const kind = String(body.kind || body.policy || 'link').trim();
+  const ttlSeconds =
+    typeof body.ttlSeconds === 'number' ? body.ttlSeconds : undefined;
+  if (kind === 'link') {
+    return { kind: 'link', ...(ttlSeconds ? { ttlSeconds } : {}) };
+  }
+  if (kind === 'password') {
+    const password = typeof body.password === 'string' ? body.password : '';
+    const policy = createPasswordPublicationPolicy(password);
+    return { ...policy, ...(ttlSeconds ? { ttlSeconds } : {}) };
+  }
+  if (kind === 'company' || kind === 'teams' || kind === 'oidc') {
+    const { tabConfig } = resolveTeamsTabSsoForRequest(options.req);
+    return buildTeamsOidcPolicy(
+      tabConfig,
+      parseStringArrayBodyField(body.allowFrom, 'allowFrom'),
+      ttlSeconds,
+    );
+  }
+  throw new GatewayRequestError(400, 'Unsupported publication audience.');
+}
+
+function parseStringArrayBodyField(value: unknown, name: string): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new GatewayRequestError(400, `\`${name}\` must be an array.`);
+  }
+  return value.map((entry) => {
+    if (typeof entry !== 'string') {
+      throw new GatewayRequestError(400, `\`${name}\` must be an array.`);
+    }
+    return entry;
+  });
+}
+
+function truncateTeamsText(value: string, maxLength: number): string {
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  if (normalized.length <= maxLength) return normalized;
+  return normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd();
+}
+
+function zipToBuffer(zipFile: yazl.ZipFile): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    zipFile.outputStream.on('data', (chunk: Buffer) => chunks.push(chunk));
+    zipFile.outputStream.once('error', reject);
+    zipFile.outputStream.once('end', () => resolve(Buffer.concat(chunks)));
+    zipFile.end();
+  });
+}
+
+function isTeamsFrameHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return TEAMS_FRAME_ANCESTORS.some(
+    (ancestor) => ancestor.toLowerCase() === normalized,
+  );
+}
+
+function isTeamsCapablePublication(
+  publication: AppPublicationMetadata,
+): boolean {
+  return (
+    !publication.revoked_at &&
+    publication.policy.kind === 'oidc' &&
+    publication.policy.provider === 'entra' &&
+    publication.embedHosts.some(isTeamsFrameHost)
+  );
+}
+
+function selectTeamsCapablePublication(
+  appId: string,
+  viewer?: MSTeamsTabViewer | null,
+): AppPublicationMetadata | null {
+  for (const publication of listPublicationsForApp(appId)) {
+    if (!isTeamsCapablePublication(publication)) continue;
+    if (
+      viewer &&
+      publication.policy.kind === 'oidc' &&
+      !isMSTeamsTabViewerAllowed(viewer, publication.policy.allowFrom)
+    ) {
+      continue;
+    }
+    return publication;
+  }
+  return null;
+}
+
+function createTeamsPublicationForApp(params: {
+  req: IncomingMessage;
+  app: StoredApp;
+  allowBridge?: boolean;
+  label?: string | null;
+  createdBy?: string | null;
+}): { token: string; publication: AppPublicationMetadata; url: string } {
+  const { origin, tabConfig } = resolveTeamsTabSsoForRequest(params.req);
+  const result = createPublication({
+    appId: params.app.id,
+    policy: buildTeamsOidcPolicy(tabConfig),
+    embedHosts: [...TEAMS_FRAME_ANCESTORS],
+    allowBridge: params.app.kind === 'live' && params.allowBridge === true,
+    label: params.label ?? 'Teams',
+    createdBy: params.createdBy ?? null,
+  });
+  return {
+    token: result.token,
+    publication: result.metadata,
+    url: buildTeamsPublicationUrl(origin, result.token),
+  };
+}
+
+function teamsSafeEntityId(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 64) || 'app';
+}
+
+function buildTeamsDeveloper(origin: string): Record<string, string> {
+  return {
+    name: 'HybridClaw',
+    websiteUrl: origin,
+    privacyUrl: new URL('/docs', origin).toString(),
+    termsOfUseUrl: new URL('/docs', origin).toString(),
+  };
+}
+
+function buildTeamsManifestZip(
+  manifest: Record<string, unknown>,
+): Promise<Buffer> {
+  const zip = new yazl.ZipFile();
+  zip.addBuffer(
+    Buffer.from(JSON.stringify(manifest, null, 2)),
+    'manifest.json',
+  );
+  zip.addBuffer(fs.readFileSync(TEAMS_COLOR_ICON_PATH), 'color.png');
+  zip.addBuffer(fs.readFileSync(TEAMS_OUTLINE_ICON_PATH), 'outline.png');
+  return zipToBuffer(zip);
+}
+
+function buildTeamsAppManifest(params: {
+  app: StoredApp;
+  publication: AppPublicationMetadata;
+  contentUrl: string;
+  origin: string;
+  tabConfig: MSTeamsTabSsoConfig;
+}): Record<string, unknown> {
+  const domain = new URL(params.origin).hostname;
+  const title = params.app.title.trim() || 'HybridClaw App';
+  const shortName = truncateTeamsText(title, 30) || 'HybridClaw App';
+  const tabName = truncateTeamsText(title, 16) || 'HybridClaw';
+  const description =
+    params.app.description?.trim() || `Open ${title} in HybridClaw.`;
+  return {
+    $schema:
+      'https://developer.microsoft.com/en-us/json-schemas/teams/v1.19/MicrosoftTeams.schema.json',
+    manifestVersion: '1.19',
+    version: '1.0.0',
+    id: uuidv5(params.publication.id, TEAMS_MANIFEST_UUID_NAMESPACE),
+    developer: buildTeamsDeveloper(params.origin),
+    name: {
+      short: shortName,
+      full: truncateTeamsText(`HybridClaw: ${title}`, 100),
+    },
+    description: {
+      short: truncateTeamsText(description, 80),
+      full: truncateTeamsText(description, 4000),
+    },
+    icons: { color: 'color.png', outline: 'outline.png' },
+    accentColor: '#1F6F5C',
+    staticTabs: [
+      {
+        entityId: `hc-app-${teamsSafeEntityId(params.app.id)}`,
+        name: tabName,
+        contentUrl: params.contentUrl,
+        scopes: ['personal'],
+      },
+    ],
+    validDomains: [domain],
+    webApplicationInfo: {
+      id: params.tabConfig.ssoAppId,
+      resource: params.tabConfig.appIdUri,
+    },
+  };
+}
+
+function buildTeamsOrgManifest(params: {
+  origin: string;
+  tabConfig: MSTeamsTabSsoConfig;
+}): Record<string, unknown> {
+  const domain = new URL(params.origin).hostname;
+  return {
+    $schema:
+      'https://developer.microsoft.com/en-us/json-schemas/teams/v1.19/MicrosoftTeams.schema.json',
+    manifestVersion: '1.19',
+    version: '1.0.0',
+    id: uuidv5(`${params.origin}:teams-org-app`, TEAMS_MANIFEST_UUID_NAMESPACE),
+    developer: buildTeamsDeveloper(params.origin),
+    name: {
+      short: 'HybridClaw',
+      full: 'HybridClaw Apps',
+    },
+    description: {
+      short: 'Open shared HybridClaw apps in Microsoft Teams.',
+      full: 'Open and place shared HybridClaw apps from Microsoft Teams.',
+    },
+    icons: { color: 'color.png', outline: 'outline.png' },
+    accentColor: '#1F6F5C',
+    staticTabs: [
+      {
+        entityId: TEAMS_APP_ENTITY_ID,
+        name: 'HybridClaw',
+        contentUrl: new URL('/teams/hub?host=teams', params.origin).toString(),
+        scopes: ['personal'],
+      },
+    ],
+    configurableTabs: [
+      {
+        configurationUrl: new URL(
+          '/teams/tab-config?host=teams',
+          params.origin,
+        ).toString(),
+        canUpdateConfiguration: true,
+        scopes: ['team', 'groupChat'],
+      },
+    ],
+    validDomains: [domain],
+    webApplicationInfo: {
+      id: params.tabConfig.ssoAppId,
+      resource: params.tabConfig.appIdUri,
+    },
+  };
+}
+
+function readViewerContext(
+  payload: Record<string, unknown> | null,
+): { sub: string; email?: string; name?: string } | null {
+  const viewer = payload?.viewer;
+  if (!isJsonObject(viewer)) return null;
+  const sub = typeof viewer.sub === 'string' ? viewer.sub.trim() : '';
+  if (!sub) return null;
+  const email = typeof viewer.email === 'string' ? viewer.email.trim() : '';
+  const name = typeof viewer.name === 'string' ? viewer.name.trim() : '';
+  return {
+    sub,
+    ...(email ? { email } : {}),
+    ...(name ? { name } : {}),
+  };
 }
 
 function isAsciiAlphanumericCode(code: number): boolean {
@@ -7446,10 +7962,14 @@ function isReadOnlyLiveAppBridgeToolName(toolName: string): boolean {
   return Boolean(prefix && LIVE_APP_BRIDGE_READ_ONLY_TOOL_PREFIXES.has(prefix));
 }
 
-function buildLiveAppBridgeScript(appId: string): string {
+function buildLiveAppBridgeScript(
+  appId: string,
+  viewerContext?: { sub: string; email?: string; name?: string } | null,
+): string {
   return `<script data-hybridclaw-live-app-bridge="${escapeHtml(appId)}">
 (function(){
   var appId = ${JSON.stringify(appId)};
+  var viewerContext = ${JSON.stringify(viewerContext ?? null)};
   var pending = new Map();
   var timeoutMs = ${LIVE_APP_BRIDGE_TIMEOUT_MS};
   var refreshHandler = null;
@@ -7569,16 +8089,24 @@ function buildLiveAppBridgeScript(appId: string): string {
     };
   };
   existing.refresh = triggerRefresh;
+  if (viewerContext) {
+    var existingContext = existing.context && typeof existing.context === 'object' ? existing.context : {};
+    existing.context = Object.assign({}, existingContext, { user: viewerContext });
+  }
   window.hybridclaw = existing;
 })();
 </script>`;
 }
 
-function injectLiveAppBridge(html: string, app: StoredApp): string {
+function injectLiveAppBridge(
+  html: string,
+  app: StoredApp,
+  viewerContext?: { sub: string; email?: string; name?: string } | null,
+): string {
   if (app.kind !== 'live') return html;
   if (html.includes('data-hybridclaw-live-app-bridge')) return html;
 
-  const script = buildLiveAppBridgeScript(app.id);
+  const script = buildLiveAppBridgeScript(app.id, viewerContext);
   const headMatch = /<head\b[^>]*>/i.exec(html);
   if (headMatch?.index !== undefined) {
     const insertAt = headMatch.index + headMatch[0].length;
@@ -7631,6 +8159,7 @@ async function runLiveAppBridgeTool(params: {
   app: StoredApp;
   toolName: string;
   args: Record<string, unknown>;
+  viewerSub?: string | null;
 }): Promise<LiveAppBridgeToolRunResult> {
   if (!params.app.sessionId) {
     throw new GatewayRequestError(400, 'Live app is not linked to a session.');
@@ -7645,10 +8174,23 @@ async function runLiveAppBridgeTool(params: {
     agentId: params.app.agentId,
     session,
   });
+  const runSession = params.viewerSub
+    ? memoryService.getOrCreateSession(
+        buildSessionKey(
+          resolved.agentId,
+          'app',
+          'pub',
+          `${params.app.id}:${params.viewerSub}`,
+        ),
+        null,
+        'web',
+        resolved.agentId,
+      )
+    : session;
   const chatbotResolution = await resolveGatewayChatbotId({
     model: resolved.model,
     chatbotId: resolved.chatbotId,
-    sessionId: session.id,
+    sessionId: runSession.id,
     channelId: 'web',
     agentId: resolved.agentId,
     trigger: 'chat',
@@ -7658,11 +8200,11 @@ async function runLiveAppBridgeTool(params: {
   }
 
   const output = await runAgent({
-    sessionId: session.id,
+    sessionId: runSession.id,
     agentId: resolved.agentId,
     model: resolved.model,
     chatbotId: chatbotResolution.chatbotId,
-    enableRag: session.enable_rag === 1,
+    enableRag: runSession.enable_rag === 1,
     channelId: 'web',
     messages: [
       {
@@ -7759,7 +8301,12 @@ async function handleApiAppBridgeTool(
 
   try {
     const request = normalizeLiveAppBridgeToolRequest(await readJsonBody(req));
-    const result = await runLiveAppBridgeTool({ app, ...request });
+    const viewerContext = readViewerContext(authContext.payload);
+    const result = await runLiveAppBridgeTool({
+      app,
+      ...request,
+      viewerSub: viewerContext?.sub ?? null,
+    });
     if (result.status === 'pending_approval') {
       sendJson(res, 409, {
         ok: false,
@@ -7828,7 +8375,9 @@ async function handleApiAppView(
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
   });
-  res.end(injectLiveAppBridge(app.html, app));
+  res.end(
+    injectLiveAppBridge(app.html, app, readViewerContext(authContext.payload)),
+  );
 }
 
 function handleApiAppsList(res: ServerResponse, url: URL): void {
@@ -7856,7 +8405,1201 @@ function handleApiAppDelete(res: ServerResponse, id: string): void {
     sendJson(res, 404, { error: 'App not found.' });
     return;
   }
+  revokePublicationsForApp(id);
   sendJson(res, 200, { ok: true });
+}
+
+async function handleApiAppUpdate(
+  req: IncomingMessage,
+  res: ServerResponse,
+  id: string,
+): Promise<void> {
+  const body = await readJsonBody(req);
+  if (!isJsonObject(body)) {
+    throw new GatewayRequestError(400, 'Expected JSON object request body.');
+  }
+  const visibility =
+    typeof body.visibility === 'string' ? body.visibility.trim() : '';
+  if (visibility !== 'private' && visibility !== 'public') {
+    throw new GatewayRequestError(
+      400,
+      '`visibility` must be "private" or "public".',
+    );
+  }
+  const app = updateAppVisibility(id, visibility);
+  if (!app) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  if (app.visibility === 'private') {
+    revokePublicationsForApp(id);
+  }
+  sendJson(res, 200, { app });
+}
+
+function handleApiAppPublicationsList(
+  res: ServerResponse,
+  appId: string,
+): void {
+  if (!getApp(appId)) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  const publications = listPublicationsForApp(appId).map(serializePublication);
+  sendJson(res, 200, { publications, total: publications.length });
+}
+
+async function handleApiAppPublicationCreate(
+  req: IncomingMessage,
+  res: ServerResponse,
+  appId: string,
+  authContext: ResolvedAuthContext,
+): Promise<void> {
+  const existing = getApp(appId);
+  if (!existing) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  const body = await readJsonBody(req);
+  if (!isJsonObject(body)) {
+    throw new GatewayRequestError(400, 'Expected JSON object request body.');
+  }
+  const requestedKind = String(body.kind || body.policy || 'link').trim();
+  const policy = parsePublicationCreatePolicy(body, { req });
+  const embedHosts = mergeUniqueStrings(
+    parseStringArrayBodyField(body.embedHosts, 'embedHosts'),
+    requestedKind === 'teams' ? TEAMS_FRAME_ANCESTORS : [],
+  );
+  const requestedBridge = body.allowBridge === true;
+  if (requestedBridge && existing.kind === 'live') {
+    const acknowledged = body.acknowledgeAnonymousBridge === true;
+    if (
+      (policy.kind === 'link' || policy.kind === 'password') &&
+      !acknowledged
+    ) {
+      throw new GatewayRequestError(
+        400,
+        'Sharing live data with anonymous viewers requires acknowledgement.',
+      );
+    }
+  }
+  const published =
+    existing.visibility === 'public'
+      ? existing
+      : updateAppVisibility(appId, 'public');
+  if (!published) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+
+  const result = createPublication({
+    appId,
+    policy,
+    embedHosts,
+    allowBridge: existing.kind === 'live' && requestedBridge,
+    label: typeof body.label === 'string' ? body.label : null,
+    createdBy: resolvePublicationCreatedBy(authContext),
+    expiresAt:
+      typeof body.expiresAt === 'string' || body.expiresAt === null
+        ? body.expiresAt
+        : undefined,
+  });
+
+  sendJson(res, 201, {
+    publication: serializePublication(result.metadata),
+    token: result.token,
+    url:
+      requestedKind === 'teams'
+        ? buildTeamsPublicationUrl(resolveRequestOrigin(req), result.token)
+        : buildPublicationUrl(req, result.token),
+    app: published,
+  });
+}
+
+function handleApiAppPublicationRevoke(
+  res: ServerResponse,
+  appId: string,
+  publicationId: string,
+): void {
+  if (!getApp(appId)) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  if (
+    !listPublicationsForApp(appId).some(
+      (publication) => publication.id === publicationId,
+    )
+  ) {
+    sendJson(res, 404, { error: 'Publication not found.' });
+    return;
+  }
+  const publication = revokePublication(publicationId);
+  if (!publication) {
+    sendJson(res, 404, { error: 'Publication not found.' });
+    return;
+  }
+  sendJson(res, 200, { publication: serializePublication(publication) });
+}
+
+function getPublicationSessionRateKey(
+  req: IncomingMessage,
+  pubToken: string,
+): string {
+  const tokenId = pubToken.split('_').slice(0, 2).join('_') || 'malformed';
+  return `${req.socket.remoteAddress || 'unknown'}:${tokenId}`;
+}
+
+function isPublicationSessionRateLimited(key: string): boolean {
+  const entry = publicationSessionFailures.get(key);
+  if (!entry) return false;
+  const now = Date.now();
+  if (entry.resetAt <= now) {
+    publicationSessionFailures.delete(key);
+    return false;
+  }
+  return entry.count >= APP_PUBLICATION_SESSION_RATE_LIMIT_MAX_FAILURES;
+}
+
+function recordPublicationSessionFailure(key: string): void {
+  const now = Date.now();
+  const existing = publicationSessionFailures.get(key);
+  if (!existing || existing.resetAt <= now) {
+    publicationSessionFailures.set(key, {
+      count: 1,
+      resetAt: now + APP_PUBLICATION_SESSION_RATE_LIMIT_WINDOW_MS,
+    });
+    return;
+  }
+  existing.count += 1;
+}
+
+function clearPublicationSessionFailures(key: string): void {
+  publicationSessionFailures.delete(key);
+}
+
+function computePublicationViewTokenExpiry(
+  publication: AppPublicationMetadata,
+  now: Date,
+): Date {
+  let ttlMs = Math.min(
+    getPublicationPolicyTtlMs(publication.policy),
+    APP_PUBLICATION_VIEW_TOKEN_DEFAULT_TTL_MS,
+  );
+  if (publication.expires_at) {
+    const publicationExpiresAt = Date.parse(publication.expires_at);
+    if (Number.isFinite(publicationExpiresAt)) {
+      ttlMs = Math.min(
+        ttlMs,
+        Math.max(0, publicationExpiresAt - now.getTime()),
+      );
+    }
+  }
+  return new Date(now.getTime() + ttlMs);
+}
+
+function recordPublicationSessionMint(params: {
+  publication: AppPublicationMetadata;
+  app: StoredApp;
+  policyKind: string;
+  sourceIp: string | null;
+  viewerSub?: string | null;
+}): void {
+  try {
+    appendAuditEvent({
+      sessionId: `app-publication-${params.publication.id}`,
+      runId: `pub_${randomUUID().replace(/-/g, '')}`,
+      event: {
+        type: 'app.publication.session.mint',
+        publicationId: params.publication.id,
+        appId: params.app.id,
+        policyKind: params.policyKind,
+        viewerSub: params.viewerSub ?? null,
+        sourceIp: params.sourceIp,
+      },
+    });
+  } catch (error) {
+    logger.warn(
+      {
+        err: error instanceof Error ? error.message : String(error),
+        publicationId: params.publication.id,
+        appId: params.app.id,
+      },
+      'Failed to record app publication session mint audit event',
+    );
+  }
+}
+
+function handlePublicationShell(
+  res: ServerResponse,
+  pubToken: string,
+  url: URL,
+): void {
+  const verified = verifyPublicationToken(pubToken);
+  const isTeamsHost = url.searchParams.get('host') === 'teams';
+  const allowedFrameAncestors = mergeUniqueStrings(
+    verified.status === 'ok' ? verified.publication.embedHosts : [],
+    isTeamsHost ? ["'self'", ...TEAMS_FRAME_ANCESTORS] : [],
+  );
+  const frameAncestors =
+    allowedFrameAncestors.length > 0
+      ? allowedFrameAncestors.join(' ')
+      : "'none'";
+  const scriptSources = mergeUniqueStrings(
+    ["'self'"],
+    isTeamsHost ? [new URL(TEAMS_JS_SDK_URL).origin] : [],
+  );
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': [
+      "default-src 'self'",
+      `script-src ${scriptSources.join(' ')}`,
+      "style-src 'self' 'unsafe-inline'",
+      "connect-src 'self'",
+      "frame-src 'self'",
+      "base-uri 'none'",
+      "object-src 'none'",
+      `frame-ancestors ${frameAncestors}`,
+    ].join('; '),
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  const teamsSdkScript = isTeamsHost
+    ? `<script src="${escapeHtml(TEAMS_JS_SDK_URL)}"></script>\n`
+    : '';
+  res.end(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HybridClaw App</title>
+<style>
+:root{color-scheme:light dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f6f7f9;color:#111827}
+html,body,#pub-root{height:100%;margin:0}
+body{overflow:hidden}
+.pub-shell{display:flex;min-height:100%;flex-direction:column;background:#f6f7f9}
+.pub-header{display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid #d8dde5;background:#fff;padding:10px 14px}
+.pub-title{margin:0;font-size:14px;font-weight:650;line-height:1.3;color:#111827}
+.pub-status{font-size:13px;color:#5b6472}
+.pub-main{position:relative;flex:1;min-height:0}
+.pub-frame{position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff}
+.pub-panel{box-sizing:border-box;max-width:420px;margin:12vh auto 0;padding:24px;border:1px solid #d8dde5;border-radius:8px;background:#fff;box-shadow:0 20px 60px rgba(15,23,42,.12)}
+.pub-panel h1{margin:0 0 8px;font-size:20px;line-height:1.25}
+.pub-panel p{margin:0 0 16px;color:#4b5563;line-height:1.5}
+.pub-field{display:flex;gap:8px}
+.pub-field input{min-width:0;flex:1;border:1px solid #c6ccd6;border-radius:6px;padding:9px 10px;font:inherit}
+.pub-field button,.pub-button{border:1px solid #1f6f5c;border-radius:6px;background:#1f6f5c;color:#fff;padding:9px 12px;font:inherit;font-weight:650;cursor:pointer}
+.pub-error{margin-top:10px;color:#b42318;font-size:13px}
+.pub-banner{display:none;border-bottom:1px solid #f5c2c7;background:#fff3f3;color:#842029;padding:8px 14px;font-size:13px}
+.pub-banner[data-visible="true"]{display:block}
+@media (prefers-color-scheme:dark){:root{background:#111827;color:#f9fafb}.pub-shell{background:#111827}.pub-header,.pub-panel{background:#161f2e;border-color:#2b3546}.pub-title{color:#f9fafb}.pub-status,.pub-panel p{color:#c7ced8}.pub-frame{background:#111827}.pub-field input{background:#101827;border-color:#374151;color:#f9fafb}}
+</style>
+${teamsSdkScript}<meta name="teams-host" content="${isTeamsHost ? 'true' : 'false'}">
+<script src="${escapeHtml(APP_PUBLICATION_SHELL_SCRIPT_PATH)}" defer></script>
+</head>
+<body>
+<div id="pub-root" class="pub-shell">
+  <header class="pub-header">
+    <h1 id="pub-title" class="pub-title">HybridClaw App</h1>
+    <div id="pub-status" class="pub-status">Loading...</div>
+  </header>
+  <div id="pub-banner" class="pub-banner"></div>
+  <main id="pub-main" class="pub-main">
+    <section class="pub-panel"><h1>Opening shared app</h1><p>Preparing a private viewer session.</p></section>
+  </main>
+</div>
+</body>
+</html>`);
+}
+
+function handlePublicationShellScript(res: ServerResponse): void {
+  res.writeHead(200, {
+    'Content-Type': 'text/javascript; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': "default-src 'none'",
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(`(function(){
+  var root = document.getElementById('pub-root');
+  var main = document.getElementById('pub-main');
+  var title = document.getElementById('pub-title');
+  var status = document.getElementById('pub-status');
+  var banner = document.getElementById('pub-banner');
+  var parts = window.location.pathname.split('/');
+  var pubToken = decodeURIComponent(parts[parts.length - 1] || '');
+  var viewToken = '';
+  var app = null;
+  var iframe = null;
+  var renewalTimer = null;
+  var password = '';
+  var passwordAttempted = false;
+  var isTeamsHost = new URLSearchParams(window.location.search).get('host') === 'teams';
+  var teamsAuthToken = '';
+  var teamsAuthPromise = null;
+
+  function getBrowserOidcTokenKey(){
+    return 'hybridclaw.pub.oidc.token.' + pubToken;
+  }
+  function getStoredBrowserOidcToken(){
+    if (isTeamsHost || !pubToken) return '';
+    try {
+      return window.sessionStorage.getItem(getBrowserOidcTokenKey()) || '';
+    } catch {
+      return '';
+    }
+  }
+  function clearStoredBrowserOidcToken(){
+    if (!pubToken) return;
+    try {
+      window.sessionStorage.removeItem(getBrowserOidcTokenKey());
+    } catch {}
+  }
+  function randomBase64Url(length){
+    var bytes = new Uint8Array(length);
+    if (window.crypto && window.crypto.getRandomValues) {
+      window.crypto.getRandomValues(bytes);
+    } else {
+      for (var i = 0; i < bytes.length; i += 1) {
+        bytes[i] = Math.floor(Math.random() * 256);
+      }
+    }
+    var binary = '';
+    for (var j = 0; j < bytes.length; j += 1) {
+      binary += String.fromCharCode(bytes[j]);
+    }
+    return window.btoa(binary).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/g, '');
+  }
+  function startBrowserOidc(oidc){
+    if (!oidc || !oidc.authorizationEndpoint || !oidc.clientId || !oidc.redirectUri || !oidc.scope) {
+      throw new Error('The sign-in challenge was incomplete.');
+    }
+    var state = randomBase64Url(24);
+    var nonce = randomBase64Url(24);
+    try {
+      window.sessionStorage.setItem(
+        'hybridclaw.pub.oidc.' + state,
+        JSON.stringify({ pubToken: pubToken, returnUrl: window.location.href })
+      );
+    } catch {
+      throw new Error('Browser storage is required for sign-in.');
+    }
+    var authorizeUrl = new URL(oidc.authorizationEndpoint);
+    authorizeUrl.searchParams.set('client_id', oidc.clientId);
+    authorizeUrl.searchParams.set('response_type', 'token');
+    authorizeUrl.searchParams.set('redirect_uri', oidc.redirectUri);
+    authorizeUrl.searchParams.set('scope', oidc.scope);
+    authorizeUrl.searchParams.set('state', state);
+    authorizeUrl.searchParams.set('nonce', nonce);
+    authorizeUrl.searchParams.set('prompt', 'select_account');
+    setStatus('Signing in...');
+    window.location.assign(authorizeUrl.toString());
+  }
+  function setStatus(text){ if (status) status.textContent = text; }
+  function setBanner(text){
+    if (!banner) return;
+    banner.textContent = text || '';
+    banner.dataset.visible = text ? 'true' : 'false';
+  }
+  function escapeText(value){
+    return String(value).replace(/[&<>"']/g, function(ch){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
+    });
+  }
+  function showPanel(heading, detail){
+    if (!main) return;
+    main.innerHTML = '<section class="pub-panel"><h1>' + escapeText(heading) + '</h1><p>' + escapeText(detail) + '</p></section>';
+  }
+  function showPassword(error){
+    if (!main) return;
+    main.innerHTML = '<section class="pub-panel"><h1>Password required</h1><p>Enter the password for this shared app.</p><form id="pub-password-form" class="pub-field"><input id="pub-password" type="password" autocomplete="current-password" autofocus><button type="submit">Open</button></form><div id="pub-password-error" class="pub-error"></div></section>';
+    var form = document.getElementById('pub-password-form');
+    var input = document.getElementById('pub-password');
+    var errorNode = document.getElementById('pub-password-error');
+    if (errorNode && error) errorNode.textContent = error;
+    if (form && input) {
+      form.addEventListener('submit', function(event){
+        event.preventDefault();
+        password = input.value || '';
+        passwordAttempted = true;
+        exchange();
+      });
+      input.focus();
+    }
+  }
+  function postResult(requestId, result){
+    if (!iframe || !iframe.contentWindow || !app) return;
+    iframe.contentWindow.postMessage(Object.assign({
+      type: 'hybridclaw:live-app-tool-result',
+      appId: app.id,
+      requestId: requestId
+    }, result), '*');
+  }
+  function scheduleRenewal(expiresAt){
+    if (renewalTimer) window.clearTimeout(renewalTimer);
+    var expires = Date.parse(expiresAt || '');
+    if (!Number.isFinite(expires)) return;
+    var delay = Math.max(5000, Math.floor((expires - Date.now()) * 0.75));
+    renewalTimer = window.setTimeout(function(){ exchange({ renewal: true }); }, delay);
+  }
+  function getTeamsAuthToken(){
+    if (!isTeamsHost) return Promise.resolve('');
+    if (teamsAuthToken) return Promise.resolve(teamsAuthToken);
+    if (teamsAuthPromise) return teamsAuthPromise;
+    var teams = window.microsoftTeams;
+    if (!teams) return Promise.reject(new Error('Microsoft Teams is unavailable.'));
+    if (teams.app && teams.authentication && teams.authentication.getAuthToken) {
+      teamsAuthPromise = Promise.resolve()
+        .then(function(){ return teams.app.initialize(); })
+        .then(function(){ return teams.authentication.getAuthToken(); })
+        .then(function(token){ teamsAuthToken = token || ''; return teamsAuthToken; });
+      return teamsAuthPromise;
+    }
+    if (teams.initialize && teams.authentication && teams.authentication.getAuthToken) {
+      teamsAuthPromise = new Promise(function(resolve, reject){
+        teams.initialize(function(){
+          teams.authentication.getAuthToken({
+            successCallback: function(token){ teamsAuthToken = token || ''; resolve(teamsAuthToken); },
+            failureCallback: function(reason){ reject(new Error(reason || 'Teams sign-in failed.')); }
+          });
+        });
+      });
+      return teamsAuthPromise;
+    }
+    return Promise.reject(new Error('Teams sign-in is not supported by this client.'));
+  }
+  function mount(data){
+    app = data.app;
+    viewToken = data.viewToken;
+    if (title) title.textContent = app.title || 'HybridClaw App';
+    setStatus(data.expiresAt ? 'Session active' : 'Open');
+    setBanner('');
+    if (!iframe) {
+      main.innerHTML = '';
+      iframe = document.createElement('iframe');
+      iframe.className = 'pub-frame';
+      iframe.title = app.title || 'HybridClaw App';
+      iframe.sandbox = 'allow-scripts allow-forms allow-popups allow-modals allow-downloads';
+      main.appendChild(iframe);
+    }
+    iframe.src = '/api/apps/' + encodeURIComponent(app.id) + '/view?token=' + encodeURIComponent(viewToken);
+    scheduleRenewal(data.expiresAt);
+  }
+  function exchange(options){
+    return getTeamsAuthToken().then(function(idToken){
+      var body = {};
+      if (password) body.password = password;
+      var browserOidcToken = getStoredBrowserOidcToken();
+      if (!isTeamsHost && browserOidcToken) body.idToken = browserOidcToken;
+      if (idToken) body.idToken = idToken;
+      return fetch('/api/pub/' + encodeURIComponent(pubToken) + '/session', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+      });
+    }).then(function(response){
+      return response.json().catch(function(){ return {}; }).then(function(payload){
+        if (response.status === 401) {
+          if (!isTeamsHost && payload && payload.oidc) {
+            clearStoredBrowserOidcToken();
+            startBrowserOidc(payload.oidc);
+            return null;
+          }
+          if (isTeamsHost) {
+            showPanel('Sign-in required', 'Teams could not verify your account for this shared app.');
+            setStatus('Sign-in required');
+            return null;
+          }
+          showPassword(passwordAttempted ? 'Password incorrect.' : '');
+          return null;
+        }
+        if (response.status === 410) {
+          showPanel('Shared app expired', 'This shared app is no longer available.');
+          setStatus('Expired');
+          return null;
+        }
+        if (response.status === 403) {
+          showPanel('Access denied', 'Your account cannot open this shared app.');
+          setStatus('Access denied');
+          return null;
+        }
+        if (!response.ok) {
+          showPanel('Shared app unavailable', 'The link is invalid or no longer available.');
+          setStatus('Unavailable');
+          return null;
+        }
+        return payload;
+      });
+    }).then(function(data){
+      if (!data) return;
+      mount(data);
+    }).catch(function(error){
+      if (options && options.renewal) {
+        setBanner('The viewer session could not be renewed. Reload to try again.');
+        return;
+      }
+      showPanel('Could not open app', error && error.message ? error.message : 'Try again later.');
+      setStatus('Error');
+    });
+  }
+  window.addEventListener('message', function(event){
+    if (!iframe || event.source !== iframe.contentWindow || !app) return;
+    var message = event.data;
+    if (!message || message.type !== 'hybridclaw:live-app-tool-call') return;
+    if (message.appId !== app.id || typeof message.requestId !== 'string') return;
+    fetch('/api/apps/' + encodeURIComponent(app.id) + '/bridge/tool', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + viewToken
+      },
+      body: JSON.stringify({
+        toolName: message.toolName,
+        arguments: message.arguments || {}
+      })
+    }).then(function(response){
+      return response.json().catch(function(){ return {}; }).then(function(payload){
+        if (!response.ok || payload.ok === false) {
+          var error = payload.error || 'HybridClaw live app bridge call failed';
+          if (response.status === 409) setBanner('This action needs the app owner to approve it.');
+          throw new Error(error);
+        }
+        return payload;
+      });
+    }).then(function(payload){
+      postResult(message.requestId, { ok: true, payload: payload });
+    }).catch(function(error){
+      postResult(message.requestId, {
+        ok: false,
+        error: error && error.message ? error.message : String(error)
+      });
+    });
+  });
+  if (!root || !pubToken) {
+    showPanel('Shared app unavailable', 'The link is invalid or no longer available.');
+    return;
+  }
+  exchange();
+})();`);
+}
+
+function handlePublicationOidcCallback(res: ServerResponse): void {
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      "base-uri 'none'",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+    ].join('; '),
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HybridClaw Sign-in</title>
+<style>
+:root{color-scheme:light dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f6f7f9;color:#111827}
+body{margin:0;display:grid;min-height:100vh;place-items:center}
+.panel{max-width:420px;padding:24px;text-align:center}
+.panel h1{margin:0 0 8px;font-size:20px}
+.panel p{margin:0;color:#5b6472;line-height:1.5}
+@media (prefers-color-scheme:dark){:root{background:#111827;color:#f9fafb}.panel p{color:#c7ced8}}
+</style>
+</head>
+<body>
+<main class="panel">
+  <h1>Completing sign-in</h1>
+  <p>Returning to the shared app.</p>
+</main>
+<script>
+(function(){
+  function fail(message){
+    document.querySelector('.panel').innerHTML = '<h1>Sign-in failed</h1><p>' + message + '</p>';
+  }
+  var params = new URLSearchParams(window.location.hash.slice(1));
+  var token = params.get('access_token') || params.get('id_token') || '';
+  var state = params.get('state') || '';
+  if (!token || !state) {
+    fail('The sign-in response was incomplete.');
+    return;
+  }
+  var rawState = window.sessionStorage.getItem('hybridclaw.pub.oidc.' + state);
+  if (!rawState) {
+    fail('The sign-in state expired.');
+    return;
+  }
+  var parsed;
+  try {
+    parsed = JSON.parse(rawState);
+  } catch {
+    fail('The sign-in state was invalid.');
+    return;
+  }
+  window.sessionStorage.removeItem('hybridclaw.pub.oidc.' + state);
+  if (!parsed || !parsed.pubToken || !parsed.returnUrl) {
+    fail('The sign-in state was invalid.');
+    return;
+  }
+  window.sessionStorage.setItem('hybridclaw.pub.oidc.token.' + parsed.pubToken, token);
+  window.location.replace(parsed.returnUrl);
+})();
+</script>
+</body>
+</html>`);
+}
+
+function handleTeamsShellPage(
+  res: ServerResponse,
+  mode: 'hub' | 'config',
+): void {
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': [
+      "default-src 'self'",
+      `script-src 'self' ${new URL(TEAMS_JS_SDK_URL).origin}`,
+      "style-src 'self' 'unsafe-inline'",
+      "connect-src 'self'",
+      "frame-src 'self'",
+      "base-uri 'none'",
+      "object-src 'none'",
+      `frame-ancestors ${TEAMS_FRAME_ANCESTORS.join(' ')}`,
+    ].join('; '),
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  const title = mode === 'hub' ? 'HybridClaw Apps' : 'Choose a HybridClaw app';
+  res.end(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(title)}</title>
+<style>
+:root{color-scheme:light dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f6f7f9;color:#111827}
+html,body,#teams-root{height:100%;margin:0}
+body{overflow:hidden}
+.teams-shell{display:flex;min-height:100%;flex-direction:column;background:#f6f7f9}
+.teams-header{display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid #d8dde5;background:#fff;padding:12px 16px}
+.teams-title{margin:0;font-size:16px;font-weight:650;line-height:1.3}
+.teams-status{font-size:13px;color:#5b6472}
+.teams-main{position:relative;flex:1;min-height:0;overflow:auto;padding:16px}
+.teams-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.teams-card{display:flex;flex-direction:column;gap:8px;min-height:104px;border:1px solid #d8dde5;border-radius:8px;background:#fff;padding:14px;text-align:left;color:#111827;cursor:pointer}
+.teams-card strong{font-size:14px}
+.teams-card span{color:#5b6472;font-size:13px;line-height:1.4}
+.teams-frame{position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff}
+.teams-empty{margin:18vh auto 0;max-width:420px;text-align:center;color:#5b6472;line-height:1.5}
+@media (prefers-color-scheme:dark){:root{background:#111827;color:#f9fafb}.teams-shell{background:#111827}.teams-header,.teams-card{background:#161f2e;border-color:#2b3546}.teams-card{color:#f9fafb}.teams-status,.teams-card span,.teams-empty{color:#c7ced8}.teams-frame{background:#111827}}
+</style>
+<script src="${escapeHtml(TEAMS_JS_SDK_URL)}"></script>
+<script src="/teams-shell.js?mode=${mode}" defer></script>
+</head>
+<body>
+<div id="teams-root" class="teams-shell">
+  <header class="teams-header">
+    <h1 class="teams-title">${escapeHtml(title)}</h1>
+    <div id="teams-status" class="teams-status">Loading...</div>
+  </header>
+  <main id="teams-main" class="teams-main">
+    <p class="teams-empty">Preparing Microsoft Teams sign-in.</p>
+  </main>
+</div>
+</body>
+</html>`);
+}
+
+function handleTeamsShellScript(res: ServerResponse): void {
+  res.writeHead(200, {
+    'Content-Type': 'text/javascript; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': "default-src 'none'",
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(`(function(){
+  var mode = new URLSearchParams(window.location.search).get('mode') === 'config' ? 'config' : 'hub';
+  var main = document.getElementById('teams-main');
+  var status = document.getElementById('teams-status');
+  var idToken = '';
+  function setStatus(text){ if (status) status.textContent = text; }
+  function escapeText(value){
+    return String(value).replace(/[&<>"']/g, function(ch){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
+    });
+  }
+  function showEmpty(text){
+    if (main) main.innerHTML = '<p class="teams-empty">' + escapeText(text) + '</p>';
+  }
+  function getTeamsAuthToken(){
+    if (idToken) return Promise.resolve(idToken);
+    var teams = window.microsoftTeams;
+    if (!teams) return Promise.reject(new Error('Microsoft Teams is unavailable.'));
+    if (teams.app && teams.authentication && teams.authentication.getAuthToken) {
+      return Promise.resolve()
+        .then(function(){ return teams.app.initialize(); })
+        .then(function(){ return teams.authentication.getAuthToken(); })
+        .then(function(token){ idToken = token || ''; return idToken; });
+    }
+    if (teams.initialize && teams.authentication && teams.authentication.getAuthToken) {
+      return new Promise(function(resolve, reject){
+        teams.initialize(function(){
+          teams.authentication.getAuthToken({
+            successCallback: function(token){ idToken = token || ''; resolve(idToken); },
+            failureCallback: function(reason){ reject(new Error(reason || 'Teams sign-in failed.')); }
+          });
+        });
+      });
+    }
+    return Promise.reject(new Error('Teams sign-in is not supported by this client.'));
+  }
+  function api(path, body){
+    return fetch(path, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({ idToken: idToken }, body || {}))
+    }).then(function(response){
+      return response.json().catch(function(){ return {}; }).then(function(payload){
+        if (!response.ok) throw new Error(payload.error || 'Teams request failed.');
+        return payload;
+      });
+    });
+  }
+  function configureTab(app){
+    return api('/api/teams/tab/apps/' + encodeURIComponent(app.id) + '/publication').then(function(result){
+      var teams = window.microsoftTeams;
+      var config = {
+        contentUrl: result.url,
+        entityId: result.entityId,
+        suggestedDisplayName: result.app.title
+      };
+      if (teams.pages && teams.pages.config && teams.pages.config.setConfig) {
+        return teams.pages.config.setConfig(config).then(function(){
+          if (teams.pages.config.setValidityState) teams.pages.config.setValidityState(true);
+          setStatus('Ready');
+        });
+      }
+      if (teams.settings && teams.settings.setSettings) {
+        teams.settings.setSettings({
+          contentUrl: config.contentUrl,
+          entityId: config.entityId,
+          suggestedDisplayName: config.suggestedDisplayName
+        });
+        if (teams.settings.setValidityState) teams.settings.setValidityState(true);
+        setStatus('Ready');
+        return null;
+      }
+      window.location.href = result.url;
+      return null;
+    });
+  }
+  function openApp(app){
+    return api('/api/teams/tab/apps/' + encodeURIComponent(app.id) + '/publication').then(function(result){
+      if (!main) return;
+      main.innerHTML = '';
+      var frame = document.createElement('iframe');
+      frame.className = 'teams-frame';
+      frame.title = result.app.title || 'HybridClaw App';
+      frame.src = result.url;
+      main.appendChild(frame);
+      setStatus(result.app.title || 'Open');
+    });
+  }
+  function renderApps(apps){
+    if (!main) return;
+    if (!apps.length) {
+      showEmpty('No shared Teams apps are available.');
+      setStatus('No apps');
+      return;
+    }
+    main.innerHTML = '<div class="teams-grid"></div>';
+    var grid = main.firstChild;
+    apps.forEach(function(app){
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'teams-card';
+      button.innerHTML = '<strong>' + escapeText(app.title) + '</strong><span>' + escapeText(app.description || (app.kind === 'live' ? 'Live app' : 'Web app')) + '</span>';
+      button.addEventListener('click', function(){
+        setStatus(mode === 'config' ? 'Configuring...' : 'Opening...');
+        (mode === 'config' ? configureTab(app) : openApp(app)).catch(function(error){
+          showEmpty(error && error.message ? error.message : 'Could not open app.');
+          setStatus('Error');
+        });
+      });
+      grid.appendChild(button);
+    });
+    setStatus('Choose an app');
+  }
+  getTeamsAuthToken()
+    .then(function(){ return api('/api/teams/tab/apps'); })
+    .then(function(payload){ renderApps(payload.apps || []); })
+    .catch(function(error){
+      showEmpty(error && error.message ? error.message : 'Teams sign-in failed.');
+      setStatus('Error');
+    });
+})();`);
+}
+
+async function handlePublicationSessionExchange(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pubToken: string,
+): Promise<void> {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
+  const rateKey = getPublicationSessionRateKey(req, pubToken);
+  if (isPublicationSessionRateLimited(rateKey)) {
+    res.setHeader(
+      'Retry-After',
+      Math.ceil(APP_PUBLICATION_SESSION_RATE_LIMIT_WINDOW_MS / 1000),
+    );
+    sendJson(res, 429, { error: 'Too many attempts.' });
+    return;
+  }
+
+  const verified = verifyPublicationToken(pubToken);
+  if (verified.status === 'malformed' || verified.status === 'missing') {
+    recordPublicationSessionFailure(rateKey);
+    sendJson(res, 404, { error: 'Publication not found.' });
+    return;
+  }
+  if (verified.status === 'revoked' || verified.status === 'expired') {
+    sendJson(res, 410, { error: 'Publication unavailable.' });
+    return;
+  }
+  if (verified.status !== 'ok') {
+    sendJson(res, 404, { error: 'Publication not found.' });
+    return;
+  }
+
+  const publication = verified.publication;
+  const app = getApp(publication.appId);
+  if (app?.visibility !== 'public') {
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+
+  const body = await readJsonBody(req);
+  const requestBody = isJsonObject(body) ? body : {};
+  let viewer: MSTeamsTabViewer | null = null;
+  if (publication.policy.kind === 'password') {
+    const password =
+      typeof requestBody.password === 'string' ? requestBody.password : '';
+    if (!isPublicationPasswordMatch(publication.policy, password)) {
+      recordPublicationSessionFailure(rateKey);
+      sendJson(res, 401, {
+        error: 'Unauthorized.',
+        passwordRequired: true,
+      });
+      return;
+    }
+  } else if (publication.policy.kind === 'oidc') {
+    const idToken =
+      typeof requestBody.idToken === 'string' ? requestBody.idToken : '';
+    if (!idToken) {
+      sendJson(res, 401, {
+        error: 'Unauthorized.',
+        oidc: buildPublicationOidcChallenge(req, publication),
+      });
+      return;
+    }
+    const { tabConfig } = resolveTeamsTabSsoForRequest(req);
+    try {
+      viewer = await validateMSTeamsTabIdToken(idToken, {
+        tenantId: publication.policy.tenantId,
+        ssoAppId: tabConfig.ssoAppId,
+        appIdUri: publication.policy.audience,
+        allowFrom: tabConfig.allowFrom,
+      });
+    } catch (error) {
+      recordPublicationSessionFailure(rateKey);
+      const statusCode =
+        error instanceof MSTeamsTabTokenError && error.code === 'viewer_denied'
+          ? 403
+          : 401;
+      sendJson(res, statusCode, {
+        error: statusCode === 403 ? 'Forbidden.' : 'Unauthorized.',
+        ...(statusCode === 401
+          ? { oidc: buildPublicationOidcChallenge(req, publication) }
+          : {}),
+      });
+      return;
+    }
+    if (!isMSTeamsTabViewerAllowed(viewer, publication.policy.allowFrom)) {
+      recordPublicationSessionFailure(rateKey);
+      sendJson(res, 403, { error: 'Forbidden.' });
+      return;
+    }
+  }
+
+  clearPublicationSessionFailures(rateKey);
+  const now = new Date();
+  const expiresAt = computePublicationViewTokenExpiry(publication, now);
+  const bridgeAllowed = app.kind === 'live' && publication.allowBridge;
+  const actions = bridgeAllowed ? ['apps.view', 'apps.bridge'] : ['apps.view'];
+  const tokenResult = createApiToken({
+    label: `Publication ${publication.id} view`,
+    claims: {
+      actions,
+      appIds: [app.id],
+      pub: publication.id,
+      ...(viewer ? { viewer } : {}),
+    },
+    expiresAt,
+    createdBy: `publication:${publication.id}`,
+  });
+  recordPublicationSessionMint({
+    publication,
+    app,
+    policyKind: publication.policy.kind,
+    sourceIp: req.socket.remoteAddress || null,
+    viewerSub: viewer?.sub ?? null,
+  });
+
+  sendJson(res, 200, {
+    viewToken: tokenResult.token,
+    expiresAt: expiresAt.toISOString(),
+    app: {
+      id: app.id,
+      title: app.title,
+      kind: app.kind,
+      bridge: bridgeAllowed,
+    },
+    ...(viewer ? { viewer } : {}),
+  });
+}
+
+async function validateTeamsTabRequest(
+  req: IncomingMessage,
+  body: Record<string, unknown>,
+): Promise<MSTeamsTabViewer> {
+  const idToken = typeof body.idToken === 'string' ? body.idToken : '';
+  const { tabConfig } = resolveTeamsTabSsoForRequest(req);
+  return validateMSTeamsTabIdToken(idToken, {
+    tenantId: tabConfig.tenantId,
+    ssoAppId: tabConfig.ssoAppId,
+    appIdUri: tabConfig.appIdUri,
+    allowFrom: tabConfig.allowFrom,
+  });
+}
+
+async function handleTeamsTabApps(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (req.method !== 'POST') {
+    sendMethodNotAllowed(res);
+    return;
+  }
+  const body = await readJsonBody(req);
+  const requestBody = isJsonObject(body) ? body : {};
+  let viewer: MSTeamsTabViewer;
+  try {
+    viewer = await validateTeamsTabRequest(req, requestBody);
+  } catch {
+    sendJson(res, 401, { error: 'Unauthorized.' });
+    return;
+  }
+  const apps = listApps({})
+    .filter((app) => app.visibility === 'public')
+    .filter((app) => selectTeamsCapablePublication(app.id, viewer) !== null)
+    .map((app) => ({
+      id: app.id,
+      title: app.title,
+      description: app.description,
+      kind: app.kind,
+      category: app.category,
+      bridge:
+        getApp(app.id)?.kind === 'live' &&
+        selectTeamsCapablePublication(app.id, viewer)?.allowBridge === true,
+    }));
+  sendJson(res, 200, { apps, total: apps.length, viewer });
+}
+
+async function handleTeamsTabAppPublication(
+  req: IncomingMessage,
+  res: ServerResponse,
+  appId: string,
+): Promise<void> {
+  if (req.method !== 'POST') {
+    sendMethodNotAllowed(res);
+    return;
+  }
+  const body = await readJsonBody(req);
+  const requestBody = isJsonObject(body) ? body : {};
+  let viewer: MSTeamsTabViewer;
+  try {
+    viewer = await validateTeamsTabRequest(req, requestBody);
+  } catch {
+    sendJson(res, 401, { error: 'Unauthorized.' });
+    return;
+  }
+  const app = getApp(appId);
+  if (app?.visibility !== 'public') {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  const sourcePublication = selectTeamsCapablePublication(app.id, viewer);
+  if (!sourcePublication) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  const result = createTeamsPublicationForApp({
+    req,
+    app,
+    allowBridge: sourcePublication.allowBridge,
+    label: 'Teams tab',
+    createdBy: `teams:${viewer.sub}`,
+  });
+  sendJson(res, 200, {
+    app: {
+      id: app.id,
+      title: app.title,
+      kind: app.kind,
+      bridge: result.publication.allowBridge,
+    },
+    publication: serializePublication(result.publication),
+    url: result.url,
+    entityId: `hc-app-${teamsSafeEntityId(app.id)}`,
+  });
+}
+
+async function sendTeamsManifestZip(
+  res: ServerResponse,
+  filename: string,
+  manifest: Record<string, unknown>,
+): Promise<void> {
+  const zipBuffer = await buildTeamsManifestZip(manifest);
+  res.writeHead(200, {
+    'Content-Type': 'application/zip',
+    'Content-Disposition': `attachment; filename="${filename}"`,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(zipBuffer);
+}
+
+async function handleApiAppTeamsManifest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  appId: string,
+  authContext: ResolvedAuthContext,
+): Promise<void> {
+  if (req.method !== 'GET') {
+    sendMethodNotAllowed(res);
+    return;
+  }
+  const app = getApp(appId);
+  if (!app) {
+    sendJson(res, 404, { error: 'App not found.' });
+    return;
+  }
+  if (app.visibility !== 'public') {
+    sendJson(res, 403, {
+      error: 'App must be shared before generating Teams manifest.',
+    });
+    return;
+  }
+  const { origin, tabConfig } = resolveTeamsTabSsoForRequest(req);
+  const publicationToken = url.searchParams.get('publicationToken') || '';
+  let publication: AppPublicationMetadata;
+  let contentUrl: string;
+  if (publicationToken) {
+    const verified = verifyPublicationToken(publicationToken);
+    if (
+      verified.status !== 'ok' ||
+      verified.publication.appId !== app.id ||
+      !isTeamsCapablePublication(verified.publication)
+    ) {
+      sendJson(res, 400, { error: 'Invalid Teams publication token.' });
+      return;
+    }
+    publication = verified.publication;
+    contentUrl = buildTeamsPublicationUrl(origin, publicationToken);
+  } else {
+    const created = createTeamsPublicationForApp({
+      req,
+      app,
+      allowBridge: app.kind === 'live',
+      label: 'Standalone Teams app',
+      createdBy: resolvePublicationCreatedBy(authContext),
+    });
+    publication = created.publication;
+    contentUrl = created.url;
+  }
+  const manifest = buildTeamsAppManifest({
+    app,
+    publication,
+    contentUrl,
+    origin,
+    tabConfig,
+  });
+  await sendTeamsManifestZip(
+    res,
+    `hybridclaw-${teamsSafeEntityId(app.id)}-teams.zip`,
+    manifest,
+  );
+}
+
+async function handleApiAdminMSTeamsTabManifest(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (req.method !== 'GET') {
+    sendMethodNotAllowed(res);
+    return;
+  }
+  const { origin, tabConfig } = resolveTeamsTabSsoForRequest(req);
+  await sendTeamsManifestZip(
+    res,
+    'hybridclaw-teams-app.zip',
+    buildTeamsOrgManifest({ origin, tabConfig }),
+  );
+}
+
+function handleApiAdminMSTeamsTabStatus(
+  req: IncomingMessage,
+  res: ServerResponse,
+): void {
+  if (req.method !== 'GET') {
+    sendMethodNotAllowed(res);
+    return;
+  }
+  const origin = resolveRequestOrigin(req);
+  const tabConfig = resolveMSTeamsTabConfig(getRuntimeConfig(), origin);
+  sendJson(res, 200, {
+    enabled: tabConfig.enabled,
+    tenantId: tabConfig.tenantId,
+    ssoAppId: tabConfig.ssoAppId,
+    appIdUri: tabConfig.appIdUri,
+    allowFrom: tabConfig.allowFrom,
+    publicOrigin: origin,
+    browserRedirectUri: new URL(
+      APP_PUBLICATION_OIDC_CALLBACK_PATH,
+      origin,
+    ).toString(),
+    orgAppId: uuidv5(`${origin}:teams-org-app`, TEAMS_MANIFEST_UUID_NAMESPACE),
+    orgAppEntityId: TEAMS_APP_ENTITY_ID,
+    scope: TEAMS_TAB_SCOPE,
+    teamsClientIds: {
+      desktopMobile: TEAMS_DESKTOP_CLIENT_ID,
+      web: TEAMS_WEB_CLIENT_ID,
+    },
+    orgManifestUrl: '/api/admin/msteams/tab-manifest',
+  });
 }
 
 async function handleApiAppGenerate(
@@ -8366,7 +10109,77 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname === APP_PUBLICATION_SHELL_SCRIPT_PATH && method === 'GET') {
+      handlePublicationShellScript(res);
+      return;
+    }
+    if (pathname === APP_PUBLICATION_OIDC_CALLBACK_PATH && method === 'GET') {
+      handlePublicationOidcCallback(res);
+      return;
+    }
+    if (pathname === '/teams-shell.js' && method === 'GET') {
+      handleTeamsShellScript(res);
+      return;
+    }
+    if (pathname === '/teams/hub' && method === 'GET') {
+      handleTeamsShellPage(res, 'hub');
+      return;
+    }
+    if (pathname === '/teams/tab-config' && method === 'GET') {
+      handleTeamsShellPage(res, 'config');
+      return;
+    }
+    {
+      const pubToken = parsePublicationShellToken(pathname);
+      if (pubToken !== null && method === 'GET') {
+        handlePublicationShell(res, pubToken, url);
+        return;
+      }
+    }
+
     if (pathname.startsWith('/api/')) {
+      {
+        const pubToken = parsePublicationSessionToken(pathname);
+        if (pubToken !== null) {
+          void handlePublicationSessionExchange(req, res, pubToken).catch(
+            (err: unknown) => {
+              if (res.writableEnded) return;
+              const errorText =
+                err instanceof Error ? err.message : String(err);
+              const statusCode =
+                err instanceof GatewayRequestError ? err.statusCode : 500;
+              sendJson(res, statusCode, { error: errorText });
+            },
+          );
+          return;
+        }
+      }
+      if (pathname === '/api/teams/tab/apps') {
+        void handleTeamsTabApps(req, res).catch((err: unknown) => {
+          if (res.writableEnded) return;
+          const errorText = err instanceof Error ? err.message : String(err);
+          const statusCode =
+            err instanceof GatewayRequestError ? err.statusCode : 500;
+          sendJson(res, statusCode, { error: errorText });
+        });
+        return;
+      }
+      {
+        const appId = parseTeamsTabAppPublicationPath(pathname);
+        if (appId !== null) {
+          void handleTeamsTabAppPublication(req, res, appId).catch(
+            (err: unknown) => {
+              if (res.writableEnded) return;
+              const errorText =
+                err instanceof Error ? err.message : String(err);
+              const statusCode =
+                err instanceof GatewayRequestError ? err.statusCode : 500;
+              sendJson(res, statusCode, { error: errorText });
+            },
+          );
+          return;
+        }
+      }
       if (pathname === MSTEAMS_WEBHOOK_PATH && method === 'POST') {
         dispatchWebhookRoute(res, async () => {
           const { handleMSTeamsWebhook } = await import(
@@ -8519,10 +10332,64 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           {
+            const teamsManifestAppId = parseApiAppId(
+              pathname,
+              '/teams-manifest',
+            );
+            if (teamsManifestAppId !== null) {
+              await handleApiAppTeamsManifest(
+                req,
+                res,
+                url,
+                teamsManifestAppId,
+                authContext,
+              );
+              return;
+            }
+          }
+          {
+            const publicationsAppId =
+              parseApiAppPublicationsCollectionPath(pathname);
+            if (publicationsAppId !== null) {
+              if (method === 'GET') {
+                handleApiAppPublicationsList(res, publicationsAppId);
+                return;
+              }
+              if (method === 'POST') {
+                await handleApiAppPublicationCreate(
+                  req,
+                  res,
+                  publicationsAppId,
+                  authContext,
+                );
+                return;
+              }
+              sendMethodNotAllowed(res);
+              return;
+            }
+            const publicationItem = parseApiAppPublicationItemPath(pathname);
+            if (publicationItem !== null) {
+              if (method === 'DELETE') {
+                handleApiAppPublicationRevoke(
+                  res,
+                  publicationItem.appId,
+                  publicationItem.publicationId,
+                );
+                return;
+              }
+              sendMethodNotAllowed(res);
+              return;
+            }
+          }
+          {
             const appId = parseApiAppId(pathname);
             if (appId !== null) {
               if (method === 'GET') {
                 handleApiAppDetail(res, appId);
+                return;
+              }
+              if (method === 'PATCH') {
+                await handleApiAppUpdate(req, res, appId);
                 return;
               }
               if (method === 'DELETE') {
@@ -8698,6 +10565,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT' || method === 'DELETE')
           ) {
             await handleApiAdminChannels(req, res, url);
+            return;
+          }
+          if (pathname === '/api/admin/msteams/tab-manifest') {
+            await handleApiAdminMSTeamsTabManifest(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/msteams/tab-status') {
+            handleApiAdminMSTeamsTabStatus(req, res);
             return;
           }
           if (

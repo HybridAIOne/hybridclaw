@@ -37,6 +37,7 @@ export { Search } from './Search';
 export { Secrets } from './Secrets';
 export { Server } from './Server';
 export { Sessions } from './Sessions';
+export { Share } from './Share';
 export { Skills } from './Skills';
 export { SquarePen } from './SquarePen';
 export { Statistics } from './Statistics';
