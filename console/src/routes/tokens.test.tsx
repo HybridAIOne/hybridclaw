@@ -106,7 +106,22 @@ describe('TokensPage', () => {
     );
     fireEvent.click(screen.getByRole('checkbox', { name: /Chat send/i }));
 
-    fireEvent.change(within(dialog).getByLabelText('Role'), {
+    const roleSelect = within(dialog).getByLabelText(
+      'Role',
+    ) as HTMLSelectElement;
+    expect(
+      [...roleSelect.options].some(
+        (option) =>
+          option.value === 'admin.viewer' &&
+          option.text === 'Viewer - read-only admin API access',
+      ),
+    ).toBe(true);
+    expect(
+      [...roleSelect.options].some((option) =>
+        option.text.includes('console access'),
+      ),
+    ).toBe(false);
+    fireEvent.change(roleSelect, {
       target: { value: 'admin:auditor' },
     });
 

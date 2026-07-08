@@ -158,21 +158,18 @@ const TOKEN_ROLE_GROUPS = [
   {
     label: 'Current roles',
     options: [
-      ['admin.viewer', 'Viewer - read-only console access'],
-      ['admin.operator', 'Operator - day-to-day operations'],
+      ['admin.viewer', 'Viewer - read-only admin API access'],
+      ['admin.operator', 'Operator - day-to-day admin operations'],
       [
         'admin.integrations_manager',
-        'Integrations manager - agents and channels',
+        'Integrations manager - agent and channel APIs',
       ],
-      ['admin.config_manager', 'Config manager - runtime configuration'],
+      ['admin.config_manager', 'Config manager - runtime config APIs'],
       [
         'admin.security_manager',
-        'Security manager - secrets, policy, and skills',
+        'Security manager - secret, policy, and skill APIs',
       ],
-      [
-        'admin.terminal_operator',
-        'Terminal operator - terminal and job access',
-      ],
+      ['admin.terminal_operator', 'Terminal operator - terminal and job APIs'],
       ['admin.full', 'Full admin - every admin action'],
     ],
   },
