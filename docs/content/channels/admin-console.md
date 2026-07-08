@@ -173,3 +173,4 @@ scoped to the built-in allowlist and is not a general workspace file browser.
 - [Overview](./overview.md)
 - [Local Config And Secrets](./local-config-and-secrets.md)
 - [Policies And Allowlists](./policies-and-allowlists.md)
+- [A2A Peer Pairing](../guides/a2a-peer-pairing.md)
