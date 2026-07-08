@@ -30,9 +30,7 @@ function normalizeAgentIdForComparison(agentId: string | null | undefined) {
     .toLowerCase();
 }
 
-function hydrateA2ADelivery(
-  content: string,
-): A2ADeliveryDescriptor | null {
+function hydrateA2ADelivery(content: string): A2ADeliveryDescriptor | null {
   const lines = content
     .trim()
     .split(/\r?\n/)

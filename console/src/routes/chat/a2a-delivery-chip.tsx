@@ -14,11 +14,7 @@ const DELIVERY_STATUS_CACHE_MAX_ENTRIES = 200;
 // viewer's attention span, and a page reload re-reads the persisted state.
 const MAX_POLLS = 60;
 
-type A2ADeliveryDisplayState =
-  | 'sending'
-  | 'received'
-  | 'waiting'
-  | 'failed';
+type A2ADeliveryDisplayState = 'sending' | 'received' | 'waiting' | 'failed';
 
 function isTerminal(state: A2ADeliveryState): boolean {
   return state === 'delivered' || state === 'failed';
@@ -78,10 +74,11 @@ function initialDisplayState(
 }
 
 function initialStatusSnapshot(
-  descriptor: A2ADeliveryDescriptor,
+  messageId: string,
+  descriptorState: A2ADeliveryState,
 ): A2ADeliveryStatusSnapshot {
-  const cached = deliveryStatusCache.get(descriptor.messageId) ?? null;
-  const state = mergeDeliveryState(descriptor.status, cached?.state ?? null);
+  const cached = deliveryStatusCache.get(messageId) ?? null;
+  const state = mergeDeliveryState(descriptorState, cached?.state ?? null);
   return {
     state,
     displayState: initialDisplayState(state, cached),
@@ -99,7 +96,10 @@ export function A2ADeliveryChip(props: {
   token: string;
 }) {
   const { descriptor, token } = props;
-  const [initialSnapshot] = useState(() => initialStatusSnapshot(descriptor));
+  const { messageId, status: descriptorStatus } = descriptor;
+  const [initialSnapshot] = useState(() =>
+    initialStatusSnapshot(messageId, descriptorStatus),
+  );
   const [state, setState] = useState<A2ADeliveryState>(initialSnapshot.state);
   const [displayState, setDisplayState] = useState<A2ADeliveryDisplayState>(
     initialSnapshot.displayState,
@@ -107,16 +107,16 @@ export function A2ADeliveryChip(props: {
   const [detail, setDetail] = useState<string | null>(initialSnapshot.detail);
 
   useEffect(() => {
-    const snapshot = initialStatusSnapshot(descriptor);
+    const snapshot = initialStatusSnapshot(messageId, descriptorStatus);
     setState(snapshot.state);
     setDisplayState(snapshot.displayState);
     setDetail(snapshot.detail);
-  }, [descriptor.messageId, descriptor.status]);
+  }, [messageId, descriptorStatus]);
 
   useEffect(() => {
     if (state === 'failed') {
       setDisplayState('failed');
-      cacheDeliveryStatus(descriptor.messageId, {
+      cacheDeliveryStatus(messageId, {
         state,
         displayState: 'failed',
         detail,
@@ -125,37 +125,34 @@ export function A2ADeliveryChip(props: {
     }
     if (state !== 'delivered') {
       setDisplayState('sending');
-      cacheDeliveryStatus(descriptor.messageId, {
+      cacheDeliveryStatus(messageId, {
         state,
         displayState: 'sending',
         detail,
       });
       return;
     }
-    const cached = deliveryStatusCache.get(descriptor.messageId);
+    const cached = deliveryStatusCache.get(messageId);
     if (cached?.state === 'delivered' && cached.displayState === 'waiting') {
       setDisplayState('waiting');
       return;
     }
     setDisplayState('received');
-    cacheDeliveryStatus(descriptor.messageId, {
+    cacheDeliveryStatus(messageId, {
       state,
       displayState: 'received',
       detail,
     });
-    const timer = window.setTimeout(
-      () => {
-        setDisplayState('waiting');
-        cacheDeliveryStatus(descriptor.messageId, {
-          state,
-          displayState: 'waiting',
-          detail,
-        });
-      },
-      RECEIVED_HOLD_MS,
-    );
+    const timer = window.setTimeout(() => {
+      setDisplayState('waiting');
+      cacheDeliveryStatus(messageId, {
+        state,
+        displayState: 'waiting',
+        detail,
+      });
+    }, RECEIVED_HOLD_MS);
     return () => window.clearTimeout(timer);
-  }, [descriptor.messageId, detail, state]);
+  }, [detail, messageId, state]);
 
   useEffect(() => {
     if (isTerminal(state)) return;
@@ -166,22 +163,17 @@ export function A2ADeliveryChip(props: {
     const poll = async (): Promise<void> => {
       polls += 1;
       try {
-        const status = await fetchA2ADeliveryStatus(
-          token,
-          descriptor.messageId,
-        );
+        const status = await fetchA2ADeliveryStatus(token, messageId);
         if (cancelled) return;
         if (status.status !== 'unknown') {
           setState(status.status);
           const nextDetail =
             status.status === 'failed'
               ? status.lastError ||
-                  (status.lastStatusCode
-                    ? `HTTP ${status.lastStatusCode}`
-                    : null)
+                (status.lastStatusCode ? `HTTP ${status.lastStatusCode}` : null)
               : null;
           setDetail(nextDetail);
-          cacheDeliveryStatus(descriptor.messageId, {
+          cacheDeliveryStatus(messageId, {
             state: status.status,
             displayState: initialDisplayState(status.status, null),
             detail: nextDetail,
@@ -200,7 +192,7 @@ export function A2ADeliveryChip(props: {
       if (timer) clearTimeout(timer);
     };
     // descriptor.messageId identifies the send; state drives the terminal guard.
-  }, [descriptor.messageId, token, state]);
+  }, [messageId, token, state]);
 
   return (
     <div

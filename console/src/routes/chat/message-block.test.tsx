@@ -872,7 +872,9 @@ describe('MessageBlock command vs system output', () => {
     expect(screen.queryByText(/Queued for delivery/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Copy message' })).toBeNull();
     expect(renderMarkdownMock).not.toHaveBeenCalled();
-    expect(container.querySelector('[class*="bubbleA2AStatus"]')).not.toBeNull();
+    expect(
+      container.querySelector('[class*="bubbleA2AStatus"]'),
+    ).not.toBeNull();
   });
 
   it('moves a received A2A delivery chip into the waiting state', () => {
