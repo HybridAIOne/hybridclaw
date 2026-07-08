@@ -85,6 +85,13 @@ export interface GatewayAssistantPresentation {
 export type GatewayChatResultMessageRole = 'assistant' | 'approval' | 'command';
 export type GatewayAddressEnvelope = AddressEnvelope;
 
+export interface GatewayA2ADeliveryDescriptor {
+  messageId: string;
+  threadId: string;
+  recipientAgentId: string;
+  status: 'pending' | 'delivered' | 'failed';
+}
+
 export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
@@ -99,6 +106,7 @@ export interface GatewayChatResult {
   skillUsed?: string;
   agentId?: string;
   addressEnvelope?: GatewayAddressEnvelope;
+  a2aDelivery?: GatewayA2ADeliveryDescriptor;
   assistantPresentation?: GatewayAssistantPresentation;
   model?: string;
   provider?: string;

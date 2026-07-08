@@ -2,6 +2,10 @@ import fs from 'node:fs';
 import { AttachmentBuilder } from 'discord.js';
 import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
 import {
+  startA2AInboxDispatchProcessor,
+  stopA2AInboxDispatchProcessor,
+} from '../a2a/a2a-inbox-dispatcher.js';
+import {
   startA2AOutboxProcessor,
   stopA2AOutboxProcessor,
 } from '../a2a/a2a-outbound.js';
@@ -175,6 +179,7 @@ import {
   startTokenUsageBuffer,
   stopTokenUsageBuffer,
 } from '../usage/token-usage-buffer.js';
+import { dispatchA2AInboxItemToGateway } from './a2a-inbox-dispatch.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import {
   type ApprovalPresentation,
@@ -709,7 +714,7 @@ function isLocalIMessageSelfChatContext(context: {
   };
 }): boolean {
   const inbound = context.inbound;
-  if (!inbound || inbound.backend !== 'local' || inbound.isGroup) {
+  if (inbound?.backend !== 'local' || inbound.isGroup) {
     return false;
   }
   const rawEvent =
@@ -3254,6 +3259,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
     );
     stopHeartbeat();
     stopPeriodicCloudMemorySync();
+    stopA2AInboxDispatchProcessor();
     stopA2AOutboxProcessor();
     stopWebhookOutboxProcessor();
     stopObservabilityIngest();
@@ -3559,6 +3565,7 @@ async function main(): Promise<void> {
   startPeriodicCloudMemorySync({
     resolveAgentIds: () => listAgents().map((agent) => agent.id),
   });
+  startA2AInboxDispatchProcessor(dispatchA2AInboxItemToGateway);
   startA2AOutboxProcessor();
   startWebhookOutboxProcessor();
   startObservabilityIngest();

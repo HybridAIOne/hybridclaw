@@ -484,6 +484,7 @@ export function useChatStream(
           pendingApproval: finalApproval,
           responseRating: null,
           replayRequest: { content, media },
+          a2aDelivery: result.a2aDelivery ?? null,
         });
 
         setMessages((prev) => {

@@ -12,6 +12,7 @@ import {
   handleA2AJsonRpcInbound,
   resolveA2AAgentCardPeerTrust,
 } from '../a2a/a2a-inbound.js';
+import { getA2AOutboxDeliveryStatus } from '../a2a/a2a-outbox-persistence.js';
 import { handleA2APairingRequestInbound } from '../a2a/pairing.js';
 import {
   handleA2AWebhookInbound,
@@ -5515,6 +5516,25 @@ function handleApiAdminA2AInbox(res: ServerResponse, url: URL): void {
   }
 }
 
+function handleApiAdminA2AOutboxStatus(res: ServerResponse, url: URL): void {
+  const messageId = (url.searchParams.get('messageId') || '').trim();
+  if (!messageId) {
+    sendJson(res, 400, { error: 'messageId query parameter is required' });
+    return;
+  }
+  try {
+    sendJson(res, 200, getA2AOutboxDeliveryStatus(messageId));
+  } catch (error) {
+    sendJson(
+      res,
+      error instanceof GatewayRequestError ? error.statusCode : 400,
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
 async function handleApiAdminSignalLink(
   req: IncomingMessage,
   res: ServerResponse,
@@ -8734,6 +8754,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/a2a/inbox' && method === 'GET') {
             handleApiAdminA2AInbox(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/a2a/outbox/status' && method === 'GET') {
+            handleApiAdminA2AOutboxStatus(res, url);
             return;
           }
           if (

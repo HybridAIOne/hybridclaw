@@ -3,8 +3,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getAgentById, listAgents } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { readRequestBody, sendJson } from '../gateway/gateway-http-utils.js';
+import {
+  normalizeHttpOrigin,
+  resolveForwardedRequestOrigin,
+} from '../gateway/gateway-url-utils.js';
 import {
   AgentIdentityValidationError,
   parseAgentIdentity,
@@ -152,6 +157,25 @@ function extractBearerToken(authorization: string | null | undefined): string {
 
 function normalizeAudience(url: URL): string {
   return new URL(url.pathname, url.origin).toString();
+}
+
+/**
+ * Resolve the delegation-token audience expected for an inbound A2A request.
+ *
+ * The HTTP router builds `url` from a fixed `http://localhost` base, but
+ * senders sign the token audience against our advertised Agent Card URL. Behind
+ * a TLS-terminating tunnel that URL uses the public `https://<host>` origin, so
+ * we must reconstruct the same origin the Agent Card advertises
+ * (`deployment.public_url` when set, otherwise the forwarded request origin)
+ * instead of trusting the localhost base. Otherwise the audience never matches
+ * and every inbound message is rejected with `JWT audience does not match`.
+ */
+function resolveInboundAudience(req: IncomingMessage, url: URL): string {
+  const configuredOrigin = normalizeHttpOrigin(
+    getRuntimeConfig().deployment.public_url,
+  );
+  const origin = configuredOrigin ?? resolveForwardedRequestOrigin(req);
+  return normalizeAudience(new URL(url.pathname, origin));
 }
 
 function localCanonicalRecipientCacheKey(agents = listAgents()): string {
@@ -827,7 +851,7 @@ async function handleA2AInbound(
     const result = accept({
       rawBody,
       authorization: readHeader(req.headers, 'authorization'),
-      audience: normalizeAudience(url),
+      audience: resolveInboundAudience(req, url),
       mtlsPublicKeyPem: extractA2AMtlsPublicKeyPem(req),
     });
     sendJson(res, result.statusCode, result.body);
