@@ -131,6 +131,10 @@
           "path": "guides/remote-access.md"
         },
         {
+          "title": "A2A Peer Pairing",
+          "path": "guides/a2a-peer-pairing.md"
+        },
+        {
           "title": "Office Dependencies",
           "path": "guides/office-dependencies.md"
         },

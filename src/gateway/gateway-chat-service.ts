@@ -899,13 +899,29 @@ async function handleGatewayMessageInner(
 
     const delivery =
       confirmation.delivered === true ? 'Delivered' : 'Queued for delivery';
+    const resultText = [
+      `${delivery} to \`${confirmation.recipient_agent_id}\`.`,
+      `Message: \`${confirmation.message_id}\``,
+      `Thread: \`${confirmation.thread_id}\``,
+    ].join('\n');
+    const userMessageId = memoryService.storeMessage({
+      sessionId: req.sessionId,
+      userId: req.userId,
+      username: req.username,
+      role: 'user',
+      content: req.content,
+    });
+    const assistantMessageId = memoryService.storeMessage({
+      sessionId: req.sessionId,
+      userId: 'assistant',
+      username: null,
+      role: 'assistant',
+      content: resultText,
+      agentId: senderAgentId,
+    });
     return attachSessionIdentity({
       status: 'success',
-      result: [
-        `${delivery} to \`${confirmation.recipient_agent_id}\`.`,
-        `Message: \`${confirmation.message_id}\``,
-        `Thread: \`${confirmation.thread_id}\``,
-      ].join('\n'),
+      result: resultText,
       toolsUsed: [],
       messageRole: 'command',
       addressEnvelope: addressed.envelope,
@@ -915,6 +931,8 @@ async function handleGatewayMessageInner(
         recipientAgentId: confirmation.recipient_agent_id,
         status: confirmation.delivered === true ? 'delivered' : 'pending',
       },
+      userMessageId,
+      assistantMessageId,
     });
   }
   if (addressed.kind === 'agent') {

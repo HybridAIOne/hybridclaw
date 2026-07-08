@@ -772,6 +772,21 @@ aside[data-state="collapsed"] .chatSidebarContent {
   color: var(--terminal-foreground);
 }
 
+.bubbleA2AStatus {
+  align-self: flex-start;
+  display: inline-flex;
+  max-width: 85%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1;
+}
+
 .markdownContent {
   line-height: 1.6;
   max-width: 100%;
@@ -2152,13 +2167,11 @@ aside[data-state="collapsed"] .chatSidebarContent {
   }
 }
 
-/* Live delivery-status chip for outbound A2A chat sends. Sits under the command
-   bubble so the send stops reading as a dead end. */
+/* Live delivery-status chip for outbound A2A chat sends. */
 .a2aDeliveryChip {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  margin-top: 0.5rem;
   padding: 0.15rem 0.55rem;
   border-radius: 999px;
   font-size: 0.75rem;
@@ -2170,7 +2183,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .a2aDeliveryChipDelivered {
   background: var(--success-soft);
-  color: var(--success-foreground);
+  color: var(--success);
   border-color: var(--success-border);
 }
 

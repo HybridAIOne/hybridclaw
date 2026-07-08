@@ -1,5 +1,6 @@
 import { fetchChatHistory } from '../../api/chat';
 import type {
+  A2ADeliveryDescriptor,
   BranchVariant,
   ChatActivityTrace,
   ChatHistoryResponse,
@@ -27,6 +28,65 @@ function normalizeAgentIdForComparison(agentId: string | null | undefined) {
   return String(agentId ?? '')
     .trim()
     .toLowerCase();
+}
+
+function hydrateA2ADelivery(content: string): A2ADeliveryDescriptor | null {
+  const lines = content
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+  const deliveryMatch = lines[0]?.match(
+    /^(Delivered|Queued for delivery) to `([^`]+)`\.$/,
+  );
+  if (!deliveryMatch) return null;
+  const messageMatch = lines
+    .find((line) => line.startsWith('Message: '))
+    ?.match(/^Message: `([^`]+)`$/);
+  const threadMatch = lines
+    .find((line) => line.startsWith('Thread: '))
+    ?.match(/^Thread: `([^`]+)`$/);
+  const recipientAgentId = deliveryMatch[2]?.trim();
+  const messageId = messageMatch?.[1]?.trim();
+  const threadId = threadMatch?.[1]?.trim();
+  if (!recipientAgentId || !messageId || !threadId) return null;
+  return {
+    messageId,
+    threadId,
+    recipientAgentId,
+    status: deliveryMatch[1] === 'Delivered' ? 'delivered' : 'pending',
+  };
+}
+
+function removeResolvedA2ADeliveryStatusMessages(
+  messages: ChatUiMessage[],
+): ChatUiMessage[] {
+  const pendingDeliveryIndexesByRecipient = new Map<string, number[]>();
+  const resolvedDeliveryIndexes = new Set<number>();
+
+  messages.forEach((message, index) => {
+    if (message.a2aDelivery) {
+      const recipient = normalizeAgentIdForComparison(
+        message.a2aDelivery.recipientAgentId,
+      );
+      if (!recipient) return;
+      const indexes = pendingDeliveryIndexesByRecipient.get(recipient) ?? [];
+      indexes.push(index);
+      pendingDeliveryIndexesByRecipient.set(recipient, indexes);
+      return;
+    }
+    if (message.role !== 'assistant') return;
+    const sender = normalizeAgentIdForComparison(
+      message.assistantPresentation?.agentId,
+    );
+    if (!sender) return;
+    const pendingIndexes = pendingDeliveryIndexesByRecipient.get(sender);
+    const deliveryIndex = pendingIndexes?.shift();
+    if (deliveryIndex === undefined) return;
+    resolvedDeliveryIndexes.add(deliveryIndex);
+  });
+
+  if (resolvedDeliveryIndexes.size === 0) return messages;
+  return messages.filter((_, index) => !resolvedDeliveryIndexes.has(index));
 }
 
 // Rebuild a collapsed (done) trace message from persisted history so a reload
@@ -142,6 +202,8 @@ export function buildChatHistoryUiData(
         msg.id !== undefined && msg.id !== null
           ? (branchKeysByMessageId.get(msg.id) ?? null)
           : null,
+      a2aDelivery:
+        msg.role === 'assistant' ? hydrateA2ADelivery(msg.content) : null,
     };
     if (msg.role === 'assistant') {
       const trace = hydrateActivityTrace(msg.activityTrace, resolvedSessionId);
@@ -151,7 +213,7 @@ export function buildChatHistoryUiData(
   });
 
   return {
-    messages,
+    messages: removeResolvedA2ADeliveryStatusMessages(messages),
     branchFamilies,
     requestedSessionId,
     resolvedSessionId,

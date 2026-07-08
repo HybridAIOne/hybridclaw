@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { getAgentById, listAgents } from '../agents/agent-registry.js';
+import { getAgentById } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { readRequestBody, sendJson } from '../gateway/gateway-http-utils.js';
@@ -13,7 +13,7 @@ import {
   summarizeA2AEnvelopeForAudit,
   validateA2AEnvelope,
 } from './envelope.js';
-import { resolveA2AAgentId } from './identity.js';
+import { resolveLocalA2AAgentId } from './identity.js';
 import { acceptA2AInboundEnvelope } from './inbound-pipeline.js';
 import {
   A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE,
@@ -66,11 +66,6 @@ interface RateLimitBucket {
 }
 
 const rateLimitBuckets = new Map<string, RateLimitBucket>();
-let localCanonicalRecipientCache: {
-  key: string;
-  canonicalAgentIds: Set<string>;
-} | null = null;
-
 export function resetA2AWebhookInboundRateLimitsForTests(): void {
   rateLimitBuckets.clear();
 }
@@ -196,36 +191,11 @@ function resolveInboundSecret(params: {
   return secret;
 }
 
-function localCanonicalRecipientCacheKey(): string {
-  return listAgents()
-    .map((agent) => `${agent.id}\0${agent.owner || ''}`)
-    .join('\n');
-}
-
-function localCanonicalRecipientIds(): Set<string> {
-  const key = localCanonicalRecipientCacheKey();
-  if (localCanonicalRecipientCache?.key === key) {
-    return localCanonicalRecipientCache.canonicalAgentIds;
-  }
-
-  const canonicalAgentIds = new Set<string>();
-  for (const agent of listAgents()) {
-    try {
-      canonicalAgentIds.add(resolveA2AAgentId(agent.id));
-    } catch {
-      // Ignore malformed local agent records here; agent registry validation
-      // owns surfacing those errors on config mutation.
-    }
-  }
-  localCanonicalRecipientCache = { key, canonicalAgentIds };
-  return canonicalAgentIds;
-}
-
 function localRecipientResolves(recipientAgentId: string): boolean {
   if (!recipientAgentId.includes('@')) {
     return Boolean(getAgentById(recipientAgentId));
   }
-  return localCanonicalRecipientIds().has(recipientAgentId.toLowerCase());
+  return resolveLocalA2AAgentId(recipientAgentId) !== null;
 }
 
 function resolveLocalRecipientWorkspacePath(recipientAgentId: string): string {
@@ -237,17 +207,8 @@ function resolveLocalRecipientWorkspacePath(recipientAgentId: string): string {
     ]);
   }
 
-  const normalizedRecipient = recipientAgentId.toLowerCase();
-  for (const agent of listAgents()) {
-    try {
-      if (resolveA2AAgentId(agent.id) === normalizedRecipient) {
-        return agentWorkspaceDir(agent.id);
-      }
-    } catch {
-      // Malformed local agent records are ignored here; registry mutation
-      // validation owns surfacing those errors.
-    }
-  }
+  const localAgentId = resolveLocalA2AAgentId(recipientAgentId);
+  if (localAgentId) return agentWorkspaceDir(localAgentId);
   throw new A2AEnvelopeValidationError([
     'recipient_agent_id does not resolve to a local agent',
   ]);

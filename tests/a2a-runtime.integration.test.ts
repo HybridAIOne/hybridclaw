@@ -171,6 +171,53 @@ describe('A2A runtime API', () => {
     });
   });
 
+  test('delivers to a registered canonical local recipient even when the runtime instance id differs', async () => {
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'runtime-state';
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+
+    initDatabase({ quiet: true });
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.agents.list = [
+        {
+          id: 'main',
+          canonicalId: 'main@team@agent-card-instance',
+          owner: 'team',
+          role: 'lead',
+        },
+      ];
+    });
+
+    const confirmation = runtime.sendMessage(
+      {
+        id: 'msg-canonical-local-recipient',
+        sender_agent_id: 'remote@team@peer-instance',
+        recipient_agent_id: 'main@team@agent-card-instance',
+        thread_id: 'thread-canonical-local-recipient',
+        intent: 'chat',
+        content: 'Store this locally.',
+        created_at: '2026-05-01T10:00:00.000Z',
+      },
+      {
+        auditRole: 'receiver',
+      },
+    );
+
+    expect(confirmation).toMatchObject({
+      delivered: true,
+      message_id: 'msg-canonical-local-recipient',
+      recipient_agent_id: 'main@team@agent-card-instance',
+    });
+    expect(runtime.inbox('main')).toMatchObject([
+      {
+        id: 'msg-canonical-local-recipient',
+        sender_agent_id: 'remote@team@peer-instance',
+        recipient_agent_id: 'main@team@agent-card-instance',
+      },
+    ]);
+  });
+
   test('writes A2A message events to the hash-chain audit wire log', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const audit = await import('../src/audit/audit-trail.ts');

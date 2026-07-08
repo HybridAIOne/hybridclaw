@@ -1,12 +1,6 @@
-import {
-  listAgents,
-  resolveAgentEscalationTarget,
-} from '../agents/agent-registry.js';
+import { resolveAgentEscalationTarget } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
-import {
-  parseAgentIdentity,
-  resolveLocalInstanceId,
-} from '../identity/agent-id.js';
+import { parseAgentIdentity } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import { buildSessionKey } from '../session/session-key.js';
 import type { AddressEnvelope } from '../types/container.js';
@@ -22,7 +16,7 @@ import {
   createA2AEnvelope,
   summarizeA2AEnvelopeForAudit,
 } from './envelope.js';
-import { resolveA2AAgentId } from './identity.js';
+import { isLocalA2AAgentId, resolveLocalA2AAgentId } from './identity.js';
 import { normalizePositiveInteger } from './utils.js';
 
 export const A2A_INBOX_DISPATCH_CONCURRENCY = 2;
@@ -157,28 +151,20 @@ function dueAtOrBefore(item: A2AInboxDispatchItem, now: Date): boolean {
 function resolveLocalRecipientAgentId(
   envelope: A2AEnvelope,
 ): { agentId: string } | { reason: string } {
-  let recipient: ReturnType<typeof parseAgentIdentity>;
   try {
-    recipient = parseAgentIdentity(envelope.recipient_agent_id);
+    parseAgentIdentity(envelope.recipient_agent_id);
   } catch (error) {
     return { reason: errorMessage(error) };
   }
-  if (recipient.instanceId !== resolveLocalInstanceId()) {
+  const agentId = resolveLocalA2AAgentId(envelope.recipient_agent_id);
+  if (agentId) return { agentId };
+
+  if (!isLocalA2AAgentId(envelope.recipient_agent_id)) {
     return {
       reason: 'recipient_agent_id instance-id does not match this instance',
     };
   }
 
-  for (const agent of listAgents()) {
-    try {
-      if (resolveA2AAgentId(agent.id) === envelope.recipient_agent_id) {
-        return { agentId: agent.id };
-      }
-    } catch {
-      // Ignore malformed local agent records here; registry validation surfaces
-      // those separately.
-    }
-  }
   return { reason: 'recipient_agent_id does not resolve to a local agent' };
 }
 

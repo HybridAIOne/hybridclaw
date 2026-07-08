@@ -1,7 +1,7 @@
 import { X509Certificate } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { getAgentById, listAgents } from '../agents/agent-registry.js';
+import { getAgentById } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
@@ -13,7 +13,6 @@ import {
 import {
   AgentIdentityValidationError,
   parseAgentIdentity,
-  resolveLocalInstanceId,
 } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import { decodeA2AJsonRpcRequest, type JsonRpcId } from './a2a-json-rpc.js';
@@ -35,7 +34,7 @@ import {
   summarizeA2AEnvelopeForAudit,
   validateA2AEnvelope,
 } from './envelope.js';
-import { resolveA2AAgentId } from './identity.js';
+import { isLocalA2AAgentId, resolveLocalA2AAgentId } from './identity.js';
 import { acceptA2AInboundEnvelope } from './inbound-pipeline.js';
 import { getA2AEnvelope } from './store.js';
 import {
@@ -97,11 +96,6 @@ class A2AMissingTrustedPeerError extends A2ADelegationTokenError {
     this.name = 'A2AMissingTrustedPeerError';
   }
 }
-
-let localCanonicalRecipientCache: {
-  key: string;
-  canonicalAgentIds: Set<string>;
-} | null = null;
 
 function readHeader(
   headers: IncomingMessage['headers'],
@@ -178,34 +172,11 @@ function resolveInboundAudience(req: IncomingMessage, url: URL): string {
   return normalizeAudience(new URL(url.pathname, origin));
 }
 
-function localCanonicalRecipientCacheKey(agents = listAgents()): string {
-  return agents.map((agent) => `${agent.id}\0${agent.owner || ''}`).join('\n');
-}
-
-function localCanonicalRecipientIds(): Set<string> {
-  const agents = listAgents();
-  const key = localCanonicalRecipientCacheKey(agents);
-  if (localCanonicalRecipientCache?.key === key) {
-    return localCanonicalRecipientCache.canonicalAgentIds;
-  }
-
-  const canonicalAgentIds = new Set<string>();
-  for (const agent of agents) {
-    try {
-      canonicalAgentIds.add(resolveA2AAgentId(agent.id));
-    } catch {
-      // Agent registry validation owns surfacing malformed local records.
-    }
-  }
-  localCanonicalRecipientCache = { key, canonicalAgentIds };
-  return canonicalAgentIds;
-}
-
 function localRecipientResolves(recipientAgentId: string): boolean {
   if (!recipientAgentId.includes('@')) {
     return Boolean(getAgentById(recipientAgentId));
   }
-  return localCanonicalRecipientIds().has(recipientAgentId.toLowerCase());
+  return resolveLocalA2AAgentId(recipientAgentId) !== null;
 }
 
 function parseJsonRpcPayload(rawBody: string): unknown {
@@ -302,7 +273,7 @@ function assertCanonicalLocalRecipient(envelope: A2AEnvelope): void {
     'recipient_agent_id',
     envelope.recipient_agent_id,
   );
-  if (recipient.instanceId !== resolveLocalInstanceId()) {
+  if (!isLocalA2AAgentId(recipient.id)) {
     throw new A2AEnvelopeValidationError([
       'recipient_agent_id instance-id does not match this instance',
     ]);

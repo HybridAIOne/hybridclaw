@@ -361,6 +361,95 @@ describe('useChatStream', () => {
     });
   });
 
+  it('keeps a sent message when the initial history fetch resolves late', async () => {
+    const harness = makeHarness();
+    let resolveHistory!: (data: ChatHistoryUiData) => void;
+    const lateHistory = new Promise<ChatHistoryUiData>((resolve) => {
+      resolveHistory = resolve;
+    });
+    const lateHistoryFetch = harness.queryClient
+      .fetchQuery({
+        queryKey: chatHistoryQueryKey(TOKEN, SESSION_ID),
+        queryFn: () => lateHistory,
+        staleTime: 0,
+      })
+      .catch(() => null);
+
+    requestChatStreamMock.mockResolvedValue({
+      status: 'ok',
+      sessionId: SESSION_ID,
+      userMessageId: 'server-user-1',
+      assistantMessageId: 'assistant-1',
+      result: 'Queued for delivery to `remote@team@peer-instance`.',
+      messageRole: 'command',
+      a2aDelivery: {
+        messageId: 'a2a-message-1',
+        threadId: SESSION_ID,
+        recipientAgentId: 'remote@team@peer-instance',
+        status: 'pending',
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('@remote@team@peer-instance hello', []);
+    });
+
+    expect(harness.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'user',
+          content: '@remote@team@peer-instance hello',
+        }),
+        expect.objectContaining({
+          role: 'command',
+          a2aDelivery: expect.objectContaining({
+            messageId: 'a2a-message-1',
+          }),
+        }),
+      ]),
+    );
+
+    await act(async () => {
+      resolveHistory({
+        messages: [],
+        branchFamilies: new Map(),
+        requestedSessionId: SESSION_ID,
+        resolvedSessionId: SESSION_ID,
+        agentId: null,
+        bootstrapAutostart: null,
+      });
+      await lateHistoryFetch;
+    });
+
+    expect(harness.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'user',
+          content: '@remote@team@peer-instance hello',
+        }),
+        expect.objectContaining({
+          role: 'command',
+          a2aDelivery: expect.objectContaining({
+            messageId: 'a2a-message-1',
+          }),
+        }),
+      ]),
+    );
+  });
+
   it('does not duplicate an existing addressed mention on finalize', async () => {
     const harness = makeHarness();
 

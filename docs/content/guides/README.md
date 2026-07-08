@@ -15,6 +15,8 @@ These pages focus on common operator workflows after the base install works.
   and live connector-backed apps
 - [Remote Access](./remote-access.md) for SSH tunnels, Tailscale, and
   persistent macOS LaunchAgent forwarding
+- [A2A Peer Pairing](./a2a-peer-pairing.md) for connecting two HybridClaw
+  instances and sending a chat message to a remote agent
 - [Tailscale Funnel](./tailscale-funnel.md) for managed public `*.ts.net`
   gateway URLs
 - [TUI MCP Quickstart](./tui-mcp.md) for host-mode MCP server setup

@@ -1,7 +1,6 @@
 import { listAgents } from '../agents/agent-registry.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { getGatewayAdminTunnelStatus } from '../gateway/gateway-tunnel-service.js';
-import { resolveLocalInstanceId } from '../identity/agent-id.js';
 import {
   DnsIdentityResolverBackend,
   IdentityNotFoundError,
@@ -12,7 +11,7 @@ import {
   normalizeIdentityUrl,
   parseCanonicalIdentity,
 } from '../identity/resolver.js';
-import { resolveA2AAgentId } from './identity.js';
+import { isLocalA2AAgentId, resolveA2AAgentId } from './identity.js';
 import { registerA2AIdentityResolverInvalidator } from './identity-resolver-invalidation.js';
 import {
   A2APeerUntrustedError,
@@ -58,7 +57,6 @@ class LocalDeploymentA2AIdentityResolverBackend
   private localCanonicalAgentIds(): Set<string> {
     const agents = listAgents();
     const key = [
-      resolveLocalInstanceId(),
       ...agents.map(
         (agent) =>
           `${agent.id}\0${agent.canonicalId || ''}\0${agent.owner || ''}\0${agent.ownerUserId || ''}`,
@@ -85,7 +83,7 @@ class LocalDeploymentA2AIdentityResolverBackend
   async lookup(canonicalId: string): Promise<IdentityResolution | null> {
     const parsed = parseCanonicalIdentity(canonicalId);
     if (parsed.kind !== 'agent') return null;
-    if (parsed.parsed.instanceId !== resolveLocalInstanceId()) return null;
+    if (!isLocalA2AAgentId(parsed.id)) return null;
     if (!this.localCanonicalAgentIds().has(parsed.id)) return null;
 
     return {
