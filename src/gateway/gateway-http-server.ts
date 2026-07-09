@@ -69,6 +69,7 @@ import {
 } from '../channels/discord/tool-actions.js';
 import { normalizeEmailAddress } from '../channels/email/allowlist.js';
 import { handleIMessageWebhook } from '../channels/imessage/runtime.js';
+import { handleLineWebhook } from '../channels/line/runtime.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
 import {
   getSignalLinkState,
@@ -88,6 +89,7 @@ import {
   HEALTH_PORT,
   HYBRIDAI_BASE_URL,
   IMESSAGE_WEBHOOK_PATH,
+  LINE_WEBHOOK_PATH,
   MSTEAMS_WEBHOOK_PATH,
   refreshRuntimeSecretsFromEnv,
   WEB_API_TOKEN,
@@ -10191,6 +10193,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       }
       if (pathname === IMESSAGE_WEBHOOK_PATH && method === 'POST') {
         dispatchWebhookRoute(res, () => handleIMessageWebhook(req, res));
+        return;
+      }
+      if (pathname === LINE_WEBHOOK_PATH && method === 'POST') {
+        dispatchWebhookRoute(res, () => handleLineWebhook(req, res));
         return;
       }
       if (isPluginInboundWebhookPath(pathname)) {

@@ -12,6 +12,7 @@ import {
   normalizeEmailAllowEntry,
 } from '../channels/email/allowlist.js';
 import { normalizeIMessageHandle } from '../channels/imessage/handle.js';
+import { normalizeLineUserId } from '../channels/line/target.js';
 import { normalizeSignalDaemonUrl } from '../channels/signal/api.js';
 import { normalizeSignalRecipient } from '../channels/signal/target.js';
 import { allowSlackWebhookInWorkspacePolicy } from '../channels/slack-webhook/policy.js';
@@ -121,6 +122,13 @@ function normalizeTelegramAllowEntry(value: string): string | null {
   if (!trimmed) return null;
   if (trimmed === '*') return '*';
   return normalizeTelegramChatId(trimmed) ?? null;
+}
+
+function normalizeLineAllowEntry(value: string): string | null {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  if (trimmed === '*') return '*';
+  return normalizeLineUserId(trimmed) ?? null;
 }
 
 function normalizeSignalAllowEntry(value: string): string | null {
@@ -346,6 +354,191 @@ function parseTelegramSetupArgs(args: string[]): {
     pollIntervalMs,
     textChunkLimit,
     mediaMaxMb,
+    requireMention,
+  };
+}
+
+function parseLineSetupArgs(args: string[]): {
+  channelAccessToken: string | null;
+  channelSecret: string | null;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  dmPolicy: 'open' | 'allowlist' | 'disabled' | null;
+  groupPolicy: 'open' | 'allowlist' | 'disabled' | null;
+  webhookPath: string | null;
+  textChunkLimit: number | null;
+  requireMention: boolean | null;
+} {
+  let channelAccessToken: string | null = null;
+  let channelSecret: string | null = null;
+  let dmPolicy: 'open' | 'allowlist' | 'disabled' | null = null;
+  let groupPolicy: 'open' | 'allowlist' | 'disabled' | null = null;
+  let webhookPath: string | null = null;
+  let textChunkLimit: number | null = null;
+  let requireMention: boolean | null = null;
+  const allowFrom: string[] = [];
+  const groupAllowFrom: string[] = [];
+
+  const parseAllow = (label: string, raw: string): string => {
+    const normalized = normalizeLineAllowEntry(raw);
+    if (!normalized) {
+      throw new Error(
+        `Invalid ${label}: ${raw}. Use a LINE user ID like U0123... or *.`,
+      );
+    }
+    return normalized;
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--channel-access-token' || arg === '--token') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--channel-access-token`.');
+      channelAccessToken = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (
+      arg.startsWith('--channel-access-token=') ||
+      arg.startsWith('--token=')
+    ) {
+      const value = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : '';
+      channelAccessToken = value.trim() || null;
+      continue;
+    }
+    if (arg === '--channel-secret' || arg === '--secret') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--channel-secret`.');
+      channelSecret = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--channel-secret=') || arg.startsWith('--secret=')) {
+      const value = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : '';
+      channelSecret = value.trim() || null;
+      continue;
+    }
+    if (arg === '--allow-from') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--allow-from`.');
+      allowFrom.push(parseAllow('LINE allowlist entry', next));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--allow-from=')) {
+      allowFrom.push(
+        parseAllow('LINE allowlist entry', arg.slice('--allow-from='.length)),
+      );
+      continue;
+    }
+    if (arg === '--group-allow-from') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--group-allow-from`.');
+      groupAllowFrom.push(parseAllow('LINE group allowlist entry', next));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--group-allow-from=')) {
+      groupAllowFrom.push(
+        parseAllow(
+          'LINE group allowlist entry',
+          arg.slice('--group-allow-from='.length),
+        ),
+      );
+      continue;
+    }
+    if (arg === '--dm-policy') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--dm-policy`.');
+      dmPolicy = parseChannelPolicy('--dm-policy', next);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--dm-policy=')) {
+      dmPolicy = parseChannelPolicy(
+        '--dm-policy',
+        arg.slice('--dm-policy='.length),
+      );
+      continue;
+    }
+    if (arg === '--group-policy') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--group-policy`.');
+      groupPolicy = parseChannelPolicy('--group-policy', next);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--group-policy=')) {
+      groupPolicy = parseChannelPolicy(
+        '--group-policy',
+        arg.slice('--group-policy='.length),
+      );
+      continue;
+    }
+    if (arg === '--webhook-path') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--webhook-path`.');
+      webhookPath = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--webhook-path=')) {
+      webhookPath = arg.slice('--webhook-path='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--text-chunk-limit') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--text-chunk-limit`.');
+      textChunkLimit = parseIntegerFlagValue('--text-chunk-limit', next, {
+        min: 200,
+        max: 5_000,
+      });
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--text-chunk-limit=')) {
+      textChunkLimit = parseIntegerFlagValue(
+        '--text-chunk-limit',
+        arg.slice('--text-chunk-limit='.length),
+        {
+          min: 200,
+          max: 5_000,
+        },
+      );
+      continue;
+    }
+    if (arg === '--require-mention') {
+      requireMention = true;
+      continue;
+    }
+    if (arg === '--no-require-mention') {
+      requireMention = false;
+      continue;
+    }
+    if (arg.startsWith('--require-mention=')) {
+      requireMention = parseBooleanFlagValue(
+        '--require-mention',
+        arg.slice('--require-mention='.length),
+      );
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels line setup [--channel-access-token <token>] [--channel-secret <secret>] [--allow-from <line-user-id|*>]...\`.`,
+    );
+  }
+
+  return {
+    channelAccessToken,
+    channelSecret,
+    allowFrom: [...new Set(allowFrom)],
+    groupAllowFrom: [...new Set(groupAllowFrom)],
+    dmPolicy,
+    groupPolicy,
+    webhookPath,
+    textChunkLimit,
     requireMention,
   };
 }
@@ -2053,6 +2246,200 @@ async function configureTelegramChannel(args: string[]): Promise<void> {
   }
 }
 
+async function resolveInteractiveLineCredential(params: {
+  explicit: string | null;
+  currentValue: string;
+  envName: 'LINE_CHANNEL_ACCESS_TOKEN' | 'LINE_CHANNEL_SECRET';
+  label: string;
+}): Promise<{
+  value: string;
+  source: 'config' | 'env' | 'explicit' | 'prompt' | 'runtime-secrets';
+}> {
+  const explicit = String(params.explicit || '').trim();
+  if (explicit) {
+    return { value: explicit, source: 'explicit' };
+  }
+
+  const envValue = String(process.env[params.envName] || '').trim();
+  if (envValue) {
+    return { value: envValue, source: 'env' };
+  }
+
+  const storedValue = String(
+    readStoredRuntimeSecret(params.envName) || '',
+  ).trim();
+  if (storedValue) {
+    return { value: storedValue, source: 'runtime-secrets' };
+  }
+
+  const configValue = String(params.currentValue || '').trim();
+  if (configValue) {
+    return { value: configValue, source: 'config' };
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      `Missing ${params.label}. Pass \`--${params.label.replaceAll(' ', '-')} <value>\`, store ${params.envName} with \`hybridclaw secret set ${params.envName} <value>\` or in TUI with \`/secret set ${params.envName} <value>\`, or run this command in an interactive terminal to be prompted.`,
+    );
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    const value = await promptForSecretInput({
+      prompt: `LINE ${params.label}: `,
+      rl,
+    });
+    const normalized = value.trim();
+    if (!normalized) {
+      throw new Error(`LINE ${params.label} cannot be empty.`);
+    }
+    return { value: normalized, source: 'prompt' };
+  } finally {
+    rl.close();
+  }
+}
+
+async function configureLineChannel(args: string[]): Promise<void> {
+  ensureRuntimeConfigFile();
+  const parsed = parseLineSetupArgs(args);
+  const currentConfig = getRuntimeConfig().line;
+  const accessToken = await resolveInteractiveLineCredential({
+    explicit: parsed.channelAccessToken,
+    currentValue: currentConfig.channelAccessToken,
+    envName: 'LINE_CHANNEL_ACCESS_TOKEN',
+    label: 'channel access token',
+  });
+  const channelSecret = await resolveInteractiveLineCredential({
+    explicit: parsed.channelSecret,
+    currentValue: currentConfig.channelSecret,
+    envName: 'LINE_CHANNEL_SECRET',
+    label: 'channel secret',
+  });
+
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.line.enabled = true;
+    draft.line.allowFrom =
+      parsed.allowFrom.length > 0 ? parsed.allowFrom : draft.line.allowFrom;
+    draft.line.groupAllowFrom =
+      parsed.groupAllowFrom.length > 0
+        ? parsed.groupAllowFrom
+        : draft.line.groupAllowFrom;
+    draft.line.dmPolicy =
+      parsed.dmPolicy ??
+      (parsed.allowFrom.length > 0 ? 'allowlist' : draft.line.dmPolicy);
+    draft.line.groupPolicy = parsed.groupPolicy ?? draft.line.groupPolicy;
+    if (parsed.webhookPath) {
+      draft.line.webhookPath = parsed.webhookPath;
+    }
+    if (parsed.textChunkLimit != null) {
+      draft.line.textChunkLimit = parsed.textChunkLimit;
+    }
+    if (parsed.requireMention != null) {
+      draft.line.requireMention = parsed.requireMention;
+    }
+    if (
+      accessToken.source === 'explicit' ||
+      accessToken.source === 'prompt' ||
+      accessToken.source === 'runtime-secrets'
+    ) {
+      draft.line.channelAccessToken = '';
+    }
+    if (
+      channelSecret.source === 'explicit' ||
+      channelSecret.source === 'prompt' ||
+      channelSecret.source === 'runtime-secrets'
+    ) {
+      draft.line.channelSecret = '';
+    }
+  });
+
+  const shouldSaveAccessToken =
+    accessToken.source === 'explicit' || accessToken.source === 'prompt';
+  const shouldSaveChannelSecret =
+    channelSecret.source === 'explicit' || channelSecret.source === 'prompt';
+  const shouldSetAccessTokenRef =
+    shouldSaveAccessToken || accessToken.source === 'runtime-secrets';
+  const shouldSetChannelSecretRef =
+    shouldSaveChannelSecret || channelSecret.source === 'runtime-secrets';
+  const secretsPath =
+    shouldSaveAccessToken || shouldSaveChannelSecret
+      ? saveRuntimeSecrets({
+          ...(shouldSaveAccessToken
+            ? { LINE_CHANNEL_ACCESS_TOKEN: accessToken.value }
+            : {}),
+          ...(shouldSaveChannelSecret
+            ? { LINE_CHANNEL_SECRET: channelSecret.value }
+            : {}),
+        })
+      : runtimeSecretsPath();
+
+  if (shouldSetAccessTokenRef) {
+    setRuntimeConfigSecretInput(
+      'line.channelAccessToken',
+      {
+        source: 'store',
+        id: 'LINE_CHANNEL_ACCESS_TOKEN',
+      },
+      {
+        route: 'cli.channels.line.setup-token-secret-ref',
+        source: 'user',
+      },
+    );
+  }
+  if (shouldSetChannelSecretRef) {
+    setRuntimeConfigSecretInput(
+      'line.channelSecret',
+      {
+        source: 'store',
+        id: 'LINE_CHANNEL_SECRET',
+      },
+      {
+        route: 'cli.channels.line.setup-secret-secret-ref',
+        source: 'user',
+      },
+    );
+  }
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  if (shouldSaveAccessToken || shouldSaveChannelSecret) {
+    console.log(`Saved LINE credentials to ${secretsPath}.`);
+  } else if (shouldSetAccessTokenRef || shouldSetChannelSecretRef) {
+    console.log(`LINE credentials unchanged. Secrets path: ${secretsPath}`);
+  } else {
+    console.log(
+      `LINE credential sources: access token=${accessToken.source}, channel secret=${channelSecret.source}`,
+    );
+  }
+  console.log('LINE mode: enabled');
+  console.log(`Webhook path: ${nextConfig.line.webhookPath}`);
+  console.log(`DM policy: ${nextConfig.line.dmPolicy}`);
+  console.log(`Group policy: ${nextConfig.line.groupPolicy}`);
+  console.log(`Require mention: ${nextConfig.line.requireMention}`);
+  if (nextConfig.line.allowFrom.length > 0) {
+    console.log(`Allowed DM senders: ${nextConfig.line.allowFrom.join(', ')}`);
+  } else if (nextConfig.line.dmPolicy === 'open') {
+    console.log('Allowed DM senders: all (DM policy open)');
+  } else {
+    console.log('Allowed DM senders: none (inbound DMs stay disabled)');
+  }
+  if (nextConfig.line.groupAllowFrom.length > 0) {
+    console.log(
+      `Allowed group senders: ${nextConfig.line.groupAllowFrom.join(', ')}`,
+    );
+  }
+  console.log(`Text chunk limit: ${nextConfig.line.textChunkLimit}`);
+  console.log('Next:');
+  console.log('  Restart the gateway to pick up LINE settings:');
+  console.log('    hybridclaw gateway restart --foreground');
+  console.log('    hybridclaw gateway status');
+  console.log(
+    `  Configure the LINE Developers webhook URL to your public gateway origin plus ${nextConfig.line.webhookPath}`,
+  );
+}
+
 async function configureSignalChannel(args: string[]): Promise<void> {
   ensureRuntimeConfigFile();
   const parsed = parseSignalSetupArgs(args);
@@ -2731,6 +3118,7 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     channel !== 'threema' &&
     channel !== 'discord_webhook' &&
     channel !== 'discord-webhook' &&
+    channel !== 'line' &&
     channel !== 'slack_webhook' &&
     channel !== 'slack-webhook' &&
     channel !== 'signal' &&
@@ -2741,7 +3129,7 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     channel !== 'slack'
   ) {
     throw new Error(
-      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`signal\`, \`threema\`, \`discord_webhook\`, \`slack_webhook\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
+      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`line\`, \`telegram\`, \`signal\`, \`threema\`, \`discord_webhook\`, \`slack_webhook\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
     );
   }
 
@@ -2761,6 +3149,10 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     }
     if (channel === 'telegram') {
       await configureTelegramChannel(normalized.slice(2));
+      return;
+    }
+    if (channel === 'line') {
+      await configureLineChannel(normalized.slice(2));
       return;
     }
     if (channel === 'signal') {
@@ -2799,6 +3191,6 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
   }
 
   throw new Error(
-    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels signal setup\`, \`hybridclaw channels threema setup\`, \`hybridclaw channels discord_webhook setup\`, \`hybridclaw channels slack_webhook setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
+    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels line setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels signal setup\`, \`hybridclaw channels threema setup\`, \`hybridclaw channels discord_webhook setup\`, \`hybridclaw channels slack_webhook setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
   );
 }

@@ -86,6 +86,7 @@ async function importFreshMessageToolActions() {
   });
   const sendEmailAttachmentTo = vi.fn(async () => {});
   const sendToEmail = vi.fn(async () => {});
+  const sendToLineChat = vi.fn(async () => {});
   const sendToSignalChat = vi.fn(async () => {});
   const sendToSlackWebhookTarget = vi.fn(async () => {});
   const sendToDiscordWebhookTarget = vi.fn(async () => {});
@@ -251,6 +252,9 @@ async function importFreshMessageToolActions() {
     sendEmailAttachmentTo,
     sendToEmail,
   }));
+  vi.doMock('../src/channels/line/runtime.js', () => ({
+    sendToLineChat,
+  }));
   vi.doMock('../src/channels/signal/runtime.js', () => ({
     sendToSignalChat,
   }));
@@ -303,6 +307,7 @@ async function importFreshMessageToolActions() {
     sendEmailAttachmentTo,
     sendToEmail,
     readEmailMailbox,
+    sendToLineChat,
     getAgentById,
     resolveAgentForRequest,
     sendToSignalChat,
@@ -538,6 +543,82 @@ test('send action rejects telegram-prefixed usernames for Telegram sends', async
   );
   expect(state.sendToTelegramChat).not.toHaveBeenCalled();
   expect(state.sendToEmail).not.toHaveBeenCalled();
+});
+
+test('send action routes LINE targets through LINE transport without lowercasing ids', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: 'line:U0123456789abcdef0123456789ABCDEF',
+    content: 'hello line',
+  });
+
+  expect(state.sendToLineChat).toHaveBeenCalledWith(
+    'line:U0123456789abcdef0123456789ABCDEF',
+    'hello line',
+  );
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'line:U0123456789abcdef0123456789ABCDEF',
+    transport: 'line',
+  });
+});
+
+test('send action routes LINE group targets through LINE transport', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: 'line:group:C0123456789abcdef0123456789ABCDEF',
+    content: 'hello line group',
+  });
+
+  expect(state.sendToLineChat).toHaveBeenCalledWith(
+    'line:group:C0123456789abcdef0123456789ABCDEF',
+    'hello line group',
+  );
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'line:group:C0123456789abcdef0123456789ABCDEF',
+    transport: 'line',
+  });
+});
+
+test('send action rejects invalid LINE targets before Discord lookup', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'line:not-a-recipient',
+      content: 'hello line',
+    }),
+  ).rejects.toThrow(
+    'LINE send targets must use `line:<userId>`, `line:group:<groupId>`, or `line:room:<roomId>`.',
+  );
+  expect(state.sendToLineChat).not.toHaveBeenCalled();
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+});
+
+test('send action rejects LINE attachments explicitly', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'line:U0123456789abcdef0123456789ABCDEF',
+      content: 'see attached',
+      filePath: '/discord-media-cache/example.png',
+    }),
+  ).rejects.toThrow(
+    'filePath is not supported for LINE sends because LINE media messages require public HTTPS URLs.',
+  );
+  expect(state.sendToLineChat).not.toHaveBeenCalled();
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
 });
 
 test('send action routes Telegram uploads through Telegram media delivery', async () => {

@@ -19,7 +19,7 @@ export function printMainUsage(): void {
              Run R10a harness-evolution workspace and loop helpers
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
-  channels   Channel setup helpers (Discord, Slack, Telegram, Signal, Threema, WhatsApp, Email)
+  channels   Channel setup helpers (Discord, Slack, LINE, Telegram, Signal, Threema, WhatsApp, Email)
   coworker   Distill a human's source material into a coworker agent
   browser    Manage persistent browser profiles for agent web automation
   browser-pool
@@ -393,6 +393,7 @@ Commands:
   hybridclaw channels slack_webhook setup --webhook-url <https://hooks.slack.com/services/...> [--target default] [--default-username <name>] [--default-icon-emoji <:emoji:>] [--default-icon-url <url>]
   hybridclaw channel add discord_webhook --webhook-url <https://discord.com/api/webhooks/...> [--target default]
   hybridclaw channel add slack_webhook --webhook-url <https://hooks.slack.com/services/...> [--target default]
+  hybridclaw channels line setup [--channel-access-token <token>] [--channel-secret <secret>] [--allow-from <line-user-id|*>]... [--group-allow-from <line-user-id|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--webhook-path <path>] [--text-chunk-limit <chars>] [--require-mention|--no-require-mention]
   hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
   hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
   hybridclaw channels threema setup --identity <gateway-id> [--secret <secret>] [--api-base-url <url>] [--allow-from <threema-target|*>]... [--dm-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--outbound-delay-ms <ms>]
@@ -406,6 +407,9 @@ Notes:
   - Telegram setup stores \`TELEGRAM_BOT_TOKEN\` only when \`--token\` is provided or pasted interactively.
   - Telegram defaults to inbound deny-by-default: without \`--allow-from\` or \`--dm-policy open\`, DMs stay disabled.
   - Telegram groups stay disabled by default, and \`requireMention\` defaults to \`true\`.
+  - LINE setup stores \`LINE_CHANNEL_ACCESS_TOKEN\` and \`LINE_CHANNEL_SECRET\` only when provided or pasted interactively.
+  - LINE webhooks must use the configured webhook path and pass LINE signature verification.
+  - LINE groups stay disabled by default, and \`requireMention\` defaults to \`true\`.
   - Signal setup uses a signal-cli linked device; link with \`signal-cli link -n HybridClaw\`, start the daemon, then configure HybridClaw to connect to it.
   - WhatsApp setup starts a temporary pairing session and prints the QR code here when needed.
   - Use \`--reset\` to wipe stale WhatsApp auth files and force a fresh QR.
@@ -430,6 +434,7 @@ Notes:
   - Groups stay disabled by default for iMessage setup.
   - Discord activates automatically when \`DISCORD_TOKEN\` is configured.
   - Telegram activates automatically when \`telegram.enabled=true\` and a bot token is configured.
+  - LINE activates automatically when \`line.enabled=true\` and both LINE credentials are configured.
   - iMessage activates automatically when \`imessage.enabled=true\`.
   - Email activates automatically when \`email.enabled=true\` and \`EMAIL_PASSWORD\` is configured.
   - WhatsApp activates automatically once linked auth exists.`);

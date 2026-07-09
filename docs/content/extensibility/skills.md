@@ -328,8 +328,8 @@ HybridClaw separates skill discovery from runtime availability.
 
 - `skills.disabled` is the global disabled list
 - `skills.channelDisabled.<channel>` blocks a skill in one channel. Current
-  channel keys include `discord`, `msteams`, `signal`, `slack`, `telegram`,
-  `voice`, `whatsapp`, `email`, and `imessage`.
+  channel keys include `discord`, `msteams`, `signal`, `slack`, `line`,
+  `telegram`, `voice`, `whatsapp`, `email`, and `imessage`.
 
 Operator surfaces:
 

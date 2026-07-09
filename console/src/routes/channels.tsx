@@ -66,6 +66,13 @@ function isTelegramInboundEnabled(config: AdminConfig): boolean {
   );
 }
 
+function isLineInboundEnabled(config: AdminConfig): boolean {
+  return (
+    config.line.dmPolicy !== 'disabled' ||
+    config.line.groupPolicy !== 'disabled'
+  );
+}
+
 function ListField(props: {
   label: string;
   value: string[];
@@ -340,11 +347,13 @@ function ManagedSecretField(props: {
     | 'SLACK_BOT_TOKEN'
     | 'SLACK_APP_TOKEN'
     | 'TELEGRAM_BOT_TOKEN'
+    | 'LINE_CHANNEL_ACCESS_TOKEN'
+    | 'LINE_CHANNEL_SECRET'
     | 'THREEMA_GATEWAY_SECRET'
     | 'TWILIO_AUTH_TOKEN'
     | 'EMAIL_PASSWORD'
     | 'IMESSAGE_PASSWORD';
-  secretLabel: 'token' | 'password' | 'secret';
+  secretLabel: string;
   configValue?: string;
   configured: boolean;
   source: SecretSource;
@@ -1133,6 +1142,183 @@ function TelegramChannelEditor(props: {
         </p>
       ) : null}
       <ChannelInstructionsField kind="telegram" />
+    </>
+  );
+}
+
+function LineChannelEditor(props: {
+  draft: AdminConfig;
+  form: UseFormControllerReturn<AdminConfig>;
+  accessTokenConfigured: boolean;
+  accessTokenSource: SecretSource;
+  channelSecretConfigured: boolean;
+  channelSecretSource: SecretSource;
+  token: string;
+  onSecretSaved: () => void;
+}) {
+  return (
+    <>
+      <FormField
+        name="line.enabled"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Enabled</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
+      />
+
+      <div className="field-grid">
+        <ManagedSecretField
+          label="Channel access token"
+          secretName="LINE_CHANNEL_ACCESS_TOKEN"
+          secretLabel="access token"
+          configValue={props.draft.line.channelAccessToken}
+          configured={props.accessTokenConfigured}
+          source={props.accessTokenSource}
+          token={props.token}
+          onSecretSaved={props.onSecretSaved}
+        />
+        <ManagedSecretField
+          label="Channel secret"
+          secretName="LINE_CHANNEL_SECRET"
+          secretLabel="channel secret"
+          configValue={props.draft.line.channelSecret}
+          configured={props.channelSecretConfigured}
+          source={props.channelSecretSource}
+          token={props.token}
+          onSecretSaved={props.onSecretSaved}
+        />
+      </div>
+
+      <FormField
+        name="line.webhookPath"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Webhook path</FieldLabel>
+            <Input {...field} />
+            <FieldDescription>
+              Configure this path in LINE Developers on your public gateway
+              origin.
+            </FieldDescription>
+          </Field>
+        )}
+      />
+
+      <div className="field-grid">
+        <FormField
+          name="line.dmPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
+          name="line.groupPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+      </div>
+
+      <FormField
+        name="line.requireMention"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Require mention in groups</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
+      />
+
+      <FormField
+        name="line.allowFrom"
+        render={({ field }) => (
+          <AllowListField
+            label="Allowed DM senders"
+            value={field.value as string[]}
+            placeholder="LINE user ID like U0123... or *"
+            onChange={field.onChange}
+          />
+        )}
+      />
+
+      <FormField
+        name="line.groupAllowFrom"
+        render={({ field }) => (
+          <AllowListField
+            label="Allowed group senders"
+            value={field.value as string[]}
+            placeholder="LINE user ID like U0123... or *"
+            onChange={field.onChange}
+          />
+        )}
+      />
+
+      <FormField
+        name="line.textChunkLimit"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Text chunk limit</FieldLabel>
+            <NumberField
+              integer
+              min={0}
+              value={field.value as number}
+              onValueChange={field.onChange}
+            />
+          </Field>
+        )}
+      />
+
+      <p className="muted-copy">
+        LINE inbound handling stays off until DM or group policy is opened or
+        allowlisted. Webhooks are accepted only when the LINE signature
+        validates against the channel secret.
+      </p>
+      {!isLineInboundEnabled(props.draft) ? (
+        <p className="muted-copy">
+          This page edits transport-level LINE settings. Discord and Teams
+          remain the only transports with per-channel override bindings.
+        </p>
+      ) : null}
+      <ChannelInstructionsField kind="line" />
     </>
   );
 }
@@ -3425,6 +3611,12 @@ function renderSelectedEditor(
       configured: boolean;
       source: SecretSource;
     };
+    line: {
+      accessTokenConfigured: boolean;
+      accessTokenSource: SecretSource;
+      channelSecretConfigured: boolean;
+      channelSecretSource: SecretSource;
+    };
     threema: {
       configured: boolean;
       source: SecretSource;
@@ -3518,6 +3710,19 @@ function renderSelectedEditor(
           form={form}
           tokenConfigured={secretStatus.telegram.configured}
           tokenSource={secretStatus.telegram.source}
+          token={token}
+          onSecretSaved={onSecretSaved}
+        />
+      );
+    case 'line':
+      return (
+        <LineChannelEditor
+          draft={draft}
+          form={form}
+          accessTokenConfigured={secretStatus.line.accessTokenConfigured}
+          accessTokenSource={secretStatus.line.accessTokenSource}
+          channelSecretConfigured={secretStatus.line.channelSecretConfigured}
+          channelSecretSource={secretStatus.line.channelSecretSource}
           token={token}
           onSecretSaved={onSecretSaved}
         />
@@ -3634,6 +3839,10 @@ export function ChannelsPage() {
         slackAppTokenConfigured: statusQuery.data?.slack?.appTokenConfigured,
         slackWebhookDefaultConfigured:
           statusQuery.data?.slackWebhook?.defaultTargetConfigured,
+        lineChannelAccessTokenConfigured:
+          statusQuery.data?.line?.channelAccessTokenConfigured,
+        lineChannelSecretConfigured:
+          statusQuery.data?.line?.channelSecretConfigured,
         telegramTokenConfigured: statusQuery.data?.telegram?.tokenConfigured,
         threemaSecretConfigured: statusQuery.data?.threema?.secretConfigured,
         signalDaemonUrlConfigured:
@@ -3707,6 +3916,15 @@ export function ChannelsPage() {
     telegram: {
       configured: statusQuery.data?.telegram?.tokenConfigured ?? false,
       source: statusQuery.data?.telegram?.tokenSource ?? null,
+    },
+    line: {
+      accessTokenConfigured:
+        statusQuery.data?.line?.channelAccessTokenConfigured ?? false,
+      accessTokenSource:
+        statusQuery.data?.line?.channelAccessTokenSource ?? null,
+      channelSecretConfigured:
+        statusQuery.data?.line?.channelSecretConfigured ?? false,
+      channelSecretSource: statusQuery.data?.line?.channelSecretSource ?? null,
     },
     threema: {
       configured: statusQuery.data?.threema?.secretConfigured ?? false,

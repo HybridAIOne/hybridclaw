@@ -3,6 +3,7 @@ export declare const MESSAGE_TOOL_CHANNEL_KINDS: readonly [
   'discord_webhook',
   'email',
   'imessage',
+  'line',
   'msteams',
   'signal',
   'slack',

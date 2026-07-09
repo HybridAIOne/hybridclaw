@@ -148,7 +148,7 @@ Full reference: [Diagnostics](../reference/diagnostics.md).
 
 With one conversation working, expand the system:
 
-- [Connect Your First Channel](./first-channel.md) — Slack, Discord, Telegram,
+- [Connect Your First Channel](./first-channel.md) — Slack, Discord, LINE, Telegram,
   Signal, WhatsApp, email, and more, with a private first-rollout checklist.
 - [Local vs Cloud Setup](./local-vs-cloud.md) — when you need a public URL,
   tunneling, or a cloud deployment, and how to switch between modes.

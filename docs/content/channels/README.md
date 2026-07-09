@@ -29,6 +29,7 @@ If you are still working through first-run onboarding, start with
 - [Slack](./slack.md)
 - [Slack Incoming Webhook](./slack-webhook.md)
 - [Discord Incoming Webhook](./discord-webhook.md)
+- [LINE](./line.md)
 - [Telegram](./telegram.md)
 - [Signal](./signal.md)
 - [Threema](./threema.md)

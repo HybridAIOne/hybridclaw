@@ -21,6 +21,7 @@ If you are still in first-run onboarding mode, start with
 | Discord Incoming Webhook | Outbound-only Discord status updates and alerts without a bot token | `hybridclaw channel add discord_webhook ...` | [Discord Incoming Webhook](./discord-webhook.md) |
 | Slack | Workspace app, Socket Mode, optional native Slack slash commands | `hybridclaw auth login slack ...` | [Slack](./slack.md) |
 | Slack Incoming Webhook | Outbound-only Slack status updates and alerts without a bot token | `hybridclaw channel add slack_webhook ...` | [Slack Incoming Webhook](./slack-webhook.md) |
+| LINE | Messaging API bot DMs, groups, and rooms through signed HTTPS webhooks | `hybridclaw channels line setup ...` | [LINE](./line.md) |
 | Telegram | Fast private DM rollout with BotFather | `hybridclaw channels telegram setup ...` | [Telegram](./telegram.md) |
 | Signal | Private Signal DMs through a signal-cli compatible daemon | `hybridclaw channels signal setup ...` | [Signal](./signal.md) |
 | Threema | Outbound Gateway Basic-mode text delivery | `hybridclaw channels threema setup ...` | [Threema](./threema.md) |
@@ -49,6 +50,8 @@ required credentials saved:
   `SLACK_APP_TOKEN` are saved
 - **Slack Incoming Webhook** when `slackWebhook.enabled` is true and the default
   webhook target has a stored SecretRef
+- **LINE** when `line.enabled` is true and both `LINE_CHANNEL_ACCESS_TOKEN` and
+  `LINE_CHANNEL_SECRET` are saved
 - **Telegram** when `telegram.enabled` is true and `TELEGRAM_BOT_TOKEN` is set
 - **Signal** when `signal.enabled` is true and a reachable `signal-cli`
   compatible daemon plus account are configured

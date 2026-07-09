@@ -29,6 +29,7 @@ Yes, a vendor webhook, phone provider, relay, or peer instance needs a public UR
 
 Choose a public URL when you use:
 
+- LINE, because the Messaging API delivers inbound events by HTTPS webhook
 - Microsoft Teams, because Azure Bot Framework delivers inbound messages by HTTPS webhook
 - Twilio Voice, because Twilio needs both an HTTPS webhook and a WSS relay URL
 - remote BlueBubbles iMessage relay webhooks

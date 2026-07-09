@@ -66,6 +66,10 @@
           "path": "channels/discord-webhook.md"
         },
         {
+          "title": "LINE",
+          "path": "channels/line.md"
+        },
+        {
           "title": "Telegram",
           "path": "channels/telegram.md"
         },

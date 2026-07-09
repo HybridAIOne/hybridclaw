@@ -208,6 +208,9 @@ test('resolveSessionResetChannelKind infers real channel kinds from channel ids'
   expect(
     resolveSessionResetChannelKind('telegram:-1001234567890:topic:42'),
   ).toBe('telegram');
+  expect(
+    resolveSessionResetChannelKind('line:U0123456789abcdef0123456789ABCDEF'),
+  ).toBe('line');
   expect(resolveSessionResetChannelKind('peer@example.com')).toBe('email');
   expect(resolveSessionResetChannelKind('imessage:peer@example.com')).toBe(
     'imessage',

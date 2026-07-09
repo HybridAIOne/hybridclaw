@@ -65,6 +65,14 @@ import {
   shutdownIMessage,
 } from '../channels/imessage/runtime.js';
 import {
+  hasLineCredentials,
+  initLine,
+  type LineReplyFn,
+  sendToLineChat,
+  shutdownLine,
+} from '../channels/line/runtime.js';
+import { isLineChannelId } from '../channels/line/target.js';
+import {
   initSignal,
   type SignalReplyFn,
   sendToSignalChat,
@@ -294,6 +302,24 @@ function hasTelegramConfigChanged(
     next.pollIntervalMs !== prev.pollIntervalMs ||
     next.textChunkLimit !== prev.textChunkLimit ||
     next.mediaMaxMb !== prev.mediaMaxMb
+  );
+}
+
+function hasLineConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['line'],
+  prev: ReturnType<typeof getConfigSnapshot>['line'],
+): boolean {
+  return (
+    next.enabled !== prev.enabled ||
+    next.channelAccessToken !== prev.channelAccessToken ||
+    next.channelSecret !== prev.channelSecret ||
+    next.webhookPath !== prev.webhookPath ||
+    next.dmPolicy !== prev.dmPolicy ||
+    next.groupPolicy !== prev.groupPolicy ||
+    !equalStringLists(next.allowFrom, prev.allowFrom) ||
+    !equalStringLists(next.groupAllowFrom, prev.groupAllowFrom) ||
+    next.requireMention !== prev.requireMention ||
+    next.textChunkLimit !== prev.textChunkLimit
   );
 }
 
@@ -559,6 +585,7 @@ function logGatewayStartup(params: {
     slackWebhook: boolean;
     email: boolean;
     imessage: boolean;
+    line: boolean;
     telegram: boolean;
     threema: boolean;
     voice: boolean;
@@ -1214,6 +1241,38 @@ async function sendProactiveMessageNow(
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to Telegram chat',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
+  if (isLineChannelId(channelId)) {
+    const lineConfig = getConfigSnapshot().line;
+    const hasCredentials = hasLineCredentials();
+    if (!lineConfig.enabled || !hasCredentials) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive LINE message suppressed: LINE channel is not configured',
+      );
+      return;
+    }
+
+    try {
+      if (text.trim()) {
+        await sendToLineChat(channelId, text);
+      }
+      if (attachments.length > 0) {
+        logger.warn(
+          { source, channelId, artifactCount: attachments.length },
+          'LINE channel does not support proactive local attachments; dropping artifacts',
+        );
+      }
+      return;
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to LINE chat',
       );
       logger.info({ source, channelId, text }, 'Proactive message fallback');
     }
@@ -2247,6 +2306,155 @@ async function startTelegramIntegration(): Promise<boolean> {
   return true;
 }
 
+async function startLineIntegration(): Promise<boolean> {
+  const lineConfig = getConfigSnapshot().line;
+  const hasInboundPolicy =
+    lineConfig.dmPolicy !== 'disabled' || lineConfig.groupPolicy !== 'disabled';
+  const hasCredentials = hasLineCredentials();
+
+  if (!lineConfig.enabled) {
+    logger.info('LINE integration disabled: line.enabled=false');
+    return false;
+  }
+  if (!hasInboundPolicy) {
+    logger.info('LINE integration disabled: transport is off');
+    return false;
+  }
+  if (!hasCredentials) {
+    logger.info(
+      'LINE integration disabled: LINE_CHANNEL_ACCESS_TOKEN or LINE_CHANNEL_SECRET is not configured',
+    );
+    return false;
+  }
+
+  try {
+    await initLine(
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content,
+        media,
+        reply: LineReplyFn,
+        context,
+      ) => {
+        try {
+          const implicitApprovalArgs = resolveImplicitNumericApprovalArgs({
+            sessionId,
+            userId,
+            content,
+          });
+          if (implicitApprovalArgs) {
+            const bridgedReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            await handleTextChannelCommand({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              args: implicitApprovalArgs,
+              reply: bridgedReply,
+            });
+            return;
+          }
+
+          const slashCommands = resolveTextChannelSlashCommands(content);
+          if (slashCommands) {
+            const bridgedReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            for (const args of slashCommands) {
+              await handleTextChannelCommand({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                args,
+                reply: bridgedReply,
+              });
+            }
+            return;
+          }
+
+          const result = normalizePlaceholderToolReply(
+            await handleGatewayMessage({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              content,
+              media,
+              onProactiveMessage: async (message) => {
+                await deliverProactiveMessage(
+                  message.channelId || channelId,
+                  message.text,
+                  'delegate',
+                  message.artifacts,
+                );
+              },
+              abortSignal: context.abortSignal,
+              source: 'line',
+            }),
+          );
+          if (result.status === 'error') {
+            await reply(formatChannelGatewayErrorReply(result.error));
+            return;
+          }
+
+          const cleanedResultText = stripSilentToken(
+            String(result.result || ''),
+          );
+          const artifacts = result.artifacts || [];
+          if (isSilentReply(result.result)) {
+            return;
+          }
+          if (!cleanedResultText.trim() && artifacts.length === 0) {
+            return;
+          }
+
+          const effectiveSessionId = result.sessionId || sessionId;
+          const showMode = normalizeSessionShowMode(
+            memoryService.getSessionById(effectiveSessionId)?.show_mode,
+          );
+          if (cleanedResultText.trim()) {
+            const responseText = buildResponseText(
+              cleanedResultText,
+              sessionShowModeShowsTools(showMode)
+                ? result.toolsUsed
+                : undefined,
+            );
+            await reply(responseText);
+          }
+          if (artifacts.length > 0) {
+            logger.warn(
+              { channelId, artifactCount: artifacts.length },
+              'LINE channel does not support local artifact delivery; dropping artifacts',
+            );
+          }
+        } catch (error) {
+          logger.error(
+            { error, sessionId, channelId },
+            'LINE message handling failed',
+          );
+          await reply(formatChannelGatewayErrorReply(error));
+        }
+      },
+    );
+  } catch (error) {
+    logger.warn({ error }, 'LINE integration failed to start');
+    return false;
+  }
+
+  logger.info('LINE integration started inside gateway');
+  return true;
+}
+
 async function startSignalIntegration(): Promise<boolean> {
   const signalConfig = getConfigSnapshot().signal;
   const hasInboundPolicy =
@@ -2692,6 +2900,31 @@ async function refreshTelegramIntegrationForConfigChange(
     );
   });
   await startTelegramIntegration();
+}
+
+async function refreshLineIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (!hasLineConfigChanged(next.line, prev.line)) return;
+
+  logger.info(
+    {
+      enabled: next.line.enabled,
+      dmPolicy: next.line.dmPolicy,
+      groupPolicy: next.line.groupPolicy,
+      webhookPath: next.line.webhookPath,
+      requireMention: next.line.requireMention,
+    },
+    'Config changed, restarting LINE integration',
+  );
+  await shutdownLine().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop LINE runtime during config-change restart',
+    );
+  });
+  await startLineIntegration();
 }
 
 async function refreshSignalIntegrationForConfigChange(
@@ -3241,6 +3474,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
     );
     await runShutdownStep('stop Slack webhook runtime', shutdownSlackWebhook);
     await runShutdownStep('stop Telegram runtime', shutdownTelegram);
+    await runShutdownStep('stop LINE runtime', shutdownLine);
     await runShutdownStep('stop WhatsApp runtime', shutdownWhatsApp);
     await runShutdownStep('stop Voice runtime', () =>
       shutdownVoice({ drain: opts?.drain }),
@@ -3569,6 +3803,7 @@ async function main(): Promise<void> {
   const slackActive = await startSlackIntegration();
   const emailActive = await startEmailIntegration();
   const telegramActive = await startTelegramIntegration();
+  const lineActive = await startLineIntegration();
   const whatsappActive = await startWhatsAppIntegration();
   const voiceActive = await startVoiceIntegration();
   const imessageActive = await startIMessageIntegration();
@@ -3604,6 +3839,12 @@ async function main(): Promise<void> {
         );
       },
     );
+    void refreshLineIntegrationForConfigChange(next, prev).catch((error) => {
+      logger.warn(
+        { error },
+        'LINE integration restart failed after config change',
+      );
+    });
     void refreshSignalIntegrationForConfigChange(next, prev).catch((error) => {
       logger.warn(
         { error },
@@ -3730,6 +3971,7 @@ async function main(): Promise<void> {
       slackWebhook: slackWebhookActive,
       email: emailActive,
       imessage: imessageActive,
+      line: lineActive,
       telegram: telegramActive,
       voice: voiceActive,
       whatsapp: whatsappActive,

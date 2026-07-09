@@ -57,6 +57,7 @@ function makeConfig(): AdminConfig {
       slack: '',
       slack_webhook: '',
       signal: '',
+      line: '',
       telegram: '',
       threema: '',
       voice: '',

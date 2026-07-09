@@ -122,6 +122,12 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
+  line?: {
+    channelAccessTokenConfigured: boolean;
+    channelAccessTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
+    channelSecretConfigured: boolean;
+    channelSecretSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
   threema?: {
     secretConfigured: boolean;
     secretSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -553,6 +559,7 @@ export interface AdminConfig {
     slack: string;
     slack_webhook: string;
     signal: string;
+    line: string;
     telegram: string;
     threema: string;
     voice: string;
@@ -702,6 +709,18 @@ export interface AdminConfig {
     requireMention: boolean;
     textChunkLimit: number;
     mediaMaxMb: number;
+  };
+  line: {
+    enabled: boolean;
+    channelAccessToken: string;
+    channelSecret: string;
+    webhookPath: string;
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    groupAllowFrom: string[];
+    requireMention: boolean;
+    textChunkLimit: number;
   };
   signal: {
     enabled: boolean;

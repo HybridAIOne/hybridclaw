@@ -3,6 +3,8 @@ import {
   DISCORD_TOKEN,
   EMAIL_PASSWORD,
   getConfigSnapshot,
+  LINE_CHANNEL_ACCESS_TOKEN,
+  LINE_CHANNEL_SECRET,
   MSTEAMS_APP_ID,
   MSTEAMS_APP_PASSWORD,
   TELEGRAM_BOT_TOKEN,
@@ -95,6 +97,20 @@ export async function checkChannels(): Promise<DiagResult[]> {
     }
   }
 
+  if (config.line.enabled) {
+    if (
+      String(
+        LINE_CHANNEL_ACCESS_TOKEN || config.line.channelAccessToken || '',
+      ).trim() &&
+      String(LINE_CHANNEL_SECRET || config.line.channelSecret || '').trim()
+    ) {
+      segments.push('LINE configured');
+    } else {
+      segments.push('LINE credentials incomplete');
+      severities.push('error');
+    }
+  }
+
   if (threema?.enabled) {
     if (
       threema.identity.trim() &&
@@ -151,7 +167,7 @@ export async function checkChannels(): Promise<DiagResult[]> {
         'channels',
         'Channels',
         'ok',
-        'No external channels enabled (Discord, Discord webhook, Teams, Telegram, Threema, Slack webhook, Email, and WhatsApp are all intentionally disabled)',
+        'No external channels enabled (Discord, Discord webhook, Teams, LINE, Telegram, Threema, Slack webhook, Email, and WhatsApp are all intentionally disabled)',
       ),
     ];
   }

@@ -144,7 +144,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 33;
+export const CONFIG_VERSION = 34;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -159,6 +159,7 @@ const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
 const DEFAULT_CHANNEL_INSTRUCTIONS: RuntimeChannelInstructionsConfig = {
   discord: '',
   discord_webhook: '',
+  line: '',
   msteams: '',
   signal: '',
   slack: '',
@@ -236,6 +237,8 @@ export type DiscordTypingMode = 'instant' | 'thinking' | 'streaming' | 'never';
 export type DiscordHumanDelayMode = 'off' | 'natural' | 'custom';
 export type MSTeamsGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type MSTeamsDmPolicy = 'open' | 'allowlist' | 'disabled';
+export type LineDmPolicy = 'open' | 'allowlist' | 'disabled';
+export type LineGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type MSTeamsReplyStyle = 'thread' | 'top-level';
 export type DiscordAckReactionScope =
   | 'all'
@@ -689,6 +692,19 @@ export interface RuntimeTelegramConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeLineConfig {
+  enabled: boolean;
+  channelAccessToken: string;
+  channelSecret: string;
+  webhookPath: string;
+  dmPolicy: LineDmPolicy;
+  groupPolicy: LineGroupPolicy;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  requireMention: boolean;
+  textChunkLimit: number;
+}
+
 export interface RuntimeSignalConfig {
   enabled: boolean;
   daemonUrl: string;
@@ -770,6 +786,7 @@ export interface RuntimeEmailAccountConfig {
 export interface RuntimeChannelInstructionsConfig {
   discord: string;
   discord_webhook: string;
+  line: string;
   msteams: string;
   signal: string;
   slack: string;
@@ -1071,6 +1088,7 @@ export interface RuntimeConfig {
   signal: RuntimeSignalConfig;
   slack: RuntimeSlackConfig;
   slackWebhook: RuntimeSlackWebhookConfig;
+  line: RuntimeLineConfig;
   telegram: RuntimeTelegramConfig;
   threema: RuntimeThreemaConfig;
   whatsapp: RuntimeWhatsAppConfig;
@@ -1663,6 +1681,18 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     enabled: false,
     webhooks: {},
   },
+  line: {
+    enabled: false,
+    channelAccessToken: '',
+    channelSecret: '',
+    webhookPath: '/api/line/webhook',
+    dmPolicy: 'allowlist',
+    groupPolicy: 'disabled',
+    allowFrom: [],
+    groupAllowFrom: [],
+    requireMention: true,
+    textChunkLimit: 5_000,
+  },
   telegram: {
     enabled: false,
     botToken: '',
@@ -2112,6 +2142,8 @@ const SECRET_INPUT_PATHS = [
   'ops.gatewayApiToken',
   'email.password',
   'imessage.password',
+  'line.channelAccessToken',
+  'line.channelSecret',
   'telegram.botToken',
   'threema.secret',
   'voice.twilio.authToken',
@@ -3683,6 +3715,74 @@ function normalizeTelegramConfig(
   };
 }
 
+function normalizeLinePolicy(
+  value: unknown,
+  fallback: LineDmPolicy,
+): LineDmPolicy;
+function normalizeLinePolicy(
+  value: unknown,
+  fallback: LineGroupPolicy,
+): LineGroupPolicy;
+function normalizeLinePolicy(
+  value: unknown,
+  fallback: LineDmPolicy | LineGroupPolicy,
+): LineDmPolicy | LineGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeLineConfig(
+  value: unknown,
+  fallback: RuntimeLineConfig,
+  opts?: {
+    channelAccessToken?: unknown;
+    channelSecret?: unknown;
+  },
+): RuntimeLineConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    channelAccessToken: normalizeString(
+      opts?.channelAccessToken ?? raw.channelAccessToken,
+      fallback.channelAccessToken,
+      { allowEmpty: true },
+    ),
+    channelSecret: normalizeString(
+      opts?.channelSecret ?? raw.channelSecret,
+      fallback.channelSecret,
+      { allowEmpty: true },
+    ),
+    webhookPath: normalizeApiPath(raw.webhookPath, fallback.webhookPath),
+    dmPolicy: normalizeLinePolicy(raw.dmPolicy, fallback.dmPolicy),
+    groupPolicy: normalizeLinePolicy(raw.groupPolicy, fallback.groupPolicy),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    groupAllowFrom: normalizeStringArray(
+      raw.groupAllowFrom,
+      fallback.groupAllowFrom,
+    ),
+    requireMention: normalizeBoolean(
+      raw.requireMention,
+      fallback.requireMention,
+    ),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 200,
+        max: 5_000,
+      },
+    ),
+  };
+}
+
 function normalizeSlackConfig(
   value: unknown,
   fallback: RuntimeSlackConfig,
@@ -3980,6 +4080,9 @@ function normalizeChannelInstructionsConfig(
       fallback.discord_webhook,
       { allowEmpty: true },
     ),
+    line: normalizeString(raw.line, fallback.line, {
+      allowEmpty: true,
+    }),
     msteams: normalizeString(raw.msteams, fallback.msteams, {
       allowEmpty: true,
     }),
@@ -5271,6 +5374,18 @@ function getSecretInputFromSource(
       ? telegram.botToken
       : undefined;
   }
+  if (secretPath === 'line.channelAccessToken') {
+    const line = isRecord(source.line) ? source.line : null;
+    return line && hasOwn(line, 'channelAccessToken')
+      ? line.channelAccessToken
+      : undefined;
+  }
+  if (secretPath === 'line.channelSecret') {
+    const line = isRecord(source.line) ? source.line : null;
+    return line && hasOwn(line, 'channelSecret')
+      ? line.channelSecret
+      : undefined;
+  }
   if (secretPath === 'threema.secret') {
     const threema = isRecord(source.threema) ? source.threema : null;
     return threema && hasOwn(threema, 'secret') ? threema.secret : undefined;
@@ -5318,6 +5433,19 @@ function setSecretInputOnSource(
     const telegram = isRecord(source.telegram) ? source.telegram : {};
     source.telegram = telegram;
     telegram.botToken = value;
+    return;
+  }
+  if (
+    secretPath === 'line.channelAccessToken' ||
+    secretPath === 'line.channelSecret'
+  ) {
+    const line = isRecord(source.line) ? source.line : {};
+    source.line = line;
+    line[
+      secretPath === 'line.channelAccessToken'
+        ? 'channelAccessToken'
+        : 'channelSecret'
+    ] = value;
     return;
   }
   if (secretPath === 'threema.secret') {
@@ -6724,6 +6852,7 @@ function normalizeRuntimeConfig(
     : isRecord((raw as Record<string, unknown>).slack_webhook)
       ? (raw as Record<string, unknown>).slack_webhook
       : {};
+  const rawLine = isRecord(raw.line) ? raw.line : {};
   const rawTelegram = isRecord(raw.telegram) ? raw.telegram : {};
   const rawThreema = isRecord(raw.threema) ? raw.threema : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
@@ -6950,6 +7079,23 @@ function normalizeRuntimeConfig(
       path: 'telegram.botToken',
       required:
         isSecretRefInput(rawTelegram.botToken) && Boolean(rawTelegram.enabled),
+    },
+  );
+  const resolvedLineChannelAccessToken = resolveConfiguredSecretInput(
+    rawLine.channelAccessToken,
+    {
+      path: 'line.channelAccessToken',
+      required:
+        isSecretRefInput(rawLine.channelAccessToken) &&
+        Boolean(rawLine.enabled),
+    },
+  );
+  const resolvedLineChannelSecret = resolveConfiguredSecretInput(
+    rawLine.channelSecret,
+    {
+      path: 'line.channelSecret',
+      required:
+        isSecretRefInput(rawLine.channelSecret) && Boolean(rawLine.enabled),
     },
   );
   const resolvedThreemaGatewaySecret = resolveConfiguredSecretInput(
@@ -7448,6 +7594,10 @@ function normalizeRuntimeConfig(
       rawSlackWebhook,
       DEFAULT_RUNTIME_CONFIG.slackWebhook,
     ),
+    line: normalizeLineConfig(rawLine, DEFAULT_RUNTIME_CONFIG.line, {
+      channelAccessToken: resolvedLineChannelAccessToken,
+      channelSecret: resolvedLineChannelSecret,
+    }),
     telegram: normalizeTelegramConfig(
       rawTelegram,
       DEFAULT_RUNTIME_CONFIG.telegram,

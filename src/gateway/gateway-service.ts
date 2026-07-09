@@ -154,6 +154,8 @@ import {
   HYBRIDAI_MODEL,
   HYBRIDAI_ONBOARDING_MODEL,
   IMESSAGE_PASSWORD,
+  LINE_CHANNEL_ACCESS_TOKEN,
+  LINE_CHANNEL_SECRET,
   MISTRAL_API_KEY,
   MissingRequiredEnvVarError,
   MSTEAMS_APP_ID,
@@ -1312,6 +1314,7 @@ export function resolveChannelType(
   if (
     source === 'discord' ||
     source === 'imessage' ||
+    source === 'line' ||
     source === 'whatsapp' ||
     source === 'email' ||
     source === 'msteams' ||
@@ -1323,6 +1326,7 @@ export function resolveChannelType(
   if (
     inferredChannelType === 'discord' ||
     inferredChannelType === 'imessage' ||
+    inferredChannelType === 'line' ||
     inferredChannelType === 'whatsapp' ||
     inferredChannelType === 'email' ||
     inferredChannelType === 'voice'
@@ -4855,6 +4859,24 @@ export async function getGatewayStatus(
     configValue: runtimeConfig.telegram.botToken,
     storedValue: storedSecrets.TELEGRAM_BOT_TOKEN,
   });
+  const lineChannelAccessToken = resolveGatewayTokenStatus({
+    storedSecretName: 'LINE_CHANNEL_ACCESS_TOKEN',
+    envValues: [LINE_CHANNEL_ACCESS_TOKEN],
+    configValue: runtimeConfig.line.channelAccessToken,
+    storedValue: storedSecrets.LINE_CHANNEL_ACCESS_TOKEN,
+  });
+  const lineChannelSecret = resolveGatewayPasswordStatus({
+    storedSecretName: 'LINE_CHANNEL_SECRET',
+    envValues: [LINE_CHANNEL_SECRET],
+    configValue: runtimeConfig.line.channelSecret,
+    storedValue: storedSecrets.LINE_CHANNEL_SECRET,
+  });
+  const line = {
+    channelAccessTokenConfigured: lineChannelAccessToken.tokenConfigured,
+    channelAccessTokenSource: lineChannelAccessToken.tokenSource,
+    channelSecretConfigured: lineChannelSecret.passwordConfigured,
+    channelSecretSource: lineChannelSecret.passwordSource,
+  } as NonNullable<GatewayStatus['line']>;
   const threemaCredential = resolveRuntimeCredentialStatus(
     'THREEMA_GATEWAY_SECRET',
     [THREEMA_GATEWAY_SECRET],
@@ -4936,6 +4958,7 @@ export async function getGatewayStatus(
     slack,
     slackWebhook,
     telegram,
+    line,
     email,
     emailEnabled: runtimeConfig.email.enabled === true,
     imessage,

@@ -94,7 +94,7 @@ dry task list.
 
 ## Communication Jobs
 
-- Catch-up summaries across Discord, Slack, Teams, Telegram, WhatsApp, email, and local chat.
+- Catch-up summaries across Discord, Slack, Teams, LINE, Telegram, WhatsApp, email, and local chat.
 - Draft stakeholder updates, customer replies, internal announcements, and follow-up emails.
 - Convert a messy thread into decisions, action items, owners, and deadlines.
 - Prepare response options for urgent messages without sending until approved.

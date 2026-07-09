@@ -113,6 +113,16 @@ function syncRuntimeSecretExports(): void {
     'TELEGRAM_BOT_TOKEN',
     storedSecrets,
   );
+  LINE_CHANNEL_ACCESS_TOKEN = readRuntimeSecretValue(
+    ['LINE_CHANNEL_ACCESS_TOKEN'],
+    'LINE_CHANNEL_ACCESS_TOKEN',
+    storedSecrets,
+  );
+  LINE_CHANNEL_SECRET = readRuntimeSecretValue(
+    ['LINE_CHANNEL_SECRET'],
+    'LINE_CHANNEL_SECRET',
+    storedSecrets,
+  );
   THREEMA_GATEWAY_SECRET = readRuntimeSecretValue(
     ['THREEMA_GATEWAY_SECRET'],
     'THREEMA_GATEWAY_SECRET',
@@ -243,6 +253,8 @@ function syncRuntimeSecretExports(): void {
 export let DISCORD_TOKEN = '';
 export let EMAIL_PASSWORD = '';
 export let TELEGRAM_BOT_TOKEN = '';
+export let LINE_CHANNEL_ACCESS_TOKEN = '';
+export let LINE_CHANNEL_SECRET = '';
 export let THREEMA_GATEWAY_SECRET = '';
 export let IMESSAGE_PASSWORD = '';
 export let TWILIO_AUTH_TOKEN = '';
@@ -373,6 +385,14 @@ export let WHATSAPP_DEBOUNCE_MS = 2_500;
 export let WHATSAPP_SEND_READ_RECEIPTS = true;
 export let WHATSAPP_ACK_REACTION = '';
 export let WHATSAPP_MEDIA_MAX_MB = 20;
+export let LINE_ENABLED = false;
+export let LINE_WEBHOOK_PATH = '/api/line/webhook';
+export let LINE_DM_POLICY: RuntimeConfig['line']['dmPolicy'] = 'allowlist';
+export let LINE_GROUP_POLICY: RuntimeConfig['line']['groupPolicy'] = 'disabled';
+export let LINE_ALLOW_FROM: string[] = [];
+export let LINE_GROUP_ALLOW_FROM: string[] = [];
+export let LINE_REQUIRE_MENTION = true;
+export let LINE_TEXT_CHUNK_LIMIT = 5_000;
 export let VOICE_ENABLED = false;
 export let VOICE_PROVIDER: RuntimeConfig['voice']['provider'] = 'twilio';
 export let VOICE_TWILIO_ACCOUNT_SID = '';
@@ -923,6 +943,29 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   WHATSAPP_SEND_READ_RECEIPTS = config.whatsapp.sendReadReceipts;
   WHATSAPP_ACK_REACTION = config.whatsapp.ackReaction;
   WHATSAPP_MEDIA_MAX_MB = Math.max(1, config.whatsapp.mediaMaxMb);
+  LINE_ENABLED = config.line.enabled;
+  LINE_CHANNEL_ACCESS_TOKEN =
+    readRuntimeSecretValue(
+      ['LINE_CHANNEL_ACCESS_TOKEN'],
+      'LINE_CHANNEL_ACCESS_TOKEN',
+      storedSecrets,
+    ) || config.line.channelAccessToken;
+  LINE_CHANNEL_SECRET =
+    readRuntimeSecretValue(
+      ['LINE_CHANNEL_SECRET'],
+      'LINE_CHANNEL_SECRET',
+      storedSecrets,
+    ) || config.line.channelSecret;
+  LINE_WEBHOOK_PATH = config.line.webhookPath;
+  LINE_DM_POLICY = config.line.dmPolicy;
+  LINE_GROUP_POLICY = config.line.groupPolicy;
+  LINE_ALLOW_FROM = [...config.line.allowFrom];
+  LINE_GROUP_ALLOW_FROM = [...config.line.groupAllowFrom];
+  LINE_REQUIRE_MENTION = config.line.requireMention;
+  LINE_TEXT_CHUNK_LIMIT = Math.max(
+    200,
+    Math.min(5_000, config.line.textChunkLimit),
+  );
   VOICE_ENABLED = config.voice.enabled;
   VOICE_PROVIDER = config.voice.provider;
   VOICE_TWILIO_ACCOUNT_SID = config.voice.twilio.accountSid;

@@ -4,6 +4,7 @@ export type ChannelKind =
   | 'email'
   | 'heartbeat'
   | 'imessage'
+  | 'line'
   | 'msteams'
   | 'scheduler'
   | 'signal'
@@ -19,6 +20,7 @@ export const SKILL_CONFIG_CHANNEL_KINDS = [
   'discord',
   'discord_webhook',
   'email',
+  'line',
   'msteams',
   'signal',
   'slack',
@@ -113,6 +115,16 @@ export const IMESSAGE_CAPABILITIES: ChannelCapabilities = Object.freeze({
 export const EMAIL_CAPABILITIES: ChannelCapabilities = Object.freeze({
   ...SYSTEM_CAPABILITIES,
   attachments: true,
+});
+
+export const LINE_CAPABILITIES: ChannelCapabilities = Object.freeze({
+  typing: false,
+  reactions: false,
+  threads: false,
+  embeds: false,
+  attachments: false,
+  messageEditing: false,
+  maxMessageLength: 5_000,
 });
 
 export const TELEGRAM_CAPABILITIES: ChannelCapabilities = Object.freeze({

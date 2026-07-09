@@ -205,6 +205,11 @@ saved revision history directly.
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;
   prefer storing the BlueBubbles password as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext config
+- `line.*` for the LINE Messaging API transport; prefer storing the channel
+  access token as `LINE_CHANNEL_ACCESS_TOKEN` and the channel secret as
+  `LINE_CHANNEL_SECRET` or SecretRefs instead of plaintext config. LINE
+  requires a public HTTPS webhook URL at `line.webhookPath` for inbound
+  messages.
 - `telegram.*` for the Telegram Bot API transport; prefer storing the bot token
   as `TELEGRAM_BOT_TOKEN` or `telegram.botToken` via SecretRef instead of
   plaintext config; a running gateway usually hot-reloads Telegram config

@@ -86,8 +86,8 @@ prompt text intact and adds a warning instead of silently broadening access.
 ## Can I use HybridClaw without Discord?
 
 Yes. You can run `hybridclaw tui`, use the built-in web chat, or connect
-Slack, Slack Incoming Webhooks, Microsoft Teams, Telegram, iMessage, WhatsApp,
-and email.
+Slack, Slack Incoming Webhooks, Microsoft Teams, LINE, Telegram, iMessage,
+WhatsApp, and email.
 
 ## Can I reach HybridClaw from another machine?
 
@@ -130,7 +130,7 @@ console includes Dashboard, Terminal,
 Gateway, Sessions, Jobs, Channels, Email, Models, Scheduler, Connectors, MCP,
 Audit, Agent Files, Skills, Plugins, Tools, and Config pages. The Channels page
 centralizes transport status, managed secrets, and setup controls for Discord,
-Slack Incoming Webhooks, Telegram, WhatsApp, email, Microsoft Teams, and
+Slack Incoming Webhooks, LINE, Telegram, WhatsApp, email, Microsoft Teams, and
 iMessage. The Agent Files page at `/admin/agents` lets operators edit the
 allowlisted workspace markdown files for a registered agent, inspect saved
 revisions, and restore an earlier version.

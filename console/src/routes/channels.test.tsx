@@ -64,6 +64,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       slack: '',
       slack_webhook: '',
       signal: '',
+      line: '',
       telegram: '',
       threema: '',
       voice:
@@ -178,6 +179,18 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       requireMention: true,
       textChunkLimit: 4000,
       mediaMaxMb: 20,
+    },
+    line: {
+      enabled: false,
+      channelAccessToken: '',
+      channelSecret: '',
+      webhookPath: '/api/line/webhook',
+      dmPolicy: 'allowlist',
+      groupPolicy: 'disabled',
+      allowFrom: [],
+      groupAllowFrom: [],
+      requireMention: true,
+      textChunkLimit: 5000,
     },
     signal: {
       enabled: false,
@@ -358,6 +371,12 @@ describe('ChannelsPage', () => {
       telegram: {
         tokenConfigured: false,
         tokenSource: null,
+      },
+      line: {
+        channelAccessTokenConfigured: false,
+        channelAccessTokenSource: null,
+        channelSecretConfigured: false,
+        channelSecretSource: null,
       },
       signal: {
         enabled: false,
@@ -1639,6 +1658,24 @@ describe('ChannelsPage', () => {
     });
   });
 
+  it('selects LINE settings from the line hash fragment', async () => {
+    window.history.replaceState(null, '', '/admin/channels#line');
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /LINE/i });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'LINE settings' }),
+      ).toBeTruthy();
+    });
+  });
+
   it('selects Discord settings from the discord hash fragment', async () => {
     window.history.replaceState(null, '', '/admin/channels#discord');
     fetchConfigMock.mockResolvedValue({
@@ -2359,5 +2396,97 @@ describe('ChannelsPage', () => {
     });
 
     screen.getByText('Bot token updated in encrypted runtime secrets.');
+  });
+
+  it('updates LINE credentials through encrypted runtime secrets', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig({
+        line: {
+          ...makeConfig().line,
+          enabled: true,
+          dmPolicy: 'allowlist',
+        },
+      }),
+    });
+    setRuntimeSecretMock.mockResolvedValue({
+      kind: 'plain',
+      text: 'stored',
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      discord: {
+        tokenConfigured: false,
+        tokenSource: null,
+      },
+      line: {
+        channelAccessTokenConfigured: true,
+        channelAccessTokenSource: 'runtime-secrets',
+        channelSecretConfigured: true,
+        channelSecretSource: 'runtime-secrets',
+      },
+      email: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      imessage: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      whatsapp: {
+        linked: false,
+        jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
+      },
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /LINE/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /LINE/i }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Change access token' }),
+    );
+    fireEvent.change(screen.getByLabelText('New access token'), {
+      target: { value: 'line-access-token' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save access token' }));
+
+    await waitFor(() => {
+      expect(setRuntimeSecretMock).toHaveBeenCalledWith(
+        'test-token',
+        'LINE_CHANNEL_ACCESS_TOKEN',
+        'line-access-token',
+      );
+    });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Change channel secret' }),
+    );
+    fireEvent.change(screen.getByLabelText('New channel secret'), {
+      target: { value: 'line-channel-secret' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save channel secret' }),
+    );
+
+    await waitFor(() => {
+      expect(setRuntimeSecretMock).toHaveBeenCalledWith(
+        'test-token',
+        'LINE_CHANNEL_SECRET',
+        'line-channel-secret',
+      );
+    });
   });
 });

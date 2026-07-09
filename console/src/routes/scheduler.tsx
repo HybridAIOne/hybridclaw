@@ -215,6 +215,9 @@ function buildSchedulerChannelOptions(params: {
       discordTokenConfigured: params.status?.discord?.tokenConfigured,
       slackBotTokenConfigured: params.status?.slack?.botTokenConfigured,
       slackAppTokenConfigured: params.status?.slack?.appTokenConfigured,
+      lineChannelAccessTokenConfigured:
+        params.status?.line?.channelAccessTokenConfigured,
+      lineChannelSecretConfigured: params.status?.line?.channelSecretConfigured,
       telegramTokenConfigured: params.status?.telegram?.tokenConfigured,
       whatsappLinked: params.status?.whatsapp?.linked,
       emailPasswordConfigured: params.status?.email?.passwordConfigured,
@@ -251,6 +254,8 @@ function formatSchedulerChannelLabel(channel: string): string {
       return 'Slack';
     case 'telegram':
       return 'Telegram';
+    case 'line':
+      return 'LINE';
     case 'whatsapp':
       return 'WhatsApp';
     case 'email':
@@ -370,6 +375,13 @@ function buildSchedulerTargetControl(params: {
         value,
         label: 'Chat ID',
         placeholder: 'telegram:-1001234567890',
+      };
+    case 'line':
+      return {
+        kind: 'input',
+        value,
+        label: 'LINE target',
+        placeholder: 'line:U0123456789abcdef0123456789abcdef',
       };
     case 'whatsapp':
       return {

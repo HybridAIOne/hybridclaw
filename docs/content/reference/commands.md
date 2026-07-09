@@ -398,6 +398,7 @@ hybridclaw channels discord_webhook setup --webhook-url <https://discord.com/api
 hybridclaw channels slack_webhook setup --webhook-url <https://hooks.slack.com/services/...> [--target default] [--default-username <name>] [--default-icon-emoji <:emoji:>] [--default-icon-url <url>]
 hybridclaw channel add discord_webhook --webhook-url <https://discord.com/api/webhooks/...> [--target default]
 hybridclaw channel add slack_webhook --webhook-url <https://hooks.slack.com/services/...> [--target default]
+hybridclaw channels line setup [--channel-access-token <token>] [--channel-secret <secret>] [--allow-from <line-user-id|*>]... [--group-allow-from <line-user-id|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--webhook-path <path>] [--text-chunk-limit <chars>] [--require-mention|--no-require-mention]
 hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
 hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
 hybridclaw channels threema setup --identity <gateway-id> [--secret <gateway-secret>] [--api-base-url <url>] [--allow-from <threema-target|*>]... [--dm-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--outbound-delay-ms <ms>]
@@ -414,7 +415,8 @@ Microsoft Teams and full Slack setup use `auth login` instead of
 `channels setup` because they need app credentials rather than a local pairing
 flow. Slack Incoming Webhook and Discord Incoming Webhook setup are
 outbound-only and store each webhook URL as an encrypted runtime secret.
-Threema uses Gateway Basic mode for outbound text delivery. For the
+LINE uses signed HTTPS webhooks and Messaging API text delivery. Threema uses
+Gateway Basic mode for outbound text delivery. For the
 step-by-step setup guides, see
 [Channels: Overview](../channels/overview.md) and
 [Connect Your First Channel](../getting-started/first-channel.md).

@@ -11,8 +11,8 @@ advanced-user manual for running, extending, and understanding HybridClaw. The
 chapters are organized around what you are trying to do rather than how the
 repository is laid out. **Getting Started** walks through installation,
 onboarding, and your first run. **Channels** is the transport reference across
-Discord, Slack, Telegram, Signal, Threema, email, WhatsApp, iMessage, and
-Microsoft Teams.
+Discord, Slack, LINE, Telegram, Signal, Threema, email, WhatsApp, iMessage,
+and Microsoft Teams.
 **Guides** collects task-focused walkthroughs for everyday operational work,
 **Tutorials** provides practical owner, GTM, marketing, sales, and community
 workflows, **Extensibility** covers tools, skills, plugins, and the extension
@@ -81,7 +81,7 @@ doc at once, start from [For Agents](./agents.md).
 - Web chat keeps new no-user drafts concrete, prunes older empty or
   assistant-only drafts, and preserves sessions that already have user
   messages.
-- Admin channel settings expose sender allowlist editors for WhatsApp,
+- Admin channel settings expose sender allowlist editors for WhatsApp, LINE,
   Telegram, Threema, Signal, email, Microsoft Teams, Slack, and iMessage, with
   wildcard confirmation for all-sender entries.
 - Gateway session timestamps render in the local timezone without seconds or a

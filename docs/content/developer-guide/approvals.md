@@ -345,8 +345,8 @@ Notes:
 | Remote text channels | Yes | Plain text replies | No | Best to use exact approval phrases and include the approval id when needed |
 | Voice (`voice:*`) | Yes | Spoken reply is transcribed and treated as plain text | No | Use exact phrases such as `yes`, `yes for session`, `yes for agent`, `yes for all`, or `no` |
 
-Remote text channels include Discord, Slack, Teams, Telegram, WhatsApp, email,
-and iMessage.
+Remote text channels include Discord, Slack, Teams, LINE, Telegram, WhatsApp,
+email, and iMessage.
 
 ## Local-Only Command Families
 

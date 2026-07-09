@@ -27,6 +27,8 @@ const LEGACY_DOCS_EXACT_REWRITES = new Map<string, string>([
   ['getting-started/channels.md', 'channels/overview.md'],
   ['imessage', 'channels/imessage'],
   ['imessage.md', 'channels/imessage.md'],
+  ['line', 'channels/line'],
+  ['line.md', 'channels/line.md'],
   ['msteams', 'channels/msteams'],
   ['msteams.md', 'channels/msteams.md'],
   ['slack', 'channels/slack'],

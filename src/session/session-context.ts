@@ -38,6 +38,7 @@ const CHANNEL_KIND_LABELS: Record<ChannelKind, string> = {
   email: 'Email',
   heartbeat: 'Heartbeat',
   imessage: 'iMessage',
+  line: 'LINE',
   msteams: 'Microsoft Teams',
   signal: 'Signal',
   slack: 'Slack',

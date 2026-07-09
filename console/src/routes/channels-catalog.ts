@@ -7,6 +7,7 @@ export type ChannelKind =
   | 'discord_webhook'
   | 'slack'
   | 'signal'
+  | 'line'
   | 'telegram'
   | 'threema'
   | 'slack_webhook'
@@ -33,6 +34,8 @@ interface ChannelCatalogOptions {
   signalDaemonUrlConfigured?: boolean;
   signalAccountConfigured?: boolean;
   signalCliAvailable?: boolean;
+  lineChannelAccessTokenConfigured?: boolean;
+  lineChannelSecretConfigured?: boolean;
   telegramTokenConfigured?: boolean;
   threemaSecretConfigured?: boolean;
   voiceAuthTokenConfigured?: boolean;
@@ -153,6 +156,48 @@ function describeTelegram(
     kind: 'telegram',
     label: 'Telegram',
     summary: `DM ${config.telegram.dmPolicy} · groups ${config.telegram.groupPolicy}`,
+    statusTone,
+    statusLabel:
+      statusTone === 'active'
+        ? 'active'
+        : statusTone === 'configured'
+          ? 'configured'
+          : 'available',
+  };
+}
+
+function describeLine(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
+  const accessTokenConfigured =
+    options.lineChannelAccessTokenConfigured === true;
+  const channelSecretConfigured = options.lineChannelSecretConfigured === true;
+  const inboundEnabled =
+    config.line.dmPolicy !== 'disabled' ||
+    config.line.groupPolicy !== 'disabled';
+  const active =
+    config.line.enabled &&
+    accessTokenConfigured &&
+    channelSecretConfigured &&
+    inboundEnabled;
+  const configured =
+    active ||
+    config.line.enabled ||
+    accessTokenConfigured ||
+    channelSecretConfigured ||
+    config.line.allowFrom.length > 0 ||
+    config.line.groupAllowFrom.length > 0;
+  const statusTone = active
+    ? 'active'
+    : configured
+      ? 'configured'
+      : 'available';
+
+  return {
+    kind: 'line',
+    label: 'LINE',
+    summary: `DM ${config.line.dmPolicy} · groups ${config.line.groupPolicy}`,
     statusTone,
     statusLabel:
       statusTone === 'active'
@@ -534,6 +579,7 @@ export function buildChannelCatalog(
     describeDiscordWebhook(config, options),
     describeSlack(config, options),
     describeSlackWebhook(config, options),
+    describeLine(config, options),
     describeTelegram(config, options),
     describeSignal(config, options),
     describeThreema(config, options),

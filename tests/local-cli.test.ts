@@ -74,6 +74,12 @@ async function readRuntimeSecrets(
     EMAIL_PASSWORD: runtimeSecrets.readStoredRuntimeSecret('EMAIL_PASSWORD'),
     IMESSAGE_PASSWORD:
       runtimeSecrets.readStoredRuntimeSecret('IMESSAGE_PASSWORD'),
+    LINE_CHANNEL_ACCESS_TOKEN: runtimeSecrets.readStoredRuntimeSecret(
+      'LINE_CHANNEL_ACCESS_TOKEN',
+    ),
+    LINE_CHANNEL_SECRET: runtimeSecrets.readStoredRuntimeSecret(
+      'LINE_CHANNEL_SECRET',
+    ),
     MSTEAMS_APP_PASSWORD: runtimeSecrets.readStoredRuntimeSecret(
       'MSTEAMS_APP_PASSWORD',
     ),
@@ -812,6 +818,66 @@ test('channels slack register-commands syncs slash commands through Slack app ma
     'Updated Slack app manifest for A1234567890.',
   );
   expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Registered'));
+});
+
+test('channels line setup writes config and stores LINE credentials', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await cli.main([
+    'channels',
+    'line',
+    'setup',
+    '--channel-access-token',
+    'line-access-token',
+    '--channel-secret',
+    'line-channel-secret',
+    '--allow-from',
+    'U0123456789abcdef0123456789ABCDEF',
+    '--group-policy',
+    'allowlist',
+    '--group-allow-from',
+    '*',
+    '--webhook-path',
+    '/line/webhook',
+    '--text-chunk-limit',
+    '4500',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  const rawConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const rawLine = rawConfig.line as Record<string, unknown>;
+  const secrets = await readRuntimeSecrets(homeDir);
+
+  expect(config.line.enabled).toBe(true);
+  expect(config.line.dmPolicy).toBe('allowlist');
+  expect(config.line.groupPolicy).toBe('allowlist');
+  expect(config.line.allowFrom).toEqual([
+    'U0123456789abcdef0123456789ABCDEF',
+  ]);
+  expect(config.line.groupAllowFrom).toEqual(['*']);
+  expect(config.line.webhookPath).toBe('/line/webhook');
+  expect(config.line.requireMention).toBe(true);
+  expect(config.line.textChunkLimit).toBe(4_500);
+  expect(rawLine.channelAccessToken).toEqual({
+    source: 'store',
+    id: 'LINE_CHANNEL_ACCESS_TOKEN',
+  });
+  expect(rawLine.channelSecret).toEqual({
+    source: 'store',
+    id: 'LINE_CHANNEL_SECRET',
+  });
+  expect(secrets.LINE_CHANNEL_ACCESS_TOKEN).toBe('line-access-token');
+  expect(secrets.LINE_CHANNEL_SECRET).toBe('line-channel-secret');
+  expect(logSpy).toHaveBeenCalledWith('LINE mode: enabled');
+  expect(logSpy).toHaveBeenCalledWith(
+    expect.stringContaining(
+      'Configure the LINE Developers webhook URL to your public gateway origin plus /line/webhook',
+    ),
+  );
 });
 
 test('channels email setup writes config and stores EMAIL_PASSWORD', async () => {

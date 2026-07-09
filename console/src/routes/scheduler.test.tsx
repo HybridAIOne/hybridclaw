@@ -99,6 +99,12 @@ function makeStatus(overrides: Partial<GatewayStatus> = {}): GatewayStatus {
       tokenConfigured: false,
       tokenSource: null,
     },
+    line: {
+      channelAccessTokenConfigured: false,
+      channelAccessTokenSource: null,
+      channelSecretConfigured: false,
+      channelSecretSource: null,
+    },
     email: {
       passwordConfigured: true,
       passwordSource: 'runtime-secrets',
@@ -142,6 +148,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       slack: '',
       slack_webhook: '',
       signal: '',
+      line: '',
       telegram: '',
       threema: '',
       voice:
@@ -185,6 +192,18 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       requireMention: true,
       textChunkLimit: 4000,
       mediaMaxMb: 20,
+    },
+    line: {
+      enabled: false,
+      channelAccessToken: '',
+      channelSecret: '',
+      webhookPath: '/api/line/webhook',
+      dmPolicy: 'disabled',
+      groupPolicy: 'disabled',
+      allowFrom: [],
+      groupAllowFrom: [],
+      requireMention: true,
+      textChunkLimit: 5000,
     },
     signal: {
       enabled: false,

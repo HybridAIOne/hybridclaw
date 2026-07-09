@@ -5,6 +5,7 @@ import {
   DISCORD_WEBHOOK_CAPABILITIES,
   EMAIL_CAPABILITIES,
   MSTEAMS_CAPABILITIES,
+  LINE_CAPABILITIES,
   SLACK_CAPABILITIES,
   SLACK_WEBHOOK_CAPABILITIES,
   TELEGRAM_CAPABILITIES,
@@ -317,6 +318,38 @@ test('resolves Telegram hints from explicit Telegram context', () => {
   expect(hints.some((entry) => entry.includes('group or topic thread'))).toBe(
     true,
   );
+});
+
+test('resolves LINE hints from explicit LINE context', () => {
+  registerChannel({
+    kind: 'line',
+    id: 'line',
+    capabilities: LINE_CAPABILITIES,
+  });
+
+  const hints = resolveChannelMessageToolHints({
+    runtimeInfo: {
+      channelType: 'line',
+      channelId: 'line:U0123456789abcdef0123456789ABCDEF',
+    },
+  });
+
+  expect(hints.length).toBeGreaterThan(0);
+  expect(
+    hints.some((entry) =>
+      entry.includes(
+        'Current LINE chat: `line:U0123456789abcdef0123456789ABCDEF`',
+      ),
+    ),
+  ).toBe(true);
+  expect(hints.some((entry) => entry.includes('LINE IDs are case-sensitive'))).toBe(
+    true,
+  );
+  expect(
+    hints.some((entry) =>
+      entry.includes('do not attach local files or assume media delivery'),
+    ),
+  ).toBe(true);
 });
 
 test('resolves Slack hints from explicit Slack context', () => {

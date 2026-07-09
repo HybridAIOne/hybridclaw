@@ -5,6 +5,7 @@ import {
   DISCORD_WEBHOOK_CAPABILITIES,
   EMAIL_CAPABILITIES,
   IMESSAGE_CAPABILITIES,
+  LINE_CAPABILITIES,
   MSTEAMS_CAPABILITIES,
   SIGNAL_CAPABILITIES,
   SKILL_CONFIG_CHANNEL_KINDS,
@@ -21,6 +22,7 @@ import {
 import { isDiscordWebhookChannelTarget } from './discord-webhook/target.js';
 import { isEmailAddress } from './email/allowlist.js';
 import { isIMessageHandle } from './imessage/handle.js';
+import { isLineChannelId } from './line/target.js';
 import { isSignalChannelId } from './signal/target.js';
 import { isSlackChannelTarget } from './slack/target.js';
 import { isSlackWebhookChannelTarget } from './slack-webhook/target.js';
@@ -37,6 +39,7 @@ const CHANNEL_CAPABILITIES: Record<ChannelKind, ChannelInfo['capabilities']> = {
   email: EMAIL_CAPABILITIES,
   heartbeat: SYSTEM_CAPABILITIES,
   imessage: IMESSAGE_CAPABILITIES,
+  line: LINE_CAPABILITIES,
   msteams: MSTEAMS_CAPABILITIES,
   scheduler: SYSTEM_CAPABILITIES,
   signal: SIGNAL_CAPABILITIES,
@@ -125,6 +128,7 @@ function inferChannelKind(channelId?: string | null): ChannelKind | undefined {
   if (isWhatsAppJid(normalized)) return 'whatsapp';
   if (isVoiceChannelId(normalized)) return 'voice';
   if (isIMessageHandle(normalized)) return 'imessage';
+  if (isLineChannelId(normalized)) return 'line';
   if (isSignalChannelId(normalized)) return 'signal';
   if (isDiscordWebhookChannelTarget(normalized)) return 'discord_webhook';
   if (isSlackWebhookChannelTarget(normalized)) return 'slack_webhook';

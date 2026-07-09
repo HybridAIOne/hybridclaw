@@ -28,15 +28,16 @@ pairing requests.
 
 - `/admin/channels` shows each transport as `active`, `configured`, or
   `available`
-- `/admin/channels` edits Discord, Slack, Telegram, Signal, WhatsApp, email,
+- `/admin/channels` edits Discord, Slack, LINE, Telegram, Signal, WhatsApp, email,
   Microsoft Teams, iMessage, and Twilio voice settings from one place
 - `/admin/channels` can start the Signal linked-device QR flow when
   `signal-cli` is installed on the gateway host. HybridClaw Cloud gateway
   images include `signal-cli` on amd64 hosts.
 - `/admin/channels` saves `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`,
-  `SLACK_APP_TOKEN`, `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, and
-  `IMESSAGE_PASSWORD` through the same encrypted runtime secret store used by
-  the CLI, plus `TWILIO_AUTH_TOKEN` for the voice channel
+  `SLACK_APP_TOKEN`, `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET`,
+  `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, and `IMESSAGE_PASSWORD` through the
+  same encrypted runtime secret store used by the CLI, plus
+  `TWILIO_AUTH_TOKEN` for the voice channel
 - `/admin/channels` lets operators edit channel-specific instruction text that
   is injected into the runtime prompt as transport guidance
 - `/admin/channels` shows the live WhatsApp pairing QR when the transport is

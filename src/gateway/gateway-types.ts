@@ -509,6 +509,12 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
+  line?: {
+    channelAccessTokenConfigured: boolean;
+    channelAccessTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
+    channelSecretConfigured: boolean;
+    channelSecretSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
   threema?: {
     secretConfigured: boolean;
     secretSource: 'config' | 'env' | 'runtime-secrets' | null;

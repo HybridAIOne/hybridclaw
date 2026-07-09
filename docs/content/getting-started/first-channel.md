@@ -24,6 +24,8 @@ Keep the first rollout narrow:
   outbound status updates or alerts into one Slack channel
 - [Discord](../channels/discord.md) when you want slash commands, DMs, or a
   private guild test bot
+- [LINE](../channels/line.md) when you already have a public HTTPS gateway URL
+  and want Messaging API DMs, groups, or rooms
 - [Telegram](../channels/telegram.md) when you want a fast private DM flow
   with BotFather setup
 - [Signal](../channels/signal.md) when you want private Signal DMs through a
@@ -48,6 +50,7 @@ jump directly to one transport:
 - [Discord](../channels/discord.md)
 - [Slack](../channels/slack.md)
 - [Slack Incoming Webhook](../channels/slack-webhook.md)
+- [LINE](../channels/line.md)
 - [Telegram](../channels/telegram.md)
 - [Signal](../channels/signal.md)
 - [Threema](../channels/threema.md)

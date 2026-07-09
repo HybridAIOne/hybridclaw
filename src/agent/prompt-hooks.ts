@@ -722,6 +722,7 @@ function isChannelInstructionKind(
     kind === 'msteams' ||
     kind === 'signal' ||
     kind === 'slack' ||
+    kind === 'line' ||
     kind === 'telegram' ||
     kind === 'threema' ||
     kind === 'voice' ||
