@@ -26,6 +26,7 @@ function createGatewayMainTestState(options?: {
   emailPassword?: string;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  lineEnabled?: boolean;
   slackEnabled?: boolean;
   slackInitError?: Error;
   hasSlackCredentials?: boolean;
@@ -55,6 +56,7 @@ function createGatewayMainTestState(options?: {
     imessageMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
+    lineMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     voiceMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     whatsappMessageHandler: null as
       | null
@@ -175,6 +177,10 @@ function createGatewayMainTestState(options?: {
         mediaMaxMb: 20,
         sendReadReceipts: false,
       },
+      line: {
+        enabled: options?.lineEnabled ?? false,
+        textChunkLimit: 5_000,
+      },
       local: { enabled: false },
       container: {
         sandboxMode: 'container',
@@ -239,6 +245,7 @@ function createGatewayMainTestState(options?: {
     initDiscordWebhook: vi.fn(),
     initEmail: vi.fn(),
     initIMessage: vi.fn(),
+    initLine: vi.fn(),
     initMSTeams: vi.fn(),
     initSignal: vi.fn(),
     initSlack: vi.fn(),
@@ -263,6 +270,7 @@ function createGatewayMainTestState(options?: {
     shutdownDiscord: vi.fn(async () => {}),
     shutdownDiscordWebhook: vi.fn(async () => {}),
     shutdownEmail: vi.fn(async () => {}),
+    shutdownLine: vi.fn(async () => {}),
     shutdownSignal: vi.fn(async () => {}),
     shutdownSlack: vi.fn(async () => {}),
     shutdownSlackWebhook: vi.fn(async () => {}),
@@ -332,6 +340,7 @@ async function importFreshGatewayMain(options?: {
   discordInitError?: Error;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  lineEnabled?: boolean;
   slackEnabled?: boolean;
   hasSlackCredentials?: boolean;
   whatsappEnabled?: boolean;
@@ -557,6 +566,17 @@ async function importFreshGatewayMain(options?: {
     sendToWhatsAppChat: vi.fn(async () => {}),
     sendWhatsAppMediaToChat: vi.fn(async () => {}),
     shutdownWhatsApp: state.shutdownWhatsApp,
+  }));
+  vi.doMock('../src/channels/line/runtime.js', () => ({
+    initLine: state.initLine.mockImplementation(async (handler) => {
+      state.lineMessageHandler = handler;
+    }),
+    sendToLineSelfChat: vi.fn(async () => {}),
+    shutdownLine: state.shutdownLine,
+  }));
+  vi.doMock('../src/channels/line/auth.js', () => ({
+    LineAuthLockError: class extends Error {},
+    getLineAuthStatus: vi.fn(async () => ({ linked: false, mid: null })),
   }));
   vi.doMock('../src/channels/whatsapp/auth.js', () => ({
     WhatsAppAuthLockError: MockWhatsAppAuthLockError,
@@ -1117,6 +1137,15 @@ describe('gateway bootstrap', () => {
 
     expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
     expect(state.whatsappMessageHandler).not.toBeNull();
+  });
+
+  test('starts LINE self-chat integration only when enabled', async () => {
+    const enabled = await importFreshGatewayMain({ lineEnabled: true });
+    expect(enabled.initLine).toHaveBeenCalledTimes(1);
+    expect(enabled.lineMessageHandler).not.toBeNull();
+
+    const disabled = await importFreshGatewayMain({ lineEnabled: false });
+    expect(disabled.initLine).not.toHaveBeenCalled();
   });
 
   test('does not start WhatsApp integration when the transport is disabled', async () => {

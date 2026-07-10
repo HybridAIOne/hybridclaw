@@ -64,6 +64,13 @@ import {
   sendToIMessageChat,
   shutdownIMessage,
 } from '../channels/imessage/runtime.js';
+import { getLineAuthStatus, LineAuthLockError } from '../channels/line/auth.js';
+import {
+  initLine,
+  sendToLineSelfChat,
+  shutdownLine,
+} from '../channels/line/runtime.js';
+import { isLineChannelId } from '../channels/line/target.js';
 import {
   initSignal,
   type SignalReplyFn,
@@ -332,6 +339,15 @@ function hasWhatsAppConfigChanged(
   );
 }
 
+function hasLineConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['line'],
+  prev: ReturnType<typeof getConfigSnapshot>['line'],
+): boolean {
+  return (
+    next.enabled !== prev.enabled || next.textChunkLimit !== prev.textChunkLimit
+  );
+}
+
 function hasThreemaConfigChanged(
   next: ReturnType<typeof getConfigSnapshot>['threema'],
   prev: ReturnType<typeof getConfigSnapshot>['threema'],
@@ -559,6 +575,7 @@ function logGatewayStartup(params: {
     slackWebhook: boolean;
     email: boolean;
     imessage: boolean;
+    line: boolean;
     telegram: boolean;
     threema: boolean;
     voice: boolean;
@@ -945,6 +962,24 @@ async function sendProactiveMessageNow(
   artifacts?: ArtifactMetadata[],
 ): Promise<void> {
   const attachments = buildArtifactAttachments(artifacts);
+  if (isLineChannelId(channelId)) {
+    const lineAuth = await getLineAuthStatus();
+    if (!lineAuth.linked) {
+      logger.info(
+        { source, channelId },
+        'Proactive LINE message suppressed: LINE not linked',
+      );
+      return;
+    }
+    if (attachments.length > 0) {
+      logger.warn(
+        { source, channelId, artifactCount: attachments.length },
+        'Proactive LINE delivery currently sends text only',
+      );
+    }
+    await sendToLineSelfChat(channelId, text);
+    return;
+  }
   if (isWhatsAppJid(channelId)) {
     const whatsappAuth = await getWhatsAppAuthStatus();
     if (!whatsappAuth.linked) {
@@ -1923,6 +1958,126 @@ async function startWhatsAppIntegration(): Promise<boolean> {
   return true;
 }
 
+async function startLineIntegration(): Promise<boolean> {
+  const lineConfig = getConfigSnapshot().line;
+  if (!lineConfig.enabled) {
+    logger.info('LINE integration disabled: line.enabled=false');
+    return false;
+  }
+
+  const auth = await getLineAuthStatus();
+  if (!auth.linked) {
+    logger.warn(
+      'LINE integration is awaiting unofficial personal-account QR login; using it may cause LINE account restrictions.',
+    );
+  }
+
+  try {
+    await initLine(
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content,
+        reply,
+        context,
+      ) => {
+        try {
+          const slashCommands = resolveTextChannelSlashCommands(content);
+          if (slashCommands) {
+            for (const args of slashCommands) {
+              await handleTextChannelCommand({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                args,
+                reply,
+              });
+            }
+            return;
+          }
+
+          const result = normalizePlaceholderToolReply(
+            await handleGatewayMessage({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              content,
+              media: [],
+              onProactiveMessage: async (message) => {
+                await deliverProactiveMessage(
+                  message.channelId || channelId,
+                  message.text,
+                  'delegate',
+                  message.artifacts,
+                );
+              },
+              abortSignal: context.abortSignal,
+              source: 'line',
+            }),
+          );
+          if (result.status === 'error') {
+            await reply(formatChannelGatewayErrorReply(result.error));
+            return;
+          }
+          if (isSilentReply(result.result)) return;
+
+          const cleanedText = stripSilentToken(String(result.result || ''));
+          if (cleanedText.trim()) {
+            const effectiveSessionId = result.sessionId || sessionId;
+            const showMode = normalizeSessionShowMode(
+              memoryService.getSessionById(effectiveSessionId)?.show_mode,
+            );
+            await reply(
+              buildResponseText(
+                cleanedText,
+                sessionShowModeShowsTools(showMode)
+                  ? result.toolsUsed
+                  : undefined,
+              ),
+            );
+          }
+          if ((result.artifacts || []).length > 0) {
+            logger.warn(
+              { channelId, artifactCount: result.artifacts?.length || 0 },
+              'LINE self-chat does not support artifact delivery',
+            );
+          }
+        } catch (error) {
+          logger.error(
+            { error, sessionId, channelId },
+            'LINE message handling failed',
+          );
+          await reply(formatChannelGatewayErrorReply(error));
+        }
+      },
+    );
+  } catch (error) {
+    if (error instanceof LineAuthLockError) {
+      logger.warn(
+        { lockPath: error.lockPath, ownerPid: error.ownerPid },
+        'LINE integration disabled: auth state is locked by another HybridClaw process',
+      );
+      return false;
+    }
+    logger.error({ error }, 'LINE integration failed to start');
+    return false;
+  }
+
+  logger.info(
+    auth.linked
+      ? 'LINE self-chat integration started inside gateway'
+      : 'LINE self-chat integration started in pairing mode inside gateway',
+  );
+  return true;
+}
+
 async function startEmailIntegration(): Promise<boolean> {
   const emailConfig = getConfigSnapshot().email;
   if (!emailConfig.enabled) {
@@ -2743,6 +2898,24 @@ async function refreshWhatsAppIntegrationForConfigChange(
   await startWhatsAppIntegration();
 }
 
+async function refreshLineIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (!hasLineConfigChanged(next.line, prev.line)) return;
+  logger.info(
+    { enabled: next.line.enabled },
+    'Config changed, restarting LINE integration',
+  );
+  await shutdownLine().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop LINE runtime during config-change restart',
+    );
+  });
+  await startLineIntegration();
+}
+
 async function refreshThreemaIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
@@ -3241,6 +3414,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
     );
     await runShutdownStep('stop Slack webhook runtime', shutdownSlackWebhook);
     await runShutdownStep('stop Telegram runtime', shutdownTelegram);
+    await runShutdownStep('stop LINE runtime', shutdownLine);
     await runShutdownStep('stop WhatsApp runtime', shutdownWhatsApp);
     await runShutdownStep('stop Voice runtime', () =>
       shutdownVoice({ drain: opts?.drain }),
@@ -3569,6 +3743,7 @@ async function main(): Promise<void> {
   const slackActive = await startSlackIntegration();
   const emailActive = await startEmailIntegration();
   const telegramActive = await startTelegramIntegration();
+  const lineActive = await startLineIntegration();
   const whatsappActive = await startWhatsAppIntegration();
   const voiceActive = await startVoiceIntegration();
   const imessageActive = await startIMessageIntegration();
@@ -3618,6 +3793,12 @@ async function main(): Promise<void> {
         );
       },
     );
+    void refreshLineIntegrationForConfigChange(next, prev).catch((error) => {
+      logger.warn(
+        { error },
+        'LINE integration restart failed after config change',
+      );
+    });
     void refreshThreemaIntegrationForConfigChange(next, prev).catch((error) => {
       logger.warn(
         { error },
@@ -3731,6 +3912,7 @@ async function main(): Promise<void> {
       email: emailActive,
       imessage: imessageActive,
       telegram: telegramActive,
+      line: lineActive,
       voice: voiceActive,
       whatsapp: whatsappActive,
     },

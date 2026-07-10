@@ -71,6 +71,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       whatsapp: '',
       email: '',
       imessage: '',
+      line: '',
     },
     discord: {
       prefix: '!claw',
@@ -230,6 +231,10 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       sendReadReceipts: true,
       ackReaction: '👀',
       mediaMaxMb: 20,
+    },
+    line: {
+      enabled: false,
+      textChunkLimit: 5000,
     },
     imessage: {
       enabled: false,

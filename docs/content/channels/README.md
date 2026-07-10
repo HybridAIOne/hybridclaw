@@ -34,6 +34,7 @@ If you are still working through first-run onboarding, start with
 - [Threema](./threema.md)
 - [Email](./email.md)
 - [WhatsApp](./whatsapp.md)
+- [LINE](./line.md)
 - [Twilio Voice](../guides/twilio-voice.md)
 - [iMessage](./imessage.md)
 - [Microsoft Teams](./msteams.md)

@@ -144,7 +144,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 33;
+export const CONFIG_VERSION = 34;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -169,6 +169,7 @@ const DEFAULT_CHANNEL_INSTRUCTIONS: RuntimeChannelInstructionsConfig = {
   whatsapp: '',
   email: '',
   imessage: '',
+  line: '',
 };
 const DEFAULT_DB_PATH = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
@@ -610,6 +611,11 @@ export interface RuntimeWhatsAppConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeLineConfig {
+  enabled: boolean;
+  textChunkLimit: number;
+}
+
 export type RuntimeVoiceProvider = 'twilio';
 export type RuntimeVoiceRelayTtsProvider = 'amazon' | 'default' | 'google';
 export type RuntimeVoiceRelayTranscriptionProvider =
@@ -780,6 +786,7 @@ export interface RuntimeChannelInstructionsConfig {
   whatsapp: string;
   email: string;
   imessage: string;
+  line: string;
 }
 
 export interface RuntimeSchedulerJob {
@@ -1074,6 +1081,7 @@ export interface RuntimeConfig {
   telegram: RuntimeTelegramConfig;
   threema: RuntimeThreemaConfig;
   whatsapp: RuntimeWhatsAppConfig;
+  line: RuntimeLineConfig;
   voice: RuntimeVoiceConfig;
   imessage: RuntimeIMessageConfig;
   email: RuntimeEmailConfig;
@@ -1707,6 +1715,10 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     sendReadReceipts: true,
     ackReaction: '👀',
     mediaMaxMb: 20,
+  },
+  line: {
+    enabled: false,
+    textChunkLimit: 5_000,
   },
   voice: {
     enabled: false,
@@ -3632,6 +3644,21 @@ function normalizeWhatsAppConfig(
   };
 }
 
+function normalizeLineConfig(
+  value: unknown,
+  fallback: RuntimeLineConfig,
+): RuntimeLineConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      { min: 200, max: 5_000 },
+    ),
+  };
+}
+
 function normalizeTelegramConfig(
   value: unknown,
   fallback: RuntimeTelegramConfig,
@@ -4004,6 +4031,7 @@ function normalizeChannelInstructionsConfig(
     imessage: normalizeString(raw.imessage, fallback.imessage, {
       allowEmpty: true,
     }),
+    line: normalizeString(raw.line, fallback.line, { allowEmpty: true }),
   };
 }
 
@@ -6727,6 +6755,7 @@ function normalizeRuntimeConfig(
   const rawTelegram = isRecord(raw.telegram) ? raw.telegram : {};
   const rawThreema = isRecord(raw.threema) ? raw.threema : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
+  const rawLine = isRecord(raw.line) ? raw.line : {};
   const rawVoice = isRecord(raw.voice) ? raw.voice : {};
   const rawIMessage = isRecord(raw.imessage) ? raw.imessage : {};
   const rawEmail = isRecord(raw.email) ? raw.email : {};
@@ -7466,6 +7495,7 @@ function normalizeRuntimeConfig(
       rawWhatsApp,
       DEFAULT_RUNTIME_CONFIG.whatsapp,
     ),
+    line: normalizeLineConfig(rawLine, DEFAULT_RUNTIME_CONFIG.line),
     voice: normalizeVoiceConfig(rawVoice, DEFAULT_RUNTIME_CONFIG.voice, {
       authToken: resolvedVoiceAuthToken,
     }),

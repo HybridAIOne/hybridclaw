@@ -20,6 +20,7 @@ const MESSAGE_TOOL_CHANNEL_ACTIONS: Record<MessageToolChannelKind, string> = {
     'Discord webhook: send outbound-only messages to configured Discord Incoming Webhook targets.',
   email: 'Email: send and read email.',
   imessage: 'iMessage: send messages to explicit iMessage handles.',
+  line: 'LINE: send messages to the linked account self-chat only.',
   msteams:
     'Microsoft Teams: send/read known Teams conversations, upload files, and inspect members/channels.',
   signal:
