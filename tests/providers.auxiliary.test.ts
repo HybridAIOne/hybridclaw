@@ -192,7 +192,7 @@ test('host auxiliary caller uses the configured compression task model', async (
       expect(body).toMatchObject({
         model: 'qwen/qwen2.5-instruct',
       });
-      expect(body.max_tokens).toBeUndefined();
+      expect(body.max_tokens).toBe(321);
       return new Response(
         JSON.stringify({
           choices: [
@@ -238,7 +238,7 @@ test('host auxiliary caller uses the configured compression task model', async (
       model: 'lmstudio/qwen/qwen2.5-instruct',
       messages: 2,
       tools: 0,
-      maxTokens: undefined,
+      maxTokens: 321,
     }),
     '[aux-model] call start',
   );
@@ -283,7 +283,7 @@ test('host auxiliary caller falls back to resolved runtime credentials', async (
       expect(body).toMatchObject({
         model: 'mistral-small',
       });
-      expect(body.max_tokens).toBeUndefined();
+      expect(body.max_tokens).toBe(222);
       return new Response(
         JSON.stringify({
           choices: [
