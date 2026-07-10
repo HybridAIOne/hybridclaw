@@ -47,6 +47,12 @@ import { sleep } from '../utils/sleep.js';
 import { normalizeArgs, parseValueFlag } from './common.js';
 import { isHelpRequest, printChannelsUsage } from './help.js';
 import {
+  ensureLineAuthApi,
+  ensureLineConnectionApi,
+  getLineAuthApi,
+  getLineConnectionApi,
+} from './line-api.js';
+import {
   ensureWhatsAppAuthApi,
   ensureWhatsAppConnectionApi,
   ensureWhatsAppPhoneApi,
@@ -1888,6 +1894,48 @@ async function configureWhatsAppChannel(args: string[]): Promise<void> {
   await pairWhatsAppChannel();
 }
 
+async function configureLineChannel(args: string[]): Promise<void> {
+  let reset = false;
+  for (const arg of args) {
+    if (arg === '--reset' && !reset) {
+      reset = true;
+      continue;
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels line setup [--reset]\`.`,
+    );
+  }
+
+  await Promise.all([ensureLineAuthApi(), ensureLineConnectionApi()]);
+  ensureRuntimeConfigFile();
+  updateRuntimeConfig((draft) => {
+    draft.line.enabled = true;
+  });
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log('LINE mode: linked personal-account self-chat only');
+  console.log(
+    'WARNING: LINE personal-account automation is unofficial and may cause temporary restrictions or an account ban.',
+  );
+  console.log(`Auth directory: ${getLineAuthApi().LINE_AUTH_DIR}`);
+  if (reset) {
+    await getLineAuthApi().resetLineAuthState();
+    console.log(`Reset LINE auth state at ${getLineAuthApi().LINE_AUTH_DIR}.`);
+  }
+
+  const manager = getLineConnectionApi().createLineConnectionManager();
+  try {
+    console.log('Opening LINE QR login session...');
+    console.log(
+      'Scan the QR code with the LINE mobile app and confirm the PIN.',
+    );
+    await manager.start();
+    const client = await manager.waitForClient();
+    console.log(`LINE linked: ${client.base.profile?.mid || 'connected'}`);
+  } finally {
+    await manager.stop().catch(() => undefined);
+  }
+}
+
 async function resolveInteractiveTelegramSetup(params: {
   token: string | null;
   currentToken: string;
@@ -2734,6 +2782,7 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     channel !== 'slack_webhook' &&
     channel !== 'slack-webhook' &&
     channel !== 'signal' &&
+    channel !== 'line' &&
     channel !== 'whatsapp' &&
     channel !== 'discord' &&
     channel !== 'email' &&
@@ -2741,7 +2790,7 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     channel !== 'slack'
   ) {
     throw new Error(
-      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`signal\`, \`threema\`, \`discord_webhook\`, \`slack_webhook\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
+      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`signal\`, \`line\`, \`threema\`, \`discord_webhook\`, \`slack_webhook\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
     );
   }
 
@@ -2765,6 +2814,10 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     }
     if (channel === 'signal') {
       await configureSignalChannel(normalized.slice(2));
+      return;
+    }
+    if (channel === 'line') {
+      await configureLineChannel(normalized.slice(2));
       return;
     }
     if (channel === 'threema') {
@@ -2799,6 +2852,6 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
   }
 
   throw new Error(
-    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels signal setup\`, \`hybridclaw channels threema setup\`, \`hybridclaw channels discord_webhook setup\`, \`hybridclaw channels slack_webhook setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
+    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels signal setup\`, \`hybridclaw channels line setup\`, \`hybridclaw channels threema setup\`, \`hybridclaw channels discord_webhook setup\`, \`hybridclaw channels slack_webhook setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
   );
 }

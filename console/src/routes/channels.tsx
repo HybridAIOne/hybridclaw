@@ -957,6 +957,79 @@ function WhatsAppChannelEditor(props: {
   );
 }
 
+function LineChannelEditor(props: {
+  form: UseFormControllerReturn<AdminConfig>;
+  linked: boolean;
+  pairingQrText: string | null;
+  pincode: string | null;
+  pairingError: string | null;
+}) {
+  return (
+    <>
+      <FormField
+        name="line.enabled"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Enabled</FieldLabel>
+              <FieldDescription>
+                Personal-account self-chat only. This uses an unofficial LINE
+                protocol and may cause account restrictions or a ban.
+              </FieldDescription>
+            </FieldContent>
+          </Field>
+        )}
+      />
+
+      {!props.linked ? (
+        <div className="field whatsapp-pairing-field">
+          <span>Pairing QR</span>
+          {props.pairingQrText ? (
+            <pre
+              className="whatsapp-pairing-qr"
+              role="img"
+              aria-label="LINE pairing QR"
+            >
+              {props.pairingQrText}
+            </pre>
+          ) : (
+            <p className="muted-copy">
+              {props.pairingError ||
+                'Enable LINE and save to request a QR from the gateway.'}
+            </p>
+          )}
+          {props.pincode ? (
+            <p className="muted-copy">Confirm PIN: {props.pincode}</p>
+          ) : null}
+        </div>
+      ) : (
+        <p className="muted-copy">Personal account linked for self-chat.</p>
+      )}
+
+      <FormField
+        name="line.textChunkLimit"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Text chunk limit</FieldLabel>
+            <NumberField
+              integer
+              min={200}
+              max={5000}
+              value={field.value as number}
+              onValueChange={field.onChange}
+            />
+          </Field>
+        )}
+      />
+      <ChannelInstructionsField kind="line" />
+    </>
+  );
+}
+
 function TelegramChannelEditor(props: {
   draft: AdminConfig;
   form: UseFormControllerReturn<AdminConfig>;
@@ -3448,6 +3521,12 @@ function renderSelectedEditor(
     pairingQrText: string | null;
     pairingError: string | null;
   },
+  lineStatus: {
+    linked: boolean;
+    pairingQrText: string | null;
+    pincode: string | null;
+    pairingError: string | null;
+  },
   signalStatus: {
     cliAvailable: boolean;
     cliVersion: string | null;
@@ -3478,6 +3557,16 @@ function renderSelectedEditor(
           linked={whatsappStatus.linked}
           pairingQrText={whatsappStatus.pairingQrText}
           pairingError={whatsappStatus.pairingError}
+        />
+      );
+    case 'line':
+      return (
+        <LineChannelEditor
+          form={form}
+          linked={lineStatus.linked}
+          pairingQrText={lineStatus.pairingQrText}
+          pincode={lineStatus.pincode}
+          pairingError={lineStatus.pairingError}
         />
       );
     case 'slack':
@@ -3642,6 +3731,7 @@ export function ChannelsPage() {
         signalCliAvailable: statusQuery.data?.signal?.cliAvailable,
         voiceAuthTokenConfigured: statusQuery.data?.voice?.authTokenConfigured,
         whatsappLinked: statusQuery.data?.whatsapp?.linked,
+        lineLinked: statusQuery.data?.line?.linked,
         emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,
         imessagePasswordConfigured:
           statusQuery.data?.imessage?.passwordConfigured,
@@ -3730,6 +3820,12 @@ export function ChannelsPage() {
     pairingQrText: statusQuery.data?.whatsapp?.pairingQrText ?? null,
     pairingError: statusQuery.data?.whatsapp?.pairingError ?? null,
   };
+  const lineStatus = {
+    linked: statusQuery.data?.line?.linked ?? false,
+    pairingQrText: statusQuery.data?.line?.pairingQrText ?? null,
+    pincode: statusQuery.data?.line?.pincode ?? null,
+    pairingError: statusQuery.data?.line?.pairingError ?? null,
+  };
   const signalStatus = {
     cliAvailable: statusQuery.data?.signal?.cliAvailable ?? false,
     cliVersion: statusQuery.data?.signal?.cliVersion ?? null,
@@ -3793,6 +3889,7 @@ export function ChannelsPage() {
                       secretStatus,
                       hybridaiApiKeyConfigured,
                       whatsappStatus,
+                      lineStatus,
                       signalStatus,
                       agentsQuery.data || [],
                       (config) => {

@@ -12,6 +12,7 @@ import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
 import { registerChannel } from '../channels/channel-registry.js';
 import { isEmailAddress } from '../channels/email/allowlist.js';
 import { isIMessageHandle } from '../channels/imessage/handle.js';
+import { isLineChannelId } from '../channels/line/target.js';
 import { isTelegramChannelId } from '../channels/telegram/target.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import { DATA_DIR } from '../config/config.js';
@@ -137,6 +138,7 @@ function describeScheduledDeliveryTarget(
   if (isTelegramChannelId(trimmed)) return `Telegram target ${trimmed}`;
   if (isIMessageHandle(trimmed)) return `iMessage target ${trimmed}`;
   if (isWhatsAppJid(trimmed)) return `WhatsApp chat ${trimmed}`;
+  if (isLineChannelId(trimmed)) return `LINE Keep Memo ${trimmed}`;
   if (trimmed === 'tui') return 'the local TUI inbox';
   return `channel ${trimmed}`;
 }

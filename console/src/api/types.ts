@@ -165,6 +165,16 @@ export interface GatewayStatus {
     pairingUpdatedAt: string | null;
     pairingError: string | null;
   };
+  line?: {
+    enabled: boolean;
+    linked: boolean;
+    mid: string | null;
+    pairingQrText: string | null;
+    pairingUrl: string | null;
+    pincode: string | null;
+    pairingUpdatedAt: string | null;
+    pairingError: string | null;
+  };
   providerHealth?: Record<
     string,
     {
@@ -559,6 +569,7 @@ export interface AdminConfig {
     whatsapp: string;
     email: string;
     imessage: string;
+    line: string;
   };
   discord: {
     prefix: string;
@@ -754,6 +765,10 @@ export interface AdminConfig {
     sendReadReceipts: boolean;
     ackReaction: string;
     mediaMaxMb: number;
+  };
+  line: {
+    enabled: boolean;
+    textChunkLimit: number;
   };
   imessage: {
     enabled: boolean;

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- **LINE personal-account self-chat channel**: Operators can link a personal
+  LINE account through an explicitly warned unofficial QR flow and use only
+  that account's self-chat for agent turns. Auth tokens, E2EE state, and sync
+  cursors persist across restarts; sender/recipient checks, reply-prefix loop
+  prevention, process locking, and self-only outbound enforcement keep the
+  transport scoped to the linked account.
+
 ## [0.28.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.0) - 2026-07-08
 
 ### Added

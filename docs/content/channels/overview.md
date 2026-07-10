@@ -27,6 +27,7 @@ If you are still in first-run onboarding mode, start with
 | Email | Mailbox-driven workflows and threaded replies | `hybridclaw channels email setup ...` | [Email](./email.md) |
 | Fax | Fax-to-email inbound PDFs and guarded outbound PDF fax delivery | `hybridclaw channels email setup ...` + `fax-send` skill | [Fax](./fax.md) |
 | WhatsApp | Linked-device QR pairing and phone-based DM tests | `hybridclaw channels whatsapp setup ...` | [WhatsApp](./whatsapp.md) |
+| LINE | Unofficial personal-account QR login and self-chat only | `hybridclaw channels line setup` | [LINE](./line.md) |
 | Twilio Voice | Phone calls when you already have a public HTTPS/WSS endpoint | `/admin/channels` | [Twilio Voice](../guides/twilio-voice.md) |
 | iMessage | Local Mac runtime or remote BlueBubbles relay | `hybridclaw channels imessage setup ...` | [iMessage](./imessage.md) |
 | Microsoft Teams | Entra/Azure bot registration and HTTPS webhook delivery | `hybridclaw auth login msteams ...` | [Microsoft Teams](./msteams.md) |
@@ -56,6 +57,8 @@ required credentials saved:
   typically through the stored `EMAIL_PASSWORD` secret
 - **WhatsApp** when linked auth exists under
   `~/.hybridclaw/credentials/whatsapp`
+- **LINE** when `line.enabled=true`; personal-account auth is stored under
+  `~/.hybridclaw/credentials/line`
 - **iMessage** when `imessage.enabled` is true and either local Messages access
   or remote BlueBubbles credentials are configured
 - **Microsoft Teams** when `msteams.enabled` is true and `MSTEAMS_APP_PASSWORD`

@@ -538,6 +538,16 @@ export interface GatewayStatus {
     pairingUpdatedAt: string | null;
     pairingError: string | null;
   };
+  line?: {
+    enabled: boolean;
+    linked: boolean;
+    mid: string | null;
+    pairingQrText: string | null;
+    pairingUrl: string | null;
+    pincode: string | null;
+    pairingUpdatedAt: string | null;
+    pairingError: string | null;
+  };
   signal?: {
     enabled: boolean;
     daemonUrlConfigured: boolean;

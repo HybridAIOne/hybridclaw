@@ -103,6 +103,13 @@ function isPinnedExternalSpec(spec) {
   ) {
     return true;
   }
+  if (
+    /^https:\/\/npm\.jsr\.io\/~\/\d+\/@jsr\/[a-z0-9_-]+\/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.tgz$/.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
   return (
     /^npm:[^@]+@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.test(trimmed) ||
     /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(trimmed)
@@ -131,7 +138,7 @@ function checkPinnedDirectDependencies() {
       for (const [name, spec] of Object.entries(dependencies).sort()) {
         if (isPinnedExternalSpec(spec)) continue;
         fail(
-          `${relativePath} ${section}.${name} must be an exact version, file:, link:, or workspace: spec (found ${JSON.stringify(spec)}).`,
+          `${relativePath} ${section}.${name} must be an exact version, pinned npm.jsr.io tarball, file:, link:, or workspace: spec (found ${JSON.stringify(spec)}).`,
         );
       }
     }
