@@ -6,7 +6,7 @@ const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-chat-cleanup-',
 });
 
-test('cleanupGatewayNoUserChatSessions deletes web sessions with no user messages', async () => {
+test('cleanupGatewayNoUserChatSessions preserves onboarding sessions awaiting a reply', async () => {
   setupHome();
 
   const { initDatabase, getOrCreateSession, getSessionById, storeMessage } =
@@ -14,8 +14,10 @@ test('cleanupGatewayNoUserChatSessions deletes web sessions with no user message
   const { cleanupGatewayNoUserChatSessions } = await import(
     '../src/gateway/gateway-service.ts'
   );
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
 
   initDatabase({ quiet: true });
+  ensureBootstrapFiles('onboarding-agent');
 
   const keepSession = getOrCreateSession('cleanup-keep', null, 'web', 'main');
   const emptySession = getOrCreateSession('cleanup-empty', null, 'web', 'main');
@@ -26,6 +28,12 @@ test('cleanupGatewayNoUserChatSessions deletes web sessions with no user message
     'main',
   );
   const userSession = getOrCreateSession('cleanup-user', null, 'web', 'main');
+  const onboardingSession = getOrCreateSession(
+    'cleanup-onboarding',
+    null,
+    'web',
+    'onboarding-agent',
+  );
   const schedulerSession = getOrCreateSession(
     'cron:cleanup-daily',
     null,
@@ -40,6 +48,14 @@ test('cleanupGatewayNoUserChatSessions deletes web sessions with no user message
     'assistant',
     'Opening message',
     'main',
+  );
+  storeMessage(
+    onboardingSession.id,
+    'assistant',
+    null,
+    'assistant',
+    'What should I call you?',
+    'onboarding-agent',
   );
   storeMessage(userSession.id, 'web-user', 'User', 'user', 'Hello', 'main');
 
@@ -56,6 +72,7 @@ test('cleanupGatewayNoUserChatSessions deletes web sessions with no user message
   expect(getSessionById(assistantOnlySession.id)).toBeUndefined();
   expect(getSessionById(emptySession.id)).toBeUndefined();
   expect(getSessionById(keepSession.id)).toBeTruthy();
+  expect(getSessionById(onboardingSession.id)).toBeTruthy();
   expect(getSessionById(userSession.id)).toBeTruthy();
   expect(getSessionById(schedulerSession.id)).toBeTruthy();
 });

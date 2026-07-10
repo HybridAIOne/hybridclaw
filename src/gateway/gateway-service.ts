@@ -8538,7 +8538,7 @@ function resolveBootstrapAutostartContext(params: {
   if (
     existingSession &&
     !params.allowExistingSessionMessages &&
-    (existingSession.message_count > 0 ||
+    (sessionHasUserMessages(existingSession.id) ||
       String(existingSession.session_summary || '').trim().length > 0)
   ) {
     return null;
@@ -8561,7 +8561,7 @@ function resolveBootstrapAutostartContext(params: {
   );
   if (
     !params.allowExistingSessionMessages &&
-    (session.message_count > 0 ||
+    (sessionHasUserMessages(session.id) ||
       String(session.session_summary || '').trim().length > 0)
   ) {
     return null;
@@ -9039,6 +9039,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       agentId: resolved.agentId,
       bootstrapFile,
       toolExecutions: output.toolExecutions || [],
+      turnSucceeded: output.status === 'success',
     });
     if (hatchingCompletion) {
       logger.info(
@@ -9516,7 +9517,20 @@ export async function getGatewayAgentList(): Promise<GatewayAgentListResponse> {
 
 function isProtectedNoUserChatCleanupSession(session: Session): boolean {
   const sessionKey = String(session.session_key || '').trim();
+  const agentId = String(session.agent_id || '').trim();
+  const bootstrapAutostartActive = Array.from(
+    activeBootstrapAutostartSessions,
+  ).some((lockKey) => lockKey.startsWith(`${session.id}:`));
+  const hasStoredConversation =
+    session.message_count > 0 ||
+    String(session.session_summary || '').trim().length > 0;
+  const awaitingBootstrapReply =
+    agentId.length > 0 &&
+    hasStoredConversation &&
+    resolveStartupBootstrapFile(agentId) === 'BOOTSTRAP.md';
   return (
+    bootstrapAutostartActive ||
+    awaitingBootstrapReply ||
     session.full_auto_enabled === 1 ||
     session.channel_id === 'scheduler' ||
     session.id.startsWith('scheduler:') ||

@@ -413,6 +413,7 @@ export function recordBootstrapHatchingTurnResult(params: {
   agentId: string;
   bootstrapFile: 'BOOTSTRAP.md' | 'OPENING.md' | null;
   toolExecutions: ToolExecution[];
+  turnSucceeded: boolean;
   handledAt?: string;
 }): BootstrapHatchingTurnResult | null {
   if (params.bootstrapFile !== 'BOOTSTRAP.md') return null;
@@ -426,6 +427,14 @@ export function recordBootstrapHatchingTurnResult(params: {
     .map(readSuccessfulMessageSend)
     .find((candidate): candidate is MessageSend => Boolean(candidate));
   if (!send) {
+    if (!params.turnSucceeded) {
+      return {
+        completed: false,
+        updated: false,
+        reason: 'hatching turn failed before completion',
+        files,
+      };
+    }
     return {
       ...recordHatchingTurnWithoutMessage({
         agentId: params.agentId,
