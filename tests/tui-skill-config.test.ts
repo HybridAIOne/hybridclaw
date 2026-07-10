@@ -152,7 +152,7 @@ test('renderTuiSkillConfigLines wraps scope tabs so email remains visible on nar
     palette: ANSI_PALETTE,
   });
 
-  const scopeHeader = rendered.lines.slice(1, 4).join('\n');
+  const scopeHeader = rendered.lines.slice(1, 5).join('\n');
   expect(scopeHeader).toContain('[whatsapp]');
   expect(scopeHeader).toContain('email');
 });

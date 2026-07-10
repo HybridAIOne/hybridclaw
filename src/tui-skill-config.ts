@@ -97,6 +97,7 @@ export function createTuiSkillConfigDraft(
       discord: normalizeTrimmedStringSet(response.channelDisabled.discord),
       msteams: normalizeTrimmedStringSet(response.channelDisabled.msteams),
       whatsapp: normalizeTrimmedStringSet(response.channelDisabled.whatsapp),
+      line: normalizeTrimmedStringSet(response.channelDisabled.line),
       email: normalizeTrimmedStringSet(response.channelDisabled.email),
     },
   };

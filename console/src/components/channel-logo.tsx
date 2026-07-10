@@ -11,7 +11,8 @@ export function ChannelLogo(props: {
     | 'slack'
     | 'slack_webhook'
     | 'msteams'
-    | 'imessage';
+    | 'imessage'
+    | 'line';
 }) {
   switch (props.kind) {
     case 'discord':
@@ -41,6 +42,18 @@ export function ChannelLogo(props: {
             <path
               fill="#25D366"
               d="M13.2 12.3c-.2 0-.4.1-.5.4-.3.4-.7 1-.7 1.8s.7 1.7.8 1.8c.1.1 1.5 2.3 3.6 3.2 1.8.8 2.2.7 2.6.6.4-.1 1.2-.5 1.4-1 .1-.5.1-.8.1-.9 0-.1-.2-.2-.5-.3l-1.4-.7c-.2-.1-.4-.1-.5.1l-.6.8c-.1.1-.3.2-.5.1-.3-.1-1-.4-1.9-1.2-.8-.7-1.2-1.5-1.4-1.7-.1-.3 0-.4.1-.5l.4-.5c.1-.1.1-.3.2-.4s0-.3 0-.4l-.6-1.5c-.1-.3-.3-.4-.5-.4Z"
+            />
+          </svg>
+        </span>
+      );
+    case 'line':
+      return (
+        <span className="channel-logo" aria-hidden="true">
+          <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+            <circle cx="16" cy="16" r="13" fill="#06C755" />
+            <path
+              fill="#FFFFFF"
+              d="M8.5 9.6h2.5v10.1h5.1v2.2H8.5V9.6Zm9 0H20v12.3h-2.5V9.6Zm4.2 0H24l3.1 7v-7h2.4v12.3h-2.3l-3.1-6.9v6.9h-2.4V9.6Z"
             />
           </svg>
         </span>

@@ -28,6 +28,9 @@ import {
   sendEmailAttachmentTo,
   sendToEmail,
 } from '../email/runtime.js';
+import { getLineAuthStatus } from '../line/auth.js';
+import { sendToLineSelfChat } from '../line/runtime.js';
+import { normalizeLineChannelId } from '../line/target.js';
 import { sendToSignalChat } from '../signal/runtime.js';
 import { normalizeSignalChannelId } from '../signal/target.js';
 import { maybeRunSlackToolAction } from '../slack/tool-actions.js';
@@ -63,6 +66,7 @@ const MESSAGE_TOOL_EMAIL_MAILBOX_TARGET_RE =
   /^(?:mailbox|email(?::(?:mailbox|all|inbox|folder:.+|[^@\s]+))?)$/i;
 const MESSAGE_TOOL_DISCORD_WEBHOOK_PREFIX_RE = /^discord[_-]?webhook(?::|$)/i;
 const MESSAGE_TOOL_EMAIL_PREFIX_RE = /^email:/i;
+const MESSAGE_TOOL_LINE_PREFIX_RE = /^line:/i;
 const MESSAGE_TOOL_SIGNAL_PREFIX_RE = /^signal:/i;
 const MESSAGE_TOOL_SLACK_WEBHOOK_PREFIX_RE = /^slack[_-]?webhook(?::|$)/i;
 const MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE = /^(?:msteams|teams):current$/i;
@@ -76,7 +80,7 @@ const MESSAGE_TOOL_DISCORD_PREFIXED_ID_RE =
 const MESSAGE_TOOL_LOCAL_SOURCE = 'message-tool';
 const MESSAGE_TOOL_EMAIL_BODY_MAX_LENGTH = 6_000;
 const MESSAGE_TOOL_CHANNEL_INSTRUCTIONS =
-  'No message channel matched the request. Specify the channel explicitly: Signal `signal:+15551234567`, Telegram `telegram:<chatId>`, Threema `threema:<id>`/`threema:phone:<number>`/`threema:email:<address>`, WhatsApp `whatsapp:+15551234567` or a WhatsApp JID, Slack `slack:<channelId>`, Slack webhook `slack_webhook`/`slack_webhook:<target>`, Discord webhook `discord_webhook`/`discord_webhook:<target>`, email `user@example.com` or `email:user@example.com`, local `tui`, or Discord with a channel snowflake/`discord:<id>`/`<#id>`/`#name` plus `guildId`.';
+  'No message channel matched the request. Specify the channel explicitly: LINE `line:<linked-user-mid>`, Signal `signal:+15551234567`, Telegram `telegram:<chatId>`, Threema `threema:<id>`/`threema:phone:<number>`/`threema:email:<address>`, WhatsApp `whatsapp:+15551234567` or a WhatsApp JID, Slack `slack:<channelId>`, Slack webhook `slack_webhook`/`slack_webhook:<target>`, Discord webhook `discord_webhook`/`discord_webhook:<target>`, email `user@example.com` or `email:user@example.com`, local `tui`, or Discord with a channel snowflake/`discord:<id>`/`<#id>`/`#name` plus `guildId`.';
 
 function resolveMessageToolSessionWorkspaceRoot(
   sessionId: string | undefined,
@@ -137,11 +141,16 @@ function normalizeWhatsAppMessageTarget(rawTarget: string): string | null {
   return phoneToJid(normalizedPhone);
 }
 
+function normalizeLineMessageTarget(rawTarget: string): string | null {
+  return normalizeLineChannelId(String(rawTarget || '').trim());
+}
+
 function normalizeLocalMessageTarget(rawTarget: string): string | null {
   const trimmed = String(rawTarget || '').trim();
   if (!trimmed) return null;
   if (isDiscordChannelId(trimmed)) return null;
   if (isWhatsAppJid(trimmed)) return null;
+  if (normalizeLineChannelId(trimmed)) return null;
   if (isTelegramChannelId(trimmed)) return null;
   if (isEmailAddress(trimmed)) return null;
   return isSupportedProactiveChannelId(trimmed) ? trimmed : null;
@@ -495,6 +504,30 @@ async function runWhatsAppMessageSendAction(
     action: 'send',
     channelId,
     transport: 'whatsapp',
+    contentLength: content.length,
+  };
+}
+
+async function runLineMessageSendAction(
+  request: DiscordToolActionRequest,
+  channelId: string,
+): Promise<Record<string, unknown>> {
+  const content = String(request.content || '').trim();
+  if (!content) throw new Error('content is required for LINE sends.');
+  if (String(request.filePath || '').trim()) {
+    throw new Error('filePath is not supported for LINE sends.');
+  }
+  if (hasMessageComponents(request)) {
+    throw new Error('components are not supported for LINE sends.');
+  }
+  const auth = await getLineAuthStatus();
+  if (!auth.linked) throw new Error('LINE is not linked.');
+  await sendToLineSelfChat(channelId, content);
+  return {
+    ok: true,
+    action: 'send',
+    channelId,
+    transport: 'line',
     contentLength: content.length,
   };
 }
@@ -1001,6 +1034,14 @@ export async function runMessageToolAction(
 
   if (
     rawChannelId &&
+    MESSAGE_TOOL_LINE_PREFIX_RE.test(rawChannelId) &&
+    !normalizeLineMessageTarget(rawChannelId)
+  ) {
+    throw new Error('LINE send targets must use `line:<linked-user-mid>`.');
+  }
+
+  if (
+    rawChannelId &&
     MESSAGE_TOOL_SLACK_WEBHOOK_PREFIX_RE.test(rawChannelId) &&
     !normalizeSlackWebhookMessageTarget(rawChannelId)
   ) {
@@ -1041,6 +1082,11 @@ export async function runMessageToolAction(
   const whatsappChannelId = normalizeWhatsAppMessageTarget(rawChannelId);
   if (whatsappChannelId) {
     return await runWhatsAppMessageSendAction(request, whatsappChannelId);
+  }
+
+  const lineChannelId = normalizeLineMessageTarget(rawChannelId);
+  if (lineChannelId) {
+    return await runLineMessageSendAction(request, lineChannelId);
   }
 
   const telegramChannelId = normalizeTelegramMessageTarget(rawChannelId);

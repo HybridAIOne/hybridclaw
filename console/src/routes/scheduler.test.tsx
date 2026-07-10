@@ -113,6 +113,16 @@ function makeStatus(overrides: Partial<GatewayStatus> = {}): GatewayStatus {
       pairingQrText: null,
       pairingUpdatedAt: null,
     },
+    line: {
+      enabled: false,
+      linked: false,
+      mid: null,
+      pairingQrText: null,
+      pairingUrl: null,
+      pincode: null,
+      pairingUpdatedAt: null,
+      pairingError: null,
+    },
     ...overrides,
   } as GatewayStatus;
 }
@@ -147,6 +157,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       voice:
         'This is a live phone call. Produce plain spoken text only.\nKeep each reply short and conversational, usually one or two short sentences.',
       whatsapp: '',
+      line: '',
       email: '',
       imessage: '',
     },
@@ -237,6 +248,10 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       sendReadReceipts: true,
       ackReaction: '👀',
       mediaMaxMb: 20,
+    },
+    line: {
+      enabled: false,
+      textChunkLimit: 5000,
     },
     email: {
       enabled: true,

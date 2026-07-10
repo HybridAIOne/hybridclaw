@@ -393,6 +393,11 @@ function buildMessageToolPromptLines(
       'Example: "Send this to WhatsApp" -> `message` {"action":"send","to":"whatsapp:<phone-or-jid>","content":"message text"}',
     );
   }
+  if (activeChannels.includes('line')) {
+    examples.push(
+      'Example: "Send this to my LINE self-chat" -> `message` {"action":"send","to":"line:<linked-user-mid>","content":"message text"}',
+    );
+  }
   if (activeChannels.includes('email')) {
     examples.push(
       'Example: "Email ops@example.com that the deployment is complete" -> `message` {"action":"send","to":"ops@example.com","content":"[Subject: Deployment complete]\\n\\nDeployment is complete."}',
@@ -726,6 +731,7 @@ function isChannelInstructionKind(
     kind === 'threema' ||
     kind === 'voice' ||
     kind === 'whatsapp' ||
+    kind === 'line' ||
     kind === 'email' ||
     kind === 'imessage'
   );

@@ -249,6 +249,7 @@ Commands:
   hybridclaw auth status <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
   hybridclaw auth logout <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
   hybridclaw auth whatsapp reset
+  hybridclaw auth line reset
 
 Examples:
   hybridclaw auth login
@@ -269,6 +270,7 @@ Examples:
   hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
   hybridclaw auth login slack --bot-token xoxb-... --app-token xapp-...
   hybridclaw auth whatsapp reset
+  hybridclaw auth line reset
   hybridclaw auth status anthropic
   hybridclaw auth status openrouter
   hybridclaw auth status mistral
@@ -294,6 +296,7 @@ Notes:
   - \`auth login msteams\` enables Microsoft Teams and stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()}.
   - \`auth login slack\` enables Slack and stores \`SLACK_BOT_TOKEN\` plus \`SLACK_APP_TOKEN\` in ${runtimeSecretsPath()}.
   - \`auth whatsapp reset\` clears linked WhatsApp Web auth so you can re-pair cleanly.
+  - \`auth line reset\` clears the unofficial LINE personal-account session.
   - \`auth login anthropic --method api-key\` stores \`ANTHROPIC_API_KEY\` in ${runtimeSecretsPath()} and uses the direct Anthropic Messages API.
   - \`auth login anthropic --method claude-cli\` uses the official \`claude -p\` transport after \`claude auth login\`, and currently requires host sandbox mode.
   - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
@@ -397,6 +400,7 @@ Commands:
   hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
   hybridclaw channels threema setup --identity <gateway-id> [--secret <secret>] [--api-base-url <url>] [--allow-from <threema-target|*>]... [--dm-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--outbound-delay-ms <ms>]
   hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
+  hybridclaw channels line setup [--reset]
   hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
   hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
 
@@ -408,6 +412,8 @@ Notes:
   - Telegram groups stay disabled by default, and \`requireMention\` defaults to \`true\`.
   - Signal setup uses a signal-cli linked device; link with \`signal-cli link -n HybridClaw\`, start the daemon, then configure HybridClaw to connect to it.
   - WhatsApp setup starts a temporary pairing session and prints the QR code here when needed.
+  - LINE setup opens an unofficial personal-account QR login and enables self-chat only.
+  - LINE personal-account automation may cause restrictions or an account ban.
   - Use \`--reset\` to wipe stale WhatsApp auth files and force a fresh QR.
   - \`hybridclaw auth whatsapp reset\` clears linked WhatsApp auth without starting a new pairing session.
   - Without \`--allow-from\`, setup configures WhatsApp for self-chat only.
@@ -521,6 +527,17 @@ Notes:
   - Only one running HybridClaw process may own the WhatsApp auth state at a time.
   - Use \`auth whatsapp reset\` to clear stale linked-device auth before re-pairing.
   - Use \`channels whatsapp setup\` to configure policy and open a fresh QR pairing session.`);
+}
+
+export function printLineUsage(): void {
+  console.log(`Usage:
+  hybridclaw auth line reset
+  hybridclaw channels line setup [--reset]
+
+Notes:
+  - LINE support uses an unofficial personal-account protocol and may cause account restrictions or a ban.
+  - The channel accepts and sends only the linked account's self-chat messages.
+  - Persistent auth and E2EE state are stored under ~/.hybridclaw/credentials/line.`);
 }
 
 export function printMSTeamsUsage(): void {
@@ -1042,6 +1059,7 @@ Topics:
   huggingface Help for Hugging Face setup/status/logout commands
   hubspot     Help for HubSpot token setup/status/logout commands
   whatsapp    Help for WhatsApp setup/reset commands
+  line        Help for LINE self-chat setup/reset commands
   skill       Help for skill installer commands
   tool        Help for built-in tool toggles
   update      Help for checking/applying CLI updates
@@ -1193,6 +1211,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'whatsapp':
       printWhatsAppUsage();
+      return true;
+    case 'line':
+      printLineUsage();
       return true;
     case 'skill':
       printSkillUsage();

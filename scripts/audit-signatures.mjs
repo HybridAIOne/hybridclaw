@@ -19,6 +19,7 @@ const retryDelayMs = Number.parseInt(
 );
 
 const auditPolicyArgs = [];
+const jsrRegistryArg = '--@jsr:registry=https://npm.jsr.io';
 
 // Baileys 7.0.0-rc11 was published on 2026-05-13T08:35:11Z. Until npm's
 // seven-day age gate expires, signature audit needs the same resolver bypass
@@ -30,11 +31,18 @@ if (Date.now() < BAILEYS_RC11_MIN_RELEASE_AGE_EXPIRES_AT) {
 const targets = [
   {
     label: 'root',
-    args: [...auditPolicyArgs, 'audit', 'signatures'],
+    args: [jsrRegistryArg, ...auditPolicyArgs, 'audit', 'signatures'],
   },
   {
     label: 'container',
-    args: ['--prefix', 'container', ...auditPolicyArgs, 'audit', 'signatures'],
+    args: [
+      '--prefix',
+      'container',
+      jsrRegistryArg,
+      ...auditPolicyArgs,
+      'audit',
+      'signatures',
+    ],
   },
 ];
 

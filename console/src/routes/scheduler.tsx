@@ -217,6 +217,7 @@ function buildSchedulerChannelOptions(params: {
       slackAppTokenConfigured: params.status?.slack?.appTokenConfigured,
       telegramTokenConfigured: params.status?.telegram?.tokenConfigured,
       whatsappLinked: params.status?.whatsapp?.linked,
+      lineLinked: params.status?.line?.linked,
       emailPasswordConfigured: params.status?.email?.passwordConfigured,
       imessagePasswordConfigured: params.status?.imessage?.passwordConfigured,
     });
@@ -253,6 +254,8 @@ function formatSchedulerChannelLabel(channel: string): string {
       return 'Telegram';
     case 'whatsapp':
       return 'WhatsApp';
+    case 'line':
+      return 'LINE Keep Memo';
     case 'email':
       return 'Email';
     case 'msteams':
@@ -377,6 +380,13 @@ function buildSchedulerTargetControl(params: {
         value,
         label: 'Chat JID',
         placeholder: '491234567890@s.whatsapp.net',
+      };
+    case 'line':
+      return {
+        kind: 'input',
+        value,
+        label: 'Self-chat MID',
+        placeholder: 'line:u0123456789abcdef0123456789abcdef',
       };
     case 'email':
       return {

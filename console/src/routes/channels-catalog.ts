@@ -14,7 +14,8 @@ export type ChannelKind =
   | 'whatsapp'
   | 'email'
   | 'msteams'
-  | 'imessage';
+  | 'imessage'
+  | 'line';
 
 export interface ChannelCatalogItem {
   kind: ChannelKind;
@@ -37,6 +38,7 @@ interface ChannelCatalogOptions {
   threemaSecretConfigured?: boolean;
   voiceAuthTokenConfigured?: boolean;
   whatsappLinked?: boolean;
+  lineLinked?: boolean;
   emailPasswordConfigured?: boolean;
   imessagePasswordConfigured?: boolean;
 }
@@ -125,6 +127,32 @@ function describeWhatsApp(
         : statusTone === 'configured'
           ? 'configured'
           : 'available',
+  };
+}
+
+function describeLine(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
+  const linked = options.lineLinked === true;
+  const active = config.line.enabled && linked;
+  const statusTone = active
+    ? 'active'
+    : config.line.enabled || linked
+      ? 'configured'
+      : 'available';
+  return {
+    kind: 'line',
+    label: 'LINE',
+    summary: linked
+      ? config.line.enabled
+        ? 'Personal account · self-chat only'
+        : 'Linked account available but transport is off'
+      : config.line.enabled
+        ? 'Scan QR to link a personal account'
+        : 'Self-chat transport is off',
+    statusTone,
+    statusLabel: statusTone,
   };
 }
 
@@ -539,6 +567,7 @@ export function buildChannelCatalog(
     describeThreema(config, options),
     describeVoice(config, options),
     describeWhatsApp(config, options),
+    describeLine(config, options),
     describeEmail(config, options),
     describeMSTeams(config),
     describeIMessage(config, options),

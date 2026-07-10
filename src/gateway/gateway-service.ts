@@ -103,6 +103,8 @@ import {
   fetchLiveAdminEmailMailbox,
   fetchLiveAdminEmailMessage,
 } from '../channels/email/admin-mailbox.js';
+import { getLineAuthStatus } from '../channels/line/auth.js';
+import { getLinePairingState } from '../channels/line/pairing-state.js';
 import {
   getSignalCliAvailability,
   getSignalLinkState,
@@ -1312,6 +1314,7 @@ export function resolveChannelType(
   if (
     source === 'discord' ||
     source === 'imessage' ||
+    source === 'line' ||
     source === 'whatsapp' ||
     source === 'email' ||
     source === 'msteams' ||
@@ -1323,6 +1326,7 @@ export function resolveChannelType(
   if (
     inferredChannelType === 'discord' ||
     inferredChannelType === 'imessage' ||
+    inferredChannelType === 'line' ||
     inferredChannelType === 'whatsapp' ||
     inferredChannelType === 'email' ||
     inferredChannelType === 'voice'
@@ -4743,11 +4747,13 @@ export async function getGatewayStatus(
     localBackendsResult,
     hybridaiResult,
     whatsappAuthResult,
+    lineAuthResult,
     codexDiscoveryResult,
   ] = await Promise.allSettled([
     resolveGatewayLocalBackendsHealth(options),
     resolveGatewayHybridAIHealth(options),
     getWhatsAppAuthStatus(),
+    getLineAuthStatus(),
     // Warm the Codex model cache for provider counts; the status payload
     // reads discovered names after all probes settle.
     refreshProviderHealth && codex.authenticated && !codex.reloginRequired
@@ -4779,7 +4785,12 @@ export async function getGatewayStatus(
     whatsappAuthResult.status === 'fulfilled'
       ? whatsappAuthResult.value
       : { linked: false, jid: null };
+  const lineAuth =
+    lineAuthResult.status === 'fulfilled'
+      ? lineAuthResult.value
+      : { linked: false, mid: null };
   const whatsappPairing = getWhatsAppPairingState();
+  const linePairing = getLinePairingState();
   const signalPairing = getSignalLinkState();
   const signalCli = getSignalCliAvailability();
   const sandbox = getSandboxDiagnostics();
@@ -4957,6 +4968,15 @@ export async function getGatewayStatus(
       pairingQrText: whatsappPairing.pairingQrText,
       pairingUpdatedAt: whatsappPairing.updatedAt,
       pairingError: whatsappPairing.error,
+    },
+    line: {
+      ...lineAuth,
+      enabled: runtimeConfig.line.enabled,
+      pairingQrText: linePairing.pairingQrText,
+      pairingUrl: linePairing.pairingUrl,
+      pincode: linePairing.pincode,
+      pairingUpdatedAt: linePairing.updatedAt,
+      pairingError: linePairing.error,
     },
     providerHealth,
     localBackends,

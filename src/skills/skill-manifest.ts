@@ -68,6 +68,7 @@ export const DEFAULT_SKILL_SUPPORTED_CHANNELS: readonly ChannelKind[] = [
   'discord_webhook',
   'email',
   'imessage',
+  'line',
   'msteams',
   'signal',
   'slack',

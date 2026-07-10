@@ -78,6 +78,7 @@ import {
   printHubSpotUsage,
   printHuggingFaceUsage,
   printHybridAIUsage,
+  printLineUsage,
   printLocalUsage,
   printMicrosoft365Usage,
   printMistralUsage,
@@ -86,6 +87,7 @@ import {
   printSlackUsage,
   printWhatsAppUsage,
 } from './help.js';
+import { ensureLineAuthApi, getLineAuthApi } from './line-api.js';
 import { ensureOnboardingApi } from './onboarding-api.js';
 import { ensureWhatsAppAuthApi, getWhatsAppAuthApi } from './whatsapp-api.js';
 
@@ -2683,6 +2685,10 @@ export async function handleAuthCommand(args: string[]): Promise<void> {
     await handleAuthWhatsAppCommand(normalized.slice(1));
     return;
   }
+  if (sub === 'line') {
+    await handleAuthLineCommand(normalized.slice(1));
+    return;
+  }
   if (sub === 'login') {
     if (normalized.length === 1) {
       const { ensureRuntimeCredentials } = await ensureOnboardingApi();
@@ -2712,7 +2718,29 @@ export async function handleAuthCommand(args: string[]): Promise<void> {
   }
 
   throw new Error(
-    `Unknown auth subcommand: ${sub}. Use \`login\`, \`status\`, \`logout\`, or \`whatsapp\`.`,
+    `Unknown auth subcommand: ${sub}. Use \`login\`, \`status\`, \`logout\`, \`line\`, or \`whatsapp\`.`,
+  );
+}
+
+async function handleAuthLineCommand(normalizedArgs: string[]): Promise<void> {
+  if (normalizedArgs.length === 0 || isHelpRequest(normalizedArgs)) {
+    printLineUsage();
+    return;
+  }
+  const sub = normalizedArgs[0].toLowerCase();
+  if (sub !== 'reset' || normalizedArgs.length > 1) {
+    throw new Error(
+      'Use `hybridclaw auth line reset` without additional arguments.',
+    );
+  }
+  await ensureLineAuthApi();
+  const status = await getLineAuthApi().getLineAuthStatus();
+  await getLineAuthApi().resetLineAuthState();
+  console.log(`Reset LINE auth state at ${getLineAuthApi().LINE_AUTH_DIR}.`);
+  console.log(
+    status.linked
+      ? 'Personal-account session cleared. Re-run `hybridclaw channels line setup` to pair again.'
+      : 'No linked LINE session was present.',
   );
 }
 

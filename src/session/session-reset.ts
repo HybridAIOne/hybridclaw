@@ -1,6 +1,7 @@
 import { isDiscordWebhookChannelTarget } from '../channels/discord-webhook/target.js';
 import { isEmailAddress } from '../channels/email/allowlist.js';
 import { isIMessageHandle } from '../channels/imessage/handle.js';
+import { isLineChannelId } from '../channels/line/target.js';
 import { isSignalChannelId } from '../channels/signal/target.js';
 import { isSlackChannelTarget } from '../channels/slack/target.js';
 import { isSlackWebhookChannelTarget } from '../channels/slack-webhook/target.js';
@@ -47,6 +48,7 @@ export function resolveSessionResetChannelKind(
   if (!normalized) return undefined;
   if (LOCAL_SESSION_RESET_CHANNEL_KINDS.has(normalized)) return normalized;
   if (isWhatsAppJid(normalized)) return 'whatsapp';
+  if (isLineChannelId(normalized)) return 'line';
   if (isVoiceChannelId(normalized)) return 'voice';
   if (isIMessageHandle(normalized)) return 'imessage';
   if (isSignalChannelId(normalized)) return 'signal';

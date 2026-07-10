@@ -186,6 +186,17 @@ dependency from `@whiskeysockets/baileys` to `libsignal`; replacing that
 dependency with a registry-only package should be prioritized before enabling
 npm's `allow-git` restriction.
 
+The optional-at-runtime LINE personal-account channel uses version-pinned JSR
+tarballs from `https://npm.jsr.io` because JSR packages are not resolvable from
+the default npm registry when consumers install the published CLI. The direct
+LINEJS package and its two JSR runtime packages are all pinned to immutable
+versioned tarball URLs, recorded with integrity hashes in both lockfiles, and
+the dependency policy accepts only this narrow `npm.jsr.io` URL shape. Apache
+Thrift is overridden to `0.23.0` to exclude the high-severity vulnerable range
+pulled by LINEJS's declared dependency. The signature-audit helper routes only
+the `@jsr` scope to JSR so npm can verify JSR registry signatures while keeping
+all other packages on the npm registry.
+
 Recommended dependency update workflow:
 
 ```bash

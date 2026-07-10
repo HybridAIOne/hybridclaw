@@ -9,6 +9,7 @@ import { discordAgentPromptAdapter } from './discord/prompt-adapter.js';
 import { discordWebhookAgentPromptAdapter } from './discord-webhook/prompt-adapter.js';
 import { emailAgentPromptAdapter } from './email/prompt-adapter.js';
 import { imessageAgentPromptAdapter } from './imessage/prompt-adapter.js';
+import { lineAgentPromptAdapter } from './line/prompt-adapter.js';
 import { msteamsAgentPromptAdapter } from './msteams/prompt-adapter.js';
 import { signalAgentPromptAdapter } from './signal/prompt-adapter.js';
 import { slackAgentPromptAdapter } from './slack/prompt-adapter.js';
@@ -62,6 +63,7 @@ function resolveChannelAgentPromptAdapter(params: {
   if (channel.kind === 'whatsapp') return whatsappAgentPromptAdapter;
   if (channel.kind === 'email') return emailAgentPromptAdapter;
   if (channel.kind === 'imessage') return imessageAgentPromptAdapter;
+  if (channel.kind === 'line') return lineAgentPromptAdapter;
   if (channel.kind === 'msteams') return msteamsAgentPromptAdapter;
   if (channel.kind === 'signal') return signalAgentPromptAdapter;
   if (channel.kind === 'discord_webhook') {

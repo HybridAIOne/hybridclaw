@@ -33,6 +33,8 @@ Keep the first rollout narrow:
   into message threads
 - [WhatsApp](../channels/whatsapp.md) when you want phone-linked testing and a
   QR pairing flow
+- [LINE](../channels/line.md) when you accept the unofficial-account risk and
+  want a personal self-chat-only channel
 - [Twilio Voice](../guides/twilio-voice.md) when you want phone calls and
   already have a public HTTPS/WSS tunnel or host for Twilio callbacks
 - [iMessage](../channels/imessage.md) when HybridClaw runs on a Mac or can
@@ -53,6 +55,7 @@ jump directly to one transport:
 - [Threema](../channels/threema.md)
 - [Email](../channels/email.md)
 - [WhatsApp](../channels/whatsapp.md)
+- [LINE](../channels/line.md)
 - [Twilio Voice](../guides/twilio-voice.md)
 - [iMessage](../channels/imessage.md)
 - [Microsoft Teams](../channels/msteams.md)

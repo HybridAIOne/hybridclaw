@@ -105,6 +105,9 @@
   },
   "dependencies": {
     "@huggingface/transformers": "3.8.1",
+    "@jsr/evex__linejs": "https://npm.jsr.io/~/11/@jsr/evex__linejs/3.1.3.tgz",
+    "@jsr/evex__linejs-types": "https://npm.jsr.io/~/11/@jsr/evex__linejs-types/3.1.4.tgz",
+    "@jsr/evex__loose-types": "https://npm.jsr.io/~/11/@jsr/evex__loose-types/1.0.1.tgz",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@ngrok/ngrok": "1.7.0",
     "@opentelemetry/api": "1.9.1",
@@ -172,6 +175,7 @@
       "undici": "7.28.0"
     },
     "shell-quote": "1.8.4",
+    "thrift": "0.23.0",
     "tmp": "0.2.7"
   }
 }
