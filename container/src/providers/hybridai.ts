@@ -1,5 +1,9 @@
 import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
-import type { ChatCompletionResponse, ToolCall } from '../types.js';
+import type {
+  AnthropicContentBlock,
+  ChatCompletionResponse,
+  ToolCall,
+} from '../types.js';
 import { HYBRIDCLAW_USER_AGENT } from '../user-agent.js';
 import {
   buildRequestHeaders,
@@ -28,6 +32,7 @@ interface StreamChoiceChunk {
     content?: string | null;
     reasoning_content?: string | null;
     reasoning?: string | null;
+    anthropic_content?: AnthropicContentBlock[];
     tool_calls?: StreamToolCallDelta[];
   };
   message?: {
@@ -35,6 +40,7 @@ interface StreamChoiceChunk {
     content?: string | null;
     reasoning_content?: string | null;
     reasoning?: string | null;
+    anthropic_content?: AnthropicContentBlock[];
     tool_calls?: ToolCall[];
   };
   finish_reason?: string | null;
@@ -50,8 +56,9 @@ interface StreamChunkPayload {
 function buildHybridAIRequestBody(
   args: NormalizedCallArgs,
 ): Record<string, unknown> {
+  const model = stripHybridAIModelPrefix(args.model);
   const request: Record<string, unknown> = {
-    model: stripHybridAIModelPrefix(args.model),
+    model,
     chatbot_id: args.chatbotId,
     messages: args.messages,
     enable_rag: args.enableRag,
@@ -66,6 +73,13 @@ function buildHybridAIRequestBody(
     args.maxTokens > 0
   ) {
     request.max_tokens = Math.floor(args.maxTokens);
+  }
+  if (
+    /^anthropic\/claude-(?:sonnet-(?:4-6|5)|opus-4-(?:6|7|8))(?:$|-)/.test(
+      model.toLowerCase(),
+    )
+  ) {
+    request.thinking = { type: 'adaptive', display: 'summarized' };
   }
   return request;
 }
@@ -263,6 +277,7 @@ export async function callHybridAIProviderStream(
   let role = 'assistant';
   let textContent = '';
   let reasoningContent = '';
+  let anthropicContent: AnthropicContentBlock[] = [];
   const toolCalls: ToolCall[] = [];
   let sawPayload = false;
   let streamDone = false;
@@ -324,6 +339,9 @@ export async function callHybridAIProviderStream(
           args.onThinkingDelta?.(reasoningDelta);
         }
       }
+      if (Array.isArray(message.anthropic_content)) {
+        anthropicContent = message.anthropic_content;
+      }
       if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
         toolCalls.length = 0;
         for (const call of message.tool_calls) {
@@ -354,6 +372,9 @@ export async function callHybridAIProviderStream(
       if (!usedMessageReasoning && deltaReasoning) {
         reasoningContent += deltaReasoning;
         args.onThinkingDelta?.(deltaReasoning);
+      }
+      if (Array.isArray(delta.anthropic_content)) {
+        anthropicContent = delta.anthropic_content;
       }
       if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
         for (const callDelta of delta.tool_calls) {
@@ -415,6 +436,9 @@ export async function callHybridAIProviderStream(
           role,
           content: textContent || null,
           ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
+          ...(anthropicContent.length > 0
+            ? { anthropic_content: anthropicContent }
+            : {}),
           ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
         },
         finish_reason:
