@@ -1,5 +1,9 @@
 import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
-import type { ChatCompletionResponse, ToolCall } from '../types.js';
+import type {
+  AnthropicContentBlock,
+  ChatCompletionResponse,
+  ToolCall,
+} from '../types.js';
 import { HYBRIDCLAW_USER_AGENT } from '../user-agent.js';
 import {
   buildRequestHeaders,
@@ -26,11 +30,17 @@ interface StreamChoiceChunk {
   delta?: {
     role?: string;
     content?: string | null;
+    reasoning_content?: string | null;
+    reasoning?: string | null;
+    anthropic_content?: AnthropicContentBlock[];
     tool_calls?: StreamToolCallDelta[];
   };
   message?: {
     role?: string;
     content?: string | null;
+    reasoning_content?: string | null;
+    reasoning?: string | null;
+    anthropic_content?: AnthropicContentBlock[];
     tool_calls?: ToolCall[];
   };
   finish_reason?: string | null;
@@ -46,8 +56,9 @@ interface StreamChunkPayload {
 function buildHybridAIRequestBody(
   args: NormalizedCallArgs,
 ): Record<string, unknown> {
+  const model = stripHybridAIModelPrefix(args.model);
   const request: Record<string, unknown> = {
-    model: stripHybridAIModelPrefix(args.model),
+    model,
     chatbot_id: args.chatbotId,
     messages: args.messages,
     enable_rag: args.enableRag,
@@ -62,6 +73,13 @@ function buildHybridAIRequestBody(
     args.maxTokens > 0
   ) {
     request.max_tokens = Math.floor(args.maxTokens);
+  }
+  if (
+    /^anthropic\/claude-(?:sonnet-(?:4-6|5)|opus-4-(?:6|7|8))(?:$|-)/.test(
+      model.toLowerCase(),
+    )
+  ) {
+    request.thinking = { type: 'adaptive', display: 'summarized' };
   }
   return request;
 }
@@ -127,6 +145,15 @@ function mergeToolCallDelta(
   ) {
     target.function.arguments += delta.function.arguments;
   }
+}
+
+function extractStructuredReasoning(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  for (const candidate of [record.reasoning_content, record.reasoning]) {
+    if (typeof candidate === 'string' && candidate) return candidate;
+  }
+  return null;
 }
 
 export async function callHybridAIProvider(
@@ -249,6 +276,8 @@ export async function callHybridAIProviderStream(
   let usage: ChatCompletionResponse['usage'] | undefined;
   let role = 'assistant';
   let textContent = '';
+  let reasoningContent = '';
+  let anthropicContent: AnthropicContentBlock[] = [];
   const toolCalls: ToolCall[] = [];
   let sawPayload = false;
   let streamDone = false;
@@ -282,6 +311,7 @@ export async function callHybridAIProviderStream(
     if (!choice) return;
 
     let usedMessageContent = false;
+    let usedMessageReasoning = false;
     if (choice.message) {
       const message = choice.message;
       if (typeof message.role === 'string' && message.role) role = message.role;
@@ -297,6 +327,20 @@ export async function callHybridAIProviderStream(
           usedMessageContent = true;
           args.onTextDelta(messageDelta);
         }
+      }
+      const messageReasoning = extractStructuredReasoning(message);
+      if (messageReasoning) {
+        const reasoningDelta = messageReasoning.startsWith(reasoningContent)
+          ? messageReasoning.slice(reasoningContent.length)
+          : messageReasoning;
+        reasoningContent = messageReasoning;
+        if (reasoningDelta) {
+          usedMessageReasoning = true;
+          args.onThinkingDelta?.(reasoningDelta);
+        }
+      }
+      if (Array.isArray(message.anthropic_content)) {
+        anthropicContent = message.anthropic_content;
       }
       if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
         toolCalls.length = 0;
@@ -323,6 +367,14 @@ export async function callHybridAIProviderStream(
       ) {
         textContent += delta.content;
         args.onTextDelta(delta.content);
+      }
+      const deltaReasoning = extractStructuredReasoning(delta);
+      if (!usedMessageReasoning && deltaReasoning) {
+        reasoningContent += deltaReasoning;
+        args.onThinkingDelta?.(deltaReasoning);
+      }
+      if (Array.isArray(delta.anthropic_content)) {
+        anthropicContent = delta.anthropic_content;
       }
       if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
         for (const callDelta of delta.tool_calls) {
@@ -383,6 +435,10 @@ export async function callHybridAIProviderStream(
         message: {
           role,
           content: textContent || null,
+          ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
+          ...(anthropicContent.length > 0
+            ? { anthropic_content: anthropicContent }
+            : {}),
           ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
         },
         finish_reason:

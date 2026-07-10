@@ -216,6 +216,12 @@ const STATIC_MODEL_METADATA: Record<string, StaticModelMetadataEntry> = {
     capabilities: coreModelCapabilities,
     sources: [MODEL_METADATA_SOURCES.anthropicModels],
   },
+  'claude-sonnet-5': {
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
+    capabilities: coreModelCapabilities,
+    sources: [MODEL_METADATA_SOURCES.anthropicModels],
+  },
 };
 
 export interface StaticModelCatalogMetadata {

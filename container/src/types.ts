@@ -31,11 +31,17 @@ export type ChatContentPart =
   | ChatContentAudioUrlPart;
 export type ChatMessageContent = string | ChatContentPart[] | null;
 
+export interface AnthropicContentBlock {
+  type: string;
+  [key: string]: unknown;
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: ChatMessageContent;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
+  anthropic_content?: AnthropicContentBlock[];
 }
 
 export interface ToolCall {
@@ -54,6 +60,8 @@ export interface ChatCompletionResponse {
       role: string;
       content: ChatMessageContent;
       tool_calls?: ToolCall[];
+      reasoning_content?: string | null;
+      anthropic_content?: AnthropicContentBlock[];
     };
     finish_reason: string;
   }>;

@@ -9,6 +9,7 @@ import {
   isCodexFamilyModelId,
   isGpt5ModelId,
   isLocalLlmModelId,
+  resolveStaticModelCatalogMetadata,
 } from '../src/providers/model-metadata.js';
 
 const COMPLETE_OVERLAY = {
@@ -168,4 +169,22 @@ test('getModelOverlay returns undefined for normalized model variants', () => {
   expect(getModelOverlay('openai-codex/gpt-5')).toBeUndefined();
   expect(getModelOverlay('gpt-5:latest')).toBeUndefined();
   expect(getModelOverlay('openai/gpt-5:latest')).toBeUndefined();
+});
+
+test('Claude Sonnet 5 has current context and output limits', () => {
+  expect(
+    resolveStaticModelCatalogMetadata(
+      'hybridai/anthropic/claude-sonnet-5',
+    ),
+  ).toMatchObject({
+    known: true,
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
+    capabilities: {
+      vision: true,
+      tools: true,
+      jsonMode: true,
+      reasoning: true,
+    },
+  });
 });
