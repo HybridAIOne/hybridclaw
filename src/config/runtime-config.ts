@@ -1555,7 +1555,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     sendPolicy: 'open',
     sendAllowedChannelIds: [],
     freeResponseChannels: [],
-    textChunkLimit: 2_000,
+    textChunkLimit: 1_900,
     maxLinesPerMessage: 17,
     humanDelay: {
       mode: 'natural',

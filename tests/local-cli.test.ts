@@ -1221,7 +1221,7 @@ test('channels whatsapp setup preserves an existing custom ack reaction', async 
           sendPolicy: 'open',
           sendAllowedChannelIds: [],
           freeResponseChannels: [],
-          textChunkLimit: 2000,
+          textChunkLimit: 1900,
           maxLinesPerMessage: 17,
           humanDelay: { mode: 'natural', minMs: 800, maxMs: 2500 },
           typingMode: 'thinking',

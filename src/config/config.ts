@@ -288,7 +288,7 @@ export let DISCORD_GROUP_POLICY: RuntimeConfig['discord']['groupPolicy'] =
 export let DISCORD_SEND_POLICY: RuntimeConfig['discord']['sendPolicy'] = 'open';
 export let DISCORD_SEND_ALLOWED_CHANNEL_IDS: string[] = [];
 export let DISCORD_FREE_RESPONSE_CHANNELS: string[] = [];
-export let DISCORD_TEXT_CHUNK_LIMIT = 2_000;
+export let DISCORD_TEXT_CHUNK_LIMIT = 1_900;
 export let DISCORD_MAX_LINES_PER_MESSAGE = 17;
 export let DISCORD_HUMAN_DELAY: RuntimeConfig['discord']['humanDelay'] = {
   mode: 'natural',
@@ -834,7 +834,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_FREE_RESPONSE_CHANNELS = [...config.discord.freeResponseChannels];
   DISCORD_TEXT_CHUNK_LIMIT = Math.max(
     200,
-    Math.min(2_000, config.discord.textChunkLimit),
+    Math.min(1_900, config.discord.textChunkLimit),
   );
   DISCORD_MAX_LINES_PER_MESSAGE = Math.max(
     4,

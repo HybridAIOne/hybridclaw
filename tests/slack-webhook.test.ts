@@ -71,7 +71,7 @@ describe('Slack webhook channel', () => {
     }
   });
 
-  test('builds Block Kit section chunks no longer than 3000 chars', async () => {
+  test('keeps Block Kit section chunks below the hard text limit', async () => {
     const { delivery } = await importFreshSlackWebhook();
     const payload = delivery.buildSlackWebhookPayload('a'.repeat(6_500), {
       defaultUsername: 'HybridClaw',
@@ -83,7 +83,7 @@ describe('Slack webhook channel', () => {
     expect(payload.icon_emoji).toBe(':robot_face:');
     expect(payload.blocks.length).toBeGreaterThan(1);
     expect(
-      payload.blocks.every((block) => block.text.text.length <= 3_000),
+      payload.blocks.every((block) => block.text.text.length <= 2_900),
     ).toBe(true);
   });
 

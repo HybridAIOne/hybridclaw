@@ -8,6 +8,7 @@ import {
 } from './target.js';
 
 const DISCORD_WEBHOOK_CONTENT_LIMIT = 2_000;
+const DISCORD_WEBHOOK_CHUNK_MARGIN = 100;
 const DISCORD_WEBHOOK_RETRY_MAX_ATTEMPTS = 5;
 const DISCORD_WEBHOOK_RETRY_BASE_DELAY_MS = 500;
 const DISCORD_WEBHOOK_RETRY_MAX_DELAY_MS = 10_000;
@@ -83,7 +84,7 @@ function normalizeWebhookText(text: string): string {
 
 export function prepareDiscordWebhookTextChunks(text: string): string[] {
   const chunks = chunkMessage(normalizeWebhookText(text), {
-    maxChars: DISCORD_WEBHOOK_CONTENT_LIMIT,
+    maxChars: DISCORD_WEBHOOK_CONTENT_LIMIT - DISCORD_WEBHOOK_CHUNK_MARGIN,
     maxLines: 100,
   })
     .map((entry) => entry.trim())

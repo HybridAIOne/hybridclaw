@@ -82,7 +82,7 @@ describe('Discord webhook channel', () => {
     }
   });
 
-  test('builds Discord webhook content chunks no longer than 2000 chars', async () => {
+  test('keeps Discord webhook chunks below the hard content limit', async () => {
     const { delivery } = await importFreshDiscordWebhook();
     const payloads = delivery.buildDiscordWebhookPayloads('a'.repeat(4_500), {
       defaultUsername: 'HybridClaw',
@@ -90,7 +90,7 @@ describe('Discord webhook channel', () => {
     });
 
     expect(payloads.length).toBeGreaterThan(1);
-    expect(payloads.every((payload) => payload.content.length <= 2_000)).toBe(
+    expect(payloads.every((payload) => payload.content.length <= 1_900)).toBe(
       true,
     );
     expect(payloads[0]).toMatchObject({
