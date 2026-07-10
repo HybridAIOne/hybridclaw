@@ -92,6 +92,30 @@ function normalizeAllowEntry(value: string): string | null {
   return normalizePhoneNumber(trimmed) ?? jidToPhone(trimmed);
 }
 
+function isLidJid(value: string | null | undefined): boolean {
+  return /@(hosted\.)?lid$/i.test(String(value || '').trim());
+}
+
+function resolveInboundSenderJid(message: WAMessage): string {
+  const participant = (
+    message.key.participant ||
+    message.participant ||
+    ''
+  ).trim();
+  if (isLidJid(participant)) {
+    const participantAlt = message.key.participantAlt?.trim();
+    if (participantAlt) return participantAlt;
+  }
+
+  const chatJid = message.key.remoteJid?.trim() || '';
+  if (isLidJid(chatJid)) {
+    const senderAlt = message.key.remoteJidAlt?.trim();
+    if (senderAlt) return senderAlt;
+  }
+
+  return participant || chatJid;
+}
+
 function matchesAllowList(list: string[], senderPhone: string | null): boolean {
   if (list.includes('*')) return true;
   if (!senderPhone) return false;
@@ -310,12 +334,7 @@ export async function processInboundWhatsAppMessage(params: {
     return null;
   }
 
-  const senderJid = (
-    params.message.key.participant ||
-    params.message.participant ||
-    params.message.key.remoteJid ||
-    ''
-  ).trim();
+  const senderJid = resolveInboundSenderJid(params.message);
   if (!senderJid) return null;
 
   const access = evaluateWhatsAppAccessPolicy({

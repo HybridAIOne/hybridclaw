@@ -50,6 +50,7 @@ import {
 const MAX_SEEN_EVENTS = 2_000;
 const MAX_ACTIVE_SLACK_SESSIONS = 2_000;
 const MAX_USER_DISPLAY_NAMES = 2_000;
+const SLACK_EVENT_MERGE_DELAY_MS = 25;
 const SLACK_STATUS_INDICATOR_DELAY_MS = 750;
 
 export type SlackReplyFn = (content: string) => Promise<void>;
@@ -153,6 +154,10 @@ let botUserId = '';
 const activeSlackSessions = new Map<string, ActiveSlackSession>();
 const activeThreadKeys = new Set<string>();
 const seenEventKeys = new Map<string, number>();
+const pendingEventsByKey = new Map<
+  string,
+  { event: SlackMessageEvent; processing: Promise<void> }
+>();
 const userDisplayNameCache = new Map<string, string>();
 
 function rememberSeenEvent(key: string): boolean {
@@ -170,6 +175,31 @@ function rememberSeenEvent(key: string): boolean {
     }
   }
   return false;
+}
+
+function mergeSlackEvents(
+  current: SlackMessageEvent,
+  incoming: SlackMessageEvent,
+): SlackMessageEvent {
+  const definedIncomingFields = Object.fromEntries(
+    Object.entries(incoming).filter(([, value]) => value !== undefined),
+  );
+  const currentFiles = Array.isArray(current.files) ? current.files : [];
+  const incomingFiles = Array.isArray(incoming.files) ? incoming.files : [];
+  return {
+    ...current,
+    ...definedIncomingFields,
+    ...(currentFiles.length > 0 && incomingFiles.length === 0
+      ? { files: current.files }
+      : {}),
+  };
+}
+
+function mayHaveAppMentionTwin(event: SlackMessageEvent): boolean {
+  return (
+    trimValue(event.type) === 'app_mention' ||
+    Boolean(botUserId && String(event.text || '').includes(`<@${botUserId}>`))
+  );
 }
 
 function rememberSlackDisplayName(userId: string, displayName: string): void {
@@ -699,10 +729,42 @@ async function handleIncomingSlackEvent(
   const event = rawEvent as SlackMessageEvent;
 
   const eventKey = `${trimValue(event.channel)}:${trimValue(event.ts)}`;
+  const pending = pendingEventsByKey.get(eventKey);
+  if (pending) {
+    pending.event = mergeSlackEvents(pending.event, event);
+    await pending.processing;
+    return;
+  }
   if (rememberSeenEvent(eventKey)) {
     return;
   }
 
+  if (mayHaveAppMentionTwin(event)) {
+    const pendingEvent = {
+      event,
+      processing: Promise.resolve(),
+    };
+    pendingEventsByKey.set(eventKey, pendingEvent);
+    pendingEvent.processing = new Promise<void>((resolve) => {
+      setTimeout(resolve, SLACK_EVENT_MERGE_DELAY_MS);
+    })
+      .then(() => processIncomingSlackEvent(pendingEvent.event, messageHandler))
+      .finally(() => {
+        if (pendingEventsByKey.get(eventKey) === pendingEvent) {
+          pendingEventsByKey.delete(eventKey);
+        }
+      });
+    await pendingEvent.processing;
+    return;
+  }
+
+  await processIncomingSlackEvent(event, messageHandler);
+}
+
+async function processIncomingSlackEvent(
+  event: SlackMessageEvent,
+  messageHandler: SlackMessageHandler,
+): Promise<void> {
   const inbound = await processInboundSlackEvent({
     event,
     botUserId: botUserId || null,

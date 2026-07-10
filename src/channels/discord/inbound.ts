@@ -82,6 +82,13 @@ export function cleanIncomingContent(
   return normalizeNativeAgentAddressingText(text);
 }
 
+export function hasDiscordMessageContentChanged(
+  oldContent: string | null | undefined,
+  newContent: string | null | undefined,
+): boolean {
+  return oldContent !== newContent;
+}
+
 export function hasPrefixInvocation(
   content: string,
   botMentionRegex: RegExp | null,

@@ -516,6 +516,62 @@ describe('slack runtime', () => {
     });
   });
 
+  test('merges duplicate message and app_mention events before dispatch', async () => {
+    vi.useFakeTimers();
+    const state = await importFreshSlackRuntime();
+    state.processInboundSlackEvent.mockImplementation(async ({ event }) => ({
+      sessionId: 'agent:main:channel:slack:chat:thread:peer:c1234567890:thread:1710000000.200000',
+      guildId: 'T0315EDR0',
+      channelId: 'slack:C1234567890:1710000000.200000',
+      userId: 'U1234567890',
+      content: 'hello',
+      media: [],
+      target: 'slack:C1234567890:1710000000.200000',
+      isDm: false,
+      threadTs: '1710000000.200000',
+      rawEvent: event,
+    }));
+    const messageHandler = vi.fn(async () => {});
+
+    await state.runtime.initSlack(messageHandler, async () => {});
+    const messageEventHandler = state.eventHandlers.get('message');
+    const mentionEventHandler = state.eventHandlers.get('app_mention');
+    const messageEvent = messageEventHandler?.({
+      event: {
+        type: 'message',
+        channel: 'C1234567890',
+        channel_type: 'channel',
+        ts: '1710000000.200000',
+        text: '<@U9999999999> hello',
+        files: [{ id: 'F1234567890' }],
+      },
+    });
+    const mentionEvent = mentionEventHandler?.({
+      event: {
+        type: 'app_mention',
+        channel: 'C1234567890',
+        ts: '1710000000.200000',
+        text: '<@U9999999999> hello',
+        team: 'T0315EDR0',
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(25);
+    await Promise.all([messageEvent, mentionEvent]);
+
+    expect(state.processInboundSlackEvent).toHaveBeenCalledTimes(1);
+    expect(state.processInboundSlackEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          channel_type: 'channel',
+          team: 'T0315EDR0',
+          files: [{ id: 'F1234567890' }],
+        }),
+      }),
+    );
+    expect(messageHandler).toHaveBeenCalledTimes(1);
+  });
+
   test('routes native Slack slash commands through the command handler', async () => {
     const state = await importFreshSlackRuntime();
     const commandHandler = vi.fn(async (_1, _2, _3, _4, _5, args, reply) => {
