@@ -265,6 +265,122 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   expect(getGatewayHistory(sessionId, 10).history).toHaveLength(2);
 });
 
+test('ensureGatewayBootstrapAutostart retries after a failed opener without consuming a hatching turn', async () => {
+  setupHome();
+
+  runAgentMock
+    .mockResolvedValueOnce({
+      status: 'error',
+      error: 'temporary provider failure',
+      toolsUsed: [],
+      toolExecutions: [],
+    })
+    .mockResolvedValueOnce({
+      status: 'success',
+      result: 'Recovered onboarding opener.',
+      toolsUsed: [],
+      toolExecutions: [],
+    });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const sessionId =
+    'agent:main:channel:web:chat:dm:peer:bootstrap-retry-after-error';
+  await ensureGatewayBootstrapAutostart({ sessionId });
+
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  expect(getGatewayHistory(sessionId, 10).history).toEqual([
+    expect.objectContaining({
+      role: 'assistant',
+      content: DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
+    }),
+  ]);
+  const statePath = path.join(
+    agentWorkspaceDir('main'),
+    '.hybridclaw',
+    'workspace-state.json',
+  );
+  expect(JSON.parse(fs.readFileSync(statePath, 'utf8'))).not.toHaveProperty(
+    'hatchingTurnsWithoutMessage',
+  );
+
+  await ensureGatewayBootstrapAutostart({ sessionId });
+
+  expect(runAgentMock).toHaveBeenCalledTimes(2);
+  expect(
+    getGatewayHistory(sessionId, 10).history.some(
+      (message) => message.content === 'Recovered onboarding opener.',
+    ),
+  ).toBe(true);
+  expect(JSON.parse(fs.readFileSync(statePath, 'utf8'))).toMatchObject({
+    hatchingTurnsWithoutMessage: 1,
+  });
+});
+
+test('cleanupGatewayNoUserChatSessions preserves bootstrap autostart before its prelude is stored', async () => {
+  setupHome();
+
+  let markAuxiliaryStarted: (() => void) | undefined;
+  const auxiliaryStarted = new Promise<void>((resolve) => {
+    markAuxiliaryStarted = resolve;
+  });
+  let resolveAuxiliary:
+    | ((value: {
+        provider: string;
+        model: string;
+        content: string;
+      }) => void)
+    | undefined;
+  callAuxiliaryModelMock.mockImplementationOnce(() => {
+    markAuxiliaryStarted?.();
+    return new Promise((resolve) => {
+      resolveAuxiliary = resolve;
+    });
+  });
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Onboarding is ready.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { initDatabase, getSessionById } = await import('../src/memory/db.ts');
+  const {
+    cleanupGatewayNoUserChatSessions,
+    ensureGatewayBootstrapAutostart,
+  } = await import('../src/gateway/gateway-service.ts');
+
+  initDatabase({ quiet: true });
+
+  const sessionId =
+    'agent:main:channel:web:chat:dm:peer:bootstrap-cleanup-race';
+  const autostart = ensureGatewayBootstrapAutostart({ sessionId });
+  await auxiliaryStarted;
+
+  const cleanup = cleanupGatewayNoUserChatSessions({
+    channelId: 'web',
+    keepSessionId: 'different-session',
+  });
+
+  expect(cleanup.deletedSessionIds).not.toContain(sessionId);
+  expect(getSessionById(sessionId)).toBeTruthy();
+
+  resolveAuxiliary?.({
+    provider: 'hybridai',
+    model: 'auxiliary/test',
+    content: DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
+  });
+  await autostart;
+
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+});
+
 test('ensureGatewayBootstrapAutostart records terminal hatching audit when a post-hatching hook throws', async () => {
   setupHome();
 

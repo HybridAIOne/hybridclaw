@@ -771,6 +771,72 @@ test('handleGatewayMessage completes hatching when the agent deletes BOOTSTRAP.m
   );
 });
 
+test('handleGatewayMessage does not consume a hatching turn when the agent run fails', async () => {
+  setupHome();
+
+  runAgentMock
+    .mockResolvedValueOnce({
+      status: 'error',
+      error: 'temporary provider failure',
+      toolsUsed: [],
+      toolExecutions: [],
+    })
+    .mockResolvedValue({
+      status: 'success',
+      result: 'Still learning.',
+      toolsUsed: [],
+      toolExecutions: [],
+    });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+
+  initDatabase({ quiet: true });
+  ensureBootstrapFiles('research');
+
+  const workspaceDir = agentWorkspaceDir('research');
+  const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+  const statePath = path.join(
+    workspaceDir,
+    '.hybridclaw',
+    'workspace-state.json',
+  );
+  const sendTurn = (content: string) =>
+    handleGatewayMessage({
+      sessionId: 'session-onboarding-error-does-not-count',
+      guildId: null,
+      channelId: 'web',
+      userId: 'user-1',
+      username: 'user',
+      agentId: 'research',
+      content,
+      chatbotId: 'bot-1',
+    });
+
+  await sendTurn('Failed hatching turn.');
+
+  expect(fs.existsSync(bootstrapPath)).toBe(true);
+  expect(JSON.parse(fs.readFileSync(statePath, 'utf-8'))).not.toHaveProperty(
+    'hatchingTurnsWithoutMessage',
+  );
+
+  await sendTurn('First successful turn.');
+  await sendTurn('Second successful turn.');
+
+  expect(fs.existsSync(bootstrapPath)).toBe(true);
+  expect(JSON.parse(fs.readFileSync(statePath, 'utf-8'))).toMatchObject({
+    hatchingTurnsWithoutMessage: 2,
+  });
+
+  await sendTurn('Third successful turn.');
+
+  expect(fs.existsSync(bootstrapPath)).toBe(false);
+});
+
 test('handleGatewayMessage completes hatching after three turns without a message send', async () => {
   setupHome();
 
