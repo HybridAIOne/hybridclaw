@@ -35,6 +35,7 @@ export interface DiscordStreamOptions {
 
 const DEFAULT_EDIT_INTERVAL_MS = 1_200;
 const DISCORD_STREAM_RETRY_LOG_MESSAGE = 'Discord request failed; retrying';
+const DISCORD_CONTENT_LIMIT_WITH_MARGIN = 1_900;
 
 function isRenderableChunk(chunk: string): boolean {
   return chunk.trim().length > 0;
@@ -49,8 +50,8 @@ export class DiscordStreamManager {
   private readonly onFirstMessage?: () => void;
   private readonly humanDelay?: HumanDelayConfig;
 
-  private readonly messages: DiscordEditMessage[] = [];
-  private sentChunks: string[] = [];
+  private readonly messages: Array<DiscordEditMessage | undefined> = [];
+  private sentChunks: Array<string | undefined> = [];
   private content = '';
   private lastEditAt = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -62,7 +63,10 @@ export class DiscordStreamManager {
     this.channel = sourceMessage.channel as unknown as DiscordSendChannel;
     this.maxChars = Math.max(
       200,
-      Math.min(2_000, options?.maxChars ?? DISCORD_TEXT_CHUNK_LIMIT),
+      Math.min(
+        DISCORD_CONTENT_LIMIT_WITH_MARGIN,
+        options?.maxChars ?? DISCORD_TEXT_CHUNK_LIMIT,
+      ),
     );
     this.maxLines = Math.max(
       4,
@@ -77,7 +81,7 @@ export class DiscordStreamManager {
   }
 
   hasSentMessages(): boolean {
-    return this.messages.length > 0;
+    return this.messages.some(Boolean);
   }
 
   append(delta: string): Promise<void> {
@@ -123,6 +127,7 @@ export class DiscordStreamManager {
     this.closed = true;
     return this.enqueue(async () => {
       for (const message of this.messages) {
+        if (!message) continue;
         try {
           await withDiscordRetry('delete', () => message.delete(), {
             logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE,
@@ -173,15 +178,7 @@ export class DiscordStreamManager {
 
     if (chunks.length === 0) {
       if (files && files.length > 0) {
-        const fallback = 'Attached files:';
-        const sent = await withDiscordRetry(
-          'reply',
-          () => this.sourceMessage.reply({ content: fallback, files }),
-          { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
-        );
-        this.messages.push(sent as unknown as DiscordEditMessage);
-        this.sentChunks.push(fallback);
-        this.onFirstMessage?.();
+        await this.sendAttachmentFallback(files);
       }
       return;
     }
@@ -190,28 +187,33 @@ export class DiscordStreamManager {
       const chunk = chunks[i];
       const isLast = i === chunks.length - 1;
 
-      if (i >= this.messages.length) {
+      const message = this.messages[i];
+      if (!message) {
         if (i > 0) {
           const delayMs = getHumanDelayMs(this.humanDelay);
           if (delayMs > 0) {
             await sleep(delayMs);
           }
         }
-        const sent =
-          i === 0
-            ? await withDiscordRetry(
-                'reply',
-                () => this.sourceMessage.reply({ content: chunk }),
-                { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
-              )
-            : await withDiscordRetry(
-                'send',
-                () => this.channel.send({ content: chunk }),
-                { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
-              );
-        this.messages.push(sent as unknown as DiscordEditMessage);
-        this.sentChunks.push(chunk);
-        this.onFirstMessage?.();
+        try {
+          const sent =
+            i === 0
+              ? await withDiscordRetry(
+                  'reply',
+                  () => this.sourceMessage.reply({ content: chunk }),
+                  { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
+                )
+              : await withDiscordRetry(
+                  'send',
+                  () => this.channel.send({ content: chunk }),
+                  { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
+                );
+          this.messages[i] = sent as unknown as DiscordEditMessage;
+          this.sentChunks[i] = chunk;
+          this.onFirstMessage?.();
+        } catch (error) {
+          this.logChunkFailure(error, 'send', i, chunks.length);
+        }
         continue;
       }
 
@@ -223,20 +225,28 @@ export class DiscordStreamManager {
         continue;
       }
 
-      await withDiscordRetry(
-        'edit',
-        () => this.messages[i].edit({ content: chunk }),
-        { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
-      );
-      this.sentChunks[i] = chunk;
-      this.lastEditAt = Date.now();
+      try {
+        await withDiscordRetry('edit', () => message.edit({ content: chunk }), {
+          logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE,
+        });
+        this.sentChunks[i] = chunk;
+        this.lastEditAt = Date.now();
+      } catch (error) {
+        this.logChunkFailure(error, 'edit', i, chunks.length);
+      }
     }
 
     if (this.messages.length > chunks.length) {
       for (let i = this.messages.length - 1; i >= chunks.length; i -= 1) {
-        await withDiscordRetry('delete', () => this.messages[i].delete(), {
-          logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE,
-        });
+        const message = this.messages[i];
+        if (!message) continue;
+        try {
+          await withDiscordRetry('delete', () => message.delete(), {
+            logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE,
+          });
+        } catch (error) {
+          this.logChunkFailure(error, 'delete', i, this.messages.length);
+        }
       }
       this.messages.splice(chunks.length);
       this.sentChunks = this.sentChunks.slice(0, chunks.length);
@@ -244,14 +254,64 @@ export class DiscordStreamManager {
 
     if (files && files.length > 0) {
       const lastIndex = chunks.length - 1;
-      await withDiscordRetry(
-        'edit',
-        () =>
-          this.messages[lastIndex].edit({ content: chunks[lastIndex], files }),
-        { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
-      );
-      this.sentChunks[lastIndex] = chunks[lastIndex];
-      this.lastEditAt = Date.now();
+      const lastMessage = this.messages[lastIndex];
+      if (lastMessage) {
+        try {
+          await withDiscordRetry(
+            'edit',
+            () => lastMessage.edit({ content: chunks[lastIndex], files }),
+            { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
+          );
+          this.sentChunks[lastIndex] = chunks[lastIndex];
+          this.lastEditAt = Date.now();
+          return;
+        } catch (error) {
+          this.logChunkFailure(error, 'attach files', lastIndex, chunks.length);
+        }
+      }
+      await this.sendAttachmentFallback(files);
+    }
+  }
+
+  private logChunkFailure(
+    error: unknown,
+    operation: string,
+    index: number,
+    chunkCount: number,
+  ): void {
+    logDiscordApiError({
+      error,
+      expectedAction: 'The remaining response chunks will still be processed.',
+      unexpectedMessage: `Failed to ${operation} Discord stream chunk`,
+      metadata: { chunkIndex: index + 1, chunkCount },
+    });
+  }
+
+  private async sendAttachmentFallback(
+    files: AttachmentBuilder[],
+  ): Promise<void> {
+    const fallback = 'Attached files:';
+    try {
+      const sent = this.hasSentMessages()
+        ? await withDiscordRetry(
+            'send',
+            () => this.channel.send({ content: fallback, files }),
+            { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
+          )
+        : await withDiscordRetry(
+            'reply',
+            () => this.sourceMessage.reply({ content: fallback, files }),
+            { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
+          );
+      this.messages.push(sent as unknown as DiscordEditMessage);
+      this.sentChunks.push(fallback);
+      this.onFirstMessage?.();
+    } catch (error) {
+      logDiscordApiError({
+        error,
+        expectedAction: 'The response attachments were not delivered.',
+        unexpectedMessage: 'Failed to send Discord stream attachments',
+      });
     }
   }
 }

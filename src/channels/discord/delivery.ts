@@ -13,6 +13,7 @@ import type { MemoryCitation } from '../../types/memory.js';
 import { sleep } from '../../utils/sleep.js';
 import { getHumanDelayMs, type HumanDelayConfig } from './human-delay.js';
 import { type MentionLookup, rewriteUserMentions } from './mentions.js';
+import { logDiscordApiError } from './transport-errors.js';
 
 export { formatError, formatInfo } from '../../utils/text-format.js';
 
@@ -30,6 +31,8 @@ type ChunkedPayload = {
   files?: AttachmentBuilder[];
   components?: DiscordMessageComponents;
 };
+
+const DISCORD_CONTENT_LIMIT_WITH_MARGIN = 1_900;
 
 export function buildResponseText(
   text: string,
@@ -61,7 +64,10 @@ export function prepareChunkedPayloads(
     ? rewriteUserMentions(text, mentionLookup)
     : text;
   const chunks = chunkMessage(prepared, {
-    maxChars: Math.max(200, Math.min(2_000, DISCORD_TEXT_CHUNK_LIMIT)),
+    maxChars: Math.max(
+      200,
+      Math.min(DISCORD_CONTENT_LIMIT_WITH_MARGIN, DISCORD_TEXT_CHUNK_LIMIT),
+    ),
     maxLines: Math.max(4, Math.min(200, DISCORD_MAX_LINES_PER_MESSAGE)),
   }).filter((chunk) => chunk.trim().length > 0);
   const safeChunks = chunks.length > 0 ? chunks : ['(no content)'];
@@ -87,24 +93,47 @@ export async function sendChunkedReply(params: {
     params.components,
     params.mentionLookup,
   );
+  const channel = params.msg.channel as unknown as {
+    send: (next: {
+      content: string;
+      files?: AttachmentBuilder[];
+    }) => Promise<void>;
+  };
   for (let i = 0; i < payloads.length; i += 1) {
-    if (i === 0) {
-      await params.withRetry('reply', () => params.msg.reply(payloads[i]));
-    } else {
+    const payload = payloads[i];
+    if (i > 0) {
       const delayMs = getHumanDelayMs(params.humanDelay);
-      if (delayMs > 0) {
-        await sleep(delayMs);
+      if (delayMs > 0) await sleep(delayMs);
+    }
+
+    try {
+      if (i === 0) {
+        await params.withRetry('reply', () => params.msg.reply(payload));
+      } else {
+        await params.withRetry('send', () => channel.send(payload));
       }
-      await params.withRetry('send', () =>
-        (
-          params.msg.channel as unknown as {
-            send: (next: {
-              content: string;
-              files?: AttachmentBuilder[];
-            }) => Promise<void>;
-          }
-        ).send(payloads[i]),
-      );
+    } catch (error) {
+      logDiscordApiError({
+        error,
+        expectedAction: 'The remaining response chunks will still be sent.',
+        unexpectedMessage: 'Failed to send Discord response chunk',
+        metadata: { chunkIndex: i + 1, chunkCount: payloads.length },
+      });
+
+      if (payload.files?.length) {
+        try {
+          await params.withRetry('send-attachments', () =>
+            channel.send({ content: 'Attached files:', files: payload.files }),
+          );
+        } catch (attachmentError) {
+          logDiscordApiError({
+            error: attachmentError,
+            expectedAction: 'The response attachments were not delivered.',
+            unexpectedMessage: 'Failed to send Discord response attachments',
+            metadata: { chunkIndex: i + 1, chunkCount: payloads.length },
+          });
+        }
+      }
     }
   }
 }

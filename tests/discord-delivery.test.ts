@@ -9,6 +9,7 @@ async function importFreshDelivery() {
   );
   const getHumanDelayMs = vi.fn(() => 0);
   const sleep = vi.fn(async () => {});
+  const logDiscordApiError = vi.fn();
 
   vi.doMock('../src/config/config.ts', () => ({
     DISCORD_MAX_LINES_PER_MESSAGE: 20,
@@ -26,6 +27,9 @@ async function importFreshDelivery() {
   vi.doMock('../src/channels/discord/mentions.js', () => ({
     rewriteUserMentions,
   }));
+  vi.doMock('../src/channels/discord/transport-errors.js', () => ({
+    logDiscordApiError,
+  }));
 
   const delivery = await import('../src/channels/discord/delivery.js');
   return {
@@ -34,6 +38,7 @@ async function importFreshDelivery() {
     rewriteUserMentions,
     getHumanDelayMs,
     sleep,
+    logDiscordApiError,
   };
 }
 
@@ -44,6 +49,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/discord/human-delay.js');
   vi.doUnmock('../src/utils/sleep.js');
   vi.doUnmock('../src/channels/discord/mentions.js');
+  vi.doUnmock('../src/channels/discord/transport-errors.js');
   vi.resetModules();
 });
 
@@ -99,6 +105,10 @@ describe('discord delivery', () => {
       { content: 'chunk-1', components },
       { content: 'chunk-2', files },
     ]);
+    expect(chunkMessage).toHaveBeenCalledWith(
+      'rewritten:@alice hello',
+      expect.objectContaining({ maxChars: 1_900 }),
+    );
   });
 
   test('falls back to a no-content payload when chunking yields nothing', async () => {
@@ -159,6 +169,67 @@ describe('discord delivery', () => {
     });
     expect(send).toHaveBeenCalledWith({ content: 'second chunk' });
     expect(sleep).toHaveBeenCalledWith(25);
+  });
+
+  test('continues after a failed chunk so later chunks and attachments are delivered', async () => {
+    const { delivery, chunkMessage, logDiscordApiError } =
+      await importFreshDelivery();
+    chunkMessage.mockReturnValue(['bad chunk', 'middle chunk', 'final chunk']);
+    const files = [{ name: 'report.txt' }] as unknown as [];
+
+    const reply = vi.fn(async () => {
+      throw new Error('bad chunk');
+    });
+    const send = vi.fn(async () => {});
+    const withRetry = async <T>(_label: string, fn: () => Promise<T>) => fn();
+
+    await delivery.sendChunkedReply({
+      msg: { reply, channel: { send } } as never,
+      text: 'ignored',
+      files,
+      withRetry,
+    });
+
+    expect(send).toHaveBeenNthCalledWith(1, { content: 'middle chunk' });
+    expect(send).toHaveBeenNthCalledWith(2, {
+      content: 'final chunk',
+      files,
+    });
+    expect(logDiscordApiError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        unexpectedMessage: 'Failed to send Discord response chunk',
+        metadata: { chunkIndex: 1, chunkCount: 3 },
+      }),
+    );
+  });
+
+  test('retries attachments separately when their final text chunk fails', async () => {
+    const { delivery, chunkMessage } = await importFreshDelivery();
+    chunkMessage.mockReturnValue(['first chunk', 'bad final chunk']);
+    const files = [{ name: 'report.txt' }] as unknown as [];
+
+    const reply = vi.fn(async () => {});
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('bad final chunk'))
+      .mockResolvedValueOnce(undefined);
+    const withRetry = async <T>(_label: string, fn: () => Promise<T>) => fn();
+
+    await delivery.sendChunkedReply({
+      msg: { reply, channel: { send } } as never,
+      text: 'ignored',
+      files,
+      withRetry,
+    });
+
+    expect(send).toHaveBeenNthCalledWith(1, {
+      content: 'bad final chunk',
+      files,
+    });
+    expect(send).toHaveBeenNthCalledWith(2, {
+      content: 'Attached files:',
+      files,
+    });
   });
 
   test('sends chunked direct replies through DM open then DM sends', async () => {

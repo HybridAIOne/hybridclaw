@@ -54,6 +54,22 @@ describe('chunkMessage', () => {
     expect(chunks[1]).toContain('tail');
   });
 
+  test('does not split UTF-16 surrogate pairs at hard character boundaries', () => {
+    const text = `${'x'.repeat(199)}😀tail`;
+
+    const chunks = chunkMessage(text, { maxChars: 200 });
+
+    expect(chunks.join('')).toBe(text);
+    expect(
+      chunks.every((chunk) => {
+        const first = chunk.charCodeAt(0);
+        const last = chunk.charCodeAt(chunk.length - 1);
+        return !(first >= 0xdc00 && first <= 0xdfff) &&
+          !(last >= 0xd800 && last <= 0xdbff);
+      }),
+    ).toBe(true);
+  });
+
   test('splits on maxLines boundaries', () => {
     const text = Array.from(
       { length: 9 },
@@ -85,5 +101,20 @@ describe('chunkMessage', () => {
       '```ts\nconst a = 1;\nconst b = 2;\nconst c = 3;\n```',
       '```ts\nconst d = 4;\n```',
     ]);
+  });
+
+  test('reserves closing-fence headroom within the character limit', () => {
+    const chunks = chunkMessage(`\`\`\`ts\n${'x'.repeat(194)}`, {
+      maxChars: 200,
+    });
+    const longFenceChunks = chunkMessage(`\`\`\`${'x'.repeat(450)}`, {
+      maxChars: 200,
+    });
+
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]).toHaveLength(200);
+    expect(chunks.every((chunk) => chunk.length <= 200)).toBe(true);
+    expect(chunks.every((chunk) => chunk.endsWith('\n```'))).toBe(true);
+    expect(longFenceChunks.every((chunk) => chunk.length <= 200)).toBe(true);
   });
 });

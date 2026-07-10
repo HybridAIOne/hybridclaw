@@ -6,6 +6,7 @@ async function importFreshStream() {
   const chunkMessage = vi.fn<(text: string) => string[]>();
   const getHumanDelayMs = vi.fn(() => 0);
   const sleep = vi.fn(async () => {});
+  const logDiscordApiError = vi.fn();
   const logger = {
     warn: vi.fn(),
     debug: vi.fn(),
@@ -27,9 +28,19 @@ async function importFreshStream() {
   vi.doMock('../src/logger.ts', () => ({
     logger,
   }));
+  vi.doMock('../src/channels/discord/transport-errors.js', () => ({
+    logDiscordApiError,
+  }));
 
   const stream = await import('../src/channels/discord/stream.js');
-  return { stream, chunkMessage, getHumanDelayMs, sleep, logger };
+  return {
+    stream,
+    chunkMessage,
+    getHumanDelayMs,
+    sleep,
+    logger,
+    logDiscordApiError,
+  };
 }
 
 function makeSentMessage() {
@@ -46,6 +57,7 @@ afterEach(() => {
   vi.doUnmock('../src/channels/discord/human-delay.js');
   vi.doUnmock('../src/utils/sleep.js');
   vi.doUnmock('../src/logger.ts');
+  vi.doUnmock('../src/channels/discord/transport-errors.js');
   vi.resetModules();
 });
 
@@ -65,5 +77,40 @@ describe('DiscordStreamManager', () => {
 
     expect(reply).toHaveBeenCalledWith({ content: 'visible chunk' });
     expect(send).not.toHaveBeenCalled();
+    expect(chunkMessage).toHaveBeenCalledWith('ignored', {
+      maxChars: 1_900,
+      maxLines: 20,
+    });
+  });
+
+  test('continues streaming after one chunk fails and still attaches files', async () => {
+    const { stream, chunkMessage, logDiscordApiError } =
+      await importFreshStream();
+    chunkMessage.mockReturnValue(['bad chunk', 'final chunk']);
+    const files = [{ name: 'report.txt' }] as unknown as [];
+    const sentMessage = makeSentMessage();
+
+    const reply = vi.fn(async () => {
+      throw new Error('bad chunk');
+    });
+    const send = vi.fn(async () => sentMessage);
+    const manager = new stream.DiscordStreamManager({
+      reply,
+      channel: { send },
+    } as never);
+
+    await manager.finalize('ignored', files);
+
+    expect(send).toHaveBeenCalledWith({ content: 'final chunk' });
+    expect(sentMessage.edit).toHaveBeenCalledWith({
+      content: 'final chunk',
+      files,
+    });
+    expect(logDiscordApiError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        unexpectedMessage: 'Failed to send Discord stream chunk',
+        metadata: { chunkIndex: 1, chunkCount: 2 },
+      }),
+    );
   });
 });

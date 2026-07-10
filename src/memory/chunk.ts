@@ -1,3 +1,8 @@
+import {
+  sliceHeadAtCodePointBoundary,
+  sliceTailAtCodePointBoundary,
+} from '../session/token-efficiency.js';
+
 export interface ChunkMessageOptions {
   maxChars?: number;
   maxLines?: number;
@@ -5,6 +10,7 @@ export interface ChunkMessageOptions {
 
 const DEFAULT_MAX_CHARS = 1_900;
 const DEFAULT_MAX_LINES = 20;
+const FENCE_CLOSE_SUFFIX = '\n```';
 
 function isFenceLine(line: string): boolean {
   return line.trim().startsWith('```');
@@ -63,16 +69,23 @@ function splitLongLine(line: string, maxChars: number): string[] {
       splitAt = Math.min(maxChars, remaining.length);
     }
 
-    const head = remaining.slice(0, splitAt).trimEnd();
+    const safeSlice = sliceHeadAtCodePointBoundary(remaining, splitAt);
+    const head = safeSlice.trimEnd();
     if (!head) {
-      const fallback = remaining.slice(0, maxChars);
+      const fallback = sliceHeadAtCodePointBoundary(remaining, maxChars);
       pieces.push(fallback);
-      remaining = remaining.slice(maxChars);
+      remaining = sliceTailAtCodePointBoundary(
+        remaining,
+        remaining.length - fallback.length,
+      );
       continue;
     }
 
     pieces.push(head);
-    remaining = remaining.slice(splitAt).trimStart();
+    remaining = sliceTailAtCodePointBoundary(
+      remaining,
+      remaining.length - safeSlice.length,
+    ).trimStart();
   }
 
   if (remaining.length > 0) {
@@ -99,17 +112,24 @@ export function chunkMessage(
   let openFence = false;
   let fenceLanguage = '';
 
+  const getReopenedFence = (): string => {
+    const candidate = fenceLanguage ? `\`\`\`${fenceLanguage}` : '```';
+    return candidate.length + FENCE_CLOSE_SUFFIX.length < maxChars
+      ? candidate
+      : '```';
+  };
+
   const flush = (isFinal: boolean): void => {
     if (currentLines.length === 0) return;
 
     let chunk = currentLines.join('\n');
     if (openFence) {
-      chunk += '\n```';
+      chunk += FENCE_CLOSE_SUFFIX;
     }
     chunks.push(chunk);
 
     if (!isFinal && openFence) {
-      const reopenedFence = fenceLanguage ? `\`\`\`${fenceLanguage}` : '```';
+      const reopenedFence = getReopenedFence();
       currentLines = [reopenedFence];
       currentChars = reopenedFence.length;
     } else {
@@ -127,9 +147,12 @@ export function chunkMessage(
       currentLines.length === 0 ? line.length : line.length + 1;
     const nextChars = currentChars + addedChars;
     const nextLines = currentLines.length + 1;
+    const nextFenceOpen = isFenceLine(line) ? !openFence : openFence;
+    const charBudget =
+      maxChars - (nextFenceOpen ? FENCE_CLOSE_SUFFIX.length : 0);
     if (
       currentLines.length > 0 &&
-      (nextChars > maxChars || nextLines > maxLines)
+      (nextChars > charBudget || nextLines > maxLines)
     ) {
       flush(false);
     }
@@ -150,9 +173,22 @@ export function chunkMessage(
   };
 
   for (const rawLine of inputLines) {
-    const splitLines = splitLongLine(rawLine, maxChars);
-    for (const part of splitLines) {
+    const pendingLines = [rawLine];
+    while (pendingLines.length > 0) {
+      const line = pendingLines.shift() ?? '';
+      const fenceLine = isFenceLine(line);
+      const reopenedFenceChars = openFence ? getReopenedFence().length + 1 : 0;
+      const closingFenceChars =
+        openFence && fenceLine ? 0 : FENCE_CLOSE_SUFFIX.length;
+      const lineBudget = Math.max(
+        2,
+        maxChars -
+          reopenedFenceChars -
+          (openFence || fenceLine ? closingFenceChars : 0),
+      );
+      const [part, ...remainingParts] = splitLongLine(line, lineBudget);
       appendLine(part);
+      pendingLines.unshift(...remainingParts);
     }
   }
 
