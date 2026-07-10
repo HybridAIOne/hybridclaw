@@ -2037,6 +2037,7 @@ async function handleGatewayMessageInner(
       agentId,
       bootstrapFile: startupBootstrapFile,
       toolExecutions,
+      turnSucceeded: output.status === 'success',
     });
     if (hatchingCompletion) {
       logger.info(
