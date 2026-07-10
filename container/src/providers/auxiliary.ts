@@ -167,10 +167,7 @@ export async function callAuxiliaryModel(
       model: context.model,
       discoveredMaxTokens: context.maxTokens,
     });
-    const maxTokens =
-      providerMaxTokens == null
-        ? undefined
-        : (normalizeMaxTokens(params.maxTokens) ?? providerMaxTokens);
+    const maxTokens = normalizeMaxTokens(params.maxTokens) ?? providerMaxTokens;
     const response = await callRoutedModel({
       provider: context.provider,
       providerMethod: context.providerMethod,
