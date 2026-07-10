@@ -308,10 +308,7 @@ function buildResolvedContext(params: {
     chatbotId: params.chatbotId.trim(),
     enableRag: params.enableRag,
     requestHeaders: params.requestHeaders ? { ...params.requestHeaders } : {},
-    maxTokens:
-      providerMaxTokens == null
-        ? undefined
-        : (normalizeMaxTokens(params.maxTokens) ?? providerMaxTokens),
+    maxTokens: normalizeMaxTokens(params.maxTokens) ?? providerMaxTokens,
   };
   validateContext(params.task, context);
   return context;

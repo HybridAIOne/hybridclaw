@@ -19,7 +19,10 @@ function isLowSurrogate(code: number): boolean {
   return code >= 0xdc00 && code <= 0xdfff;
 }
 
-function sliceHeadAtCodePointBoundary(text: string, maxChars: number): string {
+export function sliceHeadAtCodePointBoundary(
+  text: string,
+  maxChars: number,
+): string {
   let end = Math.max(0, Math.min(Math.floor(maxChars), text.length));
   if (
     end > 0 &&
@@ -32,7 +35,10 @@ function sliceHeadAtCodePointBoundary(text: string, maxChars: number): string {
   return text.slice(0, end);
 }
 
-function sliceTailAtCodePointBoundary(text: string, maxChars: number): string {
+export function sliceTailAtCodePointBoundary(
+  text: string,
+  maxChars: number,
+): string {
   let start = Math.max(0, text.length - Math.max(0, Math.floor(maxChars)));
   if (
     start > 0 &&

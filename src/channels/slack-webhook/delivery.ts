@@ -8,6 +8,7 @@ import {
 } from './target.js';
 
 const SLACK_WEBHOOK_BLOCK_TEXT_LIMIT = 3_000;
+const SLACK_WEBHOOK_CHUNK_MARGIN = 100;
 const SLACK_WEBHOOK_RETRY_MAX_ATTEMPTS = 5;
 const SLACK_WEBHOOK_RETRY_BASE_DELAY_MS = 500;
 const SLACK_WEBHOOK_RETRY_MAX_DELAY_MS = 10_000;
@@ -82,7 +83,7 @@ function normalizeWebhookText(text: string): string {
 
 export function prepareSlackWebhookTextBlocks(text: string): string[] {
   return chunkSlackText(normalizeWebhookText(text), {
-    maxChars: SLACK_WEBHOOK_BLOCK_TEXT_LIMIT,
+    maxChars: SLACK_WEBHOOK_BLOCK_TEXT_LIMIT - SLACK_WEBHOOK_CHUNK_MARGIN,
     maxLines: 100,
   });
 }
