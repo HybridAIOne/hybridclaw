@@ -1144,14 +1144,14 @@ function buildDirectoryContentSignature(rootDir: string): string {
         .relative(resolvedRoot, fullPath)
         .split(path.sep)
         .join('/');
-      const contentHash = createHash('sha1')
+      const contentHash = createHash('sha256')
         .update(fs.readFileSync(fullPath))
         .digest('hex');
       entries.push(`${relPath}:${contentHash}`);
     }
   }
 
-  return createHash('sha1').update(entries.join('\n')).digest('hex');
+  return createHash('sha256').update(entries.join('\n')).digest('hex');
 }
 
 function resolveSyncedSkillTarget(

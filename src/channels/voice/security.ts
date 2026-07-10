@@ -28,6 +28,8 @@ export function buildTwilioSignature(params: {
       payload += `${name}${value}`;
     }
   }
+  // Twilio mandates HMAC-SHA1 for X-Twilio-Signature verification.
+  // codeql[js/weak-cryptographic-algorithm]
   return createHmac('sha1', authToken).update(payload, 'utf8').digest('base64');
 }
 
