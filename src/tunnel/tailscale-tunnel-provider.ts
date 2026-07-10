@@ -26,6 +26,8 @@ import {
 
 export const TS_AUTHKEY_SECRET = 'TS_AUTHKEY';
 export const DEFAULT_TAILSCALE_TUNNEL_ADDR = 'localhost:9090';
+const TAILSCALE_CLI_NOT_FOUND_MESSAGE =
+  'Tailscale CLI was not found in the gateway runtime. Install Tailscale on the host or container running HybridClaw and ensure the `tailscale` executable is on the gateway PATH. Verify with `tailscale version` in that same runtime, then restart the gateway and retry. On a managed cloud service where system binaries cannot be installed, use a custom image or build step that includes Tailscale, or select another tunnel provider.';
 
 type TailscaleCommandResult = {
   stdout: string;
@@ -71,7 +73,11 @@ function runTailscaleCommand(
       (error, stdout, stderr) => {
         if (error) {
           const detail = stderr.trim() || error.message;
-          reject(new Error(detail));
+          reject(
+            Object.assign(new Error(detail), {
+              code: (error as NodeJS.ErrnoException).code,
+            }),
+          );
           return;
         }
         resolve({ stdout, stderr });
@@ -155,6 +161,11 @@ function isTailscaleLoggedOutError(message: string): boolean {
   );
 }
 
+function isTailscaleCliNotFoundError(error: unknown): boolean {
+  if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') return true;
+  return /\bspawn\b.*\btailscale\b.*\bENOENT\b/i.test(errorMessage(error));
+}
+
 export class TailscaleTunnelProvider implements TunnelProvider {
   private readonly addr: string;
   private readonly commandTimeoutMs: number;
@@ -235,7 +246,9 @@ export class TailscaleTunnelProvider implements TunnelProvider {
       this.scheduleHealthCheck();
       return { public_url: publicUrl };
     } catch (error) {
-      const message = redactSecret(errorMessage(error), authKey);
+      const message = isTailscaleCliNotFoundError(error)
+        ? TAILSCALE_CLI_NOT_FOUND_MESSAGE
+        : redactSecret(errorMessage(error), authKey);
       this.clearActiveTunnel({
         lastCheckedAt: null,
         lastError: message,
