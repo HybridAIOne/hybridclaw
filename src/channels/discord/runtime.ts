@@ -81,6 +81,7 @@ import {
   buildSessionIdFromContext as buildSessionIdFromContextInbound,
   cleanIncomingContent as cleanIncomingContentInbound,
   type DiscordGuildMessageMode,
+  hasDiscordMessageContentChanged,
   hasLooseBotMention as hasLooseBotMentionInbound,
   hasPrefixInvocation as hasPrefixInvocationInbound,
   hasSlashCommandInvocation as hasSlashCommandInvocationInbound,
@@ -2572,13 +2573,16 @@ export async function initDiscord(
     await queueConversationMessage(msg, content, behavior);
   });
 
-  client.on('messageUpdate', async (_oldMsg, nextMsg) => {
+  client.on('messageUpdate', async (oldMsg, nextMsg) => {
     if (DISCORD_COMMANDS_ONLY) return;
     const fetched = nextMsg.partial
       ? await nextMsg.fetch().catch(() => null)
       : nextMsg;
     if (!fetched) return;
     if (fetched.author?.bot) return;
+    if (!hasDiscordMessageContentChanged(oldMsg.content, fetched.content)) {
+      return;
+    }
 
     const updatedContent = cleanIncomingContent(fetched.content || '');
     const behavior = resolveChannelBehavior(fetched);

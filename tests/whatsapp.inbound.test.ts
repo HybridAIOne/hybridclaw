@@ -283,6 +283,70 @@ describe('whatsapp inbound policy filtering', () => {
     expect(result?.userId).toBe('+491703330161');
   });
 
+  test('uses the alternate sender identity for lid direct chats', async () => {
+    const result = await processInboundWhatsAppMessage({
+      message: {
+        key: {
+          id: 'msg-lid-dm-1',
+          fromMe: false,
+          remoteJid: '1061007917075@lid',
+          remoteJidAlt: '4915123456789@s.whatsapp.net',
+        },
+        message: {
+          conversation: 'hello from a lid chat',
+        },
+      },
+      sock: {
+        updateMediaMessage: async () => undefined,
+        logger: NOOP_WA_LOGGER,
+      },
+      config: {
+        ...BASE_WHATSAPP_CONFIG,
+        dmPolicy: 'allowlist',
+        allowFrom: ['+4915123456789'],
+      },
+      selfJids: ['4915999999999@s.whatsapp.net'],
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.senderJid).toBe('4915123456789@s.whatsapp.net');
+    expect(result?.userId).toBe('+4915123456789');
+    expect(result?.sessionId).toBe(
+      'agent:main:channel:whatsapp:chat:dm:peer:%2B4915123456789',
+    );
+  });
+
+  test('uses the alternate participant identity for lid group senders', async () => {
+    const result = await processInboundWhatsAppMessage({
+      message: {
+        key: {
+          id: 'msg-lid-group-1',
+          fromMe: false,
+          remoteJid: '120363401234567890@g.us',
+          participant: '1061007917075@lid',
+          participantAlt: '4915123456789@s.whatsapp.net',
+        },
+        message: {
+          conversation: 'hello from a lid participant',
+        },
+      },
+      sock: {
+        updateMediaMessage: async () => undefined,
+        logger: NOOP_WA_LOGGER,
+      },
+      config: {
+        ...BASE_WHATSAPP_CONFIG,
+        groupPolicy: 'allowlist',
+        groupAllowFrom: ['+4915123456789'],
+      },
+      selfJids: ['4915999999999@s.whatsapp.net'],
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.senderJid).toBe('4915123456789@s.whatsapp.net');
+    expect(result?.userId).toBe('+4915123456789');
+  });
+
   test('cleanupWhatsAppInboundMedia removes managed WhatsApp temp dirs only', async () => {
     const managedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-wa-'));
     const managedFile = path.join(managedDir, 'voice.ogg');

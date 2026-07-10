@@ -3,6 +3,7 @@ import { expect, test } from 'vitest';
 import { buildResponseText } from '../src/channels/discord/delivery.js';
 import {
   cleanIncomingContent,
+  hasDiscordMessageContentChanged,
   hasLooseBotMention,
   isAddressedToChannel,
   isAuthorizedCommandUser,
@@ -61,6 +62,19 @@ test('cleanIncomingContent maps native agent labels to @slug addressing', () => 
   expect(cleanIncomingContent('@"Research Agent" review this', null, '!claw')).toBe(
     '@Research-Agent review this',
   );
+});
+
+test('message updates ignore unchanged content from embed unfurls', () => {
+  expect(
+    hasDiscordMessageContentChanged(
+      'Read https://example.com',
+      'Read https://example.com',
+    ),
+  ).toBe(false);
+});
+
+test('message updates recognize user content edits', () => {
+  expect(hasDiscordMessageContentChanged('original', 'edited')).toBe(true);
 });
 
 test('isTrigger blocks non-command chatter when channel mode is off', () => {
