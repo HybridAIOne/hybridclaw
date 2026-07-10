@@ -26,6 +26,8 @@ function createGatewayMainTestState(options?: {
   emailPassword?: string;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  lineEnabled?: boolean;
+  hasLineCredentials?: boolean;
   slackEnabled?: boolean;
   slackInitError?: Error;
   hasSlackCredentials?: boolean;
@@ -120,6 +122,18 @@ function createGatewayMainTestState(options?: {
         pollIntervalMs: 1_500,
         textChunkLimit: 4_000,
         mediaMaxMb: 20,
+      },
+      line: {
+        enabled: options?.lineEnabled ?? false,
+        channelAccessToken: '',
+        channelSecret: '',
+        webhookPath: '/api/line/webhook',
+        dmPolicy: options?.lineEnabled ? 'open' : 'disabled',
+        groupPolicy: 'disabled',
+        allowFrom: [] as string[],
+        groupAllowFrom: [] as string[],
+        requireMention: true,
+        textChunkLimit: 5_000,
       },
       threema: {
         enabled: false,
@@ -239,6 +253,7 @@ function createGatewayMainTestState(options?: {
     initDiscordWebhook: vi.fn(),
     initEmail: vi.fn(),
     initIMessage: vi.fn(),
+    initLine: vi.fn(),
     initMSTeams: vi.fn(),
     initSignal: vi.fn(),
     initSlack: vi.fn(),
@@ -263,6 +278,7 @@ function createGatewayMainTestState(options?: {
     shutdownDiscord: vi.fn(async () => {}),
     shutdownDiscordWebhook: vi.fn(async () => {}),
     shutdownEmail: vi.fn(async () => {}),
+    shutdownLine: vi.fn(async () => {}),
     shutdownSignal: vi.fn(async () => {}),
     shutdownSlack: vi.fn(async () => {}),
     shutdownSlackWebhook: vi.fn(async () => {}),
@@ -332,6 +348,8 @@ async function importFreshGatewayMain(options?: {
   discordInitError?: Error;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  lineEnabled?: boolean;
+  hasLineCredentials?: boolean;
   slackEnabled?: boolean;
   hasSlackCredentials?: boolean;
   whatsappEnabled?: boolean;
@@ -500,6 +518,12 @@ async function importFreshGatewayMain(options?: {
     sendIMessageMediaToChat: vi.fn(async () => {}),
     sendToIMessageChat: vi.fn(async () => {}),
     shutdownIMessage: vi.fn(async () => {}),
+  }));
+  vi.doMock('../src/channels/line/runtime.js', () => ({
+    hasLineCredentials: vi.fn(() => options?.hasLineCredentials === true),
+    initLine: state.initLine,
+    sendToLineChat: vi.fn(async () => {}),
+    shutdownLine: state.shutdownLine,
   }));
   vi.doMock('../src/channels/signal/runtime.js', () => ({
     initSignal: state.initSignal,
@@ -768,6 +792,7 @@ useCleanMocks({
     '../src/channels/discord/runtime.js',
     '../src/channels/discord-webhook/runtime.js',
     '../src/channels/imessage/runtime.js',
+    '../src/channels/line/runtime.js',
     '../src/channels/signal/runtime.js',
     '../src/channels/telegram/runtime.js',
     '../src/channels/voice/runtime.js',
@@ -811,6 +836,7 @@ describe('gateway bootstrap', () => {
     expect(state.startGatewayHttpServer).toHaveBeenCalledTimes(1);
     expect(state.initDiscord).toHaveBeenCalledTimes(1);
     expect(state.initMSTeams).toHaveBeenCalledTimes(1);
+    expect(state.initLine).not.toHaveBeenCalled();
     expect(state.startHeartbeat).toHaveBeenCalledWith(
       'agent-resolved',
       1_000,
@@ -825,6 +851,15 @@ describe('gateway bootstrap', () => {
     expect(state.startScheduler).toHaveBeenCalledTimes(1);
     expect(state.onConfigChange).toHaveBeenCalledTimes(1);
     expect(state.setInterval).toHaveBeenCalled();
+  });
+
+  test('starts LINE integration automatically when enabled and configured', async () => {
+    const state = await importFreshGatewayMain({
+      lineEnabled: true,
+      hasLineCredentials: true,
+    });
+
+    expect(state.initLine).toHaveBeenCalledTimes(1);
   });
 
   test('logs info on startup when the warm process pool is enabled', async () => {
@@ -2706,6 +2741,41 @@ describe('gateway bootstrap', () => {
         dmPolicy: 'allowlist',
         groupPolicy: 'disabled',
         pollIntervalMs: 1_500,
+        requireMention: false,
+      }),
+    );
+  });
+
+  test('restarts LINE integration when LINE config changes', async () => {
+    const state = await importFreshGatewayMain({
+      lineEnabled: true,
+      hasLineCredentials: true,
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      line: {
+        ...state.currentConfig.line,
+        requireMention: false,
+      },
+    };
+
+    expect(state.initLine).toHaveBeenCalledTimes(1);
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownLine).toHaveBeenCalledTimes(1);
+    expect(state.initLine).toHaveBeenCalledTimes(2);
+    expectInfoLog(
+      state,
+      'Config changed, restarting LINE integration',
+      expect.objectContaining({
+        enabled: true,
+        dmPolicy: 'open',
+        groupPolicy: 'disabled',
+        webhookPath: '/api/line/webhook',
         requireMention: false,
       }),
     );

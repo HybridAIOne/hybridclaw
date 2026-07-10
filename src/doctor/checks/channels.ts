@@ -16,6 +16,7 @@ import { makeResult, severityFrom } from '../utils.js';
 export async function checkChannels(): Promise<DiagResult[]> {
   const config = getConfigSnapshot();
   const telegram = config.telegram;
+  const line = config.line;
   const threema = config.threema;
   const discordWebhook = config.discordWebhook ?? {
     enabled: false,
@@ -97,12 +98,12 @@ export async function checkChannels(): Promise<DiagResult[]> {
     }
   }
 
-  if (config.line.enabled) {
+  if (line?.enabled) {
     if (
       String(
-        LINE_CHANNEL_ACCESS_TOKEN || config.line.channelAccessToken || '',
+        LINE_CHANNEL_ACCESS_TOKEN || line.channelAccessToken || '',
       ).trim() &&
-      String(LINE_CHANNEL_SECRET || config.line.channelSecret || '').trim()
+      String(LINE_CHANNEL_SECRET || line.channelSecret || '').trim()
     ) {
       segments.push('LINE configured');
     } else {

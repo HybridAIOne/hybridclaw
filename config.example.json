@@ -76,6 +76,7 @@
     "disabled": [],
     "channelDisabled": {
       "discord": [],
+      "line": [],
       "msteams": [],
       "signal": [],
       "slack": [],
@@ -97,6 +98,7 @@
   "channelInstructions": {
     "discord": "",
     "discord_webhook": "",
+    "line": "",
     "msteams": "",
     "signal": "",
     "slack": "",
@@ -238,6 +240,18 @@
   "discordWebhook": {
     "enabled": false,
     "webhooks": {}
+  },
+  "line": {
+    "enabled": false,
+    "channelAccessToken": "",
+    "channelSecret": "",
+    "webhookPath": "/api/line/webhook",
+    "dmPolicy": "allowlist",
+    "groupPolicy": "disabled",
+    "allowFrom": [],
+    "groupAllowFrom": [],
+    "requireMention": true,
+    "textChunkLimit": 5000
   },
   "telegram": {
     "enabled": false,

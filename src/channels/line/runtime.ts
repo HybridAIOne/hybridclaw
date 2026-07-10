@@ -224,15 +224,36 @@ async function dispatchLineEvent(
   }
 }
 
-function dispatchLineEvents(events: LineWebhookEvent[]): void {
+function isLineWebhookEvent(value: unknown): value is LineWebhookEvent {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function dispatchLineEvents(events: unknown[]): void {
   const handler = activeMessageHandler;
   if (!handler || shutdownController?.signal.aborted) return;
 
-  const task = (async () => {
-    for (const event of events) {
-      await dispatchLineEvent(event, handler);
-    }
-  })();
+  const task = Promise.all(
+    events.map(async (event) => {
+      if (!isLineWebhookEvent(event)) {
+        logger.warn('Ignored malformed LINE webhook event');
+        return;
+      }
+      try {
+        await dispatchLineEvent(event, handler);
+      } catch (error) {
+        if (!shutdownController?.signal.aborted) {
+          logger.warn(
+            {
+              error,
+              eventType: event.type,
+              webhookEventId: event.webhookEventId,
+            },
+            'LINE webhook event processing failed',
+          );
+        }
+      }
+    }),
+  ).then(() => undefined);
   inFlightTasks.add(task);
   void task
     .catch((error) => {
@@ -324,7 +345,7 @@ export async function handleLineWebhook(
 
   sendLineWebhookResponse(res, 200);
   if (events.length > 0) {
-    dispatchLineEvents(events as LineWebhookEvent[]);
+    dispatchLineEvents(events);
   }
   return true;
 }

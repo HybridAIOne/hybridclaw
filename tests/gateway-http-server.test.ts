@@ -2301,6 +2301,7 @@ async function importFreshHealth(options?: {
     value === 'reply' ? 'send' : null,
   );
   const handleIMessageWebhook = vi.fn(async () => {});
+  const handleLineWebhook = vi.fn(async () => true);
   const handleMSTeamsWebhook = vi.fn(async () => {});
   const handleVoiceWebhook = vi.fn(async () => false);
   const handleVoiceUpgrade = vi.fn(() => false);
@@ -2429,6 +2430,7 @@ async function importFreshHealth(options?: {
     HYBRIDAI_MODEL: 'gpt-5',
     MAX_CONCURRENT_CONTAINERS: 5,
     IMESSAGE_WEBHOOK_PATH: '/api/imessage/webhook',
+    LINE_WEBHOOK_PATH: '/api/line/webhook',
     MSTEAMS_WEBHOOK_PATH: '/api/msteams/messages',
     WEB_API_TOKEN: options?.webApiToken || '',
     refreshRuntimeSecretsFromEnv,
@@ -2565,6 +2567,9 @@ async function importFreshHealth(options?: {
   });
   vi.doMock('../src/channels/imessage/runtime.js', () => ({
     handleIMessageWebhook,
+  }));
+  vi.doMock('../src/channels/line/runtime.js', () => ({
+    handleLineWebhook,
   }));
   vi.doMock('../src/channels/voice/runtime.js', () => ({
     handleVoiceUpgrade,
@@ -2940,6 +2945,7 @@ async function importFreshHealth(options?: {
     resolveGatewayChatbotId,
     resolveModelRuntimeCredentials,
     handleIMessageWebhook,
+    handleLineWebhook,
     handleVoiceUpgrade,
     handleVoiceWebhook,
     runMessageToolAction,
@@ -2984,6 +2990,7 @@ useCleanMocks({
     '../src/gateway/gateway-scheduled-task-service.js',
     '../src/providers/factory.js',
     '../src/channels/imessage/runtime.js',
+    '../src/channels/line/runtime.js',
     '../src/channels/msteams/runtime.js',
     '../src/channels/voice/runtime.js',
     '../src/channels/message/tool-actions.js',
@@ -5912,6 +5919,25 @@ describe('gateway HTTP server', () => {
     );
 
     expect(state.handleIMessageWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  test('delegates LINE webhook requests before API auth is enforced', async () => {
+    const state = await importFreshHealth({ webApiToken: 'secret-token' });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/line/webhook',
+      noAuth: true,
+      body: { events: [] },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(
+      res,
+      () => state.handleLineWebhook.mock.calls.length > 0,
+    );
+
+    expect(state.handleLineWebhook).toHaveBeenCalledTimes(1);
   });
 
   test('delegates plugin webhook requests before API auth is enforced', async () => {

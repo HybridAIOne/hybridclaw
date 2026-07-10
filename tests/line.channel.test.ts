@@ -1,4 +1,6 @@
 import { createHmac } from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { Readable } from 'node:stream';
 import { afterEach, expect, test, vi } from 'vitest';
 import {
   evaluateLineAccessPolicy,
@@ -53,6 +55,7 @@ test('normalizes LINE targets without changing identifier casing', () => {
   expect(normalizeLineSendTargetId(`line:${LINE_USER_ID}`)).toBe(
     `line:${LINE_USER_ID}`,
   );
+  expect(normalizeLineSendTargetId(LINE_USER_ID)).toBeUndefined();
 });
 
 test('builds and parses canonical LINE channel ids', () => {
@@ -180,6 +183,112 @@ test('builds inbound LINE sessions for mentioned group messages', () => {
   );
   expect(result?.channelId).toBe(`line:group:${LINE_GROUP_ID}`);
   expect(result?.isGroup).toBe(true);
+});
+
+test('rejects LINE events with an unknown source type', () => {
+  const result = processInboundLineEvent({
+    agentId: 'main',
+    config: BASE_LINE_CONFIG,
+    event: {
+      type: 'message',
+      source: {
+        type: 'future-source',
+        userId: LINE_USER_ID,
+      },
+      message: {
+        type: 'text',
+        text: 'should not be treated as a DM',
+      },
+    },
+  });
+
+  expect(result).toBeNull();
+});
+
+test('processes LINE webhook batch events independently', async () => {
+  const channelSecret = 'line-channel-secret';
+  vi.doMock('../src/config/config.js', () => ({
+    getConfigSnapshot: () => ({
+      line: {
+        ...BASE_LINE_CONFIG,
+        dmPolicy: 'open',
+      },
+    }),
+    LINE_CHANNEL_ACCESS_TOKEN: 'line-token',
+    LINE_CHANNEL_SECRET: channelSecret,
+  }));
+
+  const { handleLineWebhook, initLine, shutdownLine } = await import(
+    '../src/channels/line/runtime.js'
+  );
+  let resolveSecondEvent!: () => void;
+  const secondEventProcessed = new Promise<void>((resolve) => {
+    resolveSecondEvent = resolve;
+  });
+  let releaseFirstEvent!: () => void;
+  const firstEventRelease = new Promise<void>((resolve) => {
+    releaseFirstEvent = resolve;
+  });
+  const handler = vi.fn(async (...args: unknown[]) => {
+    const content = String(args[5] || '');
+    if (content === 'first') {
+      await firstEventRelease;
+      throw new Error('first event failed');
+    }
+    resolveSecondEvent();
+  });
+  await initLine(handler);
+
+  const body = Buffer.from(
+    JSON.stringify({
+      events: [
+        {
+          type: 'message',
+          source: { type: 'user', userId: LINE_USER_ID },
+          message: { type: 'text', text: 'first' },
+        },
+        {
+          type: 'message',
+          source: { type: 'user', userId: LINE_USER_ID },
+          message: { type: 'text', text: 'second' },
+        },
+      ],
+    }),
+  );
+  const request = Readable.from([body]) as unknown as IncomingMessage;
+  request.headers = {
+    'x-line-signature': createHmac('sha256', channelSecret)
+      .update(body)
+      .digest('base64'),
+  };
+  const response = {
+    headersSent: false,
+    writableEnded: false,
+    statusCode: 0,
+    setHeader: vi.fn(),
+    end: vi.fn(),
+  } as unknown as ServerResponse;
+
+  try {
+    await expect(handleLineWebhook(request, response)).resolves.toBe(true);
+    expect(response.statusCode).toBe(200);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((_resolve, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error('Second LINE event was blocked by the first.')),
+        1_000,
+      );
+    });
+    try {
+      await Promise.race([secondEventProcessed, timeout]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+    expect(handler).toHaveBeenCalledTimes(2);
+  } finally {
+    releaseFirstEvent();
+    await shutdownLine();
+  }
 });
 
 test('sendLineTextForReply falls back to push when a reply token is invalid', async () => {

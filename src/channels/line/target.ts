@@ -86,7 +86,9 @@ export function normalizeLineChannelId(value: string): string | undefined {
 }
 
 export function normalizeLineSendTargetId(value: string): string | undefined {
-  return normalizeLineChannelId(value);
+  const trimmed = String(value || '').trim();
+  if (!trimmed || !LINE_PREFIX_RE.test(trimmed)) return undefined;
+  return normalizeLineChannelId(trimmed);
 }
 
 export function isLineChannelId(value: string): boolean {

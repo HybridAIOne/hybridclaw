@@ -120,6 +120,7 @@ function resolveLineSourceChannel(
       senderId,
     };
   }
+  if (source.type !== 'user') return null;
 
   return {
     channelId: buildLineChannelId(senderId, 'user'),
