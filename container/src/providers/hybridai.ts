@@ -26,11 +26,15 @@ interface StreamChoiceChunk {
   delta?: {
     role?: string;
     content?: string | null;
+    reasoning_content?: string | null;
+    reasoning?: string | null;
     tool_calls?: StreamToolCallDelta[];
   };
   message?: {
     role?: string;
     content?: string | null;
+    reasoning_content?: string | null;
+    reasoning?: string | null;
     tool_calls?: ToolCall[];
   };
   finish_reason?: string | null;
@@ -127,6 +131,15 @@ function mergeToolCallDelta(
   ) {
     target.function.arguments += delta.function.arguments;
   }
+}
+
+function extractStructuredReasoning(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  for (const candidate of [record.reasoning_content, record.reasoning]) {
+    if (typeof candidate === 'string' && candidate) return candidate;
+  }
+  return null;
 }
 
 export async function callHybridAIProvider(
@@ -249,6 +262,7 @@ export async function callHybridAIProviderStream(
   let usage: ChatCompletionResponse['usage'] | undefined;
   let role = 'assistant';
   let textContent = '';
+  let reasoningContent = '';
   const toolCalls: ToolCall[] = [];
   let sawPayload = false;
   let streamDone = false;
@@ -282,6 +296,7 @@ export async function callHybridAIProviderStream(
     if (!choice) return;
 
     let usedMessageContent = false;
+    let usedMessageReasoning = false;
     if (choice.message) {
       const message = choice.message;
       if (typeof message.role === 'string' && message.role) role = message.role;
@@ -296,6 +311,17 @@ export async function callHybridAIProviderStream(
           textContent = nextContent;
           usedMessageContent = true;
           args.onTextDelta(messageDelta);
+        }
+      }
+      const messageReasoning = extractStructuredReasoning(message);
+      if (messageReasoning) {
+        const reasoningDelta = messageReasoning.startsWith(reasoningContent)
+          ? messageReasoning.slice(reasoningContent.length)
+          : messageReasoning;
+        reasoningContent = messageReasoning;
+        if (reasoningDelta) {
+          usedMessageReasoning = true;
+          args.onThinkingDelta?.(reasoningDelta);
         }
       }
       if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
@@ -323,6 +349,11 @@ export async function callHybridAIProviderStream(
       ) {
         textContent += delta.content;
         args.onTextDelta(delta.content);
+      }
+      const deltaReasoning = extractStructuredReasoning(delta);
+      if (!usedMessageReasoning && deltaReasoning) {
+        reasoningContent += deltaReasoning;
+        args.onThinkingDelta?.(deltaReasoning);
       }
       if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
         for (const callDelta of delta.tool_calls) {
@@ -383,6 +414,7 @@ export async function callHybridAIProviderStream(
         message: {
           role,
           content: textContent || null,
+          ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
           ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
         },
         finish_reason:

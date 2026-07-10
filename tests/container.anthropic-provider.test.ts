@@ -58,6 +58,10 @@ describe('Anthropic container provider', () => {
           unknown
         >;
         expect(body.model).toBe('claude-sonnet-4-6');
+        expect(body.thinking).toEqual({
+          type: 'adaptive',
+          display: 'summarized',
+        });
         return new Response(
           JSON.stringify({
             id: 'msg_1',
@@ -171,5 +175,116 @@ describe('Anthropic container provider', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(deltas).toEqual(['streamed']);
     expect(result.choices[0]?.message.content).toBe('streamed');
+  });
+
+  test('streams thinking and replays signed thinking blocks across tool turns', async () => {
+    const requestBodies: Record<string, unknown>[] = [];
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBodies.push(
+          JSON.parse(String(init?.body || '{}')) as Record<string, unknown>,
+        );
+        if (requestBodies.length === 1) {
+          return makeEventStreamResponse([
+            'event: message_start\n',
+            'data: {"type":"message_start","message":{"id":"msg_thinking","model":"claude-sonnet-5","usage":{"input_tokens":4,"output_tokens":0}}}\n\n',
+            'event: content_block_start\n',
+            'data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}\n\n',
+            'event: content_block_delta\n',
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Check"}}\n\n',
+            'event: content_block_delta\n',
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"ing"}}\n\n',
+            'event: content_block_delta\n',
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"signed-value"}}\n\n',
+            'event: content_block_start\n',
+            'data: {"type":"content_block_start","index":1,"content_block":{"type":"redacted_thinking","data":"opaque-value"}}\n\n',
+            'event: content_block_start\n',
+            'data: {"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"tool_1","name":"lookup","input":{}}}\n\n',
+            'event: content_block_delta\n',
+            'data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\\"query\\":\\"status\\"}"}}\n\n',
+            'event: message_delta\n',
+            'data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":8}}\n\n',
+          ]);
+        }
+        return new Response(
+          JSON.stringify({
+            id: 'msg_final',
+            model: 'claude-sonnet-5',
+            role: 'assistant',
+            stop_reason: 'end_turn',
+            content: [{ type: 'text', text: 'done' }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const thinkingDeltas: string[] = [];
+    const first = await callAnthropicProviderStream({
+      ...baseArgs,
+      model: 'anthropic/claude-sonnet-5',
+      onTextDelta: () => undefined,
+      onThinkingDelta: (delta) => thinkingDeltas.push(delta),
+    });
+    const firstMessage = first.choices[0]?.message;
+
+    expect(thinkingDeltas).toEqual(['Check', 'ing']);
+    expect(firstMessage?.reasoning_content).toBe('Checking');
+    expect(firstMessage?.anthropic_content).toEqual([
+      {
+        type: 'thinking',
+        thinking: 'Checking',
+        signature: 'signed-value',
+      },
+      { type: 'redacted_thinking', data: 'opaque-value' },
+      {
+        type: 'tool_use',
+        id: 'tool_1',
+        name: 'lookup',
+        input: { query: 'status' },
+      },
+    ]);
+
+    const assistantMessage: ChatMessage = {
+      role: 'assistant',
+      content: firstMessage?.content ?? null,
+      tool_calls: firstMessage?.tool_calls,
+      anthropic_content: firstMessage?.anthropic_content,
+    };
+    await callAnthropicProvider({
+      ...baseArgs,
+      model: 'anthropic/claude-sonnet-5',
+      messages: [
+        { role: 'user', content: 'check status' },
+        assistantMessage,
+        { role: 'tool', content: 'ok', tool_call_id: 'tool_1' },
+      ],
+    });
+
+    expect(requestBodies[0]?.thinking).toEqual({
+      type: 'adaptive',
+      display: 'summarized',
+    });
+    expect(requestBodies[1]?.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'check status' }] },
+      {
+        role: 'assistant',
+        content: firstMessage?.anthropic_content,
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tool_1',
+            content: 'ok',
+          },
+        ],
+      },
+    ]);
   });
 });

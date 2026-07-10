@@ -7,6 +7,7 @@ import {
 } from '../../shared/anthropic-utils.js';
 import { collapseSystemMessages } from '../system-messages.js';
 import type {
+  AnthropicContentBlock,
   ChatCompletionResponse,
   ChatContentPart,
   ChatMessage,
@@ -43,9 +44,24 @@ interface AnthropicToolUseStreamBlock {
   inputJson: string;
 }
 
+interface AnthropicThinkingStreamBlock {
+  type: 'thinking';
+  index: number;
+  thinking: string;
+  signature: string;
+}
+
+interface AnthropicRedactedThinkingStreamBlock {
+  type: 'redacted_thinking';
+  index: number;
+  data: string;
+}
+
 type AnthropicStreamBlock =
   | AnthropicTextStreamBlock
-  | AnthropicToolUseStreamBlock;
+  | AnthropicToolUseStreamBlock
+  | AnthropicThinkingStreamBlock
+  | AnthropicRedactedThinkingStreamBlock;
 
 interface ClaudeCliResult {
   responseId: string;
@@ -400,17 +416,29 @@ function convertMessages(
     }
 
     const blocks: Array<Record<string, unknown>> = [];
-    const content = convertMessageContent(message);
-    if (typeof content === 'string' && content.trim()) {
-      blocks.push({
-        type: 'text',
-        text: content,
-      });
-    } else if (Array.isArray(content)) {
-      blocks.push(...content);
+    if (
+      message.role === 'assistant' &&
+      Array.isArray(message.anthropic_content) &&
+      message.anthropic_content.length > 0
+    ) {
+      blocks.push(...message.anthropic_content);
+    } else {
+      const content = convertMessageContent(message);
+      if (typeof content === 'string' && content.trim()) {
+        blocks.push({
+          type: 'text',
+          text: content,
+        });
+      } else if (Array.isArray(content)) {
+        blocks.push(...content);
+      }
     }
 
-    if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+    if (
+      message.role === 'assistant' &&
+      !message.anthropic_content?.length &&
+      Array.isArray(message.tool_calls)
+    ) {
       for (const toolCall of message.tool_calls) {
         blocks.push({
           type: 'tool_use',
@@ -479,6 +507,11 @@ function buildRequestBody(
   if (tools) {
     request.tools = tools;
     request.tool_choice = { type: 'auto' };
+  }
+
+  const model = stripAnthropicModelPrefix(args.model).toLowerCase();
+  if (/^claude-(?:sonnet-(?:4-6|5)|opus-4-(?:6|7|8))(?:$|-)/.test(model)) {
+    request.thinking = { type: 'adaptive', display: 'summarized' };
   }
 
   return request;
@@ -554,9 +587,19 @@ function adaptAnthropicResponse(
   const content = Array.isArray(record.content) ? record.content : [];
   const textParts: Array<{ type: 'text'; text: string }> = [];
   const toolCalls: ToolCall[] = [];
+  const anthropicContent: AnthropicContentBlock[] = [];
+  const thinkingParts: string[] = [];
 
   for (const block of content) {
     if (!isRecord(block)) continue;
+    if (typeof block.type === 'string') {
+      anthropicContent.push(block as AnthropicContentBlock);
+    }
+    if (block.type === 'thinking' && typeof block.thinking === 'string') {
+      if (block.thinking) thinkingParts.push(block.thinking);
+      continue;
+    }
+    if (block.type === 'redacted_thinking') continue;
     if (block.type === 'text' && typeof block.text === 'string') {
       if (block.text) textParts.push({ type: 'text', text: block.text });
       continue;
@@ -592,6 +635,12 @@ function adaptAnthropicResponse(
         message: {
           role: typeof record.role === 'string' ? record.role : 'assistant',
           content: contentValue,
+          ...(thinkingParts.length > 0
+            ? { reasoning_content: thinkingParts.join('') }
+            : {}),
+          ...(anthropicContent.length > 0
+            ? { anthropic_content: anthropicContent }
+            : {}),
           ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
         },
         finish_reason: mapStopReason(
@@ -653,16 +702,27 @@ function buildStreamResponse(params: {
       usage: params.usage,
       content: [...params.blocks.values()]
         .sort((left, right) => left.index - right.index)
-        .map((block) =>
-          block.type === 'text'
-            ? { type: 'text', text: block.text }
-            : {
-                type: 'tool_use',
-                id: block.id,
-                name: block.name,
-                input: parseJsonObject(block.inputJson),
-              },
-        ),
+        .map((block) => {
+          if (block.type === 'text') {
+            return { type: 'text', text: block.text };
+          }
+          if (block.type === 'thinking') {
+            return {
+              type: 'thinking',
+              thinking: block.thinking,
+              signature: block.signature,
+            };
+          }
+          if (block.type === 'redacted_thinking') {
+            return { type: 'redacted_thinking', data: block.data };
+          }
+          return {
+            type: 'tool_use',
+            id: block.id,
+            name: block.name,
+            input: parseJsonObject(block.inputJson),
+          };
+        }),
     },
     params.model,
   );
@@ -845,12 +905,42 @@ export async function callAnthropicProviderStream(
         const index = typeof event.index === 'number' ? event.index : -1;
         if (!isRecord(event.content_block)) continue;
         if (event.content_block.type === 'text') {
+          const text =
+            typeof event.content_block.text === 'string'
+              ? event.content_block.text
+              : '';
           blocks.set(index, {
             type: 'text',
             index,
-            text:
-              typeof event.content_block.text === 'string'
-                ? event.content_block.text
+            text,
+          });
+          if (text) args.onTextDelta(text);
+          continue;
+        }
+        if (event.content_block.type === 'thinking') {
+          const thinking =
+            typeof event.content_block.thinking === 'string'
+              ? event.content_block.thinking
+              : '';
+          blocks.set(index, {
+            type: 'thinking',
+            index,
+            thinking,
+            signature:
+              typeof event.content_block.signature === 'string'
+                ? event.content_block.signature
+                : '',
+          });
+          if (thinking) args.onThinkingDelta?.(thinking);
+          continue;
+        }
+        if (event.content_block.type === 'redacted_thinking') {
+          blocks.set(index, {
+            type: 'redacted_thinking',
+            index,
+            data:
+              typeof event.content_block.data === 'string'
+                ? event.content_block.data
                 : '',
           });
           continue;
@@ -882,6 +972,27 @@ export async function callAnthropicProviderStream(
         const index = typeof event.index === 'number' ? event.index : -1;
         const block = blocks.get(index);
         if (!block || !isRecord(event.delta)) continue;
+
+        if (
+          block.type === 'thinking' &&
+          event.delta.type === 'thinking_delta' &&
+          typeof event.delta.thinking === 'string'
+        ) {
+          block.thinking += event.delta.thinking;
+          if (event.delta.thinking) {
+            args.onThinkingDelta?.(event.delta.thinking);
+          }
+          continue;
+        }
+
+        if (
+          block.type === 'thinking' &&
+          event.delta.type === 'signature_delta' &&
+          typeof event.delta.signature === 'string'
+        ) {
+          block.signature += event.delta.signature;
+          continue;
+        }
 
         if (
           block.type === 'text' &&

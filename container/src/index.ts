@@ -1507,6 +1507,12 @@ async function processRequest(
     if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
       assistantMessage.tool_calls = choice.message.tool_calls;
     }
+    if (
+      choice.message.anthropic_content &&
+      choice.message.anthropic_content.length > 0
+    ) {
+      assistantMessage.anthropic_content = choice.message.anthropic_content;
+    }
 
     history.push(assistantMessage);
     if (toolCalls.length === 0) {
