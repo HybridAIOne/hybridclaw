@@ -409,6 +409,17 @@ export function fetchA2ATrust(token: string): Promise<AdminA2ATrustResponse> {
   return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/trust', { token });
 }
 
+export function saveA2ALocalMode(
+  token: string,
+  enabled: boolean,
+): Promise<AdminA2ATrustResponse> {
+  return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/local-mode', {
+    token,
+    method: 'PUT',
+    body: { enabled },
+  });
+}
+
 export function fetchFleetTopology(
   token: string,
 ): Promise<AdminFleetTopologyResponse> {

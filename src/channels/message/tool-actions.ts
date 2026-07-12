@@ -1,8 +1,10 @@
 import path from 'node:path';
+import { isA2ALocalModeEnabled } from '../../a2a/local-mode.js';
 import {
   getAgentById,
   resolveAgentForRequest,
 } from '../../agents/agent-registry.js';
+import { getRuntimeConfig } from '../../config/runtime-config.js';
 import {
   isDiscordChannelId,
   isSupportedProactiveChannelId,
@@ -966,6 +968,16 @@ async function runLocalMessageSendAction(
 export async function runMessageToolAction(
   request: DiscordToolActionRequest,
 ): Promise<Record<string, unknown>> {
+  if (isA2ALocalModeEnabled(getRuntimeConfig())) {
+    const localChannelId = normalizeLocalMessageTarget(request.channelId || '');
+    if (request.action === 'send' && localChannelId === 'tui') {
+      return await runLocalMessageSendAction(request, localChannelId);
+    }
+    throw new Error(
+      'Message channel actions are disabled while A2A local mode is enabled.',
+    );
+  }
+
   if (isLikelyMSTeamsToolRequest(request)) {
     const { maybeRunMSTeamsToolAction } = await import(
       '../msteams/tool-actions.js'

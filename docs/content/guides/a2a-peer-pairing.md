@@ -47,6 +47,11 @@ Set `deployment.public_url` on each instance before requesting peer
 notification. HybridClaw uses that URL when it asks the peer to create the
 reverse pairing request.
 
+After pairing, `/admin/a2a-trust` can enable **A2A local mode**. This keeps
+loopback and authenticated admin management available, leaves the Agent Card
+and A2A delivery routes reachable, and disables other external gateway and
+channel surfaces.
+
 ## Pair Two Instances In The Browser
 
 1. Open the admin console for instance 1:

@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 
-async function importFreshMessageToolActions() {
+async function importFreshMessageToolActions(a2aLocalMode = false) {
   vi.resetModules();
 
   const readEmailMailbox = vi.fn(async (params: Record<string, unknown>) => {
@@ -296,6 +296,9 @@ async function importFreshMessageToolActions() {
   vi.doMock('../src/infra/ipc.js', () => ({
     agentWorkspaceDir,
   }));
+  vi.doMock('../src/a2a/local-mode.js', () => ({
+    isA2ALocalModeEnabled: () => a2aLocalMode,
+  }));
 
   const module = await import('../src/channels/message/tool-actions.js');
   return {
@@ -345,6 +348,26 @@ async function importFreshMessageToolActions() {
     },
   };
 }
+
+test('A2A local mode blocks external message channels but preserves local TUI delivery', async () => {
+  const state = await importFreshMessageToolActions(true);
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'telegram:123456789',
+      content: 'blocked',
+    }),
+  ).rejects.toThrow('disabled while A2A local mode is enabled');
+  expect(state.sendToTelegramChat).not.toHaveBeenCalled();
+
+  const local = await state.runMessageToolAction({
+    action: 'send',
+    channelId: 'tui',
+    content: 'local only',
+  });
+  expect(local).toMatchObject({ transport: 'local', queued: 1 });
+});
 
 test('send action routes WhatsApp jid targets through WhatsApp transport', async () => {
   const state = await importFreshMessageToolActions();

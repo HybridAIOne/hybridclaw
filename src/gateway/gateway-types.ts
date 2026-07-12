@@ -1116,6 +1116,9 @@ export interface GatewayAdminA2ATrustPeer extends GatewayAdminA2ATrustPeerBase {
 
 export interface GatewayAdminA2ATrustResponse {
   identity: GatewayAdminA2AIdentity;
+  localMode: {
+    enabled: boolean;
+  };
   peers: GatewayAdminA2ATrustPeer[];
   pairingRequests: GatewayAdminA2APairingRequest[];
 }

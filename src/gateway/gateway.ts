@@ -9,6 +9,7 @@ import {
   startA2AOutboxProcessor,
   stopA2AOutboxProcessor,
 } from '../a2a/a2a-outbound.js';
+import { isA2ALocalModeEnabled } from '../a2a/local-mode.js';
 import { ensureA2AInstanceKeypair } from '../a2a/trust-ledger.js';
 import {
   startWebhookOutboxProcessor,
@@ -39,6 +40,7 @@ import {
   type ReplyFn,
   sendToChannel,
   setDiscordMaintenancePresence,
+  shutdownDiscord,
 } from '../channels/discord/runtime.js';
 import {
   hasDiscordWebhookTargets,
@@ -264,6 +266,7 @@ import {
 let detachConfigListener: (() => void) | null = null;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
 let memoryConsolidationTimer: ReturnType<typeof setTimeout> | null = null;
+let a2aLocalModeTransition = Promise.resolve();
 
 const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
 
@@ -913,6 +916,16 @@ async function deliverProactiveMessage(
   source: string,
   artifacts?: ArtifactMetadata[],
 ): Promise<void> {
+  if (
+    isA2ALocalModeEnabled(getConfigSnapshot()) &&
+    channelId.trim() !== 'tui'
+  ) {
+    logger.info(
+      { source, channelId },
+      'Proactive channel delivery suppressed by A2A local mode',
+    );
+    return;
+  }
   if (shouldSuppressProactiveMessage({ source, text })) {
     logger.debug({ source, channelId }, 'Proactive message suppressed');
     return;
@@ -961,6 +974,16 @@ async function sendProactiveMessageNow(
   source: string,
   artifacts?: ArtifactMetadata[],
 ): Promise<void> {
+  if (
+    isA2ALocalModeEnabled(getConfigSnapshot()) &&
+    channelId.trim() !== 'tui'
+  ) {
+    logger.info(
+      { source, channelId },
+      'Immediate channel delivery suppressed by A2A local mode',
+    );
+    return;
+  }
   const attachments = buildArtifactAttachments(artifacts);
   if (isLineChannelId(channelId)) {
     const lineAuth = await getLineAuthStatus();
@@ -2799,10 +2822,21 @@ async function startSlackIntegration(): Promise<boolean> {
   return true;
 }
 
+function shouldSkipChannelConfigRefresh(
+  next: RuntimeConfig,
+  prev: RuntimeConfig,
+): boolean {
+  return (
+    next.deployment.a2a_local_mode ||
+    next.deployment.a2a_local_mode !== prev.deployment.a2a_local_mode
+  );
+}
+
 async function refreshEmailIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
+  if (shouldSkipChannelConfigRefresh(next, prev)) return;
   if (JSON.stringify(next.email) === JSON.stringify(prev.email)) return;
 
   logger.info(
@@ -2828,6 +2862,7 @@ async function refreshTelegramIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
+  if (shouldSkipChannelConfigRefresh(next, prev)) return;
   if (!hasTelegramConfigChanged(next.telegram, prev.telegram)) return;
 
   logger.info(
@@ -2853,6 +2888,7 @@ async function refreshSignalIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
+  if (shouldSkipChannelConfigRefresh(next, prev)) return;
   if (!hasSignalConfigChanged(next.signal, prev.signal)) return;
 
   logger.info(
@@ -2878,6 +2914,7 @@ async function refreshWhatsAppIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
+  if (shouldSkipChannelConfigRefresh(next, prev)) return;
   if (!hasWhatsAppConfigChanged(next.whatsapp, prev.whatsapp)) return;
 
   logger.info(
@@ -2902,6 +2939,7 @@ async function refreshLineIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
+  if (shouldSkipChannelConfigRefresh(next, prev)) return;
   if (!hasLineConfigChanged(next.line, prev.line)) return;
   logger.info(
     { enabled: next.line.enabled },
@@ -2920,6 +2958,7 @@ async function refreshThreemaIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
+  if (shouldSkipChannelConfigRefresh(next, prev)) return;
   if (!hasThreemaConfigChanged(next.threema, prev.threema)) return;
 
   logger.info(
@@ -2944,6 +2983,7 @@ async function refreshSlackIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
+  if (shouldSkipChannelConfigRefresh(next, prev)) return;
   if (!hasSlackConfigChanged(next.slack, prev.slack)) return;
 
   logger.info(
@@ -2969,6 +3009,7 @@ async function refreshSlackWebhookIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
+  if (shouldSkipChannelConfigRefresh(next, prev)) return;
   if (!hasSlackWebhookConfigChanged(next.slackWebhook, prev.slackWebhook)) {
     return;
   }
@@ -2993,6 +3034,7 @@ async function refreshDiscordWebhookIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
+  if (shouldSkipChannelConfigRefresh(next, prev)) return;
   if (
     !hasDiscordWebhookConfigChanged(next.discordWebhook, prev.discordWebhook)
   ) {
@@ -3180,6 +3222,7 @@ async function refreshVoiceIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
+  if (shouldSkipChannelConfigRefresh(next, prev)) return;
   if (!hasVoiceConfigChanged(next.voice, prev.voice)) return;
   const sharedTwilioAuthToken = String(TWILIO_AUTH_TOKEN || '').trim();
   const configTwilioAuthToken = String(
@@ -3354,6 +3397,53 @@ async function startIMessageIntegration(): Promise<boolean> {
   return true;
 }
 
+async function stopExternalChannelIntegrationsForA2ALocalMode(): Promise<void> {
+  await runShutdownStep('stop Discord runtime', shutdownDiscord);
+  await runShutdownStep('stop email runtime', shutdownEmail);
+  await runShutdownStep('stop Signal runtime', shutdownSignal);
+  await runShutdownStep('stop Threema runtime', shutdownThreema);
+  await runShutdownStep('stop Slack runtime', shutdownSlack);
+  await runShutdownStep('stop Discord webhook runtime', shutdownDiscordWebhook);
+  await runShutdownStep('stop Slack webhook runtime', shutdownSlackWebhook);
+  await runShutdownStep('stop Telegram runtime', shutdownTelegram);
+  await runShutdownStep('stop LINE runtime', shutdownLine);
+  await runShutdownStep('stop WhatsApp runtime', shutdownWhatsApp);
+  await runShutdownStep('stop Voice runtime', shutdownVoice);
+  await runShutdownStep('stop iMessage runtime', shutdownIMessage);
+}
+
+async function startExternalChannelIntegrationsAfterA2ALocalMode(): Promise<void> {
+  await startDiscordIntegration();
+  await startDiscordWebhookIntegration();
+  await startMSTeamsIntegration();
+  await startSignalIntegration();
+  await startThreemaIntegration();
+  await startSlackWebhookIntegration();
+  await startSlackIntegration();
+  await startEmailIntegration();
+  await startTelegramIntegration();
+  await startLineIntegration();
+  await startWhatsAppIntegration();
+  await startVoiceIntegration();
+  await startIMessageIntegration();
+}
+
+async function refreshA2ALocalModeForConfigChange(
+  next: RuntimeConfig,
+  prev: RuntimeConfig,
+): Promise<void> {
+  if (next.deployment.a2a_local_mode === prev.deployment.a2a_local_mode) {
+    return;
+  }
+  if (next.deployment.a2a_local_mode) {
+    logger.info('A2A local mode enabled; stopping external channel runtimes');
+    await stopExternalChannelIntegrationsForA2ALocalMode();
+    return;
+  }
+  logger.info('A2A local mode disabled; starting configured channel runtimes');
+  await startExternalChannelIntegrationsAfterA2ALocalMode();
+}
+
 const SHUTDOWN_STEP_TIMEOUT_MS = 5_000;
 
 async function runShutdownStep(
@@ -3404,6 +3494,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
       'set Discord maintenance presence',
       setDiscordMaintenancePresence,
     );
+    await runShutdownStep('stop Discord runtime', shutdownDiscord);
     await runShutdownStep('stop email runtime', shutdownEmail);
     await runShutdownStep('stop Signal runtime', shutdownSignal);
     await runShutdownStep('stop Threema runtime', shutdownThreema);
@@ -3734,19 +3825,49 @@ async function main(): Promise<void> {
   });
   const httpServer = startGatewayHttpServer();
   setupShutdown(httpServer.broadcastShutdown.bind(httpServer));
-  const discordActive = await startDiscordIntegration();
-  const discordWebhookActive = await startDiscordWebhookIntegration();
-  const msteamsActive = await startMSTeamsIntegration();
-  const signalActive = await startSignalIntegration();
-  const threemaActive = await startThreemaIntegration();
-  const slackWebhookActive = await startSlackWebhookIntegration();
-  const slackActive = await startSlackIntegration();
-  const emailActive = await startEmailIntegration();
-  const telegramActive = await startTelegramIntegration();
-  const lineActive = await startLineIntegration();
-  const whatsappActive = await startWhatsAppIntegration();
-  const voiceActive = await startVoiceIntegration();
-  const imessageActive = await startIMessageIntegration();
+  const externalChannelsEnabled = !isA2ALocalModeEnabled(getConfigSnapshot());
+  if (!externalChannelsEnabled) {
+    logger.info('A2A local mode enabled; external channels will not start');
+  }
+  const discordActive = externalChannelsEnabled
+    ? await startDiscordIntegration()
+    : false;
+  const discordWebhookActive = externalChannelsEnabled
+    ? await startDiscordWebhookIntegration()
+    : false;
+  const msteamsActive = externalChannelsEnabled
+    ? await startMSTeamsIntegration()
+    : false;
+  const signalActive = externalChannelsEnabled
+    ? await startSignalIntegration()
+    : false;
+  const threemaActive = externalChannelsEnabled
+    ? await startThreemaIntegration()
+    : false;
+  const slackWebhookActive = externalChannelsEnabled
+    ? await startSlackWebhookIntegration()
+    : false;
+  const slackActive = externalChannelsEnabled
+    ? await startSlackIntegration()
+    : false;
+  const emailActive = externalChannelsEnabled
+    ? await startEmailIntegration()
+    : false;
+  const telegramActive = externalChannelsEnabled
+    ? await startTelegramIntegration()
+    : false;
+  const lineActive = externalChannelsEnabled
+    ? await startLineIntegration()
+    : false;
+  const whatsappActive = externalChannelsEnabled
+    ? await startWhatsAppIntegration()
+    : false;
+  const voiceActive = externalChannelsEnabled
+    ? await startVoiceIntegration()
+    : false;
+  const imessageActive = externalChannelsEnabled
+    ? await startIMessageIntegration()
+    : false;
 
   startOrRestartHeartbeat();
   startPeriodicCloudMemorySync({
@@ -3765,6 +3886,14 @@ async function main(): Promise<void> {
     logger.warn({ err }, 'Startup warm-up of HybridAI probe failed');
   });
   detachConfigListener = onConfigChange((next, prev) => {
+    a2aLocalModeTransition = a2aLocalModeTransition
+      .then(() => refreshA2ALocalModeForConfigChange(next, prev))
+      .catch((error) => {
+        logger.warn(
+          { error },
+          'A2A local mode channel transition failed after config change',
+        );
+      });
     void refreshEmailIntegrationForConfigChange(next, prev).catch((error) => {
       logger.warn(
         { error },

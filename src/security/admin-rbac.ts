@@ -551,6 +551,9 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/admin/a2a/inbox' && method === 'GET') {
     return 'admin.a2a.read';
   }
+  if (pathname === '/api/admin/a2a/local-mode' && method === 'PUT') {
+    return 'admin.a2a.write';
+  }
   if (pathname === '/api/admin/a2a/trust') {
     return actionForReadWriteDelete(
       method,

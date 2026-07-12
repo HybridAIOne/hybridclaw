@@ -15,6 +15,11 @@ import {
   resolveA2AAgentCardPeerTrust,
 } from '../a2a/a2a-inbound.js';
 import { getA2AOutboxDeliveryStatus } from '../a2a/a2a-outbox-persistence.js';
+import {
+  isA2ALocalModeAdminRequest,
+  isA2ALocalModeEnabled,
+  isA2ALocalModePublicA2ARequest,
+} from '../a2a/local-mode.js';
 import { handleA2APairingRequestInbound } from '../a2a/pairing.js';
 import {
   handleA2AWebhookInbound,
@@ -330,6 +335,7 @@ import {
   restoreGatewayAdminAgentMarkdownRevision,
   restoreGatewayAdminTeamStructureRevision,
   revokeGatewayAdminA2ATrustPeer,
+  saveGatewayAdminA2ALocalMode,
   saveGatewayAdminAgentMarkdownFile,
   saveGatewayAdminConfig,
   saveGatewayAdminDiscordWebhookTarget,
@@ -5488,6 +5494,30 @@ async function handleApiAdminA2ATrust(
   }
 }
 
+async function handleApiAdminA2ALocalMode(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req).catch(() => ({}))) as {
+    enabled?: unknown;
+  };
+  if (typeof body.enabled !== 'boolean') {
+    sendJson(res, 400, { error: 'Expected boolean `enabled`.' });
+    return;
+  }
+  const actor =
+    resolveGatewayRequestUserId({
+      req,
+      channelId: 'web',
+      fallbackUserId: 'admin-console',
+    }) || 'admin-console';
+  sendJson(
+    res,
+    200,
+    saveGatewayAdminA2ALocalMode({ enabled: body.enabled, actor }),
+  );
+}
+
 async function handleApiAdminFleetTopology(
   req: IncomingMessage,
   res: ServerResponse,
@@ -9976,6 +10006,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     const method = req.method || 'GET';
     const url = new URL(req.url || '/', 'http://localhost');
     const pathname = url.pathname;
+    const a2aLocalMode = isA2ALocalModeEnabled(getRuntimeConfig());
+    const localRequest = isLoopbackWebRequest(req);
+
+    if (
+      a2aLocalMode &&
+      !localRequest &&
+      !isA2ALocalModePublicA2ARequest(method, pathname) &&
+      !isA2ALocalModeAdminRequest(method, pathname)
+    ) {
+      sendJson(res, 404, { error: 'Not Found' });
+      return;
+    }
 
     if (pathname === '/health' && method === 'GET') {
       void getGatewayStatus({
@@ -10004,7 +10046,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (pathname === '/') {
-      sendRedirect(res, 302, '/chat');
+      sendRedirect(
+        res,
+        302,
+        a2aLocalMode && !localRequest ? '/admin/a2a-trust' : '/chat',
+      );
       return;
     }
 
@@ -10646,6 +10692,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminA2ATrust(req, res, url);
             return;
           }
+          if (pathname === '/api/admin/a2a/local-mode' && method === 'PUT') {
+            await handleApiAdminA2ALocalMode(req, res);
+            return;
+          }
           if (
             pathname === '/api/admin/fleet-topology' &&
             (method === 'GET' ||
@@ -11061,6 +11111,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
   server.on('upgrade', (req, socket, head) => {
     const host = String(req.headers.host || 'localhost');
     const url = new URL(req.url || '/', `http://${host}`);
+
+    if (
+      isA2ALocalModeEnabled(getRuntimeConfig()) &&
+      !isLoopbackWebRequest(req)
+    ) {
+      writeUpgradeError(socket, 404, 'Not Found');
+      return;
+    }
 
     if (handleVoiceUpgrade(req, socket, head, url)) {
       return;

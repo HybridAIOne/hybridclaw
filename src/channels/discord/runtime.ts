@@ -56,7 +56,7 @@ import { recordSkillFeedback } from '../../skills/skills-observation.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { sleep } from '../../utils/sleep.js';
 import { DISCORD_CAPABILITIES } from '../channel.js';
-import { registerChannel } from '../channel-registry.js';
+import { registerChannel, unregisterChannel } from '../channel-registry.js';
 import {
   buildApprovalActionRow,
   disableApprovalButtons,
@@ -2693,6 +2693,15 @@ export async function initDiscord(
 export async function setDiscordMaintenancePresence(): Promise<void> {
   if (!presenceController) return;
   await presenceController.setMaintenance();
+}
+
+export async function shutdownDiscord(): Promise<void> {
+  presenceController?.stop();
+  presenceController = null;
+  if (client) {
+    client.destroy();
+  }
+  unregisterChannel('discord');
 }
 
 export function getDiscordChannelDisplayName(

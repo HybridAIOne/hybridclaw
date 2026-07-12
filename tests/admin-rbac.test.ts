@@ -139,6 +139,9 @@ describe('admin RBAC role bundles', () => {
     expect(resolveAdminRbacAction('/api/admin/tunnel/stop', 'POST')).toBe(
       'admin.tunnel.stop',
     );
+    expect(
+      resolveAdminRbacAction('/api/admin/a2a/local-mode', 'PUT'),
+    ).toBe('admin.a2a.write');
   });
 
   test('maps connector routes to read and secret mutation actions', () => {

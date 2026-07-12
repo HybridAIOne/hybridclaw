@@ -1585,6 +1585,9 @@ export interface AdminA2ATrustPeer {
 
 export interface AdminA2ATrustResponse {
   identity: AdminA2AIdentity;
+  localMode: {
+    enabled: boolean;
+  };
   peers: AdminA2ATrustPeer[];
   pairingRequests: AdminA2APairingRequest[];
 }
