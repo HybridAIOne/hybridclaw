@@ -839,7 +839,6 @@ export async function callAnthropicProviderStream(
       method: 'POST',
       headers: buildHeaders({ ...args, stream: true }),
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(ANTHROPIC_INFERENCE_TIMEOUT_MS),
     },
   );
 

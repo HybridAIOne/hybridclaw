@@ -145,11 +145,11 @@ describe('Anthropic container provider', () => {
     expect(result.usage?.cache_creation_input_tokens).toBe(1200);
   });
 
-  test('sets an inference timeout signal on streaming API requests', async () => {
+  test('does not impose a total-duration timeout on streaming API requests', async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, init?: RequestInit) => {
-        expect(init?.signal).toBeInstanceOf(AbortSignal);
+        expect(init?.signal).toBeUndefined();
         return makeEventStreamResponse([
           'event: message_start\n',
           'data: {"type":"message_start","message":{"id":"msg_stream","model":"claude-sonnet-4-6","usage":{"input_tokens":4,"output_tokens":0}}}\n\n',
@@ -171,7 +171,7 @@ describe('Anthropic container provider', () => {
       onActivity: () => undefined,
     });
 
-    expect(timeoutSpy).toHaveBeenCalledWith(300_000);
+    expect(timeoutSpy).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(deltas).toEqual(['streamed']);
     expect(result.choices[0]?.message.content).toBe('streamed');
