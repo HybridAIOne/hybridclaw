@@ -200,6 +200,75 @@ test('openai-compatible HybridAI Gemma calls use native tools', async () => {
   expect(result.choices[0]?.message.content).toBe('ok');
 });
 
+test.each([
+  {
+    provider: 'anthropic' as const,
+    baseUrl: 'https://api.anthropic.com/v1',
+    model: 'anthropic/claude-sonnet-4-6',
+    upstreamModel: 'claude-sonnet-4-6',
+    expectedUrl: 'https://api.anthropic.com/v1/chat/completions',
+  },
+  {
+    provider: 'ollama' as const,
+    baseUrl: 'http://127.0.0.1:11434',
+    model: 'ollama/qwen3:8b',
+    upstreamModel: 'qwen3:8b',
+    expectedUrl: 'http://127.0.0.1:11434/v1/chat/completions',
+  },
+])(
+  'openai-compatible $provider calls use the provider URL and stripped model with tools',
+  async ({ provider, baseUrl, model, upstreamModel, expectedUrl }) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(input).toBe(expectedUrl);
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.model).toBe(upstreamModel);
+        expect(body.tools).toEqual(tools);
+        expect(body.tool_choice).toBe('auto');
+        expect(body.chatbot_id).toBeUndefined();
+        expect(body.enable_rag).toBeUndefined();
+        return new Response(
+          JSON.stringify({
+            id: 'resp_1',
+            model: upstreamModel,
+            choices: [
+              {
+                message: { role: 'assistant', content: 'ok' },
+                finish_reason: 'stop',
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }),
+    );
+
+    const result = await callOpenAICompatibleModel({
+      runtime: {
+        provider,
+        apiKey: provider === 'anthropic' ? 'anthropic-key' : '',
+        baseUrl,
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: provider === 'ollama',
+        contextWindow: 32_768,
+        thinkingFormat: undefined,
+      },
+      model,
+      messages: [{ role: 'user', content: 'run pwd' }],
+      tools,
+    });
+
+    expect(result.choices[0]?.message.content).toBe('ok');
+  },
+);
+
 test('openai-compatible remote calls omit empty tools', async () => {
   vi.stubGlobal(
     'fetch',
@@ -525,3 +594,67 @@ test('openai-compatible vLLM Gemma streams use native tools', async () => {
   expect(result.choices[0]?.message.content).toBe('ok');
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
+
+test.each([
+  {
+    provider: 'anthropic' as const,
+    baseUrl: 'https://api.anthropic.com/v1',
+    model: 'anthropic/claude-sonnet-4-6',
+    upstreamModel: 'claude-sonnet-4-6',
+    expectedUrl: 'https://api.anthropic.com/v1/chat/completions',
+  },
+  {
+    provider: 'ollama' as const,
+    baseUrl: 'http://127.0.0.1:11434',
+    model: 'ollama/qwen3:8b',
+    upstreamModel: 'qwen3:8b',
+    expectedUrl: 'http://127.0.0.1:11434/v1/chat/completions',
+  },
+])(
+  'openai-compatible $provider streams use the provider URL and stripped model with tools',
+  async ({ provider, baseUrl, model, upstreamModel, expectedUrl }) => {
+    const deltas: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(input).toBe(expectedUrl);
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.model).toBe(upstreamModel);
+        expect(body.tools).toEqual(tools);
+        expect(body.tool_choice).toBe('auto');
+        expect(body.chatbot_id).toBeUndefined();
+        expect(body.enable_rag).toBeUndefined();
+        expect(body.stream).toBe(true);
+        return makeEventStreamResponse([
+          `data: {"id":"resp_1","model":"${upstreamModel}","choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n`,
+          'data: [DONE]\n\n',
+        ]);
+      }),
+    );
+
+    const result = await callOpenAICompatibleModelStream({
+      runtime: {
+        provider,
+        apiKey: provider === 'anthropic' ? 'anthropic-key' : '',
+        baseUrl,
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: provider === 'ollama',
+        contextWindow: 32_768,
+        thinkingFormat: undefined,
+      },
+      model,
+      messages: [{ role: 'user', content: 'run pwd' }],
+      tools,
+      onTextDelta: (delta) => deltas.push(delta),
+    });
+
+    expect(deltas).toEqual(['ok']);
+    expect(result.choices[0]?.message.content).toBe('ok');
+  },
+);

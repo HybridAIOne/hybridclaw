@@ -209,6 +209,27 @@ function buildOpenAICompatRequestBody(
   return body;
 }
 
+function buildChatCompletionsUrl(
+  runtime: ResolvedModelRuntimeCredentials,
+): string {
+  const baseUrl = normalizeBaseUrl(runtime.baseUrl);
+  if (
+    runtime.provider === 'anthropic' ||
+    isOpenAICompatProviderId(runtime.provider)
+  ) {
+    return `${baseUrl}/chat/completions`;
+  }
+  return `${baseUrl}/v1/chat/completions`;
+}
+
+function buildChatCompletionsRequestBody(
+  params: OpenAICompatibleModelCallParams,
+): Record<string, unknown> {
+  return params.runtime.provider === 'hybridai'
+    ? buildHybridAIRequestBody(params)
+    : buildOpenAICompatRequestBody(params);
+}
+
 function convertMessageToResponsesInput(
   message: ChatMessage,
 ): Array<Record<string, unknown>> {
@@ -371,12 +392,8 @@ export async function callOpenAICompatibleModel(
     return adaptCodexResponse(await response.json(), params.model);
   }
 
-  const url = isOpenAICompatProviderId(params.runtime.provider)
-    ? `${normalizeBaseUrl(params.runtime.baseUrl)}/chat/completions`
-    : `${normalizeBaseUrl(params.runtime.baseUrl)}/v1/chat/completions`;
-  const body = isOpenAICompatProviderId(params.runtime.provider)
-    ? buildOpenAICompatRequestBody(params)
-    : buildHybridAIRequestBody(params);
+  const url = buildChatCompletionsUrl(params.runtime);
+  const body = buildChatCompletionsRequestBody(params);
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders({
@@ -496,12 +513,8 @@ export async function callOpenAICompatibleModelStream(
         };
   }
 
-  const url = isOpenAICompatProviderId(params.runtime.provider)
-    ? `${normalizeBaseUrl(params.runtime.baseUrl)}/chat/completions`
-    : `${normalizeBaseUrl(params.runtime.baseUrl)}/v1/chat/completions`;
-  const body = isOpenAICompatProviderId(params.runtime.provider)
-    ? buildOpenAICompatRequestBody(params)
-    : buildHybridAIRequestBody(params);
+  const url = buildChatCompletionsUrl(params.runtime);
+  const body = buildChatCompletionsRequestBody(params);
   const response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders({

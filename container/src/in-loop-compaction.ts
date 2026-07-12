@@ -38,6 +38,55 @@ function countLeadingSystemMessages(history: ChatMessage[]): number {
   return count;
 }
 
+function findSafeToolExchangeBoundaries(body: ChatMessage[]): boolean[] {
+  const safe = Array.from({ length: body.length + 1 }, () => true);
+
+  for (let index = 0; index < body.length; index += 1) {
+    const message = body[index];
+    if (
+      message?.role !== 'assistant' ||
+      !Array.isArray(message.tool_calls) ||
+      message.tool_calls.length === 0
+    ) {
+      continue;
+    }
+
+    let resultEnd = index + 1;
+    while (body[resultEnd]?.role === 'tool') {
+      resultEnd += 1;
+    }
+
+    // The assistant tool-call message and all immediately following results
+    // form one protocol-level exchange. A compaction boundary inside it would
+    // leave either unanswered tool calls or orphaned tool results.
+    const firstUnsafeBoundary = index + 1;
+    const lastUnsafeBoundary = Math.max(firstUnsafeBoundary, resultEnd - 1);
+    for (
+      let boundary = firstUnsafeBoundary;
+      boundary <= lastUnsafeBoundary;
+      boundary += 1
+    ) {
+      safe[boundary] = false;
+    }
+  }
+
+  return safe;
+}
+
+function findSafeBoundaryAtOrAfter(safe: boolean[], target: number): number {
+  for (let boundary = target; boundary < safe.length; boundary += 1) {
+    if (safe[boundary]) return boundary;
+  }
+  return safe.length - 1;
+}
+
+function findSafeBoundaryAtOrBefore(safe: boolean[], target: number): number {
+  for (let boundary = target; boundary >= 0; boundary -= 1) {
+    if (safe[boundary]) return boundary;
+  }
+  return 0;
+}
+
 function normalizeSummary(summary: string, maxChars: number): string {
   let normalized = summary.trim();
   if (normalized.startsWith('```')) {
@@ -84,6 +133,7 @@ function buildCompactionRegion(history: ChatMessage[]): {
     PROTECT_TAIL_MESSAGES,
     Math.max(0, body.length - headCount),
   );
+  const safeBoundaries = findSafeToolExchangeBoundaries(body);
   if (headCount + tailCount >= body.length) {
     // If the default protected slices would consume the whole body, fall back
     // to a smaller 2+4 split so the compaction region still has something to
@@ -92,8 +142,23 @@ function buildCompactionRegion(history: ChatMessage[]): {
     tailCount = Math.min(4, Math.max(1, body.length - headCount - 1));
   }
 
-  const middleStart = headCount;
-  const middleEnd = Math.max(middleStart, body.length - tailCount);
+  let middleStart = findSafeBoundaryAtOrAfter(safeBoundaries, headCount);
+  let middleEnd = findSafeBoundaryAtOrBefore(
+    safeBoundaries,
+    body.length - tailCount,
+  );
+  if (middleStart >= middleEnd) {
+    headCount = Math.min(2, Math.max(0, body.length - 1));
+    tailCount = Math.min(4, Math.max(1, body.length - headCount - 1));
+    middleStart = findSafeBoundaryAtOrAfter(safeBoundaries, headCount);
+    middleEnd = findSafeBoundaryAtOrBefore(
+      safeBoundaries,
+      body.length - tailCount,
+    );
+  }
+  if (middleStart >= middleEnd) {
+    return { prefix: history.slice(), middle: [], suffix: [] };
+  }
   return {
     prefix: [...systemPrefix, ...body.slice(0, middleStart)],
     middle: body.slice(middleStart, middleEnd),
