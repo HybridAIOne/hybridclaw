@@ -349,6 +349,46 @@ test('ignores reflected self-chat messages sent by HybridClaw itself', async () 
   );
 });
 
+test('ignores each reflected self-chat chunk while later chunks are still sending', async () => {
+  vi.useFakeTimers();
+  const { processInboundWhatsAppMessage, runtime, socket, upsertHandlers } =
+    await importFreshRuntimeModule();
+  const messageHandler = vi.fn(async () => {});
+
+  await runtime.initWhatsApp(messageHandler);
+  const sendPromise = runtime.sendToWhatsAppChat(
+    '491703330161@s.whatsapp.net',
+    'a'.repeat(4_500),
+  );
+  await Promise.resolve();
+  await Promise.resolve();
+
+  expect(socket.sendMessage).toHaveBeenCalledTimes(1);
+  await upsertHandlers[0]?.({
+    type: 'notify',
+    messages: [
+      {
+        key: {
+          id: 'bot-1',
+          fromMe: true,
+          remoteJid: '491703330161@s.whatsapp.net',
+        },
+        message: {
+          conversation: 'a'.repeat(4_000),
+        },
+      },
+    ],
+  });
+  await Promise.resolve();
+
+  expect(processInboundWhatsAppMessage).not.toHaveBeenCalled();
+  expect(messageHandler).not.toHaveBeenCalled();
+
+  await vi.runAllTimersAsync();
+  await sendPromise;
+  expect(socket.sendMessage).toHaveBeenCalledTimes(2);
+});
+
 test('shows WhatsApp composing presence while processing an inbound turn', async () => {
   const { runtime, socket, upsertHandlers } = await importFreshRuntimeModule();
   let resolveTurn: (() => void) | null = null;

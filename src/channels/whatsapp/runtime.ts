@@ -131,13 +131,13 @@ export function createWhatsAppRuntime() {
   const sendTextToChat = async (jid: string, text: string): Promise<void> => {
     const manager = ensureConnectionManager();
     const socket = await manager.waitForSocket();
-    const refs = await sendChunkedWhatsAppText(
-      socket,
-      jid,
-      text,
-      manager.rememberSentMessage,
-    );
-    selfEchoCache?.remember(refs);
+    await sendChunkedWhatsAppText(socket, jid, text, async (sent) => {
+      selfEchoCache?.remember({
+        chatJid: sent?.key.remoteJid?.trim() || jid,
+        messageId: sent?.key.id?.trim() || null,
+      });
+      await manager.rememberSentMessage(sent);
+    });
   };
 
   const sendMediaToChat = async (
