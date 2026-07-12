@@ -64,6 +64,7 @@ import {
   type ToolProgressEvent,
 } from '../types/execution.js';
 import type { ScheduledTaskInput } from '../types/scheduler.js';
+import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
 import { ensureBehaviorAnomalyTrajectoryStoreDir } from './behavior-anomaly-runtime.js';
 import {
   collectConfiguredDiscordChannelIds,
@@ -214,6 +215,7 @@ interface PoolEntry extends WarmRunnerEntry {
 }
 
 const pool = new Map<string, PoolEntry>();
+const hostSessionQueue = new KeyedSerialQueue();
 const warmPool = new WarmProcessPool<PoolEntry>(
   normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
 );
@@ -852,14 +854,16 @@ export function stopSessionHostProcess(sessionId: string): boolean {
 export async function runHostProcess(
   params: ExecutorRequest,
 ): Promise<ContainerOutput> {
-  return withSpan(
-    'hybridclaw.host.execute',
-    {
-      'hybridclaw.session_id': params.sessionId,
-      'hybridclaw.agent_id': params.agentId || '',
-      'hybridclaw.model': params.model || '',
-    },
-    async () => runHostProcessInner(params),
+  return hostSessionQueue.run(params.sessionId, () =>
+    withSpan(
+      'hybridclaw.host.execute',
+      {
+        'hybridclaw.session_id': params.sessionId,
+        'hybridclaw.agent_id': params.agentId || '',
+        'hybridclaw.model': params.model || '',
+      },
+      async () => runHostProcessInner(params),
+    ),
   );
 }
 

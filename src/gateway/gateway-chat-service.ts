@@ -93,6 +93,7 @@ import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { parseJsonObject } from '../utils/json-object.js';
+import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
 import {
   ensureBootstrapFiles,
   resolveStartupBootstrapFile,
@@ -691,18 +692,22 @@ function buildA2AChatThreadId(session: {
   return session.main_session_key || session.session_key || session.id;
 }
 
+const gatewaySessionQueue = new KeyedSerialQueue();
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
-  return withSpan(
-    'hybridclaw.gateway.handle_message',
-    {
-      'hybridclaw.session_id': req.sessionId,
-      'hybridclaw.agent_id': req.agentId || '',
-      'hybridclaw.channel_id': req.channelId || '',
-      'hybridclaw.model': req.model || '',
-    },
-    async () => handleGatewayMessageInner(req),
+  return gatewaySessionQueue.run(req.sessionId, () =>
+    withSpan(
+      'hybridclaw.gateway.handle_message',
+      {
+        'hybridclaw.session_id': req.sessionId,
+        'hybridclaw.agent_id': req.agentId || '',
+        'hybridclaw.channel_id': req.channelId || '',
+        'hybridclaw.model': req.model || '',
+      },
+      async () => handleGatewayMessageInner(req),
+    ),
   );
 }
 
