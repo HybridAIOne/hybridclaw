@@ -327,17 +327,25 @@ function buildUpdateCommand(
       return { bin: 'bun', args, display: `bun ${args.join(' ')}` };
     }
     default: {
-      // `--no-fund`/`--no-audit` are npm-specific and trim the funding/audit
-      // noise from the self-update output. They are intentionally not added to
-      // the pnpm/yarn/bun branches, which don't support these flags and don't
-      // emit that output. Deprecation warnings are left visible on purpose (see
-      // SECURITY.md and the npm supply-chain notes).
+      // `--no-fund`/`--no-audit`/`--loglevel=error` are npm-specific and trim
+      // the funding/audit/deprecation noise from the self-update output while
+      // keeping real errors visible. They are intentionally not added to the
+      // pnpm/yarn/bun branches, which don't support these flags and don't emit
+      // that output.
+      // `--omit=dev` keeps the published workspace shrinkwrap's development
+      // tree out of the global install. `--no-fund`/`--no-audit` are npm-specific
+      // and trim the funding/audit noise from the self-update output. These are
+      // intentionally not added to the pnpm/yarn/bun branches, which don't
+      // support the same flags or emit that output. Deprecation warnings are
+      // left visible on purpose (see SECURITY.md and the npm supply-chain notes).
       const args = [
         'install',
         '-g',
         '--ignore-scripts',
+        '--omit=dev',
         '--no-fund',
         '--no-audit',
+        '--loglevel=error',
         `${packageName}@latest`,
       ];
       return { bin: 'npm', args, display: `npm ${args.join(' ')}` };

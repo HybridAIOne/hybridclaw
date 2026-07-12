@@ -2,14 +2,44 @@
 
 ## Unreleased
 
+## [0.28.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.1) - 2026-07-10
+
 ### Added
 
 - **LINE personal-account self-chat channel**: Operators can link a personal
   LINE account through an explicitly warned unofficial QR flow and use only
   that account's self-chat for agent turns. Auth tokens, E2EE state, and sync
   cursors persist across restarts; sender/recipient checks, reply-prefix loop
-  prevention, process locking, and self-only outbound enforcement keep the
-  transport scoped to the linked account.
+  prevention, process locking, self-only outbound enforcement, CLI setup and
+  reset commands, and admin-console QR status keep the transport scoped to the
+  linked account.
+
+### Fixed
+
+- **Onboarding autostart visibility and retry**: First-run assistant-only
+  sessions are preserved while bootstrap autostart is active or awaiting the
+  user's reply, and temporary provider failures can retry without consuming a
+  hatching turn or hiding the onboarding opener.
+- **Channel delivery size limits**: Long replies now obey the configured hard
+  character and line limits across Discord replies, streams, and webhooks plus
+  Slack webhooks. The shared chunker safely splits unbroken text and Unicode,
+  reserves room for closing code fences, and reopens fenced blocks in the next
+  chunk.
+- **Duplicate channel turn dispatch**: Discord ignores metadata-only message
+  updates, Slack coalesces twin `message` and `app_mention` events while
+  retaining attachments, and WhatsApp resolves alternate phone JIDs for LID
+  senders so one inbound message does not start duplicate or misidentified
+  turns.
+- **Auxiliary model output caps**: Explicit task-level `maxTokens` values are
+  preserved even when model discovery has no provider maximum, preventing
+  auxiliary calls from silently losing their requested output limit.
+- **Anthropic thinking traces**: Direct Anthropic and HybridAI-routed Claude
+  streams preserve structured thinking content through tool-call continuations
+  and expose it to the chat activity trace instead of dropping it between
+  turns.
+- **CLI self-update output and footprint**: npm self-updates omit development
+  dependencies and suppress non-actionable deprecation, funding, and audit
+  noise while continuing to surface installation errors.
 
 ## [0.28.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.0) - 2026-07-08
 

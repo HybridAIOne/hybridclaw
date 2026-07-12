@@ -27,6 +27,20 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
+- HybridClaw v0.28.1 adds an explicitly warned unofficial LINE
+  personal-account channel scoped to Keep Memo self-chat, with QR/PIN setup,
+  persistent encrypted-message state, self-only inbound and outbound checks,
+  and admin-console pairing status.
+- Anthropic thinking blocks survive direct and HybridAI-routed streaming tool
+  continuations so web chat can render complete activity traces.
+- Channel replies enforce hard character and line limits while preserving
+  Unicode and fenced code, and duplicate Discord updates, Slack event twins,
+  and WhatsApp LID sender aliases no longer start duplicate or misidentified
+  turns.
+- First-run onboarding openers remain visible through assistant-only session
+  cleanup and retry after temporary provider failures, while auxiliary calls
+  retain explicit output-token caps and npm self-updates install production
+  dependencies with quieter output.
 - HybridClaw v0.28.0 dispatches trusted inbound A2A messages to local agents,
   sends replies back across reverse trust, and shows delivery status in the
   origin chat until the remote reply is stored.
