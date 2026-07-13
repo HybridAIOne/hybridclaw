@@ -69,6 +69,12 @@ function createGatewayMainTestState(options?: {
         ) => void),
     scheduledTaskRunner: null as null | ((...args: unknown[]) => Promise<void>),
     currentConfig: {
+      deployment: {
+        mode: 'cloud',
+        public_url: 'https://gateway.example.com',
+        a2a_local_mode: options?.a2aLocalMode ?? false,
+        tunnel: { provider: 'manual', health_check_interval_ms: 30_000 },
+      },
       heartbeat: { enabled: true, intervalMs: 1_000 },
       hybridai: { defaultChatbotId: 'bot-default' },
       email: {
@@ -355,6 +361,7 @@ async function importFreshGatewayMain(options?: {
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
   hasMSTeamsCredentials?: boolean;
+  a2aLocalMode?: boolean;
   initGatewayServiceImpl?: () => Promise<void>;
   skipBootstrapHandlerCheck?: boolean;
   dataDir?: string;
@@ -845,6 +852,43 @@ describe('gateway bootstrap', () => {
     expect(state.startScheduler).toHaveBeenCalledTimes(1);
     expect(state.onConfigChange).toHaveBeenCalledTimes(1);
     expect(state.setInterval).toHaveBeenCalled();
+  });
+
+  test('does not start external channel runtimes in A2A local mode', async () => {
+    const state = await importFreshGatewayMain({
+      a2aLocalMode: true,
+      skipBootstrapHandlerCheck: true,
+    });
+
+    expect(state.initDiscord).not.toHaveBeenCalled();
+    expect(state.initDiscordWebhook).not.toHaveBeenCalled();
+    expect(state.initMSTeams).not.toHaveBeenCalled();
+    expect(state.initSignal).not.toHaveBeenCalled();
+    expect(state.initSlack).not.toHaveBeenCalled();
+    expect(state.initSlackWebhook).not.toHaveBeenCalled();
+    expect(state.initEmail).not.toHaveBeenCalled();
+    expect(state.initTelegram).not.toHaveBeenCalled();
+    expect(state.initLine).not.toHaveBeenCalled();
+    expect(state.initWhatsApp).not.toHaveBeenCalled();
+    expect(state.initVoice).not.toHaveBeenCalled();
+    expect(state.initIMessage).not.toHaveBeenCalled();
+  });
+
+  test('stops active channel runtimes when A2A local mode is enabled', async () => {
+    const state = await importFreshGatewayMain();
+    const previous = structuredClone(state.currentConfig);
+    state.currentConfig.deployment.a2a_local_mode = true;
+
+    state.configChangeListener?.(state.currentConfig, previous);
+    await settle();
+    await settle();
+
+    expect(state.shutdownDiscord).toHaveBeenCalledTimes(1);
+    expect(state.shutdownEmail).toHaveBeenCalledTimes(1);
+    expect(state.shutdownSignal).toHaveBeenCalledTimes(1);
+    expect(state.shutdownSlack).toHaveBeenCalledTimes(1);
+    expect(state.shutdownTelegram).toHaveBeenCalledTimes(1);
+    expect(state.shutdownWhatsApp).toHaveBeenCalledTimes(1);
   });
 
   test('logs info on startup when the warm process pool is enabled', async () => {

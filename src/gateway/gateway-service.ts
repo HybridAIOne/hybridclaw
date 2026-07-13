@@ -6328,9 +6328,40 @@ export function getGatewayAdminA2ATrust(): GatewayAdminA2ATrustResponse {
       publicKeyFingerprint: identity.publicKeyFingerprint,
       publicKeyJwk: identity.publicKeyJwk,
     },
+    localMode: {
+      enabled: getRuntimeConfig().deployment.a2a_local_mode,
+    },
     peers: listA2ATrustedPublicKeyPeers().map(mapA2ATrustPeer),
     pairingRequests: listIncomingA2APairingRequests(),
   };
+}
+
+export function saveGatewayAdminA2ALocalMode(params: {
+  enabled: boolean;
+  actor?: string;
+}): GatewayAdminA2ATrustResponse {
+  const previous = getRuntimeConfig().deployment.a2a_local_mode;
+  updateRuntimeConfig(
+    (draft) => {
+      draft.deployment.a2a_local_mode = params.enabled;
+    },
+    {
+      actor: params.actor,
+      route: 'api.admin.a2a.local-mode',
+      source: 'admin-console',
+    },
+  );
+  recordAuditEvent({
+    sessionId: 'admin:a2a-local-mode',
+    runId: makeAuditRunId('a2a-local-mode'),
+    event: {
+      type: 'a2a.local_mode_changed',
+      actor: params.actor || 'admin-console',
+      previous,
+      enabled: params.enabled,
+    },
+  });
+  return getGatewayAdminA2ATrust();
 }
 
 export function revokeGatewayAdminA2ATrustPeer(params: {

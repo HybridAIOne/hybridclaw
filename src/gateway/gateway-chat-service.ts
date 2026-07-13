@@ -1,5 +1,9 @@
 import path from 'node:path';
 import { createA2AEnvelope } from '../a2a/envelope.js';
+import {
+  isA2ALocalModeEnabled,
+  isA2ALocalModeExternalChannelSource,
+} from '../a2a/local-mode.js';
 import { sendMessage as sendA2AMessage } from '../a2a/runtime.js';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
@@ -36,6 +40,7 @@ import {
   PROACTIVE_DELEGATION_MAX_DEPTH,
   PROACTIVE_DELEGATION_MAX_PER_TURN,
 } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import { preprocessContextReferences } from '../context-references/index.js';
 import {
   clearScheduledGoalContinuation,
@@ -710,6 +715,15 @@ async function handleGatewayMessageInner(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
+  const source = req.source?.trim() || 'gateway.chat';
+  if (
+    isA2ALocalModeEnabled(getRuntimeConfig()) &&
+    isA2ALocalModeExternalChannelSource(source)
+  ) {
+    throw new Error(
+      'External channel turns are disabled while A2A local mode is enabled.',
+    );
+  }
   const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway({
     sessionId: req.sessionId,
     channelId: req.channelId,
@@ -720,7 +734,6 @@ async function handleGatewayMessageInner(
     ? await pluginManager.getMemoryLayerBehavior()
     : { replacesBuiltInMemory: false };
   const runId = makeAuditRunId('turn');
-  const source = req.source?.trim() || 'gateway.chat';
   const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
   const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: req.sessionId,

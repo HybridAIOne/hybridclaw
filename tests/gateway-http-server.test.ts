@@ -607,6 +607,7 @@ async function importFreshHealth(options?: {
   hybridAiBaseUrl?: string;
   runningInsideContainer?: boolean;
   deploymentPublicUrl?: string;
+  a2aLocalMode?: boolean;
   activeTunnelPublicUrl?: string | null;
   msteamsTab?: {
     enabled?: boolean;
@@ -1411,9 +1412,13 @@ async function importFreshHealth(options?: {
       publicKeyFingerprint: 'local-fingerprint',
       publicKeyJwk: { kty: 'OKP', crv: 'Ed25519', x: 'local-key' },
     },
+    localMode: { enabled: options?.a2aLocalMode === true },
     peers: [],
     pairingRequests: [],
   }));
+  const saveGatewayAdminA2ALocalMode = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
   const getGatewayA2AAgentCard = vi.fn((origin: string) => ({
     name: 'HybridClaw',
     version: '0.0.0-test',
@@ -2456,6 +2461,8 @@ async function importFreshHealth(options?: {
       runtimeConfig.deployment.public_url = options.deploymentPublicUrl;
       runtimeConfig.deployment.tunnel.provider = 'manual';
     }
+    runtimeConfig.deployment.a2a_local_mode =
+      options?.a2aLocalMode === true;
     if (options?.msteamsTab) {
       runtimeConfig.msteams.appId = options.msteamsTab.appId ?? '';
       runtimeConfig.msteams.tenantId = options.msteamsTab.tenantId ?? '';
@@ -2681,6 +2688,7 @@ async function importFreshHealth(options?: {
     restoreGatewayAdminTeamStructureRevision,
     revokeGatewayAdminA2ATrustPeer,
     saveGatewayAdminConfig,
+    saveGatewayAdminA2ALocalMode,
     saveGatewayAdminSlackWebhookTarget,
     saveGatewayAdminTunnelConfig,
     saveGatewayAdminAgentMarkdownFile,
@@ -2851,6 +2859,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminApprovals,
     getGatewayAdminA2AInbox,
     getGatewayAdminA2ATrust,
+    saveGatewayAdminA2ALocalMode,
     getGatewayA2AAgentCard,
     previewGatewayAdminA2APairing,
     upsertGatewayAdminA2ATrustPeer,
@@ -2942,6 +2951,7 @@ async function importFreshHealth(options?: {
     handleIMessageWebhook,
     handleVoiceUpgrade,
     handleVoiceWebhook,
+    handleMSTeamsWebhook,
     runMessageToolAction,
     normalizeDiscordToolAction,
     claimQueuedProactiveMessages,
@@ -6346,6 +6356,79 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('A2A local mode blocks external user and webhook routes but keeps A2A and admin management available', async () => {
+    const state = await importFreshHealth({
+      a2aLocalMode: true,
+      deploymentPublicUrl: 'https://u-public.sbx.hybridai.one',
+    });
+    const externalHeaders = {
+      host: '127.0.0.1:9090',
+      'x-forwarded-for': '203.0.113.10',
+      'x-forwarded-host': 'u-public.sbx.hybridai.one',
+      'x-forwarded-proto': 'https',
+    };
+
+    const chatRes = makeResponse();
+    state.handler(
+      makeRequest({
+        url: '/chat',
+        headers: externalHeaders,
+        noAuth: true,
+      }) as never,
+      chatRes as never,
+    );
+    expect(chatRes.statusCode).toBe(404);
+
+    const webhookRes = makeResponse();
+    state.handler(
+      makeRequest({
+        method: 'POST',
+        url: '/api/msteams/messages',
+        headers: externalHeaders,
+        noAuth: true,
+      }) as never,
+      webhookRes as never,
+    );
+    expect(webhookRes.statusCode).toBe(404);
+    expect(state.handleMSTeamsWebhook).not.toHaveBeenCalled();
+
+    const cardRes = makeResponse();
+    state.handler(
+      makeRequest({
+        url: '/.well-known/agent.json',
+        headers: externalHeaders,
+        noAuth: true,
+      }) as never,
+      cardRes as never,
+    );
+    expect(cardRes.statusCode).toBe(200);
+
+    const adminRes = makeResponse();
+    state.handler(
+      makeRequest({
+        url: '/api/admin/a2a/trust',
+        headers: externalHeaders,
+      }) as never,
+      adminRes as never,
+    );
+    await settle();
+    expect(adminRes.statusCode).toBe(200);
+  });
+
+  test('A2A local mode keeps loopback web surfaces available', async () => {
+    const state = await importFreshHealth({ a2aLocalMode: true });
+    const req = makeRequest({
+      url: '/chat',
+      headers: { host: 'localhost:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).not.toBe(404);
+  });
+
   test('serves the A2A Agent Card from request origin when public deployment URL is unset', async () => {
     const state = await importFreshHealth({ deploymentPublicUrl: '' });
     const req = makeRequest({
@@ -8544,6 +8627,43 @@ describe('gateway HTTP server', () => {
       'admin-console',
     );
     expect(res.statusCode).toBe(200);
+  });
+
+  test('updates A2A local mode through the admin A2A endpoint', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/a2a/local-mode',
+      body: JSON.stringify({ enabled: true }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminA2ALocalMode).toHaveBeenCalledWith({
+      enabled: true,
+      actor: 'admin-console',
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('rejects invalid A2A local mode values', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/a2a/local-mode',
+      body: JSON.stringify({ enabled: 'yes' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminA2ALocalMode).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
   });
 
   test('starts admin A2A pairing from the console endpoint', async () => {

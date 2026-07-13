@@ -68,6 +68,7 @@ describe('runtime deployment config', () => {
     expect(runtimeConfig.getRuntimeConfig().deployment).toEqual({
       mode: 'local',
       public_url: '',
+      a2a_local_mode: false,
       tunnel: {
         provider: 'manual',
         health_check_interval_ms: 30000,
@@ -76,6 +77,7 @@ describe('runtime deployment config', () => {
     expect(readDiskConfig().deployment).toEqual({
       mode: 'local',
       public_url: '',
+      a2a_local_mode: false,
       tunnel: {
         provider: 'manual',
         health_check_interval_ms: 30000,
@@ -198,6 +200,7 @@ describe('runtime deployment config', () => {
       (draft) => {
         draft.deployment.mode = 'cloud';
         draft.deployment.public_url = 'https://bot.example.com/';
+        draft.deployment.a2a_local_mode = true;
         draft.deployment.tunnel.provider = 'cloudflare';
         draft.deployment.tunnel.health_check_interval_ms = 45000;
       },
@@ -211,6 +214,7 @@ describe('runtime deployment config', () => {
     expect(runtimeConfig.getRuntimeConfig().deployment).toEqual({
       mode: 'cloud',
       public_url: 'https://bot.example.com',
+      a2a_local_mode: true,
       tunnel: {
         provider: 'cloudflare',
         health_check_interval_ms: 45000,
@@ -219,6 +223,7 @@ describe('runtime deployment config', () => {
     expect(readDiskConfig().deployment).toEqual({
       mode: 'cloud',
       public_url: 'https://bot.example.com',
+      a2a_local_mode: true,
       tunnel: {
         provider: 'cloudflare',
         health_check_interval_ms: 45000,
@@ -248,6 +253,7 @@ describe('runtime deployment config', () => {
     expect(restored.deployment).toEqual({
       mode: 'local',
       public_url: '',
+      a2a_local_mode: false,
       tunnel: {
         provider: 'manual',
         health_check_interval_ms: 30000,
@@ -256,6 +262,7 @@ describe('runtime deployment config', () => {
     expect(readDiskConfig().deployment).toEqual({
       mode: 'local',
       public_url: '',
+      a2a_local_mode: false,
       tunnel: {
         provider: 'manual',
         health_check_interval_ms: 30000,

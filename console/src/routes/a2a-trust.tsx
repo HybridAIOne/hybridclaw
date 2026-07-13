@@ -7,6 +7,7 @@ import {
   fetchA2ATrust,
   previewA2APairing,
   revokeA2ATrustPeer,
+  saveA2ALocalMode,
   startA2APairing,
   upsertA2ATrustPeer,
 } from '../api/client';
@@ -25,6 +26,7 @@ import {
 } from '../components/card';
 import { Field, FieldLabel } from '../components/field';
 import { Input } from '../components/input';
+import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
 import { BooleanPill, PageHeader } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
@@ -69,6 +71,13 @@ export function A2ATrustPage() {
   const trustQuery = useQuery({
     queryKey: ['a2a-trust', auth.token],
     queryFn: () => fetchA2ATrust(auth.token),
+  });
+
+  const localModeMutation = useMutation({
+    mutationFn: (enabled: boolean) => saveA2ALocalMode(auth.token, enabled),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['a2a-trust', auth.token], data);
+    },
   });
 
   const revokeMutation = useMutation({
@@ -204,6 +213,38 @@ export function A2ATrustPage() {
           ) : (
             <div className="empty-state">Identity unavailable.</div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card variant="muted">
+        <CardHeader>
+          <CardTitle>A2A local mode</CardTitle>
+          <CardDescription>
+            Keep local and authenticated admin access, expose A2A, and block
+            external chat, APIs, webhooks, channels, and channel delivery.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="button-row">
+            <Switch
+              aria-label="A2A local mode"
+              checked={Boolean(trustQuery.data?.localMode.enabled)}
+              disabled={!trustQuery.data || localModeMutation.isPending}
+              onCheckedChange={(enabled) => localModeMutation.mutate(enabled)}
+            />
+            <BooleanPill
+              value={Boolean(trustQuery.data?.localMode.enabled)}
+              trueLabel="on"
+              falseLabel="off"
+            />
+          </div>
+          {localModeMutation.error ? (
+            <small className="row-status-note-danger">
+              {localModeMutation.error instanceof Error
+                ? localModeMutation.error.message
+                : 'A2A local mode update failed.'}
+            </small>
+          ) : null}
         </CardContent>
       </Card>
 
