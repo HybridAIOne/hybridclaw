@@ -39,6 +39,10 @@ vi.mock('../hooks/use-live-events', () => ({
   useLiveEvents: (...args: unknown[]) => useLiveEventsMock(...args),
 }));
 
+vi.mock('./tunnel-settings', () => ({
+  TunnelSettings: () => <div>Public tunnel settings</div>,
+}));
+
 function makeStatus(overrides: Record<string, unknown> = {}) {
   return {
     status: 'ok' as const,
@@ -144,6 +148,12 @@ describe('GatewayPage', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('shows tunnel settings on the gateway page', () => {
+    renderGatewayPage();
+
+    expect(screen.getByText('Public tunnel settings')).toBeTruthy();
   });
 
   it('opens a reload confirmation dialog and calls the reload endpoint', async () => {

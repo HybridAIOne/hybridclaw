@@ -35,6 +35,7 @@ import { useLiveConnectionToasts } from '../hooks/use-live-connection-toasts';
 import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatUptime } from '../lib/format';
+import { TunnelSettings } from './tunnel-settings';
 
 const DEFAULT_PROXY_SECRET_ID = 'HYBRIDAI_API_KEY';
 const OFFICIAL_HYBRIDAI_BASE_URL = 'https://hybridai.one';
@@ -340,6 +341,8 @@ export function GatewayPage() {
           </CardContent>
         </Card>
       </div>
+
+      <TunnelSettings />
 
       <div className="two-column-grid">
         <ProviderHealthPanel
