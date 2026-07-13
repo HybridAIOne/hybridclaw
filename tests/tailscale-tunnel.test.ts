@@ -197,7 +197,7 @@ describe('TailscaleTunnelProvider', () => {
     );
   });
 
-  it('does not mask missing tailscale CLI errors as missing auth', async () => {
+  it('explains how to install a missing Tailscale CLI', async () => {
     const runCommand = vi.fn(async () => {
       throw new Error('spawn tailscale ENOENT');
     });
@@ -207,9 +207,13 @@ describe('TailscaleTunnelProvider', () => {
       runCommand,
     });
 
-    await expect(provider.start()).rejects.toThrow('spawn tailscale ENOENT');
+    await expect(provider.start()).rejects.toThrow(
+      'Tailscale CLI was not found in the gateway runtime.',
+    );
     expect(runCommand).toHaveBeenCalledTimes(1);
-    expect(provider.status().last_error).toBe('spawn tailscale ENOENT');
+    expect(provider.status().last_error).toBe(
+      'Tailscale CLI was not found in the gateway runtime. Install Tailscale on the host or container running HybridClaw and ensure the `tailscale` executable is on the gateway PATH. Verify with `tailscale version` in that same runtime, then restart the gateway and retry. On a managed cloud service where system binaries cannot be installed, use a custom image or build step that includes Tailscale, or select another tunnel provider.',
+    );
   });
 
   it('reconnects with capped backoff when Funnel health checks fail', async () => {

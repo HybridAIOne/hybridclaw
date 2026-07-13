@@ -3905,6 +3905,7 @@ export function recordSuccessfulTurn(opts: {
       type: 'turn.end',
       turnIndex: opts.turnIndex,
       finishReason: 'completed',
+      assistantMessageId: storedTurn.assistantMessageId,
     },
   });
   recordAuditEvent({
@@ -9087,6 +9088,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
           type: 'turn.end',
           turnIndex,
           finishReason: 'completed',
+          assistantMessageId,
         },
       });
       recordAuditEvent({
@@ -9265,6 +9267,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         type: 'turn.end',
         turnIndex,
         finishReason: 'completed',
+        assistantMessageId,
       },
     });
     recordAuditEvent({

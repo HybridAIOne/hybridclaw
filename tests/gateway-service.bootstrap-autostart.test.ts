@@ -228,13 +228,18 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   const assistantMessageEvent = auditRows.find(
     (row) => row.event_type === 'onboarding.assistant_message',
   );
+  const turnEndEvent = auditRows.find(
+    (row) => row.event_type === 'turn.end',
+  );
   expect(quickMessageEvent).toBeTruthy();
   expect(assistantMessageEvent).toBeTruthy();
+  expect(turnEndEvent).toBeTruthy();
   expect(JSON.parse(String(quickMessageEvent?.payload || '{}'))).toMatchObject({
     type: 'onboarding.quick_message',
     workspaceAgentId: 'main',
     source: 'gateway.bootstrap',
     bootstrapFile: 'BOOTSTRAP.md',
+    assistantMessageId: history[0]?.id,
     messageRole: 'assistant',
     messageChars: DEFAULT_GATEWAY_AUXILIARY_PRELUDE.length,
   });
@@ -245,9 +250,15 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
     workspaceAgentId: 'main',
     source: 'gateway.bootstrap',
     bootstrapFile: 'BOOTSTRAP.md',
+    assistantMessageId: history[1]?.id,
     messageRole: 'assistant',
     messageChars: 'Hello. I am ready to get you oriented.'.length,
     toolCallCount: 0,
+  });
+  expect(JSON.parse(String(turnEndEvent?.payload || '{}'))).toMatchObject({
+    type: 'turn.end',
+    finishReason: 'completed',
+    assistantMessageId: history[1]?.id,
   });
   expect(pluginManagerMock.notifySessionStart).toHaveBeenCalledTimes(1);
   expect(pluginManagerMock.notifyBeforeAgentStart).toHaveBeenCalledTimes(1);

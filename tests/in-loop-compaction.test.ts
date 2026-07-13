@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'vitest';
 
 import { compactInLoop } from '../container/src/in-loop-compaction.js';
-import type { ChatMessage } from '../container/src/types.js';
+import type { ChatMessage, ToolCall } from '../container/src/types.js';
+
+function toolCall(id: string): ToolCall {
+  return {
+    id,
+    type: 'function',
+    function: { name: 'test_tool', arguments: '{}' },
+  };
+}
 
 function buildHistory(): ChatMessage[] {
   return [
@@ -9,11 +17,19 @@ function buildHistory(): ChatMessage[] {
     { role: 'user', content: 'User 1' },
     { role: 'assistant', content: 'Assistant 1' },
     { role: 'user', content: 'User 2' },
-    { role: 'assistant', content: 'Assistant 2' },
+    {
+      role: 'assistant',
+      content: 'Assistant 2',
+      tool_calls: [toolCall('call_1')],
+    },
     { role: 'tool', content: 'Tool 1', tool_call_id: 'call_1' },
     { role: 'assistant', content: 'Assistant 3' },
     { role: 'user', content: 'User 3' },
-    { role: 'assistant', content: 'Assistant 4' },
+    {
+      role: 'assistant',
+      content: 'Assistant 4',
+      tool_calls: [toolCall('call_2')],
+    },
     { role: 'tool', content: 'Tool 2', tool_call_id: 'call_2' },
     { role: 'assistant', content: 'Assistant 5' },
     { role: 'user', content: 'User 4' },
@@ -44,6 +60,53 @@ describe('compactInLoop', () => {
         String(message.content).includes('[In-loop compaction summary]'),
       ),
     ).toBe(true);
+  });
+
+  test('does not leave protected prefix tool calls unanswered', async () => {
+    const history = buildHistory();
+    const result = await compactInLoop({
+      history,
+      summarize: async () => 'Summary',
+    });
+
+    const summaryIndex = result.history.findIndex((message) =>
+      String(message.content).startsWith('[In-loop compaction summary]'),
+    );
+    expect(result.history[summaryIndex - 1]).toEqual(history[5]);
+    expect(result.history[summaryIndex - 1]?.role).toBe('tool');
+  });
+
+  test('keeps parallel tool calls with every result when adjusting the protected tail', async () => {
+    const calls = [toolCall('call_a'), toolCall('call_b')];
+    const history: ChatMessage[] = [
+      { role: 'system', content: 'System prompt' },
+      { role: 'user', content: 'User 1' },
+      { role: 'assistant', content: 'Assistant 1' },
+      { role: 'user', content: 'User 2' },
+      { role: 'assistant', content: 'Assistant 2' },
+      { role: 'user', content: 'User 3' },
+      { role: 'assistant', content: null, tool_calls: calls },
+      { role: 'tool', content: 'Tool A', tool_call_id: 'call_a' },
+      { role: 'tool', content: 'Tool B', tool_call_id: 'call_b' },
+      { role: 'assistant', content: 'Assistant 3' },
+      { role: 'user', content: 'User 4' },
+      { role: 'assistant', content: 'Assistant 4' },
+      { role: 'user', content: 'User 5' },
+      { role: 'assistant', content: 'Assistant 5' },
+      { role: 'user', content: 'User 6' },
+    ];
+
+    const result = await compactInLoop({
+      history,
+      summarize: async () => 'Summary',
+    });
+
+    const summaryIndex = result.history.findIndex((message) =>
+      String(message.content).startsWith('[In-loop compaction summary]'),
+    );
+    expect(result.history.slice(summaryIndex + 1, summaryIndex + 4)).toEqual(
+      history.slice(6, 9),
+    );
   });
 
   test('falls back to a heuristic summary when the summarizer fails', async () => {

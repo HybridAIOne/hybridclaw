@@ -55,4 +55,40 @@ describe('TailscaleTunnelProvider default command runner', () => {
       public_url: 'https://runner.example.ts.net',
     });
   });
+
+  it('turns an ENOENT from execFile into actionable CLI guidance', async () => {
+    const { TailscaleTunnelProvider } = await import(
+      '../src/tunnel/tailscale-tunnel-provider.js'
+    );
+    execFile.mockImplementation(
+      (
+        _command: string,
+        _args: string[],
+        _options: unknown,
+        callback: ExecFileCallback,
+      ) => {
+        callback(
+          Object.assign(new Error('spawn /custom/tailscale ENOENT'), {
+            code: 'ENOENT',
+          }),
+          '',
+          '',
+        );
+      },
+    );
+    const provider = new TailscaleTunnelProvider({
+      readSecret: () => null,
+      recordAuditEvent: vi.fn(),
+      tailscaleCommand: '/custom/tailscale',
+    });
+
+    await expect(provider.start()).rejects.toThrow(
+      'Tailscale CLI was not found in the gateway runtime.',
+    );
+    expect(provider.status().last_error).toContain(
+      'host or container running HybridClaw',
+    );
+    expect(provider.status().last_error).toContain('managed cloud service');
+    expect(provider.status().last_error).not.toContain('ENOENT');
+  });
 });
