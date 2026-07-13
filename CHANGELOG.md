@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **A2A end-to-end transport encryption**: Paired HybridClaw gateways exchange
+  and pin dedicated X25519 keys, encrypt message envelopes with compact JWE
+  (`ECDH-ES` and `A256GCM`), bind encrypted envelopes to Ed25519-signed
+  delegation tokens, reject per-peer plaintext downgrades, and expose an admin
+  switch that requires E2EE for every A2A trust entry.
+
 ## [0.28.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.1) - 2026-07-10
 
 ### Added

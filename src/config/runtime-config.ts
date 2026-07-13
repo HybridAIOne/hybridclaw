@@ -338,6 +338,7 @@ export interface RuntimeDeploymentConfig {
   mode: RuntimeDeploymentMode;
   public_url: string;
   a2a_local_mode: boolean;
+  a2a_e2ee_required: boolean;
   tunnel: RuntimeDeploymentTunnelConfig;
 }
 
@@ -1447,6 +1448,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     mode: 'local',
     public_url: '',
     a2a_local_mode: false,
+    a2a_e2ee_required: false,
     tunnel: {
       provider: 'manual',
       health_check_interval_ms: DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS,
@@ -2345,6 +2347,10 @@ export function normalizeDeploymentConfig(
     a2a_local_mode: normalizeBoolean(
       raw.a2a_local_mode,
       fallback.a2a_local_mode,
+    ),
+    a2a_e2ee_required: normalizeBoolean(
+      raw.a2a_e2ee_required,
+      fallback.a2a_e2ee_required,
     ),
     tunnel: {
       ...(tunnelProvider ? { provider: tunnelProvider } : {}),

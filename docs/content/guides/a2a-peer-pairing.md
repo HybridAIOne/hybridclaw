@@ -52,6 +52,29 @@ loopback and authenticated admin management available, leaves the Agent Card
 and A2A delivery routes reachable, and disables other external gateway and
 channel surfaces.
 
+## A2A Encryption
+
+HybridClaw pairing exchanges and pins two independent public keys per instance:
+
+- an Ed25519 identity key for peer authentication and signed delegation tokens
+- an X25519 key for end-to-end encryption of A2A message envelopes
+
+Message envelopes are encrypted between the two gateway processes with compact
+JWE (`ECDH-ES` plus `A256GCM`). A signed delegation token binds the encrypted
+envelope digest to the authenticated sender. Once a peer's encryption key is
+pinned, HybridClaw rejects plaintext messages from that peer and rejects an
+Agent Card whose encryption fingerprint has changed.
+
+HybridClaw pairings require an E2EE-capable peer. Manually trusted or
+third-party A2A peers without this HybridClaw extension can use plaintext only
+while **Require A2A E2EE** is disabled on `/admin/a2a-trust`. Enable that switch
+after pairing every HybridClaw peer to make the entire A2A boundary fail closed.
+
+This is transport E2EE between HybridClaw instances. Messages are plaintext on
+the endpoint hosts, after delivery into the local inbox, and when sent to a
+configured model provider. The current static recipient keys do not provide
+forward secrecy.
+
 ## Pair Two Instances In The Browser
 
 1. Open the admin console for instance 1:
@@ -80,8 +103,8 @@ channel surfaces.
    http://127.0.0.1:9292/.well-known/agent.json
    ```
 
-5. Preview the pairing. Check the peer id and public-key fingerprint before
-   trusting it.
+5. Preview the pairing. Check the peer id, identity-key fingerprint, and
+   encryption-key fingerprint before trusting it.
 
 6. Start pairing with peer notification enabled. Instance 1 trusts instance 2,
    then sends a pairing request to instance 2.
@@ -191,12 +214,15 @@ Confirm both sides trust each other:
 ```bash
 curl -sS "$I1_URL/api/admin/a2a/trust" \
   -H "Authorization: Bearer $I1_TOKEN" \
-  | jq '.peers[] | {peerId,status,agentCardUrl,deliveryUrl}'
+  | jq '.peers[] | {peerId,status,agentCardUrl,deliveryUrl,e2ee}'
 
 curl -sS "$I2_URL/api/admin/a2a/trust" \
   -H "Authorization: Bearer $I2_TOKEN" \
-  | jq '.peers[] | {peerId,status,agentCardUrl,deliveryUrl}'
+  | jq '.peers[] | {peerId,status,agentCardUrl,deliveryUrl,e2ee}'
 ```
+
+Each peer should report `e2ee.required: true` and the expected encryption-key
+fingerprint. You can then enable **Require A2A E2EE** on both trust pages.
 
 ### 6. Send A Chat Message Across Instances
 
@@ -240,6 +266,12 @@ Check the reverse trust direction. Instance 1 trusting instance 2 is enough for
 instance 1 to send. Instance 2 must also trust instance 1 to send a reply back.
 Approve the pending request on instance 2, or pair instance 2 back to instance
 1.
+
+### A Peer Has No E2EE Key
+
+Re-pair the peer so both sides pin the X25519 encryption key advertised in the
+Agent Card. Do not disable the global E2EE requirement merely to bypass an
+unexpected missing or changed fingerprint; verify the peer out of band first.
 
 ### Peer Notification Fails
 

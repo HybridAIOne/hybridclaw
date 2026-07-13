@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, expect, test, vi } from 'vitest';
@@ -15,6 +15,29 @@ function peerPublicKeyJwk() {
 function peerDelegationPublicKeyPem() {
   const pair = generateKeyPairSync('ed25519');
   return pair.publicKey.export({ format: 'pem', type: 'spki' }).toString();
+}
+
+function peerE2EEAdvertisement() {
+  const publicKeyJwk = generateKeyPairSync('x25519').publicKey.export({
+    format: 'jwk',
+  });
+  const publicKeyFingerprint = createHash('sha256')
+    .update(
+      JSON.stringify({
+        kty: publicKeyJwk.kty,
+        crv: publicKeyJwk.crv,
+        x: publicKeyJwk.x,
+      }),
+    )
+    .digest('base64url');
+  return {
+    version: 'jwe-x25519-a256gcm-v1',
+    alg: 'ECDH-ES',
+    enc: 'A256GCM',
+    keyId: publicKeyFingerprint,
+    publicKeyJwk,
+    publicKeyFingerprint,
+  } as const;
 }
 
 function makePairingRequest(params: {
@@ -50,6 +73,29 @@ function makePairingResponse() {
 }
 
 describe('A2A operator pairing', () => {
+  test('rejects peers that do not advertise A2A E2EE key material', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const pairing = await import('../src/a2a/pairing.ts');
+    const peerKey = peerPublicKeyJwk();
+    initDatabase({ quiet: true });
+
+    await expect(
+      pairing.fetchA2APairingProposal({
+        peerUrl: 'https://legacy.example.com',
+        fetchImpl: vi.fn(async () =>
+          Response.json({
+            name: 'Legacy peer',
+            url: 'https://legacy.example.com/a2a',
+            hybridclaw: {
+              instanceId: 'legacy-peer',
+              publicKeyJwk: peerKey,
+            },
+          }),
+        ),
+      }),
+    ).rejects.toThrow('must advertise supported A2A E2EE key material');
+  });
+
   test('starts pairing from a peer URL and writes operator trust', async () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
@@ -59,6 +105,7 @@ describe('A2A operator pairing', () => {
 
     initDatabase({ quiet: true });
     const peerKey = peerPublicKeyJwk();
+    const e2ee = peerE2EEAdvertisement();
     const delegationPublicKeyPem = peerDelegationPublicKeyPem();
     const fetchImpl = vi.fn(
       async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -70,6 +117,7 @@ describe('A2A operator pairing', () => {
             hybridclaw: {
               instanceId: 'peer-prod',
               publicKeyJwk: peerKey,
+              e2ee,
               delegation: {
                 algorithm: 'Ed25519',
                 publicKeyPem: delegationPublicKeyPem,
@@ -133,6 +181,7 @@ describe('A2A operator pairing', () => {
     const publicKeyJwk = peerPublicKeyJwk();
     const publicKeyFingerprint = trust.fingerprintA2APublicKey(publicKeyJwk);
     const delegationPublicKeyPem = peerDelegationPublicKeyPem();
+    const e2ee = peerE2EEAdvertisement();
 
     const request = pairing.createIncomingA2APairingRequest(
       {
@@ -141,6 +190,7 @@ describe('A2A operator pairing', () => {
         deliveryUrl: 'https://remote.example.com/a2a',
         publicKeyJwk,
         publicKeyFingerprint,
+        e2ee,
         delegation: {
           algorithm: 'Ed25519',
           publicKeyPem: delegationPublicKeyPem,
@@ -186,6 +236,7 @@ describe('A2A operator pairing', () => {
     initDatabase({ quiet: true });
     const publicKeyJwk = peerPublicKeyJwk();
     const publicKeyFingerprint = trust.fingerprintA2APublicKey(publicKeyJwk);
+    const e2ee = peerE2EEAdvertisement();
     const request = pairing.createIncomingA2APairingRequest(
       {
         peerId: 'stable-prod',
@@ -193,6 +244,7 @@ describe('A2A operator pairing', () => {
         deliveryUrl: 'https://stable.example.com/a2a',
         publicKeyJwk,
         publicKeyFingerprint,
+        e2ee,
       },
       new Date('2030-01-01T00:00:00.000Z'),
     );
@@ -209,6 +261,7 @@ describe('A2A operator pairing', () => {
         deliveryUrl: 'https://attacker.example.com/a2a',
         publicKeyJwk,
         publicKeyFingerprint,
+        e2ee,
       },
       new Date('2030-01-01T00:02:00.000Z'),
     );
@@ -229,12 +282,14 @@ describe('A2A operator pairing', () => {
     initDatabase({ quiet: true });
     const publicKeyJwk = peerPublicKeyJwk();
     const publicKeyFingerprint = trust.fingerprintA2APublicKey(publicKeyJwk);
+    const e2ee = peerE2EEAdvertisement();
     const request = pairing.createIncomingA2APairingRequest({
       peerId: 'terminal-prod',
       agentCardUrl: 'https://terminal.example.com/.well-known/agent.json',
       deliveryUrl: 'https://terminal.example.com/a2a',
       publicKeyJwk,
       publicKeyFingerprint,
+      e2ee,
     });
     pairing.declineIncomingA2APairingRequest({
       requestId: request.requestId,
@@ -263,6 +318,7 @@ describe('A2A operator pairing', () => {
     initDatabase({ quiet: true });
     const publicKeyJwk = peerPublicKeyJwk();
     const publicKeyFingerprint = trust.fingerprintA2APublicKey(publicKeyJwk);
+    const e2ee = peerE2EEAdvertisement();
 
     expect(() =>
       pairing.createIncomingA2APairingRequest({
@@ -271,6 +327,7 @@ describe('A2A operator pairing', () => {
         deliveryUrl: 'https://large-field.example.com/a2a',
         publicKeyJwk,
         publicKeyFingerprint,
+        e2ee,
         name: 'x'.repeat(513),
       }),
     ).toThrow('name must be 512 characters or fewer.');
@@ -284,12 +341,14 @@ describe('A2A operator pairing', () => {
     initDatabase({ quiet: true });
     const publicKeyJwk = peerPublicKeyJwk();
     const publicKeyFingerprint = trust.fingerprintA2APublicKey(publicKeyJwk);
+    const e2ee = peerE2EEAdvertisement();
     const body = {
       peerId: 'rate-prod',
       agentCardUrl: 'https://rate.example.com/.well-known/agent.json',
       deliveryUrl: 'https://rate.example.com/a2a',
       publicKeyJwk,
       publicKeyFingerprint,
+      e2ee,
     };
     const url = new URL('https://local.example.com/a2a/pairing/requests');
 
@@ -327,6 +386,7 @@ describe('A2A operator pairing', () => {
     initDatabase({ quiet: true });
     const publicKeyJwk = peerPublicKeyJwk();
     const publicKeyFingerprint = trust.fingerprintA2APublicKey(publicKeyJwk);
+    const e2ee = peerE2EEAdvertisement();
     const request = pairing.createIncomingA2APairingRequest(
       {
         peerId: 'tampered-prod',
@@ -334,6 +394,7 @@ describe('A2A operator pairing', () => {
         deliveryUrl: 'https://tampered.example.com/a2a',
         publicKeyJwk,
         publicKeyFingerprint,
+        e2ee,
       },
       new Date('2030-01-01T00:00:00.000Z'),
     );
@@ -372,6 +433,7 @@ describe('A2A operator pairing', () => {
 
     initDatabase({ quiet: true });
     const peerKey = peerPublicKeyJwk();
+    const e2ee = peerE2EEAdvertisement();
     trust.upsertA2ATrustedPublicKeyPeer({
       peerId: 'known-peer',
       agentCardUrl: 'https://known.example.com/.well-known/agent.json',
@@ -385,6 +447,7 @@ describe('A2A operator pairing', () => {
         hybridclaw: {
           instanceId: 'known-peer',
           publicKeyJwk: peerKey,
+          e2ee,
         },
       }),
     );
@@ -403,6 +466,7 @@ describe('A2A operator pairing', () => {
 
   test('skips malformed DNS TXT records while resolving canonical instance ids', async () => {
     const peerKey = peerPublicKeyJwk();
+    const e2ee = peerE2EEAdvertisement();
     vi.doMock('node:dns/promises', () => ({
       resolveTxt: vi.fn(async () => [
         ['{not json'],
@@ -427,6 +491,7 @@ describe('A2A operator pairing', () => {
         hybridclaw: {
           instanceId: 'dns-peer',
           publicKeyJwk: peerKey,
+          e2ee,
         },
       }),
     );

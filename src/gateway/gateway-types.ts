@@ -1091,6 +1091,8 @@ export interface GatewayAdminA2AIdentity {
   instanceId: string;
   publicKeyFingerprint: string;
   publicKeyJwk: JsonWebKey;
+  e2eePublicKeyFingerprint: string;
+  e2eePublicKeyJwk: JsonWebKey;
 }
 
 type GatewayAdminA2ATrustPeerBase = Pick<
@@ -1112,12 +1114,21 @@ export interface GatewayAdminA2ATrustPeer extends GatewayAdminA2ATrustPeerBase {
   revokedReason: string | null;
   lastMismatchAt: string | null;
   lastMismatchFingerprint: string | null;
+  e2ee: {
+    required: true;
+    publicKeyFingerprint: string;
+    keyId: string;
+    version: 'jwe-x25519-a256gcm-v1';
+  } | null;
 }
 
 export interface GatewayAdminA2ATrustResponse {
   identity: GatewayAdminA2AIdentity;
   localMode: {
     enabled: boolean;
+  };
+  e2ee: {
+    required: boolean;
   };
   peers: GatewayAdminA2ATrustPeer[];
   pairingRequests: GatewayAdminA2APairingRequest[];
@@ -1197,6 +1208,7 @@ export interface GatewayAdminA2APairingPreviewResponse {
     deliveryUrl: string;
     publicKeyFingerprint: string;
     publicKeyJwk: JsonWebKey;
+    e2eePublicKeyFingerprint: string;
     name: string | null;
   };
 }
@@ -1213,6 +1225,7 @@ export interface GatewayAdminA2APairingStartResponse
     agentCardUrl: string;
     deliveryUrl: string;
     publicKeyFingerprint: string;
+    e2eePublicKeyFingerprint: string;
     name: string | null;
   };
   remoteNotification: {

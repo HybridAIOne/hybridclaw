@@ -24,6 +24,7 @@ import { parseSecretInput, type SecretRef } from '../security/secret-refs.js';
 import { writeFileAtomicExclusive } from '../utils/atomic-file.js';
 import type { A2AAgentCard } from './a2a-json-rpc.js';
 import { getOrCreateA2ADelegationTokenKeyPair } from './delegation-token.js';
+import { getLocalA2AE2EEAdvertisement } from './e2ee.js';
 import { A2AEnvelopeValidationError, classifyA2AAgentId } from './envelope.js';
 import { resolveA2AAgentId } from './identity.js';
 import { invalidateA2AIdentityResolvers } from './identity-resolver-invalidation.js';
@@ -624,8 +625,9 @@ export function buildLocalA2AAgentCard(
         publicKeyPem: delegationKey.publicKeyPem,
         senderAgentIds: agents.map(({ canonicalAgentId }) => canonicalAgentId),
       },
+      e2ee: getLocalA2AE2EEAdvertisement(),
       version: APP_VERSION,
-      trustModel: 'tofu-ed25519-v1',
+      trustModel: 'tofu-ed25519+jwe-x25519-v1',
     },
   };
 }

@@ -472,7 +472,11 @@ describe('A2A outbound integration', () => {
       ]);
       const urlA = `http://127.0.0.1:${portA}`;
       const urlB = `http://127.0.0.1:${portB}`;
+      const outboundBodiesFromA: string[] = [];
       const fetchFromA: typeof fetch = async (input, init) => {
+        if (typeof init?.body === 'string') {
+          outboundBodiesFromA.push(init.body);
+        }
         const response = await fetch(input, init);
         activateA2AInstance(instanceA);
         return response;
@@ -523,8 +527,24 @@ describe('A2A outbound integration', () => {
 
       activateA2AInstance(instanceA);
       await expect(
-        instanceA.outbound.processA2AOutbox(),
+        instanceA.outbound.processA2AOutbox({ fetchImpl: fetchFromA }),
       ).resolves.toMatchObject({ processed: 1, delivered: 1 });
+      const deliveredBody = outboundBodiesFromA.find((body) =>
+        body.includes('msg-a-to-b'),
+      );
+      expect(deliveredBody).toBeDefined();
+      expect(deliveredBody).not.toContain('Hello from A.');
+      expect(
+        decodeA2AJsonRpcRequest(JSON.parse(deliveredBody || '{}')),
+      ).toMatchObject({
+        id: 'msg-a-to-b',
+        encryption: {
+          version: 'jwe-x25519-a256gcm-v1',
+          alg: 'ECDH-ES',
+          enc: 'A256GCM',
+        },
+        content: expect.stringMatching(/^[^.]+\.[^.]*\.[^.]+\.[^.]+\.[^.]+$/),
+      });
       activateA2AInstance(instanceB);
       expect(instanceB.runtime.inbox('remote')).toMatchObject([
         {

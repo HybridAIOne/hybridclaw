@@ -1411,12 +1411,18 @@ async function importFreshHealth(options?: {
       instanceId: 'local-dev',
       publicKeyFingerprint: 'local-fingerprint',
       publicKeyJwk: { kty: 'OKP', crv: 'Ed25519', x: 'local-key' },
+      e2eePublicKeyFingerprint: 'local-e2ee-fingerprint',
+      e2eePublicKeyJwk: { kty: 'OKP', crv: 'X25519', x: 'local-e2ee-key' },
     },
     localMode: { enabled: options?.a2aLocalMode === true },
+    e2ee: { required: false },
     peers: [],
     pairingRequests: [],
   }));
   const saveGatewayAdminA2ALocalMode = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
+  const saveGatewayAdminA2AE2EERequired = vi.fn(() =>
     getGatewayAdminA2ATrust(),
   );
   const getGatewayA2AAgentCard = vi.fn((origin: string) => ({
@@ -2688,6 +2694,7 @@ async function importFreshHealth(options?: {
     restoreGatewayAdminTeamStructureRevision,
     revokeGatewayAdminA2ATrustPeer,
     saveGatewayAdminConfig,
+    saveGatewayAdminA2AE2EERequired,
     saveGatewayAdminA2ALocalMode,
     saveGatewayAdminSlackWebhookTarget,
     saveGatewayAdminTunnelConfig,
@@ -2859,6 +2866,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminApprovals,
     getGatewayAdminA2AInbox,
     getGatewayAdminA2ATrust,
+    saveGatewayAdminA2AE2EERequired,
     saveGatewayAdminA2ALocalMode,
     getGatewayA2AAgentCard,
     previewGatewayAdminA2APairing,
@@ -8663,6 +8671,43 @@ describe('gateway HTTP server', () => {
     await settle();
 
     expect(state.saveGatewayAdminA2ALocalMode).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+  });
+
+  test('updates the A2A E2EE requirement through the admin endpoint', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/a2a/e2ee-required',
+      body: JSON.stringify({ required: true }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminA2AE2EERequired).toHaveBeenCalledWith({
+      required: true,
+      actor: 'admin-console',
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('rejects invalid A2A E2EE requirement values', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/a2a/e2ee-required',
+      body: JSON.stringify({ required: 'yes' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminA2AE2EERequired).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(400);
   });
 

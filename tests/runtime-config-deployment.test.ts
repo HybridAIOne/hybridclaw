@@ -69,6 +69,7 @@ describe('runtime deployment config', () => {
       mode: 'local',
       public_url: '',
       a2a_local_mode: false,
+      a2a_e2ee_required: false,
       tunnel: {
         provider: 'manual',
         health_check_interval_ms: 30000,
@@ -78,6 +79,7 @@ describe('runtime deployment config', () => {
       mode: 'local',
       public_url: '',
       a2a_local_mode: false,
+      a2a_e2ee_required: false,
       tunnel: {
         provider: 'manual',
         health_check_interval_ms: 30000,
@@ -215,6 +217,7 @@ describe('runtime deployment config', () => {
       mode: 'cloud',
       public_url: 'https://bot.example.com',
       a2a_local_mode: true,
+      a2a_e2ee_required: false,
       tunnel: {
         provider: 'cloudflare',
         health_check_interval_ms: 45000,
@@ -224,6 +227,7 @@ describe('runtime deployment config', () => {
       mode: 'cloud',
       public_url: 'https://bot.example.com',
       a2a_local_mode: true,
+      a2a_e2ee_required: false,
       tunnel: {
         provider: 'cloudflare',
         health_check_interval_ms: 45000,
@@ -254,6 +258,7 @@ describe('runtime deployment config', () => {
       mode: 'local',
       public_url: '',
       a2a_local_mode: false,
+      a2a_e2ee_required: false,
       tunnel: {
         provider: 'manual',
         health_check_interval_ms: 30000,
@@ -263,6 +268,7 @@ describe('runtime deployment config', () => {
       mode: 'local',
       public_url: '',
       a2a_local_mode: false,
+      a2a_e2ee_required: false,
       tunnel: {
         provider: 'manual',
         health_check_interval_ms: 30000,
