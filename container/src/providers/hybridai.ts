@@ -315,16 +315,14 @@ export async function callHybridAIProviderStream(
     if (choice.message) {
       const message = choice.message;
       if (typeof message.role === 'string' && message.role) role = message.role;
-      if (typeof message.content === 'string') {
+      if (typeof message.content === 'string' && message.content) {
         const nextContent = message.content;
-        const messageDelta = nextContent
-          ? nextContent.startsWith(textContent)
-            ? nextContent.slice(textContent.length)
-            : nextContent
-          : '';
+        usedMessageContent = true;
+        const messageDelta = nextContent.startsWith(textContent)
+          ? nextContent.slice(textContent.length)
+          : nextContent;
+        textContent = nextContent;
         if (messageDelta) {
-          textContent = nextContent;
-          usedMessageContent = true;
           args.onTextDelta(messageDelta);
         }
       }
