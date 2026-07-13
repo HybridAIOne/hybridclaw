@@ -1069,6 +1069,55 @@ test('handleGatewayMessage skips request logs when request logging is disabled',
   expect(rowCount.count).toBe(0);
 });
 
+test('handleGatewayMessage records the stored assistant message id on successful turn end', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Stored assistant response.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const {
+    getRecentMessages,
+    getRecentStructuredAuditForSession,
+    initDatabase,
+  } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const sessionId = 'session-turn-assistant-message-id';
+  const result = await handleGatewayMessage({
+    sessionId,
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: 'Store this turn',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+  const assistantMessage = getRecentMessages(sessionId).find(
+    (message) => message.role === 'assistant',
+  );
+  expect(assistantMessage).toBeTruthy();
+  expect(result.assistantMessageId).toBe(assistantMessage?.id);
+
+  const turnEnd = getRecentStructuredAuditForSession(sessionId, 20).find(
+    (row) => row.event_type === 'turn.end',
+  );
+  expect(JSON.parse(turnEnd?.payload || '{}')).toMatchObject({
+    type: 'turn.end',
+    finishReason: 'completed',
+    assistantMessageId: assistantMessage?.id,
+  });
+});
+
 test('handleGatewayMessage warns once and disables request logs for invalid env values', async () => {
   setupHome({ HYBRIDCLAW_LOG_REQUESTS: 'true' });
 
