@@ -36,7 +36,7 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
   );
   updateSessionModel(session.id, 'gpt-5-nano');
   storeMessage(session.id, 'user-1', 'alice', 'user', 'Fix the parser test');
-  storeMessage(
+  const assistantMessageId = storeMessage(
     session.id,
     'assistant',
     null,
@@ -104,6 +104,7 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
       type: 'turn.end',
       turnIndex: 1,
       finishReason: 'completed',
+      assistantMessageId,
     },
   });
   recordAuditEvent({
@@ -149,7 +150,7 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
         created_at: new Date().toISOString(),
       },
       {
-        id: 2,
+        id: assistantMessageId,
         session_id: session.id,
         user_id: 'assistant',
         username: null,
@@ -282,6 +283,278 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
       error: null,
     },
   ]);
+});
+
+test('trace export resolves assistant messages by stable id and preserves legacy fallback ordering', async () => {
+  setupHome();
+
+  const {
+    getOrCreateSession,
+    getSessionById,
+    getSessionUsageTotals,
+    getStructuredAuditForSession,
+    initDatabase,
+  } = await import('../src/memory/db.ts');
+  const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { exportSessionTraceAtifJsonl } = await import(
+    '../src/session/session-trace-export.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const session = getOrCreateSession(
+    'session-trace-message-ids',
+    null,
+    'channel-trace-message-ids',
+  );
+  const timestamp = new Date().toISOString();
+  const messages = [
+    {
+      id: 1,
+      session_id: session.id,
+      user_id: 'assistant',
+      username: null,
+      role: 'assistant',
+      content: 'Bootstrap prelude.',
+      created_at: timestamp,
+    },
+    {
+      id: 2,
+      session_id: session.id,
+      user_id: 'assistant',
+      username: null,
+      role: 'assistant',
+      content: 'Actual onboarding greeting.',
+      created_at: timestamp,
+    },
+    {
+      id: 3,
+      session_id: session.id,
+      user_id: 'user-1',
+      username: 'alice',
+      role: 'user',
+      content: 'Finish onboarding',
+      created_at: timestamp,
+    },
+    {
+      id: 4,
+      session_id: session.id,
+      user_id: 'assistant',
+      username: null,
+      role: 'assistant',
+      content: 'Interleaved proactive message.',
+      created_at: timestamp,
+    },
+    {
+      id: 5,
+      session_id: session.id,
+      user_id: 'assistant',
+      username: null,
+      role: 'assistant',
+      content: 'Die echte deutsche Abschlussantwort.',
+      created_at: timestamp,
+    },
+    {
+      id: 6,
+      session_id: session.id,
+      user_id: 'user-1',
+      username: 'alice',
+      role: 'user',
+      content: 'Legacy prompt',
+      created_at: timestamp,
+    },
+    {
+      id: 7,
+      session_id: session.id,
+      user_id: 'assistant',
+      username: null,
+      role: 'assistant',
+      content: 'Legacy positional response.',
+      created_at: timestamp,
+    },
+    {
+      id: 8,
+      session_id: session.id,
+      user_id: 'user-1',
+      username: 'alice',
+      role: 'user',
+      content: 'This is not an assistant message.',
+      created_at: timestamp,
+    },
+    {
+      id: 9,
+      session_id: session.id,
+      user_id: 'assistant',
+      username: null,
+      role: 'assistant',
+      content: 'Must not be substituted for a missing reference.',
+      created_at: timestamp,
+    },
+  ];
+
+  recordAuditEvent({
+    sessionId: session.id,
+    runId: 'turn_message_id_onboarding',
+    event: {
+      type: 'turn.start',
+      turnIndex: 1,
+      userInput: 'Start onboarding',
+      source: 'gateway.bootstrap',
+    },
+  });
+  recordAuditEvent({
+    sessionId: session.id,
+    runId: 'turn_message_id_onboarding',
+    event: {
+      type: 'onboarding.assistant_message',
+      assistantMessageId: 2,
+      messageRole: 'assistant',
+    },
+  });
+  recordAuditEvent({
+    sessionId: session.id,
+    runId: 'turn_message_id_onboarding',
+    event: {
+      type: 'turn.end',
+      turnIndex: 1,
+      finishReason: 'completed',
+    },
+  });
+
+  recordAuditEvent({
+    sessionId: session.id,
+    runId: 'turn_message_id_normal',
+    event: {
+      type: 'turn.start',
+      turnIndex: 2,
+      userInput: 'Finish onboarding',
+      source: 'gateway.chat',
+    },
+  });
+  emitToolExecutionAuditEvents({
+    sessionId: session.id,
+    runId: 'turn_message_id_normal',
+    toolExecutions: [
+      {
+        name: 'message.send',
+        arguments: JSON.stringify({ channel: 'email', content: 'Willkommen' }),
+        result: 'Message sent.',
+        durationMs: 12,
+        isError: false,
+      },
+    ],
+  });
+  recordAuditEvent({
+    sessionId: session.id,
+    runId: 'turn_message_id_normal',
+    event: {
+      type: 'turn.end',
+      turnIndex: 2,
+      finishReason: 'completed',
+      assistantMessageId: 5,
+    },
+  });
+
+  recordAuditEvent({
+    sessionId: session.id,
+    runId: 'turn_message_id_legacy',
+    event: {
+      type: 'turn.start',
+      turnIndex: 3,
+      userInput: 'Legacy prompt',
+      source: 'gateway.chat',
+    },
+  });
+  recordAuditEvent({
+    sessionId: session.id,
+    runId: 'turn_message_id_legacy',
+    event: {
+      type: 'turn.end',
+      turnIndex: 3,
+      finishReason: 'completed',
+    },
+  });
+
+  for (const [runId, turnIndex, assistantMessageId] of [
+    ['turn_message_id_missing', 4, 999],
+    ['turn_message_id_wrong_role', 5, 8],
+    ['turn_message_id_non_positive', 6, 0],
+    ['turn_message_id_unsafe', 7, Number.MAX_SAFE_INTEGER + 1],
+  ] as const) {
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'turn.start',
+        turnIndex,
+        userInput: `Unresolvable reference ${assistantMessageId}`,
+        source: 'gateway.chat',
+      },
+    });
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'turn.end',
+        turnIndex,
+        finishReason: 'completed',
+        assistantMessageId,
+      },
+    });
+  }
+
+  const refreshedSession = getSessionById(session.id);
+  if (!refreshedSession) {
+    throw new Error('Expected refreshed session to exist');
+  }
+  const exported = await exportSessionTraceAtifJsonl({
+    agentId: refreshedSession.agent_id,
+    session: refreshedSession,
+    messages,
+    auditEntries: getStructuredAuditForSession(session.id),
+    usageTotals: getSessionUsageTotals(session.id),
+  });
+
+  expect(exported).not.toBeNull();
+  const raw = fs.readFileSync(exported?.path || '', 'utf-8').trim();
+  const record = JSON.parse(raw) as Record<string, unknown>;
+  const agentSteps = (record.steps as Array<Record<string, unknown>>).filter(
+    (step) => step.role === 'agent',
+  );
+  expect(agentSteps.map((step) => step.content || '')).toEqual([
+    'Actual onboarding greeting.',
+    'Die echte deutsche Abschlussantwort.',
+    'Legacy positional response.',
+    '',
+    '',
+    '',
+    '',
+  ]);
+  expect(agentSteps[1]?.tool_calls).toEqual([
+    expect.objectContaining({ tool_name: 'message.send' }),
+  ]);
+  expect(agentSteps[1]?.observations).toEqual([
+    expect.objectContaining({ content: 'Message sent.' }),
+  ]);
+  expect(JSON.stringify(agentSteps)).not.toContain('Bootstrap prelude.');
+  expect(JSON.stringify(agentSteps)).not.toContain(
+    'Interleaved proactive message.',
+  );
+  expect(JSON.stringify(agentSteps)).not.toContain(
+    'Must not be substituted for a missing reference.',
+  );
+  expect(record.metadata).toMatchObject({
+    hybridclaw: {
+      stored_message_count: messages.length,
+      audit_event_count: expect.any(Number),
+    },
+  });
+  const limitations = (record.metadata as { limitations: string[] })
+    .limitations;
+  expect(limitations).toContain(
+    'One or more completed audit turns referenced an assistant message ID that could not be resolved to an assistant message in the exported session; their agent content was left empty.',
+  );
 });
 
 test('trace export keeps consecutive buildConversationContext system prompts byte-identical', async () => {
@@ -862,9 +1135,22 @@ test('gateway export trace command writes a focused turn trace', async () => {
     'channel-trace-turn-command',
   );
   storeMessage(session.id, 'user-1', 'alice', 'user', 'Prompt 1');
-  storeMessage(session.id, 'assistant', null, 'assistant', 'Assistant 1');
+  const assistantMessageId1 = storeMessage(
+    session.id,
+    'assistant',
+    null,
+    'assistant',
+    'Assistant 1',
+  );
   storeMessage(session.id, 'user-1', 'alice', 'user', 'Prompt 2');
   storeMessage(
+    session.id,
+    'assistant',
+    null,
+    'assistant',
+    'Interleaved proactive assistant message',
+  );
+  const assistantMessageId2 = storeMessage(
     session.id,
     'assistant',
     null,
@@ -908,6 +1194,8 @@ test('gateway export trace command writes a focused turn trace', async () => {
         type: 'turn.end',
         turnIndex: index,
         finishReason: 'completed',
+        assistantMessageId:
+          index === 1 ? assistantMessageId1 : assistantMessageId2,
       },
     });
   }
@@ -982,6 +1270,19 @@ test('gateway export trace command writes a focused turn trace', async () => {
     throw new Error(`Unexpected result kind: ${runResult.kind}`);
   }
   expect(runResult.text).toContain('Runs: turn_trace_focus_2');
+  const runFileLine = runResult.text
+    .split('\n')
+    .find((line) => line.startsWith('File: '));
+  const runRaw = fs
+    .readFileSync(runFileLine?.slice('File: '.length) || '', 'utf-8')
+    .trim();
+  const runRecord = JSON.parse(runRaw) as Record<string, unknown>;
+  const runSteps = runRecord.steps as Array<Record<string, unknown>>;
+  expect(runSteps).toHaveLength(2);
+  expect(String(runSteps[1]?.content)).toContain('Assistant 2');
+  expect(JSON.stringify(runSteps)).not.toContain(
+    'Interleaved proactive assistant message',
+  );
 });
 
 test('trace export adds a fallback limitation when structured turn audit is unavailable', async () => {

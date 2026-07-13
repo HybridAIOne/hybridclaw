@@ -25,7 +25,6 @@ import { isRecord } from '../utils/type-guards.js';
 import {
   type AuditTurnTraceSelector,
   buildAuditTurnTraceRecords,
-  countCompletedTurnsBefore,
   selectAuditTurnGroups,
   type AuditTurnGroup as TurnGroup,
 } from './session-turn-trace.js';
@@ -89,6 +88,8 @@ const TRACE_EXPORT_BASE_LIMITATIONS = Object.freeze([
 ]);
 const TRACE_EXPORT_FALLBACK_LIMITATION =
   'Structured turn audit was unavailable, so steps were reconstructed directly from stored session messages.';
+const TRACE_EXPORT_ASSISTANT_MESSAGE_ID_LIMITATION =
+  'One or more completed audit turns referenced an assistant message ID that could not be resolved to an assistant message in the exported session; their agent content was left empty.';
 const TRACE_DEPENDENCY_MANIFEST_FILES = [
   'package.json',
   'requirements.txt',
@@ -106,10 +107,16 @@ interface TurnRowSummary {
   agentStart: StructuredAuditEntry | null;
   usageRow: StructuredAuditEntry | null;
   turnEnd: StructuredAuditEntry | null;
+  onboardingAssistantMessage: StructuredAuditEntry | null;
   errorRow: StructuredAuditEntry | null;
   toolCallRows: StructuredAuditEntry[];
   toolResultRows: StructuredAuditEntry[];
 }
+
+type AssistantMessageReference =
+  | { status: 'absent' }
+  | { status: 'invalid' }
+  | { status: 'valid'; id: number };
 
 interface TraceProjectContext {
   workspaceRoot: string;
@@ -825,6 +832,7 @@ function summarizeTurnRows(rows: StructuredAuditEntry[]): TurnRowSummary {
     agentStart: null,
     usageRow: null,
     turnEnd: null,
+    onboardingAssistantMessage: null,
     errorRow: null,
     toolCallRows: [],
     toolResultRows: [],
@@ -839,6 +847,9 @@ function summarizeTurnRows(rows: StructuredAuditEntry[]): TurnRowSummary {
         break;
       case 'turn.end':
         summary.turnEnd ??= row;
+        break;
+      case 'onboarding.assistant_message':
+        summary.onboardingAssistantMessage ??= row;
         break;
       case 'error':
         summary.errorRow ??= row;
@@ -993,23 +1004,80 @@ function readTurnFinishReason(summary: TurnRowSummary): string | null {
   return turnEndPayload ? readString(turnEndPayload, 'finishReason') : null;
 }
 
+function readAssistantMessageReference(
+  payload: Record<string, unknown>,
+): AssistantMessageReference {
+  if (!Object.hasOwn(payload, 'assistantMessageId')) {
+    return { status: 'absent' };
+  }
+  const id = payload.assistantMessageId;
+  return typeof id === 'number' && Number.isSafeInteger(id) && id > 0
+    ? { status: 'valid', id }
+    : { status: 'invalid' };
+}
+
+function readTurnAssistantMessageReference(
+  summary: TurnRowSummary,
+): AssistantMessageReference {
+  const turnEndPayload = summary.turnEnd
+    ? parseJsonObject(summary.turnEnd.payload)
+    : null;
+  if (turnEndPayload) {
+    const reference = readAssistantMessageReference(turnEndPayload);
+    if (reference.status !== 'absent') return reference;
+  }
+
+  const onboardingPayload = summary.onboardingAssistantMessage
+    ? parseJsonObject(summary.onboardingAssistantMessage.payload)
+    : null;
+  return onboardingPayload
+    ? readAssistantMessageReference(onboardingPayload)
+    : { status: 'absent' };
+}
+
 function resolveTurnAgentContent(
   summary: TurnRowSummary,
   finishReason: string | null,
   assistantMessages: StoredMessage[],
+  assistantIndexById: Map<number, number>,
   assistantIndex: number,
 ): {
   content: string;
   nextAssistantIndex: number;
   completed: boolean;
   errored: boolean;
+  unresolvedAssistantMessageReference: boolean;
 } {
   if (finishReason === 'completed') {
+    const reference = readTurnAssistantMessageReference(summary);
+    if (reference.status !== 'absent') {
+      const referencedIndex =
+        reference.status === 'valid'
+          ? assistantIndexById.get(reference.id)
+          : undefined;
+      if (referencedIndex == null) {
+        return {
+          content: '',
+          nextAssistantIndex: assistantIndex,
+          completed: true,
+          errored: false,
+          unresolvedAssistantMessageReference: true,
+        };
+      }
+      return {
+        content: assistantMessages[referencedIndex]?.content || '',
+        nextAssistantIndex: Math.max(assistantIndex, referencedIndex + 1),
+        completed: true,
+        errored: false,
+        unresolvedAssistantMessageReference: false,
+      };
+    }
     return {
       content: assistantMessages[assistantIndex]?.content || '',
       nextAssistantIndex: assistantIndex + 1,
       completed: true,
       errored: false,
+      unresolvedAssistantMessageReference: false,
     };
   }
 
@@ -1021,7 +1089,33 @@ function resolveTurnAgentContent(
     nextAssistantIndex: assistantIndex,
     completed: false,
     errored: true,
+    unresolvedAssistantMessageReference: false,
   };
+}
+
+function findAssistantIndexBeforeTurn(params: {
+  allTurns: TurnGroup[];
+  selectedTurns: TurnGroup[];
+  assistantMessages: StoredMessage[];
+  assistantIndexById: Map<number, number>;
+}): number {
+  const firstSelectedSeq = params.selectedTurns[0]?.turnStart.seq;
+  if (firstSelectedSeq == null) return 0;
+
+  let assistantIndex = 0;
+  for (const turn of params.allTurns) {
+    if (turn.turnStart.seq >= firstSelectedSeq) break;
+    const summary = summarizeTurnRows(turn.rows);
+    const resolved = resolveTurnAgentContent(
+      summary,
+      readTurnFinishReason(summary),
+      params.assistantMessages,
+      params.assistantIndexById,
+      assistantIndex,
+    );
+    assistantIndex = resolved.nextAssistantIndex;
+  }
+  return assistantIndex;
 }
 
 function readTurnStepTimestamp(
@@ -1062,10 +1156,11 @@ function buildPromptPrefixTraceEntries(params: {
 
 function buildTraceSteps(params: {
   turns: TurnGroup[];
+  allTurns?: TurnGroup[];
+  sessionId: string;
   messages: StoredMessage[];
   fallbackModel: string;
   systemPromptHashByRunId: Map<string, string>;
-  assistantStartIndex?: number;
   preferResultPreview?: boolean;
 }): {
   steps: Array<Record<string, unknown>>;
@@ -1074,17 +1169,31 @@ function buildTraceSteps(params: {
   errorTurns: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  unresolvedAssistantMessageReferences: number;
 } {
   const assistantMessages = params.messages.filter(
-    (message) => message.role === 'assistant',
+    (message) =>
+      message.session_id === params.sessionId && message.role === 'assistant',
   );
+  const assistantIndexById = new Map<number, number>();
+  assistantMessages.forEach((message, index) => {
+    if (Number.isSafeInteger(message.id) && message.id > 0) {
+      assistantIndexById.set(message.id, index);
+    }
+  });
   const steps: Array<Record<string, unknown>> = [];
-  let assistantIndex = params.assistantStartIndex || 0;
+  let assistantIndex = findAssistantIndexBeforeTurn({
+    allTurns: params.allTurns || params.turns,
+    selectedTurns: params.turns,
+    assistantMessages,
+    assistantIndexById,
+  });
   let stepIndex = 0;
   let completedTurns = 0;
   let errorTurns = 0;
   let cacheReadTokens = 0;
   let cacheWriteTokens = 0;
+  let unresolvedAssistantMessageReferences = 0;
   const agentStepIndexByRunId = new Map<string, number>();
 
   for (const turn of params.turns) {
@@ -1130,11 +1239,15 @@ function buildTraceSteps(params: {
       summary,
       finishReason,
       assistantMessages,
+      assistantIndexById,
       assistantIndex,
     );
     assistantIndex = resolvedContent.nextAssistantIndex;
     if (resolvedContent.completed) completedTurns += 1;
     if (resolvedContent.errored) errorTurns += 1;
+    if (resolvedContent.unresolvedAssistantMessageReference) {
+      unresolvedAssistantMessageReferences += 1;
+    }
 
     agentStepIndexByRunId.set(turn.runId, stepIndex);
     steps.push({
@@ -1175,6 +1288,7 @@ function buildTraceSteps(params: {
     errorTurns,
     cacheReadTokens,
     cacheWriteTokens,
+    unresolvedAssistantMessageReferences,
   };
 }
 
@@ -1430,9 +1544,6 @@ export async function exportSessionTraceAtifJsonl(params: {
     }
     const allTurns = selection.allTurns;
     const turns = params.selector ? selection.selectedTurns : allTurns;
-    const assistantStartIndex = params.selector
-      ? countCompletedTurnsBefore(allTurns, turns)
-      : 0;
     const fallbackModel = params.session.model || '';
     const { systemPrompts, systemPromptHashByRunId } =
       buildTraceSystemPrompts(turns);
@@ -1440,10 +1551,11 @@ export async function exportSessionTraceAtifJsonl(params: {
       turns.length > 0
         ? buildTraceSteps({
             turns,
+            allTurns,
+            sessionId,
             messages: params.messages,
             fallbackModel,
             systemPromptHashByRunId,
-            assistantStartIndex,
             preferResultPreview: Boolean(params.selector),
           })
         : {
@@ -1453,6 +1565,7 @@ export async function exportSessionTraceAtifJsonl(params: {
             errorTurns: 0,
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
+            unresolvedAssistantMessageReferences: 0,
           };
     const steps = traceData.steps;
     const exportedSystemPrompts = systemPrompts;
@@ -1495,10 +1608,13 @@ export async function exportSessionTraceAtifJsonl(params: {
       workspaceRoot: projectContext.workspaceRoot,
       repoRoot: projectContext.repoRoot,
     });
-    const limitations =
+    const limitations: string[] =
       turns.length === 0
         ? [...TRACE_EXPORT_BASE_LIMITATIONS, TRACE_EXPORT_FALLBACK_LIMITATION]
         : [...TRACE_EXPORT_BASE_LIMITATIONS];
+    if (traceData.unresolvedAssistantMessageReferences > 0) {
+      limitations.push(TRACE_EXPORT_ASSISTANT_MESSAGE_ID_LIMITATION);
+    }
     const committedOutcome = detectCommittedOutcomeFromSteps(steps);
     const focusedTurnTrace = params.selector
       ? buildAuditTurnTraceRecords({
