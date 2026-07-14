@@ -118,6 +118,36 @@ afterEach(() => {
 });
 
 describe('runtime config migration logging', () => {
+  it('seeds fresh instances with Ollama disabled', async () => {
+    const homeDir = makeTempHome();
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
+    ) as RuntimeConfig;
+
+    expect(runtimeConfig.getRuntimeConfig().local.backends.ollama.enabled).toBe(
+      false,
+    );
+    expect(stored.local.backends.ollama.enabled).toBe(false);
+  });
+
+  it('preserves explicitly enabled Ollama backends', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = true;
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+
+    expect(runtimeConfig.getRuntimeConfig().local.backends.ollama.enabled).toBe(
+      true,
+    );
+  });
+
   it('does not log normalization on repeated startup once the file is canonical', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir);

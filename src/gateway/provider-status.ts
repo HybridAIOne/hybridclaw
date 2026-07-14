@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+
 import {
   getAnthropicAuthStatus,
   isAnthropicAuthReadyForMethod,
@@ -30,9 +32,18 @@ export function buildGatewayProviderHealth(params: {
     anthropicStatus,
     runtimeConfig.anthropic.method,
   );
+  const codexConfigured =
+    params.codex.authenticated ||
+    fs.existsSync(params.codex.path) ||
+    runtimeConfig.hybridai.defaultModel
+      .trim()
+      .toLowerCase()
+      .startsWith('openai-codex/');
   const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
     hybridai: params.hybridaiHealth,
-    codex: {
+  };
+  if (codexConfigured) {
+    providerHealth.codex = {
       kind: 'remote',
       reachable: params.codex.authenticated && !params.codex.reloginRequired,
       ...(params.codex.authenticated && !params.codex.reloginRequired
@@ -50,8 +61,8 @@ export function buildGatewayProviderHealth(params: {
           : params.codex.reloginRequired
             ? 'Login required'
             : 'Not authenticated',
-    },
-  };
+    };
+  }
   if (runtimeConfig.anthropic.enabled || anthropicStatus.authenticated) {
     providerHealth.anthropic = {
       kind: 'remote',

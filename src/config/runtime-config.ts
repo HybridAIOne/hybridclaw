@@ -1860,7 +1860,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   local: {
     backends: {
       ollama: {
-        enabled: true,
+        enabled: false,
         baseUrl: 'http://127.0.0.1:11434',
       },
       lmstudio: {

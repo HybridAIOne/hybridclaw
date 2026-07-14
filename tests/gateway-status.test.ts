@@ -297,6 +297,54 @@ test('getGatewayStatus uses cached HybridAI health when probe rejects', async ()
   });
 });
 
+test('getGatewayStatus omits Codex health when Codex was never configured', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir);
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  initDatabase({ quiet: true });
+
+  const status = await getGatewayStatus({ refreshProviderHealth: false });
+
+  expect(status.codex).toMatchObject({
+    authenticated: false,
+    reloginRequired: true,
+  });
+  expect(status.providerHealth?.codex).toBeUndefined();
+});
+
+test('getGatewayStatus keeps Codex login health when Codex is selected', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'openai-codex/gpt-5.4';
+  });
+  vi.resetModules();
+  mockHealthProbes({ hybridaiReachable: true });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  initDatabase({ quiet: true });
+
+  const status = await getGatewayStatus({ refreshProviderHealth: false });
+
+  expect(status.providerHealth?.codex).toMatchObject({
+    kind: 'remote',
+    reachable: false,
+    error: 'Login required',
+    loginRequired: true,
+    detail: 'Login required',
+  });
+});
+
 test('getGatewayStatus includes Codex auth state', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
