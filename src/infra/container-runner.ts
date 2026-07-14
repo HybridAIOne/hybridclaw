@@ -79,6 +79,7 @@ import {
 } from '../types/execution.js';
 import type { ScheduledTaskInput } from '../types/scheduler.js';
 import type { AdditionalMount } from '../types/security.js';
+import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
 import { ensureWorkspaceNodeModulesLink } from '../workspace.js';
 import {
   CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR,
@@ -173,6 +174,7 @@ interface ContainerPathAliasMount {
 }
 
 const pool = new Map<string, PoolEntry>();
+const containerSessionQueue = new KeyedSerialQueue();
 const warmPool = new WarmProcessPool<PoolEntry>(
   normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
 );
@@ -994,14 +996,16 @@ function getOrSpawnContainer(
 export async function runContainer(
   params: ExecutorRequest,
 ): Promise<ContainerOutput> {
-  return withSpan(
-    'hybridclaw.container.execute',
-    {
-      'hybridclaw.session_id': params.sessionId,
-      'hybridclaw.agent_id': params.agentId || '',
-      'hybridclaw.model': params.model || '',
-    },
-    async () => runContainerInner(params),
+  return containerSessionQueue.run(params.sessionId, () =>
+    withSpan(
+      'hybridclaw.container.execute',
+      {
+        'hybridclaw.session_id': params.sessionId,
+        'hybridclaw.agent_id': params.agentId || '',
+        'hybridclaw.model': params.model || '',
+      },
+      async () => runContainerInner(params),
+    ),
   );
 }
 
