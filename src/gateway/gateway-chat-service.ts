@@ -697,6 +697,10 @@ const gatewaySessionQueue = new KeyedSerialQueue();
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
+  const source = req.source?.trim() || 'gateway.chat';
+  if (source !== 'fullauto') {
+    preemptRunningFullAutoTurn(req.sessionId, source);
+  }
   return gatewaySessionQueue.run(req.sessionId, () =>
     withSpan(
       'hybridclaw.gateway.handle_message',
@@ -975,7 +979,6 @@ async function handleGatewayMessageInner(
     });
   }
   if (source !== 'fullauto') {
-    preemptRunningFullAutoTurn(req.sessionId, source);
     clearScheduledFullAutoContinuation(req.sessionId);
     if (isFullAutoEnabled(session)) {
       noteFullAutoSupervisedIntervention({
