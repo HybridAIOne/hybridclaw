@@ -379,6 +379,9 @@ HybridClaw can route agent turns to locally running LLM servers instead of
 - **llama.cpp** — default base URL `http://127.0.0.1:8081/v1`
 - **vLLM** — default base URL `http://127.0.0.1:8000/v1`
 
+Local backends are disabled by default and are probed only after an operator
+enables them.
+
 Enable and configure a backend with:
 
 ```bash
