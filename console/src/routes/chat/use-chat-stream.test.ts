@@ -103,6 +103,86 @@ describe('useChatStream', () => {
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
   });
 
+  it('sends the selected agent with a new scoped chat request', async () => {
+    const harness = makeHarness();
+    requestChatStreamMock.mockResolvedValue({
+      status: 'ok',
+      sessionId: SESSION_ID,
+      result: 'Ready',
+      messageRole: 'assistant',
+    });
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'user_a@hybridai',
+          agentId: 'payroll',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('prepare payroll', []);
+    });
+
+    expect(requestChatStreamMock).toHaveBeenCalledWith(
+      '/api/chat',
+      expect.objectContaining({
+        body: expect.objectContaining({ agentId: 'payroll' }),
+      }),
+    );
+  });
+
+  it('stops a scoped stream locally without sending a forbidden command', async () => {
+    const harness = makeHarness();
+    let aborted = false;
+    requestChatStreamMock.mockImplementation(
+      (
+        _url: string,
+        params: { signal: AbortSignal },
+      ): Promise<ChatStreamResult> =>
+        new Promise((_resolve, reject) => {
+          params.signal.addEventListener('abort', () => {
+            aborted = true;
+            reject(new Error('aborted'));
+          });
+        }),
+    );
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'user_a@hybridai',
+          sendStopCommand: false,
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    let sendPromise!: Promise<boolean>;
+    act(() => {
+      sendPromise = result.current.sendMessage('prepare payroll', []);
+    });
+    await act(async () => {
+      await result.current.stopRequest();
+      await sendPromise;
+    });
+
+    expect(aborted).toBe(true);
+    expect(executeCommandMock).not.toHaveBeenCalled();
+    expect(harness.error).toBe('');
+    expect(result.current.isStreaming).toBe(false);
+  });
+
   it('keeps replayRequest on hidden-user approval responses', async () => {
     const approval: ChatStreamApproval = {
       type: 'approval',

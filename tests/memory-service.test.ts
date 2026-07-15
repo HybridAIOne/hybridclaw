@@ -39,6 +39,7 @@ import {
   recordUsageEvent,
   setMemoryValue,
   setSessionTitle,
+  sessionHasArtifactPath,
   storeMessage,
   storeSemanticMemory,
 } from '../src/memory/db.js';
@@ -1208,6 +1209,25 @@ describe.sequential('schema migrations', () => {
         ],
       }),
     ]);
+    expect(
+      sessionHasArtifactPath(
+        'session-artifact-message',
+        '/tmp/haiku.pdf',
+      ),
+    ).toBe(true);
+    expect(
+      sessionHasArtifactPath(
+        'session-artifact-message',
+        '/tmp/other.pdf',
+      ),
+    ).toBe(false);
+    getOrCreateSession('session-other-artifact-message', null, 'web');
+    expect(
+      sessionHasArtifactPath(
+        'session-other-artifact-message',
+        '/tmp/haiku.pdf',
+      ),
+    ).toBe(false);
   });
 
   test('getRecentSessionsForUser returns recent web sessions scoped to the user', () => {

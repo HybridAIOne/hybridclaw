@@ -768,6 +768,248 @@ test('ContainerExecutor stages the container node_modules symlink before docker 
   ).toBe(true);
 });
 
+test('ContainerExecutor isolates instance data mounts while staging current shared-user media', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.GATEWAY_API_TOKEN = 'shared-master-token';
+  vi.resetModules();
+
+  const proc = makeFakeChildProcess();
+  const spawn = vi.fn(() => proc as never);
+  const readOutput = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'ok',
+    toolsUsed: [],
+    artifacts: [],
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return { ...actual, spawn };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return { ...actual, readOutput };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return { ...actual, resolveModelRuntimeCredentials };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { getSessionPaths } = await import('../src/infra/ipc.js');
+  const { workspacePath } = getSessionPaths(
+    'session-shared-transcripts',
+    'default',
+  );
+  const transcriptDir = path.join(workspacePath, '.session-transcripts');
+  fs.mkdirSync(transcriptDir, { recursive: true });
+  fs.writeFileSync(path.join(transcriptDir, 'other-user.jsonl'), 'secret');
+
+  const { DATA_DIR } = await import('../src/config/config.js');
+  const discordCacheRoot = path.join(DATA_DIR, 'discord-media-cache');
+  const uploadedCacheRoot = path.join(DATA_DIR, 'uploaded-media-cache');
+  const currentDiscordPath = path.join(
+    discordCacheRoot,
+    'current',
+    'photo.png',
+  );
+  const currentUploadedPath = path.join(
+    uploadedCacheRoot,
+    'current',
+    'brief.txt',
+  );
+  fs.mkdirSync(path.dirname(currentDiscordPath), { recursive: true });
+  fs.mkdirSync(path.dirname(currentUploadedPath), { recursive: true });
+  fs.writeFileSync(currentDiscordPath, 'current-discord-media');
+  fs.writeFileSync(currentUploadedPath, 'current-uploaded-media');
+  fs.writeFileSync(path.join(discordCacheRoot, 'other-user.png'), 'secret');
+  fs.writeFileSync(path.join(uploadedCacheRoot, 'other-user.txt'), 'secret');
+
+  const { resolveBehaviorAnomalyTrajectoryStoreDir } = await import(
+    '../src/infra/behavior-anomaly-runtime.js'
+  );
+  const globalTrajectoryRoot = resolveBehaviorAnomalyTrajectoryStoreDir();
+  fs.mkdirSync(globalTrajectoryRoot, { recursive: true });
+  fs.writeFileSync(path.join(globalTrajectoryRoot, 'admin.jsonl'), 'secret');
+
+  const { ContainerExecutor, resolveBrowserProfileHostDir } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const globalBrowserProfileRoot = resolveBrowserProfileHostDir();
+  fs.mkdirSync(globalBrowserProfileRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(globalBrowserProfileRoot, 'admin-cookies.sqlite'),
+    'secret',
+  );
+  const executor = new ContainerExecutor();
+  await executor.exec({
+    sessionId: 'session-shared-transcripts',
+    messages: [{ role: 'user', content: 'read another transcript' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'web',
+    isolateSessionTranscripts: true,
+    media: [
+      {
+        path: '/discord-media-cache/current/photo.png',
+        url: 'https://example.com/photo.png',
+        originalUrl: 'https://example.com/photo.png',
+        mimeType: 'image/png',
+        sizeBytes: 21,
+        filename: 'photo.png',
+      },
+      {
+        path: currentUploadedPath,
+        url: 'https://example.com/brief.txt',
+        originalUrl: 'https://example.com/brief.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 22,
+        filename: 'brief.txt',
+      },
+    ],
+  });
+
+  const runArgs = spawn.mock.calls.find(
+    (call) =>
+      call[0] === 'docker' &&
+      Array.isArray(call[1]) &&
+      call[1].some((arg) =>
+        String(arg).endsWith(':/workspace/.session-transcripts:ro'),
+      ),
+  )?.[1] as string[] | undefined;
+  expect(runArgs).toBeDefined();
+  const workspaceMountIndex = runArgs?.indexOf(
+    `${workspacePath}:/workspace:rw`,
+  );
+  const maskMountIndex = runArgs?.findIndex((arg) =>
+    arg.endsWith(':/workspace/.session-transcripts:ro'),
+  );
+  expect(maskMountIndex).toBeGreaterThan(workspaceMountIndex ?? -1);
+  const maskMount = runArgs?.[maskMountIndex ?? -1] || '';
+  const maskHostPath = maskMount.slice(
+    0,
+    -':/workspace/.session-transcripts:ro'.length,
+  );
+  expect(maskHostPath.startsWith(workspacePath)).toBe(false);
+  expect(fs.readdirSync(maskHostPath)).toEqual([]);
+
+  const discordMount =
+    runArgs?.find((arg) => arg.endsWith(':/discord-media-cache:ro')) || '';
+  const stagedDiscordRoot = discordMount.slice(
+    0,
+    -':/discord-media-cache:ro'.length,
+  );
+  expect(stagedDiscordRoot).not.toBe(discordCacheRoot);
+  expect(
+    fs.readFileSync(path.join(stagedDiscordRoot, 'current', 'photo.png'), 'utf8'),
+  ).toBe('current-discord-media');
+  expect(fs.existsSync(path.join(stagedDiscordRoot, 'other-user.png'))).toBe(
+    false,
+  );
+
+  const uploadedMount =
+    runArgs?.find((arg) => arg.endsWith(':/uploaded-media-cache:ro')) || '';
+  const stagedUploadedRoot = uploadedMount.slice(
+    0,
+    -':/uploaded-media-cache:ro'.length,
+  );
+  expect(stagedUploadedRoot).not.toBe(uploadedCacheRoot);
+  expect(
+    fs.readFileSync(
+      path.join(stagedUploadedRoot, 'current', 'brief.txt'),
+      'utf8',
+    ),
+  ).toBe('current-uploaded-media');
+  expect(fs.existsSync(path.join(stagedUploadedRoot, 'other-user.txt'))).toBe(
+    false,
+  );
+
+  const browserMount =
+    runArgs?.find((arg) => arg.endsWith(':/browser-profiles:rw')) || '';
+  const isolatedBrowserProfileRoot = browserMount.slice(
+    0,
+    -':/browser-profiles:rw'.length,
+  );
+  expect(isolatedBrowserProfileRoot).not.toBe(globalBrowserProfileRoot);
+  expect(fs.readdirSync(isolatedBrowserProfileRoot)).toEqual([]);
+
+  const trajectoryMount =
+    runArgs?.find((arg) => arg.endsWith(':/hybridclaw-trajectories:ro')) || '';
+  const trajectoryMaskRoot = trajectoryMount.slice(
+    0,
+    -':/hybridclaw-trajectories:ro'.length,
+  );
+  expect(trajectoryMaskRoot).not.toBe(globalTrajectoryRoot);
+  expect(fs.readdirSync(trajectoryMaskRoot)).toEqual([]);
+
+  expect(runArgs).toContain('HYBRIDCLAW_GATEWAY_TOKEN=');
+  expect(runArgs?.join('\n')).not.toContain('shared-master-token');
+  const firstInput = JSON.parse(
+    String(proc.stdin.write.mock.calls[0]?.[0] || '').trim(),
+  ) as {
+    gatewayApiToken?: string;
+    media?: Array<{ path: string | null }>;
+  };
+  expect(firstInput.gatewayApiToken).toBeUndefined();
+  expect(firstInput.media?.map((item) => item.path)).toEqual([
+    '/discord-media-cache/current/photo.png',
+    '/uploaded-media-cache/current/brief.txt',
+  ]);
+
+  await executor.exec({
+    sessionId: 'session-shared-transcripts',
+    messages: [{ role: 'user', content: 'next turn without attachments' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'web',
+    isolateSessionTranscripts: true,
+  });
+  expect(fs.readdirSync(stagedDiscordRoot)).toEqual([]);
+  expect(fs.readdirSync(stagedUploadedRoot)).toEqual([]);
+  expect(
+    spawn.mock.calls.filter(
+      (call) =>
+        call[0] === 'docker' &&
+        Array.isArray(call[1]) &&
+        call[1][0] === 'run' &&
+        call[1].some((arg) =>
+          String(arg).endsWith(':/workspace/.session-transcripts:ro'),
+        ),
+    ),
+  ).toHaveLength(1);
+});
+
 test('ContainerExecutor disables internal text streaming when no text callback is provided', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

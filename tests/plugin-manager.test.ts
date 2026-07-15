@@ -317,6 +317,53 @@ function writeMemoryWriteHookPlugin(rootDir: string): void {
   );
 }
 
+function writeDurableMemoryLifecyclePlugin(rootDir: string): void {
+  const pluginDir = path.join(
+    rootDir,
+    '.hybridclaw',
+    'plugins',
+    'durable-memory-lifecycle-plugin',
+  );
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    [
+      'id: durable-memory-lifecycle-plugin',
+      'name: Durable Memory Lifecycle Plugin',
+      'kind: memory',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'const events = [];',
+      'export default {',
+      "  id: 'durable-memory-lifecycle-plugin',",
+      "  kind: 'memory',",
+      '  register(api) {',
+      '    api.registerMemoryLayer({',
+      "      id: 'durable-memory-layer',",
+      '      getContextForPrompt() { return null; },',
+      "      onTurnComplete() { events.push('turn_complete'); },",
+      '    });',
+      "    for (const name of ['agent_end', 'session_end', 'session_reset', 'before_compaction', 'after_compaction', 'memory_write', 'memory_flush']) {",
+      "      api.on(name, () => { events.push(name); });",
+      '    }',
+      '    api.registerCommand({',
+      "      name: 'durable_memory_events',",
+      "      description: 'Show durable memory lifecycle events',",
+      '      handler() { return JSON.stringify(events); },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
 function writeInboundWebhookPlugin(rootDir: string): void {
   const pluginDir = path.join(
     rootDir,
@@ -1394,6 +1441,120 @@ test('plugin manager emits memory_write hooks for successful native memory write
       result: 'Appended 45 chars to memory/2026-04-08.md',
     }),
   ]);
+});
+
+test('plugin manager suppresses durable memory lifecycle callbacks when writes are denied', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeDurableMemoryLifecyclePlugin(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  const denied = { allowDurableMemoryWrites: false };
+  const messages = [
+    {
+      id: 1,
+      session_id: 'session-guest',
+      user_id: 'guest@hybridai',
+      username: 'guest@hybridai',
+      role: 'user' as const,
+      content: 'Do not persist this.',
+      created_at: new Date().toISOString(),
+    },
+  ];
+
+  await manager.notifyTurnComplete(
+    {
+      sessionId: 'session-guest',
+      userId: 'guest@hybridai',
+      agentId: 'shared-agent',
+      messages,
+    },
+    denied,
+  );
+  await manager.notifyAgentEnd(
+    {
+      sessionId: 'session-guest',
+      userId: 'guest@hybridai',
+      agentId: 'shared-agent',
+      channelId: 'web',
+      messages,
+      resultText: 'Done.',
+      toolNames: [],
+    },
+    denied,
+  );
+  await manager.notifyMemoryWrites(
+    {
+      sessionId: 'session-guest',
+      agentId: 'shared-agent',
+      channelId: 'web',
+      toolExecutions: [
+        {
+          name: 'memory',
+          arguments:
+            '{"action":"append","target":"daily","date":"2026-07-15","content":"private"}',
+          result: 'Appended 7 chars to memory/2026-07-15.md',
+          durationMs: 1,
+        },
+      ],
+    },
+    denied,
+  );
+  const compactionContext = {
+    sessionId: 'session-guest',
+    agentId: 'shared-agent',
+    channelId: 'web',
+    summary: 'Private summary',
+    olderMessages: messages,
+  };
+  await manager.notifyBeforeCompaction(compactionContext, denied);
+  await manager.notifyAfterCompaction(compactionContext, denied);
+  await manager.notifyMemoryFlush(
+    {
+      sessionId: 'session-guest',
+      agentId: 'shared-agent',
+      channelId: 'web',
+      olderMessages: messages,
+    },
+    denied,
+  );
+  await manager.handleSessionReset(
+    {
+      previousSessionId: 'session-guest',
+      sessionId: 'session-guest-reset',
+      userId: 'guest@hybridai',
+      agentId: 'shared-agent',
+      channelId: 'web',
+      reason: 'reset',
+    },
+    denied,
+  );
+  await manager.notifySessionEnd(
+    {
+      sessionId: 'session-guest-reset',
+      userId: 'guest@hybridai',
+      agentId: 'shared-agent',
+      channelId: 'web',
+    },
+    denied,
+  );
+
+  const command = manager.findCommand('durable_memory_events');
+  const rawEvents = await Promise.resolve(
+    command?.handler([], {
+      sessionId: 'session-guest',
+      channelId: 'web',
+    }),
+  );
+  expect(JSON.parse(String(rawEvents))).toEqual([]);
 });
 
 test('plugin manager tracks the live workspace root separately from the seeded agent workspace', async () => {

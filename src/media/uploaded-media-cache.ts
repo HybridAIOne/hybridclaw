@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -61,6 +61,23 @@ export function resolveUploadedMediaCacheHostDir(): string {
     throw new Error('uploaded_media_cache_dir_unavailable');
   }
   return cacheDir;
+}
+
+export function resolveUploadedMediaPrincipalHostDir(
+  principal: string,
+): string {
+  const normalized = principal.trim();
+  if (!normalized) {
+    throw new Error('uploaded_media_principal_required');
+  }
+  const principalKey = createHash('sha256')
+    .update(normalized, 'utf8')
+    .digest('hex');
+  return path.join(
+    resolveUploadedMediaCacheHostDir(),
+    'principals',
+    principalKey,
+  );
 }
 
 function normalizeUploadedMediaPathForContainer(
@@ -278,6 +295,7 @@ export async function writeUploadedMediaCacheFile(params: {
   attachmentName: string;
   buffer: Buffer;
   mimeType?: string | null;
+  principal?: string | null;
 }): Promise<{ hostPath: string; runtimePath: string; filename: string }> {
   const cacheDir = resolveUploadedMediaCacheHostDir();
   const datePrefix = new Date().toISOString().slice(0, 10);
@@ -287,7 +305,10 @@ export async function writeUploadedMediaCacheFile(params: {
     params.mimeType,
   );
   const fileName = `${Date.now()}-${unique}-${filename}`;
-  const dayDir = path.join(cacheDir, datePrefix);
+  const ownerDir = params.principal
+    ? resolveUploadedMediaPrincipalHostDir(params.principal)
+    : cacheDir;
+  const dayDir = path.join(ownerDir, datePrefix);
   const hostPath = path.join(dayDir, fileName);
 
   await ensureCacheDirectory(cacheDir);

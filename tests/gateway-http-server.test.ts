@@ -627,6 +627,9 @@ async function importFreshHealth(options?: {
     retryAfterMs: number;
     usedBytes: number;
   };
+  grantedAgentIds?: string[];
+  missingSessionIds?: string[];
+  ownedArtifactPaths?: string[];
 }) {
   vi.resetModules();
 
@@ -763,16 +766,111 @@ async function importFreshHealth(options?: {
         'bot_1',
     }),
   );
-  const getSessionById = vi.fn((sessionId: string) => ({
-    id: sessionId,
-    session_key: sessionId,
-    main_session_key: sessionId,
-    agent_id: 'main',
-    model: 'gpt-5',
-    chatbot_id: 'bot_1',
-    enable_rag: 1,
-    show_mode: 'all',
-  }));
+  const getSessionById = vi.fn((sessionId: string) =>
+    options?.missingSessionIds?.includes(sessionId)
+      ? undefined
+      : {
+          id: sessionId,
+          session_key: sessionId,
+          main_session_key: sessionId,
+          agent_id: 'main',
+          model: 'gpt-5',
+          chatbot_id: 'bot_1',
+          enable_rag: 1,
+          show_mode: 'all',
+        },
+  );
+  const normalizeTestPrincipal = (value: unknown): string | null => {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    const normalized = value.trim().toLowerCase();
+    return normalized.endsWith('@hybridai.one')
+      ? `${normalized.slice(0, -'@hybridai.one'.length)}@hybridai`
+      : normalized;
+  };
+  const listGrantedAgentIds = vi.fn(
+    (_principal: string) => options?.grantedAgentIds ?? [],
+  );
+  const hasActiveAgentGrant = vi.fn(
+    (agentId: string) => options?.grantedAgentIds?.includes(agentId) === true,
+  );
+  const isUserSessionPayload = vi.fn(
+    (payload: Record<string, unknown> | null) => payload?.kind === 'user',
+  );
+  const resolveUserSessionPrincipal = vi.fn(
+    (payload: Record<string, unknown> | null) =>
+      payload?.kind === 'user' ? normalizeTestPrincipal(payload.sub) : null,
+  );
+  const userApiRoutes = new Set([
+    'GET /api/status',
+    'GET /api/agents/list',
+    'GET /api/history',
+    'GET /api/chat/recent',
+    'GET /api/chat/context',
+    'GET /api/chat/commands',
+    'GET /api/agent-avatar',
+    'GET /api/artifact',
+    'POST /api/chat',
+    'POST /api/chat/branch',
+    'POST /api/chat/rating',
+    'POST /api/command',
+    'POST /api/media/upload',
+  ]);
+  const isUserApiRouteAllowed = vi.fn((pathname: string, method: string) =>
+    userApiRoutes.has(`${method.toUpperCase()} ${pathname}`),
+  );
+  const requireGrantedAgent = vi.fn(
+    (principal: string, agentId: string) => {
+      if (!hasActiveAgentGrant(agentId, principal)) {
+        throw new GatewayRequestError(403, 'Forbidden.');
+      }
+      return agentId;
+    },
+  );
+  const resolveGrantedAgentForUser = vi.fn(
+    (params: { principal: string; requestedAgentId?: string | null }) => {
+      const agentId =
+        params.requestedAgentId || listGrantedAgentIds(params.principal)[0];
+      if (!agentId) throw new GatewayRequestError(403, 'Forbidden.');
+      return requireGrantedAgent(params.principal, agentId);
+    },
+  );
+  const requireOwnedUserSession = vi.fn(
+    (principal: string, sessionId: string) => {
+      const session = getSessionById(sessionId);
+      if (!session || !session.session_key.includes(`peer:${principal}`)) {
+        throw new GatewayRequestError(403, 'Forbidden.');
+      }
+      return session;
+    },
+  );
+  const buildUserWebSessionKey = vi.fn(
+    (params: { agentId: string; principal: string; draftSessionId?: string }) =>
+      `agent:${params.agentId}:channel:web:chat:dm:peer:${params.principal}:thread:${params.draftSessionId || 'new'}`,
+  );
+  const requireUserSessionKey = vi.fn(
+    (params: { principal: string; sessionKey: string; agentId?: string }) => {
+      const match = params.sessionKey.match(
+        /^agent:([^:]+):channel:web:chat:dm:peer:([^:]+)(?::|$)/,
+      );
+      if (
+        !match ||
+        match[2] !== params.principal ||
+        (params.agentId && params.agentId !== match[1])
+      ) {
+        throw new GatewayRequestError(403, 'Forbidden.');
+      }
+      return requireGrantedAgent(params.principal, match[1] || '');
+    },
+  );
+  const isUserCommandAllowed = vi.fn((args: readonly string[]) => {
+    const command = String(args[0] || '').replace(/^\/+/, '').toLowerCase();
+    return command === 'help' || command === 'approve';
+  });
+  const isUserChatContentAllowed = vi.fn(
+    (content: string) =>
+      !content.trim().startsWith('/') ||
+      isUserCommandAllowed(content.trim().split(/\s+/u)),
+  );
   const getOrCreateSession = vi.fn((sessionId: string) => ({
     id: sessionId,
     session_key: sessionId,
@@ -784,6 +882,10 @@ async function importFreshHealth(options?: {
   }));
   const storeMessage = vi.fn(() => 1);
   const setMessageActivityTrace = vi.fn();
+  const sessionHasArtifactPath = vi.fn(
+    (_sessionId: string, artifactPath: string) =>
+      options?.ownedArtifactPaths?.includes(artifactPath) === true,
+  );
   const buildConversationContext = vi.fn(() => ({
     messages: [{ role: 'system', content: 'Mock HybridClaw system prompt' }],
     skills: [],
@@ -1693,6 +1795,45 @@ async function importFreshHealth(options?: {
       },
     ],
   }));
+  const getGatewayAdminAgentGrants = vi.fn(() => ({
+    grants: [
+      {
+        agent_id: 'main',
+        principal: 'user_a@hybridai',
+        role: 'user',
+        source: 'local',
+        granted_by: 'admin@hybridai',
+        granted_at: '2026-07-15T10:00:00.000Z',
+        synced_at: null,
+        expires_at: null,
+      },
+    ],
+  }));
+  const shareGatewayAdminAgent = vi.fn((input) => ({
+    grant: {
+      agent_id: input.agentId,
+      principal: input.principal,
+      role: 'user',
+      source: input.source || 'local',
+      granted_by: input.grantedBy,
+      granted_at: '2026-07-15T10:00:00.000Z',
+      synced_at: input.syncedAt || null,
+      expires_at: input.expiresAt || null,
+    },
+  }));
+  const unshareGatewayAdminAgent = vi.fn((input) => ({
+    removed: true,
+    grant: {
+      agent_id: input.agentId,
+      principal: input.principal,
+      role: 'user',
+      source: 'local',
+      granted_by: 'admin@hybridai',
+      granted_at: '2026-07-15T10:00:00.000Z',
+      synced_at: null,
+      expires_at: null,
+    },
+  }));
   const getGatewayAdminHybridAIBots = vi.fn(async () => ({
     bots: [
       {
@@ -2582,6 +2723,7 @@ async function importFreshHealth(options?: {
     getDelegationJob,
     getSessionById,
     resetSessionIfExpired: vi.fn(() => null),
+    sessionHasArtifactPath,
     setMessageActivityTrace,
   }));
   vi.doMock('../src/memory/memory-service.js', () => ({
@@ -2605,9 +2747,29 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
     getAgentById,
+    listAgents: vi.fn(() => [
+      { id: 'main', name: 'Main Agent' },
+      { id: 'lexware', name: 'Lexware' },
+    ]),
     resolveAgentConfig,
     resolveAgentForRequest,
     resolveAgentWorkspaceId,
+  }));
+  vi.doMock('../src/agents/agent-grants.js', () => ({
+    hasActiveAgentGrant,
+  }));
+  vi.doMock('../src/security/user-access.js', () => ({
+    buildUserWebSessionKey,
+    isUserApiRouteAllowed,
+    isUserChatContentAllowed,
+    isUserCommandAllowed,
+    isUserSessionPayload,
+    listGrantedAgentIds,
+    requireGrantedAgent,
+    requireOwnedUserSession,
+    requireUserSessionKey,
+    resolveGrantedAgentForUser,
+    resolveUserSessionPrincipal,
   }));
   vi.doMock('../src/board/budget-chip.js', () => ({
     getBoardBudgetSummaries,
@@ -2732,6 +2894,11 @@ async function importFreshHealth(options?: {
     getGatewayAdminTokens,
     revokeGatewayAdminToken,
   }));
+  vi.doMock('../src/gateway/gateway-agent-grants.js', () => ({
+    getGatewayAdminAgentGrants,
+    shareGatewayAdminAgent,
+    unshareGatewayAdminAgent,
+  }));
   vi.doMock('../src/gateway/gateway-admin-connectors.js', () => ({
     completeGatewayAdminConnectorOAuthCallback,
     getGatewayAdminConnectors,
@@ -2850,7 +3017,14 @@ async function importFreshHealth(options?: {
     getGatewayAdminEmailMailbox,
     getGatewayAdminEmailMessage,
     getGatewayAgents,
+    listGrantedAgentIds,
+    hasActiveAgentGrant,
+    isUserApiRouteAllowed,
+    requireOwnedUserSession,
     getGatewayAdminAgents,
+    getGatewayAdminAgentGrants,
+    shareGatewayAdminAgent,
+    unshareGatewayAdminAgent,
     getGatewayAdminHybridAIBots,
     getGatewayAdminAgentMarkdownFile,
     getGatewayAdminAgentMarkdownRevision,
@@ -2989,6 +3163,9 @@ useCleanMocks({
     '../src/gateway/gateway-service.js',
     '../src/gateway/gateway-chat-service.js',
     '../src/gateway/gateway-admin-tokens.js',
+    '../src/gateway/gateway-agent-grants.js',
+    '../src/agents/agent-grants.js',
+    '../src/security/user-access.js',
     '../src/security/api-tokens.js',
     '../src/gateway/openai-compatible-model.ts',
     '../src/gateway/gateway-scheduled-task-service.js',
@@ -3418,6 +3595,491 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual(
       expect.objectContaining({ status: 'ok' }),
     );
+  });
+
+  test('fails closed for every admin path and HTTP method for user sessions', async () => {
+    const authSecret = 'scoped-user-admin-deny-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      grantedAgentIds: ['lexware'],
+    });
+    const cookie = makeSessionCookie(authSecret, {
+      kind: 'user',
+      sub: 'guest.user@hybridai',
+      actions: ['*'],
+    });
+    const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+    const paths = [
+      '/api/admin',
+      '/api/admin/overview',
+      '/api/admin/agents/lexware/shares',
+      '/api/admin/mcp/oauth/status',
+      '/api/admin/a2a/outbox/status',
+      '/api/admin/unmapped-future-route',
+    ];
+
+    for (const pathname of paths) {
+      for (const method of methods) {
+        const req = makeRequest({
+          method,
+          url: pathname,
+          headers: {
+            cookie,
+            host: 'example.test',
+            origin: 'http://example.test',
+          },
+          noAuth: true,
+          remoteAddress: '203.0.113.10',
+        });
+        const res = makeResponse();
+        state.handler(req as never, res as never);
+        expect(
+          res.statusCode,
+          `${method} ${pathname} must fail closed`,
+        ).toBe(403);
+      }
+    }
+  });
+
+  test('scopes status and agent listings while denying all other authenticated APIs', async () => {
+    const authSecret = 'scoped-user-api-allowlist-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      grantedAgentIds: ['lexware'],
+    });
+    const cookie = makeSessionCookie(authSecret, {
+      kind: 'user',
+      sub: 'guest.user@hybridai',
+      actions: [],
+    });
+    const request = (url: string) => {
+      const req = makeRequest({
+        url,
+        headers: { cookie, host: 'example.test' },
+        noAuth: true,
+        remoteAddress: '203.0.113.10',
+      });
+      const res = makeResponse();
+      state.handler(req as never, res as never);
+      return res;
+    };
+
+    const statusRes = request('/api/status');
+    await waitForResponse(statusRes, (next) => next.writableEnded);
+    expect(statusRes.statusCode).toBe(200);
+    const scopedStatus = JSON.parse(statusRes.body);
+    expect(scopedStatus).toMatchObject({
+      defaultAgentId: 'lexware',
+      access: {
+        kind: 'user',
+        principal: 'guest.user@hybridai',
+      },
+    });
+    expect(scopedStatus).not.toHaveProperty('build');
+    expect(scopedStatus).not.toHaveProperty('sandbox');
+    expect(scopedStatus).not.toHaveProperty('providerHealth');
+    expect(scopedStatus).not.toHaveProperty('whatsapp');
+    expect(scopedStatus).not.toHaveProperty('discord');
+
+    const agentsRes = request('/api/agents/list');
+    await waitForResponse(agentsRes, (next) => next.writableEnded);
+    expect(agentsRes.statusCode).toBe(200);
+    expect(state.getGatewayAgentList).toHaveBeenCalledWith({
+      principal: 'guest.user@hybridai',
+    });
+
+    for (const pathname of [
+      '/api/events',
+      '/api/apps',
+      '/api/artifact?path=other-user.txt',
+      '/api/plugin/tool',
+    ]) {
+      const deniedRes = request(pathname);
+      expect(deniedRes.statusCode, pathname).toBe(403);
+    }
+
+    const adminPageRes = request('/admin');
+    expect(adminPageRes.statusCode).toBe(403);
+  });
+
+  test('revokes the entire scoped API surface when the last grant is removed', async () => {
+    const authSecret = 'scoped-user-revoked-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      grantedAgentIds: [],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          kind: 'user',
+          sub: 'guest.user@hybridai',
+          actions: [],
+        }),
+        host: 'example.test',
+        origin: 'http://example.test',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+      body: 'should-not-be-stored',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Forbidden.' });
+  });
+
+  test('binds new user chats to the requested granted agent and canonical principal session', async () => {
+    const authSecret = 'scoped-user-chat-secret';
+    const draftSessionId = 'draft-lexware-chat';
+    const state = await importFreshHealth({
+      authSecret,
+      grantedAgentIds: ['lexware'],
+      missingSessionIds: [draftSessionId],
+    });
+    const cookie = makeSessionCookie(authSecret, {
+      kind: 'user',
+      sub: 'guest.user@hybridai.one',
+      actions: [],
+    });
+    const requestChat = (agentId: string) => {
+      const req = makeRequest({
+        method: 'POST',
+        url: '/api/chat',
+        headers: {
+          cookie,
+          host: 'example.test',
+          origin: 'http://example.test',
+        },
+        noAuth: true,
+        remoteAddress: '203.0.113.10',
+        body: {
+          sessionId: draftSessionId,
+          agentId,
+          channelId: 'discord',
+          userId: 'spoofed-user',
+          username: 'spoofed-name',
+          guildId: 'spoofed-guild',
+          model: 'spoofed-model',
+          chatbotId: 'spoofed-chatbot',
+          content: 'Show the latest Lexware summary.',
+        },
+      });
+      const res = makeResponse();
+      state.handler(req as never, res as never);
+      return res;
+    };
+
+    const grantedRes = requestChat('lexware');
+    await waitForResponse(grantedRes, (next) => next.writableEnded);
+
+    expect(grantedRes.statusCode).toBe(200);
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith({
+      sessionId:
+        'agent:lexware:channel:web:chat:dm:peer:guest.user@hybridai:thread:draft-lexware-chat',
+      sessionMode: undefined,
+      guildId: null,
+      channelId: 'web',
+      userId: 'guest.user@hybridai',
+      username: 'guest.user@hybridai',
+      content: 'Show the latest Lexware summary.',
+      agentId: 'lexware',
+      principal: 'guest.user@hybridai',
+      chatbotId: undefined,
+      enableRag: undefined,
+      model: undefined,
+    });
+
+    const deniedRes = requestChat('main');
+    await waitForResponse(deniedRes, (next) => next.writableEnded);
+
+    expect(deniedRes.statusCode).toBe(403);
+    expect(JSON.parse(deniedRes.body)).toEqual({ error: 'Forbidden.' });
+    expect(state.handleGatewayMessage).toHaveBeenCalledTimes(1);
+  });
+
+  test('stores scoped user uploads under a principal-owned cache path', async () => {
+    const authSecret = 'scoped-user-media-upload-secret';
+    const principal = 'guest.user@hybridai';
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({
+      authSecret,
+      dataDir,
+      grantedAgentIds: ['lexware'],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          kind: 'user',
+          sub: principal,
+          actions: [],
+        }),
+        host: 'example.test',
+        origin: 'http://example.test',
+        'content-type': 'image/png',
+        'x-hybridclaw-filename': encodeURIComponent('receipt.png'),
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+      body: Buffer.from('scoped-image'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    const payload = JSON.parse(res.body) as { media: { path: string } };
+    const principalKey = createHash('sha256')
+      .update(principal, 'utf8')
+      .digest('hex');
+    expect(payload.media.path).toMatch(
+      new RegExp(
+        `^/uploaded-media-cache/principals/${principalKey}/\\d{4}-\\d{2}-\\d{2}/`,
+      ),
+    );
+    expect(state.consumeGatewayMediaUploadQuota).toHaveBeenCalledWith({
+      key: `user:${principal}`,
+      bytes: 'scoped-image'.length,
+    });
+  });
+
+  test('rejects another principal cache file from scoped user chat media', async () => {
+    const authSecret = 'scoped-user-media-deny-secret';
+    const principal = 'guest.user@hybridai';
+    const otherPrincipalKey = createHash('sha256')
+      .update('other.user@hybridai', 'utf8')
+      .digest('hex');
+    const relativePath = path.join(
+      'principals',
+      otherPrincipalKey,
+      '2026-07-15',
+      'private.png',
+    );
+    const dataDir = makeTempDataDir();
+    const hostPath = path.join(dataDir, 'uploaded-media-cache', relativePath);
+    fs.mkdirSync(path.dirname(hostPath), { recursive: true });
+    fs.writeFileSync(hostPath, 'other-user-image');
+    const state = await importFreshHealth({
+      authSecret,
+      dataDir,
+      grantedAgentIds: ['lexware'],
+    });
+    const runtimePath = `/uploaded-media-cache/${relativePath.replace(/\\/g, '/')}`;
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          kind: 'user',
+          sub: principal,
+          actions: [],
+        }),
+        host: 'example.test',
+        origin: 'http://example.test',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+      body: {
+        sessionId: 'draft-lexware-media',
+        agentId: 'lexware',
+        content: '',
+        media: [
+          {
+            path: runtimePath,
+            url: `/api/artifact?path=${encodeURIComponent(runtimePath)}`,
+            originalUrl: `/api/artifact?path=${encodeURIComponent(runtimePath)}`,
+            mimeType: 'image/png',
+            sizeBytes: 16,
+            filename: 'private.png',
+          },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(400);
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+  });
+
+  test('hides agent existence and ignores spoofed history identities for scoped users', async () => {
+    const authSecret = 'scoped-user-history-secret';
+    const principal = 'guest.user@hybridai';
+    const sessionKey =
+      'agent:lexware:channel:web:chat:dm:peer:guest.user@hybridai:thread:history-1';
+    const storedSessionId = 'stored-user-history-1';
+    const state = await importFreshHealth({
+      authSecret,
+      grantedAgentIds: ['lexware'],
+    });
+    state.getAgentById.mockImplementation((agentId: string) =>
+      ['main', 'lexware'].includes(agentId)
+        ? { id: agentId, name: agentId }
+        : null,
+    );
+    state.getSessionById.mockReturnValue({
+      id: storedSessionId,
+      session_key: sessionKey,
+      main_session_key: sessionKey,
+      agent_id: 'lexware',
+      model: 'gpt-5',
+      chatbot_id: 'bot_1',
+      enable_rag: 1,
+      show_mode: 'all',
+    });
+    const cookie = makeSessionCookie(authSecret, {
+      kind: 'user',
+      sub: principal,
+      actions: [],
+    });
+    const requestHistory = (query: URLSearchParams) => {
+      const req = makeRequest({
+        url: `/api/history?${query.toString()}`,
+        headers: { cookie, host: 'example.test' },
+        noAuth: true,
+        remoteAddress: '203.0.113.10',
+      });
+      const res = makeResponse();
+      state.handler(req as never, res as never);
+      return res;
+    };
+
+    for (const agentId of ['main', 'missing-agent']) {
+      const denied = requestHistory(
+        new URLSearchParams({ sessionId: storedSessionId, agentId }),
+      );
+      await waitForResponse(denied, (next) => next.writableEnded);
+      expect(denied.statusCode, agentId).toBe(403);
+      expect(JSON.parse(denied.body)).toEqual({ error: 'Forbidden.' });
+    }
+
+    const allowed = requestHistory(
+      new URLSearchParams({
+        sessionId: storedSessionId,
+        agentId: 'lexware',
+        userId: 'spoofed-user',
+      }),
+    );
+    await waitForResponse(allowed, (next) => next.writableEnded);
+    expect(allowed.statusCode).toBe(200);
+    expect(state.getGatewayHistory).toHaveBeenCalledWith(storedSessionId, 40, {
+      operatorUserId: principal,
+    });
+  });
+
+  test('returns 403 when a scoped user tries to branch another user session', async () => {
+    const authSecret = 'scoped-user-branch-secret';
+    const principal = 'guest.user@hybridai';
+    const otherSessionId = 'stored-other-user-branch';
+    const otherSessionKey =
+      'agent:lexware:channel:web:chat:dm:peer:other.user@hybridai:thread:branch-1';
+    const state = await importFreshHealth({
+      authSecret,
+      grantedAgentIds: ['lexware'],
+    });
+    state.getSessionById.mockReturnValue({
+      id: otherSessionId,
+      session_key: otherSessionKey,
+      main_session_key: otherSessionKey,
+      agent_id: 'lexware',
+      model: 'gpt-5',
+      chatbot_id: 'bot_1',
+      enable_rag: 1,
+      show_mode: 'all',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/branch',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          kind: 'user',
+          sub: principal,
+          actions: [],
+        }),
+        host: 'example.test',
+        origin: 'http://example.test',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+      body: { sessionId: otherSessionId, beforeMessageId: 1 },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Forbidden.' });
+    expect(state.forkSessionBranch).not.toHaveBeenCalled();
+  });
+
+  test('serves only artifacts recorded in the scoped user session', async () => {
+    const authSecret = 'scoped-user-artifact-secret';
+    const principal = 'guest.user@hybridai';
+    const sessionKey =
+      'agent:lexware:channel:web:chat:dm:peer:guest.user@hybridai:thread:artifact-1';
+    const storedSessionId = 'stored-user-artifact-1';
+    const dataDir = makeTempDataDir();
+    const ownedPath = '/uploaded-media-cache/scoped/owned.txt';
+    const otherPath = '/uploaded-media-cache/scoped/other.txt';
+    const cacheDir = path.join(dataDir, 'uploaded-media-cache', 'scoped');
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.writeFileSync(path.join(cacheDir, 'owned.txt'), 'owned artifact');
+    fs.writeFileSync(path.join(cacheDir, 'other.txt'), 'other artifact');
+    const state = await importFreshHealth({
+      authSecret,
+      dataDir,
+      grantedAgentIds: ['lexware'],
+      ownedArtifactPaths: [ownedPath],
+    });
+    state.getSessionById.mockReturnValue({
+      id: storedSessionId,
+      session_key: sessionKey,
+      main_session_key: sessionKey,
+      agent_id: 'lexware',
+      model: 'gpt-5',
+      chatbot_id: 'bot_1',
+      enable_rag: 1,
+      show_mode: 'all',
+    });
+    const cookie = makeSessionCookie(authSecret, {
+      kind: 'user',
+      sub: principal,
+      actions: [],
+    });
+    const requestArtifact = (artifactPath: string) => {
+      const query = new URLSearchParams({
+        path: artifactPath,
+        sessionId: storedSessionId,
+      });
+      const req = makeRequest({
+        url: `/api/artifact?${query.toString()}`,
+        headers: { cookie, host: 'example.test' },
+        noAuth: true,
+        remoteAddress: '203.0.113.10',
+      });
+      const res = makeResponse();
+      state.handler(req as never, res as never);
+      return res;
+    };
+
+    const ownedRes = requestArtifact(ownedPath);
+    await waitForResponse(ownedRes, (next) => next.writableEnded);
+    expect(ownedRes.statusCode).toBe(200);
+    expect(ownedRes.body).toBe('owned artifact');
+
+    const deniedRes = requestArtifact(otherPath);
+    await waitForResponse(deniedRes, (next) => next.writableEnded);
+    expect(deniedRes.statusCode).toBe(403);
+    expect(JSON.parse(deniedRes.body)).toEqual({ error: 'Forbidden.' });
   });
 
   test('requires same-origin headers for signed session cookie API mutations', async () => {
@@ -6612,6 +7274,104 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('accepts a granted HybridAI agent-access token and issues a scoped user session', async () => {
+    const authSecret = 'hybridai-agent-access-secret';
+    const accessToken = signAuthPayload(
+      {
+        typ: 'agent-access',
+        exp: Math.floor(Date.now() / 1000) + 300,
+        sub: 'platform-user-123',
+        email: 'Guest.User@HybridAI.One',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({
+      authSecret,
+      grantedAgentIds: ['lexware'],
+    });
+    const req = makeRequest({
+      url: `/auth/hybridai/callback?token=${encodeURIComponent(accessToken)}`,
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/chat');
+    expect(state.listGrantedAgentIds).toHaveBeenCalledWith(
+      'guest.user@hybridai',
+    );
+    const setCookie = String(res.headers['Set-Cookie'] || '');
+    expect(setCookie).toContain('Secure');
+    const sessionToken = /hybridclaw_session=([^;]+)/u.exec(setCookie)?.[1];
+    expect(sessionToken).toBeTruthy();
+    const sessionPayload = JSON.parse(
+      Buffer.from(sessionToken?.split('.')[0] || '', 'base64url').toString(
+        'utf8',
+      ),
+    );
+    expect(sessionPayload).toMatchObject({
+      typ: 'session',
+      kind: 'user',
+      sub: 'guest.user@hybridai',
+      email: 'guest.user@hybridai.one',
+      platformSub: 'platform-user-123',
+      actions: [],
+    });
+  });
+
+  test('rejects a valid HybridAI agent-access token without an active grant', async () => {
+    const authSecret = 'hybridai-no-grant-secret';
+    const accessToken = signAuthPayload(
+      {
+        typ: 'agent-access',
+        exp: Math.floor(Date.now() / 1000) + 300,
+        sub: 'platform-user-123',
+        email: 'guest.user@hybridai.one',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret, grantedAgentIds: [] });
+    const req = makeRequest({
+      url: `/auth/hybridai/callback?token=${encodeURIComponent(accessToken)}`,
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(403);
+    expect(res.headers['Set-Cookie']).toBeUndefined();
+  });
+
+  test('does not accept agent-access tokens on the administrator launch callback', async () => {
+    const authSecret = 'hybridai-callback-type-secret';
+    const accessToken = signAuthPayload(
+      {
+        typ: 'agent-access',
+        exp: Math.floor(Date.now() / 1000) + 300,
+        sub: 'platform-user-123',
+        email: 'guest.user@hybridai.one',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({
+      authSecret,
+      grantedAgentIds: ['lexware'],
+    });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(accessToken)}`,
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.headers['Set-Cookie']).toBeUndefined();
+  });
+
   test('returns 401 from /auth/callback when the launch token is invalid', async () => {
     const state = await importFreshHealth({ authSecret: 'health-secret' });
     const req = makeRequest({
@@ -7032,6 +7792,63 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual({
       error: 'Agent avatar not found.',
     });
+  });
+
+  test('rejects installed agent avatar symlinks that escape the workspace', async () => {
+    const dataDir = makeTempDataDir();
+    const workspaceDir = path.join(
+      dataDir,
+      'agents',
+      'charly',
+      'workspace',
+    );
+    const outsideFile = path.join(dataDir, 'outside-secret.png');
+    const avatarPath = path.join(workspaceDir, 'avatars', 'charly.png');
+    fs.mkdirSync(path.dirname(avatarPath), { recursive: true });
+    fs.writeFileSync(outsideFile, 'outside secret', 'utf8');
+    fs.symlinkSync(outsideFile, avatarPath);
+
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({ url: '/api/agent-avatar?agentId=charly' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).not.toContain('outside secret');
+  });
+
+  test('rejects active SVG content as an installed agent avatar', async () => {
+    const dataDir = makeTempDataDir();
+    const svgPath = path.join(
+      dataDir,
+      'agents',
+      'charly',
+      'workspace',
+      'avatars',
+      'charly.svg',
+    );
+    fs.mkdirSync(path.dirname(svgPath), { recursive: true });
+    fs.writeFileSync(
+      svgPath,
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+      'utf8',
+    );
+    const state = await importFreshHealth({ dataDir });
+    state.getAgentById.mockImplementation((agentId: string) =>
+      agentId === 'charly'
+        ? { id: 'charly', name: 'Charly', imageAsset: 'avatars/charly.svg' }
+        : null,
+    );
+    const req = makeRequest({ url: '/api/agent-avatar?agentId=charly' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.headers['Content-Type']).not.toBe('image/svg+xml');
   });
 
   test('rejects non-image workspace files as installed agent avatar assets', async () => {
@@ -9133,6 +9950,115 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('requires admin.agents.write to inspect agent shares', async () => {
+    const authSecret = 'agent-share-rbac-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/api/admin/agents/main/shares',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'viewer@hybridai',
+          role: 'admin.viewer',
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAgentGrants).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Forbidden.' });
+  });
+
+  test('lists agent shares for an admin.agents.write session', async () => {
+    const authSecret = 'agent-share-list-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/api/admin/agents/main/shares',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin@hybridai',
+          role: 'admin.integrations_manager',
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAgentGrants).toHaveBeenCalledWith('main');
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).grants).toHaveLength(1);
+  });
+
+  test('routes agent share and unshare mutations with the authenticated actor', async () => {
+    const authSecret = 'agent-share-write-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const cookie = makeSessionCookie(authSecret, {
+      sessionId: 'admin-session-1',
+      actor: 'admin@hybridai.one',
+      role: 'admin.integrations_manager',
+    });
+    const shareReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/agents/main/shares',
+      headers: {
+        cookie,
+        host: 'example.test',
+        origin: 'http://example.test',
+        'content-type': 'application/json',
+      },
+      body: {
+        principal: 'User_A@HybridAI.One',
+        source: 'platform',
+        syncedAt: '2026-07-15T10:00:00Z',
+        expiresAt: '2026-07-15T10:05:00Z',
+      },
+    });
+    const shareRes = makeResponse();
+
+    state.handler(shareReq as never, shareRes as never);
+    await settle();
+
+    expect(state.shareGatewayAdminAgent).toHaveBeenCalledWith({
+      agentId: 'main',
+      principal: 'User_A@HybridAI.One',
+      source: 'platform',
+      syncedAt: '2026-07-15T10:00:00Z',
+      expiresAt: '2026-07-15T10:05:00Z',
+      grantedBy: 'admin@hybridai.one',
+    });
+    expect(shareRes.statusCode).toBe(200);
+
+    const unshareReq = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/agents/main/shares',
+      headers: {
+        cookie,
+        host: 'example.test',
+        origin: 'http://example.test',
+        'content-type': 'application/json',
+      },
+      body: { principal: 'User_A@HybridAI.One' },
+    });
+    const unshareRes = makeResponse();
+
+    state.handler(unshareReq as never, unshareRes as never);
+    await settle();
+
+    expect(state.unshareGatewayAdminAgent).toHaveBeenCalledWith({
+      agentId: 'main',
+      principal: 'User_A@HybridAI.One',
+      revokedBy: 'admin@hybridai.one',
+    });
+    expect(unshareRes.statusCode).toBe(200);
+  });
+
   test('returns HybridAI bots for authorized admin API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -10341,6 +11267,40 @@ describe('gateway HTTP server', () => {
             sessionId: 'admin-session-1',
             actor: 'admin-user',
             actions: ['admin.audit.read'],
+          }),
+        },
+        noAuth: true,
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).not.toHaveBeenCalled();
+    expect(String(socket.write.mock.calls[0]?.[0] || '')).toContain(
+      '403 Forbidden',
+    );
+  });
+
+  test('rejects terminal websocket upgrades for user sessions even with wildcard claims', async () => {
+    const authSecret = 'terminal-user-deny-auth-secret';
+    const state = await importFreshHealth({
+      authSecret,
+      grantedAgentIds: ['lexware'],
+    });
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        headers: {
+          cookie: makeSessionCookie(authSecret, {
+            kind: 'user',
+            sub: 'guest.user@hybridai',
+            actions: ['*'],
           }),
         },
         noAuth: true,
@@ -12039,6 +12999,83 @@ describe('gateway HTTP server', () => {
     });
 
     await pendingApprovals.clearPendingApproval('session-web-approve');
+  });
+
+  test('preserves the scoped user principal on approval continuation turns', async () => {
+    const authSecret = 'scoped-user-approval-secret';
+    const principal = 'guest.user@hybridai';
+    const requestedSessionId =
+      'agent:lexware:channel:web:chat:dm:peer:guest.user@hybridai:thread:approval-1';
+    const storedSessionId = 'stored-user-approval-1';
+    const state = await importFreshHealth({
+      authSecret,
+      grantedAgentIds: ['lexware'],
+    });
+    state.getSessionById.mockReturnValue({
+      id: storedSessionId,
+      session_key: requestedSessionId,
+      main_session_key: requestedSessionId,
+      agent_id: 'lexware',
+      model: 'gpt-5',
+      chatbot_id: 'bot_1',
+      enable_rag: 1,
+      show_mode: 'all',
+    });
+    state.handleGatewayMessage.mockResolvedValueOnce({
+      status: 'success',
+      result: 'Approved and continued safely.',
+      toolsUsed: [],
+      artifacts: [],
+    });
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval(storedSessionId, {
+      approvalId: 'approve-user-1',
+      prompt: 'Approve this tool once?',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: principal,
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          kind: 'user',
+          sub: principal,
+          actions: [],
+        }),
+        host: 'example.test',
+        origin: 'http://example.test',
+      },
+      noAuth: true,
+      remoteAddress: '203.0.113.10',
+      body: {
+        sessionId: requestedSessionId,
+        agentId: 'lexware',
+        content: '/approve yes',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: storedSessionId,
+        agentId: 'lexware',
+        channelId: 'web',
+        userId: principal,
+        username: principal,
+        content: 'yes approve-user-1',
+        principal,
+      }),
+    );
+
+    await pendingApprovals.clearPendingApproval(storedSessionId);
   });
 
   test('rejects /approve always from the web chat path', async () => {

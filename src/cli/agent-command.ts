@@ -128,6 +128,104 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
   const rawSub = normalized[0].toLowerCase();
   const sub =
     rawSub === 'pack' ? 'export' : rawSub === 'unpack' ? 'install' : rawSub;
+  if (sub === 'share') {
+    const agentId = normalized[1] || '';
+    const principal = normalized[2] || '';
+    let expiresAt: string | undefined;
+    for (let index = 3; index < normalized.length; index += 1) {
+      const expiresAtFlag = parseValueFlag({
+        arg: normalized[index],
+        args: normalized,
+        index,
+        name: '--expires-at',
+        placeholder: '<iso-date>',
+      });
+      if (expiresAtFlag) {
+        expiresAt = expiresAtFlag.value;
+        index = expiresAtFlag.nextIndex;
+        continue;
+      }
+      printAgentUsage();
+      throw new Error(
+        `Unexpected argument for \`hybridclaw agent share\`: ${normalized[index]}`,
+      );
+    }
+    if (!agentId || !principal) {
+      printAgentUsage();
+      throw new Error(
+        'Usage: `hybridclaw agent share <agent-id> <email-or-principal>` requires an agent and principal.',
+      );
+    }
+    const { shareAgent } = await import('../agents/agent-sharing.js');
+    const grant = shareAgent({
+      agentId,
+      principal,
+      source: 'local',
+      grantedBy: 'local-operator',
+      expiresAt,
+    });
+    console.log(`Shared agent ${grant.agent_id} with ${grant.principal}.`);
+    return;
+  }
+
+  if (sub === 'unshare') {
+    const agentId = normalized[1] || '';
+    const principal = normalized[2] || '';
+    if (!agentId || !principal || normalized.length !== 3) {
+      printAgentUsage();
+      throw new Error(
+        'Usage: `hybridclaw agent unshare <agent-id> <email-or-principal>` requires exactly one agent and principal.',
+      );
+    }
+    const { normalizePrincipal } = await import('../identity/principal.js');
+    const { unshareAgent } = await import('../agents/agent-sharing.js');
+    const normalizedPrincipal = normalizePrincipal(principal);
+    const grant = unshareAgent({
+      agentId,
+      principal: normalizedPrincipal,
+      revokedBy: 'local-operator',
+    });
+    if (!grant) {
+      throw new Error(
+        `Agent ${agentId} is not shared with ${normalizedPrincipal}.`,
+      );
+    }
+    console.log(`Unshared agent ${grant.agent_id} from ${grant.principal}.`);
+    return;
+  }
+
+  if (sub === 'shares') {
+    const agentId = normalized[1] || '';
+    if (!agentId || normalized.length !== 2) {
+      printAgentUsage();
+      throw new Error(
+        'Usage: `hybridclaw agent shares <agent-id>` requires exactly one agent id.',
+      );
+    }
+    const { getAgentById } = await import('../agents/agent-registry.js');
+    if (!getAgentById(agentId)) throw new Error(`Unknown agent: ${agentId}`);
+    const { listAgentGrants } = await import('../agents/agent-grants.js');
+    const grants = listAgentGrants(agentId);
+    if (grants.length === 0) {
+      console.log(`No shares for agent ${agentId}.`);
+      return;
+    }
+    for (const grant of grants) {
+      console.log(
+        [
+          grant.principal,
+          grant.role,
+          grant.source,
+          grant.granted_by,
+          grant.granted_at,
+          grant.synced_at || '',
+          grant.expires_at || '',
+        ].join('\t'),
+      );
+    }
+    return;
+  }
+
   if (sub === 'list') {
     if (normalized.length !== 1) {
       printAgentUsage();
@@ -889,6 +987,6 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
 
   printAgentUsage();
   throw new Error(
-    `Unknown agent subcommand: ${rawSub}. Use \`hybridclaw agent list\`, \`hybridclaw agent config\`, \`hybridclaw agent export\`, \`hybridclaw agent inspect\`, \`hybridclaw agent install\`, \`hybridclaw agent activate\`, or \`hybridclaw agent uninstall\`.`,
+    `Unknown agent subcommand: ${rawSub}. Use \`hybridclaw agent list\`, \`hybridclaw agent share\`, \`hybridclaw agent unshare\`, \`hybridclaw agent shares\`, \`hybridclaw agent config\`, \`hybridclaw agent export\`, \`hybridclaw agent inspect\`, \`hybridclaw agent install\`, \`hybridclaw agent activate\`, or \`hybridclaw agent uninstall\`.`,
   );
 }

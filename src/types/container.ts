@@ -99,6 +99,7 @@ export interface ContainerInput {
   scheduledTasks?: ScheduledTaskInput[];
   allowedTools?: string[];
   blockedTools?: string[];
+  memoryWritesEnabled?: boolean;
   media?: MediaContextItem[];
   audioTranscriptsPrepended?: boolean;
   pluginTools?: PluginRuntimeToolDefinition[];

@@ -221,6 +221,7 @@ import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { handleGoalCommand } from '../goals/goal-command.js';
 import { pauseActiveGoalForSession } from '../goals/goal-runtime.js';
 import { parseAgentIdentity } from '../identity/agent-id.js';
+import { normalizePrincipal } from '../identity/principal.js';
 import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
@@ -379,6 +380,12 @@ import {
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import { isSecretRefInput } from '../security/secret-refs.js';
+import {
+  isUserCommandAllowed,
+  listGrantedAgentIds,
+  requireOwnedUserSession,
+  requireUserSessionKey,
+} from '../security/user-access.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
 import { parseSessionKey } from '../session/session-key.js';
@@ -3787,6 +3794,7 @@ export function recordSuccessfulTurn(opts: {
   toolCallCount: number;
   startedAt: number;
   replaceBuiltInMemory?: boolean;
+  allowDurableMemoryWrites?: boolean;
 }): {
   userMessageId: number;
   assistantMessageId: number;
@@ -3885,6 +3893,7 @@ export function recordSuccessfulTurn(opts: {
       model: opts.model,
       channelId: opts.channelId,
       promptMode: opts.promptMode,
+      allowDurableMemoryWrites: opts.allowDurableMemoryWrites,
     }).catch((err) => {
       logger.warn(
         { sessionId: opts.sessionId, err },
@@ -5515,7 +5524,13 @@ export function deleteGatewayAdminAgent(agentId: string): {
   };
 }
 
-export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
+export async function getGatewayAgents(options?: {
+  principal?: string | null;
+}): Promise<GatewayAgentsResponse> {
+  const principal = String(options?.principal || '').trim();
+  const grantedAgentIds = principal
+    ? new Set(listGrantedAgentIds(principal))
+    : null;
   const status = await getGatewayStatus();
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
   const livenessSummary = status.coworkerLiveness;
@@ -5534,6 +5549,16 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
   );
   const sandboxMode = status.sandbox?.mode || 'container';
   const sessions = getAllSessions()
+    .filter((session) => {
+      if (!principal || !grantedAgentIds) return true;
+      if (!grantedAgentIds.has(session.agent_id)) return false;
+      const parsed = parseSessionKey(session.session_key || '');
+      return (
+        parsed?.channelKind === 'web' &&
+        parsed.chatType === 'dm' &&
+        parsed.peerId === principal
+      );
+    })
     .map((session) =>
       mapSessionCard({
         session,
@@ -5551,7 +5576,9 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
         (parseTimestamp(left.lastActive)?.getTime() || 0)
       );
     });
-  const configuredAgents = listAgents();
+  const configuredAgents = listAgents().filter(
+    (agent) => !grantedAgentIds || grantedAgentIds.has(agent.id),
+  );
   const agentIds = dedupeStrings([
     ...configuredAgents.map((agent) => agent.id),
     ...sessions.map((session) => session.agentId),
@@ -5568,9 +5595,9 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
       return mapLogicalAgentCard({
         agent: getAgentById(agentId) ?? resolveAgentConfig(agentId),
         sessions: sessionsByAgent.get(agentId) ?? [],
-        usage,
-        monthlySpendUsd: usage?.monthly_cost_usd,
-        liveness: livenessByAgent.get(agentId),
+        usage: principal ? undefined : usage,
+        monthlySpendUsd: principal ? undefined : usage?.monthly_cost_usd,
+        liveness: principal ? undefined : livenessByAgent.get(agentId),
       });
     })
     .sort((left, right) => {
@@ -5643,7 +5670,7 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
         ),
       },
     },
-    liveness: livenessSummary,
+    liveness: principal ? undefined : livenessSummary,
     agents,
     sessions,
   };
@@ -9561,10 +9588,18 @@ async function getGatewayRemoteAgentListPeers(): Promise<
   return refreshGatewayRemoteAgentListPeers(key, peers);
 }
 
-export async function getGatewayAgentList(): Promise<GatewayAgentListResponse> {
-  const remotePeers = await getGatewayRemoteAgentListPeers();
+export async function getGatewayAgentList(options?: {
+  principal?: string | null;
+}): Promise<GatewayAgentListResponse> {
+  const principal = String(options?.principal || '').trim();
+  const grantedAgentIds = principal
+    ? new Set(listGrantedAgentIds(principal))
+    : null;
+  const remotePeers = principal ? [] : await getGatewayRemoteAgentListPeers();
   return {
-    agents: getGatewayLocalAgentListItems(),
+    agents: getGatewayLocalAgentListItems().filter(
+      (agent) => !grantedAgentIds || grantedAgentIds.has(agent.id),
+    ),
     ...(remotePeers.length > 0 ? { remotePeers } : {}),
   };
 }
@@ -11008,6 +11043,7 @@ export async function prepareSessionAutoReset(params: {
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
+  allowDurableMemoryWrites?: boolean;
   policy: SessionResetPolicy;
 }): Promise<SessionExpiryEvaluation | undefined> {
   const existingSession = memoryService.getSessionById(params.sessionId);
@@ -11043,6 +11079,9 @@ export async function prepareSessionAutoReset(params: {
   if (!getRuntimeConfig().sessionCompaction.preCompactionMemoryFlush.enabled) {
     return expiryEvaluation;
   }
+  if (params.allowDurableMemoryWrites === false) {
+    return expiryEvaluation;
+  }
 
   const resolvedRuntime = resolveAgentForRequest({
     agentId: params.agentId,
@@ -11060,6 +11099,7 @@ export async function prepareSessionAutoReset(params: {
     channelId: params.channelId,
     sessionSummary: existingSession.session_summary,
     olderMessages: memoryService.getRecentMessages(existingSession.id),
+    allowDurableMemoryWrites: params.allowDurableMemoryWrites,
   });
   return expiryEvaluation;
 }
@@ -11100,6 +11140,61 @@ export function getGatewaySessionContextUsage(sessionId: string): {
 export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
+  if (req.principal) {
+    const principal = normalizePrincipal(req.principal);
+    req.principal = principal;
+    req.guildId = null;
+    req.channelId = 'web';
+    req.userId = principal;
+    req.username = principal;
+    req.onProactiveMessage = undefined;
+  }
+  if (req.principal && !isUserCommandAllowed(req.args)) {
+    return {
+      kind: 'error',
+      title: 'Forbidden',
+      text: 'Shared users may only use `help` and session-scoped approval replies.',
+    };
+  }
+  const existingUserSession = req.principal
+    ? memoryService.getSessionById(req.sessionId)
+    : undefined;
+  if (req.principal && existingUserSession) {
+    const ownedSession = requireOwnedUserSession(
+      req.principal,
+      existingUserSession.id,
+    );
+    if (req.agentId?.trim() && req.agentId.trim() !== ownedSession.agent_id) {
+      return {
+        kind: 'error',
+        title: 'Forbidden',
+        text: 'Agent switching is not available inside a shared-user session.',
+      };
+    }
+    req.agentId = ownedSession.agent_id;
+  } else if (req.principal) {
+    try {
+      req.agentId = requireUserSessionKey({
+        principal: req.principal,
+        sessionKey: req.sessionId,
+        agentId: req.agentId,
+      });
+    } catch {
+      return {
+        kind: 'error',
+        title: 'Forbidden',
+        text: 'Shared-user commands require an owned session.',
+      };
+    }
+  }
+  if (req.principal) {
+    const resolved = resolveAgentForRequest({
+      agentId: req.agentId,
+      session: existingUserSession,
+      principal: req.principal,
+    });
+    req.agentId = resolved.agentId;
+  }
   const { pluginManager, pluginInitError } =
     await tryEnsurePluginManagerInitializedForGateway({
       sessionId: req.sessionId,
@@ -11111,6 +11206,7 @@ export async function handleGatewayCommand(
   const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: req.sessionId,
     channelId: req.channelId,
+    allowDurableMemoryWrites: !req.principal,
     policy: sessionResetPolicy,
   });
   const autoResetSession = memoryService.resetSessionIfExpired(req.sessionId, {
@@ -11135,7 +11231,7 @@ export async function handleGatewayCommand(
     req.sessionId,
     req.guildId,
     req.channelId,
-    undefined,
+    req.agentId ?? undefined,
     { forceNewCurrent: shouldForceNewTuiSession(req) },
   );
   if (session.id !== req.sessionId) {
@@ -11187,6 +11283,15 @@ export async function handleGatewayCommand(
   const result = await (async (): Promise<GatewayCommandResult> => {
     switch (cmd) {
       case 'help': {
+        if (req.principal) {
+          return infoCommand(
+            'Shared Agent Commands',
+            [
+              '`/help`: Show this help.',
+              '`/approve`: View or reply to an approval in this session.',
+            ].join('\n'),
+          );
+        }
         const help = buildLocalSessionSlashHelpEntries('web').map(
           ({ command, description }) => `\`${command}\`: ${description}`,
         );

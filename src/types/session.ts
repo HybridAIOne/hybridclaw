@@ -67,6 +67,7 @@ export interface ResponseRatingRecord {
 export interface ForkSessionBranchParams {
   sessionId: string;
   beforeMessageId: number;
+  sessionKey?: string;
 }
 
 export interface ForkSessionBranchResult {

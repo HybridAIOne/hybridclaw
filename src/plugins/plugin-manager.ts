@@ -221,6 +221,16 @@ export interface PluginManagerOptions {
   ) => Promise<import('../gateway/gateway-types.js').GatewayChatResult>;
 }
 
+export interface PluginDurableMemoryWritePolicy {
+  allowDurableMemoryWrites?: boolean;
+}
+
+function durableMemoryWritesAllowed(
+  policy?: PluginDurableMemoryWritePolicy,
+): boolean {
+  return policy?.allowDurableMemoryWrites !== false;
+}
+
 function safeString(value: () => unknown, fallback: string): string {
   try {
     const resolved = value();
@@ -1881,16 +1891,21 @@ export class PluginManager {
     await this.dispatchHook('session_start', params);
   }
 
-  async notifySessionEnd(params: {
-    sessionId: string;
-    userId: string;
-    agentId: string;
-    channelId: string;
-    workspacePath?: string;
-  }): Promise<void> {
+  async notifySessionEnd(
+    params: {
+      sessionId: string;
+      userId: string;
+      agentId: string;
+      channelId: string;
+      workspacePath?: string;
+    },
+    policy?: PluginDurableMemoryWritePolicy,
+  ): Promise<void> {
     await this.ensureInitialized();
     this.rememberSessionUserId(params.sessionId, params.userId);
-    await this.dispatchHook('session_end', params);
+    if (durableMemoryWritesAllowed(policy)) {
+      await this.dispatchHook('session_end', params);
+    }
     this.sessionWorkspaceRoots.delete(params.sessionId);
     this.sessionUserIds.delete(params.sessionId);
   }
@@ -1907,9 +1922,13 @@ export class PluginManager {
     await this.dispatchHook('before_agent_start', params);
   }
 
-  async notifyAgentEnd(context: PluginAgentEndContext): Promise<void> {
+  async notifyAgentEnd(
+    context: PluginAgentEndContext,
+    policy?: PluginDurableMemoryWritePolicy,
+  ): Promise<void> {
     await this.ensureInitialized();
     this.rememberSessionUserId(context.sessionId, context.userId);
+    if (!durableMemoryWritesAllowed(policy)) return;
     await this.dispatchHook('agent_end', context);
   }
 
@@ -2183,16 +2202,20 @@ export class PluginManager {
     };
   }
 
-  async notifyTurnComplete(params: {
-    sessionId: string;
-    userId: string;
-    agentId: string;
-    workspacePath?: string;
-    messages: StoredMessage[];
-  }): Promise<void> {
+  async notifyTurnComplete(
+    params: {
+      sessionId: string;
+      userId: string;
+      agentId: string;
+      workspacePath?: string;
+      messages: StoredMessage[];
+    },
+    policy?: PluginDurableMemoryWritePolicy,
+  ): Promise<void> {
     await this.ensureInitialized();
     this.rememberSessionUserId(params.sessionId, params.userId);
     this.rememberSessionWorkspaceRoot(params.sessionId, params.workspacePath);
+    if (!durableMemoryWritesAllowed(policy)) return;
     for (const entry of this.getOrderedMemoryLayerEntries()) {
       if (!entry.layer.onTurnComplete) continue;
       try {
@@ -2206,7 +2229,10 @@ export class PluginManager {
     }
   }
 
-  async handleSessionReset(context: PluginSessionResetContext): Promise<void> {
+  async handleSessionReset(
+    context: PluginSessionResetContext,
+    policy?: PluginDurableMemoryWritePolicy,
+  ): Promise<void> {
     await this.ensureInitialized();
     const previousWorkspaceRoot =
       this.sessionWorkspaceRoots.get(context.previousSessionId) || null;
@@ -2222,6 +2248,7 @@ export class PluginManager {
     }
     this.sessionWorkspaceRoots.delete(context.previousSessionId);
     this.sessionUserIds.delete(context.previousSessionId);
+    if (!durableMemoryWritesAllowed(policy)) return;
     for (const entry of this.getOrderedMemoryLayerEntries()) {
       if (!entry.layer.onSessionReset) continue;
       try {
@@ -2241,28 +2268,42 @@ export class PluginManager {
 
   async notifyBeforeCompaction(
     context: PluginCompactionContext,
+    policy?: PluginDurableMemoryWritePolicy,
   ): Promise<void> {
     await this.ensureInitialized();
+    if (!durableMemoryWritesAllowed(policy)) return;
     await this.dispatchHook('before_compaction', context);
   }
 
-  async notifyAfterCompaction(context: PluginCompactionContext): Promise<void> {
+  async notifyAfterCompaction(
+    context: PluginCompactionContext,
+    policy?: PluginDurableMemoryWritePolicy,
+  ): Promise<void> {
     await this.ensureInitialized();
+    if (!durableMemoryWritesAllowed(policy)) return;
     await this.dispatchHook('after_compaction', context);
   }
 
-  async notifyMemoryFlush(context: PluginMemoryFlushContext): Promise<void> {
+  async notifyMemoryFlush(
+    context: PluginMemoryFlushContext,
+    policy?: PluginDurableMemoryWritePolicy,
+  ): Promise<void> {
     await this.ensureInitialized();
+    if (!durableMemoryWritesAllowed(policy)) return;
     await this.dispatchHook('memory_flush', context);
   }
 
-  async notifyMemoryWrites(params: {
-    sessionId: string;
-    agentId: string;
-    channelId: string;
-    toolExecutions: ToolExecution[];
-  }): Promise<void> {
+  async notifyMemoryWrites(
+    params: {
+      sessionId: string;
+      agentId: string;
+      channelId: string;
+      toolExecutions: ToolExecution[];
+    },
+    policy?: PluginDurableMemoryWritePolicy,
+  ): Promise<void> {
     await this.ensureInitialized();
+    if (!durableMemoryWritesAllowed(policy)) return;
     for (const context of this.collectMemoryWriteContexts(params)) {
       await this.dispatchHook('memory_write', context);
     }

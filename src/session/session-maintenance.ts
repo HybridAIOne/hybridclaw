@@ -152,8 +152,10 @@ export async function runPreCompactionMemoryFlush(params: {
   channelId: string;
   sessionSummary: string | null;
   olderMessages: StoredMessage[];
+  allowDurableMemoryWrites?: boolean;
 }): Promise<void> {
   if (!PRE_COMPACTION_MEMORY_FLUSH_ENABLED) return;
+  if (params.allowDurableMemoryWrites === false) return;
 
   const transcript = formatMessagesForPrompt(
     params.olderMessages,
@@ -241,12 +243,17 @@ export async function runPreCompactionMemoryFlush(params: {
         context: 'memory flush',
       });
     if (pluginManager) {
-      await pluginManager.notifyMemoryFlush({
-        sessionId: params.sessionId,
-        agentId: params.agentId,
-        channelId: params.channelId,
-        olderMessages: params.olderMessages,
-      });
+      await pluginManager.notifyMemoryFlush(
+        {
+          sessionId: params.sessionId,
+          agentId: params.agentId,
+          channelId: params.channelId,
+          olderMessages: params.olderMessages,
+        },
+        {
+          allowDurableMemoryWrites: params.allowDurableMemoryWrites,
+        },
+      );
     }
   } catch (err) {
     logger.warn(
@@ -328,6 +335,7 @@ export async function maybeCompactSession(params: {
   model: string;
   channelId: string;
   promptMode?: PromptMode;
+  allowDurableMemoryWrites?: boolean;
 }): Promise<void> {
   if (!SESSION_COMPACTION_ENABLED) return;
 
@@ -402,14 +410,17 @@ export async function maybeCompactSession(params: {
       channelId: params.channelId,
       context: 'compaction',
     });
-  if (pluginManager) {
-    await pluginManager.notifyBeforeCompaction({
-      sessionId: params.sessionId,
-      agentId: params.agentId,
-      channelId: params.channelId,
-      summary: session.session_summary,
-      olderMessages: candidate.olderMessages,
-    });
+  if (pluginManager && params.allowDurableMemoryWrites !== false) {
+    await pluginManager.notifyBeforeCompaction(
+      {
+        sessionId: params.sessionId,
+        agentId: params.agentId,
+        channelId: params.channelId,
+        summary: session.session_summary,
+        olderMessages: candidate.olderMessages,
+      },
+      { allowDurableMemoryWrites: params.allowDurableMemoryWrites },
+    );
   }
   if (pluginManager) {
     const memoryBehavior = await pluginManager.getMemoryLayerBehavior();
@@ -426,11 +437,13 @@ export async function maybeCompactSession(params: {
     }
   }
 
-  await runPreCompactionMemoryFlush({
-    ...params,
-    sessionSummary: session.session_summary,
-    olderMessages: candidate.olderMessages,
-  });
+  if (params.allowDurableMemoryWrites !== false) {
+    await runPreCompactionMemoryFlush({
+      ...params,
+      sessionSummary: session.session_summary,
+      olderMessages: candidate.olderMessages,
+    });
+  }
 
   const summary = await generateCompactionSummary({
     ...params,
@@ -480,13 +493,16 @@ export async function maybeCompactSession(params: {
     },
     'Session compacted',
   );
-  if (pluginManager) {
-    await pluginManager.notifyAfterCompaction({
-      sessionId: params.sessionId,
-      agentId: params.agentId,
-      channelId: params.channelId,
-      summary,
-      olderMessages: candidate.olderMessages,
-    });
+  if (pluginManager && params.allowDurableMemoryWrites !== false) {
+    await pluginManager.notifyAfterCompaction(
+      {
+        sessionId: params.sessionId,
+        agentId: params.agentId,
+        channelId: params.channelId,
+        summary,
+        olderMessages: candidate.olderMessages,
+      },
+      { allowDurableMemoryWrites: params.allowDurableMemoryWrites },
+    );
   }
 }

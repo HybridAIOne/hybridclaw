@@ -341,6 +341,7 @@ export function isAdminActionAllowed(
   action: AdminRbacAction,
 ): boolean {
   if (!payload) return true;
+  if (payload.kind === 'user') return false;
   const claims = collectAdminActionClaims(payload);
   if (!claims) return true;
   return claims.has(action) === true || hasWildcardClaim(claims, action);
@@ -446,6 +447,17 @@ export function resolveAdminRbacAction(
     if (method === 'GET') return 'admin.team.read';
     if (method === 'POST') return 'admin.team.write';
     return null;
+  }
+  const agentRouteSegments = pathname.split('/').filter(Boolean);
+  if (
+    agentRouteSegments.length === 5 &&
+    agentRouteSegments[0] === 'api' &&
+    agentRouteSegments[1] === 'admin' &&
+    agentRouteSegments[2] === 'agents' &&
+    agentRouteSegments[4] === 'shares' &&
+    (method === 'GET' || method === 'POST' || method === 'DELETE')
+  ) {
+    return 'admin.agents.write';
   }
   if (isPathOrChild(pathname, '/api/admin/agents')) {
     if (method === 'GET') return 'admin.agents.read';

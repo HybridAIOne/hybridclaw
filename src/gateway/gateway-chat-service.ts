@@ -16,6 +16,7 @@ import {
 } from '../agent/prompt-parts.js';
 import { processSideEffects } from '../agent/side-effects.js';
 import { isSilentReply } from '../agent/silent-reply.js';
+import { hasActiveAgentGrant } from '../agents/agent-grants.js';
 import {
   resolveAgentConfig,
   resolveAgentEscalationTarget,
@@ -42,11 +43,13 @@ import {
 } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { preprocessContextReferences } from '../context-references/index.js';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import {
   clearScheduledGoalContinuation,
   isGoalContinuationSource,
   pauseActiveGoalForSession,
 } from '../goals/goal-runtime.js';
+import { normalizePrincipal } from '../identity/principal.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
@@ -73,6 +76,11 @@ import {
   matchesModelFamily,
 } from '../providers/model-lookup.js';
 import { isGpt5ModelId } from '../providers/model-metadata.js';
+import {
+  isUserChatContentAllowed,
+  requireOwnedUserSession,
+  requireUserSessionKey,
+} from '../security/user-access.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { maybeAutoTitleSession } from '../session/session-title.js';
@@ -699,9 +707,60 @@ function buildA2AChatThreadId(session: {
 
 const gatewaySessionQueue = new KeyedSerialQueue();
 
+function normalizeScopedUserChatRequest(req: GatewayChatRequest): void {
+  if (!req.principal) return;
+  const principal = normalizePrincipal(req.principal);
+  req.principal = principal;
+  req.guildId = null;
+  req.channelId = 'web';
+  req.userId = principal;
+  req.username = principal;
+  req.chatbotId = undefined;
+  req.model = undefined;
+  req.enableRag = undefined;
+  req.executionSessionId = undefined;
+  req.executorModeOverride = undefined;
+  req.autoApproveTools = false;
+  req.neverAutoApproveTools = undefined;
+  req.workspacePathOverride = undefined;
+  req.workspaceDisplayRootOverride = undefined;
+  req.maxTokens = undefined;
+  req.maxWallClockMs = undefined;
+  req.inactivityTimeoutMs = undefined;
+  req.bashProxy = undefined;
+  req.promptMode = undefined;
+  req.includePromptParts = undefined;
+  req.omitPromptParts = undefined;
+  req.addressEnvelope = undefined;
+  req.onProactiveMessage = undefined;
+  req.source = undefined;
+  req.delegationPublicId = undefined;
+  req.appBuild = undefined;
+  req.appCategory = undefined;
+  req.appKind = undefined;
+}
+
+function assertScopedUserGrantStillActive(params: {
+  principal?: string;
+  agentId: string;
+  signal: AbortSignal;
+}): void {
+  if (!params.principal) return;
+  if (
+    params.signal.aborted ||
+    !hasActiveAgentGrant(params.agentId, params.principal)
+  ) {
+    throw new GatewayRequestError(
+      403,
+      'Agent access grant was revoked or expired.',
+    );
+  }
+}
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
+  normalizeScopedUserChatRequest(req);
   const source = req.source?.trim() || 'gateway.chat';
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
@@ -733,6 +792,34 @@ async function handleGatewayMessageInner(
       'External channel turns are disabled while A2A local mode is enabled.',
     );
   }
+  if (req.principal) {
+    if (!isUserChatContentAllowed(req.content)) {
+      throw new GatewayRequestError(403, 'Forbidden.');
+    }
+    const existingSession = memoryService.getSessionById(req.sessionId);
+    if (existingSession) {
+      const ownedSession = requireOwnedUserSession(
+        req.principal,
+        existingSession.id,
+      );
+      if (req.agentId?.trim() && req.agentId.trim() !== ownedSession.agent_id) {
+        throw new GatewayRequestError(403, 'Forbidden.');
+      }
+      req.agentId = ownedSession.agent_id;
+    } else {
+      req.agentId = requireUserSessionKey({
+        principal: req.principal,
+        sessionKey: req.sessionId,
+        agentId: req.agentId,
+      });
+    }
+    const preflight = resolveAgentForRequest({
+      agentId: req.agentId,
+      session: existingSession,
+      principal: req.principal,
+    });
+    req.agentId = preflight.agentId;
+  }
   const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway({
     sessionId: req.sessionId,
     channelId: req.channelId,
@@ -751,6 +838,7 @@ async function handleGatewayMessageInner(
     chatbotId: req.chatbotId,
     model: req.model,
     enableRag: req.enableRag,
+    allowDurableMemoryWrites: !req.principal,
     policy: sessionResetPolicy,
   });
   const autoResetSession = memoryService.resetSessionIfExpired(req.sessionId, {
@@ -761,15 +849,20 @@ async function handleGatewayMessageInner(
     const previousSessionId = req.sessionId;
     req.sessionId = autoResetSession.id;
     if (pluginManager) {
-      await pluginManager.handleSessionReset({
-        previousSessionId,
-        sessionId: req.sessionId,
-        userId: req.userId,
-        agentId:
-          req.agentId?.trim() || autoResetSession.agent_id || DEFAULT_AGENT_ID,
-        channelId: req.channelId,
-        reason: 'auto-reset',
-      });
+      await pluginManager.handleSessionReset(
+        {
+          previousSessionId,
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId:
+            req.agentId?.trim() ||
+            autoResetSession.agent_id ||
+            DEFAULT_AGENT_ID,
+          channelId: req.channelId,
+          reason: 'auto-reset',
+        },
+        { allowDurableMemoryWrites: !req.principal },
+      );
     }
   }
   let session = memoryService.getOrCreateSession(
@@ -810,7 +903,19 @@ async function handleGatewayMessageInner(
       error: addressed.message,
     });
   }
+  if (req.principal && addressed.kind === 'remote') {
+    throw new GatewayRequestError(
+      403,
+      'Remote agent addressing is not available to shared users.',
+    );
+  }
   if (addressed.kind === 'fanout') {
+    if (req.principal) {
+      throw new GatewayRequestError(
+        403,
+        'Agent fanout is not available to shared users.',
+      );
+    }
     if (addressed.agentIds.length === 0) {
       return attachSessionIdentity({
         status: 'error',
@@ -958,6 +1063,12 @@ async function handleGatewayMessageInner(
     });
   }
   if (addressed.kind === 'agent') {
+    if (req.principal && addressed.agentId !== session.agent_id) {
+      throw new GatewayRequestError(
+        403,
+        'Agent switching is not available inside a shared-user session.',
+      );
+    }
     req.content = addressed.content;
     req.agentId = addressed.agentId;
     req.addressEnvelope = addressed.envelope;
@@ -1001,23 +1112,27 @@ async function handleGatewayMessageInner(
       });
     }
   }
-  const activeGatewayRequest = registerActiveGatewayRequest({
-    sessionId: req.sessionId,
-    executionSessionId: req.executionSessionId,
-    abortSignal: req.abortSignal,
-  });
   const resolvedRequest = resolveAgentForRequest({
     agentId: req.agentId,
     session,
     model: req.model,
     chatbotId: req.chatbotId,
+    principal: req.principal,
   });
   const {
     agentId,
     model: resolvedModel,
     chatbotId: resolvedChatbotId,
   } = resolvedRequest;
+  const activeGatewayRequest = registerActiveGatewayRequest({
+    sessionId: req.sessionId,
+    executionSessionId: req.executionSessionId,
+    abortSignal: req.abortSignal,
+    agentId,
+    principal: req.principal,
+  });
   const resolvedAgent = resolveAgentConfig(agentId);
+  const sharedUserSession = Boolean(req.principal);
   let model = resolvedModel;
   let chatbotId = resolvedChatbotId;
   const channelType =
@@ -1071,6 +1186,7 @@ async function handleGatewayMessageInner(
       chatbotId,
       model,
       enableRag: req.enableRag ?? session.enable_rag === 1,
+      allowDurableMemoryWrites: !req.principal,
       policy: sessionResetPolicy,
     });
     const reboundSession = memoryService.resetSessionIfExpired(req.sessionId, {
@@ -1081,14 +1197,17 @@ async function handleGatewayMessageInner(
       const previousSessionId = req.sessionId;
       req.sessionId = reboundSession.id;
       if (pluginManager) {
-        await pluginManager.handleSessionReset({
-          previousSessionId,
-          sessionId: req.sessionId,
-          userId: req.userId,
-          agentId,
-          channelId: req.channelId,
-          reason: 'auto-reset',
-        });
+        await pluginManager.handleSessionReset(
+          {
+            previousSessionId,
+            sessionId: req.sessionId,
+            userId: req.userId,
+            agentId,
+            channelId: req.channelId,
+            reason: 'auto-reset',
+          },
+          { allowDurableMemoryWrites: !req.principal },
+        );
       }
     }
     session = memoryService.getOrCreateSession(
@@ -1105,11 +1224,30 @@ async function handleGatewayMessageInner(
   const proxy = resolvedAgent.proxy;
   if (proxy) {
     try {
+      assertScopedUserGrantStillActive({
+        principal: req.principal,
+        agentId,
+        signal: activeGatewayRequest.signal,
+      });
       const result = await forwardGatewayMessageToProxyAgent({
-        req,
+        req: {
+          ...req,
+          onTextDelta: req.onTextDelta
+            ? (delta) => {
+                if (!activeGatewayRequest.signal.aborted) {
+                  req.onTextDelta?.(delta);
+                }
+              }
+            : undefined,
+        },
         agent: { ...resolvedAgent, proxy },
         runId,
         abortSignal: activeGatewayRequest.signal,
+      });
+      assertScopedUserGrantStillActive({
+        principal: req.principal,
+        agentId,
+        signal: activeGatewayRequest.signal,
       });
       return attachSessionIdentity({
         ...result,
@@ -1153,14 +1291,17 @@ async function handleGatewayMessageInner(
     req.sessionId = rotated.session.id;
     session = rotated.session;
     if (pluginManager) {
-      await pluginManager.handleSessionReset({
-        previousSessionId: rotated.previousSession.id,
-        sessionId: rotated.session.id,
-        userId: req.userId,
-        agentId,
-        channelId: req.channelId,
-        reason: 'workspace-reset',
-      });
+      await pluginManager.handleSessionReset(
+        {
+          previousSessionId: rotated.previousSession.id,
+          sessionId: rotated.session.id,
+          userId: req.userId,
+          agentId,
+          channelId: req.channelId,
+          reason: 'workspace-reset',
+        },
+        { allowDurableMemoryWrites: !req.principal },
+      );
     }
     logger.info(
       {
@@ -1298,6 +1439,11 @@ async function handleGatewayMessageInner(
     const routingEvent = routingOutcome.events.find((event) =>
       Boolean(event.metadata?.conciergeRouter),
     );
+    assertScopedUserGrantStillActive({
+      principal: req.principal,
+      agentId,
+      signal: activeGatewayRequest.signal,
+    });
     const routingMetadata = getConciergeRouterMetadata(routingEvent);
     for (const event of routingOutcome.events) {
       if (event.action === 'allow') continue;
@@ -1344,6 +1490,7 @@ async function handleGatewayMessageInner(
         toolCallCount: 0,
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+        allowDurableMemoryWrites: !req.principal,
       });
       maybeAutoTitleSession({
         ...autoTitleParams(),
@@ -1365,6 +1512,7 @@ async function handleGatewayMessageInner(
         assistantMessageId: storedTurn.assistantMessageId,
       };
       await emitPostTurnForResult(result);
+      activeGatewayRequest.release();
       return attachSessionIdentity(result);
     }
     if (routingMetadata) {
@@ -1442,6 +1590,9 @@ async function handleGatewayMessageInner(
     runId,
     event: {
       type: 'session.start',
+      ...(req.principal
+        ? { actor: { type: 'user' as const, id: req.principal } }
+        : {}),
       userId: req.userId,
       channel: req.channelId,
       cwd: workspacePath,
@@ -1454,6 +1605,9 @@ async function handleGatewayMessageInner(
     runId,
     event: {
       type: 'turn.start',
+      ...(req.principal
+        ? { actor: { type: 'user' as const, id: req.principal } }
+        : {}),
       turnIndex,
       userInput: userTurnContent,
       ...(userTurnContent !== req.content ? { rawUserInput: req.content } : {}),
@@ -1498,6 +1652,11 @@ async function handleGatewayMessageInner(
   }
 
   if (modelRequiresChatbotId(model) && !chatbotId) {
+    assertScopedUserGrantStillActive({
+      principal: req.principal,
+      agentId,
+      signal: activeGatewayRequest.signal,
+    });
     const error =
       chatbotResolution.error ||
       'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
@@ -1572,10 +1731,16 @@ async function handleGatewayMessageInner(
       toolCallCount: 0,
     });
     await emitPostTurnForResult(result);
+    activeGatewayRequest.release();
     return attachSessionIdentity(result);
   }
 
   if (isVersionOnlyQuestion(req.content)) {
+    assertScopedUserGrantStillActive({
+      principal: req.principal,
+      agentId,
+      signal: activeGatewayRequest.signal,
+    });
     const resultText = `HybridClaw v${APP_VERSION}`;
     const storedTurn = recordSuccessfulTurn({
       sessionId: req.sessionId,
@@ -1595,6 +1760,7 @@ async function handleGatewayMessageInner(
       toolCallCount: 0,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+      allowDurableMemoryWrites: !req.principal,
     });
     const result: GatewayChatResult = {
       status: 'success',
@@ -1615,6 +1781,7 @@ async function handleGatewayMessageInner(
       ...autoTitleParams(),
       userContent: req.content,
     });
+    activeGatewayRequest.release();
     return attachSessionIdentity(result);
   }
 
@@ -1707,6 +1874,12 @@ async function handleGatewayMessageInner(
       )
     : undefined;
   const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
+  const blockedTools = Array.from(
+    new Set([
+      ...(mediaPolicy.blockedTools ?? []),
+      ...(sharedUserSession ? ['session_search', 'delegate', 'cron'] : []),
+    ]),
+  );
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
   const { messages, skills, historyStats, explicitSkillInvocation } =
     buildConversationContext({
@@ -1733,7 +1906,7 @@ async function handleGatewayMessageInner(
         workspacePath: workspaceDisplayPath,
       },
       allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
-      blockedTools: mediaPolicy.blockedTools,
+      blockedTools,
     });
   const historyStart =
     messages.length > 0 && messages[0].role === 'system' ? 1 : 0;
@@ -1830,6 +2003,11 @@ async function handleGatewayMessageInner(
       userContent: agentUserContent,
       skill: activeSkill,
     });
+    assertScopedUserGrantStillActive({
+      principal: req.principal,
+      agentId,
+      signal: activeGatewayRequest.signal,
+    });
     for (const event of preSendOutcome.events) {
       if (event.action === 'allow') continue;
       logger.info(
@@ -1868,6 +2046,7 @@ async function handleGatewayMessageInner(
         toolCallCount: 0,
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+        allowDurableMemoryWrites: !req.principal,
       });
       const result: GatewayChatResult = {
         status: 'success',
@@ -1884,6 +2063,7 @@ async function handleGatewayMessageInner(
         assistantMessageId: storedTurn.assistantMessageId,
       };
       await emitPostTurnForResult(result);
+      activeGatewayRequest.release();
       return attachSessionIdentity(result);
     }
     agentUserContent = preSendOutcome.userContent;
@@ -1928,6 +2108,7 @@ async function handleGatewayMessageInner(
     });
     let firstTextDeltaMs: number | null = null;
     const onTextDelta = (delta: string): void => {
+      if (activeGatewayRequest.signal.aborted) return;
       if (firstTextDeltaMs == null && delta) {
         firstTextDeltaMs = Date.now() - startedAt;
         logger.debug(
@@ -1950,9 +2131,14 @@ async function handleGatewayMessageInner(
     // activity trace (the web streaming handler only records what it receives).
     const emitThinkingDeltas =
       req.onThinkingDelta && shouldEmitThinking
-        ? (delta: string): void => req.onThinkingDelta?.(delta)
+        ? (delta: string): void => {
+            if (!activeGatewayRequest.signal.aborted) {
+              req.onThinkingDelta?.(delta);
+            }
+          }
         : undefined;
     const onToolProgress = (event: ToolProgressEvent): void => {
+      if (activeGatewayRequest.signal.aborted) return;
       logger.debug(
         {
           ...debugMeta,
@@ -1967,6 +2153,7 @@ async function handleGatewayMessageInner(
       req.onToolProgress?.(event);
     };
     const onApprovalProgress = (approval: PendingApproval): void => {
+      if (activeGatewayRequest.signal.aborted) return;
       logger.debug(
         {
           ...debugMeta,
@@ -1987,7 +2174,7 @@ async function handleGatewayMessageInner(
       'Gateway chat invoking agent',
     );
     if (routingExecutionNotice) {
-      if (!outputGuardActive) {
+      if (!outputGuardActive && !activeGatewayRequest.signal.aborted) {
         req.onTextDelta?.(routingExecutionNotice);
       }
     }
@@ -2013,13 +2200,20 @@ async function handleGatewayMessageInner(
         model: model || undefined,
       });
     }
+    assertScopedUserGrantStillActive({
+      principal: req.principal,
+      agentId,
+      signal: activeGatewayRequest.signal,
+    });
     agentStage = 'awaiting-agent-output';
     const output = await runAgent({
       sessionId: req.executionSessionId || req.sessionId,
       messages,
       chatbotId,
       enableRag,
-      executorModeOverride: req.executorModeOverride,
+      executorModeOverride: sharedUserSession
+        ? 'container'
+        : req.executorModeOverride,
       model,
       agentId,
       addressEnvelope: req.addressEnvelope,
@@ -2034,10 +2228,13 @@ async function handleGatewayMessageInner(
       ralphMaxIterations: resolveSessionRalphIterations(session),
       fullAutoEnabled,
       fullAutoNeverApproveTools: neverAutoApproveTools,
-      scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
+      scheduleSideEffectsEnabled:
+        !sharedUserSession && !isGoalContinuationSource(source),
       scheduledTasks,
+      isolateSessionTranscripts: sharedUserSession,
       allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
-      blockedTools: mediaPolicy.blockedTools,
+      blockedTools,
+      memoryWritesEnabled: !sharedUserSession,
       onTextDelta: emitTextDeltas,
       onThinkingDelta: emitThinkingDeltas,
       onToolProgress,
@@ -2047,6 +2244,11 @@ async function handleGatewayMessageInner(
       audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
       escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
+    });
+    assertScopedUserGrantStillActive({
+      principal: req.principal,
+      agentId,
+      signal: activeGatewayRequest.signal,
     });
     agentStage = 'processing-agent-output';
     const storedUserContent = buildStoredUserTurnContent(
@@ -2086,11 +2288,13 @@ async function handleGatewayMessageInner(
       toolExecutions,
       skills,
     });
-    persistSpeechTranscriptsToScopedMemory({
-      sessionId: req.sessionId,
-      skillName: observedSkillName,
-      toolExecutions,
-    });
+    if (!req.principal) {
+      persistSpeechTranscriptsToScopedMemory({
+        sessionId: req.sessionId,
+        skillName: observedSkillName,
+        toolExecutions,
+      });
+    }
     emitDiagramRuntimeEventsForToolExecutions({
       sessionId: req.sessionId,
       runId,
@@ -2181,53 +2385,55 @@ async function handleGatewayMessageInner(
       ReturnType<typeof normalizeDelegationEffect>['plan']
     >[] = [];
     processSideEffects(output, req.sessionId, req.channelId, {
-      onDelegation: (effect) => {
-        const normalized = normalizeDelegationEffect(effect, model);
-        if (!normalized.plan) {
-          logger.warn(
-            {
-              sessionId: req.sessionId,
-              error: normalized.error || 'unknown',
-              effect,
-            },
-            'Delegation skipped — invalid payload',
-          );
-          return;
-        }
+      onDelegation: sharedUserSession
+        ? undefined
+        : (effect) => {
+            const normalized = normalizeDelegationEffect(effect, model);
+            if (!normalized.plan) {
+              logger.warn(
+                {
+                  sessionId: req.sessionId,
+                  error: normalized.error || 'unknown',
+                  effect,
+                },
+                'Delegation skipped — invalid payload',
+              );
+              return;
+            }
 
-        const childDepth = parentDepth + 1;
-        if (childDepth > PROACTIVE_DELEGATION_MAX_DEPTH) {
-          logger.info(
-            {
-              sessionId: req.sessionId,
-              childDepth,
-              maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH,
-            },
-            'Delegation skipped — depth limit reached',
-          );
-          return;
-        }
+            const childDepth = parentDepth + 1;
+            if (childDepth > PROACTIVE_DELEGATION_MAX_DEPTH) {
+              logger.info(
+                {
+                  sessionId: req.sessionId,
+                  childDepth,
+                  maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH,
+                },
+                'Delegation skipped — depth limit reached',
+              );
+              return;
+            }
 
-        const requestedRuns = normalized.plan.tasks.length;
-        if (
-          acceptedDelegations + requestedRuns >
-          PROACTIVE_DELEGATION_MAX_PER_TURN
-        ) {
-          logger.info(
-            {
-              sessionId: req.sessionId,
-              limit: PROACTIVE_DELEGATION_MAX_PER_TURN,
-              requestedRuns,
-              acceptedDelegations,
-            },
-            'Delegation skipped — per-turn limit reached',
-          );
-          return;
-        }
-        acceptedDelegations += requestedRuns;
-        acceptedDelegationPlans.push(normalized.plan);
-      },
-      allowSchedules: !isGoalContinuationSource(source),
+            const requestedRuns = normalized.plan.tasks.length;
+            if (
+              acceptedDelegations + requestedRuns >
+              PROACTIVE_DELEGATION_MAX_PER_TURN
+            ) {
+              logger.info(
+                {
+                  sessionId: req.sessionId,
+                  limit: PROACTIVE_DELEGATION_MAX_PER_TURN,
+                  requestedRuns,
+                  acceptedDelegations,
+                },
+                'Delegation skipped — per-turn limit reached',
+              );
+              return;
+            }
+            acceptedDelegations += requestedRuns;
+            acceptedDelegationPlans.push(normalized.plan);
+          },
+      allowSchedules: !sharedUserSession && !isGoalContinuationSource(source),
     });
     const ackText =
       acceptedDelegations > 0
@@ -2449,6 +2655,7 @@ async function handleGatewayMessageInner(
       toolCallCount: toolExecutions.length,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+      allowDurableMemoryWrites: !req.principal,
     });
     if (onboardingAuditContext) {
       recordBootstrapOnboardingAssistantMessage(onboardingAuditContext, {
@@ -2468,20 +2675,26 @@ async function handleGatewayMessageInner(
       resultText,
     });
     if (pluginManager) {
-      await pluginManager.notifyMemoryWrites({
-        sessionId: req.sessionId,
-        agentId,
-        channelId: req.channelId,
-        toolExecutions,
-      });
-      void pluginManager
-        .notifyTurnComplete({
+      await pluginManager.notifyMemoryWrites(
+        {
           sessionId: req.sessionId,
-          userId: req.userId,
           agentId,
-          workspacePath,
-          messages: storedTurnMessages,
-        })
+          channelId: req.channelId,
+          toolExecutions,
+        },
+        { allowDurableMemoryWrites: !req.principal },
+      );
+      void pluginManager
+        .notifyTurnComplete(
+          {
+            sessionId: req.sessionId,
+            userId: req.userId,
+            agentId,
+            workspacePath,
+            messages: storedTurnMessages,
+          },
+          { allowDurableMemoryWrites: !req.principal },
+        )
         .catch((error) => {
           logger.warn(
             { sessionId: req.sessionId, agentId, error },
@@ -2489,31 +2702,34 @@ async function handleGatewayMessageInner(
           );
         });
       void pluginManager
-        .notifyAgentEnd({
-          sessionId: req.sessionId,
-          userId: req.userId,
-          agentId,
-          channelId: req.channelId,
-          messages: storedTurnMessages,
-          resultText,
-          toolNames: toolExecutions.map((execution) => execution.name),
-          model: model || undefined,
-          durationMs: Date.now() - startedAt,
-          tokenUsage: output.tokenUsage
-            ? {
-                promptTokens: output.tokenUsage.apiUsageAvailable
-                  ? output.tokenUsage.apiPromptTokens
-                  : output.tokenUsage.estimatedPromptTokens,
-                completionTokens: output.tokenUsage.apiUsageAvailable
-                  ? output.tokenUsage.apiCompletionTokens
-                  : output.tokenUsage.estimatedCompletionTokens,
-                totalTokens: output.tokenUsage.apiUsageAvailable
-                  ? output.tokenUsage.apiTotalTokens
-                  : output.tokenUsage.estimatedTotalTokens,
-                modelCalls: output.tokenUsage.modelCalls,
-              }
-            : undefined,
-        })
+        .notifyAgentEnd(
+          {
+            sessionId: req.sessionId,
+            userId: req.userId,
+            agentId,
+            channelId: req.channelId,
+            messages: storedTurnMessages,
+            resultText,
+            toolNames: toolExecutions.map((execution) => execution.name),
+            model: model || undefined,
+            durationMs: Date.now() - startedAt,
+            tokenUsage: output.tokenUsage
+              ? {
+                  promptTokens: output.tokenUsage.apiUsageAvailable
+                    ? output.tokenUsage.apiPromptTokens
+                    : output.tokenUsage.estimatedPromptTokens,
+                  completionTokens: output.tokenUsage.apiUsageAvailable
+                    ? output.tokenUsage.apiCompletionTokens
+                    : output.tokenUsage.estimatedCompletionTokens,
+                  totalTokens: output.tokenUsage.apiUsageAvailable
+                    ? output.tokenUsage.apiTotalTokens
+                    : output.tokenUsage.estimatedTotalTokens,
+                  modelCalls: output.tokenUsage.modelCalls,
+                }
+              : undefined,
+          },
+          { allowDurableMemoryWrites: !req.principal },
+        )
         .catch((error) => {
           logger.warn(
             { sessionId: req.sessionId, agentId, error },

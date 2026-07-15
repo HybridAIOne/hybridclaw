@@ -37,10 +37,12 @@ const VIEW_SWITCH_CONFIG_REFRESH_INTERVAL_MS = 30_000;
 
 export function useConfiguredViewSwitchItems(
   token: string,
+  enabled = true,
 ): ReadonlyArray<ViewSwitchItem> | undefined {
   const configQuery = useQuery({
     queryKey: ['config', token],
     queryFn: () => fetchConfig(token),
+    enabled,
     staleTime: 30_000,
     refetchInterval: VIEW_SWITCH_CONFIG_REFRESH_INTERVAL_MS,
     refetchOnWindowFocus: true,

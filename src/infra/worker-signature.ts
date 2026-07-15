@@ -39,6 +39,7 @@ export interface WorkerSignatureInput {
   runtimeEnv?: Record<string, string>;
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
+  isolateSessionTranscripts?: boolean;
   bashProxy?:
     | {
         mode: 'docker-exec';
@@ -154,6 +155,7 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     workspaceDisplayRootOverride: String(
       input.workspaceDisplayRootOverride || '',
     ).trim(),
+    isolateSessionTranscripts: input.isolateSessionTranscripts === true,
     bashProxy:
       input.bashProxy?.mode === 'docker-exec'
         ? {

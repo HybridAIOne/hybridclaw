@@ -35,6 +35,17 @@ describe('admin RBAC role bundles', () => {
     expect(isAdminActionAllowed(payload, 'admin.gateway.shutdown')).toBe(true);
   });
 
+  test('denies every admin action to user sessions even without scoped claims', () => {
+    const payload = {
+      kind: 'user',
+      sub: 'guest.user@hybridai',
+    };
+
+    for (const action of ADMIN_RBAC_ACTIONS) {
+      expect(isAdminActionAllowed(payload, action)).toBe(false);
+    }
+  });
+
   test('expands config manager role claims into route actions', () => {
     const payload = { role: 'admin.config_manager' };
     const claims = collectAdminActionClaims(payload);
@@ -142,6 +153,23 @@ describe('admin RBAC role bundles', () => {
     expect(
       resolveAdminRbacAction('/api/admin/a2a/local-mode', 'PUT'),
     ).toBe('admin.a2a.write');
+  });
+
+  test('gates every agent shares operation with agent write access', () => {
+    for (const method of ['GET', 'POST', 'DELETE']) {
+      expect(
+        resolveAdminRbacAction('/api/admin/agents/lexware/shares', method),
+      ).toBe('admin.agents.write');
+    }
+    expect(
+      isAdminActionAllowed(
+        { role: 'admin.integrations_manager' },
+        'admin.agents.write',
+      ),
+    ).toBe(true);
+    expect(
+      isAdminActionAllowed({ role: 'admin.viewer' }, 'admin.agents.write'),
+    ).toBe(false);
   });
 
   test('maps connector routes to read and secret mutation actions', () => {

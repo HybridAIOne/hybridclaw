@@ -431,6 +431,9 @@ WhatsApp pairing.
 
 ```bash
 hybridclaw agent list
+hybridclaw agent share <agent-id> <email-or-principal> [--expires-at <iso-date>]
+hybridclaw agent unshare <agent-id> <email-or-principal>
+hybridclaw agent shares <agent-id>
 hybridclaw agent config <json|--json <json>> [--activate]
 hybridclaw agent export [agent-id] [-o <path>]
 hybridclaw agent inspect <file.claw>
@@ -446,6 +449,13 @@ maps to `install`. Local TUI/web sessions also expose `/agent install <source>`
 for the same archive flows against a running gateway.
 `agent activate <agent-id>` sets the default agent for new requests that do not
 pin an agent explicitly.
+
+`agent share` grants a user access to one local agent. HybridAI email addresses
+are canonicalized before storage (`name@hybridai.one` becomes
+`name@hybridai`), and every successful share or unshare is written to the audit
+chain. `agent shares` lists stored grants, including their source, sync time,
+and optional expiry. A shared user signs in through the HybridAI handoff and
+sees only agents with an active grant; the user session has no admin actions.
 
 `agent config` is the JSON provisioning path for generated agents. It upserts
 agent metadata directly, can overwrite top-level workspace markdown files, can

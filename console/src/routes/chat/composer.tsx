@@ -81,6 +81,7 @@ export function Composer(props: {
   models?: ModelSwitchEntry[];
   selectedModelId?: string;
   onModelSwitch?: (modelId: string) => void;
+  showModelSwitch?: boolean;
   initialValue?: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -610,12 +611,14 @@ export function Composer(props: {
                   props.onAgentSwitch?.(agent.id);
                 }}
               />
-              <ModelSwitchSelect
-                models={modelOptions}
-                selectedModelId={selectedModelId}
-                disabled={props.isStreaming}
-                onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
-              />
+              {props.showModelSwitch !== false ? (
+                <ModelSwitchSelect
+                  models={modelOptions}
+                  selectedModelId={selectedModelId}
+                  disabled={props.isStreaming}
+                  onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
+                />
+              ) : null}
             </div>
             <button
               type="button"

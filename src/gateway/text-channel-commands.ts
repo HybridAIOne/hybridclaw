@@ -128,13 +128,24 @@ function buildApprovalUserMessage(params: {
 
 export async function handleTextChannelApprovalCommand(params: {
   sessionId: string;
+  agentId?: string | null;
   guildId: string | null;
   channelId: string;
   userId: string;
   username: string | null;
   args: string[];
+  principal?: string;
 }): Promise<HandledTextChannelApprovalResult | null> {
-  const { sessionId, guildId, channelId, userId, username, args } = params;
+  const {
+    sessionId,
+    agentId,
+    guildId,
+    channelId,
+    userId,
+    username,
+    args,
+    principal,
+  } = params;
   if (parseLowerArg(args, 0) !== 'approve') return null;
 
   await cleanupExpiredPendingApprovals();
@@ -288,11 +299,13 @@ export async function handleTextChannelApprovalCommand(params: {
 
     const gatewayCommandResult = await handleGatewayCommand({
       sessionId,
+      agentId,
       guildId,
       channelId,
       userId,
       username,
       args: pending.commandAction.approveArgs,
+      principal,
     });
     return {
       handled: true,
@@ -319,12 +332,14 @@ export async function handleTextChannelApprovalCommand(params: {
     normalizePlaceholderToolReply(
       await handleGatewayMessage({
         sessionId,
+        agentId,
         guildId,
         channelId,
         userId,
         username,
         content: approvalContent,
         media: [],
+        principal,
       }),
     ),
   );

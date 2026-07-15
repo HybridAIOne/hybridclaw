@@ -175,6 +175,8 @@ function saveAppBuildSessions(map: Map<string, AppBuildSessionInfo>): void {
 
 export function ChatPage() {
   const auth = useAuth();
+  const isScopedUser =
+    auth.status === 'ready' && auth.gatewayStatus.access?.kind === 'user';
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const userId = useRef(readStoredUserId()).current;
@@ -241,6 +243,7 @@ export function ChatPage() {
 
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const launchAgentSessionIdRef = useRef<string | null>(null);
+  const requestedAgentBySessionRef = useRef<Map<string, string>>(new Map());
   const debouncedSessionSearchQuery = useDebouncedValue(
     sessionSearchQuery,
     160,
@@ -303,12 +306,11 @@ export function ChatPage() {
 
   if (launchAgentId && sessionId && !launchAgentSessionIdRef.current) {
     launchAgentSessionIdRef.current = sessionId;
+    requestedAgentBySessionRef.current.set(sessionId, launchAgentId);
   }
 
   const requestedHistoryAgentId =
-    sessionId && launchAgentSessionIdRef.current === sessionId
-      ? launchAgentId
-      : '';
+    requestedAgentBySessionRef.current.get(sessionId) ?? '';
 
   const refreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -321,7 +323,10 @@ export function ChatPage() {
   }, [queryClient, auth.token, userId, getSessionId]);
 
   const chatApiReady = isAuthReadyForApi(auth);
-  const viewSwitchItems = useConfiguredViewSwitchItems(auth.token);
+  const viewSwitchItems = useConfiguredViewSwitchItems(
+    auth.token,
+    !isScopedUser,
+  );
 
   const appStatusQuery = useQuery({
     queryKey: ['app-status', auth.token],
@@ -345,14 +350,14 @@ export function ChatPage() {
     queryKey: ['models', auth.token],
     queryFn: () => fetchModels(auth.token),
     staleTime: 30_000,
-    enabled: chatApiReady,
+    enabled: chatApiReady && !isScopedUser,
   });
   const skillsQuery = useQuery({
     queryKey: ['skills', auth.token],
     queryFn: () => fetchSkills(auth.token),
     staleTime: 60_000,
     retry: false,
-    enabled: chatApiReady,
+    enabled: chatApiReady && !isScopedUser,
   });
 
   // /model set is session-scoped on the gateway, so re-seed the local selection
@@ -377,20 +382,24 @@ export function ChatPage() {
   }, [appStatusQuery.error, setError]);
 
   useEffect(() => {
-    if (!modelsQuery.error) return;
+    if (isScopedUser || !modelsQuery.error) return;
     console.error(
       'Failed to load models list for chat page',
       modelsQuery.error,
     );
     setError('Failed to load the model list. Model switching is unavailable.');
-  }, [modelsQuery.error, setError]);
+  }, [isScopedUser, modelsQuery.error, setError]);
+
+  const recentChatQueryScope: RecentChatScope = isScopedUser
+    ? 'user'
+    : recentChatScope;
 
   const recentQuery = useQuery({
     queryKey: chatRecentQueryKey(
       auth.token,
       userId,
       trimmedSessionSearchQuery,
-      recentChatScope,
+      recentChatQueryScope,
     ),
     queryFn: () =>
       fetchChatRecent(
@@ -401,7 +410,7 @@ export function ChatPage() {
           ? CHAT_UI_CONFIG.maxSearchResults
           : CHAT_UI_CONFIG.maxRecentSessions,
         trimmedSessionSearchQuery || undefined,
-        recentChatScope,
+        recentChatQueryScope,
       ),
     staleTime: 10_000,
     enabled: chatApiReady,
@@ -418,13 +427,25 @@ export function ChatPage() {
       })),
     [agentsQuery.data],
   );
+  // Only send an agent with an explicit launch/switch target. Existing scoped
+  // sessions are already bound to their granted agent, which may not be the
+  // first item in the grant-filtered list.
+  const historyRequestAgentId = isScopedUser
+    ? requestedHistoryAgentId
+      ? (agentOptions.find(
+          (agent) =>
+            agent.id.toLowerCase() === requestedHistoryAgentId.toLowerCase(),
+        )?.id ?? (agentsQuery.isSuccess ? (agentOptions[0]?.id ?? '') : ''))
+      : ''
+    : requestedHistoryAgentId;
   const skillInvocationTargets = useMemo(() => {
+    if (isScopedUser) return new Map<string, string>();
     return new Map(
       (skillsQuery.data?.skills ?? [])
         .filter((skill) => skill.userInvocable)
         .map((skill) => [skill.name.toLowerCase(), skill.name]),
     );
-  }, [skillsQuery.data?.skills]);
+  }, [isScopedUser, skillsQuery.data?.skills]);
   const resolveAddressedAgentPresentation = useCallback(
     (content: string) => {
       const mentions = findAgentMentions(content);
@@ -443,7 +464,9 @@ export function ChatPage() {
     },
     [agentOptions],
   );
-  const modelOptions = modelsQuery.data?.models ?? EMPTY_MODELS;
+  const modelOptions = isScopedUser
+    ? EMPTY_MODELS
+    : (modelsQuery.data?.models ?? EMPTY_MODELS);
 
   const [previewApp, setPreviewApp] = useState<{
     id: string;
@@ -455,20 +478,24 @@ export function ChatPage() {
   const stream = useChatStream({
     token: auth.token,
     userId,
+    agentId: isScopedUser ? historyRequestAgentId : undefined,
+    sendStopCommand: !isScopedUser,
     getSessionId,
     setError,
     refreshRecent,
     onSessionIdCorrection: handleSessionIdCorrection,
     onModelResolved: setSelectedModelId,
     // When a build is captured into the gallery, pop it open as a preview.
-    onAppsCaptured: (apps) => setPreviewApp(apps[apps.length - 1] ?? null),
+    onAppsCaptured: isScopedUser
+      ? undefined
+      : (apps) => setPreviewApp(apps[apps.length - 1] ?? null),
     resolveAddressedAgentPresentation,
   });
 
   useEffect(() => {
     let active = true;
     setPreviewAppToken('');
-    if (!previewApp) return;
+    if (isScopedUser || !previewApp) return;
 
     createAppViewToken(auth.token, previewApp.id)
       .then((token) => {
@@ -483,7 +510,7 @@ export function ChatPage() {
     return () => {
       active = false;
     };
-  }, [auth.token, previewApp, setError]);
+  }, [auth.token, isScopedUser, previewApp, setError]);
 
   useEffect(() => {
     const message = errorState.message;
@@ -509,16 +536,19 @@ export function ChatPage() {
         auth.token,
         sessionId,
         userId,
-        requestedHistoryAgentId || undefined,
+        historyRequestAgentId || undefined,
       ),
-    enabled: chatApiReady && Boolean(sessionId),
+    enabled:
+      chatApiReady &&
+      Boolean(sessionId) &&
+      (!isScopedUser || !requestedHistoryAgentId || agentsQuery.isSuccess),
     staleTime: Infinity,
   });
 
   const contextQuery = useQuery({
     queryKey: chatContextQueryKey(auth.token, sessionId),
     queryFn: () => fetchChatContext(auth.token, sessionId),
-    enabled: chatApiReady && Boolean(sessionId),
+    enabled: chatApiReady && !isScopedUser && Boolean(sessionId),
     staleTime: 15_000,
     refetchOnWindowFocus: false,
   });
@@ -543,6 +573,8 @@ export function ChatPage() {
   const effectiveAgentId =
     selectedAgentId?.trim().toLowerCase() ||
     historyQuery.data?.agentId?.trim().toLowerCase() ||
+    historyRequestAgentId.trim().toLowerCase() ||
+    (isScopedUser ? agentOptions[0]?.id.trim().toLowerCase() : '') ||
     appStatusQuery.data?.defaultAgentId?.trim().toLowerCase() ||
     DEFAULT_AGENT_ID;
   const emptyChatHeader =
@@ -631,12 +663,8 @@ export function ChatPage() {
   }, [contextQuery.data?.snapshot?.model]);
 
   useEffect(() => {
-    if (launchAgentId && launchAgentSessionIdRef.current === sessionId) {
-      setSelectedAgentId(launchAgentId);
-      return;
-    }
-    setSelectedAgentId(null);
-  }, [launchAgentId, sessionId]);
+    setSelectedAgentId(sessionId ? historyRequestAgentId || null : null);
+  }, [historyRequestAgentId, sessionId]);
 
   useEffect(() => {
     if (!historyQuery.error) return;
@@ -657,7 +685,7 @@ export function ChatPage() {
   ]);
 
   useEffect(() => {
-    if (!mobileQr) return;
+    if (isScopedUser || !mobileQr) return;
     const previousOverflow = document.body.style.overflow;
     const previousActiveElement = document.activeElement;
     document.body.style.overflow = 'hidden';
@@ -697,7 +725,7 @@ export function ChatPage() {
         previousActiveElement.focus();
       }
     };
-  }, [mobileQr]);
+  }, [isScopedUser, mobileQr]);
 
   // Server may resolve to a canonical branch id; keep the URL in sync.
   useEffect(() => {
@@ -871,12 +899,13 @@ export function ChatPage() {
     // New Conversation intentionally creates a concrete no-user session, then
     // prunes older drafts so repeated clicks only keep the latest one.
     const nextSessionId = startFreshChat();
-    cleanupNoUserSessions(nextSessionId);
+    if (!isScopedUser) cleanupNoUserSessions(nextSessionId);
     refreshRecent();
   }, [
     stream.isActive,
     startFreshChat,
     cleanupNoUserSessions,
+    isScopedUser,
     refreshRecent,
     setError,
   ]);
@@ -887,7 +916,7 @@ export function ChatPage() {
       // reframed as a build request so the agent gathers requirements and then
       // builds a self-contained web app. Bare `/app` opens the Apps gallery.
       const appCommand = /^\/apps?\b[ \t]*([\s\S]*)$/i.exec(content.trim());
-      if (appCommand && media.length === 0) {
+      if (!isScopedUser && appCommand && media.length === 0) {
         const description = appCommand[1].trim();
         if (!description) {
           void navigate({ to: '/apps' });
@@ -907,7 +936,9 @@ export function ChatPage() {
       // their bubble and the incoming stream are visible without the "↓ Latest"
       // chip getting in the way.
       jumpToBottom();
-      const appBuild = appBuildSessionsRef.current.get(sid);
+      const appBuild = isScopedUser
+        ? undefined
+        : appBuildSessionsRef.current.get(sid);
       if (appBuild) {
         void stream.sendMessage(content, media, {
           appBuild: true,
@@ -920,6 +951,7 @@ export function ChatPage() {
     },
     [
       ensureSessionForSend,
+      isScopedUser,
       jumpToBottom,
       navigate,
       markAppBuildSession,
@@ -942,7 +974,7 @@ export function ChatPage() {
     autoSentSeedRef.current = true;
     // Drop the params so a refresh doesn't resend.
     window.history.replaceState(null, '', window.location.pathname);
-    if (initialChatSeed.appBuild) {
+    if (!isScopedUser && initialChatSeed.appBuild) {
       const sid = ensureSessionForSend();
       markAppBuildSession(sid, {
         category: initialChatSeed.appCategory,
@@ -952,6 +984,7 @@ export function ChatPage() {
     handleSendMessage(seed, []);
   }, [
     initialChatSeed,
+    isScopedUser,
     chatApiReady,
     historyQuery.isFetched,
     ensureSessionForSend,
@@ -1098,14 +1131,34 @@ export function ChatPage() {
   );
 
   const handleAgentSwitch = useCallback(
-    (agentId: string) =>
-      sendSlashSwitch(
-        ['agent', 'switch'],
-        agentId,
-        setSelectedAgentId,
-        'Could not switch agent — stop the current run and try again.',
-      ),
-    [sendSlashSwitch],
+    (agentId: string) => {
+      if (!isScopedUser) {
+        return sendSlashSwitch(
+          ['agent', 'switch'],
+          agentId,
+          setSelectedAgentId,
+          'Could not switch agent — stop the current run and try again.',
+        );
+      }
+      if (stream.isActive()) {
+        setError(
+          'Could not switch agent — stop the current run and try again.',
+        );
+        return;
+      }
+      const nextSessionId = startFreshChat();
+      requestedAgentBySessionRef.current.set(nextSessionId, agentId);
+      setSelectedAgentId(agentId);
+      refreshRecent();
+    },
+    [
+      isScopedUser,
+      refreshRecent,
+      sendSlashSwitch,
+      setError,
+      startFreshChat,
+      stream.isActive,
+    ],
   );
 
   const handleModelSwitch = useCallback(
@@ -1143,19 +1196,26 @@ export function ChatPage() {
 
   const handleRequestDeleteSession = useCallback(
     (target: ChatRecentSession) => {
+      if (isScopedUser) return;
       if (!canDeleteSession(target.sessionId)) return;
       setSessionPendingDelete(target);
     },
-    [canDeleteSession],
+    [canDeleteSession, isScopedUser],
   );
 
   const handleConfirmDeleteSession = useCallback(() => {
+    if (isScopedUser) return;
     if (!sessionPendingDelete) {
       throw new Error('Delete confirmation is missing a session.');
     }
     if (!canDeleteSession(sessionPendingDelete.sessionId)) return;
     deleteSessionMutation.mutate(sessionPendingDelete.sessionId);
-  }, [canDeleteSession, deleteSessionMutation, sessionPendingDelete]);
+  }, [
+    canDeleteSession,
+    deleteSessionMutation,
+    isScopedUser,
+    sessionPendingDelete,
+  ]);
 
   const handleHoverSession = useCallback(
     (targetId: string) => {
@@ -1175,7 +1235,7 @@ export function ChatPage() {
         auth.token,
         userId,
         trimmedSessionSearchQuery,
-        recentChatScope,
+        recentChatQueryScope,
       ),
     });
   }, [
@@ -1183,10 +1243,11 @@ export function ChatPage() {
     auth.token,
     userId,
     trimmedSessionSearchQuery,
-    recentChatScope,
+    recentChatQueryScope,
   ]);
 
   const handleOpenMobileQr = useCallback(async () => {
+    if (isScopedUser) return;
     const activeSessionId = getSessionId();
     if (!activeSessionId) {
       setError('Open or send a chat before creating a mobile QR code.');
@@ -1206,7 +1267,7 @@ export function ChatPage() {
     } finally {
       setMobileQrBusy(false);
     }
-  }, [auth.token, getSessionId, userId, setError]);
+  }, [auth.token, getSessionId, isScopedUser, userId, setError]);
 
   const handleEditOpen = useCallback((m: ChatMessage) => {
     setEditingId(m.id);
@@ -1245,10 +1306,13 @@ export function ChatPage() {
     isPending: isSwitchingSession,
     searchQuery: sessionSearchQuery,
     onSearchQueryChange: setSessionSearchQuery,
-    recentScope: recentChatScope,
+    recentScope: recentChatQueryScope,
     onRecentScopeChange: setRecentChatScope,
     isLoading: recentQuery.isFetching,
     onRefreshRecent: handleRefreshRecent,
+    showApps: !isScopedUser,
+    showAllSessions: !isScopedUser,
+    showSessionDelete: !isScopedUser,
   } as const;
 
   return (
@@ -1259,29 +1323,33 @@ export function ChatPage() {
         <div className={css.chatMain}>
           <div className={css.chatTopbar}>
             <MobileTopbarTrigger className={css.chatMobileTrigger} />
-            <ContextRing
-              sessionId={sessionId}
-              token={auth.token}
-              enabled={chatApiReady}
-            />
-            <button
-              type="button"
-              className={css.mobileQrButton}
-              onClick={() => void handleOpenMobileQr()}
-              disabled={mobileQrBusy}
-              aria-label="Show mobile QR code"
-              title="Show mobile QR code"
-            >
-              <span aria-hidden="true" className={css.mobileQrIcon}>
-                <span />
-                <span />
-                <span />
-                <span />
-              </span>
-            </button>
-            <ViewSwitchNav items={viewSwitchItems} />
+            {!isScopedUser ? (
+              <ContextRing
+                sessionId={sessionId}
+                token={auth.token}
+                enabled={chatApiReady}
+              />
+            ) : null}
+            {!isScopedUser ? (
+              <button
+                type="button"
+                className={css.mobileQrButton}
+                onClick={() => void handleOpenMobileQr()}
+                disabled={mobileQrBusy}
+                aria-label="Show mobile QR code"
+                title="Show mobile QR code"
+              >
+                <span aria-hidden="true" className={css.mobileQrIcon}>
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              </button>
+            ) : null}
+            {!isScopedUser ? <ViewSwitchNav items={viewSwitchItems} /> : null}
           </div>
-          {mobileQr ? (
+          {!isScopedUser && mobileQr ? (
             <div className={css.mobileQrOverlay}>
               <div
                 ref={mobileQrDialogRef}
@@ -1354,6 +1422,9 @@ export function ChatPage() {
                       approvalBusy={approvalBusy}
                       branchInfo={branchInfoMap.get(msg.id) ?? null}
                       onBranchNav={handleBranchNav}
+                      artifactSessionId={
+                        isScopedUser ? msg.sessionId : undefined
+                      }
                     />
                   ),
                 )}
@@ -1394,50 +1465,53 @@ export function ChatPage() {
             models={modelOptions}
             selectedModelId={selectedModelId}
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
+            showModelSwitch={!isScopedUser}
             initialValue={initialComposerPrompt}
           />
         </div>
-        <Dialog
-          open={sessionPendingDelete !== null}
-          onOpenChange={(open) => {
-            if (!open && !deleteSessionMutation.isPending) {
-              setSessionPendingDelete(null);
-            }
-          }}
-        >
-          <DialogContent
-            size="sm"
-            role="alertdialog"
-            preventCloseOnOutsideClick={deleteSessionMutation.isPending}
+        {!isScopedUser ? (
+          <Dialog
+            open={sessionPendingDelete !== null}
+            onOpenChange={(open) => {
+              if (!open && !deleteSessionMutation.isPending) {
+                setSessionPendingDelete(null);
+              }
+            }}
           >
-            <DialogHeader>
-              <DialogTitle>Delete session?</DialogTitle>
-              <DialogDescription>
-                This permanently removes the conversation and associated session
-                records.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <DialogClose
-                className="ghost-button"
-                disabled={deleteSessionMutation.isPending}
-              >
-                Cancel
-              </DialogClose>
-              <button
-                type="button"
-                className="danger-button"
-                disabled={deleteSessionMutation.isPending}
-                onClick={handleConfirmDeleteSession}
-              >
-                {deleteSessionMutation.isPending ? 'Deleting...' : 'Delete'}
-              </button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            <DialogContent
+              size="sm"
+              role="alertdialog"
+              preventCloseOnOutsideClick={deleteSessionMutation.isPending}
+            >
+              <DialogHeader>
+                <DialogTitle>Delete session?</DialogTitle>
+                <DialogDescription>
+                  This permanently removes the conversation and associated
+                  session records.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <DialogClose
+                  className="ghost-button"
+                  disabled={deleteSessionMutation.isPending}
+                >
+                  Cancel
+                </DialogClose>
+                <button
+                  type="button"
+                  className="danger-button"
+                  disabled={deleteSessionMutation.isPending}
+                  onClick={handleConfirmDeleteSession}
+                >
+                  {deleteSessionMutation.isPending ? 'Deleting...' : 'Delete'}
+                </button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        ) : null}
 
         <Dialog
-          open={previewApp !== null}
+          open={!isScopedUser && previewApp !== null}
           onOpenChange={(open) => {
             if (!open) setPreviewApp(null);
           }}

@@ -171,7 +171,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 51;
+export const DATABASE_SCHEMA_VERSION = 52;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -230,6 +230,7 @@ type AgentRow = {
   skills: string | null;
   chatbot_id: string | null;
   enable_rag: number | null;
+  shared: number;
   workspace: string | null;
   owner: string | null;
   role: string | null;
@@ -3282,6 +3283,40 @@ function migrateV51(database: Database.Database): void {
   recordMigration(database, 51, 'Persist app publication records');
 }
 
+function migrateV52(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'shared',
+    ddl: 'shared INTEGER NOT NULL DEFAULT 0 CHECK (shared IN (0, 1))',
+    quiet: opts?.quiet === true,
+  });
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS agent_grants (
+      agent_id TEXT NOT NULL,
+      principal TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user' CHECK (role = 'user'),
+      source TEXT NOT NULL DEFAULT 'local' CHECK (source IN ('local', 'platform')),
+      granted_by TEXT NOT NULL,
+      granted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      synced_at TEXT,
+      expires_at TEXT,
+      PRIMARY KEY (agent_id, principal),
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_grants_principal
+      ON agent_grants(principal, agent_id);
+  `);
+  recordMigration(
+    database,
+    52,
+    'Persist agent sharing grants and shared-agent state',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3405,6 +3440,7 @@ function runMigrations(
   if (currentVersion < 49) migrateV49(database);
   if (currentVersion < 50) migrateV50(database);
   if (currentVersion < 51) migrateV51(database);
+  if (currentVersion < 52) migrateV52(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -3873,6 +3909,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(typeof row.enable_rag === 'number'
       ? { enableRag: row.enable_rag !== 0 }
       : {}),
+    ...(row.shared !== 0 ? { shared: true } : {}),
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
     ...(reportsTo ? { reportsTo } : {}),
@@ -3885,8 +3922,17 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   };
 }
 
-const AGENT_SELECT_COLUMNS =
-  'id, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, created_at, updated_at';
+const AGENT_SELECT_COLUMNS = `id, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, chatbot_id, enable_rag,
+   CASE WHEN EXISTS (
+     SELECT 1
+     FROM agent_grants AS active_grant
+     WHERE active_grant.agent_id = agents.id
+       AND (
+         active_grant.expires_at IS NULL
+         OR julianday(active_grant.expires_at) > julianday('now')
+       )
+   ) THEN 1 ELSE 0 END AS shared,
+   workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, created_at, updated_at`;
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -3979,6 +4025,14 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const ownerUserId = normalizedOwnerUserId || identity?.ownerUserId || null;
   const enableRag =
     typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;
+  const shared =
+    typeof agent.shared === 'boolean'
+      ? agent.shared
+        ? 1
+        : 0
+      : existingAgent?.shared
+        ? 1
+        : 0;
   db.prepare(
     `INSERT INTO agents (
        id,
@@ -3992,6 +4046,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        skills,
        chatbot_id,
        enable_rag,
+       shared,
        workspace,
        owner,
        role,
@@ -4004,7 +4059,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        proxy,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        canonical_id = excluded.canonical_id,
        owner_user_id = excluded.owner_user_id,
@@ -4016,6 +4071,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        skills = excluded.skills,
        chatbot_id = excluded.chatbot_id,
        enable_rag = excluded.enable_rag,
+       shared = excluded.shared,
        workspace = excluded.workspace,
        owner = excluded.owner,
        role = excluded.role,
@@ -4039,6 +4095,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedSkills,
     normalizedChatbotId,
     enableRag,
+    shared,
     normalizedWorkspace,
     normalizedOwner,
     normalizedRole,
@@ -6922,6 +6979,7 @@ export function forkSessionBranch(
   }
 
   const nextSessionId = resolveFreshSessionInstanceId();
+  const nextSessionKey = params.sessionKey?.trim() || nextSessionId;
   const nextMainSessionKey =
     sourceSession.main_session_key ||
     sourceSession.session_key ||
@@ -6970,7 +7028,7 @@ export function forkSessionBranch(
        ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
     ).run(
       nextSessionId,
-      nextSessionId,
+      nextSessionKey,
       nextMainSessionKey,
       sourceSession.guild_id,
       sourceSession.channel_id,
@@ -7930,6 +7988,28 @@ function parseMessageArtifacts(raw: string | null): ArtifactMetadata[] {
   } catch {
     return [];
   }
+}
+
+export function sessionHasArtifactPath(
+  sessionId: string,
+  artifactPath: string,
+): boolean {
+  ensureDatabaseReady();
+  const normalizedPath = artifactPath.trim();
+  if (!normalizedPath) return false;
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  const rows = db
+    .prepare(
+      `SELECT artifacts_json
+       FROM messages
+       WHERE session_id = ? AND artifacts_json IS NOT NULL`,
+    )
+    .all(resolvedSessionId) as Array<{ artifacts_json: string | null }>;
+  return rows.some((row) =>
+    parseMessageArtifacts(row.artifacts_json).some(
+      (artifact) => artifact.path === normalizedPath,
+    ),
+  );
 }
 
 function normalizeResponseRatingValue(
