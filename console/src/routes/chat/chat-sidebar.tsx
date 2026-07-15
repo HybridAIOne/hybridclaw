@@ -39,6 +39,9 @@ export interface ChatSidebarProps {
   onRecentScopeChange: (scope: 'user' | 'all') => void;
   isLoading: boolean;
   onRefreshRecent?: () => void;
+  showApps?: boolean;
+  showAllSessions?: boolean;
+  showSessionDelete?: boolean;
 }
 
 export function ChatSidebarPanel(props: ChatSidebarProps) {
@@ -67,16 +70,18 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
           <span aria-hidden="true">+</span>
           <span>New Conversation</span>
         </button>
-        <button
-          type="button"
-          className={css.newChatButton}
-          onClick={() => navigate({ to: '/apps' })}
-        >
-          <span aria-hidden="true" className={css.navLinkIcon}>
-            <AppsGridIcon />
-          </span>
-          <span>Apps</span>
-        </button>
+        {props.showApps !== false ? (
+          <button
+            type="button"
+            className={css.newChatButton}
+            onClick={() => navigate({ to: '/apps' })}
+          >
+            <span aria-hidden="true" className={css.navLinkIcon}>
+              <AppsGridIcon />
+            </span>
+            <span>Apps</span>
+          </button>
+        ) : null}
         <div className={css.sidebarSearchWrap}>
           <input
             type="search"
@@ -108,22 +113,24 @@ function ChatSessionList(props: ChatSidebarProps & { isSearching: boolean }) {
         <div className={css.sidebarLabel}>
           {props.isSearching ? 'Search Results' : 'Recent Chats'}
         </div>
-        <div className={css.sidebarScopeToggle}>
-          {(['user', 'all'] as const).map((scope) => (
-            <button
-              key={scope}
-              type="button"
-              className={cx(
-                css.sidebarScopeButton,
-                props.recentScope === scope && css.sidebarScopeButtonActive,
-              )}
-              aria-pressed={props.recentScope === scope}
-              onClick={() => props.onRecentScopeChange(scope)}
-            >
-              {scope === 'user' ? 'User' : 'All'}
-            </button>
-          ))}
-        </div>
+        {props.showAllSessions !== false ? (
+          <div className={css.sidebarScopeToggle}>
+            {(['user', 'all'] as const).map((scope) => (
+              <button
+                key={scope}
+                type="button"
+                className={cx(
+                  css.sidebarScopeButton,
+                  props.recentScope === scope && css.sidebarScopeButtonActive,
+                )}
+                aria-pressed={props.recentScope === scope}
+                onClick={() => props.onRecentScopeChange(scope)}
+              >
+                {scope === 'user' ? 'User' : 'All'}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
       {props.isLoading && props.isSearching ? (
         <div className={css.sidebarStatus}>Searching...</div>
@@ -166,16 +173,18 @@ function ChatSessionList(props: ChatSidebarProps & { isSearching: boolean }) {
                     {formatRelativeTime(s.lastActive)}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  className={css.sessionDeleteButton}
-                  aria-label={`Delete ${s.title || 'Untitled'} session`}
-                  title="Delete session"
-                  disabled={props.deleteDisabled}
-                  onClick={() => props.onRequestDeleteSession(s)}
-                >
-                  <Trash className={css.sessionDeleteIcon} />
-                </button>
+                {props.showSessionDelete !== false ? (
+                  <button
+                    type="button"
+                    className={css.sessionDeleteButton}
+                    aria-label={`Delete ${s.title || 'Untitled'} session`}
+                    title="Delete session"
+                    disabled={props.deleteDisabled}
+                    onClick={() => props.onRequestDeleteSession(s)}
+                  >
+                    <Trash className={css.sessionDeleteIcon} />
+                  </button>
+                ) : null}
               </div>
             </li>
           ))}

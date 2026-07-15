@@ -47,6 +47,8 @@ interface ActiveRequest {
 interface UseChatStreamOptions {
   token: string;
   userId: string;
+  agentId?: string;
+  sendStopCommand?: boolean;
   getSessionId: () => string;
   setError: (err: string) => void;
   refreshRecent: () => void;
@@ -114,6 +116,8 @@ export function useChatStream(
   const {
     token,
     userId,
+    agentId,
+    sendStopCommand = true,
     getSessionId,
     setError,
     refreshRecent,
@@ -122,6 +126,7 @@ export function useChatStream(
     onAppsCaptured,
     resolveAddressedAgentPresentation,
   } = options;
+  const requestAgentId = agentId?.trim() || '';
 
   const queryClient = useQueryClient();
   const activeRequestRef = useRef<ActiveRequest | null>(null);
@@ -408,6 +413,7 @@ export function useChatStream(
             username: 'web',
             content,
             stream: true,
+            ...(requestAgentId ? { agentId: requestAgentId } : {}),
             ...(media.length > 0 ? { media } : {}),
             ...(opts?.appBuild ? { appBuild: true } : {}),
             ...(opts?.appCategory ? { appCategory: opts.appCategory } : {}),
@@ -618,6 +624,7 @@ export function useChatStream(
     [
       token,
       userId,
+      requestAgentId,
       getSessionId,
       writeMessages,
       onSessionIdCorrection,
@@ -634,6 +641,10 @@ export function useChatStream(
     const req = activeRequestRef.current;
     if (!req || req.stopping) return;
     req.stopping = true;
+    if (!sendStopCommand) {
+      req.controller.abort();
+      return;
+    }
     try {
       await executeCommand(token, req.sessionId, userId, ['stop']);
     } catch (err) {
@@ -641,7 +652,7 @@ export function useChatStream(
     } finally {
       req.controller.abort();
     }
-  }, [token, userId, setError]);
+  }, [sendStopCommand, token, userId, setError]);
 
   const isActive = useCallback(() => activeRequestRef.current !== null, []);
 

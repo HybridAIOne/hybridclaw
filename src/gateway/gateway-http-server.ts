@@ -27,6 +27,7 @@ import {
 } from '../a2a/webhook-inbound.js';
 import { runAgent } from '../agent/agent.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
+import { hasActiveAgentGrant } from '../agents/agent-grants.js';
 import {
   getAgentById,
   resolveAgentConfig,
@@ -111,6 +112,7 @@ import {
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import { normalizePrincipal } from '../identity/principal.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger, syncLoggerLevelFromRuntimeConfig } from '../logger.js';
@@ -118,6 +120,7 @@ import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { normalizeMimeType } from '../media/mime-utils.js';
 import {
   resolveUploadedMediaCacheHostDir,
+  resolveUploadedMediaPrincipalHostDir,
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
   writeUploadedMediaCacheFile,
 } from '../media/uploaded-media-cache.js';
@@ -133,6 +136,7 @@ import {
 import {
   claimQueuedProactiveMessages,
   enqueueProactiveMessage,
+  sessionHasArtifactPath,
   setMessageActivityTrace,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
@@ -166,6 +170,19 @@ import { createSecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
 import { hardenSecretRef } from '../security/secret-refs.js';
 import {
+  buildUserWebSessionKey,
+  isUserApiRouteAllowed,
+  isUserChatContentAllowed,
+  isUserCommandAllowed,
+  isUserSessionPayload,
+  listGrantedAgentIds,
+  requireGrantedAgent,
+  requireOwnedUserSession,
+  requireUserSessionKey,
+  resolveGrantedAgentForUser,
+  resolveUserSessionPrincipal,
+} from '../security/user-access.js';
+import {
   normalizeRecentChatSearchQuery,
   normalizeRecentChatSessionLimit,
 } from '../session/recent-chat-search.js';
@@ -194,6 +211,7 @@ import {
   createAdminTerminalManager,
 } from './admin-terminal.js';
 import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
+import { resolveAgentAddressing } from './agent-addressing.js';
 import {
   getSessionAuthPayload,
   hasLocalWebSessionAuth,
@@ -202,6 +220,7 @@ import {
   safeEqualToken,
   setLocalWebSessionCookie,
   setSessionCookie,
+  verifyAgentAccessToken,
   verifyLaunchToken,
 } from './auth-token.js';
 import {
@@ -235,6 +254,11 @@ import {
   getGatewayAdminTokens,
   revokeGatewayAdminToken,
 } from './gateway-admin-tokens.js';
+import {
+  getGatewayAdminAgentGrants,
+  shareGatewayAdminAgent,
+  unshareGatewayAdminAgent,
+} from './gateway-agent-grants.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import {
   deleteGatewayAdminDistillCorpusDocument,
@@ -532,6 +556,13 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
   '.webp': 'image/webp',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
+const SAFE_AGENT_AVATAR_EXTENSIONS = new Set([
+  '.gif',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.webp',
+]);
 const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
   'application/json',
   'application/pdf',
@@ -1914,11 +1945,13 @@ async function resolveApiChatSlashCommandResult(
     if (parseLowerArg(args, 0) === 'approve') {
       const handled = await handleTextChannelApprovalCommand({
         sessionId,
+        agentId: chatRequest.agentId,
         guildId: chatRequest.guildId,
         channelId: chatRequest.channelId,
         userId: chatRequest.userId,
         username: chatRequest.username,
         args,
+        principal: chatRequest.principal,
       });
       if (!handled) continue;
       handledApprovalCommand = true;
@@ -1940,12 +1973,14 @@ async function resolveApiChatSlashCommandResult(
 
     const gatewayCommandResult = await handleGatewayCommand({
       sessionId,
+      agentId: chatRequest.agentId,
       sessionMode: chatRequest.sessionMode,
       guildId: chatRequest.guildId,
       channelId: chatRequest.channelId,
       args,
       userId: chatRequest.userId,
       username: chatRequest.username,
+      principal: chatRequest.principal,
     });
     sessionId = gatewayCommandResult.sessionId || sessionId;
     sessionKey = gatewayCommandResult.sessionKey || sessionKey;
@@ -2401,6 +2436,10 @@ function enforceAdminRouteRbac(
   pathname: string,
   method: string,
 ): boolean {
+  if (isUserSessionPayload(authContext.payload) && isAdminPath(pathname)) {
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return false;
+  }
   const action = resolveAdminRbacAction(pathname, method);
   if (authContext.kind === 'apiToken') {
     if (!action && hasFullApiTokenWildcard(authContext)) return true;
@@ -2420,7 +2459,11 @@ function enforceAdminRouteRbac(
   return false;
 }
 
-function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
+function resolveApiMediaUploadQuotaKey(
+  req: IncomingMessage,
+  principal?: string | null,
+): string {
+  if (principal) return `user:${principal}`;
   const authHeader = req.headers.authorization || '';
   if (hasBearerToken(authHeader, WEB_API_TOKEN)) {
     return 'web-token';
@@ -2797,6 +2840,7 @@ async function resolveValidatedApiChatMediaHostPath(
 
 async function isAllowedApiChatMediaHostPath(
   hostPath: string,
+  principal?: string | null,
 ): Promise<boolean> {
   const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
   const [normalizedHostPath, discordMediaCacheDir, uploadedMediaCacheRoot] =
@@ -2807,6 +2851,14 @@ async function isAllowedApiChatMediaHostPath(
         ? resolvePathForContainmentCheck(uploadedMediaCacheDir)
         : Promise.resolve(null),
     ]);
+
+  if (principal) {
+    if (!uploadedMediaCacheRoot) return false;
+    const principalRoot = await resolvePathForContainmentCheck(
+      resolveUploadedMediaPrincipalHostDir(principal),
+    );
+    return isWithinRoot(normalizedHostPath, principalRoot);
+  }
 
   if (isWithinRoot(normalizedHostPath, discordMediaCacheDir)) {
     return true;
@@ -2820,6 +2872,7 @@ async function isAllowedApiChatMediaHostPath(
 
 async function normalizeApiChatMediaItems(
   raw: unknown,
+  principal?: string | null,
 ): Promise<MediaContextItem[]> {
   if (raw == null) return [];
   if (!Array.isArray(raw)) {
@@ -2861,7 +2914,7 @@ async function normalizeApiChatMediaItems(
       await resolveValidatedApiChatMediaHostPath(pathValue);
     if (
       !resolvedHostPath ||
-      !(await isAllowedApiChatMediaHostPath(resolvedHostPath))
+      !(await isAllowedApiChatMediaHostPath(resolvedHostPath, principal))
     ) {
       throw new GatewayRequestError(
         400,
@@ -2950,9 +3003,27 @@ function resolveAgentAvatarFile(url: URL): string | null {
     (url.searchParams.get('agentId') || '').trim() || DEFAULT_AGENT_ID;
   const agent = getAgentById(agentId) ?? resolveAgentConfig(agentId);
   const imageAsset = String(agent.imageAsset || '').trim();
-  return resolveWorkspaceRelativePath(agentWorkspaceDir(agentId), imageAsset, {
+  const workspacePath = agentWorkspaceDir(agentId);
+  const candidate = resolveWorkspaceRelativePath(workspacePath, imageAsset, {
     requireExistingFile: false,
   });
+  if (!candidate) return null;
+  try {
+    const realWorkspacePath = fs.realpathSync(workspacePath);
+    const realFilePath = fs.realpathSync(candidate);
+    if (!isWithinRoot(realFilePath, realWorkspacePath)) return null;
+    if (!fs.lstatSync(realFilePath).isFile()) return null;
+    if (
+      !SAFE_AGENT_AVATAR_EXTENSIONS.has(
+        path.extname(realFilePath).toLowerCase(),
+      )
+    ) {
+      return null;
+    }
+    return realFilePath;
+  } catch {
+    return null;
+  }
 }
 
 function streamStaticFile(
@@ -3156,10 +3227,11 @@ function serveConsoleIndex(pathname: string, res: ServerResponse): boolean {
 async function handleApiChat(
   req: IncomingMessage,
   res: ServerResponse,
+  principal?: string | null,
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
   const wantsStream = body.stream === true;
-  const media = await normalizeApiChatMediaItems(body.media);
+  const media = await normalizeApiChatMediaItems(body.media, principal);
 
   const content = body.content?.trim() || buildMediaOnlyPromptContent(media);
   if (!content) {
@@ -3168,42 +3240,89 @@ async function handleApiChat(
     });
     return;
   }
+  if (principal && !isUserChatContentAllowed(content)) {
+    throw new GatewayRequestError(403, 'Forbidden.');
+  }
 
-  const sessionId =
+  let sessionId =
     normalizeOptionalString(body.sessionId) ||
     generateDefaultWebSessionId(body.agentId);
   if (isMalformedCanonicalSessionId(sessionId)) {
     sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
     return;
   }
-  const channelId = body.channelId || 'web';
+  let agentId = normalizeOptionalString(body.agentId);
+  if (principal) {
+    const existingSession = memoryService.getSessionById(sessionId);
+    if (existingSession) {
+      const ownedSession = requireOwnedUserSession(principal, sessionId);
+      if (agentId && agentId !== ownedSession.agent_id) {
+        throw new GatewayRequestError(403, 'Forbidden.');
+      }
+      sessionId = ownedSession.id;
+      agentId = ownedSession.agent_id;
+    } else if (classifySessionKeyShape(sessionId) === 'canonical') {
+      agentId = requireUserSessionKey({
+        principal,
+        sessionKey: sessionId,
+        agentId,
+      });
+    } else {
+      agentId = resolveGrantedAgentForUser({
+        principal,
+        requestedAgentId: agentId,
+      });
+      sessionId = buildUserWebSessionKey({
+        agentId,
+        principal,
+        draftSessionId: sessionId,
+      });
+    }
+    const addressed = resolveAgentAddressing({
+      content,
+      currentAgentId: agentId,
+      fromAgentId: agentId,
+    });
+    if (
+      addressed.kind === 'remote' ||
+      addressed.kind === 'fanout' ||
+      addressed.kind === 'error' ||
+      (addressed.kind === 'agent' && addressed.agentId !== agentId)
+    ) {
+      throw new GatewayRequestError(403, 'Forbidden.');
+    }
+  }
+  const channelId = principal ? 'web' : body.channelId || 'web';
   const chatRequest: GatewayChatRequest = {
     sessionId,
     sessionMode:
       body.sessionMode === 'resume' || body.sessionMode === 'new'
         ? body.sessionMode
         : undefined,
-    guildId: body.guildId ?? null,
+    guildId: principal ? null : (body.guildId ?? null),
     channelId,
     userId:
+      principal ||
       resolveGatewayRequestUserId({
         req,
         channelId,
         requestedUserId: normalizeOptionalString(body.userId),
         fallbackUserId: sessionId,
-      }) || sessionId,
-    username: body.username ?? 'web',
+      }) ||
+      sessionId,
+    username: principal || body.username || 'web',
     content,
     ...(media.length > 0 ? { media } : {}),
-    agentId: body.agentId,
-    chatbotId: body.chatbotId,
-    enableRag: body.enableRag,
-    model: body.model,
-    ...(body.appBuild ? { appBuild: true } : {}),
-    ...(typeof body.appCategory === 'string'
+    agentId,
+    ...(principal ? { principal } : {}),
+    chatbotId: principal ? undefined : body.chatbotId,
+    enableRag: principal ? undefined : body.enableRag,
+    model: principal ? undefined : body.model,
+    ...(!principal && body.appBuild ? { appBuild: true } : {}),
+    ...(!principal && typeof body.appCategory === 'string'
       ? { appCategory: body.appCategory }
       : {}),
-    ...(body.appKind === 'live' || body.appKind === 'web'
+    ...(!principal && (body.appKind === 'live' || body.appKind === 'web')
       ? { appKind: body.appKind }
       : {}),
   };
@@ -3246,6 +3365,7 @@ async function handleApiChat(
 async function handleApiChatBranch(
   req: IncomingMessage,
   res: ServerResponse,
+  principal?: string | null,
 ): Promise<void> {
   const body = (await readJsonBody(req)) as ApiChatBranchRequestBody;
   const sessionId = normalizeOptionalString(body.sessionId);
@@ -3267,10 +3387,22 @@ async function handleApiChatBranch(
   }
 
   try {
+    const ownedSession = principal
+      ? requireOwnedUserSession(principal, sessionId)
+      : null;
     const branch = memoryService.forkSessionBranch({
       sessionId,
       beforeMessageId,
+      ...(ownedSession
+        ? {
+            sessionKey: buildUserWebSessionKey({
+              agentId: ownedSession.agent_id,
+              principal: principal as string,
+            }),
+          }
+        : {}),
     });
+    if (principal) requireOwnedUserSession(principal, branch.session.id);
     sendJson(res, 200, {
       sessionId: branch.session.id,
       sessionKey: branch.session.session_key,
@@ -3279,7 +3411,13 @@ async function handleApiChatBranch(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    sendJson(res, /was not found/i.test(message) ? 404 : 500, {
+    const statusCode =
+      err instanceof GatewayRequestError
+        ? err.statusCode
+        : /was not found/i.test(message)
+          ? 404
+          : 500;
+    sendJson(res, statusCode, {
       error: message,
     });
   }
@@ -3288,6 +3426,7 @@ async function handleApiChatBranch(
 async function handleApiChatRating(
   req: IncomingMessage,
   res: ServerResponse,
+  principal?: string | null,
 ): Promise<void> {
   const body = (await readJsonBody(req)) as {
     sessionId?: unknown;
@@ -3304,6 +3443,7 @@ async function handleApiChatRating(
     sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
     return;
   }
+  if (principal) requireOwnedUserSession(principal, sessionId);
   const messageId = parsePositiveInteger(body.messageId);
   if (messageId == null) {
     sendJson(res, 400, {
@@ -3325,12 +3465,14 @@ async function handleApiChatRating(
   }
 
   const operatorUserId =
+    principal ||
     resolveGatewayRequestUserId({
       req,
       channelId: 'web',
       requestedUserId: normalizeOptionalString(body.userId),
       fallbackUserId: 'web',
-    }) || 'web';
+    }) ||
+    'web';
 
   try {
     const result = submitResponseRating({
@@ -3355,6 +3497,7 @@ async function handleApiChatRating(
 async function handleApiMediaUpload(
   req: IncomingMessage,
   res: ServerResponse,
+  principal?: string | null,
 ): Promise<void> {
   const encodedFilename = normalizeHeaderValue(
     req.headers['x-hybridclaw-filename'],
@@ -3393,7 +3536,7 @@ async function handleApiMediaUpload(
   }
 
   const quotaDecision = consumeGatewayMediaUploadQuota({
-    key: resolveApiMediaUploadQuotaKey(req),
+    key: resolveApiMediaUploadQuotaKey(req, principal),
     bytes: buffer.length,
   });
   if (!quotaDecision.allowed) {
@@ -3413,6 +3556,7 @@ async function handleApiMediaUpload(
       attachmentName: decodedFilename,
       buffer,
       mimeType,
+      principal,
     });
   } catch (error) {
     if (
@@ -3626,9 +3770,10 @@ async function handleApiChatStream(
 async function handleApiCommand(
   req: IncomingMessage,
   res: ServerResponse,
+  principal?: string | null,
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Partial<GatewayCommandRequest>;
-  const sessionId = normalizeOptionalString(body.sessionId);
+  let sessionId = normalizeOptionalString(body.sessionId);
   if (!sessionId) {
     sendJson(res, 400, { error: 'Missing `sessionId` in request body.' });
     return;
@@ -3646,24 +3791,54 @@ async function handleApiCommand(
     });
     return;
   }
+  if (principal && !isUserCommandAllowed(args)) {
+    throw new GatewayRequestError(403, 'Forbidden.');
+  }
+
+  let agentId = normalizeOptionalString(body.agentId);
+  if (principal) {
+    const existingSession = memoryService.getSessionById(sessionId);
+    if (existingSession) {
+      const ownedSession = requireOwnedUserSession(principal, sessionId);
+      if (agentId && agentId !== ownedSession.agent_id) {
+        throw new GatewayRequestError(403, 'Forbidden.');
+      }
+      sessionId = ownedSession.id;
+      agentId = ownedSession.agent_id;
+    } else {
+      agentId = resolveGrantedAgentForUser({
+        principal,
+        requestedAgentId: agentId,
+      });
+      sessionId = buildUserWebSessionKey({
+        agentId,
+        principal,
+        draftSessionId: sessionId,
+      });
+    }
+  }
 
   const commandRequest: GatewayCommandRequest = {
     sessionId,
+    agentId,
     sessionMode:
       body.sessionMode === 'resume' || body.sessionMode === 'new'
         ? body.sessionMode
         : undefined,
-    guildId: body.guildId ?? null,
-    channelId: body.channelId || 'web',
+    guildId: principal ? null : (body.guildId ?? null),
+    channelId: principal ? 'web' : body.channelId || 'web',
     args,
     userId:
+      principal ||
       resolveGatewayRequestUserId({
         req,
         channelId: body.channelId || 'web',
         requestedUserId: normalizeOptionalString(body.userId),
         fallbackUserId: sessionId,
-      }) || sessionId,
-    username: body.username ?? null,
+      }) ||
+      sessionId,
+    username: principal || body.username || null,
+    ...(principal ? { principal } : {}),
   };
   const result = await handleGatewayCommand(commandRequest);
   sendJson(res, result.kind === 'error' ? 400 : 200, result);
@@ -3785,6 +3960,7 @@ async function handleApiHistory(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
+  principal?: string | null,
 ): Promise<void> {
   const sessionId = url.searchParams.get('sessionId')?.trim();
   if (!sessionId) {
@@ -3807,40 +3983,83 @@ async function handleApiHistory(
     return;
   }
   const requestedAgentId = rawAgentId || undefined;
-  if (requestedAgentId && !getAgentById(requestedAgentId)) {
+  if (principal && requestedAgentId) {
+    requireGrantedAgent(principal, requestedAgentId);
+  } else if (requestedAgentId && !getAgentById(requestedAgentId)) {
     sendJson(res, 404, { error: 'Agent not found.' });
     return;
   }
-  const operatorUserId = resolveGatewayRequestUserId({
-    req,
-    channelId: 'web',
-    requestedUserId: url.searchParams.get('userId'),
-    fallbackUserId: 'web',
-  });
-  void ensureGatewayBootstrapAutostart({
-    sessionId,
-    channelId: 'web',
-    userId: operatorUserId,
-    username: operatorUserId,
-    agentId: requestedAgentId,
-  }).catch((error) => {
-    logger.warn(
-      { sessionId, agentId: requestedAgentId ?? null, error },
-      'Failed to start gateway bootstrap autostart',
-    );
-  });
+  if (principal) {
+    const existingSession = memoryService.getSessionById(sessionId);
+    if (!existingSession) {
+      const agentId = resolveGrantedAgentForUser({
+        principal,
+        requestedAgentId,
+      });
+      sendJson(res, 200, {
+        sessionId,
+        agentId,
+        history: [],
+        bootstrapAutostart: null,
+        summary: {
+          messageCount: 0,
+          userMessageCount: 0,
+          toolCallCount: 0,
+          inputTokenCount: 0,
+          outputTokenCount: 0,
+          costUsd: 0,
+          toolBreakdown: [],
+          fileChanges: {
+            readCount: 0,
+            modifiedCount: 0,
+            createdCount: 0,
+            deletedCount: 0,
+          },
+        },
+      });
+      return;
+    }
+    const ownedSession = requireOwnedUserSession(principal, sessionId);
+    if (requestedAgentId && requestedAgentId !== ownedSession.agent_id) {
+      throw new GatewayRequestError(403, 'Forbidden.');
+    }
+  }
+  const operatorUserId =
+    principal ||
+    resolveGatewayRequestUserId({
+      req,
+      channelId: 'web',
+      requestedUserId: url.searchParams.get('userId'),
+      fallbackUserId: 'web',
+    });
+  if (!principal) {
+    void ensureGatewayBootstrapAutostart({
+      sessionId,
+      channelId: 'web',
+      userId: operatorUserId,
+      username: operatorUserId,
+      agentId: requestedAgentId,
+    }).catch((error) => {
+      logger.warn(
+        { sessionId, agentId: requestedAgentId ?? null, error },
+        'Failed to start gateway bootstrap autostart',
+      );
+    });
+  }
   const historyPage = getGatewayHistory(sessionId, limit, {
     operatorUserId,
   });
   const summary = getGatewayHistorySummary(sessionId, {
     sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
   });
-  const bootstrapAutostart = getGatewayBootstrapAutostartState({
-    sessionId,
-    channelId: 'web',
-    agentId: requestedAgentId,
-    allowExistingSessionMessages: true,
-  });
+  const bootstrapAutostart = principal
+    ? null
+    : getGatewayBootstrapAutostartState({
+        sessionId,
+        channelId: 'web',
+        agentId: requestedAgentId,
+        allowExistingSessionMessages: true,
+      });
   // These keys are returned only as chat-routing metadata for the web client.
   // Auth stays anchored to the existing API/session auth checks above, never to
   // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
@@ -3852,7 +4071,7 @@ async function handleApiHistory(
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
     bootstrapAutostart,
-    ...(historyPage.branchFamilies.length > 0
+    ...(!principal && historyPage.branchFamilies.length > 0
       ? { branchFamilies: historyPage.branchFamilies }
       : {}),
     summary,
@@ -3863,6 +4082,7 @@ function handleApiAgentAvatar(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
+  principal?: string | null,
 ): void {
   const authContext = resolveAuthContext(req, url, {
     allowLocalWebSession: true,
@@ -3879,6 +4099,13 @@ function handleApiAgentAvatar(
   ) {
     sendJson(res, 403, { error: 'Forbidden.' });
     return;
+  }
+  if (principal) {
+    const agentId = (url.searchParams.get('agentId') || '').trim();
+    if (!agentId || !hasActiveAgentGrant(agentId, principal)) {
+      sendJson(res, 403, { error: 'Forbidden.' });
+      return;
+    }
   }
 
   const filePath = resolveAgentAvatarFile(url);
@@ -3904,20 +4131,28 @@ function handleApiChatRecent(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
+  principal?: string | null,
 ): void {
-  const channelId = (url.searchParams.get('channelId') || 'web').trim();
+  const channelId = principal
+    ? 'web'
+    : (url.searchParams.get('channelId') || 'web').trim();
   const query = normalizeRecentChatSearchQuery(url.searchParams.get('q'));
   const rawScope = (url.searchParams.get('scope') || '').trim().toLowerCase();
-  const scope =
-    rawScope === 'user' || rawScope === 'all' ? rawScope : undefined;
+  const scope = principal
+    ? 'user'
+    : rawScope === 'user' || rawScope === 'all'
+      ? rawScope
+      : undefined;
   const hasWebSessionUser =
     channelId.toLowerCase() === 'web' &&
     Boolean(resolveSessionAuthenticatedUserId(req));
-  const userId = resolveGatewayRequestUserId({
-    req,
-    channelId,
-    requestedUserId: url.searchParams.get('userId'),
-  });
+  const userId =
+    principal ||
+    resolveGatewayRequestUserId({
+      req,
+      channelId,
+      requestedUserId: url.searchParams.get('userId'),
+    });
   if (!userId) {
     sendJson(res, 400, { error: 'Missing `userId` query parameter.' });
     return;
@@ -3926,18 +4161,28 @@ function handleApiChatRecent(
   const limit = normalizeRecentChatSessionLimit(
     Number.isNaN(parsedLimit) ? undefined : parsedLimit,
   );
+  const sessions = getGatewayRecentChatSessions({
+    userId,
+    channelId,
+    limit,
+    ...(query ? { query } : {}),
+    ...(scope ? { includeScheduled: scope === 'all' } : {}),
+    ...(scope === 'all' ||
+    (!scope && channelId.toLowerCase() === 'web' && !hasWebSessionUser)
+      ? { fallbackToChannelRecent: true }
+      : {}),
+  });
   sendJson(res, 200, {
-    sessions: getGatewayRecentChatSessions({
-      userId,
-      channelId,
-      limit,
-      ...(query ? { query } : {}),
-      ...(scope ? { includeScheduled: scope === 'all' } : {}),
-      ...(scope === 'all' ||
-      (!scope && channelId.toLowerCase() === 'web' && !hasWebSessionUser)
-        ? { fallbackToChannelRecent: true }
-        : {}),
-    }),
+    sessions: principal
+      ? sessions.filter((session) => {
+          try {
+            requireOwnedUserSession(principal, session.sessionId);
+            return true;
+          } catch {
+            return false;
+          }
+        })
+      : sessions,
   });
 }
 
@@ -4066,7 +4311,11 @@ function getSlashMenuEntries(): ReturnType<typeof buildTuiSlashMenuEntries> {
   return cachedSlashMenuEntries;
 }
 
-function handleApiChatContext(res: ServerResponse, url: URL): void {
+function handleApiChatContext(
+  res: ServerResponse,
+  url: URL,
+  principal?: string | null,
+): void {
   const sessionId = url.searchParams.get('sessionId')?.trim();
   if (!sessionId) {
     sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
@@ -4076,6 +4325,7 @@ function handleApiChatContext(res: ServerResponse, url: URL): void {
     sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
     return;
   }
+  if (principal) requireOwnedUserSession(principal, sessionId);
   const result = getGatewaySessionContextUsage(sessionId);
   if (result.status === 'not_found' || !result.snapshot) {
     sendJson(res, 200, { sessionId, snapshot: null });
@@ -4087,9 +4337,20 @@ function handleApiChatContext(res: ServerResponse, url: URL): void {
   });
 }
 
-function handleApiChatCommands(res: ServerResponse, url: URL): void {
+function handleApiChatCommands(
+  res: ServerResponse,
+  url: URL,
+  principal?: string | null,
+): void {
   const query = (url.searchParams.get('q') ?? '').slice(0, 200);
-  const ranked = rankTuiSlashMenuEntries(getSlashMenuEntries(), query);
+  const entries = principal
+    ? getSlashMenuEntries().filter((entry) =>
+        ['/help', '/approve'].some((prefix) =>
+          entry.insertText.toLowerCase().startsWith(prefix),
+        ),
+      )
+    : getSlashMenuEntries();
+  const ranked = rankTuiSlashMenuEntries(entries, query);
   sendJson(res, 200, {
     commands: ranked.map((entry) => ({
       id: entry.id,
@@ -4101,12 +4362,26 @@ function handleApiChatCommands(res: ServerResponse, url: URL): void {
   });
 }
 
-async function handleApiAgents(res: ServerResponse): Promise<void> {
-  sendJson(res, 200, await getGatewayAgents());
+async function handleApiAgents(
+  res: ServerResponse,
+  principal?: string | null,
+): Promise<void> {
+  sendJson(
+    res,
+    200,
+    await getGatewayAgents(principal ? { principal } : undefined),
+  );
 }
 
-async function handleApiAgentList(res: ServerResponse): Promise<void> {
-  sendJson(res, 200, await getGatewayAgentList());
+async function handleApiAgentList(
+  res: ServerResponse,
+  principal?: string | null,
+): Promise<void> {
+  sendJson(
+    res,
+    200,
+    await getGatewayAgentList(principal ? { principal } : undefined),
+  );
 }
 
 function handleApiAdminJobsContext(res: ServerResponse): void {
@@ -4764,6 +5039,7 @@ type ApiAdminAgentPayload = {
 type ApiAdminAgentsRouteMatch =
   | { kind: 'collection'; isKnownPath: true }
   | { kind: 'agent'; isKnownPath: true; agentId: string }
+  | { kind: 'shares'; isKnownPath: true; agentId: string }
   | { kind: 'file'; isKnownPath: true; agentId: string; fileName: string }
   | {
       kind: 'revision';
@@ -4796,6 +5072,9 @@ function parseApiAdminAgentsRoute(url: URL): ApiAdminAgentsRouteMatch {
   }
   if (segments.length === 4 && agentId) {
     return { kind: 'agent', isKnownPath: true, agentId };
+  }
+  if (segments.length === 5 && segments[4] === 'shares' && agentId) {
+    return { kind: 'shares', isKnownPath: true, agentId };
   }
   if (segments.length === 6 && hasFilesPrefix && agentId && fileName) {
     return { kind: 'file', isKnownPath: true, agentId, fileName };
@@ -5033,6 +5312,64 @@ async function handleApiAdminAgentResource(
   }
 }
 
+async function handleApiAdminAgentSharesResource(
+  req: IncomingMessage,
+  res: ServerResponse,
+  method: string,
+  agentId: string,
+  authContext: ResolvedAuthContext,
+): Promise<void> {
+  try {
+    if (method === 'GET') {
+      sendJson(res, 200, getGatewayAdminAgentGrants(agentId));
+      return;
+    }
+    if (method !== 'POST' && method !== 'DELETE') {
+      sendMethodNotAllowed(res);
+      return;
+    }
+    const actor =
+      resolveApiTokenActor(authContext) ||
+      resolveAdminSessionActor(authContext.payload) ||
+      'local-operator';
+    const body = (await readJsonBody(req)) as {
+      principal?: unknown;
+      source?: unknown;
+      syncedAt?: unknown;
+      expiresAt?: unknown;
+    };
+    if (method === 'POST') {
+      sendJson(
+        res,
+        200,
+        shareGatewayAdminAgent({
+          agentId,
+          principal: body.principal,
+          source: body.source,
+          syncedAt: body.syncedAt,
+          expiresAt: body.expiresAt,
+          grantedBy: actor,
+        }),
+      );
+      return;
+    }
+    if (method === 'DELETE') {
+      sendJson(
+        res,
+        200,
+        unshareGatewayAdminAgent({
+          agentId,
+          principal: body.principal,
+          revokedBy: actor,
+        }),
+      );
+      return;
+    }
+  } catch (error) {
+    sendApiAdminAgentError(res, error);
+  }
+}
+
 async function handleApiAdminAgentFileResource(
   req: IncomingMessage,
   res: ServerResponse,
@@ -5140,6 +5477,7 @@ async function handleApiAdminAgents(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
+  authContext: ResolvedAuthContext,
 ): Promise<void> {
   const method = req.method || 'GET';
   const route = parseApiAdminAgentsRoute(url);
@@ -5150,6 +5488,15 @@ async function handleApiAdminAgents(
       return;
     case 'agent':
       await handleApiAdminAgentResource(req, res, method, route.agentId);
+      return;
+    case 'shares':
+      await handleApiAdminAgentSharesResource(
+        req,
+        res,
+        method,
+        route.agentId,
+        authContext,
+      );
       return;
     case 'file':
       await handleApiAdminAgentFileResource(req, res, method, {
@@ -7394,6 +7741,7 @@ async function handleApiArtifact(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
+  principal?: string | null,
 ): Promise<void> {
   const authContext = resolveAuthContext(req, url, {
     allowLocalWebSession: true,
@@ -7412,6 +7760,20 @@ async function handleApiArtifact(
   ) {
     sendJson(res, 403, { error: 'Forbidden.' });
     return;
+  }
+
+  if (principal) {
+    const sessionId = (url.searchParams.get('sessionId') || '').trim();
+    const artifactPath = (url.searchParams.get('path') || '').trim();
+    if (!sessionId || !artifactPath) {
+      sendJson(res, 403, { error: 'Forbidden.' });
+      return;
+    }
+    const session = requireOwnedUserSession(principal, sessionId);
+    if (!sessionHasArtifactPath(session.id, artifactPath)) {
+      sendJson(res, 403, { error: 'Forbidden.' });
+      return;
+    }
   }
 
   const filePath = await resolveArtifactFile(url);
@@ -10063,6 +10425,43 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname === '/auth/hybridai/callback') {
+      if (method !== 'GET') {
+        sendJson(res, 405, { error: 'Method Not Allowed' });
+        return;
+      }
+
+      const token = (url.searchParams.get('token') || '').trim();
+      if (!token) {
+        sendText(res, 401, 'Unauthorized. Invalid or expired auth token.');
+        return;
+      }
+
+      try {
+        const payload = verifyAgentAccessToken(token);
+        const principal = normalizePrincipal(payload.email);
+        if (listGrantedAgentIds(principal).length === 0) {
+          sendText(res, 403, 'Forbidden. No active agent grant.');
+          return;
+        }
+        setSessionCookie(
+          res,
+          {
+            kind: 'user',
+            sub: principal,
+            email: payload.email,
+            platformSub: payload.sub,
+            actions: [],
+          },
+          { secure: true },
+        );
+        sendRedirect(res, 302, '/chat');
+      } catch {
+        sendText(res, 401, 'Unauthorized. Invalid or expired auth token.');
+      }
+      return;
+    }
+
     if (pathname === '/auth/callback') {
       if (method !== 'GET') {
         sendJson(res, 405, { error: 'Method Not Allowed' });
@@ -10184,6 +10583,19 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (pathname.startsWith('/api/')) {
+      const directSessionPayload = getSessionAuthPayload(req);
+      const scopedUserPrincipal =
+        resolveUserSessionPrincipal(directSessionPayload);
+      if (isUserSessionPayload(directSessionPayload)) {
+        if (
+          !scopedUserPrincipal ||
+          listGrantedAgentIds(scopedUserPrincipal).length === 0 ||
+          !isUserApiRouteAllowed(pathname, method)
+        ) {
+          sendJson(res, 403, { error: 'Forbidden.' });
+          return;
+        }
+      }
       {
         const pubToken = parsePublicationSessionToken(pathname);
         if (pubToken !== null) {
@@ -10246,16 +10658,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         return;
       }
       if (pathname === '/api/artifact' && method === 'GET') {
-        void handleApiArtifact(req, res, url).catch((err: unknown) => {
-          if (res.writableEnded) return;
-          const errorText = err instanceof Error ? err.message : String(err);
-          const statusCode =
-            err instanceof GatewayRequestError ||
-            err instanceof AdminTerminalCapacityError
-              ? err.statusCode
-              : 500;
-          sendJson(res, statusCode, { error: errorText });
-        });
+        void handleApiArtifact(req, res, url, scopedUserPrincipal).catch(
+          (err: unknown) => {
+            if (res.writableEnded) return;
+            const errorText = err instanceof Error ? err.message : String(err);
+            const statusCode =
+              err instanceof GatewayRequestError ||
+              err instanceof AdminTerminalCapacityError
+                ? err.statusCode
+                : 500;
+            sendJson(res, statusCode, { error: errorText });
+          },
+        );
         return;
       }
       {
@@ -10318,7 +10732,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       }
       if (pathname === '/api/agent-avatar' && method === 'GET') {
         try {
-          handleApiAgentAvatar(req, res, url);
+          handleApiAgentAvatar(req, res, url, scopedUserPrincipal);
         } catch (err) {
           const errorText = err instanceof Error ? err.message : String(err);
           const statusCode =
@@ -10342,6 +10756,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         return;
       }
 
+      const userPrincipal = resolveUserSessionPrincipal(authContext.payload);
+      if (isUserSessionPayload(authContext.payload) && !userPrincipal) {
+        sendJson(res, 403, { error: 'Forbidden.' });
+        return;
+      }
+
       if (!enforceAdminRouteRbac(authContext, res, pathname, method)) {
         return;
       }
@@ -10353,7 +10773,23 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/status' && method === 'GET') {
-            sendJson(res, 200, await getGatewayStatus());
+            const status = await getGatewayStatus();
+            if (userPrincipal) {
+              const grantedAgentIds = listGrantedAgentIds(userPrincipal);
+              sendJson(res, 200, {
+                status: status.status,
+                webAuthConfigured: status.webAuthConfigured,
+                version: status.version,
+                defaultAgentId: grantedAgentIds[0],
+                timestamp: status.timestamp,
+                access: { kind: 'user', principal: userPrincipal },
+              });
+            } else {
+              sendJson(res, 200, {
+                ...status,
+                access: { kind: 'admin' },
+              });
+            }
             return;
           }
           if (
@@ -10550,7 +10986,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             pathname === '/api/admin/agents' ||
             pathname.startsWith('/api/admin/agents/')
           ) {
-            await handleApiAdminAgents(req, res, url);
+            await handleApiAdminAgents(req, res, url, authContext);
             return;
           }
           if (pathname === '/api/admin/hybridai/bots') {
@@ -10870,11 +11306,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/history' && method === 'GET') {
-            await handleApiHistory(req, res, url);
+            await handleApiHistory(req, res, url, userPrincipal);
             return;
           }
           if (pathname === '/api/chat/recent' && method === 'GET') {
-            handleApiChatRecent(req, res, url);
+            handleApiChatRecent(req, res, url, userPrincipal);
             return;
           }
           if (pathname === '/api/chat/cleanup' && method === 'POST') {
@@ -10886,19 +11322,19 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/chat/commands' && method === 'GET') {
-            handleApiChatCommands(res, url);
+            handleApiChatCommands(res, url, userPrincipal);
             return;
           }
           if (pathname === '/api/chat/context' && method === 'GET') {
-            handleApiChatContext(res, url);
+            handleApiChatContext(res, url, userPrincipal);
             return;
           }
           if (pathname === '/api/agents' && method === 'GET') {
-            await handleApiAgents(res);
+            await handleApiAgents(res, userPrincipal);
             return;
           }
           if (pathname === '/api/agents/list' && method === 'GET') {
-            await handleApiAgentList(res);
+            await handleApiAgentList(res, userPrincipal);
             return;
           }
           if (pathname === '/api/proactive/pull' && method === 'GET') {
@@ -10919,23 +11355,23 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/chat' && method === 'POST') {
-            await handleApiChat(req, res);
+            await handleApiChat(req, res, userPrincipal);
             return;
           }
           if (pathname === '/api/chat/branch' && method === 'POST') {
-            await handleApiChatBranch(req, res);
+            await handleApiChatBranch(req, res, userPrincipal);
             return;
           }
           if (pathname === '/api/chat/rating' && method === 'POST') {
-            await handleApiChatRating(req, res);
+            await handleApiChatRating(req, res, userPrincipal);
             return;
           }
           if (pathname === '/api/media/upload' && method === 'POST') {
-            await handleApiMediaUpload(req, res);
+            await handleApiMediaUpload(req, res, userPrincipal);
             return;
           }
           if (pathname === '/api/command' && method === 'POST') {
-            await handleApiCommand(req, res);
+            await handleApiCommand(req, res, userPrincipal);
             return;
           }
           if (pathname === '/api/message/action' && method === 'POST') {
@@ -11075,6 +11511,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
       return;
     }
+    if (
+      isUserSessionPayload(getSessionAuthPayload(req)) &&
+      isConsoleSpaPath(pathname) &&
+      pathname !== '/chat' &&
+      !pathname.startsWith('/chat/')
+    ) {
+      sendJson(res, 403, { error: 'Forbidden.' });
+      return;
+    }
 
     if (isLocalWebSurfacePath(pathname)) {
       if (!WEB_API_TOKEN && !isLoopbackHost(HEALTH_HOST)) {
@@ -11135,6 +11580,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
     const sessionPayload = getSessionAuthPayload(req);
     const sessionAuthenticated = sessionPayload !== null;
+    if (isUserSessionPayload(sessionPayload)) {
+      writeUpgradeError(socket, 403, 'Forbidden');
+      return;
+    }
     const tokenAuthenticated =
       resolveAuthContext(req, url, {
         allowApiTokens: false,

@@ -7,6 +7,7 @@ const {
   exportCompactedSessionJsonlMock,
   loggerMock,
   memoryServiceMock,
+  runAgentMock,
 } = vi.hoisted(() => ({
   callAuxiliaryModelMock: vi.fn(),
   ensurePluginManagerInitializedMock: vi.fn(),
@@ -24,10 +25,11 @@ const {
     markSessionMemoryFlush: vi.fn(),
     updateSessionSummary: vi.fn(),
   },
+  runAgentMock: vi.fn(),
 }));
 
 vi.mock('../src/agent/agent.js', () => ({
-  runAgent: vi.fn(),
+  runAgent: runAgentMock,
 }));
 
 vi.mock('../src/agent/prompt-hooks.js', () => ({
@@ -44,7 +46,7 @@ vi.mock('../src/config/config.js', () => ({
     trafficWindowMs: 60_000,
   },
   DATA_DIR: '/tmp/hybridclaw-test-data',
-  PRE_COMPACTION_MEMORY_FLUSH_ENABLED: false,
+  PRE_COMPACTION_MEMORY_FLUSH_ENABLED: true,
   PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS: 8_000,
   PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES: 100,
   SESSION_COMPACTION_BUDGET_RATIO: 0.5,
@@ -122,7 +124,32 @@ afterEach(() => {
   memoryServiceMock.getSessionById.mockReset();
   memoryServiceMock.markSessionMemoryFlush.mockReset();
   memoryServiceMock.updateSessionSummary.mockReset();
+  runAgentMock.mockReset();
   vi.resetModules();
+});
+
+test('runPreCompactionMemoryFlush fails closed when durable writes are denied', async () => {
+  const { runPreCompactionMemoryFlush } = await import(
+    '../src/session/session-maintenance.js'
+  );
+
+  await expect(
+    runPreCompactionMemoryFlush({
+      sessionId: 'session-1',
+      agentId: 'main',
+      chatbotId: 'bot-1',
+      enableRag: true,
+      model: 'test-model',
+      channelId: 'web',
+      sessionSummary: 'previous summary',
+      olderMessages: [makeStoredMessage(1, 'user', 'durable fact')],
+      allowDurableMemoryWrites: false,
+    }),
+  ).resolves.toBeUndefined();
+
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(memoryServiceMock.markSessionMemoryFlush).not.toHaveBeenCalled();
+  expect(ensurePluginManagerInitializedMock).not.toHaveBeenCalled();
 });
 
 test('maybeCompactSession continues when plugin manager init fails', async () => {
@@ -238,13 +265,16 @@ test('maybeCompactSession skips built-in compaction when a plugin replaces memor
   expect(memoryServiceMock.deleteMessagesBeforeId).not.toHaveBeenCalled();
   expect(memoryServiceMock.updateSessionSummary).not.toHaveBeenCalled();
   expect(exportCompactedSessionJsonlMock).not.toHaveBeenCalled();
-  expect(notifyBeforeCompactionMock).toHaveBeenCalledWith({
-    sessionId: 'session-1',
-    agentId: 'main',
-    channelId: 'web',
-    summary: 'previous summary',
-    olderMessages,
-  });
+  expect(notifyBeforeCompactionMock).toHaveBeenCalledWith(
+    {
+      sessionId: 'session-1',
+      agentId: 'main',
+      channelId: 'web',
+      summary: 'previous summary',
+      olderMessages,
+    },
+    { allowDurableMemoryWrites: undefined },
+  );
   expect(loggerMock.debug).toHaveBeenCalledWith(
     expect.objectContaining({
       sessionId: 'session-1',
@@ -253,4 +283,70 @@ test('maybeCompactSession skips built-in compaction when a plugin replaces memor
     }),
     'Session compaction skipped because a plugin memory layer replaces built-in memory',
   );
+});
+
+test('maybeCompactSession compacts without durable-memory hooks when writes are denied', async () => {
+  const allMessages = [
+    makeStoredMessage(1, 'user', 'first'),
+    makeStoredMessage(2, 'assistant', 'second'),
+    makeStoredMessage(3, 'user', 'third'),
+  ];
+  const olderMessages = allMessages.slice(0, 2);
+  const retainedMessages = allMessages.slice(2);
+
+  memoryServiceMock.getSessionById.mockReturnValue({
+    id: 'session-1',
+    session_summary: 'previous summary',
+    message_count: 25,
+  });
+  memoryServiceMock.getRecentMessages.mockImplementation(
+    (_sessionId: string, keepRecent?: number) =>
+      keepRecent ? retainedMessages : allMessages,
+  );
+  memoryServiceMock.getCompactionCandidateMessages.mockReturnValue({
+    olderMessages,
+    cutoffId: 2,
+  });
+  memoryServiceMock.deleteMessagesBeforeId.mockReturnValue(2);
+  const notifyBeforeCompactionMock = vi.fn(async () => {});
+  const getMemoryLayerBehaviorMock = vi.fn(async () => ({
+    replacesBuiltInMemory: false,
+  }));
+  ensurePluginManagerInitializedMock.mockResolvedValue({
+    notifyBeforeCompaction: notifyBeforeCompactionMock,
+    getMemoryLayerBehavior: getMemoryLayerBehaviorMock,
+  });
+  callAuxiliaryModelMock.mockResolvedValue({
+    content: 'Compacted summary',
+  });
+
+  const { maybeCompactSession } = await import(
+    '../src/session/session-maintenance.js'
+  );
+
+  await expect(
+    maybeCompactSession({
+      sessionId: 'session-1',
+      agentId: 'main',
+      chatbotId: 'bot-1',
+      enableRag: true,
+      model: 'test-model',
+      channelId: 'web',
+      allowDurableMemoryWrites: false,
+    }),
+  ).resolves.toBeUndefined();
+
+  expect(notifyBeforeCompactionMock).not.toHaveBeenCalled();
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(memoryServiceMock.markSessionMemoryFlush).not.toHaveBeenCalled();
+  expect(getMemoryLayerBehaviorMock).toHaveBeenCalledTimes(1);
+  expect(memoryServiceMock.deleteMessagesBeforeId).toHaveBeenCalledWith(
+    'session-1',
+    2,
+  );
+  expect(memoryServiceMock.updateSessionSummary).toHaveBeenCalledWith(
+    'session-1',
+    'Compacted summary',
+  );
+  expect(exportCompactedSessionJsonlMock).toHaveBeenCalledTimes(1);
 });

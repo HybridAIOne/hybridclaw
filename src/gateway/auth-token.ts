@@ -12,6 +12,13 @@ export interface VerifiedAuthTokenPayload extends Record<string, unknown> {
   exp: number;
 }
 
+export interface VerifiedAgentAccessTokenPayload
+  extends VerifiedAuthTokenPayload {
+  sub: string;
+  email: string;
+  typ: 'agent-access';
+}
+
 interface ParsedToken {
   headerSegment: string | null;
   payloadSegment: string;
@@ -214,6 +221,7 @@ function buildSessionCookieValue(params: {
   ttlSeconds: number;
   expiresAtSeconds: number;
   sameSite: 'Lax' | 'Strict';
+  secure?: boolean;
 }): string {
   return [
     `${params.name}=${params.token}`,
@@ -222,11 +230,34 @@ function buildSessionCookieValue(params: {
     `Expires=${new Date(params.expiresAtSeconds * 1000).toUTCString()}`,
     'HttpOnly',
     `SameSite=${params.sameSite}`,
+    ...(params.secure ? ['Secure'] : []),
   ].join('; ');
 }
 
 export function verifyLaunchToken(token: string): VerifiedAuthTokenPayload {
-  return requireVerifiedToken(token);
+  const payload = requireVerifiedToken(token);
+  if (payload.typ === 'agent-access') {
+    throw new Error('Agent access tokens must use the HybridAI callback.');
+  }
+  return payload;
+}
+
+export function verifyAgentAccessToken(
+  token: string,
+): VerifiedAgentAccessTokenPayload {
+  const payload = requireVerifiedToken(token);
+  const sub = typeof payload.sub === 'string' ? payload.sub.trim() : '';
+  const email =
+    typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
+  if (payload.typ !== 'agent-access' || !sub || !email) {
+    throw new Error('Invalid agent access token.');
+  }
+  return {
+    ...payload,
+    sub,
+    email,
+    typ: 'agent-access',
+  };
 }
 
 export function getSessionAuthPayload(
@@ -285,6 +316,7 @@ export function setLocalWebSessionCookie(res: ServerResponse): void {
 export function setSessionCookie(
   res: ServerResponse,
   payload: Record<string, unknown>,
+  options: { secure?: boolean } = {},
 ): void {
   const secret = readSharedSecret();
   if (!secret) {
@@ -311,6 +343,7 @@ export function setSessionCookie(
       ttlSeconds: SESSION_TTL_SECONDS,
       expiresAtSeconds: expiresAt,
       sameSite: 'Lax',
+      secure: options.secure,
     }),
   );
 }

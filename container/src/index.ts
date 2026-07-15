@@ -111,6 +111,7 @@ import {
   setGatewayContext,
   setMcpClientManager,
   setMediaContext,
+  setMemoryWritesEnabled,
   setModelContext,
   setPersistentBashStateEnabled,
   setPluginTools,
@@ -119,6 +120,7 @@ import {
   setScheduleSideEffectsEnabled,
   setSessionContext,
   setTaskModelPolicies,
+  setToolExecutionPolicy,
   setWebSearchConfig,
   TOOL_DEFINITIONS,
 } from './tools.js';
@@ -1949,6 +1951,8 @@ async function main(): Promise<void> {
   );
   setSessionContext(firstInput.sessionId);
   setPersistentBashStateEnabled(firstInput.persistBashState !== false);
+  setMemoryWritesEnabled(firstInput.memoryWritesEnabled !== false);
+  setToolExecutionPolicy(firstInput.allowedTools, firstInput.blockedTools);
   setPluginTools(firstInput.pluginTools);
   setGatewayContext(
     firstInput.gatewayBaseUrl,
@@ -2138,6 +2142,8 @@ async function main(): Promise<void> {
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
     setPersistentBashStateEnabled(input.persistBashState !== false);
+    setMemoryWritesEnabled(input.memoryWritesEnabled !== false);
+    setToolExecutionPolicy(input.allowedTools, input.blockedTools);
     setPluginTools(input.pluginTools);
     setGatewayContext(
       input.gatewayBaseUrl,

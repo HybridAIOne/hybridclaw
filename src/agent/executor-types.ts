@@ -42,6 +42,8 @@ export interface ExecutorRequest {
   scheduledTasks?: ScheduledTask[];
   allowedTools?: string[];
   blockedTools?: string[];
+  memoryWritesEnabled?: boolean;
+  isolateSessionTranscripts?: boolean;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;

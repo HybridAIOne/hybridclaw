@@ -210,8 +210,12 @@ function buildPreviewBlob(blob: Blob, mimeType: string): Blob {
   return new Blob([blob], { type: normalizedMimeType });
 }
 
-function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
-  const { artifact, token } = props;
+function ArtifactCard(props: {
+  artifact: ChatArtifact;
+  token: string;
+  sessionId?: string;
+}) {
+  const { artifact, token, sessionId } = props;
   const previewUrlRef = useRef<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -237,7 +241,10 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
     if (!canPreview || !artifact.path) return;
 
     let cancelled = false;
-    void fetchArtifactBlob(token, artifact.path)
+    const artifactRequest = sessionId
+      ? fetchArtifactBlob(token, artifact.path, sessionId)
+      : fetchArtifactBlob(token, artifact.path);
+    void artifactRequest
       .then((blob) => {
         if (cancelled) return;
         const objectUrl = URL.createObjectURL(buildPreviewBlob(blob, mimeType));
@@ -254,7 +261,7 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
       previewUrlRef.current = null;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [artifact.path, canPreview, mimeType, token]);
+  }, [artifact.path, canPreview, mimeType, sessionId, token]);
 
   const downloadLabel = downloading ? 'Downloading…' : 'Download';
   const handleDownload = async () => {
@@ -264,7 +271,11 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
     try {
       const objectUrl =
         previewUrl ??
-        URL.createObjectURL(await fetchArtifactBlob(token, artifact.path));
+        URL.createObjectURL(
+          await (sessionId
+            ? fetchArtifactBlob(token, artifact.path, sessionId)
+            : fetchArtifactBlob(token, artifact.path)),
+        );
       const link = document.createElement('a');
       link.href = objectUrl;
       link.download = artifact.filename ?? 'artifact';
@@ -388,6 +399,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
   approvalBusy: boolean;
   branchInfo: { current: number; total: number } | null;
   onBranchNav: (message: ChatMessage, direction: -1 | 1) => void;
+  artifactSessionId?: string;
 }) {
   const { message: msg, token } = props;
   const [copied, setCopied] = useState(false);
@@ -546,7 +558,12 @@ export const MessageBlock = memo(function MessageBlock(props: {
       ) : null}
 
       {artifactEntries.map(({ artifact, key }) => (
-        <ArtifactCard key={key} artifact={artifact} token={token} />
+        <ArtifactCard
+          key={key}
+          artifact={artifact}
+          token={token}
+          sessionId={props.artifactSessionId}
+        />
       ))}
 
       {!props.isStreaming && !isA2ADeliveryStatus ? (

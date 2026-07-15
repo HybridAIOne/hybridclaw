@@ -95,6 +95,50 @@ describe('gateway auth token helpers', () => {
     );
   });
 
+  test('keeps agent-access tokens on the user callback path', async () => {
+    process.env.HYBRIDCLAW_AUTH_SECRET = 'unit-secret';
+    const { verifyAgentAccessToken, verifyLaunchToken } = await import(
+      '../src/gateway/auth-token.ts'
+    );
+    const token = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'platform-user-1',
+        email: 'Guest.User@HybridAI.One',
+        typ: 'agent-access',
+      },
+      'unit-secret',
+    );
+
+    expect(verifyAgentAccessToken(token)).toMatchObject({
+      sub: 'platform-user-1',
+      email: 'guest.user@hybridai.one',
+      typ: 'agent-access',
+    });
+    expect(() => verifyLaunchToken(token)).toThrow(
+      'Agent access tokens must use the HybridAI callback.',
+    );
+  });
+
+  test('rejects incomplete agent-access token claims', async () => {
+    process.env.HYBRIDCLAW_AUTH_SECRET = 'unit-secret';
+    const { verifyAgentAccessToken } = await import(
+      '../src/gateway/auth-token.ts'
+    );
+    const token = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'platform-user-1',
+        typ: 'agent-access',
+      },
+      'unit-secret',
+    );
+
+    expect(() => verifyAgentAccessToken(token)).toThrow(
+      'Invalid agent access token.',
+    );
+  });
+
   test('sets an HttpOnly signed session cookie that hasSessionAuth accepts until it expires', async () => {
     process.env.HYBRIDCLAW_AUTH_SECRET = 'unit-secret';
     vi.useFakeTimers();

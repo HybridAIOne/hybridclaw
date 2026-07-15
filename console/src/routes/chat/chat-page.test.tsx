@@ -114,6 +114,8 @@ const sendMessageMock = vi.fn();
 const stopRequestMock = vi.fn();
 const isActiveMock = vi.fn();
 const useChatStreamMock = vi.fn();
+const useConfiguredViewSwitchItemsMock = vi.fn();
+const viewSwitchNavMock = vi.fn();
 
 vi.mock('../../api/chat', () => ({
   cleanupNoUserChatSessions: (
@@ -190,8 +192,12 @@ vi.mock('./use-chat-stream', () => ({
 }));
 
 vi.mock('../../components/view-switch', () => ({
-  useConfiguredViewSwitchItems: () => undefined,
-  ViewSwitchNav: () => null,
+  useConfiguredViewSwitchItems: (token: string, enabled?: boolean) =>
+    useConfiguredViewSwitchItemsMock(token, enabled),
+  ViewSwitchNav: (props: unknown) => {
+    viewSwitchNavMock(props);
+    return <nav aria-label="Switch view" />;
+  },
 }));
 
 vi.mock('../../components/theme-toggle', () => ({
@@ -308,6 +314,9 @@ describe('ChatPage', () => {
     stopRequestMock.mockReset();
     isActiveMock.mockReset();
     useChatStreamMock.mockReset();
+    useConfiguredViewSwitchItemsMock.mockReset();
+    useConfiguredViewSwitchItemsMock.mockReturnValue(undefined);
+    viewSwitchNavMock.mockReset();
 
     const gatewayStatus: GatewayStatus = {
       status: 'ok',
@@ -424,6 +433,161 @@ describe('ChatPage', () => {
     expect(fetchChatRecentMock).not.toHaveBeenCalled();
     expect(fetchChatHistoryMock).not.toHaveBeenCalled();
     expect(fetchChatContextMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps scoped users in the granted-agent chat surface', async () => {
+    const adminAuth = useAuthMock();
+    useAuthMock.mockReturnValue({
+      ...adminAuth,
+      gatewayStatus: {
+        ...adminAuth.gatewayStatus,
+        access: {
+          kind: 'user',
+          principal: 'guest.user@hybridai',
+        },
+      },
+    });
+    fetchAgentListMock.mockResolvedValue([{ id: 'lexware', name: 'Lexware' }]);
+    fetchChatHistoryMock.mockImplementation(async (_token, sessionId) => ({
+      sessionId,
+      history: [
+        {
+          id: 101,
+          role: 'user',
+          content: '/blink prepare the accounts',
+        },
+      ],
+    }));
+
+    renderChatPage();
+
+    expect(
+      await screen.findByText('/blink prepare the accounts'),
+    ).not.toBeNull();
+    await waitFor(() => expect(fetchAgentListMock).toHaveBeenCalled());
+    expect(fetchModelsMock).not.toHaveBeenCalled();
+    expect(fetchSkillsMock).not.toHaveBeenCalled();
+    expect(fetchChatContextMock).not.toHaveBeenCalled();
+    expect(useConfiguredViewSwitchItemsMock).toHaveBeenCalledWith(
+      'test-token',
+      false,
+    );
+    expect(
+      screen.queryByRole('navigation', { name: 'Switch view' }),
+    ).toBeNull();
+    expect(screen.queryByText('Apps')).toBeNull();
+    expect(screen.queryByText('All')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Show mobile QR code' }),
+    ).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Switch model' })).toBeNull();
+    expect(document.querySelector('button[aria-label^="Delete "]')).toBeNull();
+    expect(document.querySelector('a[href^="/admin/skills/"]')).toBeNull();
+    await waitFor(() =>
+      expect(fetchChatRecentMock).toHaveBeenCalledWith(
+        'test-token',
+        'web-user-1',
+        'web',
+        10,
+        undefined,
+        'user',
+      ),
+    );
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-a',
+        80,
+        'web-user-1',
+        undefined,
+      ),
+    );
+    expect(
+      screen.getByRole('combobox', { name: 'Switch agent' }).textContent,
+    ).toContain('Lexware');
+    expect(useChatStreamMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ agentId: '', sendStopCommand: false }),
+    );
+    expect(executeCommandMock).not.toHaveBeenCalled();
+    expect(deleteChatSessionMock).not.toHaveBeenCalled();
+    expect(createChatMobileQrMock).not.toHaveBeenCalled();
+  });
+
+  it('starts a fresh scoped chat when switching granted agents', async () => {
+    const adminAuth = useAuthMock();
+    useAuthMock.mockReturnValue({
+      ...adminAuth,
+      gatewayStatus: {
+        ...adminAuth.gatewayStatus,
+        access: { kind: 'user', principal: 'user_a@hybridai' },
+      },
+    });
+    fetchAgentListMock.mockResolvedValue([
+      { id: 'lexware', name: 'Lexware' },
+      { id: 'payroll', name: 'Payroll' },
+    ]);
+    fetchChatHistoryMock.mockImplementation(async (_token, sessionId) => ({
+      sessionId,
+      history: [],
+    }));
+
+    renderChatPage();
+
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-a',
+        80,
+        'web-user-1',
+        undefined,
+      ),
+    );
+    await switchAgentOption('Payroll');
+
+    await waitFor(() =>
+      expect(
+        fetchChatHistoryMock.mock.calls.some(
+          ([, , , , agentId]) => agentId === 'payroll',
+        ),
+      ).toBe(true),
+    );
+    expect(executeCommandMock).not.toHaveBeenCalled();
+  });
+
+  it('uses the bound agent when opening an existing scoped session', async () => {
+    const adminAuth = useAuthMock();
+    useAuthMock.mockReturnValue({
+      ...adminAuth,
+      gatewayStatus: {
+        ...adminAuth.gatewayStatus,
+        access: { kind: 'user', principal: 'user_a@hybridai' },
+      },
+    });
+    fetchAgentListMock.mockResolvedValue([
+      { id: 'lexware', name: 'Lexware' },
+      { id: 'payroll', name: 'Payroll' },
+    ]);
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      agentId: 'payroll',
+      history: [
+        { id: 101, role: 'assistant', content: 'Payroll session history' },
+      ],
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Payroll session history')).not.toBeNull();
+    expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+      'test-token',
+      'session-a',
+      80,
+      'web-user-1',
+      undefined,
+    );
+    expect(
+      screen.getByRole('combobox', { name: 'Switch agent' }).textContent,
+    ).toContain('Payroll');
   });
 
   it('loads history, sends from the composer, and switches recent sessions', async () => {

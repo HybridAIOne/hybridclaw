@@ -17,6 +17,10 @@ export interface AdminConfigReloadResponse {
 
 export interface GatewayStatus {
   status: 'ok';
+  access?: {
+    kind: 'admin' | 'user';
+    principal?: string;
+  };
   webAuthConfigured: boolean;
   pid?: number;
   lifecycle?: {

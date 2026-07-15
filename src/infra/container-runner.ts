@@ -100,6 +100,10 @@ import {
   isModelResponseDebugEnabled,
 } from './model-response-debug.js';
 import {
+  prepareSharedSessionMounts,
+  type SharedSessionMounts,
+} from './shared-session-mounts.js';
+import {
   consumeCollapsedStreamDebugLine,
   createStreamDebugState,
   decodeStreamDelta,
@@ -185,6 +189,20 @@ const CONTAINER_WORKSPACE_ROOT = '/workspace';
 const CONTAINER_APP_NODE_MODULES = '/app/node_modules';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 const CONTAINER_UPLOADED_MEDIA_CACHE_ROOT = '/uploaded-media-cache';
+const SHARED_TRANSCRIPT_MASK_DIR = path.join(
+  DATA_DIR,
+  'runtime',
+  'shared-transcript-mask',
+);
+
+function ensureSharedTranscriptMaskDir(): string {
+  fs.mkdirSync(SHARED_TRANSCRIPT_MASK_DIR, { recursive: true, mode: 0o700 });
+  fs.chmodSync(SHARED_TRANSCRIPT_MASK_DIR, 0o700);
+  if (fs.readdirSync(SHARED_TRANSCRIPT_MASK_DIR).length > 0) {
+    throw new Error('Shared-user transcript mask directory is not empty.');
+  }
+  return SHARED_TRANSCRIPT_MASK_DIR;
+}
 
 export function collectConfiguredDiscordChannelIds(
   currentChannelId: string,
@@ -670,7 +688,12 @@ function getOrSpawnContainer(
     | 'workspacePathOverride'
     | 'workspaceDisplayRootOverride'
     | 'bashProxy'
-  > & { ipcSessionId?: string; warm?: boolean },
+    | 'isolateSessionTranscripts'
+  > & {
+    ipcSessionId?: string;
+    warm?: boolean;
+    sharedSessionMounts?: SharedSessionMounts;
+  },
 ): PoolEntry {
   const sessionId = params.sessionId;
   const ipcSessionId = params.ipcSessionId || sessionId;
@@ -705,13 +728,26 @@ function getOrSpawnContainer(
     allowMissingSource: true,
     replaceExistingSymlink: true,
   });
-  const mediaCacheHostPath = resolveDiscordMediaCacheHostDir();
+  if (params.isolateSessionTranscripts && !params.sharedSessionMounts) {
+    throw new Error('Shared-user session mounts were not prepared.');
+  }
+  const mediaCacheHostPath =
+    params.sharedSessionMounts?.discordMediaCacheHostPath ||
+    resolveDiscordMediaCacheHostDir();
   fs.mkdirSync(mediaCacheHostPath, { recursive: true });
-  const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
+  const uploadedMediaCacheHostPath =
+    params.sharedSessionMounts?.uploadedMediaCacheHostPath ||
+    resolveUploadedMediaCacheHostDir();
   fs.mkdirSync(uploadedMediaCacheHostPath, { recursive: true });
-  const browserProfileHostPath = resolveBrowserProfileHostDir();
+  const browserProfileHostPath =
+    params.sharedSessionMounts?.browserProfileHostPath ||
+    resolveBrowserProfileHostDir();
   const behaviorAnomalyTrajectoryStoreDir =
+    params.sharedSessionMounts?.behaviorAnomalyTrajectoryStoreDir ||
     ensureBehaviorAnomalyTrajectoryStoreDir();
+  const sharedTranscriptMaskDir = params.isolateSessionTranscripts
+    ? ensureSharedTranscriptMaskDir()
+    : null;
   fs.mkdirSync(browserProfileHostPath, { recursive: true, mode: 0o700 });
   try {
     fs.chmodSync(browserProfileHostPath, 0o700);
@@ -768,7 +804,7 @@ function getOrSpawnContainer(
     '-e',
     `HYBRIDCLAW_GATEWAY_URL=${remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL)}`,
     '-e',
-    `HYBRIDCLAW_GATEWAY_TOKEN=${GATEWAY_API_TOKEN || ''}`,
+    `HYBRIDCLAW_GATEWAY_TOKEN=${params.isolateSessionTranscripts ? '' : GATEWAY_API_TOKEN || ''}`,
     '-e',
     `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
     '-e',
@@ -844,6 +880,13 @@ function getOrSpawnContainer(
         `HYBRIDCLAW_AGENT_EXTRA_MOUNTS=${JSON.stringify(mountAliases)}`,
       );
     }
+  }
+
+  if (sharedTranscriptMaskDir) {
+    args.push(
+      '-v',
+      `${sharedTranscriptMaskDir}:${CONTAINER_WORKSPACE_ROOT}/.session-transcripts:ro`,
+    );
   }
 
   args.push(CONTAINER_IMAGE);
@@ -1029,6 +1072,8 @@ async function runContainerInner(
     scheduledTasks,
     allowedTools,
     blockedTools,
+    memoryWritesEnabled,
+    isolateSessionTranscripts,
     onTextDelta,
     onThinkingDelta,
     onToolProgress,
@@ -1046,6 +1091,30 @@ async function runContainerInner(
     agentId,
     workspacePathOverride: params.workspacePathOverride,
   });
+  let sharedSessionMounts: SharedSessionMounts | undefined;
+  if (isolateSessionTranscripts) {
+    try {
+      sharedSessionMounts = prepareSharedSessionMounts({
+        dataDir: DATA_DIR,
+        sessionId,
+        agentId,
+        media,
+        sourceDiscordRoot: resolveDiscordMediaCacheHostDir(),
+        sourceUploadedRoot: resolveUploadedMediaCacheHostDir(),
+      });
+    } catch (err) {
+      logger.error(
+        { err, sessionId, agentId },
+        'Failed to prepare shared-user container mounts',
+      );
+      return {
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: 'Shared-user container isolation setup failed.',
+      };
+    }
+  }
   const modelRuntime = await resolveModelRuntimeCredentials({
     model,
     chatbotId,
@@ -1125,7 +1194,9 @@ async function runContainerInner(
     modelBehavior: modelRuntime.modelBehavior,
     thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL),
-    gatewayApiToken: GATEWAY_API_TOKEN || undefined,
+    gatewayApiToken: isolateSessionTranscripts
+      ? undefined
+      : GATEWAY_API_TOKEN || undefined,
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model: runtimeModel,
@@ -1159,7 +1230,8 @@ async function runContainerInner(
     ),
     allowedTools,
     blockedTools,
-    media,
+    memoryWritesEnabled,
+    media: sharedSessionMounts?.media ?? media,
     audioTranscriptsPrepended,
     pluginTools,
     mcpServers,
@@ -1194,6 +1266,7 @@ async function runContainerInner(
     runtimeEnv: storedRuntimeEnv,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+    isolateSessionTranscripts,
     bashProxy: params.bashProxy,
   });
 
@@ -1219,7 +1292,7 @@ async function runContainerInner(
   let entry: PoolEntry;
   try {
     entry =
-      (isNewContainer
+      (isNewContainer && !isolateSessionTranscripts
         ? claimWarmContainer({
             sessionId,
             agentId,
@@ -1234,6 +1307,8 @@ async function runContainerInner(
         workspacePathOverride: params.workspacePathOverride,
         workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
         bashProxy: params.bashProxy,
+        isolateSessionTranscripts,
+        sharedSessionMounts,
       });
   } catch (err) {
     return {

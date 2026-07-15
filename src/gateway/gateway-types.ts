@@ -244,6 +244,8 @@ export interface GatewayChatRequest {
   abortSignal?: AbortSignal;
   source?: string;
   delegationPublicId?: string;
+  /** Canonical user id for a grant-scoped web session. Never accept from request bodies. */
+  principal?: string;
 }
 
 export interface GatewayMediaUploadResult {
@@ -252,6 +254,7 @@ export interface GatewayMediaUploadResult {
 
 export interface GatewayCommandRequest {
   sessionId: string;
+  agentId?: string | null;
   sessionMode?: 'new' | 'resume';
   guildId: string | null;
   channelId: string;
@@ -259,6 +262,8 @@ export interface GatewayCommandRequest {
   userId?: string | null;
   username?: string | null;
   onProactiveMessage?: GatewayChatRequest['onProactiveMessage'];
+  /** Canonical user id for a grant-scoped web session. Never accept from request bodies. */
+  principal?: string;
 }
 
 export interface GatewayProactiveMessage {
@@ -403,6 +408,10 @@ export interface GatewayPluginCommandSummary {
 
 export interface GatewayStatus {
   status: 'ok';
+  access?: {
+    kind: 'admin' | 'user';
+    principal?: string;
+  };
   webAuthConfigured: boolean;
   pid?: number;
   lifecycle?: {

@@ -69,6 +69,46 @@ describe.sequential('container memory tool', () => {
     ).toContain('- Durable fact.');
   });
 
+  test('keeps memory reads available while blocking shared-user writes', async () => {
+    workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-memory-workspace-'),
+    );
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    fs.writeFileSync(
+      path.join(workspaceRoot, 'MEMORY.md'),
+      '# Memory\n\nShared context.\n',
+      'utf-8',
+    );
+
+    const { executeTool, setMemoryWritesEnabled } = await import(
+      '../container/src/tools.js'
+    );
+    setMemoryWritesEnabled(false);
+
+    const readResult = await executeTool(
+      'memory',
+      JSON.stringify({ action: 'read', file_path: 'MEMORY.md' }),
+    );
+    const writeResult = await executeTool(
+      'memory',
+      JSON.stringify({
+        action: 'append',
+        file_path: `memory/${currentLocalDateStamp()}.md`,
+        content: '- Guest write.',
+      }),
+    );
+
+    expect(readResult).toContain('Shared context.');
+    expect(writeResult).toContain(
+      'memory write actions are disabled for this shared-agent session',
+    );
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, `memory/${currentLocalDateStamp()}.md`),
+      ),
+    ).toBe(false);
+  });
+
   test('memoizes USER.md timezone reads while the file is unchanged', async () => {
     workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-memory-workspace-'),

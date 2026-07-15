@@ -18,6 +18,12 @@ describe('chat artifact helpers', () => {
     expect(artifactUrl('/tmp/report.pdf')).not.toContain('token=');
   });
 
+  it('includes the owning session when scoped artifact access requires it', () => {
+    expect(artifactUrl('/tmp/report.pdf', ' session-a ')).toBe(
+      '/api/artifact?path=%2Ftmp%2Freport.pdf&sessionId=session-a',
+    );
+  });
+
   it('fetches artifacts with Authorization headers and dispatches auth-required on 401', async () => {
     const events: CustomEvent[] = [];
     const listener = (event: Event) => {

@@ -132,6 +132,9 @@ let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
 let mcpClientManager: McpClientManager | null = null;
 let pluginTools: PluginRuntimeToolDefinition[] = [];
+let memoryWritesEnabled = true;
+let allowedToolExecutions: ReadonlySet<string> | null = null;
+let blockedToolExecutions: ReadonlySet<string> = new Set();
 const MAX_PENDING_DELEGATIONS = 3;
 let memoryTimezoneCache: {
   userPath: string;
@@ -374,6 +377,34 @@ export function setPersistentBashStateEnabled(enabled: boolean): void {
     resetPersistentBashSessions();
     BASH_TOOL_DEFINITION.function.description = buildBashToolDescription();
   }
+}
+
+export function setMemoryWritesEnabled(enabled: boolean): void {
+  memoryWritesEnabled = enabled !== false;
+}
+
+export function setToolExecutionPolicy(
+  allowedTools?: string[],
+  blockedTools?: string[],
+): void {
+  allowedToolExecutions = Array.isArray(allowedTools)
+    ? new Set(allowedTools)
+    : null;
+  blockedToolExecutions = new Set(
+    Array.isArray(blockedTools)
+      ? blockedTools.map((name) => String(name || '').trim()).filter(Boolean)
+      : [],
+  );
+}
+
+function toolExecutionPolicyError(name: string): string | null {
+  if (blockedToolExecutions.has(name)) {
+    return `Error: tool "${name}" is disabled for this request.`;
+  }
+  if (allowedToolExecutions && !allowedToolExecutions.has(name)) {
+    return `Error: tool "${name}" is disabled for this request.`;
+  }
+  return null;
 }
 
 function getPersistentBashSession(): PersistentBashSession {
@@ -2930,6 +2961,11 @@ async function executeToolInternal(
           'Error: memory file_path must be MEMORY.md, USER.md, or memory/YYYY-MM-DD.md',
         );
       }
+      if (isMemoryWriteAction(action) && !memoryWritesEnabled) {
+        return failTool(
+          'Error: memory write actions are disabled for this shared-agent session',
+        );
+      }
       if (
         isMemoryWriteAction(action) &&
         !isTodayDailyMemoryPath(relativePath)
@@ -3895,6 +3931,10 @@ export async function executeToolWithMetadata(
   name: string,
   argsJson: string,
 ): Promise<ToolRunResult> {
+  const policyError = toolExecutionPolicyError(name);
+  if (policyError) {
+    return { output: policyError, isError: true };
+  }
   try {
     return {
       output: await executeToolInternal(name, argsJson),

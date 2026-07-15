@@ -7,6 +7,7 @@ import {
   HYBRIDAI_MODEL,
 } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { deriveLocalAgentIdentity } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import {
@@ -24,6 +25,7 @@ import {
   normalizeOptionalTrimmedUniqueStringArray,
   normalizeTrimmedString as normalizeString,
 } from '../utils/normalized-strings.js';
+import { hasActiveAgentGrant } from './agent-grants.js';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,
@@ -195,6 +197,10 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     typeof (value as { enableRag?: unknown }).enableRag === 'boolean'
       ? (value as { enableRag: boolean }).enableRag
       : undefined;
+  const shared =
+    typeof (value as { shared?: unknown }).shared === 'boolean'
+      ? (value as { shared: boolean }).shared
+      : undefined;
   const skills = normalizeOptionalTrimmedUniqueStringArray(
     (value as { skills?: unknown }).skills,
   );
@@ -231,6 +237,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+    ...(typeof shared === 'boolean' ? { shared } : {}),
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
     ...(reportsTo ? { reportsTo } : {}),
@@ -310,6 +317,7 @@ function fingerprintAgent(agent: AgentConfig): string {
     fingerprintString(agent.workspace),
     fingerprintString(agent.chatbotId),
     typeof agent.enableRag === 'boolean' ? String(agent.enableRag) : '',
+    typeof agent.shared === 'boolean' ? String(agent.shared) : '',
     fingerprintString(agent.owner),
     fingerprintString(agent.role),
     fingerprintString(agent.reportsTo),
@@ -421,6 +429,7 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ...(agent.workspace ? { workspace: agent.workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+    ...(typeof agent.shared === 'boolean' ? { shared: agent.shared } : {}),
     ...(agent.owner ? { owner: agent.owner } : {}),
     ...(agent.role ? { role: agent.role } : {}),
     ...(agent.reportsTo ? { reportsTo: agent.reportsTo } : {}),
@@ -483,6 +492,7 @@ function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
     workspace: agent.workspace,
     chatbotId: agent.chatbotId,
     enableRag: agent.enableRag,
+    shared: agent.shared,
     owner: agent.owner,
     role: agent.role,
     reportsTo: agent.reportsTo,
@@ -632,6 +642,7 @@ export function resolveAgentForRequest(params?: {
   session?: Session | null;
   model?: string | null;
   chatbotId?: string | null;
+  principal?: string | null;
 }): {
   agentId: string;
   model: string;
@@ -640,23 +651,41 @@ export function resolveAgentForRequest(params?: {
   ensureRegistryCurrent();
   const requestedAgentId = normalizeString(params?.agentId);
   const sessionAgentId = normalizeString(params?.session?.agent_id);
-  const agentId =
-    requestedAgentId ||
-    sessionAgentId ||
-    configuredDefaultAgentId ||
-    DEFAULT_AGENT_ID;
+  const principal = normalizeString(params?.principal);
+  const agentId = principal
+    ? requestedAgentId || sessionAgentId
+    : requestedAgentId ||
+      sessionAgentId ||
+      configuredDefaultAgentId ||
+      DEFAULT_AGENT_ID;
+  if (!agentId) {
+    throw new GatewayRequestError(
+      403,
+      'An explicitly granted agent is required for this user.',
+    );
+  }
+  if (principal && !hasActiveAgentGrant(agentId, principal)) {
+    throw new GatewayRequestError(
+      403,
+      'Agent access is not granted for this user.',
+    );
+  }
   const agent = resolveAgentConfig(agentId);
   const requestedModel =
-    params?.model == null ? '' : normalizeString(params.model);
-  const sessionModel = normalizeString(params?.session?.model);
+    principal || params?.model == null ? '' : normalizeString(params.model);
+  const sessionModel = principal ? '' : normalizeString(params?.session?.model);
   const model =
     requestedModel ||
     sessionModel ||
     resolveAgentModel(agent) ||
     HYBRIDAI_MODEL;
   const requestedChatbotId =
-    params?.chatbotId == null ? null : normalizeString(params.chatbotId);
-  const sessionChatbotId = normalizeNullableString(params?.session?.chatbot_id);
+    principal || params?.chatbotId == null
+      ? null
+      : normalizeString(params.chatbotId);
+  const sessionChatbotId = principal
+    ? null
+    : normalizeNullableString(params?.session?.chatbot_id);
   const agentChatbotId = normalizeNullableString(agent.chatbotId);
   const defaultChatbotId = normalizeNullableString(HYBRIDAI_CHATBOT_ID);
   const chatbotId =

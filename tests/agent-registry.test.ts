@@ -151,6 +151,58 @@ test('resolveAgentForRequest prefers request, then session, then configured defa
   });
 });
 
+test('resolveAgentForRequest requires an explicit active grant for user principals', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { initAgentRegistry, resolveAgentForRequest } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { shareAgent } = await import('../src/agents/agent-sharing.ts');
+
+  initDatabase({ quiet: true });
+  initAgentRegistry({
+    defaultAgentId: 'main',
+    list: [
+      { id: 'main', model: 'gpt-5-mini' },
+      {
+        id: 'lexware',
+        model: 'hybridai/gpt-5',
+        chatbotId: 'bot-lexware',
+      },
+    ],
+  });
+  shareAgent({
+    agentId: 'lexware',
+    principal: 'Guest.User@HybridAI.One',
+    grantedBy: 'admin@hybridai',
+  });
+
+  expect(() =>
+    resolveAgentForRequest({ principal: 'guest.user@hybridai' }),
+  ).toThrow('explicitly granted agent');
+  expect(() =>
+    resolveAgentForRequest({
+      principal: 'guest.user@hybridai',
+      agentId: 'main',
+    }),
+  ).toThrow('Agent access is not granted');
+  expect(
+    resolveAgentForRequest({
+      principal: 'guest.user@hybridai',
+      agentId: 'lexware',
+      model: 'unauthorized-model',
+      chatbotId: 'unauthorized-chatbot',
+    }),
+  ).toEqual({
+    agentId: 'lexware',
+    model: 'hybridai/gpt-5',
+    chatbotId: 'bot-lexware',
+  });
+});
+
 test('listAgents refreshes externally updated database-backed registry', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

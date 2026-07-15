@@ -167,8 +167,9 @@ export function uploadMedia(
   });
 }
 
-export function artifactUrl(path: string): string {
+export function artifactUrl(path: string, sessionId?: string): string {
   const params = new URLSearchParams({ path });
+  if (sessionId?.trim()) params.set('sessionId', sessionId.trim());
   return `/api/artifact?${params.toString()}`;
 }
 
@@ -214,8 +215,9 @@ async function fetchAuthenticatedBlob(
 export async function fetchArtifactBlob(
   token: string,
   artifactPath: string,
+  sessionId?: string,
 ): Promise<Blob> {
-  return fetchAuthenticatedBlob(token, artifactUrl(artifactPath));
+  return fetchAuthenticatedBlob(token, artifactUrl(artifactPath, sessionId));
 }
 
 export function fetchAgentAvatarBlob(

@@ -537,12 +537,68 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
         }),
       ],
     }),
+    { allowDurableMemoryWrites: true },
   );
   expect(pluginManagerMock.notifyAgentEnd).toHaveBeenCalledWith(
     expect.objectContaining({
       resultText: 'plugin-aware reply',
       toolNames: ['memory_lookup'],
     }),
+    { allowDurableMemoryWrites: true },
+  );
+});
+
+test('handleGatewayMessage denies durable plugin memory lifecycle writes for a user principal', async () => {
+  setupHome();
+
+  const { initDatabase, upsertAgent } = await import('../src/memory/db.ts');
+  const { shareAgent } = await import('../src/agents/agent-sharing.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertAgent({
+    id: 'lexware',
+    name: 'Lexware',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+  shareAgent({
+    agentId: 'lexware',
+    principal: 'guest.user@hybridai',
+    grantedBy: 'admin@hybridai',
+  });
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Scoped reply',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  await handleGatewayMessage({
+    sessionId:
+      'agent:lexware:channel:web:chat:dm:peer:guest.user@hybridai:thread:plugin-policy',
+    guildId: null,
+    channelId: 'web',
+    userId: 'guest.user@hybridai',
+    username: 'guest.user@hybridai',
+    content: 'Summarize this without saving it.',
+    agentId: 'lexware',
+    principal: 'guest.user@hybridai',
+  });
+
+  expect(pluginManagerMock.notifyMemoryWrites).toHaveBeenCalledWith(
+    expect.objectContaining({ agentId: 'lexware' }),
+    { allowDurableMemoryWrites: false },
+  );
+  expect(pluginManagerMock.notifyTurnComplete).toHaveBeenCalledWith(
+    expect.objectContaining({ agentId: 'lexware' }),
+    { allowDurableMemoryWrites: false },
+  );
+  expect(pluginManagerMock.notifyAgentEnd).toHaveBeenCalledWith(
+    expect.objectContaining({ agentId: 'lexware' }),
+    { allowDurableMemoryWrites: false },
   );
 });
 
@@ -581,17 +637,20 @@ test('handleGatewayMessage forwards successful native memory writes to plugins',
     chatbotId: 'bot-1',
   });
 
-  expect(pluginManagerMock.notifyMemoryWrites).toHaveBeenCalledWith({
-    sessionId: 'session-plugin-memory-write',
-    agentId: 'main',
-    channelId: 'web',
-    toolExecutions: [
-      expect.objectContaining({
-        name: 'memory',
-        result: 'Appended 45 chars to memory/2026-04-08.md',
-      }),
-    ],
-  });
+  expect(pluginManagerMock.notifyMemoryWrites).toHaveBeenCalledWith(
+    {
+      sessionId: 'session-plugin-memory-write',
+      agentId: 'main',
+      channelId: 'web',
+      toolExecutions: [
+        expect.objectContaining({
+          name: 'memory',
+          result: 'Appended 45 chars to memory/2026-04-08.md',
+        }),
+      ],
+    },
+    { allowDurableMemoryWrites: true },
+  );
   expect(
     pluginManagerMock.notifyMemoryWrites.mock.invocationCallOrder[0],
   ).toBeLessThan(pluginManagerMock.notifyAgentEnd.mock.invocationCallOrder[0]);

@@ -76,6 +76,7 @@ export interface AgentConfig {
   workspace?: string;
   chatbotId?: string;
   enableRag?: boolean;
+  shared?: boolean;
   owner?: string;
   role?: string;
   reportsTo?: string;

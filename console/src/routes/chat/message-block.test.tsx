@@ -12,7 +12,9 @@ import type { ChatUiMessage } from './chat-ui-message';
 import { MessageBlock } from './message-block';
 
 const fetchArtifactBlobMock =
-  vi.fn<(token: string, artifactPath: string) => Promise<Blob>>();
+  vi.fn<
+    (token: string, artifactPath: string, sessionId?: string) => Promise<Blob>
+  >();
 const fetchAgentAvatarBlobMock =
   vi.fn<(token: string, imageUrl: string) => Promise<Blob>>();
 const fetchA2ADeliveryStatusMock = vi.fn();
@@ -22,8 +24,14 @@ const renderMarkdownMock =
 vi.mock('../../api/chat', () => ({
   fetchAgentAvatarBlob: (token: string, imageUrl: string) =>
     fetchAgentAvatarBlobMock(token, imageUrl),
-  fetchArtifactBlob: (token: string, artifactPath: string) =>
-    fetchArtifactBlobMock(token, artifactPath),
+  fetchArtifactBlob: (
+    token: string,
+    artifactPath: string,
+    sessionId?: string,
+  ) =>
+    sessionId === undefined
+      ? fetchArtifactBlobMock(token, artifactPath)
+      : fetchArtifactBlobMock(token, artifactPath, sessionId),
 }));
 
 vi.mock('../../api/client', () => ({
@@ -314,6 +322,41 @@ describe('MessageBlock artifacts', () => {
     expect(
       container.querySelector('[src*="token="], [href*="token="]'),
     ).toBeNull();
+  });
+
+  it('scopes artifact requests to the message session for shared users', async () => {
+    fetchArtifactBlobMock.mockResolvedValue(
+      new Blob(['image-bytes'], { type: 'image/png' }),
+    );
+
+    render(
+      <MessageBlock
+        message={makeMessage([
+          {
+            path: '/tmp/scoped.png',
+            filename: 'scoped.png',
+            mimeType: 'image/png',
+          },
+        ])}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+        artifactSessionId="session-a"
+      />,
+    );
+
+    await screen.findByAltText('scoped.png');
+    expect(fetchArtifactBlobMock).toHaveBeenCalledWith(
+      'test-token',
+      '/tmp/scoped.png',
+      'session-a',
+    );
   });
 
   it('renders artifact-only assistant turns without an empty text bubble', async () => {

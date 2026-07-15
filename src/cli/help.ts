@@ -953,6 +953,9 @@ export function printAgentUsage(): void {
 
 Commands:
   hybridclaw agent list
+  hybridclaw agent share <agent-id> <email-or-principal> [--expires-at <iso-date>]
+  hybridclaw agent unshare <agent-id> <email-or-principal>
+  hybridclaw agent shares <agent-id>
   hybridclaw agent create <id> [--name <name>] [--model <model>] [--workspace <path-or-id>] [--activate]
   hybridclaw agent config <json|--json <json>> [--activate]
   hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
@@ -963,6 +966,8 @@ Commands:
 
 Notes:
   - \`list\` prints registered agents in a script-friendly tab-separated format.
+  - \`share\` grants a canonical user principal access to an agent; HybridAI email addresses ending in \`@hybridai.one\` are normalized to \`<user>@hybridai\`.
+  - \`unshare\` revokes the principal's grant. \`shares\` prints the principal, role, source, grantor, grant time, sync time, and expiry as tab-separated fields.
   - \`create\` registers a new agent and fills missing bootstrap files in its managed workspace.
   - Use \`--workspace\` with \`create\` to attach an existing managed workspace path such as \`~/.hybridclaw/data/agents/ben/workspace\`, or a managed workspace id.
   - \`config\` upserts an agent from a quoted JSON payload. The payload may be an agent object directly, or \`{"agent": {...}, "markdown": {"IDENTITY.md": "..."}}\`.
