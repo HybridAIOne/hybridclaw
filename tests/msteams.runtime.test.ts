@@ -25,6 +25,7 @@ const loggerErrorMock = vi.fn();
 const loggerInfoMock = vi.fn();
 const loggerWarnMock = vi.fn();
 const cloudAdapters: Array<{ onTurnError?: unknown }> = [];
+let msteamsAppPassword = 'teams-secret';
 
 function makeRequest(body: unknown): IncomingMessage {
   return Object.assign(
@@ -140,7 +141,9 @@ async function importRuntime() {
     APP_VERSION: '0.7.1',
     DATA_DIR: '/tmp/hybridclaw-test-data',
     MSTEAMS_APP_ID: 'teams-app-id',
-    MSTEAMS_APP_PASSWORD: 'teams-secret',
+    get MSTEAMS_APP_PASSWORD() {
+      return msteamsAppPassword;
+    },
     MSTEAMS_ENABLED: true,
     MSTEAMS_TENANT_ID: 'teams-tenant-id',
   }));
@@ -237,11 +240,36 @@ afterEach(() => {
   loggerInfoMock.mockReset();
   loggerWarnMock.mockReset();
   cloudAdapters.length = 0;
+  msteamsAppPassword = 'teams-secret';
   vi.restoreAllMocks();
   vi.resetModules();
 });
 
 describe('Microsoft Teams runtime webhook adapter', () => {
+  test('rebuilds the adapter after the app password rotates', async () => {
+    processMock.mockResolvedValue(undefined);
+
+    const runtime = await importRuntime();
+    await runtime.handleMSTeamsWebhook(
+      makeRequest({ type: 'message', text: 'First' }),
+      makeResponse(),
+    );
+
+    msteamsAppPassword = 'rotated-teams-secret';
+    await runtime.handleMSTeamsWebhook(
+      makeRequest({ type: 'message', text: 'Second' }),
+      makeResponse(),
+    );
+
+    expect(cloudAdapters).toHaveLength(2);
+    expect(credentialsFactoryMock).toHaveBeenLastCalledWith({
+      MicrosoftAppId: 'teams-app-id',
+      MicrosoftAppPassword: 'rotated-teams-secret',
+      MicrosoftAppTenantId: 'teams-tenant-id',
+      MicrosoftAppType: 'SingleTenant',
+    });
+  });
+
   test('parses the raw request body and adapts the Node response for botbuilder', async () => {
     processMock.mockResolvedValue(undefined);
 

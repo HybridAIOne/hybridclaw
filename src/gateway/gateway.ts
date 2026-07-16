@@ -1628,12 +1628,6 @@ async function startMSTeamsIntegration(): Promise<boolean> {
     logger.info('Microsoft Teams integration disabled');
     return false;
   }
-  if (!hasCredentials) {
-    logger.info(
-      'Microsoft Teams integration disabled: msteams.appId config or MSTEAMS_APP_PASSWORD runtime secret is missing',
-    );
-    return false;
-  }
   if (teamsConfig.webhook.port !== getConfigSnapshot().ops.healthPort) {
     logger.info(
       {
@@ -1825,6 +1819,12 @@ async function startMSTeamsIntegration(): Promise<boolean> {
       }
     },
   );
+  if (!hasCredentials) {
+    logger.info(
+      'Microsoft Teams integration disabled: msteams.appId config or MSTEAMS_APP_PASSWORD runtime secret is missing',
+    );
+    return false;
+  }
   logger.info(
     {
       webhookPath: teamsConfig.webhook.path,
@@ -2856,6 +2856,23 @@ async function refreshEmailIntegrationForConfigChange(
     );
   });
   await startEmailIntegration();
+}
+
+async function refreshMSTeamsIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (shouldSkipChannelConfigRefresh(next, prev)) return;
+  if (JSON.stringify(next.msteams) === JSON.stringify(prev.msteams)) return;
+
+  logger.info(
+    {
+      enabled: next.msteams.enabled,
+      webhookPath: next.msteams.webhook.path,
+    },
+    'Config changed, refreshing Microsoft Teams integration',
+  );
+  await startMSTeamsIntegration();
 }
 
 async function refreshTelegramIntegrationForConfigChange(
@@ -3898,6 +3915,12 @@ async function main(): Promise<void> {
       logger.warn(
         { error },
         'Email integration restart failed after config change',
+      );
+    });
+    void refreshMSTeamsIntegrationForConfigChange(next, prev).catch((error) => {
+      logger.warn(
+        { error },
+        'Microsoft Teams integration refresh failed after config change',
       );
     });
     void refreshTelegramIntegrationForConfigChange(next, prev).catch(

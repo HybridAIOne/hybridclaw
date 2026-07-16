@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Microsoft Teams credential hot reload**: Setting or rotating
+  `MSTEAMS_APP_PASSWORD` through the admin secret store refreshes the running
+  gateway immediately, initializes Teams handlers that were waiting for
+  credentials, and rebuilds the Bot Framework adapter without requiring a
+  container restart.
+
 ## [0.28.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.1) - 2026-07-10
 
 ### Added

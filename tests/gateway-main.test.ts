@@ -1697,6 +1697,44 @@ describe('gateway bootstrap', () => {
     expect(state.teamsCommandHandler).toBeNull();
   });
 
+  test('registers Teams handlers before credentials are configured', async () => {
+    const state = await importFreshGatewayMain({
+      msteamsEnabled: true,
+      hasMSTeamsCredentials: false,
+    });
+
+    expect(state.initMSTeams).toHaveBeenCalledTimes(1);
+    expect(state.teamsMessageHandler).toEqual(expect.any(Function));
+    expect(state.teamsCommandHandler).toEqual(expect.any(Function));
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      'Microsoft Teams integration disabled: msteams.appId config or MSTEAMS_APP_PASSWORD runtime secret is missing',
+    );
+  });
+
+  test('initializes Teams when it is enabled after gateway startup', async () => {
+    const state = await importFreshGatewayMain({
+      msteamsEnabled: false,
+      hasMSTeamsCredentials: true,
+    });
+    const previous = structuredClone(state.currentConfig);
+    state.currentConfig.msteams.enabled = true;
+
+    state.configChangeListener?.(state.currentConfig, previous);
+    await settle();
+
+    expect(state.initMSTeams).toHaveBeenCalledTimes(1);
+    expect(state.teamsMessageHandler).toEqual(expect.any(Function));
+    expect(state.teamsCommandHandler).toEqual(expect.any(Function));
+    expectInfoLog(
+      state,
+      'Config changed, refreshing Microsoft Teams integration',
+      {
+        enabled: true,
+        webhookPath: '/api/msteams/messages',
+      },
+    );
+  });
+
   test('formats command replies based on gateway command result kind', async () => {
     const state = await importFreshGatewayMain();
     const reply = vi.fn(async () => {});

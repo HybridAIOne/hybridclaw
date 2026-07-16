@@ -46,6 +46,10 @@ Check what HybridClaw saved:
 hybridclaw auth status msteams
 ```
 
+On a running gateway, setting or rotating `MSTEAMS_APP_PASSWORD` from
+`/admin/secrets` refreshes the Teams credential and Bot Framework adapter in
+process. A container restart is not required.
+
 By default, Teams DMs and group channels start in `allowlist` mode. That means
 the bot will not answer anyone until you explicitly allow AAD object IDs in
 config or open a specific team/channel policy for testing.

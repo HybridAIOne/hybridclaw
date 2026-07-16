@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   type Request as BotFrameworkRequest,
@@ -469,9 +470,10 @@ export async function sendToActiveMSTeamsSession(params: {
 }
 
 function buildAdapter(): CloudAdapter {
-  const signature = `${MSTEAMS_APP_ID}:${MSTEAMS_TENANT_ID}:${Boolean(
-    MSTEAMS_APP_PASSWORD,
-  )}`;
+  const passwordFingerprint = createHash('sha256')
+    .update(MSTEAMS_APP_PASSWORD)
+    .digest('hex');
+  const signature = `${MSTEAMS_APP_ID}:${MSTEAMS_TENANT_ID}:${passwordFingerprint}`;
   if (adapter && adapterSignature === signature) {
     return adapter;
   }
