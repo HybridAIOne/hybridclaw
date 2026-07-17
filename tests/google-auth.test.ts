@@ -104,6 +104,31 @@ test('Google Workspace runtime env exposes minted OAuth tokens for gog and gws',
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
+test('loopback authorization uses a 127.0.0.1 redirect that needs no registration', async () => {
+  const homeDir = makeTempHome();
+  const { startGoogleLoopbackAuthorization } =
+    await importFreshGoogleAuth(homeDir);
+
+  const authorization = await startGoogleLoopbackAuthorization({
+    clientId: 'desktop-client-id',
+    scopes: ['https://www.googleapis.com/auth/calendar'],
+    timeoutMs: 1_000,
+  });
+  try {
+    const url = new URL(authorization.authorizationUrl);
+    expect(`${url.origin}${url.pathname}`).toBe(
+      'https://accounts.google.com/o/oauth2/v2/auth',
+    );
+    expect(url.searchParams.get('client_id')).toBe('desktop-client-id');
+    const redirect = url.searchParams.get('redirect_uri') || '';
+    expect(redirect).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/oauth2\/callback$/);
+    expect(redirect).toBe(authorization.redirectUri);
+  } finally {
+    authorization.close();
+    await expect(authorization.waitForCode).rejects.toThrow();
+  }
+});
+
 test('Google Workspace runtime env recovery hint explains invalid_grant reauthorization', async () => {
   const homeDir = makeTempHome();
   const { getGoogleWorkspaceRuntimeEnvRecoveryHint } =

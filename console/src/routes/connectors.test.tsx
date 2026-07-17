@@ -290,6 +290,26 @@ describe('ConnectorsPage', () => {
     ).toBeTruthy();
   });
 
+  it('shows the Desktop app client guidance when the gateway is local', async () => {
+    const local = makeConnectorsResponse();
+    local.oauthRedirectUri = null;
+    fetchConnectorsMock.mockResolvedValue(local);
+
+    renderWithProviders(<ConnectorsPage />);
+
+    const connectButtons = await screen.findAllByRole('button', {
+      name: 'Connect',
+    });
+    fireEvent.click(connectButtons[1]);
+
+    expect(await screen.findByText('Connect Google Workspace')).toBeTruthy();
+    expect(screen.getByText('Desktop app')).toBeTruthy();
+    expect(screen.queryByText('Web application')).toBeNull();
+    expect(
+      screen.queryByText(/\/api\/connectors\/oauth\/callback/u),
+    ).toBeNull();
+  });
+
   it('opens HybridAI login and saves the pasted API key', async () => {
     const connected = makeConnectorsResponse();
     connected.connectors[0] = {

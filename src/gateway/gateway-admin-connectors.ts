@@ -13,6 +13,7 @@ import {
   loginGoogle,
   mintGoogleAccessToken,
   parseGoogleScopes,
+  startGoogleLoopbackAuthorization,
 } from '../auth/google-auth.js';
 import {
   clearHybridAICredentials,
@@ -33,6 +34,7 @@ import {
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import { logger } from '../logger.js';
 import {
   readStoredRuntimeSecret,
   runtimeSecretsPath,
@@ -197,6 +199,38 @@ function resolveOAuthRedirectUriOrNull(requestBaseUrl?: string): string | null {
     .replace(/\/+$/g, '');
   if (!baseUrl) return null;
   return `${baseUrl}/api/connectors/oauth/callback`;
+}
+
+// The console is served from the same host as the gateway, so a loopback origin
+// means the user's browser can reach the gateway's ephemeral 127.0.0.1 OAuth
+// listener. That lets Google's Desktop-client loopback flow work with no
+// registered redirect URI. A non-loopback origin (LAN, tunnel, public URL)
+// cannot use loopback and must register the gateway-origin callback on a Web
+// OAuth client instead.
+function isLoopbackConnectorOrigin(requestBaseUrl?: string): boolean {
+  const raw = String(requestBaseUrl || '').trim();
+  if (!raw) return false;
+  let host: string;
+  try {
+    host = new URL(raw).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host === '[::1]' ||
+    host.endsWith('.localhost')
+  );
+}
+
+// Redirect URI the console must register on a Web OAuth client. Null when the
+// gateway is local (the loopback Desktop flow needs no registration) or the
+// origin is unknown.
+function connectorOAuthRedirectUri(requestBaseUrl?: string): string | null {
+  if (isLoopbackConnectorOrigin(requestBaseUrl)) return null;
+  return resolveOAuthRedirectUriOrNull(requestBaseUrl);
 }
 
 function resolveOAuthRedirectUri(requestBaseUrl?: string): string {
@@ -713,7 +747,7 @@ export function getGatewayAdminConnectors(
       buildMicrosoft365Connector(),
     ],
     secretsPath: runtimeSecretsPath(),
-    oauthRedirectUri: resolveOAuthRedirectUriOrNull(requestBaseUrl),
+    oauthRedirectUri: connectorOAuthRedirectUri(requestBaseUrl),
   };
 }
 
@@ -729,7 +763,7 @@ export async function getGatewayAdminConnectorsWithPlatformState(
       buildMicrosoft365Connector(platformStatuses.get('microsoft365')),
     ],
     secretsPath: runtimeSecretsPath(),
-    oauthRedirectUri: resolveOAuthRedirectUriOrNull(requestBaseUrl),
+    oauthRedirectUri: connectorOAuthRedirectUri(requestBaseUrl),
   };
 }
 
@@ -748,20 +782,25 @@ export function saveGatewayAdminHybridAIConnectorApiKey(
   return getGatewayAdminConnectors(requestBaseUrl);
 }
 
-function resolveGoogleOAuthFlow(input: {
-  body: ConnectorOAuthStartInput;
-  redirectUri: string;
-}): PendingConnectorOAuthFlow {
+interface GoogleOAuthCredentials {
+  account: string;
+  clientId: string;
+  clientSecret: string;
+  scopes: string[];
+}
+
+function resolveGoogleOAuthCredentials(
+  body: ConnectorOAuthStartInput,
+): GoogleOAuthCredentials {
   const current = getGoogleAuthStatus();
-  const account = trimString(input.body.account) || current.account;
+  const account = trimString(body.account) || current.account;
   const clientId =
-    trimString(input.body.clientId) ||
-    readSecretOrEnv(GOOGLE_OAUTH_CLIENT_ID_SECRET);
+    trimString(body.clientId) || readSecretOrEnv(GOOGLE_OAUTH_CLIENT_ID_SECRET);
   const clientSecret =
-    trimString(input.body.clientSecret) ||
+    trimString(body.clientSecret) ||
     readSecretOrEnv(GOOGLE_OAUTH_CLIENT_SECRET_SECRET);
   const scopes = parseGoogleScopes(
-    trimString(input.body.scopes) ||
+    trimString(body.scopes) ||
       readSecretOrEnv(GOOGLE_OAUTH_SCOPES_SECRET) ||
       DEFAULT_GOOGLE_OAUTH_SCOPES.join(' '),
   );
@@ -776,13 +815,62 @@ function resolveGoogleOAuthFlow(input: {
     );
   }
 
+  return { account, clientId, clientSecret, scopes };
+}
+
+function resolveGoogleOAuthFlow(input: {
+  body: ConnectorOAuthStartInput;
+  redirectUri: string;
+}): PendingConnectorOAuthFlow {
   return {
-    account,
-    clientId,
-    clientSecret,
-    scopes,
+    ...resolveGoogleOAuthCredentials(input.body),
     redirectUri: input.redirectUri,
     createdAt: Date.now(),
+  };
+}
+
+// Local gateways use Google's Desktop-client loopback flow: the gateway opens
+// an ephemeral 127.0.0.1 listener, returns the authorization URL for the
+// console to open, and completes the login in the background once the browser
+// (same host) redirects back. No redirect URI needs to be registered.
+async function startGoogleConnectorLoopbackOAuth(
+  body: ConnectorOAuthStartInput,
+): Promise<GatewayAdminConnectorOAuthStartResult> {
+  const credentials = resolveGoogleOAuthCredentials(body);
+  const authorization = await startGoogleLoopbackAuthorization({
+    clientId: credentials.clientId,
+    scopes: credentials.scopes,
+  });
+
+  void authorization.waitForCode
+    .then(async ({ code, redirectUri }) => {
+      const exchanged = await exchangeGoogleAuthorizationCode({
+        clientId: credentials.clientId,
+        clientSecret: credentials.clientSecret,
+        code,
+        redirectUri,
+      });
+      await loginGoogle({
+        account: credentials.account,
+        clientId: credentials.clientId,
+        clientSecret: credentials.clientSecret,
+        refreshToken: exchanged.refreshToken,
+        scopes: credentials.scopes,
+      });
+      ensureGoogleWorkspaceRoutes();
+    })
+    .catch((error) => {
+      logger.warn(
+        { err: error },
+        'Google Workspace connector loopback authorization did not complete',
+      );
+    });
+
+  return {
+    provider: 'google',
+    state: '',
+    expiresAt: Date.now() + PENDING_CONNECTOR_OAUTH_TTL_MS,
+    authorizationUrl: authorization.authorizationUrl,
   };
 }
 
@@ -803,6 +891,10 @@ export async function startGatewayAdminConnectorOAuth(input: {
       provider,
       requestBaseUrl: input.requestBaseUrl,
     });
+  }
+
+  if (isLoopbackConnectorOrigin(input.requestBaseUrl)) {
+    return startGoogleConnectorLoopbackOAuth(input.body);
   }
 
   const redirectUri = resolveOAuthRedirectUri(input.requestBaseUrl);
