@@ -1518,6 +1518,7 @@ export interface AdminConnector {
 export interface AdminConnectorsResponse {
   connectors: AdminConnector[];
   secretsPath: string;
+  oauthRedirectUri: string | null;
 }
 
 export interface AdminConnectorOAuthStartResponse {

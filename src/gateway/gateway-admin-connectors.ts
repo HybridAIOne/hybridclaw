@@ -83,6 +83,7 @@ export interface GatewayAdminConnector {
 export interface GatewayAdminConnectorsResponse {
   connectors: GatewayAdminConnector[];
   secretsPath: string;
+  oauthRedirectUri: string | null;
 }
 
 export interface GatewayAdminConnectorTestResult {
@@ -190,17 +191,23 @@ function parseConnectorId(value: unknown): GatewayAdminConnectorId {
   );
 }
 
-function resolveOAuthRedirectUri(requestBaseUrl?: string): string {
+function resolveOAuthRedirectUriOrNull(requestBaseUrl?: string): string | null {
   const baseUrl = String(requestBaseUrl || '')
     .trim()
     .replace(/\/+$/g, '');
-  if (!baseUrl) {
+  if (!baseUrl) return null;
+  return `${baseUrl}/api/connectors/oauth/callback`;
+}
+
+function resolveOAuthRedirectUri(requestBaseUrl?: string): string {
+  const redirectUri = resolveOAuthRedirectUriOrNull(requestBaseUrl);
+  if (!redirectUri) {
     throw new GatewayRequestError(
       400,
       'Cannot determine the gateway base URL for the OAuth redirect.',
     );
   }
-  return `${baseUrl}/api/connectors/oauth/callback`;
+  return redirectUri;
 }
 
 function resolveConnectorReturnUrl(requestBaseUrl?: string): string {
@@ -695,7 +702,9 @@ async function startHybridAIPlatformConnectorOAuth(input: {
   };
 }
 
-export function getGatewayAdminConnectors(): GatewayAdminConnectorsResponse {
+export function getGatewayAdminConnectors(
+  requestBaseUrl?: string,
+): GatewayAdminConnectorsResponse {
   return {
     connectors: [
       buildHybridAIConnector(),
@@ -704,10 +713,13 @@ export function getGatewayAdminConnectors(): GatewayAdminConnectorsResponse {
       buildMicrosoft365Connector(),
     ],
     secretsPath: runtimeSecretsPath(),
+    oauthRedirectUri: resolveOAuthRedirectUriOrNull(requestBaseUrl),
   };
 }
 
-export async function getGatewayAdminConnectorsWithPlatformState(): Promise<GatewayAdminConnectorsResponse> {
+export async function getGatewayAdminConnectorsWithPlatformState(
+  requestBaseUrl?: string,
+): Promise<GatewayAdminConnectorsResponse> {
   const platformStatuses = await readHybridAIPlatformConnectorStatuses();
   return {
     connectors: [
@@ -717,19 +729,23 @@ export async function getGatewayAdminConnectorsWithPlatformState(): Promise<Gate
       buildMicrosoft365Connector(platformStatuses.get('microsoft365')),
     ],
     secretsPath: runtimeSecretsPath(),
+    oauthRedirectUri: resolveOAuthRedirectUriOrNull(requestBaseUrl),
   };
 }
 
-export function saveGatewayAdminHybridAIConnectorApiKey(input: {
-  apiKey?: unknown;
-}): GatewayAdminConnectorsResponse {
+export function saveGatewayAdminHybridAIConnectorApiKey(
+  input: {
+    apiKey?: unknown;
+  },
+  requestBaseUrl?: string,
+): GatewayAdminConnectorsResponse {
   const apiKey = trimString(input.apiKey);
   if (!apiKey) {
     throw new GatewayRequestError(400, 'HybridAI API key is required.');
   }
   saveNamedRuntimeSecrets({ HYBRIDAI_API_KEY: apiKey });
   refreshRuntimeSecretsFromEnv();
-  return getGatewayAdminConnectors();
+  return getGatewayAdminConnectors(requestBaseUrl);
 }
 
 function resolveGoogleOAuthFlow(input: {
@@ -839,9 +855,12 @@ export async function completeGatewayAdminConnectorOAuthCallback(input: {
   return { provider: 'google', name: 'Google Workspace' };
 }
 
-export function logoutGatewayAdminConnector(input: {
-  provider?: unknown;
-}): GatewayAdminConnectorsResponse {
+export function logoutGatewayAdminConnector(
+  input: {
+    provider?: unknown;
+  },
+  requestBaseUrl?: string,
+): GatewayAdminConnectorsResponse {
   const provider = parseConnectorId(input.provider);
   if (provider === 'hybridai') {
     clearHybridAICredentials();
@@ -853,5 +872,5 @@ export function logoutGatewayAdminConnector(input: {
   } else if (provider === 'google') {
     clearGoogleAuth();
   }
-  return getGatewayAdminConnectors();
+  return getGatewayAdminConnectors(requestBaseUrl);
 }

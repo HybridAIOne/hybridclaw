@@ -6009,7 +6009,13 @@ async function handleApiAdminConnectors(
 ): Promise<void> {
   const pathname = url.pathname;
   if (pathname === '/api/admin/connectors' && req.method === 'GET') {
-    sendJson(res, 200, await getGatewayAdminConnectorsWithPlatformState());
+    sendJson(
+      res,
+      200,
+      await getGatewayAdminConnectorsWithPlatformState(
+        resolveRequestOrigin(req),
+      ),
+    );
     return;
   }
 
@@ -6018,7 +6024,11 @@ async function handleApiAdminConnectors(
     req.method === 'PUT'
   ) {
     const body = (await readJsonBody(req)) as { apiKey?: unknown };
-    sendJson(res, 200, saveGatewayAdminHybridAIConnectorApiKey(body));
+    sendJson(
+      res,
+      200,
+      saveGatewayAdminHybridAIConnectorApiKey(body, resolveRequestOrigin(req)),
+    );
     return;
   }
 
@@ -6040,7 +6050,11 @@ async function handleApiAdminConnectors(
 
   if (pathname === '/api/admin/connectors/logout' && req.method === 'POST') {
     const body = (await readJsonBody(req)) as { provider?: unknown };
-    sendJson(res, 200, logoutGatewayAdminConnector(body));
+    sendJson(
+      res,
+      200,
+      logoutGatewayAdminConnector(body, resolveRequestOrigin(req)),
+    );
     return;
   }
 

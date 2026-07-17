@@ -419,6 +419,34 @@ describe('gateway admin connectors', () => {
     ).rejects.toThrow('Google account email is required.');
   });
 
+  test('exposes the console-origin OAuth redirect URI for Web client setup', async () => {
+    const { connectors } = await importFreshConnectors();
+
+    const listed = await connectors.getGatewayAdminConnectorsWithPlatformState(
+      'http://console.example',
+    );
+    expect(listed.oauthRedirectUri).toBe(
+      'http://console.example/api/connectors/oauth/callback',
+    );
+    expect(connectors.getGatewayAdminConnectors().oauthRedirectUri).toBeNull();
+
+    const started = await connectors.startGatewayAdminConnectorOAuth({
+      requestBaseUrl: 'http://console.example',
+      body: {
+        provider: 'google',
+        account: 'user@example.com',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+      },
+    });
+    const redirectUri = new URL(started.authorizationUrl).searchParams.get(
+      'redirect_uri',
+    );
+    expect(redirectUri).toBe(
+      'http://console.example/api/connectors/oauth/callback',
+    );
+  });
+
   test('rejects connector OAuth callbacks with unknown state', async () => {
     const { connectors } = await importFreshConnectors();
 
