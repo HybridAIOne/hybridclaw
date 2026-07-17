@@ -139,7 +139,7 @@ The strongest academic reference — and, encouragingly, a *convergent* design: 
 | | ACRouter | This design |
 |---|---|---|
 | Scope | single coding tasks (CodeRouterBench, ~10k instances, 8 API models) | every agent turn — chores, tools, multi-turn sessions, any domain |
-| First-guess decision | trained router (Qwen3.5-8B LoRA) + an Orchestrator/Verifier/Memory loop reading the prompt — because a standalone router *only has* the prompt | deterministic runtime context (turn origin, skill floor, agent rung, budget, zone) — zero model calls, ~0 ms |
+| First-guess decision | released runtime: none — always starts at the cheapest model and escalates; the paper adds a predictive entry via an optional offline-trained router (Qwen3.5-**0.8B** LoRA) + memory of per-dimension stats, because a standalone router *only has* the prompt | deterministic runtime context (turn origin, skill floor, agent rung, budget, zone) sets the entry rung up-front — zero model calls, ~0 ms |
 | Learning signal | memory of per-task-dimension performance stats; their headline: adding execution-grounded stats to a vanilla LLM router → **+15.3% relative** | the same insight, already in our substrate: R3 scoreboard (skill × model outcomes) biases the start rung in Phase 3 |
 | Escalation | verifier-passes loop (empirically validated — their lowest cumulative regret comes from this, not from clever first guesses) | same pattern, with named deterministic v1 triggers |
 | Economics | `Perf/$` over API prices | real €/Mtok including own GPUs — can express "our hardware is near-free at the margin" |
