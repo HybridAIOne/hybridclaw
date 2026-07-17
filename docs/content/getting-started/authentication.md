@@ -226,6 +226,25 @@ Use an OAuth desktop client, not an API key. A service account can work for
 some Google APIs, but it is a different setup and is not what
 `google-oauth` routes use.
 
+> ⚠️ **Which OAuth client type do I need?** It depends on how you authorize.
+>
+> - **CLI (`hybridclaw auth login google`) or the admin console opened
+>   locally** (`localhost` / `127.0.0.1`, including the desktop app): use a
+>   **Desktop app** client. Authorization completes over a loopback redirect
+>   (`http://127.0.0.1:<port>/oauth2/callback`) that Google accepts without
+>   registering any redirect URI.
+> - **Admin console reached over a network origin** (LAN address, tunnel, or
+>   public URL): the loopback redirect can't reach the gateway, so Google
+>   authorizes against `<your-console-origin>/api/connectors/oauth/callback`
+>   instead. A Desktop client has no redirect URI allowlist and Google rejects
+>   that with `redirect_uri_mismatch` (`Fehler 400: redirect_uri_mismatch`).
+>   Create a **Web application** client and add that exact callback URL under
+>   **Authorized redirect URIs**. Google only accepts https public origins (or
+>   `localhost`) there, so the gateway needs a real public URL or tunnel.
+>
+> The Connect dialog shows which client type applies and, for the Web case,
+> the exact redirect URI to register.
+
 ### 2. Authorize The Required Scopes
 
 Run `auth login google` with the scopes needed by the APIs you will call. For
