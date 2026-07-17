@@ -26,10 +26,12 @@ import { waitForInput, writeHealthOutput, writeOutput } from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
+  canReplayModelRequestAfterStreamError,
   formatModelErrorForLog,
   isRetryableModelError,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
+import { createModelTextDeltaForwarder } from './model-text-deltas.js';
 import {
   injectNativeAudioContent,
   injectNativeVisionContent,
@@ -767,6 +769,7 @@ async function callHybridAIWithRetry(params: {
   history: ChatMessage[];
   tools: ToolDefinition[];
   onTextDelta?: (delta: string) => void;
+  textDeltasVisible?: boolean;
   onThinkingDelta?: (delta: string) => void;
   onActivity?: () => void;
   maxTokens?: number;
@@ -789,6 +792,7 @@ async function callHybridAIWithRetry(params: {
     history,
     tools,
     onTextDelta,
+    textDeltasVisible = false,
     onThinkingDelta,
     onActivity,
     maxTokens,
@@ -805,11 +809,13 @@ async function callHybridAIWithRetry(params: {
     attempt += 1;
     const attemptStartedAt = Date.now();
     let firstTextDeltaMs: number | null = null;
+    let receivedTextDelta = false;
     const wrappedOnTextDelta = onTextDelta
       ? (delta: string) => {
           if (delta && firstTextDeltaMs == null) {
             firstTextDeltaMs = Date.now() - attemptStartedAt;
           }
+          if (delta) receivedTextDelta = true;
           onTextDelta(delta);
         }
       : undefined;
@@ -848,7 +854,15 @@ async function callHybridAIWithRetry(params: {
             provider,
             streamErr,
           );
-          if (!fallbackEligible) throw streamErr;
+          if (
+            !fallbackEligible ||
+            !canReplayModelRequestAfterStreamError({
+              receivedTextDelta,
+              textDeltasVisible,
+            })
+          ) {
+            throw streamErr;
+          }
           response = await callRoutedModel({
             provider,
             providerMethod,
@@ -908,6 +922,10 @@ async function callHybridAIWithRetry(params: {
       const retryable =
         RETRY_ENABLED &&
         isRetryableModelError(err) &&
+        canReplayModelRequestAfterStreamError({
+          receivedTextDelta,
+          textDeltasVisible,
+        }) &&
         attempt < RETRY_MAX_ATTEMPTS;
       await emitRuntimeEvent({
         event: retryable ? 'model_retry' : 'model_error',
@@ -1323,11 +1341,13 @@ async function processRequest(
     tokenUsage.estimatedPromptTokens += estimatedPromptTokensForCall;
 
     let response: Awaited<ReturnType<typeof callHybridAIWithRetry>>;
-    // Provider chunks are suppressed until this turn is classified as final.
-    const suppressTextDelta = (_delta: string): void => {};
-    const emitFinalTextDelta = (text: string | null): void => {
-      if (streamTextDeltas && text) emitStreamDelta(text);
-    };
+    // Ralph drafts need end-of-turn classification. Ordinary turns can stream
+    // live; tool preambles are moved into the gateway's activity trace.
+    const textDeltaForwarder = createModelTextDeltaForwarder({
+      enabled: streamTextDeltas,
+      forwardLive: !ralphEnabled,
+      emit: emitStreamDelta,
+    });
     try {
       response = await callHybridAIWithRetry({
         sessionId,
@@ -1341,7 +1361,10 @@ async function processRequest(
         requestHeaders,
         history,
         tools,
-        onTextDelta: streamTextDeltas ? suppressTextDelta : undefined,
+        onTextDelta: streamTextDeltas
+          ? textDeltaForwarder.onProviderDelta
+          : undefined,
+        textDeltasVisible: streamTextDeltas && !ralphEnabled,
         onThinkingDelta: streamTextDeltas
           ? (delta) => emitStreamThinkingDelta(delta)
           : undefined,
@@ -1524,7 +1547,7 @@ async function processRequest(
             startedAtMs: processStartedAt,
           });
           latestFinalAssistantText = assistantSegment.text;
-          emitFinalTextDelta(latestFinalAssistantText);
+          textDeltaForwarder.emitFinalFallback(latestFinalAssistantText);
           const completed: ContainerOutput = {
             status: 'success',
             result: latestFinalAssistantText,
@@ -1602,7 +1625,7 @@ async function processRequest(
       }
 
       latestFinalAssistantText = assistantSegment.text;
-      emitFinalTextDelta(latestFinalAssistantText);
+      textDeltaForwarder.emitFinalFallback(latestFinalAssistantText);
       const completed: ContainerOutput = {
         status: 'success',
         result: latestFinalAssistantText,

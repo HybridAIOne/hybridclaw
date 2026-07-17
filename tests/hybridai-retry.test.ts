@@ -1,11 +1,38 @@
 import { describe, expect, test } from 'vitest';
 import {
+  canReplayModelRequestAfterStreamError,
   formatModelErrorForLog,
   isRetryableModelError,
   shouldDowngradeStreamToNonStreaming,
   shouldFallbackFromStreamError,
 } from '../container/src/model-retry.js';
 import { ProviderRequestError } from '../container/src/providers/shared.js';
+
+describe('canReplayModelRequestAfterStreamError', () => {
+  test('blocks fallback and retries after visible partial output', () => {
+    expect(
+      canReplayModelRequestAfterStreamError({
+        receivedTextDelta: true,
+        textDeltasVisible: true,
+      }),
+    ).toBe(false);
+  });
+
+  test('allows replay before output or when deltas remain buffered', () => {
+    expect(
+      canReplayModelRequestAfterStreamError({
+        receivedTextDelta: false,
+        textDeltasVisible: true,
+      }),
+    ).toBe(true);
+    expect(
+      canReplayModelRequestAfterStreamError({
+        receivedTextDelta: true,
+        textDeltasVisible: false,
+      }),
+    ).toBe(true);
+  });
+});
 
 describe('shouldFallbackFromStreamError', () => {
   test('allows fallback for 500 stream errors', () => {

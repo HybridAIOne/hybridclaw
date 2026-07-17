@@ -9,6 +9,10 @@
   gateway immediately, initializes Teams handlers that were waiting for
   credentials, and rebuilds the Bot Framework adapter without requiring a
   container restart.
+- **Model response streaming**: Provider text deltas reach clients as they
+  arrive instead of being buffered until the final response. HybridClaw keeps
+  classified Ralph drafts buffered, avoids replaying final text after a live
+  stream, and does not retry a failed model call after visible partial output.
 
 ## [0.28.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.1) - 2026-07-10
 
