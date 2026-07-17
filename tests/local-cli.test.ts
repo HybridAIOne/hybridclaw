@@ -1006,6 +1006,7 @@ test('local configure vllm with name stores a named endpoint secret ref', async 
     enabled: true,
     baseUrl: 'http://haigpu2:8000/v1',
     apiKey: 'gemma-secret-key',
+    zone: 'cloud',
   });
   expect(config.hybridai.defaultModel).toBe('gpt-5.4-mini');
   expect(rawEndpoint?.apiKey).toEqual({

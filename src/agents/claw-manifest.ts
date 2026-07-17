@@ -91,10 +91,7 @@ function normalizeModelConfig(value: unknown): AgentModelConfig | undefined {
 
   const primary = normalizeString(value.primary);
   if (!primary) return undefined;
-  const fallbacks = normalizeStringArray(value.fallbacks).filter(
-    (entry) => entry !== primary,
-  );
-  return fallbacks.length > 0 ? { primary, fallbacks } : { primary };
+  return { primary };
 }
 
 function normalizePresentation(value: unknown): ClawPresentation | undefined {

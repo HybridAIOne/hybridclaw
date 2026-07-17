@@ -396,6 +396,9 @@ Runtime details:
 - Additional same-type endpoints are stored in `local.endpoints[]`; endpoint
   names become model prefixes such as
   `haigpu2/mistralai/Mistral-7B-Instruct-v0.3`.
+- Named endpoints carry a fail-closed privacy `zone` and can provide
+  `pricing.inputEurPerMillion` / `pricing.outputEurPerMillion` for usage
+  accounting. Missing zones resolve to `cloud`; missing prices stay unknown.
 - Local models are prefixed with the backend name (e.g. `lmstudio/qwen/qwen3.5-9b`,
   `ollama/llama3`).
 - Special model behavior is explicit in `modelBehavior`, for example

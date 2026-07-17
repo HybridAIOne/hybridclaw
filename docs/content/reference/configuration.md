@@ -127,9 +127,19 @@ saved revision history directly.
   `hybridclaw config set hybridai.maxTokens <n>`
 - `local.endpoints[]` for additional named local model endpoints. Each entry
   has `name`, `type` (`ollama`, `lmstudio`, `llamacpp`, or `vllm`), `enabled`,
-  `baseUrl`, optional `apiKey`, and optional `modelBehavior`; named models use
+  `baseUrl`, optional `apiKey`, optional `modelBehavior`, a privacy `zone`
+  (`local`, `hai`, `region`, or `cloud`), and optional EUR-per-million token
+  prices under `pricing.inputEurPerMillion` and
+  `pricing.outputEurPerMillion`; omitted or invalid zones fail closed to
+  `cloud`, and omitted prices are reported as unknown. Named models use
   `<name>/<model-id>`, for example `haigpu2/mistralai/Mistral-7B-Instruct-v0.3`.
   `modelBehavior` currently supports `thinkingFormat: "qwen"`.
+- `routing.enabled`, ordered `routing.tiers[]`, `routing.defaultStart`, and
+  `routing.escalationStickyTurns` define the model-routing ladder. Each tier
+  has a unique `name` and an ordered, non-empty `models` list. Remote model
+  references must exist in the configured provider catalogs; named local
+  endpoint references use `<endpoint>/<model-id>`. Phase 1 validates and
+  exposes this substrate without changing live turn selection.
 - `codex.baseUrl`, `codex.turnRuntime`, and `codex.models` for first-class
   Codex provider behavior. `codex.turnRuntime` accepts `hybridclaw` for the
   standard HybridClaw tool loop or `app-server` for the native Codex app-server

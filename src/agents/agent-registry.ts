@@ -98,12 +98,7 @@ function cloneModelConfig(
 ): AgentModelConfig | undefined {
   if (!value) return undefined;
   if (typeof value === 'string') return value;
-  return {
-    primary: value.primary,
-    ...(Array.isArray(value.fallbacks) && value.fallbacks.length > 0
-      ? { fallbacks: [...value.fallbacks] }
-      : {}),
-  };
+  return { primary: value.primary };
 }
 
 function normalizeModelConfig(value: unknown): AgentModelConfig | undefined {
@@ -117,20 +112,7 @@ function normalizeModelConfig(value: unknown): AgentModelConfig | undefined {
 
   const primary = normalizeString((value as { primary?: unknown }).primary);
   if (!primary) return undefined;
-  const rawFallbacks: unknown[] = Array.isArray(
-    (value as { fallbacks?: unknown }).fallbacks,
-  )
-    ? ((value as { fallbacks?: unknown[] }).fallbacks ?? [])
-    : [];
-  const seen = new Set<string>([primary]);
-  const fallbacks = rawFallbacks
-    .map((entry) => normalizeString(entry))
-    .filter((entry) => {
-      if (!entry || seen.has(entry)) return false;
-      seen.add(entry);
-      return true;
-    });
-  return fallbacks.length > 0 ? { primary, fallbacks } : { primary };
+  return { primary };
 }
 
 function normalizeDefaults(value: unknown): AgentDefaultsConfig {
@@ -262,7 +244,7 @@ function fingerprintStringArray(values: string[] | undefined): string {
 function fingerprintModel(model: AgentModelConfig | undefined): string {
   if (!model) return '';
   if (typeof model === 'string') return `s:${fingerprintString(model)}`;
-  return `o:${fingerprintString(model.primary)}:${fingerprintStringArray(model.fallbacks)}`;
+  return `o:${fingerprintString(model.primary)}`;
 }
 
 function fingerprintCv(cv: AgentConfig['cv']): string {

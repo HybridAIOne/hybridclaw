@@ -29,6 +29,7 @@ import {
   recordUsageEventBatch,
   resolveSessionIdCompat,
 } from '../memory/db.js';
+import type { ModelRoutingZone } from '../providers/model-routing.js';
 
 export interface TokenUsageEvent {
   sessionId: string;
@@ -39,6 +40,10 @@ export interface TokenUsageEvent {
   totalTokens?: number;
   toolCalls?: number;
   costUsd?: number;
+  routeTier?: string;
+  routeZone?: ModelRoutingZone;
+  routeReason?: string;
+  escalated?: boolean;
   /** ISO-8601 timestamp; auto-generated if omitted. */
   timestamp?: string;
   /** Optional run context to thread the batch audit event. */

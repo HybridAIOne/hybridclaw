@@ -1,5 +1,5 @@
 {
-  "version": 34,
+  "version": 35,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -583,6 +583,10 @@
     }
   },
   "routing": {
+    "enabled": false,
+    "tiers": [],
+    "defaultStart": "",
+    "escalationStickyTurns": 3,
     "concierge": {
       "enabled": false,
       "model": "gemini-3-flash",

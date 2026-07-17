@@ -9,6 +9,7 @@ const saveModelsMock = vi.fn();
 const useAuthMock = vi.fn();
 
 const modelMetadataDefaults = {
+  zone: 'cloud' as const,
   pricingUsdPerToken: { input: null, output: null },
   capabilities: {
     vision: true,

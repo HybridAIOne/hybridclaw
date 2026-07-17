@@ -270,7 +270,10 @@ test('available model catalog merges the current default model with discovered l
   expect(
     catalog.getModelCatalogMetadata('lmstudio/qwen/qwen3.5-9b')
       .pricingUsdPerToken,
-  ).toEqual({ input: 0, output: 0 });
+  ).toEqual({ input: null, output: null });
+  expect(
+    catalog.getModelCatalogMetadata('lmstudio/qwen/qwen3.5-9b').zone,
+  ).toBe('local');
   expect(catalog.getAvailableModelList('hybridai')).toContain(
     'hybridai/gpt-4.1-mini',
   );
@@ -290,6 +293,11 @@ test('available model catalog includes named local endpoints in local and backen
         enabled: true,
         baseUrl: 'http://haigpu1:8000/v1',
         apiKey: '',
+        zone: 'hai',
+        pricing: {
+          inputEurPerMillion: 0.4,
+          outputEurPerMillion: 1.2,
+        },
       },
       {
         name: 'haigpu2',
@@ -297,6 +305,11 @@ test('available model catalog includes named local endpoints in local and backen
         enabled: true,
         baseUrl: 'http://haigpu2:8000/v1',
         apiKey: '',
+        zone: 'hai',
+        pricing: {
+          inputEurPerMillion: 0.5,
+          outputEurPerMillion: 1.5,
+        },
       },
     ];
   });
@@ -341,8 +354,36 @@ test('available model catalog includes named local endpoints in local and backen
   ).toMatchObject({
     known: true,
     contextWindow: 32_768,
-    pricingUsdPerToken: { input: 0, output: 0 },
+    zone: 'hai',
+    pricingUsdPerToken: {
+      input: (0.5 * 1.1712) / 1_000_000,
+      output: (1.5 * 1.1712) / 1_000_000,
+    },
   });
+  const { estimateModelUsageCostUsd } = await import(
+    '../src/usage/model-cost.js'
+  );
+  const localCostUsd = estimateModelUsageCostUsd({
+    model: 'haigpu2/google/gemma-4-e4b-it',
+    promptTokens: 1_000_000,
+    completionTokens: 200_000,
+  });
+  expect(localCostUsd).not.toBeNull();
+  expect((localCostUsd ?? 0) / 1.1712).toBeCloseTo(0.8, 8);
+  const usageDb = await import('../src/memory/db.js');
+  usageDb.initDatabase({
+    quiet: true,
+    dbPath: path.join(homeDir, '.hybridclaw', 'data', 'local-cost.db'),
+  });
+  usageDb.recordUsageEvent({
+    sessionId: 'session-haigpu2-cost',
+    agentId: 'main',
+    model: 'haigpu2/google/gemma-4-e4b-it',
+    inputTokens: 1_000_000,
+    outputTokens: 200_000,
+    costUsd: localCostUsd ?? 0,
+  });
+  expect(usageDb.monthlySpendEur('main')).toBeCloseTo(0.8, 8);
 });
 
 test('available model catalog prefixes HybridAI provider-family models', async () => {
@@ -365,6 +406,7 @@ test('available model catalog prefixes HybridAI provider-family models', async (
             {
               id: 'mistral-small',
               provider: 'mistral',
+              zone: 'region',
               context_length: 131_072,
               pricing: {
                 prompt: '0.000001',
@@ -398,6 +440,12 @@ test('available model catalog prefixes HybridAI provider-family models', async (
     catalog.getModelCatalogMetadata('hybridai/mistral/mistral-small')
       .pricingUsdPerToken,
   ).toEqual({ input: 0.000001, output: 0.000002 });
+  expect(
+    catalog.getModelCatalogMetadata('hybridai/mistral/mistral-small').zone,
+  ).toBe('region');
+  expect(catalog.getModelCatalogMetadata('mistral/mistral-small').zone).toBe(
+    'cloud',
+  );
 });
 
 test('model catalog selects the cheapest model matching capability flags', async () => {
