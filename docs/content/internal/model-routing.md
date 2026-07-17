@@ -24,12 +24,19 @@ One config block. Tiers are an **ordered list** — the order *is* the ladder. H
   "enabled": true,
   "tiers": [
     // Example values — our fleet today. Any count, any names, any endpoints.
-    { "name": "small",    "models": ["haigpu2/gemma-3n-e4b"] },
-    { "name": "standard", "models": ["haigpu1/qwen3.7-27b"] },
-    { "name": "frontier", "models": ["hybridai/gpt-5-mini", "hybridai/gpt-5"] }
+    // A tier may mix models from different privacy zones; the zone itself is
+    // metadata on the model/endpoint entry (§ Privacy zones), not on the tier.
+    { "name": "small",    "models": ["haigpu2/gemma-3n-e4b"] },              // zone: hai
+    { "name": "standard", "models": ["haigpu1/qwen3.7-27b",                  // zone: hai
+                                     "mistral/mistral-medium"] },            // zone: region
+    { "name": "frontier", "models": ["hybridai/gpt-5-mini",                  // zone: cloud
+                                     "hybridai/gpt-5"] }                     // zone: cloud
   ],
   "defaultStart": "standard",
-  "escalationStickyTurns": 3
+  "escalationStickyTurns": 3,
+  // Client controls (per tenant → agent → skill, most specific wins):
+  "sovereignty": "region",                  // hard limit: local | hai | region | cloud
+  "preferences": { "quality": 0.5, "speed": 0.3 }   // sliders; price is the default pull
 }
 ```
 
@@ -38,9 +45,32 @@ Per turn:
 1. **Start** at the lowest allowed rung: the skill's declared minimum, else the agent's start tier, else `defaultStart`. System chores (heartbeat, scheduler, compaction, titles, judges) start at the bottom.
 2. **Escalate** to the next rung when the turn *demonstrably fails* (§4). Within a rung, multiple models are a fallback list (existing R28 engine).
 3. **Stay up briefly**: after an escalation the session stays on the higher rung for `escalationStickyTurns`, then falls back to start. No other state.
-4. **Three overrides**, checked in order: an **explicit pin** (user `/model` or per-request model) always wins; a **privacy limit** (per tenant/agent/skill: which tiers/models are eligible at all — e.g. local/EU-only) is a hard filter; a **budget clamp** lowers the maximum rung as the agent's or plan's budget depletes.
+4. **Three overrides**, checked in order: an **explicit pin** (user `/model` or per-request model) always wins; the **sovereignty limit** removes ineligible models from every rung before the ladder runs (§ Privacy zones); a **budget clamp** lowers the maximum rung as the agent's or plan's budget depletes.
 
-The four things a client can buy are four knobs on this one mechanism, not four engines: **best price** = start low (default). **Budget** = the clamp. **Price/quality** = choose the start rung and escalation eagerness per agent or skill. **Privacy** = the eligibility filter. If a task exceeds the highest *allowed* rung (e.g. sovereign mode caps at the local 27B), the router never silently breaks the limit — it escalates to the operator (existing F14 pause/resume).
+The four things a client can buy are four knobs on this one mechanism, not four engines: **best price** = start low (default). **Budget** = the clamp. **Price/quality/speed** = the preference sliders. **Privacy** = the sovereignty limit. If a task exceeds the highest rung that survives the filters (e.g. sovereignty `hai` caps at the local 27B), the router never silently breaks the limit — it escalates to the operator (existing F14 pause/resume).
+
+### Privacy zones — the second axis, orthogonal to tiers
+
+Tiers answer *"how capable/expensive?"*; zones answer *"how far does the data travel?"*. Every model/endpoint entry in the catalog carries a **zone**, ordered by increasing exposure:
+
+| Zone | Meaning | Examples (config, not code) |
+|---|---|---|
+| `local` | customer's own infrastructure — data never leaves the house | on-prem HybridClaw endpoints, R34 sovereign peers |
+| `hai` | HybridAI's own EU fleet — our hardware, our DPA, no hyperscaler in the chain | haigpu1, haigpu2, future NVLink node |
+| `region` | third-party processors with contractual EU-region residency | Azure EU, Mistral, IONOS, Aleph Alpha |
+| `cloud` | global providers, no residency guarantee | OpenAI, Anthropic, Grok |
+
+Mechanics, deliberately boring: zone is **metadata on the model/endpoint entry** (F5 catalog field; `zone:` on `local.endpoints[]`; a column on the backend's model catalog, exposed through `/v1/models`). A tier may mix zones. The client's `sovereignty` setting (per tenant → agent → skill) is a **maximum zone**: before the ladder runs, every rung is filtered to models within the limit; empty rungs are skipped; if nothing above the current rung survives, the turn escalates to the operator instead of leaking. Unknown or unclassified providers default to `cloud` — the worst-case assumption, so misconfiguration fails closed. A skill's `routing.sensitivity` maps to a maximum zone via a small tenant-editable table (e.g. `confidential → hai`, `internal → region`, `public → cloud`), so privacy triggers from the skill declaration, not operator vigilance.
+
+### Client controls: two sliders and one hard limit
+
+The client-facing control panel is exactly three controls, mapping deterministically onto ladder parameters — no optimizer, no scoring function to explain:
+
+- **Sovereignty** (dropdown: `local | hai | region | cloud`) — a **hard limit, never a slider**. Compliance cannot be "70% important"; a tradeoff weight on data residency is meaningless to a DPO and indefensible in an audit. This is also the sales line: *„Datenschutz ist bei uns kein Schieberegler."*
+- **Quality ↔ Price** (slider) — moves the start rung up and makes escalation more eager (fewer retries before stepping up).
+- **Speed ↔ Price** (slider) — reorders models *within* a rung by measured latency/throughput instead of €/Mtok (same lever as OpenRouter's `:nitro`, but per rung).
+
+Price needs no slider: it is the resting state of the mechanism — start low, order by cost.
 
 ## 3. What "routing by agent / by skill" exactly means — feasibility check
 
@@ -87,9 +117,9 @@ Exists and is load-bearing: the `'routing'` middleware hook + model-override plu
 
 ## 6. Plan
 
-**Phase 1 — the ladder (HybridClaw).** `routing.tiers` config; `tier-router` plugin (forked from concierge-router, no classifier); escalation on the v1 triggers; system chores + aux tasks default to bottom tier; fix G1, G2, G3, G8; route fields (`tier`, `reason`, `escalated`) on usage events; admin usage view shows **actual cost vs. all-on-top-tier counterfactual**. *Exit: a real session runs cheap-with-escalation and the cost report proves the saving.*
+**Phase 1 — the ladder (HybridClaw).** `routing.tiers` config; `zone` metadata on model/endpoint entries (unknown → `cloud`, fails closed); `tier-router` plugin (forked from concierge-router, no classifier); escalation on the v1 triggers; system chores + aux tasks default to bottom tier; fix G1, G2, G3, G8; route fields (`tier`, `zone`, `reason`, `escalated`) on usage events; admin usage view shows **actual cost vs. all-on-top-tier counterfactual**. *Exit: a real session runs cheap-with-escalation and the cost report proves the saving.*
 
-**Phase 2 — agent & skill knobs.** Per-agent `start`/`max` tier; skill manifest `minTier`/`sensitivity` (G5) applied at invocation; per-spawn subagent tier (G4); privacy eligibility filter (local/EU-only); budget clamp (needs the open R5 enforcement work); `/escalate`; sticky window. *Exit: each of the four client knobs demoable on the real fleet.*
+**Phase 2 — agent & skill knobs.** Per-agent `start`/`max` tier; the `sovereignty` limit with rung filtering + operator escalation on exhaustion; skill manifest `minTier`/`sensitivity` (G5) applied at invocation, sensitivity→zone mapping table; per-spawn subagent tier (G4); the two preference sliders (quality→start rung + escalation eagerness; speed→within-rung ordering by measured latency); budget clamp (needs the open R5 enforcement work); `/escalate`; sticky window. *Exit: each of the four client knobs demoable on the real fleet.*
 
 **Phase 3 — enterprise & market (`~/src/chat`).** Tier bindings + endpoint health/failover server-side (revive `model2`, fix tool-stripping — G7); per-plan routing policy + admin surface + managed push-down; per-tier columns on the metering ledger; **client-facing savings dashboard** („Routing hat Ihnen diesen Monat €X gespart"); plan matrix (e.g. Starter = local-heavy best-price · Business = quality/price + budget · Sovereign = local/EU-only). Optional extensions, only if pull exists: mask-then-route (R4 masking lets a masked turn use a cloud tier in sovereign mode), and a small *local* classifier as a smarter first guess — the deterministic ladder is the product; a classifier is an optimization, never a dependency.
 
@@ -98,6 +128,22 @@ Exists and is load-bearing: the `'routing'` middleware hook + model-override plu
 Commercial routers route **stateless API requests**: [OpenRouter](https://openrouter.ai/blog/insights/model-routing/) (`:floor`/`:nitro`/`max_price`, Auto Router powered by [Not Diamond](https://www.notdiamond.ai/), 20–40% typical savings), Martian (governance angle; powers Accenture's Switchboard servicing >$1B of GenAI deployments — the category monetizes), [AWS Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-routing.html) (within one model family only, ~30%), [Azure Foundry router](https://techcommunity.microsoft.com/blog/educatordeveloperblog/microsoft-foundry-model-router-a-developers-guide-to-smarter-ai-routing/4502133) (Azure pool only), [EUrouter](https://www.eurouter.ai/providers) (EU residency, no intelligence). EU platforms with the trust story ([Langdock, Aleph Alpha, IONOS](https://innfactory.ai/en/blog/gdpr-compliant-ai-platforms-enterprise-comparison-2026/)) have model *choice*, not per-turn routing.
 
 Nobody has all three of: **(1)** your own GPUs as first-class rungs in the same ladder as cloud models (DACH Mittelstand has on-prem hardware and wants it used), **(2)** agent/skill context steering the rung deterministically instead of a content classifier guessing, **(3)** every routing decision hash-chain-audited — which turns EU-AI-Act/DSGVO pressure into the buying reason instead of the blocker. And the escalation ladder is self-correcting by construction: a misconfigured floor costs one retry, not a wrong answer.
+
+### Closest technical prior art: ACRouter ([agent-as-a-router](https://github.com/LanceZPF/agent-as-a-router), arXiv 2606.22902)
+
+The strongest academic reference — and, encouragingly, a *convergent* design: its deployed runtime "routes one programming problem through an OpenRouter/OpenAI-compatible model list until a verifier passes" (`cheap_chain` → `escalate_to`), i.e. exactly our ladder. Where we differ, and why:
+
+| | ACRouter | This design |
+|---|---|---|
+| Scope | single coding tasks (CodeRouterBench, ~10k instances, 8 API models) | every agent turn — chores, tools, multi-turn sessions, any domain |
+| First-guess decision | trained router (Qwen3.5-8B LoRA) + an Orchestrator/Verifier/Memory loop reading the prompt — because a standalone router *only has* the prompt | deterministic runtime context (turn origin, skill floor, agent rung, budget, zone) — zero model calls, ~0 ms |
+| Learning signal | memory of per-task-dimension performance stats; their headline: adding execution-grounded stats to a vanilla LLM router → **+15.3% relative** | the same insight, already in our substrate: R3 scoreboard (skill × model outcomes) biases the start rung in Phase 3 |
+| Escalation | verifier-passes loop (empirically validated — their lowest cumulative regret comes from this, not from clever first guesses) | same pattern, with named deterministic v1 triggers |
+| Economics | `Perf/$` over API prices | real €/Mtok including own GPUs — can express "our hardware is near-free at the margin" |
+| Privacy | **absent** — no residency or locality concept | zones as a hard first-class axis |
+| Maturity | MIT research artifact | production design on shipped substrate |
+
+What we adopt from it: the replay-benchmark methodology (their CodeRouterBench replay → our HC-RouteBench from logged trajectories, Phase 3), the empirical case for verifier-escalation over router-cleverness, and — optionally, later — their LoRA-router recipe as the "smarter first guess", served on our own bottom tier. What we don't: their router as a dependency, or any LLM call on the routing hot path.
 
 ## 8. Anti-goals
 
