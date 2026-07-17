@@ -36,7 +36,7 @@ One config block. Tiers are an **ordered list** — the order *is* the ladder. H
   "escalationStickyTurns": 3,
   // Client controls (per tenant → agent → skill, most specific wins):
   "sovereignty": "region",                  // hard limit: local | hai | region | cloud
-  "preferences": { "quality": 0.5, "speed": 0.3 }   // sliders; price is the default pull
+  "target": { "quality": 0.5, "speed": 0.3 }  // one point on the Quality×Speed plane
 }
 ```
 
@@ -62,15 +62,18 @@ Tiers answer *"how capable/expensive?"*; zones answer *"how far does the data tr
 
 Mechanics, deliberately boring: zone is **metadata on the model/endpoint entry** (F5 catalog field; `zone:` on `local.endpoints[]`; a column on the backend's model catalog, exposed through `/v1/models`). A tier may mix zones. The client's `sovereignty` setting (per tenant → agent → skill) is a **maximum zone**: before the ladder runs, every rung is filtered to models within the limit; empty rungs are skipped; if nothing above the current rung survives, the turn escalates to the operator instead of leaking. Unknown or unclassified providers default to `cloud` — the worst-case assumption, so misconfiguration fails closed. A skill's `routing.sensitivity` maps to a maximum zone via a small tenant-editable table (e.g. `confidential → hai`, `internal → region`, `public → cloud`), so privacy triggers from the skill declaration, not operator vigilance.
 
-### Client controls: two sliders and one hard limit
+### Client controls: one hard limit, one 2D target
 
-The client-facing control panel is exactly three controls, mapping deterministically onto ladder parameters — no optimizer, no scoring function to explain:
+The client-facing control panel is exactly two controls, mapping deterministically onto ladder parameters — no optimizer, no scoring function to explain:
 
 - **Sovereignty** (dropdown: `local | hai | region | cloud`) — a **hard limit, never a slider**. Compliance cannot be "70% important"; a tradeoff weight on data residency is meaningless to a DPO and indefensible in an audit. This is also the sales line: *„Datenschutz ist bei uns kein Schieberegler."*
-- **Quality ↔ Price** (slider) — moves the start rung up and makes escalation more eager (fewer retries before stepping up).
-- **Speed ↔ Price** (slider) — reorders models *within* a rung by measured latency/throughput instead of €/Mtok (same lever as OpenRouter's `:nitro`, but per rung).
+- **The target** — one draggable point on a **Quality × Speed plane**. The same plane plots the fleet's models at their *measured* positions (quality score × tokens/sec), colored by zone, with models outside the sovereignty limit grayed out — so the client literally sees what the router sees. Corner presets name the four natural postures: *Sparsam* (bottom-left), *Gründlich* (top-left), *Schnell* (bottom-right), *Premium* (top-right).
 
-Price needs no slider: it is the resting state of the mechanism — start low, order by cost.
+**Price is not a third control — it is the consequence**, displayed live next to the pad as a projected monthly € at current usage. Dragging toward any corner but bottom-left visibly raises it. Under the hood the pad stores exactly two floats (`target.quality`, `target.speed`): quality moves the start rung and escalation eagerness; speed reorders models within a rung by measured latency (the `:nitro` lever, per rung). The pad is UI over the same two parameters — the mechanism stays one sentence.
+
+### The savings number: „Durch Routing gespart"
+
+One honest, per-turn-computed metric, aggregated everywhere: for every turn, the **counterfactual cost** = the same prompt/completion tokens priced at the tenant's **reference model** (default: the primary model of the highest allowed rung — i.e. "what you'd have paid running everything on the big model", which is the client's actual mental baseline). **Saved by routing = Σ(counterfactual − actual)**, where *actual* includes escalation retries and duplicated attempts — the number is not allowed to flatter itself, and it is always displayed next to the escalation rate and quality signals so savings can never quietly hide quality erosion. Surfaces: per-session cost footer („diese Aufgabe: €0,42 statt €1,85"), per-agent card, and the tenant dashboard headline with monthly trend. Because it's computed per turn from the same usage events the hash-chain audit records, the € figure is *nachweisbar* — every cent of claimed savings traces to logged routing decisions.
 
 ## 3. What "routing by agent / by skill" exactly means — feasibility check
 
@@ -119,9 +122,9 @@ Exists and is load-bearing: the `'routing'` middleware hook + model-override plu
 
 **Phase 1 — the ladder (HybridClaw).** `routing.tiers` config; `zone` metadata on model/endpoint entries (unknown → `cloud`, fails closed); `tier-router` plugin (forked from concierge-router, no classifier); escalation on the v1 triggers; system chores + aux tasks default to bottom tier; fix G1, G2, G3, G8; route fields (`tier`, `zone`, `reason`, `escalated`) on usage events; admin usage view shows **actual cost vs. all-on-top-tier counterfactual**. *Exit: a real session runs cheap-with-escalation and the cost report proves the saving.*
 
-**Phase 2 — agent & skill knobs.** Per-agent `start`/`max` tier; the `sovereignty` limit with rung filtering + operator escalation on exhaustion; skill manifest `minTier`/`sensitivity` (G5) applied at invocation, sensitivity→zone mapping table; per-spawn subagent tier (G4); the two preference sliders (quality→start rung + escalation eagerness; speed→within-rung ordering by measured latency); budget clamp (needs the open R5 enforcement work); `/escalate`; sticky window. *Exit: each of the four client knobs demoable on the real fleet.*
+**Phase 2 — agent & skill knobs.** Per-agent `start`/`max` tier; the `sovereignty` limit with rung filtering + operator escalation on exhaustion; skill manifest `minTier`/`sensitivity` (G5) applied at invocation, sensitivity→zone mapping table; per-spawn subagent tier (G4); the 2D quality×speed target (quality→start rung + escalation eagerness; speed→within-rung ordering by measured latency) with the model map + live cost projection in the admin UI; budget clamp (needs the open R5 enforcement work); `/escalate`; sticky window. *Exit: each of the four client knobs demoable on the real fleet.*
 
-**Phase 3 — enterprise & market (`~/src/chat`).** Tier bindings + endpoint health/failover server-side (revive `model2`, fix tool-stripping — G7); per-plan routing policy + admin surface + managed push-down; per-tier columns on the metering ledger; **client-facing savings dashboard** („Routing hat Ihnen diesen Monat €X gespart"); plan matrix (e.g. Starter = local-heavy best-price · Business = quality/price + budget · Sovereign = local/EU-only). Optional extensions, only if pull exists: mask-then-route (R4 masking lets a masked turn use a cloud tier in sovereign mode), and a small *local* classifier as a smarter first guess — the deterministic ladder is the product; a classifier is an optimization, never a dependency.
+**Phase 3 — enterprise & market (`~/src/chat`).** Tier bindings + endpoint health/failover server-side (revive `model2`, fix tool-stripping — G7); per-plan routing policy + admin surface + managed push-down; per-tier columns on the metering ledger; **client-facing savings dashboard** — the „Durch Routing gespart" headline number (§2 definition: honest counterfactual incl. escalation overhead) with monthly trend, per-agent breakdown, and the per-session cost footer; plan matrix (e.g. Starter = local-heavy best-price · Business = quality/price + budget · Sovereign = local/EU-only). Optional extensions, only if pull exists: mask-then-route (R4 masking lets a masked turn use a cloud tier in sovereign mode), and a small *local* classifier as a smarter first guess — the deterministic ladder is the product; a classifier is an optimization, never a dependency.
 
 ## 7. Market snapshot — why this wins DACH
 
