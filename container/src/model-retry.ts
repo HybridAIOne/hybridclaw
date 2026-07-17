@@ -168,6 +168,15 @@ export function shouldDowngradeStreamToNonStreaming(
   return shouldFallbackFromStreamError(error);
 }
 
+export function canReplayModelRequestAfterStreamError(params: {
+  receivedTextDelta: boolean;
+  textDeltasVisible: boolean;
+}): boolean {
+  // Reissuing a request after partial text reached the client duplicates the
+  // visible prefix when the next attempt starts from the beginning.
+  return !params.receivedTextDelta || !params.textDeltasVisible;
+}
+
 export function isRetryableModelError(error: unknown): boolean {
   if (error instanceof ProviderRequestError) {
     return error.status === 429 || (error.status >= 500 && error.status <= 504);
