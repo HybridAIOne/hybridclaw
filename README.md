@@ -28,7 +28,8 @@ rails instead of fragile free-form prompting.
 HybridClaw also treats agents as networked coworkers. Local agents, hosted
 HybridAI proxy agents, and trusted peer HybridClaw instances can address one
 another, exchange A2A envelopes, and route work through approval-aware
-channels.
+channels. An A2A local mode keeps peer delivery and authenticated administration
+reachable while disabling other external gateway and channel surfaces.
 
 First-run onboarding is built around hatching: a new agent asks about the
 user's work, records useful context, keeps setup links visible in chat, and can
@@ -60,7 +61,7 @@ HybridClaw on HybridAI Cloud in a few minutes at
 | A first run that becomes useful quickly | Guided hatching with setup links, tailored first-job suggestions, optional onboarding-specific model routing, welcome-email handoff, and structured audit events |
 | Business workflows that survive real use | Production skill helpers with fixtures, eval scenarios, targeted tests, approval tiers, and a `Qwen/Qwen3.6-27B-FP8` validation baseline |
 | Generated work artifacts you can reuse | An Apps gallery for self-contained HTML apps, dashboards, documents, games, tools, live connector-backed views, sharing links, and Teams tabs |
-| Multi-agent workflows across installations | Local agents, hosted proxy agents, A2A trust, explicit addressing, inbound envelopes, reply-back delivery, and admin-visible peer pairing |
+| Multi-agent workflows across installations | Local agents, hosted proxy agents, A2A trust, explicit addressing, inbound envelopes, reply-back delivery, admin-visible peer pairing, and an A2A-only deployment mode |
 | Credentials the model cannot read | Encrypted runtime secrets, SecretRef-backed execution paths, and scoped gateway API tokens that keep raw keys and passwords out of prompts and tool results |
 | Assistants that can act, not just chat | A gateway, web chat, Apps gallery, TUI, admin console, scheduler, tools, and OpenAI-compatible API behind one local service |
 | Control over sensitive work | Approval policy, sandbox boundaries, output guardrails, and hash-chained audit trails |
@@ -145,7 +146,8 @@ npm run desktop
 - **Multi-agent operations**: agents can coordinate across local workspaces,
   hosted HybridAI proxies, and trusted peer HybridClaw instances with A2A
   pairing, explicit addressing, inbound envelopes, reply-back delivery status,
-  and admin-visible trust.
+  admin-visible trust, and an A2A local mode that closes unrelated external
+  surfaces.
 - **Prompt-level credential isolation**: encrypted secrets and SecretRefs keep
   credential values out of model context while tools receive only the scoped
   credential material needed at execution time.
@@ -164,8 +166,8 @@ npm run desktop
   surface.
 - **Operator visibility**: `/admin` covers channels, connectors, approvals,
   audit, statistics, output guard, secrets, scoped tokens, fleet topology, A2A
-  inbox/trust, distillation, and browser PDF previews without requiring shell
-  access.
+  inbox/trust, tunnel configuration and health, distillation, and browser PDF
+  previews without requiring shell access.
 - **Business-ready extension model**: packaged skills, plugins, MCP servers,
   and SecretRef-backed HTTP tools share the same approval and credential
   boundaries.
@@ -240,7 +242,7 @@ Core pieces:
 | Build desktop releases | [Desktop Release Builds](https://hybridaione.github.io/hybridclaw/docs/developer-guide/desktop-release) |
 | Contribute | [CONTRIBUTING.md](./CONTRIBUTING.md), [docs/content/README.md](./docs/content/README.md) |
 
-Latest release: [v0.28.1](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.28.1).
+Latest release: [v0.28.2](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.28.2).
 Release notes: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Development

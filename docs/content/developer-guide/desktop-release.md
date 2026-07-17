@@ -50,6 +50,45 @@ export APPLE_APP_SPECIFIC_PASSWORD="<app-specific password>"
 Use an app-specific password or an equivalent keychain profile. Do not commit
 these values or store them in release notes.
 
+## Prepare Release Metadata
+
+Set the new version in the root `package.json`, then synchronize every product
+manifest and generated lockfile entry:
+
+```bash
+npm run version:sync
+```
+
+Review the four generated lockfile diffs before approving them. A normal
+version-only release changes only the product `version` fields; dependency
+versions, resolved artifacts, integrity values, and lifecycle-script entries
+must remain unchanged.
+
+Because the dependency policy hashes complete lockfiles, even version-only
+edits require refreshed entries in
+`scripts/dependency-policy-baseline.json`. Calculate the final hashes with:
+
+```bash
+shasum -a 256 \
+  package-lock.json \
+  npm-shrinkwrap.json \
+  container/package-lock.json \
+  container/npm-shrinkwrap.json
+```
+
+Copy those four hashes into the matching baseline entries, preserve unrelated
+lockfile entries, and verify the approval before committing:
+
+```bash
+npm run deps:policy
+npm run release:check
+npm --prefix container run release:check
+```
+
+`HYBRIDCLAW_ALLOW_LOCKFILE_CHANGES=1` only lets the pre-commit hook proceed
+after a maintainer has reviewed the diff. It does not update or replace the
+baseline, and CI rejects stale hashes.
+
 ## Release Order
 
 Do not publish the public GitHub Release first and then start building the

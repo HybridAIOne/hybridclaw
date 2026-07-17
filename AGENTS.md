@@ -375,13 +375,19 @@ When the user says "bump release":
    - `container/package-lock.json` and `container/npm-shrinkwrap.json` (root
      `version` and `packages[""]`)
    - any user-facing version text (for example `src/tui.ts` banner)
-3. Move `CHANGELOG.md` release notes from `Unreleased` to the new version
+3. Review the generated lockfile diff. Even a version-only release changes the
+   lockfile bytes, so update the matching SHA-256 entries in
+   `scripts/dependency-policy-baseline.json` after confirming that no dependency
+   versions or lifecycle scripts changed. Run `npm run deps:policy` before the
+   release commit; the pre-commit override does not approve stale baseline
+   hashes in CI.
+4. Move `CHANGELOG.md` release notes from `Unreleased` to the new version
    heading (or create one).
-4. Update `README.md` "latest tag" link/text if present.
-5. Commit with `chore: release vX.Y.Z`.
-6. Create an annotated git tag `vX.Y.Z`.
-7. Push the commit and tag.
-8. Create or publish a GitHub Release entry for the tag using the same curated
+5. Update `README.md` "latest tag" link/text if present.
+6. Commit with `chore: release vX.Y.Z`.
+7. Create an annotated git tag `vX.Y.Z`.
+8. Push the commit and tag.
+9. Create or publish a GitHub Release entry for the tag using the same curated
    format as `v0.9.2`:
    - title: `HybridClaw vX.Y.Z`
    - `Release Date:` line with the calendar date
