@@ -190,17 +190,47 @@ export async function exchangeGoogleAuthorizationCode(input: {
   return { refreshToken: payload.refresh_token.trim() };
 }
 
-async function waitForAuthorizationCode(input: {
+export interface GoogleLoopbackAuthorization {
+  authorizationUrl: string;
+  redirectUri: string;
+  waitForCode: Promise<{ code: string; redirectUri: string }>;
+  close(): void;
+}
+
+// Start a loopback OAuth listener and return the authorization URL immediately,
+// with `waitForCode` resolving once Google redirects back to 127.0.0.1. Google
+// accepts any loopback redirect for a Desktop client without registering a
+// redirect URI, so both the CLI login and the local-gateway console flow use
+// this path.
+export function startGoogleLoopbackAuthorization(input: {
   clientId: string;
   scopes: string[];
   redirectPort?: number;
   timeoutMs?: number;
-}): Promise<{ code: string; redirectUri: string }> {
+}): Promise<GoogleLoopbackAuthorization> {
   const state = makeState();
   const timeoutMs = input.timeoutMs || DEFAULT_CALLBACK_TIMEOUT_MS;
 
-  return await new Promise((resolve, reject) => {
-    let settled = false;
+  return new Promise((resolveStart, rejectStart) => {
+    let codeSettled = false;
+    let resolveCode: (value: { code: string; redirectUri: string }) => void =
+      () => {};
+    let rejectCode: (error: unknown) => void = () => {};
+    const waitForCode = new Promise<{ code: string; redirectUri: string }>(
+      (resolve, reject) => {
+        resolveCode = resolve;
+        rejectCode = reject;
+      },
+    );
+
+    function settleCode(outcome: () => void): void {
+      if (codeSettled) return;
+      codeSettled = true;
+      clearTimeout(timer);
+      server.close();
+      outcome();
+    }
+
     const server = http.createServer((req, res) => {
       try {
         const requestUrl = new URL(req.url || '/', `http://${LOOPBACK_HOST}`);
@@ -214,21 +244,34 @@ async function waitForAuthorizationCode(input: {
         if (returnedState !== state) {
           res.writeHead(400, { 'Content-Type': 'text/plain' });
           res.end('Invalid OAuth state. Return to HybridClaw and retry.');
-          throw new Error('Google OAuth callback state did not match.');
+          settleCode(() =>
+            rejectCode(new Error('Google OAuth callback state did not match.')),
+          );
+          return;
         }
 
         const error = requestUrl.searchParams.get('error');
         if (error) {
           res.writeHead(400, { 'Content-Type': 'text/plain' });
           res.end('Google authorization was rejected.');
-          throw new Error(`Google OAuth authorization failed: ${error}`);
+          settleCode(() =>
+            rejectCode(
+              new Error(`Google OAuth authorization failed: ${error}`),
+            ),
+          );
+          return;
         }
 
         const code = requestUrl.searchParams.get('code') || '';
         if (!code) {
           res.writeHead(400, { 'Content-Type': 'text/plain' });
           res.end('Missing OAuth authorization code.');
-          throw new Error('Google OAuth callback did not include a code.');
+          settleCode(() =>
+            rejectCode(
+              new Error('Google OAuth callback did not include a code.'),
+            ),
+          );
+          return;
         }
 
         const address = server.address();
@@ -238,47 +281,58 @@ async function waitForAuthorizationCode(input: {
         res.end(
           'Google authorization complete. You can close this browser tab.',
         );
-        settled = true;
-        server.close();
-        resolve({
-          code,
-          redirectUri,
-        });
+        settleCode(() => resolveCode({ code, redirectUri }));
       } catch (error) {
-        settled = true;
-        server.close();
-        reject(error);
+        settleCode(() => rejectCode(error));
       }
     });
 
     server.once('error', (error) => {
-      if (settled) return;
-      settled = true;
-      reject(error);
+      rejectStart(error);
+      settleCode(() => rejectCode(error));
     });
+
+    const timer = setTimeout(() => {
+      settleCode(() =>
+        rejectCode(new Error('Timed out waiting for Google OAuth callback.')),
+      );
+    }, timeoutMs);
+    timer.unref();
 
     server.listen(input.redirectPort || 0, LOOPBACK_HOST, () => {
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : 0;
       const redirectUri = `http://${LOOPBACK_HOST}:${port}/oauth2/callback`;
-      const authorizeUrl = buildGoogleAuthorizeUrl({
+      const authorizationUrl = buildGoogleAuthorizeUrl({
         clientId: input.clientId,
         redirectUri,
         state,
         scopes: input.scopes,
       });
-      console.log('Open this Google authorization URL in your browser:');
-      console.log(authorizeUrl);
-      console.log(`Waiting for OAuth callback on ${redirectUri} ...`);
+      resolveStart({
+        authorizationUrl,
+        redirectUri,
+        waitForCode,
+        close: () =>
+          settleCode(() =>
+            rejectCode(new Error('Google OAuth authorization canceled.')),
+          ),
+      });
     });
-
-    setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      server.close();
-      reject(new Error('Timed out waiting for Google OAuth callback.'));
-    }, timeoutMs).unref();
   });
+}
+
+async function waitForAuthorizationCode(input: {
+  clientId: string;
+  scopes: string[];
+  redirectPort?: number;
+  timeoutMs?: number;
+}): Promise<{ code: string; redirectUri: string }> {
+  const authorization = await startGoogleLoopbackAuthorization(input);
+  console.log('Open this Google authorization URL in your browser:');
+  console.log(authorization.authorizationUrl);
+  console.log(`Waiting for OAuth callback on ${authorization.redirectUri} ...`);
+  return authorization.waitForCode;
 }
 
 export async function loginGoogle(
