@@ -4561,15 +4561,13 @@ async function handleApiAdminSecretOverwrite(
     });
     throw error;
   }
-  sendJson(
-    res,
-    200,
-    overwriteGatewayAdminSecret({
-      name,
-      value: readAdminSecretBodyValue(body),
-      audit,
-    }),
-  );
+  const result = overwriteGatewayAdminSecret({
+    name,
+    value: readAdminSecretBodyValue(body),
+    audit,
+  });
+  refreshRuntimeSecretsFromEnv();
+  sendJson(res, 200, result);
 }
 
 async function handleApiAdminSecretUnset(
@@ -4590,7 +4588,9 @@ async function handleApiAdminSecretUnset(
     return;
   }
 
-  sendJson(res, 200, unsetGatewayAdminSecret({ name, audit }));
+  const result = unsetGatewayAdminSecret({ name, audit });
+  refreshRuntimeSecretsFromEnv();
+  sendJson(res, 200, result);
 }
 
 function recordUnauthenticatedAdminSecretMutation(

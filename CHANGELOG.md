@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- **Microsoft Teams credential hot reload**: Setting or rotating
+  `MSTEAMS_APP_PASSWORD` through the admin secret store refreshes the running
+  gateway immediately, initializes Teams handlers that were waiting for
+  credentials, and rebuilds the Bot Framework adapter without requiring a
+  container restart.
 - **Model response streaming**: Provider text deltas reach clients as they
   arrive instead of being buffered until the final response. HybridClaw keeps
   classified Ralph drafts buffered, avoids replaying final text after a live
