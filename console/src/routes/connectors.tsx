@@ -272,11 +272,7 @@ export function ConnectorsPage() {
   const connectors = connectorsQuery.data?.connectors || [];
   const oauthTarget =
     connectors.find((connector) => connector.id === oauthTargetId) || null;
-  const oauthRedirectUri =
-    connectorsQuery.data?.oauthRedirectUri ||
-    (typeof window !== 'undefined'
-      ? `${window.location.origin}/api/connectors/oauth/callback`
-      : null);
+  const oauthRedirectUri = connectorsQuery.data?.oauthRedirectUri ?? null;
   const googleNeedsAccount =
     oauthTargetId === 'google' && !oauthDraft.account.trim();
   const googleNeedsClientId =
