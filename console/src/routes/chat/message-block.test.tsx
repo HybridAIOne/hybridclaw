@@ -412,7 +412,9 @@ describe('MessageBlock artifacts', () => {
 
     const preview = await screen.findByTitle('report.pdf preview');
     expect(preview.getAttribute('src')).toBe('blob:artifact');
-    expect(preview.getAttribute('sandbox')).toBe('');
+    // Chrome blocks its PDF viewer inside sandboxed frames, so the preview
+    // iframe must not carry a sandbox attribute.
+    expect(preview.hasAttribute('sandbox')).toBe(false);
     expect(fetchArtifactBlobMock).toHaveBeenCalledWith(
       'test-token',
       '/tmp/report.pdf',
@@ -420,6 +422,37 @@ describe('MessageBlock artifacts', () => {
     expect(
       container.querySelector('[src*="token="], [href*="token="]'),
     ).toBeNull();
+  });
+
+  it('pins filename-detected PDF previews to application/pdf', async () => {
+    fetchArtifactBlobMock.mockResolvedValue(
+      new Blob(['<script>alert(1)</script>'], { type: 'text/html' }),
+    );
+
+    render(
+      <MessageBlock
+        message={makeMessage([
+          {
+            path: '/tmp/report.pdf',
+            filename: 'report.pdf',
+          },
+        ])}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    await screen.findByTitle('report.pdf preview');
+    const [previewBlob] = vi.mocked(URL.createObjectURL).mock.calls[0] ?? [];
+    expect(previewBlob).toBeInstanceOf(Blob);
+    expect((previewBlob as Blob).type).toBe('application/pdf');
   });
 
   it('renders video previews from authenticated blob URLs', async () => {
