@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   type Request as BotFrameworkRequest,
@@ -99,7 +98,11 @@ export type CommandHandler = (
 let adapter: CloudAdapter | null = null;
 let messageHandler: MessageHandler | null = null;
 let commandHandler: CommandHandler | null = null;
-let adapterSignature = '';
+let adapterCredentials: {
+  appId: string;
+  password: string;
+  tenantId: string;
+} | null = null;
 const MAX_WEBHOOK_BYTES = 1_000_000;
 const ACTIVE_MSTEAMS_SESSIONS = new Map<string, ActiveMSTeamsSession>();
 
@@ -470,11 +473,17 @@ export async function sendToActiveMSTeamsSession(params: {
 }
 
 function buildAdapter(): CloudAdapter {
-  const passwordFingerprint = createHash('sha256')
-    .update(MSTEAMS_APP_PASSWORD)
-    .digest('hex');
-  const signature = `${MSTEAMS_APP_ID}:${MSTEAMS_TENANT_ID}:${passwordFingerprint}`;
-  if (adapter && adapterSignature === signature) {
+  const credentials = {
+    appId: MSTEAMS_APP_ID,
+    password: MSTEAMS_APP_PASSWORD,
+    tenantId: MSTEAMS_TENANT_ID,
+  };
+  if (
+    adapter &&
+    adapterCredentials?.appId === credentials.appId &&
+    adapterCredentials.password === credentials.password &&
+    adapterCredentials.tenantId === credentials.tenantId
+  ) {
     return adapter;
   }
 
@@ -493,7 +502,7 @@ function buildAdapter(): CloudAdapter {
   );
 
   adapter = new CloudAdapter(auth);
-  adapterSignature = signature;
+  adapterCredentials = credentials;
   adapter.onTurnError = async (turnContext, error) => {
     logger.error({ error }, 'Teams turn failed');
     try {
