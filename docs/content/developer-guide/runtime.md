@@ -262,6 +262,12 @@ rejected at the boundary rather than being treated as legacy ids.
 For the routing rules and operator guidance, see
 [Session Routing](./session-routing.md).
 
+Gateway chat serializes turns by session id, and the host/container runners
+apply the same per-session guard at their execution boundary. Different
+sessions can still run concurrently. Interactive input preempts an active
+full-auto turn before it waits on the session queue, so operator intervention
+does not sit behind the autonomous run it is meant to stop.
+
 ## Web Surfaces And API Auth
 
 HybridClaw's built-in browser surfaces share one auth model:
