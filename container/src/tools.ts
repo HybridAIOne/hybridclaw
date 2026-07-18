@@ -4126,19 +4126,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'User id for member lookups or send allowlist checks when required.',
           },
-          memberId: {
-            type: 'string',
-            description: 'Alias for userId in member-info.',
-          },
           username: {
             type: 'string',
             description:
               'Username, display name, or handle to resolve for member lookups or user-targeted sends.',
-          },
-          user: {
-            type: 'string',
-            description:
-              'Alias for username/userId in member lookups or user-targeted sends.',
           },
           resolveAmbiguous: {
             type: 'string',
@@ -4154,10 +4145,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'string',
             description:
               'Optional search text for action="read" when the active channel supports mailbox or conversation search.',
-          },
-          search: {
-            type: 'string',
-            description: 'Alias for query in action="read".',
           },
           folder: {
             type: 'string',
@@ -4252,24 +4239,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'Optional local file to upload for action="send" when supported by the active channel. Use a workspace-relative path or an absolute managed media path.',
           },
-          attachmentPath: {
-            type: 'string',
-            description: 'Alias for filePath in action="send".',
-          },
-          mediaPath: {
-            type: 'string',
-            description: 'Alias for filePath in action="send".',
-          },
-          imagePath: {
-            type: 'string',
-            description:
-              'Alias for filePath in action="send" when uploading a local image.',
-          },
-          file: {
-            type: 'string',
-            description:
-              'Alias for filePath in action="send". Use a local file path to attach.',
-          },
           components: {
             type: ['object', 'array'],
             items: {
@@ -4277,19 +4246,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             },
             description:
               'Optional interactive components payload for action="send" when supported by the active channel.',
-          },
-          text: {
-            type: 'string',
-            description: 'Alias for content in action="send".',
-          },
-          message: {
-            type: 'string',
-            description: 'Alias for content in action="send".',
-          },
-          asUserId: {
-            type: 'string',
-            description:
-              'Requester user id for send allowlist checks (alias for userId).',
           },
           contextChannelId: {
             type: 'string',
@@ -4313,10 +4269,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'number',
             description:
               'Optional thread auto-archive duration in minutes for action="thread-create".',
-          },
-          target: {
-            type: 'string',
-            description: 'Target user or channel for action="send".',
           },
           to: {
             type: 'string',
