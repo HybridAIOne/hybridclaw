@@ -45,6 +45,7 @@ const ENABLED_BY_ID: Record<RuntimeProviderId, (() => boolean) | undefined> = {
   xiaomi: () => XIAOMI_ENABLED,
   kilo: () => KILO_ENABLED,
   hybridai: undefined,
+  openai: undefined,
   'openai-codex': undefined,
   anthropic: undefined,
   openrouter: undefined,

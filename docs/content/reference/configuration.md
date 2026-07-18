@@ -145,6 +145,9 @@ saved revision history directly.
   standard HybridClaw tool loop or `app-server` for the native Codex app-server
   turn loop on `openai-codex/*` models. `codex.runtime` is accepted as a
   compatibility alias; new config should use `codex.turnRuntime`.
+- `openai.enabled`, `openai.baseUrl`, and `openai.models` configure the direct
+  OpenAI Responses API provider. Store its API key as `OPENAI_API_KEY` in the
+  encrypted runtime secret store and select models with the `openai/` prefix.
 - `HYBRIDAI_FALLBACK_CHAIN` accepts a JSON array of fallback entries with
   `model`, optional `baseUrl`, `keyEnv`, `chatbotId`, and `agentId`. Gateway
   model calls use the chain for auth and rate-limit failures, then cool down

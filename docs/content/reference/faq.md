@@ -100,8 +100,9 @@ including a persistent macOS LaunchAgent tunnel, see
 
 ## What AI models does it support?
 
-HybridClaw supports HybridAI models, OpenAI Codex models, and external API
-providers including OpenRouter, Mistral, Hugging Face, Google Gemini, DeepSeek,
+HybridClaw supports HybridAI models, direct OpenAI API models, OpenAI Codex
+models, and external API providers including OpenRouter, Mistral, Hugging Face,
+Google Gemini, DeepSeek,
 xAI / Grok, Z.AI / GLM, Kimi / Moonshot, MiniMax, DashScope / Qwen, Xiaomi
 MiMo, and Kilo Code. It also supports local backends including Ollama, LM
 Studio, llama.cpp, and vLLM.

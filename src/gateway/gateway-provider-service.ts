@@ -10,6 +10,7 @@ import type {
   ModelCatalogProviderFilter,
   ModelCatalogRefreshFailure,
 } from '../providers/model-catalog.js';
+import { readOpenAIAPIKey } from '../providers/openai.js';
 import { getOpenAICompatProviderLastError } from '../providers/openai-compat-discovery.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import type { GatewayStatus } from './gateway-types.js';
@@ -34,6 +35,7 @@ const PROVIDER_META: Record<
   ProviderMeta
 > = {
   hybridai: { label: 'HybridAI', loginName: 'hybridai' },
+  openai: { label: 'OpenAI API', loginName: 'openai' },
   'openai-codex': { label: 'Codex', loginName: 'codex' },
   anthropic: { label: 'Anthropic', loginName: 'anthropic' },
   openrouter: { label: 'OpenRouter', loginName: 'openrouter' },
@@ -186,6 +188,18 @@ export function diagnoseProviderForModels(
       }
       if (providerHealth?.codex?.reachable !== true) {
         return unreachable(filter, null);
+      }
+      return null;
+    }
+    case 'openai': {
+      if (!config.openai.enabled) {
+        return disabled(filter, buildProviderEnableCommand(filter));
+      }
+      if (!readOpenAIAPIKey({ required: false })) {
+        return unauthorized(filter);
+      }
+      if (providerHealth?.openai?.reachable !== true) {
+        return unreachable(filter, config.openai.baseUrl);
       }
       return null;
     }

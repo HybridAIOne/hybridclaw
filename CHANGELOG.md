@@ -28,6 +28,12 @@
   responses to the HybridClaw layer, the HybridAI backend, or the upstream
   vendor. A connection preflight separates DNS/TCP/TLS handshake cost per
   origin.
+- **Direct OpenAI API provider**: `openai/...` models use the OpenAI Responses
+  API with encrypted `OPENAI_API_KEY` storage, streaming, function calling,
+  stateless encrypted reasoning-item replay, model catalog metadata, CLI auth,
+  gateway health, and doctor diagnostics. Codex OAuth remains available under
+  the separate `openai-codex/...` provider.
+  `Manifesto: Principle IV - Model freedom without lock-in.`
 - **Codex 5.6 models**: `openai-codex/gpt-5.6-sol`, `openai-codex/gpt-5.6-terra`,
   and `openai-codex/gpt-5.6-luna` are now recognised as forward-compatible Codex
   models, so they are selectable as soon as the Codex account offers them

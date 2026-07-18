@@ -30,6 +30,22 @@ describe('provider context validation', () => {
     ).toBe('compression is not configured: missing API key context.');
   });
 
+  test('requires an API key and infers the direct OpenAI provider', () => {
+    expect(
+      getProviderContextError({
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: '',
+        model: 'openai/gpt-5.6-sol',
+        chatbotId: '',
+        toolName: 'compression',
+      }),
+    ).toBe('compression is not configured: missing API key context.');
+    expect(
+      resolveRuntimeProviderContext(undefined, 'openai/gpt-5.6-sol'),
+    ).toBe('openai');
+  });
+
   test('requires an API key for Hugging Face contexts', () => {
     expect(
       getProviderContextError({

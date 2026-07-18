@@ -1386,6 +1386,7 @@ export interface GatewayAdminModelsResponse {
         | 'auto'
         | 'disabled'
         | 'hybridai'
+        | 'openai'
         | 'openai-codex'
         | 'anthropic'
         | 'openrouter'
