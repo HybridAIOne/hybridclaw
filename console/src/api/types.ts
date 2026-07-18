@@ -1021,6 +1021,7 @@ export interface ChatModel {
 }
 
 export interface AdminModelCatalogEntry extends ChatModel {
+  zone: 'local' | 'hai' | 'region' | 'cloud';
   discovered: boolean;
   maxTokens: number | null;
   pricingUsdPerToken: {

@@ -66,7 +66,6 @@ test('resolveAgentForRequest prefers request, then session, then configured defa
         name: 'Research Agent',
         model: {
           primary: 'ollama/llama3.2',
-          fallbacks: ['gpt-5-mini'],
         },
         chatbotId: 'bot-research',
       },
@@ -88,7 +87,6 @@ test('resolveAgentForRequest prefers request, then session, then configured defa
         name: 'Research Agent',
         model: {
           primary: 'ollama/llama3.2',
-          fallbacks: ['gpt-5-mini'],
         },
         chatbotId: 'bot-research',
       },
@@ -100,7 +98,6 @@ test('resolveAgentForRequest prefers request, then session, then configured defa
   const researchAgent = resolveAgentConfig('research');
   expect(researchAgent.model).toEqual({
     primary: 'ollama/llama3.2',
-    fallbacks: ['gpt-5-mini'],
   });
   expect(resolveAgentModel(researchAgent)).toBe('ollama/llama3.2');
 

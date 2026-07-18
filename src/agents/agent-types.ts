@@ -22,7 +22,6 @@ export type AgentModelConfig =
   | string
   | {
       primary: string;
-      fallbacks?: string[];
     };
 
 export interface AgentCv {

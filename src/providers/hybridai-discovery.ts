@@ -9,6 +9,10 @@ import {
   stripHybridAIModelPrefix,
 } from './model-names.js';
 import {
+  type ModelRoutingZone,
+  normalizeModelRoutingZone,
+} from './model-routing.js';
+import {
   type DiscoveredModelPricingUsdPerToken,
   readDiscoveredModelPricingUsdPerToken,
 } from './pricing-discovery.js';
@@ -260,6 +264,7 @@ export interface HybridAIDiscoveryStore {
   getModelContextWindow: (model: string) => number | null;
   getModelMaxTokens: (model: string) => number | null;
   getModelVisionCapability: (model: string) => boolean | null;
+  getModelZone: (model: string) => ModelRoutingZone | null;
   getModelPricingUsdPerToken: (
     model: string,
   ) => { input: number | null; output: number | null } | null;
@@ -273,6 +278,8 @@ interface HybridAIDiscoveryState {
   maxTokensModelKeyLookup: HybridAIModelKeyLookup;
   visionCapabilityByModel: Map<string, boolean>;
   visionCapabilityModelKeyLookup: HybridAIModelKeyLookup;
+  zoneByModel: Map<string, ModelRoutingZone>;
+  zoneModelKeyLookup: HybridAIModelKeyLookup;
   pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
   pricingModelKeyLookup: HybridAIModelKeyLookup;
 }
@@ -285,6 +292,8 @@ const buildEmptyHybridAIDiscoveryState = (): HybridAIDiscoveryState => ({
   maxTokensModelKeyLookup: buildHybridAIModelKeyLookup([]),
   visionCapabilityByModel: new Map(),
   visionCapabilityModelKeyLookup: buildHybridAIModelKeyLookup([]),
+  zoneByModel: new Map(),
+  zoneModelKeyLookup: buildHybridAIModelKeyLookup([]),
   pricingByModel: new Map(),
   pricingModelKeyLookup: buildHybridAIModelKeyLookup([]),
 });
@@ -327,6 +336,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     const contextWindows = new Map<string, number>();
     const maxTokens = new Map<string, number>();
     const visionCapabilities = new Map<string, boolean>();
+    const zones = new Map<string, ModelRoutingZone>();
     const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
 
     for (const entry of getDiscoveryEntries(payload)) {
@@ -352,6 +362,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       if (visionCapability != null) {
         visionCapabilities.set(normalized, visionCapability);
       }
+      zones.set(normalized, normalizeModelRoutingZone(entry.zone));
       const pricing = readDiscoveredModelPricingUsdPerToken(entry);
       if (pricing) {
         pricingByModel.set(normalized, pricing);
@@ -371,6 +382,8 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       visionCapabilityModelKeyLookup: buildHybridAIModelKeyLookup(
         visionCapabilities.keys(),
       ),
+      zoneByModel: zones,
+      zoneModelKeyLookup: buildHybridAIModelKeyLookup(zones.keys()),
       pricingByModel,
       pricingModelKeyLookup: buildHybridAIModelKeyLookup(pricingByModel.keys()),
     };
@@ -439,6 +452,15 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       );
       return state.visionCapabilityByModel.get(normalized) ?? null;
     },
+    getModelZone: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = resolveCachedHybridAIModelKey(
+        model,
+        state.zoneByModel,
+        state.zoneModelKeyLookup,
+      );
+      return state.zoneByModel.get(normalized) ?? null;
+    },
     getModelPricingUsdPerToken: (model: string) => {
       const state = discoveryStore.getState();
       const normalized = resolveCachedHybridAIModelKey(
@@ -483,6 +505,12 @@ export function getDiscoveredHybridAIModelVisionCapability(
   model: string,
 ): boolean | null {
   return defaultHybridAIDiscoveryStore.getModelVisionCapability(model);
+}
+
+export function getDiscoveredHybridAIModelZone(
+  model: string,
+): ModelRoutingZone | null {
+  return defaultHybridAIDiscoveryStore.getModelZone(model);
 }
 
 export function getDiscoveredHybridAIModelPricingUsdPerToken(

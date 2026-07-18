@@ -51,7 +51,11 @@ Then select or route models by endpoint name:
 ```
 
 Named endpoints are stored in `local.endpoints[]` with `name`, `type`,
-`enabled`, `baseUrl`, optional `apiKey`, and optional `modelBehavior`. Use
+`enabled`, `baseUrl`, optional `apiKey`, optional `modelBehavior`, a privacy
+`zone`, and optional `pricing.inputEurPerMillion` and
+`pricing.outputEurPerMillion`. An omitted or invalid zone defaults to `cloud`
+so routing cannot silently widen the data boundary; omitted pricing is shown
+as unknown rather than zero. Use
 `modelBehavior.thinkingFormat: "qwen"` for Qwen thinking markup handling. API
 keys provided through the CLI are stored in the encrypted runtime secret store
 and referenced from config.

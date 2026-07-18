@@ -3468,18 +3468,7 @@ function serializeAgentModelConfig(
   }
   const primary = model.primary.trim();
   if (!primary) return null;
-  const fallbacks = Array.isArray(model.fallbacks)
-    ? Array.from(
-        new Set(
-          model.fallbacks
-            .map((fallback) => fallback.trim())
-            .filter((fallback) => fallback && fallback !== primary),
-        ),
-      )
-    : [];
-  return JSON.stringify(
-    fallbacks.length > 0 ? { primary, fallbacks } : { primary },
-  );
+  return JSON.stringify({ primary });
 }
 
 function parseAgentModelConfig(
@@ -3500,19 +3489,7 @@ function parseAgentModelConfig(
           ? (parsed as { primary: string }).primary.trim()
           : '';
       if (!primary) return undefined;
-      const fallbacks = Array.isArray(
-        (parsed as { fallbacks?: unknown }).fallbacks,
-      )
-        ? Array.from(
-            new Set(
-              ((parsed as { fallbacks?: unknown[] }).fallbacks ?? [])
-                .filter((entry): entry is string => typeof entry === 'string')
-                .map((entry) => entry.trim())
-                .filter((entry) => entry && entry !== primary),
-            ),
-          )
-        : [];
-      return fallbacks.length > 0 ? { primary, fallbacks } : { primary };
+      return { primary };
     }
   } catch {
     // Keep supporting legacy plain-string rows stored before JSON objects.

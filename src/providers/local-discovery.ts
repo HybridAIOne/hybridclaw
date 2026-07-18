@@ -28,15 +28,17 @@ import type {
   LocalModelInfo,
   LocalThinkingFormat,
 } from './local-types.js';
+import { MODEL_METADATA_USD_TO_EUR } from './model-metadata.js';
+import { normalizeModelRoutingZone } from './model-routing.js';
 import { LOCAL_BACKEND_IDS } from './provider-ids.js';
 import { isRecord, normalizeBaseUrl } from './utils.js';
 
 const DISCOVERY_ORDER: LocalBackendType[] = [...LOCAL_BACKEND_IDS];
-const ZERO_COST = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
+const UNKNOWN_COST = {
+  input: null,
+  output: null,
+  cacheRead: null,
+  cacheWrite: null,
 } as const;
 
 function hasEnabledLocalBackend(): boolean {
@@ -96,7 +98,8 @@ function createLocalModelInfo(
       : {}),
     ...(thinkingFormat ? { thinkingFormat } : {}),
     ...(modelBehavior ? { modelBehavior } : {}),
-    cost: ZERO_COST,
+    zone: normalizeModelRoutingZone(overrides?.zone ?? 'local'),
+    cost: overrides?.cost ?? UNKNOWN_COST,
     ...(typeof overrides?.sizeBytes === 'number'
       ? { sizeBytes: overrides.sizeBytes }
       : {}),
@@ -412,38 +415,71 @@ async function discoverLlamacppModels(
 async function discoverEndpointModels(
   endpoint: LocalEndpointConfig,
 ): Promise<LocalModelInfo[]> {
+  const endpointMetadata: Pick<LocalModelInfo, 'cost' | 'zone'> = {
+    zone: normalizeModelRoutingZone(endpoint.zone),
+    cost: {
+      input:
+        endpoint.pricing?.inputEurPerMillion == null
+          ? null
+          : (endpoint.pricing.inputEurPerMillion *
+              MODEL_METADATA_USD_TO_EUR.usdPerEur) /
+            1_000_000,
+      output:
+        endpoint.pricing?.outputEurPerMillion == null
+          ? null
+          : (endpoint.pricing.outputEurPerMillion *
+              MODEL_METADATA_USD_TO_EUR.usdPerEur) /
+            1_000_000,
+      cacheRead: null,
+      cacheWrite: null,
+    },
+  };
+  const applyEndpointMetadata = (models: LocalModelInfo[]) =>
+    models.map((model) => ({ ...model, ...endpointMetadata }));
   if (endpoint.type === 'ollama') {
     const models = await discoverOllamaModels(endpoint.baseUrl, {
       maxModels: LOCAL_DISCOVERY_MAX_MODELS,
       concurrency: LOCAL_DISCOVERY_CONCURRENCY,
     });
     return applyModelBehavior(
-      models.map((model) => ({ ...model, endpointName: endpoint.name })),
+      applyEndpointMetadata(
+        models.map((model) => ({ ...model, endpointName: endpoint.name })),
+      ),
       endpoint.modelBehavior,
     );
   }
   if (endpoint.type === 'lmstudio') {
     return applyModelBehavior(
-      await discoverLmStudioModels(
-        endpoint.baseUrl,
-        endpoint.name,
-        endpoint.apiKey,
+      applyEndpointMetadata(
+        await discoverLmStudioModels(
+          endpoint.baseUrl,
+          endpoint.name,
+          endpoint.apiKey,
+        ),
       ),
       endpoint.modelBehavior,
     );
   }
   if (endpoint.type === 'llamacpp') {
     return applyModelBehavior(
-      await discoverLlamacppModels(
-        endpoint.baseUrl,
-        endpoint.name,
-        endpoint.apiKey,
+      applyEndpointMetadata(
+        await discoverLlamacppModels(
+          endpoint.baseUrl,
+          endpoint.name,
+          endpoint.apiKey,
+        ),
       ),
       endpoint.modelBehavior,
     );
   }
   return applyModelBehavior(
-    await discoverVllmModels(endpoint.baseUrl, endpoint.apiKey, endpoint.name),
+    applyEndpointMetadata(
+      await discoverVllmModels(
+        endpoint.baseUrl,
+        endpoint.apiKey,
+        endpoint.name,
+      ),
+    ),
     endpoint.modelBehavior,
   );
 }
