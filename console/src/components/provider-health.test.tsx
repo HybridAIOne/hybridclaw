@@ -32,6 +32,28 @@ describe('ProviderHealth', () => {
     expect(screen.getByText('not running locally')).toBeTruthy();
   });
 
+  it('keeps the complete provider diagnostic available for long status rows', () => {
+    const diagnostic =
+      'Mistral is disabled. Enable it: config set mistral.enabled true';
+    render(
+      <ProviderHealth
+        title="Provider health"
+        entries={[
+          [
+            'mistral',
+            {
+              kind: 'remote',
+              reachable: false,
+              error: diagnostic,
+            },
+          ],
+        ]}
+      />,
+    );
+
+    expect(screen.getByText(diagnostic).getAttribute('title')).toBe(diagnostic);
+  });
+
   it('summarizes health and invokes the compact manage action', () => {
     const onManage = vi.fn();
     render(

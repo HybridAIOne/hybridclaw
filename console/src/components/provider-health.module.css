@@ -70,10 +70,10 @@
 }
 
 .rowTop {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
 }
 
 .nameGroup {
@@ -150,15 +150,20 @@
 .meta {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 .detail {
+  min-width: 0;
+  flex: 1 1 auto;
   font-size: 11px;
   color: #6b7280;
   font-family: "SFMono-Regular", "JetBrains Mono", "Fira Code", monospace;
-  white-space: nowrap;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .modelCount {
@@ -169,10 +174,12 @@
 }
 
 .statusLabel {
+  flex-shrink: 0;
   font-size: 10px;
   color: #9ca3af;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  white-space: nowrap;
 }
 
 .manageBtn {
@@ -223,6 +230,24 @@
 .compactOverflow {
   color: #9ca3af;
   font-size: 11px;
+}
+
+@media (max-width: 720px) {
+  .rowTop {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .meta {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    padding-left: 12px;
+  }
+
+  .detail {
+    flex-basis: 100%;
+    text-align: left;
+  }
 }
 
 .loginBtn {

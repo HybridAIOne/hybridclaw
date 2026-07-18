@@ -71,7 +71,10 @@ function ProviderRow({ name, provider, onLogin }: ProviderRowProps) {
     <div className={rowClass}>
       <div className={styles.rowTop}>
         <div className={styles.nameGroup}>
-          <span className={`${styles.dot} ${DOT_CLASS[status]}`} />
+          <span
+            className={`${styles.dot} ${DOT_CLASS[status]}`}
+            aria-hidden="true"
+          />
           <span className={styles.name}>{name}</span>
           <span
             className={`${styles.badge} ${isLocal ? styles.badgeLocal : styles.badgeRemote}`}
@@ -80,7 +83,9 @@ function ProviderRow({ name, provider, onLogin }: ProviderRowProps) {
           </span>
         </div>
         <div className={styles.meta}>
-          <span className={styles.detail}>{detail}</span>
+          <span className={styles.detail} title={detail}>
+            {detail}
+          </span>
           <span className={styles.modelCount}>
             {modelCount} {modelCount === 1 ? 'model' : 'models'}
           </span>
