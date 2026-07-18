@@ -37,4 +37,45 @@ describe('legacy admin routes', () => {
     expect(router.state.location.pathname).toBe('/admin/connectors');
     expect(router.state.location.hash).toBe('teams-sso');
   });
+
+  it.each([
+    ['/admin/statistics', '/admin/activity', 'usage'],
+    ['/admin/sessions', '/admin/activity', 'sessions'],
+    ['/admin/audit', '/admin/activity', 'audit'],
+    ['/admin/jobs', '/admin/automation', 'work-queue'],
+    ['/admin/scheduler', '/admin/automation', 'schedules'],
+    ['/admin/a2a-trust', '/admin/federation', 'peers'],
+    ['/admin/fleet-topology', '/admin/federation', 'topology'],
+    ['/admin/a2a-inbox', '/admin/federation', 'inbox'],
+    ['/admin/agent-scoreboard', '/admin/agents', 'scoreboard'],
+    ['/admin/secrets', '/admin/credentials', 'secrets'],
+    ['/admin/tokens', '/admin/credentials', 'api-tokens'],
+    ['/admin/plugins', '/admin/extensions', 'plugins'],
+    ['/admin/tools', '/admin/extensions', 'tools'],
+  ])('redirects %s to its merged tab', async (from, to, tab) => {
+    await router.navigate({ to: from });
+
+    expect(router.state.location.pathname).toBe(to);
+    expect(router.state.location.search).toMatchObject({ tab });
+  });
+
+  it('preserves detail search state through legacy redirects', async () => {
+    await router.navigate({
+      to: '/admin/scheduler',
+      search: { jobId: 'release-notes' },
+    });
+
+    expect(router.state.location.pathname).toBe('/admin/automation');
+    expect(router.state.location.search).toMatchObject({
+      tab: 'schedules',
+      jobId: 'release-notes',
+    });
+  });
+
+  it('retires the standalone agents shell into the admin Agents page', async () => {
+    await router.navigate({ to: '/agents' });
+
+    expect(router.state.location.pathname).toBe('/admin/agents');
+    expect(router.state.location.search).toMatchObject({ tab: 'scoreboard' });
+  });
 });

@@ -395,8 +395,8 @@ describe('JobsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
 
     expect(navigateMock).toHaveBeenCalledWith({
-      to: '/admin/scheduler',
-      search: { jobId: 'release-reminder' },
+      to: '/admin/automation',
+      search: { tab: 'schedules', jobId: 'release-reminder' },
     });
   });
 

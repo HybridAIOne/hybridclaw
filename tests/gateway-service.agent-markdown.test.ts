@@ -358,6 +358,61 @@ test('lists shared cloud memory cache files in admin agent markdown files', asyn
   ).toThrow('Shared markdown file "Organization Memory.md" is read-only.');
 });
 
+test('archives agents without deleting their admin record and omits them from selectors', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  initDatabase({ quiet: true });
+  const {
+    createGatewayAdminAgent,
+    getGatewayAdminAgents,
+    getGatewayAdminApprovals,
+    getGatewayAdminJobsContext,
+    getGatewayAgentList,
+    updateGatewayAdminAgent,
+  } = await import('../src/gateway/gateway-service.ts');
+
+  createGatewayAdminAgent({ id: 'test-agent', name: 'Test Agent' });
+  const archived = updateGatewayAdminAgent('test-agent', { archived: true });
+
+  expect(archived.agent).toMatchObject({
+    id: 'test-agent',
+    archived: true,
+  });
+  expect(
+    getGatewayAdminAgents().agents.find((agent) => agent.id === 'test-agent'),
+  ).toMatchObject({ archived: true });
+  expect((await getGatewayAgentList()).agents.map((agent) => agent.id)).not.toContain(
+    'test-agent',
+  );
+  expect(
+    getGatewayAdminJobsContext().agents.map((agent) => agent.id),
+  ).not.toContain('test-agent');
+  const approvals = getGatewayAdminApprovals({ agentId: 'test-agent' });
+  expect(approvals.selectedAgentId).toBe('main');
+  expect(approvals.agents.map((agent) => agent.id)).not.toContain('test-agent');
+
+  const restored = updateGatewayAdminAgent('test-agent', { archived: false });
+  expect(restored.agent.archived).toBe(false);
+  expect((await getGatewayAgentList()).agents.map((agent) => agent.id)).toContain(
+    'test-agent',
+  );
+});
+
+test('refuses to archive the default agent', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  initDatabase({ quiet: true });
+  const { updateGatewayAdminAgent } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  expect(() => updateGatewayAdminAgent('main', { archived: true })).toThrow(
+    'The main agent cannot be archived.',
+  );
+});
+
 test('reads only the newest 50 markdown revision files when listing versions', async () => {
   setupHome();
 

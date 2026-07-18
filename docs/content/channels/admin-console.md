@@ -17,13 +17,11 @@ The connector setup page at `/admin/connectors` manages HybridAI, Google
 Workspace, GitHub, and Microsoft 365 connection flows.
 The human distillation page at `/admin/distill` manages subjects, consent,
 corpus documents, source uploads, and distillation runs.
-The A2A inbox at `/admin/a2a-inbox` shows instance-wide agent-to-agent message threads and uses the same web-console authentication as the rest of `/admin`: `WEB_API_TOKEN` when configured, or loopback-only local web access.
-The API tokens page at `/admin/tokens` creates, lists, filters, and revokes
-scoped gateway tokens with action, scope, role, and expiry claims.
-The fleet page at `/admin/fleet-topology` shows the local A2A instance identity
-and trusted child instances from the A2A trust ledger. The A2A trust page at
-`/admin/a2a-trust` pairs this instance with peer instances and reviews incoming
-pairing requests.
+The Federation page at `/admin/federation` combines peer trust, fleet topology,
+and the instance-wide A2A inbox. It uses the same web-console authentication as
+the rest of `/admin`: `WEB_API_TOKEN` when configured, or loopback-only local
+web access. The Credentials page at `/admin/credentials` combines write-only
+secret management with scoped gateway API tokens.
 
 ## What The Admin Console Can Do
 
@@ -45,8 +43,10 @@ pairing requests.
 - `/admin/agents` lets operators pick any registered agent and edit the
   allowlisted workspace bootstrap markdown files seeded into that agent's
   runtime workspace
-- `/admin/agents/overview` shows the registered agent fleet with model,
-  budget, prompt-file, workspace, and channel metadata for quick comparison
+- `/admin/agents` combines the agent scoreboard and workspace files behind
+  tabs with a shared active-agent selector
+- `/admin/agents` archives non-default agents without deleting their files or
+  history and removes archived agents from console selectors until restored
 - `/admin/agents` shows saved revisions for those markdown files and can
   restore an earlier version without opening the workspace directory manually
 - `/admin/agents` lists synced installation- and company-scoped cloud memory under a separate "Shared memory" group as read-only cache views without save or revision actions
@@ -63,16 +63,13 @@ pairing requests.
   `deny` and `allow`
 - `/admin/network-policy` can apply bundled network policy templates from the
   browser
-- `/admin/a2a-inbox` lists A2A threads by most recent message and opens each thread with sender, recipient, timestamp, intent, and content
-- `/admin/a2a-inbox` is read-only
-- `/admin/fleet-topology` shows the local instance id, version, public-key
+- `/admin/federation?tab=inbox` lists A2A threads by most recent message and opens each thread with sender, recipient, timestamp, intent, and content
+- `/admin/federation?tab=inbox` is read-only
+- `/admin/federation?tab=topology` shows the local instance id, version, public-key
   fingerprint, child instance reachability, Agent Card latency, and peer
   version when the child is reachable
-- `/admin/fleet-topology` can add, edit, and remove trusted A2A child
-  instances by peer id, Agent Card URL, delivery URL, public-key fingerprint or
-  JWK, and trust reason
-- `/admin/a2a-trust` initiates operator pairing with a peer instance: fetch the peer Agent Card by URL or canonical DNS identifier, preview its identity and public-key fingerprint, then trust the peer with an optional peer-side approval prompt and audit-trail reason
-- `/admin/a2a-trust` lists incoming pairing requests received through the rate-limited `/a2a/pairing/requests` endpoint and lets operators approve or decline each request with a decision reason
+- `/admin/federation?tab=peers` adds, edits, and removes trusted peers and initiates operator pairing: fetch the peer Agent Card by URL or canonical DNS identifier, preview its identity and public-key fingerprint, then trust the peer with an optional peer-side approval prompt and audit-trail reason
+- `/admin/federation?tab=peers` lists incoming pairing requests received through the rate-limited `/a2a/pairing/requests` endpoint and lets operators approve or decline each request with a decision reason
 - `/admin/gateway` can reload runtime config and refresh secrets from the
   browser without tearing down the enclosing workspace container
 - `/admin/gateway` shows the configured public URL and current tunnel provider
@@ -80,10 +77,10 @@ pairing requests.
 - `/admin/config` edits runtime settings through structured controls for
   booleans, numbers, one-of selections, arrays, and nested config paths, with
   unsaved-change protection and validation before save
-- `/admin/secrets` lists stored and declared-but-empty secrets by metadata
+- `/admin/credentials?tab=secrets` lists stored and declared-but-empty secrets by metadata
   only, supports overwrite and unset actions, and never returns cleartext
   secret values to the browser
-- `/admin/tokens` lists scoped API token metadata, creates one-time-revealed
+- `/admin/credentials?tab=api-tokens` lists scoped API token metadata, creates one-time-revealed
   tokens, supports role presets or explicit actions, applies expiry presets,
   and revokes tokens without exposing token secrets after creation
 - `/admin/output-guard` configures plugin-backed response classification,
@@ -91,23 +88,23 @@ pairing requests.
   without editing runtime config by hand
 - PDF previews opened from console file and artifact surfaces render through
   browser-backed `blob:` iframes under the console Content Security Policy
-- `/admin/audit` includes filter and search controls for audit event types,
+- `/admin/activity?tab=audit` includes filter and search controls for audit event types,
   actors, resources, date ranges, and text queries, including onboarding
   lifecycle events from first-run hatching
-- `/admin/audit` and local `/audit turn` or `/audit run` commands can inspect
+- `/admin/activity?tab=audit` and local `/audit turn` or `/audit run` commands can inspect
   focused turn traces when a single request needs debugging
-- `/admin/jobs` shows richer job rows with status, queue, owner, budget, and
+- `/admin/automation?tab=work-queue` shows richer job rows with status, queue, owner, budget, and
   schedule context while keeping navigation inside the SPA
-- `/admin/scheduler` edits scheduled jobs through the shared form controls and
+- `/admin/automation?tab=schedules` edits scheduled jobs through the shared form controls and
   surfaces validation errors before saving
 - `/admin/connectors` manages HybridAI API-key setup, Google Workspace OAuth,
   HybridAI-managed GitHub and Microsoft 365 connectors, and connector health
   tests from one browser surface
 - `/admin/skills` shows catalog metadata, blocked-skill review controls,
   dependency/setup information, and adaptive-skill amendment review
-- `/admin/statistics` shows activity trends, token totals, cost estimates, and
+- `/admin/activity?tab=usage` shows activity trends, token totals, cost estimates, and
   channel breakdowns across selectable date ranges
-- `/admin/agent-scoreboard` shows observed agent skill scores, best skills,
+- `/admin/agents?tab=scoreboard` shows observed agent skill scores, best skills,
   reliability, timing, and links to generated `CV.md` files
 - admin forms share common checkbox, combobox, date, field, input,
   native-select, number, radio, switch, textarea, validation, draft, and

@@ -58,14 +58,25 @@ function filterCategory(eventType: string): Category | null {
   return category === 'default' ? null : category;
 }
 
-type AuditSearchParams = { q: string | undefined; range: string | undefined };
+type AuditSearchParams = {
+  tab?: string;
+  q?: string;
+  range?: string;
+  sessionId?: string;
+};
 
-export function AuditPage() {
+export function AuditPage(
+  props: {
+    range?: TimeRange;
+    embedded?: boolean;
+    onRangeChange?: (range: TimeRange) => void;
+  } = {},
+) {
   const auth = useAuth();
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as AuditSearchParams;
   const initialQ = search.q ?? '';
-  const initialRange = readRange(search.range);
+  const initialRange = props.range ?? readRange(search.range);
 
   const [searchInput, setSearchInput] = useState(initialQ);
   const [range, setRange] = useState<TimeRange>(initialRange);
@@ -96,6 +107,16 @@ export function AuditPage() {
   useEffect(() => {
     const nextQ = searchInput.trim() || undefined;
     const nextRange = range === 'all' ? undefined : range;
+    if (props.embedded) {
+      if (nextQ === lastSyncedQ.current) return;
+      lastSyncedQ.current = nextQ;
+      void navigate({
+        to: '/admin/activity',
+        search: { ...search, q: nextQ },
+        replace: true,
+      }).catch(logNavigationError);
+      return;
+    }
     if (
       nextQ === lastSyncedQ.current &&
       nextRange === lastSyncedRange.current
@@ -109,7 +130,7 @@ export function AuditPage() {
       search: { q: nextQ, range: nextRange },
       replace: true,
     }).catch(logNavigationError);
-  }, [navigate, searchInput, range]);
+  }, [navigate, props.embedded, range, search, searchInput]);
 
   // URL → state: re-seed when the URL changes for any reason other than
   // our own write (back/forward navigation, deep link). Updates the refs
@@ -119,11 +140,13 @@ export function AuditPage() {
       lastSyncedQ.current = search.q;
       setSearchInput(search.q ?? '');
     }
-    if (search.range !== lastSyncedRange.current) {
+    if (props.range !== undefined) {
+      setRange(props.range);
+    } else if (search.range !== lastSyncedRange.current) {
       lastSyncedRange.current = search.range;
       setRange(readRange(search.range));
     }
-  }, [search.q, search.range]);
+  }, [props.range, search.q, search.range]);
 
   // Global `/` shortcut to focus the search input.
   useEffect(() => {
@@ -236,7 +259,10 @@ export function AuditPage() {
   );
 
   const hasAnyFilter = Boolean(
-    parsed.query || parsed.sessionId || parsed.eventType || range !== 'all',
+    parsed.query ||
+      parsed.sessionId ||
+      parsed.eventType ||
+      (!props.embedded && range !== 'all'),
   );
 
   function openEntry(entry: AdminAuditEntry): void {
@@ -275,7 +301,12 @@ export function AuditPage() {
 
   function clearAll(): void {
     setSearchInput('');
-    setRange('all');
+    if (!props.embedded) changeRange('all');
+  }
+
+  function changeRange(nextRange: TimeRange): void {
+    setRange(nextRange);
+    props.onRangeChange?.(nextRange);
   }
 
   return (
@@ -303,26 +334,28 @@ export function AuditPage() {
             </span>
           </div>
 
-          <div
-            className={styles.timeRange}
-            role="toolbar"
-            aria-label="Time range"
-          >
-            {TIME_RANGES.map((option) => {
-              const active = range === option.value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={active}
-                  data-active={active || undefined}
-                  onClick={() => setRange(option.value)}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
+          {!props.embedded ? (
+            <div
+              className={styles.timeRange}
+              role="toolbar"
+              aria-label="Time range"
+            >
+              {TIME_RANGES.map((option) => {
+                const active = range === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={active}
+                    data-active={active || undefined}
+                    onClick={() => changeRange(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
 
           <div className={styles.meta} aria-live="polite">
             {auditQuery.isLoading
@@ -401,7 +434,7 @@ export function AuditPage() {
               </button>
             </span>
           ) : null}
-          {range !== 'all' ? (
+          {!props.embedded && range !== 'all' ? (
             <span className={styles.activeChip}>
               <strong>last:</strong>
               {range}
@@ -409,7 +442,7 @@ export function AuditPage() {
                 type="button"
                 className={styles.activeChipRemove}
                 aria-label="Reset time range"
-                onClick={() => setRange('all')}
+                onClick={() => changeRange('all')}
               >
                 ×
               </button>

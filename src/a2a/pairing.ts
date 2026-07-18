@@ -510,7 +510,7 @@ function promptPeerOperator(request: A2AIncomingPairingRequest): void {
       `Fingerprint: ${request.publicKeyFingerprint}`,
       `E2EE fingerprint: ${request.e2ee.publicKeyFingerprint}`,
       `A2A senders: ${request.delegation?.senderAgentIds.length || 0}`,
-      'Approve this from /admin/a2a-trust to trust the peer public key and advertised A2A senders.',
+      'Approve this from /admin/federation?tab=peers to trust the peer public key and advertised A2A senders.',
     ].join('\n'),
     userId: 'operator',
     modality: 'push',

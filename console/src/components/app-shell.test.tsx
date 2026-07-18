@@ -23,15 +23,10 @@ describe('resolveCurrentAdminNavItem', () => {
     });
   });
 
-  it('uses distinct labels for the agent admin surfaces', () => {
+  it('uses the merged Agents label', () => {
     expect(resolveCurrentAdminNavItem('/admin/agents')).toMatchObject({
-      label: 'Workspace Files',
+      label: 'Agents',
     });
-    expect(resolveCurrentAdminNavItem('/admin/agent-scoreboard')).toMatchObject(
-      {
-        label: 'Agent Scoreboard',
-      },
-    );
   });
 
   it('falls back to the first nav item when no match is found', () => {

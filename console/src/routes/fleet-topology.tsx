@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
 import { fetchFleetTopology } from '../api/client';
 import type { AdminFleetTopologyInstanceStatus } from '../api/types';
 import { useAuth } from '../auth';
@@ -37,7 +36,7 @@ function formatLatency(value: number | null): string {
     : 'unknown';
 }
 
-export function FleetTopologyPage() {
+export function FleetTopologyPage(props: { embedded?: boolean } = {}) {
   const auth = useAuth();
 
   const topologyQuery = useQuery({
@@ -51,6 +50,11 @@ export function FleetTopologyPage() {
   return (
     <div className="page-stack">
       <PageHeader
+        description={
+          props.embedded
+            ? 'Live reachability over the same peer records managed on Peers & trust.'
+            : undefined
+        }
         actions={
           <button
             className="ghost-button"
@@ -102,74 +106,51 @@ export function FleetTopologyPage() {
         </CardContent>
       </Card>
 
-      <div className="two-column-grid">
-        <Card>
-          <CardHeader>
-            <CardTitle>Child instances</CardTitle>
-            <CardDescription>
-              {`${instances.length} instance${instances.length === 1 ? '' : 's'}`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {topologyQuery.isLoading ? (
-              <div className="empty-state">Loading instances...</div>
-            ) : instances.length ? (
-              <div className="list-stack">
-                {instances.map((instance) => (
-                  <div className="list-row" key={instance.peerId}>
-                    <div className="list-row-main">
-                      <strong>{instance.peerId}</strong>
-                      <small>
-                        {instance.version || 'version unknown'} ·{' '}
-                        {formatLatency(instance.latencyMs)} · last seen{' '}
-                        {formatRelativeTime(instance.lastSeenAt)}
+      <Card>
+        <CardHeader>
+          <CardTitle>Child instances</CardTitle>
+          <CardDescription>
+            {`${instances.length} instance${instances.length === 1 ? '' : 's'}`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {topologyQuery.isLoading ? (
+            <div className="empty-state">Loading instances...</div>
+          ) : instances.length ? (
+            <div className="list-stack">
+              {instances.map((instance) => (
+                <div className="list-row" key={instance.peerId}>
+                  <div className="list-row-main">
+                    <strong>{instance.peerId}</strong>
+                    <small>
+                      {instance.version || 'version unknown'} ·{' '}
+                      {formatLatency(instance.latencyMs)} · last seen{' '}
+                      {formatRelativeTime(instance.lastSeenAt)}
+                    </small>
+                    {instance.error ? (
+                      <small className="row-status-note-danger">
+                        {instance.error}
                       </small>
-                      {instance.error ? (
-                        <small className="row-status-note-danger">
-                          {instance.error}
-                        </small>
-                      ) : null}
-                    </div>
-                    <div className="row-actions">
-                      {statusPill(instance.status)}
-                    </div>
+                    ) : null}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state">No child instances configured.</div>
-            )}
-            {topologyQuery.error ? (
-              <small className="row-status-note-danger">
-                {topologyQuery.error instanceof Error
-                  ? topologyQuery.error.message
-                  : 'Fleet topology load failed.'}
-              </small>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        <Card variant="muted">
-          <CardHeader>
-            <CardTitle>Peer trust</CardTitle>
-            <CardDescription>Managed on the A2A Trust page</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="detail-stack">
-              <p className="supporting-text">
-                Add, edit, revoke, or remove trusted peers in one place. Fleet
-                topology remains a read-only view of reachability and runtime
-                status.
-              </p>
-              <div className="button-row">
-                <Link to="/admin/a2a-trust" className="primary-button">
-                  Manage peer trust
-                </Link>
-              </div>
+                  <div className="row-actions">
+                    {statusPill(instance.status)}
+                  </div>
+                </div>
+              ))}
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          ) : (
+            <div className="empty-state">No child instances configured.</div>
+          )}
+          {topologyQuery.error ? (
+            <small className="row-status-note-danger">
+              {topologyQuery.error instanceof Error
+                ? topologyQuery.error.message
+                : 'Fleet topology load failed.'}
+            </small>
+          ) : null}
+        </CardContent>
+      </Card>
 
       {instances.length ? (
         <Card>

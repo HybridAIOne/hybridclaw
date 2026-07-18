@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   deleteDistillCorpusDocument,
   downloadDistillCorpusDocument,
+  fetchAdminAgents,
   fetchDistill,
   recordDistillConsent,
   registerDistillAgent,
@@ -522,6 +523,13 @@ export function DistillPage() {
     queryKey: ['admin', 'distill', auth.token],
     queryFn: () => fetchDistill(auth.token),
   });
+  const agentsQuery = useQuery({
+    queryKey: ['admin-agents', auth.token],
+    queryFn: () => fetchAdminAgents(auth.token),
+  });
+  const activeAgents = (agentsQuery.data || []).filter(
+    (agent) => !agent.archived,
+  );
 
   const subjects = query.data?.subjects || [];
   useEffect(() => {
@@ -840,8 +848,7 @@ export function DistillPage() {
                   <Field>
                     <FieldLabel>Agent</FieldLabel>
                     <FieldContent>
-                      <Input
-                        placeholder="defaults to alias"
+                      <NativeSelect
                         value={subjectDraft.agentId}
                         onChange={(event) =>
                           setSubjectDraft((current) => ({
@@ -849,7 +856,18 @@ export function DistillPage() {
                             agentId: event.target.value,
                           }))
                         }
-                      />
+                      >
+                        <NativeSelectOption value="">
+                          Default to alias
+                        </NativeSelectOption>
+                        {activeAgents.map((agent) => (
+                          <NativeSelectOption key={agent.id} value={agent.id}>
+                            {agent.name
+                              ? `${agent.name} (${agent.id})`
+                              : agent.id}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
                     </FieldContent>
                   </Field>
                   <Field>

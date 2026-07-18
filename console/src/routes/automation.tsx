@@ -1,0 +1,58 @@
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import { TabbedPage } from '../components/tabbed-page';
+import { logNavigationError } from '../lib/navigation';
+import { JobsPage } from './jobs';
+import { SchedulerPage } from './scheduler';
+import { mergeRouteSearch, readRouteTab } from './tabbed-route';
+
+const AUTOMATION_TABS = [
+  { id: 'work-queue', label: 'Work queue' },
+  { id: 'schedules', label: 'Schedules' },
+] as const;
+
+type AutomationTab = (typeof AUTOMATION_TABS)[number]['id'];
+
+export function AutomationPage() {
+  const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as {
+    tab?: string;
+    jobId?: string;
+  };
+  const activeTab = readRouteTab<AutomationTab>(
+    search.tab,
+    AUTOMATION_TABS,
+    'work-queue',
+  );
+
+  function updateSearch(patch: Partial<typeof search>): void {
+    void navigate({
+      to: '/admin/automation',
+      search: mergeRouteSearch(search, patch),
+      replace: true,
+    }).catch(logNavigationError);
+  }
+
+  return (
+    <TabbedPage
+      tabs={AUTOMATION_TABS}
+      activeTab={activeTab}
+      description="Track work from intake through completion and manage the schedules that create it."
+      actions={
+        <button
+          className="primary-button"
+          type="button"
+          onClick={() => updateSearch({ tab: 'schedules', jobId: undefined })}
+        >
+          New schedule
+        </button>
+      }
+      onTabChange={(tab) => updateSearch({ tab })}
+    >
+      {activeTab === 'schedules' ? (
+        <SchedulerPage embedded />
+      ) : (
+        <JobsPage embedded />
+      )}
+    </TabbedPage>
+  );
+}

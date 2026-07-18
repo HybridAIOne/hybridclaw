@@ -1108,6 +1108,7 @@ test('database migration v6 adds agents and backfills legacy agent ids to main',
     true,
   );
   expect(agentColumns.some((column) => column.name === 'skills')).toBe(true);
+  expect(agentColumns.some((column) => column.name === 'archived')).toBe(true);
 
   const sessionRow = migratedDb
     .prepare('SELECT agent_id FROM sessions WHERE id = ?')

@@ -100,7 +100,7 @@ hybridclaw token revoke <token-id>
 - `--actions` accepts explicit action names such as `openai.api`,
   `chat.send`, `status.read`, `admin.tokens.read`,
   `admin.tokens.create`, and `admin.tokens.revoke`
-- `/admin/tokens` provides the same create/list/revoke workflow in the browser
+- `/admin/credentials?tab=api-tokens` provides the same create/list/revoke workflow in the browser
   with role presets, action filters, and expiry presets
 
 ## Local Eval Workflows

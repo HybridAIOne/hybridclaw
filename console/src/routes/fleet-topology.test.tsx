@@ -59,17 +59,14 @@ describe('FleetTopologyPage', () => {
     });
   });
 
-  it('keeps topology read-only and links peer mutations to A2A Trust', async () => {
+  it('keeps topology read-only without duplicating peer management', async () => {
     renderWithProviders(<FleetTopologyPage />);
 
     expect(await screen.findAllByText('peer-1')).toHaveLength(2);
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Trust instance' })).toBeNull();
-    expect(
-      screen
-        .getByRole('link', { name: 'Manage peer trust' })
-        .getAttribute('href'),
-    ).toBe('/admin/a2a-trust');
+    expect(screen.queryByText('Peer trust')).toBeNull();
+    expect(screen.queryByRole('link')).toBeNull();
   });
 });

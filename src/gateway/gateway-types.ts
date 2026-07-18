@@ -913,6 +913,7 @@ export interface GatewayAgentListResponse {
 export interface GatewayAdminJobAgent {
   id: string;
   name: string | null;
+  archived: boolean;
 }
 
 export interface GatewayAdminJobSession {
@@ -1293,6 +1294,7 @@ export interface GatewayAdminAgentProxyConfig {
 
 export interface GatewayAdminAgent {
   id: string;
+  archived: boolean;
   name: string | null;
   emptyChatHeader: string | null;
   model: string | null;
@@ -1505,6 +1507,7 @@ export interface GatewayAdminApprovalAgent {
   id: string;
   name: string | null;
   workspacePath: string;
+  archived: boolean;
 }
 
 export interface GatewayAdminPendingApproval {

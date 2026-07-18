@@ -806,6 +806,7 @@ export async function updateAdminAgent(
   agentId: string,
   payload: {
     proxy?: AdminAgentProxyConfig | null;
+    archived?: boolean;
   },
 ): Promise<AdminAgent> {
   const response = await requestJson<{ agent: AdminAgent }>(

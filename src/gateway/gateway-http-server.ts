@@ -4737,6 +4737,7 @@ type ApiAdminAgentPayloadBody = {
   skills?: unknown;
   chatbotId?: unknown;
   enableRag?: unknown;
+  archived?: unknown;
   proxy?: unknown;
   role?: unknown;
   reportsTo?: unknown;
@@ -4754,6 +4755,7 @@ type ApiAdminAgentPayload = {
   skills?: string[] | null;
   chatbotId?: string;
   enableRag?: boolean;
+  archived?: boolean;
   proxy?: AgentProxyConfig | null;
   role?: string;
   reportsTo?: string | null;
@@ -4934,6 +4936,7 @@ async function readApiAdminAgentPayload(
     skills: normalizeApiAdminAgentSkills(body.skills),
     chatbotId: typeof body.chatbotId === 'string' ? body.chatbotId : undefined,
     enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
+    archived: typeof body.archived === 'boolean' ? body.archived : undefined,
     proxy: normalizeApiAdminAgentProxy(body.proxy),
     role: typeof body.role === 'string' ? body.role : undefined,
     reportsTo: normalizeApiAdminNullableStringAlias(
@@ -5018,6 +5021,7 @@ async function handleApiAdminAgentResource(
           skills: payload.skills,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
+          archived: payload.archived,
           proxy: payload.proxy,
           role: payload.role,
           reportsTo: payload.reportsTo,
@@ -10088,7 +10092,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       sendRedirect(
         res,
         302,
-        a2aLocalMode && !localRequest ? '/admin/a2a-trust' : '/chat',
+        a2aLocalMode && !localRequest ? '/admin/federation?tab=peers' : '/chat',
       );
       return;
     }

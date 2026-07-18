@@ -528,7 +528,10 @@ describe('SchedulerPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save job' }));
 
     await waitFor(() => {
-      expect(navigateMock).toHaveBeenCalledWith({ to: '/admin/jobs' });
+      expect(navigateMock).toHaveBeenCalledWith({
+        to: '/admin/automation',
+        search: { tab: 'work-queue' },
+      });
     });
   });
 

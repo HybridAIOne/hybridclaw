@@ -333,6 +333,100 @@ code {
   max-width: 62ch;
 }
 
+.tabbed-page {
+  min-width: 0;
+}
+
+.page-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--chip-surface);
+}
+
+.page-tab {
+  min-height: 36px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.page-tab:hover {
+  background: var(--panel-muted);
+  color: var(--foreground);
+}
+
+.page-tab:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.page-tab.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-foreground);
+  box-shadow: var(--shadow-raised);
+}
+
+.page-tab-panel {
+  min-width: 0;
+}
+
+.jobs-card-source {
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.agents-archive-list,
+.agents-archived-section {
+  display: grid;
+  gap: 8px;
+}
+
+.agents-archive-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.agents-archive-row,
+.agents-archived-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.agents-archive-row > span {
+  display: grid;
+  gap: 2px;
+}
+
+.agents-archive-row small {
+  color: var(--muted-foreground);
+}
+
+.agents-archived-section {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.agents-archived-row {
+  justify-content: space-between;
+}
+
 .terminal-page {
   display: flex;
   flex: 1 1 auto;
@@ -613,7 +707,6 @@ code {
 
 .agents-stat-card,
 .agents-dashboard-panel,
-.agents-overview-card,
 .agents-session-card {
   border: 1px solid var(--line);
   background: var(--panel-bg);
@@ -699,7 +792,6 @@ code {
   line-height: 1.5;
 }
 
-.agents-overview-grid,
 .agents-session-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -710,7 +802,6 @@ code {
   margin-top: 16px;
 }
 
-.agents-overview-card,
 .agents-session-card {
   border-radius: var(--radius-lg);
   border-top-width: 4px;
@@ -720,53 +811,16 @@ code {
   overflow: hidden;
 }
 
-.agents-overview-card.is-active,
 .agents-session-card.is-active {
   border-top-color: var(--agents-green);
 }
 
-.agents-overview-card.is-idle,
 .agents-session-card.is-idle {
   border-top-color: var(--agents-gold);
 }
 
-.agents-overview-card.is-stopped,
 .agents-session-card.is-stopped {
   border-top-color: var(--agents-red);
-}
-
-.agents-overview-card.is-unused {
-  border-top-color: #64748b;
-}
-
-.agents-overview-card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.agents-overview-card-header > div {
-  min-width: 0;
-}
-
-.agents-overview-card-header h3,
-.agents-overview-card-header p {
-  margin: 0;
-}
-
-.agents-overview-card-header h3 {
-  color: var(--text);
-  font-size: 1rem;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
-}
-
-.agents-overview-card-header p {
-  color: var(--muted-foreground);
-  font-size: 0.8rem;
-  line-height: 1.38;
-  margin-top: 6px;
 }
 
 .agents-tag-row {
@@ -4440,7 +4494,6 @@ th {
 }
 
 @media (max-width: 1260px) {
-  .agents-overview-grid,
   .agents-session-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4454,13 +4507,11 @@ th {
 
 @media (max-width: 760px) {
   .agents-stats-row,
-  .agents-overview-grid,
   .agents-session-list,
   .agents-meta-grid {
     grid-template-columns: 1fr;
   }
 
-  .agents-overview-card-header,
   .agents-section-head {
     flex-direction: column;
   }

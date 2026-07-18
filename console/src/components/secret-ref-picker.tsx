@@ -55,7 +55,7 @@ export function SecretRefPicker({
         ) : (
           <span>Values stay in the runtime secret store.</span>
         )}
-        <a href="/admin/secrets">Create new secret →</a>
+        <a href="/admin/credentials?tab=secrets">Create new secret →</a>
       </div>
     </div>
   );

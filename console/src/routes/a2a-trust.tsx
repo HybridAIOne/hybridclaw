@@ -47,7 +47,7 @@ function peerStatus(peer: AdminA2ATrustPeer) {
   return <BooleanPill value={true} trueLabel="trusted" />;
 }
 
-export function A2ATrustPage() {
+export function A2ATrustPage(props: { embedded?: boolean } = {}) {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
@@ -195,7 +195,7 @@ export function A2ATrustPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader />
+      {!props.embedded ? <PageHeader /> : null}
 
       <Card>
         <CardHeader>

@@ -80,13 +80,25 @@ const AGENT_DEFAULT_DIRECTIONS = {
   recent: 'desc',
 } as const;
 
-export function AgentsPage() {
+export function AgentsPage(
+  props: {
+    selectedAgentId?: string;
+    activeAgentIds?: ReadonlyArray<string>;
+  } = {},
+) {
   const auth = useAuth();
   const scoreboardQuery = useQuery({
     queryKey: ['agent-scoreboard', auth.token],
     queryFn: () => fetchAgentScoreboard(auth.token),
   });
-  const agents = scoreboardQuery.data?.agents || [];
+  const activeAgentIds = props.activeAgentIds
+    ? new Set(props.activeAgentIds)
+    : null;
+  const agents = (scoreboardQuery.data?.agents || []).filter(
+    (agent) =>
+      (!activeAgentIds || activeAgentIds.has(agent.agent_id)) &&
+      (!props.selectedAgentId || agent.agent_id === props.selectedAgentId),
+  );
   const observedSkillCount = scoreboardQuery.data?.observed_skill_count ?? 0;
   const topAgent = [...agents].sort(
     (left, right) => right.avg_score - left.avg_score,
@@ -243,7 +255,7 @@ export function AgentsPage() {
                       </td>
                       <td>
                         <a
-                          href={`/admin/agents?agent=${encodeURIComponent(agent.agent_id)}&file=CV.md`}
+                          href={`/admin/agents?tab=files&agent=${encodeURIComponent(agent.agent_id)}&file=CV.md`}
                         >
                           CV.md
                         </a>

@@ -228,6 +228,9 @@ function JobCard(props: {
                 24,
               )}
             </strong>
+            {item.kind === 'job' ? (
+              <span className="jobs-card-source">from schedule ↻</span>
+            ) : null}
           </div>
           <p>{item.summary}</p>
           <small>{item.stateLabel}</small>
@@ -428,8 +431,8 @@ function JobDetailCard(props: {
             onClick={() => {
               if (editJobId) {
                 void navigate({
-                  to: '/admin/scheduler',
-                  search: { jobId: editJobId },
+                  to: '/admin/automation',
+                  search: { tab: 'schedules', jobId: editJobId },
                 }).catch(logNavigationError);
                 return;
               }
@@ -673,7 +676,7 @@ function JobDetailCard(props: {
   );
 }
 
-export function JobsPage() {
+export function JobsPage(props: { embedded?: boolean } = {}) {
   const auth = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -1034,18 +1037,20 @@ export function JobsPage() {
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search jobs"
             />
-            <button
-              className="primary-button"
-              type="button"
-              onClick={() => {
-                void navigate({
-                  to: '/admin/scheduler',
-                  search: { jobId: undefined },
-                }).catch(logNavigationError);
-              }}
-            >
-              New Job
-            </button>
+            {!props.embedded ? (
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => {
+                  void navigate({
+                    to: '/admin/automation',
+                    search: { tab: 'schedules', jobId: undefined },
+                  }).catch(logNavigationError);
+                }}
+              >
+                New Job
+              </button>
+            ) : null}
           </div>
         }
       />

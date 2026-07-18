@@ -1156,6 +1156,7 @@ export interface AdminAgentProxyConfig {
 
 export interface AdminAgent {
   id: string;
+  archived?: boolean;
   name: string | null;
   emptyChatHeader?: string | null;
   model: string | null;
@@ -1374,6 +1375,7 @@ export interface AgentListResponse {
 export interface JobAgent {
   id: string;
   name: string | null;
+  archived?: boolean;
 }
 
 export interface JobSession {
@@ -1766,6 +1768,7 @@ export interface AdminApprovalAgent {
   id: string;
   name: string | null;
   workspacePath: string;
+  archived?: boolean;
 }
 
 export interface AdminPendingApproval {

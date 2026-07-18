@@ -157,13 +157,13 @@ With one conversation working, expand the system:
 
 Other built-in surfaces on the running gateway (`http://127.0.0.1:9090`):
 
-- `/agents` — agent and session dashboard; the `/chat` sidebar also searches
-  past sessions by title
+- `/admin/agents` — agent scoreboard and workspace files; the `/chat` sidebar
+  also searches past sessions by title
 - `/apps` — generated app gallery for self-contained HTML apps, documents,
   games, tools, and live connector-backed views
 - `/admin` — channels, agents, and skills, plus saved-revision editing
-- `/admin/statistics` and `/admin/agent-scoreboard` — activity, cost, and skill
-  scores
+- `/admin/activity` and `/admin/agents` — activity, cost, sessions, audit, and
+  skill scores
 - `/docs` — these docs, served locally
 
 ## Command Cheat Sheet

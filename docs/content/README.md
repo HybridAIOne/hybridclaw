@@ -47,7 +47,7 @@ doc at once, start from [For Agents](./agents.md).
 - Trace exports bind completed audit turns to their exact stored assistant
   messages, local providers stay disabled until configured, and unused Codex
   health warnings no longer clutter gateway status.
-- Microsoft Teams credentials set or rotated in `/admin/secrets` refresh the
+- Microsoft Teams credentials set or rotated in `/admin/credentials?tab=secrets` refresh the
   running adapter without a restart, and Chrome can render inline PDF artifact
   previews without relaxing the blob's fixed PDF content type.
 - Internal architecture docs specify a configurable model-tier ladder,
@@ -73,7 +73,7 @@ doc at once, start from [For Agents](./agents.md).
   sends replies back across reverse trust, and shows delivery status in the
   origin chat until the remote reply is stored.
 - Scoped gateway API tokens can be managed from `hybridclaw token` or
-  `/admin/tokens`, with one-time reveal, expiry timestamps, explicit
+  `/admin/credentials?tab=api-tokens`, with one-time reveal, expiry timestamps, explicit
   actions/scopes/roles, metadata-only listing, revocation, and audit events.
 - Delegated OpenAI-compatible chat completions expose delegation metadata and
   can be polled at `GET /v1/chat/completions/{completion-id}` until queued work
@@ -88,7 +88,7 @@ doc at once, start from [For Agents](./agents.md).
 - HybridClaw v0.27.1 records first-run hatching as structured onboarding audit
   events, including start/continue, quick messages, user and assistant turns,
   welcome mail, workspace file updates, completion, and abort paths.
-- `/admin/audit` treats onboarding as a first-class event category so
+- `/admin/activity?tab=audit` treats onboarding as a first-class event category so
   operators can search and filter bootstrap hatching activity without reading
   raw audit files.
 - Web chat keeps interim assistant and tool-turn activity visible while a run

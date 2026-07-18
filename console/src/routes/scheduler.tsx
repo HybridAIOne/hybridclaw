@@ -1054,22 +1054,27 @@ function SchedulerJobEditor(props: {
   );
 }
 
-export function SchedulerPage() {
+export function SchedulerPage(props: { embedded?: boolean } = {}) {
   const auth = useAuth();
   const navigate = useNavigate();
-  const schedulerSearch = useSearch({ strict: false }) as { jobId?: string };
+  const schedulerSearch = useSearch({ strict: false }) as Record<
+    string,
+    unknown
+  > & { jobId?: string };
   const toast = useToast();
   const queryClient = useQueryClient();
   const selectedId = schedulerSearch.jobId?.trim() || null;
   const setSelectedId = useCallback(
     (jobId: string | null) => {
       void navigate({
-        to: '/admin/scheduler',
+        to: props.embedded ? '/admin/automation' : '/admin/scheduler',
         replace: true,
-        search: { jobId: jobId || undefined },
+        search: props.embedded
+          ? { ...schedulerSearch, tab: 'schedules', jobId: jobId || undefined }
+          : { jobId: jobId || undefined },
       }).catch(logNavigationError);
     },
-    [navigate],
+    [navigate, props.embedded, schedulerSearch],
   );
   const [draft, setDraft] = useState<SchedulerDraft>(createDraft());
   const form = useForm();
@@ -1106,7 +1111,10 @@ export function SchedulerPage() {
       saveSchedulerJob(auth.token, normalizeDraft(nextDraft)),
     onSuccess: (payload) => {
       replaceJobs(payload, auth.token, queryClient);
-      void navigate({ to: '/admin/jobs' }).catch(logNavigationError);
+      void navigate({
+        to: '/admin/automation',
+        search: { tab: 'work-queue' },
+      }).catch(logNavigationError);
     },
     onError: (error) => {
       toast.error('Save failed', error.message);
@@ -1189,20 +1197,22 @@ export function SchedulerPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader
-        actions={
-          <Button
-            variant="ghost"
-            type="button"
-            onClick={() => {
-              setSelectedId(null);
-              setDraft(createDraft());
-            }}
-          >
-            New job
-          </Button>
-        }
-      />
+      {!props.embedded ? (
+        <PageHeader
+          actions={
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => {
+                setSelectedId(null);
+                setDraft(createDraft());
+              }}
+            >
+              New job
+            </Button>
+          }
+        />
+      ) : null}
 
       <div className="two-column-grid">
         <Card>
@@ -1285,7 +1295,10 @@ export function SchedulerPage() {
               }
               setSelectedId(null);
               setDraft(createDraft());
-              void navigate({ to: '/admin/jobs' }).catch(logNavigationError);
+              void navigate({
+                to: '/admin/automation',
+                search: { tab: 'work-queue' },
+              }).catch(logNavigationError);
             }}
             onPauseToggle={() =>
               pauseMutation.mutate(
