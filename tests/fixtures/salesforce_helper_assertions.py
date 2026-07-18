@@ -294,7 +294,7 @@ def route_check(module: Any) -> None:
 
 def secret_scan(path: str) -> None:
     content = pathlib.Path(path).read_text()
-    assert "secret show" not in content, "Script must not read secrets via CLI"
+    assert "secret status" not in content, "Script must not inspect secrets via CLI"
     assert "secret set" not in content, (
         "Script must not write secrets via CLI - use captureResponseSecrets"
     )

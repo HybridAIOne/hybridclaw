@@ -167,7 +167,7 @@ gateway-side auth routing from local TUI and local web chat sessions:
 ```bash
 hybridclaw secret list
 hybridclaw secret set <NAME> <VALUE>
-hybridclaw secret show <NAME>
+hybridclaw secret status <NAME>
 hybridclaw secret unset <NAME>
 hybridclaw secret route list
 hybridclaw secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
@@ -177,7 +177,7 @@ hybridclaw secret route remove <url-prefix> [header]
 ```text
 /secret list
 /secret set <NAME> <VALUE>
-/secret show <NAME>
+/secret status <NAME>
 /secret unset <NAME>
 /secret route list
 /secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]

@@ -343,7 +343,7 @@ CLI and local TUI/web slash-command surface:
 ```bash
 hybridclaw secret list
 hybridclaw secret set <name> <value>
-hybridclaw secret show <name>
+hybridclaw secret status <name>
 hybridclaw secret unset <name>
 hybridclaw secret route list
 hybridclaw secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
@@ -357,7 +357,7 @@ hybridclaw env unset <name>
 ```text
 /secret list
 /secret set <name> <value>
-/secret show <name>
+/secret status <name>
 /secret unset <name>
 /secret route list
 /secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
@@ -370,7 +370,7 @@ hybridclaw env unset <name>
 
 - local-only surface: `/secret ...` is available from local TUI and local web
   chat sessions, not from Discord or other remote channels
-- `hybridclaw secret show <name>` reports whether the secret is stored; it
+- `hybridclaw secret status <name>` reports whether the secret is stored; it
   never outputs decrypted values. Secrets are only resolved gateway-side via
   `<secret:NAME>` placeholders or auth rules
 - stored secret names must use uppercase letters, digits, and underscores
@@ -722,7 +722,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/ralph [info|on|off|set n]` | local and chat channels | Configure the Ralph loop |
 | `/reset [yes|no]` | local and chat channels | Run the confirmed workspace reset flow |
 | `/schedule add|list|remove|toggle ...` | local and chat channels | Manage scheduled tasks for the session |
-| `/secret [list|set|show|unset|route]` | local TUI/web | Manage encrypted secrets and HTTP auth routes |
+| `/secret [list|set|status|unset|route]` | local TUI/web | Manage encrypted secrets and HTTP auth routes |
 | `/second-opinion [compare|validate|fact-check]` | local and chat channels | Ask a stronger configured model to compare, validate, or fact-check |
 | `/sessions [active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]` | local and chat channels | Inspect active session tracking or prune old persisted sessions |
 | `/show [all|thinking|tools|none]` | local and chat channels | Control thinking/tool activity visibility |
@@ -797,7 +797,7 @@ reserved for the R5.3 signal when that spend-tracking enforcement lands.
 - Local TUI and web chat sessions expose `/config`, `/config check`,
   `/config reload`, `/config get <key>`, `/config set <key> <value>`,
   `/concierge`, `/auth status <provider>`, and
-  `/secret list|set|unset|show|route`
+  `/secret list|set|status|unset|route`
   alongside the existing runtime commands
 - local TUI and web chat also expose `/dream [info|on|off|now]` for nightly
   memory-consolidation status, scheduler toggling, and manual runs

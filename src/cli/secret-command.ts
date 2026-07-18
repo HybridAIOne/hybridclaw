@@ -162,11 +162,11 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
     return;
   }
 
-  if (sub === 'show' || sub === 'status') {
+  if (sub === 'status') {
     const secretName = String(normalized[1] || '').trim();
     if (!secretName) {
       printSecretUsage();
-      throw new Error('Usage: `hybridclaw secret show <name>`');
+      throw new Error('Usage: `hybridclaw secret status <name>`');
     }
     assertSecretName(secretName);
     const stored = readStoredRuntimeSecret(secretName);
@@ -347,6 +347,6 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
 
   printSecretUsage();
   throw new Error(
-    'Unknown secret subcommand. Use `hybridclaw secret list|set|show|unset|route`.',
+    'Unknown secret subcommand. Use `hybridclaw secret list|set|status|unset|route`.',
   );
 }
