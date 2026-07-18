@@ -8,6 +8,7 @@ sidebar_position: 2
 
 Model prefixes:
 
+- Direct OpenAI API models use `openai/`
 - Codex models use `openai-codex/`
 - Anthropic models use `anthropic/`
 - OpenRouter models use `openrouter/`
@@ -31,6 +32,8 @@ The shipped default Codex model is `openai-codex/gpt-5-codex`.
 Examples:
 
 ```text
+/model list openai
+/model set openai/gpt-5.6-sol
 /model set openai-codex/gpt-5-codex
 /model list codex
 /model default openai-codex/gpt-5-codex
@@ -62,7 +65,8 @@ Examples:
 ## Scope Rules
 
 - `hybridai.defaultModel` in `~/.hybridclaw/config.json` is the global default;
-  it can point at a HybridAI model, an `openai-codex/...` model, an
+  it can point at a HybridAI model, an `openai/...` model, an
+  `openai-codex/...` model, an
   `anthropic/...` model, an `openrouter/...` model, a `mistral/...` model, a
   `huggingface/...` model, a `gemini/...` model, a `deepseek/...` model, a
   `xai/...` model, a `kilo/...` model, or a local backend model such as
@@ -148,6 +152,8 @@ docs should use `codex.turnRuntime`.
 
 ## Allowed Model Lists
 
+- `openai.models` controls the configured direct OpenAI API model list shown
+  in selectors and status output
 - `codex.models` controls the allowed Codex model list shown in selectors and
   status output
 - `anthropic.models` acts as the pinned Anthropic model list shown in
@@ -178,6 +184,9 @@ docs should use `codex.turnRuntime`.
 
 ## Provider Routing
 
+- when the selected model starts with `openai/`, HybridClaw calls the OpenAI
+  Responses API with `OPENAI_API_KEY`; this direct API-key provider is separate
+  from the Codex OAuth provider
 - when the selected model starts with `openai-codex/`, HybridClaw resolves
   OAuth credentials through the Codex provider instead of `HYBRIDAI_API_KEY`;
   Codex turns use the HybridClaw loop by default, or the native Codex app-server

@@ -560,6 +560,7 @@ async function resolveGenericProviderApiKey(
 interface RouterProviderConfigFlowOptions {
   args: string[];
   providerId:
+    | 'openai'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -780,6 +781,7 @@ async function configureAnthropic(args: string[]): Promise<void> {
 interface GenericProviderAuthDef {
   /** Provider ID used in CLI and config. */
   id:
+    | 'openai'
     | 'gemini'
     | 'deepseek'
     | 'xai'
@@ -808,6 +810,17 @@ interface GenericProviderAuthDef {
 }
 
 const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
+  {
+    id: 'openai',
+    label: 'OpenAI API',
+    defaultModel: 'openai/gpt-5.6-sol',
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    baseUrlSuffixPattern: /\/v1$/i,
+    baseUrlSuffix: '/v1',
+    secretKey: 'OPENAI_API_KEY',
+    envVarNames: ['OPENAI_API_KEY'],
+    aliases: getProviderAliasesFor('openai'),
+  },
   {
     id: 'gemini',
     label: 'Google Gemini',
@@ -949,9 +962,15 @@ async function configureGenericProvider(
         const section = draft[def.id] as {
           enabled: boolean;
           baseUrl: string;
+          models: string[];
         };
         section.enabled = true;
         section.baseUrl = normalizedBaseUrl;
+        if (def.id === 'openai') {
+          section.models = Array.from(
+            new Set([fullModelName, ...section.models]),
+          );
+        }
         if (parsed.setDefault) {
           draft.hybridai.defaultModel = fullModelName;
         }
@@ -961,6 +980,7 @@ async function configureGenericProvider(
 
 type UnifiedProvider =
   | 'hybridai'
+  | 'openai'
   | 'codex'
   | 'anthropic'
   | 'openrouter'
@@ -1075,7 +1095,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`openai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -1089,7 +1109,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`openai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -1110,6 +1130,7 @@ function isLocalProviderModel(modelName: string): boolean {
 }
 
 type ApiKeyProviderConfigKey =
+  | 'openai'
   | 'openrouter'
   | 'mistral'
   | 'huggingface'
@@ -2609,7 +2630,7 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`openai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -2918,7 +2939,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`openai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (parsed.remaining.length > 0) {

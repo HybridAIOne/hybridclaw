@@ -245,9 +245,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack> ...
-  hybridclaw auth status <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
-  hybridclaw auth logout <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
+  hybridclaw auth login <hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack> ...
+  hybridclaw auth status <hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
+  hybridclaw auth logout <hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
   hybridclaw auth whatsapp reset
   hybridclaw auth line reset
 
@@ -256,6 +256,7 @@ Examples:
   hybridclaw auth login hybridai --browser
   hybridclaw auth login hybridai --base-url http://localhost:5000
   hybridclaw auth login codex --import
+  hybridclaw auth login openai --api-key sk-... --set-default
   hybridclaw auth login anthropic --method claude-cli --set-default
   hybridclaw auth login anthropic anthropic/claude-sonnet-4-6 --method api-key --api-key sk-ant-...
   hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...

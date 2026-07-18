@@ -124,6 +124,25 @@ test('model catalog metadata resolves context and capabilities from static data'
   expect(flagship.pricingUsdPerToken).toEqual({ input: null, output: null });
 });
 
+test('direct OpenAI catalog exposes configured models only when enabled', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openai.enabled = true;
+    config.openai.models = ['openai/gpt-5.6-sol', 'openai/custom-model'];
+  });
+  const { catalog } = await importFreshCatalog(homeDir);
+
+  expect(catalog.getAvailableModelList('openai')).toEqual([
+    'openai/custom-model',
+    'openai/gpt-5.6-sol',
+  ]);
+  expect(catalog.getModelCatalogMetadata('openai/gpt-5.6-sol')).toMatchObject({
+    contextWindow: 1_050_000,
+    maxTokens: 128_000,
+    pricingUsdPerToken: { input: null, output: null },
+  });
+});
+
 test('static context and vision lookups share versioned metadata', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir);

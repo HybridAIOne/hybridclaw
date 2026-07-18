@@ -188,3 +188,21 @@ test('Claude Sonnet 5 has current context and output limits', () => {
     },
   });
 });
+
+test.each([
+  ['openai/gpt-5.6-sol', 1_050_000],
+  ['openai/gpt-5.6-terra', 1_050_000],
+  ['openai/gpt-5.6-luna', 400_000],
+])('%s has current OpenAI context and output limits', (model, contextWindow) => {
+  expect(resolveStaticModelCatalogMetadata(model)).toMatchObject({
+    known: true,
+    contextWindow,
+    maxTokens: 128_000,
+    capabilities: {
+      vision: true,
+      tools: true,
+      jsonMode: true,
+      reasoning: true,
+    },
+  });
+});

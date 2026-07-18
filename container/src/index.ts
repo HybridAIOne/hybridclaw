@@ -1536,6 +1536,13 @@ async function processRequest(
     ) {
       assistantMessage.anthropic_content = choice.message.anthropic_content;
     }
+    if (
+      choice.message.openai_response_items &&
+      choice.message.openai_response_items.length > 0
+    ) {
+      assistantMessage.openai_response_items =
+        choice.message.openai_response_items;
+    }
 
     history.push(assistantMessage);
     if (toolCalls.length === 0) {

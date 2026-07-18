@@ -7,6 +7,7 @@ export const LOCAL_BACKEND_IDS = [
 
 export const RUNTIME_PROVIDER_IDS = [
   'hybridai',
+  'openai',
   'openai-codex',
   'anthropic',
   'openrouter',
