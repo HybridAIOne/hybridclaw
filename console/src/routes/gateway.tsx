@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   fetchAdminAgents,
@@ -27,7 +26,7 @@ import {
 import { Field, FieldLabel } from '../components/field';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
-import { ProviderHealthPanel } from '../components/provider-health';
+import { SecretRefPicker } from '../components/secret-ref-picker';
 import { Switch } from '../components/switch';
 import { useToast } from '../components/toast';
 import { BooleanPill, MetricCard, PageHeader } from '../components/ui';
@@ -104,9 +103,9 @@ export function GatewayPage() {
     useState<AdminAgentProxyConversationScope>('channel');
   const lastProxyAgentFormSyncKeyRef = useRef('');
   const status = live.status || auth.gatewayStatus;
-  const providerEntries = Object.entries(
+  const providerCount = Object.keys(
     status?.providerHealth || status?.localBackends || {},
-  );
+  ).length;
   const schedulerJobs = status?.scheduler?.jobs || [];
   const agentsQuery = useQuery({
     queryKey: ['admin-agents', auth.token],
@@ -131,7 +130,6 @@ export function GatewayPage() {
     },
   });
 
-  const navigate = useNavigate();
   const adminAgents = agentsQuery.data || [];
   const selectedProxyAgent =
     adminAgents.find((agent) => agent.id === selectedProxyAgentId) ||
@@ -245,7 +243,7 @@ export function GatewayPage() {
       <div className="metric-grid">
         <MetricCard label="Uptime" value={formatUptime(status.uptime)} />
         <MetricCard label="Sessions" value={String(status.sessions)} />
-        <MetricCard label="Providers" value={String(providerEntries.length)} />
+        <MetricCard label="Providers" value={String(providerCount)} />
         <MetricCard
           label="Scheduler jobs"
           value={String(schedulerJobs.length)}
@@ -345,12 +343,6 @@ export function GatewayPage() {
       <TunnelSettings />
 
       <div className="two-column-grid">
-        <ProviderHealthPanel
-          title="Provider health"
-          entries={providerEntries}
-          onLogin={() => void navigate({ to: '/admin/config' })}
-        />
-
         <Card>
           <CardHeader>
             <CardTitle>Agent proxy mode</CardTitle>
@@ -450,13 +442,11 @@ export function GatewayPage() {
                         )}
                       </Field>
                       <Field>
-                        <FieldLabel>API key SecretRef id</FieldLabel>
-                        <Input
+                        <FieldLabel>API key secret</FieldLabel>
+                        <SecretRefPicker
                           value={proxyApiKeySecretId}
                           placeholder={DEFAULT_PROXY_SECRET_ID}
-                          onChange={(event) =>
-                            setProxyApiKeySecretId(event.target.value)
-                          }
+                          onValueChange={setProxyApiKeySecretId}
                         />
                       </Field>
                       <Field>

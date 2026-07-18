@@ -1,9 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
 import { fetchOverview, fetchStatistics } from '../api/client';
 import { useAuth } from '../auth';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
-import { ProviderHealthPanel } from '../components/provider-health';
 import {
   MetricCard,
   PageHeader,
@@ -71,7 +69,6 @@ function formatTrendDate(isoDate: string): string {
 
 export function DashboardPage() {
   const auth = useAuth();
-  const navigate = useNavigate();
   const live = useLiveEvents(auth.token);
   useLiveConnectionToasts(live.connection);
   const overviewQuery = useQuery({
@@ -119,20 +116,6 @@ export function DashboardPage() {
   }
 
   const schedulerJobs = status.scheduler?.jobs.length || 0;
-  const backendEntries = Object.entries(
-    status.providerHealth || status.localBackends || {},
-  ) as Array<
-    [
-      string,
-      {
-        reachable: boolean;
-        latencyMs?: number;
-        error?: string;
-        modelCount?: number;
-        detail?: string;
-      },
-    ]
-  >;
 
   return (
     <div className="page-stack">
@@ -161,26 +144,18 @@ export function DashboardPage() {
         />
       </div>
 
-      <div className="two-column-grid">
-        <Card variant="muted">
-          <CardHeader>
-            <CardTitle>Usage rollup</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <UsageRollup
-              usage={overview.usage}
-              trend={usageTrendQuery.data?.trend ?? null}
-              formatTrendDate={formatTrendDate}
-            />
-          </CardContent>
-        </Card>
-
-        <ProviderHealthPanel
-          title="Backend health"
-          entries={backendEntries}
-          onLogin={() => void navigate({ to: '/admin/config' })}
-        />
-      </div>
+      <Card variant="muted">
+        <CardHeader>
+          <CardTitle>Usage rollup</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <UsageRollup
+            usage={overview.usage}
+            trend={usageTrendQuery.data?.trend ?? null}
+            formatTrendDate={formatTrendDate}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

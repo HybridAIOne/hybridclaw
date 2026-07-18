@@ -6,7 +6,6 @@ import { DashboardPage } from './dashboard';
 
 const fetchOverviewMock = vi.fn();
 const fetchStatisticsMock = vi.fn();
-const navigateMock = vi.fn();
 const useAuthMock = vi.fn();
 const useLiveEventsMock = vi.fn();
 
@@ -18,16 +17,6 @@ vi.mock('../api/client', () => ({
 vi.mock('../auth', () => ({
   useAuth: () => useAuthMock(),
 }));
-
-vi.mock('@tanstack/react-router', async () => {
-  const actual = await vi.importActual<typeof import('@tanstack/react-router')>(
-    '@tanstack/react-router',
-  );
-  return {
-    ...actual,
-    useNavigate: () => navigateMock,
-  };
-});
 
 vi.mock('../hooks/use-live-events', () => ({
   useLiveEvents: (...args: unknown[]) => useLiveEventsMock(...args),
@@ -121,7 +110,6 @@ describe('DashboardPage', () => {
       trend: [],
       channels: [],
     });
-    navigateMock.mockReset();
     useAuthMock.mockReset();
     useLiveEventsMock.mockReset();
 
@@ -150,6 +138,7 @@ describe('DashboardPage', () => {
       await screen.findByRole('heading', { name: 'Recent sessions' }),
     ).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Public tunnel' })).toBeNull();
+    expect(screen.queryByText('Backend health')).toBeNull();
   });
 
   it('keeps zero daily usage and per-day chart labels visible', async () => {

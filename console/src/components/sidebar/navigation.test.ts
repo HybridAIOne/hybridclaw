@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SIDEBAR_NAV_GROUPS } from './navigation';
+import { ADMIN_CONFIG_SECTION_OWNERS, SIDEBAR_NAV_GROUPS } from './navigation';
 
 describe('SIDEBAR_NAV_GROUPS', () => {
   it('uses the task-oriented Phase 1 information architecture', () => {
@@ -80,5 +80,20 @@ describe('SIDEBAR_NAV_GROUPS', () => {
     );
 
     expect(new Set(routes).size).toBe(routes.length);
+  });
+
+  it('keeps JSON section ownership next to the canonical navigation map', () => {
+    expect(ADMIN_CONFIG_SECTION_OWNERS.discord).toEqual({
+      label: 'Channels',
+      to: '/admin/channels',
+    });
+    expect(ADMIN_CONFIG_SECTION_OWNERS.mcpServers).toEqual({
+      label: 'MCP Servers',
+      to: '/admin/mcp',
+    });
+    expect(ADMIN_CONFIG_SECTION_OWNERS.scheduler).toEqual({
+      label: 'Schedules',
+      to: '/admin/scheduler',
+    });
   });
 });
