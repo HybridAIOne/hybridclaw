@@ -1051,11 +1051,13 @@ async function processRequest(
     event: 'before_agent_start',
     messageCount: messages.length,
   });
-  let history: ChatMessage[] = collapseSystemMessages(
-    skipContainerSystemPrompt
-      ? messages
-      : injectRuntimeCapabilitiesMessage(messages),
-  );
+  const preparedHistory = skipContainerSystemPrompt
+    ? messages.map((message) => ({ ...message }))
+    : injectRuntimeCapabilitiesMessage(messages);
+  let history: ChatMessage[] =
+    provider === 'anthropic'
+      ? preparedHistory
+      : collapseSystemMessages(preparedHistory);
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
   const toolCallHistory: ToolCallHistoryEntry[] = [];

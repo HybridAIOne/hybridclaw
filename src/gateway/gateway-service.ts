@@ -1010,24 +1010,42 @@ function sanitizeRequestLogMessages(messages: ChatMessage[]): ChatMessage[] {
 export function readSystemPromptMessage(
   messages: ChatMessage[],
 ): string | null {
-  const firstMessage = messages[0];
-  if (firstMessage?.role !== 'system') return null;
-  return typeof firstMessage.content === 'string' && firstMessage.content.trim()
-    ? firstMessage.content
-    : null;
+  const blocks = messages
+    .filter((message) => message.role === 'system')
+    .map((message) =>
+      typeof message.content === 'string' ? message.content.trim() : '',
+    )
+    .filter(Boolean);
+  return blocks.length > 0 ? blocks.join('\n\n') : null;
 }
 
 export function readDynamicContextMessage(
   messages: ChatMessage[],
 ): string | null {
-  const dynamicContextMessage = messages.find(
-    (message) =>
-      message.role === 'user' &&
-      typeof message.content === 'string' &&
-      message.content.trimStart().startsWith('<context>'),
-  );
+  const dynamicContextMessage = messages.find((message) => {
+    if (message.role !== 'user') return false;
+    if (typeof message.content === 'string') {
+      return message.content.trimStart().startsWith('<context>');
+    }
+    return message.content?.some(
+      (part) =>
+        part.type === 'text' && part.text.trimStart().startsWith('<context>'),
+    );
+  });
   if (!dynamicContextMessage) return null;
-  const content = sanitizeRequestLogValue(dynamicContextMessage.content);
+  const dynamicContextPart = Array.isArray(dynamicContextMessage.content)
+    ? dynamicContextMessage.content.find(
+        (part) =>
+          part.type === 'text' && part.text.trimStart().startsWith('<context>'),
+      )
+    : null;
+  const rawContent =
+    typeof dynamicContextMessage.content === 'string'
+      ? dynamicContextMessage.content
+      : dynamicContextPart?.type === 'text'
+        ? dynamicContextPart.text
+        : null;
+  const content = sanitizeRequestLogValue(rawContent);
   return typeof content === 'string' && content.trim() ? content : null;
 }
 

@@ -125,6 +125,14 @@ const BOOTSTRAP_SUBPARTS = new Set<PromptPartName>([
   'boot',
 ]);
 
+const STATIC_CORE_WORKSPACE_FILES = new Set([
+  'AGENTS.md',
+  'SOUL.md',
+  'IDENTITY.md',
+  'USER.md',
+  'TOOLS.md',
+]);
+
 function buildPromptPartSelection(context: PromptHookContext): {
   include: Set<PromptPartName>;
   omit: Set<PromptPartName>;
@@ -261,16 +269,50 @@ function buildBootstrapHook(context: PromptHookContext): string {
   const cloudMemoryPrompt = isBootstrapPartSelected('memory-file', context)
     ? buildCloudMemoryPrompt(context.agentId)
     : '';
-  const skillsPrompt = context.explicitSkillInvocation
-    ? ''
-    : isBootstrapPartSelected('skills', context)
-      ? context.skillPromptMode === 'compact'
-        ? buildCompactSkillsPrompt(context.skills)
-        : buildSkillsSection(buildSkillsPrompt(context.skills))
-      : '';
+  const skillsPrompt = buildSelectedSkillsPrompt(context);
   return [contextPrompt, cloudMemoryPrompt, skillsPrompt]
     .filter(Boolean)
     .join('\n\n');
+}
+
+function buildSelectedSkillsPrompt(context: PromptHookContext): string {
+  if (!isBootstrapPartSelected('skills', context)) return '';
+  return context.skillPromptMode === 'compact'
+    ? buildCompactSkillsPrompt(context.skills)
+    : buildSkillsSection(buildSkillsPrompt(context.skills));
+}
+
+function buildBootstrapSystemBlocks(context: PromptHookContext): {
+  staticCore: string;
+  workspaceMemory: string;
+  skills: string;
+} {
+  const contextFiles = loadStaticBootstrapFiles(context.agentId).filter(
+    (file) => {
+      const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
+      return part ? isBootstrapPartSelected(part, context) : true;
+    },
+  );
+  const staticCoreFiles = contextFiles.filter((file) =>
+    STATIC_CORE_WORKSPACE_FILES.has(file.name),
+  );
+  const workspaceMemoryFiles = contextFiles.filter(
+    (file) => !STATIC_CORE_WORKSPACE_FILES.has(file.name),
+  );
+  const cloudMemoryPrompt = isBootstrapPartSelected('memory-file', context)
+    ? buildCloudMemoryPrompt(context.agentId)
+    : '';
+
+  return {
+    staticCore: buildContextPrompt(staticCoreFiles),
+    workspaceMemory: [
+      buildContextPrompt(workspaceMemoryFiles),
+      cloudMemoryPrompt,
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    skills: buildSelectedSkillsPrompt(context),
+  };
 }
 
 function buildCloudMemoryPrompt(agentId: string): string {
@@ -871,4 +913,33 @@ export function buildSystemPromptFromHooks(context: PromptHookContext): string {
   return runPromptHooks(context)
     .map((hookResult) => hookResult.content)
     .join('\n\n');
+}
+
+export function buildSystemPromptBlocksFromHooks(
+  context: PromptHookContext,
+): string[] {
+  const hookResults = runPromptHooks(context);
+  const bootstrapEnabled = hookResults.some(
+    (hookResult) => hookResult.name === 'bootstrap',
+  );
+  const bootstrap = bootstrapEnabled
+    ? buildBootstrapSystemBlocks(context)
+    : { staticCore: '', workspaceMemory: '', skills: '' };
+  const staticCore = [
+    bootstrap.staticCore,
+    ...hookResults
+      .filter(
+        (hookResult) =>
+          hookResult.name !== 'bootstrap' &&
+          hookResult.name !== 'memory' &&
+          hookResult.name !== 'retrieval',
+      )
+      .map((hookResult) => hookResult.content),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  return [staticCore, bootstrap.workspaceMemory, bootstrap.skills].filter(
+    Boolean,
+  );
 }

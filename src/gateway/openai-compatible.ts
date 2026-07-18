@@ -377,6 +377,21 @@ async function buildToolAwareMessages(params: {
       workspacePath,
     },
   });
+  const dynamicContext = messages.at(-1);
+  const latestInputMessage = input.messages.at(-1);
+  if (
+    dynamicContext?.role === 'user' &&
+    typeof dynamicContext.content === 'string' &&
+    dynamicContext.content.trimStart().startsWith('<context>\nDate (UTC): ') &&
+    latestInputMessage?.role === 'user'
+  ) {
+    return [
+      ...messages.slice(0, -1),
+      ...input.messages.slice(0, -1),
+      dynamicContext,
+      latestInputMessage,
+    ];
+  }
   return [...messages, ...input.messages];
 }
 

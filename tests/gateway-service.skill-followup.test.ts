@@ -39,6 +39,33 @@ function writeInvocableSkill(runtimeHomeDir: string, skillName: string): void {
   );
 }
 
+function promptContentText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) =>
+      part &&
+      typeof part === 'object' &&
+      'type' in part &&
+      part.type === 'text' &&
+      'text' in part &&
+      typeof part.text === 'string'
+        ? part.text
+        : '',
+    )
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function requestSystemPrompt(
+  messages: Array<{ content: unknown; role: string }> | undefined,
+): string {
+  return (messages || [])
+    .filter((message) => message.role === 'system')
+    .map((message) => promptContentText(message.content))
+    .join('\n\n');
+}
+
 test('inherits the previous explicit skill for a short follow-up turn', async () => {
   setupHome();
 
@@ -89,17 +116,17 @@ test('inherits the previous explicit skill for a short follow-up turn', async ()
         messages?: Array<{ content: string; role: string }>;
       }
     | undefined;
-  const systemMessage = request?.messages?.[0];
   const userMessage = request?.messages?.at(-1);
+  const systemPrompt = requestSystemPrompt(request?.messages);
 
-  expect(systemMessage?.role).toBe('system');
-  expect(systemMessage?.content).not.toContain('## Skills (mandatory)');
+  expect(systemPrompt).toContain('## Skills (mandatory)');
   expect(userMessage?.role).toBe('user');
-  expect(userMessage?.content).toContain('[Explicit skill invocation]');
-  expect(userMessage?.content).toContain(
+  const userPrompt = promptContentText(userMessage?.content);
+  expect(userPrompt).toContain('[Explicit skill invocation]');
+  expect(userPrompt).toContain(
     'Use the "render-demo" skill for this request.',
   );
-  expect(userMessage?.content).toContain(
+  expect(userPrompt).toContain(
     'Skill input: Continue and render the video',
   );
 });
@@ -154,14 +181,14 @@ test('does not inherit the previous explicit skill for a new slash-style turn', 
         messages?: Array<{ content: string; role: string }>;
       }
     | undefined;
-  const systemMessage = request?.messages?.[0];
   const userMessage = request?.messages?.at(-1);
+  const systemPrompt = requestSystemPrompt(request?.messages);
 
-  expect(systemMessage?.role).toBe('system');
-  expect(systemMessage?.content).toContain('## Skills (mandatory)');
+  expect(systemPrompt).toContain('## Skills (mandatory)');
   expect(userMessage?.role).toBe('user');
-  expect(userMessage?.content).toBe('/help');
-  expect(userMessage?.content).not.toContain('[Explicit skill invocation]');
+  const userPrompt = promptContentText(userMessage?.content);
+  expect(userPrompt).toContain('/help');
+  expect(userPrompt).not.toContain('[Explicit skill invocation]');
 });
 
 test('inherits the most recent explicit skill for a later follow-up turn', async () => {
@@ -240,11 +267,12 @@ test('inherits the most recent explicit skill for a later follow-up turn', async
   const userMessage = request?.messages?.at(-1);
 
   expect(userMessage?.role).toBe('user');
-  expect(userMessage?.content).toContain('[Explicit skill invocation]');
-  expect(userMessage?.content).toContain(
+  const userPrompt = promptContentText(userMessage?.content);
+  expect(userPrompt).toContain('[Explicit skill invocation]');
+  expect(userPrompt).toContain(
     'Use the "voiceover-demo" skill for this request.',
   );
-  expect(userMessage?.content).toContain(
+  expect(userPrompt).toContain(
     'Skill input: Continue and polish the narration',
   );
 });

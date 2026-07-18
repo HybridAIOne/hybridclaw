@@ -107,6 +107,22 @@ describe('Anthropic container provider', () => {
             cache_control: { type: 'ephemeral' },
           },
         ]);
+        expect(body.messages).toEqual([
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'hello',
+                cache_control: { type: 'ephemeral' },
+              },
+              {
+                type: 'text',
+                text: '<context>\nDate (UTC): 2026-05-13\n</context>',
+              },
+            ],
+          },
+        ]);
         return new Response(
           JSON.stringify({
             id: 'msg_cache',
@@ -143,6 +159,85 @@ describe('Anthropic container provider', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.usage?.cache_creation_input_tokens).toBe(1200);
+  });
+
+  test('uses three volatility-ordered system breakpoints and caches the stable user block before dynamic context', async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.system).toEqual([
+          {
+            type: 'text',
+            text: 'Static core',
+            cache_control: { type: 'ephemeral' },
+          },
+          {
+            type: 'text',
+            text: 'Workspace memory',
+            cache_control: { type: 'ephemeral' },
+          },
+          {
+            type: 'text',
+            text: 'Skills catalog',
+            cache_control: { type: 'ephemeral' },
+          },
+        ]);
+        expect(body.messages).toEqual([
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'hello',
+                cache_control: { type: 'ephemeral' },
+              },
+              {
+                type: 'text',
+                text: '<context>\nDate (UTC): 2026-05-13\n</context>',
+              },
+            ],
+          },
+        ]);
+        return new Response(
+          JSON.stringify({
+            id: 'msg_blocks',
+            model: 'claude-sonnet-4-6',
+            role: 'assistant',
+            stop_reason: 'end_turn',
+            content: [{ type: 'text', text: 'cached' }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await callAnthropicProvider({
+      ...baseArgs,
+      messages: [
+        { role: 'system', content: 'Static core' },
+        { role: 'system', content: 'Workspace memory' },
+        { role: 'system', content: 'Skills catalog' },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'hello' },
+            {
+              type: 'text',
+              text: '<context>\nDate (UTC): 2026-05-13\n</context>',
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test('does not impose a total-duration timeout on streaming API requests', async () => {
@@ -282,6 +377,7 @@ describe('Anthropic container provider', () => {
             type: 'tool_result',
             tool_use_id: 'tool_1',
             content: 'ok',
+            cache_control: { type: 'ephemeral' },
           },
         ],
       },

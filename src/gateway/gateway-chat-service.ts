@@ -1735,8 +1735,8 @@ async function handleGatewayMessageInner(
       allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
       blockedTools: mediaPolicy.blockedTools,
     });
-  const historyStart =
-    messages.length > 0 && messages[0].role === 'system' ? 1 : 0;
+  let historyStart = 0;
+  while (messages[historyStart]?.role === 'system') historyStart += 1;
   recordAuditEvent({
     sessionId: req.sessionId,
     runId,

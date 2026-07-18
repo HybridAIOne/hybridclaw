@@ -139,8 +139,10 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
     true,
   );
   const systemPrompt =
-    request?.messages?.find((message) => message.role === 'system')?.content ||
-    '';
+    request?.messages
+      ?.filter((message) => message.role === 'system')
+      .map((message) => message.content)
+      .join('\n\n') || '';
   expect(systemPrompt).toContain('## SOUL.md');
   expect(systemPrompt).toContain('## IDENTITY.md');
   expect(systemPrompt).toContain('## USER.md');

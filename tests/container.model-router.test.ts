@@ -33,7 +33,13 @@ describe('container model router', () => {
         expect(body.messages).toEqual([
           {
             role: 'user',
-            content: [{ type: 'text', text: 'hello' }],
+            content: [
+              {
+                type: 'text',
+                text: 'hello',
+                cache_control: { type: 'ephemeral' },
+              },
+            ],
           },
         ]);
         return new Response(

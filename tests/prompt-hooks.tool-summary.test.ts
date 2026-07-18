@@ -282,7 +282,7 @@ test('buildSystemPromptFromHooks omits mandatory routing instructions when no sk
   expect(prompt).not.toContain('<available_skills>');
 });
 
-test('buildSystemPromptFromHooks omits the skill catalog when the user explicitly invoked a skill', () => {
+test('buildSystemPromptFromHooks keeps the skill catalog stable when the user explicitly invoked a skill', () => {
   const pdfSkill = makeSkill();
   const appleMusicSkill = makeSkill({
     name: 'apple-music',
@@ -301,11 +301,11 @@ test('buildSystemPromptFromHooks omits the skill catalog when the user explicitl
     },
   });
 
-  expect(prompt).not.toContain('## Skills (mandatory)');
+  expect(prompt).toContain('## Skills (mandatory)');
   expect(prompt).not.toContain('## Skill (mandatory)');
-  expect(prompt).not.toContain('<available_skills>');
-  expect(prompt).not.toContain('<name>pdf</name>');
-  expect(prompt).not.toContain('<name>apple-music</name>');
+  expect(prompt).toContain('<available_skills>');
+  expect(prompt).toContain('<name>pdf</name>');
+  expect(prompt).toContain('<name>apple-music</name>');
 });
 
 test('buildSystemPromptFromHooks uses the provided workspace path in runtime metadata', () => {

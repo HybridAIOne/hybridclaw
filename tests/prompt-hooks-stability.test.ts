@@ -82,7 +82,38 @@ test('buildSystemPromptFromHooks is byte-stable across same-date turns', async (
   }
 });
 
-test('buildConversationContext appends dynamic context before history', async () => {
+test('system prompt blocks isolate workspace memory updates from the static core', async () => {
+  const agentId = 'system-block-agent';
+  await createWorkspaceWithBootstrapFiles(agentId);
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const { buildSystemPromptBlocksFromHooks } = await import(
+    '../src/agent/prompt-hooks.js'
+  );
+
+  const first = buildSystemPromptBlocksFromHooks({
+    agentId,
+    skills: [],
+  });
+  fs.writeFileSync(
+    path.join(agentWorkspaceDir(agentId), 'MEMORY.md'),
+    '# MEMORY.md\n\n- Updated durable memory.\n',
+    'utf-8',
+  );
+  const second = buildSystemPromptBlocksFromHooks({
+    agentId,
+    skills: [],
+  });
+
+  expect(first).toHaveLength(2);
+  expect(second).toHaveLength(2);
+  expect(first[0]).toBe(second[0]);
+  expect(first[0]).not.toContain('Stable durable memory.');
+  expect(first[1]).toContain('Stable durable memory.');
+  expect(second[1]).toContain('Updated durable memory.');
+  expect(first[1]).not.toBe(second[1]);
+});
+
+test('buildConversationContext appends dynamic context after unchanged history', async () => {
   vi.useFakeTimers();
 
   try {
@@ -103,17 +134,23 @@ test('buildConversationContext appends dynamic context before history', async ()
       },
     });
 
-    expect(context.messages[0]?.role).toBe('system');
-    expect(context.messages[0]?.content).not.toContain('Date (UTC):');
-    expect(context.messages[0]?.content).not.toContain('Current Date & Time:');
-    expect(context.messages[0]?.content).not.toContain('Stable per-turn note.');
-    expect(context.messages[0]?.content).not.toContain(
+    const systemMessages = context.messages.filter(
+      (message) => message.role === 'system',
+    );
+    const systemPrompt = systemMessages
+      .map((message) => String(message.content || ''))
+      .join('\n\n');
+    expect(systemMessages.length).toBeGreaterThanOrEqual(2);
+    expect(systemPrompt).not.toContain('Date (UTC):');
+    expect(systemPrompt).not.toContain('Current Date & Time:');
+    expect(systemPrompt).not.toContain('Stable per-turn note.');
+    expect(systemPrompt).not.toContain(
       'Relevant Memory Recall',
     );
-    expect(context.messages[0]?.content).not.toContain(
+    expect(systemPrompt).not.toContain(
       'External retrieval result.',
     );
-    expect(context.messages[1]).toEqual(
+    expect(context.messages.at(-1)).toEqual(
       buildDynamicContextMessage({
         agentId,
         now: new Date('2026-05-13T12:00:00.000Z'),
@@ -121,24 +158,31 @@ test('buildConversationContext appends dynamic context before history', async ()
         retrievedContext: 'External retrieval result.',
       }),
     );
-    expect(context.messages[1]?.content).toContain('Date (UTC): 2026-05-13');
-    expect(context.messages[1]?.content).toContain(
+    const dynamicContextMessage = context.messages.at(-1);
+    expect(dynamicContextMessage?.content).toContain(
+      'Date (UTC): 2026-05-13',
+    );
+    expect(dynamicContextMessage?.content).toContain(
       'Current Date & Time: Wednesday, May 13th, 2026',
     );
-    expect(context.messages[1]?.content).toContain('Host:');
-    expect(context.messages[1]?.content).toContain(
+    expect(dynamicContextMessage?.content).toContain('Host:');
+    expect(dynamicContextMessage?.content).toContain(
       '## Daily Memory (memory/2026-05-13.md)',
     );
-    expect(context.messages[1]?.content).toContain('Stable per-turn note.');
-    expect(context.messages[1]?.content).toContain(
+    expect(dynamicContextMessage?.content).toContain('Stable per-turn note.');
+    expect(dynamicContextMessage?.content).toContain(
       '## Session Summary\nCompressed and recalled context',
     );
-    expect(context.messages[1]?.content).toContain('Relevant Memory Recall');
-    expect(context.messages[1]?.content).toContain('## Retrieved Context');
-    expect(context.messages[1]?.content).toContain(
+    expect(dynamicContextMessage?.content).toContain('Relevant Memory Recall');
+    expect(dynamicContextMessage?.content).toContain('## Retrieved Context');
+    expect(dynamicContextMessage?.content).toContain(
       'External retrieval result.',
     );
-    expect(context.messages[2]).toEqual({ role: 'user', content: 'Hello' });
+    expect(context.messages.at(-2)).toEqual({
+      role: 'user',
+      content: 'Hello',
+    });
+
   } finally {
     vi.useRealTimers();
   }

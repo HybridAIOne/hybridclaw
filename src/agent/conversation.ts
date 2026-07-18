@@ -7,7 +7,6 @@ import {
   optimizeHistoryMessagesForPrompt,
 } from '../session/token-efficiency.js';
 import {
-  expandSkillInvocation,
   loadSkills,
   resolveSkillInvocationForTurn,
   type Skill,
@@ -23,7 +22,7 @@ import {
 import {
   buildRetrievedContextPrompt,
   buildSessionSummaryPrompt,
-  buildSystemPromptFromHooks,
+  buildSystemPromptBlocksFromHooks,
   type PromptMode,
   type PromptPartName,
   type PromptRuntimeInfo,
@@ -126,7 +125,6 @@ export function buildConversationContext(params: {
   sessionSummary?: string | null;
   retrievedContext?: string | null;
   history: HistoryMessage[];
-  expandLatestHistoryUser?: boolean;
   promptMode?: PromptMode;
   skillPromptMode?: SkillPromptMode;
   includePromptParts?: PromptPartName[];
@@ -142,7 +140,6 @@ export function buildConversationContext(params: {
     sessionSummary,
     retrievedContext,
     history,
-    expandLatestHistoryUser = false,
     promptMode = 'full',
     skillPromptMode = 'full',
     includePromptParts,
@@ -170,7 +167,7 @@ export function buildConversationContext(params: {
           previousUserContent,
         })
       : null;
-  const systemPrompt = buildSystemPromptFromHooks({
+  const systemPromptBlocks = buildSystemPromptBlocksFromHooks({
     agentId,
     skills,
     explicitSkillInvocation,
@@ -186,14 +183,11 @@ export function buildConversationContext(params: {
   });
 
   const messages: ChatMessage[] = [];
-  if (systemPrompt) {
-    messages.push({ role: 'system', content: systemPrompt });
+  if (systemPromptBlocks.length > 0) {
     messages.push(
-      buildDynamicContextMessage({
-        agentId,
-        retrievedContext,
-        sessionSummary,
-      }),
+      ...systemPromptBlocks.map(
+        (content): ChatMessage => ({ role: 'system', content }),
+      ),
     );
   }
 
@@ -204,21 +198,18 @@ export function buildConversationContext(params: {
     }),
   );
 
-  if (expandLatestHistoryUser && historyMessages.length > 0) {
-    const latest = historyMessages[historyMessages.length - 1];
-    if (latest.role === 'user' && typeof latest.content === 'string') {
-      latest.content = expandSkillInvocation(latest.content, skills);
-    }
-  }
-
-  const optimizedHistory = optimizeHistoryMessagesForPrompt(
-    historyMessages.map((message) => ({
-      role: message.role,
-      content: typeof message.content === 'string' ? message.content : '',
-    })),
-  );
+  const optimizedHistory = optimizeHistoryMessagesForPrompt(historyMessages);
 
   messages.push(...optimizedHistory.messages);
+  if (systemPromptBlocks.length > 0) {
+    messages.push(
+      buildDynamicContextMessage({
+        agentId,
+        retrievedContext,
+        sessionSummary,
+      }),
+    );
+  }
   return {
     messages,
     skills,

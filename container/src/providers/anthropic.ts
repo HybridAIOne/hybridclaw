@@ -395,10 +395,20 @@ function convertMessageContent(
 function convertMessages(
   messages: ChatMessage[],
 ): Array<Record<string, unknown>> {
-  const normalized = collapseSystemMessages(messages);
   const converted: Array<Record<string, unknown>> = [];
+  let pendingDynamicContext: ChatMessage | null = null;
 
-  for (const message of normalized) {
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (
+      message.role === 'user' &&
+      typeof message.content === 'string' &&
+      isGeneratedDynamicContextText(message.content) &&
+      messages[index + 1]?.role === 'user'
+    ) {
+      pendingDynamicContext = message;
+      continue;
+    }
     if (message.role === 'system') continue;
 
     if (message.role === 'tool') {
@@ -449,6 +459,16 @@ function convertMessages(
       }
     }
 
+    if (message.role === 'user' && pendingDynamicContext) {
+      const dynamicContext = convertMessageContent(pendingDynamicContext);
+      if (typeof dynamicContext === 'string' && dynamicContext.trim()) {
+        blocks.push({ type: 'text', text: dynamicContext });
+      } else if (Array.isArray(dynamicContext)) {
+        blocks.push(...dynamicContext);
+      }
+      pendingDynamicContext = null;
+    }
+
     if (blocks.length === 0) continue;
     converted.push({
       role: message.role,
@@ -459,12 +479,57 @@ function convertMessages(
   return converted;
 }
 
+function isGeneratedDynamicContextText(text: string): boolean {
+  return text.trimStart().startsWith('<context>\nDate (UTC): ');
+}
+
+function extractSystemPromptBlocks(messages: ChatMessage[]): string[] {
+  const blocks = messages
+    .filter((message) => message.role === 'system')
+    .map((message) => normalizeMessageText(message.content).trim())
+    .filter(Boolean);
+  if (blocks.length <= 3) return blocks;
+  return [blocks[0], blocks[1], blocks.slice(2).join('\n\n')];
+}
+
 function extractSystemPrompt(messages: ChatMessage[]): string | undefined {
-  const normalized = collapseSystemMessages(messages);
-  const system = normalized[0];
-  if (system?.role !== 'system') return undefined;
-  const text = normalizeMessageText(system.content).trim();
-  return text || undefined;
+  const prompt = extractSystemPromptBlocks(messages).join('\n\n');
+  return prompt || undefined;
+}
+
+function isDynamicContextBlock(block: Record<string, unknown>): boolean {
+  return (
+    block.type === 'text' &&
+    typeof block.text === 'string' &&
+    isGeneratedDynamicContextText(block.text)
+  );
+}
+
+function markLastStableMessageBlockForCaching(
+  messages: Array<Record<string, unknown>>,
+): void {
+  for (
+    let messageIndex = messages.length - 1;
+    messageIndex >= 0;
+    messageIndex -= 1
+  ) {
+    const content = messages[messageIndex]?.content;
+    if (!Array.isArray(content) || content.length === 0) continue;
+    for (
+      let blockIndex = content.length - 1;
+      blockIndex >= 0;
+      blockIndex -= 1
+    ) {
+      const block = content[blockIndex];
+      if (!isRecord(block) || isDynamicContextBlock(block)) continue;
+      messages[messageIndex].content = [
+        ...content.slice(0, blockIndex),
+        { ...block, cache_control: { type: 'ephemeral' } },
+        ...content.slice(blockIndex + 1),
+      ];
+      return;
+    }
+  }
 }
 
 function convertTools(
@@ -482,25 +547,25 @@ function buildRequestBody(
   args: NormalizedCallArgs,
   stream: boolean,
 ): Record<string, unknown> {
+  const messages = convertMessages(args.messages);
+  markLastStableMessageBlockForCaching(messages);
   const request: Record<string, unknown> = {
     model: stripAnthropicModelPrefix(args.model),
     max_tokens:
       typeof args.maxTokens === 'number' && args.maxTokens > 0
         ? Math.floor(args.maxTokens)
         : 4096,
-    messages: convertMessages(args.messages),
+    messages,
     stream,
   };
 
-  const system = extractSystemPrompt(args.messages);
-  if (system) {
-    request.system = [
-      {
-        type: 'text',
-        text: system,
-        cache_control: { type: 'ephemeral' },
-      },
-    ];
+  const system = extractSystemPromptBlocks(args.messages);
+  if (system.length > 0) {
+    request.system = system.map((text) => ({
+      type: 'text',
+      text,
+      cache_control: { type: 'ephemeral' },
+    }));
   }
 
   const tools = convertTools(args.tools);
