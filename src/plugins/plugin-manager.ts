@@ -18,6 +18,11 @@ import {
   registerChannel,
   unregisterChannel,
 } from '../channels/channel-registry.js';
+import type { ChannelTransportRegistration } from '../channels/channel-transport.js';
+import {
+  registerChannelTransport,
+  unregisterChannelTransport,
+} from '../channels/channel-transport.js';
 import { sendWebhookJson, WebhookHttpError } from '../channels/webhook-http.js';
 import {
   getRuntimeConfig,
@@ -187,6 +192,11 @@ type RegisteredChannel = {
   channel: ChannelInfo;
 };
 
+type RegisteredChannelTransport = {
+  pluginId: string;
+  transport: ChannelTransportRegistration;
+};
+
 type PluginRegistrationSnapshot = {
   plugins: LoadedPlugin[];
   memoryLayers: RegisteredMemoryLayer[];
@@ -196,6 +206,7 @@ type PluginRegistrationSnapshot = {
   inboundWebhooks: Map<string, RegisteredInboundWebhook>;
   providers: RegisteredProvider[];
   channels: RegisteredChannel[];
+  channelTransports: RegisteredChannelTransport[];
   tools: Map<string, RegisteredTool>;
   commands: Map<string, RegisteredCommand>;
   hooks: Map<PluginHookName, RegisteredHook[]>;
@@ -825,6 +836,7 @@ export class PluginManager {
   private inboundWebhooks = new Map<string, RegisteredInboundWebhook>();
   private providers: RegisteredProvider[] = [];
   private channels: RegisteredChannel[] = [];
+  private channelTransports: RegisteredChannelTransport[] = [];
   private commands = new Map<string, RegisteredCommand>();
   private hooks = new Map<PluginHookName, RegisteredHook[]>();
   private sessionWorkspaceRoots = new Map<string, string>();
@@ -908,7 +920,14 @@ export class PluginManager {
   }
 
   async shutdown(): Promise<void> {
-    if (!this.initialized && !this.initializing) return;
+    if (!this.initialized && !this.initializing) {
+      for (const entry of [...this.channelTransports].reverse()) {
+        unregisterChannelTransport(entry.transport.kind);
+      }
+      this.channelTransports = [];
+      this.cleanupImportSnapshots();
+      return;
+    }
     if (this.initializing) {
       await this.initializing.catch(() => {});
     }
@@ -938,6 +957,11 @@ export class PluginManager {
         );
       }
     }
+
+    for (const entry of [...this.channelTransports].reverse()) {
+      unregisterChannelTransport(entry.transport.kind);
+    }
+    this.channelTransports = [];
 
     this.cleanupImportSnapshots();
   }
@@ -1322,6 +1346,14 @@ export class PluginManager {
     this.channels.push({ pluginId, channel });
   }
 
+  registerChannelTransport(
+    pluginId: string,
+    transport: ChannelTransportRegistration,
+  ): void {
+    registerChannelTransport(transport);
+    this.channelTransports.push({ pluginId, transport });
+  }
+
   registerTool(pluginId: string, tool: PluginToolDefinition): void {
     if (this.tools.has(tool.name)) {
       throw new Error(`Plugin tool "${tool.name}" is already registered.`);
@@ -1536,6 +1568,7 @@ export class PluginManager {
       inboundWebhooks: new Map(this.inboundWebhooks),
       providers: [...this.providers],
       channels: [...this.channels],
+      channelTransports: [...this.channelTransports],
       tools: new Map(this.tools),
       commands: new Map(this.commands),
       hooks: new Map(
@@ -1560,6 +1593,13 @@ export class PluginManager {
     this.services = [...snapshot.services];
     this.inboundWebhooks = new Map(snapshot.inboundWebhooks);
     this.providers = [...snapshot.providers];
+    for (const entry of this.channelTransports) {
+      unregisterChannelTransport(entry.transport.kind);
+    }
+    this.channelTransports = [...snapshot.channelTransports];
+    for (const entry of this.channelTransports) {
+      registerChannelTransport(entry.transport);
+    }
     this.channels = [...snapshot.channels];
     this.tools = new Map(snapshot.tools);
     this.commands = new Map(snapshot.commands);

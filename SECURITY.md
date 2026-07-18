@@ -181,10 +181,9 @@ Dependency updates should use `npm ci` for verification and keep
 ad-hoc `npm update` runs; use the lockfile-only update script below so npm's
 configured release-age gate applies and the resulting diff can be reviewed. Do
 not add git, tarball, or non-registry dependencies without a specific security
-review. The current WhatsApp channel dependency chain includes a pinned GitHub
-dependency from `@whiskeysockets/baileys` to `libsignal`; replacing that
-dependency with a registry-only package should be prioritized before enabling
-npm's `allow-git` restriction.
+review. The optional WhatsApp plugin has its own dependency closure and
+lockfiles under `plugins/whatsapp/`; those dependencies are not conveyed in
+core npm, Docker, desktop, or Homebrew artifacts.
 
 The optional-at-runtime LINE personal-account channel uses version-pinned JSR
 tarballs from `https://npm.jsr.io` because JSR packages are not resolvable from

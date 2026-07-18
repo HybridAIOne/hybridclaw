@@ -270,10 +270,57 @@ Currently wired runtime surfaces:
 - lifecycle hooks for session, gateway, compaction, and plugin-tool execution
 - services
 - channels
+- channel transports
 
 Provider registration is typed and stored by the manager, but providers are
 not yet routed into the broader runtime in the same way as memory layers,
 plugin tools, and plugin commands.
+
+### Channel transport plugins
+
+A channel plugin can supply a core-owned channel facade through
+`api.registerChannelTransport(...)`. The channel kind remains one of
+HybridClaw's closed `ChannelKind` values; a plugin does not create arbitrary
+new kinds.
+
+```ts
+import type {
+  HybridClawPluginDefinition,
+  WhatsAppTransportHost,
+} from '@hybridaione/hybridclaw/plugin-sdk';
+
+const plugin: HybridClawPluginDefinition = {
+  id: 'whatsapp',
+  register(api) {
+    api.registerChannelTransport({
+      kind: 'whatsapp',
+      create(host: WhatsAppTransportHost) {
+        return {
+          async init(handler) {},
+          async shutdown() {},
+          async sendText(chatId, text) {},
+          async sendMedia(params) {},
+        };
+      },
+    });
+  },
+};
+
+export default plugin;
+```
+
+Installed plugins are loaded from an isolated snapshot with only their own
+`node_modules` available. Plugin runtime code must not import HybridClaw core
+modules. Core services, configuration, logging, auth paths and locks, media
+helpers, and other capabilities are passed as values on the transport host.
+Core SDK imports should be type-only so they are erased from emitted JavaScript.
+
+Keep `register(api)` synchronous and cheap. If a transport has large or
+license-sensitive dependencies, register a lightweight instance and dynamically
+import the implementation when `init`, send, or pairing is first used. The
+plugin manager rolls back transport registrations when registration fails and
+unregisters them during shutdown; the core facade retains an active instance
+long enough to shut it down cleanly.
 
 Plugins can register inbound webhook handlers through
 `api.registerInboundWebhook(...)`. Webhook routes are mounted on the shared

@@ -1,5 +1,11 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, expect, test, vi } from 'vitest';
+import { createWhatsAppTestHost } from './whatsapp-test-host.js';
+
+const PLUGIN_BAILEYS_MODULE =
+  '../plugins/whatsapp/node_modules/@whiskeysockets/baileys/lib/index.js';
+const PLUGIN_QRCODE_MODULE =
+  '../plugins/whatsapp/node_modules/qrcode-terminal/lib/main.js';
 
 async function flushMicrotasks(count = 4): Promise<void> {
   for (let index = 0; index < count; index += 1) {
@@ -76,8 +82,7 @@ async function importFreshConnectionModule(options?: {
   const releaseAuthLock = vi.fn();
   const acquireWhatsAppAuthLock = vi.fn(async () => releaseAuthLock);
 
-  vi.doMock('../src/channels/whatsapp/auth.ts', () => ({
-    acquireWhatsAppAuthLock,
+  vi.doMock('../plugins/whatsapp/src/auth-state.ts', () => ({
     loadWhatsAppAuthState: vi.fn(async () => {
       if (options?.deferAuthState) await authStateGate.promise;
       return {
@@ -87,19 +92,15 @@ async function importFreshConnectionModule(options?: {
     }),
   }));
 
-  vi.doMock('../src/logger.ts', () => ({
-    logger: rootLogger,
-  }));
-
-  vi.doMock('../src/channels/whatsapp/message-store.ts', () => ({
+  vi.doMock('../plugins/whatsapp/src/message-store.ts', () => ({
     createWhatsAppMessageStore: vi.fn(() => messageStore),
   }));
 
-  vi.doMock('qrcode-terminal', () => ({
+  vi.doMock(PLUGIN_QRCODE_MODULE, () => ({
     default: { generate: qrcodeGenerate },
   }));
 
-  vi.doMock('@whiskeysockets/baileys', () => {
+  vi.doMock(PLUGIN_BAILEYS_MODULE, () => {
     const DisconnectReason = {
       loggedOut: 401,
       restartRequired: 515,
@@ -164,14 +165,28 @@ async function importFreshConnectionModule(options?: {
     };
   });
 
-  const module = await import('../src/channels/whatsapp/connection.ts');
-  const pairingState = await import(
-    '../src/channels/whatsapp/pairing-state.ts'
-  );
+  const hostBase = createWhatsAppTestHost();
+  const setPairingError = vi.fn(hostBase.pairing.setError);
+  const host = createWhatsAppTestHost({
+    appVersion: APP_VERSION,
+    logger: rootLogger as never,
+    auth: {
+      ...hostBase.auth,
+      acquireLock: acquireWhatsAppAuthLock,
+    },
+    pairing: {
+      ...hostBase.pairing,
+      setError: setPairingError,
+    },
+  });
+  const module = await import('../plugins/whatsapp/src/connection.ts');
   return {
     APP_VERSION,
     ...module,
-    pairingState,
+    createWhatsAppConnectionManager: (
+      params?: Parameters<typeof module.createWhatsAppConnectionManager>[1],
+    ) => module.createWhatsAppConnectionManager(host, params),
+    host,
     qrcodeGenerate,
     sockets,
     whatsappLogger,
@@ -284,7 +299,7 @@ test('waitForSocket does not revive the manager after stop during implicit start
 test('transport-level WhatsApp emitters are handled without throwing', async () => {
   const {
     createWhatsAppConnectionManager,
-    pairingState,
+    host,
     sockets,
     whatsappLogger,
   } =
@@ -312,7 +327,7 @@ test('transport-level WhatsApp emitters are handled without throwing', async () 
   expect(whatsappLogger.debug).toHaveBeenCalledWith(
     'WhatsApp WebSocket DNS lookup failed for web.whatsapp.com. Reconnect will be retried automatically.',
   );
-  expect(pairingState.getWhatsAppPairingState().error).toBe(
+  expect(host.pairing.setError).toHaveBeenCalledWith(
     'WhatsApp WebSocket DNS lookup failed for web.whatsapp.com. Reconnect will be retried automatically.',
   );
 });
@@ -540,6 +555,7 @@ test('provides WhatsApp retry replay lookup to Baileys and persists sent message
     APP_VERSION,
     acquireWhatsAppAuthLock,
     createWhatsAppConnectionManager,
+    host,
     releaseAuthLock,
     sockets,
     messageStore,
@@ -548,7 +564,7 @@ test('provides WhatsApp retry replay lookup to Baileys and persists sent message
   const manager = createWhatsAppConnectionManager();
   await manager.start();
 
-  expect(acquireWhatsAppAuthLock).toHaveBeenCalledWith(undefined, {
+  expect(acquireWhatsAppAuthLock).toHaveBeenCalledWith(host.auth.authDir, {
     purpose: 'runtime',
   });
   expect(sockets[0]?.config.browser).toEqual([

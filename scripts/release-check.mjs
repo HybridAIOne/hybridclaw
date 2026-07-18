@@ -28,6 +28,7 @@ const requiredPrefixes = [
 
 const forbiddenPathPatterns = [
   /^src\//,
+  /^plugins\/whatsapp\//,
   /^tests\//,
   /^\.github\//,
   /^scripts\//,

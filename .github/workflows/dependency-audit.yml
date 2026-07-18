@@ -26,6 +26,8 @@ jobs:
             container/npm-shrinkwrap.json
             container/package-lock.json
             console/package-lock.json
+            plugins/whatsapp/npm-shrinkwrap.json
+            plugins/whatsapp/package-lock.json
 
       - name: Use npm 11
         run: npm install --global npm@11.10.0 --ignore-scripts --no-audit --fund=false
@@ -39,11 +41,17 @@ jobs:
       - name: Install container dependencies without lifecycle scripts
         run: npm --prefix container ci --ignore-scripts --no-audit --fund=false
 
+      - name: Install WhatsApp plugin dependencies without lifecycle scripts
+        run: npm --prefix plugins/whatsapp ci --ignore-scripts --no-audit --fund=false
+
       - name: Audit root workspace
         run: npm audit --audit-level=moderate
 
       - name: Audit container workspace
         run: npm --prefix container audit --audit-level=moderate
+
+      - name: Audit WhatsApp plugin
+        run: npm --prefix plugins/whatsapp audit --audit-level=moderate
 
       - name: Verify npm registry signatures
         run: npm run audit:signatures

@@ -9,7 +9,7 @@ import {
   resolveHumanDelayConfig,
 } from '../src/channels/discord/human-delay.js';
 import { shouldSuppressAutoReply } from '../src/channels/discord/inbound.js';
-import { SlidingWindowRateLimiter } from '../src/channels/discord/rate-limiter.js';
+import { SlidingWindowRateLimiter } from '../src/utils/rate-limiter.js';
 
 test('resolveHumanDelayConfig normalizes custom bounds', () => {
   const resolved = resolveHumanDelayConfig({

@@ -1,12 +1,14 @@
 import { expect, test } from 'vitest';
-import { createWhatsAppMessageStore } from '../src/channels/whatsapp/message-store.js';
+import { createWhatsAppMessageStore } from '../plugins/whatsapp/src/message-store.js';
 import { useTempDir } from './test-utils.ts';
+import { createWhatsAppTestHost } from './whatsapp-test-host.js';
 
 const createTempAuthDir = useTempDir('hybridclaw-wa-store-');
+const host = createWhatsAppTestHost();
 
 test('replays an exact stored WhatsApp message after reload', async () => {
   const authDir = await createTempAuthDir();
-  const store = createWhatsAppMessageStore(authDir);
+  const store = createWhatsAppMessageStore(host, authDir);
 
   await store.rememberSentMessage({
     key: {
@@ -20,7 +22,7 @@ test('replays an exact stored WhatsApp message after reload', async () => {
     },
   });
 
-  const reloadedStore = createWhatsAppMessageStore(authDir);
+  const reloadedStore = createWhatsAppMessageStore(host, authDir);
   const replay = await reloadedStore.getMessage({
     id: 'msg-1',
     remoteJid: '491701234567@s.whatsapp.net',
@@ -32,7 +34,7 @@ test('replays an exact stored WhatsApp message after reload', async () => {
 
 test('falls back to a unique message id when retry lookup lacks the original jid', async () => {
   const authDir = await createTempAuthDir();
-  const store = createWhatsAppMessageStore(authDir);
+  const store = createWhatsAppMessageStore(host, authDir);
 
   await store.rememberSentMessage({
     key: {
@@ -55,7 +57,7 @@ test('falls back to a unique message id when retry lookup lacks the original jid
 
 test('clear removes persisted replay entries', async () => {
   const authDir = await createTempAuthDir();
-  const store = createWhatsAppMessageStore(authDir);
+  const store = createWhatsAppMessageStore(host, authDir);
 
   await store.rememberSentMessage({
     key: {
@@ -69,7 +71,7 @@ test('clear removes persisted replay entries', async () => {
   });
   await store.clear();
 
-  const reloadedStore = createWhatsAppMessageStore(authDir);
+  const reloadedStore = createWhatsAppMessageStore(host, authDir);
   const replay = await reloadedStore.getMessage({
     id: 'msg-3',
     remoteJid: '491701234567@s.whatsapp.net',
@@ -80,7 +82,7 @@ test('clear removes persisted replay entries', async () => {
 
 test('does not fall back by id when multiple stored messages share the same id', async () => {
   const authDir = await createTempAuthDir();
-  const store = createWhatsAppMessageStore(authDir);
+  const store = createWhatsAppMessageStore(host, authDir);
 
   await store.rememberSentMessage({
     key: {

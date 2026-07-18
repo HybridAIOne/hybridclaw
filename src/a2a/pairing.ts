@@ -5,7 +5,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
-import { SlidingWindowRateLimiter } from '../channels/discord/rate-limiter.js';
 import {
   getRuntimeAssetRevisionState,
   listRuntimeAssetRevisionStates,
@@ -18,6 +17,7 @@ import {
   createSuspendedSession,
   emitInteractionNeededEvent,
 } from '../gateway/interactive-escalation.js';
+import { SlidingWindowRateLimiter } from '../utils/rate-limiter.js';
 import { fetchA2AAgentCard } from './a2a-agent-card.js';
 import type { A2AAgentCard } from './a2a-json-rpc.js';
 import { classifyA2AAgentId } from './envelope.js';

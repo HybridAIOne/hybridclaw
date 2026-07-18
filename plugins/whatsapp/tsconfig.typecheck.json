@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "../..",
+    "paths": {
+      "@hybridaione/hybridclaw/plugin-sdk": ["../../src/plugins/plugin-sdk.ts"]
+    }
+  }
+}

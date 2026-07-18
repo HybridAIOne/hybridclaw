@@ -119,9 +119,11 @@ import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import {
   initWhatsApp,
+  isWhatsAppTransportInstalled,
   sendToWhatsAppChat,
   sendWhatsAppMediaToChat,
   shutdownWhatsApp,
+  WHATSAPP_PLUGIN_INSTALL_HINT,
 } from '../channels/whatsapp/runtime.js';
 import {
   DISCORD_TOKEN,
@@ -170,6 +172,7 @@ import {
   initSentry,
   shutdownSentry,
 } from '../observability/sentry.js';
+import { ensurePluginManagerInitialized } from '../plugins/plugin-manager.js';
 import { hybridAIProbe } from '../providers/hybridai-health.js';
 import {
   startDiscoveryLoop,
@@ -1004,6 +1007,13 @@ async function sendProactiveMessageNow(
     return;
   }
   if (isWhatsAppJid(channelId)) {
+    if (!isWhatsAppTransportInstalled()) {
+      logger.warn(
+        { source, channelId },
+        `Proactive WhatsApp message suppressed: transport plugin is not installed. ${WHATSAPP_PLUGIN_INSTALL_HINT}`,
+      );
+      return;
+    }
     const whatsappAuth = await getWhatsAppAuthStatus();
     if (!whatsappAuth.linked) {
       logger.info(
@@ -1842,6 +1852,22 @@ async function startWhatsAppIntegration(): Promise<boolean> {
     whatsappConfig.groupPolicy !== 'disabled';
   if (!transportEnabled) {
     logger.info('WhatsApp integration disabled: transport is off');
+    return false;
+  }
+
+  try {
+    await ensurePluginManagerInitialized();
+  } catch (error) {
+    logger.warn(
+      { error },
+      'WhatsApp integration disabled: plugin manager failed to initialize',
+    );
+    return false;
+  }
+  if (!isWhatsAppTransportInstalled()) {
+    logger.warn(
+      `WhatsApp integration disabled: transport plugin is not installed. ${WHATSAPP_PLUGIN_INSTALL_HINT}`,
+    );
     return false;
   }
 

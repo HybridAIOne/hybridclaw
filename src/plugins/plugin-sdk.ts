@@ -1,10 +1,24 @@
 export type { ChannelInfo } from '../channels/channel.js';
+export type {
+  ChannelTransportInstance,
+  ChannelTransportMediaSendParams,
+  ChannelTransportMessageContext,
+  ChannelTransportMessageHandler,
+  ChannelTransportPairingSession,
+  ChannelTransportRegistration,
+  ChannelTransportReplyFn,
+  WhatsAppChannelTransportRegistration,
+} from '../channels/channel-transport.js';
 export {
   readWebhookJsonBody,
   sendWebhookJson,
   WebhookHttpError,
 } from '../channels/webhook-http.js';
-export type { RuntimeConfig } from '../config/runtime-config.js';
+export type { WhatsAppTransportHost } from '../channels/whatsapp/transport-host.js';
+export type {
+  RuntimeConfig,
+  RuntimeWhatsAppConfig,
+} from '../config/runtime-config.js';
 export type { GatewayChatResult } from '../gateway/gateway-types.js';
 export type { AIProvider } from '../providers/types.js';
 export type { StoredMessage } from '../types/session.js';

@@ -1,5 +1,7 @@
+import type { ChannelTransportMessageHandler } from '@hybridaione/hybridclaw/plugin-sdk';
 import type { WAMessage } from '@whiskeysockets/baileys';
-import type { MediaContextItem } from '../../types/container.js';
+
+type MediaContextItem = Parameters<ChannelTransportMessageHandler>[6][number];
 
 const CONTROL_COMMAND_RE = /^\/(stop|pause|clear|reset|cancel|resume)\b/i;
 

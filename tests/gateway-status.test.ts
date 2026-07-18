@@ -936,6 +936,7 @@ test('getGatewayStatus includes the current WhatsApp pairing QR text', async () 
   expect(status.whatsapp).toMatchObject({
     linked: false,
     jid: null,
+    transportInstalled: false,
     pairingQrText: '▄▄\n██',
     pairingUpdatedAt: '2026-04-08T10:00:00.000Z',
     pairingError: null,

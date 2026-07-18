@@ -1,9 +1,11 @@
 {
   "lockfiles": {
-    "package-lock.json": "6b6bea422a1300bb1329ff6316a1ef57bc43f50505a8748bf57663a97efcb377",
-    "npm-shrinkwrap.json": "6b6bea422a1300bb1329ff6316a1ef57bc43f50505a8748bf57663a97efcb377",
+    "package-lock.json": "49005504f3a2a269368b480e724f2baf8e414132daaabd808e552eb8272c6e44",
+    "npm-shrinkwrap.json": "49005504f3a2a269368b480e724f2baf8e414132daaabd808e552eb8272c6e44",
     "container/package-lock.json": "a3d00f6e8dba50b4d22fd799c4b37ac7682543c6b80dd5690d8bc6a8910ef50d",
     "container/npm-shrinkwrap.json": "a3d00f6e8dba50b4d22fd799c4b37ac7682543c6b80dd5690d8bc6a8910ef50d",
-    "plugins/brevo-email/package-lock.json": "3377225eb3bdbb252eaa28ad420b9a725ea1da533417388557aa1984730229b5"
+    "plugins/brevo-email/package-lock.json": "3377225eb3bdbb252eaa28ad420b9a725ea1da533417388557aa1984730229b5",
+    "plugins/whatsapp/package-lock.json": "59d402d8011f1da7a1ebc222083f057501d66df4ff62ccab60dca305db1576b7",
+    "plugins/whatsapp/npm-shrinkwrap.json": "59d402d8011f1da7a1ebc222083f057501d66df4ff62ccab60dca305db1576b7"
   }
 }

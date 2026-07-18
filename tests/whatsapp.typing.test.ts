@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
+import { createWhatsAppTestHost } from './whatsapp-test-host.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -9,13 +10,14 @@ test('keeps WhatsApp composing presence alive until the turn completes', async (
   vi.useFakeTimers();
 
   const { createWhatsAppTypingController } = await import(
-    '../src/channels/whatsapp/typing.js'
+    '../plugins/whatsapp/src/typing.js'
   );
 
   const socket = {
     sendPresenceUpdate: vi.fn(async () => {}),
   };
   const controller = createWhatsAppTypingController(
+    createWhatsAppTestHost(),
     () => socket,
     '491701234567@s.whatsapp.net',
     {

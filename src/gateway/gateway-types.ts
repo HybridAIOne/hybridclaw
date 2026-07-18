@@ -534,6 +534,7 @@ export interface GatewayStatus {
   whatsapp?: {
     linked: boolean;
     jid: string | null;
+    transportInstalled: boolean;
     pairingQrText: string | null;
     pairingUpdatedAt: string | null;
     pairingError: string | null;

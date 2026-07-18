@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- **Install-on-demand WhatsApp transport**: WhatsApp ships as the separate
+  `@hybridaione/hybridclaw-whatsapp` plugin so Baileys and its GPL-3.0
+  `libsignal` dependency are excluded from core npm, Docker, desktop, and
+  Homebrew artifacts. Existing linked sessions remain in
+  `~/.hybridclaw/credentials/whatsapp`; install the transport with
+  `hybridclaw plugin install @hybridaione/hybridclaw-whatsapp`.
+
 ## [0.28.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.2) - 2026-07-17
 
 ### Added

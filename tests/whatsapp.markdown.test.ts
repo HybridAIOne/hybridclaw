@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { markdownToWhatsApp } from '../src/channels/whatsapp/markdown.js';
+import { markdownToWhatsApp } from '../plugins/whatsapp/src/markdown.js';
 
 describe('whatsapp markdown conversion', () => {
   test('converts bold italic and strike syntax', () => {

@@ -353,6 +353,7 @@ async function importFreshGatewayMain(options?: {
   voiceEnabled?: boolean;
   voiceInitError?: Error;
   whatsappInitError?: Error;
+  whatsappTransportInstalled?: boolean;
   whatsappAuthLockError?: {
     lockPath: string;
     ownerPid?: number | null;
@@ -570,9 +571,17 @@ async function importFreshGatewayMain(options?: {
   }));
   vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
     initWhatsApp: state.initWhatsApp,
+    isWhatsAppTransportInstalled: vi.fn(
+      () => options?.whatsappTransportInstalled !== false,
+    ),
     sendToWhatsAppChat: vi.fn(async () => {}),
     sendWhatsAppMediaToChat: vi.fn(async () => {}),
     shutdownWhatsApp: state.shutdownWhatsApp,
+    WHATSAPP_PLUGIN_INSTALL_HINT:
+      'Install it with: hybridclaw plugin install @hybridaione/hybridclaw-whatsapp',
+  }));
+  vi.doMock('../src/plugins/plugin-manager.js', () => ({
+    ensurePluginManagerInitialized: vi.fn(async () => ({})),
   }));
   vi.doMock('../src/channels/line/runtime.js', () => ({
     initLine: state.initLine.mockImplementation(async (handler) => {
@@ -1181,6 +1190,18 @@ describe('gateway bootstrap', () => {
 
     expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
     expect(state.whatsappMessageHandler).not.toBeNull();
+  });
+
+  test('does not start WhatsApp when its transport plugin is missing', async () => {
+    const state = await importFreshGatewayMain({
+      whatsappLinked: true,
+      whatsappTransportInstalled: false,
+    });
+
+    expect(state.initWhatsApp).not.toHaveBeenCalled();
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('transport plugin is not installed'),
+    );
   });
 
   test('starts LINE self-chat integration only when enabled', async () => {

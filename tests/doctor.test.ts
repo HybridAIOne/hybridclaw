@@ -1334,6 +1334,40 @@ test('checkChannels distinguishes intentionally disabled channels from missing s
   expect(result.message).toContain('intentionally disabled');
 });
 
+test('checkChannels reports a missing WhatsApp plugin when the channel is expected', async () => {
+  vi.doMock('../src/config/config.js', () => ({
+    DISCORD_TOKEN: '',
+    EMAIL_PASSWORD: '',
+    MSTEAMS_APP_ID: '',
+    MSTEAMS_APP_PASSWORD: '',
+    TELEGRAM_BOT_TOKEN: '',
+    THREEMA_GATEWAY_SECRET: '',
+    getConfigSnapshot: () => ({
+      discord: { guilds: {} },
+      discordWebhook: { enabled: false, webhooks: {} },
+      msteams: { enabled: false },
+      email: { enabled: false },
+      slackWebhook: { enabled: false, webhooks: {} },
+      whatsapp: { dmPolicy: 'pairing', groupPolicy: 'disabled' },
+    }),
+  }));
+  vi.doMock('../src/channels/whatsapp/auth.js', () => ({
+    getWhatsAppAuthStatus: vi.fn(async () => ({ linked: false, jid: null })),
+  }));
+  vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
+    isWhatsAppTransportInstalled: vi.fn(() => false),
+  }));
+  vi.doMock('../src/plugins/plugin-manager.js', () => ({
+    ensurePluginManagerInitialized: vi.fn(async () => ({})),
+  }));
+
+  const { checkChannels } = await import('../src/doctor/checks/channels.ts');
+  const [result] = await checkChannels();
+
+  expect(result.severity).toBe('error');
+  expect(result.message).toContain('WhatsApp plugin not installed');
+});
+
 test('runDoctor rolls back prior fixes and skips later fixes after a failure', async () => {
   const applyConfigFix = vi.fn(async () => {});
   const rollbackConfigFix = vi.fn(async () => {});

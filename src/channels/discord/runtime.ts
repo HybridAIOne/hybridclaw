@@ -54,6 +54,7 @@ import { getSessionById, resolveSessionIdCompat } from '../../memory/db.js';
 import { getAvailableModelChoices } from '../../providers/model-catalog.js';
 import { recordSkillFeedback } from '../../skills/skills-observation.js';
 import type { MediaContextItem } from '../../types/container.js';
+import { SlidingWindowRateLimiter } from '../../utils/rate-limiter.js';
 import { sleep } from '../../utils/sleep.js';
 import { DISCORD_CAPABILITIES } from '../channel.js';
 import { registerChannel, unregisterChannel } from '../channel-registry.js';
@@ -103,7 +104,6 @@ import {
   DiscordAutoPresenceController,
   type PresenceHealthState,
 } from './presence.js';
-import { SlidingWindowRateLimiter } from './rate-limiter.js';
 import {
   addAckReaction,
   type LifecyclePhase,

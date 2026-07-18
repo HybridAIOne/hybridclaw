@@ -1,0 +1,36 @@
+{
+  "name": "@hybridaione/hybridclaw-whatsapp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Install-on-demand WhatsApp channel transport for HybridClaw",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HybridAIOne/hybridclaw",
+    "directory": "plugins/whatsapp"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/",
+    "hybridclaw.plugin.yaml",
+    "npm-shrinkwrap.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc13",
+    "qrcode-terminal": "0.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.15",
+    "typescript": "5.9.3"
+  }
+}

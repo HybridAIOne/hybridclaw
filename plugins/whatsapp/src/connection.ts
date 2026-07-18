@@ -1,3 +1,4 @@
+import type { WhatsAppTransportHost } from '@hybridaione/hybridclaw/plugin-sdk';
 import type { ConnectionState, WASocket } from '@whiskeysockets/baileys';
 import {
   DisconnectReason,
@@ -6,33 +7,15 @@ import {
   makeWASocket,
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
-import { APP_VERSION } from '../../config/config.js';
-import { logger } from '../../logger.js';
-import { sleep } from '../../utils/sleep.js';
-import {
-  describeExpectedTransportError,
-  isExpectedTransportError,
-} from '../../utils/transport-errors.js';
-import { SlidingWindowRateLimiter } from '../discord/rate-limiter.js';
-import { acquireWhatsAppAuthLock, loadWhatsAppAuthState } from './auth.js';
+import { loadWhatsAppAuthState } from './auth-state.js';
 import {
   createWhatsAppMessageStore,
   type WhatsAppMessageStore,
 } from './message-store.js';
-import {
-  clearWhatsAppPairingState,
-  setWhatsAppPairingError,
-  setWhatsAppPairingQrText,
-} from './pairing-state.js';
 
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
 const VERBOSE_WHATSAPP_LOG_LEVELS = new Set(['debug', 'trace']);
-const WHATSAPP_BROWSER_IDENTITY = [
-  'HybridClaw',
-  'Gateway',
-  APP_VERSION,
-] as const;
 const WHATSAPP_TRANSPORT_HOST = 'web.whatsapp.com';
 const EXPECTED_TRANSPORT_DEBUG_WINDOW_MS = 60_000;
 const EXPECTED_TRANSPORT_DEBUG_LIMIT = 3;
@@ -67,10 +50,18 @@ interface EventEmitterWithInternals extends EventEmitterLike {
   [WHATSAPP_ERROR_SINK_ATTACHED]?: boolean;
 }
 
-const expectedTransportDebugLimiter = new SlidingWindowRateLimiter(
-  EXPECTED_TRANSPORT_DEBUG_WINDOW_MS,
-);
+let activeHost: WhatsAppTransportHost | null = null;
+let expectedTransportDebugLimiter: InstanceType<
+  WhatsAppTransportHost['SlidingWindowRateLimiter']
+> | null = null;
 let lastExpectedTransportAt = 0;
+
+function getHost(): WhatsAppTransportHost {
+  if (!activeHost) {
+    throw new Error('WhatsApp transport host is not initialized.');
+  }
+  return activeHost;
+}
 
 function isEventEmitterLike(value: unknown): value is EventEmitterLike {
   return (
@@ -127,22 +118,22 @@ function logExpectedWhatsAppTransport(
   noteExpectedTransportActivity();
   if (
     level === 'debug' &&
-    (!expectedTransportDebugLimiter.shouldNotify(
+    (!expectedTransportDebugLimiter?.shouldNotify(
       key,
       EXPECTED_TRANSPORT_DEBUG_COOLDOWN_MS,
     ) ||
-      !expectedTransportDebugLimiter.check(key, EXPECTED_TRANSPORT_DEBUG_LIMIT)
+      !expectedTransportDebugLimiter?.check(key, EXPECTED_TRANSPORT_DEBUG_LIMIT)
         .allowed)
   ) {
     return;
   }
 
-  const message = `${describeExpectedTransportError(
+  const message = `${getHost().describeExpectedTransportError(
     error,
     'WhatsApp WebSocket',
     WHATSAPP_TRANSPORT_HOST,
   )} ${nextAction}`;
-  setWhatsAppPairingError(message);
+  getHost().pairing.setError(message);
   if (level === 'debug') {
     target.debug(message);
     return;
@@ -161,7 +152,7 @@ function attachWhatsAppEmitterErrorSink(
   if (candidate[WHATSAPP_ERROR_SINK_ATTACHED]) return;
   candidate[WHATSAPP_ERROR_SINK_ATTACHED] = true;
   candidate.on('error', (error: unknown) => {
-    if (isExpectedTransportError(error)) {
+    if (getHost().isExpectedTransportError(error)) {
       logExpectedWhatsAppTransport(
         target,
         error,
@@ -225,8 +216,9 @@ function isVerboseWhatsAppLogging(
   target: Pick<WhatsAppLogger, 'level'>,
 ): boolean {
   const effectiveLevel =
-    typeof logger.level === 'string' && logger.level.trim().length > 0
-      ? logger.level
+    typeof getHost().logger.level === 'string' &&
+    getHost().logger.level.trim().length > 0
+      ? getHost().logger.level
       : target.level;
   return VERBOSE_WHATSAPP_LOG_LEVELS.has(effectiveLevel.trim().toLowerCase());
 }
@@ -241,7 +233,7 @@ function emitWhatsAppLog(
   const transportSignal = extractTransportSignal(payload, message);
   if (
     resolvedMessage === 'connection errored' &&
-    isExpectedTransportError(transportSignal)
+    getHost().isExpectedTransportError(transportSignal)
   ) {
     noteExpectedTransportActivity();
     return;
@@ -369,12 +361,21 @@ async function waitForPendingCredsSave(
   }
 }
 
-export function createWhatsAppConnectionManager(params?: {
-  onSocketCreated?: (socket: WASocket) => void;
-}): WhatsAppConnectionManager {
-  const childLogger = logger.child({ channel: 'whatsapp' }) as WhatsAppLogger;
+export function createWhatsAppConnectionManager(
+  host: WhatsAppTransportHost,
+  params?: {
+    onSocketCreated?: (socket: WASocket) => void;
+  },
+): WhatsAppConnectionManager {
+  activeHost = host;
+  expectedTransportDebugLimiter ??= new host.SlidingWindowRateLimiter(
+    EXPECTED_TRANSPORT_DEBUG_WINDOW_MS,
+  );
+  const childLogger = host.logger.child({
+    channel: 'whatsapp',
+  }) as WhatsAppLogger;
   const baileysLogger = createBaileysLogger(childLogger);
-  const messageStore = createWhatsAppMessageStore();
+  const messageStore = createWhatsAppMessageStore(host);
   let socket: WASocket | null = null;
   let releaseAuthLock: (() => void) | null = null;
   let started = false;
@@ -406,7 +407,7 @@ export function createWhatsAppConnectionManager(params?: {
     if (stopped || reconnectTimer) return;
     const delayMs = reconnectDelayMs;
     reconnectDelayMs = Math.min(reconnectDelayMs * 2, MAX_RECONNECT_DELAY_MS);
-    if (error && isExpectedTransportError(error)) {
+    if (error && host.isExpectedTransportError(error)) {
       logExpectedWhatsAppTransport(
         childLogger,
         error,
@@ -420,10 +421,10 @@ export function createWhatsAppConnectionManager(params?: {
       reason === 'status:428'
     ) {
       const message = `WhatsApp connection was lost. Retrying connection in ${formatReconnectDelay(delayMs)}.`;
-      setWhatsAppPairingError(message);
+      host.pairing.setError(message);
       childLogger.warn(message);
     } else {
-      setWhatsAppPairingError(
+      host.pairing.setError(
         `WhatsApp connection is not ready. Retrying connection in ${formatReconnectDelay(delayMs)}.`,
       );
       logWhatsAppMessage(childLogger, 'warn', 'WhatsApp reconnect scheduled', {
@@ -459,7 +460,7 @@ export function createWhatsAppConnectionManager(params?: {
     if (stopped) return;
     if (connectingPromise) return connectingPromise;
     connectingPromise = (async () => {
-      const { state, saveCreds } = await loadWhatsAppAuthState();
+      const { state, saveCreds } = await loadWhatsAppAuthState(host);
       if (stopped) return;
       const latestVersion = await fetchLatestBaileysVersion().catch((error) => {
         logWhatsAppMessage(
@@ -476,7 +477,7 @@ export function createWhatsAppConnectionManager(params?: {
           creds: state.creds,
           keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
         },
-        browser: [...WHATSAPP_BROWSER_IDENTITY],
+        browser: ['HybridClaw', 'Gateway', host.appVersion],
         fireInitQueries: false, // Avoid intermittent 400/bad-request from Baileys fetchProps init query; metadata-only and not required for message flow.
         getMessage: (key) => messageStore.getMessage(key),
         logger: baileysLogger,
@@ -510,7 +511,7 @@ export function createWhatsAppConnectionManager(params?: {
       );
     })()
       .catch((error) => {
-        if (isExpectedTransportError(error)) {
+        if (host.isExpectedTransportError(error)) {
           scheduleReconnect('connect-error', error);
         } else {
           logWhatsAppMessage(
@@ -552,10 +553,10 @@ export function createWhatsAppConnectionManager(params?: {
       return;
     }
     if (started) return;
-    releaseAuthLock ??= await acquireWhatsAppAuthLock(undefined, {
+    releaseAuthLock ??= await host.auth.acquireLock(host.auth.authDir, {
       purpose: 'runtime',
     });
-    clearWhatsAppPairingState();
+    host.pairing.clear();
     started = true;
     reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
     try {
@@ -575,18 +576,18 @@ export function createWhatsAppConnectionManager(params?: {
     if (socket !== observedSocket) return;
 
     if (update.qr) {
-      setWhatsAppPairingQrText(renderWhatsAppPairingQrText(update.qr));
+      host.pairing.setQrText(renderWhatsAppPairingQrText(update.qr));
       logWhatsAppMessage(
         childLogger,
         'info',
         'Scan the WhatsApp QR code in Linked Devices',
-        { appVersion: APP_VERSION },
+        { appVersion: host.appVersion },
       );
       qrcode.generate(update.qr, { small: true });
     }
 
     if (update.connection === 'open') {
-      clearWhatsAppPairingState();
+      host.pairing.clear();
       connectionOpen = true;
       reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
       logWhatsAppMessage(
@@ -601,7 +602,7 @@ export function createWhatsAppConnectionManager(params?: {
 
     if (update.connection !== 'close') return;
 
-    clearWhatsAppPairingState();
+    host.pairing.clear();
     connectionOpen = false;
     socket = null;
     const disconnectError = update.lastDisconnect?.error;
@@ -618,7 +619,7 @@ export function createWhatsAppConnectionManager(params?: {
         'WhatsApp restart required after pairing; reconnecting automatically',
       );
       scheduleReconnect('restart-required');
-      await sleep(0);
+      await host.sleep(0);
       return;
     }
 
@@ -627,7 +628,7 @@ export function createWhatsAppConnectionManager(params?: {
       statusCode != null ? `status:${statusCode}` : 'connection-close',
       disconnectError,
     );
-    await sleep(0);
+    await host.sleep(0);
   };
 
   return {
@@ -649,7 +650,7 @@ export function createWhatsAppConnectionManager(params?: {
       reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
       connectionOpen = false;
       socket = null;
-      clearWhatsAppPairingState();
+      host.pairing.clear();
       if (activeSocket && typeof activeSocket.end === 'function') {
         try {
           activeSocket.end(undefined);

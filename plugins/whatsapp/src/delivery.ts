@@ -1,13 +1,11 @@
 import path from 'node:path';
+import type { WhatsAppTransportHost } from '@hybridaione/hybridclaw/plugin-sdk';
 import type {
   AnyMessageContent,
   WAMessage,
   WAMessageKey,
   WASocket,
 } from '@whiskeysockets/baileys';
-import { WHATSAPP_TEXT_CHUNK_LIMIT } from '../../config/config.js';
-import { chunkMessage } from '../../memory/chunk.js';
-import { sleep } from '../../utils/sleep.js';
 import { markdownToWhatsApp } from './markdown.js';
 import { resolveWhatsAppMimeTypeFromPath } from './mime-utils.js';
 import type { WhatsAppOutboundMessageRef } from './self-echo-cache.js';
@@ -22,12 +20,17 @@ function clampTextChunkLimit(limit: number): number {
   return Math.max(200, Math.min(4_000, Math.floor(limit)));
 }
 
-export function prepareWhatsAppTextChunks(text: string): string[] {
+export function prepareWhatsAppTextChunks(
+  host: WhatsAppTransportHost,
+  text: string,
+): string[] {
   const formatted = markdownToWhatsApp(text);
-  const chunks = chunkMessage(formatted, {
-    maxChars: clampTextChunkLimit(WHATSAPP_TEXT_CHUNK_LIMIT),
-    maxLines: 200,
-  }).filter((chunk) => chunk.trim().length > 0);
+  const chunks = host.text
+    .chunkMessage(formatted, {
+      maxChars: clampTextChunkLimit(host.getConfig().textChunkLimit),
+      maxLines: 200,
+    })
+    .filter((chunk) => chunk.trim().length > 0);
   return chunks.length > 0 ? chunks : ['(no content)'];
 }
 
@@ -45,12 +48,13 @@ function toOutboundMessageRef(
 }
 
 export async function sendChunkedWhatsAppText(
+  host: WhatsAppTransportHost,
   sock: Pick<WASocket, 'sendMessage'>,
   jid: string,
   text: string,
   onSentMessage?: SentMessageHandler,
 ): Promise<WhatsAppOutboundMessageRef[]> {
-  const chunks = prepareWhatsAppTextChunks(text);
+  const chunks = prepareWhatsAppTextChunks(host, text);
   const refs: WhatsAppOutboundMessageRef[] = [];
   for (let index = 0; index < chunks.length; index += 1) {
     const sent = await sock.sendMessage(jid, { text: chunks[index] });
@@ -58,13 +62,14 @@ export async function sendChunkedWhatsAppText(
     const ref = toOutboundMessageRef(sent, jid);
     if (ref) refs.push(ref);
     if (index < chunks.length - 1) {
-      await sleep(OUTBOUND_DELAY_MS);
+      await host.sleep(OUTBOUND_DELAY_MS);
     }
   }
   return refs;
 }
 
 export async function sendWhatsAppMedia(params: {
+  host: WhatsAppTransportHost;
   sock: Pick<WASocket, 'sendMessage'>;
   jid: string;
   filePath: string;
@@ -76,7 +81,8 @@ export async function sendWhatsAppMedia(params: {
   const mimeType =
     String(params.mimeType || '')
       .trim()
-      .toLowerCase() || resolveWhatsAppMimeTypeFromPath(params.filePath);
+      .toLowerCase() ||
+    resolveWhatsAppMimeTypeFromPath(params.host, params.filePath);
   const filename =
     String(params.filename || '').trim() || path.basename(params.filePath);
   const upload = { url: params.filePath };

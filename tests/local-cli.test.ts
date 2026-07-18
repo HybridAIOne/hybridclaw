@@ -25,15 +25,18 @@ async function importFreshCli(homeDir: string) {
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
   vi.resetModules();
-  vi.doMock('../src/channels/whatsapp/connection.ts', () => ({
-    createWhatsAppConnectionManager: () => ({
-      getSocket: () => null,
+  vi.doMock('../src/channels/whatsapp/runtime.ts', () => ({
+    createWhatsAppPairingSession: async () => ({
       start: async () => {},
       stop: async () => {},
-      waitForSocket: async () => ({
-        user: { id: 'test@s.whatsapp.net' },
-      }),
+      waitForConnection: async () => ({ id: 'test@s.whatsapp.net' }),
     }),
+    isWhatsAppTransportInstalled: () => true,
+    WHATSAPP_PLUGIN_INSTALL_HINT:
+      'Install it with: hybridclaw plugin install @hybridaione/hybridclaw-whatsapp',
+  }));
+  vi.doMock('../src/plugins/plugin-manager.ts', () => ({
+    ensurePluginManagerInitialized: async () => ({}),
   }));
   return import('../src/cli.ts');
 }
@@ -86,7 +89,8 @@ async function readRuntimeSecrets(
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.doUnmock('../src/channels/whatsapp/connection.ts');
+  vi.doUnmock('../src/channels/whatsapp/runtime.ts');
+  vi.doUnmock('../src/plugins/plugin-manager.ts');
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
     delete process.env.HOME;
