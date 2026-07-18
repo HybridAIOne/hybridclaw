@@ -248,9 +248,20 @@ export async function resolveTaskModelPolicy(
 ): Promise<TaskModelPolicy | undefined> {
   const configured = getConfiguredTaskSelection(task);
   const providerSelection = getSelectedTaskProvider(task);
-  const rawModel = getSelectedTaskModel(task);
+  let rawModel = getSelectedTaskModel(task);
   const maxTokens = normalizeMaxTokens(configured.maxTokens);
   if (providerSelection === 'disabled') return undefined;
+
+  if (providerSelection === 'auto' && !rawModel) {
+    const routing = getRuntimeConfig().routing;
+    const bottomTier = routing.enabled ? routing.tiers[0] : undefined;
+    rawModel =
+      (task === 'vision'
+        ? bottomTier?.models.find((candidate) =>
+            isModelVisionCapable(candidate),
+          ) || bottomTier?.models[0]
+        : bottomTier?.models[0]) || '';
+  }
 
   if (providerSelection === 'auto' && !rawModel) {
     // For the vision task, verify that the session/fallback model actually

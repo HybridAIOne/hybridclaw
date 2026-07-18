@@ -1,0 +1,9 @@
+id: tier-router
+name: Tier Router
+version: 0.1.0
+description: Selects deterministic model-routing tiers without remote classifier calls.
+kind: middleware
+entrypoint: src/index.js
+configSchema:
+  type: object
+  additionalProperties: false

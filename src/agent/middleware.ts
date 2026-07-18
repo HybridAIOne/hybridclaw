@@ -31,6 +31,8 @@ export interface AgentTurnContext {
   channelType?: string;
   model?: string;
   currentModel?: string;
+  agentModel?: string;
+  stickyTier?: string;
   chatbotId?: string;
   isInteractiveSource?: boolean;
   explicitModelPinned?: boolean;
