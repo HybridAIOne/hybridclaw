@@ -27,7 +27,6 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
-  FieldTitle,
   pattern,
   required,
 } from '../components/field';
@@ -852,17 +851,6 @@ export function ConfigPage() {
                       </Field>
                     )}
                   />
-                  <Field orientation="horizontal">
-                    <FieldContent>
-                      <FieldTitle>Log level</FieldTitle>
-                      <FieldDescription>
-                        Runtime logging controls are managed on the Logs page.
-                      </FieldDescription>
-                    </FieldContent>
-                    <Link to="/admin/logs" className="ghost-button">
-                      Open Logs
-                    </Link>
-                  </Field>
                   <FormField
                     name="ops.gatewayBaseUrl"
                     render={({ field }) => (
@@ -950,18 +938,6 @@ export function ConfigPage() {
                       </Field>
                     )}
                   />
-                  <Field orientation="horizontal">
-                    <FieldContent>
-                      <FieldTitle>Default model</FieldTitle>
-                      <FieldDescription>
-                        Model selection and routing are managed on the Providers
-                        page.
-                      </FieldDescription>
-                    </FieldContent>
-                    <Link to="/admin/models" className="ghost-button">
-                      Open Providers
-                    </Link>
-                  </Field>
                   <FormField
                     name="hybridai.enableRag"
                     render={({ field }) => (

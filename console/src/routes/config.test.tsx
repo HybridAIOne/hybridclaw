@@ -430,19 +430,17 @@ describe('ConfigPage', () => {
     ).toBe(false);
   });
 
-  it('links page-owned settings instead of rendering duplicate form controls', async () => {
+  it('omits settings managed by dedicated pages', async () => {
     renderConfigPage();
 
     await screen.findByLabelText('Health host');
 
+    expect(screen.queryByText('Log level')).toBeNull();
+    expect(screen.queryByText('Default model')).toBeNull();
     expect(screen.queryByRole('combobox', { name: 'Log level' })).toBeNull();
     expect(screen.queryByRole('textbox', { name: 'Default model' })).toBeNull();
-    expect(
-      screen.getByRole('link', { name: 'Open Logs' }).getAttribute('href'),
-    ).toBe('/admin/logs');
-    expect(
-      screen.getByRole('link', { name: 'Open Providers' }).getAttribute('href'),
-    ).toBe('/admin/models');
+    expect(screen.queryByRole('link', { name: 'Open Logs' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Open Providers' })).toBeNull();
   });
 
   it('links page-owned sections from JSON mode based on the cursor position', async () => {
