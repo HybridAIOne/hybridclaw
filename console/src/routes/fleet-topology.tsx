@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { TabbedPageActions } from '../components/tabbed-page';
 import { BooleanPill, PageHeader } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
@@ -46,25 +47,29 @@ export function FleetTopologyPage(props: { embedded?: boolean } = {}) {
 
   const topology = topologyQuery.data;
   const instances = topology?.instances || [];
+  const refreshButton = (
+    <button
+      className="ghost-button"
+      type="button"
+      disabled={topologyQuery.isFetching}
+      onClick={() => void topologyQuery.refetch()}
+    >
+      Refresh
+    </button>
+  );
 
   return (
     <div className="page-stack">
+      {props.embedded ? (
+        <TabbedPageActions>{refreshButton}</TabbedPageActions>
+      ) : null}
       <PageHeader
         description={
           props.embedded
             ? 'Live reachability over the same peer records managed on Peers & trust.'
             : undefined
         }
-        actions={
-          <button
-            className="ghost-button"
-            type="button"
-            disabled={topologyQuery.isFetching}
-            onClick={() => void topologyQuery.refetch()}
-          >
-            Refresh
-          </button>
-        }
+        actions={props.embedded ? undefined : refreshButton}
       />
 
       <Card>

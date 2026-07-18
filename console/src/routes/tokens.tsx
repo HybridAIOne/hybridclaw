@@ -42,6 +42,7 @@ import {
   PopoverContent,
   usePopoverContext,
 } from '../components/popover';
+import { TabbedPageActions } from '../components/tabbed-page';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
@@ -309,7 +310,7 @@ function resolveExpiresAt(
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
-export function TokensPage() {
+export function TokensPage(props: { embedded?: boolean } = {}) {
   const { token } = useAuth();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -393,27 +394,31 @@ export function TokensPage() {
 
   const canCreate = query.data.actions.includes('admin.tokens.create');
   const canRevoke = query.data.actions.includes('admin.tokens.revoke');
+  const actions = (
+    <div className={styles.actions}>
+      <input
+        className={
+          props.embedded ? 'compact-search page-tab-search' : 'compact-search'
+        }
+        value={filter}
+        onChange={(event) => setFilter(event.target.value)}
+        placeholder="Filter tokens"
+        aria-label="Filter tokens by label or id"
+      />
+      {canCreate ? (
+        <Button type="button" onClick={() => setCreateOpen(true)}>
+          Create token
+        </Button>
+      ) : null}
+    </div>
+  );
 
   return (
     <div className="page-stack">
+      {props.embedded ? <TabbedPageActions>{actions}</TabbedPageActions> : null}
       <PageHeader
         description="Revocable bearer tokens with scoped RBAC claims."
-        actions={
-          <div className={styles.actions}>
-            <input
-              className="compact-search"
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              placeholder="Filter tokens"
-              aria-label="Filter tokens by label or id"
-            />
-            {canCreate ? (
-              <Button type="button" onClick={() => setCreateOpen(true)}>
-                Create token
-              </Button>
-            ) : null}
-          </div>
-        }
+        actions={props.embedded ? undefined : actions}
       />
 
       {view.length === 0 ? (

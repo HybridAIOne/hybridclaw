@@ -339,12 +339,30 @@ code {
 
 .page-tabs {
   display: flex;
+  align-items: center;
   gap: 4px;
   padding: 4px;
-  overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--chip-surface);
+}
+
+.page-tab-list {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.page-tab-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.page-tab-actions:empty {
+  display: none;
 }
 
 .page-tab {
@@ -3940,6 +3958,13 @@ th {
   min-width: 180px;
 }
 
+.page-tab-search {
+  width: min(260px, 32vw);
+  min-width: 180px;
+  height: 36px;
+  min-height: 36px;
+}
+
 .page-header .header-actions {
   flex-wrap: nowrap;
   width: auto;
@@ -4361,6 +4386,27 @@ th {
 
   .page-content {
     padding: 16px 18px 24px;
+  }
+
+  .page-tabs {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .page-tab-list,
+  .page-tab-actions:not(:empty) {
+    flex: 1 1 100%;
+  }
+
+  .page-tab-actions:not(:empty) {
+    margin-left: 0;
+  }
+
+  .page-tab-actions > *,
+  .page-tab-search {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
   }
 
   .tunnel-panel-grid,

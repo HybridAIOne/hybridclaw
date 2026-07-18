@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TabbedPage } from './tabbed-page';
+import { TabbedPage, TabbedPageActions } from './tabbed-page';
 
 describe('TabbedPage', () => {
   afterEach(cleanup);
@@ -27,5 +27,26 @@ describe('TabbedPage', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Second' }));
     expect(onTabChange).toHaveBeenCalledWith('second');
+  });
+
+  it('renders contextual controls inside the tab bar', () => {
+    render(
+      <TabbedPage
+        tabs={[{ id: 'queue', label: 'Work queue' }]}
+        activeTab="queue"
+        onTabChange={vi.fn()}
+      >
+        <TabbedPageActions>
+          <input aria-label="Search jobs" />
+        </TabbedPageActions>
+        <p>Panel content</p>
+      </TabbedPage>,
+    );
+
+    expect(
+      screen
+        .getByRole('textbox', { name: 'Search jobs' })
+        .closest('.page-tabs'),
+    ).not.toBeNull();
   });
 });

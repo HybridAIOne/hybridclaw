@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/dialog';
+import { TabbedPageActions } from '../components/tabbed-page';
 import { useToast } from '../components/toast';
 import { BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
@@ -127,16 +128,29 @@ export function SessionsPage(
 
   return (
     <div className="page-stack">
-      <PageHeader
-        actions={
+      {props.embedded ? (
+        <TabbedPageActions>
           <input
-            className="compact-search"
+            className="compact-search page-tab-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Filter by session, channel, model"
+            aria-label="Filter sessions"
           />
-        }
-      />
+        </TabbedPageActions>
+      ) : (
+        <PageHeader
+          actions={
+            <input
+              className="compact-search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Filter by session, channel, model"
+              aria-label="Filter sessions"
+            />
+          }
+        />
+      )}
 
       <div className="two-column-grid sessions-layout">
         <Card>

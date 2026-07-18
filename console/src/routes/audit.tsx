@@ -20,6 +20,7 @@ import {
 } from '../components/dialog';
 import { Search as SearchIcon } from '../components/icons';
 import { Input } from '../components/input';
+import { TabbedPageActions } from '../components/tabbed-page';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 import { logNavigationError } from '../lib/navigation';
 import styles from './audit.module.css';
@@ -309,30 +310,39 @@ export function AuditPage(
     props.onRangeChange?.(nextRange);
   }
 
+  const searchControl = (
+    <div
+      className={`${styles.searchWrap} ${props.embedded ? styles.tabSearchWrap : ''}`}
+    >
+      <SearchIcon className={styles.searchIcon} aria-hidden="true" />
+      <Input
+        ref={searchRef}
+        className={styles.searchInput}
+        value={searchInput}
+        onChange={(event) => setSearchInput(event.target.value)}
+        placeholder="Search payloads… try session:web type:tool"
+        aria-label="Audit search"
+        spellCheck={false}
+        autoComplete="off"
+      />
+      <span
+        className={styles.shortcutHint}
+        data-hidden={searchInput ? 'true' : undefined}
+        aria-hidden="true"
+      >
+        /
+      </span>
+    </div>
+  );
+
   return (
     <div className={styles.page}>
+      {props.embedded ? (
+        <TabbedPageActions>{searchControl}</TabbedPageActions>
+      ) : null}
       <div className={styles.toolbar}>
         <div className={styles.searchRow}>
-          <div className={styles.searchWrap}>
-            <SearchIcon className={styles.searchIcon} aria-hidden="true" />
-            <Input
-              ref={searchRef}
-              className={styles.searchInput}
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Search payloads… try session:web type:tool"
-              aria-label="Audit search"
-              spellCheck={false}
-              autoComplete="off"
-            />
-            <span
-              className={styles.shortcutHint}
-              data-hidden={searchInput ? 'true' : undefined}
-              aria-hidden="true"
-            >
-              /
-            </span>
-          </div>
+          {props.embedded ? null : searchControl}
 
           {!props.embedded ? (
             <div

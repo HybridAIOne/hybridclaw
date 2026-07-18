@@ -27,6 +27,7 @@ import type {
 import { useAuth } from '../auth';
 import { AgentBudgetChip } from '../components/agent-budget-chip';
 import { InteractionResumeControls } from '../components/interaction-resume-controls';
+import { TabbedPageActions } from '../components/tabbed-page';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
@@ -1028,16 +1029,27 @@ export function JobsPage(props: { embedded?: boolean } = {}) {
 
   return (
     <div className="page-stack">
-      <PageHeader
-        actions={
-          <div className="header-actions">
-            <input
-              className="compact-search jobs-header-search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search jobs"
-            />
-            {!props.embedded ? (
+      {props.embedded ? (
+        <TabbedPageActions>
+          <input
+            className="compact-search page-tab-search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search jobs"
+            aria-label="Search jobs"
+          />
+        </TabbedPageActions>
+      ) : null}
+      {props.embedded ? null : (
+        <PageHeader
+          actions={
+            <div className="header-actions">
+              <input
+                className="compact-search jobs-header-search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search jobs"
+              />
               <button
                 className="primary-button"
                 type="button"
@@ -1050,10 +1062,10 @@ export function JobsPage(props: { embedded?: boolean } = {}) {
               >
                 New Job
               </button>
-            ) : null}
-          </div>
-        }
-      />
+            </div>
+          }
+        />
+      )}
 
       {/* Query errors stay as inline banners (not toasts) — they represent a
           persistent broken state, not a one-time operation failure. */}

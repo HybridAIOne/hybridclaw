@@ -28,6 +28,12 @@
   align-items: center;
 }
 
+.tabSearchWrap {
+  flex: 0 1 360px;
+  width: min(360px, 36vw);
+  min-width: 220px;
+}
+
 .searchIcon {
   position: absolute;
   left: 10px;

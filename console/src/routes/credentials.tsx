@@ -36,7 +36,11 @@ export function CredentialsPage() {
         }).catch(logNavigationError);
       }}
     >
-      {activeTab === 'api-tokens' ? <TokensPage /> : <SecretsPage />}
+      {activeTab === 'api-tokens' ? (
+        <TokensPage embedded />
+      ) : (
+        <SecretsPage embedded />
+      )}
     </TabbedPage>
   );
 }

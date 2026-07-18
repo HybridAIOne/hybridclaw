@@ -36,7 +36,11 @@ export function ExtensionsPage() {
         }).catch(logNavigationError);
       }}
     >
-      {activeTab === 'tools' ? <ToolsPage /> : <PluginsPage />}
+      {activeTab === 'tools' ? (
+        <ToolsPage embedded />
+      ) : (
+        <PluginsPage embedded />
+      )}
     </TabbedPage>
   );
 }
