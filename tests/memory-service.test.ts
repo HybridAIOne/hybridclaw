@@ -639,6 +639,45 @@ describe.sequential('schema migrations', () => {
     );
   });
 
+  test('migrates archived agent state after a parallel migration claimed v52', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    const collision = new Database(dbPath);
+    collision.exec(`
+      ALTER TABLE agents DROP COLUMN archived;
+      DELETE FROM migrations WHERE version = 53;
+      INSERT OR REPLACE INTO migrations (version, applied_at, description)
+      VALUES (52, datetime('now'), 'Persist agent sharing grants and shared-agent state');
+      PRAGMA user_version = 52;
+    `);
+    collision.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const agentColumns = inspect.pragma('table_info(agents)') as Array<{
+      name: string;
+    }>;
+    const migrations = inspect
+      .prepare(
+        'SELECT version, description FROM migrations WHERE version IN (52, 53) ORDER BY version ASC',
+      )
+      .all() as Array<{ version: number; description: string }>;
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(53);
+    expect(agentColumns.some((column) => column.name === 'archived')).toBe(true);
+    expect(migrations).toEqual([
+      {
+        version: 52,
+        description: 'Persist agent sharing grants and shared-agent state',
+      },
+      { version: 53, description: 'Persist archived agent state' },
+    ]);
+  });
+
   test('self-heals schema v30 databases from parallel migrations', () => {
     const branchDbPath = createTempDbPath();
     const branchDb = new Database(branchDbPath);

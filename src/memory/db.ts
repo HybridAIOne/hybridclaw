@@ -171,7 +171,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 52;
+export const DATABASE_SCHEMA_VERSION = 53;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -3283,7 +3283,15 @@ function migrateV51(database: Database.Database): void {
   recordMigration(database, 51, 'Persist app publication records');
 }
 
-function migrateV52(
+// Version 52 was already assigned to agent sharing in a parallel migration.
+function agentArchivedNeedMigration(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'agents') &&
+    !columnExists(database, 'agents', 'archived')
+  );
+}
+
+function migrateV53(
   database: Database.Database,
   opts?: InitDatabaseOptions,
 ): void {
@@ -3294,7 +3302,7 @@ function migrateV52(
     ddl: 'archived INTEGER NOT NULL DEFAULT 0',
     quiet: opts?.quiet === true,
   });
-  recordMigration(database, 52, 'Persist archived agent state');
+  recordMigration(database, 53, 'Persist archived agent state');
 }
 
 function runMigrations(
@@ -3420,7 +3428,9 @@ function runMigrations(
   if (currentVersion < 49) migrateV49(database);
   if (currentVersion < 50) migrateV50(database);
   if (currentVersion < 51) migrateV51(database);
-  if (currentVersion < 52) migrateV52(database, opts);
+  if (currentVersion < 53 || agentArchivedNeedMigration(database)) {
+    migrateV53(database, opts);
+  }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
