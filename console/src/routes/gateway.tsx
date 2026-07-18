@@ -27,7 +27,8 @@ import {
 import { Field, FieldLabel } from '../components/field';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
-import { ProviderHealthPanel } from '../components/provider-health';
+import { ProviderHealth } from '../components/provider-health';
+import { SecretRefPicker } from '../components/secret-ref-picker';
 import { Switch } from '../components/switch';
 import { useToast } from '../components/toast';
 import { BooleanPill, MetricCard, PageHeader } from '../components/ui';
@@ -345,10 +346,11 @@ export function GatewayPage() {
       <TunnelSettings />
 
       <div className="two-column-grid">
-        <ProviderHealthPanel
+        <ProviderHealth
           title="Provider health"
           entries={providerEntries}
-          onLogin={() => void navigate({ to: '/admin/config' })}
+          variant="compact"
+          onManage={() => void navigate({ to: '/admin/models' })}
         />
 
         <Card>
@@ -450,13 +452,11 @@ export function GatewayPage() {
                         )}
                       </Field>
                       <Field>
-                        <FieldLabel>API key SecretRef id</FieldLabel>
-                        <Input
+                        <FieldLabel>API key secret</FieldLabel>
+                        <SecretRefPicker
                           value={proxyApiKeySecretId}
                           placeholder={DEFAULT_PROXY_SECRET_ID}
-                          onChange={(event) =>
-                            setProxyApiKeySecretId(event.target.value)
-                          }
+                          onValueChange={setProxyApiKeySecretId}
                         />
                       </Field>
                       <Field>

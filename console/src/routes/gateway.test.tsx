@@ -1,12 +1,17 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AdminAgent, AdminHybridAIBot } from '../api/types';
+import type {
+  AdminAgent,
+  AdminHybridAIBot,
+  AdminSecretsResponse,
+} from '../api/types';
 import { renderWithProviders } from '../test-utils';
 import { GatewayPage } from './gateway';
 
 const fetchAdminAgentsMock = vi.fn<() => Promise<AdminAgent[]>>();
 const fetchAdminHybridAIBotsMock =
   vi.fn<(token: string, baseUrl?: string) => Promise<AdminHybridAIBot[]>>();
+const fetchAdminSecretsMock = vi.fn<() => Promise<AdminSecretsResponse>>();
 const reloadGatewayMock = vi.fn();
 const updateAdminAgentMock = vi.fn();
 const navigateMock = vi.fn();
@@ -17,6 +22,7 @@ vi.mock('../api/client', () => ({
   fetchAdminAgents: () => fetchAdminAgentsMock(),
   fetchAdminHybridAIBots: (...args: [string, string?]) =>
     fetchAdminHybridAIBotsMock(...args),
+  fetchAdminSecrets: () => fetchAdminSecretsMock(),
   reloadGateway: (...args: unknown[]) => reloadGatewayMock(...args),
   updateAdminAgent: (...args: unknown[]) => updateAdminAgentMock(...args),
 }));
@@ -116,6 +122,7 @@ describe('GatewayPage', () => {
   beforeEach(() => {
     fetchAdminAgentsMock.mockReset();
     fetchAdminHybridAIBotsMock.mockReset();
+    fetchAdminSecretsMock.mockReset();
     reloadGatewayMock.mockReset();
     updateAdminAgentMock.mockReset();
     navigateMock.mockReset();
@@ -144,6 +151,20 @@ describe('GatewayPage', () => {
         name: 'Research Bot',
       },
     ]);
+    fetchAdminSecretsMock.mockResolvedValue({
+      secrets: [
+        {
+          name: 'HYBRIDAI_PROXY_KEY',
+          state: 'set',
+          created_at: '2026-07-18T10:00:00.000Z',
+          last_rotated_at: '2026-07-18T10:00:00.000Z',
+          length: 24,
+          fingerprint: { length: 24, sha256_prefix: 'proxy-key' },
+        },
+      ],
+      total: 1,
+      actions: ['secret.list_metadata'],
+    });
   });
 
   afterEach(() => {
@@ -154,6 +175,30 @@ describe('GatewayPage', () => {
     renderGatewayPage();
 
     expect(screen.getByText('Public tunnel settings')).toBeTruthy();
+  });
+
+  it('uses compact provider health that opens the Providers page', () => {
+    useAuthMock.mockReturnValue({
+      token: 'test-token',
+      gatewayStatus: makeStatus({
+        providerHealth: {
+          hybridai: {
+            kind: 'remote',
+            reachable: true,
+            latencyMs: 12,
+            modelCount: 3,
+          },
+        },
+      }),
+    });
+
+    renderGatewayPage();
+
+    expect(
+      screen.getByText('Provider health').closest('section')?.textContent,
+    ).toContain('1 healthy');
+    fireEvent.click(screen.getByRole('button', { name: 'Manage providers →' }));
+    expect(navigateMock).toHaveBeenCalledWith({ to: '/admin/models' });
   });
 
   it('opens a reload confirmation dialog and calls the reload endpoint', async () => {
@@ -208,7 +253,7 @@ describe('GatewayPage', () => {
     fireEvent.change(screen.getByLabelText('Chatbot id'), {
       target: { value: 'bot-research' },
     });
-    fireEvent.change(screen.getByLabelText('API key SecretRef id'), {
+    fireEvent.change(screen.getByLabelText('API key secret'), {
       target: { value: 'HYBRIDAI_PROXY_KEY' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save Proxy Mode' }));
@@ -252,7 +297,7 @@ describe('GatewayPage', () => {
     fireEvent.change(screen.getByLabelText('Chatbot id'), {
       target: { value: 'upstream-chatbot' },
     });
-    fireEvent.change(screen.getByLabelText('API key SecretRef id'), {
+    fireEvent.change(screen.getByLabelText('API key secret'), {
       target: { value: 'HYBRIDAI_PROXY_KEY' },
     });
     fireEvent.change(screen.getByLabelText('Conversation scope'), {
@@ -288,7 +333,7 @@ describe('GatewayPage', () => {
     fireEvent.change(screen.getByLabelText('Chatbot id'), {
       target: { value: 'upstream-chatbot' },
     });
-    fireEvent.change(screen.getByLabelText('API key SecretRef id'), {
+    fireEvent.change(screen.getByLabelText('API key secret'), {
       target: { value: 'HYBRIDAI_PROXY_KEY' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save Proxy Mode' }));

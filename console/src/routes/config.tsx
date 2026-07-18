@@ -15,7 +15,6 @@ import {
   startBrowserPool,
 } from '../api/client';
 import type { AdminBrowserPoolHealthResponse, AdminConfig } from '../api/types';
-import { LOG_LEVELS } from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import { Card } from '../components/card';
@@ -28,14 +27,18 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
+  FieldTitle,
   pattern,
   required,
 } from '../components/field';
 import { Form, FormField, useForm } from '../components/form';
 import { Trash } from '../components/icons';
 import { Input } from '../components/input';
+import { ManagedElsewhereBanner } from '../components/managed-elsewhere-banner';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { NumberField } from '../components/number-field';
+import { SecretRefPicker } from '../components/secret-ref-picker';
+import { ADMIN_CONFIG_SECTION_OWNERS } from '../components/sidebar/navigation';
 import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
@@ -45,7 +48,7 @@ import { DEFAULT_VIEW_SWITCH_ITEMS } from '../components/view-switch';
 import { useFormMutation } from '../hooks/use-form-mutation';
 import { useUnsavedChangesGuard } from '../hooks/use-unsaved-changes-guard';
 import { getErrorMessage } from '../lib/error-message';
-import { isOneOf } from '../lib/oneof';
+import { findTopLevelJsonSection } from '../lib/json-cursor-section';
 import styles from './config.module.css';
 
 function serialize(config: AdminConfig): string {
@@ -541,6 +544,9 @@ export function ConfigPage() {
   const [viewMode, setViewMode] = useState<'form' | 'json'>('form');
   const [rawJson, setRawJson] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [jsonCursorSection, setJsonCursorSection] = useState<string | null>(
+    null,
+  );
 
   const configQuery = useQuery({
     queryKey: ['config', auth.token],
@@ -634,15 +640,19 @@ export function ConfigPage() {
     },
   });
 
-  const handleRawJsonChange = useCallback((next: string) => {
-    setRawJson(next);
-    try {
-      JSON.parse(next);
-      setJsonError(null);
-    } catch (error) {
-      setJsonError(getErrorMessage(error));
-    }
-  }, []);
+  const handleRawJsonChange = useCallback(
+    (next: string, cursorOffset: number) => {
+      setRawJson(next);
+      setJsonCursorSection(findTopLevelJsonSection(next, cursorOffset));
+      try {
+        JSON.parse(next);
+        setJsonError(null);
+      } catch (error) {
+        setJsonError(getErrorMessage(error));
+      }
+    },
+    [],
+  );
 
   const { dialog: unsavedChangesDialog } = useUnsavedChangesGuard({
     isDirty,
@@ -680,6 +690,7 @@ export function ConfigPage() {
         const parsed = JSON.parse(rawJson) as AdminConfig;
         setDraft(parsed);
         setJsonError(null);
+        setJsonCursorSection(null);
         setViewMode('form');
       } catch (error) {
         setJsonError(getErrorMessage(error));
@@ -688,6 +699,7 @@ export function ConfigPage() {
     }
     setRawJson(serialize(draft));
     setJsonError(null);
+    setJsonCursorSection(null);
     setViewMode('json');
   };
 
@@ -715,6 +727,9 @@ export function ConfigPage() {
   const saveDisabled =
     saveMutation.isPending ||
     (viewMode === 'json' ? Boolean(jsonError) : !form.isValid);
+  const jsonSectionOwner = jsonCursorSection
+    ? ADMIN_CONFIG_SECTION_OWNERS[jsonCursorSection]
+    : undefined;
 
   return (
     <Form form={form} className={styles.page} onSubmit={save}>
@@ -768,26 +783,44 @@ export function ConfigPage() {
 
       <div className={styles.content}>
         {viewMode === 'json' ? (
-          <Field className={styles.jsonField} invalid={Boolean(jsonError)}>
-            <FieldLabel>config.json</FieldLabel>
-            <Textarea
-              className={`code-editor ${styles.jsonEditor}`}
-              spellCheck={false}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              value={rawJson}
-              onChange={(event) => handleRawJsonChange(event.target.value)}
-            />
-            <FieldError>{jsonError}</FieldError>
-          </Field>
+          <>
+            {jsonSectionOwner ? (
+              <ManagedElsewhereBanner owner={jsonSectionOwner} />
+            ) : null}
+            <Field className={styles.jsonField} invalid={Boolean(jsonError)}>
+              <FieldLabel>config.json</FieldLabel>
+              <Textarea
+                className={`code-editor ${styles.jsonEditor}`}
+                spellCheck={false}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                value={rawJson}
+                onChange={(event) =>
+                  handleRawJsonChange(
+                    event.target.value,
+                    event.target.selectionStart,
+                  )
+                }
+                onSelect={(event) =>
+                  setJsonCursorSection(
+                    findTopLevelJsonSection(
+                      rawJson,
+                      event.currentTarget.selectionStart,
+                    ),
+                  )
+                }
+              />
+              <FieldError>{jsonError}</FieldError>
+            </Field>
+          </>
         ) : (
           <>
             <Card className={styles.sectionCard}>
               <FieldSet>
                 <FieldLegend>Operations</FieldLegend>
                 <FieldDescription className={styles.sectionDescription}>
-                  Gateway listener and log verbosity.
+                  Gateway listener and public URLs.
                 </FieldDescription>
                 <FieldGroup>
                   <FormField
@@ -819,29 +852,17 @@ export function ConfigPage() {
                       </Field>
                     )}
                   />
-                  <FormField
-                    name="ops.logLevel"
-                    render={({ field }) => (
-                      <Field>
-                        <FieldLabel>Log level</FieldLabel>
-                        <NativeSelect
-                          value={field.value as string}
-                          onChange={(event) => {
-                            const next = event.target.value;
-                            if (isOneOf(LOG_LEVELS, next)) {
-                              field.onChange(next);
-                            }
-                          }}
-                        >
-                          {LOG_LEVELS.map((level) => (
-                            <NativeSelectOption key={level} value={level}>
-                              {level}
-                            </NativeSelectOption>
-                          ))}
-                        </NativeSelect>
-                      </Field>
-                    )}
-                  />
+                  <Field orientation="horizontal">
+                    <FieldContent>
+                      <FieldTitle>Log level</FieldTitle>
+                      <FieldDescription>
+                        Runtime logging controls are managed on the Logs page.
+                      </FieldDescription>
+                    </FieldContent>
+                    <Link to="/admin/logs" className="ghost-button">
+                      Open Logs
+                    </Link>
+                  </Field>
                   <FormField
                     name="ops.gatewayBaseUrl"
                     render={({ field }) => (
@@ -929,15 +950,18 @@ export function ConfigPage() {
                       </Field>
                     )}
                   />
-                  <FormField
-                    name="hybridai.defaultModel"
-                    render={({ field }) => (
-                      <Field>
-                        <FieldLabel>Default model</FieldLabel>
-                        <Input {...field} />
-                      </Field>
-                    )}
-                  />
+                  <Field orientation="horizontal">
+                    <FieldContent>
+                      <FieldTitle>Default model</FieldTitle>
+                      <FieldDescription>
+                        Model selection and routing are managed on the Providers
+                        page.
+                      </FieldDescription>
+                    </FieldContent>
+                    <Link to="/admin/models" className="ghost-button">
+                      Open Providers
+                    </Link>
+                  </Field>
                   <FormField
                     name="hybridai.enableRag"
                     render={({ field }) => (
@@ -1142,12 +1166,11 @@ export function ConfigPage() {
                         />
                       </Field>
                       <Field>
-                        <FieldLabel>Pool token SecretRef id</FieldLabel>
-                        <Input
+                        <FieldLabel>Pool token secret</FieldLabel>
+                        <SecretRefPicker
                           value={managedPoolTokenId}
                           placeholder="MANAGED_BROWSER_POOL_TOKEN"
-                          onChange={(event) => {
-                            const id = event.target.value.trim();
+                          onValueChange={(id) => {
                             setBrowserSection(setDraft, 'managedCloud', {
                               poolTokenRef: id
                                 ? { source: 'store', id }
@@ -1197,11 +1220,11 @@ export function ConfigPage() {
                   {browser.provider === 'browser-use-cloud' ? (
                     <>
                       <Field>
-                        <FieldLabel>API key SecretRef id</FieldLabel>
-                        <Input
+                        <FieldLabel>API key secret</FieldLabel>
+                        <SecretRefPicker
                           value={browserUseApiKeyId}
-                          onChange={(event) => {
-                            const id = event.target.value.trim();
+                          placeholder="BROWSER_USE_API_KEY"
+                          onValueChange={(id) => {
                             setBrowserSection(setDraft, 'browserUseCloud', {
                               apiKeyRef: id
                                 ? { source: 'store', id }

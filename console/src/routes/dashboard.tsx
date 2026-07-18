@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { fetchOverview, fetchStatistics } from '../api/client';
 import { useAuth } from '../auth';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
-import { ProviderHealthPanel } from '../components/provider-health';
+import { ProviderHealth } from '../components/provider-health';
 import {
   MetricCard,
   PageHeader,
@@ -175,10 +175,11 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <ProviderHealthPanel
+        <ProviderHealth
           title="Backend health"
           entries={backendEntries}
-          onLogin={() => void navigate({ to: '/admin/config' })}
+          variant="compact"
+          onManage={() => void navigate({ to: '/admin/models' })}
         />
       </div>
 

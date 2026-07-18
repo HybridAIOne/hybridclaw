@@ -4,6 +4,7 @@ import type {
   AdminBrowserPoolHealthResponse,
   AdminConfig,
   AdminConfigResponse,
+  AdminSecretsResponse,
 } from '../api/types';
 import {
   blockerStateMock,
@@ -17,11 +18,13 @@ vi.mock('@tanstack/react-router', () => mockRouterBlocker());
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchBrowserPoolHealthMock =
   vi.fn<() => Promise<AdminBrowserPoolHealthResponse>>();
+const fetchAdminSecretsMock = vi.fn<() => Promise<AdminSecretsResponse>>();
 const saveConfigMock = vi.fn();
 const startBrowserPoolMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
+  fetchAdminSecrets: () => fetchAdminSecretsMock(),
   fetchBrowserPoolHealth: () => fetchBrowserPoolHealthMock(),
   fetchConfig: () => fetchConfigMock(),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
@@ -157,6 +160,28 @@ beforeEach(() => {
     message:
       'Managed browser pool health check failed at http://127.0.0.1:8787: fetch failed',
   });
+  fetchAdminSecretsMock.mockResolvedValue({
+    secrets: [
+      {
+        name: 'BROWSER_USE_API_KEY',
+        state: 'set',
+        created_at: '2026-07-18T10:00:00.000Z',
+        last_rotated_at: '2026-07-18T10:00:00.000Z',
+        length: 24,
+        fingerprint: { length: 24, sha256_prefix: 'browser-use' },
+      },
+      {
+        name: 'MANAGED_BROWSER_POOL_TOKEN',
+        state: 'set',
+        created_at: '2026-07-18T10:00:00.000Z',
+        last_rotated_at: '2026-07-18T10:00:00.000Z',
+        length: 24,
+        fingerprint: { length: 24, sha256_prefix: 'browser-pool' },
+      },
+    ],
+    total: 2,
+    actions: ['secret.list_metadata'],
+  });
   saveConfigMock.mockResolvedValue({
     path: '/tmp/config.json',
     config,
@@ -193,12 +218,9 @@ describe('ConfigPage', () => {
     fireEvent.change(screen.getByDisplayValue('http://127.0.0.1:8787'), {
       target: { value: 'https://browser.example' },
     });
-    fireEvent.change(
-      screen.getByPlaceholderText('MANAGED_BROWSER_POOL_TOKEN'),
-      {
-        target: { value: 'MANAGED_BROWSER_POOL_TOKEN' },
-      },
-    );
+    fireEvent.change(screen.getByLabelText('Pool token secret'), {
+      target: { value: 'MANAGED_BROWSER_POOL_TOKEN' },
+    });
     fireEvent.change(screen.getByLabelText('Default tenant id (optional)'), {
       target: { value: 'tenant-a' },
     });
@@ -406,6 +428,62 @@ describe('ConfigPage', () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false);
+  });
+
+  it('links page-owned settings instead of rendering duplicate form controls', async () => {
+    renderConfigPage();
+
+    await screen.findByLabelText('Health host');
+
+    expect(screen.queryByRole('combobox', { name: 'Log level' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Default model' })).toBeNull();
+    expect(
+      screen.getByRole('link', { name: 'Open Logs' }).getAttribute('href'),
+    ).toBe('/admin/logs');
+    expect(
+      screen.getByRole('link', { name: 'Open Providers' }).getAttribute('href'),
+    ).toBe('/admin/models');
+  });
+
+  it('links page-owned sections from JSON mode based on the cursor position', async () => {
+    renderConfigPage();
+
+    await screen.findByLabelText('Health host');
+    fireEvent.click(screen.getByRole('button', { name: 'JSON' }));
+
+    const editor = (await screen.findByLabelText(
+      'config.json',
+    )) as HTMLTextAreaElement;
+    const rawJson = JSON.stringify(
+      {
+        ...makeConfig(),
+        discord: { enabled: true },
+      },
+      null,
+      2,
+    );
+    fireEvent.change(editor, { target: { value: rawJson } });
+
+    const discordCursor = rawJson.indexOf('"discord"') + '"discord"'.length;
+    editor.setSelectionRange(discordCursor, discordCursor);
+    fireEvent.select(editor);
+
+    expect(screen.getByLabelText('Managed elsewhere')).toBeTruthy();
+    expect(
+      screen.getByText('This section is managed on the Channels page.'),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole('link', { name: 'Open Channels →' })
+        .getAttribute('href'),
+    ).toBe('/admin/channels');
+
+    const containerCursor =
+      rawJson.indexOf('"container"') + '"container"'.length;
+    editor.setSelectionRange(containerCursor, containerCursor);
+    fireEvent.select(editor);
+
+    expect(screen.queryByLabelText('Managed elsewhere')).toBeNull();
   });
 
   it('surfaces a FieldError for malformed JSON in raw mode and blocks saving', async () => {

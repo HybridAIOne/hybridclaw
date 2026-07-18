@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AdminOverview, AdminTunnelStatus } from '../api/types';
 import { renderWithProviders } from '../test-utils';
@@ -150,6 +150,28 @@ describe('DashboardPage', () => {
       await screen.findByRole('heading', { name: 'Recent sessions' }),
     ).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Public tunnel' })).toBeNull();
+  });
+
+  it('links compact backend health to the Providers page', async () => {
+    const overview = makeOverview();
+    overview.status.providerHealth = {
+      hybridai: {
+        kind: 'remote',
+        reachable: true,
+        latencyMs: 12,
+        modelCount: 3,
+      },
+    };
+    fetchOverviewMock.mockResolvedValue(overview);
+
+    renderDashboardPage();
+
+    expect(await screen.findByText('Backend health')).toBeTruthy();
+    expect(
+      screen.getByText('Backend health').closest('section')?.textContent,
+    ).toContain('1 healthy');
+    fireEvent.click(screen.getByRole('button', { name: 'Manage providers →' }));
+    expect(navigateMock).toHaveBeenCalledWith({ to: '/admin/models' });
   });
 
   it('keeps zero daily usage and per-day chart labels visible', async () => {

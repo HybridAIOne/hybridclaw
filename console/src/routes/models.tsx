@@ -12,6 +12,10 @@ import {
 import { Field, FieldLabel } from '../components/field';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
+import {
+  type ProviderEntry,
+  ProviderHealth,
+} from '../components/provider-health';
 import { useToast } from '../components/toast';
 import { PageHeader, SortableHeader, useSortableRows } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
@@ -50,14 +54,6 @@ function compareModelsByUsage(left: ModelEntry, right: ModelEntry): number {
 }
 
 type ModelSortKey = 'model' | 'backend' | 'context' | 'monthlyUsage';
-type ProviderStatusEntry = NonNullable<
-  Awaited<ReturnType<typeof fetchModels>>['providerStatus']
->[string];
-type ProviderSummary = {
-  name: string;
-  status: ProviderStatusEntry | null;
-};
-
 const PROVIDER_DISPLAY_ORDER = [
   'hybridai',
   'codex',
@@ -97,19 +93,33 @@ function compareProviderNames(left: string, right: string): number {
   return left.localeCompare(right);
 }
 
-function buildProviderSummaries(
+function buildProviderEntries(
   payload?: Awaited<ReturnType<typeof fetchModels>>,
-): ProviderSummary[] {
+): Array<[string, ProviderEntry]> {
   const providerNames = new Set(Object.keys(payload?.providerStatus || {}));
+  const catalogModelCounts = new Map<string, number>();
   for (const model of payload?.models || []) {
     const provider = inferProviderName(model);
-    if (provider) providerNames.add(provider);
+    if (!provider) continue;
+    providerNames.add(provider);
+    catalogModelCounts.set(
+      provider,
+      (catalogModelCounts.get(provider) ?? 0) + 1,
+    );
   }
 
-  return [...providerNames].sort(compareProviderNames).map((name) => ({
-    name,
-    status: payload?.providerStatus?.[name] || null,
-  }));
+  return [...providerNames].sort(compareProviderNames).map((name) => {
+    const status = payload?.providerStatus?.[name];
+    return [
+      name,
+      status || {
+        reachable: false,
+        catalogOnly: true,
+        modelCount: catalogModelCounts.get(name) ?? 0,
+        detail: 'Visible in catalog · no live health data',
+      },
+    ];
+  });
 }
 
 const MODEL_SORTERS: Record<
@@ -208,7 +218,7 @@ export function ModelsPage() {
     defaultDirections: MODEL_DEFAULT_DIRECTIONS,
   });
 
-  const providerEntries = buildProviderSummaries(modelsQuery.data);
+  const providerEntries = buildProviderEntries(modelsQuery.data);
   const modelsWithDailyUsage = (modelsQuery.data?.models || []).filter(
     hasDailyUsage,
   );
@@ -227,58 +237,11 @@ export function ModelsPage() {
       />
 
       <div className="two-column-grid">
-        <Card>
-          <CardHeader>
-            <CardTitle>Provider status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="list-stack">
-              {providerEntries.map(({ name, status }) => (
-                <div className="list-row" key={name}>
-                  <div>
-                    <strong>{name}</strong>
-                    <small>
-                      {status?.reachable
-                        ? `${status.detail || (typeof status.latencyMs === 'number' ? `${status.latencyMs}ms` : 'ready')} · ${status.modelCount ?? 0} models`
-                        : status
-                          ? status.error || 'unreachable'
-                          : 'Visible in catalog · no live health data'}
-                    </small>
-                  </div>
-                  <span
-                    className={
-                      status?.reachable
-                        ? 'list-status list-status-success'
-                        : status
-                          ? 'list-status list-status-danger'
-                          : 'list-status'
-                    }
-                  >
-                    <span
-                      className={
-                        status?.reachable
-                          ? 'status-dot status-dot-success'
-                          : status
-                            ? 'status-dot status-dot-danger'
-                            : 'status-dot'
-                      }
-                    />
-                    {status?.reachable
-                      ? 'healthy'
-                      : status
-                        ? 'down'
-                        : 'catalog'}
-                  </span>
-                </div>
-              ))}
-              {providerEntries.length === 0 ? (
-                <div className="empty-state">
-                  No provider health checks available.
-                </div>
-              ) : null}
-            </div>
-          </CardContent>
-        </Card>
+        <ProviderHealth
+          title="Provider health"
+          entries={providerEntries}
+          variant="full"
+        />
 
         <Card variant="muted">
           <CardHeader>

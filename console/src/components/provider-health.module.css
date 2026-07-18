@@ -15,6 +15,10 @@
   overflow: hidden;
 }
 
+.panelCompact {
+  min-width: 0;
+}
+
 .panelHeader {
   padding: 12px 16px 11px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
@@ -95,6 +99,10 @@
   box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.15);
   animation: pulse 2s ease-in-out infinite;
 }
+.dotCatalog {
+  background: #64748b;
+  box-shadow: 0 0 0 2px rgba(100, 116, 139, 0.15);
+}
 .dotDown {
   background: #ef4444;
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
@@ -158,6 +166,63 @@
   color: #9ca3af;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+.statusLabel {
+  font-size: 10px;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.manageBtn {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #4f46e5;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.manageBtn:hover {
+  text-decoration: underline;
+}
+
+.compactBody {
+  display: grid;
+  gap: 10px;
+  padding: 12px 16px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.compactSummary strong {
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+}
+
+.compactSummary .compactAttention {
+  color: #b45309;
+}
+
+.compactProviders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.compactProvider {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #4b5563;
+  font-size: 11px;
+}
+
+.compactOverflow {
+  color: #9ca3af;
+  font-size: 11px;
 }
 
 .loginBtn {
@@ -278,6 +343,28 @@
 
 :global(html[data-theme="dark"]) .modelCount {
   color: #4b5563;
+}
+
+:global(html[data-theme="dark"]) .statusLabel,
+:global(html[data-theme="dark"]) .compactBody,
+:global(html[data-theme="dark"]) .compactOverflow {
+  color: #6b7280;
+}
+
+:global(html[data-theme="dark"]) .manageBtn {
+  color: #a5b4fc;
+}
+
+:global(html[data-theme="dark"]) .compactSummary strong {
+  color: #e5edf7;
+}
+
+:global(html[data-theme="dark"]) .compactSummary .compactAttention {
+  color: #fbbf24;
+}
+
+:global(html[data-theme="dark"]) .compactProvider {
+  color: #9ca3af;
 }
 
 :global(html[data-theme="dark"]) .loginBtn {
