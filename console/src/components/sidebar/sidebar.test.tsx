@@ -499,9 +499,12 @@ describe('AppSidebar', () => {
     expect(screen.getByText('HybridClaw')).toBeDefined();
     expect(screen.getByText('Admin console')).toBeDefined();
     expect(screen.getByText('Overview')).toBeDefined();
-    expect(screen.getByText('A2A')).toBeDefined();
-    expect(screen.getByText('Runtime')).toBeDefined();
-    expect(screen.getByText('Configuration')).toBeDefined();
+    expect(screen.getByText('Agents')).toBeDefined();
+    expect(screen.getByText('Connectivity')).toBeDefined();
+    expect(screen.getByText('Models')).toBeDefined();
+    expect(screen.getByText('Security')).toBeDefined();
+    expect(screen.getByText('System')).toBeDefined();
+    expect(screen.getByText('Labs')).toBeDefined();
   });
 
   it('renders all nav item labels', () => {

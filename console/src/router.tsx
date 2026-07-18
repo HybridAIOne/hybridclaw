@@ -3,6 +3,7 @@ import {
   createRoute,
   createRouter,
   Outlet,
+  redirect,
   useRouterState,
 } from '@tanstack/react-router';
 import { lazy, Suspense, useEffect } from 'react';
@@ -140,10 +141,18 @@ const statisticsRoute = createRoute({
   component: StatisticsPage,
 });
 
-const approvalsRoute = createRoute({
+const networkPolicyRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/network-policy',
+  component: ApprovalsPage,
+});
+
+const legacyApprovalsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/approvals',
-  component: ApprovalsPage,
+  beforeLoad: () => {
+    throw redirect({ to: '/admin/network-policy', replace: true });
+  },
 });
 
 const a2aInboxRoute = createRoute({
@@ -209,10 +218,16 @@ const channelsRoute = createRoute({
   component: ChannelsPage,
 });
 
-const teamsRoute = createRoute({
+const legacyTeamsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/teams',
-  component: TeamsPage,
+  beforeLoad: () => {
+    throw redirect({
+      to: '/admin/connectors',
+      hash: 'teams-sso',
+      replace: true,
+    });
+  },
 });
 
 const emailRoute = createRoute({
@@ -266,10 +281,18 @@ const mcpRoute = createRoute({
   component: McpPage,
 });
 
+function ConnectorsRouteComponent() {
+  const hash = useRouterState({
+    select: (state) => state.location.hash.replace(/^#/, ''),
+  });
+
+  return hash === 'teams-sso' ? <TeamsPage /> : <ConnectorsPage />;
+}
+
 const connectorsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/connectors',
-  component: ConnectorsPage,
+  component: ConnectorsRouteComponent,
 });
 
 const auditRoute = createRoute({
@@ -370,7 +393,8 @@ const routeTree = rootRoute.addChildren([
   adminLayoutRoute.addChildren([
     dashboardRoute,
     statisticsRoute,
-    approvalsRoute,
+    networkPolicyRoute,
+    legacyApprovalsRoute,
     a2aInboxRoute,
     a2aTrustRoute,
     agentFilesRoute,
@@ -381,7 +405,7 @@ const routeTree = rootRoute.addChildren([
     fleetTopologyRoute,
     sessionsRoute,
     channelsRoute,
-    teamsRoute,
+    legacyTeamsRoute,
     emailRoute,
     configRoute,
     modelsRoute,

@@ -433,7 +433,7 @@ function JobDetailCard(props: {
                 }).catch(logNavigationError);
                 return;
               }
-              void navigate({ to: '/admin/approvals' }).catch(
+              void navigate({ to: '/admin/network-policy' }).catch(
                 logNavigationError,
               );
             }}
