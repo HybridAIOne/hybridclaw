@@ -5,5 +5,9 @@
     "container/package-lock.json": "a3d00f6e8dba50b4d22fd799c4b37ac7682543c6b80dd5690d8bc6a8910ef50d",
     "container/npm-shrinkwrap.json": "a3d00f6e8dba50b4d22fd799c4b37ac7682543c6b80dd5690d8bc6a8910ef50d",
     "plugins/brevo-email/package-lock.json": "3377225eb3bdbb252eaa28ad420b9a725ea1da533417388557aa1984730229b5"
+  },
+  "licenses": {
+    "libsignal@6.0.0": "GPL-3.0",
+    "ua-parser-js@2.0.10": "AGPL-3.0-or-later"
   }
 }

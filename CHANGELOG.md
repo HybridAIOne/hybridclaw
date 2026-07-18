@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- **Dependency license gate**: `scripts/check-dependency-policy.mjs` now scans
+  every tracked `package-lock.json` and fails on GPL, AGPL, and SSPL-family
+  licenses unless the exact `name@version` and license pair is approved under
+  `licenses` in `scripts/dependency-policy-baseline.json`. Weak-copyleft
+  licenses such as LGPL and MPL, and packages with missing license metadata,
+  are reported without failing, and dual-licensed packages resolve to their
+  most permissive option. The gate runs in every existing dependency-policy
+  entry point: the pre-commit hook, the CI lint job, `npm run deps:policy`,
+  and `npm run release:check`.
+
+  `Manifesto: Principle VII - A coworker you can trust with real responsibility.`
+
 ## [0.28.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.2) - 2026-07-17
 
 ### Added
