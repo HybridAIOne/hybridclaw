@@ -668,6 +668,9 @@ test('available model catalog discovers Codex models from the models endpoint', 
     'openai-codex/gpt-5.4',
     'openai-codex/gpt-5.4-mini',
     'openai-codex/gpt-5.5',
+    'openai-codex/gpt-5.6-luna',
+    'openai-codex/gpt-5.6-sol',
+    'openai-codex/gpt-5.6-terra',
   ]);
   const codexRequest = fetchMock.mock.calls
     .map(([input, init]) => ({
@@ -1043,6 +1046,9 @@ test('available model catalog discovers Codex models from the current models pay
     'openai-codex/gpt-5.4',
     'openai-codex/gpt-5.4-mini',
     'openai-codex/gpt-5.5',
+    'openai-codex/gpt-5.6-luna',
+    'openai-codex/gpt-5.6-sol',
+    'openai-codex/gpt-5.6-terra',
   ]);
   expect(catalog.getAvailableModelList('codex')).not.toContain(
     'openai-codex/GPT-5.2 Codex (Preview)',
