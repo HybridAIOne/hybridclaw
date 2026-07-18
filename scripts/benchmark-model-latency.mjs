@@ -28,8 +28,14 @@
 //                       `vendor`.
 //   --stream <mode>     both | true | false (default: both)
 //   --runs <n>          Runs per arm+stream combination (default: 3)
-//   --prompt <text>     Prompt to send (default: short fixed prompt)
-//   --max-tokens <n>    Output token cap for the hai/vendor arms (default: 512)
+//   --prompt <text>     Prompt to send (default: short fixed prompt). For a
+//                       meaningful tok/s figure ask for a long answer — a
+//                       10-token reply measures noise, not throughput.
+//   --prompt-file <p>   Read the prompt from a file instead of --prompt
+//   --max-tokens <n>    Output token cap for the hai/vendor arms (default: 512).
+//                       Ignored by the gateway arm: HybridClaw's
+//                       OpenAI-compatible endpoint does not accept max_tokens,
+//                       so gateway output length is driven by the prompt alone.
 //   --no-thinking       Do not inject the adaptive-thinking block HybridClaw
 //                       adds for Claude models on the hai/vendor arms
 //   --chatbot-id <id>   chatbot_id for the hai arm (default: env
@@ -135,6 +141,9 @@ function parseArgs(argv) {
         break;
       case '--prompt':
         options.prompt = next();
+        break;
+      case '--prompt-file':
+        options.prompt = readFileSync(next(), 'utf8').trim();
         break;
       case '--max-tokens':
         options.maxTokens = Number.parseInt(next(), 10);
@@ -804,7 +813,24 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`prompt:      ${JSON.stringify(options.prompt)}`);
+  const promptPreview =
+    options.prompt.length > 120
+      ? `${options.prompt.slice(0, 117)}...`
+      : options.prompt;
+  console.log(
+    `prompt:      ${JSON.stringify(promptPreview)} (${options.prompt.length} chars)`,
+  );
+  // The gateway ignores max_tokens, so warn rather than let the flag look
+  // like it capped a run that it had no effect on.
+  if (
+    process.argv.includes('--max-tokens') &&
+    active.every((target) => target.arm === 'gateway')
+  ) {
+    console.log(
+      'note:        --max-tokens has no effect on the gateway arm (HybridClaw\n' +
+        '             does not accept max_tokens); use the prompt to control length',
+    );
+  }
   console.log(
     `runs:        ${options.runs} per arm+stream (run 1 = cold connection)`,
   );
@@ -920,6 +946,9 @@ async function main() {
       '             Streaming only: a non-streaming response arrives in one',
       '             piece, so generation start is not observable and any rate',
       '             would just be output tokens over prefill+queue+generation.',
+      '             Needs a few hundred output tokens to mean anything — on a',
+      '             10-token reply the denominator is a few milliseconds and',
+      '             the figure is noise. Ask the prompt for a long answer.',
       '  gateway - hai   = HybridClaw overhead (agent loop, big system prompt, session)',
       '  hai - vendor    = HybridAI backend overhead (proxying, harness, queueing)',
     ].join('\n'),
