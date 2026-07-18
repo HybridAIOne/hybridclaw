@@ -473,7 +473,7 @@ test('explicit session model pins bypass the concierge', async () => {
   expect(latest?.model).toBe('openai-codex/gpt-5.4');
 });
 
-test('explicit agent model pins bypass the concierge', async () => {
+test('agent default models remain routing preferences instead of hard pins', async () => {
   callAuxiliaryModelMock.mockResolvedValue({
     provider: 'hybridai',
     model: 'gemini-3-flash',
@@ -504,10 +504,6 @@ test('explicit agent model pins bypass the concierge', async () => {
     callAuxiliaryModelMock.mock.calls.filter(
       ([params]) => params?.task !== 'session_title',
     ),
-  ).toEqual([]);
-  expect(runAgentMock).toHaveBeenCalledTimes(1);
-  const request = runAgentMock.mock.calls[0]?.[0] as
-    | { model?: string }
-    | undefined;
-  expect(request?.model).toBe('openai-codex/gpt-5.4');
+  ).toHaveLength(1);
+  expect(runAgentMock).not.toHaveBeenCalled();
 });
