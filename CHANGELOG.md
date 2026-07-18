@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Prompt-cache usage is now visible through the OpenAI-compatible API**: the
+  gateway parsed upstream cache reads and writes internally but dropped them
+  when building the response, so clients could not tell a cold cache from a
+  fully cached prompt. `usage` now carries `prompt_tokens_details.cached_tokens`
+  (and `cache_creation_input_tokens` when the provider reports cache writes),
+  emitted only when the provider actually reported cache usage — a missing
+  field means "not reported" while an explicit `0` means "no cache hit". The
+  tool-aware passthrough path previously hard-coded cache usage to zero and now
+  reads both OpenAI-style (`prompt_tokens_details.cached_tokens`) and
+  Anthropic-style (`cache_read_input_tokens`) spellings.
+
+  `Manifesto: Principle IX - A coworker thinks before they spend.`
+
 ### Added
 
 - **Direct OpenAI API provider**: `openai/...` models use the OpenAI Responses
@@ -10,6 +25,13 @@
   gateway health, and doctor diagnostics. Codex OAuth remains available under
   the separate `openai-codex/...` provider.
   `Manifesto: Principle IV - Model freedom without lock-in.`
+- **Codex 5.6 models**: `openai-codex/gpt-5.6-sol`, `openai-codex/gpt-5.6-terra`,
+  and `openai-codex/gpt-5.6-luna` are now recognised as forward-compatible Codex
+  models, so they are selectable as soon as the Codex account offers them
+  instead of waiting for the discovery endpoint to list them.
+
+  `Manifesto: Principle VIII - A coworker doesn't break overnight.`
+
 - **Dependency license gate**: `scripts/check-dependency-policy.mjs` now scans
   every tracked `package-lock.json` and fails on GPL, AGPL, and SSPL-family
   licenses unless the exact `name@version` and license pair is approved under
