@@ -16,7 +16,7 @@ encrypted secrets without leaving the chat surface.
 /config check
 /config reload
 /secret set <NAME> <value>
-/secret show <NAME>
+/secret status <NAME>
 /secret unset <NAME>
 /secret list
 ```

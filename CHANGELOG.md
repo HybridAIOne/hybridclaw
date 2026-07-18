@@ -2145,7 +2145,7 @@
   auto-captures tokens using config constants instead of raw environment
   variables.
 - **Secret CLI simplification**: Removed the `[--raw]` option from
-  `secret show` and `secret set`, streamlining the operator-facing surface.
+  `secret status` and `secret set`, streamlining the operator-facing surface.
 - **CI pipeline split**: Unit tests now run as parallel lint and test jobs
   with a shared `setup-node-workspace` composite action and PR-level
   concurrency groups that cancel stale runs.
@@ -2499,7 +2499,7 @@
   plaintext secret files.
 - **SecretRefs and named secrets**: Selected runtime config fields can now
   resolve secret-bearing values from `env` or encrypted `store` references,
-  local TUI and web sessions expose `/secret list|set|unset|show|route ...`,
+  local TUI and web sessions expose `/secret list|set|status|unset|route ...`,
   and generic named secrets can be stored without adding new top-level env
   variables.
 - **Secret-backed HTTP requests**: Added the `http_request` tool plus

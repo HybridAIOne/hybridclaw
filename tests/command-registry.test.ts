@@ -605,6 +605,18 @@ test('registers secret as a local slash/text command', async () => {
       getSubcommand: () => null,
     }),
   ).toEqual(['secret', 'set', 'STAGING_HYBRIDAI_API_KEY', 'demo_key_2024']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'secret',
+      getString: (name) =>
+        name === 'action'
+          ? 'status'
+          : name === 'name'
+            ? 'STAGING_HYBRIDAI_API_KEY'
+            : null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['secret', 'status', 'STAGING_HYBRIDAI_API_KEY']);
   expect(mapCanonicalCommandToGatewayArgs(['secret'])).toEqual(['secret']);
   expect(
     mapCanonicalCommandToGatewayArgs([

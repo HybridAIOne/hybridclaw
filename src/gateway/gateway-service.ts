@@ -12561,10 +12561,10 @@ export async function handleGatewayCommand(
           );
         }
 
-        if (sub === 'show' || sub === 'status') {
+        if (sub === 'status') {
           const secretName = parseIdArg(req.args, 2);
           if (!secretName) {
-            return badCommand('Usage', 'Usage: `secret show <name>`');
+            return badCommand('Usage', 'Usage: `secret status <name>`');
           }
           if (!isRuntimeSecretName(secretName)) {
             return badCommand(
@@ -12583,7 +12583,7 @@ export async function handleGatewayCommand(
 
         return badCommand(
           'Usage',
-          'Usage: `secret list`, `secret set <name> <value>`, `secret unset <name>`, `secret show <name>`, or `secret route list|add|remove ...`',
+          'Usage: `secret list`, `secret set <name> <value>`, `secret status <name>`, `secret unset <name>`, or `secret route list|add|remove ...`',
         );
       }
 
