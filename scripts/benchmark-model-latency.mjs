@@ -6,29 +6,39 @@
 //              POST {GATEWAY}/v1/chat/completions  model=hybridai/<model>
 //   hai        The HybridAI OpenAI-compatible API called directly
 //              POST {HYBRIDAI_BASE_URL}/v1/chat/completions  model=<model>
-//   anthropic  The model vendor called directly (Anthropic Messages API)
-//              POST https://api.anthropic.com/v1/messages  model=claude-*
+//   vendor     The upstream model vendor called directly, resolved from the
+//              model family:
+//                claude-*      -> POST https://api.anthropic.com/v1/messages
+//                gpt-* / o<n>  -> POST https://api.openai.com/v1/chat/completions
 //
 // Each arm runs with stream=false and stream=true. Request bodies and headers
 // mirror what HybridClaw itself sends (container/src/providers/hybridai.ts and
 // container/src/providers/anthropic.ts), so gateway-vs-hai isolates HybridClaw
-// overhead and hai-vs-anthropic isolates the HybridAI backend overhead.
+// overhead and hai-vs-vendor isolates the HybridAI backend overhead.
 //
 // Usage:
 //   node scripts/benchmark-model-latency.mjs [options]
 //
 //   --model <id>        Model to test (default: anthropic/claude-sonnet-5).
 //                       Accepts sonnet-5 | claude-sonnet-5 |
-//                       anthropic/claude-sonnet-5 | hybridai/anthropic/...
-//   --arms <list>       Comma list of gateway,hai,anthropic (default: all)
+//                       anthropic/claude-sonnet-5 | hybridai/anthropic/... |
+//                       gpt-5.6-luna (HybridAI serves OpenAI models unprefixed)
+//   --arms <list>       Comma list of gateway,hai,vendor (default: all).
+//                       `anthropic` and `openai` are accepted as spellings of
+//                       `vendor`.
 //   --stream <mode>     both | true | false (default: both)
 //   --runs <n>          Runs per arm+stream combination (default: 3)
 //   --prompt <text>     Prompt to send (default: short fixed prompt)
-//   --max-tokens <n>    max_tokens for hai/anthropic arms (default: 512)
+//   --max-tokens <n>    Output token cap for the hai/vendor arms (default: 512)
 //   --no-thinking       Do not inject the adaptive-thinking block HybridClaw
-//                       adds for Claude models on the hai/anthropic arms
+//                       adds for Claude models on the hai/vendor arms
 //   --chatbot-id <id>   chatbot_id for the hai arm (default: env
 //                       HYBRIDAI_CHATBOT_ID or config.hybridai.defaultChatbotId)
+//   --vendor-model <id> Upstream model name for the vendor arm, when it differs
+//                       from the HybridAI-side name
+//   --openai-max-param <p>  auto | max_tokens | max_completion_tokens for the
+//                       OpenAI vendor arm (default: auto — max_completion_tokens
+//                       for gpt-5+/o-series, max_tokens otherwise)
 //   --gateway-url <url> Gateway base URL (default: OPENAI_BASE_URL without /v1,
 //                       else GATEWAY_BASE_URL, else http://127.0.0.1:9090)
 //   --timeout <ms>      Per-request timeout (default: 180000)
@@ -43,7 +53,10 @@
 //              alternatives; `hybridclaw eval node scripts/...` injects
 //              OPENAI_API_KEY automatically but runs detached.
 //   hai        HYBRIDAI_API_KEY (hai-...)
-//   anthropic  ANTHROPIC_API_KEY
+//   vendor     ANTHROPIC_API_KEY for claude-*, OPENAI_API_KEY for gpt-*/o<n>.
+//              Under `hybridclaw eval` OPENAI_API_KEY is the injected gateway
+//              token, so the OpenAI vendor arm is only available when the
+//              script is run directly.
 //
 // Arms with missing credentials are skipped with a notice.
 
@@ -58,6 +71,7 @@ import tls from 'node:tls';
 const ANTHROPIC_VERSION = '2023-06-01';
 const ANTHROPIC_TOOL_STREAMING_BETA = 'fine-grained-tool-streaming-2025-05-14';
 const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
+const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com';
 const DEFAULT_HYBRIDAI_BASE_URL = 'https://hybridai.one';
 const DEFAULT_GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
 const DEFAULT_PROMPT =
@@ -72,13 +86,15 @@ const ANTHROPIC_THINKING_MODEL_RE =
 function parseArgs(argv) {
   const options = {
     model: 'anthropic/claude-sonnet-5',
-    arms: ['gateway', 'hai', 'anthropic'],
+    arms: ['gateway', 'hai', 'vendor'],
     stream: 'both',
     runs: 3,
     prompt: DEFAULT_PROMPT,
     maxTokens: 512,
     thinking: true,
     chatbotId: '',
+    vendorModel: '',
+    openaiMaxParam: 'auto',
     gatewayUrl: '',
     timeoutMs: 180_000,
     jsonPath: '',
@@ -98,8 +114,12 @@ function parseArgs(argv) {
       case '--arms':
         options.arms = next()
           .split(',')
-          .map((value) => value.trim())
-          .filter(Boolean);
+          .map((value) => value.trim().toLowerCase())
+          .filter(Boolean)
+          // `anthropic`/`openai` are accepted spellings of the vendor arm.
+          .map((value) =>
+            value === 'anthropic' || value === 'openai' ? 'vendor' : value,
+          );
         break;
       case '--stream':
         options.stream = next();
@@ -118,6 +138,12 @@ function parseArgs(argv) {
         break;
       case '--chatbot-id':
         options.chatbotId = next();
+        break;
+      case '--vendor-model':
+        options.vendorModel = next();
+        break;
+      case '--openai-max-param':
+        options.openaiMaxParam = next();
         break;
       case '--gateway-url':
         options.gatewayUrl = next();
@@ -147,9 +173,18 @@ function parseArgs(argv) {
     throw new Error('--stream must be both, true, or false');
   }
   for (const arm of options.arms) {
-    if (!['gateway', 'hai', 'anthropic'].includes(arm)) {
+    if (!['gateway', 'hai', 'vendor'].includes(arm)) {
       throw new Error(`Unknown arm: ${arm}`);
     }
+  }
+  if (
+    !['auto', 'max_tokens', 'max_completion_tokens'].includes(
+      options.openaiMaxParam,
+    )
+  ) {
+    throw new Error(
+      '--openai-max-param must be auto, max_tokens, or max_completion_tokens',
+    );
   }
   return options;
 }
@@ -192,10 +227,59 @@ function stripTrailingV1(url) {
     .replace(/\/v1$/i, '');
 }
 
+// Which upstream vendor serves this model directly, and under what name.
+// HybridAI serves Anthropic models prefixed (`anthropic/claude-...`) and
+// OpenAI models bare (`gpt-...`) — see container/shared/model-names.js.
+function resolveVendor(haiModel, options) {
+  const bare = haiModel.replace(/^[a-z0-9-]+\//i, '');
+  const model = options.vendorModel || bare;
+  if (/^claude-/i.test(bare)) {
+    const root = stripTrailingV1(process.env.ANTHROPIC_BASE_URL);
+    return {
+      kind: 'anthropic',
+      url: `${root ? `${root}/v1` : DEFAULT_ANTHROPIC_BASE_URL}/messages`,
+      model,
+      token: process.env.ANTHROPIC_API_KEY || '',
+      missing: 'ANTHROPIC_API_KEY',
+    };
+  }
+  if (/^(gpt|o\d|chatgpt)/i.test(bare)) {
+    const root =
+      stripTrailingV1(process.env.OPENAI_VENDOR_BASE_URL) ||
+      DEFAULT_OPENAI_BASE_URL;
+    return {
+      kind: 'openai',
+      url: `${root}/v1/chat/completions`,
+      model,
+      // OPENAI_API_KEY is only the vendor key here; under `hybridclaw eval` it
+      // is the injected *gateway* token, so it is claimed by the gateway arm.
+      token: process.env.HYBRIDCLAW_EVAL_MODEL
+        ? ''
+        : process.env.OPENAI_API_KEY || '',
+      missing: process.env.HYBRIDCLAW_EVAL_MODEL
+        ? 'OPENAI_API_KEY is reserved as the gateway token under `hybridclaw eval`; run the script directly to test the vendor arm'
+        : 'OPENAI_API_KEY',
+      // Newer OpenAI models reject `max_tokens` in favour of
+      // `max_completion_tokens`; override with --openai-max-param.
+      maxTokensParam:
+        options.openaiMaxParam === 'auto'
+          ? /^(gpt-[5-9]|o\d)/i.test(model)
+            ? 'max_completion_tokens'
+            : 'max_tokens'
+          : options.openaiMaxParam,
+    };
+  }
+  return {
+    kind: null,
+    model,
+    unsupported: `no direct-vendor endpoint known for \`${bare}\` (supported: claude-* via Anthropic, gpt-*/o* via OpenAI). Use --vendor-model to name the upstream model explicitly.`,
+  };
+}
+
 function resolveTargets(options) {
   const config = loadRuntimeConfig();
   const haiModel = normalizeModel(options.model);
-  const anthropicModel = haiModel.replace(/^anthropic\//i, '');
+  const vendor = resolveVendor(haiModel, options);
 
   const gatewayBaseUrl =
     stripTrailingV1(options.gatewayUrl) ||
@@ -206,10 +290,6 @@ function resolveTargets(options) {
     stripTrailingV1(process.env.HYBRIDAI_BASE_URL) ||
     stripTrailingV1(config?.hybridai?.baseUrl) ||
     DEFAULT_HYBRIDAI_BASE_URL;
-  const anthropicRoot = stripTrailingV1(process.env.ANTHROPIC_BASE_URL);
-  const anthropicBaseUrl = anthropicRoot
-    ? `${anthropicRoot}/v1`
-    : DEFAULT_ANTHROPIC_BASE_URL;
 
   return {
     gateway: {
@@ -219,8 +299,11 @@ function resolveTargets(options) {
       token:
         process.env.WEB_API_TOKEN ||
         process.env.GATEWAY_API_TOKEN ||
-        process.env.OPENAI_API_KEY ||
-        '',
+        // Only under `hybridclaw eval`, where this is the injected gateway
+        // token rather than a real OpenAI key.
+        (process.env.HYBRIDCLAW_EVAL_MODEL
+          ? process.env.OPENAI_API_KEY || ''
+          : ''),
       missing:
         'WEB_API_TOKEN (tip: mint one with `hybridclaw token create --label latency-bench --actions openai.api`)',
     },
@@ -235,20 +318,23 @@ function resolveTargets(options) {
         process.env.HYBRIDAI_CHATBOT_ID ||
         String(config?.hybridai?.defaultChatbotId || ''),
     },
-    anthropic: {
-      arm: 'anthropic',
-      url: `${anthropicBaseUrl}/messages`,
-      model: anthropicModel,
-      token: process.env.ANTHROPIC_API_KEY || '',
-      missing: 'ANTHROPIC_API_KEY',
-      supported: /^claude-/i.test(anthropicModel),
+    vendor: {
+      arm: 'vendor',
+      label: vendor.kind ? `vendor(${vendor.kind})` : 'vendor',
+      vendorKind: vendor.kind,
+      url: vendor.url,
+      model: vendor.model,
+      token: vendor.token || '',
+      missing: vendor.missing,
+      unsupported: vendor.unsupported,
+      maxTokensParam: vendor.maxTokensParam,
     },
   };
 }
 
 function buildRequest(target, options, stream) {
   const messages = [{ role: 'user', content: options.prompt }];
-  if (target.arm === 'anthropic') {
+  if (target.vendorKind === 'anthropic') {
     const body = {
       model: target.model,
       max_tokens: options.maxTokens,
@@ -279,6 +365,9 @@ function buildRequest(target, options, stream) {
     if (options.thinking && HAI_THINKING_MODEL_RE.test(target.model)) {
       body.thinking = { type: 'adaptive', display: 'summarized' };
     }
+  }
+  if (target.vendorKind === 'openai') {
+    body[target.maxTokensParam || 'max_tokens'] = options.maxTokens;
   }
   if (stream) {
     body.stream = true;
@@ -396,6 +485,7 @@ async function measureRequest(target, options, stream) {
   const { url, headers, body } = buildRequest(target, options, stream);
   const result = {
     arm: target.arm,
+    label: target.label || target.arm,
     model: target.model,
     stream,
     status: null,
@@ -451,7 +541,7 @@ async function measureRequest(target, options, stream) {
       const payload = await response.json();
       result.totalMs = since();
       const extracted =
-        target.arm === 'anthropic'
+        target.vendorKind === 'anthropic'
           ? extractAnthropicResult(payload)
           : extractOpenAIResult(payload);
       Object.assign(result, {
@@ -481,7 +571,7 @@ async function measureRequest(target, options, stream) {
       },
     };
     const consume =
-      target.arm === 'anthropic'
+      target.vendorKind === 'anthropic'
         ? makeAnthropicStreamConsumer(state)
         : makeOpenAIStreamConsumer(state);
 
@@ -633,14 +723,14 @@ async function main() {
   const active = [];
   for (const arm of options.arms) {
     const target = targets[arm];
-    if (arm === 'anthropic' && !target.supported) {
-      console.error(
-        `[skip] anthropic: model ${target.model} is not an Anthropic model`,
-      );
+    if (target.unsupported) {
+      console.error(`[skip] ${arm}: ${target.unsupported}`);
       continue;
     }
     if (!target.token) {
-      console.error(`[skip] ${arm}: missing credential (${target.missing})`);
+      console.error(
+        `[skip] ${target.label || arm}: missing credential (${target.missing})`,
+      );
       continue;
     }
     if (arm === 'hai' && !target.chatbotId) {
@@ -664,7 +754,9 @@ async function main() {
     `thinking:    ${options.thinking ? 'as HybridClaw sends it' : 'disabled'}`,
   );
   for (const target of active) {
-    console.log(`${target.arm.padEnd(11)}  ${target.model}  ->  ${target.url}`);
+    console.log(
+      `${(target.label || target.arm).padEnd(15)}  ${target.model}  ->  ${target.url}`,
+    );
   }
   console.log('');
 
@@ -687,7 +779,7 @@ async function main() {
   for (const target of active) {
     for (const stream of streamModes) {
       for (let run = 1; run <= options.runs; run += 1) {
-        const label = `${target.arm} stream=${stream} run ${run}/${options.runs}`;
+        const label = `${target.label || target.arm} stream=${stream} run ${run}/${options.runs}`;
         process.stderr.write(`... ${label}\n`);
         const result = await measureRequest(target, options, stream);
         result.run = run;
@@ -706,7 +798,7 @@ async function main() {
   console.log('\nPer-run results (all times in ms from request start):');
   printTable(
     results.map((result) => ({
-      arm: result.arm,
+      arm: result.label,
       stream: result.stream ? 'on' : 'off',
       run: result.run,
       status: result.status ?? 'ERR',
@@ -730,7 +822,7 @@ async function main() {
       );
       if (subset.length === 0) continue;
       summary.push({
-        arm: target.arm,
+        arm: target.label || target.arm,
         stream: stream ? 'on' : 'off',
         n: subset.length,
         headers: formatMs(median(subset.map((r) => r.headersMs))),
@@ -756,7 +848,7 @@ async function main() {
       '  tok/s      output tokens per second after the first text token',
       '             (streaming runs only)',
       '  gateway - hai   = HybridClaw overhead (agent loop, big system prompt, session)',
-      '  hai - anthropic = HybridAI backend overhead (proxying, harness, queueing)',
+      '  hai - vendor    = HybridAI backend overhead (proxying, harness, queueing)',
     ].join('\n'),
   );
 
