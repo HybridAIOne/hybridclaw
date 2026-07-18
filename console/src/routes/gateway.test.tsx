@@ -14,7 +14,6 @@ const fetchAdminHybridAIBotsMock =
 const fetchAdminSecretsMock = vi.fn<() => Promise<AdminSecretsResponse>>();
 const reloadGatewayMock = vi.fn();
 const updateAdminAgentMock = vi.fn();
-const navigateMock = vi.fn();
 const useAuthMock = vi.fn();
 const useLiveEventsMock = vi.fn();
 
@@ -30,16 +29,6 @@ vi.mock('../api/client', () => ({
 vi.mock('../auth', () => ({
   useAuth: () => useAuthMock(),
 }));
-
-vi.mock('@tanstack/react-router', async () => {
-  const actual = await vi.importActual<typeof import('@tanstack/react-router')>(
-    '@tanstack/react-router',
-  );
-  return {
-    ...actual,
-    useNavigate: () => navigateMock,
-  };
-});
 
 vi.mock('../hooks/use-live-events', () => ({
   useLiveEvents: (...args: unknown[]) => useLiveEventsMock(...args),
@@ -125,7 +114,6 @@ describe('GatewayPage', () => {
     fetchAdminSecretsMock.mockReset();
     reloadGatewayMock.mockReset();
     updateAdminAgentMock.mockReset();
-    navigateMock.mockReset();
     useAuthMock.mockReset();
     useLiveEventsMock.mockReset();
 
@@ -175,30 +163,7 @@ describe('GatewayPage', () => {
     renderGatewayPage();
 
     expect(screen.getByText('Public tunnel settings')).toBeTruthy();
-  });
-
-  it('uses compact provider health that opens the Providers page', () => {
-    useAuthMock.mockReturnValue({
-      token: 'test-token',
-      gatewayStatus: makeStatus({
-        providerHealth: {
-          hybridai: {
-            kind: 'remote',
-            reachable: true,
-            latencyMs: 12,
-            modelCount: 3,
-          },
-        },
-      }),
-    });
-
-    renderGatewayPage();
-
-    expect(
-      screen.getByText('Provider health').closest('section')?.textContent,
-    ).toContain('1 healthy');
-    fireEvent.click(screen.getByRole('button', { name: 'Manage providers →' }));
-    expect(navigateMock).toHaveBeenCalledWith({ to: '/admin/models' });
+    expect(screen.queryByText('Provider health')).toBeNull();
   });
 
   it('opens a reload confirmation dialog and calls the reload endpoint', async () => {

@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
 import { type ProviderEntry, ProviderHealth } from './provider-health';
 
 const ENTRIES: Array<[string, ProviderEntry]> = [
@@ -52,23 +52,5 @@ describe('ProviderHealth', () => {
     );
 
     expect(screen.getByText(diagnostic).getAttribute('title')).toBe(diagnostic);
-  });
-
-  it('summarizes health and invokes the compact manage action', () => {
-    const onManage = vi.fn();
-    render(
-      <ProviderHealth
-        title="Backend health"
-        entries={ENTRIES}
-        variant="compact"
-        onManage={onManage}
-      />,
-    );
-
-    expect(
-      screen.getByText('Backend health').closest('section')?.textContent,
-    ).toContain('1 healthy · 1 inactive');
-    fireEvent.click(screen.getByRole('button', { name: 'Manage providers →' }));
-    expect(onManage).toHaveBeenCalledTimes(1);
   });
 });

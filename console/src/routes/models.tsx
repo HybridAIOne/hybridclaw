@@ -237,11 +237,7 @@ export function ModelsPage() {
       />
 
       <div className="two-column-grid">
-        <ProviderHealth
-          title="Provider health"
-          entries={providerEntries}
-          variant="full"
-        />
+        <ProviderHealth title="Provider health" entries={providerEntries} />
 
         <Card variant="muted">
           <CardHeader>

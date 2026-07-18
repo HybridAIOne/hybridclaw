@@ -103,6 +103,7 @@ describe('ModelsPage', () => {
 
     renderModelsPage();
 
+    expect(await screen.findByText('Provider health')).not.toBeNull();
     expect(await screen.findByText('openrouter')).not.toBeNull();
     expect(
       screen.getByText('Visible in catalog · no live health data'),
