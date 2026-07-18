@@ -3,7 +3,9 @@ import { afterEach, expect, test, vi } from 'vitest';
 import {
   callOpenAICompatibleModel,
   callOpenAICompatibleModelStream,
+  mapOpenAICompatibleUsageToTokenStats,
 } from '../src/gateway/openai-compatible-model.js';
+import { mapOpenAICompatibleUsage } from '../src/gateway/openai-compatible-response.js';
 
 function makeEventStreamResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
@@ -658,3 +660,89 @@ test.each([
     expect(result.choices[0]?.message.content).toBe('ok');
   },
 );
+
+test('maps OpenAI-style cached prompt tokens into token stats', () => {
+  const stats = mapOpenAICompatibleUsageToTokenStats({
+    prompt_tokens: 14203,
+    completion_tokens: 10,
+    total_tokens: 14213,
+    prompt_tokens_details: { cached_tokens: 14203 },
+  });
+
+  expect(stats).toMatchObject({
+    apiPromptTokens: 14203,
+    apiCacheUsageAvailable: true,
+    apiCacheReadTokens: 14203,
+  });
+});
+
+test('maps Anthropic-style cache usage into token stats', () => {
+  const stats = mapOpenAICompatibleUsageToTokenStats({
+    input_tokens: 5000,
+    output_tokens: 20,
+    cache_read_input_tokens: 4000,
+    cache_creation_input_tokens: 1000,
+  });
+
+  expect(stats).toMatchObject({
+    apiCacheUsageAvailable: true,
+    apiCacheReadTokens: 4000,
+    apiCacheWriteTokens: 1000,
+  });
+});
+
+test('reports a cold cache as available with zero reads', () => {
+  const stats = mapOpenAICompatibleUsageToTokenStats({
+    prompt_tokens: 20,
+    completion_tokens: 5,
+    prompt_tokens_details: { cached_tokens: 0 },
+  });
+
+  // An explicit 0 is a real cache miss and must stay distinguishable from a
+  // provider that reports no cache fields at all.
+  expect(stats?.apiCacheUsageAvailable).toBe(true);
+  expect(stats?.apiCacheReadTokens).toBe(0);
+});
+
+test('leaves cache usage unavailable when the provider reports none', () => {
+  const stats = mapOpenAICompatibleUsageToTokenStats({
+    prompt_tokens: 20,
+    completion_tokens: 5,
+  });
+
+  expect(stats?.apiCacheUsageAvailable).toBe(false);
+});
+
+test('emits cache usage in the OpenAI-compatible response only when reported', () => {
+  const withCache = mapOpenAICompatibleUsage({
+    modelCalls: 1,
+    apiUsageAvailable: true,
+    apiPromptTokens: 37651,
+    apiCompletionTokens: 21,
+    apiTotalTokens: 37672,
+    apiCacheUsageAvailable: true,
+    apiCacheReadTokens: 37000,
+    apiCacheWriteTokens: 651,
+    estimatedPromptTokens: 0,
+    estimatedCompletionTokens: 0,
+    estimatedTotalTokens: 0,
+  });
+  expect(withCache.prompt_tokens_details).toEqual({ cached_tokens: 37000 });
+  expect(withCache.cache_creation_input_tokens).toBe(651);
+
+  const withoutCache = mapOpenAICompatibleUsage({
+    modelCalls: 1,
+    apiUsageAvailable: true,
+    apiPromptTokens: 100,
+    apiCompletionTokens: 10,
+    apiTotalTokens: 110,
+    apiCacheUsageAvailable: false,
+    apiCacheReadTokens: 0,
+    apiCacheWriteTokens: 0,
+    estimatedPromptTokens: 0,
+    estimatedCompletionTokens: 0,
+    estimatedTotalTokens: 0,
+  });
+  expect(withoutCache.prompt_tokens_details).toBeUndefined();
+  expect(withoutCache.cache_creation_input_tokens).toBeUndefined();
+});

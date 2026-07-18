@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Prompt-cache usage is now visible through the OpenAI-compatible API**: the
+  gateway parsed upstream cache reads and writes internally but dropped them
+  when building the response, so clients could not tell a cold cache from a
+  fully cached prompt. `usage` now carries `prompt_tokens_details.cached_tokens`
+  (and `cache_creation_input_tokens` when the provider reports cache writes),
+  emitted only when the provider actually reported cache usage — a missing
+  field means "not reported" while an explicit `0` means "no cache hit". The
+  tool-aware passthrough path previously hard-coded cache usage to zero and now
+  reads both OpenAI-style (`prompt_tokens_details.cached_tokens`) and
+  Anthropic-style (`cache_read_input_tokens`) spellings.
+
+  `Manifesto: Principle IX - A coworker thinks before they spend.`
+
 ### Added
 
 - **Dependency license gate**: `scripts/check-dependency-policy.mjs` now scans
