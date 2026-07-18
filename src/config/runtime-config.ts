@@ -3066,6 +3066,7 @@ function normalizeRuntimePluginEntry(
 function normalizeRuntimePluginsConfig(
   value: unknown,
   fallback: RuntimePluginsConfig,
+  modelRoutingEnabled = false,
 ): RuntimePluginsConfig {
   const raw = isRecord(value) ? value : {};
   const listSource = Array.isArray(raw.list) ? raw.list : fallback.list;
@@ -3076,6 +3077,18 @@ function normalizeRuntimePluginsConfig(
     if (!normalized || seen.has(normalized.id)) continue;
     seen.add(normalized.id);
     list.push(normalized);
+  }
+  if (modelRoutingEnabled) {
+    const tierRouter = list.find((entry) => entry.id === 'tier-router');
+    if (tierRouter) {
+      if (!tierRouter.enabled || tierRouter.path) {
+        throw new Error(
+          'routing.enabled requires the bundled tier-router plugin to be enabled without a custom path.',
+        );
+      }
+    } else {
+      list.push({ id: 'tier-router', enabled: true, config: {} });
+    }
   }
   return { list };
 }
@@ -7439,6 +7452,7 @@ function normalizeRuntimeConfig(
     plugins: normalizeRuntimePluginsConfig(
       rawPlugins,
       DEFAULT_RUNTIME_CONFIG.plugins,
+      modelRouting.enabled,
     ),
     adaptiveSkills: {
       enabled: normalizeBoolean(

@@ -271,6 +271,14 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
   when practical, or copy the updated lockfile to its shrinkwrap pair and
   update the baseline hash after reviewing the lockfile diff. Run
   `npm run deps:policy` before handing off.
+- `npm run deps:policy` also enforces the license gate: packages with
+  GPL/AGPL/SSPL-family licenses fail unless their exact
+  `"<name>@<version>": "<license>"` pair is approved under `licenses` in
+  `scripts/dependency-policy-baseline.json` (add entries only after license
+  review). Weak-copyleft (LGPL/MPL/EPL/…) and unknown licenses are reported
+  but allowed; dual-licensed `(X OR Y)` packages count as their most
+  permissive option. See the header of `scripts/check-dependency-policy.mjs`
+  for the full policy.
 
 ### Git Discipline
 

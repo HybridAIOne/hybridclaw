@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- **Dependency license gate**: `scripts/check-dependency-policy.mjs` now scans
+  every tracked `package-lock.json` and fails on GPL, AGPL, and SSPL-family
+  licenses unless the exact `name@version` and license pair is approved under
+  `licenses` in `scripts/dependency-policy-baseline.json`. Weak-copyleft
+  licenses such as LGPL and MPL, and packages with missing license metadata,
+  are reported without failing, and dual-licensed packages resolve to their
+  most permissive option. The gate runs in every existing dependency-policy
+  entry point: the pre-commit hook, the CI lint job, `npm run deps:policy`,
+  and `npm run release:check`.
+  `Manifesto: Principle VII - A coworker you can trust with real responsibility.`
+
 ### Changed
 
 - **Install-on-demand WhatsApp transport**: WhatsApp ships as the separate
@@ -10,6 +23,15 @@
   Homebrew artifacts. Existing linked sessions remain in
   `~/.hybridclaw/credentials/whatsapp`; install the transport with
   `hybridclaw plugin install @hybridaione/hybridclaw-whatsapp`.
+- **AGPL removed from the dependency tree**: `camoufox-js` now resolves
+  `ua-parser-js` 1.0.41 (MIT) through a scoped npm override instead of 2.0.10
+  (AGPL-3.0-or-later), retiring the `ua-parser-js@2.0.10` AGPL exception from
+  the license baseline. Known regression: `camoufox-js` matches the v2 spelling
+  `"macOS"` when deriving the target OS, so under v1 (`"Mac OS"`) every macOS
+  fingerprint is treated as Linux and receives Linux fonts, WebGL strings, and
+  environment variables. Camofox stealth is degraded for macOS fingerprints
+  until `determineUAOS` is patched.
+  `Manifesto: Principle VII - A coworker you can trust with real responsibility.`
 
 ## [0.28.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.2) - 2026-07-17
 

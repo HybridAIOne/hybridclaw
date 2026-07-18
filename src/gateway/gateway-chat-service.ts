@@ -68,11 +68,16 @@ import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
+import { getModelCatalogMetadata } from '../providers/model-catalog.js';
 import {
   collectModelLookupCandidates,
   matchesModelFamily,
 } from '../providers/model-lookup.js';
 import { isGpt5ModelId } from '../providers/model-metadata.js';
+import {
+  type ResolvedLadder,
+  resolveLadder,
+} from '../providers/model-routing.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { maybeAutoTitleSession } from '../session/session-title.js';
@@ -173,6 +178,15 @@ import {
   recordBootstrapOnboardingStart,
   recordBootstrapOnboardingUserReply,
 } from './hatching-completion.js';
+import {
+  executeModelRouting,
+  type ModelRoutingAttempt,
+} from './model-routing-execution.js';
+import {
+  consumeStickyModelRoutingTier,
+  peekStickyModelRoutingTier,
+  setStickyModelRoutingTier,
+} from './model-routing-state.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
 import {
@@ -574,12 +588,27 @@ interface ConciergeRouterMetadata {
   components?: GatewayMessageComponents;
 }
 
+interface TierRouterMetadata {
+  taxonomy?: string;
+  startTier?: string;
+  model?: string;
+  reason?: string;
+}
+
 function getConciergeRouterMetadata(
   event: MiddlewareEvent | undefined,
 ): ConciergeRouterMetadata | null {
   const raw = event?.metadata?.conciergeRouter;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   return raw as ConciergeRouterMetadata;
+}
+
+function getTierRouterMetadata(
+  event: MiddlewareEvent | undefined,
+): TierRouterMetadata | null {
+  const raw = event?.metadata?.tierRouter;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  return raw as TierRouterMetadata;
 }
 
 function resolvePluginRoutingModel(params: {
@@ -1270,13 +1299,14 @@ async function handleGatewayMessageInner(
     isFirstTurn: turnIndex === 1,
   });
   const explicitModelPinned = Boolean(
-    req.model?.trim() ||
-      session.model?.trim() ||
-      resolveAgentModel(resolvedAgent) ||
-      onboardingModelPinned,
+    req.model?.trim() || session.model?.trim() || onboardingModelPinned,
   );
   let routingExecutionNotice: string | null = null;
+  let tierRoutingLadder: ResolvedLadder | null = null;
   if (pluginManager?.hasMiddleware('routing')) {
+    const stickyTier = isInteractiveSource
+      ? peekStickyModelRoutingTier(req.sessionId)
+      : undefined;
     const routingOutcome = await pluginManager.applyMiddleware('routing', {
       sessionId: req.sessionId,
       userId: req.userId,
@@ -1286,6 +1316,8 @@ async function handleGatewayMessageInner(
       channelType,
       model: model || undefined,
       currentModel: model,
+      agentModel: resolveAgentModel(resolvedAgent) || undefined,
+      stickyTier,
       chatbotId,
       isInteractiveSource,
       explicitModelPinned,
@@ -1299,6 +1331,10 @@ async function handleGatewayMessageInner(
       Boolean(event.metadata?.conciergeRouter),
     );
     const routingMetadata = getConciergeRouterMetadata(routingEvent);
+    const tierRoutingEvent = routingOutcome.events.find((event) =>
+      Boolean(event.metadata?.tierRouter),
+    );
+    const tierRoutingMetadata = getTierRouterMetadata(tierRoutingEvent);
     for (const event of routingOutcome.events) {
       if (event.action === 'allow') continue;
       logger.info(
@@ -1394,6 +1430,20 @@ async function handleGatewayMessageInner(
           : routingOutcome.userContent;
     } else {
       effectiveUserTurnContentExpanded = routingOutcome.userContent;
+    }
+    if (tierRoutingMetadata?.startTier) {
+      tierRoutingLadder = resolveLadder(getRuntimeConfig().routing, {
+        startTier: tierRoutingMetadata.startTier,
+      });
+      if (!tierRoutingLadder.exhausted && tierRoutingLadder.startTier) {
+        if (isInteractiveSource) {
+          consumeStickyModelRoutingTier(req.sessionId);
+        }
+        model =
+          tierRoutingLadder.tiers[tierRoutingLadder.startIndex]?.models[0] ||
+          model;
+        provider = resolveModelProvider(model);
+      }
     }
   }
   const postRoutingModel = resolveOnboardingTurnModel({
@@ -2014,40 +2064,152 @@ async function handleGatewayMessageInner(
       });
     }
     agentStage = 'awaiting-agent-output';
-    const output = await runAgent({
-      sessionId: req.executionSessionId || req.sessionId,
-      messages,
-      chatbotId,
-      enableRag,
-      executorModeOverride: req.executorModeOverride,
-      model,
-      agentId,
-      addressEnvelope: req.addressEnvelope,
-      workspacePathOverride: req.workspacePathOverride,
-      workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
-      skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
-      maxTokens: req.maxTokens,
-      maxWallClockMs: req.maxWallClockMs,
-      inactivityTimeoutMs: req.inactivityTimeoutMs,
-      bashProxy: req.bashProxy,
-      channelId: req.channelId,
-      ralphMaxIterations: resolveSessionRalphIterations(session),
-      fullAutoEnabled,
-      fullAutoNeverApproveTools: neverAutoApproveTools,
-      scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
-      scheduledTasks,
-      allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
-      blockedTools: mediaPolicy.blockedTools,
-      onTextDelta: emitTextDeltas,
-      onThinkingDelta: emitThinkingDeltas,
-      onToolProgress,
-      onApprovalProgress,
-      abortSignal: activeGatewayRequest.signal,
-      media,
-      audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
-      pluginTools: pluginManager?.getToolDefinitions() ?? [],
-      escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
-    });
+    const invokeAgent = (params: {
+      model: string;
+      chatbotId: string;
+      onTextDelta?: (delta: string) => void;
+      onThinkingDelta?: (delta: string) => void;
+      onToolProgress?: (event: ToolProgressEvent) => void;
+      onApprovalProgress?: (approval: PendingApproval) => void;
+    }) =>
+      runAgent({
+        sessionId: req.executionSessionId || req.sessionId,
+        messages,
+        chatbotId: params.chatbotId,
+        enableRag,
+        executorModeOverride: req.executorModeOverride,
+        model: params.model,
+        agentId,
+        addressEnvelope: req.addressEnvelope,
+        workspacePathOverride: req.workspacePathOverride,
+        workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
+        skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
+        maxTokens: req.maxTokens,
+        maxWallClockMs: req.maxWallClockMs,
+        inactivityTimeoutMs: req.inactivityTimeoutMs,
+        bashProxy: req.bashProxy,
+        channelId: req.channelId,
+        ralphMaxIterations: resolveSessionRalphIterations(session),
+        fullAutoEnabled,
+        fullAutoNeverApproveTools: neverAutoApproveTools,
+        scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
+        scheduledTasks,
+        allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
+        blockedTools: mediaPolicy.blockedTools,
+        onTextDelta: params.onTextDelta,
+        onThinkingDelta: params.onThinkingDelta,
+        onToolProgress: params.onToolProgress,
+        onApprovalProgress: params.onApprovalProgress,
+        abortSignal: activeGatewayRequest.signal,
+        media,
+        audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
+        pluginTools: pluginManager?.getToolDefinitions() ?? [],
+        escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
+      });
+    let routingAttempts: ModelRoutingAttempt[] | null = null;
+    let output: ContainerOutput;
+    if (tierRoutingLadder?.enabled && !tierRoutingLadder.exhausted) {
+      const bufferedEvents = new WeakMap<
+        ContainerOutput,
+        {
+          text: string[];
+          thinking: string[];
+          tools: ToolProgressEvent[];
+          approvals: PendingApproval[];
+          chatbotId: string;
+        }
+      >();
+      const routed = await executeModelRouting({
+        ladder: tierRoutingLadder,
+        agentId,
+        chatbotId,
+        onEscalation: (event) => {
+          recordAuditEvent({
+            sessionId: req.sessionId,
+            runId,
+            event: { type: 'route.escalated', ...event },
+          });
+        },
+        invoke: async (runtime, routedModel) => {
+          const buffered = {
+            text: [] as string[],
+            thinking: [] as string[],
+            tools: [] as ToolProgressEvent[],
+            approvals: [] as PendingApproval[],
+            chatbotId: runtime.chatbotId || chatbotId,
+          };
+          const attemptOutput = await invokeAgent({
+            model: routedModel,
+            chatbotId: runtime.chatbotId || chatbotId,
+            onTextDelta: (delta) => buffered.text.push(delta),
+            onThinkingDelta: (delta) => buffered.thinking.push(delta),
+            onToolProgress: (event) => buffered.tools.push(event),
+            onApprovalProgress: (approval) => buffered.approvals.push(approval),
+          });
+          bufferedEvents.set(attemptOutput, buffered);
+          return attemptOutput;
+        },
+      });
+      output = routed.output;
+      model = routed.model;
+      provider = resolveModelProvider(model);
+      routingAttempts = routed.attempts;
+      const finalEvents = bufferedEvents.get(output);
+      chatbotId = finalEvents?.chatbotId || chatbotId;
+      for (const delta of finalEvents?.text || []) emitTextDeltas?.(delta);
+      for (const delta of finalEvents?.thinking || []) {
+        emitThinkingDeltas?.(delta);
+      }
+      for (const event of finalEvents?.tools || []) onToolProgress(event);
+      for (const approval of finalEvents?.approvals || []) {
+        onApprovalProgress(approval);
+      }
+      if (
+        routed.escalated &&
+        getRuntimeConfig().routing.escalationStickyTurns
+      ) {
+        setStickyModelRoutingTier(
+          req.sessionId,
+          routed.tier,
+          getRuntimeConfig().routing.escalationStickyTurns,
+        );
+      }
+    } else {
+      output = await runAgent({
+        sessionId: req.executionSessionId || req.sessionId,
+        messages,
+        chatbotId,
+        enableRag,
+        executorModeOverride: req.executorModeOverride,
+        model,
+        agentId,
+        addressEnvelope: req.addressEnvelope,
+        workspacePathOverride: req.workspacePathOverride,
+        workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
+        skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
+        maxTokens: req.maxTokens,
+        maxWallClockMs: req.maxWallClockMs,
+        inactivityTimeoutMs: req.inactivityTimeoutMs,
+        bashProxy: req.bashProxy,
+        channelId: req.channelId,
+        ralphMaxIterations: resolveSessionRalphIterations(session),
+        fullAutoEnabled,
+        fullAutoNeverApproveTools: neverAutoApproveTools,
+        scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
+        scheduledTasks,
+        allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
+        blockedTools: mediaPolicy.blockedTools,
+        onTextDelta: emitTextDeltas,
+        onThinkingDelta: emitThinkingDeltas,
+        onToolProgress,
+        onApprovalProgress,
+        abortSignal: activeGatewayRequest.signal,
+        media,
+        audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
+        pluginTools: pluginManager?.getToolDefinitions() ?? [],
+        escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
+      });
+    }
     agentStage = 'processing-agent-output';
     const storedUserContent = buildStoredUserTurnContent(
       userTurnContent,
@@ -2101,41 +2263,97 @@ async function handleGatewayMessageInner(
       runId,
       toolExecutions,
     });
-    const usagePayload = buildTokenUsageAuditPayload(
-      messages,
-      output.result,
-      output.tokenUsage,
-    );
-    recordAuditEvent({
-      sessionId: req.sessionId,
-      runId,
-      event: {
-        type: 'model.usage',
-        provider,
+    let costUsd = 0;
+    if (!routingAttempts) {
+      const usagePayload = buildTokenUsageAuditPayload(
+        messages,
+        output.result,
+        output.tokenUsage,
+      );
+      recordAuditEvent({
+        sessionId: req.sessionId,
+        runId,
+        event: {
+          type: 'model.usage',
+          provider,
+          model,
+          runtime: resolveTurnRuntimeAuditLabel(model, output),
+          codexRuntime: output.codexRuntime || null,
+          durationMs: Date.now() - startedAt,
+          toolCallCount: toolExecutions.length,
+          ...usagePayload,
+        },
+      });
+      costUsd = await resolveUsageCostUsdAfterMetadataRefresh({
         model,
-        runtime: resolveTurnRuntimeAuditLabel(model, output),
-        codexRuntime: output.codexRuntime || null,
-        durationMs: Date.now() - startedAt,
-        toolCallCount: toolExecutions.length,
-        ...usagePayload,
-      },
-    });
-    const costUsd = await resolveUsageCostUsdAfterMetadataRefresh({
-      model,
-      tokenUsage: output.tokenUsage,
-      usage: usagePayload,
-    });
-    enqueueTokenUsage({
-      sessionId: req.sessionId,
-      agentId,
-      model,
-      inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
-      outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
-      totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
-      toolCalls: toolExecutions.length,
-      costUsd,
-      auditRunId: runId,
-    });
+        tokenUsage: output.tokenUsage,
+        usage: usagePayload,
+      });
+      enqueueTokenUsage({
+        sessionId: req.sessionId,
+        agentId,
+        model,
+        inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
+        outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
+        totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
+        toolCalls: toolExecutions.length,
+        costUsd,
+        auditRunId: runId,
+      });
+    } else {
+      for (let index = 0; index < routingAttempts.length; index += 1) {
+        const attempt = routingAttempts[index];
+        const attemptToolExecutions = attempt.output.toolExecutions || [];
+        const usagePayload = buildTokenUsageAuditPayload(
+          messages,
+          attempt.output.result,
+          attempt.output.tokenUsage,
+        );
+        const routeZone = getModelCatalogMetadata(attempt.model).zone;
+        recordAuditEvent({
+          sessionId: req.sessionId,
+          runId,
+          event: {
+            type: 'model.usage',
+            provider: resolveModelProvider(attempt.model),
+            model: attempt.model,
+            runtime: resolveTurnRuntimeAuditLabel(
+              attempt.model,
+              attempt.output,
+            ),
+            codexRuntime: attempt.output.codexRuntime || null,
+            durationMs: attempt.durationMs,
+            toolCallCount: attemptToolExecutions.length,
+            routeTier: attempt.tier,
+            routeZone,
+            routeReason: attempt.routeReason,
+            escalated: attempt.escalated,
+            ...usagePayload,
+          },
+        });
+        const attemptCostUsd = await resolveUsageCostUsdAfterMetadataRefresh({
+          model: attempt.model,
+          tokenUsage: attempt.output.tokenUsage,
+          usage: usagePayload,
+        });
+        if (index === routingAttempts.length - 1) costUsd = attemptCostUsd;
+        enqueueTokenUsage({
+          sessionId: req.sessionId,
+          agentId,
+          model: attempt.model,
+          inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
+          outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
+          totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
+          toolCalls: attemptToolExecutions.length,
+          costUsd: attemptCostUsd,
+          auditRunId: runId,
+          routeTier: attempt.tier,
+          routeZone,
+          routeReason: attempt.routeReason,
+          escalated: attempt.escalated,
+        });
+      }
+    }
     for (const event of buildMediaGenerationUsageEvents({
       sessionId: req.sessionId,
       agentId,
