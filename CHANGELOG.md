@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Prompt-cache usage is now visible through the OpenAI-compatible API**: the
+  gateway parsed upstream cache reads and writes internally but dropped them
+  when building the response, so clients could not tell a cold cache from a
+  fully cached prompt. `usage` now carries `prompt_tokens_details.cached_tokens`
+  (and `cache_creation_input_tokens` when the provider reports cache writes),
+  emitted only when the provider actually reported cache usage — a missing
+  field means "not reported" while an explicit `0` means "no cache hit". The
+  tool-aware passthrough path previously hard-coded cache usage to zero and now
+  reads both OpenAI-style (`prompt_tokens_details.cached_tokens`) and
+  Anthropic-style (`cache_read_input_tokens`) spellings.
+
+  `Manifesto: Principle IX - A coworker thinks before they spend.`
+
 ### Added
 
 - **Model latency benchmark**: `scripts/benchmark-model-latency.mjs` measures
@@ -13,6 +28,10 @@
   responses to the HybridClaw layer, the HybridAI backend, or the upstream
   vendor. A connection preflight separates DNS/TCP/TLS handshake cost per
   origin.
+- **Codex 5.6 models**: `openai-codex/gpt-5.6-sol`, `openai-codex/gpt-5.6-terra`,
+  and `openai-codex/gpt-5.6-luna` are now recognised as forward-compatible Codex
+  models, so they are selectable as soon as the Codex account offers them
+  instead of waiting for the discovery endpoint to list them.
 
   `Manifesto: Principle VIII - A coworker doesn't break overnight.`
 
