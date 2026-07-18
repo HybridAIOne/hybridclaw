@@ -19,6 +19,15 @@
 
 ### Added
 
+- **Model latency benchmark**: `scripts/benchmark-model-latency.mjs` measures
+  time-to-headers, time-to-first-token, total duration, and tokens/sec for the
+  same model across three paths — the local gateway's OpenAI-compatible API
+  (full agent turn), the HybridAI API called directly, and the model vendor
+  (Anthropic) called directly — each with streaming on and off. Request bodies
+  mirror the exact shapes HybridClaw sends, so latency deltas attribute slow
+  responses to the HybridClaw layer, the HybridAI backend, or the upstream
+  vendor. A connection preflight separates DNS/TCP/TLS handshake cost per
+  origin.
 - **Direct OpenAI API provider**: `openai/...` models use the OpenAI Responses
   API with encrypted `OPENAI_API_KEY` storage, streaming, function calling,
   stateless encrypted reasoning-item replay, model catalog metadata, CLI auth,
