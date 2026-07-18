@@ -189,7 +189,7 @@ Interactive slash commands inside TUI:
   /ralph [info|on|off|set n]
   /reset [yes|no]
   /schedule add "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
-  /secret list   /secret set <name> <value>   /secret show <name>   /secret unset <name>   /secret route ...
+  /secret list   /secret set <name> <value>   /secret status <name>   /secret unset <name>   /secret route ...
   /sessions [active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]
   /show [all|thinking|tools|none]
   /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|unblock <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
@@ -245,9 +245,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack> ...
-  hybridclaw auth status <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
-  hybridclaw auth logout <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
+  hybridclaw auth login <hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack> ...
+  hybridclaw auth status <hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
+  hybridclaw auth logout <hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
   hybridclaw auth whatsapp reset
   hybridclaw auth line reset
 
@@ -256,6 +256,7 @@ Examples:
   hybridclaw auth login hybridai --browser
   hybridclaw auth login hybridai --base-url http://localhost:5000
   hybridclaw auth login codex --import
+  hybridclaw auth login openai --api-key sk-... --set-default
   hybridclaw auth login anthropic --method claude-cli --set-default
   hybridclaw auth login anthropic anthropic/claude-sonnet-4-6 --method api-key --api-key sk-ant-...
   hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
@@ -887,7 +888,7 @@ export function printSecretUsage(): void {
 Commands:
   hybridclaw secret list
   hybridclaw secret set <name> <value>
-  hybridclaw secret show <name>
+  hybridclaw secret status <name>
   hybridclaw secret unset <name>
   hybridclaw secret route list
   hybridclaw secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
@@ -896,7 +897,7 @@ Commands:
 Examples:
   hybridclaw secret list
   hybridclaw secret set SF_FULL_USERNAME you@example.com
-  hybridclaw secret show SF_FULL_USERNAME
+  hybridclaw secret status SF_FULL_USERNAME
   hybridclaw secret unset SF_FULL_USERNAME
   hybridclaw secret route add https://staging.hybridai.one/api/v1/ STAGING_HYBRIDAI_API_KEY X-API-Key none
   hybridclaw secret route add https://analyticsdata.googleapis.com/ google-oauth Authorization Bearer
@@ -905,7 +906,7 @@ Examples:
 Notes:
   - \`secret\` reads and writes the encrypted store at ${runtimeSecretsPath()}.
   - Secret names must use uppercase letters, digits, and underscores.
-  - \`show\` reports whether a secret is stored; it never outputs decrypted values. Secrets are only resolved gateway-side via \`<secret:NAME>\` placeholders or auth rules.
+  - \`status\` reports whether a secret is stored; it never outputs decrypted values. Secrets are only resolved gateway-side via \`<secret:NAME>\` placeholders or auth rules.
   - \`route add\` writes \`tools.httpRequest.authRules[]\` in ${runtimeConfigPath()} with a store-backed secret ref, the Google OAuth runtime token provider, or the Microsoft Graph OAuth runtime token provider.
   - Use \`prefix\` for \`Bearer <secret>\` or \`none\` for raw header injection.`);
 }

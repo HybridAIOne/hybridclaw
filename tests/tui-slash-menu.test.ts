@@ -29,6 +29,7 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/aux list');
   expect(labels).toContain('/secret list');
   expect(labels).toContain('/secret set <name> <value>');
+  expect(labels).toContain('/secret status <name>');
   expect(labels).toContain('/env list');
   expect(labels).toContain('/env set <name> <value>');
   expect(labels).toContain('/voice <info|call>');

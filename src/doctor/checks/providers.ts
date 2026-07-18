@@ -13,6 +13,7 @@ import {
   probeHuggingFace,
   probeHybridAI,
   probeMistral,
+  probeOpenAI,
   probeOpenRouter,
 } from '../provider-probes.js';
 import type { DiagResult } from '../types.js';
@@ -20,6 +21,7 @@ import { makeResult, severityFrom, toErrorMessage } from '../utils.js';
 
 type ProviderKey =
   | 'hybridai'
+  | 'openai'
   | 'codex'
   | 'anthropic'
   | 'openrouter'
@@ -116,6 +118,7 @@ export async function checkProviders(): Promise<DiagResult[]> {
   );
   const discoveredModels = await readDiscoveredModelNamesSafely();
   const anthropicEnabled = config.anthropic?.enabled === true;
+  const openAIEnabled = config.openai?.enabled === true;
   const openRouterEnabled = config.openrouter?.enabled === true;
   const hybridaiModels = dedupeStrings([
     ...discoveredModels.hybridai,
@@ -124,6 +127,10 @@ export async function checkProviders(): Promise<DiagResult[]> {
   const codexModels = dedupeStrings([
     ...discoveredModels.codex,
     defaultProvider === 'openai-codex' ? config.hybridai.defaultModel : '',
+  ]);
+  const openAIModels = dedupeStrings([
+    ...(config.openai?.models ?? []),
+    defaultProvider === 'openai' ? config.hybridai.defaultModel : '',
   ]);
   const anthropicModels = dedupeStrings([
     ...(config.anthropic?.models ?? []),
@@ -154,6 +161,18 @@ export async function checkProviders(): Promise<DiagResult[]> {
       inactiveMessage: codexStatus.reloginRequired
         ? 'Login required'
         : 'Not authenticated',
+    },
+    {
+      key: 'openai',
+      label: 'OpenAI API',
+      active: defaultProvider === 'openai',
+      configured: openAIEnabled || defaultProvider === 'openai',
+      configuredModelCount: openAIModels.length,
+      probe:
+        openAIEnabled || defaultProvider === 'openai'
+          ? () => probeOpenAI()
+          : null,
+      inactiveMessage: 'Provider disabled',
     },
     {
       key: 'anthropic',

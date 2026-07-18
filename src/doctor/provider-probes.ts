@@ -15,6 +15,8 @@ import {
   HUGGINGFACE_ENABLED,
   MISTRAL_BASE_URL,
   MISTRAL_ENABLED,
+  OPENAI_BASE_URL,
+  OPENAI_ENABLED,
   OPENROUTER_BASE_URL,
   OPENROUTER_ENABLED,
 } from '../config/config.js';
@@ -24,6 +26,7 @@ import {
 } from '../providers/anthropic-utils.js';
 import { CODEX_CLIENT_VERSION } from '../providers/codex-constants.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
+import { readOpenAIAPIKey } from '../providers/openai.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import { buildOpenRouterAttributionHeaders } from '../providers/openrouter-utils.js';
 import {
@@ -97,6 +100,30 @@ export async function probeOpenRouter(): Promise<ProviderProbeResult> {
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
+
+  const payload = (await response.json()) as { data?: unknown[] };
+  return {
+    reachable: true,
+    detail: `${Date.now() - startedAt}ms`,
+    modelCount: Array.isArray(payload.data) ? payload.data.length : 0,
+  };
+}
+
+export async function probeOpenAI(): Promise<ProviderProbeResult> {
+  if (!OPENAI_ENABLED) {
+    return { reachable: false, detail: 'Provider disabled' };
+  }
+  const apiKey = readOpenAIAPIKey({ required: false });
+  if (!apiKey) {
+    return { reachable: false, detail: 'API key missing' };
+  }
+
+  const startedAt = Date.now();
+  const response = await fetch(`${normalizeBaseUrl(OPENAI_BASE_URL)}/models`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
   const payload = (await response.json()) as { data?: unknown[] };
   return {

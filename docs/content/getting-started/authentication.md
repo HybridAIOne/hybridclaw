@@ -17,6 +17,7 @@ hybridclaw auth login hybridai --base-url http://localhost:5000
 hybridclaw auth login codex --device-code
 hybridclaw auth login codex --browser
 hybridclaw auth login codex --import
+hybridclaw auth login openai gpt-5.6-sol --api-key sk-...
 hybridclaw auth login anthropic anthropic/claude-sonnet-4-6 --method api-key --api-key sk-ant-...
 hybridclaw auth login anthropic anthropic/claude-sonnet-4-6 --method claude-cli
 hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
@@ -39,6 +40,7 @@ hybridclaw auth login msteams --app-id <msteams-app-id> --tenant-id <msteams-ten
 hybridclaw auth login slack --bot-token xoxb-... --app-token xapp-...
 hybridclaw auth status hybridai
 hybridclaw auth status codex
+hybridclaw auth status openai
 hybridclaw auth status anthropic
 hybridclaw auth status openrouter
 hybridclaw auth status mistral
@@ -58,6 +60,7 @@ hybridclaw auth status msteams
 hybridclaw auth status slack
 hybridclaw auth logout hybridai
 hybridclaw auth logout codex
+hybridclaw auth logout openai
 hybridclaw auth logout anthropic
 hybridclaw auth logout openrouter
 hybridclaw auth logout mistral
@@ -87,6 +90,9 @@ hybridclaw auth whatsapp reset
   and `--base-url` updates `hybridai.baseUrl` before login.
 - `hybridclaw auth login codex` prefers browser PKCE locally and device code on
   headless or remote shells.
+- `hybridclaw auth login openai` stores `OPENAI_API_KEY`, enables the direct
+  OpenAI Responses API transport, and can set an `openai/...` model as the
+  global default. This is separate from Codex OAuth and `openai-codex/...`.
 - `hybridclaw auth login anthropic --method api-key` stores
   `ANTHROPIC_API_KEY`, enables the direct Anthropic Messages API transport,
   and can set an `anthropic/...` model as the global default.
@@ -94,12 +100,14 @@ hybridclaw auth whatsapp reset
   `claude -p` transport after `claude auth login`. That transport currently
   requires host sandbox mode because the Claude CLI credentials and binary
   live on the host.
-- `hybridclaw auth login openrouter`, `hybridclaw auth login mistral`,
-  `hybridclaw auth login huggingface`, and the other API-key providers
-  (`anthropic`, `gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`,
-  `dashscope`, `xiaomi`, `kilo`) can take `--api-key`, otherwise they fall
-  back to the matching environment variable (e.g. `ANTHROPIC_API_KEY`,
-  `OPENROUTER_API_KEY`, `MISTRAL_API_KEY`, `HF_TOKEN`, `GEMINI_API_KEY`,
+- `hybridclaw auth login openai`, `hybridclaw auth login openrouter`,
+  `hybridclaw auth login mistral`, `hybridclaw auth login huggingface`, and the
+  other API-key providers (`anthropic`, `gemini`, `deepseek`, `xai`, `zai`,
+  `kimi`, `minimax`, `dashscope`, `xiaomi`, `kilo`) can take `--api-key`,
+  otherwise they fall back to the matching environment variable (e.g.
+  `ANTHROPIC_API_KEY`,
+  `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `MISTRAL_API_KEY`, `HF_TOKEN`,
+  `GEMINI_API_KEY`,
   `DEEPSEEK_API_KEY`, `XAI_API_KEY`, `ZAI_API_KEY`, `KIMI_API_KEY`,
   `MINIMAX_API_KEY`, `DASHSCOPE_API_KEY`, `XIAOMI_API_KEY`, `KILO_API_KEY`),
   or prompt interactively.
@@ -167,7 +175,7 @@ gateway-side auth routing from local TUI and local web chat sessions:
 ```bash
 hybridclaw secret list
 hybridclaw secret set <NAME> <VALUE>
-hybridclaw secret show <NAME>
+hybridclaw secret status <NAME>
 hybridclaw secret unset <NAME>
 hybridclaw secret route list
 hybridclaw secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
@@ -177,7 +185,7 @@ hybridclaw secret route remove <url-prefix> [header]
 ```text
 /secret list
 /secret set <NAME> <VALUE>
-/secret show <NAME>
+/secret status <NAME>
 /secret unset <NAME>
 /secret route list
 /secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
@@ -420,8 +428,8 @@ Use `customer_client` to find MCC children, `billing_setup.resource_name` for
 
 ## Where Credentials Live
 
-- `~/.hybridclaw/credentials.json` stores HybridAI, Anthropic, OpenRouter,
-  Mistral, Hugging Face, Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax,
+- `~/.hybridclaw/credentials.json` stores HybridAI, OpenAI API, Anthropic,
+  OpenRouter, Mistral, Hugging Face, Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax,
   DashScope, Xiaomi, Kilo Code, Google OAuth for `gog`, Discord, Slack,
   Telegram, email, Teams, BlueBubbles iMessage, vLLM, web/gateway auth tokens,
   related runtime secrets, and named `/secret set` values in encrypted form

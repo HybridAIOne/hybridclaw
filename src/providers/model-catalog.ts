@@ -67,7 +67,7 @@ import {
   type ModelRoutingZone,
   normalizeModelRoutingZone,
 } from './model-routing.js';
-import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
+import { OPENAI_CODEX_MODEL_PREFIX, OPENAI_MODEL_PREFIX } from './openai.js';
 import {
   discoverOpenAICompatRemoteModels,
   getDiscoveredOpenAICompatRemoteModelNames,
@@ -141,6 +141,7 @@ const PREFIX_BY_PROVIDER: Record<
   Exclude<ModelCatalogProviderFilter, 'hybridai' | 'local'>,
   string
 > = {
+  openai: OPENAI_MODEL_PREFIX,
   'openai-codex': OPENAI_CODEX_MODEL_PREFIX,
   anthropic: ANTHROPIC_MODEL_PREFIX,
   openrouter: OPENROUTER_MODEL_PREFIX,
@@ -327,6 +328,8 @@ function collectModelsForProvider(
   switch (filter) {
     case 'hybridai':
       return [HYBRIDAI_MODEL, ...getDiscoveredHybridAIModelNames()];
+    case 'openai':
+      return config.openai.enabled ? config.openai.models : [];
     case 'openai-codex':
       return getDiscoveredCodexModelNames();
     case 'anthropic': {
@@ -377,6 +380,7 @@ export function getAvailableModelList(provider?: string): string[] {
     ? collectModelsForProvider(normalizedProvider)
     : [
         HYBRIDAI_MODEL,
+        ...(config.openai.enabled ? config.openai.models : []),
         ...getDiscoveredCodexModelNames(),
         ...collectModelsForProvider('anthropic'),
         ...getDiscoveredHybridAIModelNames(),
@@ -481,6 +485,7 @@ export async function refreshModelCatalogMetadata(
     await discoverAllLocalModels();
     return;
   }
+  if (hasModelPrefix(normalized, OPENAI_MODEL_PREFIX)) return;
   if (hasModelPrefix(normalized, OPENAI_CODEX_MODEL_PREFIX)) {
     await discoverCodexModels();
     return;
@@ -572,6 +577,9 @@ function resolveKnownModelPricingUsdPerToken(
         output: null,
       }
     );
+  }
+  if (hasModelPrefix(model, OPENAI_MODEL_PREFIX)) {
+    return { input: null, output: null };
   }
   return (
     getDiscoveredHybridAIModelPricingUsdPerToken(model) ??

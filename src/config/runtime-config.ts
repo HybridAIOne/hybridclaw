@@ -150,7 +150,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 35;
+export const CONFIG_VERSION = 36;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -1112,6 +1112,11 @@ export interface RuntimeConfig {
     turnRuntime: CodexTurnRuntime;
     models: string[];
   };
+  openai: {
+    enabled: boolean;
+    baseUrl: string;
+    models: string[];
+  };
   anthropic: {
     enabled: boolean;
     baseUrl: string;
@@ -1400,6 +1405,11 @@ const DEFAULT_CODEX_MODEL_LIST = [
   'openai-codex/gpt-5.1-codex-max',
   'openai-codex/gpt-5.2',
   'openai-codex/gpt-5.1-codex-mini',
+] as const;
+const DEFAULT_OPENAI_MODEL_LIST = [
+  'openai/gpt-5.6-sol',
+  'openai/gpt-5.6-terra',
+  'openai/gpt-5.6-luna',
 ] as const;
 const DEFAULT_ANTHROPIC_MODEL_LIST = ['anthropic/claude-sonnet-4-6'] as const;
 const DEFAULT_ANTHROPIC_METHOD: AnthropicMethod = 'api-key';
@@ -1800,6 +1810,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     runtime: 'hybridclaw',
     turnRuntime: 'hybridclaw',
     models: [...DEFAULT_CODEX_MODEL_LIST],
+  },
+  openai: {
+    enabled: false,
+    baseUrl: 'https://api.openai.com/v1',
+    models: [...DEFAULT_OPENAI_MODEL_LIST],
   },
   anthropic: {
     enabled: false,
@@ -6956,6 +6971,7 @@ function normalizeRuntimeConfig(
   const rawEmail = isRecord(raw.email) ? raw.email : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
   const rawCodex = isRecord(raw.codex) ? raw.codex : {};
+  const rawOpenAI = isRecord(raw.openai) ? raw.openai : {};
   const rawAnthropic = isRecord(raw.anthropic) ? raw.anthropic : {};
   const rawOpenRouter = isRecord(raw.openrouter) ? raw.openrouter : {};
   const rawMistral = isRecord(raw.mistral) ? raw.mistral : {};
@@ -7249,6 +7265,10 @@ function normalizeRuntimeConfig(
     rawCodex.models,
     DEFAULT_RUNTIME_CONFIG.codex.models,
   );
+  const openAIModelList = normalizeStringArray(
+    rawOpenAI.models,
+    DEFAULT_RUNTIME_CONFIG.openai.models,
+  );
   const anthropicModelList = normalizeStringArray(
     rawAnthropic.models,
     DEFAULT_RUNTIME_CONFIG.anthropic.models,
@@ -7313,6 +7333,7 @@ function normalizeRuntimeConfig(
       hybridaiOnboardingModel: hybridOnboardingModel,
       remoteModels: [
         codexModelList,
+        openAIModelList,
         anthropicModelList,
         openRouterModelList,
         mistralModelList,
@@ -7769,6 +7790,17 @@ function normalizeRuntimeConfig(
       runtime: normalizeCodexTurnRuntimeConfig(rawCodex),
       turnRuntime: normalizeCodexTurnRuntimeConfig(rawCodex),
       models: codexModelList,
+    },
+    openai: {
+      enabled: normalizeBoolean(
+        rawOpenAI.enabled,
+        DEFAULT_RUNTIME_CONFIG.openai.enabled,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawOpenAI.baseUrl,
+        DEFAULT_RUNTIME_CONFIG.openai.baseUrl,
+      ),
+      models: openAIModelList,
     },
     anthropic: {
       enabled: normalizeBoolean(

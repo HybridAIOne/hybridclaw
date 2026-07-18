@@ -37,6 +37,8 @@ export function mapOpenAICompatibleUsage(tokenUsage?: TokenUsageStats): {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  prompt_tokens_details?: { cached_tokens: number };
+  cache_creation_input_tokens?: number;
 } {
   const promptTokens = tokenUsage?.apiUsageAvailable
     ? tokenUsage.apiPromptTokens
@@ -51,6 +53,20 @@ export function mapOpenAICompatibleUsage(tokenUsage?: TokenUsageStats): {
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
     total_tokens: totalTokens,
+    // Only emitted when the upstream provider actually reported cache usage,
+    // so a missing field means "not reported" and an explicit 0 means "no
+    // cache hit" — collapsing the two would make a cold cache indistinguishable
+    // from a provider that does not report caching at all.
+    ...(tokenUsage?.apiCacheUsageAvailable
+      ? {
+          prompt_tokens_details: {
+            cached_tokens: tokenUsage.apiCacheReadTokens,
+          },
+          ...(tokenUsage.apiCacheWriteTokens > 0
+            ? { cache_creation_input_tokens: tokenUsage.apiCacheWriteTokens }
+            : {}),
+        }
+      : {}),
   };
 }
 

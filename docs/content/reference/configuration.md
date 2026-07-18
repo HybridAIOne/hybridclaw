@@ -145,6 +145,9 @@ saved revision history directly.
   standard HybridClaw tool loop or `app-server` for the native Codex app-server
   turn loop on `openai-codex/*` models. `codex.runtime` is accepted as a
   compatibility alias; new config should use `codex.turnRuntime`.
+- `openai.enabled`, `openai.baseUrl`, and `openai.models` configure the direct
+  OpenAI Responses API provider. Store its API key as `OPENAI_API_KEY` in the
+  encrypted runtime secret store and select models with the `openai/` prefix.
 - `HYBRIDAI_FALLBACK_CHAIN` accepts a JSON array of fallback entries with
   `model`, optional `baseUrl`, `keyEnv`, `chatbotId`, and `agentId`. Gateway
   model calls use the chain for auth and rate-limit failures, then cool down
@@ -446,7 +449,7 @@ Local TUI/web sessions and the local CLI manage this store through:
 ```bash
 hybridclaw secret list
 hybridclaw secret set <NAME> <VALUE>
-hybridclaw secret show <NAME>
+hybridclaw secret status <NAME>
 hybridclaw secret unset <NAME>
 hybridclaw secret route list
 hybridclaw secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
@@ -456,7 +459,7 @@ hybridclaw secret route remove <url-prefix> [header]
 ```text
 /secret list
 /secret set <NAME> <VALUE>
-/secret show <NAME>
+/secret status <NAME>
 /secret unset <NAME>
 /secret route list
 /secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]

@@ -39,6 +39,7 @@ const AUXILIARY_TASKS: AuxiliaryTask[] = [...TASK_MODEL_KEYS, 'cv_narration'];
 const ENV_OVERRIDE_PREFIXES = ['AUXILIARY_', 'CONTEXT_'] as const;
 const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
   hybridai: '',
+  openai: 'openai/',
   'openai-codex': 'openai-codex/',
   anthropic: 'anthropic/',
   openrouter: 'openrouter/',

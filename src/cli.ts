@@ -2203,6 +2203,7 @@ function isWhatsAppAuthLockError(err: unknown): err is Error {
 function printMissingEnvVarError(message: string, envVar?: string): void {
   const envVarMessage: Record<string, string> = {
     HYBRIDAI_API_KEY: 'HybridAI provider is not configured.',
+    OPENAI_API_KEY: 'OpenAI API provider is not configured.',
     ANTHROPIC_API_KEY: 'Anthropic provider is not configured.',
     OPENROUTER_API_KEY: 'OpenRouter provider is not configured.',
     MISTRAL_API_KEY: 'Mistral provider is not configured.',
@@ -2210,6 +2211,7 @@ function printMissingEnvVarError(message: string, envVar?: string): void {
   };
   const envVarHint: Record<string, string> = {
     HYBRIDAI_API_KEY: `Run \`hybridclaw auth login hybridai\`, or store HYBRIDAI_API_KEY with \`hybridclaw secret set HYBRIDAI_API_KEY <key>\` or in TUI with \`/secret set HYBRIDAI_API_KEY <key>\`, then run the command again.`,
+    OPENAI_API_KEY: `Run \`hybridclaw auth login openai\`, or store OPENAI_API_KEY with \`hybridclaw secret set OPENAI_API_KEY <key>\` or in TUI with \`/secret set OPENAI_API_KEY <key>\`, then run the command again.`,
     ANTHROPIC_API_KEY: `Run \`hybridclaw auth login anthropic --method api-key\`, or run \`claude auth login\` and then \`hybridclaw auth login anthropic --method claude-cli\`, or store ANTHROPIC_API_KEY with \`hybridclaw secret set ANTHROPIC_API_KEY <key>\` or in TUI with \`/secret set ANTHROPIC_API_KEY <key>\`, then run the command again.`,
     OPENROUTER_API_KEY: `Run \`hybridclaw auth login openrouter\`, or store OPENROUTER_API_KEY with \`hybridclaw secret set OPENROUTER_API_KEY <key>\` or in TUI with \`/secret set OPENROUTER_API_KEY <key>\`, then run the command again.`,
     MISTRAL_API_KEY: `Run \`hybridclaw auth login mistral\`, or store MISTRAL_API_KEY with \`hybridclaw secret set MISTRAL_API_KEY <key>\` or in TUI with \`/secret set MISTRAL_API_KEY <key>\`, then run the command again.`,
