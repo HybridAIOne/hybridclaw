@@ -335,6 +335,7 @@ import {
   restoreGatewayAdminAgentMarkdownRevision,
   restoreGatewayAdminTeamStructureRevision,
   revokeGatewayAdminA2ATrustPeer,
+  saveGatewayAdminA2AE2EERequired,
   saveGatewayAdminA2ALocalMode,
   saveGatewayAdminAgentMarkdownFile,
   saveGatewayAdminConfig,
@@ -5515,6 +5516,30 @@ async function handleApiAdminA2ALocalMode(
     res,
     200,
     saveGatewayAdminA2ALocalMode({ enabled: body.enabled, actor }),
+  );
+}
+
+async function handleApiAdminA2AE2EERequired(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req).catch(() => ({}))) as {
+    required?: unknown;
+  };
+  if (typeof body.required !== 'boolean') {
+    sendJson(res, 400, { error: 'Expected boolean `required`.' });
+    return;
+  }
+  const actor =
+    resolveGatewayRequestUserId({
+      req,
+      channelId: 'web',
+      fallbackUserId: 'admin-console',
+    }) || 'admin-console';
+  sendJson(
+    res,
+    200,
+    saveGatewayAdminA2AE2EERequired({ required: body.required, actor }),
   );
 }
 
@@ -10708,6 +10733,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/a2a/local-mode' && method === 'PUT') {
             await handleApiAdminA2ALocalMode(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/a2a/e2ee-required' && method === 'PUT') {
+            await handleApiAdminA2AE2EERequired(req, res);
             return;
           }
           if (

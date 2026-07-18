@@ -38,8 +38,16 @@ export interface A2AEnvelope {
   parent_message_id?: string;
   intent: A2AEnvelopeIntent;
   content: string;
+  encryption?: A2AEnvelopeEncryption;
   created_at: string;
   delegation_token?: string;
+}
+
+export interface A2AEnvelopeEncryption {
+  version: 'jwe-x25519-a256gcm-v1';
+  alg: 'ECDH-ES';
+  enc: 'A256GCM';
+  kid: string;
 }
 
 export type CreateA2AEnvelopeInput = Omit<A2AEnvelope, 'id' | 'created_at'> & {
@@ -95,6 +103,7 @@ const A2A_ENVELOPE_FIELDS = new Set([
   'parent_message_id',
   'intent',
   'content',
+  'encryption',
   'created_at',
   'delegation_token',
 ]);
@@ -194,6 +203,45 @@ function readContent(
     return '';
   }
   return value;
+}
+
+function readEncryption(
+  record: Record<string, unknown>,
+  issues: string[],
+): A2AEnvelopeEncryption | undefined {
+  if (!Object.hasOwn(record, 'encryption')) return undefined;
+  const issueCount = issues.length;
+  const value = record.encryption;
+  if (!isRecord(value)) {
+    issues.push('encryption must be an object');
+    return undefined;
+  }
+  if (value.version !== 'jwe-x25519-a256gcm-v1') {
+    issues.push('encryption.version must be jwe-x25519-a256gcm-v1');
+  }
+  if (value.alg !== 'ECDH-ES') {
+    issues.push('encryption.alg must be ECDH-ES');
+  }
+  if (value.enc !== 'A256GCM') {
+    issues.push('encryption.enc must be A256GCM');
+  }
+  const kid =
+    typeof value.kid === 'string' && value.kid.trim() ? value.kid.trim() : '';
+  if (!/^[A-Za-z0-9_-]{43}$/.test(kid)) {
+    issues.push('encryption.kid must be a sha256 base64url fingerprint');
+  }
+  for (const field of Object.keys(value)) {
+    if (!['version', 'alg', 'enc', 'kid'].includes(field)) {
+      issues.push(`unexpected encryption field: ${field}`);
+    }
+  }
+  if (issues.length > issueCount) return undefined;
+  return {
+    version: 'jwe-x25519-a256gcm-v1',
+    alg: 'ECDH-ES',
+    enc: 'A256GCM',
+    kid,
+  };
 }
 
 export function isA2AEnvelopeIntent(value: string): value is A2AEnvelopeIntent {
@@ -433,6 +481,7 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
   );
   const intent = readRequiredTrimmedString(value, 'intent', issues);
   const content = readContent(value, issues);
+  const encryption = readEncryption(value, issues);
   const createdAt = readRequiredTrimmedString(value, 'created_at', issues);
   const delegationToken = readOptionalTrimmedString(
     value,
@@ -534,6 +583,9 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
   if (!isA2AEnvelopeIntent(intent)) {
     issues.push(`intent must be one of: ${A2A_ENVELOPE_INTENTS.join(', ')}`);
   }
+  if (encryption && content.split('.').length !== 5) {
+    issues.push('encrypted content must be a compact JWE');
+  }
   validateCreatedAt(createdAt, issues);
 
   if (issues.length > 0) {
@@ -549,6 +601,7 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
     thread_id: threadId,
     intent: intent as A2AEnvelopeIntent,
     content,
+    ...(encryption ? { encryption } : {}),
     created_at: createdAt,
   };
   if (senderInstanceId) envelope.sender_instance_id = senderInstanceId;

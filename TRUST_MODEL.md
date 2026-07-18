@@ -26,6 +26,10 @@ Core assumptions:
 - Mount access is restricted by allowlist policy (`~/.config/hybridclaw/mount-allowlist.json`).
 - Additional mounts are denied when allowlist validation fails.
 - Network/API access is governed by configured endpoints and bearer tokens.
+- Paired A2A gateways encrypt message envelopes between gateway processes with
+  pinned X25519 keys. This transport boundary does not hide plaintext from
+  either endpoint host, the receiving agent, configured model providers, or
+  decrypted local persistence.
 
 ## Operator Responsibilities
 
@@ -44,6 +48,7 @@ HybridClaw may persist:
 - Conversation history in SQLite (`data/hybridclaw.db`)
 - Session transcripts in workspace logs (`.session-transcripts`)
 - Agent memory files (`MEMORY.md`, `memory/*.md`)
+- Decrypted inbound A2A messages in the local inbox and related session state
 
 Operators are responsible for data retention, backup, and deletion requirements.
 

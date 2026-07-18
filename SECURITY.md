@@ -134,6 +134,40 @@ Implementation: [src/security/confidential-rules.ts](./src/security/confidential
 [src/security/confidential-runtime.ts](./src/security/confidential-runtime.ts),
 [src/audit/leak-scanner.ts](./src/audit/leak-scanner.ts).
 
+### 4.2) A2A End-to-End Transport Encryption
+
+Paired HybridClaw instances encrypt A2A message envelopes at the sending
+gateway and decrypt them only at the receiving gateway:
+
+- Each instance has a dedicated X25519 encryption key pair, separate from its
+  Ed25519 identity and delegation-signing key.
+- Pairing pins both the peer's Ed25519 identity fingerprint and X25519
+  encryption-key fingerprint.
+- Message envelopes use compact JWE with `ECDH-ES` and `A256GCM`. The encrypted
+  inner envelope is bound to the visible routing metadata, so routing-field
+  tampering fails authentication.
+- Signed delegation JWTs include a SHA-256 digest of the encrypted transport
+  envelope. The receiver authenticates the peer and verifies that digest before
+  attempting decryption.
+- Once a peer has a pinned encryption key, plaintext from that peer is rejected.
+  New pairing requests require an E2EE-capable Agent Card. Operators can enable
+  `deployment.a2a_e2ee_required` from `/admin/a2a-trust` to reject plaintext
+  from every A2A peer, including manually trusted or third-party peers without
+  this HybridClaw extension.
+
+This protects message contents from network observers, reverse proxies, tunnel
+providers, and TLS terminators between the two HybridClaw gateway processes. It
+does not protect plaintext from either endpoint host, the receiving agent,
+configured model providers, or plaintext inbox/session persistence after
+decryption. The static recipient key design also does not provide forward
+secrecy: compromise of an instance's X25519 private key can expose previously
+captured messages addressed to that key. Rotate and re-pair peers after a host
+or key compromise.
+
+Implementation: [src/a2a/e2ee.ts](./src/a2a/e2ee.ts),
+[src/a2a/delegation-token.ts](./src/a2a/delegation-token.ts),
+[src/a2a/pairing.ts](./src/a2a/pairing.ts)
+
 ### 5) Audit & Tamper Evidence
 
 Security-relevant behavior is written to structured audit logs:

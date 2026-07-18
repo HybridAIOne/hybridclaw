@@ -1566,6 +1566,8 @@ export interface AdminA2AIdentity {
   instanceId: string;
   publicKeyFingerprint: string;
   publicKeyJwk: JsonWebKey;
+  e2eePublicKeyFingerprint: string;
+  e2eePublicKeyJwk: JsonWebKey;
 }
 
 export interface AdminA2ATrustPeer {
@@ -1583,12 +1585,21 @@ export interface AdminA2ATrustPeer {
   revokedReason: string | null;
   lastMismatchAt: string | null;
   lastMismatchFingerprint: string | null;
+  e2ee: {
+    required: true;
+    publicKeyFingerprint: string;
+    keyId: string;
+    version: 'jwe-x25519-a256gcm-v1';
+  } | null;
 }
 
 export interface AdminA2ATrustResponse {
   identity: AdminA2AIdentity;
   localMode: {
     enabled: boolean;
+  };
+  e2ee: {
+    required: boolean;
   };
   peers: AdminA2ATrustPeer[];
   pairingRequests: AdminA2APairingRequest[];
@@ -1651,7 +1662,7 @@ export interface AdminFleetTopologyUpsertRequest {
 }
 
 export interface AdminA2APairingRequest {
-  schemaVersion: 1;
+  schemaVersion: 2;
   requestId: string;
   status: 'pending' | 'approved' | 'declined';
   pairingId: string | null;
@@ -1660,6 +1671,14 @@ export interface AdminA2APairingRequest {
   deliveryUrl: string;
   publicKeyJwk: JsonWebKey;
   publicKeyFingerprint: string;
+  e2ee: {
+    version: 'jwe-x25519-a256gcm-v1';
+    alg: 'ECDH-ES';
+    enc: 'A256GCM';
+    keyId: string;
+    publicKeyJwk: JsonWebKey;
+    publicKeyFingerprint: string;
+  };
   name: string | null;
   requestedBy: string | null;
   requestedAt: string;
@@ -1686,6 +1705,7 @@ export interface AdminA2APairingPreviewResponse {
     deliveryUrl: string;
     publicKeyFingerprint: string;
     publicKeyJwk: JsonWebKey;
+    e2eePublicKeyFingerprint: string;
     name: string | null;
   };
 }
@@ -1696,6 +1716,7 @@ export interface AdminA2APairingStartResponse extends AdminA2ATrustResponse {
     agentCardUrl: string;
     deliveryUrl: string;
     publicKeyFingerprint: string;
+    e2eePublicKeyFingerprint: string;
     name: string | null;
   };
   remoteNotification: {

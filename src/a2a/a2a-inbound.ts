@@ -28,6 +28,11 @@ import {
   verifyA2ADelegationToken,
 } from './delegation-token.js';
 import {
+  decryptA2AEnvelope,
+  digestA2ATransportEnvelope,
+  getA2ATrustedE2EEPeer,
+} from './e2ee.js';
+import {
   type A2AEnvelope,
   A2AEnvelopeDuplicateError,
   A2AEnvelopeValidationError,
@@ -75,7 +80,7 @@ type A2AInboundHandler = (params: {
   authorization: string | null | undefined;
   audience: string;
   mtlsPublicKeyPem?: string | null;
-}) => A2AInboundResult;
+}) => Promise<A2AInboundResult>;
 
 export type { A2ATrustedA2APeer, UpsertA2ATrustedA2APeerInput };
 export { listA2ATrustedA2APeers, upsertA2ATrustedA2APeer };
@@ -392,6 +397,9 @@ function verifySignedRequest(params: {
         : A2A_MESSAGE_SEND_SCOPE,
     senderAgentId: params.envelope.sender_agent_id,
     targetAgentId: params.envelope.recipient_agent_id,
+    ...(params.envelope.encryption
+      ? { envelopeDigest: digestA2ATransportEnvelope(params.envelope) }
+      : {}),
     now: params.now,
   });
 }
@@ -485,14 +493,14 @@ function alreadyDeliveredBody(envelope: A2AEnvelope): Record<string, unknown> {
   };
 }
 
-export function acceptA2AHttpEnvelopeInboundRequest(params: {
+export async function acceptA2AHttpEnvelopeInboundRequest(params: {
   rawBody: string;
   authorization: string | null | undefined;
   audience: string;
   mtlsPublicKeyPem?: string | null;
   // Test-only clock hook for direct unit tests; HTTP handlers always use wall time.
   now?: Date;
-}): A2AInboundResult {
+}): Promise<A2AInboundResult> {
   const runId = makeAuditRunId('a2a-http-inbound');
   let envelope: A2AEnvelope | null = null;
   let peer: SharedTrustedA2AJsonRpcPeer | null = null;
@@ -512,6 +520,13 @@ export function acceptA2AHttpEnvelopeInboundRequest(params: {
     });
     peer = authenticated.peer;
     authMode = authenticated.authMode;
+    assertEnvelopeSenderMatchesPeer(envelope, peer);
+    const authenticatedPeerInstanceId = peerInstanceId(peer);
+    envelope = await decryptA2AEnvelope(envelope, {
+      required:
+        getRuntimeConfig().deployment.a2a_e2ee_required ||
+        getA2ATrustedE2EEPeer(authenticatedPeerInstanceId) !== null,
+    });
     assertEnvelopeSenderMatchesPeer(envelope, peer);
     assertCanonicalLocalRecipient(envelope);
   } catch (error) {
@@ -635,14 +650,14 @@ export function acceptA2AHttpEnvelopeInboundRequest(params: {
   }
 }
 
-export function acceptA2AJsonRpcInboundRequest(params: {
+export async function acceptA2AJsonRpcInboundRequest(params: {
   rawBody: string;
   authorization: string | null | undefined;
   audience: string;
   mtlsPublicKeyPem?: string | null;
   // Test-only clock hook for direct unit tests; HTTP handlers always use wall time.
   now?: Date;
-}): A2AInboundResult {
+}): Promise<A2AInboundResult> {
   const runId = makeAuditRunId('a2a-inbound');
   let envelope: A2AEnvelope | null = null;
   let peer: SharedTrustedA2AJsonRpcPeer | null = null;
@@ -669,6 +684,13 @@ export function acceptA2AJsonRpcInboundRequest(params: {
     });
     peer = authenticated.peer;
     authMode = authenticated.authMode;
+    const authenticatedPeerInstanceId = peerInstanceId(peer);
+    envelope = await decryptA2AEnvelope(envelope, {
+      required:
+        getRuntimeConfig().deployment.a2a_e2ee_required ||
+        getA2ATrustedE2EEPeer(authenticatedPeerInstanceId) !== null,
+    });
+    assertEnvelopeSenderMatchesPeer(envelope, peer);
     if (!localRecipientResolves(envelope.recipient_agent_id)) {
       throw new A2AEnvelopeValidationError([
         'recipient_agent_id does not resolve to a local agent',
@@ -819,7 +841,7 @@ async function handleA2AInbound(
     const rawBody = (
       await readRequestBody(req, A2A_INBOUND_MAX_BODY_BYTES)
     ).toString('utf-8');
-    const result = accept({
+    const result = await accept({
       rawBody,
       authorization: readHeader(req.headers, 'authorization'),
       audience: resolveInboundAudience(req, url),

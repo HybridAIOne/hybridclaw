@@ -20,6 +20,12 @@ import {
 } from '../gateway/interactive-escalation.js';
 import { fetchA2AAgentCard } from './a2a-agent-card.js';
 import type { A2AAgentCard } from './a2a-json-rpc.js';
+import {
+  type A2AE2EEAdvertisement,
+  getLocalA2AE2EEAdvertisement,
+  parseA2AE2EEAdvertisement,
+  trustA2AE2EEPeer,
+} from './e2ee.js';
 import { classifyA2AAgentId } from './envelope.js';
 import {
   A2A_IDENTITY_DISCOVERY_ZONE_ENV,
@@ -42,7 +48,7 @@ import {
 import { isA2AAllowedHttpUrl, isRecord } from './utils.js';
 
 export const A2A_PAIRING_REQUEST_PATH = '/a2a/pairing/requests';
-const A2A_PAIRING_REQUEST_SCHEMA_VERSION = 1;
+const A2A_PAIRING_REQUEST_SCHEMA_VERSION = 2;
 const A2A_PAIRING_REQUEST_ASSET_PREFIX = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'a2a',
@@ -77,6 +83,7 @@ export interface A2APairingProposal {
   publicKeyFingerprint: string;
   name: string | null;
   delegation: A2ADelegationTrustAdvertisement | null;
+  e2ee: A2AE2EEAdvertisement;
 }
 
 export interface A2AIncomingPairingRequest extends A2APairingProposal {
@@ -275,6 +282,23 @@ function parseDelegationTrustAdvertisement(
   };
 }
 
+function requireE2EEAdvertisement(value: unknown): A2AE2EEAdvertisement {
+  try {
+    const advertisement = parseA2AE2EEAdvertisement(value);
+    if (!advertisement) {
+      throw new Error('missing advertisement');
+    }
+    return advertisement;
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      `Peer must advertise supported A2A E2EE key material: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
 function trustedA2APeerIdForSender(peerId: string, senderAgentId: string) {
   const normalizedPeerId = normalizeA2APeerId(peerId);
   const senderHash = createHash('sha256')
@@ -337,9 +361,14 @@ function publicKeyFingerprintFromDiscovery(publicKey: string): string | null {
   }
 }
 
-function requestIdFor(key: A2APeerPublicKeyMaterial): string {
+function requestIdFor(
+  key: A2APeerPublicKeyMaterial,
+  e2ee: A2AE2EEAdvertisement,
+): string {
   return createHash('sha256')
-    .update(`${key.peerId}\0${key.publicKeyFingerprint}`)
+    .update(
+      `${key.peerId}\0${key.publicKeyFingerprint}\0${e2ee.publicKeyFingerprint}`,
+    )
     .digest('base64url')
     .slice(0, 32);
 }
@@ -347,14 +376,18 @@ function requestIdFor(key: A2APeerPublicKeyMaterial): string {
 function pairingIdFor(params: {
   localPeerId: string;
   localPublicKeyFingerprint: string;
+  localE2EEPublicKeyFingerprint: string;
   remotePeerId: string;
   remotePublicKeyFingerprint: string;
+  remoteE2EEPublicKeyFingerprint: string;
 }): string {
   const pairKey = [
     params.localPeerId,
     params.localPublicKeyFingerprint,
+    params.localE2EEPublicKeyFingerprint,
     params.remotePeerId,
     params.remotePublicKeyFingerprint,
+    params.remoteE2EEPublicKeyFingerprint,
   ]
     .sort()
     .join('\0');
@@ -386,8 +419,9 @@ function parseStoredPairingRequest(
     if (!key || key.publicKeyFingerprint !== parsed.publicKeyFingerprint) {
       return null;
     }
+    const e2ee = requireE2EEAdvertisement(parsed.e2ee);
     const requestId = String(parsed.requestId || '').trim();
-    if (requestId !== requestIdFor(key)) {
+    if (requestId !== requestIdFor(key, e2ee)) {
       return null;
     }
     return {
@@ -405,6 +439,7 @@ function parseStoredPairingRequest(
       publicKeyFingerprint: key.publicKeyFingerprint,
       name: typeof parsed.name === 'string' ? parsed.name : null,
       delegation: parseDelegationTrustAdvertisement(parsed.delegation),
+      e2ee,
       requestedBy:
         typeof parsed.requestedBy === 'string' && parsed.requestedBy.trim()
           ? parsed.requestedBy.trim()
@@ -473,6 +508,7 @@ function promptPeerOperator(request: A2AIncomingPairingRequest): void {
       `Agent Card: ${request.agentCardUrl}`,
       `Delivery URL: ${request.deliveryUrl}`,
       `Fingerprint: ${request.publicKeyFingerprint}`,
+      `E2EE fingerprint: ${request.e2ee.publicKeyFingerprint}`,
       `A2A senders: ${request.delegation?.senderAgentIds.length || 0}`,
       'Approve this from /admin/a2a-trust to trust the peer public key and advertised A2A senders.',
     ].join('\n'),
@@ -555,6 +591,9 @@ export async function fetchA2APairingProposal(
       'Canonical identity public key does not match peer Agent Card.',
     );
   }
+  const e2ee = requireE2EEAdvertisement(
+    isRecord(card.hybridclaw) ? card.hybridclaw.e2ee : null,
+  );
   return {
     peerId: key.peerId,
     agentCardUrl,
@@ -566,6 +605,7 @@ export async function fetchA2APairingProposal(
       isRecord(card.hybridclaw) ? card.hybridclaw.delegation : null,
       extractAgentCardSenderAgentIds(card),
     ),
+    e2ee,
   };
 }
 
@@ -649,11 +689,14 @@ async function notifyRemotePairingRequest(params: {
     isRecord(localCard.hybridclaw) ? localCard.hybridclaw.delegation : null,
     extractAgentCardSenderAgentIds(localCard),
   );
+  const localE2EE = getLocalA2AE2EEAdvertisement();
   const pairingId = pairingIdFor({
     localPeerId: identity.instanceId,
     localPublicKeyFingerprint: identity.publicKeyFingerprint,
+    localE2EEPublicKeyFingerprint: localE2EE.publicKeyFingerprint,
     remotePeerId: params.proposal.peerId,
     remotePublicKeyFingerprint: params.proposal.publicKeyFingerprint,
+    remoteE2EEPublicKeyFingerprint: params.proposal.e2ee.publicKeyFingerprint,
   });
 
   const endpoint = new URL(
@@ -675,6 +718,7 @@ async function notifyRemotePairingRequest(params: {
             ? localCard.name
             : null,
         delegation,
+        e2ee: localE2EE,
         pairingId,
         requestedBy: params.actor || null,
       }),
@@ -721,6 +765,12 @@ export async function startA2APairing(
     },
     now,
   );
+  trustA2AE2EEPeer({
+    peerId: proposal.peerId,
+    advertisement: proposal.e2ee,
+    actor: input.actor,
+    now,
+  });
   const remoteNotification =
     input.notifyPeer === false
       ? { status: 'not_requested' as const, url: null, error: null }
@@ -738,6 +788,7 @@ export async function startA2APairing(
     agentCardUrl: proposal.agentCardUrl,
     deliveryUrl: proposal.deliveryUrl,
     publicKeyFingerprint: proposal.publicKeyFingerprint,
+    e2eePublicKeyFingerprint: proposal.e2ee.publicKeyFingerprint,
     trustedA2ASenders: trustedA2APeers.map((peer) => peer.senderAgentId),
     remoteNotification,
   });
@@ -792,7 +843,8 @@ export function createIncomingA2APairingRequest(
       'publicKeyFingerprint does not match publicKeyJwk.',
     );
   }
-  const requestId = requestIdFor(key);
+  const e2ee = requireE2EEAdvertisement(input.e2ee);
+  const requestId = requestIdFor(key, e2ee);
   const existing = getIncomingPairingRequest(requestId);
   if (existing && existing.status !== 'pending') {
     return existing;
@@ -820,6 +872,7 @@ export function createIncomingA2APairingRequest(
     publicKeyFingerprint: key.publicKeyFingerprint,
     name: normalizeOptionalPairingString(input.name, 'name'),
     delegation,
+    e2ee,
     requestedBy: normalizeOptionalPairingString(
       input.requestedBy,
       'requestedBy',
@@ -842,6 +895,7 @@ export function createIncomingA2APairingRequest(
     peerId: request.peerId,
     requestedBy: request.requestedBy,
     publicKeyFingerprint: request.publicKeyFingerprint,
+    e2eePublicKeyFingerprint: request.e2ee.publicKeyFingerprint,
     status: request.status,
   });
   return request;
@@ -892,6 +946,12 @@ export function approveIncomingA2APairingRequest(params: {
     },
     now,
   );
+  trustA2AE2EEPeer({
+    peerId: approved.peerId,
+    advertisement: approved.e2ee,
+    actor: approved.approvedBy,
+    now,
+  });
   persistPairingRequest(approved);
   recordPairingAudit({
     type: 'a2a.pairing.approved',
@@ -900,6 +960,7 @@ export function approveIncomingA2APairingRequest(params: {
     peerId: approved.peerId,
     actor: approved.approvedBy,
     publicKeyFingerprint: approved.publicKeyFingerprint,
+    e2eePublicKeyFingerprint: approved.e2ee.publicKeyFingerprint,
     trustedA2ASenders: trustedA2APeers.map((peer) => peer.senderAgentId),
   });
   return approved;

@@ -19,6 +19,11 @@
 
 ### Added
 
+- **A2A end-to-end transport encryption**: Paired HybridClaw gateways exchange
+  and pin dedicated X25519 keys, encrypt message envelopes with compact JWE
+  (`ECDH-ES` and `A256GCM`), bind encrypted envelopes to Ed25519-signed
+  delegation tokens, reject per-peer plaintext downgrades, and expose an admin
+  switch that requires E2EE for every A2A trust entry.
 - **Model latency benchmark**: `scripts/benchmark-model-latency.mjs` measures
   time-to-headers, time-to-first-token, total duration, and tokens/sec for the
   same model across three paths — the local gateway's OpenAI-compatible API
