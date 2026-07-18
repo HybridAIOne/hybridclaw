@@ -34,6 +34,11 @@
 //                       adds for Claude models on the hai/vendor arms
 //   --chatbot-id <id>   chatbot_id for the hai arm (default: env
 //                       HYBRIDAI_CHATBOT_ID or config.hybridai.defaultChatbotId)
+//   --gateway-models <list>  Comma list of HybridClaw model ids to run through
+//                       the gateway, one arm each — compares HC providers
+//                       against each other, e.g.
+//                       --gateway-models hybridai/gpt-5.6-luna,openai-codex/gpt-5.6-luna
+//                       (default: hybridai/<model>)
 //   --vendor-model <id> Upstream model name for the vendor arm, when it differs
 //                       from the HybridAI-side name
 //   --openai-max-param <p>  auto | max_tokens | max_completion_tokens for the
@@ -93,6 +98,7 @@ function parseArgs(argv) {
     maxTokens: 512,
     thinking: true,
     chatbotId: '',
+    gatewayModels: [],
     vendorModel: '',
     openaiMaxParam: 'auto',
     gatewayUrl: '',
@@ -138,6 +144,12 @@ function parseArgs(argv) {
         break;
       case '--chatbot-id':
         options.chatbotId = next();
+        break;
+      case '--gateway-models':
+        options.gatewayModels = next()
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean);
         break;
       case '--vendor-model':
         options.vendorModel = next();
@@ -291,11 +303,21 @@ function resolveTargets(options) {
     stripTrailingV1(config?.hybridai?.baseUrl) ||
     DEFAULT_HYBRIDAI_BASE_URL;
 
+  // One gateway arm per HybridClaw model id, so the same upstream model can be
+  // compared across HC providers (e.g. hybridai/... vs openai-codex/...).
+  const gatewayModels = options.gatewayModels.length
+    ? options.gatewayModels
+    : [`hybridai/${haiModel}`];
+
   return {
-    gateway: {
+    gateway: gatewayModels.map((model) => ({
       arm: 'gateway',
+      label:
+        gatewayModels.length > 1
+          ? `gateway(${model.split('/')[0]})`
+          : 'gateway',
       url: `${gatewayBaseUrl}/v1/chat/completions`,
-      model: `hybridai/${haiModel}`,
+      model,
       token:
         process.env.WEB_API_TOKEN ||
         process.env.GATEWAY_API_TOKEN ||
@@ -306,7 +328,7 @@ function resolveTargets(options) {
           : ''),
       missing:
         'WEB_API_TOKEN (tip: mint one with `hybridclaw token create --label latency-bench --actions openai.api`)',
-    },
+    })),
     hai: {
       arm: 'hai',
       url: `${haiBaseUrl}/v1/chat/completions`,
@@ -390,6 +412,9 @@ function buildRequest(target, options, stream) {
 
 // --- response parsing ------------------------------------------------------
 
+// Prompt-cache hits: OpenAI-compatible backends report automatic prefix
+// caching under usage.prompt_tokens_details.cached_tokens; Anthropic reports
+// explicit cache_control hits under usage.cache_read_input_tokens.
 function extractOpenAIResult(payload) {
   const choice = payload?.choices?.[0];
   const usage = payload?.usage;
@@ -397,6 +422,7 @@ function extractOpenAIResult(payload) {
     text: choice?.message?.content || '',
     inputTokens: usage?.prompt_tokens ?? null,
     outputTokens: usage?.completion_tokens ?? null,
+    cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? null,
     finish: choice?.finish_reason || null,
     model: payload?.model || null,
   };
@@ -407,10 +433,13 @@ function extractAnthropicResult(payload) {
     .filter((block) => block?.type === 'text')
     .map((block) => block.text)
     .join('');
+  const usage = payload?.usage;
   return {
     text,
-    inputTokens: payload?.usage?.input_tokens ?? null,
-    outputTokens: payload?.usage?.output_tokens ?? null,
+    inputTokens: usage?.input_tokens ?? null,
+    outputTokens: usage?.output_tokens ?? null,
+    cachedTokens: usage?.cache_read_input_tokens ?? null,
+    cacheWriteTokens: usage?.cache_creation_input_tokens ?? null,
     finish: payload?.stop_reason || null,
     model: payload?.model || null,
   };
@@ -426,6 +455,9 @@ function makeOpenAIStreamConsumer(state) {
       state.inputTokens = payload.usage.prompt_tokens ?? state.inputTokens;
       state.outputTokens =
         payload.usage.completion_tokens ?? state.outputTokens;
+      state.cachedTokens =
+        payload.usage.prompt_tokens_details?.cached_tokens ??
+        state.cachedTokens;
     }
     const choice = payload?.choices?.[0];
     if (!choice) return;
@@ -460,6 +492,11 @@ function makeAnthropicStreamConsumer(state) {
         state.model = payload.message?.model || state.model;
         state.inputTokens =
           payload.message?.usage?.input_tokens ?? state.inputTokens;
+        state.cachedTokens =
+          payload.message?.usage?.cache_read_input_tokens ?? state.cachedTokens;
+        state.cacheWriteTokens =
+          payload.message?.usage?.cache_creation_input_tokens ??
+          state.cacheWriteTokens;
         break;
       case 'content_block_delta':
         if (payload.delta?.type === 'text_delta' && payload.delta.text) {
@@ -499,6 +536,8 @@ async function measureRequest(target, options, stream) {
     totalMs: null,
     inputTokens: null,
     outputTokens: null,
+    cachedTokens: null,
+    cacheWriteTokens: null,
     finish: null,
     servedModel: null,
     replyChars: 0,
@@ -547,6 +586,8 @@ async function measureRequest(target, options, stream) {
       Object.assign(result, {
         inputTokens: extracted.inputTokens,
         outputTokens: extracted.outputTokens,
+        cachedTokens: extracted.cachedTokens ?? null,
+        cacheWriteTokens: extracted.cacheWriteTokens ?? null,
         finish: extracted.finish,
         servedModel: extracted.model,
         replyChars: extracted.text.length,
@@ -561,6 +602,8 @@ async function measureRequest(target, options, stream) {
       model: null,
       inputTokens: null,
       outputTokens: null,
+      cachedTokens: null,
+      cacheWriteTokens: null,
       finish: null,
       onText: (delta) => {
         if (result.firstTextMs === null) result.firstTextMs = since();
@@ -608,6 +651,8 @@ async function measureRequest(target, options, stream) {
     Object.assign(result, {
       inputTokens: state.inputTokens,
       outputTokens: state.outputTokens,
+      cachedTokens: state.cachedTokens,
+      cacheWriteTokens: state.cacheWriteTokens,
       finish: state.finish,
       servedModel: state.model,
       replyChars: replyText.length,
@@ -674,6 +719,16 @@ function formatMs(value) {
   return `${value}`;
 }
 
+// Prompt-cache hit rate. "-" means the backend reported no cache field at all
+// (not the same as a reported 0, which is a genuine miss).
+function formatCached(result) {
+  if (typeof result.cachedTokens !== 'number') return '-';
+  const input = result.inputTokens;
+  if (typeof input !== 'number' || input <= 0) return `${result.cachedTokens}`;
+  const pct = Math.round((result.cachedTokens / input) * 100);
+  return `${result.cachedTokens} (${pct}%)`;
+}
+
 function median(values) {
   const sorted = values
     .filter((value) => typeof value === 'number')
@@ -721,8 +776,11 @@ async function main() {
     options.stream === 'both' ? [false, true] : [options.stream === 'true'];
 
   const active = [];
-  for (const arm of options.arms) {
-    const target = targets[arm];
+  const requested = options.arms.flatMap((arm) =>
+    Array.isArray(targets[arm]) ? targets[arm] : [targets[arm]],
+  );
+  for (const target of requested) {
+    const arm = target.arm;
     if (target.unsupported) {
       console.error(`[skip] ${arm}: ${target.unsupported}`);
       continue;
@@ -808,6 +866,7 @@ async function main() {
       '1st-text': formatMs(result.firstTextMs),
       total: formatMs(result.totalMs),
       'tok in/out': `${result.inputTokens ?? '-'}/${result.outputTokens ?? '-'}`,
+      cached: formatCached(result),
       'tok/s': tokensPerSecond(result) ?? '-',
     })),
   );
@@ -818,7 +877,10 @@ async function main() {
     for (const stream of streamModes) {
       const subset = results.filter(
         (result) =>
-          result.arm === target.arm && result.stream === stream && result.ok,
+          result.label === (target.label || target.arm) &&
+          result.model === target.model &&
+          result.stream === stream &&
+          result.ok,
       );
       if (subset.length === 0) continue;
       summary.push({
@@ -828,7 +890,12 @@ async function main() {
         headers: formatMs(median(subset.map((r) => r.headersMs))),
         '1st-text': formatMs(median(subset.map((r) => r.firstTextMs))),
         total: formatMs(median(subset.map((r) => r.totalMs))),
+        'in tok': formatMs(median(subset.map((r) => r.inputTokens))),
         'out tok': formatMs(median(subset.map((r) => r.outputTokens))),
+        cached: formatCached({
+          inputTokens: median(subset.map((r) => r.inputTokens)),
+          cachedTokens: median(subset.map((r) => r.cachedTokens)),
+        }),
         'tok/s': formatMs(median(subset.map((r) => tokensPerSecond(r)))),
       });
     }
@@ -845,8 +912,14 @@ async function main() {
       '             (gateway includes the full agent turn: system prompt build,',
       '             session setup, and any thinking before the reply)',
       '  total      full response received',
-      '  tok/s      output tokens per second after the first text token',
-      '             (streaming runs only)',
+      '  cached     prompt tokens served from the backend prompt cache',
+      '             ("-" = backend reported no cache field; 0 = genuine miss).',
+      '             Flat timings across repeated identical runs plus 0 here',
+      '             means the prefix is re-processed on every request.',
+      '  tok/s      output tokens per second after the first text token.',
+      '             Streaming only: a non-streaming response arrives in one',
+      '             piece, so generation start is not observable and any rate',
+      '             would just be output tokens over prefill+queue+generation.',
       '  gateway - hai   = HybridClaw overhead (agent loop, big system prompt, session)',
       '  hai - vendor    = HybridAI backend overhead (proxying, harness, queueing)',
     ].join('\n'),
