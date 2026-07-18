@@ -4313,6 +4313,36 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('Tenant ID: teams-tenant-id');
   });
 
+  it('configures the direct OpenAI API provider from auth login', async () => {
+    const { cli, saveRuntimeSecrets, updateRuntimeConfig } =
+      await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main([
+      'auth',
+      'login',
+      'openai',
+      'gpt-5.6-sol',
+      '--api-key',
+      'openai-secret-key',
+    ]);
+
+    expect(saveRuntimeSecrets).toHaveBeenCalledWith({
+      OPENAI_API_KEY: 'openai-secret-key',
+    });
+    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
+      hybridai: { defaultModel: string };
+      openai: { enabled: boolean; models: string[] };
+    };
+    expect(nextConfig.openai.enabled).toBe(true);
+    expect(nextConfig.openai.models[0]).toBe('openai/gpt-5.6-sol');
+    expect(nextConfig.hybridai.defaultModel).toBe('openai/gpt-5.6-sol');
+    expect(logSpy).toHaveBeenCalledWith('Provider: openai');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Configured model: openai/gpt-5.6-sol',
+    );
+  });
+
   it('configures OpenRouter from auth login with --api-key', async () => {
     const {
       cli,

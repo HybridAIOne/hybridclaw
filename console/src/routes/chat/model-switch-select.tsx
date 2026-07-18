@@ -79,6 +79,7 @@ export interface ParsedModel {
 type KnownProvider =
   | 'Local'
   | 'HybridAI'
+  | 'OpenAI API'
   | 'OpenAI Codex'
   | 'Anthropic'
   | 'OpenRouter'
@@ -103,6 +104,7 @@ type KnownProvider =
 // providers silently fall through to the kebab-to-Title fallback in pretty().
 const PROVIDER_LABELS: Record<GatewayModelProviderKey, KnownProvider> = {
   hybridai: 'HybridAI',
+  openai: 'OpenAI API',
   codex: 'OpenAI Codex',
   anthropic: 'Anthropic',
   openrouter: 'OpenRouter',

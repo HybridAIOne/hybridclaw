@@ -1,5 +1,5 @@
 {
-  "version": 35,
+  "version": 36,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -355,6 +355,15 @@
   "codex": {
     "baseUrl": "https://chatgpt.com/backend-api/codex",
     "turnRuntime": "hybridclaw"
+  },
+  "openai": {
+    "enabled": false,
+    "baseUrl": "https://api.openai.com/v1",
+    "models": [
+      "openai/gpt-5.6-sol",
+      "openai/gpt-5.6-terra",
+      "openai/gpt-5.6-luna"
+    ]
   },
   "anthropic": {
     "enabled": false,

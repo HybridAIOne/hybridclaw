@@ -40,6 +40,8 @@ export class MissingRequiredEnvVarError extends Error {
         'HybridAI provider is not configured. Use `/auth login hybridai` in the TUI, or switch to a model from another configured provider.',
       OPENROUTER_API_KEY:
         'OpenRouter provider is not configured. Use `/auth login openrouter` in the TUI, or switch to a model from another configured provider.',
+      OPENAI_API_KEY:
+        'OpenAI API provider is not configured. Use `/auth login openai` in the TUI, or switch to a model from another configured provider.',
       MISTRAL_API_KEY:
         'Mistral provider is not configured. Use `/auth login mistral` in the TUI, or switch to a model from another configured provider.',
       HF_TOKEN:
@@ -426,6 +428,8 @@ export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
 export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
 export let CODEX_RUNTIME: RuntimeConfig['codex']['runtime'] = 'hybridclaw';
+export let OPENAI_ENABLED = false;
+export let OPENAI_BASE_URL = 'https://api.openai.com/v1';
 export let ANTHROPIC_ENABLED = false;
 export let ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
 export let ANTHROPIC_METHOD: RuntimeConfig['anthropic']['method'] = 'api-key';
@@ -1005,6 +1009,8 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   CODEX_BASE_URL = config.codex.baseUrl;
   CODEX_RUNTIME = config.codex.turnRuntime;
+  OPENAI_ENABLED = config.openai.enabled;
+  OPENAI_BASE_URL = config.openai.baseUrl;
   ANTHROPIC_ENABLED = config.anthropic.enabled;
   ANTHROPIC_BASE_URL = config.anthropic.baseUrl;
   ANTHROPIC_METHOD = config.anthropic.method;

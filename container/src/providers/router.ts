@@ -29,6 +29,8 @@ import {
 import {
   callOpenAICodexProvider,
   callOpenAICodexProviderStream,
+  callOpenAIResponsesProvider,
+  callOpenAIResponsesProviderStream,
 } from './openai-codex.js';
 import { isOpenAICompatRuntimeProvider } from './provider-ids.js';
 import {
@@ -126,6 +128,9 @@ export async function callProviderModel(
   if (args.provider === 'openai-codex') {
     return callOpenAICodexProvider(args);
   }
+  if (args.provider === 'openai') {
+    return callOpenAIResponsesProvider(args);
+  }
   if (args.provider === 'ollama') {
     return callOllamaProvider(args);
   }
@@ -143,6 +148,9 @@ export async function callProviderModelStream(
   }
   if (args.provider === 'openai-codex') {
     return callOpenAICodexProviderStream(args);
+  }
+  if (args.provider === 'openai') {
+    return callOpenAIResponsesProviderStream(args);
   }
   if (args.provider === 'ollama') {
     return callOllamaProviderStream(args);
@@ -218,13 +226,14 @@ function shouldStreamVisionRequest(
     provider === undefined ||
     provider === 'hybridai' ||
     provider === 'anthropic' ||
+    provider === 'openai' ||
     provider === 'openai-codex'
   );
 }
 
 function buildVisionMessages(params: RoutedVisionCallParams): ChatMessage[] {
   const messages: ChatMessage[] = [];
-  if (params.provider === 'openai-codex') {
+  if (params.provider === 'openai-codex' || params.provider === 'openai') {
     messages.push({
       role: 'system',
       content: params.instructions?.trim() || DEFAULT_VISION_INSTRUCTIONS,

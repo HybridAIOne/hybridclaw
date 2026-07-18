@@ -12,7 +12,7 @@ import {
   vllmProvider,
 } from './local-openai-compat.js';
 import { mistralProvider } from './mistral.js';
-import { openAIProvider } from './openai.js';
+import { openAIAPIProvider, openAIProvider } from './openai.js';
 import {
   dashscopeProvider,
   deepseekProvider,
@@ -33,6 +33,7 @@ import type {
 } from './types.js';
 
 const KNOWN_PROVIDERS: AIProvider[] = [
+  openAIAPIProvider,
   openAIProvider,
   anthropicProvider,
   openrouterProvider,
@@ -60,6 +61,7 @@ const KNOWN_PROVIDER_BY_ID = new Map<AIProviderId, AIProvider>(
 
 const runtimeConfig = getRuntimeConfig();
 const ACTIVE_PROVIDERS: AIProvider[] = [
+  ...(runtimeConfig.openai.enabled ? [openAIAPIProvider] : []),
   openAIProvider,
   anthropicProvider,
   ...(runtimeConfig.openrouter.enabled ? [openrouterProvider] : []),

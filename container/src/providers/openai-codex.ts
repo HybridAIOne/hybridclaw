@@ -54,11 +54,16 @@ interface CodexStreamAccumulator {
 }
 
 const CODEX_DEFAULT_INSTRUCTIONS = 'You are Codex, a coding assistant.';
+const OPENAI_DEFAULT_INSTRUCTIONS = 'You are a helpful assistant.';
 
 function normalizeCodexModelName(model: string): string {
   const trimmed = model.trim();
-  if (!trimmed.toLowerCase().startsWith('openai-codex/')) return trimmed;
-  return trimmed.slice('openai-codex/'.length) || trimmed;
+  for (const prefix of ['openai-codex/', 'openai/']) {
+    if (trimmed.toLowerCase().startsWith(prefix)) {
+      return trimmed.slice(prefix.length) || trimmed;
+    }
+  }
+  return trimmed;
 }
 
 function normalizeMessageText(content: ChatMessage['content']): string {
@@ -70,8 +75,17 @@ function normalizeMessageText(content: ChatMessage['content']): string {
     .join('\n');
 }
 
-function logCodexTransport(message: string): void {
-  console.error(`[codex] ${message}`);
+function providerTransportLabel(
+  provider: NormalizedCallArgs['provider'],
+): 'codex' | 'openai' {
+  return provider === 'openai' ? 'openai' : 'codex';
+}
+
+function logCodexTransport(
+  provider: NormalizedCallArgs['provider'],
+  message: string,
+): void {
+  console.error(`[${providerTransportLabel(provider)}] ${message}`);
 }
 
 function convertContentPart(
@@ -103,6 +117,9 @@ function convertMessageToResponsesInput(
   }
 
   if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+    if (Array.isArray(message.openai_response_items)) {
+      items.push(...message.openai_response_items);
+    }
     for (const toolCall of message.tool_calls) {
       items.push({
         type: 'function_call',
@@ -143,29 +160,41 @@ function convertToolsToResponsesTools(
   }));
 }
 
-function extractCodexInstructions(messages: ChatMessage[]): string {
+function extractCodexInstructions(
+  messages: ChatMessage[],
+  provider: NormalizedCallArgs['provider'],
+): string {
   const instructions = messages
     .filter((message) => message.role === 'system')
     .map((message) => normalizeMessageText(message.content).trim())
     .filter((message) => message.length > 0)
     .join('\n\n');
 
-  return instructions || CODEX_DEFAULT_INSTRUCTIONS;
+  return (
+    instructions ||
+    (provider === 'openai'
+      ? OPENAI_DEFAULT_INSTRUCTIONS
+      : CODEX_DEFAULT_INSTRUCTIONS)
+  );
 }
 
 function buildCodexRequestBody(
-  model: string,
-  messages: ChatMessage[],
-  tools: ToolDefinition[],
+  args: NormalizedCallArgs,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
-    model: normalizeCodexModelName(model),
+    model: normalizeCodexModelName(args.model),
     store: false,
-    instructions: extractCodexInstructions(messages),
-    input: messages.flatMap(convertMessageToResponsesInput),
+    instructions: extractCodexInstructions(args.messages, args.provider),
+    input: args.messages.flatMap(convertMessageToResponsesInput),
   };
-  if (tools.length > 0) {
-    body.tools = convertToolsToResponsesTools(tools);
+  if (args.provider === 'openai' && args.maxTokens != null) {
+    body.max_output_tokens = args.maxTokens;
+  }
+  if (args.provider === 'openai') {
+    body.include = ['reasoning.encrypted_content'];
+  }
+  if (args.tools.length > 0) {
+    body.tools = convertToolsToResponsesTools(args.tools);
     body.tool_choice = 'auto';
     body.parallel_tool_calls = true;
   }
@@ -219,11 +248,16 @@ function adaptCodexResponse(
   let role = 'assistant';
   const contentParts: Array<{ type: 'text'; text: string }> = [];
   const toolCalls: ToolCall[] = [];
+  const responseItems: Array<Record<string, unknown>> = [];
 
   for (const entry of output) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
     const item = entry as Record<string, unknown>;
     const type = typeof item.type === 'string' ? item.type : '';
+
+    if (type === 'reasoning' && typeof item.encrypted_content === 'string') {
+      responseItems.push(item);
+    }
 
     if (type === 'message') {
       if (typeof item.role === 'string' && item.role) role = item.role;
@@ -240,7 +274,9 @@ function adaptCodexResponse(
               ? part.text
               : typeof part.output_text === 'string'
                 ? part.output_text
-                : '';
+                : typeof part.refusal === 'string'
+                  ? part.refusal
+                  : '';
           if (text) contentParts.push({ type: 'text', text });
         }
       }
@@ -287,6 +323,9 @@ function adaptCodexResponse(
           role,
           content: textContent,
           ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+          ...(responseItems.length > 0
+            ? { openai_response_items: responseItems }
+            : {}),
         },
         finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
       },
@@ -307,6 +346,7 @@ function isCodexEmptyVisibleCompletion(
 function assertNonEmptyCodexResponse(
   response: ChatCompletionResponse,
   fallbackModel: string,
+  provider: NormalizedCallArgs['provider'],
 ): void {
   if (!isCodexEmptyVisibleCompletion(response)) return;
   const choice = response.choices[0];
@@ -317,9 +357,11 @@ function assertNonEmptyCodexResponse(
       ? 'null'
       : typeof content;
   logCodexTransport(
+    provider,
     `empty completion model=${normalizeCodexModelName(fallbackModel)} responseModel=${response.model || '<missing>'} finish=${choice?.finish_reason || '<missing>'} contentType=${contentType}`,
   );
-  throw new Error('Codex Responses API returned no output items');
+  const label = provider === 'openai' ? 'OpenAI' : 'Codex';
+  throw new Error(`${label} Responses API returned no output items`);
 }
 
 function resolveCodexOutputIndex(
@@ -738,7 +780,7 @@ export async function callOpenAICodexProvider(
   // The Codex backend currently requires `stream: true` even for callers that
   // want a single final response body. Use the streaming transport internally
   // and suppress text-delta callbacks for the non-streaming runtime path.
-  return callOpenAICodexProviderStream({
+  return callOpenAIResponsesProviderStreamInternal({
     ...args,
     onTextDelta: () => undefined,
   });
@@ -747,12 +789,34 @@ export async function callOpenAICodexProvider(
 export async function callOpenAICodexProviderStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
+  return callOpenAIResponsesProviderStreamInternal(args);
+}
+
+export async function callOpenAIResponsesProvider(
+  args: NormalizedCallArgs,
+): Promise<ChatCompletionResponse> {
+  return callOpenAIResponsesProviderStreamInternal({
+    ...args,
+    onTextDelta: () => undefined,
+  });
+}
+
+export async function callOpenAIResponsesProviderStream(
+  args: NormalizedStreamCallArgs,
+): Promise<ChatCompletionResponse> {
+  return callOpenAIResponsesProviderStreamInternal(args);
+}
+
+async function callOpenAIResponsesProviderStreamInternal(
+  args: NormalizedStreamCallArgs,
+): Promise<ChatCompletionResponse> {
   const startedAt = Date.now();
   logCodexTransport(
+    args.provider,
     `stream request start model=${normalizeCodexModelName(args.model)} messages=${args.messages.length} tools=${args.tools.length}`,
   );
   const body = {
-    ...buildCodexRequestBody(args.model, args.messages, args.tools),
+    ...buildCodexRequestBody(args),
     stream: true,
   };
   if (args.debugModelResponses) {
@@ -777,6 +841,7 @@ export async function callOpenAICodexProviderStream(
     body: JSON.stringify(body),
   });
   logCodexTransport(
+    args.provider,
     `stream response headers model=${normalizeCodexModelName(args.model)} status=${response.status} durationMs=${Date.now() - startedAt} contentType=${response.headers.get('content-type') || '<missing>'}`,
   );
 
@@ -802,7 +867,7 @@ export async function callOpenAICodexProviderStream(
       });
     }
     const adapted = adaptCodexResponse(payload, args.model);
-    assertNonEmptyCodexResponse(adapted, args.model);
+    assertNonEmptyCodexResponse(adapted, args.model, args.provider);
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
   }
@@ -818,7 +883,7 @@ export async function callOpenAICodexProviderStream(
       });
     }
     const adapted = adaptCodexResponse(payload, args.model);
-    assertNonEmptyCodexResponse(adapted, args.model);
+    assertNonEmptyCodexResponse(adapted, args.model, args.provider);
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
   }
@@ -855,6 +920,7 @@ export async function callOpenAICodexProviderStream(
         if (firstEventMs == null) {
           firstEventMs = Date.now() - startedAt;
           logCodexTransport(
+            args.provider,
             `stream first event model=${normalizeCodexModelName(args.model)} durationMs=${firstEventMs} event=${event.event || '<default>'}`,
           );
         }
@@ -877,6 +943,7 @@ export async function callOpenAICodexProviderStream(
         if (firstEventMs == null) {
           firstEventMs = Date.now() - startedAt;
           logCodexTransport(
+            args.provider,
             `stream first event model=${normalizeCodexModelName(args.model)} durationMs=${firstEventMs} event=${event.event || '<default>'}`,
           );
         }
@@ -895,13 +962,15 @@ export async function callOpenAICodexProviderStream(
   }
 
   if (!sawPayload) {
-    throw new Error('Codex streaming response ended without payload');
+    const label = args.provider === 'openai' ? 'OpenAI' : 'Codex';
+    throw new Error(`${label} streaming response ended without payload`);
   }
 
   logCodexTransport(
+    args.provider,
     `stream complete model=${normalizeCodexModelName(args.model)} durationMs=${Date.now() - startedAt}`,
   );
   const adapted = buildCodexStreamResponse(streamState, args.model);
-  assertNonEmptyCodexResponse(adapted, args.model);
+  assertNonEmptyCodexResponse(adapted, args.model, args.provider);
   return adapted;
 }

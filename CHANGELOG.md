@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Direct OpenAI API provider**: `openai/...` models use the OpenAI Responses
+  API with encrypted `OPENAI_API_KEY` storage, streaming, function calling,
+  stateless encrypted reasoning-item replay, model catalog metadata, CLI auth,
+  gateway health, and doctor diagnostics. Codex OAuth remains available under
+  the separate `openai-codex/...` provider.
+  `Manifesto: Principle IV - Model freedom without lock-in.`
 - **Dependency license gate**: `scripts/check-dependency-policy.mjs` now scans
   every tracked `package-lock.json` and fails on GPL, AGPL, and SSPL-family
   licenses unless the exact `name@version` and license pair is approved under

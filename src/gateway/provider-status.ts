@@ -9,6 +9,7 @@ import { getRuntimeConfig } from '../config/runtime-config.js';
 import { getDiscoveredCodexModelNames } from '../providers/codex-discovery.js';
 import { getDiscoveredHuggingFaceModelNames } from '../providers/huggingface-discovery.js';
 import { getDiscoveredMistralModelNames } from '../providers/mistral-discovery.js';
+import { readOpenAIAPIKey } from '../providers/openai.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import { getDiscoveredOpenRouterModelNames } from '../providers/openrouter-discovery.js';
 import { dedupeStrings } from '../utils/normalized-strings.js';
@@ -77,6 +78,12 @@ export function buildGatewayProviderHealth(params: {
     };
   }
   const optionalRemoteProviders = [
+    {
+      key: 'openai',
+      enabled: runtimeConfig.openai.enabled,
+      authenticated: Boolean(readOpenAIAPIKey({ required: false })),
+      modelCount: dedupeStrings(runtimeConfig.openai.models).length,
+    },
     {
       key: 'openrouter',
       enabled: runtimeConfig.openrouter.enabled,
@@ -176,6 +183,7 @@ export async function getGatewayAdminProviderStatus(
     ).map(([name, value]) => [name, { ...value }]),
   ) as NonNullable<GatewayStatus['providerHealth']>;
   const remoteOpenAiCompatKeys = [
+    'openai',
     'openrouter',
     'mistral',
     'huggingface',
