@@ -227,6 +227,10 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
     /\.pdf$/i.test(artifact.filename ?? '') ||
     /\.pdf$/i.test(artifact.path ?? '');
   const canPreview = isImage || isVideo || isPdf;
+  // PDFs can be detected by filename alone; force the blob type so the
+  // unsandboxed preview iframe can only ever render as a PDF, never as HTML
+  // served with a mislabeled Content-Type.
+  const previewMimeType = isPdf ? 'application/pdf' : mimeType;
 
   useEffect(() => {
     const previousUrl = previewUrlRef.current;
@@ -240,7 +244,9 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
     void fetchArtifactBlob(token, artifact.path)
       .then((blob) => {
         if (cancelled) return;
-        const objectUrl = URL.createObjectURL(buildPreviewBlob(blob, mimeType));
+        const objectUrl = URL.createObjectURL(
+          buildPreviewBlob(blob, previewMimeType),
+        );
         previewUrlRef.current = objectUrl;
         setPreviewUrl(objectUrl);
       })
@@ -254,7 +260,7 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
       previewUrlRef.current = null;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [artifact.path, canPreview, mimeType, token]);
+  }, [artifact.path, canPreview, previewMimeType, token]);
 
   const downloadLabel = downloading ? 'Downloading…' : 'Download';
   const handleDownload = async () => {
@@ -315,11 +321,10 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
       ) : null}
       {isPdf && previewUrl ? (
         <div className={cx(css.artifactPreview, css.artifactPdfPreview)}>
-          <iframe
-            src={previewUrl}
-            title={`${artifactName} preview`}
-            sandbox=""
-          />
+          {/* No sandbox: Chrome refuses to run its PDF viewer inside a
+              sandboxed frame ("This page has been blocked by Chrome").
+              Safe because previewMimeType pins the blob to application/pdf. */}
+          <iframe src={previewUrl} title={`${artifactName} preview`} />
         </div>
       ) : null}
       {isVideo && previewUrl ? (

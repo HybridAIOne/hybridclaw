@@ -27,6 +27,34 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
+- HybridClaw v0.28.2 adds A2A local mode for keeping peer Agent Card and
+  delivery routes reachable while disabling unrelated external chat, APIs,
+  webhooks, channel runtimes, and channel delivery; tunnel configuration and
+  lifecycle controls move to a dedicated admin surface.
+- Google Workspace authorization from a local console or the desktop app uses
+  the Desktop-client loopback flow, while LAN, tunnel, and public consoles use
+  a Web client and display the exact server-computed callback URI to register.
+- Provider replies stream live to clients without replaying final text or
+  retrying after visible partial output, and HybridAI cumulative/delta chunks
+  no longer duplicate content.
+- Turns for the same session are serialized across gateway, host, and container
+  execution while interactive input preempts active full-auto work before the
+  queue; WhatsApp also records outbound chunks early enough to stop self-chat
+  echoes from starting new turns.
+- In-loop compaction keeps tool calls paired with every result, direct Anthropic
+  and Ollama client-tool requests use their correct compatible payloads and
+  endpoints, and direct Anthropic streams have no fixed total-duration cap.
+- Trace exports bind completed audit turns to their exact stored assistant
+  messages, local providers stay disabled until configured, and unused Codex
+  health warnings no longer clutter gateway status.
+- Microsoft Teams credentials set or rotated in `/admin/secrets` refresh the
+  running adapter without a restart, and Chrome can render inline PDF artifact
+  previews without relaxing the blob's fixed PDF content type.
+- Internal architecture docs specify a configurable model-tier ladder,
+  deterministic escalation, privacy zones, quality/speed targeting, auditable
+  savings, phased delivery gates, and a sovereign HybridRouter fine-tuning
+  roadmap. The SSO and per-user identity design covers trusted-proxy and OIDC
+  login, IdP group-to-role mapping, per-user sessions, and per-agent ACLs.
 - HybridClaw v0.28.1 adds an explicitly warned unofficial LINE
   personal-account channel scoped to Keep Memo self-chat, with QR/PIN setup,
   persistent encrypted-message state, self-only inbound and outbound checks,

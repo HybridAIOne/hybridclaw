@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.28.1",
+  "version": "0.28.2",
   "type": "module",
   "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
   "repository": {
@@ -173,6 +173,9 @@
     "nodemailer": "9.0.1",
     "cheerio": {
       "undici": "7.28.0"
+    },
+    "camoufox-js": {
+      "ua-parser-js": "1.0.41"
     },
     "shell-quote": "1.8.4",
     "thrift": "0.23.0",

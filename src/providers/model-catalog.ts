@@ -30,6 +30,7 @@ import {
   getDiscoveredHybridAIModelNames,
   getDiscoveredHybridAIModelPricingUsdPerToken,
   getDiscoveredHybridAIModelVisionCapability,
+  getDiscoveredHybridAIModelZone,
 } from './hybridai-discovery.js';
 import { isStaticModelVisionCapable } from './hybridai-models.js';
 import {
@@ -38,7 +39,10 @@ import {
   getLocalModelInfo,
   resolveLocalModelContextWindow,
 } from './local-discovery.js';
-import { resolveLocalBackendFromEndpointModel } from './local-endpoints.js';
+import {
+  resolveLocalBackendFromEndpointModel,
+  resolveLocalEndpointForModel,
+} from './local-endpoints.js';
 import {
   discoverMistralModels,
   getDiscoveredMistralModelContextWindow,
@@ -49,6 +53,7 @@ import {
 } from './mistral-discovery.js';
 import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
 import {
+  MODEL_METADATA_USD_TO_EUR,
   type ModelCapabilityFlags,
   resolveStaticModelCatalogMetadata,
   type StaticModelCatalogMetadata,
@@ -56,7 +61,12 @@ import {
 import {
   formatHybridAIModelForCatalog,
   formatModelForDisplay,
+  HYBRIDAI_MODEL_PREFIX,
 } from './model-names.js';
+import {
+  type ModelRoutingZone,
+  normalizeModelRoutingZone,
+} from './model-routing.js';
 import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
 import {
   discoverOpenAICompatRemoteModels,
@@ -79,6 +89,7 @@ import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 export type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
 
 export interface ModelCatalogMetadata extends StaticModelCatalogMetadata {
+  zone: ModelRoutingZone;
   pricingUsdPerToken: {
     input: number | null;
     output: number | null;
@@ -533,7 +544,26 @@ function resolveKnownModelPricingUsdPerToken(
   model: string,
 ): ModelCatalogMetadata['pricingUsdPerToken'] {
   if (isLocalPrefixedModel(model)) {
-    return { input: 0, output: 0 };
+    const info = getLocalModelInfo(model);
+    if (info) {
+      return { input: info.cost.input, output: info.cost.output };
+    }
+    const endpointPricing =
+      resolveLocalEndpointForModel(model)?.endpoint.pricing;
+    return {
+      input:
+        endpointPricing?.inputEurPerMillion == null
+          ? null
+          : (endpointPricing.inputEurPerMillion *
+              MODEL_METADATA_USD_TO_EUR.usdPerEur) /
+            1_000_000,
+      output:
+        endpointPricing?.outputEurPerMillion == null
+          ? null
+          : (endpointPricing.outputEurPerMillion *
+              MODEL_METADATA_USD_TO_EUR.usdPerEur) /
+            1_000_000,
+    };
   }
   if (hasModelPrefix(model, OPENAI_CODEX_MODEL_PREFIX)) {
     return (
@@ -556,11 +586,30 @@ function resolveKnownModelPricingUsdPerToken(
   );
 }
 
+function resolveKnownModelZone(model: string): ModelRoutingZone {
+  if (isLocalPrefixedModel(model)) {
+    return normalizeModelRoutingZone(
+      getLocalModelInfo(model)?.zone ??
+        resolveLocalEndpointForModel(model)?.endpoint.zone ??
+        'local',
+    );
+  }
+  const normalized = model.trim().toLowerCase();
+  if (
+    normalized.startsWith(HYBRIDAI_MODEL_PREFIX) ||
+    !normalized.includes('/')
+  ) {
+    return normalizeModelRoutingZone(getDiscoveredHybridAIModelZone(model));
+  }
+  return 'cloud';
+}
+
 export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
   const staticMetadata = resolveStaticModelCatalogMetadata(model);
   const contextWindow = resolveKnownModelContextWindow(model, staticMetadata);
   const maxTokens = resolveKnownModelMaxTokens(model, staticMetadata);
   const pricingUsdPerToken = resolveKnownModelPricingUsdPerToken(model);
+  const zone = resolveKnownModelZone(model);
   const vision = isModelVisionCapable(model);
 
   return {
@@ -572,6 +621,7 @@ export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
       vision,
     contextWindow,
     maxTokens,
+    zone,
     pricingUsdPerToken,
     capabilities: {
       ...staticMetadata.capabilities,

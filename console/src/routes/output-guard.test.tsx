@@ -124,6 +124,7 @@ beforeEach(() => {
       {
         id: 'hybridai/default-chat',
         provider: 'hybridai',
+        zone: 'cloud',
         backend: null,
         contextWindow: 128000,
         isReasoning: false,
@@ -146,6 +147,7 @@ beforeEach(() => {
       {
         id: 'openrouter/openai/gpt-5-mini',
         provider: 'openrouter',
+        zone: 'cloud',
         backend: null,
         contextWindow: 128000,
         isReasoning: false,

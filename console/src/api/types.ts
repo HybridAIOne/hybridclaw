@@ -1021,6 +1021,7 @@ export interface ChatModel {
 }
 
 export interface AdminModelCatalogEntry extends ChatModel {
+  zone: 'local' | 'hai' | 'region' | 'cloud';
   discovered: boolean;
   maxTokens: number | null;
   pricingUsdPerToken: {
@@ -1518,6 +1519,7 @@ export interface AdminConnector {
 export interface AdminConnectorsResponse {
   connectors: AdminConnector[];
   secretsPath: string;
+  oauthRedirectUri: string | null;
 }
 
 export interface AdminConnectorOAuthStartResponse {

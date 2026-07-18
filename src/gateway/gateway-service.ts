@@ -7033,6 +7033,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
         return {
           id: modelId,
           provider: providerKeyByModel.get(modelId) ?? 'hybridai',
+          zone: metadata.zone,
           discovered: Boolean(info),
           backend: info?.backend || null,
           contextWindow: metadata.contextWindow,

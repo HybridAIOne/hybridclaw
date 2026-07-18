@@ -9,6 +9,97 @@
   (`ECDH-ES` and `A256GCM`), bind encrypted envelopes to Ed25519-signed
   delegation tokens, reject per-peer plaintext downgrades, and expose an admin
   switch that requires E2EE for every A2A trust entry.
+- **Dependency license gate**: `scripts/check-dependency-policy.mjs` now scans
+  every tracked `package-lock.json` and fails on GPL, AGPL, and SSPL-family
+  licenses unless the exact `name@version` and license pair is approved under
+  `licenses` in `scripts/dependency-policy-baseline.json`. Weak-copyleft
+  licenses such as LGPL and MPL, and packages with missing license metadata,
+  are reported without failing, and dual-licensed packages resolve to their
+  most permissive option. The gate runs in every existing dependency-policy
+  entry point: the pre-commit hook, the CI lint job, `npm run deps:policy`,
+  and `npm run release:check`.
+  `Manifesto: Principle VII - A coworker you can trust with real responsibility.`
+
+### Changed
+
+- **AGPL removed from the dependency tree**: `camoufox-js` now resolves
+  `ua-parser-js` 1.0.41 (MIT) through a scoped npm override instead of 2.0.10
+  (AGPL-3.0-or-later), retiring the `ua-parser-js@2.0.10` AGPL exception from
+  the license baseline. Known regression: `camoufox-js` matches the v2 spelling
+  `"macOS"` when deriving the target OS, so under v1 (`"Mac OS"`) every macOS
+  fingerprint is treated as Linux and receives Linux fonts, WebGL strings, and
+  environment variables. Camofox stealth is degraded for macOS fingerprints
+  until `determineUAOS` is patched.
+  `Manifesto: Principle VII - A coworker you can trust with real responsibility.`
+
+## [0.28.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.2) - 2026-07-17
+
+### Added
+
+- **A2A local mode**: Operators can enable an A2A-only deployment posture from
+  `/admin/a2a-trust`. Loopback and authenticated admin management remain
+  available, Agent Card and A2A delivery routes stay reachable, and external
+  chat, OpenAI-compatible APIs, webhooks, channel runtimes, and channel delivery
+  are disabled.
+- **Dedicated tunnel administration**: Public tunnel configuration and status
+  now live on a focused admin surface with provider selection, URL validation,
+  save/start/stop/reconnect controls, health details, and actionable errors.
+
+### Changed
+
+- **Google Workspace console OAuth**: Local consoles, including the desktop
+  app, use Google's Desktop-client loopback flow without a registered redirect
+  URI. Consoles opened through LAN, tunnel, or public origins use the Web-client
+  flow and show the exact server-computed callback URI that must be registered.
+- **Provider health defaults**: Local model backends, including Ollama, are
+  disabled and unprobed until an operator enables them. Gateway health omits
+  unused Codex warnings while retaining status when Codex is configured,
+  selected, or authenticated.
+- **Trace-to-message attribution**: Turn completion and onboarding audit events
+  carry the stored assistant message id, and ATIF trace exports resolve that
+  exact response for full or selected turn ranges. Missing references are
+  reported as export limitations instead of shifting later responses onto the
+  wrong turn.
+- **Architecture design documentation**: Internal docs define the configurable
+  model-tier ladder, deterministic escalation, privacy zones, quality/speed
+  target, auditable savings metric, five testable delivery phases, and the
+  companion HybridRouter SFT/PEFT roadmap. A separate SSO and per-user identity
+  design specifies trusted-proxy and generic OIDC front doors, IdP group-to-role
+  mapping, per-user sessions, per-agent ACLs, security boundaries, and phased
+  delivery.
+
+### Fixed
+
+- **Microsoft Teams credential hot reload**: Setting or rotating
+  `MSTEAMS_APP_PASSWORD` through the admin secret store refreshes the running
+  gateway immediately, initializes Teams handlers that were waiting for
+  credentials, and rebuilds the Bot Framework adapter without requiring a
+  container restart. Adapter refresh detection no longer derives password
+  hashes.
+- **Model response streaming**: Provider text deltas reach clients as they
+  arrive instead of being buffered until the final response. HybridClaw keeps
+  classified Ralph drafts buffered, avoids replaying final text after a live
+  stream, does not retry a failed model call after visible partial output, and
+  accepts both cumulative and delta-style HybridAI chunks without duplicating
+  content.
+- **Concurrent session turns**: Gateway, host, and container execution serialize
+  requests per session while allowing different sessions to run concurrently.
+  Interactive input preempts an active full-auto turn before waiting on the
+  session queue, preventing overlapping history writes or delayed intervention.
+- **In-loop compaction tool exchanges**: Compaction boundaries keep assistant
+  tool calls together with all immediately following tool results, including
+  parallel calls, so providers never receive unanswered calls or orphaned
+  results.
+- **Anthropic and Ollama client tools**: Direct Anthropic and Ollama requests use
+  their correct OpenAI-compatible request bodies, model ids, and completion
+  URLs when client tools are present. Direct Anthropic streams are no longer
+  terminated by a fixed total-duration cap.
+- **WhatsApp self-chat echo prevention**: Outbound message ids are registered
+  with the echo guard as soon as each chunk is sent, before slower persistence
+  work can let a reflected message start another agent turn.
+- **Inline PDF previews**: Artifact PDFs render in Chrome without the sandboxed
+  iframe block while the preview blob is pinned to `application/pdf` so
+  mislabeled content cannot become same-origin HTML.
 
 ## [0.28.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.1) - 2026-07-10
 

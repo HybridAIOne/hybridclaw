@@ -127,9 +127,19 @@ saved revision history directly.
   `hybridclaw config set hybridai.maxTokens <n>`
 - `local.endpoints[]` for additional named local model endpoints. Each entry
   has `name`, `type` (`ollama`, `lmstudio`, `llamacpp`, or `vllm`), `enabled`,
-  `baseUrl`, optional `apiKey`, and optional `modelBehavior`; named models use
+  `baseUrl`, optional `apiKey`, optional `modelBehavior`, a privacy `zone`
+  (`local`, `hai`, `region`, or `cloud`), and optional EUR-per-million token
+  prices under `pricing.inputEurPerMillion` and
+  `pricing.outputEurPerMillion`; omitted or invalid zones fail closed to
+  `cloud`, and omitted prices are reported as unknown. Named models use
   `<name>/<model-id>`, for example `haigpu2/mistralai/Mistral-7B-Instruct-v0.3`.
   `modelBehavior` currently supports `thinkingFormat: "qwen"`.
+- `routing.enabled`, ordered `routing.tiers[]`, `routing.defaultStart`, and
+  `routing.escalationStickyTurns` define the model-routing ladder. Each tier
+  has a unique `name` and an ordered, non-empty `models` list. Remote model
+  references must exist in the configured provider catalogs; named local
+  endpoint references use `<endpoint>/<model-id>`. Phase 1 validates and
+  exposes this substrate without changing live turn selection.
 - `codex.baseUrl`, `codex.turnRuntime`, and `codex.models` for first-class
   Codex provider behavior. `codex.turnRuntime` accepts `hybridclaw` for the
   standard HybridClaw tool loop or `app-server` for the native Codex app-server
@@ -238,7 +248,21 @@ saved revision history directly.
   the auth token can stay empty in config when you store `TWILIO_AUTH_TOKEN`
   in the encrypted runtime secret store or use a SecretRef-backed
   `voice.twilio.authToken`
-- `deployment.mode`, `deployment.public_url`, `deployment.a2a_local_mode`, `deployment.a2a_e2ee_required`, `deployment.tunnel.provider`, and `deployment.tunnel.health_check_interval_ms` declare whether the gateway runs behind a cloud URL or a local tunnel; cloud mode requires `deployment.public_url`, while local mode requires a tunnel provider such as `manual`, `ssh`, `ngrok`, `cloudflare`, or `tailscale`. Enable `deployment.a2a_local_mode` from `/admin/a2a-trust` to keep loopback and authenticated admin management available while exposing A2A and blocking external chat, APIs, webhooks, channel runtimes, and channel delivery. Enable `deployment.a2a_e2ee_required` on the same page to reject plaintext from every A2A peer; paired HybridClaw peers already require their pinned X25519/JWE encryption independently of this global interoperability switch.
+- `deployment.mode`, `deployment.public_url`, `deployment.a2a_local_mode`,
+  `deployment.a2a_e2ee_required`, `deployment.tunnel.provider`, and
+  `deployment.tunnel.health_check_interval_ms` declare whether the gateway runs
+  behind a cloud URL or a local tunnel; cloud mode requires
+  `deployment.public_url`, while local mode requires a tunnel provider such as
+  `manual`, `ssh`, `ngrok`, `cloudflare`, or `tailscale`. Use the dedicated
+  tunnel settings page in `/admin` to select a provider, validate and save its
+  public URL, start or stop managed providers, reconnect, and inspect health or
+  provider errors. Enable `deployment.a2a_local_mode` from `/admin/a2a-trust`
+  to keep loopback and authenticated admin management available while exposing
+  A2A and blocking external chat, APIs, webhooks, channel runtimes, and channel
+  delivery. Enable `deployment.a2a_e2ee_required` on the same page to reject
+  plaintext from every A2A peer; paired HybridClaw peers already require their
+  pinned X25519/JWE encryption independently of this global interoperability
+  switch.
 - `HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE` enables DNS-style canonical identity discovery for A2A cross-instance delivery; outbound A2A resolves canonical recipients in this order: local canonical agents from `deployment.public_url` or the active tunnel URL, trusted peer instances from the A2A public-key trust ledger, then DNS-style discovery.
 - DNS-style A2A identity discovery trusts the returned URL and public key as operator-provided discovery data; use DNSSEC or out-of-band verification for production peers before relying on first-seen DNS records.
 - The built-in ngrok tunnel provider reads `NGROK_AUTHTOKEN` from the encrypted runtime secret store and health-checks active tunnels every 30 seconds by default

@@ -92,6 +92,42 @@ describe('env var overrides', () => {
     const config = await importFreshConfig(homeDir);
     expect(config.HYBRIDAI_CHATBOT_ID).toBe('from-config');
   });
+
+  it('hot-reloads the configured default chatbot when the env override is unset', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.hybridai.defaultChatbotId = 'before-reload';
+    });
+    delete process.env.HYBRIDAI_CHATBOT_ID;
+    const config = await importFreshConfig(homeDir);
+    const { updateRuntimeConfig } = await import(
+      '../src/config/runtime-config.ts'
+    );
+
+    updateRuntimeConfig((draft) => {
+      draft.hybridai.defaultChatbotId = 'after-reload';
+    });
+
+    expect(config.HYBRIDAI_CHATBOT_ID).toBe('after-reload');
+  });
+
+  it('keeps the env chatbot override when the runtime config changes', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.hybridai.defaultChatbotId = 'before-reload';
+    });
+    process.env.HYBRIDAI_CHATBOT_ID = 'from-env';
+    const config = await importFreshConfig(homeDir);
+    const { updateRuntimeConfig } = await import(
+      '../src/config/runtime-config.ts'
+    );
+
+    updateRuntimeConfig((draft) => {
+      draft.hybridai.defaultChatbotId = 'after-reload';
+    });
+
+    expect(config.HYBRIDAI_CHATBOT_ID).toBe('from-env');
+  });
 });
 
 describe('configured model catalog', () => {

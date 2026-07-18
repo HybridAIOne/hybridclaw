@@ -1,9 +1,12 @@
 {
   "lockfiles": {
-    "package-lock.json": "e3e5e50ec64c25186960af101c82836ed54116b224d127d2274794596a4b368b",
-    "npm-shrinkwrap.json": "e3e5e50ec64c25186960af101c82836ed54116b224d127d2274794596a4b368b",
-    "container/package-lock.json": "5bbadacac681e18b0dba9faf97693d84abc7fba5764fa9951254baecdd70d9fd",
-    "container/npm-shrinkwrap.json": "5bbadacac681e18b0dba9faf97693d84abc7fba5764fa9951254baecdd70d9fd",
+    "package-lock.json": "e79294fbcff7aaeb4ba3e311b1e01bf6a931ad7fc6dfbf4a2610d7c62a28b713",
+    "npm-shrinkwrap.json": "e79294fbcff7aaeb4ba3e311b1e01bf6a931ad7fc6dfbf4a2610d7c62a28b713",
+    "container/package-lock.json": "a3d00f6e8dba50b4d22fd799c4b37ac7682543c6b80dd5690d8bc6a8910ef50d",
+    "container/npm-shrinkwrap.json": "a3d00f6e8dba50b4d22fd799c4b37ac7682543c6b80dd5690d8bc6a8910ef50d",
     "plugins/brevo-email/package-lock.json": "3377225eb3bdbb252eaa28ad420b9a725ea1da533417388557aa1984730229b5"
+  },
+  "licenses": {
+    "libsignal@6.0.0": "GPL-3.0"
   }
 }

@@ -272,6 +272,7 @@ export function ConnectorsPage() {
   const connectors = connectorsQuery.data?.connectors || [];
   const oauthTarget =
     connectors.find((connector) => connector.id === oauthTargetId) || null;
+  const oauthRedirectUri = connectorsQuery.data?.oauthRedirectUri ?? null;
   const googleNeedsAccount =
     oauthTargetId === 'google' && !oauthDraft.account.trim();
   const googleNeedsClientId =
@@ -549,6 +550,27 @@ export function ConnectorsPage() {
           </DialogHeader>
 
           <div className={styles.dialogForm}>
+            {oauthTargetId === 'google' ? (
+              oauthRedirectUri ? (
+                <div className={styles.oauthSetup}>
+                  <p>
+                    In Google Cloud Console, create an OAuth client of type{' '}
+                    <strong>Web application</strong> — not Desktop app — and add
+                    this exact authorized redirect URI:
+                  </p>
+                  <code className={styles.redirectUri}>{oauthRedirectUri}</code>
+                </div>
+              ) : (
+                <div className={styles.oauthSetup}>
+                  <p>
+                    In Google Cloud Console, create an OAuth client of type{' '}
+                    <strong>Desktop app</strong>. Authorization completes on
+                    this machine, so no redirect URI needs to be registered.
+                  </p>
+                </div>
+              )
+            ) : null}
+
             <Field>
               <FieldLabel>Google account</FieldLabel>
               <Input

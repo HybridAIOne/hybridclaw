@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
+import { TASK_MODEL_KEYS } from '../src/types/models.js';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
@@ -142,6 +143,61 @@ test('resolves configured vision task model policy on the host', async () => {
   expect(taskModels?.compression?.maxTokens).toBeUndefined();
   expect(taskModels?.web_extract?.maxTokens).toBeUndefined();
   expect(taskModels?.session_search?.maxTokens).toBeUndefined();
+});
+
+test('routes default auxiliary tasks to the bottom configured rung', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.local.backends.lmstudio.enabled = true;
+    config.routing = {
+      ...config.routing,
+      enabled: true,
+      defaultStart: 'general',
+      tiers: [
+        {
+          name: 'economy',
+          models: ['lmstudio/qwen/qwen2.5-vl'],
+        },
+        { name: 'general', models: ['gpt-4.1-mini'] },
+      ],
+    };
+  });
+  const taskRouting = await importFreshTaskRouting(homeDir);
+
+  for (const task of [...TASK_MODEL_KEYS, 'cv_narration'] as const) {
+    await expect(
+      taskRouting.resolveTaskModelPolicy(task, { agentId: 'main' }),
+    ).resolves.toMatchObject({
+      provider: 'lmstudio',
+      model: 'lmstudio/qwen/qwen2.5-vl',
+    });
+  }
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  expect(getRuntimeConfig().plugins.list).toContainEqual(
+    expect.objectContaining({ id: 'tier-router', enabled: true }),
+  );
+});
+
+test('fails closed when routing enables an explicitly disabled tier router', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.routing = {
+      ...config.routing,
+      enabled: true,
+      defaultStart: 'economy',
+      tiers: [{ name: 'economy', models: ['gpt-4.1-mini'] }],
+    };
+    config.plugins.list = [
+      { id: 'tier-router', enabled: false, config: {} },
+    ];
+  });
+
+  await importFreshTaskRouting(homeDir);
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  expect(getRuntimeConfig().routing.enabled).toBe(false);
+  expect(getRuntimeConfig().plugins.list).not.toContainEqual(
+    expect.objectContaining({ id: 'tier-router', enabled: true }),
+  );
 });
 
 test('resolves configured auxiliary task through named local endpoint', async () => {

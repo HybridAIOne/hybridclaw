@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -40,6 +41,9 @@ async function importFreshConnectors(options?: {
   process.env.HYBRIDCLAW_MASTER_KEY = 'a'.repeat(64);
 
   const runtimeConfig = {
+    ops: {
+      logLevel: 'info',
+    },
     tools: {
       httpRequest: {
         authRules: options?.authRules ? [...options.authRules] : [],
@@ -417,6 +421,101 @@ describe('gateway admin connectors', () => {
         },
       }),
     ).rejects.toThrow('Google account email is required.');
+  });
+
+  test('exposes the console-origin OAuth redirect URI for a remote Web client', async () => {
+    const { connectors } = await importFreshConnectors();
+
+    const listed = await connectors.getGatewayAdminConnectorsWithPlatformState(
+      'http://console.example',
+    );
+    expect(listed.oauthRedirectUri).toBe(
+      'http://console.example/api/connectors/oauth/callback',
+    );
+    expect(connectors.getGatewayAdminConnectors().oauthRedirectUri).toBeNull();
+
+    const started = await connectors.startGatewayAdminConnectorOAuth({
+      requestBaseUrl: 'http://console.example',
+      body: {
+        provider: 'google',
+        account: 'user@example.com',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+      },
+    });
+    const redirectUri = new URL(started.authorizationUrl).searchParams.get(
+      'redirect_uri',
+    );
+    expect(redirectUri).toBe(
+      'http://console.example/api/connectors/oauth/callback',
+    );
+  });
+
+  test('omits the redirect URI for a local gateway (loopback Desktop flow)', async () => {
+    const { connectors } = await importFreshConnectors();
+
+    const localhost =
+      await connectors.getGatewayAdminConnectorsWithPlatformState(
+        'http://localhost:5000',
+      );
+    expect(localhost.oauthRedirectUri).toBeNull();
+
+    const loopbackIp =
+      await connectors.getGatewayAdminConnectorsWithPlatformState(
+        'http://127.0.0.1:5000',
+      );
+    expect(loopbackIp.oauthRedirectUri).toBeNull();
+  });
+
+  test('completes the Google loopback flow for a local gateway', async () => {
+    const { connectors, runtimeSecrets } = await importFreshConnectors();
+    const fetchMock = vi.fn<typeof fetch>(
+      async () =>
+        new Response(JSON.stringify({ refresh_token: 'refresh-abc' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const started = await connectors.startGatewayAdminConnectorOAuth({
+      requestBaseUrl: 'http://localhost:5000',
+      body: {
+        provider: 'google',
+        account: 'user@example.com',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+      },
+    });
+
+    const authUrl = new URL(started.authorizationUrl);
+    const redirectUri = authUrl.searchParams.get('redirect_uri') || '';
+    expect(redirectUri).toMatch(
+      /^http:\/\/127\.0\.0\.1:\d+\/oauth2\/callback$/,
+    );
+
+    // Simulate Google redirecting the browser back to the loopback listener.
+    const callback = new URL(redirectUri);
+    callback.searchParams.set('state', authUrl.searchParams.get('state') || '');
+    callback.searchParams.set('code', 'auth-code');
+    await new Promise<void>((resolve, reject) => {
+      http
+        .get(callback.toString(), (res) => {
+          res.resume();
+          res.on('end', resolve);
+        })
+        .on('error', reject);
+    });
+
+    await vi.waitFor(() => {
+      const google = connectors
+        .getGatewayAdminConnectors()
+        .connectors.find((entry) => entry.id === 'google');
+      expect(google?.state).toBe('connected');
+    });
+    expect(
+      runtimeSecrets.readStoredRuntimeSecret('GOOGLE_OAUTH_REFRESH_TOKEN'),
+    ).toBe('refresh-abc');
   });
 
   test('rejects connector OAuth callbacks with unknown state', async () => {

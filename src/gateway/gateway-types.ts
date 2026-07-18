@@ -1367,6 +1367,7 @@ export type { GatewayModelProviderKey } from './model-provider-keys.js';
 export interface GatewayAdminModelCatalogEntry {
   id: string;
   provider: GatewayModelProviderKey;
+  zone: 'local' | 'hai' | 'region' | 'cloud';
   discovered: boolean;
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;

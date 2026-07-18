@@ -8104,6 +8104,7 @@ describe('gateway HTTP server', () => {
         sourceIp: '127.0.0.1',
       },
     });
+    expect(state.refreshRuntimeSecretsFromEnv).toHaveBeenCalledTimes(1);
     expect(res.statusCode).toBe(200);
   });
 
@@ -8211,6 +8212,7 @@ describe('gateway HTTP server', () => {
         sourceIp: '127.0.0.1',
       },
     });
+    expect(state.refreshRuntimeSecretsFromEnv).toHaveBeenCalledTimes(1);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       secret: {
@@ -8236,6 +8238,7 @@ describe('gateway HTTP server', () => {
 
     expect(state.getGatewayAdminSecrets).not.toHaveBeenCalled();
     expect(state.overwriteGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(state.refreshRuntimeSecretsFromEnv).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(405);
     expect(res.body).not.toContain('SET_SECRET');
     expect(res.body).not.toContain('OTHER_SECRET');
@@ -8262,6 +8265,7 @@ describe('gateway HTTP server', () => {
     await settle();
 
     expect(state.overwriteGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(state.refreshRuntimeSecretsFromEnv).not.toHaveBeenCalled();
     expect(state.recordGatewayAdminSecretMutationFailure).toHaveBeenCalledWith({
       type: 'secret.overwritten',
       name: 'SET_SECRET',

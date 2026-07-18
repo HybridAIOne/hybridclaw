@@ -455,7 +455,7 @@ export let XIAOMI_ENABLED = false;
 export let XIAOMI_BASE_URL = 'https://api.xiaomimimo.com/v1';
 export let KILO_ENABLED = false;
 export let KILO_BASE_URL = 'https://api.kilo.ai/api/gateway';
-export let LOCAL_OLLAMA_ENABLED = true;
+export let LOCAL_OLLAMA_ENABLED = false;
 export let LOCAL_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 export let LOCAL_OLLAMA_MODEL_BEHAVIOR:
   | RuntimeConfig['local']['backends']['ollama']['modelBehavior']

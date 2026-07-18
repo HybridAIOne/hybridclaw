@@ -23,7 +23,7 @@ function sameStringArray(a?: string[], b?: string[]): boolean {
 function sameModelConfig(a?: AgentModelConfig, b?: AgentModelConfig): boolean {
   if (a === b) return true;
   if (typeof a === 'string' || typeof b === 'string' || !a || !b) return false;
-  return a.primary === b.primary && sameStringArray(a.fallbacks, b.fallbacks);
+  return a.primary === b.primary;
 }
 
 function sameAgentConfig(a: AgentConfig | undefined, b: AgentConfig): boolean {

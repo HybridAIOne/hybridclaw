@@ -251,7 +251,7 @@ interface ClawManifest {
   };
 
   agent?: {
-    model?: string | { primary: string; fallbacks?: string[] };
+    model?: string | { primary: string };
     enableRag?: boolean;
   };
 

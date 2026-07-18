@@ -262,6 +262,12 @@ rejected at the boundary rather than being treated as legacy ids.
 For the routing rules and operator guidance, see
 [Session Routing](./session-routing.md).
 
+Gateway chat serializes turns by session id, and the host/container runners
+apply the same per-session guard at their execution boundary. Different
+sessions can still run concurrently. Interactive input preempts an active
+full-auto turn before it waits on the session queue, so operator intervention
+does not sit behind the autonomous run it is meant to stop.
+
 ## Web Surfaces And API Auth
 
 HybridClaw's built-in browser surfaces share one auth model:
@@ -379,6 +385,9 @@ HybridClaw can route agent turns to locally running LLM servers instead of
 - **llama.cpp** — default base URL `http://127.0.0.1:8081/v1`
 - **vLLM** — default base URL `http://127.0.0.1:8000/v1`
 
+Local backends are disabled by default and are probed only after an operator
+enables them.
+
 Enable and configure a backend with:
 
 ```bash
@@ -393,6 +402,9 @@ Runtime details:
 - Additional same-type endpoints are stored in `local.endpoints[]`; endpoint
   names become model prefixes such as
   `haigpu2/mistralai/Mistral-7B-Instruct-v0.3`.
+- Named endpoints carry a fail-closed privacy `zone` and can provide
+  `pricing.inputEurPerMillion` / `pricing.outputEurPerMillion` for usage
+  accounting. Missing zones resolve to `cloud`; missing prices stay unknown.
 - Local models are prefixed with the backend name (e.g. `lmstudio/qwen/qwen3.5-9b`,
   `ollama/llama3`).
 - Special model behavior is explicit in `modelBehavior`, for example

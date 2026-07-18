@@ -114,17 +114,7 @@ function normalizeModelConfig(value: unknown): AgentModelConfig | undefined {
 
   const primary = normalizeOptionalString(value.primary);
   if (!primary) return undefined;
-  const seen = new Set<string>([primary]);
-  const fallbacks = Array.isArray(value.fallbacks)
-    ? value.fallbacks
-        .map(normalizeOptionalString)
-        .filter((entry): entry is string => {
-          if (!entry || seen.has(entry)) return false;
-          seen.add(entry);
-          return true;
-        })
-    : [];
-  return fallbacks.length > 0 ? { primary, fallbacks } : { primary };
+  return { primary };
 }
 
 function parseAgentConfigJson(rawJson: string): AgentConfigJsonPayload {

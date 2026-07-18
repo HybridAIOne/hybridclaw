@@ -2,6 +2,7 @@ import type {
   ModelBehavior,
   ModelThinkingFormat,
 } from '../types/model-behavior.js';
+import type { ModelRoutingZone } from './model-routing.js';
 import type { LocalBackendType } from './provider-ids.js';
 
 export type { LocalBackendType } from './provider-ids.js';
@@ -18,15 +19,21 @@ export interface LocalModelInfo {
   endpointName?: string;
   thinkingFormat?: LocalThinkingFormat;
   modelBehavior?: LocalModelBehavior;
+  zone: ModelRoutingZone;
   sizeBytes?: number;
   family?: string;
   parameterSize?: string;
   cost: {
-    input: 0;
-    output: 0;
-    cacheRead: 0;
-    cacheWrite: 0;
+    input: number | null;
+    output: number | null;
+    cacheRead: number | null;
+    cacheWrite: number | null;
   };
+}
+
+export interface LocalEndpointPricingConfig {
+  inputEurPerMillion: number | null;
+  outputEurPerMillion: number | null;
 }
 
 export interface LocalBackendConfig {
@@ -39,6 +46,8 @@ export interface LocalBackendConfig {
 export interface LocalEndpointConfig extends LocalBackendConfig {
   name: string;
   type: LocalBackendType;
+  zone?: ModelRoutingZone;
+  pricing?: LocalEndpointPricingConfig;
 }
 
 export interface LocalProviderConfig {

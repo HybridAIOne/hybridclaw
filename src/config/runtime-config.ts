@@ -74,9 +74,15 @@ import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import type {
   LocalBackendType,
   LocalEndpointConfig,
+  LocalEndpointPricingConfig,
   LocalModelBehavior,
   LocalProviderConfig,
 } from '../providers/local-types.js';
+import {
+  type ModelRoutingConfig,
+  type ModelRoutingTier,
+  normalizeModelRoutingZone,
+} from '../providers/model-routing.js';
 import {
   isLocalBackendType,
   isRuntimeProviderId,
@@ -144,7 +150,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 34;
+export const CONFIG_VERSION = 35;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -500,6 +506,10 @@ export interface RuntimeRoutingConciergeConfig {
     balanced: string;
     noHurry: string;
   };
+}
+
+export interface RuntimeRoutingConfig extends ModelRoutingConfig {
+  concierge: RuntimeRoutingConciergeConfig;
 }
 
 export interface RuntimeDiscordHumanDelayConfig {
@@ -1220,9 +1230,7 @@ export interface RuntimeConfig {
   media: {
     audio: RuntimeMediaAudioConfig;
   };
-  routing: {
-    concierge: RuntimeRoutingConciergeConfig;
-  };
+  routing: RuntimeRoutingConfig;
   heartbeat: {
     enabled: boolean;
     intervalMs: number;
@@ -1862,7 +1870,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   local: {
     backends: {
       ollama: {
-        enabled: true,
+        enabled: false,
         baseUrl: 'http://127.0.0.1:11434',
       },
       lmstudio: {
@@ -2007,6 +2015,10 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   routing: {
+    enabled: false,
+    tiers: [],
+    defaultStart: '',
+    escalationStickyTurns: 3,
     concierge: {
       enabled: false,
       model: 'gemini-3-flash',
@@ -2814,12 +2826,7 @@ function cloneAgentModelConfig(
 ): AgentModelConfig | undefined {
   if (!value) return undefined;
   if (typeof value === 'string') return value;
-  return {
-    primary: value.primary,
-    ...(Array.isArray(value.fallbacks) && value.fallbacks.length > 0
-      ? { fallbacks: [...value.fallbacks] }
-      : {}),
-  };
+  return { primary: value.primary };
 }
 
 function normalizeAgentModelConfig(
@@ -2834,10 +2841,7 @@ function normalizeAgentModelConfig(
 
   const primary = normalizeString(value.primary, '', { allowEmpty: true });
   if (!primary) return cloneAgentModelConfig(fallback);
-  const fallbacks = normalizeStringArray(value.fallbacks, []).filter(
-    (candidate) => candidate !== primary,
-  );
-  return fallbacks.length > 0 ? { primary, fallbacks } : { primary };
+  return { primary };
 }
 
 function normalizeAgentDefaultsConfig(
@@ -3068,6 +3072,7 @@ function normalizeRuntimePluginEntry(
 function normalizeRuntimePluginsConfig(
   value: unknown,
   fallback: RuntimePluginsConfig,
+  modelRoutingEnabled = false,
 ): RuntimePluginsConfig {
   const raw = isRecord(value) ? value : {};
   const listSource = Array.isArray(raw.list) ? raw.list : fallback.list;
@@ -3078,6 +3083,18 @@ function normalizeRuntimePluginsConfig(
     if (!normalized || seen.has(normalized.id)) continue;
     seen.add(normalized.id);
     list.push(normalized);
+  }
+  if (modelRoutingEnabled) {
+    const tierRouter = list.find((entry) => entry.id === 'tier-router');
+    if (tierRouter) {
+      if (!tierRouter.enabled || tierRouter.path) {
+        throw new Error(
+          'routing.enabled requires the bundled tier-router plugin to be enabled without a custom path.',
+        );
+      }
+    } else {
+      list.push({ id: 'tier-router', enabled: true, config: {} });
+    }
   }
   return { list };
 }
@@ -5182,6 +5199,43 @@ function normalizeModelBehaviorConfig(
   return Object.keys(behavior).length > 0 ? behavior : undefined;
 }
 
+function normalizeLocalEndpointEuroPrice(
+  value: unknown,
+  path: string,
+): number | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${path} must be a finite non-negative number.`);
+  }
+  return value;
+}
+
+function normalizeLocalEndpointPricing(
+  value: unknown,
+  endpointName: string,
+): LocalEndpointPricingConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    throw new Error(
+      `local.endpoints.${endpointName}.pricing must be an object.`,
+    );
+  }
+  const pricing: LocalEndpointPricingConfig = {
+    inputEurPerMillion: normalizeLocalEndpointEuroPrice(
+      value.inputEurPerMillion,
+      `local.endpoints.${endpointName}.pricing.inputEurPerMillion`,
+    ),
+    outputEurPerMillion: normalizeLocalEndpointEuroPrice(
+      value.outputEurPerMillion,
+      `local.endpoints.${endpointName}.pricing.outputEurPerMillion`,
+    ),
+  };
+  return pricing.inputEurPerMillion == null &&
+    pricing.outputEurPerMillion == null
+    ? undefined
+    : pricing;
+}
+
 function normalizeLocalEndpointConfigs(value: unknown): LocalEndpointConfig[] {
   if (!Array.isArray(value)) return [];
   const endpoints: LocalEndpointConfig[] = [];
@@ -5205,6 +5259,7 @@ function normalizeLocalEndpointConfigs(value: unknown): LocalEndpointConfig[] {
       path: `local.endpoints.${name}.apiKey`,
       required: isSecretRefInput(raw.apiKey) && enabled,
     });
+    const pricing = normalizeLocalEndpointPricing(raw.pricing, name);
     endpoints.push({
       name,
       type,
@@ -5212,6 +5267,8 @@ function normalizeLocalEndpointConfigs(value: unknown): LocalEndpointConfig[] {
       baseUrl: normalizeBaseUrl(raw.baseUrl, fallbackBaseUrl),
       apiKey: normalizeString(resolvedApiKey, '', { allowEmpty: true }),
       modelBehavior: normalizeModelBehaviorConfig(raw.modelBehavior),
+      zone: normalizeModelRoutingZone(raw.zone),
+      ...(pricing ? { pricing } : {}),
     });
   }
   return endpoints;
@@ -6682,6 +6739,132 @@ function normalizeRoutingConciergeConfig(
   };
 }
 
+interface RoutingModelReferenceCatalog {
+  models: Set<string>;
+  dynamicPrefixes: Set<string>;
+}
+
+function buildRoutingModelReferenceCatalog(params: {
+  hybridaiModels: string[];
+  hybridaiDefaultModel: string;
+  hybridaiOnboardingModel: string;
+  remoteModels: string[][];
+  localEndpoints: LocalEndpointConfig[];
+}): RoutingModelReferenceCatalog {
+  const models = new Set<string>();
+  for (const model of [
+    ...params.hybridaiModels,
+    params.hybridaiDefaultModel,
+    params.hybridaiOnboardingModel,
+  ]) {
+    const normalized = model.trim();
+    if (!normalized) continue;
+    models.add(normalized);
+    models.add(
+      normalized.toLowerCase().startsWith('hybridai/')
+        ? normalized
+        : `hybridai/${normalized}`,
+    );
+  }
+  for (const model of params.remoteModels.flat()) {
+    const normalized = model.trim();
+    if (normalized) models.add(normalized);
+  }
+  return {
+    models,
+    dynamicPrefixes: new Set([
+      'ollama',
+      'lmstudio',
+      'llamacpp',
+      'vllm',
+      ...params.localEndpoints.map((endpoint) => endpoint.name),
+    ]),
+  };
+}
+
+function isKnownRoutingModelReference(
+  model: string,
+  catalog: RoutingModelReferenceCatalog,
+): boolean {
+  if (catalog.models.has(model)) return true;
+  const slashIndex = model.indexOf('/');
+  return (
+    slashIndex > 0 &&
+    slashIndex < model.length - 1 &&
+    catalog.dynamicPrefixes.has(model.slice(0, slashIndex))
+  );
+}
+
+function normalizeModelRoutingConfig(
+  value: unknown,
+  fallback: ModelRoutingConfig,
+  catalog: RoutingModelReferenceCatalog,
+): ModelRoutingConfig {
+  const raw = isRecord(value) ? value : {};
+  const enabled = normalizeBoolean(raw.enabled, fallback.enabled);
+  const rawTiers = raw.tiers === undefined ? fallback.tiers : raw.tiers;
+  if (!Array.isArray(rawTiers)) {
+    throw new Error('routing.tiers must be an array.');
+  }
+
+  const seenTierNames = new Set<string>();
+  const tiers: ModelRoutingTier[] = rawTiers.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`routing.tiers[${index}] must be an object.`);
+    }
+    const name = normalizeString(entry.name, '', { allowEmpty: false });
+    if (!name) {
+      throw new Error(`routing.tiers[${index}].name is required.`);
+    }
+    const nameKey = name.toLowerCase();
+    if (seenTierNames.has(nameKey)) {
+      throw new Error(`Duplicate routing tier name: ${name}.`);
+    }
+    seenTierNames.add(nameKey);
+    if (!Array.isArray(entry.models) || entry.models.length === 0) {
+      throw new Error(`routing.tiers[${index}].models must not be empty.`);
+    }
+    const models = normalizeOptionalTrimmedUniqueStringArray(entry.models);
+    if (!models || models.length !== entry.models.length) {
+      throw new Error(
+        `routing.tiers[${index}].models must contain unique non-empty model references.`,
+      );
+    }
+    for (const model of models) {
+      if (!isKnownRoutingModelReference(model, catalog)) {
+        throw new Error(
+          `routing.tiers[${index}] references unknown model \`${model}\`.`,
+        );
+      }
+    }
+    return { name, models };
+  });
+
+  if (enabled && tiers.length === 0) {
+    throw new Error('routing.tiers must not be empty when routing is enabled.');
+  }
+  const defaultStart = normalizeString(
+    raw.defaultStart,
+    tiers[0]?.name ?? fallback.defaultStart,
+    { allowEmpty: tiers.length === 0 },
+  );
+  if (tiers.length > 0 && !tiers.some((tier) => tier.name === defaultStart)) {
+    throw new Error(
+      `routing.defaultStart references unknown routing tier \`${defaultStart}\`.`,
+    );
+  }
+  return {
+    enabled,
+    tiers,
+    defaultStart,
+    escalationStickyTurns: normalizeInteger(
+      raw.escalationStickyTurns,
+      fallback.escalationStickyTurns,
+      { min: 0, max: 100 },
+    ),
+  };
+}
+
 function normalizeTavilySearchDepth(
   value: unknown,
   fallback: 'basic' | 'advanced',
@@ -7024,6 +7207,16 @@ function normalizeRuntimeConfig(
     DEFAULT_RUNTIME_CONFIG.hybridai.defaultChatbotId,
     { allowEmpty: true },
   );
+  const hybridDefaultModel = normalizeString(
+    rawHybridAi.defaultModel,
+    DEFAULT_RUNTIME_CONFIG.hybridai.defaultModel,
+    { allowEmpty: false },
+  );
+  const hybridOnboardingModel = normalizeString(
+    rawHybridAi.onboardingModel,
+    DEFAULT_RUNTIME_CONFIG.hybridai.onboardingModel,
+    { allowEmpty: true },
+  );
   const normalizedDbPath = normalizeDbPath(rawOps.dbPath, defaultOps.dbPath);
 
   const threshold = normalizeInteger(
@@ -7107,6 +7300,35 @@ function normalizeRuntimeConfig(
   const kiloModelList = normalizeStringArray(
     rawKilo.models,
     DEFAULT_RUNTIME_CONFIG.kilo.models,
+  );
+  const localEndpointConfigs = normalizeLocalEndpointConfigs(
+    rawLocal.endpoints,
+  );
+  const modelRouting = normalizeModelRoutingConfig(
+    rawRouting,
+    DEFAULT_RUNTIME_CONFIG.routing,
+    buildRoutingModelReferenceCatalog({
+      hybridaiModels: modelList,
+      hybridaiDefaultModel: hybridDefaultModel,
+      hybridaiOnboardingModel: hybridOnboardingModel,
+      remoteModels: [
+        codexModelList,
+        anthropicModelList,
+        openRouterModelList,
+        mistralModelList,
+        huggingFaceModelList,
+        geminiModelList,
+        deepSeekModelList,
+        xaiModelList,
+        zaiModelList,
+        kimiModelList,
+        miniMaxModelList,
+        dashScopeModelList,
+        xiaomiModelList,
+        kiloModelList,
+      ],
+      localEndpoints: localEndpointConfigs,
+    }),
   );
   const normalizedCommandUserId = normalizeString(
     rawDiscord.commandUserId,
@@ -7236,6 +7458,7 @@ function normalizeRuntimeConfig(
     plugins: normalizeRuntimePluginsConfig(
       rawPlugins,
       DEFAULT_RUNTIME_CONFIG.plugins,
+      modelRouting.enabled,
     ),
     adaptiveSkills: {
       enabled: normalizeBoolean(
@@ -7524,16 +7747,8 @@ function normalizeRuntimeConfig(
     }),
     hybridai: {
       baseUrl: hybridBaseUrl,
-      defaultModel: normalizeString(
-        rawHybridAi.defaultModel,
-        DEFAULT_RUNTIME_CONFIG.hybridai.defaultModel,
-        { allowEmpty: false },
-      ),
-      onboardingModel: normalizeString(
-        rawHybridAi.onboardingModel,
-        DEFAULT_RUNTIME_CONFIG.hybridai.onboardingModel,
-        { allowEmpty: true },
-      ),
+      defaultModel: hybridDefaultModel,
+      onboardingModel: hybridOnboardingModel,
       defaultChatbotId: hybridDefaultChatbotId,
       maxTokens: normalizeInteger(
         rawHybridAi.maxTokens,
@@ -7757,7 +7972,7 @@ function normalizeRuntimeConfig(
           ),
         },
       },
-      endpoints: normalizeLocalEndpointConfigs(rawLocal.endpoints),
+      endpoints: localEndpointConfigs,
       discovery: {
         enabled: normalizeBoolean(
           rawLocalDiscovery.enabled,
@@ -8133,6 +8348,7 @@ function normalizeRuntimeConfig(
     },
     media: normalizeMediaConfig(rawMedia, DEFAULT_RUNTIME_CONFIG.media),
     routing: {
+      ...modelRouting,
       concierge: normalizeRoutingConciergeConfig(
         rawRouting.concierge,
         DEFAULT_RUNTIME_CONFIG.routing.concierge,
