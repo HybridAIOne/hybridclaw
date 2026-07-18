@@ -36,13 +36,12 @@
 //   --verbose           Print reply snippets per run
 //
 // Credentials (env):
-//   gateway    WEB_API_TOKEN or GATEWAY_API_TOKEN or OPENAI_API_KEY.
-//              The encrypted secret store cannot be read back
-//              (`hybridclaw secret show` prints stored yes/no, not the value),
-//              so either export the token value you originally stored, or run
-//              this script via `hybridclaw eval node scripts/...` which
-//              injects OPENAI_BASE_URL and OPENAI_API_KEY automatically
-//              (detached; pass --json <absolute path> to collect results)
+//   gateway    Mint a scoped, revocable token and pass it as WEB_API_TOKEN:
+//                hybridclaw token create --label latency-bench --actions openai.api
+//              (printed once on creation; revoke with `hybridclaw token revoke`).
+//              GATEWAY_API_TOKEN and OPENAI_API_KEY are accepted as
+//              alternatives; `hybridclaw eval node scripts/...` injects
+//              OPENAI_API_KEY automatically but runs detached.
 //   hai        HYBRIDAI_API_KEY (hai-...)
 //   anthropic  ANTHROPIC_API_KEY
 //
@@ -223,7 +222,7 @@ function resolveTargets(options) {
         process.env.OPENAI_API_KEY ||
         '',
       missing:
-        'WEB_API_TOKEN / GATEWAY_API_TOKEN / OPENAI_API_KEY (tip: run via `hybridclaw eval node scripts/benchmark-model-latency.mjs ...`)',
+        'WEB_API_TOKEN (tip: mint one with `hybridclaw token create --label latency-bench --actions openai.api`)',
     },
     hai: {
       arm: 'hai',
