@@ -4,6 +4,13 @@
 
 ### Added
 
+- **Codex 5.6 models**: `openai-codex/gpt-5.6-sol`, `openai-codex/gpt-5.6-terra`,
+  and `openai-codex/gpt-5.6-luna` are now recognised as forward-compatible Codex
+  models, so they are selectable as soon as the Codex account offers them
+  instead of waiting for the discovery endpoint to list them.
+
+  `Manifesto: Principle VIII - A coworker doesn't break overnight.`
+
 - **Dependency license gate**: `scripts/check-dependency-policy.mjs` now scans
   every tracked `package-lock.json` and fails on GPL, AGPL, and SSPL-family
   licenses unless the exact `name@version` and license pair is approved under
