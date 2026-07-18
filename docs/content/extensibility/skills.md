@@ -152,7 +152,7 @@ use:
 - `web_fetch`, `web_search`, or browser tools can be used to inspect official
   API documentation while authoring or repairing a skill, not as the runtime
   API client when the helper already covers the operation.
-- `/policy`, `hybridclaw policy ...`, and `/admin/approvals` manage workspace
+- `/policy`, `hybridclaw policy ...`, and `/admin/network-policy` manage workspace
   network policy for HTTP access.
 - `hybridclaw gateway status` distinguishes stale builds, gateway PID state,
   sandbox mode, and runtime version before diagnosing gateway behavior.

@@ -1,6 +1,6 @@
 ---
 title: Admin Console
-description: Manage channels, connectors, agents, human distillation, approvals, config, secrets, output guard, audit, jobs, and browser-based operator workflows from /admin.
+description: Manage channels, connectors, agents, human distillation, network policy, settings, secrets, output guard, audit, jobs, and browser-based operator workflows from /admin.
 sidebar_position: 10
 ---
 
@@ -9,9 +9,10 @@ sidebar_position: 10
 If the gateway is already running, open
 `http://127.0.0.1:9090/admin` when you want browser-based operator workflows
 instead of the CLI. The channel setup page lives at `/admin/channels`, and the
-agent prompt-file editor lives at `/admin/agents`. The approvals page at
-`/admin/approvals` shows live pending approvals and lets operators add, edit,
-and delete the current workspace network policy rules for a selected agent.
+agent prompt-file editor lives at `/admin/agents`. The Network Policy page at
+`/admin/network-policy` shows live pending approvals and lets operators add,
+edit, and delete the current workspace network policy rules for a selected
+agent.
 The connector setup page at `/admin/connectors` manages HybridAI, Google
 Workspace, GitHub, and Microsoft 365 connection flows.
 The human distillation page at `/admin/distill` manages subjects, consent,
@@ -53,13 +54,14 @@ pairing requests.
 - `/admin/distill` creates distillation subjects, records consent artefacts,
   registers or uploads source material, manages corpus documents, starts runs,
   and opens generated run reports
-- `/admin/approvals` shows unresolved approval prompts across sessions and the
-  selected agent workspace's current `policy.yaml` network rules in one place
-- `/admin/approvals` can add, edit, and delete network rules without switching
+- `/admin/network-policy` shows unresolved approval prompts across sessions and
+  the selected agent workspace's current `policy.yaml` network rules in one
+  place
+- `/admin/network-policy` can add, edit, and delete network rules without switching
   to the CLI or editing `policy.yaml` by hand
-- `/admin/approvals` can also change the workspace network default between
+- `/admin/network-policy` can also change the workspace network default between
   `deny` and `allow`
-- `/admin/approvals` can apply bundled network policy templates from the
+- `/admin/network-policy` can apply bundled network policy templates from the
   browser
 - `/admin/a2a-inbox` lists A2A threads by most recent message and opens each thread with sender, recipient, timestamp, intent, and content
 - `/admin/a2a-inbox` is read-only
@@ -148,8 +150,9 @@ scoped to the built-in allowlist and is not a general workspace file browser.
   single overview page
 - you want to distill a consented coworker agent from source material without
   stitching CLI commands together by hand
-- you want to inspect pending approvals and compare them with the declarative
-  network policy without switching to `/chat` or opening the workspace files
+- you want to inspect pending approvals on the Network Policy page and compare
+  them with the declarative policy without switching to `/chat` or opening the
+  workspace files
 - you want to add, edit, or remove network policy rules from the browser
 - you want to inspect A2A coordination threads without impersonating a recipient agent
 - you want to check child-instance reachability or update A2A trust-ledger peers

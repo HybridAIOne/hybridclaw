@@ -2562,7 +2562,7 @@ function TeamsChannelEditor(_props: {
       <div className="button-row">
         <Button
           variant="outline"
-          render={<a href="/admin/teams">App Setup</a>}
+          render={<a href="/admin/connectors#teams-sso">App Setup</a>}
         />
       </div>
 

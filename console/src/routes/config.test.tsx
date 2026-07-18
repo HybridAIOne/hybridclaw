@@ -206,7 +206,7 @@ describe('ConfigPage', () => {
       screen
         .getByRole('link', { name: 'Manage network policy' })
         .getAttribute('href'),
-    ).toBe('/admin/approvals');
+    ).toBe('/admin/network-policy');
     const actionPriceInput = screen.getByLabelText(
       'Action price USD',
     ) as HTMLInputElement;

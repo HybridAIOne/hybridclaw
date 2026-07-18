@@ -1169,7 +1169,10 @@ export function ConfigPage() {
                         />
                       </Field>
                       <div className="button-row">
-                        <Link to="/admin/approvals" className="ghost-button">
+                        <Link
+                          to="/admin/network-policy"
+                          className="ghost-button"
+                        >
                           Manage network policy
                         </Link>
                       </div>
