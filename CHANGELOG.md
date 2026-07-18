@@ -4,6 +4,18 @@
 
 ### Added
 
+- **Model latency benchmark**: `scripts/benchmark-model-latency.mjs` measures
+  time-to-headers, time-to-first-token, total duration, and tokens/sec for the
+  same model across three paths — the local gateway's OpenAI-compatible API
+  (full agent turn), the HybridAI API called directly, and the model vendor
+  (Anthropic) called directly — each with streaming on and off. Request bodies
+  mirror the exact shapes HybridClaw sends, so latency deltas attribute slow
+  responses to the HybridClaw layer, the HybridAI backend, or the upstream
+  vendor. A connection preflight separates DNS/TCP/TLS handshake cost per
+  origin.
+
+  `Manifesto: Principle VIII - A coworker doesn't break overnight.`
+
 - **Dependency license gate**: `scripts/check-dependency-policy.mjs` now scans
   every tracked `package-lock.json` and fails on GPL, AGPL, and SSPL-family
   licenses unless the exact `name@version` and license pair is approved under
