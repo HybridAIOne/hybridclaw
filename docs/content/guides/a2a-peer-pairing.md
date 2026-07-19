@@ -47,7 +47,7 @@ Set `deployment.public_url` on each instance before requesting peer
 notification. HybridClaw uses that URL when it asks the peer to create the
 reverse pairing request.
 
-After pairing, `/admin/a2a-trust` can enable **A2A local mode**. This keeps
+After pairing, `/admin/federation?tab=peers` can enable **A2A local mode**. This keeps
 loopback and authenticated admin management available, leaves the Agent Card
 and A2A delivery routes reachable, and disables other external gateway and
 channel surfaces.
@@ -89,7 +89,7 @@ forward secrecy.
    http://127.0.0.1:9292/admin
    ```
 
-3. On instance 1, open `/admin/a2a-trust`.
+3. On instance 1, open `/admin/federation?tab=peers`.
 
 4. Enter instance 2's base URL or Agent Card URL:
 
@@ -109,7 +109,7 @@ forward secrecy.
 6. Start pairing with peer notification enabled. Instance 1 trusts instance 2,
    then sends a pairing request to instance 2.
 
-7. On instance 2, open `/admin/a2a-trust` and approve the incoming request from
+7. On instance 2, open `/admin/federation?tab=peers` and approve the incoming request from
    instance 1. This reverse approval is what lets instance 2 send replies back
    to instance 1.
 
@@ -292,6 +292,6 @@ owner or user routing namespace.
 
 ### The Message Is Delivered But No Reply Appears
 
-Open the receiving instance's A2A inbox at `/admin/a2a-inbox` and check the
+Open the receiving instance's A2A inbox at `/admin/federation?tab=inbox` and check the
 gateway logs. The receiving instance must have an available target agent, and
 the reply can only be sent when reverse trust is present.

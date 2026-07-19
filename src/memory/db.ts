@@ -171,7 +171,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 51;
+export const DATABASE_SCHEMA_VERSION = 53;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -220,6 +220,7 @@ interface ColumnInfoRow {
 
 type AgentRow = {
   id: AgentConfig['id'];
+  archived: number;
   canonical_id: string | null;
   owner_user_id: string | null;
   name: string | null;
@@ -3282,6 +3283,28 @@ function migrateV51(database: Database.Database): void {
   recordMigration(database, 51, 'Persist app publication records');
 }
 
+// Version 52 was already assigned to agent sharing in a parallel migration.
+function agentArchivedNeedMigration(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'agents') &&
+    !columnExists(database, 'agents', 'archived')
+  );
+}
+
+function migrateV53(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'archived',
+    ddl: 'archived INTEGER NOT NULL DEFAULT 0',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 53, 'Persist archived agent state');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3405,6 +3428,9 @@ function runMigrations(
   if (currentVersion < 49) migrateV49(database);
   if (currentVersion < 50) migrateV50(database);
   if (currentVersion < 51) migrateV51(database);
+  if (currentVersion < 53 || agentArchivedNeedMigration(database)) {
+    migrateV53(database, opts);
+  }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -3837,6 +3863,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const proxy = parseAgentProxyConfig(row.proxy);
   return {
     id: row.id,
+    archived: row.archived !== 0,
     ...(canonicalId ? { canonicalId } : {}),
     ...(ownerUserId ? { ownerUserId } : {}),
     ...(name ? { name } : {}),
@@ -3863,7 +3890,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, created_at, updated_at';
+  'id, archived, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -3895,6 +3922,14 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     throw new Error('Agent id is required.');
   }
   const existingAgent = getAgentById(normalizedId);
+  const archived =
+    typeof agent.archived === 'boolean'
+      ? agent.archived
+        ? 1
+        : 0
+      : existingAgent?.archived
+        ? 1
+        : 0;
   const normalizedName = agent.name?.trim() || null;
   const normalizedDisplayName = agent.displayName?.trim() || null;
   const normalizedImageAsset = agent.imageAsset?.trim() || null;
@@ -3959,6 +3994,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   db.prepare(
     `INSERT INTO agents (
        id,
+       archived,
        canonical_id,
        owner_user_id,
        name,
@@ -3981,8 +4017,9 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        proxy,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
+       archived = excluded.archived,
        canonical_id = excluded.canonical_id,
        owner_user_id = excluded.owner_user_id,
        name = excluded.name,
@@ -4006,6 +4043,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        updated_at = datetime('now')`,
   ).run(
     normalizedId,
+    archived,
     canonicalId,
     ownerUserId,
     normalizedName,
@@ -4032,6 +4070,22 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     throw new Error(`Failed to read persisted agent: ${normalizedId}`);
   }
   return storedAgent;
+}
+
+export function setAgentArchived(
+  agentId: string,
+  archived: boolean,
+): AgentConfig | null {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) return null;
+  const result = db
+    .prepare(
+      `UPDATE agents
+       SET archived = ?, updated_at = datetime('now')
+       WHERE id = ?`,
+    )
+    .run(archived ? 1 : 0, normalizedAgentId);
+  return result.changes === 1 ? getAgentById(normalizedAgentId) : null;
 }
 
 export function upsertAgentWithTeamRevision(params: {

@@ -130,7 +130,9 @@ export function GatewayPage() {
     },
   });
 
-  const adminAgents = agentsQuery.data || [];
+  const adminAgents = (agentsQuery.data || []).filter(
+    (agent) => !agent.archived,
+  );
   const selectedProxyAgent =
     adminAgents.find((agent) => agent.id === selectedProxyAgentId) ||
     adminAgents.find((agent) => agent.id === status?.defaultAgentId) ||

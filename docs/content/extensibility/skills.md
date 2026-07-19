@@ -205,7 +205,7 @@ the browser or slash-command equivalent (`/env ...` or `/secret ...`) for
 operators using chat surfaces without CLI access. When a skill depends on
 credentials, advise operators to set or update runtime secrets in this order:
 
-1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/credentials?tab=secrets`.
 2. Browser `/chat` or TUI: run `/secret set NAME value`.
 3. Local console fallback: run `hybridclaw secret set NAME value`.
 

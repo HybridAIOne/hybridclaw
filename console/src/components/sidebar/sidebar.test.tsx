@@ -499,7 +499,7 @@ describe('AppSidebar', () => {
     expect(screen.getByText('HybridClaw')).toBeDefined();
     expect(screen.getByText('Admin console')).toBeDefined();
     expect(screen.getByText('Overview')).toBeDefined();
-    expect(screen.getByText('Agents')).toBeDefined();
+    expect(screen.getAllByText('Agents')).toHaveLength(2);
     expect(screen.getByText('Connectivity')).toBeDefined();
     expect(screen.getByText('Models')).toBeDefined();
     expect(screen.getByText('Security')).toBeDefined();
@@ -518,7 +518,7 @@ describe('AppSidebar', () => {
       </SidebarProvider>,
     );
     for (const item of SIDEBAR_NAV_GROUPS.flatMap((g) => g.items)) {
-      expect(screen.getByText(item.label)).toBeDefined();
+      expect(screen.getAllByText(item.label).length).toBeGreaterThan(0);
     }
   });
 

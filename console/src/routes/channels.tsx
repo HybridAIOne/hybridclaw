@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { type KeyboardEvent, useEffect, useState } from 'react';
 import {
   fetchAdminAgents,
@@ -37,6 +38,7 @@ import { NumberField } from '../components/number-field';
 import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
+import { PageHeader } from '../components/ui';
 import { useFormMutation } from '../hooks/use-form-mutation';
 import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { getErrorMessage } from '../lib/error-message';
@@ -3836,6 +3838,15 @@ export function ChannelsPage() {
 
   return (
     <div className="page-stack">
+      <PageHeader
+        actions={
+          statusQuery.data?.emailEnabled ? (
+            <Link className="ghost-button" to="/admin/email">
+              Open mailbox
+            </Link>
+          ) : undefined
+        }
+      />
       <div className="two-column-grid channels-layout">
         <Card>
           <div className="list-stack selectable-list channel-catalog">
@@ -3891,7 +3902,9 @@ export function ChannelsPage() {
                       whatsappStatus,
                       lineStatus,
                       signalStatus,
-                      agentsQuery.data || [],
+                      (agentsQuery.data || []).filter(
+                        (agent) => !agent.archived,
+                      ),
                       (config) => {
                         const payload = {
                           path: configQuery.data?.path || '',

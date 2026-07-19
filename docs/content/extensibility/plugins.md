@@ -59,7 +59,7 @@ installed` or `hybridclaw plugin list available` to show only one section.
 When installing by bare plugin id, project-local plugins in `./plugins/` take
 priority over bundled plugins with the same id.
 The embedded admin console also exposes the same discovery snapshot at
-`/admin/plugins` for browser-based inspection.
+`/admin/extensions?tab=plugins` for browser-based inspection.
 
 `hybridclaw plugin uninstall <plugin-id>` removes the home-installed plugin
 directory and deletes matching `plugins.list[]` overrides from runtime config.

@@ -27,6 +27,7 @@ import type {
 import { useAuth } from '../auth';
 import { AgentBudgetChip } from '../components/agent-budget-chip';
 import { InteractionResumeControls } from '../components/interaction-resume-controls';
+import { TabbedPageActions } from '../components/tabbed-page';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
@@ -228,6 +229,9 @@ function JobCard(props: {
                 24,
               )}
             </strong>
+            {item.kind === 'job' ? (
+              <span className="jobs-card-source">from schedule ↻</span>
+            ) : null}
           </div>
           <p>{item.summary}</p>
           <small>{item.stateLabel}</small>
@@ -428,8 +432,8 @@ function JobDetailCard(props: {
             onClick={() => {
               if (editJobId) {
                 void navigate({
-                  to: '/admin/scheduler',
-                  search: { jobId: editJobId },
+                  to: '/admin/automation',
+                  search: { tab: 'schedules', jobId: editJobId },
                 }).catch(logNavigationError);
                 return;
               }
@@ -673,7 +677,7 @@ function JobDetailCard(props: {
   );
 }
 
-export function JobsPage() {
+export function JobsPage(props: { embedded?: boolean } = {}) {
   const auth = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -1025,30 +1029,43 @@ export function JobsPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader
-        actions={
-          <div className="header-actions">
-            <input
-              className="compact-search jobs-header-search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search jobs"
-            />
-            <button
-              className="primary-button"
-              type="button"
-              onClick={() => {
-                void navigate({
-                  to: '/admin/scheduler',
-                  search: { jobId: undefined },
-                }).catch(logNavigationError);
-              }}
-            >
-              New Job
-            </button>
-          </div>
-        }
-      />
+      {props.embedded ? (
+        <TabbedPageActions>
+          <input
+            className="compact-search page-tab-search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search jobs"
+            aria-label="Search jobs"
+          />
+        </TabbedPageActions>
+      ) : null}
+      {props.embedded ? null : (
+        <PageHeader
+          actions={
+            <div className="header-actions">
+              <input
+                className="compact-search jobs-header-search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search jobs"
+              />
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => {
+                  void navigate({
+                    to: '/admin/automation',
+                    search: { tab: 'schedules', jobId: undefined },
+                  }).catch(logNavigationError);
+                }}
+              >
+                New Job
+              </button>
+            </div>
+          }
+        />
+      )}
 
       {/* Query errors stay as inline banners (not toasts) — they represent a
           persistent broken state, not a one-time operation failure. */}

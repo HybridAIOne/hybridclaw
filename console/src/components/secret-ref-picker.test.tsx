@@ -72,7 +72,7 @@ describe('SecretRefPicker', () => {
       screen
         .getByRole('link', { name: 'Create new secret →' })
         .getAttribute('href'),
-    ).toBe('/admin/secrets');
+    ).toBe('/admin/credentials?tab=secrets');
   });
 
   it('selects a stored secret name and preserves a missing current reference', async () => {

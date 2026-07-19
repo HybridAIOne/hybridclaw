@@ -522,6 +522,32 @@ describe('client command helpers', () => {
     expect(agent.proxy?.apiKey.id).toBe('HYBRIDAI_PROXY_KEY');
   });
 
+  it('persists an admin agent archive update', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          agent: {
+            id: 'support',
+            archived: true,
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const agent = await updateAdminAgent('test-token', 'support', {
+      archived: true,
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/admin/agents/support',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+    const request = vi.mocked(fetch).mock.calls[0]?.[1];
+    expect(JSON.parse(String(request?.body))).toEqual({ archived: true });
+    expect(agent.archived).toBe(true);
+  });
+
   it('fetches HybridAI bot options from the admin endpoint', async () => {
     vi.mocked(fetch).mockResolvedValue(
       new Response(

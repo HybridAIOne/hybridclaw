@@ -64,6 +64,7 @@ export interface AgentBudgetConfig {
 
 export interface AgentConfig {
   id: string;
+  archived?: boolean;
   canonicalId?: string;
   ownerUserId?: string;
   name?: string;

@@ -19,18 +19,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/dialog';
+import { TabbedPageActions } from '../components/tabbed-page';
 import { useToast } from '../components/toast';
 import { BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
 import { logNavigationError } from '../lib/navigation';
 
-export function SessionsPage() {
+export function SessionsPage(
+  props: { rangeDays?: number; embedded?: boolean } = {},
+) {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
-  const sessionsSearch = useSearch({ strict: false }) as { sessionId?: string };
+  const sessionsSearch = useSearch({ strict: false }) as Record<
+    string,
+    unknown
+  > & { sessionId?: string };
   const requestedSessionId = sessionsSearch.sessionId?.trim() || null;
   const lastRequestedSessionId = useRef(requestedSessionId);
   const [search, setSearch] = useState('');
@@ -57,9 +63,11 @@ export function SessionsPage() {
       if (selectedId === sessionId) {
         setSelectedId(null);
         void navigate({
-          to: '/admin/sessions',
+          to: props.embedded ? '/admin/activity' : '/admin/sessions',
           replace: true,
-          search: { sessionId: undefined },
+          search: props.embedded
+            ? { ...sessionsSearch, tab: 'sessions', sessionId: undefined }
+            : { sessionId: undefined },
         }).catch(logNavigationError);
       }
     },
@@ -68,7 +76,14 @@ export function SessionsPage() {
     },
   });
 
+  const rangeCutoff = props.rangeDays
+    ? Date.now() - props.rangeDays * 24 * 60 * 60 * 1000
+    : null;
   const filtered = (sessionsQuery.data || []).filter((session) => {
+    if (rangeCutoff !== null) {
+      const lastActive = Date.parse(session.lastActive);
+      if (Number.isFinite(lastActive) && lastActive < rangeCutoff) return false;
+    }
     const haystack = [
       session.id,
       session.channelId,
@@ -103,24 +118,39 @@ export function SessionsPage() {
   function selectSession(sessionId: string): void {
     setSelectedId(sessionId);
     void navigate({
-      to: '/admin/sessions',
+      to: props.embedded ? '/admin/activity' : '/admin/sessions',
       replace: true,
-      search: { sessionId },
+      search: props.embedded
+        ? { ...sessionsSearch, tab: 'sessions', sessionId }
+        : { sessionId },
     }).catch(logNavigationError);
   }
 
   return (
     <div className="page-stack">
-      <PageHeader
-        actions={
+      {props.embedded ? (
+        <TabbedPageActions>
           <input
-            className="compact-search"
+            className="compact-search page-tab-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Filter by session, channel, model"
+            aria-label="Filter sessions"
           />
-        }
-      />
+        </TabbedPageActions>
+      ) : (
+        <PageHeader
+          actions={
+            <input
+              className="compact-search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Filter by session, channel, model"
+              aria-label="Filter sessions"
+            />
+          }
+        />
+      )}
 
       <div className="two-column-grid sessions-layout">
         <Card>

@@ -27,6 +27,7 @@ import {
 } from '../components/dialog';
 import { Field, FieldLabel } from '../components/field';
 import { Input } from '../components/input';
+import { TabbedPageActions } from '../components/tabbed-page';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
@@ -46,7 +47,7 @@ function formatTimestamp(value: string | null): string {
   return formatRelativeTime(value);
 }
 
-export function SecretsPage() {
+export function SecretsPage(props: { embedded?: boolean } = {}) {
   const { token } = useAuth();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -114,7 +115,6 @@ export function SecretsPage() {
   if (query.isPending) {
     return (
       <div className="page-stack">
-        <PageHeader description="Runtime secret store" />
         <div className="empty-state">Loading the runtime secret store…</div>
       </div>
     );
@@ -125,7 +125,6 @@ export function SecretsPage() {
       query.error instanceof HttpResponseError && query.error.status === 403;
     return (
       <div className="page-stack">
-        <PageHeader description="Runtime secret store" />
         <div className="empty-state">
           {forbidden
             ? 'You do not have permission to view secret metadata.'
@@ -138,21 +137,24 @@ export function SecretsPage() {
   const canOverwrite = data?.actions.includes('secret.overwrite') ?? false;
   const canUnset = data?.actions.includes('secret.unset') ?? false;
   const showSetActions = canOverwrite || canUnset;
+  const filterInput = (
+    <input
+      className={
+        props.embedded ? 'compact-search page-tab-search' : 'compact-search'
+      }
+      value={filter}
+      onChange={(event) => setFilter(event.target.value)}
+      placeholder="Filter secrets"
+      aria-label="Filter secrets by name"
+    />
+  );
 
   return (
     <div className="page-stack">
-      <PageHeader
-        description="Runtime credential store. Values are write-only — set or rotate them here; they are never read back to the browser."
-        actions={
-          <input
-            className="compact-search"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            placeholder="Filter secrets"
-            aria-label="Filter secrets by name"
-          />
-        }
-      />
+      {props.embedded ? (
+        <TabbedPageActions>{filterInput}</TabbedPageActions>
+      ) : null}
+      <PageHeader actions={props.embedded ? undefined : filterInput} />
 
       <section className={styles.section} aria-label="Set">
         <div className={styles.sectionHead}>

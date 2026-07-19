@@ -41,17 +41,19 @@ describe('rangeToSince', () => {
 });
 
 describe('readRange', () => {
-  it('accepts the four known range values', () => {
+  it('accepts the known range values', () => {
     expect(readRange('all')).toBe('all');
     expect(readRange('1h')).toBe('1h');
     expect(readRange('24h')).toBe('24h');
     expect(readRange('7d')).toBe('7d');
+    expect(readRange('30d')).toBe('30d');
+    expect(readRange('90d')).toBe('90d');
   });
 
   it("falls back to 'all' for unknown or missing values", () => {
     expect(readRange(undefined)).toBe('all');
     expect(readRange('')).toBe('all');
-    expect(readRange('30d')).toBe('all');
+    expect(readRange('45d')).toBe('all');
     expect(readRange('1H')).toBe('all');
   });
 });

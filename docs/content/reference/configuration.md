@@ -259,7 +259,7 @@ saved revision history directly.
   `manual`, `ssh`, `ngrok`, `cloudflare`, or `tailscale`. Use the dedicated
   tunnel settings page in `/admin` to select a provider, validate and save its
   public URL, start or stop managed providers, reconnect, and inspect health or
-  provider errors. Enable `deployment.a2a_local_mode` from `/admin/a2a-trust`
+  provider errors. Enable `deployment.a2a_local_mode` from `/admin/federation?tab=peers`
   to keep loopback and authenticated admin management available while exposing
   A2A and blocking external chat, APIs, webhooks, channel runtimes, and channel
   delivery. Enable `deployment.a2a_e2ee_required` on the same page to reject

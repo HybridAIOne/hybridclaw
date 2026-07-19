@@ -2166,7 +2166,7 @@
       }
 
       if (action === 'open-admin') {
-        navigateLocalWebSurface('/admin/sessions');
+        navigateLocalWebSurface('/admin/activity?tab=sessions');
         return;
       }
 
@@ -2264,11 +2264,11 @@
     });
 
     openSessionsButtonEl.addEventListener('click', () => {
-      navigateLocalWebSurface('/admin/sessions');
+      navigateLocalWebSurface('/admin/activity?tab=sessions');
     });
 
     openSchedulerButtonEl.addEventListener('click', () => {
-      navigateLocalWebSurface('/admin/scheduler');
+      navigateLocalWebSurface('/admin/automation?tab=schedules');
     });
 
     setSidebarCollapsed(localStorage.getItem('hybridclaw_agents_sidebar_collapsed') === '1');

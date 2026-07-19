@@ -1,14 +1,10 @@
 import type { ComponentType } from 'react';
 import {
   AgentGroup,
-  Audit,
   Channels,
-  Chat,
   Cog,
   Config,
   Dashboard,
-  Email,
-  Files,
   Flask,
   Gateway,
   Harness,
@@ -18,13 +14,10 @@ import {
   Models,
   Plugins,
   Policy,
-  Scheduler,
   Secrets,
   Server,
-  Sessions,
   Statistics,
   Terminal,
-  Tools,
 } from '../icons';
 
 export type SidebarNavItem = {
@@ -69,7 +62,7 @@ export const ADMIN_CONFIG_SECTION_OWNERS: Readonly<
   whatsapp: CHANNELS_OWNER,
   mcpServers: { label: 'MCP Servers', to: '/admin/mcp' },
   outputGuard: { label: 'Output Guard', to: '/admin/output-guard' },
-  scheduler: { label: 'Schedules', to: '/admin/scheduler' },
+  scheduler: { label: 'Automation', to: '/admin/automation' },
 };
 
 export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
@@ -77,42 +70,30 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
     label: 'Overview',
     items: [
       { to: '/admin', label: 'Dashboard', icon: Dashboard },
-      { to: '/admin/statistics', label: 'Statistics', icon: Statistics },
-      { to: '/admin/sessions', label: 'Sessions', icon: Sessions },
-      { to: '/admin/audit', label: 'Audit Log', icon: Audit },
+      { to: '/admin/activity', label: 'Activity', icon: Statistics },
     ],
   },
   {
     label: 'Agents',
     items: [
       {
-        to: '/admin/agent-scoreboard',
-        label: 'Agent Scoreboard',
+        to: '/admin/agents',
+        label: 'Agents',
         icon: AgentGroup,
       },
-      { to: '/admin/agents', label: 'Workspace Files', icon: Files },
       { to: '/admin/skills', label: 'Skills', icon: Lightbulb },
-      { to: '/admin/jobs', label: 'Work Queue', icon: Jobs },
-      { to: '/admin/scheduler', label: 'Schedules', icon: Scheduler },
+      { to: '/admin/automation', label: 'Automation', icon: Jobs },
     ],
   },
   {
     label: 'Connectivity',
     items: [
       { to: '/admin/channels', label: 'Channels', icon: Channels },
-      {
-        to: '/admin/email',
-        label: 'Mailbox',
-        icon: Email,
-        requiresEmail: true,
-      },
       { to: '/admin/connectors', label: 'Connectors', icon: Plugins },
       { to: '/admin/mcp', label: 'MCP Servers', icon: Cog },
-      { to: '/admin/a2a-inbox', label: 'A2A Inbox', icon: Chat },
-      { to: '/admin/a2a-trust', label: 'A2A Trust', icon: Policy },
       {
-        to: '/admin/fleet-topology',
-        label: 'Fleet Topology',
+        to: '/admin/federation',
+        label: 'Federation',
         icon: Server,
       },
     ],
@@ -130,8 +111,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
         icon: Policy,
       },
       { to: '/admin/output-guard', label: 'Output Guard', icon: Policy },
-      { to: '/admin/secrets', label: 'Secrets', icon: Secrets },
-      { to: '/admin/tokens', label: 'API Tokens', icon: Secrets },
+      { to: '/admin/credentials', label: 'Credentials', icon: Secrets },
     ],
   },
   {
@@ -140,8 +120,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       { to: '/admin/gateway', label: 'Gateway', icon: Gateway },
       { to: '/admin/config', label: 'Settings', icon: Config },
       { to: '/admin/logs', label: 'Logs', icon: Logs },
-      { to: '/admin/plugins', label: 'Plugins', icon: Plugins },
-      { to: '/admin/tools', label: 'Tools', icon: Tools },
+      { to: '/admin/extensions', label: 'Extensions', icon: Plugins },
       { to: '/admin/terminal', label: 'Terminal', icon: Terminal },
     ],
   },

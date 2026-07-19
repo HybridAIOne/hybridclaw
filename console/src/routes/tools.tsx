@@ -4,6 +4,7 @@ import { fetchTools } from '../api/client';
 import type { AdminToolCatalogEntry } from '../api/types';
 import { useAuth } from '../auth';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
+import { TabbedPageActions } from '../components/tabbed-page';
 import {
   MetricCard,
   PageHeader,
@@ -113,7 +114,7 @@ function ToolErrorPreview(props: {
   );
 }
 
-export function ToolsPage() {
+export function ToolsPage(props: { embedded?: boolean } = {}) {
   const auth = useAuth();
   const [filter, setFilter] = useState('');
   const deferredFilter = useDeferredValue(filter);
@@ -153,19 +154,25 @@ export function ToolsPage() {
     sorters: TOOL_SORTERS,
     defaultDirections: TOOL_DEFAULT_DIRECTIONS,
   });
+  const filterInput = (
+    <input
+      className={
+        props.embedded ? 'compact-search page-tab-search' : 'compact-search'
+      }
+      value={filter}
+      onChange={(event) => setFilter(event.target.value)}
+      placeholder="Filter tools"
+      aria-label="Filter tools"
+    />
+  );
 
   return (
     <div className="page-stack">
-      <PageHeader
-        actions={
-          <input
-            className="compact-search"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            placeholder="Filter tools"
-          />
-        }
-      />
+      {props.embedded ? (
+        <TabbedPageActions>{filterInput}</TabbedPageActions>
+      ) : (
+        <PageHeader actions={filterInput} />
+      )}
 
       <div className="metric-grid">
         <MetricCard

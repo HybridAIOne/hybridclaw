@@ -9381,6 +9381,7 @@ describe('gateway HTTP server', () => {
       skills: null,
       chatbotId: undefined,
       enableRag: undefined,
+      archived: undefined,
       proxy: undefined,
       role: undefined,
       reportsTo: undefined,
@@ -9419,6 +9420,40 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('passes persisted archive state through admin agent update requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/agents/writer',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: {
+        archived: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.updateGatewayAdminAgent).toHaveBeenCalledWith('writer', {
+      name: undefined,
+      model: undefined,
+      skills: undefined,
+      chatbotId: undefined,
+      enableRag: undefined,
+      archived: true,
+      proxy: undefined,
+      role: undefined,
+      reportsTo: undefined,
+      delegatesTo: undefined,
+      peers: undefined,
+      workspace: undefined,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
   test('passes HybridAI proxy config through admin agent update requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -9448,6 +9483,7 @@ describe('gateway HTTP server', () => {
       skills: undefined,
       chatbotId: undefined,
       enableRag: undefined,
+      archived: undefined,
       proxy: {
         kind: 'hybridai',
         baseUrl: 'https://hybridai.example.com',
