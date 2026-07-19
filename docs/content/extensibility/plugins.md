@@ -58,6 +58,10 @@ installable bundled or project-local plugins. Use `hybridclaw plugin list
 installed` or `hybridclaw plugin list available` to show only one section.
 When installing by bare plugin id, project-local plugins in `./plugins/` take
 priority over bundled plugins with the same id.
+An exact npm package name also resolves to a matching `package.json` in those
+local plugin catalogs before HybridClaw contacts the registry. This lets the
+same canonical install source work in a source checkout and in packaged
+releases after the package is published.
 The embedded admin console also exposes the same discovery snapshot at
 `/admin/extensions?tab=plugins` for browser-based inspection.
 
