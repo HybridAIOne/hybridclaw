@@ -224,23 +224,48 @@ function looksLikeLocalPath(input: string): boolean {
 }
 
 function resolveProjectPluginDir(input: string, cwd: string): string | null {
-  const pluginId = String(input || '').trim();
-  if (!pluginId || looksLikeLocalPath(pluginId)) {
+  const installSource = String(input || '').trim();
+  if (!installSource || looksLikeLocalPath(installSource)) {
     return null;
   }
   for (const root of listPluginCatalogRoots(cwd)) {
-    const candidate = path.join(root.dir, pluginId);
-    if (!fs.existsSync(candidate)) {
+    const directCandidate = path.join(root.dir, installSource);
+    if (
+      fs.existsSync(directCandidate) &&
+      fs.statSync(directCandidate).isDirectory() &&
+      fs.existsSync(path.join(directCandidate, MANIFEST_FILE_NAME)) &&
+      fs.statSync(path.join(directCandidate, MANIFEST_FILE_NAME)).isFile()
+    ) {
+      return directCandidate;
+    }
+    if (!fs.existsSync(root.dir) || !fs.statSync(root.dir).isDirectory()) {
       continue;
     }
-    if (!fs.statSync(candidate).isDirectory()) {
-      continue;
+    const entries = fs
+      .readdirSync(root.dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const candidate = path.join(root.dir, entry.name);
+      const manifestPath = path.join(candidate, MANIFEST_FILE_NAME);
+      const packageJsonPath = path.join(candidate, 'package.json');
+      if (
+        !fs.existsSync(manifestPath) ||
+        !fs.statSync(manifestPath).isFile() ||
+        !fs.existsSync(packageJsonPath) ||
+        !fs.statSync(packageJsonPath).isFile()
+      ) {
+        continue;
+      }
+      try {
+        const packageJson = JSON.parse(
+          fs.readFileSync(packageJsonPath, 'utf-8'),
+        ) as { name?: unknown };
+        if (packageJson.name === installSource) {
+          return candidate;
+        }
+      } catch {}
     }
-    const manifestPath = path.join(candidate, MANIFEST_FILE_NAME);
-    if (!fs.existsSync(manifestPath) || !fs.statSync(manifestPath).isFile()) {
-      continue;
-    }
-    return candidate;
   }
   return null;
 }

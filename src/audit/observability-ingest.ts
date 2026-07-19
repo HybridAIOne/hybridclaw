@@ -2,7 +2,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js';
 import { repairUnicodeForJson } from '../../container/shared/unicode-utils.js';
-import { SlidingWindowRateLimiter } from '../channels/discord/rate-limiter.js';
 import {
   APP_VERSION,
   HYBRIDAI_API_KEY,
@@ -28,6 +27,7 @@ import {
   setObservabilityOffset,
 } from '../memory/db.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
+import { SlidingWindowRateLimiter } from '../utils/rate-limiter.js';
 import {
   describeExpectedTransportError,
   isExpectedTransportError,

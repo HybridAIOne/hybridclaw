@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
+import type { ChannelTransportInstance } from '../src/channels/channel-transport.js';
+import { createWhatsAppTestHost } from './whatsapp-test-host.js';
 
 async function importFreshRuntimeModule(options?: {
   isSelfChat?: boolean;
@@ -65,7 +67,7 @@ async function importFreshRuntimeModule(options?: {
     waitForSocket: vi.fn(async () => socket),
   };
 
-  const processInboundWhatsAppMessage = vi.fn(async ({ message }) => ({
+  const processInboundWhatsAppMessage = vi.fn(async (_host, { message }) => ({
     sessionId: 'wa:491703330161@s.whatsapp.net',
     guildId: null,
     channelId: '491703330161@s.whatsapp.net',
@@ -81,7 +83,10 @@ async function importFreshRuntimeModule(options?: {
   }));
   const cleanupWhatsAppInboundMedia = vi.fn(async () => {});
   const createWhatsAppConnectionManager = vi.fn(
-    (params?: { onSocketCreated?: (socket: typeof socket) => void }) => {
+    (
+      _host: unknown,
+      params?: { onSocketCreated?: (socket: typeof socket) => void },
+    ) => {
       onSocketCreated = params?.onSocketCreated;
       return manager;
     },
@@ -111,7 +116,7 @@ async function importFreshRuntimeModule(options?: {
     },
   }));
 
-  vi.doMock('../src/channels/whatsapp/connection.ts', () => ({
+  vi.doMock('../plugins/whatsapp/src/connection.ts', () => ({
     createWhatsAppConnectionManager,
   }));
 
@@ -131,7 +136,7 @@ async function importFreshRuntimeModule(options?: {
   const cancelAll = vi.fn(() => {
     pendingBatch = null;
   });
-  vi.doMock('../src/channels/whatsapp/debounce.ts', () => ({
+  vi.doMock('../plugins/whatsapp/src/debounce.ts', () => ({
     createWhatsAppDebouncer: vi.fn(
       (onFlush: (item: unknown) => Promise<void>) => ({
         enqueue: vi.fn((item: unknown) => {
@@ -147,9 +152,9 @@ async function importFreshRuntimeModule(options?: {
 
   const sendWhatsAppReaction = vi.fn(async () => true);
   const clearWhatsAppReaction = vi.fn(async () => true);
-  vi.doMock('../src/channels/whatsapp/delivery.ts', async () => {
+  vi.doMock('../plugins/whatsapp/src/delivery.ts', async () => {
     const actual = await vi.importActual(
-      '../src/channels/whatsapp/delivery.ts',
+      '../plugins/whatsapp/src/delivery.ts',
     );
     return {
       ...actual,
@@ -159,12 +164,41 @@ async function importFreshRuntimeModule(options?: {
     };
   });
 
-  vi.doMock('../src/channels/whatsapp/inbound.ts', () => ({
+  vi.doMock('../plugins/whatsapp/src/inbound.ts', () => ({
     cleanupWhatsAppInboundMedia,
     processInboundWhatsAppMessage,
   }));
 
-  const runtime = await import('../src/channels/whatsapp/runtime.ts');
+  const transportModule = await import(
+    '../plugins/whatsapp/src/transport.ts'
+  );
+  const host = createWhatsAppTestHost({
+    logger: {
+      debug: vi.fn(),
+    } as never,
+    getConfig: () => ({
+      dmPolicy: 'disabled',
+      groupPolicy: 'disabled',
+      allowFrom: [],
+      groupAllowFrom: [],
+      textChunkLimit: 4_000,
+      debounceMs: 2_500,
+      sendReadReceipts: false,
+      ackReaction: currentAckReaction,
+      mediaMaxMb: 20,
+    }),
+  });
+  const toLegacyRuntime = (transport: ChannelTransportInstance) => ({
+    initWhatsApp: transport.init,
+    sendToWhatsAppChat: transport.sendText,
+    sendWhatsAppMediaToChat: transport.sendMedia,
+    shutdownWhatsApp: transport.shutdown,
+  });
+  const runtime = {
+    ...toLegacyRuntime(transportModule.createWhatsAppTransport(host)),
+    createWhatsAppRuntime: () =>
+      toLegacyRuntime(transportModule.createWhatsAppTransport(host)),
+  };
   return {
     manager,
     cleanupWhatsAppInboundMedia,
@@ -324,6 +358,7 @@ test('ignores reflected self-chat messages sent by HybridClaw itself', async () 
 
   expect(processInboundWhatsAppMessage).toHaveBeenCalledTimes(1);
   expect(processInboundWhatsAppMessage).toHaveBeenCalledWith(
+    expect.anything(),
     expect.objectContaining({
       selfJids: [
         '491703330161@s.whatsapp.net',
@@ -886,6 +921,7 @@ test('cleans up inbound WhatsApp media after the turn completes', async () => {
 
   expect(messageHandler).toHaveBeenCalledTimes(1);
   expect(cleanupWhatsAppInboundMedia).toHaveBeenCalledWith(
+    expect.anything(),
     expect.arrayContaining([
       expect.objectContaining({
         path: tempFile,

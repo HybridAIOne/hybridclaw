@@ -59,6 +59,12 @@
 
 ### Changed
 
+- **Install-on-demand WhatsApp transport**: WhatsApp ships as the separate
+  `@hybridaione/hybridclaw-whatsapp` plugin so Baileys and its GPL-3.0
+  `libsignal` dependency are excluded from core npm, Docker, desktop, and
+  Homebrew artifacts. Existing linked sessions remain in
+  `~/.hybridclaw/credentials/whatsapp`; install the transport with
+  `hybridclaw plugin install @hybridaione/hybridclaw-whatsapp`.
 - **AGPL removed from the dependency tree**: `camoufox-js` now resolves
   `ua-parser-js` 1.0.41 (MIT) through a scoped npm override instead of 2.0.10
   (AGPL-3.0-or-later), retiring the `ua-parser-js@2.0.10` AGPL exception from

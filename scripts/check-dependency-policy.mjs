@@ -43,6 +43,10 @@ const LOCKFILE_BASELINE_PATH = 'scripts/dependency-policy-baseline.json';
 const SHRINKWRAP_PAIRS = [
   ['package-lock.json', 'npm-shrinkwrap.json'],
   ['container/package-lock.json', 'container/npm-shrinkwrap.json'],
+  [
+    'plugins/whatsapp/package-lock.json',
+    'plugins/whatsapp/npm-shrinkwrap.json',
+  ],
 ];
 const ALLOW_LOCKFILE_CHANGES = 'HYBRIDCLAW_ALLOW_LOCKFILE_CHANGES';
 const ALLOW_LIFECYCLE_SCRIPTS = 'HYBRIDCLAW_ALLOW_DEPENDENCY_LIFECYCLE_SCRIPTS';

@@ -6,6 +6,7 @@ import type {
   MiddlewareDecision,
 } from '../agent/middleware.js';
 import type { ChannelInfo } from '../channels/channel.js';
+import type { ChannelTransportRegistration } from '../channels/channel-transport.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { GatewayChatResult } from '../gateway/gateway-types.js';
 import type { AuxiliaryModelCallParams } from '../providers/auxiliary.js';
@@ -503,6 +504,7 @@ export interface HybridClawPluginApi {
   registerMemoryLayer(layer: MemoryLayerPlugin): void;
   registerProvider(provider: AIProvider): void;
   registerChannel(channel: ChannelInfo): void;
+  registerChannelTransport(transport: ChannelTransportRegistration): void;
   registerTool(tool: PluginToolDefinition): void;
   registerPromptHook(hook: PluginPromptHook): void;
   registerMiddleware(middleware: PluginMiddlewareSkill): void;

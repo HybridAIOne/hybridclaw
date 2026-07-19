@@ -6,15 +6,35 @@ sidebar_position: 7
 
 # WhatsApp
 
-WhatsApp is the only built-in transport that depends on an interactive QR
-pairing flow. Start with self-chat or one allowlisted phone number, then widen
-access only after the pairing and first reply succeed.
+WhatsApp is an install-on-demand channel plugin with an interactive QR pairing
+flow. Start with self-chat or one allowlisted phone number, then widen access
+only after the pairing and first reply succeed.
 
 For shared browser and local config surfaces, also see
 [Admin Console](./admin-console.md), [Local Config And Secrets](./local-config-and-secrets.md),
 and [Policies And Allowlists](./policies-and-allowlists.md).
 
-## Step 1: Make Sure No Other HybridClaw Process Owns The Auth State
+## Step 1: Install The WhatsApp Plugin
+
+```bash
+hybridclaw plugin install @hybridaione/hybridclaw-whatsapp
+```
+
+For in-repo development after `npm run build`, use `hybridclaw plugin enable
+whatsapp` or install the local package with `hybridclaw plugin install
+./plugins/whatsapp`.
+
+WhatsApp uses Baileys, whose dependency closure includes GPL-3.0-licensed
+`libsignal`. Keeping the transport in a separate plugin means core HybridClaw
+npm packages, Docker images, desktop bundles, and Homebrew artifacts do not
+convey that dependency closure. Install the plugin only on hosts where you want
+to use WhatsApp and have reviewed its licenses.
+
+Existing linked sessions are preserved. The plugin uses the same
+`~/.hybridclaw/credentials/whatsapp` auth directory as earlier HybridClaw
+versions.
+
+## Step 2: Make Sure No Other HybridClaw Process Owns The Auth State
 
 Only one running process should use
 `~/.hybridclaw/credentials/whatsapp` at a time. If you see stale linked-device
@@ -24,7 +44,7 @@ state or duplicate devices, reset first:
 hybridclaw auth whatsapp reset
 ```
 
-## Step 2: Run Setup And Pair The Device
+## Step 3: Run Setup And Pair The Device
 
 For self-chat only:
 
@@ -76,12 +96,12 @@ For allowlisted DMs after pairing:
 The same settings can also be edited from `/admin/channels`, and that page can
 show the QR flow when the transport is enabled but not paired yet.
 
-## Step 3: Scan The QR Code
+## Step 4: Scan The QR Code
 
 In WhatsApp, open `Settings` -> `Linked Devices` -> `Link a Device`, then scan
 the QR code shown by the setup command.
 
-## Step 4: Start Or Restart The Gateway
+## Step 5: Start Or Restart The Gateway
 
 ```bash
 hybridclaw gateway restart --foreground
@@ -91,7 +111,7 @@ hybridclaw gateway status
 If the gateway is already running and you have the admin UI open, you can also
 go to `/admin/gateway` and click `Reload Gateway`.
 
-## Step 5: Verify The Setup
+## Step 6: Verify The Setup
 
 1. Send yourself a WhatsApp message if you used self-chat mode.
 2. If you used `--allow-from`, send a message from one of the allowlisted

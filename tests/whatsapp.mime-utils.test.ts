@@ -2,26 +2,29 @@ import { expect, test } from 'vitest';
 import {
   guessWhatsAppExtensionFromMimeType,
   resolveWhatsAppMimeTypeFromPath,
-} from '../src/channels/whatsapp/mime-utils.js';
+} from '../plugins/whatsapp/src/mime-utils.js';
+import { createWhatsAppTestHost } from './whatsapp-test-host.js';
+
+const host = createWhatsAppTestHost();
 
 test('maps WhatsApp MIME types to canonical extensions', () => {
-  expect(guessWhatsAppExtensionFromMimeType('image/jpeg')).toBe('.jpg');
-  expect(guessWhatsAppExtensionFromMimeType('audio/ogg; codecs=opus')).toBe(
+  expect(guessWhatsAppExtensionFromMimeType(host, 'image/jpeg')).toBe('.jpg');
+  expect(guessWhatsAppExtensionFromMimeType(host, 'audio/ogg; codecs=opus')).toBe(
     '.ogg',
   );
-  expect(guessWhatsAppExtensionFromMimeType('video/quicktime')).toBe('.mov');
-  expect(guessWhatsAppExtensionFromMimeType('application/unknown')).toBe('');
+  expect(guessWhatsAppExtensionFromMimeType(host, 'video/quicktime')).toBe('.mov');
+  expect(guessWhatsAppExtensionFromMimeType(host, 'application/unknown')).toBe('');
 });
 
 test('resolves WhatsApp MIME types from file paths', () => {
-  expect(resolveWhatsAppMimeTypeFromPath('/tmp/picture.jpeg')).toBe(
+  expect(resolveWhatsAppMimeTypeFromPath(host, '/tmp/picture.jpeg')).toBe(
     'image/jpeg',
   );
-  expect(resolveWhatsAppMimeTypeFromPath('/tmp/voice.ogg')).toBe('audio/ogg');
-  expect(resolveWhatsAppMimeTypeFromPath('/tmp/movie.mov')).toBe(
+  expect(resolveWhatsAppMimeTypeFromPath(host, '/tmp/voice.ogg')).toBe('audio/ogg');
+  expect(resolveWhatsAppMimeTypeFromPath(host, '/tmp/movie.mov')).toBe(
     'video/quicktime',
   );
-  expect(resolveWhatsAppMimeTypeFromPath('/tmp/archive.bin')).toBe(
+  expect(resolveWhatsAppMimeTypeFromPath(host, '/tmp/archive.bin')).toBe(
     'application/octet-stream',
   );
 });

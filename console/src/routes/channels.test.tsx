@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminAgent,
+  AdminCommandResult,
   AdminConfig,
   AdminConfigResponse,
 } from '../api/types';
@@ -12,6 +13,8 @@ const fetchAdminAgentsMock = vi.fn<() => Promise<AdminAgent[]>>();
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchEmailConfigMock = vi.fn();
 const fetchSignalLinkMock = vi.fn();
+const installPluginMock =
+  vi.fn<(token: string, source: string) => Promise<AdminCommandResult>>();
 const saveConfigMock = vi.fn();
 const saveDiscordWebhookTargetMock = vi.fn();
 const saveSlackWebhookTargetMock = vi.fn();
@@ -25,6 +28,8 @@ vi.mock('../api/client', () => ({
   fetchConfig: () => fetchConfigMock(),
   fetchEmailConfig: (...args: unknown[]) => fetchEmailConfigMock(...args),
   fetchSignalLink: (...args: unknown[]) => fetchSignalLinkMock(...args),
+  installPlugin: (token: string, source: string) =>
+    installPluginMock(token, source),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
   saveDiscordWebhookTarget: (...args: unknown[]) =>
     saveDiscordWebhookTargetMock(...args),
@@ -337,6 +342,7 @@ describe('ChannelsPage', () => {
     fetchConfigMock.mockReset();
     fetchEmailConfigMock.mockReset();
     fetchSignalLinkMock.mockReset();
+    installPluginMock.mockReset();
     saveConfigMock.mockReset();
     saveDiscordWebhookTargetMock.mockReset();
     saveSlackWebhookTargetMock.mockReset();
@@ -345,7 +351,20 @@ describe('ChannelsPage', () => {
     validateTokenMock.mockReset();
     useAuthMock.mockReset();
     fetchAdminAgentsMock.mockResolvedValue([]);
+    installPluginMock.mockResolvedValue({
+      kind: 'info',
+      title: 'Plugin Installed',
+      text: 'Installed plugin `whatsapp`.',
+    });
     const gatewayStatus = {
+      channelPlugins: [
+        {
+          channel: 'whatsapp',
+          pluginId: 'whatsapp',
+          installSource: '@hybridaione/hybridclaw-whatsapp',
+          transportAvailable: true,
+        },
+      ],
       hybridai: {
         apiKeyConfigured: false,
         apiKeySource: null,
@@ -853,6 +872,110 @@ describe('ChannelsPage', () => {
     });
     expect(whatsappButton.textContent || '').toContain('available');
     expect(whatsappButton.textContent || '').not.toContain('pairing');
+  });
+
+  it('offers to install the WhatsApp plugin instead of showing the channel as active', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultAgentId: 'main',
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      channelPlugins: [
+        {
+          channel: 'whatsapp',
+          pluginId: 'whatsapp',
+          installSource: '@hybridaione/hybridclaw-whatsapp',
+          transportAvailable: false,
+        },
+      ],
+      whatsapp: {
+        linked: false,
+        jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
+        pairingError: null,
+      },
+    });
+
+    renderChannelsPage();
+
+    const whatsappChannelButton = await screen.findByRole('button', {
+      name: /WhatsApp.*plugin not installed/i,
+    });
+    expect(whatsappChannelButton.textContent || '').not.toContain('active');
+
+    fireEvent.click(whatsappChannelButton);
+    screen.getByText('WhatsApp plugin not installed');
+    expect(
+      screen.queryByText('Waiting for a fresh QR from the gateway.'),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Install WhatsApp plugin' }),
+    );
+
+    await waitFor(() => {
+      expect(installPluginMock).toHaveBeenCalledWith(
+        'test-token',
+        '@hybridaione/hybridclaw-whatsapp',
+      );
+    });
+  });
+
+  it('applies the plugin install flow to any catalog channel', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultAgentId: 'main',
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      channelPlugins: [
+        {
+          channel: 'line',
+          pluginId: 'line',
+          installSource: '@hybridaione/hybridclaw-line',
+          transportAvailable: false,
+        },
+      ],
+    });
+
+    renderChannelsPage();
+
+    const lineChannelButton = await screen.findByRole('button', {
+      name: /LINE.*plugin not installed/i,
+    });
+    fireEvent.click(lineChannelButton);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Install LINE plugin' }),
+    );
+
+    await waitFor(() => {
+      expect(installPluginMock).toHaveBeenCalledWith(
+        'test-token',
+        '@hybridaione/hybridclaw-line',
+      );
+    });
   });
 
   it('shows Discord as available when the token is not configured', async () => {

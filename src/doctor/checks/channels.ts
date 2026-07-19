@@ -1,4 +1,5 @@
 import { getWhatsAppAuthStatus } from '../../channels/whatsapp/auth.js';
+import { isWhatsAppTransportInstalled } from '../../channels/whatsapp/runtime.js';
 import {
   DISCORD_TOKEN,
   EMAIL_PASSWORD,
@@ -138,7 +139,16 @@ export async function checkChannels(): Promise<DiagResult[]> {
   const whatsappExpected =
     config.whatsapp.dmPolicy !== 'disabled' ||
     config.whatsapp.groupPolicy !== 'disabled';
-  if (whatsapp.linked) {
+  if (whatsappExpected) {
+    const { ensurePluginManagerInitialized } = await import(
+      '../../plugins/plugin-manager.js'
+    );
+    await ensurePluginManagerInitialized().catch(() => undefined);
+  }
+  if (whatsappExpected && !isWhatsAppTransportInstalled()) {
+    segments.push('WhatsApp plugin not installed');
+    severities.push('error');
+  } else if (whatsapp.linked) {
     segments.push('WhatsApp linked');
   } else if (whatsappExpected) {
     segments.push('WhatsApp not linked');

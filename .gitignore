@@ -11,6 +11,7 @@ desktop/release/
 desktop/build/runtime-bin/
 desktop/build/runtime-deps/
 container/dist/
+plugins/whatsapp/dist/
 coverage/
 
 # Runtime data

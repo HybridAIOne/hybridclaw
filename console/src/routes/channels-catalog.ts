@@ -1,4 +1,4 @@
-import type { AdminConfig } from '../api/types';
+import type { AdminConfig, GatewayChannelPluginStatus } from '../api/types';
 import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { pluralize } from '../lib/format';
 
@@ -41,6 +41,7 @@ interface ChannelCatalogOptions {
   lineLinked?: boolean;
   emailPasswordConfigured?: boolean;
   imessagePasswordConfigured?: boolean;
+  channelPlugins?: GatewayChannelPluginStatus[];
 }
 
 function countKeys(value: Record<string, unknown>): number {
@@ -553,6 +554,22 @@ function scoreStatus(item: ChannelCatalogItem): number {
   }
 }
 
+function applyChannelPluginStatus(
+  item: ChannelCatalogItem,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
+  const plugin = options.channelPlugins?.find(
+    (entry) => entry.channel === item.kind,
+  );
+  if (!plugin || plugin.transportAvailable) return item;
+  return {
+    ...item,
+    summary: 'Plugin not installed',
+    statusTone: 'available',
+    statusLabel: 'plugin not installed',
+  };
+}
+
 export function buildChannelCatalog(
   config: AdminConfig,
   options: ChannelCatalogOptions = {},
@@ -571,10 +588,12 @@ export function buildChannelCatalog(
     describeEmail(config, options),
     describeMSTeams(config),
     describeIMessage(config, options),
-  ].sort((left, right) => {
-    const scoreDelta = scoreStatus(right) - scoreStatus(left);
-    return scoreDelta !== 0
-      ? scoreDelta
-      : left.label.localeCompare(right.label);
-  });
+  ]
+    .map((item) => applyChannelPluginStatus(item, options))
+    .sort((left, right) => {
+      const scoreDelta = scoreStatus(right) - scoreStatus(left);
+      return scoreDelta !== 0
+        ? scoreDelta
+        : left.label.localeCompare(right.label);
+    });
 }

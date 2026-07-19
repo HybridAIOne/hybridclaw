@@ -1,5 +1,5 @@
+import type { WhatsAppTransportHost } from '@hybridaione/hybridclaw/plugin-sdk';
 import type { WASocket } from '@whiskeysockets/baileys';
-import { logger } from '../../logger.js';
 
 export interface WhatsAppTypingController {
   start: () => void;
@@ -15,6 +15,7 @@ const DEFAULT_KEEPALIVE_MS = 10_000;
 const DEFAULT_TTL_MS = 60_000;
 
 export function createWhatsAppTypingController(
+  host: WhatsAppTransportHost,
   getSocket: () => Pick<WASocket, 'sendPresenceUpdate'> | null,
   jid: string,
   options?: CreateWhatsAppTypingControllerOptions,
@@ -55,7 +56,7 @@ export function createWhatsAppTypingController(
     try {
       await socket.sendPresenceUpdate(state, chatJid);
     } catch (error) {
-      logger.debug(
+      host.logger.debug(
         { error, channel: 'whatsapp', jid: chatJid, state },
         'Failed to send WhatsApp typing indicator',
       );

@@ -7,6 +7,7 @@ import {
   dispatchAuthRequired,
   fetchAdminHybridAIBots,
   fetchAgentList,
+  installPlugin,
   isLoopbackHostnameForTest,
   readStoredToken,
   registerDistillAgent,
@@ -302,6 +303,27 @@ describe('client command helpers', () => {
       guildId: null,
       channelId: 'web',
       args: ['secret', 'set', 'OPENAI_API_KEY', 'test-secret'],
+    });
+  });
+
+  it('installs a channel plugin through a local web admin command', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ kind: 'info', text: 'installed' }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+
+    await installPlugin('test-token', '@hybridaione/hybridclaw-whatsapp');
+
+    const request = vi.mocked(fetch).mock.calls[0]?.[1];
+    expect(JSON.parse(String(request?.body))).toEqual({
+      sessionId: 'web-admin-channels',
+      guildId: null,
+      channelId: 'web',
+      args: ['plugin', 'install', '@hybridaione/hybridclaw-whatsapp', '--yes'],
     });
   });
 

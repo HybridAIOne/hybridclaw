@@ -43,6 +43,7 @@ import { useFormMutation } from '../hooks/use-form-mutation';
 import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { getErrorMessage } from '../lib/error-message';
 import { joinStringList, parseStringList } from '../lib/format';
+import { ChannelPluginNotice } from './channel-plugin-notice';
 import { buildChannelCatalog, type ChannelKind } from './channels-catalog';
 
 type SecretSource = 'config' | 'env' | 'runtime-secrets' | null;
@@ -769,6 +770,7 @@ function DiscordChannelEditor(props: {
 function WhatsAppChannelEditor(props: {
   draft: AdminConfig;
   form: UseFormControllerReturn<AdminConfig>;
+  transportAvailable: boolean | undefined;
   linked: boolean;
   pairingQrText: string | null;
   pairingError: string | null;
@@ -840,7 +842,9 @@ function WhatsAppChannelEditor(props: {
         />
       </div>
 
-      {isWhatsAppEnabled(props.draft) && !props.linked ? (
+      {props.transportAvailable !== false &&
+      isWhatsAppEnabled(props.draft) &&
+      !props.linked ? (
         <div className="field whatsapp-pairing-field">
           <span>Pairing QR</span>
           {props.pairingQrText ? (
@@ -3519,6 +3523,7 @@ function renderSelectedEditor(
   },
   hybridaiApiKeyConfigured: boolean,
   whatsappStatus: {
+    transportAvailable: boolean | undefined;
     linked: boolean;
     pairingQrText: string | null;
     pairingError: string | null;
@@ -3556,6 +3561,7 @@ function renderSelectedEditor(
         <WhatsAppChannelEditor
           draft={draft}
           form={form}
+          transportAvailable={whatsappStatus.transportAvailable}
           linked={whatsappStatus.linked}
           pairingQrText={whatsappStatus.pairingQrText}
           pairingError={whatsappStatus.pairingError}
@@ -3737,6 +3743,7 @@ export function ChannelsPage() {
         emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,
         imessagePasswordConfigured:
           statusQuery.data?.imessage?.passwordConfigured,
+        channelPlugins: statusQuery.data?.channelPlugins,
       })
     : [];
 
@@ -3785,6 +3792,11 @@ export function ChannelsPage() {
 
   const selectedChannel =
     catalog.find((entry) => entry.kind === selectedKind) ?? catalog[0] ?? null;
+  const selectedChannelPlugin = selectedChannel
+    ? statusQuery.data?.channelPlugins?.find(
+        (plugin) => plugin.channel === selectedChannel.kind,
+      )
+    : undefined;
   const secretStatus = {
     discord: {
       configured: statusQuery.data?.discord?.tokenConfigured ?? false,
@@ -3817,7 +3829,11 @@ export function ChannelsPage() {
       source: statusQuery.data?.imessage?.passwordSource ?? null,
     },
   };
+  const whatsappPlugin = statusQuery.data?.channelPlugins?.find(
+    (plugin) => plugin.channel === 'whatsapp',
+  );
   const whatsappStatus = {
+    transportAvailable: whatsappPlugin?.transportAvailable,
     linked: statusQuery.data?.whatsapp?.linked ?? false,
     pairingQrText: statusQuery.data?.whatsapp?.pairingQrText ?? null,
     pairingError: statusQuery.data?.whatsapp?.pairingError ?? null,
@@ -3891,6 +3907,14 @@ export function ChannelsPage() {
             </CardHeader>
             <CardContent>
               <div className="stack-form">
+                {selectedChannel &&
+                selectedChannelPlugin?.transportAvailable === false ? (
+                  <ChannelPluginNotice
+                    channelLabel={selectedChannel.label}
+                    plugin={selectedChannelPlugin}
+                    token={auth.token}
+                  />
+                ) : null}
                 {selectedChannel
                   ? renderSelectedEditor(
                       selectedChannel.kind,

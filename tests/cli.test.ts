@@ -655,13 +655,12 @@ async function importFreshCli(options?: {
   const whatsappStart = vi.fn(async () => {});
   const whatsappStop = vi.fn(async () => {});
   const whatsappWaitForSocket = vi.fn(async () => ({
-    user: { id: '12345@s.whatsapp.net' },
+    id: '12345@s.whatsapp.net',
   }));
-  const createWhatsAppConnectionManager = vi.fn(() => ({
-    getSocket: vi.fn(() => null),
+  const createWhatsAppPairingSession = vi.fn(async () => ({
     start: whatsappStart,
     stop: whatsappStop,
-    waitForSocket: whatsappWaitForSocket,
+    waitForConnection: whatsappWaitForSocket,
   }));
   const installPlugin = vi.fn(async (source: string) => {
     if (options?.pluginInstallError) {
@@ -1353,14 +1352,12 @@ async function importFreshCli(options?: {
     WHATSAPP_AUTH_DIR: '/tmp/whatsapp-auth',
     WhatsAppAuthLockError: class WhatsAppAuthLockError extends Error {},
   }));
-  vi.doMock('../src/channels/whatsapp/connection.ts', () => {
-    if (options?.whatsAppConnectionModuleError) {
-      throw options.whatsAppConnectionModuleError;
-    }
-    return {
-      createWhatsAppConnectionManager,
-    };
-  });
+  vi.doMock('../src/channels/whatsapp/runtime.ts', () => ({
+    createWhatsAppPairingSession,
+    isWhatsAppTransportInstalled: vi.fn(() => true),
+    WHATSAPP_PLUGIN_INSTALL_HINT:
+      'Install it with: hybridclaw plugin install @hybridaione/hybridclaw-whatsapp',
+  }));
   vi.doMock('node:readline/promises', () => ({
     default: {
       createInterface: readlineCreateInterface,
@@ -1492,7 +1489,7 @@ async function importFreshCli(options?: {
     ensureHostRuntimeReady,
     getWhatsAppAuthStatus,
     resetWhatsAppAuthState,
-    createWhatsAppConnectionManager,
+    createWhatsAppPairingSession,
     checkPlugin,
     installPlugin,
     PluginDependencyApprovalRequiredError,
@@ -3523,7 +3520,7 @@ describe('CLI hybridai commands', () => {
   it('runs whatsapp channel setup and waits for pairing', async () => {
     const {
       cli,
-      createWhatsAppConnectionManager,
+      createWhatsAppPairingSession,
       whatsappStart,
       whatsappStop,
       whatsappWaitForSocket,
@@ -3532,7 +3529,7 @@ describe('CLI hybridai commands', () => {
 
     await cli.main(['channels', 'whatsapp', 'setup']);
 
-    expect(createWhatsAppConnectionManager).toHaveBeenCalled();
+    expect(createWhatsAppPairingSession).toHaveBeenCalled();
     expect(whatsappStart).toHaveBeenCalled();
     expect(whatsappWaitForSocket).toHaveBeenCalled();
     expect(whatsappStop).toHaveBeenCalled();

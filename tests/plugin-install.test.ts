@@ -417,6 +417,50 @@ describe('plugin install', () => {
     );
   });
 
+  test('resolves a project plugin by its canonical npm package name before fetching from npm', async () => {
+    const homeDir = makeTempDir('hybridclaw-plugin-home-');
+    const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const sourceDir = path.join(cwd, 'plugins', 'project-plugin');
+    const runtimeConfig = createRuntimeConfigState();
+    writePluginDir(sourceDir, {
+      pluginId: 'project-plugin',
+      pluginName: 'Project Plugin',
+      packageName: '@scope/project-plugin',
+    });
+
+    const runCommand = vi.fn();
+    const { installPlugin } = await import('../src/plugins/plugin-install.js');
+    const result = await installPlugin('@scope/project-plugin', {
+      homeDir,
+      cwd,
+      runCommand,
+      approveDependencyInstall: true,
+      getRuntimeConfig: runtimeConfig.getRuntimeConfig,
+      updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
+    });
+
+    expect(result.pluginId).toBe('project-plugin');
+    expect(result.pluginDir).toBe(
+      path.join(homeDir, 'plugins', 'project-plugin'),
+    );
+    expect(result.source).toBe('@scope/project-plugin');
+    expect(runCommand).toHaveBeenCalledTimes(1);
+    expect(runCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'npm',
+        args: [
+          'install',
+          '--ignore-scripts',
+          '--omit=dev',
+          '--no-package-lock',
+          '--no-audit',
+          '--no-fund',
+          '@scope/project-plugin',
+        ],
+      }),
+    );
+  });
+
   test('lists installable project plugins from cwd/plugins', async () => {
     const cwd = makeTempDir('hybridclaw-plugin-cwd-');
     const sourceDir = path.join(cwd, 'plugins', 'project-plugin');

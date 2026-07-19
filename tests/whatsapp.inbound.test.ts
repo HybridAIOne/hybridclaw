@@ -6,7 +6,13 @@ import {
   cleanupWhatsAppInboundMedia,
   evaluateWhatsAppAccessPolicy,
   processInboundWhatsAppMessage,
-} from '../src/channels/whatsapp/inbound.js';
+} from '../plugins/whatsapp/src/inbound.js';
+import { createWhatsAppTestHost } from './whatsapp-test-host.js';
+
+const PLUGIN_BAILEYS_MODULE =
+  '../plugins/whatsapp/node_modules/@whiskeysockets/baileys/lib/index.js';
+
+const host = createWhatsAppTestHost();
 
 const BASE_WHATSAPP_CONFIG = {
   dmPolicy: 'pairing' as const,
@@ -37,7 +43,7 @@ const sharedMediaDataDirs: string[] = [];
 afterEach(() => {
   vi.restoreAllMocks();
   vi.doUnmock('../src/channels/whatsapp/phone.ts');
-  vi.doUnmock('@whiskeysockets/baileys');
+  vi.doUnmock(PLUGIN_BAILEYS_MODULE);
   vi.doUnmock('../src/config/config.js');
   vi.resetModules();
   while (sharedMediaDataDirs.length > 0) {
@@ -49,7 +55,7 @@ afterEach(() => {
 
 describe('whatsapp inbound policy filtering', () => {
   test('allows self-chat even when pairing mode is restrictive', () => {
-    const result = evaluateWhatsAppAccessPolicy({
+    const result = evaluateWhatsAppAccessPolicy(host, {
       dmPolicy: 'pairing',
       groupPolicy: 'disabled',
       allowFrom: [],
@@ -66,7 +72,7 @@ describe('whatsapp inbound policy filtering', () => {
   });
 
   test('blocks unauthorized direct messages in allowlist mode', () => {
-    const result = evaluateWhatsAppAccessPolicy({
+    const result = evaluateWhatsAppAccessPolicy(host, {
       dmPolicy: 'allowlist',
       groupPolicy: 'disabled',
       allowFrom: ['+4915123456789'],
@@ -82,7 +88,7 @@ describe('whatsapp inbound policy filtering', () => {
   });
 
   test('keeps groups private by default and allows explicit group allowlists', () => {
-    const blocked = evaluateWhatsAppAccessPolicy({
+    const blocked = evaluateWhatsAppAccessPolicy(host, {
       dmPolicy: 'open',
       groupPolicy: 'disabled',
       allowFrom: ['+4915123456789'],
@@ -92,7 +98,7 @@ describe('whatsapp inbound policy filtering', () => {
       selfJids: ['4915000000000@s.whatsapp.net'],
       fromMe: false,
     });
-    const allowed = evaluateWhatsAppAccessPolicy({
+    const allowed = evaluateWhatsAppAccessPolicy(host, {
       dmPolicy: 'open',
       groupPolicy: 'allowlist',
       allowFrom: ['+4915000000000'],
@@ -117,21 +123,14 @@ describe('whatsapp inbound policy filtering', () => {
       return phone ? `+${phone.split(':')[0]}` : null;
     });
 
-    vi.doMock('../src/channels/whatsapp/phone.ts', async () => {
-      const actual = await vi.importActual<
-        typeof import('../src/channels/whatsapp/phone.ts')
-      >('../src/channels/whatsapp/phone.ts');
-      return {
-        ...actual,
+    const policyHost = createWhatsAppTestHost({
+      phone: {
+        ...host.phone,
         isGroupJid: (jid: string) => jid.endsWith('@g.us'),
         jidToPhone,
         normalizePhoneNumber,
-      };
+      },
     });
-
-    const { evaluateWhatsAppAccessPolicy: evaluatePolicy } = await import(
-      '../src/channels/whatsapp/inbound.ts'
-    );
 
     const allowFrom = ['+4915123456789'];
     const params = {
@@ -145,13 +144,13 @@ describe('whatsapp inbound policy filtering', () => {
       fromMe: false,
     };
 
-    expect(evaluatePolicy(params).allowed).toBe(true);
-    expect(evaluatePolicy(params).allowed).toBe(true);
+    expect(evaluateWhatsAppAccessPolicy(policyHost, params).allowed).toBe(true);
+    expect(evaluateWhatsAppAccessPolicy(policyHost, params).allowed).toBe(true);
     expect(normalizePhoneNumber).toHaveBeenCalledTimes(1);
   });
 
   test('treats linked-device lid messages as self-chat when the runtime exposes self lid identity', () => {
-    const result = evaluateWhatsAppAccessPolicy({
+    const result = evaluateWhatsAppAccessPolicy(host, {
       dmPolicy: 'pairing',
       groupPolicy: 'disabled',
       allowFrom: [],
@@ -167,7 +166,7 @@ describe('whatsapp inbound policy filtering', () => {
   });
 
   test('ignores inbound events without text or media payload', async () => {
-    const result = await processInboundWhatsAppMessage({
+    const result = await processInboundWhatsAppMessage(host, {
       message: {
         key: {
           id: 'msg-empty-1',
@@ -193,10 +192,10 @@ describe('whatsapp inbound policy filtering', () => {
     );
     sharedMediaDataDirs.push(dataDir);
     vi.resetModules();
-    vi.doMock('@whiskeysockets/baileys', async () => {
+    vi.doMock(PLUGIN_BAILEYS_MODULE, async () => {
       const actual = await vi.importActual<
         typeof import('@whiskeysockets/baileys')
-      >('@whiskeysockets/baileys');
+      >(PLUGIN_BAILEYS_MODULE);
       return {
         ...actual,
         downloadMediaMessage: vi.fn(async () => Buffer.from('image-bytes')),
@@ -205,6 +204,7 @@ describe('whatsapp inbound policy filtering', () => {
       };
     });
     vi.doMock('../src/config/config.js', () => ({
+      APP_VERSION: 'test',
       get CONTAINER_SANDBOX_MODE() {
         return 'host';
       },
@@ -214,10 +214,14 @@ describe('whatsapp inbound policy filtering', () => {
     }));
 
     const { processInboundWhatsAppMessage: processInbound } = await import(
-      '../src/channels/whatsapp/inbound.ts'
+      '../plugins/whatsapp/src/inbound.ts'
     );
+    const { createWhatsAppTransportHost } = await import(
+      '../src/channels/whatsapp/transport-host.ts'
+    );
+    const mediaHost = createWhatsAppTransportHost();
 
-    const result = await processInbound({
+    const result = await processInbound(mediaHost, {
       message: {
         key: {
           id: 'msg-image-only-1',
@@ -249,13 +253,13 @@ describe('whatsapp inbound policy filtering', () => {
     expect(fs.existsSync(result?.media[0]?.path || '')).toBe(true);
 
     if (result) {
-      await cleanupWhatsAppInboundMedia(result.media);
+      await cleanupWhatsAppInboundMedia(mediaHost, result.media);
       expect(fs.existsSync(result.media[0]?.path || '')).toBe(true);
     }
   });
 
   test('canonicalizes self-chat sessions to the primary phone jid when inbound arrives on lid', async () => {
-    const result = await processInboundWhatsAppMessage({
+    const result = await processInboundWhatsAppMessage(host, {
       message: {
         key: {
           id: 'msg-self-lid-1',
@@ -284,7 +288,7 @@ describe('whatsapp inbound policy filtering', () => {
   });
 
   test('uses the alternate sender identity for lid direct chats', async () => {
-    const result = await processInboundWhatsAppMessage({
+    const result = await processInboundWhatsAppMessage(host, {
       message: {
         key: {
           id: 'msg-lid-dm-1',
@@ -317,7 +321,7 @@ describe('whatsapp inbound policy filtering', () => {
   });
 
   test('uses the alternate participant identity for lid group senders', async () => {
-    const result = await processInboundWhatsAppMessage({
+    const result = await processInboundWhatsAppMessage(host, {
       message: {
         key: {
           id: 'msg-lid-group-1',
@@ -358,7 +362,7 @@ describe('whatsapp inbound policy filtering', () => {
     const unmanagedFile = path.join(unmanagedDir, 'note.txt');
     fs.writeFileSync(unmanagedFile, 'keep');
 
-    await cleanupWhatsAppInboundMedia([
+    await cleanupWhatsAppInboundMedia(host, [
       {
         path: managedFile,
         url: `file://${managedFile}`,

@@ -1,11 +1,11 @@
 import type { Client } from 'discord.js';
 
 import { logger } from '../../logger.js';
+import { SlidingWindowRateLimiter } from '../../utils/rate-limiter.js';
 import {
   describeExpectedTransportError,
   isExpectedTransportError,
 } from '../../utils/transport-errors.js';
-import { SlidingWindowRateLimiter } from './rate-limiter.js';
 
 const EXPECTED_TRANSPORT_WARN_WINDOW_MS = 60_000;
 const EXPECTED_TRANSPORT_WARN_LIMIT = 2;

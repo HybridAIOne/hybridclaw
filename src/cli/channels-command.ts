@@ -27,6 +27,11 @@ import {
   normalizeThreemaId,
 } from '../channels/threema/target.js';
 import {
+  createWhatsAppPairingSession,
+  isWhatsAppTransportInstalled,
+  WHATSAPP_PLUGIN_INSTALL_HINT,
+} from '../channels/whatsapp/runtime.js';
+import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   type IMessageBackend,
@@ -54,10 +59,8 @@ import {
 } from './line-api.js';
 import {
   ensureWhatsAppAuthApi,
-  ensureWhatsAppConnectionApi,
   ensureWhatsAppPhoneApi,
   getWhatsAppAuthApi,
-  getWhatsAppConnectionApi,
   getWhatsAppPhoneApi,
 } from './whatsapp-api.js';
 
@@ -1829,17 +1832,28 @@ async function configureEmailChannel(args: string[]): Promise<void> {
   }
 }
 
-async function pairWhatsAppChannel(): Promise<void> {
+async function pairWhatsAppChannel(): Promise<boolean> {
+  const { ensurePluginManagerInitialized } = await import(
+    '../plugins/plugin-manager.js'
+  );
+  await ensurePluginManagerInitialized();
+  if (!isWhatsAppTransportInstalled()) {
+    console.error(
+      `WhatsApp transport plugin is not installed. ${WHATSAPP_PLUGIN_INSTALL_HINT}`,
+    );
+    process.exitCode = 1;
+    return false;
+  }
   const settleMs = resolveWhatsAppSetupSettleMs();
-  const manager = getWhatsAppConnectionApi().createWhatsAppConnectionManager();
+  const session = await createWhatsAppPairingSession();
   try {
     console.log('Opening WhatsApp pairing session...');
     console.log(
       'Scan the QR code in WhatsApp: Settings > Linked Devices > Link a Device',
     );
-    await manager.start();
-    const socket = await manager.waitForSocket();
-    console.log(`WhatsApp linked: ${socket.user?.id || 'connected'}`);
+    await session.start();
+    const connection = await session.waitForConnection();
+    console.log(`WhatsApp linked: ${connection.id || 'connected'}`);
     if (settleMs > 0) {
       console.log(
         `Keeping the temporary setup session open for ${Math.floor(settleMs / 1000)}s so WhatsApp can finish linking...`,
@@ -1847,16 +1861,13 @@ async function pairWhatsAppChannel(): Promise<void> {
       await sleep(settleMs);
     }
   } finally {
-    await manager.stop().catch(() => {});
+    await session.stop().catch(() => {});
   }
+  return true;
 }
 
 async function configureWhatsAppChannel(args: string[]): Promise<void> {
-  await Promise.all([
-    ensureWhatsAppAuthApi(),
-    ensureWhatsAppConnectionApi(),
-    ensureWhatsAppPhoneApi(),
-  ]);
+  await Promise.all([ensureWhatsAppAuthApi(), ensureWhatsAppPhoneApi()]);
   ensureRuntimeConfigFile();
   const parsed = parseWhatsAppSetupArgs(args);
   const nextConfig = updateRuntimeConfig((draft) => {

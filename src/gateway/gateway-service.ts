@@ -94,6 +94,7 @@ import {
   listEdges,
 } from '../board/card-store.js';
 import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
+import { getChannelPluginStatuses } from '../channels/channel-plugin-catalog.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
 import { getDiscordWebhookStatus } from '../channels/discord-webhook/runtime.js';
@@ -4935,6 +4936,7 @@ export async function getGatewayStatus(
     scheduler: {
       jobs: getSchedulerStatus(),
     },
+    channelPlugins: getChannelPluginStatuses(),
     discord,
     discordWebhook,
     signal: {

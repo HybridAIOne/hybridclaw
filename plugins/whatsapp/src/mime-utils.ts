@@ -1,6 +1,5 @@
 import path from 'node:path';
-
-import { normalizeMimeType } from '../../media/mime-utils.js';
+import type { WhatsAppTransportHost } from '@hybridaione/hybridclaw/plugin-sdk';
 
 const MIME_TABLE = [
   { mimeType: 'image/jpeg', extensions: ['.jpg', '.jpeg'] },
@@ -26,14 +25,18 @@ for (const entry of MIME_TABLE) {
 }
 
 export function guessWhatsAppExtensionFromMimeType(
+  host: WhatsAppTransportHost,
   mimeType: string | null | undefined,
 ): string {
-  const normalized = normalizeMimeType(mimeType);
+  const normalized = host.media.normalizeMimeType(mimeType);
   if (!normalized) return '';
   return MIME_TO_EXTENSION.get(normalized) || '';
 }
 
-export function resolveWhatsAppMimeTypeFromPath(filePath: string): string {
+export function resolveWhatsAppMimeTypeFromPath(
+  _host: WhatsAppTransportHost,
+  filePath: string,
+): string {
   const extension = path.extname(String(filePath || '')).toLowerCase();
   return EXTENSION_TO_MIME.get(extension) || 'application/octet-stream';
 }

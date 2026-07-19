@@ -58,6 +58,10 @@ installable bundled or project-local plugins. Use `hybridclaw plugin list
 installed` or `hybridclaw plugin list available` to show only one section.
 When installing by bare plugin id, project-local plugins in `./plugins/` take
 priority over bundled plugins with the same id.
+An exact npm package name also resolves to a matching `package.json` in those
+local plugin catalogs before HybridClaw contacts the registry. This lets the
+same canonical install source work in a source checkout and in packaged
+releases after the package is published.
 The embedded admin console also exposes the same discovery snapshot at
 `/admin/extensions?tab=plugins` for browser-based inspection.
 
@@ -270,10 +274,65 @@ Currently wired runtime surfaces:
 - lifecycle hooks for session, gateway, compaction, and plugin-tool execution
 - services
 - channels
+- channel transports
 
 Provider registration is typed and stored by the manager, but providers are
 not yet routed into the broader runtime in the same way as memory layers,
 plugin tools, and plugin commands.
+
+### Channel transport plugins
+
+A channel plugin can supply a core-owned channel facade through
+`api.registerChannelTransport(...)`. The channel kind remains one of
+HybridClaw's closed `ChannelKind` values; a plugin does not create arbitrary
+new kinds.
+
+```ts
+import type {
+  HybridClawPluginDefinition,
+  WhatsAppTransportHost,
+} from '@hybridaione/hybridclaw/plugin-sdk';
+
+const plugin: HybridClawPluginDefinition = {
+  id: 'whatsapp',
+  register(api) {
+    api.registerChannelTransport({
+      kind: 'whatsapp',
+      create(host: WhatsAppTransportHost) {
+        return {
+          async init(handler) {},
+          async shutdown() {},
+          async sendText(chatId, text) {},
+          async sendMedia(params) {},
+        };
+      },
+    });
+  },
+};
+
+export default plugin;
+```
+
+Installed plugins are loaded from an isolated snapshot with only their own
+`node_modules` available. Plugin runtime code must not import HybridClaw core
+modules. Core services, configuration, logging, auth paths and locks, media
+helpers, and other capabilities are passed as values on the transport host.
+Core SDK imports should be type-only so they are erased from emitted JavaScript.
+
+Keep `register(api)` synchronous and cheap. If a transport has large or
+license-sensitive dependencies, register a lightweight instance and dynamically
+import the implementation when `init`, send, or pairing is first used. The
+plugin manager rolls back transport registrations when registration fails and
+unregisters them during shutdown; the core facade retains an active instance
+long enough to shut it down cleanly.
+
+Install-on-demand channel plugins also need an entry in
+`src/channels/channel-plugin-catalog.ts`. The catalog is core-owned because a
+plugin that is not installed cannot expose its own manifest. Each entry maps a
+closed channel kind to its plugin id and install source. Gateway status derives
+transport availability from that catalog, and the admin Channels page uses the
+same metadata to show a generic install action. Adding another plugin-backed
+channel should require a catalog entry, not channel-specific install UI.
 
 Plugins can register inbound webhook handlers through
 `api.registerInboundWebhook(...)`. Webhook routes are mounted on the shared

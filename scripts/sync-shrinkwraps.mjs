@@ -5,6 +5,10 @@ import fs from 'node:fs';
 const pairs = [
   ['package-lock.json', 'npm-shrinkwrap.json'],
   ['container/package-lock.json', 'container/npm-shrinkwrap.json'],
+  [
+    'plugins/whatsapp/package-lock.json',
+    'plugins/whatsapp/npm-shrinkwrap.json',
+  ],
 ];
 
 for (const [source, target] of pairs) {

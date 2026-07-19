@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { ChannelInfo } from '../channels/channel.js';
+import type { ChannelTransportRegistration } from '../channels/channel-transport.js';
 import {
   type RuntimeConfig,
   runtimeConfigPath,
@@ -123,6 +124,9 @@ export function createPluginApi(params: {
     },
     registerChannel(channel: ChannelInfo): void {
       params.manager.registerChannel(params.pluginId, channel);
+    },
+    registerChannelTransport(transport: ChannelTransportRegistration): void {
+      params.manager.registerChannelTransport(params.pluginId, transport);
     },
     registerTool(tool: PluginToolDefinition): void {
       params.manager.registerTool(params.pluginId, tool);

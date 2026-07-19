@@ -3,8 +3,6 @@ import path from 'node:path';
 import { Writable } from 'node:stream';
 import pino from 'pino';
 import pretty from 'pino-pretty';
-
-import { SlidingWindowRateLimiter } from './channels/discord/rate-limiter.js';
 import {
   getRuntimeConfig,
   onRuntimeConfigChange,
@@ -16,6 +14,7 @@ import {
 } from './logger-format.js';
 import { getTraceContext } from './observability/otel.js';
 import { captureSentryException } from './observability/sentry.js';
+import { SlidingWindowRateLimiter } from './utils/rate-limiter.js';
 import { isExpectedTransportError } from './utils/transport-errors.js';
 
 const VALID_LOG_LEVELS = new Set([

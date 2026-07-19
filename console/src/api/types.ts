@@ -15,6 +15,13 @@ export interface AdminConfigReloadResponse {
   message?: string;
 }
 
+export interface GatewayChannelPluginStatus {
+  channel: string;
+  pluginId: string;
+  installSource: string;
+  transportAvailable: boolean;
+}
+
 export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
@@ -72,6 +79,7 @@ export interface GatewayStatus {
       consecutiveErrors: number;
     }>;
   };
+  channelPlugins?: GatewayChannelPluginStatus[];
   discord?: {
     tokenConfigured: boolean;
     tokenSource: 'env' | 'runtime-secrets' | null;

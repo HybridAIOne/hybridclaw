@@ -13,7 +13,7 @@ import {
   IMESSAGE_TEXT_CHUNK_LIMIT,
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
-import { SlidingWindowRateLimiter } from '../discord/rate-limiter.js';
+import { SlidingWindowRateLimiter } from '../../utils/rate-limiter.js';
 import {
   readWebhookJsonBody,
   sendWebhookJson,

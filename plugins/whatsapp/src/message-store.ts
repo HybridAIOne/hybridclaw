@@ -1,10 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-
+import type { WhatsAppTransportHost } from '@hybridaione/hybridclaw/plugin-sdk';
 import { proto, type WAMessageKey } from '@whiskeysockets/baileys';
-import { logger } from '../../logger.js';
-import { normalizeTrimmedString as normalizeString } from '../../utils/normalized-strings.js';
-import { WHATSAPP_AUTH_DIR } from './auth.js';
 
 const MESSAGE_STORE_FILE = 'message-store.json';
 const MAX_STORED_MESSAGES = 256;
@@ -26,6 +23,10 @@ interface StoredWhatsAppMessageIndexes {
   byExactKey: Map<string, StoredWhatsAppMessage>;
   byRemoteJidAndId: Map<string, StoredWhatsAppMessage>;
   uniqueById: Map<string, StoredWhatsAppMessage | null>;
+}
+
+function normalizeString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 export interface WhatsAppMessageStore {
@@ -82,6 +83,7 @@ function sanitizeEntries(
 }
 
 async function readStoreFile(
+  host: WhatsAppTransportHost,
   filePath: string,
 ): Promise<StoredWhatsAppMessage[]> {
   try {
@@ -95,7 +97,7 @@ async function readStoreFile(
     if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
       return [];
     }
-    logger.warn(
+    host.logger.warn(
       { error, filePath },
       'Failed to read WhatsApp message replay store',
     );
@@ -158,6 +160,7 @@ function buildMessageIndexes(
 }
 
 class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
+  private readonly host: WhatsAppTransportHost;
   private readonly filePath: string;
   private loaded = false;
   private messages: StoredWhatsAppMessage[] = [];
@@ -175,7 +178,8 @@ class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
   >();
   private persistQueue: Promise<void> = Promise.resolve();
 
-  constructor(filePath: string) {
+  constructor(host: WhatsAppTransportHost, filePath: string) {
+    this.host = host;
     this.filePath = filePath;
   }
 
@@ -239,7 +243,7 @@ class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
     if (this.loaded) return;
     this.loaded = true;
     await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    this.replaceMessages(await readStoreFile(this.filePath));
+    this.replaceMessages(await readStoreFile(this.host, this.filePath));
   }
 
   private async enqueuePersist(): Promise<void> {
@@ -281,7 +285,7 @@ class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
     try {
       return proto.Message.decode(Buffer.from(entry.encodedMessage, 'base64'));
     } catch (error) {
-      logger.warn(
+      this.host.logger.warn(
         {
           error,
           filePath: this.filePath,
@@ -295,12 +299,16 @@ class FileBackedWhatsAppMessageStore implements WhatsAppMessageStore {
   }
 }
 
-export function whatsappMessageStorePath(authDir = WHATSAPP_AUTH_DIR): string {
+export function whatsappMessageStorePath(authDir: string): string {
   return path.join(authDir, MESSAGE_STORE_FILE);
 }
 
 export function createWhatsAppMessageStore(
-  authDir = WHATSAPP_AUTH_DIR,
+  host: WhatsAppTransportHost,
+  authDir = host.auth.authDir,
 ): WhatsAppMessageStore {
-  return new FileBackedWhatsAppMessageStore(whatsappMessageStorePath(authDir));
+  return new FileBackedWhatsAppMessageStore(
+    host,
+    whatsappMessageStorePath(authDir),
+  );
 }

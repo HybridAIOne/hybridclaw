@@ -1,7 +1,6 @@
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { useMultiFileAuthState } from '@whiskeysockets/baileys';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../../config/runtime-paths.js';
 import { sleep } from '../../utils/sleep.js';
 
@@ -205,11 +204,6 @@ export async function resetWhatsAppAuthState(
   } finally {
     releaseLock();
   }
-}
-
-export async function loadWhatsAppAuthState(authDir = WHATSAPP_AUTH_DIR) {
-  const resolvedAuthDir = await ensureWhatsAppAuthDir(authDir);
-  return useMultiFileAuthState(resolvedAuthDir);
 }
 
 export async function getWhatsAppAuthStatus(

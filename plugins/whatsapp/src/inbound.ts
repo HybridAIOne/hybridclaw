@@ -1,4 +1,9 @@
 import fs from 'node:fs/promises';
+import type {
+  ChannelTransportMessageHandler,
+  RuntimeWhatsAppConfig,
+  WhatsAppTransportHost,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 import {
   downloadMediaMessage,
   extractMessageContent,
@@ -6,26 +11,9 @@ import {
   type WAMessage,
   type WASocket,
 } from '@whiskeysockets/baileys';
-import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
-import type {
-  RuntimeWhatsAppConfig,
-  WhatsAppDmPolicy,
-  WhatsAppGroupPolicy,
-} from '../../config/runtime-config.js';
-import { logger } from '../../logger.js';
-import { resolveManagedTempMediaDir } from '../../media/managed-temp-media.js';
-import { createUploadedMediaContextItem } from '../../media/uploaded-media-cache.js';
-import { buildSessionKey } from '../../session/session-key.js';
-import type { MediaContextItem } from '../../types/container.js';
-import { normalizeNativeAgentAddressingText } from '../agent-addressing.js';
 import { guessWhatsAppExtensionFromMimeType } from './mime-utils.js';
-import {
-  canonicalizeWhatsAppUserJid,
-  isGroupJid,
-  jidToPhone,
-  normalizePhoneNumber,
-  normalizeWhatsAppUserIdentity,
-} from './phone.js';
+
+type MediaContextItem = Parameters<ChannelTransportMessageHandler>[6][number];
 
 const STATUS_BROADCAST_JID = 'status@broadcast';
 const normalizedAllowListCache = new WeakMap<string[], string[]>();
@@ -85,11 +73,16 @@ function extractInboundText(
   return '';
 }
 
-function normalizeAllowEntry(value: string): string | null {
+function normalizeAllowEntry(
+  host: WhatsAppTransportHost,
+  value: string,
+): string | null {
   const trimmed = String(value || '').trim();
   if (!trimmed) return null;
   if (trimmed === '*') return '*';
-  return normalizePhoneNumber(trimmed) ?? jidToPhone(trimmed);
+  return (
+    host.phone.normalizePhoneNumber(trimmed) ?? host.phone.jidToPhone(trimmed)
+  );
 }
 
 function isLidJid(value: string | null | undefined): boolean {
@@ -122,29 +115,35 @@ function matchesAllowList(list: string[], senderPhone: string | null): boolean {
   return list.includes(senderPhone);
 }
 
-function normalizeAllowList(values: string[]): string[] {
+function normalizeAllowList(
+  host: WhatsAppTransportHost,
+  values: string[],
+): string[] {
   const cached = normalizedAllowListCache.get(values);
   if (cached) return cached;
 
   const normalized = values
-    .map((entry) => normalizeAllowEntry(entry))
+    .map((entry) => normalizeAllowEntry(host, entry))
     .filter((entry): entry is string => Boolean(entry));
   const deduplicated = [...new Set(normalized)];
   normalizedAllowListCache.set(values, deduplicated);
   return deduplicated;
 }
 
-function isSelfChat(params: {
-  chatJid: string;
-  senderJid: string;
-  selfJids: string[];
-}): boolean {
-  if (isGroupJid(params.chatJid)) return false;
-  const chatIdentity = normalizeWhatsAppUserIdentity(params.chatJid);
-  const senderIdentity = normalizeWhatsAppUserIdentity(params.senderJid);
+function isSelfChat(
+  host: WhatsAppTransportHost,
+  params: {
+    chatJid: string;
+    senderJid: string;
+    selfJids: string[];
+  },
+): boolean {
+  if (host.phone.isGroupJid(params.chatJid)) return false;
+  const chatIdentity = host.phone.normalizeUserIdentity(params.chatJid);
+  const senderIdentity = host.phone.normalizeUserIdentity(params.senderJid);
   const selfIdentities = new Set(
     params.selfJids
-      .map((jid) => normalizeWhatsAppUserIdentity(jid))
+      .map((jid) => host.phone.normalizeUserIdentity(jid))
       .filter((identity): identity is string => Boolean(identity)),
   );
   return Boolean(
@@ -157,47 +156,51 @@ function isSelfChat(params: {
 }
 
 function resolveCanonicalSelfChatSessionJid(
+  host: WhatsAppTransportHost,
   selfJids: string[],
   fallbackChatJid: string,
 ): string {
   for (const jid of selfJids) {
-    const canonical = canonicalizeWhatsAppUserJid(jid);
+    const canonical = host.phone.canonicalizeUserJid(jid);
     if (canonical?.endsWith('@s.whatsapp.net')) {
       return canonical;
     }
   }
 
   for (const jid of selfJids) {
-    const canonical = canonicalizeWhatsAppUserJid(jid);
+    const canonical = host.phone.canonicalizeUserJid(jid);
     if (canonical) {
       return canonical;
     }
   }
 
-  return canonicalizeWhatsAppUserJid(fallbackChatJid) ?? fallbackChatJid;
+  return host.phone.canonicalizeUserJid(fallbackChatJid) ?? fallbackChatJid;
 }
 
-export function evaluateWhatsAppAccessPolicy(params: {
-  dmPolicy: WhatsAppDmPolicy;
-  groupPolicy: WhatsAppGroupPolicy;
-  allowFrom: string[];
-  groupAllowFrom: string[];
-  chatJid: string;
-  senderJid: string;
-  selfJids: string[];
-  fromMe: boolean;
-}): {
+export function evaluateWhatsAppAccessPolicy(
+  host: WhatsAppTransportHost,
+  params: {
+    dmPolicy: RuntimeWhatsAppConfig['dmPolicy'];
+    groupPolicy: RuntimeWhatsAppConfig['groupPolicy'];
+    allowFrom: string[];
+    groupAllowFrom: string[];
+    chatJid: string;
+    senderJid: string;
+    selfJids: string[];
+    fromMe: boolean;
+  },
+): {
   allowed: boolean;
   isGroup: boolean;
   isSelfChat: boolean;
 } {
-  const isGroup = isGroupJid(params.chatJid);
-  const selfChat = isSelfChat(params);
-  const senderPhone = jidToPhone(params.senderJid);
-  const allowFrom = normalizeAllowList(params.allowFrom);
+  const isGroup = host.phone.isGroupJid(params.chatJid);
+  const selfChat = isSelfChat(host, params);
+  const senderPhone = host.phone.jidToPhone(params.senderJid);
+  const allowFrom = normalizeAllowList(host, params.allowFrom);
   const groupAllowFrom =
     params.groupAllowFrom.length > 0
-      ? normalizeAllowList(params.groupAllowFrom)
+      ? normalizeAllowList(host, params.groupAllowFrom)
       : allowFrom;
 
   if (params.fromMe && !selfChat) {
@@ -237,11 +240,14 @@ export function evaluateWhatsAppAccessPolicy(params: {
   };
 }
 
-async function downloadInboundMedia(params: {
-  sock: Pick<WASocket, 'updateMediaMessage' | 'logger'>;
-  message: WAMessage;
-  mediaMaxMb: number;
-}): Promise<MediaContextItem[]> {
+async function downloadInboundMedia(
+  host: WhatsAppTransportHost,
+  params: {
+    sock: Pick<WASocket, 'updateMediaMessage' | 'logger'>;
+    message: WAMessage;
+    mediaMaxMb: number;
+  },
+): Promise<MediaContextItem[]> {
   const normalizedMessage = normalizeMessageContent(params.message.message);
   if (!normalizedMessage) return [];
 
@@ -275,11 +281,12 @@ async function downloadInboundMedia(params: {
   const defaultName =
     normalizedMessage.documentMessage?.fileName?.trim() ||
     `wa-media-${params.message.key.id || Date.now()}${guessWhatsAppExtensionFromMimeType(
+      host,
       mimeType,
     )}`;
   const filename = sanitizeFilename(defaultName);
   return [
-    await createUploadedMediaContextItem({
+    await host.media.createContextItem({
       attachmentName: filename,
       buffer,
       mimeType,
@@ -289,12 +296,15 @@ async function downloadInboundMedia(params: {
 }
 
 export async function cleanupWhatsAppInboundMedia(
+  host: WhatsAppTransportHost,
   media: MediaContextItem[],
 ): Promise<void> {
   const tempDirs = new Set<string>();
   for (const item of media) {
     if (!item.path) continue;
-    const managedDir = resolveManagedTempMediaDir({ filePath: item.path });
+    const managedDir = host.media.resolveManagedTempDir({
+      filePath: item.path,
+    });
     if (!managedDir) continue;
     tempDirs.add(managedDir);
   }
@@ -318,13 +328,16 @@ export interface ProcessedWhatsAppInbound {
   rawMessage: WAMessage;
 }
 
-export async function processInboundWhatsAppMessage(params: {
-  message: WAMessage;
-  sock: Pick<WASocket, 'updateMediaMessage' | 'logger'>;
-  config: RuntimeWhatsAppConfig;
-  selfJids: string[];
-  agentId?: string;
-}): Promise<ProcessedWhatsAppInbound | null> {
+export async function processInboundWhatsAppMessage(
+  host: WhatsAppTransportHost,
+  params: {
+    message: WAMessage;
+    sock: Pick<WASocket, 'updateMediaMessage' | 'logger'>;
+    config: RuntimeWhatsAppConfig;
+    selfJids: string[];
+    agentId?: string;
+  },
+): Promise<ProcessedWhatsAppInbound | null> {
   const chatJid = params.message.key.remoteJid?.trim();
   if (
     !chatJid ||
@@ -337,7 +350,7 @@ export async function processInboundWhatsAppMessage(params: {
   const senderJid = resolveInboundSenderJid(params.message);
   if (!senderJid) return null;
 
-  const access = evaluateWhatsAppAccessPolicy({
+  const access = evaluateWhatsAppAccessPolicy(host, {
     dmPolicy: params.config.dmPolicy,
     groupPolicy: params.config.groupPolicy,
     allowFrom: params.config.allowFrom,
@@ -348,7 +361,7 @@ export async function processInboundWhatsAppMessage(params: {
     fromMe: Boolean(params.message.key.fromMe),
   });
   if (!access.allowed) {
-    logger.debug(
+    host.logger.debug(
       {
         channel: 'whatsapp',
         chatJid,
@@ -364,12 +377,12 @@ export async function processInboundWhatsAppMessage(params: {
     return null;
   }
 
-  const media = await downloadInboundMedia({
+  const media = await downloadInboundMedia(host, {
     sock: params.sock,
     message: params.message,
     mediaMaxMb: params.config.mediaMaxMb,
   });
-  const content = normalizeNativeAgentAddressingText(
+  const content = host.text.normalizeNativeAgentAddressingText(
     extractInboundText(params.message.message ?? {}) || '',
   );
   if (!content.trim() && media.length === 0) {
@@ -377,19 +390,19 @@ export async function processInboundWhatsAppMessage(params: {
   }
   const preferredSelfPhone =
     params.selfJids
-      .map((jid) => jidToPhone(jid))
+      .map((jid) => host.phone.jidToPhone(jid))
       .find((phone): phone is string => Boolean(phone)) ?? null;
   const userId = access.isSelfChat
-    ? (preferredSelfPhone ?? jidToPhone(senderJid) ?? senderJid)
-    : (jidToPhone(senderJid) ?? senderJid);
+    ? (preferredSelfPhone ?? host.phone.jidToPhone(senderJid) ?? senderJid)
+    : (host.phone.jidToPhone(senderJid) ?? senderJid);
   const username = String(params.message.pushName || '').trim() || userId;
   const sessionChatJid = access.isSelfChat
-    ? resolveCanonicalSelfChatSessionJid(params.selfJids, chatJid)
+    ? resolveCanonicalSelfChatSessionJid(host, params.selfJids, chatJid)
     : chatJid;
 
   return {
-    sessionId: buildSessionKey(
-      params.agentId || DEFAULT_AGENT_ID,
+    sessionId: host.buildSessionKey(
+      params.agentId || host.defaultAgentId,
       'whatsapp',
       access.isGroup ? 'group' : 'dm',
       access.isGroup ? sessionChatJid : userId,
