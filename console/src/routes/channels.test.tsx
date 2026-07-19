@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminAgent,
+  AdminCommandResult,
   AdminConfig,
   AdminConfigResponse,
 } from '../api/types';
@@ -12,6 +13,7 @@ const fetchAdminAgentsMock = vi.fn<() => Promise<AdminAgent[]>>();
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchEmailConfigMock = vi.fn();
 const fetchSignalLinkMock = vi.fn();
+const installWhatsAppPluginMock = vi.fn<() => Promise<AdminCommandResult>>();
 const saveConfigMock = vi.fn();
 const saveDiscordWebhookTargetMock = vi.fn();
 const saveSlackWebhookTargetMock = vi.fn();
@@ -25,6 +27,7 @@ vi.mock('../api/client', () => ({
   fetchConfig: () => fetchConfigMock(),
   fetchEmailConfig: (...args: unknown[]) => fetchEmailConfigMock(...args),
   fetchSignalLink: (...args: unknown[]) => fetchSignalLinkMock(...args),
+  installWhatsAppPlugin: () => installWhatsAppPluginMock(),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
   saveDiscordWebhookTarget: (...args: unknown[]) =>
     saveDiscordWebhookTargetMock(...args),
@@ -337,6 +340,7 @@ describe('ChannelsPage', () => {
     fetchConfigMock.mockReset();
     fetchEmailConfigMock.mockReset();
     fetchSignalLinkMock.mockReset();
+    installWhatsAppPluginMock.mockReset();
     saveConfigMock.mockReset();
     saveDiscordWebhookTargetMock.mockReset();
     saveSlackWebhookTargetMock.mockReset();
@@ -345,6 +349,11 @@ describe('ChannelsPage', () => {
     validateTokenMock.mockReset();
     useAuthMock.mockReset();
     fetchAdminAgentsMock.mockResolvedValue([]);
+    installWhatsAppPluginMock.mockResolvedValue({
+      kind: 'info',
+      title: 'Plugin Installed',
+      text: 'Installed plugin `whatsapp`.',
+    });
     const gatewayStatus = {
       hybridai: {
         apiKeyConfigured: false,
@@ -398,6 +407,7 @@ describe('ChannelsPage', () => {
       whatsapp: {
         linked: false,
         jid: null,
+        transportInstalled: true,
         pairingQrText: null,
         pairingUpdatedAt: null,
       },
@@ -853,6 +863,55 @@ describe('ChannelsPage', () => {
     });
     expect(whatsappButton.textContent || '').toContain('available');
     expect(whatsappButton.textContent || '').not.toContain('pairing');
+  });
+
+  it('offers to install the WhatsApp plugin instead of showing the channel as active', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultAgentId: 'main',
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      whatsapp: {
+        linked: false,
+        jid: null,
+        transportInstalled: false,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
+        pairingError: null,
+      },
+    });
+
+    renderChannelsPage();
+
+    const whatsappChannelButton = await screen.findByRole('button', {
+      name: /WhatsApp.*plugin not installed/i,
+    });
+    expect(whatsappChannelButton.textContent || '').not.toContain('active');
+
+    fireEvent.click(whatsappChannelButton);
+    screen.getByText('WhatsApp plugin not installed');
+    expect(
+      screen.queryByText('Waiting for a fresh QR from the gateway.'),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Install WhatsApp plugin' }),
+    );
+
+    await waitFor(() => {
+      expect(installWhatsAppPluginMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('shows Discord as available when the token is not configured', async () => {

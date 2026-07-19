@@ -6,6 +6,7 @@ import {
   fetchConfig,
   fetchEmailConfig,
   fetchSignalLink,
+  installWhatsAppPlugin,
   saveConfig,
   saveDiscordWebhookTarget,
   saveSlackWebhookTarget,
@@ -769,12 +770,57 @@ function DiscordChannelEditor(props: {
 function WhatsAppChannelEditor(props: {
   draft: AdminConfig;
   form: UseFormControllerReturn<AdminConfig>;
+  token: string;
+  transportInstalled: boolean | undefined;
   linked: boolean;
   pairingQrText: string | null;
   pairingError: string | null;
 }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const installMutation = useMutation({
+    mutationFn: async () => {
+      const result = await installWhatsAppPlugin(props.token);
+      if (result.kind === 'error') throw new Error(result.text);
+      return result;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['status', props.token],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['plugins', props.token],
+      });
+      toast.success('WhatsApp plugin installed.');
+    },
+    onError: (error) => {
+      toast.error('Plugin installation failed', getErrorMessage(error));
+    },
+  });
+
   return (
     <>
+      {props.transportInstalled === false ? (
+        <aside className="channel-plugin-notice" aria-label="Plugin required">
+          <div>
+            <strong>WhatsApp plugin not installed</strong>
+            <span>
+              Install the WhatsApp transport plugin and its required
+              dependencies on this gateway.
+            </span>
+          </div>
+          <Button
+            type="button"
+            loading={installMutation.isPending}
+            onClick={() => installMutation.mutate()}
+          >
+            {installMutation.isPending
+              ? 'Installing plugin...'
+              : 'Install WhatsApp plugin'}
+          </Button>
+        </aside>
+      ) : null}
+
       <Field orientation="horizontal">
         <Switch
           checked={isWhatsAppEnabled(props.draft)}
@@ -840,7 +886,9 @@ function WhatsAppChannelEditor(props: {
         />
       </div>
 
-      {isWhatsAppEnabled(props.draft) && !props.linked ? (
+      {props.transportInstalled !== false &&
+      isWhatsAppEnabled(props.draft) &&
+      !props.linked ? (
         <div className="field whatsapp-pairing-field">
           <span>Pairing QR</span>
           {props.pairingQrText ? (
@@ -3519,6 +3567,7 @@ function renderSelectedEditor(
   },
   hybridaiApiKeyConfigured: boolean,
   whatsappStatus: {
+    transportInstalled: boolean | undefined;
     linked: boolean;
     pairingQrText: string | null;
     pairingError: string | null;
@@ -3556,6 +3605,8 @@ function renderSelectedEditor(
         <WhatsAppChannelEditor
           draft={draft}
           form={form}
+          token={token}
+          transportInstalled={whatsappStatus.transportInstalled}
           linked={whatsappStatus.linked}
           pairingQrText={whatsappStatus.pairingQrText}
           pairingError={whatsappStatus.pairingError}
@@ -3732,6 +3783,8 @@ export function ChannelsPage() {
         signalAccountConfigured: statusQuery.data?.signal?.accountConfigured,
         signalCliAvailable: statusQuery.data?.signal?.cliAvailable,
         voiceAuthTokenConfigured: statusQuery.data?.voice?.authTokenConfigured,
+        whatsappTransportInstalled:
+          statusQuery.data?.whatsapp?.transportInstalled,
         whatsappLinked: statusQuery.data?.whatsapp?.linked,
         lineLinked: statusQuery.data?.line?.linked,
         emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,
@@ -3818,6 +3871,7 @@ export function ChannelsPage() {
     },
   };
   const whatsappStatus = {
+    transportInstalled: statusQuery.data?.whatsapp?.transportInstalled,
     linked: statusQuery.data?.whatsapp?.linked ?? false,
     pairingQrText: statusQuery.data?.whatsapp?.pairingQrText ?? null,
     pairingError: statusQuery.data?.whatsapp?.pairingError ?? null,

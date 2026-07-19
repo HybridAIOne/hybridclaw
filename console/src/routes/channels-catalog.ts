@@ -37,6 +37,7 @@ interface ChannelCatalogOptions {
   telegramTokenConfigured?: boolean;
   threemaSecretConfigured?: boolean;
   voiceAuthTokenConfigured?: boolean;
+  whatsappTransportInstalled?: boolean;
   whatsappLinked?: boolean;
   lineLinked?: boolean;
   emailPasswordConfigured?: boolean;
@@ -103,6 +104,16 @@ function describeWhatsApp(
   config: AdminConfig,
   options: ChannelCatalogOptions,
 ): ChannelCatalogItem {
+  if (options.whatsappTransportInstalled === false) {
+    return {
+      kind: 'whatsapp',
+      label: 'WhatsApp',
+      summary: 'Plugin not installed',
+      statusTone: 'available',
+      statusLabel: 'plugin not installed',
+    };
+  }
+
   const linked = options.whatsappLinked === true;
   const enabled =
     config.whatsapp.dmPolicy !== 'disabled' ||

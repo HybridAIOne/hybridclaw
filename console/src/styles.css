@@ -2417,6 +2417,41 @@ th {
   align-content: start;
 }
 
+.channel-plugin-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel-bg));
+}
+
+.channel-plugin-notice > div {
+  display: grid;
+  gap: 3px;
+}
+
+.channel-plugin-notice strong {
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.channel-plugin-notice span {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+  .channel-plugin-notice {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .whatsapp-pairing-qr {
   box-sizing: border-box;
   display: block;

@@ -1191,13 +1191,14 @@ export function fetchSignalLink(token: string): Promise<SignalLinkResponse> {
 
 function runAdminCommand(
   token: string,
+  sessionId: string,
   args: string[],
 ): Promise<AdminCommandResult> {
   return requestJson<AdminCommandResult>('/api/command', {
     token,
     method: 'POST',
     body: buildWebCommandRequestBody({
-      sessionId: 'web-admin-secrets',
+      sessionId,
       args,
     }),
   });
@@ -1208,7 +1209,23 @@ export function setRuntimeSecret(
   secretName: string,
   secretValue: string,
 ): Promise<AdminCommandResult> {
-  return runAdminCommand(token, ['secret', 'set', secretName, secretValue]);
+  return runAdminCommand(token, 'web-admin-secrets', [
+    'secret',
+    'set',
+    secretName,
+    secretValue,
+  ]);
+}
+
+export function installWhatsAppPlugin(
+  token: string,
+): Promise<AdminCommandResult> {
+  return runAdminCommand(token, 'web-admin-channels', [
+    'plugin',
+    'install',
+    '@hybridaione/hybridclaw-whatsapp',
+    '--yes',
+  ]);
 }
 
 export function fetchAdminSecrets(
