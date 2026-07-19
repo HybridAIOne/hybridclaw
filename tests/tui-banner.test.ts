@@ -143,6 +143,27 @@ test('does not stretch the panel wider than the wordmark span on medium terminal
   expect(lines).toContainEqual(expect.stringContaining('░██     ░██'));
 });
 
+test('labels direct OpenAI API models separately from Codex', () => {
+  const lines = renderTuiStartupBanner({
+    columns: 120,
+    info: {
+      currentModel: 'openai/gpt-5.6-sol',
+      defaultModel: 'openai/gpt-5.6-sol',
+      sandboxMode: 'container',
+      gatewayBaseUrl: 'http://127.0.0.1:3000',
+      hybridAIBaseUrl: 'https://api.hybridai.one/v1',
+      chatbotId: '',
+      version: '0.8.0',
+      skillCategories: [],
+    },
+    palette,
+  }).map(stripAnsi);
+
+  expect(lines).toContainEqual(
+    expect.stringContaining('model     openai/gpt-5.6-sol (OpenAI API)'),
+  );
+});
+
 test('falls back to a stacked banner and compact title on narrow terminals', () => {
   const lines = renderTuiStartupBanner({
     columns: 68,

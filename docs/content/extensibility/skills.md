@@ -152,7 +152,7 @@ use:
 - `web_fetch`, `web_search`, or browser tools can be used to inspect official
   API documentation while authoring or repairing a skill, not as the runtime
   API client when the helper already covers the operation.
-- `/policy`, `hybridclaw policy ...`, and `/admin/approvals` manage workspace
+- `/policy`, `hybridclaw policy ...`, and `/admin/network-policy` manage workspace
   network policy for HTTP access.
 - `hybridclaw gateway status` distinguishes stale builds, gateway PID state,
   sandbox mode, and runtime version before diagnosing gateway behavior.
@@ -205,7 +205,7 @@ the browser or slash-command equivalent (`/env ...` or `/secret ...`) for
 operators using chat surfaces without CLI access. When a skill depends on
 credentials, advise operators to set or update runtime secrets in this order:
 
-1. Browser admin: open the active HybridClaw admin URL ending in `/admin/secrets`.
+1. Browser admin: open the active HybridClaw admin URL ending in `/admin/credentials?tab=secrets`.
 2. Browser `/chat` or TUI: run `/secret set NAME value`.
 3. Local console fallback: run `hybridclaw secret set NAME value`.
 

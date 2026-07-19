@@ -7,6 +7,7 @@ import {
   fetchA2ATrust,
   previewA2APairing,
   revokeA2ATrustPeer,
+  saveA2AE2EERequired,
   saveA2ALocalMode,
   startA2APairing,
   upsertA2ATrustPeer,
@@ -46,7 +47,7 @@ function peerStatus(peer: AdminA2ATrustPeer) {
   return <BooleanPill value={true} trueLabel="trusted" />;
 }
 
-export function A2ATrustPage() {
+export function A2ATrustPage(props: { embedded?: boolean } = {}) {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
@@ -75,6 +76,14 @@ export function A2ATrustPage() {
 
   const localModeMutation = useMutation({
     mutationFn: (enabled: boolean) => saveA2ALocalMode(auth.token, enabled),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['a2a-trust', auth.token], data);
+    },
+  });
+
+  const e2eeRequiredMutation = useMutation({
+    mutationFn: (required: boolean) =>
+      saveA2AE2EERequired(auth.token, required),
     onSuccess: (data) => {
       queryClient.setQueryData(['a2a-trust', auth.token], data);
     },
@@ -186,7 +195,7 @@ export function A2ATrustPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader />
+      {!props.embedded ? <PageHeader /> : null}
 
       <Card>
         <CardHeader>
@@ -209,10 +218,52 @@ export function A2ATrustPage() {
                   )}
                 </strong>
               </div>
+              <div>
+                <span>E2EE key</span>
+                <strong>
+                  {shortFingerprint(
+                    trustQuery.data.identity.e2eePublicKeyFingerprint,
+                  )}
+                </strong>
+              </div>
             </div>
           ) : (
             <div className="empty-state">Identity unavailable.</div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card variant="muted">
+        <CardHeader>
+          <CardTitle>Require A2A E2EE</CardTitle>
+          <CardDescription>
+            Reject plaintext A2A from unpaired or third-party peers. HybridClaw
+            pairings always pin an encryption key and use E2EE.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="button-row">
+            <Switch
+              aria-label="Require A2A E2EE"
+              checked={Boolean(trustQuery.data?.e2ee.required)}
+              disabled={!trustQuery.data || e2eeRequiredMutation.isPending}
+              onCheckedChange={(required) =>
+                e2eeRequiredMutation.mutate(required)
+              }
+            />
+            <BooleanPill
+              value={Boolean(trustQuery.data?.e2ee.required)}
+              trueLabel="required"
+              falseLabel="non-E2EE peers allowed"
+            />
+          </div>
+          {e2eeRequiredMutation.error ? (
+            <small className="row-status-note-danger">
+              {e2eeRequiredMutation.error instanceof Error
+                ? e2eeRequiredMutation.error.message
+                : 'A2A E2EE requirement update failed.'}
+            </small>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -328,6 +379,7 @@ export function A2ATrustPage() {
                   <small>{pairPreview.proposal.agentCardUrl}</small>
                   <small>{pairPreview.proposal.deliveryUrl}</small>
                   <small>{pairPreview.proposal.publicKeyFingerprint}</small>
+                  <small>{`E2EE ${pairPreview.proposal.e2eePublicKeyFingerprint}`}</small>
                 </div>
               </div>
             ) : null}
@@ -399,6 +451,9 @@ export function A2ATrustPage() {
                           request.publicKeyFingerprint,
                         )}`}
                       </small>
+                      <small>{`E2EE ${shortFingerprint(
+                        request.e2ee.publicKeyFingerprint,
+                      )}`}</small>
                       {request.pairingId ? (
                         <small>{`Pairing ${request.pairingId}`}</small>
                       ) : null}
@@ -532,6 +587,16 @@ export function A2ATrustPage() {
                     <div>
                       <span>Fingerprint</span>
                       <strong>{selectedPeer.publicKeyFingerprint}</strong>
+                    </div>
+                    <div>
+                      <span>E2EE</span>
+                      <strong>
+                        {selectedPeer.e2ee
+                          ? shortFingerprint(
+                              selectedPeer.e2ee.publicKeyFingerprint,
+                            )
+                          : 'no pinned E2EE key'}
+                      </strong>
                     </div>
                     <div>
                       <span>Mismatch</span>

@@ -57,7 +57,7 @@ function ThreadMessageCard(props: { message: AdminA2AThreadMessage }) {
   );
 }
 
-export function A2AInboxPage() {
+export function A2AInboxPage(props: { embedded?: boolean } = {}) {
   const auth = useAuth();
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
 
@@ -75,7 +75,7 @@ export function A2AInboxPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader />
+      {!props.embedded ? <PageHeader /> : null}
       <div className="mailbox-shell a2a-inbox-shell">
         <section className="mailbox-main">
           <div className="mailbox-column-header">

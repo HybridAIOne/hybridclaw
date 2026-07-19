@@ -9,6 +9,7 @@ const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
+const ORIGINAL_OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
@@ -81,6 +82,7 @@ afterEach(() => {
     ORIGINAL_DISABLE_CONFIG_WATCHER,
   );
   restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
+  restoreEnvVar('OPENAI_API_KEY', ORIGINAL_OPENAI_API_KEY);
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
   restoreEnvVar('MISTRAL_API_KEY', ORIGINAL_MISTRAL_API_KEY);
   restoreEnvVar('ANTHROPIC_API_KEY', ORIGINAL_ANTHROPIC_API_KEY);
@@ -99,6 +101,7 @@ afterEach(() => {
 test('provider factory resolves adapters by model family', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {
+    config.openai.enabled = true;
     config.openrouter.enabled = true;
     config.mistral.enabled = true;
     config.huggingface.enabled = true;
@@ -115,6 +118,7 @@ test('provider factory resolves adapters by model family', async () => {
   const factory = await importFreshFactory(homeDir);
 
   expect(factory.resolveModelProvider('gpt-5-nano')).toBe('hybridai');
+  expect(factory.resolveModelProvider('openai/gpt-5.6-sol')).toBe('openai');
   expect(factory.resolveModelProvider('openai-codex/gpt-5-codex')).toBe(
     'openai-codex',
   );
@@ -149,6 +153,7 @@ test('provider factory resolves adapters by model family', async () => {
   );
 
   expect(factory.modelRequiresChatbotId('gpt-5-nano')).toBe(true);
+  expect(factory.modelRequiresChatbotId('openai/gpt-5.6-sol')).toBe(false);
   expect(factory.modelRequiresChatbotId('openai-codex/gpt-5-codex')).toBe(
     false,
   );
@@ -328,6 +333,36 @@ test('provider factory resolves OpenRouter runtime credentials', async () => {
     agentId: 'main',
     isLocal: false,
     contextWindow: 262_144,
+  });
+});
+
+test('provider factory resolves OpenAI API runtime credentials', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openai.enabled = true;
+    config.openai.baseUrl = 'https://api.openai.com/v1/';
+  });
+  process.env.OPENAI_API_KEY = 'openai-provider-test';
+  const factory = await importFreshFactory(homeDir);
+
+  const credentials = await factory.resolveModelRuntimeCredentials({
+    model: 'openai/gpt-5.6-sol',
+    agentId: 'main',
+  });
+
+  expect(credentials).toMatchObject({
+    provider: 'openai',
+    providerMethod: 'api-key',
+    model: 'openai/gpt-5.6-sol',
+    apiKey: 'openai-provider-test',
+    baseUrl: 'https://api.openai.com/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 1_050_000,
+    maxTokens: 128_000,
   });
 });
 

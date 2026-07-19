@@ -42,6 +42,7 @@ export interface ChatMessage {
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   anthropic_content?: AnthropicContentBlock[];
+  openai_response_items?: Array<Record<string, unknown>>;
 }
 
 export interface ToolCall {
@@ -62,6 +63,7 @@ export interface ChatCompletionResponse {
       tool_calls?: ToolCall[];
       reasoning_content?: string | null;
       anthropic_content?: AnthropicContentBlock[];
+      openai_response_items?: Array<Record<string, unknown>>;
     };
     finish_reason: string;
   }>;
@@ -130,6 +132,7 @@ export interface PluginRuntimeToolDefinition {
 export interface TaskModelPolicy {
   provider?:
     | 'hybridai'
+    | 'openai'
     | 'openai-codex'
     | 'anthropic'
     | 'openrouter'
@@ -233,6 +236,7 @@ export interface ContainerInput {
   baseUrl: string;
   provider?:
     | 'hybridai'
+    | 'openai'
     | 'openai-codex'
     | 'anthropic'
     | 'openrouter'

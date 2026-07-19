@@ -2,7 +2,49 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Prompt-cache usage is now visible through the OpenAI-compatible API**: the
+  gateway parsed upstream cache reads and writes internally but dropped them
+  when building the response, so clients could not tell a cold cache from a
+  fully cached prompt. `usage` now carries `prompt_tokens_details.cached_tokens`
+  (and `cache_creation_input_tokens` when the provider reports cache writes),
+  emitted only when the provider actually reported cache usage — a missing
+  field means "not reported" while an explicit `0` means "no cache hit". The
+  tool-aware passthrough path previously hard-coded cache usage to zero and now
+  reads both OpenAI-style (`prompt_tokens_details.cached_tokens`) and
+  Anthropic-style (`cache_read_input_tokens`) spellings.
+
+  `Manifesto: Principle IX - A coworker thinks before they spend.`
+
 ### Added
+
+- **A2A end-to-end transport encryption**: Paired HybridClaw gateways exchange
+  and pin dedicated X25519 keys, encrypt message envelopes with compact JWE
+  (`ECDH-ES` and `A256GCM`), bind encrypted envelopes to Ed25519-signed
+  delegation tokens, reject per-peer plaintext downgrades, and expose an admin
+  switch that requires E2EE for every A2A trust entry.
+- **Model latency benchmark**: `scripts/benchmark-model-latency.mjs` measures
+  time-to-headers, time-to-first-token, total duration, and tokens/sec for the
+  same model across three paths — the local gateway's OpenAI-compatible API
+  (full agent turn), the HybridAI API called directly, and the model vendor
+  (Anthropic) called directly — each with streaming on and off. Request bodies
+  mirror the exact shapes HybridClaw sends, so latency deltas attribute slow
+  responses to the HybridClaw layer, the HybridAI backend, or the upstream
+  vendor. A connection preflight separates DNS/TCP/TLS handshake cost per
+  origin.
+- **Direct OpenAI API provider**: `openai/...` models use the OpenAI Responses
+  API with encrypted `OPENAI_API_KEY` storage, streaming, function calling,
+  stateless encrypted reasoning-item replay, model catalog metadata, CLI auth,
+  gateway health, and doctor diagnostics. Codex OAuth remains available under
+  the separate `openai-codex/...` provider.
+  `Manifesto: Principle IV - Model freedom without lock-in.`
+- **Codex 5.6 models**: `openai-codex/gpt-5.6-sol`, `openai-codex/gpt-5.6-terra`,
+  and `openai-codex/gpt-5.6-luna` are now recognised as forward-compatible Codex
+  models, so they are selectable as soon as the Codex account offers them
+  instead of waiting for the discovery endpoint to list them.
+
+  `Manifesto: Principle VIII - A coworker doesn't break overnight.`
 
 - **Dependency license gate**: `scripts/check-dependency-policy.mjs` now scans
   every tracked `package-lock.json` and fails on GPL, AGPL, and SSPL-family
@@ -2123,7 +2165,7 @@
   auto-captures tokens using config constants instead of raw environment
   variables.
 - **Secret CLI simplification**: Removed the `[--raw]` option from
-  `secret show` and `secret set`, streamlining the operator-facing surface.
+  `secret status` and `secret set`, streamlining the operator-facing surface.
 - **CI pipeline split**: Unit tests now run as parallel lint and test jobs
   with a shared `setup-node-workspace` composite action and PR-level
   concurrency groups that cancel stale runs.
@@ -2477,7 +2519,7 @@
   plaintext secret files.
 - **SecretRefs and named secrets**: Selected runtime config fields can now
   resolve secret-bearing values from `env` or encrypted `store` references,
-  local TUI and web sessions expose `/secret list|set|unset|show|route ...`,
+  local TUI and web sessions expose `/secret list|set|status|unset|route ...`,
   and generic named secrets can be stored without adding new top-level env
   variables.
 - **Secret-backed HTTP requests**: Added the `http_request` tool plus

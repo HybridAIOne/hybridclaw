@@ -3,42 +3,34 @@ import {
   createRoute,
   createRouter,
   Outlet,
+  redirect,
   useRouterState,
 } from '@tanstack/react-router';
 import { lazy, Suspense, useEffect } from 'react';
 import { AppShell } from './components/app-shell';
 import { resolveBrowserTitle } from './lib/browser-title';
-import { A2AInboxPage } from './routes/a2a-inbox';
-import { A2ATrustPage } from './routes/a2a-trust';
-import { AgentsPage } from './routes/agent-scoreboard';
-import { AgentFilesPage } from './routes/agents';
-import { AgentsOverviewPage } from './routes/agents-overview';
+import { ActivityPage } from './routes/activity';
+import { AgentsHubPage } from './routes/agents-hub';
 import { ApprovalsPage } from './routes/approvals';
-import { AuditPage } from './routes/audit';
+import { AutomationPage } from './routes/automation';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
 import { ConnectorsPage } from './routes/connectors';
+import { CredentialsPage } from './routes/credentials';
 import { DashboardPage } from './routes/dashboard';
 import { DistillPage } from './routes/distill';
 import { EmailPage } from './routes/email';
-import { FleetTopologyPage } from './routes/fleet-topology';
+import { ExtensionsPage } from './routes/extensions';
+import { FederationPage } from './routes/federation';
 import { GatewayPage } from './routes/gateway';
 import { HarnessEvolutionPage } from './routes/harness-evolution';
-import { JobsPage } from './routes/jobs';
 import { LogsPage } from './routes/logs';
 import { McpPage } from './routes/mcp';
 import { ModelsPage } from './routes/models';
 import { OutputGuardPage } from './routes/output-guard';
-import { PluginsPage } from './routes/plugins';
-import { SchedulerPage } from './routes/scheduler';
-import { SecretsPage } from './routes/secrets';
-import { SessionsPage } from './routes/sessions';
 import { SkillsDetailPage } from './routes/skill-detail';
 import { SkillsPage } from './routes/skills';
-import { StatisticsPage } from './routes/statistics';
 import { TeamsPage } from './routes/teams';
-import { TokensPage } from './routes/tokens';
-import { ToolsPage } from './routes/tools';
 
 const LazyTerminalPage = lazy(async () => {
   const mod = await import('./routes/terminal');
@@ -122,10 +114,16 @@ const adminLayoutRoute = createRoute({
   component: AppShellRouteComponent,
 });
 
-const agentsOverviewRoute = createRoute({
+const legacyAgentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/agents',
-  component: AgentsOverviewPage,
+  beforeLoad: () => {
+    throw redirect({
+      to: '/admin/agents',
+      search: { tab: 'scoreboard' },
+      replace: true,
+    });
+  },
 });
 
 const dashboardRoute = createRoute({
@@ -134,40 +132,110 @@ const dashboardRoute = createRoute({
   component: DashboardPage,
 });
 
-const statisticsRoute = createRoute({
+const activityRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
-  path: '/admin/statistics',
-  component: StatisticsPage,
+  path: '/admin/activity',
+  validateSearch: (search: Record<string, unknown>) => {
+    const tab = optionalStringSearchValue(search.tab);
+    const range = optionalStringSearchValue(search.range);
+    const q = optionalStringSearchValue(search.q);
+    const sessionId = optionalStringSearchValue(search.sessionId);
+    return {
+      ...(tab ? { tab } : {}),
+      ...(range ? { range } : {}),
+      ...(q ? { q } : {}),
+      ...(sessionId ? { sessionId } : {}),
+    };
+  },
+  component: ActivityPage,
 });
 
-const approvalsRoute = createRoute({
+const legacyStatisticsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
-  path: '/admin/approvals',
+  path: '/admin/statistics',
+  beforeLoad: () => {
+    throw redirect({
+      to: '/admin/activity',
+      search: { tab: 'usage' },
+      replace: true,
+    });
+  },
+});
+
+const networkPolicyRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/network-policy',
   component: ApprovalsPage,
 });
 
-const a2aInboxRoute = createRoute({
+const legacyApprovalsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/approvals',
+  beforeLoad: () => {
+    throw redirect({ to: '/admin/network-policy', replace: true });
+  },
+});
+
+const federationRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/federation',
+  validateSearch: (search: Record<string, unknown>) => {
+    const tab = optionalStringSearchValue(search.tab);
+    return tab ? { tab } : {};
+  },
+  component: FederationPage,
+});
+
+const legacyA2AInboxRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/a2a-inbox',
-  component: A2AInboxPage,
+  beforeLoad: () => {
+    throw redirect({
+      to: '/admin/federation',
+      search: { tab: 'inbox' },
+      replace: true,
+    });
+  },
 });
 
-const a2aTrustRoute = createRoute({
+const legacyA2ATrustRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/a2a-trust',
-  component: A2ATrustPage,
+  beforeLoad: () => {
+    throw redirect({
+      to: '/admin/federation',
+      search: { tab: 'peers' },
+      replace: true,
+    });
+  },
 });
 
-const agentFilesRoute = createRoute({
+const agentsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/agents',
-  component: AgentFilesPage,
+  validateSearch: (search: Record<string, unknown>) => {
+    const tab = optionalStringSearchValue(search.tab);
+    const agent = optionalStringSearchValue(search.agent);
+    const file = optionalStringSearchValue(search.file);
+    return {
+      ...(tab ? { tab } : {}),
+      ...(agent ? { agent } : {}),
+      ...(file ? { file } : {}),
+    };
+  },
+  component: AgentsHubPage,
 });
 
-const agentScoreboardRoute = createRoute({
+const legacyAgentScoreboardRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/agent-scoreboard',
-  component: AgentsPage,
+  beforeLoad: () => {
+    throw redirect({
+      to: '/admin/agents',
+      search: { tab: 'scoreboard' },
+      replace: true,
+    });
+  },
 });
 
 const terminalRoute = createRoute({
@@ -191,7 +259,13 @@ const logsRoute = createRoute({
 const fleetTopologyRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/fleet-topology',
-  component: FleetTopologyPage,
+  beforeLoad: () => {
+    throw redirect({
+      to: '/admin/federation',
+      search: { tab: 'topology' },
+      replace: true,
+    });
+  },
 });
 
 const sessionsRoute = createRoute({
@@ -200,7 +274,13 @@ const sessionsRoute = createRoute({
   validateSearch: (search: Record<string, unknown>) => ({
     sessionId: optionalStringSearchValue(search.sessionId),
   }),
-  component: SessionsPage,
+  beforeLoad: ({ search }) => {
+    throw redirect({
+      to: '/admin/activity',
+      search: { tab: 'sessions', sessionId: search.sessionId },
+      replace: true,
+    });
+  },
 });
 
 const channelsRoute = createRoute({
@@ -209,10 +289,16 @@ const channelsRoute = createRoute({
   component: ChannelsPage,
 });
 
-const teamsRoute = createRoute({
+const legacyTeamsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/teams',
-  component: TeamsPage,
+  beforeLoad: () => {
+    throw redirect({
+      to: '/admin/connectors',
+      hash: 'teams-sso',
+      replace: true,
+    });
+  },
 });
 
 const emailRoute = createRoute({
@@ -233,19 +319,45 @@ const modelsRoute = createRoute({
   component: ModelsPage,
 });
 
+const automationRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/automation',
+  validateSearch: (search: Record<string, unknown>) => {
+    const tab = optionalStringSearchValue(search.tab);
+    const jobId = optionalStringSearchValue(search.jobId);
+    return {
+      ...(tab ? { tab } : {}),
+      ...(jobId ? { jobId } : {}),
+    };
+  },
+  component: AutomationPage,
+});
+
 const schedulerRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/scheduler',
   validateSearch: (search: Record<string, unknown>) => ({
     jobId: optionalStringSearchValue(search.jobId),
   }),
-  component: SchedulerPage,
+  beforeLoad: ({ search }) => {
+    throw redirect({
+      to: '/admin/automation',
+      search: { tab: 'schedules', jobId: search.jobId },
+      replace: true,
+    });
+  },
 });
 
 const jobsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/jobs',
-  component: JobsPage,
+  beforeLoad: () => {
+    throw redirect({
+      to: '/admin/automation',
+      search: { tab: 'work-queue' },
+      replace: true,
+    });
+  },
 });
 
 const harnessEvolutionRoute = createRoute({
@@ -266,20 +378,42 @@ const mcpRoute = createRoute({
   component: McpPage,
 });
 
+function ConnectorsRouteComponent() {
+  const hash = useRouterState({
+    select: (state) => state.location.hash.replace(/^#/, ''),
+  });
+
+  return hash === 'teams-sso' ? <TeamsPage /> : <ConnectorsPage />;
+}
+
 const connectorsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/connectors',
-  component: ConnectorsPage,
+  component: ConnectorsRouteComponent,
 });
 
 const auditRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/audit',
-  validateSearch: (search: Record<string, unknown>) => ({
-    q: optionalStringSearchValue(search.q),
-    range: optionalStringSearchValue(search.range),
-  }),
-  component: AuditPage,
+  validateSearch: (search: Record<string, unknown>) => {
+    const q = optionalStringSearchValue(search.q);
+    const range = optionalStringSearchValue(search.range);
+    return {
+      ...(q ? { q } : {}),
+      ...(range ? { range } : {}),
+    };
+  },
+  beforeLoad: ({ search }) => {
+    throw redirect({
+      to: '/admin/activity',
+      search: {
+        tab: 'audit',
+        q: search.q,
+        range: search.range,
+      },
+      replace: true,
+    });
+  },
 });
 
 const skillsRoute = createRoute({
@@ -294,10 +428,26 @@ const skillDetailRoute = createRoute({
   component: SkillsDetailPage,
 });
 
+const extensionsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/extensions',
+  validateSearch: (search: Record<string, unknown>) => {
+    const tab = optionalStringSearchValue(search.tab);
+    return tab ? { tab } : {};
+  },
+  component: ExtensionsPage,
+});
+
 const pluginsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/plugins',
-  component: PluginsPage,
+  beforeLoad: () => {
+    throw redirect({
+      to: '/admin/extensions',
+      search: { tab: 'plugins' },
+      replace: true,
+    });
+  },
 });
 
 const outputGuardRoute = createRoute({
@@ -309,19 +459,47 @@ const outputGuardRoute = createRoute({
 const toolsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/tools',
-  component: ToolsPage,
+  beforeLoad: () => {
+    throw redirect({
+      to: '/admin/extensions',
+      search: { tab: 'tools' },
+      replace: true,
+    });
+  },
+});
+
+const credentialsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/credentials',
+  validateSearch: (search: Record<string, unknown>) => {
+    const tab = optionalStringSearchValue(search.tab);
+    return tab ? { tab } : {};
+  },
+  component: CredentialsPage,
 });
 
 const secretsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/secrets',
-  component: SecretsPage,
+  beforeLoad: () => {
+    throw redirect({
+      to: '/admin/credentials',
+      search: { tab: 'secrets' },
+      replace: true,
+    });
+  },
 });
 
 const tokensRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/tokens',
-  component: TokensPage,
+  beforeLoad: () => {
+    throw redirect({
+      to: '/admin/credentials',
+      search: { tab: 'api-tokens' },
+      replace: true,
+    });
+  },
 });
 
 const chatRoute = createRoute({
@@ -369,22 +547,26 @@ const appsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   adminLayoutRoute.addChildren([
     dashboardRoute,
-    statisticsRoute,
-    approvalsRoute,
-    a2aInboxRoute,
-    a2aTrustRoute,
-    agentFilesRoute,
-    agentScoreboardRoute,
+    activityRoute,
+    legacyStatisticsRoute,
+    networkPolicyRoute,
+    legacyApprovalsRoute,
+    federationRoute,
+    legacyA2AInboxRoute,
+    legacyA2ATrustRoute,
+    agentsRoute,
+    legacyAgentScoreboardRoute,
     terminalRoute,
     gatewayRoute,
     logsRoute,
     fleetTopologyRoute,
     sessionsRoute,
     channelsRoute,
-    teamsRoute,
+    legacyTeamsRoute,
     emailRoute,
     configRoute,
     modelsRoute,
+    automationRoute,
     schedulerRoute,
     jobsRoute,
     harnessEvolutionRoute,
@@ -394,13 +576,15 @@ const routeTree = rootRoute.addChildren([
     auditRoute,
     skillsRoute,
     skillDetailRoute,
+    extensionsRoute,
     pluginsRoute,
     outputGuardRoute,
     toolsRoute,
+    credentialsRoute,
     secretsRoute,
     tokensRoute,
   ]),
-  agentsOverviewRoute,
+  legacyAgentsRoute,
   chatRoute.addChildren([chatSessionRoute]),
   appsRoute,
 ]);

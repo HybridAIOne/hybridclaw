@@ -12,6 +12,11 @@ import {
 import { fetchA2AAgentCard } from '../a2a/a2a-agent-card.js';
 import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
 import {
+  deleteA2ATrustedE2EEPeer,
+  ensureA2AE2EEKeypair,
+  getA2ATrustedE2EEPeer,
+} from '../a2a/e2ee.js';
+import {
   approveIncomingA2APairingRequest,
   declineIncomingA2APairingRequest,
   fetchA2APairingProposal,
@@ -67,6 +72,7 @@ import {
   resolveAgentForRequest,
   resolveAgentModel,
   restoreRegisteredAgentTeamStructureRevision,
+  setRegisteredAgentArchived,
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
@@ -1642,6 +1648,7 @@ function mapGatewayAdminAgent(
     options?.workspacePath ?? path.resolve(agentWorkspaceDir(resolved.id));
   return {
     id: resolved.id,
+    archived: resolved.archived === true,
     name: resolved.name || null,
     emptyChatHeader: resolved.emptyChatHeader || null,
     model: resolveAgentModel(resolved) || null,
@@ -5466,11 +5473,15 @@ export function updateGatewayAdminAgent(
     delegatesTo?: string[] | null;
     peers?: string[] | null;
     workspace?: string | null;
+    archived?: boolean | null;
   },
 ): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
   const existing = getAgentById(agentId);
   if (!existing) {
     throw new Error(`Agent "${agentId}" was not found.`);
+  }
+  if (params.archived === true && agentId === DEFAULT_AGENT_ID) {
+    throw new Error('The main agent cannot be archived.');
   }
   const saved = upsertRegisteredAgent({
     ...existing,
@@ -5495,8 +5506,12 @@ export function updateGatewayAdminAgent(
     ...(params.proxy !== undefined ? { proxy: params.proxy ?? undefined } : {}),
     ...buildGatewayAdminAgentOrgChartPatch(params),
   });
+  const finalAgent =
+    typeof params.archived === 'boolean'
+      ? setRegisteredAgentArchived(agentId, params.archived)
+      : saved;
   return {
-    agent: mapGatewayAdminAgent(saved),
+    agent: mapGatewayAdminAgent(finalAgent),
   };
 }
 
@@ -5705,7 +5720,9 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
         )
         .filter((agentId): agentId is string => Boolean(agentId)),
     ]),
-  ).sort((left, right) => left.localeCompare(right));
+  )
+    .filter((agentId) => getAgentById(agentId)?.archived !== true)
+    .sort((left, right) => left.localeCompare(right));
 
   return {
     agents: agentIds.map((agentId) => {
@@ -5713,6 +5730,7 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
       return {
         id: agent.id,
         name: agent.name || null,
+        archived: agent.archived === true,
       };
     }),
     cards,
@@ -6305,6 +6323,7 @@ export function saveGatewayAdminSlackWebhookTarget(
 function mapA2ATrustPeer(
   peer: ReturnType<typeof listA2ATrustedPublicKeyPeers>[number],
 ): GatewayAdminA2ATrustPeer {
+  const e2ee = getA2ATrustedE2EEPeer(peer.peerId);
   return {
     peerId: peer.peerId,
     agentCardUrl: peer.agentCardUrl,
@@ -6320,19 +6339,33 @@ function mapA2ATrustPeer(
     revokedReason: peer.revokedReason || null,
     lastMismatchAt: peer.lastMismatchAt || null,
     lastMismatchFingerprint: peer.lastMismatchFingerprint || null,
+    e2ee: e2ee
+      ? {
+          required: true,
+          publicKeyFingerprint: e2ee.publicKeyFingerprint,
+          keyId: e2ee.keyId,
+          version: e2ee.version,
+        }
+      : null,
   };
 }
 
 export function getGatewayAdminA2ATrust(): GatewayAdminA2ATrustResponse {
   const identity = ensureA2AInstanceKeypair();
+  const e2eeIdentity = ensureA2AE2EEKeypair();
   return {
     identity: {
       instanceId: identity.instanceId,
       publicKeyFingerprint: identity.publicKeyFingerprint,
       publicKeyJwk: identity.publicKeyJwk,
+      e2eePublicKeyFingerprint: e2eeIdentity.publicKeyFingerprint,
+      e2eePublicKeyJwk: e2eeIdentity.publicKeyJwk,
     },
     localMode: {
       enabled: getRuntimeConfig().deployment.a2a_local_mode,
+    },
+    e2ee: {
+      required: getRuntimeConfig().deployment.a2a_e2ee_required,
     },
     peers: listA2ATrustedPublicKeyPeers().map(mapA2ATrustPeer),
     pairingRequests: listIncomingA2APairingRequests(),
@@ -6362,6 +6395,34 @@ export function saveGatewayAdminA2ALocalMode(params: {
       actor: params.actor || 'admin-console',
       previous,
       enabled: params.enabled,
+    },
+  });
+  return getGatewayAdminA2ATrust();
+}
+
+export function saveGatewayAdminA2AE2EERequired(params: {
+  required: boolean;
+  actor?: string;
+}): GatewayAdminA2ATrustResponse {
+  const previous = getRuntimeConfig().deployment.a2a_e2ee_required;
+  updateRuntimeConfig(
+    (draft) => {
+      draft.deployment.a2a_e2ee_required = params.required;
+    },
+    {
+      actor: params.actor,
+      route: 'api.admin.a2a.e2ee-required',
+      source: 'admin-console',
+    },
+  );
+  recordAuditEvent({
+    sessionId: 'admin:a2a-e2ee',
+    runId: makeAuditRunId('a2a-e2ee'),
+    event: {
+      type: 'a2a.e2ee_requirement_changed',
+      actor: params.actor || 'admin-console',
+      previous,
+      required: params.required,
     },
   });
   return getGatewayAdminA2ATrust();
@@ -6428,6 +6489,7 @@ export function deleteGatewayAdminA2ATrustPeer(params: {
   actor?: string;
 }): GatewayAdminA2ATrustResponse {
   deleteA2ATrustedPublicKeyPeer(params.peerId, { actor: params.actor });
+  deleteA2ATrustedE2EEPeer(params.peerId);
   return getGatewayAdminA2ATrust();
 }
 
@@ -6462,6 +6524,7 @@ function mapA2APairingStartResponse(
       agentCardUrl: result.proposal.agentCardUrl,
       deliveryUrl: result.proposal.deliveryUrl,
       publicKeyFingerprint: result.proposal.publicKeyFingerprint,
+      e2eePublicKeyFingerprint: result.proposal.e2ee.publicKeyFingerprint,
       name: result.proposal.name,
     },
     remoteNotification: result.remoteNotification,
@@ -6518,6 +6581,7 @@ export async function previewGatewayAdminA2APairing(
       deliveryUrl: proposal.deliveryUrl,
       publicKeyFingerprint: proposal.publicKeyFingerprint,
       publicKeyJwk: proposal.publicKeyJwk,
+      e2eePublicKeyFingerprint: proposal.e2ee.publicKeyFingerprint,
       name: proposal.name,
     },
   };
@@ -7256,12 +7320,13 @@ function listGatewayAdminApprovalAgents(
       id: resolved.id,
       name: resolved.name || null,
       workspacePath: path.resolve(agentWorkspaceDir(resolved.id)),
+      archived: resolved.archived === true,
     });
   }
 
-  return [...agents.values()].sort((left, right) =>
-    left.id.localeCompare(right.id),
-  );
+  return [...agents.values()]
+    .filter((agent) => !agent.archived)
+    .sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function mapGatewayAdminPolicyRule(
@@ -7359,7 +7424,10 @@ function mapGatewayAdminSuspendedSession(
 export function getGatewayAdminApprovals(params?: {
   agentId?: string;
 }): GatewayAdminApprovalsResponse {
-  const selectedAgentId = resolveAgentConfig(params?.agentId).id;
+  const requestedAgent = resolveAgentConfig(params?.agentId);
+  const selectedAgentId = requestedAgent.archived
+    ? DEFAULT_AGENT_ID
+    : requestedAgent.id;
   const pendingApprovals = listPendingApprovals();
   const suspendedSessions = listSuspendedSessions();
   const referencedSessionIds = new Set<string>();
@@ -9365,17 +9433,19 @@ let remoteAgentListCache: {
 } | null = null;
 
 function getGatewayLocalAgentListItems(): GatewayAgentListResponse['agents'] {
-  return listAgents().map((agent) => {
-    const presentation = getGatewayAssistantPresentationForAgent(agent.id);
-    return {
-      id: agent.id,
-      name: agent.name || null,
-      ...(presentation.imageUrl ? { imageUrl: presentation.imageUrl } : {}),
-      ...(agent.emptyChatHeader
-        ? { emptyChatHeader: agent.emptyChatHeader }
-        : {}),
-    };
-  });
+  return listAgents()
+    .filter((agent) => !agent.archived)
+    .map((agent) => {
+      const presentation = getGatewayAssistantPresentationForAgent(agent.id);
+      return {
+        id: agent.id,
+        name: agent.name || null,
+        ...(presentation.imageUrl ? { imageUrl: presentation.imageUrl } : {}),
+        ...(agent.emptyChatHeader
+          ? { emptyChatHeader: agent.emptyChatHeader }
+          : {}),
+      };
+    });
 }
 
 function readRemoteAgentCardString(value: unknown, property: string): string {
@@ -11835,13 +11905,13 @@ export async function handleGatewayCommand(
           if (providerFilterArg && !providerFilter) {
             return badCommand(
               'Unknown Provider',
-              'Usage: `model list [hybridai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
+              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
             );
           }
           if (listModifierArg && !expandedModelList) {
             return badCommand(
               'Usage',
-              'Usage: `model list [hybridai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
+              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
             );
           }
           if (providerFilter && gatewayStatus) {
@@ -12563,10 +12633,10 @@ export async function handleGatewayCommand(
           );
         }
 
-        if (sub === 'show' || sub === 'status') {
+        if (sub === 'status') {
           const secretName = parseIdArg(req.args, 2);
           if (!secretName) {
-            return badCommand('Usage', 'Usage: `secret show <name>`');
+            return badCommand('Usage', 'Usage: `secret status <name>`');
           }
           if (!isRuntimeSecretName(secretName)) {
             return badCommand(
@@ -12585,7 +12655,7 @@ export async function handleGatewayCommand(
 
         return badCommand(
           'Usage',
-          'Usage: `secret list`, `secret set <name> <value>`, `secret unset <name>`, `secret show <name>`, or `secret route list|add|remove ...`',
+          'Usage: `secret list`, `secret set <name> <value>`, `secret status <name>`, `secret unset <name>`, or `secret route list|add|remove ...`',
         );
       }
 

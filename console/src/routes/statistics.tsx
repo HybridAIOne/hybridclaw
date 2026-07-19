@@ -30,9 +30,12 @@ const RANGE_OPTIONS = [
   { value: 90, label: 'Last 90 days' },
 ];
 
-export function StatisticsPage() {
+export function StatisticsPage(
+  props: { days?: number; embedded?: boolean } = {},
+) {
   const auth = useAuth();
-  const [days, setDays] = useState<number>(30);
+  const [localDays, setLocalDays] = useState<number>(30);
+  const days = props.days ?? localDays;
 
   const statisticsQuery = useQuery({
     queryKey: ['statistics', auth.token, days],
@@ -53,7 +56,9 @@ export function StatisticsPage() {
       </span>
       <select
         value={days}
-        onChange={(event) => setDays(Number.parseInt(event.target.value, 10))}
+        onChange={(event) =>
+          setLocalDays(Number.parseInt(event.target.value, 10))
+        }
       >
         {RANGE_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>
@@ -67,7 +72,7 @@ export function StatisticsPage() {
   if (statisticsQuery.isLoading && !statistics) {
     return (
       <div className="page-stack">
-        <PageHeader actions={rangeSelect} />
+        <PageHeader actions={props.embedded ? undefined : rangeSelect} />
         <div className="empty-state">Loading statistics…</div>
       </div>
     );
@@ -76,7 +81,7 @@ export function StatisticsPage() {
   if (statisticsQuery.isError && !statistics) {
     return (
       <div className="page-stack">
-        <PageHeader actions={rangeSelect} />
+        <PageHeader actions={props.embedded ? undefined : rangeSelect} />
         <div className="empty-state error">
           {getErrorMessage(statisticsQuery.error)}
         </div>
@@ -87,20 +92,15 @@ export function StatisticsPage() {
   if (!statistics || !totals) {
     return (
       <div className="page-stack">
-        <PageHeader actions={rangeSelect} />
+        <PageHeader actions={props.embedded ? undefined : rangeSelect} />
         <div className="empty-state">No statistics available.</div>
       </div>
     );
   }
 
-  const rangeDescription = `${statistics.startDate} → ${statistics.endDate}`;
-
   return (
     <div className="page-stack">
-      <PageHeader
-        description={`Activity across the last ${pluralize(statistics.rangeDays, 'day')} (${rangeDescription}).`}
-        actions={rangeSelect}
-      />
+      <PageHeader actions={props.embedded ? undefined : rangeSelect} />
 
       <div className="metric-grid">
         <MetricCard

@@ -180,6 +180,24 @@ const STATIC_MODEL_METADATA: Record<string, StaticModelMetadataEntry> = {
     capabilities: coreModelCapabilities,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
+  'gpt-5.6-sol': {
+    contextWindow: 1_050_000,
+    maxTokens: 128_000,
+    capabilities: coreModelCapabilities,
+    sources: [MODEL_METADATA_SOURCES.openaiModels],
+  },
+  'gpt-5.6-terra': {
+    contextWindow: 1_050_000,
+    maxTokens: 128_000,
+    capabilities: coreModelCapabilities,
+    sources: [MODEL_METADATA_SOURCES.openaiModels],
+  },
+  'gpt-5.6-luna': {
+    contextWindow: 400_000,
+    maxTokens: 128_000,
+    capabilities: coreModelCapabilities,
+    sources: [MODEL_METADATA_SOURCES.openaiModels],
+  },
   'claude-haiku-4-5': {
     contextWindow: 200_000,
     maxTokens: 64_000,

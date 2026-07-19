@@ -1,6 +1,7 @@
 import type { JsonWebKey } from 'node:crypto';
 
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
   createSuspendedSession,
   emitInteractionNeededEvent,
@@ -27,6 +28,12 @@ import {
 } from './a2a-retry-policy.js';
 import { getA2AAuditSessionId, recordA2AMessageAudit } from './audit.js';
 import { signA2ADelegationToken } from './delegation-token.js';
+import {
+  digestA2ATransportEnvelope,
+  encryptA2AEnvelopeForPeer,
+  getA2ATrustedE2EEPeer,
+  parseA2AE2EEAdvertisement,
+} from './e2ee.js';
 import { summarizeA2AEnvelopeForAudit } from './envelope.js';
 import { resolveA2AIdentity } from './identity-resolver.js';
 import { normalizePeerDescriptor } from './peer-descriptor.js';
@@ -138,6 +145,7 @@ function resolveParentRunId(item: A2AOutboxItem): string {
 
 function authHeaders(params: {
   item: A2AOutboxItem;
+  envelope?: A2AOutboxItem['envelope'];
   audience: string;
   scope: string;
   now: Date;
@@ -158,6 +166,9 @@ function authHeaders(params: {
       jwtId: params.item.envelope.id,
       messageId: params.item.envelope.id,
       threadId: params.item.envelope.thread_id,
+      envelopeDigest: params.envelope?.encryption
+        ? digestA2ATransportEnvelope(params.envelope)
+        : undefined,
       now: params.now,
     })}`,
   };
@@ -580,7 +591,43 @@ export async function deliverA2AItem(
     return 'failed';
   }
 
-  const request = encodeA2AJsonRpcRequest(deliveryItem.envelope, card);
+  let transportEnvelope = deliveryItem.envelope;
+  try {
+    const trustedE2EEPeer = peerKey
+      ? getA2ATrustedE2EEPeer(peerKey.peerId)
+      : null;
+    const e2eeRequired =
+      getRuntimeConfig().deployment.a2a_e2ee_required ||
+      trustedE2EEPeer !== null;
+    if (e2eeRequired && !trustedE2EEPeer) {
+      throw new A2AFailFastError(
+        'A2A E2EE is required but the peer has no pinned encryption key',
+      );
+    }
+    if (trustedE2EEPeer) {
+      const advertised = parseA2AE2EEAdvertisement(
+        isRecord(card.hybridclaw) ? card.hybridclaw.e2ee : null,
+      );
+      if (
+        !advertised ||
+        advertised.publicKeyFingerprint !== trustedE2EEPeer.publicKeyFingerprint
+      ) {
+        throw new A2AFailFastError(
+          'Peer Agent Card E2EE key does not match the pinned encryption key',
+        );
+      }
+      transportEnvelope = await encryptA2AEnvelopeForPeer(
+        deliveryItem.envelope,
+        trustedE2EEPeer,
+      );
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    failA2AItem(deliveryItem, now, reason, attemptDetails(deliveryItem));
+    return 'failed';
+  }
+
+  const request = encodeA2AJsonRpcRequest(transportEnvelope, card);
   if (!isA2AAllowedHttpUrl(card.url)) {
     failA2AItem(
       deliveryItem,
@@ -599,6 +646,7 @@ export async function deliverA2AItem(
         'content-type': 'application/json',
         ...authHeaders({
           item: deliveryItem,
+          envelope: transportEnvelope,
           audience: card.url,
           scope:
             request.method === 'tasks/send'

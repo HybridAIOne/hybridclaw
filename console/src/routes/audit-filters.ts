@@ -18,6 +18,8 @@ export const TIME_RANGES = [
   { value: '1h', label: '1h' },
   { value: '24h', label: '24h' },
   { value: '7d', label: '7d' },
+  { value: '30d', label: '30d' },
+  { value: '90d', label: '90d' },
 ] as const;
 export type TimeRange = (typeof TIME_RANGES)[number]['value'];
 
@@ -27,6 +29,8 @@ const RANGE_TO_MS: Record<Exclude<TimeRange, 'all'>, number> = {
   '1h': 60 * 60 * 1000,
   '24h': 24 * 60 * 60 * 1000,
   '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+  '90d': 90 * 24 * 60 * 60 * 1000,
 };
 
 /**

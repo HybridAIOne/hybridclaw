@@ -17,9 +17,6 @@ export function resolveCurrentAdminNavItem(
   if (pathname.startsWith('/admin/skills/')) {
     return { to: '/admin/skills', label: 'Skill' };
   }
-  if (pathname === '/admin/teams') {
-    return { to: '/admin/teams', label: 'App Setup' };
-  }
 
   return ALL_NAV_ITEMS.find((item) => item.to === pathname) ?? ALL_NAV_ITEMS[0];
 }

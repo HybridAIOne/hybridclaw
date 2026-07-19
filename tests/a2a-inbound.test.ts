@@ -204,7 +204,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
       now: new Date('2030-01-01T00:00:00.000Z'),
     });
 
-    const result = inbound.acceptA2AJsonRpcInboundRequest({
+    const result = await inbound.acceptA2AJsonRpcInboundRequest({
       rawBody,
       authorization: `Bearer ${token}`,
       audience: 'http://localhost/a2a',
@@ -250,6 +250,115 @@ describe('A2A JSON-RPC inbound adapter', () => {
       (event) => event.type === 'a2a.inbound_post' && event.statusCode === 202,
     );
     expect(deliveredAudit).not.toHaveProperty('outcome');
+  });
+
+  test('decrypts signed E2EE envelopes and rejects digest or plaintext downgrades', async () => {
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
+    const { runtime, inbound, outbound } = await loadInboundTestModules();
+    const e2ee = await import('../src/a2a/e2ee.ts');
+    const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    inbound.upsertA2ATrustedA2APeer({
+      peerId: 'peer-e2ee',
+      senderAgentId: 'remote@team@peer-instance',
+      publicKeyPem: keyPair.publicKeyPem,
+    });
+    const encryptionPeer = e2ee.trustA2AE2EEPeer({
+      peerId: 'peer-instance',
+      advertisement: e2ee.getLocalA2AE2EEAdvertisement(),
+    });
+
+    const plaintext = inboundEnvelope('msg-inbound-e2ee');
+    const encrypted = await e2ee.encryptA2AEnvelopeForPeer(
+      plaintext,
+      encryptionPeer,
+    );
+    const rawBody = JSON.stringify(
+      encodeA2AJsonRpcRequest(encrypted, {
+        url: 'http://localhost/a2a',
+      }),
+    );
+    expect(rawBody).not.toContain(plaintext.content);
+    const token = outbound.signA2ADelegationToken({
+      keyPair,
+      senderAgentId: plaintext.sender_agent_id,
+      targetAgentId: plaintext.recipient_agent_id,
+      audience: 'http://localhost/a2a',
+      scope: outbound.A2A_MESSAGE_SEND_SCOPE,
+      parentRunId: 'run-remote-e2ee',
+      jwtId: plaintext.id,
+      messageId: plaintext.id,
+      threadId: plaintext.thread_id,
+      envelopeDigest: e2ee.digestA2ATransportEnvelope(encrypted),
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+
+    await expect(
+      inbound.acceptA2AJsonRpcInboundRequest({
+        rawBody,
+        authorization: `Bearer ${token}`,
+        audience: 'http://localhost/a2a',
+        now: new Date('2030-01-01T00:00:30.000Z'),
+      }),
+    ).resolves.toMatchObject({
+      statusCode: 202,
+      body: { result: { message_id: plaintext.id } },
+    });
+
+    const unsignedEnvelopeToken = outbound.signA2ADelegationToken({
+      keyPair,
+      senderAgentId: plaintext.sender_agent_id,
+      targetAgentId: plaintext.recipient_agent_id,
+      audience: 'http://localhost/a2a',
+      scope: outbound.A2A_MESSAGE_SEND_SCOPE,
+      parentRunId: 'run-remote-e2ee',
+      jwtId: 'msg-inbound-e2ee-no-digest',
+      messageId: plaintext.id,
+      threadId: plaintext.thread_id,
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    await expect(
+      inbound.acceptA2AJsonRpcInboundRequest({
+        rawBody,
+        authorization: `Bearer ${unsignedEnvelopeToken}`,
+        audience: 'http://localhost/a2a',
+        now: new Date('2030-01-01T00:00:30.000Z'),
+      }),
+    ).resolves.toMatchObject({
+      statusCode: 401,
+      body: { error: { message: 'Unauthorized' } },
+    });
+
+    const plaintextDowngrade = inboundEnvelope('msg-inbound-e2ee-plaintext');
+    const plaintextToken = outbound.signA2ADelegationToken({
+      keyPair,
+      senderAgentId: plaintextDowngrade.sender_agent_id,
+      targetAgentId: plaintextDowngrade.recipient_agent_id,
+      audience: 'http://localhost/a2a',
+      scope: outbound.A2A_MESSAGE_SEND_SCOPE,
+      parentRunId: 'run-remote-e2ee',
+      jwtId: plaintextDowngrade.id,
+      messageId: plaintextDowngrade.id,
+      threadId: plaintextDowngrade.thread_id,
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    await expect(
+      inbound.acceptA2AJsonRpcInboundRequest({
+        rawBody: JSON.stringify(
+          encodeA2AJsonRpcRequest(plaintextDowngrade, {
+            url: 'http://localhost/a2a',
+          }),
+        ),
+        authorization: `Bearer ${plaintextToken}`,
+        audience: 'http://localhost/a2a',
+        now: new Date('2030-01-01T00:00:30.000Z'),
+      }),
+    ).resolves.toMatchObject({
+      statusCode: 400,
+      body: { error: { message: 'Invalid params' } },
+    });
+    expect(runtime.inbox('main')).toHaveLength(1);
   });
 
   test('accepts an HTTP envelope from an authenticated peer and preserves idempotency', async () => {
@@ -404,7 +513,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
     });
 
     expect(
-      inbound.acceptA2AHttpEnvelopeInboundRequest({
+      await inbound.acceptA2AHttpEnvelopeInboundRequest({
         rawBody: JSON.stringify(envelope),
         authorization: `Bearer ${token}`,
         audience: 'http://localhost/a2a/envelopes',
@@ -432,7 +541,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
     });
 
     expect(
-      inbound.acceptA2AHttpEnvelopeInboundRequest({
+      await inbound.acceptA2AHttpEnvelopeInboundRequest({
         rawBody: JSON.stringify({
           id: 'msg-http-local-recipient-a2a',
           sender_agent_id: 'main@team@inst-x',
@@ -463,7 +572,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
     const { runtime, inbound } = await loadInboundTestModules();
 
     expect(
-      inbound.acceptA2AHttpEnvelopeInboundRequest({
+      await inbound.acceptA2AHttpEnvelopeInboundRequest({
         rawBody: JSON.stringify({
           id: 'msg-http-malformed-a2a',
           sender_agent_id: 'main@team@inst-x',
@@ -508,7 +617,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
       });
 
       expect(
-        inbound.acceptA2AHttpEnvelopeInboundRequest({
+        await inbound.acceptA2AHttpEnvelopeInboundRequest({
           rawBody: JSON.stringify({
             id: 'msg-http-unexpected-auth-a2a',
             sender_agent_id: 'main@team@inst-x',
@@ -566,7 +675,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
     );
 
     expect(
-      inbound.acceptA2AJsonRpcInboundRequest({
+      await inbound.acceptA2AJsonRpcInboundRequest({
         rawBody,
         authorization: null,
         audience: 'http://localhost/a2a',
@@ -610,7 +719,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
       }),
     );
 
-    const result = inbound.acceptA2AJsonRpcInboundRequest({
+    const result = await inbound.acceptA2AJsonRpcInboundRequest({
       rawBody,
       authorization: null,
       mtlsPublicKeyPem: keyPair.publicKeyPem,
@@ -689,7 +798,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
       revokedAt: new Date('2030-01-01T00:00:10.000Z'),
     });
 
-    const result = inbound.acceptA2AJsonRpcInboundRequest({
+    const result = await inbound.acceptA2AJsonRpcInboundRequest({
       rawBody,
       authorization: `Bearer ${token}`,
       audience: 'http://localhost/a2a',
@@ -752,7 +861,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
     });
 
     expect(
-      inbound.acceptA2AJsonRpcInboundRequest({
+      await inbound.acceptA2AJsonRpcInboundRequest({
         rawBody,
         authorization: `Bearer ${token}`,
         audience: 'http://localhost/a2a',
@@ -814,7 +923,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
     );
 
     expect(
-      inbound.acceptA2AJsonRpcInboundRequest({
+      await inbound.acceptA2AJsonRpcInboundRequest({
         rawBody,
         authorization: null,
         mtlsPublicKeyPem: untrustedPublicKeyPem,

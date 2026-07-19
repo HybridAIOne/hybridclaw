@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { TabbedPageActions } from '../components/tabbed-page';
 import {
   BooleanPill,
   MetricCard,
@@ -85,7 +86,7 @@ function matchesPluginFilter(plugin: AdminPlugin, needle: string): boolean {
     .includes(needle);
 }
 
-export function PluginsPage() {
+export function PluginsPage(props: { embedded?: boolean } = {}) {
   const auth = useAuth();
   const [filter, setFilter] = useState('');
   const deferredFilter = useDeferredValue(filter);
@@ -112,20 +113,24 @@ export function PluginsPage() {
     defaultDirections: PLUGIN_DEFAULT_DIRECTIONS,
   });
   const failedPlugins = plugins.filter((plugin) => plugin.status === 'failed');
+  const filterInput = (
+    <input
+      className={
+        props.embedded ? 'compact-search page-tab-search' : 'compact-search'
+      }
+      value={filter}
+      onChange={(event) => setFilter(event.target.value)}
+      placeholder="Filter plugins"
+      aria-label="Filter plugins"
+    />
+  );
 
   return (
     <div className="page-stack">
-      <PageHeader
-        description="Discovery and runtime load status for configured HybridClaw plugins."
-        actions={
-          <input
-            className="compact-search"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            placeholder="Filter plugins"
-          />
-        }
-      />
+      {props.embedded ? (
+        <TabbedPageActions>{filterInput}</TabbedPageActions>
+      ) : null}
+      <PageHeader actions={props.embedded ? undefined : filterInput} />
 
       <div className="metric-grid">
         <MetricCard

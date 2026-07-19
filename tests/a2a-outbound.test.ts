@@ -581,6 +581,51 @@ describe('A2A outbound adapter', () => {
     ).toContain('a2a.trust.granted');
   });
 
+  test('fails closed for unpaired peers when global A2A E2EE is required', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+    const peerKey = publicKeyJwk();
+    initDatabase({ quiet: true });
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.deployment.a2a_e2ee_required = true;
+    });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter());
+    runtime.sendMessage(sampleA2AEnvelope('msg-e2ee-required'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        agentCardUrl: 'https://legacy.example.com/.well-known/agent.json',
+        expectPublicKey: true,
+      },
+      transportRegistry: registry,
+    });
+    const fetchImpl = vi.fn(async () =>
+      Response.json({
+        url: 'https://legacy.example.com/a2a',
+        capabilities: [],
+        hybridclaw: {
+          instanceId: 'peer-instance',
+          publicKeyJwk: peerKey,
+        },
+      }),
+    );
+
+    await expect(a2a.processA2AOutbox({ fetchImpl })).resolves.toMatchObject({
+      processed: 1,
+      delivered: 0,
+      failed: 1,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      status: 'failed',
+      lastError:
+        'A2A E2EE is required but the peer has no pinned encryption key',
+    });
+  });
+
   test('resolves canonical A2A peer destinations through identity discovery', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');

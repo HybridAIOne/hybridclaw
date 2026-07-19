@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchAdminAgentMarkdownFile,
   fetchAdminAgentMarkdownRevision,
@@ -86,13 +86,21 @@ function formatTeamDiff(diff: AdminTeamStructureDiff): string {
 
 const REVISION_BATCH_SIZE = 10;
 
-export function AgentFilesPage() {
+export function AgentFilesPage(
+  props: {
+    selectedAgentId?: string;
+    onAgentChange?: (agentId: string) => void;
+    embedded?: boolean;
+  } = {},
+) {
+  const controlledAgentId = props.selectedAgentId;
+  const onAgentChange = props.onAgentChange;
   const auth = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
   const initialParams = new URLSearchParams(window.location.search);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
-    initialParams.get('agent'),
+    controlledAgentId || initialParams.get('agent'),
   );
   const [selectedFileName, setSelectedFileName] = useState<string | null>(
     initialParams.get('file'),
@@ -115,17 +123,32 @@ export function AgentFilesPage() {
     queryKey: ['admin-agents', auth.token],
     queryFn: () => fetchAdminAgents(auth.token),
   });
+  const selectableAgents = useMemo(
+    () => (agentsQuery.data || []).filter((agent) => !agent.archived),
+    [agentsQuery.data],
+  );
 
   const selectedAgent =
-    agentsQuery.data?.find((agent) => agent.id === selectedAgentId) ||
-    agentsQuery.data?.[0] ||
+    selectableAgents.find((agent) => agent.id === selectedAgentId) ||
+    selectableAgents[0] ||
     null;
+
+  useEffect(() => {
+    if (
+      controlledAgentId &&
+      controlledAgentId !== selectedAgentId &&
+      selectableAgents.some((agent) => agent.id === controlledAgentId)
+    ) {
+      setSelectedAgentId(controlledAgentId);
+    }
+  }, [controlledAgentId, selectableAgents, selectedAgentId]);
 
   useEffect(() => {
     if (selectedAgent && selectedAgent.id !== selectedAgentId) {
       setSelectedAgentId(selectedAgent.id);
+      onAgentChange?.(selectedAgent.id);
     }
-  }, [selectedAgent, selectedAgentId]);
+  }, [onAgentChange, selectedAgent, selectedAgentId]);
 
   useEffect(() => {
     if (!agentsQuery.data) {
@@ -366,7 +389,7 @@ export function AgentFilesPage() {
       <Card variant="muted">
         {agentsQuery.isLoading ? (
           <div className="empty-state">Loading agents...</div>
-        ) : !agentsQuery.data?.length ? (
+        ) : !selectableAgents.length ? (
           <div className="empty-state">No agents are registered yet.</div>
         ) : !selectedAgent ? (
           <div className="empty-state">Select an agent to edit its files.</div>
@@ -377,22 +400,25 @@ export function AgentFilesPage() {
         ) : (
           <div className="detail-stack">
             <div className="field-grid">
-              <Field>
-                <FieldLabel>Agent</FieldLabel>
-                <NativeSelect
-                  value={selectedAgent.id}
-                  onChange={(event) => {
-                    setSelectedAgentId(event.target.value);
-                    setSelectedRevisionId(null);
-                  }}
-                >
-                  {agentsQuery.data.map((agent) => (
-                    <NativeSelectOption key={agent.id} value={agent.id}>
-                      {agent.name || agent.id}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </Field>
+              {!props.embedded ? (
+                <Field>
+                  <FieldLabel>Agent</FieldLabel>
+                  <NativeSelect
+                    value={selectedAgent.id}
+                    onChange={(event) => {
+                      setSelectedAgentId(event.target.value);
+                      onAgentChange?.(event.target.value);
+                      setSelectedRevisionId(null);
+                    }}
+                  >
+                    {selectableAgents.map((agent) => (
+                      <NativeSelectOption key={agent.id} value={agent.id}>
+                        {agent.name || agent.id}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </Field>
+              ) : null}
 
               <Field>
                 <FieldLabel>Markdown file</FieldLabel>

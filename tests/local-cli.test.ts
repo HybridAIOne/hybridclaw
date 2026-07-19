@@ -248,7 +248,7 @@ test('help secret prints secret command usage', async () => {
   );
 });
 
-test('secret set, show, and unset manage encrypted secrets', async () => {
+test('secret set, status, and unset manage encrypted secrets', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
   const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -271,21 +271,27 @@ test('secret set, show, and unset manage encrypted secrets', async () => {
   );
 
   logSpy.mockClear();
-  await cli.main(['secret', 'show', 'SF_FULL_USERNAME']);
+  await cli.main(['secret', 'status', 'SF_FULL_USERNAME']);
   expect(logSpy.mock.calls.map(([line]) => String(line))).toEqual([
     'Name: SF_FULL_USERNAME',
     'Stored: yes',
     `Path: ${runtimeSecrets.runtimeSecretsPath()}`,
   ]);
 
-  // --raw is no longer supported; show never outputs decrypted values
+  // Extra arguments are ignored; status never outputs decrypted values.
   logSpy.mockClear();
-  await cli.main(['secret', 'show', 'SF_FULL_USERNAME', '--raw']);
+  await cli.main(['secret', 'status', 'SF_FULL_USERNAME', '--raw']);
   expect(logSpy.mock.calls.map(([line]) => String(line))).toEqual([
     'Name: SF_FULL_USERNAME',
     'Stored: yes',
     `Path: ${runtimeSecrets.runtimeSecretsPath()}`,
   ]);
+
+  await expect(
+    cli.main(['secret', 'show', 'SF_FULL_USERNAME']),
+  ).rejects.toThrow(
+    'Unknown secret subcommand. Use `hybridclaw secret list|set|status|unset|route`.',
+  );
 
   await cli.main(['secret', 'unset', 'SF_FULL_USERNAME']);
   expect(runtimeSecrets.readStoredRuntimeSecret('SF_FULL_USERNAME')).toBeNull();

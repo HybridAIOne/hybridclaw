@@ -246,6 +246,8 @@ function chunkCommands(width: number): string[] {
 
 function resolveProviderLabel(model: string): string {
   switch (detectRuntimeProviderPrefix(model)) {
+    case 'openai':
+      return 'OpenAI API';
     case 'openai-codex':
       return 'Codex';
     case 'openrouter':

@@ -31,6 +31,24 @@ export type OpenAICompatibleToolChoice =
       };
     };
 
+// Upstream usage payload. Cache fields are optional and spelled differently
+// per provider family (OpenAI-style prompt_tokens_details.cached_tokens vs
+// Anthropic-style cache_read_input_tokens), so accept both spellings rather
+// than dropping cache usage for whichever provider did not match.
+export interface OpenAICompatibleUsagePayload {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  cached_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  prompt_tokens_details?: {
+    cached_tokens?: number;
+  };
+}
+
 export interface OpenAICompatibleModelResponse {
   id: string;
   model: string;
@@ -42,13 +60,7 @@ export interface OpenAICompatibleModelResponse {
     };
     finish_reason: string;
   }>;
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-    input_tokens?: number;
-    output_tokens?: number;
-  };
+  usage?: OpenAICompatibleUsagePayload;
 }
 
 interface OpenAICompatibleModelCallParams {
@@ -665,26 +677,29 @@ export async function callOpenAICompatibleModelStream(
   };
 }
 
-export function mapOpenAICompatibleUsageToTokenStats(usage?: {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-  input_tokens?: number;
-  output_tokens?: number;
-}): TokenUsageStats | undefined {
+export function mapOpenAICompatibleUsageToTokenStats(
+  usage?: OpenAICompatibleUsagePayload,
+): TokenUsageStats | undefined {
   if (!usage) return undefined;
   const promptTokens = usage.prompt_tokens ?? usage.input_tokens ?? 0;
   const completionTokens = usage.completion_tokens ?? usage.output_tokens ?? 0;
   const totalTokens = usage.total_tokens ?? promptTokens + completionTokens;
+  const cacheReadTokens =
+    usage.prompt_tokens_details?.cached_tokens ??
+    usage.cached_tokens ??
+    usage.cache_read_input_tokens;
+  const cacheWriteTokens = usage.cache_creation_input_tokens;
+  const cacheUsageAvailable =
+    cacheReadTokens !== undefined || cacheWriteTokens !== undefined;
   return {
     modelCalls: 1,
     apiUsageAvailable: true,
     apiPromptTokens: promptTokens,
     apiCompletionTokens: completionTokens,
     apiTotalTokens: totalTokens,
-    apiCacheUsageAvailable: false,
-    apiCacheReadTokens: 0,
-    apiCacheWriteTokens: 0,
+    apiCacheUsageAvailable: cacheUsageAvailable,
+    apiCacheReadTokens: cacheReadTokens ?? 0,
+    apiCacheWriteTokens: cacheWriteTokens ?? 0,
     estimatedPromptTokens: promptTokens,
     estimatedCompletionTokens: completionTokens,
     estimatedTotalTokens: totalTokens,

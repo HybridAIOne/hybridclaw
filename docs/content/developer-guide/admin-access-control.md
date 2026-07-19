@@ -16,7 +16,7 @@ HybridClaw admin access has two compatibility modes:
   includes `actions`, `scope`, `role`, or `roles` claims.
 
 Scoped gateway API tokens use the same action and role vocabulary. Operators
-can create them from `hybridclaw token create` or `/admin/tokens`; HybridClaw
+can create them from `hybridclaw token create` or `/admin/credentials?tab=api-tokens`; HybridClaw
 shows the token value only once, stores a salted verifier, and keeps later
 lists metadata-only.
 

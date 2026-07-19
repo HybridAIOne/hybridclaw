@@ -14,6 +14,7 @@ import {
   getAgentById as dbGetAgentById,
   listAgents as dbListAgents,
   replaceAgentOrgChart as dbReplaceAgentOrgChart,
+  setAgentArchived as dbSetAgentArchived,
   upsertAgentsWithTeamRevision as dbUpsertAgentsWithTeamRevision,
   upsertAgentWithTeamRevision as dbUpsertAgentWithTeamRevision,
   isDatabaseInitialized,
@@ -281,6 +282,7 @@ function fingerprintBudget(budget: AgentConfig['budget']): string {
 function fingerprintAgent(agent: AgentConfig): string {
   return [
     fingerprintString(agent.id),
+    agent.archived ? 'archived' : 'active',
     fingerprintString(agent.canonicalId),
     fingerprintString(agent.ownerUserId),
     fingerprintString(agent.name),
@@ -391,6 +393,7 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
       });
   return {
     id: agent.id,
+    ...(agent.archived ? { archived: true } : {}),
     ...identity,
     ...(agent.name ? { name: agent.name } : {}),
     ...buildOptionalAgentPresentation(
@@ -820,6 +823,28 @@ export function deleteRegisteredAgent(agentId: string): boolean {
   registryInitialized = true;
   registryDbBacked = true;
   return deleted;
+}
+
+export function setRegisteredAgentArchived(
+  agentId: string,
+  archived: boolean,
+): AgentConfig {
+  const normalizedId = normalizeString(agentId);
+  if (!normalizedId) {
+    throw new Error('Agent id is required.');
+  }
+  if (!isDatabaseInitialized()) {
+    throw new Error('Database is not initialized.');
+  }
+  ensureRegistryCurrent();
+  const saved = dbSetAgentArchived(normalizedId, archived);
+  if (!saved) {
+    throw new Error(`Agent "${normalizedId}" was not found.`);
+  }
+  rebuildRegistryFromDatabase({ validate: false });
+  registryInitialized = true;
+  registryDbBacked = true;
+  return resolveAgentConfig(normalizedId);
 }
 
 export function listRegisteredAgentTeamStructureRevisions(): AgentTeamStructureRevisionSummary[] {

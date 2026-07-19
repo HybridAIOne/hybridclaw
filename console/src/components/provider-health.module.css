@@ -66,10 +66,10 @@
 }
 
 .rowTop {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
 }
 
 .nameGroup {
@@ -94,6 +94,10 @@
   background: #f59e0b;
   box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.15);
   animation: pulse 2s ease-in-out infinite;
+}
+.dotCatalog {
+  background: #64748b;
+  box-shadow: 0 0 0 2px rgba(100, 116, 139, 0.15);
 }
 .dotDown {
   background: #ef4444;
@@ -142,15 +146,20 @@
 .meta {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 .detail {
+  min-width: 0;
+  flex: 1 1 auto;
   font-size: 11px;
   color: #6b7280;
   font-family: "SFMono-Regular", "JetBrains Mono", "Fira Code", monospace;
-  white-space: nowrap;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .modelCount {
@@ -160,30 +169,31 @@
   font-variant-numeric: tabular-nums;
 }
 
-.loginBtn {
-  font-size: 11.5px;
-  font-weight: 500;
-  padding: 3px 9px;
-  border-radius: 5px;
-  border: 1px solid rgba(217, 119, 6, 0.45);
-  background: rgba(255, 251, 235, 0.9);
-  color: #92400e;
-  cursor: pointer;
-  white-space: nowrap;
-  line-height: 1.5;
-  transition:
-    background 0.1s ease,
-    border-color 0.1s ease;
+.statusLabel {
   flex-shrink: 0;
+  font-size: 10px;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
 }
 
-.loginBtn:hover {
-  background: #fef3c7;
-  border-color: #d97706;
-}
+@media (max-width: 720px) {
+  .rowTop {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
 
-.loginBtn:active {
-  background: #fde68a;
+  .meta {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    padding-left: 12px;
+  }
+
+  .detail {
+    flex-basis: 100%;
+    text-align: left;
+  }
 }
 
 .inactiveFooter {
@@ -280,15 +290,8 @@
   color: #4b5563;
 }
 
-:global(html[data-theme="dark"]) .loginBtn {
-  background: rgba(245, 158, 11, 0.09);
-  border-color: rgba(245, 158, 11, 0.3);
-  color: #fbbf24;
-}
-
-:global(html[data-theme="dark"]) .loginBtn:hover {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.5);
+:global(html[data-theme="dark"]) .statusLabel {
+  color: #6b7280;
 }
 
 :global(html[data-theme="dark"]) .inactiveFooter {

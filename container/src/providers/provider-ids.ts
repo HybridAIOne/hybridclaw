@@ -1,5 +1,6 @@
 export const RUNTIME_PROVIDER_IDS = [
   'hybridai',
+  'openai',
   'openai-codex',
   'anthropic',
   'openrouter',
@@ -43,6 +44,7 @@ export type OpenAICompatRuntimeProvider =
   (typeof OPENAI_COMPAT_RUNTIME_PROVIDER_IDS)[number];
 
 const RUNTIME_PROVIDER_MODEL_PREFIXES: Array<[RuntimeProvider, string]> = [
+  ['openai', 'openai/'],
   ['openai-codex', 'openai-codex/'],
   ['anthropic', 'anthropic/'],
   ['openrouter', 'openrouter/'],

@@ -49,6 +49,7 @@ export interface A2ADelegationTokenClaims {
   // Observability only; integrity is bound by jti, sender, target, audience, and scope.
   message_id?: string;
   thread_id?: string;
+  envelope_sha256?: string;
 }
 
 export interface SignA2ADelegationTokenInput {
@@ -60,6 +61,7 @@ export interface SignA2ADelegationTokenInput {
   jwtId: string;
   messageId?: string;
   threadId?: string;
+  envelopeDigest?: string;
   now?: Date;
   expiresInSeconds?: number;
   keyPair?: A2ADelegationTokenKeyPair;
@@ -72,6 +74,7 @@ export interface VerifyA2ADelegationTokenInput {
   requiredScope?: string | string[];
   senderAgentId?: string;
   targetAgentId?: string;
+  envelopeDigest?: string;
   now?: Date;
   revocationRootDir?: string;
 }
@@ -158,6 +161,16 @@ function normalizeAgentIdForToken(agentId: string): string {
   if (isCanonicalAgentIdentity(normalized)) return normalized.toLowerCase();
   // Local ids are resolved to canonical ids so tokens stay portable across instances.
   return resolveA2AAgentId(normalized);
+}
+
+function normalizeEnvelopeDigest(value: string): string {
+  const normalized = value.trim();
+  if (!/^[A-Za-z0-9_-]{43}$/.test(normalized)) {
+    throw new A2ADelegationTokenError(
+      'envelopeDigest must be a sha256 base64url digest',
+    );
+  }
+  return normalized;
 }
 
 function privateKeyObject(privateKeyPem: string): KeyObject {
@@ -364,6 +377,12 @@ function parseClaims(payload: unknown): A2ADelegationTokenClaims {
     ...(typeof payload.thread_id === 'string' && payload.thread_id.trim()
       ? { thread_id: payload.thread_id.trim() }
       : {}),
+    ...(typeof payload.envelope_sha256 === 'string' &&
+    payload.envelope_sha256.trim()
+      ? {
+          envelope_sha256: normalizeEnvelopeDigest(payload.envelope_sha256),
+        }
+      : {}),
   };
   if (claims.sub !== claims.sender_agent_id) {
     throw new A2ADelegationTokenError('JWT sub must match sender_agent_id');
@@ -405,6 +424,9 @@ export function signA2ADelegationToken(
       : {}),
     ...(input.threadId
       ? { thread_id: normalizeTokenString(input.threadId, 'threadId') }
+      : {}),
+    ...(input.envelopeDigest
+      ? { envelope_sha256: normalizeEnvelopeDigest(input.envelopeDigest) }
       : {}),
   };
   const header = base64UrlJson({
@@ -619,6 +641,12 @@ export function verifyA2ADelegationToken(
     claims.target_agent_id !== normalizeAgentIdForToken(input.targetAgentId)
   ) {
     throw new A2ADelegationTokenError('JWT target does not match');
+  }
+  if (
+    input.envelopeDigest &&
+    claims.envelope_sha256 !== normalizeEnvelopeDigest(input.envelopeDigest)
+  ) {
+    throw new A2ADelegationTokenError('JWT envelope digest does not match');
   }
   if (
     isA2ADelegationTokenRevoked(claims.jti, {

@@ -519,7 +519,9 @@ describe('ChannelsPage', () => {
       .closest('details') as HTMLDetailsElement | null;
     expect(advancedSettings?.open).toBe(false);
     const appSetupLink = screen.getByRole('link', { name: 'App Setup' });
-    expect(appSetupLink.getAttribute('href')).toBe('/admin/teams');
+    expect(appSetupLink.getAttribute('href')).toBe(
+      '/admin/connectors#teams-sso',
+    );
     const setupInstructions = screen
       .getByText('Teams app setup instructions')
       .closest('details') as HTMLDetailsElement | null;

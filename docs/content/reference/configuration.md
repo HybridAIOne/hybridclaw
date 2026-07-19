@@ -145,6 +145,9 @@ saved revision history directly.
   standard HybridClaw tool loop or `app-server` for the native Codex app-server
   turn loop on `openai-codex/*` models. `codex.runtime` is accepted as a
   compatibility alias; new config should use `codex.turnRuntime`.
+- `openai.enabled`, `openai.baseUrl`, and `openai.models` configure the direct
+  OpenAI Responses API provider. Store its API key as `OPENAI_API_KEY` in the
+  encrypted runtime secret store and select models with the `openai/` prefix.
 - `HYBRIDAI_FALLBACK_CHAIN` accepts a JSON array of fallback entries with
   `model`, optional `baseUrl`, `keyEnv`, `chatbotId`, and `agentId`. Gateway
   model calls use the chain for auth and rate-limit failures, then cool down
@@ -249,17 +252,20 @@ saved revision history directly.
   in the encrypted runtime secret store or use a SecretRef-backed
   `voice.twilio.authToken`
 - `deployment.mode`, `deployment.public_url`, `deployment.a2a_local_mode`,
-  `deployment.tunnel.provider`, and
+  `deployment.a2a_e2ee_required`, `deployment.tunnel.provider`, and
   `deployment.tunnel.health_check_interval_ms` declare whether the gateway runs
   behind a cloud URL or a local tunnel; cloud mode requires
   `deployment.public_url`, while local mode requires a tunnel provider such as
   `manual`, `ssh`, `ngrok`, `cloudflare`, or `tailscale`. Use the dedicated
   tunnel settings page in `/admin` to select a provider, validate and save its
   public URL, start or stop managed providers, reconnect, and inspect health or
-  provider errors. Enable `deployment.a2a_local_mode` from `/admin/a2a-trust`
+  provider errors. Enable `deployment.a2a_local_mode` from `/admin/federation?tab=peers`
   to keep loopback and authenticated admin management available while exposing
   A2A and blocking external chat, APIs, webhooks, channel runtimes, and channel
-  delivery.
+  delivery. Enable `deployment.a2a_e2ee_required` on the same page to reject
+  plaintext from every A2A peer; paired HybridClaw peers already require their
+  pinned X25519/JWE encryption independently of this global interoperability
+  switch.
 - `HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE` enables DNS-style canonical identity discovery for A2A cross-instance delivery; outbound A2A resolves canonical recipients in this order: local canonical agents from `deployment.public_url` or the active tunnel URL, trusted peer instances from the A2A public-key trust ledger, then DNS-style discovery.
 - DNS-style A2A identity discovery trusts the returned URL and public key as operator-provided discovery data; use DNSSEC or out-of-band verification for production peers before relying on first-seen DNS records.
 - The built-in ngrok tunnel provider reads `NGROK_AUTHTOKEN` from the encrypted runtime secret store and health-checks active tunnels every 30 seconds by default
@@ -443,7 +449,7 @@ Local TUI/web sessions and the local CLI manage this store through:
 ```bash
 hybridclaw secret list
 hybridclaw secret set <NAME> <VALUE>
-hybridclaw secret show <NAME>
+hybridclaw secret status <NAME>
 hybridclaw secret unset <NAME>
 hybridclaw secret route list
 hybridclaw secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]
@@ -453,7 +459,7 @@ hybridclaw secret route remove <url-prefix> [header]
 ```text
 /secret list
 /secret set <NAME> <VALUE>
-/secret show <NAME>
+/secret status <NAME>
 /secret unset <NAME>
 /secret route list
 /secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth> [header] [prefix|none]

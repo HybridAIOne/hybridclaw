@@ -304,7 +304,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     description: 'Add a scheduled task',
   },
   secret: {
-    command: '/secret [list|set|show|unset|route]',
+    command: '/secret [list|set|status|unset|route]',
     description: 'Manage stored secrets and URL auth routes',
   },
   voice: {
@@ -1699,6 +1699,12 @@ function buildSlashCommandCatalogDefinitions(
           description: 'Store an encrypted named secret',
         },
         {
+          id: 'secret.status',
+          label: '/secret status <name>',
+          insertText: '/secret status ',
+          description: 'Report whether an encrypted named secret is stored',
+        },
+        {
           id: 'secret.route.add',
           label:
             '/secret route add <url-prefix> <secret-name|google-oauth|microsoft-oauth>',
@@ -1715,8 +1721,8 @@ function buildSlashCommandCatalogDefinitions(
           choices: [
             { name: 'list', value: 'list' },
             { name: 'set', value: 'set' },
+            { name: 'status', value: 'status' },
             { name: 'unset', value: 'unset' },
-            { name: 'show', value: 'show' },
             { name: 'route', value: 'route' },
           ],
         },
@@ -3220,7 +3226,7 @@ export function parseCanonicalSlashCommandArgs(
       const value = normalizeStringOption(interaction, 'value');
       if (!action && !name && !value) return ['secret'];
       if (action === 'list' && !name && !value) return ['secret', 'list'];
-      if ((action === 'unset' || action === 'show') && name && !value) {
+      if ((action === 'unset' || action === 'status') && name && !value) {
         return ['secret', action, name];
       }
       if (action === 'set' && name && value) {

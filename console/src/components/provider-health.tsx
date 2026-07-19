@@ -7,7 +7,7 @@ const LOCAL_PROVIDER_NAMES = new Set([
   'vllm',
 ]);
 
-type HealthStatus = 'healthy' | 'warning' | 'inactive' | 'down';
+type HealthStatus = 'healthy' | 'warning' | 'catalog' | 'inactive' | 'down';
 
 export interface ProviderEntry {
   kind?: 'local' | 'remote';
@@ -17,9 +17,11 @@ export interface ProviderEntry {
   modelCount?: number;
   detail?: string;
   loginRequired?: boolean;
+  catalogOnly?: boolean;
 }
 
 function resolveStatus(name: string, provider: ProviderEntry): HealthStatus {
+  if (provider.catalogOnly) return 'catalog';
   if (provider.loginRequired) return 'warning';
   if (!provider.reachable) {
     const isLocal = provider.kind === 'local' || LOCAL_PROVIDER_NAMES.has(name);
@@ -35,6 +37,7 @@ function isLocalProvider(name: string, provider: ProviderEntry): boolean {
 const DOT_CLASS: Record<HealthStatus, string> = {
   healthy: styles.dotHealthy,
   warning: styles.dotWarning,
+  catalog: styles.dotCatalog,
   down: styles.dotDown,
   inactive: styles.dotInactive,
 };
@@ -42,10 +45,9 @@ const DOT_CLASS: Record<HealthStatus, string> = {
 interface ProviderRowProps {
   name: string;
   provider: ProviderEntry;
-  onLogin: () => void;
 }
 
-function ProviderRow({ name, provider, onLogin }: ProviderRowProps) {
+function ProviderRow({ name, provider }: ProviderRowProps) {
   const status = resolveStatus(name, provider);
   const isLocal = isLocalProvider(name, provider);
   const modelCount = provider.modelCount ?? 0;
@@ -68,7 +70,10 @@ function ProviderRow({ name, provider, onLogin }: ProviderRowProps) {
     <div className={rowClass}>
       <div className={styles.rowTop}>
         <div className={styles.nameGroup}>
-          <span className={`${styles.dot} ${DOT_CLASS[status]}`} />
+          <span
+            className={`${styles.dot} ${DOT_CLASS[status]}`}
+            aria-hidden="true"
+          />
           <span className={styles.name}>{name}</span>
           <span
             className={`${styles.badge} ${isLocal ? styles.badgeLocal : styles.badgeRemote}`}
@@ -77,32 +82,25 @@ function ProviderRow({ name, provider, onLogin }: ProviderRowProps) {
           </span>
         </div>
         <div className={styles.meta}>
-          <span className={styles.detail}>{detail}</span>
+          <span className={styles.detail} title={detail}>
+            {detail}
+          </span>
           <span className={styles.modelCount}>
             {modelCount} {modelCount === 1 ? 'model' : 'models'}
           </span>
-          {provider.loginRequired && (
-            <button type="button" className={styles.loginBtn} onClick={onLogin}>
-              Log in →
-            </button>
-          )}
+          <span className={styles.statusLabel}>{status}</span>
         </div>
       </div>
     </div>
   );
 }
 
-interface ProviderHealthPanelProps {
+export interface ProviderHealthProps {
   title: string;
   entries: Array<[string, ProviderEntry]>;
-  onLogin: () => void;
 }
 
-export function ProviderHealthPanel({
-  title,
-  entries,
-  onLogin,
-}: ProviderHealthPanelProps) {
+export function ProviderHealth({ title, entries }: ProviderHealthProps) {
   // Split into active (visible rows) and inactive (collapsed footer)
   const activeEntries = entries.filter(([name, p]) => {
     const status = resolveStatus(name, p);
@@ -113,7 +111,6 @@ export function ProviderHealthPanel({
     const status = resolveStatus(name, p);
     return status === 'inactive';
   });
-
   return (
     <section className={styles.panel}>
       <div className={styles.panelHeader}>
@@ -125,12 +122,7 @@ export function ProviderHealthPanel({
       ) : (
         <>
           {activeEntries.map(([name, provider]) => (
-            <ProviderRow
-              key={name}
-              name={name}
-              provider={provider}
-              onLogin={onLogin}
-            />
+            <ProviderRow key={name} name={name} provider={provider} />
           ))}
           {inactiveEntries.length > 0 && (
             <div className={styles.inactiveFooter}>
@@ -148,5 +140,3 @@ export function ProviderHealthPanel({
     </section>
   );
 }
-
-export { ProviderRow as ProviderHealthRow };

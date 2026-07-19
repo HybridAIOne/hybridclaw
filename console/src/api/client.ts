@@ -420,6 +420,17 @@ export function saveA2ALocalMode(
   });
 }
 
+export function saveA2AE2EERequired(
+  token: string,
+  required: boolean,
+): Promise<AdminA2ATrustResponse> {
+  return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/e2ee-required', {
+    token,
+    method: 'PUT',
+    body: { required },
+  });
+}
+
 export function fetchFleetTopology(
   token: string,
 ): Promise<AdminFleetTopologyResponse> {
@@ -795,6 +806,7 @@ export async function updateAdminAgent(
   agentId: string,
   payload: {
     proxy?: AdminAgentProxyConfig | null;
+    archived?: boolean;
   },
 ): Promise<AdminAgent> {
   const response = await requestJson<{ agent: AdminAgent }>(
