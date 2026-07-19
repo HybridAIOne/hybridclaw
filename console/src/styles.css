@@ -239,6 +239,13 @@ code {
   white-space: nowrap;
 }
 
+.topbar-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .view-switch {
   display: inline-flex;
   align-items: center;

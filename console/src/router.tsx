@@ -310,6 +310,14 @@ const emailRoute = createRoute({
 const configRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/config',
+  validateSearch: (search: Record<string, unknown>) => {
+    const section = optionalStringSearchValue(search.section);
+    const q = optionalStringSearchValue(search.q);
+    return {
+      ...(section ? { section } : {}),
+      ...(q ? { q } : {}),
+    };
+  },
   component: ConfigPage,
 });
 

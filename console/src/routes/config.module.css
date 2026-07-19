@@ -1,19 +1,14 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
   width: 100%;
   min-width: 0;
 }
 
-.content {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
-  gap: 16px;
-}
-
 .path {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
   word-break: break-all;
 }
@@ -21,84 +16,150 @@
 .statusInline {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.8125rem;
   color: var(--muted-foreground);
+  font-size: 0.8125rem;
   white-space: nowrap;
 }
 
 .statusInline::before {
   content: "·";
-  margin: 0 6px;
-  color: var(--muted-foreground);
+  margin: 0 8px;
 }
 
-.statusDot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--primary);
-  flex-shrink: 0;
+.settingsSearch {
+  width: min(280px, 30vw);
 }
 
-.formNote {
-  margin: -8px 0 0;
-  padding: 10px 14px;
-  border-radius: var(--radius-sm, 8px);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+.settingsLayout {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  align-items: start;
+  gap: 18px;
+  min-width: 0;
+}
+
+.sectionRail {
+  position: sticky;
+  top: 20px;
+  display: grid;
+  max-height: calc(100vh - 180px);
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--chip-surface);
+}
+
+.sectionRail button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
   color: var(--muted-foreground);
+  font: inherit;
   font-size: 0.875rem;
-  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
 }
 
-.formNote strong {
-  color: var(--text);
-  font-weight: 600;
+.sectionRail button:hover,
+.sectionRail button.sectionRailActive {
+  background: var(--panel-muted);
+  color: var(--foreground);
 }
 
-.sectionDescription {
-  margin-top: -10px;
-  margin-bottom: 18px;
+.sectionRail button.sectionRailActive {
+  font-weight: 650;
+}
+
+.sectionRail small {
+  color: var(--muted-foreground);
+}
+
+.sectionContent {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
 }
 
 .sectionCard {
   min-width: 0;
-  width: 100%;
 }
 
-.jsonField {
-  grid-column: 1 / -1;
+.settingFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 22px;
 }
 
-.poolStatusPending {
-  margin: 0;
-  font-style: italic;
+.settingField {
+  min-width: 0;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
 }
 
-.jsonEditor {
-  min-height: min(calc(100vh - 260px), 720px);
+.settingField:nth-child(-n + 2) {
+  border-top: 0;
+}
+
+.inlineJsonEditor {
+  min-height: 112px;
   resize: vertical;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8125rem;
 }
 
-.navigationList {
-  display: grid;
-  gap: var(--radius-sm);
+.sectionOwner {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 6px;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
 }
 
-.navigationRow {
+.sectionOwner a,
+.ownedSetting a {
+  flex: none;
+  color: var(--primary);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.ownedSetting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.ownedSetting > div {
   display: grid;
-  grid-template-columns:
-    minmax(120px, 0.45fr) minmax(180px, 1fr) minmax(150px, 0.75fr)
-    auto;
-  gap: var(--radius-sm);
-  align-items: start;
+  gap: 3px;
   min-width: 0;
 }
 
-.navigationControl {
-  gap: calc(var(--radius-sm) / 2);
+.ownedSetting span {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .unavailable {
@@ -106,25 +167,43 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 12px;
-  padding: 24px;
   max-width: 480px;
   margin: 24px auto;
-  border-radius: var(--radius-sm, 8px);
+  padding: 24px;
   border: 1px solid var(--line);
+  border-radius: 10px;
   background: var(--panel-bg);
   color: var(--muted-foreground);
 }
 
 @media (max-width: 1080px) {
-  .content {
+  .settingsLayout {
     grid-template-columns: 1fr;
   }
 
-  .navigationRow {
+  .sectionRail {
+    position: static;
+    display: flex;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .sectionRail button {
+    flex: none;
+  }
+}
+
+@media (max-width: 780px) {
+  .settingsSearch {
+    width: min(220px, 42vw);
+  }
+
+  .settingFields {
     grid-template-columns: 1fr;
   }
 
-  .navigationRow button {
-    justify-self: end;
+  .settingField:nth-child(2) {
+    border-top: 1px solid var(--line);
   }
 }

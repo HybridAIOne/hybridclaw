@@ -1,0 +1,85 @@
+.configuration {
+  display: grid;
+  gap: 16px;
+}
+
+.configurationHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.configurationHeader h2 {
+  margin: 0;
+}
+
+.configurationHeader h2 {
+  font-size: 1.05rem;
+}
+
+.providerGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.providerCard {
+  min-width: 0;
+}
+
+.providerCard [data-slot="card-header"] {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.providerFields {
+  display: grid;
+  gap: 14px;
+}
+
+.statusHealthy,
+.statusMuted {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.statusHealthy {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+}
+
+.statusMuted {
+  background: var(--panel-muted);
+  color: var(--muted-foreground);
+}
+
+.credentialsLink {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.credentialsLink a {
+  color: var(--primary);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+@media (max-width: 980px) {
+  .providerGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .configurationHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
