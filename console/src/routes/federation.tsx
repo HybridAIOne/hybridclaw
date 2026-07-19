@@ -37,7 +37,6 @@ export function FederationPage() {
     <TabbedPage
       tabs={FEDERATION_TABS}
       activeTab={activeTab}
-      description="Manage trusted peers, inspect reachability, and review A2A conversations."
       actions={
         <button
           className="primary-button"

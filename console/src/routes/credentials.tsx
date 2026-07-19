@@ -27,7 +27,6 @@ export function CredentialsPage() {
     <TabbedPage
       tabs={CREDENTIAL_TABS}
       activeTab={activeTab}
-      description="Manage stored secrets and scoped API access in one place."
       onTabChange={(tab) => {
         void navigate({
           to: '/admin/credentials',

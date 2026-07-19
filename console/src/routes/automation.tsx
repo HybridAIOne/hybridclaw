@@ -36,7 +36,6 @@ export function AutomationPage() {
     <TabbedPage
       tabs={AUTOMATION_TABS}
       activeTab={activeTab}
-      description="Track work from intake through completion and manage the schedules that create it."
       actions={
         <button
           className="primary-button"

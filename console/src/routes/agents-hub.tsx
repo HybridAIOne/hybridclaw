@@ -114,7 +114,6 @@ export function AgentsHubPage() {
       <TabbedPage
         tabs={AGENT_TABS}
         activeTab={activeTab}
-        description="Review agent performance and maintain each agent's workspace files."
         actions={
           <div className="header-actions">
             <label className="header-actions">

@@ -57,7 +57,6 @@ export function ActivityPage() {
     <TabbedPage
       tabs={ACTIVITY_TABS}
       activeTab={activeTab}
-      description="Usage, sessions, and audit events share one linkable time window."
       actions={
         <label className="header-actions">
           <span className="supporting-text">Range</span>

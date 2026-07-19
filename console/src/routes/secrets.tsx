@@ -115,7 +115,6 @@ export function SecretsPage(props: { embedded?: boolean } = {}) {
   if (query.isPending) {
     return (
       <div className="page-stack">
-        <PageHeader description="Runtime secret store" />
         <div className="empty-state">Loading the runtime secret store…</div>
       </div>
     );
@@ -126,7 +125,6 @@ export function SecretsPage(props: { embedded?: boolean } = {}) {
       query.error instanceof HttpResponseError && query.error.status === 403;
     return (
       <div className="page-stack">
-        <PageHeader description="Runtime secret store" />
         <div className="empty-state">
           {forbidden
             ? 'You do not have permission to view secret metadata.'
@@ -156,10 +154,7 @@ export function SecretsPage(props: { embedded?: boolean } = {}) {
       {props.embedded ? (
         <TabbedPageActions>{filterInput}</TabbedPageActions>
       ) : null}
-      <PageHeader
-        description="Runtime credential store. Values are write-only — set or rotate them here; they are never read back to the browser."
-        actions={props.embedded ? undefined : filterInput}
-      />
+      <PageHeader actions={props.embedded ? undefined : filterInput} />
 
       <section className={styles.section} aria-label="Set">
         <div className={styles.sectionHead}>

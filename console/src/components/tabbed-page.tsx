@@ -18,7 +18,6 @@ export function TabbedPage<TabId extends string>(props: {
   tabs: ReadonlyArray<PageTab<TabId>>;
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
-  description?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
 }) {
@@ -32,7 +31,7 @@ export function TabbedPage<TabId extends string>(props: {
   return (
     <TabBarActionsContext.Provider value={tabBarActionsElement}>
       <div className="page-stack tabbed-page">
-        <PageHeader description={props.description} actions={props.actions} />
+        <PageHeader actions={props.actions} />
         <div className="page-tabs">
           <div
             className="page-tab-list"

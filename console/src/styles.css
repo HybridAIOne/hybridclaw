@@ -340,6 +340,7 @@ code {
 .page-tabs {
   display: flex;
   align-items: center;
+  min-height: 46px;
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--line);
@@ -366,6 +367,7 @@ code {
 }
 
 .page-tab {
+  height: 36px;
   min-height: 36px;
   padding: 7px 14px;
   border: 0;
@@ -393,6 +395,13 @@ code {
   background: var(--accent-soft);
   color: var(--accent-foreground);
   box-shadow: var(--shadow-raised);
+}
+
+.page-tab-actions input,
+.page-tab-actions select,
+.page-tab-actions button {
+  height: 36px;
+  min-height: 36px;
 }
 
 .page-tab-panel {

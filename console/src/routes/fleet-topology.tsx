@@ -63,14 +63,7 @@ export function FleetTopologyPage(props: { embedded?: boolean } = {}) {
       {props.embedded ? (
         <TabbedPageActions>{refreshButton}</TabbedPageActions>
       ) : null}
-      <PageHeader
-        description={
-          props.embedded
-            ? 'Live reachability over the same peer records managed on Peers & trust.'
-            : undefined
-        }
-        actions={props.embedded ? undefined : refreshButton}
-      />
+      <PageHeader actions={props.embedded ? undefined : refreshButton} />
 
       <Card>
         <CardHeader>

@@ -371,7 +371,6 @@ export function TokensPage(props: { embedded?: boolean } = {}) {
   if (query.isPending) {
     return (
       <div className="page-stack">
-        <PageHeader description="Scoped API tokens" />
         <div className="empty-state">Loading API tokens...</div>
       </div>
     );
@@ -382,7 +381,6 @@ export function TokensPage(props: { embedded?: boolean } = {}) {
       query.error instanceof HttpResponseError && query.error.status === 403;
     return (
       <div className="page-stack">
-        <PageHeader description="Scoped API tokens" />
         <div className="empty-state">
           {forbidden
             ? 'You do not have permission to view API tokens.'
@@ -416,10 +414,7 @@ export function TokensPage(props: { embedded?: boolean } = {}) {
   return (
     <div className="page-stack">
       {props.embedded ? <TabbedPageActions>{actions}</TabbedPageActions> : null}
-      <PageHeader
-        description="Revocable bearer tokens with scoped RBAC claims."
-        actions={props.embedded ? undefined : actions}
-      />
+      <PageHeader actions={props.embedded ? undefined : actions} />
 
       {view.length === 0 ? (
         <div className="empty-state">

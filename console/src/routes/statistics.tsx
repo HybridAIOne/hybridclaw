@@ -98,14 +98,9 @@ export function StatisticsPage(
     );
   }
 
-  const rangeDescription = `${statistics.startDate} → ${statistics.endDate}`;
-
   return (
     <div className="page-stack">
-      <PageHeader
-        description={`Activity across the last ${pluralize(statistics.rangeDays, 'day')} (${rangeDescription}).`}
-        actions={props.embedded ? undefined : rangeSelect}
-      />
+      <PageHeader actions={props.embedded ? undefined : rangeSelect} />
 
       <div className="metric-grid">
         <MetricCard

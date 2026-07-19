@@ -130,10 +130,7 @@ export function PluginsPage(props: { embedded?: boolean } = {}) {
       {props.embedded ? (
         <TabbedPageActions>{filterInput}</TabbedPageActions>
       ) : null}
-      <PageHeader
-        description="Discovery and runtime load status for configured HybridClaw plugins."
-        actions={props.embedded ? undefined : filterInput}
-      />
+      <PageHeader actions={props.embedded ? undefined : filterInput} />
 
       <div className="metric-grid">
         <MetricCard

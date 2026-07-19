@@ -27,7 +27,6 @@ export function ExtensionsPage() {
     <TabbedPage
       tabs={EXTENSION_TABS}
       activeTab={activeTab}
-      description="Inspect installed extensions and the tools they expose."
       onTabChange={(tab) => {
         void navigate({
           to: '/admin/extensions',

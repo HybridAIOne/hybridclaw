@@ -9,12 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
-import {
-  MetricCard,
-  PageHeader,
-  SortableHeader,
-  useSortableRows,
-} from '../components/ui';
+import { MetricCard, SortableHeader, useSortableRows } from '../components/ui';
 import { formatRelativeTime } from '../lib/format';
 import { compareNumber, compareText } from '../lib/sort';
 
@@ -114,8 +109,6 @@ export function AgentsPage(
 
   return (
     <div className="page-stack">
-      <PageHeader description="Review agent skill track records, top strengths, and generated CV paths." />
-
       <div className="metric-grid">
         <MetricCard
           label="Observed agents"
