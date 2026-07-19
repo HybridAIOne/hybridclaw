@@ -7,7 +7,7 @@ import {
   dispatchAuthRequired,
   fetchAdminHybridAIBots,
   fetchAgentList,
-  installWhatsAppPlugin,
+  installPlugin,
   isLoopbackHostnameForTest,
   readStoredToken,
   registerDistillAgent,
@@ -306,7 +306,7 @@ describe('client command helpers', () => {
     });
   });
 
-  it('installs the WhatsApp plugin through a local web admin command', async () => {
+  it('installs a channel plugin through a local web admin command', async () => {
     vi.mocked(fetch).mockResolvedValue(
       new Response(JSON.stringify({ kind: 'info', text: 'installed' }), {
         status: 200,
@@ -316,7 +316,7 @@ describe('client command helpers', () => {
       }),
     );
 
-    await installWhatsAppPlugin('test-token');
+    await installPlugin('test-token', '@hybridaione/hybridclaw-whatsapp');
 
     const request = vi.mocked(fetch).mock.calls[0]?.[1];
     expect(JSON.parse(String(request?.body))).toEqual({

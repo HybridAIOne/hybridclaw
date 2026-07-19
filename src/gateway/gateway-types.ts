@@ -13,7 +13,10 @@ import type {
   AgentTeamStructureDiff,
   AgentTeamStructureSnapshot,
 } from '../agents/team-structure.js';
-import type { SkillConfigChannelKind } from '../channels/channel.js';
+import type {
+  ChannelKind,
+  SkillConfigChannelKind,
+} from '../channels/channel.js';
 import type { DiscordWebhookSendResult } from '../channels/discord-webhook/delivery.js';
 import type { SlackWebhookSendResult } from '../channels/slack-webhook/delivery.js';
 import type {
@@ -401,6 +404,13 @@ export interface GatewayPluginCommandSummary {
   description?: string;
 }
 
+export interface GatewayChannelPluginStatus {
+  channel: ChannelKind;
+  pluginId: string;
+  installSource: string;
+  transportAvailable: boolean;
+}
+
 export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
@@ -483,6 +493,7 @@ export interface GatewayStatus {
   scheduler?: {
     jobs: GatewaySchedulerJobStatus[];
   };
+  channelPlugins?: GatewayChannelPluginStatus[];
   discord?: {
     tokenConfigured: boolean;
     tokenSource: 'env' | 'runtime-secrets' | null;
@@ -534,7 +545,6 @@ export interface GatewayStatus {
   whatsapp?: {
     linked: boolean;
     jid: string | null;
-    transportInstalled: boolean;
     pairingQrText: string | null;
     pairingUpdatedAt: string | null;
     pairingError: string | null;

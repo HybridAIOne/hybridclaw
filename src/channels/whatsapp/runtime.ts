@@ -1,4 +1,5 @@
 import { WHATSAPP_CAPABILITIES } from '../channel.js';
+import { getChannelPluginInstallCommand } from '../channel-plugin-catalog.js';
 import { createChannelRuntime } from '../channel-runtime-factory.js';
 import {
   type ChannelTransportInstance,
@@ -12,7 +13,7 @@ import {
 } from '../channel-transport.js';
 
 export const WHATSAPP_PLUGIN_INSTALL_COMMAND =
-  'hybridclaw plugin install @hybridaione/hybridclaw-whatsapp';
+  getChannelPluginInstallCommand('whatsapp');
 export const WHATSAPP_PLUGIN_INSTALL_HINT = `Install it with: ${WHATSAPP_PLUGIN_INSTALL_COMMAND}`;
 
 export class WhatsAppTransportMissingError extends Error {

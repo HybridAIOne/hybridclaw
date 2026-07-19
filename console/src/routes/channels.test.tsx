@@ -13,7 +13,8 @@ const fetchAdminAgentsMock = vi.fn<() => Promise<AdminAgent[]>>();
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchEmailConfigMock = vi.fn();
 const fetchSignalLinkMock = vi.fn();
-const installWhatsAppPluginMock = vi.fn<() => Promise<AdminCommandResult>>();
+const installPluginMock =
+  vi.fn<(token: string, source: string) => Promise<AdminCommandResult>>();
 const saveConfigMock = vi.fn();
 const saveDiscordWebhookTargetMock = vi.fn();
 const saveSlackWebhookTargetMock = vi.fn();
@@ -27,7 +28,8 @@ vi.mock('../api/client', () => ({
   fetchConfig: () => fetchConfigMock(),
   fetchEmailConfig: (...args: unknown[]) => fetchEmailConfigMock(...args),
   fetchSignalLink: (...args: unknown[]) => fetchSignalLinkMock(...args),
-  installWhatsAppPlugin: () => installWhatsAppPluginMock(),
+  installPlugin: (token: string, source: string) =>
+    installPluginMock(token, source),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
   saveDiscordWebhookTarget: (...args: unknown[]) =>
     saveDiscordWebhookTargetMock(...args),
@@ -340,7 +342,7 @@ describe('ChannelsPage', () => {
     fetchConfigMock.mockReset();
     fetchEmailConfigMock.mockReset();
     fetchSignalLinkMock.mockReset();
-    installWhatsAppPluginMock.mockReset();
+    installPluginMock.mockReset();
     saveConfigMock.mockReset();
     saveDiscordWebhookTargetMock.mockReset();
     saveSlackWebhookTargetMock.mockReset();
@@ -349,12 +351,20 @@ describe('ChannelsPage', () => {
     validateTokenMock.mockReset();
     useAuthMock.mockReset();
     fetchAdminAgentsMock.mockResolvedValue([]);
-    installWhatsAppPluginMock.mockResolvedValue({
+    installPluginMock.mockResolvedValue({
       kind: 'info',
       title: 'Plugin Installed',
       text: 'Installed plugin `whatsapp`.',
     });
     const gatewayStatus = {
+      channelPlugins: [
+        {
+          channel: 'whatsapp',
+          pluginId: 'whatsapp',
+          installSource: '@hybridaione/hybridclaw-whatsapp',
+          transportAvailable: true,
+        },
+      ],
       hybridai: {
         apiKeyConfigured: false,
         apiKeySource: null,
@@ -407,7 +417,6 @@ describe('ChannelsPage', () => {
       whatsapp: {
         linked: false,
         jid: null,
-        transportInstalled: true,
         pairingQrText: null,
         pairingUpdatedAt: null,
       },
@@ -882,10 +891,17 @@ describe('ChannelsPage', () => {
       defaultModel: 'gpt-5',
       ragDefault: true,
       timestamp: new Date().toISOString(),
+      channelPlugins: [
+        {
+          channel: 'whatsapp',
+          pluginId: 'whatsapp',
+          installSource: '@hybridaione/hybridclaw-whatsapp',
+          transportAvailable: false,
+        },
+      ],
       whatsapp: {
         linked: false,
         jid: null,
-        transportInstalled: false,
         pairingQrText: null,
         pairingUpdatedAt: null,
         pairingError: null,
@@ -910,7 +926,55 @@ describe('ChannelsPage', () => {
     );
 
     await waitFor(() => {
-      expect(installWhatsAppPluginMock).toHaveBeenCalledTimes(1);
+      expect(installPluginMock).toHaveBeenCalledWith(
+        'test-token',
+        '@hybridaione/hybridclaw-whatsapp',
+      );
+    });
+  });
+
+  it('applies the plugin install flow to any catalog channel', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultAgentId: 'main',
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      channelPlugins: [
+        {
+          channel: 'line',
+          pluginId: 'line',
+          installSource: '@hybridaione/hybridclaw-line',
+          transportAvailable: false,
+        },
+      ],
+    });
+
+    renderChannelsPage();
+
+    const lineChannelButton = await screen.findByRole('button', {
+      name: /LINE.*plugin not installed/i,
+    });
+    fireEvent.click(lineChannelButton);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Install LINE plugin' }),
+    );
+
+    await waitFor(() => {
+      expect(installPluginMock).toHaveBeenCalledWith(
+        'test-token',
+        '@hybridaione/hybridclaw-line',
+      );
     });
   });
 

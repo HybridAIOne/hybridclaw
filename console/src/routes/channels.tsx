@@ -6,7 +6,6 @@ import {
   fetchConfig,
   fetchEmailConfig,
   fetchSignalLink,
-  installWhatsAppPlugin,
   saveConfig,
   saveDiscordWebhookTarget,
   saveSlackWebhookTarget,
@@ -44,6 +43,7 @@ import { useFormMutation } from '../hooks/use-form-mutation';
 import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { getErrorMessage } from '../lib/error-message';
 import { joinStringList, parseStringList } from '../lib/format';
+import { ChannelPluginNotice } from './channel-plugin-notice';
 import { buildChannelCatalog, type ChannelKind } from './channels-catalog';
 
 type SecretSource = 'config' | 'env' | 'runtime-secrets' | null;
@@ -770,57 +770,13 @@ function DiscordChannelEditor(props: {
 function WhatsAppChannelEditor(props: {
   draft: AdminConfig;
   form: UseFormControllerReturn<AdminConfig>;
-  token: string;
-  transportInstalled: boolean | undefined;
+  transportAvailable: boolean | undefined;
   linked: boolean;
   pairingQrText: string | null;
   pairingError: string | null;
 }) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const installMutation = useMutation({
-    mutationFn: async () => {
-      const result = await installWhatsAppPlugin(props.token);
-      if (result.kind === 'error') throw new Error(result.text);
-      return result;
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ['status', props.token],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ['plugins', props.token],
-      });
-      toast.success('WhatsApp plugin installed.');
-    },
-    onError: (error) => {
-      toast.error('Plugin installation failed', getErrorMessage(error));
-    },
-  });
-
   return (
     <>
-      {props.transportInstalled === false ? (
-        <aside className="channel-plugin-notice" aria-label="Plugin required">
-          <div>
-            <strong>WhatsApp plugin not installed</strong>
-            <span>
-              Install the WhatsApp transport plugin and its required
-              dependencies on this gateway.
-            </span>
-          </div>
-          <Button
-            type="button"
-            loading={installMutation.isPending}
-            onClick={() => installMutation.mutate()}
-          >
-            {installMutation.isPending
-              ? 'Installing plugin...'
-              : 'Install WhatsApp plugin'}
-          </Button>
-        </aside>
-      ) : null}
-
       <Field orientation="horizontal">
         <Switch
           checked={isWhatsAppEnabled(props.draft)}
@@ -886,7 +842,7 @@ function WhatsAppChannelEditor(props: {
         />
       </div>
 
-      {props.transportInstalled !== false &&
+      {props.transportAvailable !== false &&
       isWhatsAppEnabled(props.draft) &&
       !props.linked ? (
         <div className="field whatsapp-pairing-field">
@@ -3567,7 +3523,7 @@ function renderSelectedEditor(
   },
   hybridaiApiKeyConfigured: boolean,
   whatsappStatus: {
-    transportInstalled: boolean | undefined;
+    transportAvailable: boolean | undefined;
     linked: boolean;
     pairingQrText: string | null;
     pairingError: string | null;
@@ -3605,8 +3561,7 @@ function renderSelectedEditor(
         <WhatsAppChannelEditor
           draft={draft}
           form={form}
-          token={token}
-          transportInstalled={whatsappStatus.transportInstalled}
+          transportAvailable={whatsappStatus.transportAvailable}
           linked={whatsappStatus.linked}
           pairingQrText={whatsappStatus.pairingQrText}
           pairingError={whatsappStatus.pairingError}
@@ -3783,13 +3738,12 @@ export function ChannelsPage() {
         signalAccountConfigured: statusQuery.data?.signal?.accountConfigured,
         signalCliAvailable: statusQuery.data?.signal?.cliAvailable,
         voiceAuthTokenConfigured: statusQuery.data?.voice?.authTokenConfigured,
-        whatsappTransportInstalled:
-          statusQuery.data?.whatsapp?.transportInstalled,
         whatsappLinked: statusQuery.data?.whatsapp?.linked,
         lineLinked: statusQuery.data?.line?.linked,
         emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,
         imessagePasswordConfigured:
           statusQuery.data?.imessage?.passwordConfigured,
+        channelPlugins: statusQuery.data?.channelPlugins,
       })
     : [];
 
@@ -3838,6 +3792,11 @@ export function ChannelsPage() {
 
   const selectedChannel =
     catalog.find((entry) => entry.kind === selectedKind) ?? catalog[0] ?? null;
+  const selectedChannelPlugin = selectedChannel
+    ? statusQuery.data?.channelPlugins?.find(
+        (plugin) => plugin.channel === selectedChannel.kind,
+      )
+    : undefined;
   const secretStatus = {
     discord: {
       configured: statusQuery.data?.discord?.tokenConfigured ?? false,
@@ -3870,8 +3829,11 @@ export function ChannelsPage() {
       source: statusQuery.data?.imessage?.passwordSource ?? null,
     },
   };
+  const whatsappPlugin = statusQuery.data?.channelPlugins?.find(
+    (plugin) => plugin.channel === 'whatsapp',
+  );
   const whatsappStatus = {
-    transportInstalled: statusQuery.data?.whatsapp?.transportInstalled,
+    transportAvailable: whatsappPlugin?.transportAvailable,
     linked: statusQuery.data?.whatsapp?.linked ?? false,
     pairingQrText: statusQuery.data?.whatsapp?.pairingQrText ?? null,
     pairingError: statusQuery.data?.whatsapp?.pairingError ?? null,
@@ -3945,6 +3907,14 @@ export function ChannelsPage() {
             </CardHeader>
             <CardContent>
               <div className="stack-form">
+                {selectedChannel &&
+                selectedChannelPlugin?.transportAvailable === false ? (
+                  <ChannelPluginNotice
+                    channelLabel={selectedChannel.label}
+                    plugin={selectedChannelPlugin}
+                    token={auth.token}
+                  />
+                ) : null}
                 {selectedChannel
                   ? renderSelectedEditor(
                       selectedChannel.kind,

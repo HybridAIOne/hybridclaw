@@ -7,6 +7,10 @@ import {
   registerChannelTransport,
   unregisterChannelTransport,
 } from '../src/channels/channel-transport.js';
+import {
+  getChannelPluginCatalogEntry,
+  getChannelPluginStatuses,
+} from '../src/channels/channel-plugin-catalog.js';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { PluginManager } from '../src/plugins/plugin-manager.js';
 import { useTempDir } from './test-utils.ts';
@@ -42,6 +46,29 @@ test('registers, resolves, and unregisters a channel transport', () => {
 
   unregisterChannelTransport('whatsapp');
   expect(hasChannelTransport('whatsapp')).toBe(false);
+});
+
+test('channel plugin catalog reports transport availability generically', () => {
+  expect(getChannelPluginCatalogEntry('whatsapp')).toEqual({
+    channel: 'whatsapp',
+    pluginId: 'whatsapp',
+    installSource: '@hybridaione/hybridclaw-whatsapp',
+  });
+  expect(getChannelPluginStatuses()).toContainEqual({
+    channel: 'whatsapp',
+    pluginId: 'whatsapp',
+    installSource: '@hybridaione/hybridclaw-whatsapp',
+    transportAvailable: false,
+  });
+
+  registerChannelTransport(createTransportRegistration());
+
+  expect(getChannelPluginStatuses()).toContainEqual(
+    expect.objectContaining({
+      channel: 'whatsapp',
+      transportAvailable: true,
+    }),
+  );
 });
 
 test('plugin registration rollback removes a transport from a failed plugin', async () => {

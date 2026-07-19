@@ -322,6 +322,14 @@ plugin manager rolls back transport registrations when registration fails and
 unregisters them during shutdown; the core facade retains an active instance
 long enough to shut it down cleanly.
 
+Install-on-demand channel plugins also need an entry in
+`src/channels/channel-plugin-catalog.ts`. The catalog is core-owned because a
+plugin that is not installed cannot expose its own manifest. Each entry maps a
+closed channel kind to its plugin id and install source. Gateway status derives
+transport availability from that catalog, and the admin Channels page uses the
+same metadata to show a generic install action. Adding another plugin-backed
+channel should require a catalog entry, not channel-specific install UI.
+
 Plugins can register inbound webhook handlers through
 `api.registerInboundWebhook(...)`. Webhook routes are mounted on the shared
 gateway HTTP server under the fixed prefix:

@@ -1217,13 +1217,14 @@ export function setRuntimeSecret(
   ]);
 }
 
-export function installWhatsAppPlugin(
+export function installPlugin(
   token: string,
+  source: string,
 ): Promise<AdminCommandResult> {
   return runAdminCommand(token, 'web-admin-channels', [
     'plugin',
     'install',
-    '@hybridaione/hybridclaw-whatsapp',
+    source,
     '--yes',
   ]);
 }
