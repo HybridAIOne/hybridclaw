@@ -334,15 +334,22 @@ code {
 }
 
 .tabbed-page {
+  align-self: start;
+  align-content: start;
+  width: 100%;
   min-width: 0;
 }
 
 .page-tabs {
   display: flex;
   align-items: center;
+  box-sizing: border-box;
+  height: 46px;
   min-height: 46px;
+  max-height: 46px;
   gap: 4px;
   padding: 4px;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--chip-surface);
@@ -350,6 +357,8 @@ code {
 
 .page-tab-list {
   display: flex;
+  align-items: center;
+  flex: 1 1 auto;
   min-width: 0;
   gap: 4px;
   overflow-x: auto;
@@ -358,8 +367,15 @@ code {
 .page-tab-actions {
   display: flex;
   align-items: center;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 50%;
   margin-left: auto;
+}
+
+.page-tab-actions > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .page-tab-actions:empty {
@@ -4398,24 +4414,27 @@ th {
   }
 
   .page-tabs {
-    align-items: stretch;
-    flex-wrap: wrap;
+    align-items: center;
+    flex-wrap: nowrap;
   }
 
-  .page-tab-list,
-  .page-tab-actions:not(:empty) {
-    flex: 1 1 100%;
+  .page-tab-list {
+    flex: 1 1 auto;
   }
 
   .page-tab-actions:not(:empty) {
-    margin-left: 0;
+    flex: 0 1 50%;
+    margin-left: auto;
   }
 
   .page-tab-actions > *,
   .page-tab-search {
-    width: 100%;
     min-width: 0;
-    max-width: none;
+    max-width: 100%;
+  }
+
+  .page-tab-search {
+    width: min(220px, 42vw);
   }
 
   .tunnel-panel-grid,
