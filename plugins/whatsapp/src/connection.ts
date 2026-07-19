@@ -50,17 +50,12 @@ interface EventEmitterWithInternals extends EventEmitterLike {
   [WHATSAPP_ERROR_SINK_ATTACHED]?: boolean;
 }
 
-let activeHost: WhatsAppTransportHost | null = null;
-let expectedTransportDebugLimiter: InstanceType<
-  WhatsAppTransportHost['SlidingWindowRateLimiter']
-> | null = null;
-let lastExpectedTransportAt = 0;
-
-function getHost(): WhatsAppTransportHost {
-  if (!activeHost) {
-    throw new Error('WhatsApp transport host is not initialized.');
-  }
-  return activeHost;
+interface WhatsAppConnectionContext {
+  host: WhatsAppTransportHost;
+  expectedTransportDebugLimiter: InstanceType<
+    WhatsAppTransportHost['SlidingWindowRateLimiter']
+  >;
+  lastExpectedTransportAt: number;
 }
 
 function isEventEmitterLike(value: unknown): value is EventEmitterLike {
@@ -75,12 +70,18 @@ function formatReconnectDelay(delayMs: number): string {
   return `${Math.max(1, Math.ceil(delayMs / 1_000))}s`;
 }
 
-function noteExpectedTransportActivity(nowMs = Date.now()): void {
-  lastExpectedTransportAt = nowMs;
+function noteExpectedTransportActivity(
+  context: WhatsAppConnectionContext,
+  nowMs = Date.now(),
+): void {
+  context.lastExpectedTransportAt = nowMs;
 }
 
-function shouldSuppressKeepAliveError(nowMs = Date.now()): boolean {
-  return nowMs - lastExpectedTransportAt < KEEPALIVE_ERROR_SUPPRESS_MS;
+function shouldSuppressKeepAliveError(
+  context: WhatsAppConnectionContext,
+  nowMs = Date.now(),
+): boolean {
+  return nowMs - context.lastExpectedTransportAt < KEEPALIVE_ERROR_SUPPRESS_MS;
 }
 
 function resolveWhatsAppLogMessage(payload: unknown, message?: string): string {
@@ -109,31 +110,34 @@ function extractTransportSignal(payload: unknown, message?: string): unknown {
 }
 
 function logExpectedWhatsAppTransport(
+  context: WhatsAppConnectionContext,
   target: WhatsAppLogger,
   error: unknown,
   key: string,
   nextAction: string,
   level: 'debug' | 'warn',
 ): void {
-  noteExpectedTransportActivity();
+  noteExpectedTransportActivity(context);
   if (
     level === 'debug' &&
-    (!expectedTransportDebugLimiter?.shouldNotify(
+    (!context.expectedTransportDebugLimiter.shouldNotify(
       key,
       EXPECTED_TRANSPORT_DEBUG_COOLDOWN_MS,
     ) ||
-      !expectedTransportDebugLimiter?.check(key, EXPECTED_TRANSPORT_DEBUG_LIMIT)
-        .allowed)
+      !context.expectedTransportDebugLimiter.check(
+        key,
+        EXPECTED_TRANSPORT_DEBUG_LIMIT,
+      ).allowed)
   ) {
     return;
   }
 
-  const message = `${getHost().describeExpectedTransportError(
+  const message = `${context.host.describeExpectedTransportError(
     error,
     'WhatsApp WebSocket',
     WHATSAPP_TRANSPORT_HOST,
   )} ${nextAction}`;
-  getHost().pairing.setError(message);
+  context.host.pairing.setError(message);
   if (level === 'debug') {
     target.debug(message);
     return;
@@ -142,6 +146,7 @@ function logExpectedWhatsAppTransport(
 }
 
 function attachWhatsAppEmitterErrorSink(
+  context: WhatsAppConnectionContext,
   target: WhatsAppLogger,
   emitter: unknown,
   key: string,
@@ -152,8 +157,9 @@ function attachWhatsAppEmitterErrorSink(
   if (candidate[WHATSAPP_ERROR_SINK_ATTACHED]) return;
   candidate[WHATSAPP_ERROR_SINK_ATTACHED] = true;
   candidate.on('error', (error: unknown) => {
-    if (getHost().isExpectedTransportError(error)) {
+    if (context.host.isExpectedTransportError(error)) {
       logExpectedWhatsAppTransport(
+        context,
         target,
         error,
         key,
@@ -162,17 +168,19 @@ function attachWhatsAppEmitterErrorSink(
       );
       return;
     }
-    logWhatsAppMessage(target, 'warn', unexpectedMessage, { error });
+    logWhatsAppMessage(context, target, 'warn', unexpectedMessage, { error });
   });
 }
 
 function attachWhatsAppTransportErrorSinks(
+  context: WhatsAppConnectionContext,
   target: WhatsAppLogger,
   transport: unknown,
 ): void {
   if (!isEventEmitterLike(transport)) return;
 
   attachWhatsAppEmitterErrorSink(
+    context,
     target,
     transport,
     'whatsapp-websocket',
@@ -185,6 +193,7 @@ function attachWhatsAppTransportErrorSinks(
   const rawSocket = (transport as EventEmitterWithInternals).socket;
 
   attachWhatsAppEmitterErrorSink(
+    context,
     target,
     rawSocket,
     'whatsapp-websocket',
@@ -195,6 +204,7 @@ function attachWhatsAppTransportErrorSinks(
     ? (rawSocket as EventEmitterWithInternals)._req
     : null;
   attachWhatsAppEmitterErrorSink(
+    context,
     target,
     request,
     'whatsapp-websocket',
@@ -205,6 +215,7 @@ function attachWhatsAppTransportErrorSinks(
     ? (rawSocket as EventEmitterWithInternals)._socket
     : null;
   attachWhatsAppEmitterErrorSink(
+    context,
     target,
     tcpSocket,
     'whatsapp-websocket',
@@ -213,17 +224,19 @@ function attachWhatsAppTransportErrorSinks(
 }
 
 function isVerboseWhatsAppLogging(
+  context: WhatsAppConnectionContext,
   target: Pick<WhatsAppLogger, 'level'>,
 ): boolean {
   const effectiveLevel =
-    typeof getHost().logger.level === 'string' &&
-    getHost().logger.level.trim().length > 0
-      ? getHost().logger.level
+    typeof context.host.logger.level === 'string' &&
+    context.host.logger.level.trim().length > 0
+      ? context.host.logger.level
       : target.level;
   return VERBOSE_WHATSAPP_LOG_LEVELS.has(effectiveLevel.trim().toLowerCase());
 }
 
 function emitWhatsAppLog(
+  context: WhatsAppConnectionContext,
   target: WhatsAppLogger,
   level: WhatsAppLogLevel,
   payload: unknown,
@@ -233,19 +246,19 @@ function emitWhatsAppLog(
   const transportSignal = extractTransportSignal(payload, message);
   if (
     resolvedMessage === 'connection errored' &&
-    getHost().isExpectedTransportError(transportSignal)
+    context.host.isExpectedTransportError(transportSignal)
   ) {
-    noteExpectedTransportActivity();
+    noteExpectedTransportActivity(context);
     return;
   }
   if (
     resolvedMessage === 'error in sending keep alive' &&
-    shouldSuppressKeepAliveError()
+    shouldSuppressKeepAliveError(context)
   ) {
     return;
   }
   if (
-    shouldSuppressKeepAliveError() &&
+    shouldSuppressKeepAliveError(context) &&
     (resolvedMessage === 'Buffer timeout reached, auto-flushing' ||
       resolvedMessage === 'Flushing event buffer' ||
       resolvedMessage === 'Event buffer activated')
@@ -253,7 +266,7 @@ function emitWhatsAppLog(
     return;
   }
 
-  if (isVerboseWhatsAppLogging(target)) {
+  if (isVerboseWhatsAppLogging(context, target)) {
     if (message === undefined) {
       target[level](payload);
       return;
@@ -274,12 +287,14 @@ function emitWhatsAppLog(
 }
 
 function logWhatsAppMessage(
+  context: WhatsAppConnectionContext,
   target: WhatsAppLogger,
   level: Exclude<WhatsAppLogLevel, 'trace'>,
   message: string,
   metadata?: unknown,
 ): void {
   emitWhatsAppLog(
+    context,
     target,
     level,
     metadata === undefined ? message : metadata,
@@ -287,11 +302,14 @@ function logWhatsAppMessage(
   );
 }
 
-function createBaileysLogger(baseLogger: WhatsAppLogger): WhatsAppLogger {
+function createBaileysLogger(
+  context: WhatsAppConnectionContext,
+  baseLogger: WhatsAppLogger,
+): WhatsAppLogger {
   const forward =
     (level: WhatsAppLogLevel) =>
     (payload: unknown, message?: string): void => {
-      emitWhatsAppLog(baseLogger, level, payload, message);
+      emitWhatsAppLog(context, baseLogger, level, payload, message);
     };
 
   return {
@@ -299,7 +317,7 @@ function createBaileysLogger(baseLogger: WhatsAppLogger): WhatsAppLogger {
       return baseLogger.level;
     },
     child(bindings) {
-      return createBaileysLogger(baseLogger.child(bindings));
+      return createBaileysLogger(context, baseLogger.child(bindings));
     },
     trace: forward('trace'),
     debug: forward('debug'),
@@ -367,14 +385,17 @@ export function createWhatsAppConnectionManager(
     onSocketCreated?: (socket: WASocket) => void;
   },
 ): WhatsAppConnectionManager {
-  activeHost = host;
-  expectedTransportDebugLimiter ??= new host.SlidingWindowRateLimiter(
-    EXPECTED_TRANSPORT_DEBUG_WINDOW_MS,
-  );
+  const context: WhatsAppConnectionContext = {
+    host,
+    expectedTransportDebugLimiter: new host.SlidingWindowRateLimiter(
+      EXPECTED_TRANSPORT_DEBUG_WINDOW_MS,
+    ),
+    lastExpectedTransportAt: 0,
+  };
   const childLogger = host.logger.child({
     channel: 'whatsapp',
   }) as WhatsAppLogger;
-  const baileysLogger = createBaileysLogger(childLogger);
+  const baileysLogger = createBaileysLogger(context, childLogger);
   const messageStore = createWhatsAppMessageStore(host);
   let socket: WASocket | null = null;
   let releaseAuthLock: (() => void) | null = null;
@@ -409,6 +430,7 @@ export function createWhatsAppConnectionManager(
     reconnectDelayMs = Math.min(reconnectDelayMs * 2, MAX_RECONNECT_DELAY_MS);
     if (error && host.isExpectedTransportError(error)) {
       logExpectedWhatsAppTransport(
+        context,
         childLogger,
         error,
         `whatsapp-reconnect:${reason}`,
@@ -427,10 +449,16 @@ export function createWhatsAppConnectionManager(
       host.pairing.setError(
         `WhatsApp connection is not ready. Retrying connection in ${formatReconnectDelay(delayMs)}.`,
       );
-      logWhatsAppMessage(childLogger, 'warn', 'WhatsApp reconnect scheduled', {
-        delayMs,
-        reason,
-      });
+      logWhatsAppMessage(
+        context,
+        childLogger,
+        'warn',
+        'WhatsApp reconnect scheduled',
+        {
+          delayMs,
+          reason,
+        },
+      );
     }
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
@@ -447,6 +475,7 @@ export function createWhatsAppConnectionManager(
       .then(() => Promise.resolve(saveCreds()))
       .catch((error) => {
         logWhatsAppMessage(
+          context,
           childLogger,
           'warn',
           'Failed to persist WhatsApp credentials',
@@ -464,6 +493,7 @@ export function createWhatsAppConnectionManager(
       if (stopped) return;
       const latestVersion = await fetchLatestBaileysVersion().catch((error) => {
         logWhatsAppMessage(
+          context,
           childLogger,
           'warn',
           'Failed to fetch latest Baileys version; using bundled default',
@@ -496,7 +526,7 @@ export function createWhatsAppConnectionManager(
       }
 
       socket = nextSocket;
-      attachWhatsAppTransportErrorSinks(childLogger, nextSocket.ws);
+      attachWhatsAppTransportErrorSinks(context, childLogger, nextSocket.ws);
       params?.onSocketCreated?.(nextSocket);
 
       nextSocket.ev.on('creds.update', () => {
@@ -515,6 +545,7 @@ export function createWhatsAppConnectionManager(
           scheduleReconnect('connect-error', error);
         } else {
           logWhatsAppMessage(
+            context,
             childLogger,
             'error',
             'WhatsApp connection attempt failed',
@@ -578,6 +609,7 @@ export function createWhatsAppConnectionManager(
     if (update.qr) {
       host.pairing.setQrText(renderWhatsAppPairingQrText(update.qr));
       logWhatsAppMessage(
+        context,
         childLogger,
         'info',
         'Scan the WhatsApp QR code in Linked Devices',
@@ -591,6 +623,7 @@ export function createWhatsAppConnectionManager(
       connectionOpen = true;
       reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
       logWhatsAppMessage(
+        context,
         childLogger,
         'info',
         'WhatsApp connection established',

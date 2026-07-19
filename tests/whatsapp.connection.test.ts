@@ -183,6 +183,8 @@ async function importFreshConnectionModule(options?: {
   return {
     APP_VERSION,
     ...module,
+    createWhatsAppConnectionManagerForHost:
+      module.createWhatsAppConnectionManager,
     createWhatsAppConnectionManager: (
       params?: Parameters<typeof module.createWhatsAppConnectionManager>[1],
     ) => module.createWhatsAppConnectionManager(host, params),
@@ -382,6 +384,54 @@ test('rate-limits repeated expected WhatsApp transport sink logs', async () => {
         'WhatsApp WebSocket DNS lookup failed for web.whatsapp.com. Reconnect will be retried automatically.',
     ),
   ).toHaveLength(2);
+});
+
+test('keeps expected transport handling scoped to each manager', async () => {
+  const {
+    createWhatsAppConnectionManager,
+    createWhatsAppConnectionManagerForHost,
+    host,
+    sockets,
+    whatsappLogger,
+  } = await importFreshConnectionModule({
+    logLevel: 'debug',
+    rootLevel: 'debug',
+  });
+  const firstDescribeError = vi.fn(() => 'First manager transport failed.');
+  host.describeExpectedTransportError = firstDescribeError;
+  host.isExpectedTransportError = vi.fn(() => true);
+
+  const firstManager = createWhatsAppConnectionManager();
+  await firstManager.start();
+
+  const secondBase = createWhatsAppTestHost();
+  const secondPairingError = vi.fn();
+  const secondDescribeError = vi.fn(
+    () => 'Second manager transport failed.',
+  );
+  const secondHost = createWhatsAppTestHost({
+    describeExpectedTransportError: secondDescribeError,
+    isExpectedTransportError: vi.fn(() => true),
+    pairing: {
+      ...secondBase.pairing,
+      setError: secondPairingError,
+    },
+  });
+  createWhatsAppConnectionManagerForHost(secondHost);
+
+  sockets[0]?.rawSocketEmitter.emit('error', new Error('transport failed'));
+
+  expect(firstDescribeError).toHaveBeenCalledTimes(1);
+  expect(secondDescribeError).not.toHaveBeenCalled();
+  expect(host.pairing.setError).toHaveBeenCalledWith(
+    'First manager transport failed. Reconnect will be retried automatically.',
+  );
+  expect(secondPairingError).not.toHaveBeenCalled();
+  expect(whatsappLogger.debug).toHaveBeenCalledWith(
+    'First manager transport failed. Reconnect will be retried automatically.',
+  );
+
+  await firstManager.stop();
 });
 
 test('reconnect warnings use human-readable wording for lost connections', async () => {

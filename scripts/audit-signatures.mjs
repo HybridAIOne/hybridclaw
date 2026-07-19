@@ -5,11 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const BAILEYS_RC11_MIN_RELEASE_AGE_EXPIRES_AT = Date.parse(
-  '2026-05-20T08:35:12.000Z',
-);
 const WHATSAPP_WS_MIN_RELEASE_AGE_EXPIRES_AT = Date.parse(
-  '2026-07-18T11:24:06.000Z',
+  '2026-07-21T17:12:26.000Z',
 );
 const maxAttempts = Number.parseInt(
   process.env.HYBRIDCLAW_NPM_AUDIT_SIGNATURE_ATTEMPTS || '3',
@@ -20,19 +17,12 @@ const retryDelayMs = Number.parseInt(
   10,
 );
 
-const auditPolicyArgs = [];
 const whatsappAuditPolicyArgs = [];
 const jsrRegistryArg = '--@jsr:registry=https://npm.jsr.io';
 
-// Baileys 7.0.0-rc11 was published on 2026-05-13T08:35:11Z. Until npm's
-// seven-day age gate expires, signature audit needs the same resolver bypass
-// as install-time CI. After that date, use the repo-wide .npmrc policy again.
-if (Date.now() < BAILEYS_RC11_MIN_RELEASE_AGE_EXPIRES_AT) {
-  auditPolicyArgs.push('--min-release-age=0');
-}
-
-// The reviewed plugin lockfile pins ws@8.21.1. Until npm's seven-day age gate
-// expires, bypass only the audit resolver so signature verification can run.
+// ws@8.21.1 was published on 2026-07-14T17:12:25.599Z. Until npm's
+// seven-day age gate expires, bypass only the audit resolver so signature
+// verification can run against the reviewed, hash-pinned plugin lockfile.
 if (Date.now() < WHATSAPP_WS_MIN_RELEASE_AGE_EXPIRES_AT) {
   whatsappAuditPolicyArgs.push('--min-release-age=0');
 }
@@ -40,18 +30,11 @@ if (Date.now() < WHATSAPP_WS_MIN_RELEASE_AGE_EXPIRES_AT) {
 const targets = [
   {
     label: 'root',
-    args: [jsrRegistryArg, ...auditPolicyArgs, 'audit', 'signatures'],
+    args: [jsrRegistryArg, 'audit', 'signatures'],
   },
   {
     label: 'container',
-    args: [
-      '--prefix',
-      'container',
-      jsrRegistryArg,
-      ...auditPolicyArgs,
-      'audit',
-      'signatures',
-    ],
+    args: ['--prefix', 'container', jsrRegistryArg, 'audit', 'signatures'],
   },
   {
     label: 'whatsapp-plugin',
