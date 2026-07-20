@@ -259,18 +259,8 @@ function buildCompactSkillsPrompt(skills: Skill[]): string {
 }
 
 function buildBootstrapHook(context: PromptHookContext): string {
-  const contextFiles = loadStaticBootstrapFiles(context.agentId).filter(
-    (file) => {
-      const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
-      return part ? isBootstrapPartSelected(part, context) : true;
-    },
-  );
-  const contextPrompt = buildContextPrompt(contextFiles);
-  const cloudMemoryPrompt = isBootstrapPartSelected('memory-file', context)
-    ? buildCloudMemoryPrompt(context.agentId)
-    : '';
-  const skillsPrompt = buildSelectedSkillsPrompt(context);
-  return [contextPrompt, cloudMemoryPrompt, skillsPrompt]
+  const blocks = buildBootstrapSystemBlocks(context);
+  return [blocks.staticCore, blocks.workspaceMemory, blocks.skills]
     .filter(Boolean)
     .join('\n\n');
 }

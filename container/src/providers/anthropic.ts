@@ -5,6 +5,7 @@ import {
   normalizeAnthropicBaseUrl,
   stripAnthropicModelPrefix,
 } from '../../shared/anthropic-utils.js';
+import { isDynamicContextMessageText } from '../../shared/dynamic-context.js';
 import { collapseSystemMessages } from '../system-messages.js';
 import type {
   AnthropicContentBlock,
@@ -403,7 +404,7 @@ function convertMessages(
     if (
       message.role === 'user' &&
       typeof message.content === 'string' &&
-      isGeneratedDynamicContextText(message.content) &&
+      isDynamicContextMessageText(message.content) &&
       messages[index + 1]?.role === 'user'
     ) {
       pendingDynamicContext = message;
@@ -479,10 +480,6 @@ function convertMessages(
   return converted;
 }
 
-function isGeneratedDynamicContextText(text: string): boolean {
-  return text.trimStart().startsWith('<context>\nDate (UTC): ');
-}
-
 function extractSystemPromptBlocks(messages: ChatMessage[]): string[] {
   const blocks = messages
     .filter((message) => message.role === 'system')
@@ -501,7 +498,7 @@ function isDynamicContextBlock(block: Record<string, unknown>): boolean {
   return (
     block.type === 'text' &&
     typeof block.text === 'string' &&
-    isGeneratedDynamicContextText(block.text)
+    isDynamicContextMessageText(block.text)
   );
 }
 

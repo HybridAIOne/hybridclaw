@@ -1750,8 +1750,6 @@ async function handleGatewayMessageInner(
       historyCharsIncluded: historyStats.includedChars,
       historyCharsDropped: historyStats.droppedChars,
       historyMaxChars: historyStats.maxTotalChars,
-      historyMaxMessageChars: historyStats.maxMessageChars,
-      perMessageTruncatedCount: historyStats.perMessageTruncatedCount,
       middleCompressionApplied: historyStats.middleCompressionApplied,
       historyEstimatedTokens: estimateTokenCountFromMessages(
         messages.slice(historyStart),

@@ -354,6 +354,7 @@ function injectSkillCacheHint(messages: ChatMessage[]): ChatMessage[] {
       `You already selected skill guidance from \`${cachedSelectedSkillPath}\` earlier in this session.`,
       'Reuse that skill now and do not reread the SKILL.md unless the task scope changed or a missing detail requires it.',
     ].join('\n'),
+    'last',
   );
 }
 

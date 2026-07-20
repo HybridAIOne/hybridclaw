@@ -1,5 +1,6 @@
 import os from 'node:os';
 
+import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '../../container/shared/dynamic-context.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
 import {
@@ -56,7 +57,9 @@ export function buildDynamicContextMessage(
 ): ChatMessage {
   const now = options instanceof Date ? options : options.now || new Date();
   const agentId = options instanceof Date ? undefined : options.agentId;
-  const lines = ['<context>', `Date (UTC): ${now.toISOString().slice(0, 10)}`];
+  const lines = [
+    `${DYNAMIC_CONTEXT_MESSAGE_PREFIX}${now.toISOString().slice(0, 10)}`,
+  ];
   const dynamicSections: string[] = [];
   if (!(options instanceof Date)) {
     dynamicSections.push(

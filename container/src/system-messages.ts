@@ -42,12 +42,22 @@ export function collapseSystemMessages(messages: ChatMessage[]): ChatMessage[] {
 export function mergeSystemMessage(
   messages: ChatMessage[],
   instruction: string,
+  target: 'first' | 'last' = 'first',
 ): ChatMessage[] {
   const merged = messages.map((message) => ({ ...message }));
   const normalizedInstruction = instruction.trim();
   if (!normalizedInstruction) return merged;
 
-  const systemIndex = merged.findIndex((message) => message.role === 'system');
+  let systemIndex = -1;
+  if (target === 'first') {
+    systemIndex = merged.findIndex((message) => message.role === 'system');
+  } else {
+    for (let index = merged.length - 1; index >= 0; index -= 1) {
+      if (merged[index].role !== 'system') continue;
+      systemIndex = index;
+      break;
+    }
+  }
   if (systemIndex >= 0) {
     const existing = contentToText(merged[systemIndex].content).trim();
     if (existing.includes(normalizedInstruction)) return merged;

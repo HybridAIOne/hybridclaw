@@ -5,7 +5,6 @@ import {
   estimateTokenCountFromText,
   optimizeHistoryMessagesForPrompt,
   truncateHeadTailText,
-  truncateMessageContent,
 } from '../src/session/token-efficiency.js';
 import type { ChatMessage } from '../src/types/api.js';
 
@@ -42,11 +41,6 @@ test('estimateTokenCountFromMessages handles null message content', () => {
 
 test('prompt truncation does not split UTF-16 surrogate pairs', () => {
   const content = `prefix ${'a'.repeat(20)} 🏠 suffix`;
-  const truncated = truncateMessageContent(content, 30);
-  expect(truncated).not.toContain('\ud83d\n');
-  expect(truncated).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/u);
-  expect(truncated).not.toMatch(/(?<![\ud800-\udbff])[\udc00-\udfff]/u);
-
   const headTail = truncateHeadTailText(content, 36, 0.85, 0.15);
   expect(headTail).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/u);
   expect(headTail).not.toMatch(/(?<![\ud800-\udbff])[\udc00-\udfff]/u);
@@ -62,14 +56,12 @@ test('history optimization drops whole old turns without changing retained bytes
 
   const optimized = optimizeHistoryMessagesForPrompt(messages, {
     maxTotalChars: 110,
-    maxMessageChars: 10,
   });
 
   expect(optimized.messages).toEqual(messages.slice(2));
   expect(optimized.messages[0]?.content).toBe(messages[2]?.content);
   expect(optimized.messages[1]?.content).toBe(messages[3]?.content);
   expect(optimized.stats.droppedCount).toBe(2);
-  expect(optimized.stats.perMessageTruncatedCount).toBe(0);
 });
 
 test('history optimization retains the newest whole turn when it exceeds the budget', () => {
