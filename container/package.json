@@ -1,6 +1,7 @@
 {
   "name": "hybridclaw-agent",
   "version": "0.28.2",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "packageManager": "npm@11.10.0",

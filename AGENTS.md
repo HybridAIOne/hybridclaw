@@ -279,12 +279,19 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
   but allowed; dual-licensed `(X OR Y)` packages count as their most
   permissive option. See the header of `scripts/check-dependency-policy.mjs`
   for the full policy.
+- When changing npm dependencies, also regenerate `THIRD_PARTY_NOTICES.md`
+  with `npm run notices` (CI fails on a stale file via `npm run notices:check`;
+  it needs production `node_modules` for every component — see the script
+  header). `npm run sbom` writes per-component CycloneDX/SPDX SBOMs to `sbom/`.
 
 ### Git Discipline
 
 - Treat existing uncommitted changes as user work unless you created them.
 - Run `npm run format` before creating commits that will be pushed to GitHub.
 - Always run `npm run lint` before creating any commit.
+- Sign off every commit (`git commit -s`). CI enforces the Developer
+  Certificate of Origin on pull requests; see CONTRIBUTING.md
+  "Licensing And Sign-Off (DCO)".
 - Conventional Commits preferred: `feat:`, `fix:`, `test:`, `refactor:`,
   `chore:`, `docs:`.
 - Group related changes; avoid bundling unrelated refactors.

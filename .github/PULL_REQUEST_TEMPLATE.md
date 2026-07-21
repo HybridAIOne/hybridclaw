@@ -22,6 +22,12 @@ Describe the change in 2-5 bullets:
 - Closes #
 - Related #
 
+## Licensing
+
+- [ ] All commits are signed off (`git commit -s`) to certify the
+      [DCO](https://developercertificate.org/); the contribution is licensed
+      under the repository's MIT license.
+
 ## Manifesto Principle
 
 Which manifesto principle does this serve?

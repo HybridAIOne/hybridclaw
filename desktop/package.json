@@ -3,6 +3,7 @@
   "productName": "HybridClaw",
   "private": true,
   "version": "0.28.2",
+  "license": "MIT",
   "type": "module",
   "description": "macOS wrapper for the HybridClaw chat and admin web surfaces",
   "author": "HybridAI One",

@@ -107,6 +107,18 @@ xAI / Grok, Z.AI / GLM, Kimi / Moonshot, MiniMax, DashScope / Qwen, Xiaomi
 MiMo, and Kilo Code. It also supports local backends including Ollama, LM
 Studio, llama.cpp, and vLLM.
 
+## Is HybridClaw a fork or a rewrite of OpenClaw?
+
+Neither. HybridClaw is an independent implementation built from scratch (MIT,
+copyright HybridAIOne): its git history starts from its own initial commit,
+and a line-level comparison of both codebases shows no derived code — under 1%
+of lines overlap, all of them generic TypeScript idioms. The resemblance is
+category-level: both are MIT-licensed personal-AI-assistant runtimes.
+`hybridclaw migrate openclaw` reads an existing OpenClaw installation's config
+and secrets and converts them into HybridClaw's own formats; it shares no code
+with OpenClaw. The full evidence is documented in the
+[code provenance statement](../internal/provenance.md).
+
 ## Can I migrate an existing OpenClaw or Hermes Agent home?
 
 Yes. Use `hybridclaw migrate openclaw --dry-run` or

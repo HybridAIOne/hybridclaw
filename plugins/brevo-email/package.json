@@ -2,6 +2,7 @@
   "name": "hybridclaw-plugin-brevo-email",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "description": "HybridClaw plugin that provisions per-agent email addresses via Brevo inbound parsing and SMTP relay",
   "engines": {
