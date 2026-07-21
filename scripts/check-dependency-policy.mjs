@@ -99,8 +99,10 @@ function readJsonFile(filePath) {
 
 function isIgnoredDir(name) {
   return (
-    name === '.git' ||
-    name === '.worktrees' ||
+    // All dot-directories: .git, and the git worktrees under .claude/worktrees/
+    // (and legacy .worktrees/) contain full repo checkouts with their own
+    // lockfiles that must not be scanned.
+    name.startsWith('.') ||
     name === 'coverage' ||
     name === 'dist' ||
     name === 'node_modules' ||
