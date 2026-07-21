@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -28,6 +29,13 @@ function settingKind(value: unknown): SettingKind {
   return 'string';
 }
 
+function normalizeDefaultValue(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const homePrefix = `${os.homedir()}${path.sep}`;
+  if (!value.startsWith(homePrefix)) return value;
+  return `~/${value.slice(homePrefix.length).split(path.sep).join('/')}`;
+}
+
 function collectSettings(
   value: unknown,
   pathParts: string[],
@@ -44,7 +52,7 @@ function collectSettings(
       path: pathParts.join('.'),
       section: pathParts[0] ?? '',
       kind: settingKind(value),
-      defaultValue: value,
+      defaultValue: normalizeDefaultValue(value),
     });
     return;
   }

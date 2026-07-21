@@ -1328,7 +1328,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'imessage.dbPath',
       section: 'imessage',
       kind: 'string',
-      defaultValue: '/Users/bkoehler/Library/Messages/chat.db',
+      defaultValue: '~/Library/Messages/chat.db',
     },
     {
       path: 'imessage.debounceMs',
