@@ -172,7 +172,9 @@ npm run desktop
   and SecretRef-backed HTTP tools share the same approval and credential
   boundaries.
 - **Practical migration path**: preview compatible imports from OpenClaw or
-  Hermes, then package agents as portable `.claw` archives.
+  Hermes, then package agents as portable `.claw` archives. HybridClaw is an
+  independent implementation, not a fork — see the
+  [code provenance statement](docs/content/internal/provenance.md).
 
 ## Common Commands
 
