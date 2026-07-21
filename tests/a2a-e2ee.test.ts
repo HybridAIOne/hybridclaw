@@ -114,7 +114,8 @@ describe('A2A E2EE', () => {
       ),
     ).rejects.toThrow('metadata binding failed');
     const segments = encrypted.content.split('.');
-    segments[3] = `${segments[3]?.slice(0, -1)}A`;
+    const ciphertext = segments[3] ?? '';
+    segments[3] = `${ciphertext.startsWith('A') ? 'B' : 'A'}${ciphertext.slice(1)}`;
     await expect(
       e2ee.decryptA2AEnvelope(
         { ...encrypted, content: segments.join('.') },
