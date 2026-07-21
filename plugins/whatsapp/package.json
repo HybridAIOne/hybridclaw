@@ -1,6 +1,7 @@
 {
   "name": "@hybridaione/hybridclaw-whatsapp",
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "description": "Install-on-demand WhatsApp channel transport for HybridClaw",
   "repository": {

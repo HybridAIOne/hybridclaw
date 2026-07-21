@@ -2,6 +2,7 @@
   "name": "@hybridaione/hybridclaw-console",
   "private": true,
   "version": "0.28.2",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",

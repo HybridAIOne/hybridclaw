@@ -1,0 +1,46 @@
+name: DCO
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  signoff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Verify Signed-off-by trailers
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          MISSING=0
+          while read -r COMMIT; do
+            TRAILER="$(git log -1 --format='%(trailers:key=Signed-off-by,valueonly)' "${COMMIT}")"
+            if [[ -z "${TRAILER//[[:space:]]/}" ]]; then
+              echo "Missing Signed-off-by trailer: $(git log -1 --format='%h %s' "${COMMIT}")" >&2
+              MISSING=1
+            fi
+          done < <(git rev-list --no-merges "${BASE_SHA}..${HEAD_SHA}")
+
+          if [[ "${MISSING}" -ne 0 ]]; then
+            {
+              echo ""
+              echo "Every commit must certify the Developer Certificate of Origin"
+              echo "(https://developercertificate.org/) with a Signed-off-by trailer."
+              echo "Sign off new commits with 'git commit -s'; backfill existing ones"
+              echo "with 'git rebase --signoff origin/${GITHUB_BASE_REF}' and force-push."
+            } >&2
+            exit 1
+          fi
+
+          echo "All commits are signed off."

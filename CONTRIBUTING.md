@@ -155,6 +155,31 @@ staged diff.
 The repository includes issue forms and a PR template to keep bug reports,
 feature requests, docs fixes, and validation details consistent. Use them.
 
+## Licensing And Sign-Off (DCO)
+
+HybridClaw is licensed under the [MIT License](./LICENSE). Contributions are
+accepted under the same license ("inbound = outbound"): by submitting a pull
+request you license your contribution under MIT.
+
+Every commit must additionally carry a `Signed-off-by:` trailer certifying the
+[Developer Certificate of Origin 1.1](https://developercertificate.org/) — your
+statement that you wrote the change or otherwise have the right to submit it
+under the project license. Sign off with:
+
+```bash
+git commit -s
+```
+
+To backfill sign-offs on an existing branch:
+
+```bash
+git rebase --signoff origin/main
+```
+
+CI rejects pull requests containing commits without a sign-off. This applies to
+all contributions, including `community-skills/`, docs, and AI-assisted
+changes; the sign-off is always made by the human author who owns the diff.
+
 ## AI-Assisted Contributions
 
 AI-assisted contributions are acceptable, but the author owns the diff:

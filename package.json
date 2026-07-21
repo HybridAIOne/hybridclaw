@@ -3,6 +3,7 @@
   "version": "0.28.2",
   "type": "module",
   "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/HybridAIOne/hybridclaw"
@@ -53,6 +54,7 @@
     "README.md",
     "CHANGELOG.md",
     "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
     "AGENTS.md",
     "SECURITY.md",
     "TRUST_MODEL.md",
@@ -81,6 +83,9 @@
     "audit:signatures": "node ./scripts/audit-signatures.mjs",
     "security:secret-scan": "node ./scripts/secret-scan.mjs",
     "deps:policy": "node ./scripts/check-dependency-policy.mjs",
+    "notices": "node ./scripts/generate-third-party-notices.mjs",
+    "notices:check": "node ./scripts/generate-third-party-notices.mjs --check",
+    "sbom": "node ./scripts/generate-sbom.mjs",
     "deps:update-lockfile": "npm update --package-lock-only && npm --prefix container update --package-lock-only && npm --prefix plugins/whatsapp update --package-lock-only && node ./scripts/sync-shrinkwraps.mjs",
     "deps:verify": "npm ci --ignore-scripts --no-audit --fund=false && npm --prefix container ci --ignore-scripts --no-audit --fund=false && npm --prefix plugins/whatsapp ci --ignore-scripts --no-audit --fund=false && npm run audit:signatures",
     "eval:trace-judge:gate": "HYBRIDCLAW_DATA_DIR=/tmp/hybridclaw-trace-judge-gate HYBRIDCLAW_DISABLE_CONFIG_WATCHER=1 node -e \"import('./dist/evals/trace-judge-native.js').then((m)=>m.runTraceJudgeNativeGate()).catch((err)=>{console.error(err);process.exitCode=1})\"",

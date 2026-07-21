@@ -309,6 +309,17 @@ jobs:
       - name: Build and verify pack contents
         run: npm run prepack
 
+      - name: Generate SBOMs (CycloneDX + SPDX)
+        run: npm run sbom
+
+      - name: Upload SBOMs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom-${{ needs.validate.outputs.tag }}
+          path: sbom/
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Check npm package version
         id: npm-version
         shell: bash

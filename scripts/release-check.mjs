@@ -7,6 +7,7 @@ const requiredExactPaths = [
   'npm-shrinkwrap.json',
   'README.md',
   'LICENSE',
+  'THIRD_PARTY_NOTICES.md',
   'dist/cli.js',
   'console/dist/index.html',
   'scripts/postinstall-container.mjs',

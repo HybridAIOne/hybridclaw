@@ -108,6 +108,15 @@ jobs:
           BASE_SHA="${BASE_SHA:-${{ github.event.pull_request.base.sha }}}"
           node ./scripts/check-dependency-policy.mjs --base "${BASE_SHA}"
 
+      - name: Install Brevo plugin dependencies
+        run: npm --prefix plugins/brevo-email ci --ignore-scripts --no-audit --fund=false
+
+      - name: Third-party notices up to date
+        run: npm run notices:check
+
+      - name: SBOM generation
+        run: npm run sbom
+
       - name: Biome check (whole repo)
         run: npm run check
 

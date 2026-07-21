@@ -5,6 +5,7 @@ container/node_modules/
 
 # Build output
 dist/
+sbom/
 desktop/dist/
 desktop/.electron-dev/
 desktop/release/
