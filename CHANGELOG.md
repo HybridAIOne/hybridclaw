@@ -15,7 +15,27 @@
   reads both OpenAI-style (`prompt_tokens_details.cached_tokens`) and
   Anthropic-style (`cache_read_input_tokens`) spellings.
 
-  `Manifesto: Principle IX - A coworker thinks before they spend.`
+- **Cloud and Docker sandbox tool execution**: The gateway host-sandbox image
+  and standalone agent image include Python, pip, `openpyxl`, `unzip`, `file`,
+  and compatible XLSX libraries with resolvable Node module paths, restoring
+  spreadsheet inspection and manipulation in cloud deployments. Prompts that
+  mention versions or commands such as `python3 --version` also reach the agent
+  instead of being intercepted by the former HybridClaw-version shortcut.
+- **Admin console reliability**: Tab bars keep a stable, pinned layout with
+  contextual controls in the tab row; provider health appears only on the
+  Providers page with readable rows; generated settings replace build-host
+  home directories with portable `~/` paths; and redundant owned settings no
+  longer appear as editable duplicates.
+- **Agent archive migration**: Existing databases whose schema version `52`
+  came from the parallel agent-sharing migration still add the archived-agent
+  column through a collision-free version `53` migration.
+- **Install-on-demand channel plugins**: The Channels page offers to install a
+  missing WhatsApp transport, package-name resolution finds locally installed
+  plugins, and the generalized channel-plugin path preserves setup and doctor
+  behavior after the transport is removed from core.
+- **Release metadata walks**: Dependency-policy, SBOM, and third-party-notice
+  generators skip every dot-directory, preventing auxiliary Git worktrees from
+  being scanned as duplicate or partially updated package trees.
 
 ### Added
 
@@ -24,28 +44,45 @@
   (`ECDH-ES` and `A256GCM`), bind encrypted envelopes to Ed25519-signed
   delegation tokens, reject per-peer plaintext downgrades, and expose an admin
   switch that requires E2EE for every A2A trust entry.
+- **Deterministic model-tier routing**: Operators can define an ordered
+  `routing.tiers[]` ladder across hosted and named local models. Unpinned agent
+  turns start from the agent's configured rung or `routing.defaultStart`, while
+  heartbeat, scheduler, and full-auto turns begin at the lowest rung. Provider
+  auth, rate-limit, and server failures, malformed tool calls, and persistently
+  empty or narrate-only answers escalate safely; successful escalation can stay
+  sticky for subsequent turns, `/escalate` raises the next unpinned turn by one
+  rung, and request/session model pins remain hard overrides. Routing attempts
+  and escalation reasons are recorded in the audit trail.
+- **Local model privacy and pricing metadata**: Named local endpoints can
+  declare a `local`, `hai`, `region`, or `cloud` zone plus input/output EUR
+  prices per million tokens. Model info, usage accounting, and the admin Models
+  page preserve unknown prices instead of silently treating unpriced endpoints
+  as free.
+- **Searchable admin configuration**: The admin shell exposes page and setting
+  search from the sidebar or `Cmd/Ctrl+K`. A generated registry makes every
+  runtime setting discoverable by label, description, and dotted path; results
+  open the exact setting or its canonical owner page, and the Providers page
+  owns provider enablement, endpoint, auth method, and SecretRef setup.
 - **Model latency benchmark**: `scripts/benchmark-model-latency.mjs` measures
   time-to-headers, time-to-first-token, total duration, and tokens/sec for the
   same model across three paths — the local gateway's OpenAI-compatible API
   (full agent turn), the HybridAI API called directly, and the model vendor
-  (Anthropic) called directly — each with streaming on and off. Request bodies
-  mirror the exact shapes HybridClaw sends, so latency deltas attribute slow
-  responses to the HybridClaw layer, the HybridAI backend, or the upstream
-  vendor. A connection preflight separates DNS/TCP/TLS handshake cost per
-  origin.
+  (Anthropic or OpenAI) called directly — each with streaming on and off.
+  Request bodies mirror the exact shapes HybridClaw sends, so latency deltas
+  attribute slow responses to the HybridClaw layer, the HybridAI backend, or
+  the upstream vendor. Connection preflight separates DNS/TCP/TLS handshake
+  cost per origin; cache-hit reporting distinguishes unavailable data from a
+  real zero; multiple gateway provider arms can be compared side by side; and
+  long prompts can be loaded from a file for meaningful throughput tests.
 - **Direct OpenAI API provider**: `openai/...` models use the OpenAI Responses
   API with encrypted `OPENAI_API_KEY` storage, streaming, function calling,
   stateless encrypted reasoning-item replay, model catalog metadata, CLI auth,
   gateway health, and doctor diagnostics. Codex OAuth remains available under
   the separate `openai-codex/...` provider.
-  `Manifesto: Principle IV - Model freedom without lock-in.`
 - **Codex 5.6 models**: `openai-codex/gpt-5.6-sol`, `openai-codex/gpt-5.6-terra`,
   and `openai-codex/gpt-5.6-luna` are now recognised as forward-compatible Codex
   models, so they are selectable as soon as the Codex account offers them
   instead of waiting for the discovery endpoint to list them.
-
-  `Manifesto: Principle VIII - A coworker doesn't break overnight.`
-
 - **Dependency license gate**: `scripts/check-dependency-policy.mjs` now scans
   every tracked `package-lock.json` and fails on GPL, AGPL, and SSPL-family
   licenses unless the exact `name@version` and license pair is approved under
@@ -55,16 +92,32 @@
   most permissive option. The gate runs in every existing dependency-policy
   entry point: the pre-commit hook, the CI lint job, `npm run deps:policy`,
   and `npm run release:check`.
-  `Manifesto: Principle VII - A coworker you can trust with real responsibility.`
+- **Release IP and provenance artifacts**: Distributed components declare MIT
+  license metadata; `THIRD_PARTY_NOTICES.md` inventories production packages,
+  deduplicated license texts, and required NOTICE content; release CI generates
+  per-component CycloneDX and SPDX SBOMs; and pull requests enforce Developer
+  Certificate of Origin sign-offs. A public provenance statement documents the
+  project's independent history, contributor ownership, third-party intake,
+  and relationship to OpenClaw.
 
 ### Changed
 
+- **Admin workflows and navigation**: The console groups related work into
+  Activity, Agents, Automation, Federation, Credentials, and Extensions tabbed
+  pages; settings live on one canonical owner surface; legacy admin URLs
+  redirect to the matching tab; contextual controls stay attached to their
+  active tab; and non-default agents can be archived without deleting their
+  files or history.
 - **Install-on-demand WhatsApp transport**: WhatsApp ships as the separate
   `@hybridaione/hybridclaw-whatsapp` plugin so Baileys and its GPL-3.0
   `libsignal` dependency are excluded from core npm, Docker, desktop, and
   Homebrew artifacts. Existing linked sessions remain in
   `~/.hybridclaw/credentials/whatsapp`; install the transport with
   `hybridclaw plugin install @hybridaione/hybridclaw-whatsapp`.
+- **Secret inspection terminology**: `hybridclaw secret status <NAME>` and
+  `/secret status <NAME>` replace the misleading `secret show` spelling. The
+  command reports only whether a secret exists and never decrypts or prints its
+  value.
 - **AGPL removed from the dependency tree**: `camoufox-js` now resolves
   `ua-parser-js` 1.0.41 (MIT) through a scoped npm override instead of 2.0.10
   (AGPL-3.0-or-later), retiring the `ua-parser-js@2.0.10` AGPL exception from
@@ -73,7 +126,6 @@
   fingerprint is treated as Linux and receives Linux fonts, WebGL strings, and
   environment variables. Camofox stealth is degraded for macOS fingerprints
   until `determineUAOS` is patched.
-  `Manifesto: Principle VII - A coworker you can trust with real responsibility.`
 
 ## [0.28.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.2) - 2026-07-17
 
@@ -231,8 +283,6 @@
   When the gateway's watcher does fail (for example `EMFILE: too many open
   files`), config hot-reload now falls back to descriptor-free stat polling
   instead of going dark after ten failed watcher restarts.
-
-  `Manifesto: Principle VIII - A coworker doesn't break overnight.`
 - **A2A chat delivery stability**: Remote A2A replies now appear in the origin
   chat, local A2A smoke replies are stable, inbound audience resolution works
   behind public tunnels, and the delivery chip remains coherent across history
@@ -301,9 +351,6 @@
   gateway already emits on `/api/chat`, gated by the session `/show` mode.
   The ordered trace is persisted per assistant message (schema v46), so a page
   reload replays the same activity instead of dropping it.
-
-  `Manifesto: Principle IV - A coworker is a colleague, not a chatbot.`
-
 - **Apps gallery**: Web chat includes an `/apps` gallery and `/app <description>`
   flow for building self-contained HTML apps, documents, games, dashboards, and
   tools, then saving captured HTML artifacts with search, category filtering,
@@ -788,8 +835,7 @@
   persona, work module, runs, and revision snapshots as one identifier set.
   Includes a leakage/fidelity eval (`coworker eval`), conversational
   corrections (`coworker correct`), and one-bundle multi-host export/install
-  for Claude Code, Codex, OpenClaw, and HybridClaw. Manifesto: Principle VII -
-  A coworker you can trust with real responsibility.
+  for Claude Code, Codex, OpenClaw, and HybridClaw.
 - **Cloud memory sync**: Agents now sync local memory files (`MEMORY.md`,
   `USER.md`, and recent daily memory notes) with the HybridAI cloud and receive
   shared installation- and company-scoped memory back for prompt context. Sync

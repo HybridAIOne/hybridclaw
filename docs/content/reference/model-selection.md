@@ -98,6 +98,65 @@ The admin Models page combines the same metadata with daily and monthly usage
 rollups, so operators can sort by context window or monthly usage and compare
 spend across active models.
 
+## Deterministic Tier Routing
+
+`routing.enabled` lets unpinned turns use an ordered model ladder instead of
+one fixed default. Tier order expresses escalation strength; model order inside
+one tier expresses provider fallback order.
+
+```json
+{
+  "routing": {
+    "enabled": true,
+    "tiers": [
+      {
+        "name": "economy",
+        "models": ["openai/gpt-5.6-luna"]
+      },
+      {
+        "name": "general",
+        "models": [
+          "openai/gpt-5.6-terra",
+          "anthropic/claude-sonnet-4-6"
+        ]
+      },
+      {
+        "name": "advanced",
+        "models": ["openai/gpt-5.6-sol"]
+      }
+    ],
+    "defaultStart": "economy",
+    "escalationStickyTurns": 3
+  }
+}
+```
+
+Every referenced provider must be configured with its required credential.
+Remote models must exist in the configured provider catalogs; named local
+models use `<endpoint>/<model-id>`.
+
+Routing follows these rules:
+
+- an explicit request model or `/model set` session override remains a hard pin
+  and bypasses the ladder
+- an agent's configured model chooses its starting tier when that model appears
+  in the ladder; otherwise `routing.defaultStart` applies
+- heartbeat, scheduler, and full-auto turns start at the lowest tier
+- models later in one tier handle eligible provider fallback before HybridClaw
+  moves to the next tier
+- provider authentication, rate-limit, or server errors and malformed tool
+  calls can escalate to the next tier
+- empty or narrate-only output receives one retry on the same rung before
+  escalation; buffered deltas from a failed attempt are not shown to the user
+- after a successful escalation, that tier remains the floor for
+  `routing.escalationStickyTurns` interactive turns; set the value to `0` to
+  disable stickiness
+- `/escalate` raises exactly the next unpinned agent turn by one tier
+
+Audit output records `route.escalated` events and adds the route tier, reason,
+and escalation state to each model-usage attempt. Enabling routing activates
+the bundled `tier-router` middleware automatically.
+
 ## Codex Turn Runtime
 
 `codex.turnRuntime` controls how turns run when the selected model starts with

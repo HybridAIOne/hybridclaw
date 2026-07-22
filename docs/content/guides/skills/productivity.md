@@ -168,7 +168,8 @@ hybridclaw secret set MIRO_DISCOVERY_ACCESS_TOKEN "<enterprise-discovery-token>"
 
 **Troubleshooting**
 
-- **Missing `MIRO_ACCESS_TOKEN`** — set it in `/admin/secrets`, with
+- **Missing `MIRO_ACCESS_TOKEN`** — set it in
+  `/admin/credentials?tab=secrets`, with
   `/secret set`, or with `hybridclaw secret set` in a local console.
 - **401 or 403** — Miro rejected the token or the token lacks the required
   board, organization, Enterprise, or OAuth scope.

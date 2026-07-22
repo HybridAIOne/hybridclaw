@@ -27,6 +27,42 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
+- The next patch release adds deterministic model-tier routing for unpinned
+  turns: agents can start on a configured rung, system work starts at the
+  lowest rung, retry-safe provider and output failures escalate with audit
+  telemetry, successful escalation stays sticky, and `/escalate` raises one
+  upcoming turn without overriding explicit model pins. Named local endpoints
+  can also declare privacy zones and EUR-denominated input/output pricing.
+- The admin console groups related work into Activity, Agents, Automation,
+  Federation, Credentials, and Extensions tabs. Page and setting search opens
+  from the sidebar or `Cmd/Ctrl+K`, links each result to its exact field or
+  canonical owner, and keeps provider configuration with provider health.
+- Paired HybridClaw gateways pin X25519 keys and protect A2A envelopes with
+  signed, compact JWE payloads. Operators can also require encryption for every
+  trust entry to prevent plaintext interoperability fallbacks.
+- Direct `openai/...` models use the OpenAI Responses API with encrypted key
+  storage, streaming, tools, and encrypted reasoning replay, while Codex OAuth
+  remains under `openai-codex/...` and recognises the 5.6 Sol, Terra, and Luna
+  model line.
+- The model latency benchmark compares gateway, HybridAI, and direct Anthropic
+  or OpenAI paths with streaming on and off, connection timing, prompt-cache
+  visibility, multi-provider gateway arms, long prompt files, and optional raw
+  JSON output.
+- WhatsApp is an install-on-demand channel plugin, keeping Baileys and its GPL
+  dependency outside core distributions. The core dependency tree is AGPL-free,
+  and dependency policy rejects unapproved GPL, AGPL, and SSPL packages.
+- Release artifacts include MIT package metadata, comprehensive third-party
+  notices, per-component CycloneDX and SPDX SBOMs, DCO enforcement, and a public
+  code-provenance statement covering authorship and the project's independent
+  relationship to OpenClaw.
+- Cloud gateway and standalone sandbox images carry the Python and XLSX tools
+  needed for spreadsheet work. Version-related prompts reach the agent, agent
+  archive migrations avoid the schema-52 collision, generated settings use
+  portable home paths, and release metadata generators ignore dot-directory
+  worktrees.
+- Secret existence checks use `secret status` rather than the misleading
+  `secret show` spelling and continue to return metadata without decrypting or
+  displaying stored values.
 - HybridClaw v0.28.2 adds A2A local mode for keeping peer Agent Card and
   delivery routes reachable while disabling unrelated external chat, APIs,
   webhooks, channel runtimes, and channel delivery; tunnel configuration and

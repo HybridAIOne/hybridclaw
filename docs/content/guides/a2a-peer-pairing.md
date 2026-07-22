@@ -67,7 +67,8 @@ Agent Card whose encryption fingerprint has changed.
 
 HybridClaw pairings require an E2EE-capable peer. Manually trusted or
 third-party A2A peers without this HybridClaw extension can use plaintext only
-while **Require A2A E2EE** is disabled on `/admin/a2a-trust`. Enable that switch
+while **Require A2A E2EE** is disabled on
+`/admin/federation?tab=peers`. Enable that switch
 after pairing every HybridClaw peer to make the entire A2A boundary fail closed.
 
 This is transport E2EE between HybridClaw instances. Messages are plaintext on

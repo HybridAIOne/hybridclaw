@@ -136,10 +136,20 @@ saved revision history directly.
   `modelBehavior` currently supports `thinkingFormat: "qwen"`.
 - `routing.enabled`, ordered `routing.tiers[]`, `routing.defaultStart`, and
   `routing.escalationStickyTurns` define the model-routing ladder. Each tier
-  has a unique `name` and an ordered, non-empty `models` list. Remote model
-  references must exist in the configured provider catalogs; named local
-  endpoint references use `<endpoint>/<model-id>`. Phase 1 validates and
-  exposes this substrate without changing live turn selection.
+  has a unique `name` and an ordered, non-empty `models` list; models later in
+  one tier are provider fallbacks, while later tiers are stronger escalation
+  rungs. Remote model references must exist in the configured provider
+  catalogs; named local endpoint references use `<endpoint>/<model-id>`.
+  Unpinned agent turns start from the tier containing the agent model or from
+  `routing.defaultStart`; heartbeat, scheduler, and full-auto turns start at
+  the lowest tier. Retry-safe auth, rate-limit, server, malformed-tool-call,
+  empty-output, and narrate-only failures can move to the next tier. A
+  successful escalation remains the session floor for
+  `routing.escalationStickyTurns` interactive turns (`0` disables stickiness),
+  and `/escalate` raises the next unpinned agent turn by one tier. Explicit
+  request and session model selections bypass the ladder. Enabling routing
+  also enables the bundled `tier-router` middleware and rejects attempts to
+  replace it with a custom path.
 - `codex.baseUrl`, `codex.turnRuntime`, and `codex.models` for first-class
   Codex provider behavior. `codex.turnRuntime` accepts `hybridclaw` for the
   standard HybridClaw tool loop or `app-server` for the native Codex app-server
