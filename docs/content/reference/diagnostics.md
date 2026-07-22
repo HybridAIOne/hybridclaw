@@ -46,6 +46,46 @@ HybridAI discovery and bot-health calls. Auth failures, missing chatbot
 configuration, and upstream service errors are reported separately so setup
 problems do not look like generic provider outages.
 
+## Model Latency Benchmark
+
+Use the cross-stack benchmark when a model is healthy but responses are slower
+than expected:
+
+```bash
+node scripts/benchmark-model-latency.mjs --help
+node scripts/benchmark-model-latency.mjs \
+  --model gpt-5.6-luna \
+  --gateway-models hybridai/gpt-5.6-luna,openai-codex/gpt-5.6-luna \
+  --stream both \
+  --runs 3
+```
+
+The script sends equivalent requests through the local HybridClaw gateway, the
+HybridAI API directly, and the upstream Anthropic or OpenAI API directly. Arms
+without their required credentials are skipped:
+
+- create a narrow gateway credential with
+  `hybridclaw token create --label latency-bench --actions openai.api`, then
+  provide the one-time token as `WEB_API_TOKEN`; `GATEWAY_API_TOKEN` is also
+  accepted
+- set `HYBRIDAI_API_KEY` for the direct HybridAI arm
+- set `ANTHROPIC_API_KEY` for direct Claude models or `OPENAI_API_KEY` for
+  direct GPT and o-series models
+
+Use `--prompt-file <path>` with a prompt that requests a few hundred output
+tokens when measuring generation throughput. `--max-tokens` applies only to
+the direct HybridAI and vendor arms because the gateway's OpenAI-compatible
+request parser does not accept that field; gateway output length follows the
+prompt. `--json <path>` preserves raw per-run results.
+
+The connection preflight separates DNS, TCP, and TLS setup time. Per-request
+tables show time to headers, first event, first thinking delta, first visible
+text, total time, input/output tokens, prompt-cache tokens, and streaming
+tokens per second. A cache value of `-` means the backend did not report cache
+data, while `0` is an explicit cache miss. Compare `gateway - HybridAI` for
+HybridClaw overhead and `HybridAI - vendor` for backend proxy or queueing
+overhead.
+
 ## Resource Hygiene
 
 `doctor` includes a resource hygiene maintenance pass that detects stale

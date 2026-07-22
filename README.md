@@ -27,9 +27,10 @@ rails instead of fragile free-form prompting.
 
 HybridClaw also treats agents as networked coworkers. Local agents, hosted
 HybridAI proxy agents, and trusted peer HybridClaw instances can address one
-another, exchange A2A envelopes, and route work through approval-aware
-channels. An A2A local mode keeps peer delivery and authenticated administration
-reachable while disabling other external gateway and channel surfaces.
+another, exchange end-to-end encrypted A2A envelopes, and route work through
+approval-aware channels. An A2A local mode keeps peer delivery and authenticated
+administration reachable while disabling other external gateway and channel
+surfaces.
 
 First-run onboarding is built around hatching: a new agent asks about the
 user's work, records useful context, keeps setup links visible in chat, and can
@@ -61,13 +62,13 @@ HybridClaw on HybridAI Cloud in a few minutes at
 | A first run that becomes useful quickly | Guided hatching with setup links, tailored first-job suggestions, optional onboarding-specific model routing, welcome-email handoff, and structured audit events |
 | Business workflows that survive real use | Production skill helpers with fixtures, eval scenarios, targeted tests, approval tiers, and a `Qwen/Qwen3.6-27B-FP8` validation baseline |
 | Generated work artifacts you can reuse | An Apps gallery for self-contained HTML apps, dashboards, documents, games, tools, live connector-backed views, sharing links, and Teams tabs |
-| Multi-agent workflows across installations | Local agents, hosted proxy agents, A2A trust, explicit addressing, inbound envelopes, reply-back delivery, admin-visible peer pairing, and an A2A-only deployment mode |
+| Multi-agent workflows across installations | Local agents, hosted proxy agents, encrypted A2A trust, explicit addressing, inbound envelopes, reply-back delivery, admin-visible peer pairing, and an A2A-only deployment mode |
 | Credentials the model cannot read | Encrypted runtime secrets, SecretRef-backed execution paths, and scoped gateway API tokens that keep raw keys and passwords out of prompts and tool results |
 | Assistants that can act, not just chat | A gateway, web chat, Apps gallery, TUI, admin console, scheduler, tools, and OpenAI-compatible API behind one local service |
 | Control over sensitive work | Approval policy, sandbox boundaries, output guardrails, and hash-chained audit trails |
-| Agents that fit existing teams | Discord, Slack, Teams, Telegram, WhatsApp, email, voice, web, and more through the same runtime |
+| Agents that fit existing teams | Discord, Slack, Teams, Telegram, email, voice, web, and more through the same runtime, with WhatsApp available as an install-on-demand plugin |
 | Operational memory | Local files, SQLite state, semantic recall, session compaction, and optional HybridAI cloud memory |
-| Repeatable expert workflows | Per-agent workspaces, budgets, model routing, A2A trust, proxy agents, `.claw` archives, and human-distillation workflows |
+| Repeatable expert workflows | Per-agent workspaces, budgets, deterministic model-tier routing, A2A trust, proxy agents, `.claw` archives, and human-distillation workflows |
 
 ## Install
 
@@ -106,7 +107,7 @@ After the gateway starts, open:
 | --- | --- | --- |
 | Web Chat | `http://127.0.0.1:9090/chat` | Chat, slash commands, model and agent switching |
 | Apps Gallery | `http://127.0.0.1:9090/apps` | Generated web apps, documents, games, tools, live connector-backed views, and sharing |
-| Admin Console | `http://127.0.0.1:9090/admin` | Channels, connectors, agents, approvals, audit, config, secrets, tokens, skills, distillation |
+| Admin Console | `http://127.0.0.1:9090/admin` | Searchable settings plus agents, automation, activity, connectivity, security, and federation workflows |
 | Agents UI | `http://127.0.0.1:9090/agents` | Agent fleet overview and prompt-file editing |
 | TUI | `hybridclaw tui` | Terminal chat, approvals, status, resume |
 | OpenAI-compatible API | `http://127.0.0.1:9090/v1/chat/completions` | Local evals and compatible clients |
@@ -127,12 +128,12 @@ npm run desktop
 | Area | Built in |
 | --- | --- |
 | Skills | 79 bundled skills, production business helpers, eval fixtures, packaged skill lifecycle, and human-distillation workflows |
-| Channels | Discord, Slack, Signal, WhatsApp, LINE self-chat, Telegram, Microsoft Teams, email, iMessage, fax, Twilio voice, web, and incoming webhooks |
-| Runtime | Gateway service, TUI client, web chat, Apps gallery, admin console, loopback OpenAI-compatible API, Docker or host execution |
-| Governance | Encrypted runtime secrets, scoped API tokens, SecretRef credential isolation, approval policies, sandbox controls, audit trails with hash-chain integrity |
+| Channels | Discord, Slack, Signal, LINE self-chat, Telegram, Microsoft Teams, email, iMessage, fax, Twilio voice, web, incoming webhooks, and an install-on-demand WhatsApp plugin |
+| Runtime | Gateway service, TUI client, web chat, Apps gallery, searchable admin console, loopback OpenAI-compatible API, and Docker or host execution with document and spreadsheet tooling |
+| Governance | Encrypted runtime secrets, scoped API tokens, SecretRef credential isolation, approval policies, sandbox controls, hash-chained audit trails, dependency license gates, SBOMs, and third-party notices |
 | Memory | Local memory files, SQLite persistence, semantic recall, session compaction, optional HybridAI cloud memory sync |
-| Agents | Guided hatching, per-agent workspaces, models, budgets, prompt files, explicit addressing, proxy agents, A2A trust, peer-instance communication, reply delivery status |
-| Extensibility | Packaged business skills, plugins, MCP servers, admin connector flows, SecretRef-backed HTTP tools |
+| Agents | Guided hatching, per-agent workspaces, models, budgets, prompt files, deterministic tier routing, explicit addressing, proxy agents, encrypted A2A trust, peer-instance communication, and reply delivery status |
+| Extensibility | Packaged business skills, install-on-demand channel plugins, MCP servers, admin connector flows, and SecretRef-backed HTTP tools |
 
 ## Product Strengths
 
@@ -145,9 +146,9 @@ npm run desktop
   normal default. Its lifecycle is searchable in audit as onboarding events.
 - **Multi-agent operations**: agents can coordinate across local workspaces,
   hosted HybridAI proxies, and trusted peer HybridClaw instances with A2A
-  pairing, explicit addressing, inbound envelopes, reply-back delivery status,
-  admin-visible trust, and an A2A local mode that closes unrelated external
-  surfaces.
+  pairing, pinned X25519 keys, encrypted envelopes, explicit addressing,
+  inbound messages, reply-back delivery status, admin-visible trust, and an A2A
+  local mode that closes unrelated external surfaces.
 - **Prompt-level credential isolation**: encrypted secrets and SecretRefs keep
   credential values out of model context while tools receive only the scoped
   credential material needed at execution time.
@@ -161,13 +162,15 @@ npm run desktop
 - **Secure by default**: LLM output is treated as untrusted, risky actions
   route through approval policy, and every sensitive boundary is visible in
   audit.
-- **Model freedom**: use HybridAI, major hosted providers, local engines, or
-  named OpenAI-compatible endpoints from the same model picker and config
-  surface.
-- **Operator visibility**: `/admin` covers channels, connectors, approvals,
-  audit, statistics, output guard, secrets, scoped tokens, fleet topology, A2A
-  inbox/trust, tunnel configuration and health, distillation, and browser PDF
-  previews without requiring shell access.
+- **Model freedom**: use HybridAI, the direct OpenAI Responses API, Codex OAuth,
+  other hosted providers, local engines, or named OpenAI-compatible endpoints
+  from the same model picker and config surface. Ordered routing tiers can start
+  routine work cheaply and escalate retry-safe failures while explicit model
+  pins remain authoritative.
+- **Operator visibility**: `/admin` groups Activity, Agents, Automation,
+  Connectivity, Models, Security, System, and Labs workflows. Page and setting
+  search opens with `Cmd/Ctrl+K`, settings link to one canonical owner, and
+  legacy admin URLs redirect to their corresponding tab.
 - **Business-ready extension model**: packaged skills, plugins, MCP servers,
   and SecretRef-backed HTTP tools share the same approval and credential
   boundaries.

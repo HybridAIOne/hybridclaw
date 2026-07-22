@@ -677,6 +677,8 @@ context-window accounting.
   demand and prints the provider/model that answered
 - `/second-opinion` compares a question or validates the last answer with a
   stronger configured model; `fact-check` adds bounded web-search evidence
+- `/escalate` is registered by the bundled tier router when `routing.enabled`
+  is true and raises exactly the next unpinned agent turn by one tier
 
 ### Slash Command Inventory
 
@@ -705,6 +707,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/dream [status|on|off|now]` | local TUI/web | Configure or run memory consolidation |
 | `/env [list|set|show|unset]` | local TUI/web | Manage plaintext runtime env values for agents and helpers |
 | `/eval [list|env|<suite>|<command...>]` | local TUI/web | Run local eval helpers or detached benchmark commands |
+| `/escalate` | local and chat channels | Start the next unpinned agent turn one configured routing tier higher |
 | `/export session [sessionId]` | local and chat channels | Export a session snapshot |
 | `/export trace [sessionId|all]` | local and chat channels | Export trace JSONL |
 | `/fullauto [status|off|on [prompt]|prompt]` | local and chat channels | Inspect or control full-auto mode for the session |

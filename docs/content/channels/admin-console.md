@@ -23,6 +23,31 @@ the rest of `/admin`: `WEB_API_TOKEN` when configured, or loopback-only local
 web access. The Credentials page at `/admin/credentials` combines write-only
 secret management with scoped gateway API tokens.
 
+## Navigation And Settings Search
+
+The sidebar groups the operator surface by job: Overview, Agents,
+Connectivity, Models, Security, System, and Labs. Related workflows share a
+tabbed page instead of competing for separate sidebar entries:
+
+- Activity combines usage, sessions, and audit
+- Agents combines the scoreboard and workspace files
+- Automation combines the work queue and schedules
+- Federation combines the A2A inbox, peer trust, and fleet topology
+- Credentials combines secrets and scoped API tokens
+- Extensions combines plugins and tools
+
+Legacy URLs such as `/admin/audit`, `/admin/scheduler`, `/admin/a2a-trust`,
+`/admin/secrets`, and `/admin/plugins` redirect to their matching tab, so saved
+links continue to land on the intended workflow.
+
+Use the Search control in the sidebar, `Cmd+K` on macOS, or `Ctrl+K` on other
+platforms to find both pages and individual runtime settings. Search accepts
+labels, descriptions, and dotted config paths. Selecting a result opens the
+exact setting on `/admin/config`, or the canonical owner page when a focused
+surface such as Channels, Providers, Automation, or Output Guard manages it.
+The Settings page also supports section and text filters and protects unsaved
+changes before navigation.
+
 ## What The Admin Console Can Do
 
 - `/admin/channels` shows each transport as `active`, `configured`, or
@@ -77,6 +102,12 @@ secret management with scoped gateway API tokens.
 - `/admin/config` edits runtime settings through structured controls for
   booleans, numbers, one-of selections, arrays, and nested config paths, with
   unsaved-change protection and validation before save
+- `/admin/config` is generated from the runtime setting registry, supports
+  section and free-text filtering, and links settings owned by focused pages to
+  those canonical workflows instead of rendering a second editor
+- `/admin/models` combines provider health and default-model selection with
+  enablement, endpoint, auth method, and SecretRef configuration for hosted and
+  local providers
 - `/admin/credentials?tab=secrets` lists stored and declared-but-empty secrets by metadata
   only, supports overwrite and unset actions, and never returns cleartext
   secret values to the browser
