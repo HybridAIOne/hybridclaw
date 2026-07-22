@@ -33,7 +33,6 @@ import {
   getChannelByContextId,
 } from '../channels/channel-registry.js';
 import {
-  APP_VERSION,
   FULLAUTO_NEVER_APPROVE_TOOLS,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
@@ -143,7 +142,6 @@ import {
   formatPluginPromptContext,
   getGatewayAssistantPresentationForMessageAgent,
   isGatewayRequestLoggingEnabled,
-  isVersionOnlyQuestion,
   maybeRecordGatewayRequestLog,
   normalizeDelegationEffect,
   normalizeMediaContextItems,
@@ -1622,49 +1620,6 @@ async function handleGatewayMessageInner(
       toolCallCount: 0,
     });
     await emitPostTurnForResult(result);
-    return attachSessionIdentity(result);
-  }
-
-  if (isVersionOnlyQuestion(req.content)) {
-    const resultText = `HybridClaw v${APP_VERSION}`;
-    const storedTurn = recordSuccessfulTurn({
-      sessionId: req.sessionId,
-      agentId,
-      chatbotId,
-      enableRag,
-      model,
-      channelId: req.channelId,
-      promptMode: req.promptMode,
-      runId,
-      turnIndex,
-      userId: req.userId,
-      username: req.username,
-      canonicalScopeId: canonicalContextScope,
-      userContent: req.content,
-      resultText,
-      toolCallCount: 0,
-      startedAt,
-      replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
-    });
-    const result: GatewayChatResult = {
-      status: 'success',
-      result: resultText,
-      messageRole: 'assistant',
-      toolsUsed: [],
-      agentId,
-      model,
-      provider,
-      assistantPresentation:
-        getGatewayAssistantPresentationForMessageAgent(agentId),
-      userMessageId: storedTurn.userMessageId,
-      assistantMessageId: storedTurn.assistantMessageId,
-    };
-    maybeScheduleFullAutoAfterSuccess({ session, req, result });
-    await emitPostTurnForResult(result);
-    maybeAutoTitleSession({
-      ...autoTitleParams(),
-      userContent: req.content,
-    });
     return attachSessionIdentity(result);
   }
 

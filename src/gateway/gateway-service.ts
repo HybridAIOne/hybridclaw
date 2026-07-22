@@ -3727,55 +3727,6 @@ function resolveGuildChannelMode(
   return 'mention';
 }
 
-function normalizeVersionQuery(raw: string): string {
-  return raw
-    .toLowerCase()
-    .replace(/<@!?\d+>/g, ' ')
-    .replace(/[!?.,;:()[\]{}"']/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-export function isVersionOnlyQuestion(raw: string): boolean {
-  const text = normalizeVersionQuery(raw);
-  if (!text) return false;
-  if (text.startsWith('!claw ')) return false;
-  if (!text.includes('version')) return false;
-
-  const detailedRuntimeTokens = [
-    'modell',
-    'model',
-    'runtime',
-    'laufzeit',
-    'node',
-    'os',
-    'plattform',
-    'platform',
-    'agent id',
-    'chatbot id',
-    'commit',
-    'sha',
-    'hash',
-    'details',
-    'detail',
-    'full',
-    'voll',
-  ];
-  if (detailedRuntimeTokens.some((token) => text.includes(token))) return false;
-
-  const words = text.split(' ').filter(Boolean);
-  if (
-    words.length > 8 &&
-    !text.includes('welche version') &&
-    !text.includes('what version') &&
-    !text.includes('which version')
-  ) {
-    return false;
-  }
-
-  return true;
-}
-
 export function recordSuccessfulTurn(opts: {
   sessionId: string;
   agentId: string;

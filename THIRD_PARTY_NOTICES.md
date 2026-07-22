@@ -15,7 +15,7 @@ texts ship inside the respective packages.
 
 ## @hybridaione/hybridclaw (`npm-shrinkwrap.json`)
 
-745 production dependencies.
+746 production dependencies.
 
 | Package | Version | License |
 | --- | --- | --- |
@@ -44,6 +44,7 @@ texts ship inside the respective packages.
 | @discordjs/rest | 2.6.1 | Apache-2.0 |
 | @discordjs/util | 1.2.0 | Apache-2.0 |
 | @discordjs/ws | 1.2.3 | Apache-2.0 |
+| @e965/xlsx | 0.20.3 | Apache-2.0 |
 | @emnapi/runtime | 1.10.0 | MIT |
 | @grpc/grpc-js | 1.14.4 | Apache-2.0 |
 | @grpc/proto-loader | 0.8.0 | Apache-2.0 |
@@ -1211,7 +1212,7 @@ available under the Apache 2.0 license (https://github.com/puppeteer/puppeteer/b
 
 ## License Texts
 
-### Text 1 of 392
+### Text 1 of 393
 
 Applies to: @antfu/install-pkg@1.1.0
 
@@ -1239,7 +1240,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 2 of 392
+### Text 2 of 393
 
 Applies to: @azure/abort-controller@2.1.2
 
@@ -1267,7 +1268,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 3 of 392
+### Text 3 of 393
 
 Applies to: @azure/core-auth@1.10.1, @azure/core-client@1.10.1, @azure/core-http-compat@2.3.2, @azure/core-rest-pipeline@1.23.0, @azure/core-tracing@1.3.1, @azure/core-util@1.13.1, @azure/identity@4.13.1, @azure/logger@1.3.0, @typespec/ts-http-runtime@0.3.4
 
@@ -1295,7 +1296,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 4 of 392
+### Text 4 of 393
 
 Applies to: @azure/msal-browser@5.11.0, @azure/msal-common@14.16.1, @azure/msal-common@16.6.2, @azure/msal-common@16.9.0
 
@@ -1323,7 +1324,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE
 ````
 
-### Text 5 of 392
+### Text 5 of 393
 
 Applies to: @azure/msal-node@2.16.3, @azure/msal-node@5.2.5
 
@@ -1351,7 +1352,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 6 of 392
+### Text 6 of 393
 
 Applies to: @borewit/text-codec@0.2.2
 
@@ -1367,7 +1368,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 7 of 392
+### Text 7 of 393
 
 Applies to: @braintree/sanitize-url@7.1.2
 
@@ -1395,7 +1396,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 8 of 392
+### Text 8 of 393
 
 Applies to: @cacheable/memory@2.2.0, @cacheable/node-cache@1.7.6, @cacheable/utils@2.5.0, cacheable@2.5.0
 
@@ -1421,7 +1422,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 9 of 392
+### Text 9 of 393
 
 Applies to: @chevrotain/types@11.1.2, @huggingface/transformers@3.8.1, @opentelemetry/api@1.9.1, @opentelemetry/api-logs@0.214.0, @opentelemetry/api-logs@0.218.0, @opentelemetry/configuration@0.218.0, @opentelemetry/context-async-hooks@2.7.1, @opentelemetry/core@2.7.1, @opentelemetry/exporter-logs-otlp-grpc@0.218.0, @opentelemetry/exporter-logs-otlp-http@0.218.0, @opentelemetry/exporter-logs-otlp-proto@0.218.0, @opentelemetry/exporter-metrics-otlp-grpc@0.218.0, @opentelemetry/exporter-metrics-otlp-http@0.218.0, @opentelemetry/exporter-metrics-otlp-proto@0.218.0, @opentelemetry/exporter-prometheus@0.218.0, @opentelemetry/exporter-trace-otlp-grpc@0.218.0, @opentelemetry/exporter-trace-otlp-http@0.218.0, @opentelemetry/exporter-trace-otlp-proto@0.218.0, @opentelemetry/exporter-zipkin@2.7.1, @opentelemetry/instrumentation@0.214.0, @opentelemetry/instrumentation@0.218.0, @opentelemetry/otlp-exporter-base@0.218.0, @opentelemetry/otlp-grpc-exporter-base@0.218.0, @opentelemetry/otlp-transformer@0.218.0, @opentelemetry/propagator-b3@2.7.1, @opentelemetry/propagator-jaeger@2.7.1, @opentelemetry/resources@2.7.1, @opentelemetry/sdk-logs@0.218.0, @opentelemetry/sdk-metrics@2.7.1, @opentelemetry/sdk-node@0.218.0, @opentelemetry/sdk-trace-base@2.7.1, @opentelemetry/sdk-trace-node@2.7.1, @opentelemetry/semantic-conventions@1.40.0, baseline-browser-mapping@2.10.8, dompurify@3.4.7, flatbuffers@25.9.23, long@5.3.2
 
@@ -1629,7 +1630,7 @@ Apache License
    limitations under the License.
 ````
 
-### Text 10 of 392
+### Text 10 of 393
 
 Applies to: @discordjs/builders@1.14.1
 
@@ -1827,7 +1828,7 @@ Apache License
    limitations under the License.
 ````
 
-### Text 11 of 392
+### Text 11 of 393
 
 Applies to: @discordjs/collection@1.5.3, @discordjs/collection@2.1.1, discord.js@14.26.4
 
@@ -2025,7 +2026,7 @@ Apache License
    limitations under the License.
 ````
 
-### Text 12 of 392
+### Text 12 of 393
 
 Applies to: @discordjs/formatters@0.6.2
 
@@ -2223,7 +2224,7 @@ Apache License
    limitations under the License.
 ````
 
-### Text 13 of 392
+### Text 13 of 393
 
 Applies to: @discordjs/rest@2.6.1
 
@@ -2422,7 +2423,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ````
 
-### Text 14 of 392
+### Text 14 of 393
 
 Applies to: @discordjs/util@1.2.0
 
@@ -2619,7 +2620,7 @@ Apache License
    limitations under the License.
 ````
 
-### Text 15 of 392
+### Text 15 of 393
 
 Applies to: @discordjs/ws@1.2.3
 
@@ -2817,7 +2818,215 @@ Apache License
    limitations under the License.
 ````
 
-### Text 16 of 392
+### Text 16 of 393
+
+Applies to: @e965/xlsx@0.20.3
+
+````text
+Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "{}"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright (C) 2012-present   SheetJS LLC
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+````
+
+### Text 17 of 393
 
 Applies to: @grpc/grpc-js@1.14.4, @grpc/proto-loader@0.8.0, detect-libc@2.1.2
 
@@ -3025,7 +3234,7 @@ Apache License
    limitations under the License.
 ````
 
-### Text 17 of 392
+### Text 18 of 393
 
 Applies to: @hapi/boom@9.1.4
 
@@ -3042,7 +3251,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS AND CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS OFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 18 of 392
+### Text 19 of 393
 
 Applies to: @hapi/hoek@9.3.0
 
@@ -3061,7 +3270,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS AND CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS OFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 19 of 392
+### Text 20 of 393
 
 Applies to: @hono/node-server@1.19.14
 
@@ -3089,7 +3298,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 20 of 392
+### Text 21 of 393
 
 Applies to: @huggingface/jinja@0.5.6
 
@@ -3117,7 +3326,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 21 of 392
+### Text 22 of 393
 
 Applies to: @iconify/types@2.0.0
 
@@ -3145,7 +3354,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 22 of 392
+### Text 23 of 393
 
 Applies to: @iconify/utils@3.1.3
 
@@ -3173,7 +3382,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 23 of 392
+### Text 24 of 393
 
 Applies to: @img/colour@1.1.0
 
@@ -3262,7 +3471,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 24 of 392
+### Text 25 of 393
 
 Applies to: @isaacs/fs-minipass@4.0.1, chownr@1.1.4, ini@1.3.8, isexe@2.0.0, json-stringify-safe@5.0.1, once@1.4.0, semver@7.7.4, semver@7.8.5, which@2.0.2, wrappy@1.0.2
 
@@ -3284,7 +3493,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
 IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 25 of 392
+### Text 26 of 393
 
 Applies to: @js-sdsl/ordered-map@4.4.2
 
@@ -3312,7 +3521,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 26 of 392
+### Text 27 of 393
 
 Applies to: @jsr/evex__loose-types@1.0.1
 
@@ -3340,7 +3549,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 27 of 392
+### Text 28 of 393
 
 Applies to: @keyv/bigmap@1.3.1
 
@@ -3368,7 +3577,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 28 of 392
+### Text 29 of 393
 
 Applies to: @keyv/serialize@1.1.1, keyv@5.6.0
 
@@ -3397,7 +3606,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 29 of 392
+### Text 30 of 393
 
 Applies to: @mermaid-js/parser@1.1.1
 
@@ -3425,7 +3634,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 30 of 392
+### Text 31 of 393
 
 Applies to: @modelcontextprotocol/sdk@1.29.0
 
@@ -3453,7 +3662,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 31 of 392
+### Text 32 of 393
 
 Applies to: @mozilla/readability@0.6.0
 
@@ -3473,7 +3682,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ````
 
-### Text 32 of 392
+### Text 33 of 393
 
 Applies to: @ngrok/ngrok@1.7.0
 
@@ -3691,7 +3900,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 33 of 392
+### Text 34 of 393
 
 Applies to: @noble/ciphers@2.2.0
 
@@ -3720,7 +3929,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 34 of 392
+### Text 35 of 393
 
 Applies to: @pdf-lib/standard-fonts@1.0.0
 
@@ -3748,7 +3957,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 35 of 392
+### Text 36 of 393
 
 Applies to: @pdf-lib/upng@1.0.1
 
@@ -3776,7 +3985,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 36 of 392
+### Text 37 of 393
 
 Applies to: @pinojs/redact@0.4.0
 
@@ -3804,7 +4013,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 37 of 392
+### Text 38 of 393
 
 Applies to: @protobufjs/aspromise@1.1.2, @protobufjs/base64@1.1.2, @protobufjs/codegen@2.0.5, @protobufjs/eventemitter@1.1.1, @protobufjs/fetch@1.1.1, @protobufjs/float@1.0.2, @protobufjs/path@1.1.2, @protobufjs/pool@1.1.0, @protobufjs/utf8@1.1.1, @protobufjs/utf8@1.1.2
 
@@ -3837,7 +4046,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 38 of 392
+### Text 39 of 393
 
 Applies to: @sapphire/shapeshift@4.0.0
 
@@ -3868,7 +4077,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 39 of 392
+### Text 40 of 393
 
 Applies to: @selderee/plugin-htmlparser2@0.11.0, leac@0.6.0, parseley@0.12.1, peberminta@0.9.0, selderee@0.11.0
 
@@ -3896,7 +4105,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 40 of 392
+### Text 41 of 393
 
 Applies to: @selderee/plugin-htmlparser2@0.12.0, selderee@0.12.0
 
@@ -3924,7 +4133,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 41 of 392
+### Text 42 of 393
 
 Applies to: @sentry/core@10.56.0
 
@@ -3952,7 +4161,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 42 of 392
+### Text 43 of 393
 
 Applies to: @sentry/node-core@10.56.0
 
@@ -3980,7 +4189,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 43 of 392
+### Text 44 of 393
 
 Applies to: @sentry/node@10.56.0, @sentry/opentelemetry@10.56.0
 
@@ -4008,7 +4217,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 44 of 392
+### Text 45 of 393
 
 Applies to: @sindresorhus/is@4.6.0, bundle-name@4.1.0, decompress-response@6.0.0, default-browser@5.5.0, default-browser-id@5.0.1, define-lazy-prop@3.0.0, dot-prop@6.0.1, escape-string-regexp@4.0.0, file-type@21.3.4, filename-reserved-regex@3.0.0, filenamify@6.0.0, is-docker@3.0.0, is-inside-container@1.0.0, is-stream@2.0.1, is-wsl@3.1.1, matcher@3.0.0, mimic-response@3.1.0, open@10.2.0, ow@0.28.2, p-queue@6.6.2, p-queue@9.3.1, p-timeout@7.0.1, pretty-bytes@7.1.0, run-applescript@7.1.0, serialize-error@7.0.1, strip-json-comments@5.0.3, uint8array-extras@1.5.0, wrap-ansi@7.0.0, wsl-utils@0.1.0
 
@@ -4024,7 +4233,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 45 of 392
+### Text 46 of 393
 
 Applies to: @slack/bolt@4.7.3
 
@@ -4053,7 +4262,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 46 of 392
+### Text 47 of 393
 
 Applies to: @slack/logger@4.0.1, @slack/oauth@3.0.5, @slack/socket-mode@2.0.7, @slack/types@2.21.1, @slack/web-api@7.16.0
 
@@ -4082,7 +4291,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 47 of 392
+### Text 48 of 393
 
 Applies to: @tanstack/history@1.162.0, @tanstack/query-core@5.101.0, @tanstack/react-query@5.101.0, @tanstack/react-router@1.170.11, @tanstack/router-core@1.171.9
 
@@ -4110,7 +4319,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 48 of 392
+### Text 49 of 393
 
 Applies to: @tanstack/react-store@0.9.3, @tanstack/store@0.9.3
 
@@ -4138,7 +4347,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 49 of 392
+### Text 50 of 393
 
 Applies to: @tokenizer/inflate@0.4.1
 
@@ -4160,7 +4369,7 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER I
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 50 of 392
+### Text 51 of 393
 
 Applies to: @types/body-parser@1.19.6, @types/connect@3.4.38, @types/d3@7.4.3, @types/d3-array@3.2.2, @types/d3-axis@3.0.6, @types/d3-brush@3.0.6, @types/d3-chord@3.0.6, @types/d3-color@3.1.3, @types/d3-contour@3.0.6, @types/d3-delaunay@6.0.4, @types/d3-dispatch@3.0.7, @types/d3-drag@3.0.7, @types/d3-dsv@3.0.7, @types/d3-ease@3.0.2, @types/d3-fetch@3.0.7, @types/d3-force@3.0.10, @types/d3-format@3.0.4, @types/d3-geo@3.1.0, @types/d3-hierarchy@3.1.7, @types/d3-interpolate@3.0.4, @types/d3-path@3.1.1, @types/d3-polygon@3.0.2, @types/d3-quadtree@3.0.6, @types/d3-random@3.0.3, @types/d3-scale@4.0.9, @types/d3-scale-chromatic@3.1.0, @types/d3-selection@3.0.11, @types/d3-shape@3.1.8, @types/d3-time@3.0.4, @types/d3-time-format@4.0.3, @types/d3-timer@3.0.2, @types/d3-transition@3.0.9, @types/d3-zoom@3.0.8, @types/express@5.0.6, @types/express-serve-static-core@5.1.1, @types/geojson@7946.0.16, @types/http-errors@2.0.5, @types/jsonwebtoken@9.0.6, @types/node@22.19.15, @types/node@25.9.4, @types/node-int64@0.4.32, @types/q@1.5.8, @types/qs@6.15.0, @types/range-parser@1.2.7, @types/send@1.2.1, @types/serve-static@2.2.0, @types/thrift@0.10.17, @types/ws@8.18.1
 
@@ -4188,7 +4397,7 @@ MIT License
     SOFTWARE
 ````
 
-### Text 51 of 392
+### Text 52 of 393
 
 Applies to: @types/retry@0.12.0, @types/ws@6.0.4
 
@@ -4216,7 +4425,7 @@ MIT License
     SOFTWARE
 ````
 
-### Text 52 of 392
+### Text 53 of 393
 
 Applies to: @upsetjs/venn.js@2.0.0
 
@@ -4245,7 +4454,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 53 of 392
+### Text 54 of 393
 
 Applies to: @vladfrangu/async_event_emitter@2.4.7
 
@@ -4276,7 +4485,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 54 of 392
+### Text 55 of 393
 
 Applies to: @whiskeysockets/baileys@7.0.0-rc13
 
@@ -4304,7 +4513,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 55 of 392
+### Text 56 of 393
 
 Applies to: @xterm/addon-fit@0.11.0
 
@@ -4330,7 +4539,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 56 of 392
+### Text 57 of 393
 
 Applies to: @xterm/xterm@5.5.0
 
@@ -4358,7 +4567,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 57 of 392
+### Text 58 of 393
 
 Applies to: @zone-eu/mailsplit@5.4.12
 
@@ -4542,7 +4751,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 58 of 392
+### Text 59 of 393
 
 Applies to: accepts@2.0.0, mime-types@2.1.35, mime-types@3.0.2
 
@@ -4572,7 +4781,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 59 of 392
+### Text 60 of 393
 
 Applies to: acorn-import-attributes@1.9.5
 
@@ -4600,7 +4809,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 60 of 392
+### Text 61 of 393
 
 Applies to: acorn@8.16.0
 
@@ -4628,7 +4837,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 61 of 392
+### Text 62 of 393
 
 Applies to: adaptivecards@1.2.3
 
@@ -4656,7 +4865,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 62 of 392
+### Text 63 of 393
 
 Applies to: adler-32@1.3.1, crc-32@1.2.2
 
@@ -4864,7 +5073,7 @@ Apache License
    limitations under the License.
 ````
 
-### Text 63 of 392
+### Text 64 of 393
 
 Applies to: adm-zip@0.5.17
 
@@ -4892,7 +5101,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 64 of 392
+### Text 65 of 393
 
 Applies to: agent-base@7.1.4, http-proxy-agent@7.0.2, https-proxy-agent@7.0.6
 
@@ -4921,7 +5130,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 65 of 392
+### Text 66 of 393
 
 Applies to: agent-browser@0.26.0
 
@@ -5129,7 +5338,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ````
 
-### Text 66 of 392
+### Text 67 of 393
 
 Applies to: ajv-formats@3.0.1
 
@@ -5157,7 +5366,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 67 of 392
+### Text 68 of 393
 
 Applies to: ajv@8.18.0, ajv@8.20.0
 
@@ -5185,7 +5394,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 68 of 392
+### Text 69 of 393
 
 Applies to: amaro@1.1.10
 
@@ -5213,7 +5422,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 69 of 392
+### Text 70 of 393
 
 Applies to: ansi-regex@5.0.1, ansi-styles@4.3.0, callsites@3.1.0, is-fullwidth-code-point@3.0.0, is-obj@2.0.0, p-retry@4.6.2, p-timeout@3.2.0, path-key@3.1.1, shebang-regex@3.0.0, string-width@4.2.3, strip-ansi@6.0.1
 
@@ -5229,7 +5438,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 70 of 392
+### Text 71 of 393
 
 Applies to: async-limiter@1.0.1
 
@@ -5244,7 +5453,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 71 of 392
+### Text 72 of 393
 
 Applies to: async-mutex@0.5.0
 
@@ -5272,7 +5481,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 72 of 392
+### Text 73 of 393
 
 Applies to: asynckit@0.4.0
 
@@ -5300,7 +5509,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 73 of 392
+### Text 74 of 393
 
 Applies to: atomic-sleep@1.0.0
 
@@ -5328,7 +5537,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
 OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 74 of 392
+### Text 75 of 393
 
 Applies to: axios@1.16.1
 
@@ -5342,7 +5551,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 75 of 392
+### Text 76 of 393
 
 Applies to: balanced-match@4.0.4
 
@@ -5372,7 +5581,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 76 of 392
+### Text 77 of 393
 
 Applies to: base64-js@1.5.1
 
@@ -5400,7 +5609,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 77 of 392
+### Text 78 of 393
 
 Applies to: base64url@3.0.1
 
@@ -5427,7 +5636,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 78 of 392
+### Text 79 of 393
 
 Applies to: better-sqlite3@12.10.0
 
@@ -5455,7 +5664,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 79 of 392
+### Text 80 of 393
 
 Applies to: bindings@1.5.0
 
@@ -5484,7 +5693,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 80 of 392
+### Text 81 of 393
 
 Applies to: bl@4.1.0
 
@@ -5504,7 +5713,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 81 of 392
+### Text 82 of 393
 
 Applies to: body-parser@2.2.2, type-is@2.0.1
 
@@ -5534,7 +5743,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 82 of 392
+### Text 83 of 393
 
 Applies to: boolean@3.2.0
 
@@ -5549,7 +5758,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 83 of 392
+### Text 84 of 393
 
 Applies to: botbuilder@4.23.3, botbuilder-core@4.23.3, botbuilder-dialogs-adaptive-runtime-core@4.23.3-preview, botbuilder-stdlib@4.23.3-internal, botframework-schema@4.23.3, botframework-streaming@4.23.3
 
@@ -5577,7 +5786,7 @@ MIT License
     SOFTWARE
 ````
 
-### Text 84 of 392
+### Text 85 of 393
 
 Applies to: botframework-connector@4.23.3
 
@@ -5629,7 +5838,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 85 of 392
+### Text 86 of 393
 
 Applies to: brace-expansion@5.0.6
 
@@ -5659,7 +5868,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 86 of 392
+### Text 87 of 393
 
 Applies to: browser-or-node@1.3.0
 
@@ -5687,7 +5896,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 87 of 392
+### Text 88 of 393
 
 Applies to: browserslist@4.28.1
 
@@ -5714,7 +5923,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 88 of 392
+### Text 89 of 393
 
 Applies to: buffer-crc32@0.2.13
 
@@ -5740,7 +5949,7 @@ FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TOR
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 89 of 392
+### Text 90 of 393
 
 Applies to: buffer-crc32@1.0.0
 
@@ -5766,7 +5975,7 @@ FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TOR
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 90 of 392
+### Text 91 of 393
 
 Applies to: buffer-equal-constant-time@1.0.1
 
@@ -5785,7 +5994,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 91 of 392
+### Text 92 of 393
 
 Applies to: buffer@5.7.1, buffer@6.0.3
 
@@ -5813,7 +6022,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 92 of 392
+### Text 93 of 393
 
 Applies to: bytes@3.1.2
 
@@ -5843,7 +6052,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 93 of 392
+### Text 94 of 393
 
 Applies to: call-bind-apply-helpers@1.0.2, call-bound@1.0.4, es-define-property@1.0.1, es-errors@1.3.0, es-object-atoms@1.1.1, side-channel-list@1.0.0, side-channel-map@1.0.1
 
@@ -5871,7 +6080,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 94 of 392
+### Text 95 of 393
 
 Applies to: camoufox-js@0.10.2
 
@@ -6251,7 +6460,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
   defined by the Mozilla Public License, v. 2.0.
 ````
 
-### Text 95 of 392
+### Text 96 of 393
 
 Applies to: caniuse-lite@1.0.30001780
 
@@ -6653,7 +6862,7 @@ public licenses.
 Creative Commons may be contacted at creativecommons.org.
 ````
 
-### Text 96 of 392
+### Text 97 of 393
 
 Applies to: cfb@1.2.2
 
@@ -6861,7 +7070,7 @@ Apache License
    limitations under the License.
 ````
 
-### Text 97 of 392
+### Text 98 of 393
 
 Applies to: chownr@3.0.0, glob@13.0.6, yallist@5.0.0
 
@@ -6931,7 +7140,7 @@ will be liable to anyone for any damages related to this
 software or this license, under any kind of legal claim.***
 ````
 
-### Text 98 of 392
+### Text 99 of 393
 
 Applies to: cjs-module-lexer@2.2.0
 
@@ -6948,7 +7157,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 99 of 392
+### Text 100 of 393
 
 Applies to: cli-progress@3.12.0
 
@@ -6979,7 +7188,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 100 of 392
+### Text 101 of 393
 
 Applies to: cliui@8.0.1
 
@@ -7000,7 +7209,7 @@ WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
 ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 101 of 392
+### Text 102 of 393
 
 Applies to: color-convert@2.0.1
 
@@ -7027,7 +7236,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 102 of 392
+### Text 103 of 393
 
 Applies to: color-name@1.1.4
 
@@ -7042,7 +7251,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 103 of 392
+### Text 104 of 393
 
 Applies to: colorette@2.0.20
 
@@ -7056,7 +7265,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 104 of 392
+### Text 105 of 393
 
 Applies to: combined-stream@1.0.8, delayed-stream@1.0.0
 
@@ -7082,7 +7291,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 105 of 392
+### Text 106 of 393
 
 Applies to: commander@14.0.3, commander@7.2.0, commander@8.3.0
 
@@ -7111,7 +7320,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 106 of 392
+### Text 107 of 393
 
 Applies to: content-disposition@1.0.1, forwarded@0.2.0, media-typer@1.1.0, media-typer@2.0.0, vary@1.1.2
 
@@ -7140,7 +7349,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 107 of 392
+### Text 108 of 393
 
 Applies to: content-type@1.0.5, content-type@2.0.0
 
@@ -7169,7 +7378,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 108 of 392
+### Text 109 of 393
 
 Applies to: cookie-es@3.1.1
 
@@ -7204,7 +7413,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 109 of 392
+### Text 110 of 393
 
 Applies to: cookie-signature@1.2.2
 
@@ -7233,7 +7442,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 110 of 392
+### Text 111 of 393
 
 Applies to: cookie@0.7.2
 
@@ -7263,7 +7472,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 111 of 392
+### Text 112 of 393
 
 Applies to: core-util-is@1.0.3
 
@@ -7289,7 +7498,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 ````
 
-### Text 112 of 392
+### Text 113 of 393
 
 Applies to: cors@2.8.6
 
@@ -7318,7 +7527,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 113 of 392
+### Text 114 of 393
 
 Applies to: cose-base@1.0.3, cose-base@2.2.0
 
@@ -7346,7 +7555,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 114 of 392
+### Text 115 of 393
 
 Applies to: cron-parser@5.5.0
 
@@ -7374,7 +7583,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 115 of 392
+### Text 116 of 393
 
 Applies to: cross-fetch@4.1.0
 
@@ -7402,7 +7611,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 116 of 392
+### Text 117 of 393
 
 Applies to: cross-spawn@7.0.6
 
@@ -7430,7 +7639,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 117 of 392
+### Text 118 of 393
 
 Applies to: crypto-js@4.2.0
 
@@ -7461,7 +7670,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 118 of 392
+### Text 119 of 393
 
 Applies to: css-select@5.2.2, css-what@6.2.2, domelementtype@2.3.0, domhandler@5.0.3, domutils@3.2.2, entities@4.5.0, entities@7.0.1, nth-check@2.1.1
 
@@ -7479,7 +7688,7 @@ THIS IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRE
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 119 of 392
+### Text 120 of 393
 
 Applies to: cssom@0.5.0
 
@@ -7506,7 +7715,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 120 of 392
+### Text 121 of 393
 
 Applies to: csv-parse@6.2.1
 
@@ -7534,7 +7743,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 121 of 392
+### Text 122 of 393
 
 Applies to: curve25519-js@0.0.4
 
@@ -7560,7 +7769,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
 OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 122 of 392
+### Text 123 of 393
 
 Applies to: cytoscape-cose-bilkent@4.1.0
 
@@ -7586,7 +7795,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 123 of 392
+### Text 124 of 393
 
 Applies to: cytoscape-fcose@2.2.0
 
@@ -7612,7 +7821,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 124 of 392
+### Text 125 of 393
 
 Applies to: cytoscape@3.33.3
 
@@ -7673,7 +7882,7 @@ SOFTWARE.`;
 fs.writeFileSync(path.join(__dirname, 'LICENSE'), license);
 ````
 
-### Text 125 of 392
+### Text 126 of 393
 
 Applies to: d3-array@2.12.1
 
@@ -7707,7 +7916,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 126 of 392
+### Text 127 of 393
 
 Applies to: d3-axis@3.0.0, d3-brush@3.0.0, d3-chord@3.0.1, d3-dispatch@3.0.1, d3-drag@3.0.0, d3-force@3.0.0, d3-hierarchy@3.1.2, d3-interpolate@3.0.1, d3-polygon@3.0.1, d3-quadtree@3.0.1, d3-random@3.0.1, d3-scale@4.0.2, d3-selection@3.0.0, d3-time-format@4.1.0, d3-timer@3.0.1, d3-transition@3.0.1, d3-zoom@3.0.0
 
@@ -7727,7 +7936,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ````
 
-### Text 127 of 392
+### Text 128 of 393
 
 Applies to: d3-color@3.1.0, d3-shape@3.2.0, d3-time@3.1.0
 
@@ -7747,7 +7956,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ````
 
-### Text 128 of 392
+### Text 129 of 393
 
 Applies to: d3-contour@4.0.2
 
@@ -7767,7 +7976,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ````
 
-### Text 129 of 392
+### Text 130 of 393
 
 Applies to: d3-delaunay@6.0.4
 
@@ -7788,7 +7997,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ````
 
-### Text 130 of 392
+### Text 131 of 393
 
 Applies to: d3-dsv@3.0.1
 
@@ -7808,7 +8017,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ````
 
-### Text 131 of 392
+### Text 132 of 393
 
 Applies to: d3-ease@3.0.1
 
@@ -7843,7 +8052,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 132 of 392
+### Text 133 of 393
 
 Applies to: d3-fetch@3.0.1
 
@@ -7863,7 +8072,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ````
 
-### Text 133 of 392
+### Text 134 of 393
 
 Applies to: d3-format@3.1.2
 
@@ -7883,7 +8092,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ````
 
-### Text 134 of 392
+### Text 135 of 393
 
 Applies to: d3-geo@3.1.1
 
@@ -7924,7 +8133,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 135 of 392
+### Text 136 of 393
 
 Applies to: d3-path@1.0.9
 
@@ -7958,7 +8167,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 136 of 392
+### Text 137 of 393
 
 Applies to: d3-path@3.1.0
 
@@ -7978,7 +8187,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ````
 
-### Text 137 of 392
+### Text 138 of 393
 
 Applies to: d3-sankey@0.12.3
 
@@ -8012,7 +8221,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 138 of 392
+### Text 139 of 393
 
 Applies to: d3-scale-chromatic@3.1.0
 
@@ -8047,7 +8256,7 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 ````
 
-### Text 139 of 392
+### Text 140 of 393
 
 Applies to: d3-shape@1.3.7
 
@@ -8081,7 +8290,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 140 of 392
+### Text 141 of 393
 
 Applies to: d3@7.9.0, d3-array@3.2.4
 
@@ -8101,7 +8310,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ````
 
-### Text 141 of 392
+### Text 142 of 393
 
 Applies to: dagre-d3-es@7.0.14
 
@@ -8131,7 +8340,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 142 of 392
+### Text 143 of 393
 
 Applies to: dateformat@4.6.3
 
@@ -8158,7 +8367,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 143 of 392
+### Text 144 of 393
 
 Applies to: dayjs@1.11.20
 
@@ -8186,7 +8395,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 144 of 392
+### Text 145 of 393
 
 Applies to: debug@4.4.3
 
@@ -8212,7 +8421,7 @@ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN 
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 145 of 392
+### Text 146 of 393
 
 Applies to: deep-extend@0.6.0
 
@@ -8239,7 +8448,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 146 of 392
+### Text 147 of 393
 
 Applies to: deepmerge-ts@7.1.5
 
@@ -8275,7 +8484,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 147 of 392
+### Text 148 of 393
 
 Applies to: deepmerge@4.3.1
 
@@ -8303,7 +8512,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 148 of 392
+### Text 149 of 393
 
 Applies to: define-data-property@1.1.4
 
@@ -8331,7 +8540,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 149 of 392
+### Text 150 of 393
 
 Applies to: define-properties@1.2.1
 
@@ -8359,7 +8568,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 150 of 392
+### Text 151 of 393
 
 Applies to: delaunator@5.1.0
 
@@ -8381,7 +8590,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ````
 
-### Text 151 of 392
+### Text 152 of 393
 
 Applies to: depd@2.0.0
 
@@ -8410,7 +8619,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 152 of 392
+### Text 153 of 393
 
 Applies to: dependency-graph@1.0.0
 
@@ -8436,7 +8645,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 153 of 392
+### Text 154 of 393
 
 Applies to: detect-node@2.1.0
 
@@ -8464,7 +8673,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 154 of 392
+### Text 155 of 393
 
 Applies to: discord-api-types@0.38.42
 
@@ -8492,7 +8701,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 155 of 392
+### Text 156 of 393
 
 Applies to: docx@9.7.1
 
@@ -8520,7 +8729,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 156 of 392
+### Text 157 of 393
 
 Applies to: dom-serializer@2.0.0
 
@@ -8538,7 +8747,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 157 of 392
+### Text 158 of 393
 
 Applies to: dunder-proto@1.0.1, math-intrinsics@1.1.0
 
@@ -8566,7 +8775,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 158 of 392
+### Text 159 of 393
 
 Applies to: ecdsa-sig-formatter@1.0.11
 
@@ -8774,7 +8983,7 @@ Apache License
    limitations under the License.
 ````
 
-### Text 159 of 392
+### Text 160 of 393
 
 Applies to: ee-first@1.1.1
 
@@ -8802,7 +9011,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 160 of 392
+### Text 161 of 393
 
 Applies to: electron-to-chromium@1.5.313
 
@@ -8814,7 +9023,7 @@ Permission to use, copy, modify, and/or distribute this software for any purpose
 THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 161 of 392
+### Text 162 of 393
 
 Applies to: emoji-regex@8.0.0, he@1.2.0, punycode.js@2.3.1, uc.micro@2.1.0
 
@@ -8841,7 +9050,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 162 of 392
+### Text 163 of 393
 
 Applies to: encodeurl@2.0.0
 
@@ -8870,7 +9079,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 163 of 392
+### Text 164 of 393
 
 Applies to: encoding-japanese@2.2.0
 
@@ -8898,7 +9107,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 164 of 392
+### Text 165 of 393
 
 Applies to: end-of-stream@1.4.5, pump@3.0.4, tar-fs@2.1.4, tar-stream@2.2.0
 
@@ -8926,7 +9135,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 165 of 392
+### Text 166 of 393
 
 Applies to: es-set-tostringtag@2.1.0
 
@@ -8954,7 +9163,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 166 of 392
+### Text 167 of 393
 
 Applies to: es-toolkit@1.47.0
 
@@ -8986,7 +9195,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 167 of 392
+### Text 168 of 393
 
 Applies to: es6-error@4.1.1
 
@@ -9014,7 +9223,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 168 of 392
+### Text 169 of 393
 
 Applies to: escalade@3.2.0
 
@@ -9030,7 +9239,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 169 of 392
+### Text 170 of 393
 
 Applies to: escape-html@1.0.3
 
@@ -9061,7 +9270,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 170 of 392
+### Text 171 of 393
 
 Applies to: etag@1.8.1, proxy-addr@2.0.7
 
@@ -9090,7 +9299,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 171 of 392
+### Text 172 of 393
 
 Applies to: eventemitter3@4.0.7, eventemitter3@5.0.4
 
@@ -9118,7 +9327,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 172 of 392
+### Text 173 of 393
 
 Applies to: eventsource-parser@3.0.6
 
@@ -9146,7 +9355,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 173 of 392
+### Text 174 of 393
 
 Applies to: eventsource@3.0.7
 
@@ -9175,7 +9384,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 174 of 392
+### Text 175 of 393
 
 Applies to: expand-template@2.0.3
 
@@ -9203,7 +9412,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 175 of 392
+### Text 176 of 393
 
 Applies to: express-rate-limit@8.5.2
 
@@ -9230,7 +9439,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 176 of 392
+### Text 177 of 393
 
 Applies to: express@5.2.1
 
@@ -9261,7 +9470,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 177 of 392
+### Text 178 of 393
 
 Applies to: fast-copy@4.0.2
 
@@ -9289,7 +9498,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 178 of 392
+### Text 179 of 393
 
 Applies to: fast-deep-equal@3.1.3, json-schema-traverse@1.0.0
 
@@ -9317,7 +9526,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 179 of 392
+### Text 180 of 393
 
 Applies to: fast-safe-stringify@2.1.1
 
@@ -9347,7 +9556,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 180 of 392
+### Text 181 of 393
 
 Applies to: fast-uri@3.1.2
 
@@ -9384,7 +9593,7 @@ The complete list of contributors can be found at:
 - https://github.com/garycourt/uri-js/graphs/contributors
 ````
 
-### Text 181 of 392
+### Text 182 of 393
 
 Applies to: file-uri-to-path@1.0.0
 
@@ -9411,7 +9620,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 182 of 392
+### Text 183 of 393
 
 Applies to: finalhandler@2.1.1
 
@@ -9440,7 +9649,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 183 of 392
+### Text 184 of 393
 
 Applies to: fingerprint-generator@2.1.82, generative-bayesian-network@2.1.83, header-generator@2.1.82
 
@@ -9648,7 +9857,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ````
 
-### Text 184 of 392
+### Text 185 of 393
 
 Applies to: follow-redirects@1.16.0
 
@@ -9673,7 +9882,7 @@ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 185 of 392
+### Text 186 of 393
 
 Applies to: form-data@4.0.6
 
@@ -9699,7 +9908,7 @@ Copyright (c) 2012 Felix Geisendörfer (felix@debuggable.com) and contributors
  THE SOFTWARE.
 ````
 
-### Text 186 of 392
+### Text 187 of 393
 
 Applies to: fresh@2.0.0
 
@@ -9729,7 +9938,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 187 of 392
+### Text 188 of 393
 
 Applies to: fs-constants@1.0.0
 
@@ -9757,7 +9966,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 188 of 392
+### Text 189 of 393
 
 Applies to: fs-extra@11.3.5
 
@@ -9779,7 +9988,7 @@ OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHE
  ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 189 of 392
+### Text 190 of 393
 
 Applies to: function-bind@1.1.2
 
@@ -9805,7 +10014,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 190 of 392
+### Text 191 of 393
 
 Applies to: get-caller-file@2.0.5
 
@@ -9818,7 +10027,7 @@ Permission to use, copy, modify, and/or distribute this software for any purpose
 THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 191 of 392
+### Text 192 of 393
 
 Applies to: get-intrinsic@1.3.0
 
@@ -9846,7 +10055,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 192 of 392
+### Text 193 of 393
 
 Applies to: get-proto@1.0.1
 
@@ -9874,7 +10083,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 193 of 392
+### Text 194 of 393
 
 Applies to: github-from-package@0.0.0, minimist@1.2.8, semver-compare@1.0.0
 
@@ -9899,7 +10108,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 194 of 392
+### Text 195 of 393
 
 Applies to: global-agent@3.0.0, roarr@2.15.4
 
@@ -9930,7 +10139,7 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 195 of 392
+### Text 196 of 393
 
 Applies to: globalthis@1.0.4
 
@@ -9958,7 +10167,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 196 of 392
+### Text 197 of 393
 
 Applies to: gopd@1.2.0
 
@@ -9986,7 +10195,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 197 of 392
+### Text 198 of 393
 
 Applies to: graceful-fs@4.2.11
 
@@ -10008,7 +10217,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
 IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 198 of 392
+### Text 199 of 393
 
 Applies to: hachure-fill@0.5.2
 
@@ -10036,7 +10245,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 199 of 392
+### Text 200 of 393
 
 Applies to: has-property-descriptors@1.0.2
 
@@ -10064,7 +10273,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 200 of 392
+### Text 201 of 393
 
 Applies to: has-symbols@1.1.0
 
@@ -10092,7 +10301,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 201 of 392
+### Text 202 of 393
 
 Applies to: has-tostringtag@1.0.2
 
@@ -10120,7 +10329,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 202 of 392
+### Text 203 of 393
 
 Applies to: hashery@1.5.1
 
@@ -10148,7 +10357,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 203 of 392
+### Text 204 of 393
 
 Applies to: hasown@2.0.3, hasown@2.0.4
 
@@ -10176,7 +10385,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 204 of 392
+### Text 205 of 393
 
 Applies to: help-me@5.0.0
 
@@ -10204,7 +10413,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 205 of 392
+### Text 206 of 393
 
 Applies to: highlight.js@11.11.1
 
@@ -10240,7 +10449,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 206 of 392
+### Text 207 of 393
 
 Applies to: hono@4.12.25
 
@@ -10268,7 +10477,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 207 of 392
+### Text 208 of 393
 
 Applies to: hookified@1.15.1, hookified@2.2.0, qified@0.10.1
 
@@ -10294,7 +10503,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 208 of 392
+### Text 209 of 393
 
 Applies to: html-escaper@3.0.3
 
@@ -10320,7 +10529,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 209 of 392
+### Text 210 of 393
 
 Applies to: html-to-text@10.0.0
 
@@ -10352,7 +10561,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 210 of 392
+### Text 211 of 393
 
 Applies to: html-to-text@9.0.5
 
@@ -10384,7 +10593,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 211 of 392
+### Text 212 of 393
 
 Applies to: htmlparser2@10.1.0, htmlparser2@8.0.2, htmlparser2@9.1.0
 
@@ -10409,7 +10618,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 ````
 
-### Text 212 of 392
+### Text 213 of 393
 
 Applies to: http-errors@2.0.1
 
@@ -10438,7 +10647,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 213 of 392
+### Text 214 of 393
 
 Applies to: iconv-lite@0.6.3, iconv-lite@0.7.2
 
@@ -10465,7 +10674,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 214 of 392
+### Text 215 of 393
 
 Applies to: ieee754@1.2.1
 
@@ -10483,7 +10692,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 215 of 392
+### Text 216 of 393
 
 Applies to: image-size@1.2.1
 
@@ -10499,7 +10708,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 216 of 392
+### Text 217 of 393
 
 Applies to: imapflow@1.3.5
 
@@ -10522,7 +10731,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 217 of 392
+### Text 218 of 393
 
 Applies to: immediate@3.0.6
 
@@ -10549,7 +10758,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 218 of 392
+### Text 219 of 393
 
 Applies to: import-in-the-middle@3.0.1
 
@@ -10764,7 +10973,7 @@ dev,c8,ISC,"Copyright (c) 2017, Contributors"
 dev,imhotap,MIT,Copyright (c) 2019 Bryan English.
 ````
 
-### Text 219 of 392
+### Text 220 of 393
 
 Applies to: import-meta-resolve@4.2.0
 
@@ -10845,7 +11054,7 @@ IN THE SOFTWARE.
 """
 ````
 
-### Text 220 of 392
+### Text 221 of 393
 
 Applies to: inherits@2.0.4
 
@@ -10867,7 +11076,7 @@ OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 221 of 392
+### Text 222 of 393
 
 Applies to: internmap@1.0.1, internmap@2.0.3
 
@@ -10887,7 +11096,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ````
 
-### Text 222 of 392
+### Text 223 of 393
 
 Applies to: ip-address@10.2.0
 
@@ -10913,7 +11122,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 223 of 392
+### Text 224 of 393
 
 Applies to: ipaddr.js@1.9.1
 
@@ -10939,7 +11148,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 224 of 392
+### Text 225 of 393
 
 Applies to: is-electron@2.2.2
 
@@ -10967,7 +11176,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 225 of 392
+### Text 226 of 393
 
 Applies to: is-plain-object@5.0.0
 
@@ -10995,7 +11204,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 226 of 392
+### Text 227 of 393
 
 Applies to: is-promise@4.0.0
 
@@ -11021,7 +11230,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 227 of 392
+### Text 228 of 393
 
 Applies to: isbot@5.1.36
 
@@ -11054,7 +11263,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 For more information, please refer to <http://unlicense.org/>
 ````
 
-### Text 228 of 392
+### Text 229 of 393
 
 Applies to: isomorphic-ws@4.0.1
 
@@ -11082,7 +11291,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 229 of 392
+### Text 230 of 393
 
 Applies to: jose@6.2.1, jose@6.2.2
 
@@ -11110,7 +11319,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 230 of 392
+### Text 231 of 393
 
 Applies to: joycon@3.1.1
 
@@ -11138,7 +11347,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 231 of 392
+### Text 232 of 393
 
 Applies to: json-schema-typed@8.0.2
 
@@ -11202,7 +11411,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 232 of 392
+### Text 233 of 393
 
 Applies to: jsonfile@6.2.1
 
@@ -11224,7 +11433,7 @@ OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHE
  ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 233 of 392
+### Text 234 of 393
 
 Applies to: jsonwebtoken@9.0.3
 
@@ -11252,7 +11461,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 234 of 392
+### Text 235 of 393
 
 Applies to: jszip@3.10.1
 
@@ -11910,7 +12119,7 @@ copy of the Program in return for a fee.
                      END OF TERMS AND CONDITIONS
 ````
 
-### Text 235 of 392
+### Text 236 of 393
 
 Applies to: jwa@2.0.1, jws@4.0.1
 
@@ -11934,7 +12143,7 @@ FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TOR
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 236 of 392
+### Text 237 of 393
 
 Applies to: katex@0.16.45
 
@@ -11962,7 +12171,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 237 of 392
+### Text 238 of 393
 
 Applies to: khroma@2.1.0
 
@@ -11990,7 +12199,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 238 of 392
+### Text 239 of 393
 
 Applies to: language-tags@2.1.0
 
@@ -12004,7 +12213,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 239 of 392
+### Text 240 of 393
 
 Applies to: layout-base@1.0.2, layout-base@2.0.1
 
@@ -12032,7 +12241,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 240 of 392
+### Text 241 of 393
 
 Applies to: leac@0.7.0, parseley@0.13.1, peberminta@0.10.0
 
@@ -12060,7 +12269,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 241 of 392
+### Text 242 of 393
 
 Applies to: libbase64@1.3.0
 
@@ -12086,7 +12295,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 242 of 392
+### Text 243 of 393
 
 Applies to: libmime@5.3.8
 
@@ -12112,7 +12321,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 243 of 392
+### Text 244 of 393
 
 Applies to: libqp@2.1.1
 
@@ -12138,7 +12347,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 244 of 392
+### Text 245 of 393
 
 Applies to: libsignal@6.0.0
 
@@ -12766,7 +12975,7 @@ copy of the Program in return for a fee.
                      END OF TERMS AND CONDITIONS
 ````
 
-### Text 245 of 392
+### Text 246 of 393
 
 Applies to: lie@3.3.0
 
@@ -12780,7 +12989,7 @@ The above copyright notice and this permission notice shall be included in all c
 **THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
 ````
 
-### Text 246 of 392
+### Text 247 of 393
 
 Applies to: linkedom@0.18.12
 
@@ -12802,7 +13011,7 @@ OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 247 of 392
+### Text 248 of 393
 
 Applies to: linkify-it@5.0.1
 
@@ -12831,7 +13040,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 248 of 392
+### Text 249 of 393
 
 Applies to: lodash.camelcase@4.3.0, lodash.includes@4.3.0, lodash.isinteger@4.0.4, lodash.isplainobject@4.0.6, lodash.once@4.1.1, lodash.snakecase@4.1.1
 
@@ -12885,7 +13094,7 @@ licenses; we recommend you read them, as their terms may differ from the
 terms above.
 ````
 
-### Text 249 of 392
+### Text 250 of 393
 
 Applies to: lodash.isboolean@3.0.3, lodash.isnumber@3.0.3, lodash.isstring@4.0.1
 
@@ -12914,7 +13123,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 250 of 392
+### Text 251 of 393
 
 Applies to: lodash.isequal@4.5.0
 
@@ -12968,7 +13177,7 @@ licenses; we recommend you read them, as their terms may differ from the
 terms above.
 ````
 
-### Text 251 of 392
+### Text 252 of 393
 
 Applies to: lodash@4.18.1, lodash-es@4.18.1
 
@@ -13022,7 +13231,7 @@ licenses; we recommend you read them, as their terms may differ from the
 terms above.
 ````
 
-### Text 252 of 392
+### Text 253 of 393
 
 Applies to: lru-cache@11.5.1, lru-cache@11.5.2, minipass@7.1.3, path-scurry@2.0.2, sax@1.6.0, tar@7.5.16
 
@@ -13084,7 +13293,7 @@ will be liable to anyone for any damages related to this
 software or this license, under any kind of legal claim.***
 ````
 
-### Text 253 of 392
+### Text 254 of 393
 
 Applies to: luxon@3.7.2
 
@@ -13098,7 +13307,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 254 of 392
+### Text 255 of 393
 
 Applies to: magic-bytes.js@1.13.0
 
@@ -13126,7 +13335,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 255 of 392
+### Text 256 of 393
 
 Applies to: mailparser@3.9.9
 
@@ -13149,7 +13358,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 256 of 392
+### Text 257 of 393
 
 Applies to: marked@16.4.2, marked@17.0.4
 
@@ -13200,7 +13409,7 @@ Redistribution and use in source and binary forms, with or without modification,
 This software is provided by the copyright holders and contributors “as is” and any express or implied warranties, including, but not limited to, the implied warranties of merchantability and fitness for a particular purpose are disclaimed. In no event shall the copyright owner or contributors be liable for any direct, indirect, incidental, special, exemplary, or consequential damages (including, but not limited to, procurement of substitute goods or services; loss of use, data, or profits; or business interruption) however caused and on any theory of liability, whether in contract, strict liability, or tort (including negligence or otherwise) arising in any way out of the use of this software, even if advised of the possibility of such damage.
 ````
 
-### Text 257 of 392
+### Text 258 of 393
 
 Applies to: maxmind@5.0.6
 
@@ -13227,7 +13436,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 258 of 392
+### Text 259 of 393
 
 Applies to: merge-descriptors@2.0.0
 
@@ -13245,7 +13454,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 259 of 392
+### Text 260 of 393
 
 Applies to: mermaid@11.15.0
 
@@ -13273,7 +13482,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 260 of 392
+### Text 261 of 393
 
 Applies to: mime-db@1.52.0, mime-db@1.54.0
 
@@ -13303,7 +13512,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 261 of 392
+### Text 262 of 393
 
 Applies to: minimalistic-assert@1.0.1
 
@@ -13323,7 +13532,7 @@ OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 262 of 392
+### Text 263 of 393
 
 Applies to: minimatch@10.2.5
 
@@ -13385,7 +13594,7 @@ will be liable to anyone for any damages related to this
 software or this license, under any kind of legal claim._**
 ````
 
-### Text 263 of 392
+### Text 264 of 393
 
 Applies to: minizlib@3.1.0
 
@@ -13418,7 +13627,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 ````
 
-### Text 264 of 392
+### Text 265 of 393
 
 Applies to: mkdirp-classic@0.5.3
 
@@ -13446,7 +13655,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 265 of 392
+### Text 266 of 393
 
 Applies to: mmdb-lib@3.0.2
 
@@ -13473,7 +13682,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 266 of 392
+### Text 267 of 393
 
 Applies to: module-details-from-path@1.0.4
 
@@ -13501,7 +13710,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 267 of 392
+### Text 268 of 393
 
 Applies to: ms@2.1.3
 
@@ -13529,7 +13738,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 268 of 392
+### Text 269 of 393
 
 Applies to: music-metadata@11.14.0, token-types@6.1.2, win-guid@0.2.1
 
@@ -13545,7 +13754,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 269 of 392
+### Text 270 of 393
 
 Applies to: nanoid@3.3.15
 
@@ -13572,7 +13781,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 270 of 392
+### Text 271 of 393
 
 Applies to: nanoid@5.1.15
 
@@ -13599,7 +13808,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 271 of 392
+### Text 272 of 393
 
 Applies to: napi-build-utils@2.0.0
 
@@ -13627,7 +13836,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 272 of 392
+### Text 273 of 393
 
 Applies to: negotiator@1.0.0
 
@@ -13658,7 +13867,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 273 of 392
+### Text 274 of 393
 
 Applies to: node-abi@3.92.0
 
@@ -13686,7 +13895,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 274 of 392
+### Text 275 of 393
 
 Applies to: node-addon-api@7.1.1
 
@@ -13702,7 +13911,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 275 of 392
+### Text 276 of 393
 
 Applies to: node-bignumber@1.2.2
 
@@ -13767,7 +13976,7 @@ rsasign-1.2.js (c) 2012 Kenji Urushima | kjur.github.com/jsrsasign/license
 // included in all copies or substantial portions of the Software.
 ````
 
-### Text 276 of 392
+### Text 277 of 393
 
 Applies to: node-fetch@2.7.0
 
@@ -13795,7 +14004,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 277 of 392
+### Text 278 of 393
 
 Applies to: node-int64@0.4.0
 
@@ -13821,7 +14030,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 278 of 392
+### Text 279 of 393
 
 Applies to: node-pty@1.1.0
 
@@ -13897,7 +14106,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 279 of 392
+### Text 280 of 393
 
 Applies to: node-releases@2.0.36
 
@@ -13925,7 +14134,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 280 of 392
+### Text 281 of 393
 
 Applies to: nodemailer@7.0.13, nodemailer@9.0.1
 
@@ -13948,7 +14157,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 281 of 392
+### Text 282 of 393
 
 Applies to: object-assign@4.1.1, p-finally@1.0.0, strip-json-comments@2.0.1
 
@@ -13976,7 +14185,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 282 of 392
+### Text 283 of 393
 
 Applies to: object-inspect@1.13.4
 
@@ -14004,7 +14213,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 283 of 392
+### Text 284 of 393
 
 Applies to: object-keys@1.1.1
 
@@ -14032,7 +14241,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 284 of 392
+### Text 285 of 393
 
 Applies to: on-exit-leak-free@2.1.2, thread-stream@3.2.0, thread-stream@4.2.0
 
@@ -14060,7 +14269,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 285 of 392
+### Text 286 of 393
 
 Applies to: on-finished@2.4.1
 
@@ -14090,7 +14299,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 286 of 392
+### Text 287 of 393
 
 Applies to: openssl-wrapper@0.3.4
 
@@ -14118,7 +14327,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 287 of 392
+### Text 288 of 393
 
 Applies to: opusscript@0.1.1
 
@@ -14145,7 +14354,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 288 of 392
+### Text 289 of 393
 
 Applies to: package-manager-detector@1.6.0
 
@@ -14173,7 +14382,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 289 of 392
+### Text 290 of 393
 
 Applies to: pako@1.0.11
 
@@ -14201,7 +14410,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 290 of 392
+### Text 291 of 393
 
 Applies to: parse-srcset@1.0.2
 
@@ -14229,7 +14438,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 291 of 392
+### Text 292 of 393
 
 Applies to: parseurl@1.3.3
 
@@ -14259,7 +14468,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 292 of 392
+### Text 293 of 393
 
 Applies to: path-data-parser@0.1.0, points-on-curve@0.2.0
 
@@ -14287,7 +14496,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 293 of 392
+### Text 294 of 393
 
 Applies to: path-to-regexp@8.4.0, path-to-regexp@8.4.2
 
@@ -14315,7 +14524,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 294 of 392
+### Text 295 of 393
 
 Applies to: pdf-lib@1.17.1
 
@@ -14343,7 +14552,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 295 of 392
+### Text 296 of 393
 
 Applies to: pdfjs-dist@5.5.207
 
@@ -14526,7 +14735,7 @@ Apache License
    END OF TERMS AND CONDITIONS
 ````
 
-### Text 296 of 392
+### Text 297 of 393
 
 Applies to: pend@1.2.0
 
@@ -14556,7 +14765,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 297 of 392
+### Text 298 of 393
 
 Applies to: picocolors@1.1.1
 
@@ -14578,7 +14787,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 298 of 392
+### Text 299 of 393
 
 Applies to: pino-abstract-transport@2.0.0, pino-abstract-transport@3.0.0
 
@@ -14606,7 +14815,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 299 of 392
+### Text 300 of 393
 
 Applies to: pino-pretty@13.1.3
 
@@ -14634,7 +14843,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 300 of 392
+### Text 301 of 393
 
 Applies to: pino-std-serializers@7.1.0
 
@@ -14648,7 +14857,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 301 of 392
+### Text 302 of 393
 
 Applies to: pino@10.3.1, pino@9.14.0
 
@@ -14676,7 +14885,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 302 of 392
+### Text 303 of 393
 
 Applies to: pkce-challenge@5.0.1
 
@@ -14704,7 +14913,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 303 of 392
+### Text 304 of 393
 
 Applies to: platform@1.3.6
 
@@ -14732,7 +14941,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 304 of 392
+### Text 305 of 393
 
 Applies to: playwright@1.60.0, playwright-core@1.60.0
 
@@ -14941,7 +15150,7 @@ Apache License
    limitations under the License.
 ````
 
-### Text 305 of 392
+### Text 306 of 393
 
 Applies to: points-on-path@0.2.1
 
@@ -14969,7 +15178,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 306 of 392
+### Text 307 of 393
 
 Applies to: postcss@8.5.15
 
@@ -14996,7 +15205,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 307 of 392
+### Text 308 of 393
 
 Applies to: pptxgenjs@4.0.1
 
@@ -15024,7 +15233,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 308 of 392
+### Text 309 of 393
 
 Applies to: prebuild-install@7.1.3
 
@@ -15052,7 +15261,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 309 of 392
+### Text 310 of 393
 
 Applies to: process-nextick-args@2.0.1
 
@@ -15078,7 +15287,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.**
 ````
 
-### Text 310 of 392
+### Text 311 of 393
 
 Applies to: process-warning@5.0.0
 
@@ -15106,7 +15315,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 311 of 392
+### Text 312 of 393
 
 Applies to: protobufjs@7.6.4, protobufjs@7.6.5
 
@@ -15152,7 +15361,7 @@ standalone and requires a support library to be linked with it. This
 support library is itself covered by the above license.
 ````
 
-### Text 312 of 392
+### Text 313 of 393
 
 Applies to: proxy-from-env@2.1.0
 
@@ -15179,7 +15388,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 313 of 392
+### Text 314 of 393
 
 Applies to: q@1.5.1
 
@@ -15204,7 +15413,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 ````
 
-### Text 314 of 392
+### Text 315 of 393
 
 Applies to: qrcode-terminal@0.12.0
 
@@ -15432,7 +15641,7 @@ Located in ./vendor/QRCode
 - project has been modified to work in Node and some refactoring was done for code cleanup
 ````
 
-### Text 315 of 392
+### Text 316 of 393
 
 Applies to: qs@6.15.2
 
@@ -15468,7 +15677,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 316 of 392
+### Text 317 of 393
 
 Applies to: queue@6.0.2
 
@@ -15483,7 +15692,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 317 of 392
+### Text 318 of 393
 
 Applies to: quick-format-unescaped@4.0.4
 
@@ -15511,7 +15720,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 318 of 392
+### Text 319 of 393
 
 Applies to: range-parser@1.2.1
 
@@ -15541,7 +15750,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 319 of 392
+### Text 320 of 393
 
 Applies to: raw-body@3.0.2
 
@@ -15570,7 +15779,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 320 of 392
+### Text 321 of 393
 
 Applies to: rc@1.2.8
 
@@ -15648,7 +15857,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 321 of 392
+### Text 322 of 393
 
 Applies to: react@19.2.7, react-dom@19.2.7, scheduler@0.27.0, use-sync-external-store@1.6.0
 
@@ -15676,7 +15885,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 322 of 392
+### Text 323 of 393
 
 Applies to: readable-stream@2.3.8, readable-stream@3.6.2, string_decoder@1.1.1, string_decoder@1.3.0
 
@@ -15730,7 +15939,7 @@ IN THE SOFTWARE.
 """
 ````
 
-### Text 323 of 392
+### Text 324 of 393
 
 Applies to: real-require@0.2.0, real-require@1.0.0
 
@@ -15758,7 +15967,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 324 of 392
+### Text 325 of 393
 
 Applies to: require-directory@2.1.1
 
@@ -15787,7 +15996,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 325 of 392
+### Text 326 of 393
 
 Applies to: require-from-string@2.0.2
 
@@ -15815,7 +16024,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 326 of 392
+### Text 327 of 393
 
 Applies to: require-in-the-middle@8.0.1
 
@@ -15845,7 +16054,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 327 of 392
+### Text 328 of 393
 
 Applies to: retry@0.13.1
 
@@ -15873,7 +16082,7 @@ Felix Geisendörfer (felix@debuggable.com)
  THE SOFTWARE.
 ````
 
-### Text 328 of 392
+### Text 329 of 393
 
 Applies to: robust-predicates@3.0.3, tweetnacl@1.0.3
 
@@ -15904,7 +16113,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 For more information, please refer to <http://unlicense.org>
 ````
 
-### Text 329 of 392
+### Text 330 of 393
 
 Applies to: roughjs@4.6.6
 
@@ -15932,7 +16141,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 330 of 392
+### Text 331 of 393
 
 Applies to: router@2.2.0
 
@@ -15962,7 +16171,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 331 of 392
+### Text 332 of 393
 
 Applies to: rsa-pem-from-mod-exp@0.8.6
 
@@ -15989,7 +16198,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 332 of 392
+### Text 333 of 393
 
 Applies to: rw@1.3.3
 
@@ -16022,7 +16231,7 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 333 of 392
+### Text 334 of 393
 
 Applies to: safe-buffer@5.1.2, safe-buffer@5.2.1
 
@@ -16050,7 +16259,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 334 of 392
+### Text 335 of 393
 
 Applies to: safe-stable-stringify@2.5.0
 
@@ -16078,7 +16287,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 335 of 392
+### Text 336 of 393
 
 Applies to: safer-buffer@2.1.2
 
@@ -16106,7 +16315,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 336 of 392
+### Text 337 of 393
 
 Applies to: sanitize-html@2.17.4
 
@@ -16120,7 +16329,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 337 of 392
+### Text 338 of 393
 
 Applies to: secure-json-parse@4.1.0
 
@@ -16146,7 +16355,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 338 of 392
+### Text 339 of 393
 
 Applies to: send@1.2.1
 
@@ -16176,7 +16385,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 339 of 392
+### Text 340 of 393
 
 Applies to: seroval@1.5.4, seroval-plugins@1.5.4
 
@@ -16190,7 +16399,7 @@ The above copyright notice and this permission notice (including the next paragr
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 340 of 392
+### Text 341 of 393
 
 Applies to: serve-static@2.2.1
 
@@ -16222,7 +16431,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 341 of 392
+### Text 342 of 393
 
 Applies to: setimmediate@1.0.5
 
@@ -16249,7 +16458,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 342 of 392
+### Text 343 of 393
 
 Applies to: setprototypeof@1.2.0
 
@@ -16269,7 +16478,7 @@ OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 343 of 392
+### Text 344 of 393
 
 Applies to: sharp@0.34.5, sharp@0.35.3
 
@@ -16467,7 +16676,7 @@ third-party archives.
    limitations under the License.
 ````
 
-### Text 344 of 392
+### Text 345 of 393
 
 Applies to: shebang-command@2.0.0
 
@@ -16483,7 +16692,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 345 of 392
+### Text 346 of 393
 
 Applies to: side-channel@1.1.0, side-channel-weakmap@1.0.2
 
@@ -16511,7 +16720,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 346 of 392
+### Text 347 of 393
 
 Applies to: simple-concat@1.0.1, simple-get@4.0.1
 
@@ -16538,7 +16747,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 347 of 392
+### Text 348 of 393
 
 Applies to: smart-buffer@4.2.0
 
@@ -16565,7 +16774,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 348 of 392
+### Text 349 of 393
 
 Applies to: socks@2.8.9
 
@@ -16592,7 +16801,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 349 of 392
+### Text 350 of 393
 
 Applies to: sonic-boom@4.2.1
 
@@ -16620,7 +16829,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 350 of 392
+### Text 351 of 393
 
 Applies to: source-map-js@1.2.1
 
@@ -16654,7 +16863,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 351 of 392
+### Text 352 of 393
 
 Applies to: split2@4.2.0
 
@@ -16674,7 +16883,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
 IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 352 of 392
+### Text 353 of 393
 
 Applies to: sprintf-js@1.1.3
 
@@ -16705,7 +16914,7 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 353 of 392
+### Text 354 of 393
 
 Applies to: statuses@2.0.2
 
@@ -16734,7 +16943,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 354 of 392
+### Text 355 of 393
 
 Applies to: stemmer@2.0.1
 
@@ -16763,7 +16972,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 355 of 392
+### Text 356 of 393
 
 Applies to: strtok3@10.3.5
 
@@ -16791,7 +17000,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 356 of 392
+### Text 357 of 393
 
 Applies to: stylis@4.4.0
 
@@ -16819,7 +17028,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 357 of 392
+### Text 358 of 393
 
 Applies to: thrift@0.23.0
 
@@ -17140,7 +17349,7 @@ No algorithmic changes were made; the file was adapted to a C++ header-only
 form for inclusion in the Thrift compiler.
 ````
 
-### Text 358 of 392
+### Text 359 of 393
 
 Applies to: tiny-lru@13.0.0
 
@@ -17174,7 +17383,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 359 of 392
+### Text 360 of 393
 
 Applies to: tinyexec@1.0.4, tinyexec@1.1.2
 
@@ -17202,7 +17411,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 360 of 392
+### Text 361 of 393
 
 Applies to: tlds@1.261.0
 
@@ -17230,7 +17439,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 361 of 392
+### Text 362 of 393
 
 Applies to: toidentifier@1.0.1
 
@@ -17258,7 +17467,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 362 of 392
+### Text 363 of 393
 
 Applies to: ts-dedent@2.2.0
 
@@ -17286,7 +17495,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 363 of 392
+### Text 364 of 393
 
 Applies to: ts-mixer@6.0.4
 
@@ -17314,7 +17523,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 364 of 392
+### Text 365 of 393
 
 Applies to: tslib@1.14.1, tslib@2.8.1
 
@@ -17333,7 +17542,7 @@ OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 365 of 392
+### Text 366 of 393
 
 Applies to: tsscmp@1.0.6
 
@@ -17361,7 +17570,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 366 of 392
+### Text 367 of 393
 
 Applies to: tunnel-agent@0.6.0
 
@@ -17423,7 +17632,7 @@ If the Work includes a "NOTICE" text file as part of its distribution, then any 
 END OF TERMS AND CONDITIONS
 ````
 
-### Text 367 of 392
+### Text 368 of 393
 
 Applies to: type-fest@0.13.1
 
@@ -17439,7 +17648,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 368 of 392
+### Text 369 of 393
 
 Applies to: ua-parser-js@1.0.41
 
@@ -17467,7 +17676,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 369 of 392
+### Text 370 of 393
 
 Applies to: uhyphen@0.2.0
 
@@ -17489,7 +17698,7 @@ OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 370 of 392
+### Text 371 of 393
 
 Applies to: undici@6.27.0, undici-types@6.21.0, undici-types@7.24.6
 
@@ -17517,7 +17726,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 371 of 392
+### Text 372 of 393
 
 Applies to: universalify@2.0.1
 
@@ -17544,7 +17753,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 372 of 392
+### Text 373 of 393
 
 Applies to: unpipe@1.0.0
 
@@ -17573,7 +17782,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 373 of 392
+### Text 374 of 393
 
 Applies to: update-browserslist-db@1.2.3
 
@@ -17600,7 +17809,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 374 of 392
+### Text 375 of 393
 
 Applies to: util-deprecate@1.0.2
 
@@ -17631,7 +17840,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 375 of 392
+### Text 376 of 393
 
 Applies to: uuid@11.1.1
 
@@ -17647,7 +17856,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 376 of 392
+### Text 377 of 393
 
 Applies to: vali-date@1.0.0
 
@@ -17675,7 +17884,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 377 of 392
+### Text 378 of 393
 
 Applies to: webidl-conversions@3.0.1
 
@@ -17694,7 +17903,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 378 of 392
+### Text 379 of 393
 
 Applies to: whatwg-url@5.0.0
 
@@ -17722,7 +17931,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 379 of 392
+### Text 380 of 393
 
 Applies to: ws@5.2.5, ws@7.5.11
 
@@ -17750,7 +17959,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 380 of 392
+### Text 381 of 393
 
 Applies to: ws@8.21.0, ws@8.21.1
 
@@ -17777,7 +17986,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 381 of 392
+### Text 382 of 393
 
 Applies to: xlsx-populate@1.21.0
 
@@ -17805,7 +18014,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 382 of 392
+### Text 383 of 393
 
 Applies to: xml-js@1.6.11
 
@@ -17833,7 +18042,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 383 of 392
+### Text 384 of 393
 
 Applies to: xml@1.0.1
 
@@ -17862,7 +18071,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 384 of 392
+### Text 385 of 393
 
 Applies to: xml2js@0.6.2
 
@@ -17888,7 +18097,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 ````
 
-### Text 385 of 392
+### Text 386 of 393
 
 Applies to: xmlbuilder@11.0.1
 
@@ -17916,7 +18125,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 386 of 392
+### Text 387 of 393
 
 Applies to: y18n@5.0.8
 
@@ -17936,7 +18145,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ````
 
-### Text 387 of 392
+### Text 388 of 393
 
 Applies to: yaml@2.8.3
 
@@ -17956,7 +18165,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ````
 
-### Text 388 of 392
+### Text 389 of 393
 
 Applies to: yargs-parser@21.1.1
 
@@ -17977,7 +18186,7 @@ WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
 ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 389 of 392
+### Text 390 of 393
 
 Applies to: yargs@17.7.2
 
@@ -18005,7 +18214,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 390 of 392
+### Text 391 of 393
 
 Applies to: yauzl@3.2.1, yazl@3.3.1
 
@@ -18033,7 +18242,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 391 of 392
+### Text 392 of 393
 
 Applies to: zod-to-json-schema@3.25.1
 
@@ -18055,7 +18264,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 392 of 392
+### Text 393 of 393
 
 Applies to: zod@3.25.76
 
