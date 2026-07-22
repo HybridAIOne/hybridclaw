@@ -5,10 +5,11 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && vite build",
+    "build": "npm run registry:check && tsc --noEmit && vite build",
     "dev": "vite",
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "npm run registry:check && tsc --noEmit",
+    "registry:check": "tsx ../scripts/generate-settings-registry.ts --check",
     "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters"
   },
   "dependencies": {

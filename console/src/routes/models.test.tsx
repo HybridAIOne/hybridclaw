@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AdminModelsResponse } from '../api/types';
+import type { AdminConfig, AdminModelsResponse } from '../api/types';
 import { renderWithProviders } from '../test-utils';
 import { ModelsPage } from './models';
 
@@ -21,7 +21,12 @@ const modelMetadataDefaults = {
 };
 
 vi.mock('../api/client', () => ({
+  fetchAdminSecrets: () =>
+    Promise.resolve({ secrets: [], total: 0, actions: [] }),
+  fetchConfig: () =>
+    Promise.resolve({ path: '/tmp/config.json', config: {} as AdminConfig }),
   fetchModels: () => fetchModelsMock(),
+  saveConfig: () => Promise.resolve({ path: '/tmp/config.json', config: {} }),
   saveModels: (token: string, payload: unknown) =>
     saveModelsMock(token, payload),
 }));

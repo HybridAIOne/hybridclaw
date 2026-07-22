@@ -4,6 +4,7 @@ import { createContext, type ReactNode, useContext } from 'react';
 import { validateToken } from '../api/client';
 import { isAuthReadyForApi, useAuth } from '../auth';
 import { resolveCurrentAdminNavItem } from './admin-nav';
+import { CommandPalette } from './command-palette';
 import { AppSidebar } from './sidebar/app-sidebar';
 import {
   getSidebarStyleVars,
@@ -66,7 +67,10 @@ export function AppShell(props: { children: ReactNode }) {
                 <h2>{currentNavItem.label}</h2>
               </div>
             </div>
-            <ViewSwitchNav items={viewSwitchItems} />
+            <div className="topbar-tools">
+              <CommandPalette />
+              <ViewSwitchNav items={viewSwitchItems} />
+            </div>
           </div>
           <div className="page-content">{props.children}</div>
         </SidebarInset>

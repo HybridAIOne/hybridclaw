@@ -12,6 +12,7 @@ import {
 import { Field, FieldLabel } from '../components/field';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
+import { ProviderConfiguration } from '../components/provider-configuration';
 import {
   type ProviderEntry,
   ProviderHealth,
@@ -285,6 +286,8 @@ export function ModelsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <ProviderConfiguration filter={filter} statuses={providerEntries} />
 
       <Card>
         <CardHeader>

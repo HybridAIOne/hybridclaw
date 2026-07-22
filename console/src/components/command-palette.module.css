@@ -1,0 +1,135 @@
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--chrome-surface);
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.trigger:hover {
+  border-color: var(--line-strong);
+  color: var(--foreground);
+}
+
+.trigger kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel-muted);
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.6875rem;
+}
+
+.dialog.dialog {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted-foreground);
+}
+
+.searchBox input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.results {
+  max-height: min(60vh, 520px);
+  padding: 6px;
+  overflow-y: auto;
+}
+
+.results button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 48px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.results button:hover,
+.results .active {
+  background: var(--panel-muted);
+}
+
+.results button > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.results strong {
+  overflow: hidden;
+  font-size: 0.875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.results small {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.results em {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.empty {
+  padding: 34px 16px;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
+.hint {
+  display: flex;
+  gap: 14px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-muted);
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+}
+
+@media (max-width: 780px) {
+  .triggerLabel,
+  .triggerKey {
+    display: none;
+  }
+}
