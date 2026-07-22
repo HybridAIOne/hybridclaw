@@ -77,6 +77,23 @@ describe('Composer', () => {
     clearAgentAvatarUrlCacheForTest();
   });
 
+  it('shows the active automatic routing state', () => {
+    renderComposer({
+      routing: {
+        enabled: true,
+        pinned: false,
+        startTier: 'general',
+        maxTier: 'advanced',
+        sovereignty: 'region',
+        target: { quality: 0.7, speed: 0.4 },
+      },
+    });
+
+    expect(screen.getByTestId('composer-routing-state').textContent).toContain(
+      'Auto · general · ≤ region',
+    );
+  });
+
   it('strips the leading slash before fetching command suggestions', async () => {
     fetchChatCommandsMock.mockResolvedValue({ commands: [] });
     renderComposer();

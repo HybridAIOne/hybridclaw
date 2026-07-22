@@ -11,7 +11,11 @@ import {
   useState,
 } from 'react';
 import { fetchChatCommands } from '../../api/chat';
-import type { ChatCommandSuggestion, MediaItem } from '../../api/chat-types';
+import type {
+  ChatCommandSuggestion,
+  ChatContextSnapshot,
+  MediaItem,
+} from '../../api/chat-types';
 import { Popover, PopoverAnchor } from '../../components/popover';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
@@ -82,6 +86,7 @@ export function Composer(props: {
   selectedModelId?: string;
   onModelSwitch?: (modelId: string) => void;
   initialValue?: string;
+  routing?: ChatContextSnapshot['routing'];
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -616,6 +621,18 @@ export function Composer(props: {
                 disabled={props.isStreaming}
                 onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
               />
+              {props.routing?.enabled ? (
+                <span
+                  className={css.composerRoutingState}
+                  title={`Quality ${Math.round(props.routing.target.quality * 100)}% · Speed ${Math.round(props.routing.target.speed * 100)}%`}
+                  data-testid="composer-routing-state"
+                >
+                  {props.routing.pinned
+                    ? 'Pinned'
+                    : `Auto · ${props.routing.startTier || 'default'}`}
+                  {' · ≤'} {props.routing.sovereignty}
+                </span>
+              ) : null}
             </div>
             <button
               type="button"

@@ -140,6 +140,12 @@ Each phase is independently shippable (1–3 PRs), carries its own tests, and ha
 **Tests:** precedence unit tests (pin > skill floor > agent start > default); the compliance test — a property test over the audit event stream asserting that with sovereignty=`hai` no model with zone > `hai` is ever called; ladder exhaustion → F14 pending approval and zero cloud calls recorded; target monotonicity (raising quality never lowers the start rung); console component snapshots for chips and footer.
 **Exit gate:** a scripted demo matrix — one scenario per client knob (best price · budget · quality/speed target · sovereign) — passes on the real fleet.
 
+Implementation status: delivered in config schema v37 and database schema v54.
+The deterministic/unit, gateway boundary, persistence, delegation, and console
+component suites cover the build and test requirements above. The real-fleet
+demo remains an operational release check because it requires configured live
+endpoints and credentials.
+
 ### R4 — Proof: replay bench + savings surfaces *(hybridclaw)*
 
 **Build:** HC-RouteBench — a CLI that replays logged trajectories through all configured tiers offline, scores each with the same deterministic verifiers + F11 judge, and emits a per-turn matrix plus regret / cost-at-quality report; the admin dashboard metric row and routing rollup card; per-tier judge sampling and escalation-rate telemetry with alert thresholds.

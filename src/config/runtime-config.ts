@@ -16,6 +16,7 @@ import {
   cloneAgentBudgetConfig,
   cloneAgentCv,
   cloneAgentProxyConfig,
+  cloneAgentRoutingConfig,
   cloneAgentWebSearchConfig,
   DEFAULT_AGENT_ID,
   hasSnakeCamelAlias,
@@ -25,6 +26,7 @@ import {
   normalizeAgentEscalationTarget,
   normalizeAgentIdentityFields,
   normalizeAgentProxyConfig,
+  normalizeAgentRoutingConfig,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
@@ -79,7 +81,9 @@ import type {
   LocalProviderConfig,
 } from '../providers/local-types.js';
 import {
+  isModelRoutingZone,
   type ModelRoutingConfig,
+  type ModelRoutingTarget,
   type ModelRoutingTier,
   normalizeModelRoutingZone,
 } from '../providers/model-routing.js';
@@ -113,6 +117,7 @@ import {
   type SkillManifestConfigVariable,
   type SkillManifestCredentialKind,
   type SkillManifestDeclaredCredential,
+  type SkillManifestRouting,
 } from '../skills/skill-manifest.js';
 import { DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS } from '../tunnel/tunnel-provider.js';
 import type { AnthropicMethod, McpServerConfig } from '../types/models.js';
@@ -150,7 +155,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 36;
+export const CONFIG_VERSION = 37;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -1019,6 +1024,7 @@ export interface RuntimeInstalledSkillManifest {
   credentials: SkillManifestDeclaredCredential[];
   configVariables: SkillManifestConfigVariable[];
   supportedChannels: ChannelKind[];
+  routing: SkillManifestRouting;
   installedAt: string;
   updatedAt: string;
 }
@@ -2034,6 +2040,20 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     tiers: [],
     defaultStart: '',
     escalationStickyTurns: 3,
+    sovereignty: 'cloud',
+    target: {
+      quality: 0.5,
+      speed: 0.3,
+    },
+    sensitivityZones: {
+      public: 'cloud',
+      internal: 'region',
+      confidential: 'hai',
+      restricted: 'local',
+    },
+    budgetClamp: {
+      enabled: false,
+    },
     concierge: {
       enabled: false,
       model: 'gemini-3-flash',
@@ -2700,6 +2720,20 @@ function normalizeRuntimeSkillSupportedChannels(value: unknown): ChannelKind[] {
   return channels;
 }
 
+function normalizeRuntimeSkillRouting(value: unknown): SkillManifestRouting {
+  if (!isRecord(value)) return {};
+  const minTier = normalizeString(value.minTier ?? value.min_tier, '', {
+    allowEmpty: true,
+  });
+  const sensitivity = normalizeString(value.sensitivity, '', {
+    allowEmpty: true,
+  }).toLowerCase();
+  return {
+    ...(minTier ? { minTier } : {}),
+    ...(sensitivity ? { sensitivity } : {}),
+  };
+}
+
 function normalizeRuntimeInstalledSkillManifests(
   value: unknown,
 ): RuntimeInstalledSkillManifest[] {
@@ -2751,6 +2785,7 @@ function normalizeRuntimeInstalledSkillManifests(
       supportedChannels: normalizeRuntimeSkillSupportedChannels(
         item.supportedChannels,
       ),
+      routing: normalizeRuntimeSkillRouting(item.routing),
       installedAt,
       updatedAt,
     });
@@ -3000,6 +3035,13 @@ function normalizeAgentConfig(
   const budget = Object.hasOwn(value, 'budget')
     ? normalizeAgentBudgetConfig(value.budget, fallback?.budget)
     : cloneAgentBudgetConfig(fallback?.budget);
+  const routing = Object.hasOwn(value, 'routing')
+    ? normalizeAgentRoutingConfig(
+        value.routing,
+        'agents.list[].routing',
+        fallback?.routing,
+      )
+    : cloneAgentRoutingConfig(fallback?.routing);
   return {
     id,
     ...identityFields,
@@ -3021,6 +3063,7 @@ function normalizeAgentConfig(
     ...(webSearch ? { webSearch } : {}),
     ...(proxy ? { proxy } : {}),
     ...(budget ? { budget } : {}),
+    ...(routing ? { routing } : {}),
   };
 }
 
@@ -6868,6 +6911,57 @@ function normalizeModelRoutingConfig(
       `routing.defaultStart references unknown routing tier \`${defaultStart}\`.`,
     );
   }
+  const rawSovereignty = raw.sovereignty ?? fallback.sovereignty ?? 'cloud';
+  if (!isModelRoutingZone(rawSovereignty)) {
+    throw new Error(
+      'routing.sovereignty must be one of: local, hai, region, cloud.',
+    );
+  }
+  const fallbackTarget = fallback.target ?? { quality: 0.5, speed: 0.3 };
+  const rawTarget = isRecord(raw.target) ? raw.target : {};
+  const normalizeTargetValue = (
+    value: unknown,
+    fallbackValue: number,
+    field: keyof ModelRoutingTarget,
+  ): number => {
+    const parsed =
+      typeof value === 'number'
+        ? value
+        : typeof value === 'string' && value.trim()
+          ? Number.parseFloat(value)
+          : fallbackValue;
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+      throw new Error(`routing.target.${field} must be between 0 and 1.`);
+    }
+    return parsed;
+  };
+  const fallbackSensitivityZones = fallback.sensitivityZones ?? {};
+  const rawSensitivityZones =
+    raw.sensitivityZones === undefined
+      ? fallbackSensitivityZones
+      : raw.sensitivityZones;
+  if (!isRecord(rawSensitivityZones)) {
+    throw new Error('routing.sensitivityZones must be an object.');
+  }
+  const sensitivityZones: NonNullable<ModelRoutingConfig['sensitivityZones']> =
+    {};
+  for (const [rawSensitivity, rawZone] of Object.entries(rawSensitivityZones)) {
+    const sensitivity = rawSensitivity.trim().toLowerCase();
+    if (!sensitivity) {
+      throw new Error('routing.sensitivityZones keys must not be empty.');
+    }
+    if (!isModelRoutingZone(rawZone)) {
+      throw new Error(
+        `routing.sensitivityZones.${rawSensitivity} must be one of: local, hai, region, cloud.`,
+      );
+    }
+    sensitivityZones[sensitivity] = rawZone.trim().toLowerCase() as
+      | 'local'
+      | 'hai'
+      | 'region'
+      | 'cloud';
+  }
+  const rawBudgetClamp = isRecord(raw.budgetClamp) ? raw.budgetClamp : {};
   return {
     enabled,
     tiers,
@@ -6877,6 +6971,30 @@ function normalizeModelRoutingConfig(
       fallback.escalationStickyTurns,
       { min: 0, max: 100 },
     ),
+    sovereignty: rawSovereignty.trim().toLowerCase() as
+      | 'local'
+      | 'hai'
+      | 'region'
+      | 'cloud',
+    target: {
+      quality: normalizeTargetValue(
+        rawTarget.quality,
+        fallbackTarget.quality,
+        'quality',
+      ),
+      speed: normalizeTargetValue(
+        rawTarget.speed,
+        fallbackTarget.speed,
+        'speed',
+      ),
+    },
+    sensitivityZones,
+    budgetClamp: {
+      enabled: normalizeBoolean(
+        rawBudgetClamp.enabled,
+        fallback.budgetClamp?.enabled ?? false,
+      ),
+    },
   };
 }
 
@@ -7351,6 +7469,34 @@ function normalizeRuntimeConfig(
       localEndpoints: localEndpointConfigs,
     }),
   );
+  const normalizedAgents = normalizeAgentsConfig(
+    rawAgents,
+    DEFAULT_RUNTIME_CONFIG.agents,
+  );
+  const routingTierNames = new Set(modelRouting.tiers.map((tier) => tier.name));
+  for (const agent of normalizedAgents.list ?? []) {
+    for (const field of ['start', 'max'] as const) {
+      const tier = agent.routing?.[field];
+      if (tier && !routingTierNames.has(tier)) {
+        throw new Error(
+          `agents.list[${agent.id}].routing.${field} references unknown routing tier \`${tier}\`.`,
+        );
+      }
+    }
+    const startIndex = agent.routing?.start
+      ? modelRouting.tiers.findIndex(
+          (tier) => tier.name === agent.routing?.start,
+        )
+      : -1;
+    const maxIndex = agent.routing?.max
+      ? modelRouting.tiers.findIndex((tier) => tier.name === agent.routing?.max)
+      : -1;
+    if (startIndex >= 0 && maxIndex >= 0 && startIndex > maxIndex) {
+      throw new Error(
+        `agents.list[${agent.id}].routing.start must not be above routing.max.`,
+      );
+    }
+  }
   const normalizedCommandUserId = normalizeString(
     rawDiscord.commandUserId,
     DEFAULT_RUNTIME_CONFIG.discord.commandUserId,
@@ -7433,7 +7579,7 @@ function normalizeRuntimeConfig(
     ),
     ui: normalizeUiConfig(rawUi, DEFAULT_RUNTIME_CONFIG.ui),
     browser: normalizeBrowserConfig(rawBrowser, DEFAULT_RUNTIME_CONFIG.browser),
-    agents: normalizeAgentsConfig(rawAgents, DEFAULT_RUNTIME_CONFIG.agents),
+    agents: normalizedAgents,
     skills: {
       extraDirs: normalizeStringArray(
         rawSkills.extraDirs,

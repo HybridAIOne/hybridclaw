@@ -2164,6 +2164,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: true,
     },
     {
+      path: 'routing.budgetClamp.enabled',
+      section: 'routing',
+      kind: 'boolean',
+      defaultValue: false,
+    },
+    {
       path: 'routing.concierge.enabled',
       section: 'routing',
       kind: 'boolean',
@@ -2210,6 +2216,48 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       section: 'routing',
       kind: 'number',
       defaultValue: 3,
+    },
+    {
+      path: 'routing.sensitivityZones.confidential',
+      section: 'routing',
+      kind: 'string',
+      defaultValue: 'hai',
+    },
+    {
+      path: 'routing.sensitivityZones.internal',
+      section: 'routing',
+      kind: 'string',
+      defaultValue: 'region',
+    },
+    {
+      path: 'routing.sensitivityZones.public',
+      section: 'routing',
+      kind: 'string',
+      defaultValue: 'cloud',
+    },
+    {
+      path: 'routing.sensitivityZones.restricted',
+      section: 'routing',
+      kind: 'string',
+      defaultValue: 'local',
+    },
+    {
+      path: 'routing.sovereignty',
+      section: 'routing',
+      kind: 'string',
+      defaultValue: 'cloud',
+    },
+    {
+      path: 'routing.target.quality',
+      section: 'routing',
+      kind: 'number',
+      defaultValue: 0.5,
+    },
+    {
+      path: 'routing.target.speed',
+      section: 'routing',
+      kind: 'number',
+      defaultValue: 0.3,
     },
     {
       path: 'routing.tiers',
@@ -2691,7 +2739,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'version',
       section: 'version',
       kind: 'number',
-      defaultValue: 36,
+      defaultValue: 37,
     },
     {
       path: 'voice.enabled',

@@ -427,6 +427,7 @@ export function loadBundledSkillCatalogForGrader(installRoot: string): Skill[] {
         credentials: [],
         configVariables: [],
         supportedChannels: [...DEFAULT_SKILL_SUPPORTED_CHANNELS],
+        routing: {},
       },
       userInvocable: false,
       disableModelInvocation: false,

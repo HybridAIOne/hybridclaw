@@ -667,7 +667,7 @@ describe.sequential('schema migrations', () => {
       .all() as Array<{ version: number; description: string }>;
     inspect.close();
 
-    expect(Number(schemaVersion)).toBe(53);
+    expect(Number(schemaVersion)).toBe(54);
     expect(agentColumns.some((column) => column.name === 'archived')).toBe(true);
     expect(migrations).toEqual([
       {

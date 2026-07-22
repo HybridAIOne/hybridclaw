@@ -1072,6 +1072,40 @@ aside[data-state="collapsed"] .chatSidebarContent {
   padding: 0 4px;
 }
 
+.routingSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 85%;
+  padding: 0 4px;
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+}
+
+.routingChips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.routingChip {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.routingNotice {
+  color: var(--warning, #d97706);
+}
+
+.routingCost {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
 .messageActions .actionButton {
   width: 24px;
   height: 24px;
@@ -1639,6 +1673,19 @@ aside[data-state="collapsed"] .chatSidebarContent {
   align-items: center;
   gap: 12px;
   min-width: 0;
+}
+
+.composerRoutingState {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
 .composerInputWrap {

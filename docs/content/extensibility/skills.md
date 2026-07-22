@@ -453,6 +453,20 @@ package snapshots in the existing runtime config revision database as `skill`
 assets. `manifest.supported_channels` is enforced during skill loading so a
 skill is not advertised in unsupported channel contexts.
 
+A skill can also constrain automatic model routing in its frontmatter:
+
+```yaml
+routing:
+  minTier: general
+  sensitivity: confidential
+```
+
+`minTier` must name a configured routing tier and becomes the invoked turn's
+minimum rung. `sensitivity` is resolved through
+`routing.sensitivityZones`; an unmapped label fails closed to the `local`
+zone. These limits only narrow eligibility and never override an explicit
+sovereignty maximum.
+
 See [How to Ship a Business Skill](../guides/skills/business-skills.md) for the
 operator-facing packaging contract.
 

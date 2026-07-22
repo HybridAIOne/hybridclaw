@@ -805,6 +805,47 @@ describe('MessageBlock artifacts', () => {
   });
 });
 
+describe('MessageBlock routing metadata', () => {
+  it('renders route chips, escalation notice, and task cost', () => {
+    renderMarkdownMock.mockImplementation((content) => `<p>${content}</p>`);
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          routing: {
+            enabled: true,
+            startTier: 'economy',
+            finalTier: 'advanced',
+            model: 'gpt-5',
+            zone: 'cloud',
+            reason: 'provider_server_error',
+            escalated: true,
+            attempts: 2,
+            sovereignty: 'cloud',
+            target: { quality: 0.8, speed: 0.3 },
+            actualCostUsd: 0.012,
+            savedUsd: 0.008,
+          },
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    const summary = screen.getByTestId('routing-turn-summary');
+    expect(summary.textContent).toContain('economy → advanced');
+    expect(summary.textContent).toContain('cloud');
+    expect(summary.textContent).toContain('Escalated automatically');
+    expect(summary.textContent).toContain('Task cost $0.01');
+  });
+});
+
 describe('MessageBlock command vs system output', () => {
   beforeEach(() => {
     renderMarkdownMock.mockReset();

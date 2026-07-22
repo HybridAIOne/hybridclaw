@@ -34,8 +34,10 @@ import {
 } from '../agents/agent-registry.js';
 import {
   type AgentProxyConfig,
+  type AgentRoutingConfig,
   DEFAULT_AGENT_ID,
   normalizeAgentProxyConfig,
+  normalizeAgentRoutingConfig,
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
 import {
@@ -3574,6 +3576,7 @@ async function handleApiChatStream(
       filteredResult,
     );
     if (capturedApps.length > 0) filteredResult.apps = capturedApps;
+    traceBuilder.setRouting(filteredResult.routing);
     sendEvent({
       type: 'result',
       result: filteredResult,
@@ -4746,6 +4749,7 @@ type ApiAdminAgentPayloadBody = {
   delegates_to?: unknown;
   peers?: unknown;
   workspace?: unknown;
+  routing?: unknown;
 };
 
 type ApiAdminAgentPayload = {
@@ -4762,6 +4766,7 @@ type ApiAdminAgentPayload = {
   delegatesTo?: string[] | null;
   peers?: string[] | null;
   workspace?: string;
+  routing?: AgentRoutingConfig | null;
 };
 
 type ApiAdminAgentsRouteMatch =
@@ -4919,6 +4924,14 @@ function normalizeApiAdminAgentProxy(
   return normalizeAgentProxyConfig(value, 'proxy') ?? null;
 }
 
+function normalizeApiAdminAgentRouting(
+  value: unknown,
+): AgentRoutingConfig | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  return normalizeAgentRoutingConfig(value, 'routing') ?? null;
+}
+
 async function readApiAdminAgentPayload(
   req: IncomingMessage,
   options?: { requireId?: boolean },
@@ -4950,6 +4963,7 @@ async function readApiAdminAgentPayload(
     ),
     peers: normalizeApiAdminAgentStringArray('peers', body.peers),
     workspace: typeof body.workspace === 'string' ? body.workspace : undefined,
+    routing: normalizeApiAdminAgentRouting(body.routing),
   };
   if (options?.requireId && !payload.id) {
     throw new GatewayRequestError(
@@ -4988,6 +5002,7 @@ async function handleApiAdminAgentCollectionResource(
           delegatesTo: payload.delegatesTo,
           peers: payload.peers,
           workspace: payload.workspace,
+          routing: payload.routing,
         }),
       );
     } catch (error) {
@@ -5028,6 +5043,7 @@ async function handleApiAdminAgentResource(
           delegatesTo: payload.delegatesTo,
           peers: payload.peers,
           workspace: payload.workspace,
+          routing: payload.routing,
         }),
       );
       return;

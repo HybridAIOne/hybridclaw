@@ -42,6 +42,11 @@ export interface SkillManifestConfigVariable {
   howToObtain: string;
 }
 
+export interface SkillManifestRouting {
+  minTier?: string;
+  sensitivity?: string;
+}
+
 export interface SkillManifest {
   id: string;
   name: string;
@@ -52,6 +57,7 @@ export interface SkillManifest {
   credentials: SkillManifestDeclaredCredential[];
   configVariables: SkillManifestConfigVariable[];
   supportedChannels: ChannelKind[];
+  routing: SkillManifestRouting;
 }
 
 export interface SkillManifestMiddleware {
@@ -158,6 +164,21 @@ function normalizeMiddleware(value: unknown): SkillManifestMiddleware {
   return {
     preSend: value.pre_send === true || value.preSend === true,
     postReceive: value.post_receive === true || value.postReceive === true,
+  };
+}
+
+function normalizeRouting(value: unknown): SkillManifestRouting {
+  if (value === undefined) return {};
+  if (!isRecord(value)) {
+    throw new Error(
+      'Invalid skill routing frontmatter: routing must be an object.',
+    );
+  }
+  const minTier = normalizeString(value.minTier ?? value.min_tier);
+  const sensitivity = normalizeString(value.sensitivity).toLowerCase();
+  return {
+    ...(minTier ? { minTier } : {}),
+    ...(sensitivity ? { sensitivity } : {}),
   };
 }
 
@@ -561,6 +582,7 @@ function parseSkillManifestFromFrontmatterObject(
     'channels',
   ]);
   const rawMiddleware = findFirstValue(sources, ['middleware']);
+  const rawRouting = findFirstValue(sources, ['routing']);
 
   return {
     id: slugify(id),
@@ -577,6 +599,7 @@ function parseSkillManifestFromFrontmatterObject(
     credentials: declaredCredentials,
     configVariables,
     supportedChannels: normalizeSupportedChannels(rawChannels),
+    routing: normalizeRouting(rawRouting),
   };
 }
 

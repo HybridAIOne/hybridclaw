@@ -466,6 +466,7 @@ export interface DelegationTaskSpec {
   prompt: string;
   label?: string;
   model?: string;
+  tier?: string;
 }
 
 export interface DelegationSideEffect {
@@ -474,6 +475,7 @@ export interface DelegationSideEffect {
   prompt?: string;
   label?: string;
   model?: string;
+  tier?: string;
   tasks?: DelegationTaskSpec[];
   chain?: DelegationTaskSpec[];
 }

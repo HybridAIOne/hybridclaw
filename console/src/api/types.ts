@@ -1162,6 +1162,13 @@ export interface AdminAgentProxyConfig {
   conversationScope?: AdminAgentProxyConversationScope;
 }
 
+export interface AdminAgentRoutingConfig {
+  start?: string;
+  max?: string;
+  sovereignty?: 'local' | 'hai' | 'region' | 'cloud';
+  target?: { quality?: number; speed?: number };
+}
+
 export interface AdminAgent {
   id: string;
   archived?: boolean;
@@ -1172,6 +1179,7 @@ export interface AdminAgent {
   chatbotId: string | null;
   enableRag: boolean | null;
   proxy?: AdminAgentProxyConfig | null;
+  routing?: AdminAgentRoutingConfig | null;
   role: string | null;
   reportsTo: string | null;
   delegatesTo: string[] | null;

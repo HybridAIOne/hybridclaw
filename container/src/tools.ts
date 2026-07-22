@@ -1600,11 +1600,16 @@ async function injectIntoElement(
 function normalizeDelegationTask(
   raw: unknown,
   fallbackModel?: string,
+  fallbackTier?: string,
 ): DelegationTaskSpec | null {
   if (typeof raw === 'string') {
     const prompt = raw.trim();
     if (!prompt) return null;
-    return fallbackModel ? { prompt, model: fallbackModel } : { prompt };
+    return {
+      prompt,
+      ...(fallbackModel ? { model: fallbackModel } : {}),
+      ...(fallbackTier ? { tier: fallbackTier } : {}),
+    };
   }
 
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -1615,18 +1620,22 @@ function normalizeDelegationTask(
   const label = typeof task.label === 'string' ? task.label.trim() : '';
   const model =
     typeof task.model === 'string' ? task.model.trim() : fallbackModel || '';
+  const tier =
+    typeof task.tier === 'string' ? task.tier.trim() : fallbackTier || '';
   const normalized: DelegationTaskSpec = { prompt };
   if (label) normalized.label = label;
   if (model) normalized.model = model;
+  if (tier) normalized.tier = tier;
   return normalized;
 }
 
 function normalizeDelegationTaskList(params: {
   raw: unknown;
   fallbackModel?: string;
+  fallbackTier?: string;
   fieldName: 'tasks' | 'chain';
 }): { tasks: DelegationTaskSpec[]; error?: string } {
-  const { raw, fallbackModel, fieldName } = params;
+  const { raw, fallbackModel, fallbackTier, fieldName } = params;
   if (raw == null) return { tasks: [] };
   if (!Array.isArray(raw)) {
     return {
@@ -1649,7 +1658,25 @@ function normalizeDelegationTaskList(params: {
 
   const tasks: DelegationTaskSpec[] = [];
   for (let i = 0; i < raw.length; i++) {
-    const normalized = normalizeDelegationTask(raw[i], fallbackModel);
+    const rawTask =
+      raw[i] && typeof raw[i] === 'object' && !Array.isArray(raw[i])
+        ? (raw[i] as Record<string, unknown>)
+        : null;
+    const rawModel =
+      typeof rawTask?.model === 'string' ? rawTask.model.trim() : '';
+    const rawTier =
+      typeof rawTask?.tier === 'string' ? rawTask.tier.trim() : '';
+    if ((rawModel && (rawTier || fallbackTier)) || (rawTier && fallbackModel)) {
+      return {
+        tasks: [],
+        error: `Error: "${fieldName}[${i}]" cannot specify both "model" and "tier".`,
+      };
+    }
+    const normalized = normalizeDelegationTask(
+      raw[i],
+      fallbackModel,
+      fallbackTier,
+    );
     if (!normalized) {
       return {
         tasks: [],
@@ -3805,16 +3832,24 @@ async function executeToolInternal(
 
       const label = typeof args.label === 'string' ? args.label.trim() : '';
       const model = typeof args.model === 'string' ? args.model.trim() : '';
+      const tier = typeof args.tier === 'string' ? args.tier.trim() : '';
+      if (model && tier) {
+        return failTool(
+          'Error: delegate cannot specify both "model" and "tier".',
+        );
+      }
       const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : '';
       const tasksResult = normalizeDelegationTaskList({
         raw: args.tasks,
         fallbackModel: model || undefined,
+        fallbackTier: tier || undefined,
         fieldName: 'tasks',
       });
       if (tasksResult.error) return failTool(tasksResult.error);
       const chainResult = normalizeDelegationTaskList({
         raw: args.chain,
         fallbackModel: model || undefined,
+        fallbackTier: tier || undefined,
         fieldName: 'chain',
       });
       if (chainResult.error) return failTool(chainResult.error);
@@ -3855,6 +3890,7 @@ async function executeToolInternal(
           prompt,
           label: label || undefined,
           model: model || undefined,
+          tier: tier || undefined,
         };
         summary = label ? `${label}: ${prompt}` : prompt;
       } else if (mode === 'parallel') {
@@ -3865,6 +3901,7 @@ async function executeToolInternal(
           mode,
           label: label || undefined,
           model: model || undefined,
+          tier: tier || undefined,
           tasks: tasksResult.tasks,
         };
         summary = `${tasksResult.tasks.length} parallel task(s)`;
@@ -3876,6 +3913,7 @@ async function executeToolInternal(
           mode,
           label: label || undefined,
           model: model || undefined,
+          tier: tier || undefined,
           chain: chainResult.tasks,
         };
         summary = `${chainResult.tasks.length}-step chain`;
@@ -5081,6 +5119,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'string',
             description: 'Optional model override for delegated run(s)',
           },
+          tier: {
+            type: 'string',
+            description:
+              'Optional routing tier override for delegated run(s); cannot be combined with model',
+          },
           tasks: {
             type: 'array',
             description:
@@ -5099,6 +5142,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
                 model: {
                   type: 'string',
                   description: 'Optional per-task model override',
+                },
+                tier: {
+                  type: 'string',
+                  description:
+                    'Optional per-task routing tier override; cannot be combined with model',
                 },
               },
               required: ['prompt'],
@@ -5122,6 +5170,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
                 model: {
                   type: 'string',
                   description: 'Optional per-step model override',
+                },
+                tier: {
+                  type: 'string',
+                  description:
+                    'Optional per-step routing tier override; cannot be combined with model',
                 },
               },
               required: ['prompt'],

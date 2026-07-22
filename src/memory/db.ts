@@ -11,10 +11,12 @@ import type {
 import {
   DEFAULT_AGENT_ID,
   normalizeAgentA2AConfig,
+  normalizeAgentBudgetConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   normalizeAgentIdentityFields,
   normalizeAgentProxyConfig,
+  normalizeAgentRoutingConfig,
   validateAgentOrgChart,
 } from '../agents/agent-types.js';
 import {
@@ -171,7 +173,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 53;
+export const DATABASE_SCHEMA_VERSION = 54;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -241,6 +243,8 @@ type AgentRow = {
   escalation_target: string | null;
   a2a: string | null;
   proxy: string | null;
+  budget: string | null;
+  routing: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -3305,6 +3309,35 @@ function migrateV53(
   recordMigration(database, 53, 'Persist archived agent state');
 }
 
+function agentRoutingNeedMigration(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'agents') &&
+    (!columnExists(database, 'agents', 'budget') ||
+      !columnExists(database, 'agents', 'routing'))
+  );
+}
+
+function migrateV54(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'budget',
+    ddl: 'budget TEXT',
+    quiet: opts?.quiet === true,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'routing',
+    ddl: 'routing TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 54, 'Persist agent routing and budget policy');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3430,6 +3463,9 @@ function runMigrations(
   if (currentVersion < 51) migrateV51(database);
   if (currentVersion < 53 || agentArchivedNeedMigration(database)) {
     migrateV53(database, opts);
+  }
+  if (currentVersion < 54 || agentRoutingNeedMigration(database)) {
+    migrateV54(database, opts);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -3691,6 +3727,53 @@ function parseAgentProxyConfig(rawConfig: string | null): AgentConfig['proxy'] {
   }
 }
 
+function serializeAgentBudgetConfig(
+  budget: AgentConfig['budget'],
+): string | null {
+  return budget ? JSON.stringify(budget) : null;
+}
+
+function parseAgentBudgetConfig(
+  rawConfig: string | null,
+): AgentConfig['budget'] {
+  const normalized = rawConfig?.trim() || '';
+  if (!normalized) return undefined;
+  try {
+    return normalizeAgentBudgetConfig(JSON.parse(normalized));
+  } catch {
+    logger.warn(
+      { configLength: normalized.length },
+      'Failed to parse persisted agent budget configuration',
+    );
+    return undefined;
+  }
+}
+
+function serializeAgentRoutingConfig(
+  routing: AgentConfig['routing'],
+): string | null {
+  return routing ? JSON.stringify(routing) : null;
+}
+
+function parseAgentRoutingConfig(
+  rawConfig: string | null,
+): AgentConfig['routing'] {
+  const normalized = rawConfig?.trim() || '';
+  if (!normalized) return undefined;
+  try {
+    return normalizeAgentRoutingConfig(
+      JSON.parse(normalized),
+      'agents.routing',
+    );
+  } catch {
+    logger.warn(
+      { configLength: normalized.length },
+      'Failed to parse persisted agent routing configuration',
+    );
+    return undefined;
+  }
+}
+
 function normalizeStoredIdentityField(
   value: string | null,
   parseIdentity: (normalized: string) => { id: string },
@@ -3861,6 +3944,8 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const escalationTarget = parseAgentEscalationTarget(row.escalation_target);
   const a2a = parseAgentA2AConfig(row.a2a);
   const proxy = parseAgentProxyConfig(row.proxy);
+  const budget = parseAgentBudgetConfig(row.budget);
+  const routing = parseAgentRoutingConfig(row.routing);
   return {
     id: row.id,
     archived: row.archived !== 0,
@@ -3886,11 +3971,13 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(escalationTarget ? { escalationTarget } : {}),
     ...(a2a ? { a2a } : {}),
     ...(proxy ? { proxy } : {}),
+    ...(budget ? { budget } : {}),
+    ...(routing ? { routing } : {}),
   };
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, archived, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, created_at, updated_at';
+  'id, archived, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, budget, routing, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -3949,6 +4036,8 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   );
   const normalizedA2A = serializeAgentA2AConfig(agent.a2a);
   const normalizedProxy = serializeAgentProxyConfig(agent.proxy);
+  const normalizedBudget = serializeAgentBudgetConfig(agent.budget);
+  const normalizedRouting = serializeAgentRoutingConfig(agent.routing);
   const explicitIdentity = normalizeAgentIdentityFields({
     canonicalId: agent.canonicalId,
     ownerUserId: agent.ownerUserId,
@@ -4015,9 +4104,11 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        escalation_target,
        a2a,
        proxy,
+       budget,
+       routing,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        archived = excluded.archived,
        canonical_id = excluded.canonical_id,
@@ -4040,6 +4131,8 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        escalation_target = excluded.escalation_target,
        a2a = excluded.a2a,
        proxy = excluded.proxy,
+       budget = excluded.budget,
+       routing = excluded.routing,
        updated_at = datetime('now')`,
   ).run(
     normalizedId,
@@ -4064,6 +4157,8 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedEscalationTarget,
     normalizedA2A,
     normalizedProxy,
+    normalizedBudget,
+    normalizedRouting,
   );
   const storedAgent = getAgentById(normalizedId);
   if (!storedAgent) {

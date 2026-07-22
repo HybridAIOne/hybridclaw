@@ -137,6 +137,8 @@ export function buildConversationContext(params: {
   allowedTools?: string[];
   blockedTools?: string[];
   currentUserContent?: ChatMessage['content'];
+  preloadedSkills?: Skill[];
+  resolvedSkillInvocation?: SkillInvocation | null;
 }): ConversationContext {
   const {
     agentId,
@@ -152,24 +154,30 @@ export function buildConversationContext(params: {
     allowedTools,
     blockedTools,
     currentUserContent,
+    preloadedSkills,
+    resolvedSkillInvocation,
   } = params;
   if (promptMode !== 'none') {
     scheduleCloudMemorySync(agentId);
   }
   const mergedBlockedTools = mergeBlockedToolNames({ explicit: blockedTools });
-  const skills = loadSkills(
-    agentId,
-    normalizeSkillConfigChannelKind(runtimeInfo?.channel?.kind),
-  );
+  const skills =
+    preloadedSkills ??
+    loadSkills(
+      agentId,
+      normalizeSkillConfigChannelKind(runtimeInfo?.channel?.kind),
+    );
   const previousUserContent = resolvePreviousUserContent(history);
   const explicitSkillInvocation =
-    typeof currentUserContent === 'string' && currentUserContent.trim()
-      ? resolveSkillInvocationForTurn({
-          content: currentUserContent,
-          skills,
-          previousUserContent,
-        })
-      : null;
+    resolvedSkillInvocation !== undefined
+      ? resolvedSkillInvocation
+      : typeof currentUserContent === 'string' && currentUserContent.trim()
+        ? resolveSkillInvocationForTurn({
+            content: currentUserContent,
+            skills,
+            previousUserContent,
+          })
+        : null;
   const systemPromptBlocks = buildSystemPromptBlocksFromHooks({
     agentId,
     skills,

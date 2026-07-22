@@ -46,10 +46,31 @@ export type ChatActivityTraceStep =
   | ChatActivityTraceDraftStep
   | ChatActivityTraceToolStep;
 
+export type ChatModelRoutingZone = 'local' | 'hai' | 'region' | 'cloud';
+
+export interface ChatModelRoutingMetadata {
+  enabled: true;
+  startTier: string | null;
+  finalTier: string | null;
+  model: string | null;
+  zone: ChatModelRoutingZone | null;
+  reason: string;
+  escalated: boolean;
+  attempts: number;
+  sovereignty: ChatModelRoutingZone;
+  target: { quality: number; speed: number };
+  actualCostUsd?: number;
+  counterfactualCostUsd?: number;
+  savedUsd?: number;
+  exhausted?: boolean;
+  approvalId?: string;
+}
+
 /** Persisted per-message activity trace replayed from chat history. */
 export interface ChatActivityTrace {
   steps: ChatActivityTraceStep[];
   elapsedMs?: number;
+  routing?: ChatModelRoutingMetadata;
 }
 
 export interface ChatHistoryMessage {
@@ -108,6 +129,14 @@ export interface ChatContextSnapshot {
   messageCount: number;
   promptTokens: number | null;
   completionTokens: number | null;
+  routing: {
+    enabled: boolean;
+    pinned: boolean;
+    startTier: string | null;
+    maxTier: string | null;
+    sovereignty: ChatModelRoutingZone;
+    target: { quality: number; speed: number };
+  };
 }
 
 export interface ChatContextResponse {
@@ -228,6 +257,7 @@ export interface ChatStreamResult {
   apps?: Array<{ id: string; title: string; kind: 'web' | 'live' }>;
   toolsUsed?: string[];
   a2aDelivery?: A2ADeliveryDescriptor | null;
+  routing?: ChatModelRoutingMetadata;
 }
 
 export interface MediaItem {
@@ -275,4 +305,5 @@ export interface ChatMessage {
   responseRating?: ResponseRatingValue | null;
   branchKey?: string | null;
   a2aDelivery?: A2ADeliveryDescriptor | null;
+  routing?: ChatModelRoutingMetadata | null;
 }

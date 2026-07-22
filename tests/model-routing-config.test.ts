@@ -65,6 +65,13 @@ describe('model routing runtime config', () => {
       ],
       defaultStart: 'small',
       escalationStickyTurns: 5,
+      sovereignty: 'region',
+      target: { quality: 0.7, speed: 0.8 },
+      sensitivityZones: {
+        public: 'cloud',
+        confidential: 'hai',
+      },
+      budgetClamp: { enabled: true },
     };
 
     const saved = configModule.saveRuntimeConfig(draft);
@@ -73,6 +80,9 @@ describe('model routing runtime config', () => {
       enabled: true,
       defaultStart: 'small',
       escalationStickyTurns: 5,
+      sovereignty: 'region',
+      target: { quality: 0.7, speed: 0.8 },
+      budgetClamp: { enabled: true },
       tiers: [
         { name: 'small', models: ['haigpu1/qwen3.7-27b'] },
         { name: 'frontier', models: ['hybridai/gpt-5'] },
@@ -86,6 +96,50 @@ describe('model routing runtime config', () => {
       },
     });
     expect(saved.local.endpoints[1]?.zone).toBe('cloud');
+  });
+
+  test('validates tenant and per-agent routing controls', async () => {
+    const configModule = await loadConfigModule();
+    const draft = configModule.getRuntimeConfig();
+    draft.routing.enabled = true;
+    draft.routing.tiers = [
+      { name: 'small', models: ['hybridai/gpt-5-mini'] },
+      { name: 'frontier', models: ['hybridai/gpt-5'] },
+    ];
+    draft.routing.defaultStart = 'small';
+    draft.agents.list = [
+      {
+        id: 'main',
+        routing: {
+          start: 'small',
+          max: 'frontier',
+          sovereignty: 'hai',
+          target: { quality: 0.8, speed: 0.2 },
+        },
+      },
+    ];
+
+    expect(configModule.saveRuntimeConfig(draft).agents.list?.[0]?.routing).toEqual(
+      {
+        start: 'small',
+        max: 'frontier',
+        sovereignty: 'hai',
+        target: { quality: 0.8, speed: 0.2 },
+      },
+    );
+
+    draft.agents.list[0]!.routing!.max = 'missing';
+    expect(() => configModule.saveRuntimeConfig(draft)).toThrow(
+      'routing.max references unknown routing tier',
+    );
+
+    draft.agents.list[0]!.routing = {
+      start: 'frontier',
+      max: 'small',
+    };
+    expect(() => configModule.saveRuntimeConfig(draft)).toThrow(
+      'routing.start must not be above routing.max',
+    );
   });
 
   test('rejects an enabled empty ladder', async () => {

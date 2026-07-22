@@ -18,6 +18,7 @@ import {
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   normalizeAgentProxyConfig,
+  normalizeAgentRoutingConfig,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
 } from './agent-types.js';
@@ -298,6 +299,19 @@ function applyAgentConfigFieldUpdates(
         );
       }
       next.proxy = proxy;
+    }
+  }
+  if (Object.hasOwn(updates, 'routing')) {
+    if (updates.routing === null) {
+      delete next.routing;
+    } else {
+      const routing = normalizeAgentRoutingConfig(updates.routing, 'routing');
+      if (!routing) {
+        throw new Error(
+          '`routing` must include start, max, sovereignty, or target fields, or null.',
+        );
+      }
+      next.routing = routing;
     }
   }
   return next;

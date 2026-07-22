@@ -140,16 +140,28 @@ saved revision history directly.
   one tier are provider fallbacks, while later tiers are stronger escalation
   rungs. Remote model references must exist in the configured provider
   catalogs; named local endpoint references use `<endpoint>/<model-id>`.
-  Unpinned agent turns start from the tier containing the agent model or from
-  `routing.defaultStart`; heartbeat, scheduler, and full-auto turns start at
-  the lowest tier. Retry-safe auth, rate-limit, server, malformed-tool-call,
-  empty-output, and narrate-only failures can move to the next tier. A
+  `routing.target.quality` and `routing.target.speed` are normalized values
+  from `0` to `1`: quality selects a starting rung and makes high-quality
+  routes escalate weak output without a same-rung retry, while speed orders
+  models within a rung using measured latency without moving a model across
+  tiers. `routing.sovereignty` is the maximum allowed zone. The most
+  restrictive tenant, agent, and invoked-skill limit applies; unknown model
+  zones and unknown skill sensitivity labels fail closed. Configure the
+  sensitivity mapping with `routing.sensitivityZones`.
+  Unpinned agent turns apply the agent start preference and invoked-skill
+  minimum before the tenant default; heartbeat, scheduler, and full-auto turns
+  start at the lowest tier. Retry-safe auth, rate-limit, server,
+  malformed-tool-call, empty-output, and narrate-only failures can move to the
+  next eligible tier. When policy filtering leaves no eligible model,
+  HybridClaw creates an F14 operator interaction and makes no model call. A
   successful escalation remains the session floor for
   `routing.escalationStickyTurns` interactive turns (`0` disables stickiness),
   and `/escalate` raises the next unpinned agent turn by one tier. Explicit
   request and session model selections bypass the ladder. Enabling routing
   also enables the bundled `tier-router` middleware and rejects attempts to
-  replace it with a custom path.
+  replace it with a custom path. `routing.budgetClamp.enabled` restricts the
+  maximum rung according to the agent budget's current monthly usage; it is
+  disabled by default pending the broader budget-enforcement phase.
 - `codex.baseUrl`, `codex.turnRuntime`, and `codex.models` for first-class
   Codex provider behavior. `codex.turnRuntime` accepts `hybridclaw` for the
   standard HybridClaw tool loop or `app-server` for the native Codex app-server
@@ -203,6 +215,10 @@ saved revision history directly.
   `agents.list[].budget.unit` configure the read-only board budget chip and
   budget-aware commands for that agent. `unit` accepts `USD`, `EUR`, or
   `tokens`; when omitted, the budget uses the configured currency.
+- `agents.list[].routing.start` and `agents.list[].routing.max` constrain the
+  agent's ladder range. `agents.list[].routing.sovereignty` can only narrow the
+  tenant sovereignty limit, and `agents.list[].routing.target.quality` and
+  `.speed` override either target coordinate for that agent.
 - `channelInstructions.*` for transport-specific prompt guidance injected into
   the runtime prompt; `channelInstructions.voice` is the right place for
   spoken-style rules such as "no markdown" or "keep replies short";
@@ -211,7 +227,7 @@ saved revision history directly.
   delivery
 - `skills.disabled` and `skills.channelDisabled.*` for static skill availability; workspace `.hybridclaw/policy.yaml` `skill.rules` route conditional skill-use permission through the generalized policy engine; `skills.installed[]` records lifecycle-managed package manifests; reviewed scanner bypass markers are created by `hybridclaw skill unblock <name>` or the Admin Skills page for one installed copy; `skills.autonomy.defaultLevel` and `skills.autonomy.rules[]` declare the permitted autonomy level for each agent/skill pair (`full-autonomous`, `low-stakes-autonomous`, or `confirm-each`) for upcoming default-action runtime enforcement; the shipped default is the conservative global `confirm-each`, not a per-skill-class default table
 - `plugins.list[]` for plugin overrides and config; use `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused edits
-- `proactive.delegation.model` for pinning delegated subagent work to a dedicated model while the parent turn keeps its own session or agent model; leave it empty to use the parent model
+- `proactive.delegation.model` for pinning delegated subagent work to a dedicated model while the parent turn keeps its own session or agent model; leave it empty to use the parent model. The `delegate` tool also accepts a mutually exclusive `tier` on a single spawn or each parallel/chain task, resolving that tier to its first configured routing model.
 - `auxiliaryModels.session_title` controls optional AI-generated session
   titles. When enabled, HybridClaw forwards up to 500 characters from the first
   user message to the configured auxiliary provider. Set
