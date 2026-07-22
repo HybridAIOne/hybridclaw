@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/root/.npm \
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ripgrep git curl python3 python3-pip poppler-utils qpdf pandoc
+    ripgrep git curl python3 python3-pip python-is-python3 unzip file poppler-utils qpdf pandoc
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install --break-system-packages \
@@ -39,7 +39,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pdfplumber==0.11.6 \
     pdf2image==1.17.0 \
     reportlab==4.4.4 \
-    pillow==11.3.0
+    pillow==11.3.0 \
+    openpyxl==3.1.5
 
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g --ignore-scripts \
@@ -47,7 +48,10 @@ RUN --mount=type=cache,target=/root/.npm \
     pptxgenjs@4.0.1 \
     csv-parse@6.1.0 \
     iconv-lite@0.7.0 \
+    @e965/xlsx@0.20.3 \
     xlsx-populate@1.21.0
+
+RUN ln -s /usr/local/lib/node_modules/@e965/xlsx /usr/local/lib/node_modules/xlsx
 
 ENV NODE_PATH=/usr/local/lib/node_modules:/app/node_modules
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
