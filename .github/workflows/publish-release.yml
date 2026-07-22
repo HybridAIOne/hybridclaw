@@ -301,7 +301,10 @@ jobs:
       - name: Install dependencies
         env:
           ONNXRUNTIME_NODE_INSTALL_CUDA: skip
-        run: npm ci --ignore-scripts
+        run: |
+          npm ci --ignore-scripts
+          npm --prefix container ci --ignore-scripts
+          npm --prefix plugins/whatsapp ci --ignore-scripts
 
       - name: Verify npm registry signatures
         run: npm run audit:signatures
