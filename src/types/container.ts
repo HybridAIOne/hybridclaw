@@ -67,6 +67,7 @@ export interface ContainerInput {
   sessionId: string;
   agentId?: string;
   messages: ChatMessage[];
+  activityUserPrompt?: string;
   chatbotId: string;
   enableRag: boolean;
   apiKey: string;

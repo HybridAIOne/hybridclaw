@@ -169,10 +169,19 @@ async function runAgentInner(
     preparedMessages,
     'agent.messages',
   );
+  const activityUserPrompt = params.activityUserPrompt
+    ? getLatestUserTextContent(
+        confidential.dehydrate(
+          [{ role: 'user', content: params.activityUserPrompt }],
+          'agent.activity_user_prompt',
+        ),
+      )
+    : undefined;
   const output = await executor.exec({
     ...params,
     sessionId,
     messages: dehydratedMessages,
+    activityUserPrompt,
     chatbotId,
     model,
     agentId,
