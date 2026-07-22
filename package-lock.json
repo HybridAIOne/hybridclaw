@@ -1,12 +1,12 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.28.2",
+  "version": "0.28.3",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@hybridaione/hybridclaw",
-      "version": "0.28.2",
+      "version": "0.28.3",
       "hasInstallScript": true,
       "license": "MIT",
       "workspaces": [
@@ -85,7 +85,7 @@
     },
     "console": {
       "name": "@hybridaione/hybridclaw-console",
-      "version": "0.28.2",
+      "version": "0.28.3",
       "license": "MIT",
       "dependencies": {
         "@tanstack/react-query": "5.101.0",
@@ -111,7 +111,7 @@
     },
     "container": {
       "name": "hybridclaw-agent",
-      "version": "0.28.2",
+      "version": "0.28.3",
       "license": "MIT",
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.29.0",
@@ -399,7 +399,7 @@
     },
     "desktop": {
       "name": "@hybridaione/hybridclaw-desktop",
-      "version": "0.28.2",
+      "version": "0.28.3",
       "license": "MIT",
       "dependencies": {
         "@hybridaione/hybridclaw-desktop-packaging-anchor": "file:./support/packaging-anchor"

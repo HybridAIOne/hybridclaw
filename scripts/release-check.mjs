@@ -15,6 +15,9 @@ const requiredExactPaths = [
   // ('missing-container-package'), shipping an empty container runtime.
   'container/package.json',
   'container/npm-shrinkwrap.json',
+  'plugins/tier-router/hybridclaw.plugin.yaml',
+  'plugins/tier-router/src/index.js',
+  'plugins/tier-router/src/routing.js',
 ];
 
 const requiredPrefixes = [

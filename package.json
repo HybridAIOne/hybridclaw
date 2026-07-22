@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.28.2",
+  "version": "0.28.3",
   "type": "module",
   "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
   "license": "MIT",
@@ -41,6 +41,7 @@
     "docs/",
     "infra/managed-browser/",
     "plugins/concierge-router/",
+    "plugins/tier-router/",
     "container/Dockerfile",
     "container/.dockerignore",
     "container/package.json",

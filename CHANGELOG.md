@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.28.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.3) - 2026-07-22
+
 ### Fixed
 
 - **Prompt-cache usage is now visible through the OpenAI-compatible API**: the
@@ -36,6 +38,9 @@
 - **Release metadata walks**: Dependency-policy, SBOM, and third-party-notice
   generators skip every dot-directory, preventing auxiliary Git worktrees from
   being scanned as duplicate or partially updated package trees.
+- **Bundled tier-router packaging**: npm and gateway Docker artifacts include
+  the deterministic tier-router plugin required when `routing.enabled` is set,
+  and the release check now fails if any of its runtime files are missing.
 
 ### Added
 

@@ -93,6 +93,7 @@ COPY --link docs/ ./docs/
 # Runtime templates and skills
 COPY --link templates/ ./templates/
 COPY --link skills/ ./skills/
+COPY --link --from=builder /app/plugins/tier-router ./plugins/tier-router
 COPY --link SECURITY.md TRUST_MODEL.md ./
 
 EXPOSE 9090

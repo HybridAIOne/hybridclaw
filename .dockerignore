@@ -23,7 +23,9 @@ tests/
 docs/tools/
 docs/CNAME
 packages/
-plugins/
+plugins/*
+!plugins/tier-router/
+!plugins/tier-router/**
 
 # IDE and OS
 *.swp
