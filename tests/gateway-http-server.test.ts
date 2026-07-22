@@ -5653,6 +5653,17 @@ describe('gateway HTTP server', () => {
 
   test('accepts OpenAI chat completions requests with client tools and returns tool calls', async () => {
     const state = await importFreshHealth();
+    state.buildConversationContext.mockReturnValueOnce({
+      messages: [
+        { role: 'system', content: 'Mock HybridClaw system prompt' },
+        {
+          role: 'user',
+          content: '<context>\nDate (UTC): 2026-07-18\n</context>',
+        },
+      ],
+      skills: [],
+      historyStats: {},
+    });
     state.callOpenAICompatibleModel.mockResolvedValueOnce({
       id: 'resp_tool',
       model: 'gpt-5',
@@ -5737,6 +5748,14 @@ describe('gateway HTTP server', () => {
     ]);
     expect(payload.choices[0]?.finish_reason).toBe('tool_calls');
     expect(state.callOpenAICompatibleModel).toHaveBeenCalledTimes(1);
+    const modelMessages = state.callOpenAICompatibleModel.mock.calls[0]?.[0]
+      ?.messages as Array<{ role: string; content: string }>;
+    expect(modelMessages.at(-1)).toEqual({
+      role: 'user',
+      content: 'Find customer 42',
+    });
+    expect(modelMessages.at(-2)?.role).toBe('user');
+    expect(modelMessages.at(-2)?.content).toMatch(/^<context>/);
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
   });
 

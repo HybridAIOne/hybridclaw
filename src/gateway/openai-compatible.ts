@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
+import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
 import { buildConversationContext } from '../agent/conversation.js';
 import { stopSessionExecution } from '../agent/executor.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
@@ -377,6 +378,20 @@ async function buildToolAwareMessages(params: {
       workspacePath,
     },
   });
+  const dynamicContext = messages.at(-1);
+  const latestInputMessage = input.messages.at(-1);
+  if (
+    dynamicContext?.role === 'user' &&
+    isDynamicContextMessageText(dynamicContext.content) &&
+    latestInputMessage?.role === 'user'
+  ) {
+    return [
+      ...messages.slice(0, -1),
+      ...input.messages.slice(0, -1),
+      dynamicContext,
+      latestInputMessage,
+    ];
+  }
   return [...messages, ...input.messages];
 }
 

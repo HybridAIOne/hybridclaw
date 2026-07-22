@@ -42,22 +42,33 @@ export function collapseSystemMessages(messages: ChatMessage[]): ChatMessage[] {
 export function mergeSystemMessage(
   messages: ChatMessage[],
   instruction: string,
+  target: 'first' | 'last' = 'first',
 ): ChatMessage[] {
-  const collapsed = collapseSystemMessages(messages);
+  const merged = messages.map((message) => ({ ...message }));
   const normalizedInstruction = instruction.trim();
-  if (!normalizedInstruction) return collapsed;
+  if (!normalizedInstruction) return merged;
 
-  if (collapsed[0]?.role === 'system') {
-    const existing = contentToText(collapsed[0].content).trim();
-    if (existing.includes(normalizedInstruction)) return collapsed;
-    collapsed[0] = {
+  let systemIndex = -1;
+  if (target === 'first') {
+    systemIndex = merged.findIndex((message) => message.role === 'system');
+  } else {
+    for (let index = merged.length - 1; index >= 0; index -= 1) {
+      if (merged[index].role !== 'system') continue;
+      systemIndex = index;
+      break;
+    }
+  }
+  if (systemIndex >= 0) {
+    const existing = contentToText(merged[systemIndex].content).trim();
+    if (existing.includes(normalizedInstruction)) return merged;
+    merged[systemIndex] = {
       role: 'system',
       content: existing
         ? `${existing}\n\n${normalizedInstruction}`
         : normalizedInstruction,
     };
-    return collapsed;
+    return merged;
   }
 
-  return [{ role: 'system', content: normalizedInstruction }, ...collapsed];
+  return [{ role: 'system', content: normalizedInstruction }, ...merged];
 }

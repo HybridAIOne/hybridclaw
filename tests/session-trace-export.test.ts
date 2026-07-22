@@ -609,13 +609,15 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
           workspacePath: '/workspace/trace-static-prefix',
         },
       });
-      const systemMessage = messages[0];
-      if (systemMessage?.role !== 'system') {
+      const systemMessages = messages.filter(
+        (message) => message.role === 'system',
+      );
+      if (systemMessages.length === 0) {
         throw new Error(
           'Expected buildConversationContext to emit a system message.',
         );
       }
-      const dynamicContextMessage = messages[1];
+      const dynamicContextMessage = messages.at(-1);
       if (
         dynamicContextMessage?.role !== 'user' ||
         typeof dynamicContextMessage.content !== 'string'
@@ -625,7 +627,9 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
         );
       }
       return {
-        systemPrompt: String(systemMessage.content || ''),
+        systemPrompt: systemMessages
+          .map((message) => String(message.content || ''))
+          .join('\n\n'),
         dynamicContext: dynamicContextMessage.content,
       };
     };

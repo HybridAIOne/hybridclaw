@@ -2,13 +2,9 @@ import type { ChatMessage } from '../types/api.js';
 
 export const DEFAULT_CHARS_PER_TOKEN = 4;
 export const DEFAULT_HISTORY_MAX_TOTAL_CHARS = 24_000;
-export const DEFAULT_HISTORY_MAX_MESSAGE_CHARS = 1_200;
-export const DEFAULT_HISTORY_PROTECT_HEAD_MESSAGES = 4;
-export const DEFAULT_HISTORY_PROTECT_TAIL_MESSAGES = 8;
 export const DEFAULT_BOOTSTRAP_HEAD_RATIO = 0.7;
 export const DEFAULT_BOOTSTRAP_TAIL_RATIO = 0.2;
 
-const MESSAGE_TRUNCATED_MARKER = '\n...[truncated]';
 const HEAD_TAIL_TRUNCATED_MARKER = '\n\n...[truncated]...\n\n';
 
 function isHighSurrogate(code: number): boolean {
@@ -53,14 +49,11 @@ export function sliceTailAtCodePointBoundary(
 
 interface PromptHistoryMessage {
   role: ChatMessage['role'];
-  content: string;
+  content: ChatMessage['content'];
 }
 
 export interface HistoryOptimizationOptions {
   maxTotalChars: number;
-  maxMessageChars: number;
-  protectHeadMessages: number;
-  protectTailMessages: number;
 }
 
 export interface HistoryOptimizationStats {
@@ -72,8 +65,6 @@ export interface HistoryOptimizationStats {
   includedChars: number;
   droppedChars: number;
   maxTotalChars: number;
-  maxMessageChars: number;
-  perMessageTruncatedCount: number;
   middleCompressionApplied: boolean;
 }
 
@@ -83,28 +74,34 @@ function normalizePositiveInt(value: number, fallback: number): number {
 }
 
 function sumChars(messages: PromptHistoryMessage[]): number {
-  return messages.reduce((total, message) => total + message.content.length, 0);
+  return messages.reduce(
+    (total, message) => total + messageContentChars(message.content),
+    0,
+  );
 }
 
-function trimToRecentWithinBudget(
+function messageContentChars(content: ChatMessage['content']): number {
+  if (typeof content === 'string') return content.length;
+  if (!Array.isArray(content)) return 0;
+  return JSON.stringify(content).length;
+}
+
+function groupHistoryTurns(
   messages: PromptHistoryMessage[],
-  maxTotalChars: number,
-): PromptHistoryMessage[] {
-  if (messages.length === 0 || maxTotalChars <= 0) return [];
+): PromptHistoryMessage[][] {
+  const turns: PromptHistoryMessage[][] = [];
+  let currentTurn: PromptHistoryMessage[] = [];
 
-  const kept: PromptHistoryMessage[] = [];
-  let usedChars = 0;
-
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    const size = message.content.length;
-    if (size > maxTotalChars) continue;
-    if (usedChars + size > maxTotalChars) continue;
-    kept.push(message);
-    usedChars += size;
+  for (const message of messages) {
+    if (message.role === 'user' && currentTurn.length > 0) {
+      turns.push(currentTurn);
+      currentTurn = [];
+    }
+    currentTurn.push(message);
   }
+  if (currentTurn.length > 0) turns.push(currentTurn);
 
-  return kept.reverse();
+  return turns;
 }
 
 export function estimateTokenCountFromText(
@@ -153,23 +150,6 @@ export function estimateTokenCountFromMessages(
   return total;
 }
 
-export function truncateMessageContent(
-  content: string,
-  maxChars: number,
-): string {
-  if (!Number.isFinite(maxChars) || maxChars <= 0) return '';
-  if (content.length <= maxChars) return content;
-
-  const bodyMax = Math.max(
-    0,
-    Math.floor(maxChars) - MESSAGE_TRUNCATED_MARKER.length,
-  );
-  if (bodyMax <= 0) {
-    return sliceHeadAtCodePointBoundary(content, Math.floor(maxChars));
-  }
-  return `${sliceHeadAtCodePointBoundary(content, bodyMax)}${MESSAGE_TRUNCATED_MARKER}`;
-}
-
 export function truncateHeadTailText(
   content: string,
   maxChars: number,
@@ -215,81 +195,35 @@ export function optimizeHistoryMessagesForPrompt(
     options?.maxTotalChars ?? DEFAULT_HISTORY_MAX_TOTAL_CHARS,
     DEFAULT_HISTORY_MAX_TOTAL_CHARS,
   );
-  const maxMessageChars = normalizePositiveInt(
-    options?.maxMessageChars ?? DEFAULT_HISTORY_MAX_MESSAGE_CHARS,
-    DEFAULT_HISTORY_MAX_MESSAGE_CHARS,
-  );
-  const protectHeadMessages = Math.max(
-    0,
-    Math.floor(
-      options?.protectHeadMessages ?? DEFAULT_HISTORY_PROTECT_HEAD_MESSAGES,
-    ),
-  );
-  const protectTailMessages = Math.max(
-    0,
-    Math.floor(
-      options?.protectTailMessages ?? DEFAULT_HISTORY_PROTECT_TAIL_MESSAGES,
-    ),
-  );
-
   const originalCount = messages.length;
-  const originalChars = messages.reduce(
-    (total, message) => total + message.content.length,
-    0,
-  );
-  let perMessageTruncatedCount = 0;
-
-  const normalized = messages.map((message) => {
-    const bounded = truncateMessageContent(message.content, maxMessageChars);
-    if (bounded !== message.content) perMessageTruncatedCount += 1;
-    return {
-      role: message.role,
-      content: bounded,
-    };
-  });
-
-  const preBudgetChars = sumChars(normalized);
-  let included = [...normalized];
+  const originalChars = sumChars(messages);
+  const preBudgetChars = originalChars;
+  let included = [...messages];
   let middleCompressionApplied = false;
 
   if (preBudgetChars > maxTotalChars) {
     middleCompressionApplied = true;
-    const headCount = Math.min(protectHeadMessages, normalized.length);
-    const tailCount = Math.min(
-      protectTailMessages,
-      Math.max(0, normalized.length - headCount),
-    );
-    const middleStart = headCount;
-    const middleEnd = normalized.length - tailCount;
-    const head = normalized.slice(0, headCount);
-    const middle = normalized.slice(middleStart, middleEnd);
-    const tail = normalized.slice(middleEnd);
-
-    const base = [...head, ...tail];
-    const baseChars = sumChars(base);
-
-    if (baseChars >= maxTotalChars) {
-      included = trimToRecentWithinBudget(base, maxTotalChars);
-    } else {
-      const selectedMiddleRev: PromptHistoryMessage[] = [];
-      let usedChars = baseChars;
-      for (let i = middle.length - 1; i >= 0; i -= 1) {
-        const candidate = middle[i];
-        const nextSize = candidate.content.length;
-        if (usedChars + nextSize > maxTotalChars) continue;
-        selectedMiddleRev.push(candidate);
-        usedChars += nextSize;
+    const turns = groupHistoryTurns(messages);
+    let firstIncludedTurn = turns.length;
+    let includedTurnChars = 0;
+    // Keep the newest turn whole even when it exceeds the soft history budget.
+    // Rewriting it here would change the cached prefix on the next turn.
+    for (let index = turns.length - 1; index >= 0; index -= 1) {
+      const turnChars = sumChars(turns[index]);
+      if (
+        firstIncludedTurn < turns.length &&
+        includedTurnChars + turnChars > maxTotalChars
+      ) {
+        break;
       }
-      const selectedMiddle = selectedMiddleRev.reverse();
-      included = [...head, ...selectedMiddle, ...tail];
-      if (sumChars(included) > maxTotalChars) {
-        included = trimToRecentWithinBudget(included, maxTotalChars);
-      }
+      firstIncludedTurn = index;
+      includedTurnChars += turnChars;
     }
+    included = turns.slice(firstIncludedTurn).flat();
   }
 
   const includedChars = sumChars(included);
-  const droppedCount = Math.max(0, normalized.length - included.length);
+  const droppedCount = Math.max(0, messages.length - included.length);
   const droppedChars = Math.max(0, preBudgetChars - includedChars);
 
   return {
@@ -303,8 +237,6 @@ export function optimizeHistoryMessagesForPrompt(
       includedChars,
       droppedChars,
       maxTotalChars,
-      maxMessageChars,
-      perMessageTruncatedCount,
       middleCompressionApplied,
     },
   };

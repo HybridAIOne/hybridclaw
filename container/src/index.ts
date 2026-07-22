@@ -354,6 +354,7 @@ function injectSkillCacheHint(messages: ChatMessage[]): ChatMessage[] {
       `You already selected skill guidance from \`${cachedSelectedSkillPath}\` earlier in this session.`,
       'Reuse that skill now and do not reread the SKILL.md unless the task scope changed or a missing detail requires it.',
     ].join('\n'),
+    'last',
   );
 }
 
@@ -1051,11 +1052,13 @@ async function processRequest(
     event: 'before_agent_start',
     messageCount: messages.length,
   });
-  let history: ChatMessage[] = collapseSystemMessages(
-    skipContainerSystemPrompt
-      ? messages
-      : injectRuntimeCapabilitiesMessage(messages),
-  );
+  const preparedHistory = skipContainerSystemPrompt
+    ? messages.map((message) => ({ ...message }))
+    : injectRuntimeCapabilitiesMessage(messages);
+  let history: ChatMessage[] =
+    provider === 'anthropic'
+      ? preparedHistory
+      : collapseSystemMessages(preparedHistory);
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
   const toolCallHistory: ToolCallHistoryEntry[] = [];

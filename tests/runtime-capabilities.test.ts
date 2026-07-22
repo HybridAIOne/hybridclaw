@@ -98,6 +98,28 @@ describe('runtime capability hints', () => {
     });
   });
 
+  test('adds runtime hints to the static core without collapsing later system blocks', async () => {
+    const { injectRuntimeCapabilitiesMessage } = await import(
+      '../container/src/runtime-capabilities.ts'
+    );
+
+    const messages = injectRuntimeCapabilitiesMessage(
+      [
+        { role: 'system', content: 'static core' },
+        { role: 'system', content: 'workspace memory' },
+        { role: 'system', content: 'skills catalog' },
+        { role: 'user', content: 'Create a PPTX.' },
+      ],
+      { hasSoffice: false, hasPdftoppm: false },
+    );
+
+    expect(messages).toHaveLength(4);
+    expect(messages[0]?.content).toContain('static core');
+    expect(messages[0]?.content).toContain('## Runtime Capabilities');
+    expect(messages[1]?.content).toBe('workspace memory');
+    expect(messages[2]?.content).toBe('skills catalog');
+  });
+
   test('runtime hint marks PPTX render-and-review as required when dependencies exist', async () => {
     const { buildRuntimeCapabilitiesMessage } = await import(
       '../container/src/runtime-capabilities.ts'

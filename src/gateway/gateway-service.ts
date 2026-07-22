@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
+import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
 import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
 import {
   currentDateStampInTimezone,
@@ -1017,25 +1018,37 @@ function sanitizeRequestLogMessages(messages: ChatMessage[]): ChatMessage[] {
 export function readSystemPromptMessage(
   messages: ChatMessage[],
 ): string | null {
-  const firstMessage = messages[0];
-  if (firstMessage?.role !== 'system') return null;
-  return typeof firstMessage.content === 'string' && firstMessage.content.trim()
-    ? firstMessage.content
-    : null;
+  const blocks = messages
+    .filter((message) => message.role === 'system')
+    .map((message) =>
+      typeof message.content === 'string' ? message.content.trim() : '',
+    )
+    .filter(Boolean);
+  return blocks.length > 0 ? blocks.join('\n\n') : null;
 }
 
 export function readDynamicContextMessage(
   messages: ChatMessage[],
 ): string | null {
-  const dynamicContextMessage = messages.find(
-    (message) =>
-      message.role === 'user' &&
-      typeof message.content === 'string' &&
-      message.content.trimStart().startsWith('<context>'),
-  );
-  if (!dynamicContextMessage) return null;
-  const content = sanitizeRequestLogValue(dynamicContextMessage.content);
-  return typeof content === 'string' && content.trim() ? content : null;
+  for (const message of messages) {
+    if (message.role !== 'user') continue;
+    const dynamicContextPart = Array.isArray(message.content)
+      ? message.content.find(
+          (part) =>
+            part.type === 'text' && isDynamicContextMessageText(part.text),
+        )
+      : null;
+    const dynamicContextText =
+      typeof message.content === 'string'
+        ? message.content
+        : dynamicContextPart?.type === 'text'
+          ? dynamicContextPart.text
+          : null;
+    if (!isDynamicContextMessageText(dynamicContextText)) continue;
+    const content = sanitizeRequestLogValue(dynamicContextText);
+    return typeof content === 'string' && content.trim() ? content : null;
+  }
+  return null;
 }
 
 function sanitizeRequestLogToolExecutions(

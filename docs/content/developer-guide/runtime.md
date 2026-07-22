@@ -224,7 +224,16 @@ HybridClaw separates the static system prompt from per-turn dynamic context.
 selected prompt parts, tools, skills, and channel contract. Wall-clock data,
 host metadata, today's `memory/YYYY-MM-DD.md` note, session summaries, and
 retrieval snippets belong in the user-role dynamic context block that is
-inserted immediately after the system prompt and before conversation history.
+placed after retained conversation history, next to the latest user turn.
+History budgets drop a contiguous prefix of complete old turns; retained
+messages are never sliced or rewritten.
+
+Anthropic requests keep the system prompt in volatility-ordered cache blocks:
+static core instructions, workspace and durable memory, then skills. The
+provider adds cache breakpoints at those boundaries and at the last stable
+message content block. Turn-local dynamic context follows that message
+breakpoint, so tool-loop iterations and later turns can reuse the unchanged
+conversation prefix.
 
 This split keeps provider prompt-prefix caches effective without removing
 useful turn-local context from the model. It also gives trace exports a stable
