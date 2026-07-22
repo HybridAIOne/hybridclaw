@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { useAuth } from './auth';
+import { Button } from './components/button';
 import { HybridClaw } from './components/icons';
 import { LoginScreen } from './components/login-screen';
 import { resolveBrowserTitle } from './lib/browser-title';
@@ -54,9 +55,7 @@ export function App() {
           <p className="eyebrow">HybridClaw Admin</p>
           <h1>Console unavailable.</h1>
           <p className="supporting-text">{auth.error}</p>
-          <button className="primary-button" type="button" onClick={auth.retry}>
-            Retry
-          </button>
+          <Button onClick={auth.retry}>Retry</Button>
         </div>
       </div>
     );

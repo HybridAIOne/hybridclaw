@@ -1,4 +1,5 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { TabbedPage } from '../components/tabbed-page';
 import { logNavigationError } from '../lib/navigation';
 import { AuditPage } from './audit';
@@ -60,17 +61,17 @@ export function ActivityPage() {
       actions={
         <label className="header-actions">
           <span className="supporting-text">Range</span>
-          <select
+          <NativeSelect
             aria-label="Activity time range"
             value={range}
             onChange={(event) => updateSearch({ range: event.target.value })}
           >
             {ACTIVITY_RANGES.map((option) => (
-              <option key={option.value} value={option.value}>
+              <NativeSelectOption key={option.value} value={option.value}>
                 {option.label}
-              </option>
+              </NativeSelectOption>
             ))}
-          </select>
+          </NativeSelect>
         </label>
       }
       onTabChange={(tab) => updateSearch({ tab })}

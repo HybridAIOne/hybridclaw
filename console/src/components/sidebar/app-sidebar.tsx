@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { cx } from '../../lib/cx';
+import { Button } from '../button';
 import {
   Dialog,
   DialogClose,
@@ -165,10 +166,15 @@ function SidebarLogoutAction(props: { onLogout: () => void }) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <DialogClose className="ghost-button">Cancel</DialogClose>
-            <DialogClose className="danger-button" onClick={props.onLogout}>
-              Forget token
-            </DialogClose>
+            <Button
+              variant="ghost"
+              render={<DialogClose>Cancel</DialogClose>}
+            />
+            <Button
+              variant="danger"
+              onClick={props.onLogout}
+              render={<DialogClose>Forget token</DialogClose>}
+            />
           </DialogFooter>
         </DialogContent>
       </Dialog>

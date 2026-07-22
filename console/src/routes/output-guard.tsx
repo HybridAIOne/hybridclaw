@@ -12,6 +12,7 @@ import type {
   AdminOutputGuardProfile,
 } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import {
   Card,
   CardContent,
@@ -21,7 +22,9 @@ import {
 } from '../components/card';
 import { Field, FieldContent, FieldLabel } from '../components/field';
 import { Trash } from '../components/icons';
+import { Input } from '../components/input';
 import { Switch } from '../components/switch';
+import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { PageHeader, SegmentedToggle } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
@@ -136,7 +139,7 @@ function ListEditor(props: {
       <div className="output-guard-list">
         {rows.map((row, index) => (
           <div className="output-guard-list-row" key={row.id}>
-            <input
+            <Input
               aria-label={`${props.label} item ${index + 1}`}
               value={row.value}
               onChange={(event) =>
@@ -150,9 +153,10 @@ function ListEditor(props: {
               }
               placeholder={props.placeholder}
             />
-            <button
-              className="ghost-button icon-button"
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon"
+              className="icon-button"
               aria-label={`Remove ${props.label} item ${index + 1}`}
               title="Remove"
               onClick={() => {
@@ -162,19 +166,19 @@ function ListEditor(props: {
               }}
             >
               <Trash width="16" height="16" />
-            </button>
+            </Button>
           </div>
         ))}
-        <button
-          className="ghost-button output-guard-add-button"
-          type="button"
+        <Button
+          variant="ghost"
+          className="output-guard-add-button"
           aria-label={`Add ${props.label} item`}
           onClick={() => {
             publishRows([...rows, createRow('')]);
           }}
         >
           Add
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -392,14 +396,12 @@ export function OutputGuardPage() {
       <PageHeader
         description="Operator controls for output policy, rules, classifier, and rewrite behavior."
         actions={
-          <button
-            className="primary-button"
-            type="button"
+          <Button
             disabled={!hasChanges || saveMutation.isPending}
             onClick={() => saveMutation.mutate()}
           >
             {saveMutation.isPending ? 'Saving...' : 'Save profile'}
-          </button>
+          </Button>
         }
       />
 
@@ -495,7 +497,7 @@ export function OutputGuardPage() {
                 />
                 <label className="field textarea-field">
                   <span>Policy</span>
-                  <textarea
+                  <Textarea
                     rows={5}
                     value={profile.policy}
                     onChange={(event) =>
@@ -569,21 +571,19 @@ export function OutputGuardPage() {
             <CardContent>
               <label className="field textarea-field">
                 <span>Sample output</span>
-                <textarea
+                <Textarea
                   rows={9}
                   value={sample}
                   onChange={(event) => setSample(event.target.value)}
                   placeholder="Paste assistant output"
                 />
               </label>
-              <button
-                className="primary-button"
-                type="button"
+              <Button
                 disabled={!sample.trim() || previewMutation.isPending}
                 onClick={() => previewMutation.mutate()}
               >
                 {previewMutation.isPending ? 'Scoring...' : 'Score sample'}
-              </button>
+              </Button>
               {preview ? (
                 <div className="output-guard-score-panel">
                   <div className="output-guard-score-bar">

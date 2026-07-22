@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { Button } from '../button';
 import {
   Dialog,
   DialogClose,
@@ -76,6 +77,22 @@ describe('Dialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('keeps the dialog open when a composed close action is disabled', () => {
+    render(
+      <Dialog open onOpenChange={vi.fn()}>
+        <DialogContent>
+          <DialogTitle>Confirm</DialogTitle>
+          <Button disabled render={<DialogClose>{null}</DialogClose>}>
+            Cancel
+          </Button>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('dialog')).toBeTruthy();
   });
 
   it('fires the confirm callback', () => {

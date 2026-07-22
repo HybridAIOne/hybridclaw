@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react';
 import { useAuth } from '../auth';
+import { Button } from './button';
 
 export function LoginScreen() {
   const auth = useAuth();
@@ -33,9 +34,9 @@ export function LoginScreen() {
             />
           </label>
           {auth.error ? <p className="error-banner">{auth.error}</p> : null}
-          <button className="primary-button" type="submit">
+          <Button type="submit">
             {auth.status === 'checking' ? 'Checking...' : 'Continue'}
-          </button>
+          </Button>
         </form>
       </div>
     </div>

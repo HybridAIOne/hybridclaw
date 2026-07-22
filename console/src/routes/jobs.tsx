@@ -26,7 +26,10 @@ import type {
 } from '../api/types';
 import { useAuth } from '../auth';
 import { AgentBudgetChip } from '../components/agent-budget-chip';
+import { Button } from '../components/button';
+import { Input } from '../components/input';
 import { InteractionResumeControls } from '../components/interaction-resume-controls';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { TabbedPageActions } from '../components/tabbed-page';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
@@ -426,9 +429,9 @@ function JobDetailCard(props: {
           </h4>
         </div>
         {props.item.kind === 'card' ? null : (
-          <button
-            className="ghost-button"
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => {
               if (editJobId) {
                 void navigate({
@@ -443,7 +446,7 @@ function JobDetailCard(props: {
             }}
           >
             Edit
-          </button>
+          </Button>
         )}
       </div>
 
@@ -456,7 +459,8 @@ function JobDetailCard(props: {
           <div>
             <span>Lane</span>
             {isEditable && editingField === 'lane' ? (
-              <select
+              <NativeSelect
+                size="sm"
                 className="jobs-inline-select"
                 value={
                   props.item.kind === 'job'
@@ -471,27 +475,29 @@ function JobDetailCard(props: {
                 }
               >
                 {JOB_COLUMNS.map((column) => (
-                  <option key={column.id} value={column.id}>
+                  <NativeSelectOption key={column.id} value={column.id}>
                     {column.title}
-                  </option>
+                  </NativeSelectOption>
                 ))}
-              </select>
+              </NativeSelect>
             ) : (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 className="jobs-inline-trigger"
-                type="button"
                 disabled={!isEditable || props.savePending}
                 onClick={() => setEditingField('lane')}
               >
                 {JOB_COLUMNS.find((column) => column.id === props.item.column)
                   ?.title || props.item.column}
-              </button>
+              </Button>
             )}
           </div>
           <div>
             <span>Agent</span>
             {isEditable && editingField === 'agent' ? (
-              <select
+              <NativeSelect
+                size="sm"
                 className="jobs-inline-select"
                 value={
                   props.item.kind === 'job' ? props.item.job.agentId || '' : ''
@@ -503,24 +509,25 @@ function JobDetailCard(props: {
                   })
                 }
               >
-                <option value="">Unassigned</option>
+                <NativeSelectOption value="">Unassigned</NativeSelectOption>
                 {props.agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
+                  <NativeSelectOption key={agent.id} value={agent.id}>
                     {agent.name?.trim()
                       ? `${agent.name} (${agent.id})`
                       : agent.id}
-                  </option>
+                  </NativeSelectOption>
                 ))}
-              </select>
+              </NativeSelect>
             ) : (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 className="jobs-inline-trigger"
-                type="button"
                 disabled={!isEditable || props.savePending}
                 onClick={() => setEditingField('agent')}
               >
                 {props.item.agentLabel}
-              </button>
+              </Button>
             )}
           </div>
           <div>
@@ -618,13 +625,13 @@ function JobDetailCard(props: {
           <div className="summary-block-header">
             <span>Outputs</span>
             {outputs.length ? (
-              <button
-                className="ghost-button"
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => copyOutput('all', outputs.join('\n\n'))}
               >
                 {copiedKey === 'all' ? 'Copied' : 'Copy all'}
-              </button>
+              </Button>
             ) : null}
           </div>
           {outputs.length ? (
@@ -636,9 +643,9 @@ function JobDetailCard(props: {
                 >
                   <div className="jobs-output-actions">
                     <small>Output</small>
-                    <button
-                      className="ghost-button"
-                      type="button"
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() =>
                         copyOutput(outputKey('copy', output), output)
                       }
@@ -646,7 +653,7 @@ function JobDetailCard(props: {
                       {copiedKey === outputKey('copy', output)
                         ? 'Copied'
                         : 'Copy'}
-                    </button>
+                    </Button>
                   </div>
                   <pre className="jobs-output-pre">{output}</pre>
                 </div>
@@ -1031,7 +1038,8 @@ export function JobsPage(props: { embedded?: boolean } = {}) {
     <div className="page-stack">
       {props.embedded ? (
         <TabbedPageActions>
-          <input
+          <Input
+            size="sm"
             className="compact-search page-tab-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -1044,15 +1052,14 @@ export function JobsPage(props: { embedded?: boolean } = {}) {
         <PageHeader
           actions={
             <div className="header-actions">
-              <input
+              <Input
+                size="sm"
                 className="compact-search jobs-header-search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search jobs"
               />
-              <button
-                className="primary-button"
-                type="button"
+              <Button
                 onClick={() => {
                   void navigate({
                     to: '/admin/automation',
@@ -1061,7 +1068,7 @@ export function JobsPage(props: { embedded?: boolean } = {}) {
                 }}
               >
                 New Job
-              </button>
+              </Button>
             </div>
           }
         />

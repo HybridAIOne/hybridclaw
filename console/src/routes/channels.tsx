@@ -3085,14 +3085,13 @@ function SlackWebhookChannelEditor(props: {
       </Field>
 
       <div className="button-row">
-        <button
-          className="secondary-button"
-          type="button"
+        <Button
+          variant="outline"
           disabled={saveTargetMutation.isPending}
           onClick={() => saveTargetMutation.mutate()}
         >
           {saveTargetMutation.isPending ? 'Saving...' : 'Save webhook target'}
-        </button>
+        </Button>
       </div>
 
       <p className="muted-copy">
@@ -3212,14 +3211,13 @@ function DiscordWebhookChannelEditor(props: {
       </div>
 
       <div className="button-row">
-        <button
-          className="secondary-button"
-          type="button"
+        <Button
+          variant="outline"
           disabled={saveTargetMutation.isPending}
           onClick={() => saveTargetMutation.mutate()}
         >
           {saveTargetMutation.isPending ? 'Saving...' : 'Save webhook target'}
-        </button>
+        </Button>
       </div>
 
       <p className="muted-copy">
@@ -3857,9 +3855,10 @@ export function ChannelsPage() {
       <PageHeader
         actions={
           statusQuery.data?.emailEnabled ? (
-            <Link className="ghost-button" to="/admin/email">
-              Open mailbox
-            </Link>
+            <Button
+              variant="ghost"
+              render={<Link to="/admin/email">Open mailbox</Link>}
+            />
           ) : undefined
         }
       />

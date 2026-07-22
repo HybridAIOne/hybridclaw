@@ -512,7 +512,10 @@ export function ConnectorsPage() {
             </Field>
           </div>
           <DialogFooter>
-            <DialogClose className="ghost-button">Cancel</DialogClose>
+            <Button
+              variant="ghost"
+              render={<DialogClose>Cancel</DialogClose>}
+            />
             <Button
               type="button"
               loading={hybridKeyMutation.isPending}
@@ -651,12 +654,11 @@ export function ConnectorsPage() {
           </div>
 
           <DialogFooter>
-            <DialogClose
-              className="ghost-button"
+            <Button
+              variant="ghost"
               disabled={oauthMutation.isPending}
-            >
-              Cancel
-            </DialogClose>
+              render={<DialogClose>Cancel</DialogClose>}
+            />
             <Button
               type="button"
               loading={oauthMutation.isPending}

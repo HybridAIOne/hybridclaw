@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/dialog';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { TabbedPage } from '../components/tabbed-page';
 import { useToast } from '../components/toast';
 import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
@@ -118,20 +119,22 @@ export function AgentsHubPage() {
           <div className="header-actions">
             <label className="header-actions">
               <span className="supporting-text">Agent</span>
-              <select
+              <NativeSelect
                 aria-label="Agent"
                 value={selectedAgentId || ''}
                 onChange={(event) =>
                   updateSearch({ agent: event.target.value || undefined })
                 }
               >
-                <option value="">All active agents</option>
+                <NativeSelectOption value="">
+                  All active agents
+                </NativeSelectOption>
                 {activeAgents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
+                  <NativeSelectOption key={agent.id} value={agent.id}>
                     {agent.name ? `${agent.name} (${agent.id})` : agent.id}
-                  </option>
+                  </NativeSelectOption>
                 ))}
-              </select>
+              </NativeSelect>
             </label>
             <Button
               variant="outline"

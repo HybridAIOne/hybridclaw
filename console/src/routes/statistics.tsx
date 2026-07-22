@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { MetricCard, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import {
@@ -54,18 +55,18 @@ export function StatisticsPage(
       <span className="supporting-text" style={{ marginRight: 8 }}>
         Range
       </span>
-      <select
+      <NativeSelect
         value={days}
         onChange={(event) =>
           setLocalDays(Number.parseInt(event.target.value, 10))
         }
       >
         {RANGE_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
+          <NativeSelectOption key={option.value} value={option.value}>
             {option.label}
-          </option>
+          </NativeSelectOption>
         ))}
-      </select>
+      </NativeSelect>
     </label>
   );
 

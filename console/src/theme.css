@@ -1,5 +1,14 @@
 :root {
   color-scheme: light;
+  --radius-lg: 14px;
+  --radius-md: 10px;
+  --radius-sm: 8px;
+  --control-height: 44px;
+  --control-line-height: 22px;
+  --control-padding-y: 10px;
+  --sans:
+    system-ui, ui-sans-serif, -apple-system, BlinkMacSystemFont, Inter,
+    NotoSansHans, sans-serif;
   --background: #ffffff;
   --foreground: #1f2937;
   --card: #ffffff;
