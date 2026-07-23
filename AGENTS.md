@@ -390,6 +390,8 @@ When the user says "bump release":
    - `container/package-lock.json` and `container/npm-shrinkwrap.json` (root
      `version` and `packages[""]`)
    - any user-facing version text (for example `src/tui.ts` banner)
+   - `console/src/release-notes.ts` with up to four ultra-short highlights for
+     the What's New dialog
 3. Review the generated lockfile diff. Even a version-only release changes the
    lockfile bytes, so update the matching SHA-256 entries in
    `scripts/dependency-policy-baseline.json` after confirming that no dependency

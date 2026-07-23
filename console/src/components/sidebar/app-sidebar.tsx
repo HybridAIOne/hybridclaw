@@ -13,6 +13,7 @@ import {
 } from '../dialog';
 import { ChevronDown, HybridClaw, LogOut } from '../icons';
 import { ThemeToggle } from '../theme-toggle';
+import { WhatsNew } from '../whats-new';
 import {
   Sidebar,
   SidebarContent,
@@ -157,7 +158,10 @@ export function SidebarMeta(props: { version?: string }) {
   if (!props.version) return null;
   return (
     <div className={styles.footerMeta}>
-      <span className={styles.footerValue}>v{props.version}</span>
+      <WhatsNew
+        version={props.version}
+        triggerClassName={styles.footerVersionButton}
+      />
     </div>
   );
 }

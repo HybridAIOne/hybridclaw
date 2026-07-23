@@ -1,0 +1,89 @@
+import { useEffect, useState } from 'react';
+import { getReleaseHighlights, LATEST_RELEASE_NOTES } from '../release-notes';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from './dialog';
+import styles from './whats-new.module.css';
+
+const SEEN_VERSION_STORAGE_KEY = 'hybridclaw_whats_new_seen_version';
+
+function hasSeenVersion(version: string): boolean {
+  try {
+    return window.localStorage.getItem(SEEN_VERSION_STORAGE_KEY) === version;
+  } catch {
+    return false;
+  }
+}
+
+function markVersionSeen(version: string): void {
+  try {
+    window.localStorage.setItem(SEEN_VERSION_STORAGE_KEY, version);
+  } catch {
+    // The popup still works when browser storage is unavailable.
+  }
+}
+
+export function WhatsNew(props: {
+  version: string;
+  triggerClassName?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const highlights = getReleaseHighlights(props.version);
+
+  useEffect(() => {
+    if (
+      props.version !== LATEST_RELEASE_NOTES.version ||
+      hasSeenVersion(props.version)
+    ) {
+      return;
+    }
+    markVersionSeen(props.version);
+    setOpen(true);
+  }, [props.version]);
+
+  const releaseUrl = `https://github.com/HybridAIOne/hybridclaw/releases/tag/v${encodeURIComponent(props.version)}`;
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        className={props.triggerClassName}
+        aria-label={`What's new in v${props.version}`}
+      >
+        v{props.version}
+      </DialogTrigger>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>What&apos;s new in v{props.version}</DialogTitle>
+          <DialogDescription>
+            A quick look at this HybridClaw release.
+          </DialogDescription>
+        </DialogHeader>
+        {highlights.length > 0 ? (
+          <ul className={styles.highlights}>
+            {highlights.map((highlight) => (
+              <li key={highlight}>{highlight}</li>
+            ))}
+          </ul>
+        ) : null}
+        <a
+          className={styles.releaseLink}
+          href={releaseUrl}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Full release notes
+        </a>
+        <DialogFooter>
+          <DialogClose className="primary-button">Got it</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -299,12 +299,26 @@
   align-items: center;
 }
 
-.footerValue {
-  padding: 0 8px;
+.footerVersionButton {
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  background: transparent;
   color: var(--sidebar-fg);
+  cursor: pointer;
   font-size: 0.75rem;
   font-weight: 500;
   line-height: 1;
+}
+
+.footerVersionButton:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.footerVersionButton:focus-visible {
+  outline: 2px solid var(--accent-foreground);
+  outline-offset: 2px;
 }
 
 .footerBlock {
