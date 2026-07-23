@@ -1457,6 +1457,17 @@
         "undici": "^7.24.4"
       }
     },
+    "node_modules/@electron/get/node_modules/undici": {
+      "version": "7.28.0",
+      "resolved": "https://registry.npmjs.org/undici/-/undici-7.28.0.tgz",
+      "integrity": "sha512-cRZYrTDwWznlnRiPjggAGxZXanty6M8RV1ff8Wm4LWXBp7/IG8v5DnOm74DtUBp9OONpK75YlPnIjQqX0dBDtA==",
+      "dev": true,
+      "license": "MIT",
+      "optional": true,
+      "engines": {
+        "node": ">=20.18.1"
+      }
+    },
     "node_modules/@electron/notarize": {
       "version": "2.5.0",
       "resolved": "https://registry.npmjs.org/@electron/notarize/-/notarize-2.5.0.tgz",
