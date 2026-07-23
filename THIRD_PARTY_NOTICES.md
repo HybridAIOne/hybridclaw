@@ -15,7 +15,7 @@ texts ship inside the respective packages.
 
 ## @hybridaione/hybridclaw (`npm-shrinkwrap.json`)
 
-760 production dependencies.
+748 production dependencies.
 
 | Package | Version | License |
 | --- | --- | --- |
@@ -91,29 +91,17 @@ texts ship inside the respective packages.
 | @modelcontextprotocol/sdk | 1.29.0 | MIT |
 | @mozilla/readability | 0.6.0 | Apache-2.0 |
 | @napi-rs/canvas | 0.1.100 | MIT |
-| @napi-rs/canvas | 0.1.96 | MIT |
 | @napi-rs/canvas-android-arm64 | 0.1.100 | MIT |
-| @napi-rs/canvas-android-arm64 | 0.1.96 | MIT |
 | @napi-rs/canvas-darwin-arm64 | 0.1.100 | MIT |
-| @napi-rs/canvas-darwin-arm64 | 0.1.96 | MIT |
 | @napi-rs/canvas-darwin-x64 | 0.1.100 | MIT |
-| @napi-rs/canvas-darwin-x64 | 0.1.96 | MIT |
 | @napi-rs/canvas-linux-arm-gnueabihf | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-arm-gnueabihf | 0.1.96 | MIT |
 | @napi-rs/canvas-linux-arm64-gnu | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-arm64-gnu | 0.1.96 | MIT |
 | @napi-rs/canvas-linux-arm64-musl | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-arm64-musl | 0.1.96 | MIT |
 | @napi-rs/canvas-linux-riscv64-gnu | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-riscv64-gnu | 0.1.96 | MIT |
 | @napi-rs/canvas-linux-x64-gnu | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-x64-gnu | 0.1.96 | MIT |
 | @napi-rs/canvas-linux-x64-musl | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-x64-musl | 0.1.96 | MIT |
 | @napi-rs/canvas-win32-arm64-msvc | 0.1.100 | MIT |
-| @napi-rs/canvas-win32-arm64-msvc | 0.1.96 | MIT |
 | @napi-rs/canvas-win32-x64-msvc | 0.1.100 | MIT |
-| @napi-rs/canvas-win32-x64-msvc | 0.1.96 | MIT |
 | @ngrok/ngrok | 1.7.0 | (MIT OR Apache-2.0) |
 | @ngrok/ngrok-android-arm64 | 1.7.0 | MIT |
 | @ngrok/ngrok-darwin-arm64 | 1.7.0 | MIT |
@@ -19082,29 +19070,17 @@ the package itself or is available at <https://spdx.org/licenses/>.
 | @jsr/evex__linejs | 3.1.3 | UNKNOWN | no license file bundled with the package |
 | @jsr/evex__linejs-types | 3.1.4 | UNKNOWN | no license file bundled with the package |
 | @napi-rs/canvas | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas | 0.1.96 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-android-arm64 | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-android-arm64 | 0.1.96 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-darwin-arm64 | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-darwin-arm64 | 0.1.96 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-darwin-x64 | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-darwin-x64 | 0.1.96 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-linux-arm-gnueabihf | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-linux-arm-gnueabihf | 0.1.96 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-linux-arm64-gnu | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-linux-arm64-gnu | 0.1.96 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-linux-arm64-musl | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-linux-arm64-musl | 0.1.96 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-linux-riscv64-gnu | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-linux-riscv64-gnu | 0.1.96 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-linux-x64-gnu | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-linux-x64-gnu | 0.1.96 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-linux-x64-musl | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-linux-x64-musl | 0.1.96 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-win32-arm64-msvc | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-win32-arm64-msvc | 0.1.96 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-win32-x64-msvc | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-win32-x64-msvc | 0.1.96 | MIT | platform-specific optional dependency |
 | @ngrok/ngrok-android-arm64 | 1.7.0 | MIT | platform-specific optional dependency |
 | @ngrok/ngrok-darwin-arm64 | 1.7.0 | MIT | platform-specific optional dependency |
 | @ngrok/ngrok-darwin-universal | 1.7.0 | MIT | platform-specific optional dependency |
