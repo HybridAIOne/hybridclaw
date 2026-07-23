@@ -14,17 +14,13 @@ import {
 } from '../components/dialog';
 import { TabbedPage } from '../components/tabbed-page';
 import { useToast } from '../components/toast';
+import { AGENT_TABS } from '../lib/admin-tabs';
 import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { getErrorMessage } from '../lib/error-message';
 import { logNavigationError } from '../lib/navigation';
 import { AgentsPage } from './agent-scoreboard';
 import { AgentFilesPage } from './agents';
 import { mergeRouteSearch, readRouteTab } from './tabbed-route';
-
-const AGENT_TABS = [
-  { id: 'scoreboard', label: 'Scoreboard' },
-  { id: 'files', label: 'Workspace files' },
-] as const;
 
 type AgentTab = (typeof AGENT_TABS)[number]['id'];
 

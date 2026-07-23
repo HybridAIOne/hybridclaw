@@ -138,6 +138,37 @@
   background: var(--sidebar-border);
 }
 
+.groupToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.64rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.groupToggleDivider {
+  flex: 1;
+  height: 1px;
+  background: var(--sidebar-border);
+}
+
+.groupToggleIcon {
+  width: 12px;
+  height: 12px;
+  transition: transform 120ms ease;
+}
+
+.groupToggleIconOpen {
+  transform: rotate(180deg);
+}
+
 .menu {
   display: grid;
   gap: 2px;
@@ -338,6 +369,7 @@
 }
 
 .root[data-state="collapsed"] .groupLabel,
+.root[data-state="collapsed"] .groupToggle,
 .root[data-state="collapsed"] .brandText,
 .root[data-state="collapsed"] .footerMeta,
 .root[data-state="collapsed"] .footerDivider,

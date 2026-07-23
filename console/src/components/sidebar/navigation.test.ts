@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Network, Share } from '../icons';
 import { ADMIN_CONFIG_SECTION_OWNERS, SIDEBAR_NAV_GROUPS } from './navigation';
 
 describe('SIDEBAR_NAV_GROUPS', () => {
@@ -6,6 +7,9 @@ describe('SIDEBAR_NAV_GROUPS', () => {
     expect(
       SIDEBAR_NAV_GROUPS.map((group) => ({
         label: group.label,
+        ...(group.defaultCollapsed === undefined
+          ? {}
+          : { defaultCollapsed: group.defaultCollapsed }),
         items: group.items.map(({ to, label }) => ({ to, label })),
       })),
     ).toEqual([
@@ -21,7 +25,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
         items: [
           { to: '/admin/agents', label: 'Agents' },
           { to: '/admin/skills', label: 'Skills' },
-          { to: '/admin/automation', label: 'Automation' },
+          { to: '/admin/automation', label: 'Jobs' },
         ],
       },
       {
@@ -30,7 +34,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
           { to: '/admin/channels', label: 'Channels' },
           { to: '/admin/connectors', label: 'Connectors' },
           { to: '/admin/mcp', label: 'MCP Servers' },
-          { to: '/admin/federation', label: 'Federation' },
+          { to: '/admin/federation', label: 'Agent2Agent' },
         ],
       },
       {
@@ -51,12 +55,13 @@ describe('SIDEBAR_NAV_GROUPS', () => {
           { to: '/admin/gateway', label: 'Gateway' },
           { to: '/admin/config', label: 'Settings' },
           { to: '/admin/logs', label: 'Logs' },
-          { to: '/admin/extensions', label: 'Extensions' },
+          { to: '/admin/extensions', label: 'Plugins & Tools' },
           { to: '/admin/terminal', label: 'Terminal' },
         ],
       },
       {
         label: 'Labs',
+        defaultCollapsed: true,
         items: [
           { to: '/admin/harness-evolution', label: 'Harness Evolution' },
           { to: '/admin/distill', label: 'Distill' },
@@ -78,18 +83,33 @@ describe('SIDEBAR_NAV_GROUPS', () => {
     ).toHaveLength(18);
   });
 
+  it('uses network-oriented icons for network policy and Agent2Agent', () => {
+    const items = SIDEBAR_NAV_GROUPS.flatMap((group) => group.items);
+
+    expect(
+      items.find((item) => item.to === '/admin/network-policy')?.icon,
+    ).toBe(Network);
+    expect(items.find((item) => item.to === '/admin/federation')?.icon).toBe(
+      Share,
+    );
+  });
+
   it('keeps JSON section ownership next to the canonical navigation map', () => {
     expect(ADMIN_CONFIG_SECTION_OWNERS.discord).toEqual({
       label: 'Channels',
-      to: '/admin/channels',
+      to: '/admin/channels#discord',
+    });
+    expect(ADMIN_CONFIG_SECTION_OWNERS.msteams).toEqual({
+      label: 'Channels',
+      to: '/admin/channels#teams',
     });
     expect(ADMIN_CONFIG_SECTION_OWNERS.mcpServers).toEqual({
       label: 'MCP Servers',
       to: '/admin/mcp',
     });
     expect(ADMIN_CONFIG_SECTION_OWNERS.scheduler).toEqual({
-      label: 'Automation',
-      to: '/admin/automation',
+      label: 'Jobs',
+      to: '/admin/automation?tab=schedules',
     });
   });
 });

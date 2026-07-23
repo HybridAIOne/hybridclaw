@@ -1769,6 +1769,23 @@ describe('ChannelsPage', () => {
     });
   });
 
+  it('selects Microsoft Teams settings from the teams hash fragment', async () => {
+    window.history.replaceState(null, '', '/admin/channels#teams');
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+
+    renderChannelsPage();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'Microsoft Teams settings' }),
+      ).toBeTruthy();
+    });
+    expect(document.getElementById('teams')).toBeTruthy();
+  });
+
   it('selects Discord settings from the discord hash fragment', async () => {
     window.history.replaceState(null, '', '/admin/channels#discord');
     fetchConfigMock.mockResolvedValue({

@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { ADMIN_TAB_GROUPS } from '../lib/admin-tabs';
 import {
   SETTINGS_REGISTRY,
   settingAnchor,
@@ -42,6 +43,22 @@ const PAGE_COMMANDS: ReadonlyArray<CommandEntry> = SIDEBAR_NAV_GROUPS.flatMap(
     })),
 );
 
+const TAB_COMMANDS: ReadonlyArray<CommandEntry> = ADMIN_TAB_GROUPS.flatMap(
+  (group) =>
+    group.tabs.map((tab) => {
+      const aliases = 'aliases' in tab ? tab.aliases.join(' ') : '';
+      return {
+        id: `tab:${group.to}:${tab.id}`,
+        label: tab.label,
+        detail: `${group.label} tab`,
+        group: 'Pages' as const,
+        href: `${group.to}?tab=${encodeURIComponent(tab.id)}`,
+        searchText:
+          `${tab.label} ${group.label} ${aliases} ${group.to} ${tab.id}`.toLowerCase(),
+      };
+    }),
+);
+
 const SETTING_COMMANDS: ReadonlyArray<CommandEntry> = SETTINGS_REGISTRY.map(
   (entry) => ({
     id: `setting:${entry.path}`,
@@ -55,7 +72,7 @@ const SETTING_COMMANDS: ReadonlyArray<CommandEntry> = SETTINGS_REGISTRY.map(
   }),
 );
 
-const COMMANDS = [...PAGE_COMMANDS, ...SETTING_COMMANDS];
+const COMMANDS = [...PAGE_COMMANDS, ...TAB_COMMANDS, ...SETTING_COMMANDS];
 
 function fuzzyScore(haystack: string, query: string): number | null {
   const directIndex = haystack.indexOf(query);

@@ -1,14 +1,10 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { TabbedPage } from '../components/tabbed-page';
+import { EXTENSION_TABS } from '../lib/admin-tabs';
 import { logNavigationError } from '../lib/navigation';
 import { PluginsPage } from './plugins';
 import { mergeRouteSearch, readRouteTab } from './tabbed-route';
 import { ToolsPage } from './tools';
-
-const EXTENSION_TABS = [
-  { id: 'plugins', label: 'Plugins' },
-  { id: 'tools', label: 'Tool catalog' },
-] as const;
 
 type ExtensionTab = (typeof EXTENSION_TABS)[number]['id'];
 
