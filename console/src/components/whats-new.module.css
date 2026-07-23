@@ -1,0 +1,69 @@
+.header {
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.markWrap {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--line));
+  border-radius: 50%;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--primary) 16%, var(--panel-bg)),
+    color-mix(in srgb, var(--success) 10%, var(--panel-bg))
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 42%, transparent),
+    0 10px 24px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+
+.mark {
+  width: 31px;
+  height: 35px;
+  color: color-mix(in srgb, var(--primary) 76%, var(--text));
+  filter: drop-shadow(
+    0 5px 9px color-mix(in srgb, var(--primary) 20%, transparent)
+  );
+}
+
+.heading {
+  display: grid;
+  gap: 4px;
+}
+
+.eyebrow {
+  color: var(--muted-foreground);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.srOnly {
+  composes: srOnly from "../lib/a11y.module.css";
+}
+
+.highlights {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.releaseLink {
+  color: var(--accent-foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.releaseLink:hover {
+  text-decoration: underline;
+}

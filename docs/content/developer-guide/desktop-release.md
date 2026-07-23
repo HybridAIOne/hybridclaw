@@ -59,6 +59,12 @@ manifest and generated lockfile entry:
 npm run version:sync
 ```
 
+Always update `console/src/release-notes.ts` in the same release commit. Set its
+version to the new product version and replace the previous release copy with
+up to four ultra-short highlights for the console's What's New dialog. The
+console test suite rejects release notes whose version does not match
+`console/package.json`.
+
 Review the four generated lockfile diffs before approving them. A normal
 version-only release changes only the product `version` fields; dependency
 versions, resolved artifacts, integrity values, and lifecycle-script entries
@@ -94,7 +100,8 @@ baseline, and CI rejects stale hashes.
 Do not publish the public GitHub Release first and then start building the
 desktop app. The safer order is:
 
-1. Finalize the release commit with version, changelog, README, and docs.
+1. Finalize the release commit with version, What's New highlights, changelog,
+   README, and docs.
 2. Create the annotated version tag and make sure the desktop build host is
    building from that exact tag or commit.
 3. Build, sign, notarize, staple, and verify the macOS artifacts.
