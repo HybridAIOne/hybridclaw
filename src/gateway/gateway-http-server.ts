@@ -3121,10 +3121,13 @@ function serveConsoleFile(
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
     'Cross-Origin-Opener-Policy': 'same-origin',
+    // Some browsers apply frame-ancestors to PDF blob previews created here.
+    // X-Frame-Options keeps the console unframeable without blocking its blobs.
+    'X-Frame-Options': 'DENY',
     ...(isIndex
       ? {
           'Content-Security-Policy':
-            "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss:",
+            "default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss:",
         }
       : {}),
   });
