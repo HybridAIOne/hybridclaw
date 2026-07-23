@@ -493,6 +493,8 @@ function computeContainerFingerprint(
   imageName: string,
 ): string | null {
   try {
+    // lgtm[js/insufficient-password-hash] This digest detects changes in
+    // container build inputs; it is not used to store or verify credentials.
     const hash = createHash('sha256');
     hash.update(`fingerprint-version:${CONTAINER_FINGERPRINT_VERSION}\n`);
     hash.update(`image:${imageName}\n`);

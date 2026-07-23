@@ -2461,6 +2461,18 @@ function sendRedirect(
   res.end();
 }
 
+function resolveLocalRedirectPath(value: string | null): string | undefined {
+  if (!value?.startsWith('/') || value.startsWith('//')) return undefined;
+  try {
+    const base = new URL('http://hybridclaw.local');
+    const resolved = new URL(value, base);
+    if (resolved.origin !== base.origin) return undefined;
+    return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+  } catch {
+    return undefined;
+  }
+}
+
 function escapeInlineScriptValue(value: string): string {
   return JSON.stringify(value).replace(/</g, '\\u003c');
 }
@@ -10121,18 +10133,8 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         return;
       }
 
-      // Determine post-auth redirect destination.  Only accept relative
-      // paths (starting with `/` but not `//`) to prevent open redirects,
-      // and reject values containing control characters that would be
-      // invalid in HTTP headers (e.g. CR/LF from `%0d%0a`).
-      const rawNext = url.searchParams.get('next');
-      const safeNext =
-        rawNext?.startsWith('/') &&
-        !rawNext.startsWith('//') &&
-        !/[\r\n\0]/.test(rawNext)
-          ? rawNext
-          : undefined;
-      const redirectTo = safeNext ?? '/admin';
+      const redirectTo =
+        resolveLocalRedirectPath(url.searchParams.get('next')) ?? '/admin';
 
       try {
         const payload = verifyLaunchToken(token);

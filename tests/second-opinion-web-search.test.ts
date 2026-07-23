@@ -52,7 +52,7 @@ test('second-opinion web search uses Brave when configured without Tavily', asyn
       }
       if (url === 'https://example.com/brave') {
         return new Response(
-          '<html><body><main>Fetched Brave evidence body.</main></body></html>',
+          '<html><body><script >malicious()</script ><style >hidden</style ><main>Fetched Brave evidence body.</main></body></html>',
           { status: 200, headers: { 'Content-Type': 'text/html' } },
         );
       }

@@ -346,9 +346,12 @@ export function createBlueBubblesIMessageBackend(
             'BlueBubbles webhook body must be a JSON object.',
         })) as Record<string, unknown>;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
         const statusCode =
           error instanceof WebhookHttpError ? error.statusCode : 500;
+        const message =
+          error instanceof WebhookHttpError
+            ? error.message
+            : 'BlueBubbles webhook processing failed.';
         sendWebhookJson(res, statusCode, { error: message });
         return true;
       }

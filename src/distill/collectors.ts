@@ -487,9 +487,9 @@ export function isSubjectAuthor(
   const candidates = [normalized];
   if (emailMatch) {
     candidates.push(emailMatch[1], emailMatch[1].split('@')[0]);
+    const angleStart = normalized.indexOf('<');
     candidates.push(
-      normalized
-        .replace(/<[^>]+>/, '')
+      (angleStart >= 0 ? normalized.slice(0, angleStart) : normalized)
         .replace(/"/g, '')
         .trim(),
     );

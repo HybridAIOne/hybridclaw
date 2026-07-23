@@ -1,9 +1,10 @@
 import { normalizeString, truncateText } from './utils.js';
 
 function normalizeBaseUrl(value) {
-  return String(value || '')
-    .trim()
-    .replace(/\/+$/, '');
+  const normalized = String(value || '').trim();
+  let end = normalized.length;
+  while (end > 0 && normalized[end - 1] === '/') end -= 1;
+  return normalized.slice(0, end);
 }
 
 function encodePathSegment(value) {
@@ -11,9 +12,12 @@ function encodePathSegment(value) {
 }
 
 function sanitizeIdentifier(value, fallback) {
-  const normalized = normalizeString(value)
-    .replace(/[^a-zA-Z0-9_-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+  let normalized = normalizeString(value).replace(/[^a-zA-Z0-9_-]+/g, '-');
+  let start = 0;
+  let end = normalized.length;
+  while (normalized[start] === '-') start += 1;
+  while (end > start && normalized[end - 1] === '-') end -= 1;
+  normalized = normalized.slice(start, end);
   return normalized || fallback;
 }
 

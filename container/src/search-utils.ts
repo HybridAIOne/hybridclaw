@@ -3,23 +3,60 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function decodeEntities(value: string): string {
-  return value
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
-      String.fromCharCode(Number.parseInt(hex, 16)),
-    )
-    .replace(/&#(\d+);/gi, (_, dec) =>
-      String.fromCharCode(Number.parseInt(dec, 10)),
-    );
+  return value.replace(
+    /&(nbsp|amp|quot|#39|lt|gt|#x([0-9a-f]+)|#(\d+));/gi,
+    (
+      entity,
+      name: string,
+      hex: string | undefined,
+      dec: string | undefined,
+    ) => {
+      if (hex) return String.fromCharCode(Number.parseInt(hex, 16));
+      if (dec) return String.fromCharCode(Number.parseInt(dec, 10));
+      switch (name.toLowerCase()) {
+        case 'nbsp':
+          return ' ';
+        case 'amp':
+          return '&';
+        case 'quot':
+          return '"';
+        case '#39':
+          return "'";
+        case 'lt':
+          return '<';
+        case 'gt':
+          return '>';
+        default:
+          return entity;
+      }
+    },
+  );
 }
 
 export function stripTags(value: string): string {
-  return decodeEntities(value.replace(/<[^>]+>/g, ''));
+  let output = '';
+  let inTag = false;
+  let quote = '';
+  for (const character of value) {
+    if (!inTag) {
+      if (character === '<') {
+        inTag = true;
+      } else {
+        output += character;
+      }
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '>') {
+      inTag = false;
+    }
+  }
+  return decodeEntities(output);
 }
 
 export function normalizeWhitespace(value: string): string {

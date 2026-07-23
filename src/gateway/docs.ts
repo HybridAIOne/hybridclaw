@@ -482,14 +482,58 @@ function searchDevelopmentDocs(
 }
 
 function stripMarkdownFormatting(value: string): string {
-  return value
-    .replace(/\s+\{#.+\}\s*$/, '')
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '$1')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/[*_~]/g, '')
-    .replace(/<[^>]+>/g, '')
-    .trim();
+  let normalized = value.trim();
+  if (normalized.endsWith('}')) {
+    const anchorStart = normalized.lastIndexOf('{#');
+    if (anchorStart > 0 && /\s/u.test(normalized[anchorStart - 1] || '')) {
+      normalized = normalized.slice(0, anchorStart).trimEnd();
+    }
+  }
+
+  let output = '';
+  for (let index = 0; index < normalized.length; index += 1) {
+    const character = normalized[index];
+    if (character === '<') {
+      const tagEnd = normalized.indexOf('>', index + 1);
+      if (tagEnd >= 0) {
+        index = tagEnd;
+        continue;
+      }
+    }
+
+    const labelStart =
+      character === '!' && normalized[index + 1] === '['
+        ? index + 2
+        : character === '['
+          ? index + 1
+          : -1;
+    if (labelStart >= 0) {
+      const labelEnd = normalized.indexOf(']', labelStart);
+      if (labelEnd >= 0 && normalized[labelEnd + 1] === '(') {
+        let depth = 1;
+        let cursor = labelEnd + 2;
+        for (; cursor < normalized.length && depth > 0; cursor += 1) {
+          if (normalized[cursor] === '\\') {
+            cursor += 1;
+          } else if (normalized[cursor] === '(') {
+            depth += 1;
+          } else if (normalized[cursor] === ')') {
+            depth -= 1;
+          }
+        }
+        if (depth === 0) {
+          output += normalized.slice(labelStart, labelEnd);
+          index = cursor - 1;
+          continue;
+        }
+      }
+    }
+
+    if (character !== '`' && character !== '*' && character !== '_') {
+      if (character !== '~') output += character;
+    }
+  }
+  return output.trim();
 }
 
 function slugifyHeadingText(value: string): string {
@@ -1410,7 +1454,7 @@ function renderMarkdownBody(page: DevelopmentDocPage): string {
     return `<img src="${escapeHtml(resolvedHref)}" alt="${alt}"${titleAttr}>`;
   };
 
-  const rendered = marked.parse(page.body, {
+  const rendered = marked.parse(escapeHtml(page.body), {
     async: false,
     gfm: true,
     renderer,

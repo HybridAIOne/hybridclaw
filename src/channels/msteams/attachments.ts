@@ -492,10 +492,11 @@ function resolveScopeCandidatesForUrl(url: string): string[] {
   try {
     const host = new URL(url).hostname.toLowerCase();
     const looksLikeGraph =
-      host.endsWith('graph.microsoft.com') ||
-      host.endsWith('sharepoint.com') ||
-      host.endsWith('1drv.ms') ||
-      host.includes('sharepoint');
+      host === 'graph.microsoft.com' ||
+      host === 'sharepoint.com' ||
+      host.endsWith('.sharepoint.com') ||
+      host === '1drv.ms' ||
+      host.endsWith('.1drv.ms');
     return looksLikeGraph
       ? ['https://graph.microsoft.com', 'https://api.botframework.com']
       : ['https://api.botframework.com', 'https://graph.microsoft.com'];

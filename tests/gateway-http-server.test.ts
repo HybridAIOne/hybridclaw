@@ -6295,6 +6295,36 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('javascript:alert(1)');
   });
 
+  test('renders raw HTML from stored docs as text instead of executable markup', async () => {
+    const installRoot = makeTempDocsDir();
+    fs.writeFileSync(
+      path.join(installRoot, 'docs', 'content', 'guides', 'stored-markup.md'),
+      [
+        '---',
+        'title: Stored Markup',
+        'description: Stored markup validation.',
+        'sidebar_position: 5',
+        '---',
+        '',
+        '# Stored Markup',
+        '',
+        '<script id="stored-injection">alert(1)</script>',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const req = makeRequest({ url: '/docs/guides/stored-markup' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain('<script id="stored-injection">');
+    expect(res.body).toContain('&lt;script');
+  });
+
   test('returns a visible error for malformed docs frontmatter', async () => {
     const installRoot = makeTempDocsDir({ includeMalformedFrontmatter: true });
     const state = await importFreshHealth({ docsDir: installRoot });
@@ -6862,6 +6892,27 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(302);
     expect(res.headers.Location).toBe('/admin');
+  });
+
+  test('/auth/callback reconstructs same-origin redirects instead of forwarding raw header input', async () => {
+    const authSecret = 'health-secret';
+    const launchToken = signAuthPayload(
+      {
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: 'user-1',
+      },
+      authSecret,
+    );
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: `/auth/callback?token=${encodeURIComponent(launchToken)}&next=${encodeURIComponent('/chat?tab=one#latest')}`,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe('/chat?tab=one#latest');
   });
 
   test('returns history for authorized loopback API requests', async () => {

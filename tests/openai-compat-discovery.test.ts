@@ -592,10 +592,12 @@ describe('openai-compat discovery — module-level registry', () => {
     await discovery.discoverOpenAICompatRemoteModels();
 
     // Only the gemini endpoint should have been hit; kilo is off.
-    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    const hosts = fetchMock.mock.calls.map(
+      (call) => new URL(String(call[0])).hostname,
+    );
     expect(
-      urls.some((u) => u.includes('generativelanguage.googleapis.com')),
+      hosts.some((host) => host === 'generativelanguage.googleapis.com'),
     ).toBe(true);
-    expect(urls.some((u) => u.includes('api.kilo.ai'))).toBe(false);
+    expect(hosts.some((host) => host === 'api.kilo.ai')).toBe(false);
   });
 });

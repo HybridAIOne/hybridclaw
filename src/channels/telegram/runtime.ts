@@ -133,6 +133,8 @@ function resolveActiveBotToken(): string {
 }
 
 function buildOffsetFilePath(botToken: string): string {
+  // lgtm[js/insufficient-password-hash] This digest creates a non-secret
+  // per-bot offset filename; it is not used to verify the bot token.
   const tokenHash = createHash('sha256')
     .update(botToken)
     .digest('hex')
