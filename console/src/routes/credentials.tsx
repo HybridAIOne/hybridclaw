@@ -1,14 +1,10 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { TabbedPage } from '../components/tabbed-page';
+import { CREDENTIAL_TABS } from '../lib/admin-tabs';
 import { logNavigationError } from '../lib/navigation';
 import { SecretsPage } from './secrets';
 import { mergeRouteSearch, readRouteTab } from './tabbed-route';
 import { TokensPage } from './tokens';
-
-const CREDENTIAL_TABS = [
-  { id: 'secrets', label: 'Secrets' },
-  { id: 'api-tokens', label: 'API tokens' },
-] as const;
 
 type CredentialTab = (typeof CREDENTIAL_TABS)[number]['id'];
 

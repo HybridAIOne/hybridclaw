@@ -517,9 +517,34 @@ describe('AppSidebar', () => {
         />
       </SidebarProvider>,
     );
-    for (const item of SIDEBAR_NAV_GROUPS.flatMap((g) => g.items)) {
+    for (const item of SIDEBAR_NAV_GROUPS.filter(
+      (group) => !group.defaultCollapsed,
+    ).flatMap((group) => group.items)) {
       expect(screen.getAllByText(item.label).length).toBeGreaterThan(0);
     }
+  });
+
+  it('starts Labs collapsed and expands it on request', () => {
+    render(
+      <SidebarProvider>
+        <AppSidebar
+          groups={SIDEBAR_NAV_GROUPS}
+          showLogout={false}
+          onLogout={vi.fn()}
+        />
+      </SidebarProvider>,
+    );
+
+    const labsToggle = screen.getByRole('button', { name: 'Labs' });
+    expect(labsToggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('navigation', { name: 'Labs' })).toBeNull();
+
+    fireEvent.click(labsToggle);
+
+    expect(labsToggle.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('navigation', { name: 'Labs' })).toBeDefined();
+    expect(screen.getByText('Harness Evolution')).toBeDefined();
+    expect(screen.getByText('Distill')).toBeDefined();
   });
 
   it('renders version when provided', () => {
