@@ -1,4 +1,5 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
+import { Button } from '../components/button';
 import { TabbedPage } from '../components/tabbed-page';
 import { logNavigationError } from '../lib/navigation';
 import { A2AInboxPage } from './a2a-inbox';
@@ -38,13 +39,7 @@ export function FederationPage() {
       tabs={FEDERATION_TABS}
       activeTab={activeTab}
       actions={
-        <button
-          className="primary-button"
-          type="button"
-          onClick={() => updateSearch({ tab: 'peers' })}
-        >
-          Add peer
-        </button>
+        <Button onClick={() => updateSearch({ tab: 'peers' })}>Add peer</Button>
       }
       onTabChange={(tab) => updateSearch({ tab })}
     >

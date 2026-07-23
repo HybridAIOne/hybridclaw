@@ -14,6 +14,8 @@ import type {
 } from '../api/types';
 import { useAuth } from '../auth';
 import { useAppShellConfig } from '../components/app-shell';
+import { Button } from '../components/button';
+import { Input } from '../components/input';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
@@ -487,9 +489,8 @@ export function EmailPage() {
         <PageHeader
           description="Enable the email channel to surface a mailbox view here."
           actions={
-            <button
-              className="ghost-button"
-              type="button"
+            <Button
+              variant="ghost"
               onClick={() => {
                 void navigate({ to: '/admin/channels' }).catch(
                   logNavigationError,
@@ -497,7 +498,7 @@ export function EmailPage() {
               }}
             >
               Open channel settings
-            </button>
+            </Button>
           }
         />
 
@@ -527,7 +528,8 @@ export function EmailPage() {
     <div className="page-stack">
       <PageHeader
         actions={
-          <input
+          <Input
+            size="sm"
             className="compact-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -607,9 +609,10 @@ export function EmailPage() {
                         ? `${pageRangeStart}-${pageRangeEnd}`
                         : '0'}
                     </small>
-                    <button
-                      type="button"
-                      className="ghost-button mailbox-page-button"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mailbox-page-button"
                       disabled={
                         folderMessagesQuery.isFetching ||
                         folderMessagesQuery.data?.previousOffset === null
@@ -621,10 +624,11 @@ export function EmailPage() {
                       }
                     >
                       Previous
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost-button mailbox-page-button"
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mailbox-page-button"
                       disabled={
                         folderMessagesQuery.isFetching ||
                         folderMessagesQuery.data?.nextOffset === null
@@ -636,7 +640,7 @@ export function EmailPage() {
                       }
                     >
                       Next
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -740,9 +744,10 @@ export function EmailPage() {
                     </small>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="ghost-button mailbox-detail-delete"
+                <Button
+                  variant="danger"
+                  size="sm"
+                  className="mailbox-detail-delete"
                   disabled={
                     deletingMessageId ===
                       messageSelectionKey(selectedMessageSummary) ||
@@ -759,7 +764,7 @@ export function EmailPage() {
                     {trashIcon()}
                   </span>
                   <span>Delete</span>
-                </button>
+                </Button>
               </div>
 
               {messageDetailQuery.isLoading && !messageDetailQuery.data ? (

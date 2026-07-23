@@ -7,6 +7,7 @@ import type {
 } from '../api/types';
 import { useAuth } from '../auth';
 import { getErrorMessage } from '../lib/error-message';
+import { Button } from './button';
 import { useToast } from './toast';
 
 export function InteractionResumeControls(props: {
@@ -61,55 +62,47 @@ export function InteractionResumeControls(props: {
             placeholder="Code"
             onChange={(event) => setCode(event.target.value)}
           />
-          <button
-            className="primary-button"
-            type="button"
+          <Button
             disabled={mutation.isPending}
             onClick={() => resume({ kind: 'code', value: code.trim() })}
           >
             Resume
-          </button>
+          </Button>
         </>
       ) : null}
       {props.session.expectedReturnKinds.includes('approved') ? (
-        <button
-          className="primary-button"
-          type="button"
+        <Button
           disabled={mutation.isPending}
           onClick={() => resume({ kind: 'approved' })}
         >
           Approved
-        </button>
+        </Button>
       ) : null}
       {props.session.expectedReturnKinds.includes('scanned') ? (
-        <button
-          className="primary-button"
-          type="button"
+        <Button
           disabled={mutation.isPending}
           onClick={() => resume({ kind: 'scanned' })}
         >
           Scanned
-        </button>
+        </Button>
       ) : null}
       {props.session.expectedReturnKinds.includes('declined') ? (
-        <button
-          className="danger-button"
-          type="button"
+        <Button
+          variant="danger"
           disabled={mutation.isPending}
           onClick={() => resume({ kind: 'declined' })}
         >
           Decline
-        </button>
+        </Button>
       ) : null}
       {props.session.expectedReturnKinds.includes('timeout') ? (
-        <button
-          className="ghost-button"
-          type="button"
+        <Button
+          variant="ghost"
           disabled={mutation.isPending}
           onClick={() => resume({ kind: 'timeout' })}
         >
           Timeout
-        </button>
+        </Button>
       ) : null}
     </div>
   );

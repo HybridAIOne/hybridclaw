@@ -14,6 +14,7 @@ import type {
   AdminPolicyRuleInput,
 } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import {
   Dialog,
@@ -397,7 +398,7 @@ export function ApprovalsPage() {
         <div className="metric-card">
           <span>LAN HTTP access</span>
           <div className="field">
-            <select
+            <NativeSelect
               aria-label="LAN HTTP access"
               value={displayedLanHttpAccessMode}
               disabled={!approvalsQuery.data || policyMutationPending}
@@ -410,11 +411,15 @@ export function ApprovalsPage() {
                 lanHttpAccessMutation.mutate(mode);
               }}
             >
-              <option value="off">Off</option>
-              <option value="read-only">Read-only LAN</option>
-              <option value="read-write">Read-write LAN</option>
-              <option value="custom">Custom</option>
-            </select>
+              <NativeSelectOption value="off">Off</NativeSelectOption>
+              <NativeSelectOption value="read-only">
+                Read-only LAN
+              </NativeSelectOption>
+              <NativeSelectOption value="read-write">
+                Read-write LAN
+              </NativeSelectOption>
+              <NativeSelectOption value="custom">Custom</NativeSelectOption>
+            </NativeSelect>
           </div>
         </div>
       </div>
@@ -460,22 +465,22 @@ export function ApprovalsPage() {
                             <td>{formatRuleComment(rule)}</td>
                             <td>
                               <div className="policy-table-actions">
-                                <button
-                                  className="ghost-button"
-                                  type="button"
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
                                   disabled={policyMutationPending}
                                   onClick={() => beginEditRule(rule)}
                                 >
                                   Edit
-                                </button>
-                                <button
-                                  className="danger-button"
-                                  type="button"
+                                </Button>
+                                <Button
+                                  variant="danger"
+                                  size="sm"
                                   disabled={policyMutationPending}
                                   onClick={() => beginDeleteRule(rule)}
                                 >
                                   Delete
-                                </button>
+                                </Button>
                               </div>
                             </td>
                           </tr>
@@ -488,14 +493,12 @@ export function ApprovalsPage() {
                 )}
 
                 <div className="policy-action-row">
-                  <button
-                    className="primary-button"
-                    type="button"
+                  <Button
                     disabled={policyMutationPending}
                     onClick={beginCreateRule}
                   >
                     New rule
-                  </button>
+                  </Button>
                   <div className="policy-template-actions">
                     <label className="policy-template-inline">
                       <span>Template:</span>
@@ -525,14 +528,13 @@ export function ApprovalsPage() {
                         )}
                       </NativeSelect>
                     </label>
-                    <button
-                      className="ghost-button"
-                      type="button"
+                    <Button
+                      variant="ghost"
                       disabled={policyMutationPending || !selectedPresetName}
                       onClick={() => presetMutation.mutate(selectedPresetName)}
                     >
                       Add template
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
@@ -665,11 +667,7 @@ export function ApprovalsPage() {
                     </div>
 
                     <div className="button-row">
-                      <button
-                        className="primary-button"
-                        type="submit"
-                        disabled={policyMutationPending}
-                      >
+                      <Button type="submit" disabled={policyMutationPending}>
                         {saveMutation.isPending ? (
                           <span className="button-with-spinner">
                             <span
@@ -683,15 +681,14 @@ export function ApprovalsPage() {
                         ) : (
                           'Save'
                         )}
-                      </button>
-                      <button
-                        className="ghost-button"
-                        type="button"
+                      </Button>
+                      <Button
+                        variant="ghost"
                         disabled={policyMutationPending}
                         onClick={resetDraft}
                       >
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   </form>
                 ) : null}
@@ -831,17 +828,19 @@ export function ApprovalsPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <DialogClose className="ghost-button">Cancel</DialogClose>
-            <DialogClose
-              className="danger-button"
+            <Button
+              variant="ghost"
+              render={<DialogClose>Cancel</DialogClose>}
+            />
+            <Button
+              variant="danger"
               onClick={() => {
                 if (deleteRuleTarget) {
                   deleteMutation.mutate(deleteRuleTarget.index);
                 }
               }}
-            >
-              Delete
-            </DialogClose>
+              render={<DialogClose>Delete</DialogClose>}
+            />
           </DialogFooter>
         </DialogContent>
       </Dialog>

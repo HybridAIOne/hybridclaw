@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { Input } from '../components/input';
 import { TabbedPageActions } from '../components/tabbed-page';
 import {
   BooleanPill,
@@ -114,7 +115,8 @@ export function PluginsPage(props: { embedded?: boolean } = {}) {
   });
   const failedPlugins = plugins.filter((plugin) => plugin.status === 'failed');
   const filterInput = (
-    <input
+    <Input
+      size="sm"
       className={
         props.embedded ? 'compact-search page-tab-search' : 'compact-search'
       }
