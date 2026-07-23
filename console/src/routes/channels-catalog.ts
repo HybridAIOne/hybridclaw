@@ -41,6 +41,7 @@ interface ChannelCatalogOptions {
   lineLinked?: boolean;
   emailPasswordConfigured?: boolean;
   imessagePasswordConfigured?: boolean;
+  msteamsAppPasswordConfigured?: boolean;
   channelPlugins?: GatewayChannelPluginStatus[];
 }
 
@@ -484,13 +485,17 @@ function describeEmail(
   };
 }
 
-function describeMSTeams(config: AdminConfig): ChannelCatalogItem {
+function describeMSTeams(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
   const teamCount = countTeams(config);
   const overrideCount = countTeamsOverrides(config);
   const active =
     config.msteams.enabled &&
     !!config.msteams.appId &&
-    !!config.msteams.tenantId;
+    !!config.msteams.tenantId &&
+    options.msteamsAppPasswordConfigured === true;
   const configured =
     active ||
     config.msteams.enabled ||
@@ -586,7 +591,7 @@ export function buildChannelCatalog(
     describeWhatsApp(config, options),
     describeLine(config, options),
     describeEmail(config, options),
-    describeMSTeams(config),
+    describeMSTeams(config, options),
     describeIMessage(config, options),
   ]
     .map((item) => applyChannelPluginStatus(item, options))

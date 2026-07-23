@@ -533,6 +533,10 @@ export interface GatewayStatus {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
+  msteams?: {
+    appPasswordConfigured: boolean;
+    appPasswordSource: 'env' | 'runtime-secrets' | null;
+  };
   voice?: {
     enabled: boolean;
     accountSidConfigured: boolean;

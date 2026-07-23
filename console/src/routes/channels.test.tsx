@@ -2253,6 +2253,93 @@ describe('ChannelsPage', () => {
     screen.getByText('Bot token updated in encrypted runtime secrets.');
   });
 
+  it('updates the Microsoft Teams app password through encrypted runtime secrets', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    setRuntimeSecretMock.mockResolvedValue({
+      kind: 'plain',
+      text: 'stored',
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      msteams: {
+        appPasswordConfigured: false,
+        appPasswordSource: null,
+      },
+      email: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      imessage: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      whatsapp: {
+        linked: false,
+        jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: null,
+      },
+    });
+    useAuthMock.mockReturnValue({
+      token: 'test-token',
+      gatewayStatus: {
+        msteams: {
+          appPasswordConfigured: false,
+          appPasswordSource: null,
+        },
+        email: {
+          passwordConfigured: false,
+          passwordSource: null,
+        },
+        imessage: {
+          passwordConfigured: false,
+          passwordSource: null,
+        },
+        whatsapp: {
+          linked: false,
+          jid: null,
+          pairingQrText: null,
+          pairingUpdatedAt: null,
+        },
+      },
+    });
+
+    renderChannelsPage();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Microsoft Teams/i }),
+    );
+    expect(screen.queryByLabelText('New password')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set password' }));
+    fireEvent.change(screen.getByLabelText('New password'), {
+      target: { value: 'test-app-password' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save password' }));
+
+    await waitFor(() => {
+      expect(setRuntimeSecretMock).toHaveBeenCalledWith(
+        'test-token',
+        'MSTEAMS_APP_PASSWORD',
+        'test-app-password',
+      );
+    });
+
+    screen.getByText('App password updated in encrypted runtime secrets.');
+  });
+
   it('shows change password when passwordConfigured is true without a source', async () => {
     fetchConfigMock.mockResolvedValue({
       path: '/tmp/config.json',
