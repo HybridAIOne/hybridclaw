@@ -45,6 +45,7 @@ const DEFAULT_VISION_INSTRUCTIONS =
 
 export interface RoutedModelContext {
   sessionId?: string;
+  activityUserPrompt?: string;
   provider: RuntimeProvider | undefined;
   providerMethod?: string;
   baseUrl: string;
@@ -87,6 +88,7 @@ export interface RoutedVisionCallParams extends RoutedModelContext {
 function buildCallArgs(params: RoutedModelCallParams): NormalizedCallArgs {
   return {
     sessionId: params.sessionId,
+    activityUserPrompt: params.activityUserPrompt,
     provider: params.provider,
     providerMethod: params.providerMethod,
     baseUrl: params.baseUrl.trim(),

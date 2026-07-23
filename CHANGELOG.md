@@ -6,6 +6,12 @@
 
 ### Fixed
 
+- **HybridAI activity notifications now show the actual user prompt**:
+  interactive agent turns send the raw user text as transient request metadata,
+  separately from the compiled model context. Background turns omit the field,
+  and confidential values are redacted before the prompt crosses the sandbox
+  boundary.
+
 - **Prompt-cache usage is now visible through the OpenAI-compatible API**: the
   gateway parsed upstream cache reads and writes internally but dropped them
   when building the response, so clients could not tell a cold cache from a
