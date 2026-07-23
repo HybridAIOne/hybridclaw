@@ -346,7 +346,8 @@ function ManagedSecretField(props: {
     | 'THREEMA_GATEWAY_SECRET'
     | 'TWILIO_AUTH_TOKEN'
     | 'EMAIL_PASSWORD'
-    | 'IMESSAGE_PASSWORD';
+    | 'IMESSAGE_PASSWORD'
+    | 'MSTEAMS_APP_PASSWORD';
   secretLabel: 'token' | 'password' | 'secret';
   configValue?: string;
   configured: boolean;
@@ -2512,9 +2513,13 @@ function VoiceChannelEditor(props: {
   );
 }
 
-function TeamsChannelEditor(_props: {
+function TeamsChannelEditor(props: {
   draft: AdminConfig;
   form: UseFormControllerReturn<AdminConfig>;
+  appPasswordConfigured: boolean;
+  appPasswordSource: SecretSource;
+  token: string;
+  onSecretSaved: () => void;
 }) {
   return (
     <>
@@ -2535,7 +2540,8 @@ function TeamsChannelEditor(_props: {
 
       <p className="muted-copy">
         Paste values from Microsoft Entra Admin Center. Use the app
-        registration's Application (client) ID and Directory (tenant) ID.
+        registration's Application (client) ID and Directory (tenant) ID, plus a
+        client secret value stored as the app password.
       </p>
 
       <div className="field-grid">
@@ -2565,6 +2571,16 @@ function TeamsChannelEditor(_props: {
         />
       </div>
 
+      <ManagedSecretField
+        label="App password"
+        secretName="MSTEAMS_APP_PASSWORD"
+        secretLabel="password"
+        configured={props.appPasswordConfigured}
+        source={props.appPasswordSource}
+        token={props.token}
+        onSecretSaved={props.onSecretSaved}
+      />
+
       <div className="button-row">
         <Button
           variant="outline"
@@ -2591,6 +2607,12 @@ function TeamsChannelEditor(_props: {
               Paste those two values here in Microsoft Teams settings, then save
               channel settings. This lets App Setup detect the tenant and derive
               the correct Teams SSO values.
+            </li>
+            <li>
+              In Entra's Certificates &amp; secrets, create a client secret and
+              copy its value. Store it here as the app password; it is kept in
+              encrypted runtime secrets and required before Teams messages are
+              accepted.
             </li>
             <li>
               In App Setup, copy the App ID URI and Browser redirect URI. In
@@ -3520,6 +3542,10 @@ function renderSelectedEditor(
       configured: boolean;
       source: SecretSource;
     };
+    msteams: {
+      configured: boolean;
+      source: SecretSource;
+    };
   },
   hybridaiApiKeyConfigured: boolean,
   whatsappStatus: {
@@ -3667,7 +3693,16 @@ function renderSelectedEditor(
         />
       );
     case 'msteams':
-      return <TeamsChannelEditor draft={draft} form={form} />;
+      return (
+        <TeamsChannelEditor
+          draft={draft}
+          form={form}
+          appPasswordConfigured={secretStatus.msteams.configured}
+          appPasswordSource={secretStatus.msteams.source}
+          token={token}
+          onSecretSaved={onSecretSaved}
+        />
+      );
     case 'imessage':
       return (
         <IMessageChannelEditor
@@ -3827,6 +3862,10 @@ export function ChannelsPage() {
     imessage: {
       configured: statusQuery.data?.imessage?.passwordConfigured ?? false,
       source: statusQuery.data?.imessage?.passwordSource ?? null,
+    },
+    msteams: {
+      configured: statusQuery.data?.msteams?.appPasswordConfigured ?? false,
+      source: statusQuery.data?.msteams?.appPasswordSource ?? null,
     },
   };
   const whatsappPlugin = statusQuery.data?.channelPlugins?.find(
