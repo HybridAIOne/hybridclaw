@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getReleaseHighlights, LATEST_RELEASE_NOTES } from '../release-notes';
+import { Button } from './button';
 import {
   Dialog,
   DialogClose,
@@ -81,7 +82,7 @@ export function WhatsNew(props: {
           Full release notes
         </a>
         <DialogFooter>
-          <DialogClose className="primary-button">Got it</DialogClose>
+          <Button render={<DialogClose>Got it</DialogClose>} />
         </DialogFooter>
       </DialogContent>
     </Dialog>
