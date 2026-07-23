@@ -54,7 +54,7 @@ is not required.
 4. Set the bot's messaging endpoint to:
 
    ```text
-   https://u-sp57rprd6kv7akzh.sbx.hybridai.one/api/msteams/messages
+   https://u-xxxxxxxxxxxx.sbx.hybridai.one/api/msteams/messages
    ```
 
 5. In the Azure Bot resource, open **Settings** -> **Channels** and enable the
