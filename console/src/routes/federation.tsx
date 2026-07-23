@@ -1,17 +1,12 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Button } from '../components/button';
 import { TabbedPage } from '../components/tabbed-page';
+import { FEDERATION_TABS } from '../lib/admin-tabs';
 import { logNavigationError } from '../lib/navigation';
 import { A2AInboxPage } from './a2a-inbox';
 import { A2ATrustPage } from './a2a-trust';
 import { FleetTopologyPage } from './fleet-topology';
 import { mergeRouteSearch, readRouteTab } from './tabbed-route';
-
-const FEDERATION_TABS = [
-  { id: 'peers', label: 'Peers & trust' },
-  { id: 'topology', label: 'Fleet topology' },
-  { id: 'inbox', label: 'A2A inbox' },
-] as const;
 
 type FederationTab = (typeof FEDERATION_TABS)[number]['id'];
 

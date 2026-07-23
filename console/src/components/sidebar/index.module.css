@@ -138,6 +138,37 @@
   background: var(--sidebar-border);
 }
 
+.groupToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.64rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.groupToggleDivider {
+  flex: 1;
+  height: 1px;
+  background: var(--sidebar-border);
+}
+
+.groupToggleIcon {
+  width: 12px;
+  height: 12px;
+  transition: transform 120ms ease;
+}
+
+.groupToggleIconOpen {
+  transform: rotate(180deg);
+}
+
 .menu {
   display: grid;
   gap: 2px;
@@ -268,12 +299,26 @@
   align-items: center;
 }
 
-.footerValue {
-  padding: 0 8px;
+.footerVersionButton {
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  background: transparent;
   color: var(--sidebar-fg);
+  cursor: pointer;
   font-size: 0.75rem;
   font-weight: 500;
   line-height: 1;
+}
+
+.footerVersionButton:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.footerVersionButton:focus-visible {
+  outline: 2px solid var(--accent-foreground);
+  outline-offset: 2px;
 }
 
 .footerBlock {
@@ -338,6 +383,7 @@
 }
 
 .root[data-state="collapsed"] .groupLabel,
+.root[data-state="collapsed"] .groupToggle,
 .root[data-state="collapsed"] .brandText,
 .root[data-state="collapsed"] .footerMeta,
 .root[data-state="collapsed"] .footerDivider,

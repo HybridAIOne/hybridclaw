@@ -1,18 +1,13 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { TabbedPage } from '../components/tabbed-page';
+import { ACTIVITY_TABS } from '../lib/admin-tabs';
 import { logNavigationError } from '../lib/navigation';
 import { AuditPage } from './audit';
 import type { TimeRange } from './audit-filters';
 import { SessionsPage } from './sessions';
 import { StatisticsPage } from './statistics';
 import { mergeRouteSearch, readRouteTab } from './tabbed-route';
-
-const ACTIVITY_TABS = [
-  { id: 'usage', label: 'Usage' },
-  { id: 'sessions', label: 'Sessions' },
-  { id: 'audit', label: 'Audit log' },
-] as const;
 
 const ACTIVITY_RANGES = [
   { value: '7d', label: 'Last 7 days', days: 7 },

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- **Once-per-release console updates**: The admin console shows an ultra-short
+  What's New dialog once for each release, and the sidebar version number
+  reopens it on demand.
+
 ## [0.28.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.3) - 2026-07-22
 
 ### Fixed

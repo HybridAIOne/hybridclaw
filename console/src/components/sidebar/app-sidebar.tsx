@@ -11,8 +11,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../dialog';
-import { HybridClaw, LogOut } from '../icons';
+import { ChevronDown, HybridClaw, LogOut } from '../icons';
 import { ThemeToggle } from '../theme-toggle';
+import { WhatsNew } from '../whats-new';
 import {
   Sidebar,
   SidebarContent,
@@ -48,18 +49,7 @@ export function AppSidebar(props: {
       </SidebarHeader>
       <SidebarContent>
         {props.groups.map((group) => (
-          <SidebarGroup key={group.label}>
-            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu ariaLabel={group.label}>
-                {group.items.map((item) => (
-                  <SidebarMenuItem key={item.to}>
-                    <SidebarNavLink item={item} />
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          <AppSidebarGroup key={group.label} group={group} />
         ))}
       </SidebarContent>
       <SidebarFooter>
@@ -78,6 +68,45 @@ export function AppSidebar(props: {
         ) : null}
       </SidebarFooter>
     </Sidebar>
+  );
+}
+
+function AppSidebarGroup(props: { group: SidebarNavGroup }) {
+  const [open, setOpen] = useState(!props.group.defaultCollapsed);
+
+  return (
+    <SidebarGroup>
+      {props.group.defaultCollapsed === undefined ? (
+        <SidebarGroupLabel>{props.group.label}</SidebarGroupLabel>
+      ) : (
+        <button
+          className={styles.groupToggle}
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span>{props.group.label}</span>
+          <span className={styles.groupToggleDivider} />
+          <ChevronDown
+            className={cx(
+              styles.groupToggleIcon,
+              open && styles.groupToggleIconOpen,
+            )}
+          />
+        </button>
+      )}
+      {open ? (
+        <SidebarGroupContent>
+          <SidebarMenu ariaLabel={props.group.label}>
+            {props.group.items.map((item) => (
+              <SidebarMenuItem key={item.to}>
+                <SidebarNavLink item={item} />
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      ) : null}
+    </SidebarGroup>
   );
 }
 
@@ -129,7 +158,10 @@ export function SidebarMeta(props: { version?: string }) {
   if (!props.version) return null;
   return (
     <div className={styles.footerMeta}>
-      <span className={styles.footerValue}>v{props.version}</span>
+      <WhatsNew
+        version={props.version}
+        triggerClassName={styles.footerVersionButton}
+      />
     </div>
   );
 }

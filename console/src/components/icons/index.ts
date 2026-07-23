@@ -29,6 +29,7 @@ export { Logs } from './Logs';
 export { Menu } from './Menu';
 export { Minus } from './Minus';
 export { Models } from './Models';
+export { Network } from './Network';
 export { PanelLeft } from './PanelLeft';
 export { Plugins } from './Plugins';
 export { Policy } from './Policy';

@@ -49,6 +49,14 @@ import { buildChannelCatalog, type ChannelKind } from './channels-catalog';
 type SecretSource = 'config' | 'env' | 'runtime-secrets' | null;
 type ChannelInstructionKind = keyof AdminConfig['channelInstructions'];
 
+function channelFragment(kind: ChannelKind): string {
+  return kind === 'msteams' ? 'teams' : kind;
+}
+
+function channelKindFromFragment(fragment: string): string {
+  return fragment === 'teams' ? 'msteams' : fragment;
+}
+
 function isDiscordEnabled(config: AdminConfig): boolean {
   return (
     config.discord.commandsOnly || config.discord.groupPolicy !== 'disabled'
@@ -3784,7 +3792,9 @@ export function ChannelsPage() {
     const firstCatalogEntry = catalog[0];
     if (!firstCatalogEntry) return;
     setSelectedKind((current) => {
-      const hashKind = window.location.hash.replace(/^#/, '');
+      const hashKind = channelKindFromFragment(
+        window.location.hash.replace(/^#/, ''),
+      );
       const hashEntry = catalog.find((entry) => entry.kind === hashKind);
       if (hashEntry) return hashEntry.kind;
       if (current && catalog.some((entry) => entry.kind === current)) {
@@ -3795,10 +3805,12 @@ export function ChannelsPage() {
   }, [catalog]);
 
   useEffect(() => {
-    const hashKind = window.location.hash.replace(/^#/, '');
+    const hashKind = channelKindFromFragment(
+      window.location.hash.replace(/^#/, ''),
+    );
     if (!selectedKind || selectedKind !== hashKind) return;
     window.setTimeout(() => {
-      const target = document.getElementById(selectedKind);
+      const target = document.getElementById(channelFragment(selectedKind));
       if (typeof target?.scrollIntoView === 'function') {
         target.scrollIntoView({ block: 'start' });
       }
@@ -3935,7 +3947,14 @@ export function ChannelsPage() {
         </Card>
 
         <Form form={form} onSubmit={() => saveMutation.mutate(draft)}>
-          <Card id={selectedChannel?.kind} variant="muted">
+          <Card
+            id={
+              selectedChannel
+                ? channelFragment(selectedChannel.kind)
+                : undefined
+            }
+            variant="muted"
+          >
             <CardHeader>
               <CardTitle>
                 {selectedChannel

@@ -43,6 +43,39 @@ const BROWSER_USER_AGENT =
 export const BOT_USER_AGENT =
   'hybridclaw/1.0 (+https://github.com/hybridaione/hybridclaw; AI assistant bot)';
 
+function createWebFetchTimeoutError(): Error {
+  const error = new Error(`Web fetch timed out after ${TIMEOUT_MS}ms`);
+  error.name = 'TimeoutError';
+  return error;
+}
+
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : createWebFetchTimeoutError();
+}
+
+function rejectOnAbort<T>(
+  operation: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortError(signal));
+    signal.addEventListener('abort', onAbort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+    if (signal.aborted) onAbort();
+  });
+}
+
 interface CacheEntry {
   value: WebFetchResult;
   expiresAt: number;
@@ -225,6 +258,7 @@ async function extractReadableContent(
 async function readResponseText(
   res: Response,
   maxBytes: number,
+  signal: AbortSignal,
 ): Promise<{ text: string; truncated: boolean }> {
   const body = res.body;
   if (body && typeof body === 'object' && 'getReader' in body) {
@@ -233,10 +267,16 @@ async function readResponseText(
     let bytesRead = 0;
     let truncated = false;
     const parts: string[] = [];
+    const cancelOnAbort = () => {
+      void reader.cancel(abortError(signal)).catch(() => {});
+    };
+    signal.addEventListener('abort', cancelOnAbort, { once: true });
+    if (signal.aborted) cancelOnAbort();
 
     try {
       while (true) {
         const { value, done } = await reader.read();
+        if (signal.aborted) throw abortError(signal);
         if (done) break;
         if (!value || value.byteLength === 0) continue;
 
@@ -259,8 +299,10 @@ async function readResponseText(
         }
       }
     } catch {
+      if (signal.aborted) throw abortError(signal);
       /* return what we have */
     } finally {
+      signal.removeEventListener('abort', cancelOnAbort);
       if (truncated) {
         try {
           await reader.cancel();
@@ -274,7 +316,7 @@ async function readResponseText(
     return { text: parts.join(''), truncated };
   }
 
-  const text = await res.text();
+  const text = await rejectOnAbort(res.text(), signal);
   return { text, truncated: false };
 }
 
@@ -550,9 +592,11 @@ export async function webFetch(params: {
 
   const start = Date.now();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  try {
+  const timer = setTimeout(
+    () => controller.abort(createWebFetchTimeoutError()),
+    TIMEOUT_MS,
+  );
+  const operation = (async (): Promise<WebFetchResult> => {
     // The initial fetch and optional Cloudflare retry share one overall timeout
     // budget; we intentionally do not reset the timer per attempt.
     const doFetch = (userAgent: string) =>
@@ -573,7 +617,11 @@ export async function webFetch(params: {
       res.headers.get('content-type') ?? 'application/octet-stream';
     const normalizedContentType =
       contentType.split(';')[0]?.trim() || 'application/octet-stream';
-    const bodyResult = await readResponseText(res, MAX_RESPONSE_BYTES);
+    const bodyResult = await readResponseText(
+      res,
+      MAX_RESPONSE_BYTES,
+      controller.signal,
+    );
     const body = bodyResult.text;
 
     let title: string | undefined;
@@ -644,6 +692,10 @@ export async function webFetch(params: {
 
     writeCache(cacheKey, result);
     return result;
+  })();
+
+  try {
+    return await rejectOnAbort(operation, controller.signal);
   } finally {
     clearTimeout(timer);
   }
