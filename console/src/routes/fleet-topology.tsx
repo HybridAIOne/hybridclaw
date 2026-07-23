@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { fetchFleetTopology } from '../api/client';
 import type { AdminFleetTopologyInstanceStatus } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import {
   Card,
   CardContent,
@@ -48,14 +49,13 @@ export function FleetTopologyPage(props: { embedded?: boolean } = {}) {
   const topology = topologyQuery.data;
   const instances = topology?.instances || [];
   const refreshButton = (
-    <button
-      className="ghost-button"
-      type="button"
+    <Button
+      variant="ghost"
       disabled={topologyQuery.isFetching}
       onClick={() => void topologyQuery.refetch()}
     >
       Refresh
-    </button>
+    </Button>
   );
 
   return (

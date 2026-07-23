@@ -394,7 +394,8 @@ export function TokensPage(props: { embedded?: boolean } = {}) {
   const canRevoke = query.data.actions.includes('admin.tokens.revoke');
   const actions = (
     <div className={styles.actions}>
-      <input
+      <Input
+        size="sm"
         className={
           props.embedded ? 'compact-search page-tab-search' : 'compact-search'
         }
@@ -636,9 +637,11 @@ function CreateTokenDialog(props: {
             </Field>
           ) : null}
           <DialogFooter>
-            <DialogClose className="ghost-button" disabled={props.pending}>
-              Cancel
-            </DialogClose>
+            <Button
+              variant="ghost"
+              disabled={props.pending}
+              render={<DialogClose>Cancel</DialogClose>}
+            />
             <Button type="submit" disabled={props.pending || !canSubmit}>
               {props.pending ? 'Creating...' : 'Create token'}
             </Button>
@@ -851,9 +854,11 @@ function RevokeTokenDialog(props: {
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <DialogClose className="ghost-button" disabled={props.pending}>
-            Cancel
-          </DialogClose>
+          <Button
+            variant="ghost"
+            disabled={props.pending}
+            render={<DialogClose>Cancel</DialogClose>}
+          />
           <Button
             type="button"
             variant="danger"

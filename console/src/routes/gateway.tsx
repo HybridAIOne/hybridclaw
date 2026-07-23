@@ -224,9 +224,7 @@ export function GatewayPage() {
     <div className="page-stack">
       <PageHeader
         actions={
-          <button
-            type="button"
-            className="primary-button"
+          <Button
             disabled={reloadBusy}
             onClick={() => setReloadConfirmOpen(true)}
             aria-busy={reloadBusy}
@@ -239,7 +237,7 @@ export function GatewayPage() {
             ) : (
               'Reload Gateway'
             )}
-          </button>
+          </Button>
         }
       />
       <div className="metric-grid">
@@ -533,13 +531,14 @@ export function GatewayPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <DialogClose className="ghost-button">Cancel</DialogClose>
-            <DialogClose
-              className="primary-button"
+            <Button
+              variant="ghost"
+              render={<DialogClose>Cancel</DialogClose>}
+            />
+            <Button
               onClick={() => reloadMutation.mutate()}
-            >
-              Reload
-            </DialogClose>
+              render={<DialogClose>Reload</DialogClose>}
+            />
           </DialogFooter>
         </DialogContent>
       </Dialog>

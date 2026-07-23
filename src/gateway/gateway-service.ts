@@ -4869,6 +4869,15 @@ export async function getGatewayStatus(
     configValue: runtimeConfig.imessage.password,
     storedValue: storedSecrets.IMESSAGE_PASSWORD,
   });
+  const msteamsCredential = resolveRuntimeCredentialStatus(
+    'MSTEAMS_APP_PASSWORD',
+    [MSTEAMS_APP_PASSWORD],
+    storedSecrets.MSTEAMS_APP_PASSWORD,
+  );
+  const msteams = {
+    appPasswordConfigured: Boolean(msteamsCredential.value),
+    appPasswordSource: msteamsCredential.source,
+  } as NonNullable<GatewayStatus['msteams']>;
   const voiceAuth = resolveGatewayVoiceAuthStatus({
     envValues: [TWILIO_AUTH_TOKEN],
     configValue: runtimeConfig.voice.twilio.authToken,
@@ -4931,6 +4940,7 @@ export async function getGatewayStatus(
     email,
     emailEnabled: runtimeConfig.email.enabled === true,
     imessage,
+    msteams,
     voice: {
       enabled: runtimeConfig.voice.enabled,
       accountSidConfigured: Boolean(

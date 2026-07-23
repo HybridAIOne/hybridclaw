@@ -2166,6 +2166,42 @@ browser:
     expect(evaluation.tier).toBe('yellow');
   });
 
+  test('python heredocs writing PDF syntax are not fenced on PDF object keys', () => {
+    // Regression: the classifier collapsed newlines before heredoc stripping,
+    // so multi-line heredoc bodies leaked into path extraction and PDF object
+    // keys like `/Type` were classified as write-outside-workspace paths
+    // (observed live: an agent hand-writing a minimal PDF was blocked with
+    // "write outside workspace (`/Type`)").
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({
+        command: [
+          "python3 - <<'PY'",
+          'from pathlib import Path',
+          "text='pdf artifact check'",
+          '# Minimal valid PDF with one page and one text object.',
+          'objects=[]',
+          'def obj(n, body):',
+          '    objects.append((n, body))',
+          "obj(1, '<< /Type /Catalog /Pages 2 0 R >>')",
+          "obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>')",
+          "obj(5, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')",
+          "Path('out.pdf').write_bytes(b'%PDF-1.4')",
+          'PY',
+        ].join('\n'),
+      }),
+      latestUserPrompt: 'Create a PDF file',
+    });
+
+    expect(evaluation.actionKey).not.toBe('bash:workspace-fence');
+    expect(evaluation.decision).toBe('implicit');
+    expect(evaluation.tier).toBe('yellow');
+  });
+
   test('outer-shell redirections in heredoc commands still trigger workspace-fence approvals', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

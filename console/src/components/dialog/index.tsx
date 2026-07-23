@@ -313,6 +313,7 @@ export function DialogClose(
       className={className}
       onClick={(e) => {
         onClick?.(e);
+        if (e.defaultPrevented || rest.disabled) return;
         onOpenChange(false);
       }}
     >

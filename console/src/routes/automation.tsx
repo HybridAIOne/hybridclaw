@@ -1,4 +1,5 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
+import { Button } from '../components/button';
 import { TabbedPage } from '../components/tabbed-page';
 import { logNavigationError } from '../lib/navigation';
 import { JobsPage } from './jobs';
@@ -37,13 +38,11 @@ export function AutomationPage() {
       tabs={AUTOMATION_TABS}
       activeTab={activeTab}
       actions={
-        <button
-          className="primary-button"
-          type="button"
+        <Button
           onClick={() => updateSearch({ tab: 'schedules', jobId: undefined })}
         >
           New schedule
-        </button>
+        </Button>
       }
       onTabChange={(tab) => updateSearch({ tab })}
     >
