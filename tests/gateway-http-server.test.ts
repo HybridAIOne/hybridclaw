@@ -3173,11 +3173,15 @@ describe('gateway HTTP server', () => {
       expect(res.body).not.toContain('web-token');
       expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
       expect(res.headers['Referrer-Policy']).toBe('no-referrer');
+      expect(res.headers['X-Frame-Options']).toBe('DENY');
       expect(res.headers['Content-Security-Policy']).toContain(
         "default-src 'self'",
       );
       expect(res.headers['Content-Security-Policy']).toContain(
         "frame-src 'self' blob:",
+      );
+      expect(res.headers['Content-Security-Policy']).not.toContain(
+        'frame-ancestors',
       );
     }
   });
