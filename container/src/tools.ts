@@ -678,48 +678,33 @@ function resolveGatewayMessageSendChannelFallback(): string {
   );
 }
 
+// Tool definitions render at the very front of every model request, so this
+// description must stay byte-stable per agent process: channel kinds and
+// configured channel ids only, never per-conversation identifiers. The
+// current conversation's Channel ID is already provided in the system
+// prompt's Runtime Metadata.
 export function getMessageToolDescription(
-  channelId?: string,
   activeMessageChannels?: string[],
 ): string {
-  const explicitChannelId = normalizeDiscordMessageTarget(channelId);
-  const activeChannelId =
-    explicitChannelId && DISCORD_SNOWFLAKE_RE.test(explicitChannelId)
-      ? explicitChannelId
-      : resolveGatewayDiscordChannelFallback();
-  const activeTeamsChannelId = resolveGatewayMSTeamsChannelFallback();
   let activeChannels = normalizeMessageToolChannelKinds(activeMessageChannels);
   if (activeMessageChannels === undefined) {
     const inferredChannels = new Set(activeChannels);
-    if (activeChannelId) inferredChannels.add('discord');
-    if (activeTeamsChannelId) inferredChannels.add('msteams');
+    if (resolveGatewayDiscordChannelFallback()) inferredChannels.add('discord');
+    if (resolveGatewayMSTeamsChannelFallback()) inferredChannels.add('msteams');
     activeChannels = [...inferredChannels].sort();
-  }
-  const activeChannelList = formatMessageToolChannelList(activeChannels);
-  const configuredChannels = normalizeConfiguredChannelList(
-    gatewayConfiguredChannels,
-  );
-  const otherChannels = configuredChannels
-    .filter((id) => !activeChannelId || id !== activeChannelId)
-    .slice(0, 6);
-  if (activeChannelId) {
-    const withOthers =
-      otherChannels.length > 0
-        ? ` Other configured channels: ${otherChannels.map((id) => `${id} (${MESSAGE_TOOL_ACTION_LIST})`).join(', ')}.`
-        : '';
-    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. Current Discord channel (${activeChannelId}) supports: ${MESSAGE_TOOL_ACTION_LIST}. Omit channelId/to to target the current Discord channel for read/channel-info/send.${withOthers}`;
-  }
-  if (activeTeamsChannelId) {
-    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. Current Teams conversation (${activeTeamsChannelId}) supports: send. Omit channelId/to to target the current Teams conversation for send, including local file uploads.`;
   }
   if (activeChannels.length === 0) {
     return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: none.`;
   }
-  const withOthers =
+  const activeChannelList = formatMessageToolChannelList(activeChannels);
+  const configuredChannels = normalizeConfiguredChannelList(
+    gatewayConfiguredChannels,
+  ).slice(0, 6);
+  const configuredSuffix =
     configuredChannels.length > 0
-      ? ` Configured channels: ${configuredChannels.map((id) => `${id} (${MESSAGE_TOOL_ACTION_LIST})`).join(', ')}.`
+      ? ` Configured channels: ${configuredChannels.join(', ')}.`
       : '';
-  return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. Supports actions: ${MESSAGE_TOOL_ACTION_LIST}.${withOthers}`;
+  return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. Supports actions: ${MESSAGE_TOOL_ACTION_LIST}. When channelId/to is omitted, the current conversation channel is targeted when one exists (see Channel ID in Runtime Metadata).${configuredSuffix}`;
 }
 
 function cloneTaskModelPolicies(
@@ -4126,19 +4111,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'User id for member lookups or send allowlist checks when required.',
           },
-          memberId: {
-            type: 'string',
-            description: 'Alias for userId in member-info.',
-          },
           username: {
             type: 'string',
             description:
               'Username, display name, or handle to resolve for member lookups or user-targeted sends.',
-          },
-          user: {
-            type: 'string',
-            description:
-              'Alias for username/userId in member lookups or user-targeted sends.',
           },
           resolveAmbiguous: {
             type: 'string',
@@ -4154,10 +4130,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'string',
             description:
               'Optional search text for action="read" when the active channel supports mailbox or conversation search.',
-          },
-          search: {
-            type: 'string',
-            description: 'Alias for query in action="read".',
           },
           folder: {
             type: 'string',
@@ -4252,24 +4224,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'Optional local file to upload for action="send" when supported by the active channel. Use a workspace-relative path or an absolute managed media path.',
           },
-          attachmentPath: {
-            type: 'string',
-            description: 'Alias for filePath in action="send".',
-          },
-          mediaPath: {
-            type: 'string',
-            description: 'Alias for filePath in action="send".',
-          },
-          imagePath: {
-            type: 'string',
-            description:
-              'Alias for filePath in action="send" when uploading a local image.',
-          },
-          file: {
-            type: 'string',
-            description:
-              'Alias for filePath in action="send". Use a local file path to attach.',
-          },
           components: {
             type: ['object', 'array'],
             items: {
@@ -4277,19 +4231,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             },
             description:
               'Optional interactive components payload for action="send" when supported by the active channel.',
-          },
-          text: {
-            type: 'string',
-            description: 'Alias for content in action="send".',
-          },
-          message: {
-            type: 'string',
-            description: 'Alias for content in action="send".',
-          },
-          asUserId: {
-            type: 'string',
-            description:
-              'Requester user id for send allowlist checks (alias for userId).',
           },
           contextChannelId: {
             type: 'string',
@@ -4313,10 +4254,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'number',
             description:
               'Optional thread auto-archive duration in minutes for action="thread-create".',
-          },
-          target: {
-            type: 'string',
-            description: 'Target user or channel for action="send".',
           },
           to: {
             type: 'string',

@@ -1722,10 +1722,6 @@ export function expandResolvedSkillInvocation(
   return lines.join('\n');
 }
 
-function resolveSkillManifest(skill: Skill): SkillManifest {
-  return skill.manifest || createDefaultSkillManifest(skill.name);
-}
-
 export interface SkillCatalogEntry {
   name: string;
   description: string;
@@ -2379,19 +2375,18 @@ export function buildSkillsPrompt(skills: Skill[]): string {
   if (summaryCandidates.length > 0) {
     lines.push('<available_skills>');
 
+    // Prompt lists only what the model needs to select a skill: name,
+    // category, description, and where to read SKILL.md. Version, capability,
+    // credential, and channel gating are enforced by the runtime before a
+    // skill can run, so they carry no signal for the model.
     let chars = 0;
+    let included = 0;
     for (const skill of summaryCandidates) {
-      const manifest = resolveSkillManifest(skill);
       const block = [
         '  <skill>',
-        `    <id>${escapeXml(manifest.id)}</id>`,
         `    <name>${escapeXml(skill.name)}</name>`,
-        `    <version>${escapeXml(manifest.version)}</version>`,
         `    <category>${escapeXml(skill.category)}</category>`,
         `    <description>${escapeXml(skill.description || skill.name)}</description>`,
-        `    <capabilities>${escapeXml(manifest.capabilities.join(', '))}</capabilities>`,
-        `    <required_credentials>${escapeXml(manifest.requiredCredentials.map((credential) => credential.id).join(', '))}</required_credentials>`,
-        `    <supported_channels>${escapeXml(manifest.supportedChannels.join(', '))}</supported_channels>`,
         `    <location>${escapeXml(skill.location)}</location>`,
         '  </skill>',
       ];
@@ -2399,6 +2394,12 @@ export function buildSkillsPrompt(skills: Skill[]): string {
       if (chars + serialized.length > MAX_SKILLS_PROMPT_CHARS) break;
       lines.push(...block);
       chars += serialized.length;
+      included += 1;
+    }
+
+    const omitted = summaryCandidates.length - included;
+    if (omitted > 0) {
+      lines.push(`  <omitted_skills count="${omitted}"/>`);
     }
 
     lines.push('</available_skills>');

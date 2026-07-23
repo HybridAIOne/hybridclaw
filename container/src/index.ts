@@ -1941,10 +1941,7 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
       ...tool,
       function: {
         ...tool.function,
-        description: getMessageToolDescription(
-          input.channelId,
-          input.activeMessageChannels,
-        ),
+        description: getMessageToolDescription(input.activeMessageChannels),
       },
     };
   });

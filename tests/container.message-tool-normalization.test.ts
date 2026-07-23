@@ -401,7 +401,7 @@ describe.sequential('container message tool normalization', () => {
       '491234567890@s.whatsapp.net',
     );
 
-    const description = getMessageToolDescription(undefined, []);
+    const description = getMessageToolDescription([]);
     expect(description).not.toContain('491234567890@s.whatsapp.net');
     expect(description).toContain('Active channels: none.');
     expect(description).not.toContain('WhatsApp');
@@ -422,7 +422,7 @@ describe.sequential('container message tool normalization', () => {
     expect(schemaText).not.toContain('Discord-only');
   });
 
-  test('message tool description advertises current Teams send support', () => {
+  test('message tool description carries no per-conversation identifiers', () => {
     setGatewayContext(
       'http://gateway.local',
       'token',
@@ -430,26 +430,26 @@ describe.sequential('container message tool normalization', () => {
     );
     setSessionContext('teams:dm:user-aad-id');
 
-    const description = getMessageToolDescription(undefined, ['msteams']);
-    expect(description).toContain(
-      'Current Teams conversation (a:teams-current-conversation) supports: send.',
-    );
+    const description = getMessageToolDescription(['msteams']);
+    expect(description).not.toContain('a:teams-current-conversation');
     expect(description).toContain('Active channels: Microsoft Teams.');
-    expect(description).toContain('current Teams conversation for send');
+    expect(description).toContain(
+      'When channelId/to is omitted, the current conversation channel is targeted',
+    );
   });
 
-  test('message tool description enumerates other configured channels', () => {
+  test('message tool description enumerates configured channels', () => {
     const otherChannelId = '223456789012345679';
     setGatewayContext('http://gateway.local', 'token', CHANNEL_ID, [
       CHANNEL_ID,
       otherChannelId,
     ]);
 
-    const description = getMessageToolDescription(CHANNEL_ID, ['discord']);
-    expect(description).toContain(`Current Discord channel (${CHANNEL_ID})`);
+    const description = getMessageToolDescription(['discord']);
+    expect(description).not.toContain('Current Discord channel');
     expect(description).toContain('Active channels: Discord.');
     expect(description).toContain(
-      `Other configured channels: ${otherChannelId} (`,
+      `Configured channels: ${CHANNEL_ID}, ${otherChannelId}.`,
     );
   });
 });

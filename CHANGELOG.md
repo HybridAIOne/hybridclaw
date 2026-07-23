@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Changed
+
+- **Leaner always-on prompt and tool schemas**: The static prompt prefix sent
+  on every model request shrinks by ~27K characters (~6.8K tokens, measured
+  against a real logged request). The skills listing now carries only the
+  fields the model needs to select a skill (name, category, description,
+  location) plus an explicit omitted-count marker when the size cap binds; the
+  verbatim `SECURITY.md` injection is replaced by a distilled model-facing
+  guardrails block (the runtime enforces sandboxing, approvals, tool blocking,
+  redaction, and audit regardless); MCP tool schemas are compacted at
+  ingestion (metadata keys stripped, description caps); the `message` tool
+  schema drops alias-only parameters that the executor still accepts at
+  runtime; and `templates/AGENTS.md` seeds new workspaces with a tighter
+  bootstrap. The `message` tool description no longer embeds per-conversation
+  channel identifiers, keeping tool definitions byte-stable so prompt caches
+  (Anthropic `cache_control`, OpenAI automatic caching, vLLM prefix caching)
+  survive across conversations of the same agent.
+
+  `Manifesto: Principle IX - A coworker thinks before they spend.`
 ### Added
 
 - **Once-per-release console updates**: The admin console shows an ultra-short

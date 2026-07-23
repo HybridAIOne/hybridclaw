@@ -95,19 +95,74 @@ function buildNamespacedToolName(
   return deduped;
 }
 
+// Schema-position metadata that costs prompt tokens without helping the model
+// call the tool. Argument validation happens on the MCP server, so the prompt
+// copy of the schema only has to convey names, types, and usage.
+const PROMPT_SCHEMA_STRIPPED_KEYS = new Set([
+  '$schema',
+  '$id',
+  '$comment',
+  'title',
+  'examples',
+]);
+// Keys whose values map user-defined names to subschemas. Their keys must
+// never be treated as schema metadata (a property named `title` stays).
+const SCHEMA_NAME_MAP_KEYS = new Set([
+  'properties',
+  'patternProperties',
+  '$defs',
+  'definitions',
+]);
+const PROMPT_PROPERTY_DESCRIPTION_MAX_CHARS = 200;
+const PROMPT_TOOL_DESCRIPTION_MAX_CHARS = 600;
+
+function truncateForPrompt(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function compactSchemaForPrompt(value: unknown, isNameMap = false): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => compactSchemaForPrompt(entry));
+  }
+  if (!isRecord(value)) return value;
+  const compacted: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (isNameMap) {
+      compacted[key] = compactSchemaForPrompt(entry);
+      continue;
+    }
+    if (PROMPT_SCHEMA_STRIPPED_KEYS.has(key)) continue;
+    if (key === 'description' && typeof entry === 'string') {
+      compacted[key] = truncateForPrompt(
+        entry,
+        PROMPT_PROPERTY_DESCRIPTION_MAX_CHARS,
+      );
+      continue;
+    }
+    compacted[key] = compactSchemaForPrompt(
+      entry,
+      SCHEMA_NAME_MAP_KEYS.has(key),
+    );
+  }
+  return compacted;
+}
+
 function normalizeParametersSchema(
   inputSchema: Record<string, unknown>,
 ): ToolDefinition['function']['parameters'] {
-  const properties = isRecord(inputSchema.properties)
-    ? inputSchema.properties
-    : {};
-  const required = Array.isArray(inputSchema.required)
-    ? inputSchema.required
+  const compacted = compactSchemaForPrompt(inputSchema) as Record<
+    string,
+    unknown
+  >;
+  const properties = isRecord(compacted.properties) ? compacted.properties : {};
+  const required = Array.isArray(compacted.required)
+    ? compacted.required
         .map((value) => String(value || '').trim())
         .filter(Boolean)
     : [];
   return {
-    ...inputSchema,
+    ...compacted,
     type: 'object',
     properties:
       properties as ToolDefinition['function']['parameters']['properties'],
@@ -220,7 +275,10 @@ export class McpClientManager {
         type: 'function',
         function: {
           name: tool.name,
-          description: tool.description,
+          description: truncateForPrompt(
+            tool.description,
+            PROMPT_TOOL_DESCRIPTION_MAX_CHARS,
+          ),
           parameters: normalizeParametersSchema(tool.inputSchema),
         },
       })),
