@@ -251,8 +251,16 @@ type PersistentBashSession = {
   sessionDir: string;
   snapshotPath: string;
   cwdPath: string;
+  wrapperPath: string;
+  commandPath: string;
   defaultCwd: string;
   initialized: boolean;
+};
+type BashScriptInvocation = {
+  scriptPath: string;
+  scriptArgs?: string[];
+  loginShell: boolean;
+  timeoutMs: number;
 };
 const BASH_DOCKER_CONTAINER = String(
   process.env.HYBRIDCLAW_BASH_DOCKER_CONTAINER || '',
@@ -262,18 +270,33 @@ const BASH_DOCKER_CWD = String(
 ).trim();
 const TASK_SANDBOX_FS_ENABLED = Boolean(BASH_DOCKER_CONTAINER);
 let persistentBashSession: PersistentBashSession | null = null;
+const BASH_EXECUTABLE = '/bin/bash';
 const PERSISTENT_BASH_SESSION_PREFIX = 'hybridclaw-shell';
+const PERSISTENT_BASH_WRAPPER_FILE = 'wrapper.sh';
+const PERSISTENT_BASH_COMMAND_FILE = 'command.sh';
+const TASK_SANDBOX_BASH_FILE_WRITER_SCRIPT = `
+set -e
+__hybridclaw_dir=$1
+__hybridclaw_file=$2
+umask 077
+mkdir -p -- "$__hybridclaw_dir"
+cat > "$__hybridclaw_file"
+chmod 600 -- "$__hybridclaw_file"
+`.trim();
 const PERSISTENT_BASH_WRAPPER_SCRIPT = `
 __hybridclaw_session_dir=$1
 __hybridclaw_snapshot=$2
 __hybridclaw_cwd_file=$3
 __hybridclaw_default_cwd=$4
-__hybridclaw_command=$5
+__hybridclaw_command_file=$5
 __hybridclaw_snapshot_tmp="\${__hybridclaw_snapshot}.tmp"
 __hybridclaw_cwd_tmp="\${__hybridclaw_cwd_file}.tmp"
 umask 077
 mkdir -p -- "$__hybridclaw_session_dir" || exit 125
 chmod 700 "$__hybridclaw_session_dir" 2>/dev/null || true
+if [ ! -f "$__hybridclaw_command_file" ]; then
+  exit 127
+fi
 __hybridclaw_write_snapshot() {
   {
     export -p
@@ -310,7 +333,7 @@ if ! cd -- "$__hybridclaw_cwd"; then
     exit 126
   fi
 fi
-eval "$__hybridclaw_command"
+source "$__hybridclaw_command_file"
 __hybridclaw_ec=$?
 __hybridclaw_write_snapshot || true
 __hybridclaw_write_cwd || true
@@ -389,6 +412,8 @@ function getPersistentBashSession(): PersistentBashSession {
     sessionDir,
     snapshotPath: joinPath(sessionDir, 'state.snapshot'),
     cwdPath: joinPath(sessionDir, 'state.cwd'),
+    wrapperPath: joinPath(sessionDir, PERSISTENT_BASH_WRAPPER_FILE),
+    commandPath: joinPath(sessionDir, PERSISTENT_BASH_COMMAND_FILE),
     defaultCwd: TASK_SANDBOX_FS_ENABLED
       ? BASH_DOCKER_CWD || '/app'
       : WORKSPACE_ROOT,
@@ -397,20 +422,59 @@ function getPersistentBashSession(): PersistentBashSession {
   return persistentBashSession;
 }
 
-function buildPersistentBashWrapperArgs(
+function writeHostBashRuntimeFile(filePath: string, contents: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(filePath, contents, { encoding: 'utf-8', mode: 0o600 });
+  fs.chmodSync(filePath, 0o600);
+}
+
+function writeTaskSandboxBashRuntimeFile(
+  filePath: string,
+  contents: string,
+): void {
+  ensureTaskSandboxSuccess(
+    runTaskSandboxDocker({
+      args: [
+        'exec',
+        '-i',
+        BASH_DOCKER_CONTAINER,
+        BASH_EXECUTABLE,
+        '-c',
+        TASK_SANDBOX_BASH_FILE_WRITER_SCRIPT,
+        'hybridclaw-bash-runtime-writer',
+        path.posix.dirname(filePath),
+        filePath,
+      ],
+      input: contents,
+    }),
+    'Failed to write bash runtime file into task sandbox',
+  );
+}
+
+function writeBashRuntimeFile(filePath: string, contents: string): void {
+  if (TASK_SANDBOX_FS_ENABLED) {
+    writeTaskSandboxBashRuntimeFile(filePath, contents);
+    return;
+  }
+  writeHostBashRuntimeFile(filePath, contents);
+}
+
+function buildPersistentBashInvocation(
   session: PersistentBashSession,
-  command: string,
-): string[] {
-  return [
-    session.initialized ? '-c' : '-lc',
-    PERSISTENT_BASH_WRAPPER_SCRIPT,
-    'hybridclaw-bash-wrapper',
-    session.sessionDir,
-    session.snapshotPath,
-    session.cwdPath,
-    session.defaultCwd,
-    command,
-  ];
+  timeoutMs: number,
+): BashScriptInvocation {
+  return {
+    scriptPath: session.wrapperPath,
+    scriptArgs: [
+      session.sessionDir,
+      session.snapshotPath,
+      session.cwdPath,
+      session.defaultCwd,
+      session.commandPath,
+    ],
+    loginShell: !session.initialized,
+    timeoutMs,
+  };
 }
 
 function runPersistentBash(params: {
@@ -418,10 +482,15 @@ function runPersistentBash(params: {
   timeoutMs: number;
 }): string {
   const session = getPersistentBashSession();
-  const wrapperArgs = buildPersistentBashWrapperArgs(session, params.command);
+  writeBashRuntimeFile(
+    session.wrapperPath,
+    `${PERSISTENT_BASH_WRAPPER_SCRIPT}\n`,
+  );
+  writeBashRuntimeFile(session.commandPath, `${params.command}\n`);
+  const invocation = buildPersistentBashInvocation(session, params.timeoutMs);
   const result = TASK_SANDBOX_FS_ENABLED
-    ? runDockerExecBash(wrapperArgs, params.timeoutMs)
-    : runHostBash(wrapperArgs, params.timeoutMs);
+    ? runDockerExecBash(invocation)
+    : runHostBash(invocation);
   if (result.error === undefined || result.status !== null) {
     session.initialized = true;
   }
@@ -429,10 +498,16 @@ function runPersistentBash(params: {
   return formatBashExecutionResult(result, params.timeoutMs);
 }
 
+function buildBashProcessArgs(invocation: BashScriptInvocation): string[] {
+  const args = invocation.loginShell ? ['-l'] : [];
+  args.push(invocation.scriptPath, ...(invocation.scriptArgs ?? []));
+  return args;
+}
+
 function runDockerExecBash(
-  args: string[],
-  timeoutMs: number,
+  invocation: BashScriptInvocation,
 ): SpawnSyncReturns<string> {
+  const bashArgs = buildBashProcessArgs(invocation);
   return spawnSync(
     'docker',
     [
@@ -441,11 +516,11 @@ function runDockerExecBash(
       '-w',
       BASH_DOCKER_CWD || '/app',
       BASH_DOCKER_CONTAINER,
-      'bash',
-      ...args,
+      BASH_EXECUTABLE,
+      ...bashArgs,
     ],
     {
-      timeout: timeoutMs,
+      timeout: invocation.timeoutMs,
       encoding: 'utf-8',
       maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
       env: { ...process.env },
@@ -465,11 +540,10 @@ function buildBashRuntimeEnv(): Record<string, string> {
 }
 
 function runHostBash(
-  args: string[],
-  timeoutMs: number,
+  invocation: BashScriptInvocation,
 ): SpawnSyncReturns<string> {
-  return spawnSync('bash', args, {
-    timeout: timeoutMs,
+  return spawnSync(BASH_EXECUTABLE, buildBashProcessArgs(invocation), {
+    timeout: invocation.timeoutMs,
     encoding: 'utf-8',
     cwd: WORKSPACE_ROOT,
     maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
@@ -509,11 +583,35 @@ function runStatelessBash(params: {
   command: string;
   timeoutMs: number;
 }): string {
-  const args = ['-lc', params.command];
-  const result = TASK_SANDBOX_FS_ENABLED
-    ? runDockerExecBash(args, params.timeoutMs)
-    : runHostBash(args, params.timeoutMs);
-  return formatBashExecutionResult(result, params.timeoutMs);
+  const tempRoot = getPersistentBashTempRoot();
+  const joinPath = TASK_SANDBOX_FS_ENABLED ? path.posix.join : path.join;
+  const sessionDir = joinPath(
+    tempRoot,
+    `${PERSISTENT_BASH_SESSION_PREFIX}-stateless-${randomUUID()}`,
+  );
+  const commandPath = joinPath(sessionDir, PERSISTENT_BASH_COMMAND_FILE);
+  try {
+    writeBashRuntimeFile(commandPath, `${params.command}\n`);
+    const invocation: BashScriptInvocation = {
+      scriptPath: commandPath,
+      loginShell: true,
+      timeoutMs: params.timeoutMs,
+    };
+    const result = TASK_SANDBOX_FS_ENABLED
+      ? runDockerExecBash(invocation)
+      : runHostBash(invocation);
+    return formatBashExecutionResult(result, params.timeoutMs);
+  } finally {
+    cleanupPersistentBashSessionArtifacts({
+      sessionDir,
+      snapshotPath: '',
+      cwdPath: '',
+      wrapperPath: '',
+      commandPath,
+      defaultCwd: '',
+      initialized: false,
+    });
+  }
 }
 
 function normalizeConfiguredChannelList(value: unknown): string[] {
