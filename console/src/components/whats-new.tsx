@@ -11,6 +11,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from './dialog';
+import { HybridClaw } from './icons';
 import styles from './whats-new.module.css';
 
 const SEEN_VERSION_STORAGE_KEY = 'hybridclaw_whats_new_seen_version';
@@ -60,10 +61,16 @@ export function WhatsNew(props: {
         v{props.version}
       </DialogTrigger>
       <DialogContent size="sm">
-        <DialogHeader>
-          <DialogTitle>What&apos;s new in v{props.version}</DialogTitle>
-          <DialogDescription>
-            A quick look at this HybridClaw release.
+        <DialogHeader className={styles.header}>
+          <div className={styles.markWrap} aria-hidden="true">
+            <HybridClaw className={styles.mark} />
+          </div>
+          <div className={styles.heading}>
+            <span className={styles.eyebrow}>HybridClaw update</span>
+            <DialogTitle>What&apos;s new in v{props.version}</DialogTitle>
+          </div>
+          <DialogDescription className={styles.srOnly}>
+            Release highlights for HybridClaw v{props.version}.
           </DialogDescription>
         </DialogHeader>
         {highlights.length > 0 ? (

@@ -52,6 +52,10 @@ describe('WhatsNew', () => {
     );
 
     expect(screen.getByRole('dialog')).toBeDefined();
+    expect(screen.getByText('HybridClaw update')).toBeDefined();
+    expect(
+      screen.queryByText('A quick look at this HybridClaw release.'),
+    ).toBeNull();
     for (const highlight of LATEST_RELEASE_NOTES.highlights) {
       expect(screen.getByText(highlight)).toBeDefined();
     }
