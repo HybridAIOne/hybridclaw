@@ -16,10 +16,11 @@ import {
   Lightbulb,
   Logs,
   Models,
+  Network,
   Plugins,
   Policy,
   Secrets,
-  Server,
+  Share,
   Statistics,
   Terminal,
 } from '../icons';
@@ -34,6 +35,7 @@ export type SidebarNavItem = {
 export type SidebarNavGroup = {
   label: string;
   items: ReadonlyArray<SidebarNavItem>;
+  defaultCollapsed?: boolean;
 };
 
 export type { AdminConfigSectionOwner };
@@ -56,7 +58,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
         icon: AgentGroup,
       },
       { to: '/admin/skills', label: 'Skills', icon: Lightbulb },
-      { to: '/admin/automation', label: 'Automation', icon: Jobs },
+      { to: '/admin/automation', label: 'Jobs', icon: Jobs },
     ],
   },
   {
@@ -67,8 +69,8 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       { to: '/admin/mcp', label: 'MCP Servers', icon: Cog },
       {
         to: '/admin/federation',
-        label: 'Federation',
-        icon: Server,
+        label: 'Agent2Agent',
+        icon: Share,
       },
     ],
   },
@@ -82,7 +84,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       {
         to: '/admin/network-policy',
         label: 'Network Policy',
-        icon: Policy,
+        icon: Network,
       },
       { to: '/admin/output-guard', label: 'Output Guard', icon: Policy },
       { to: '/admin/credentials', label: 'Credentials', icon: Secrets },
@@ -94,12 +96,17 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       { to: '/admin/gateway', label: 'Gateway', icon: Gateway },
       { to: '/admin/config', label: 'Settings', icon: Config },
       { to: '/admin/logs', label: 'Logs', icon: Logs },
-      { to: '/admin/extensions', label: 'Extensions', icon: Plugins },
+      {
+        to: '/admin/extensions',
+        label: 'Plugins & Tools',
+        icon: Plugins,
+      },
       { to: '/admin/terminal', label: 'Terminal', icon: Terminal },
     ],
   },
   {
     label: 'Labs',
+    defaultCollapsed: true,
     items: [
       {
         to: '/admin/harness-evolution',

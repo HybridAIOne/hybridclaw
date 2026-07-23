@@ -759,6 +759,7 @@ async function executePreparedToolCall(
 
 async function callHybridAIWithRetry(params: {
   sessionId?: string;
+  activityUserPrompt?: string;
   provider?: ContainerInput['provider'];
   providerMethod?: string;
   baseUrl: string;
@@ -782,6 +783,7 @@ async function callHybridAIWithRetry(params: {
 }): Promise<ChatCompletionResponse> {
   const {
     sessionId,
+    activityUserPrompt,
     provider,
     providerMethod,
     baseUrl,
@@ -832,6 +834,7 @@ async function callHybridAIWithRetry(params: {
             provider,
             providerMethod,
             sessionId,
+            activityUserPrompt,
             baseUrl,
             apiKey,
             model,
@@ -868,6 +871,7 @@ async function callHybridAIWithRetry(params: {
             provider,
             providerMethod,
             sessionId,
+            activityUserPrompt,
             baseUrl,
             apiKey,
             model,
@@ -889,6 +893,7 @@ async function callHybridAIWithRetry(params: {
           provider,
           providerMethod,
           sessionId,
+          activityUserPrompt,
           baseUrl,
           apiKey,
           model,
@@ -950,6 +955,7 @@ async function callHybridAIWithRetry(params: {
 interface ProcessRequestParams {
   sessionId: string;
   messages: ChatMessage[];
+  activityUserPrompt?: string;
   apiKey: string;
   baseUrl: string;
   provider: ContainerInput['provider'];
@@ -1013,6 +1019,7 @@ async function processRequest(
   const {
     sessionId,
     messages,
+    activityUserPrompt,
     apiKey,
     baseUrl,
     provider,
@@ -1354,6 +1361,7 @@ async function processRequest(
     try {
       response = await callHybridAIWithRetry({
         sessionId,
+        activityUserPrompt,
         provider,
         providerMethod,
         baseUrl,
@@ -2043,6 +2051,7 @@ async function main(): Promise<void> {
     firstOutput = await processRequest({
       sessionId: firstInput.sessionId,
       messages: firstMessagesForRequest,
+      activityUserPrompt: firstInput.activityUserPrompt,
       apiKey: storedApiKey,
       baseUrl: firstInput.baseUrl,
       provider: firstInput.provider,
@@ -2086,6 +2095,7 @@ async function main(): Promise<void> {
       firstOutput = await processRequest({
         sessionId: firstInput.sessionId,
         messages: firstRetryMessagesWithSkillCache,
+        activityUserPrompt: firstInput.activityUserPrompt,
         apiKey: storedApiKey,
         baseUrl: firstInput.baseUrl,
         provider: firstInput.provider,
@@ -2237,6 +2247,7 @@ async function main(): Promise<void> {
     let output = await processRequest({
       sessionId: input.sessionId,
       messages: messagesForRequestWithSkillCache,
+      activityUserPrompt: input.activityUserPrompt,
       apiKey,
       baseUrl: input.baseUrl,
       provider: input.provider,
@@ -2279,6 +2290,7 @@ async function main(): Promise<void> {
       output = await processRequest({
         sessionId: input.sessionId,
         messages: retryMessagesWithSkillCache,
+        activityUserPrompt: input.activityUserPrompt,
         apiKey,
         baseUrl: input.baseUrl,
         provider: input.provider,

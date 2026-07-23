@@ -36,6 +36,7 @@ import {
 } from '../../api/client';
 import type { ChatModel } from '../../api/types';
 import { isAuthReadyForApi, useAuth } from '../../auth';
+import { Button } from '../../components/button';
 import {
   Dialog,
   DialogClose,
@@ -1418,20 +1419,18 @@ export function ChatPage() {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <DialogClose
-                className="ghost-button"
+              <Button
+                variant="ghost"
                 disabled={deleteSessionMutation.isPending}
-              >
-                Cancel
-              </DialogClose>
-              <button
-                type="button"
-                className="danger-button"
+                render={<DialogClose>Cancel</DialogClose>}
+              />
+              <Button
+                variant="danger"
                 disabled={deleteSessionMutation.isPending}
                 onClick={handleConfirmDeleteSession}
               >
                 {deleteSessionMutation.isPending ? 'Deleting...' : 'Delete'}
-              </button>
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

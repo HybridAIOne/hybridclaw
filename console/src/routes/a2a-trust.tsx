@@ -18,6 +18,7 @@ import type {
   AdminA2ATrustPeer,
 } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import {
   Card,
   CardContent,
@@ -359,9 +360,7 @@ export function A2ATrustPage(props: { embedded?: boolean } = {}) {
               />
               <span>Send peer-side approval prompt</span>
             </label>
-            <button
-              className="primary-button"
-              type="button"
+            <Button
               disabled={
                 (!pairPeerUrl.trim() &&
                   !pairCanonicalId.trim() &&
@@ -371,7 +370,7 @@ export function A2ATrustPage(props: { embedded?: boolean } = {}) {
               onClick={() => previewPairingMutation.mutate()}
             >
               Fetch peer
-            </button>
+            </Button>
             {pairPreview ? (
               <div className="info-row">
                 <div>
@@ -383,9 +382,7 @@ export function A2ATrustPage(props: { embedded?: boolean } = {}) {
                 </div>
               </div>
             ) : null}
-            <button
-              className="primary-button"
-              type="button"
+            <Button
               disabled={
                 !pairPreview ||
                 startPairingMutation.isPending ||
@@ -394,7 +391,7 @@ export function A2ATrustPage(props: { embedded?: boolean } = {}) {
               onClick={() => startPairingMutation.mutate()}
             >
               Trust peer
-            </button>
+            </Button>
             {pairResult ? (
               <small className="row-status-note">
                 {`Trusted ${pairResult.proposal.peerId} (${shortFingerprint(
@@ -459,9 +456,7 @@ export function A2ATrustPage(props: { embedded?: boolean } = {}) {
                       ) : null}
                     </div>
                     <div className="row-actions">
-                      <button
-                        className="primary-button"
-                        type="button"
+                      <Button
                         disabled={
                           request.status !== 'pending' ||
                           approvePairingMutation.isPending
@@ -471,10 +466,9 @@ export function A2ATrustPage(props: { embedded?: boolean } = {}) {
                         }
                       >
                         Approve
-                      </button>
-                      <button
-                        className="danger-button"
-                        type="button"
+                      </Button>
+                      <Button
+                        variant="danger"
                         disabled={
                           request.status !== 'pending' ||
                           declinePairingMutation.isPending
@@ -484,7 +478,7 @@ export function A2ATrustPage(props: { embedded?: boolean } = {}) {
                         }
                       >
                         Decline
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -611,9 +605,8 @@ export function A2ATrustPage(props: { embedded?: boolean } = {}) {
                       onChange={(event) => setRevokeReason(event.target.value)}
                     />
                   </Field>
-                  <button
-                    className="danger-button"
-                    type="button"
+                  <Button
+                    variant="danger"
                     disabled={
                       selectedPeer.status === 'revoked' ||
                       revokeMutation.isPending
@@ -621,22 +614,17 @@ export function A2ATrustPage(props: { embedded?: boolean } = {}) {
                     onClick={() => revokeMutation.mutate(selectedPeer.peerId)}
                   >
                     Revoke
-                  </button>
-                  <button
-                    className="danger-button"
-                    type="button"
+                  </Button>
+                  <Button
+                    variant="danger"
                     disabled={deleteMutation.isPending}
                     onClick={() => deleteMutation.mutate(selectedPeer.peerId)}
                   >
                     Delete
-                  </button>
-                  <button
-                    className="primary-button"
-                    type="button"
-                    onClick={() => fillSelectedPeer(selectedPeer)}
-                  >
+                  </Button>
+                  <Button onClick={() => fillSelectedPeer(selectedPeer)}>
                     Use in override
-                  </button>
+                  </Button>
                   {revokeMutation.error ? (
                     <small className="row-status-note-danger">
                       {revokeMutation.error instanceof Error
@@ -705,14 +693,12 @@ export function A2ATrustPage(props: { embedded?: boolean } = {}) {
                     onChange={(event) => setPinReason(event.target.value)}
                   />
                 </Field>
-                <button
-                  className="primary-button"
-                  type="button"
+                <Button
                   disabled={!pinPeerId.trim() || upsertMutation.isPending}
                   onClick={() => upsertMutation.mutate()}
                 >
                   Trust
-                </button>
+                </Button>
                 {upsertMutation.error ? (
                   <small className="row-status-note-danger">
                     {upsertMutation.error instanceof Error

@@ -21,10 +21,21 @@
   survive across conversations of the same agent.
 
   `Manifesto: Principle IX - A coworker thinks before they spend.`
+### Added
+
+- **Once-per-release console updates**: The admin console shows an ultra-short
+  What's New dialog once for each release, and the sidebar version number
+  reopens it on demand.
 
 ## [0.28.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.3) - 2026-07-22
 
 ### Fixed
+
+- **HybridAI activity notifications now show the actual user prompt**:
+  interactive agent turns send the raw user text as transient request metadata,
+  separately from the compiled model context. Background turns omit the field,
+  and confidential values are redacted before the prompt crosses the sandbox
+  boundary.
 
 - **Prompt-cache usage is now visible through the OpenAI-compatible API**: the
   gateway parsed upstream cache reads and writes internally but dropped them

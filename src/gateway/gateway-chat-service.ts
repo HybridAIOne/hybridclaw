@@ -1287,6 +1287,10 @@ async function handleGatewayMessageInner(
     source !== 'fullauto' &&
     channelType !== 'scheduler' &&
     channelType !== 'heartbeat';
+  const activityUserPrompt =
+    isInteractiveSource && !isGoalContinuationSource(source)
+      ? userTurnContent
+      : undefined;
   // Each success path returns after scheduling title work, so one turn enqueues
   // at most one title request.
   const autoTitleParams = () => ({
@@ -2028,6 +2032,7 @@ async function handleGatewayMessageInner(
       runAgent({
         sessionId: req.executionSessionId || req.sessionId,
         messages,
+        activityUserPrompt,
         chatbotId: params.chatbotId,
         enableRag,
         executorModeOverride: req.executorModeOverride,
@@ -2131,6 +2136,7 @@ async function handleGatewayMessageInner(
       output = await runAgent({
         sessionId: req.executionSessionId || req.sessionId,
         messages,
+        activityUserPrompt,
         chatbotId,
         enableRag,
         executorModeOverride: req.executorModeOverride,

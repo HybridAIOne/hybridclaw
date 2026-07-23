@@ -138,7 +138,8 @@ export function SecretsPage(props: { embedded?: boolean } = {}) {
   const canUnset = data?.actions.includes('secret.unset') ?? false;
   const showSetActions = canOverwrite || canUnset;
   const filterInput = (
-    <input
+    <Input
+      size="sm"
       className={
         props.embedded ? 'compact-search page-tab-search' : 'compact-search'
       }
@@ -387,9 +388,11 @@ function OverwriteDialog(props: {
             </p>
           </Field>
           <DialogFooter>
-            <DialogClose className="ghost-button" disabled={props.pending}>
-              Cancel
-            </DialogClose>
+            <Button
+              variant="ghost"
+              disabled={props.pending}
+              render={<DialogClose>Cancel</DialogClose>}
+            />
             <Button type="submit" disabled={props.pending}>
               {props.pending ? 'Saving…' : 'Save value'}
             </Button>
@@ -431,9 +434,11 @@ function UnsetDialog(props: {
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <DialogClose className="ghost-button" disabled={props.pending}>
-            Cancel
-          </DialogClose>
+          <Button
+            variant="ghost"
+            disabled={props.pending}
+            render={<DialogClose>Cancel</DialogClose>}
+          />
           <Button
             type="button"
             variant="danger"

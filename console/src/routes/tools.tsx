@@ -4,6 +4,7 @@ import { fetchTools } from '../api/client';
 import type { AdminToolCatalogEntry } from '../api/types';
 import { useAuth } from '../auth';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
+import { Input } from '../components/input';
 import { TabbedPageActions } from '../components/tabbed-page';
 import {
   MetricCard,
@@ -155,7 +156,8 @@ export function ToolsPage(props: { embedded?: boolean } = {}) {
     defaultDirections: TOOL_DEFAULT_DIRECTIONS,
   });
   const filterInput = (
-    <input
+    <Input
+      size="sm"
       className={
         props.embedded ? 'compact-search page-tab-search' : 'compact-search'
       }

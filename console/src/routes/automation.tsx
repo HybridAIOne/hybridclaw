@@ -1,14 +1,11 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
+import { Button } from '../components/button';
 import { TabbedPage } from '../components/tabbed-page';
+import { AUTOMATION_TABS } from '../lib/admin-tabs';
 import { logNavigationError } from '../lib/navigation';
 import { JobsPage } from './jobs';
 import { SchedulerPage } from './scheduler';
 import { mergeRouteSearch, readRouteTab } from './tabbed-route';
-
-const AUTOMATION_TABS = [
-  { id: 'work-queue', label: 'Work queue' },
-  { id: 'schedules', label: 'Schedules' },
-] as const;
 
 type AutomationTab = (typeof AUTOMATION_TABS)[number]['id'];
 
@@ -37,13 +34,11 @@ export function AutomationPage() {
       tabs={AUTOMATION_TABS}
       activeTab={activeTab}
       actions={
-        <button
-          className="primary-button"
-          type="button"
+        <Button
           onClick={() => updateSearch({ tab: 'schedules', jobId: undefined })}
         >
           New schedule
-        </button>
+        </Button>
       }
       onTabChange={(tab) => updateSearch({ tab })}
     >

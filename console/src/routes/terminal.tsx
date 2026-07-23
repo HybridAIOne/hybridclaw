@@ -18,6 +18,7 @@ import {
   stopAdminTerminal,
 } from '../api/client';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import { PageHeader } from '../components/ui';
 
 type TerminalState = 'idle' | 'starting' | 'running' | 'stopping' | 'closed';
@@ -304,26 +305,23 @@ export function TerminalPage() {
               />
               {state}
             </span>
-            <button
-              className="primary-button"
-              type="button"
+            <Button
               onClick={() => {
                 void start();
               }}
               disabled={state === 'starting' || state === 'running'}
             >
               {state === 'starting' ? 'Starting…' : 'Start'}
-            </button>
-            <button
-              className="ghost-button"
-              type="button"
+            </Button>
+            <Button
+              variant="ghost"
               onClick={() => {
                 void stop();
               }}
               disabled={state === 'idle' || state === 'stopping'}
             >
               {state === 'stopping' ? 'Stopping…' : 'Stop'}
-            </button>
+            </Button>
           </div>
         }
       />

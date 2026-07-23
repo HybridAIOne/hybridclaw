@@ -1,15 +1,3 @@
-:root {
-  --radius-lg: 14px;
-  --radius-md: 10px;
-  --radius-sm: 8px;
-  --control-height: 44px;
-  --control-line-height: 22px;
-  --control-padding-y: 10px;
-  --sans:
-    system-ui, ui-sans-serif, -apple-system, BlinkMacSystemFont, Inter,
-    NotoSansHans, sans-serif;
-}
-
 * {
   box-sizing: border-box;
 }
@@ -2635,40 +2623,6 @@ th {
   border: 1px solid var(--line);
 }
 
-.primary-button,
-.ghost-button,
-.danger-button {
-  padding: 9px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  cursor: pointer;
-}
-
-.primary-button {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-foreground);
-}
-
-.ghost-button {
-  background: var(--panel-bg);
-  border-color: var(--line-strong);
-  color: var(--text);
-}
-
-.danger-button {
-  background: var(--danger-soft);
-  color: var(--danger);
-  border-color: var(--danger-border);
-}
-
-.primary-button:disabled,
-.ghost-button:disabled,
-.danger-button:disabled {
-  cursor: default;
-  opacity: 0.72;
-}
-
 .icon-button {
   display: inline-flex;
   align-items: center;
@@ -2882,15 +2836,6 @@ th {
     6px 6px,
     6px 6px;
   background-repeat: no-repeat;
-}
-
-.policy-action-row .primary-button,
-.policy-action-row .ghost-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: var(--control-height);
-  min-height: var(--control-height);
 }
 
 .skill-review-actions {
@@ -4036,10 +3981,6 @@ th {
   flex-wrap: nowrap;
   width: auto;
   justify-content: flex-end;
-}
-
-.page-header .header-actions .primary-button {
-  flex: 0 0 auto;
 }
 
 .jobs-board-layout {

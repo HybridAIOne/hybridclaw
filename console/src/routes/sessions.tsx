@@ -3,6 +3,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useDeferredValue, useEffect, useRef, useState } from 'react';
 import { deleteSession, fetchSessions } from '../api/client';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import {
   Card,
   CardContent,
@@ -19,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/dialog';
+import { Input } from '../components/input';
 import { TabbedPageActions } from '../components/tabbed-page';
 import { useToast } from '../components/toast';
 import { BooleanPill, PageHeader } from '../components/ui';
@@ -130,7 +132,8 @@ export function SessionsPage(
     <div className="page-stack">
       {props.embedded ? (
         <TabbedPageActions>
-          <input
+          <Input
+            size="sm"
             className="compact-search page-tab-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -141,7 +144,8 @@ export function SessionsPage(
       ) : (
         <PageHeader
           actions={
-            <input
+            <Input
+              size="sm"
               className="compact-search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -250,14 +254,13 @@ export function SessionsPage(
                       'No summary stored for this session.'}
                   </p>
                 </div>
-                <button
-                  className="danger-button"
-                  type="button"
+                <Button
+                  variant="danger"
                   disabled={deleteMutation.isPending}
                   onClick={() => setDeleteConfirmOpen(true)}
                 >
                   {deleteMutation.isPending ? 'Deleting...' : 'Delete session'}
-                </button>
+                </Button>
               </div>
             )}
           </CardContent>
@@ -273,17 +276,19 @@ export function SessionsPage(
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <DialogClose className="ghost-button">Cancel</DialogClose>
-            <DialogClose
-              className="danger-button"
+            <Button
+              variant="ghost"
+              render={<DialogClose>Cancel</DialogClose>}
+            />
+            <Button
+              variant="danger"
               onClick={() => {
                 if (selectedSession) {
                   deleteMutation.mutate(selectedSession.id);
                 }
               }}
-            >
-              Delete
-            </DialogClose>
+              render={<DialogClose>Delete</DialogClose>}
+            />
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1156,9 +1156,11 @@ function SkillSecretValueDialog(props: {
             </p>
           </Field>
           <DialogFooter>
-            <DialogClose className="ghost-button" disabled={props.pending}>
-              Cancel
-            </DialogClose>
+            <Button
+              variant="ghost"
+              disabled={props.pending}
+              render={<DialogClose>Cancel</DialogClose>}
+            />
             <Button type="submit" disabled={props.pending}>
               {props.pending ? 'Saving...' : 'Save value'}
             </Button>
@@ -1198,9 +1200,11 @@ function SkillSecretDeleteDialog(props: {
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <DialogClose className="ghost-button" disabled={props.pending}>
-            Cancel
-          </DialogClose>
+          <Button
+            variant="ghost"
+            disabled={props.pending}
+            render={<DialogClose>Cancel</DialogClose>}
+          />
           <Button
             type="button"
             variant="danger"

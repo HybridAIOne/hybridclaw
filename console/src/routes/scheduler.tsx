@@ -584,9 +584,8 @@ function SchedulerTaskDetail(props: {
           </Field>
 
           <div className="button-row">
-            <button
-              className="ghost-button"
-              type="button"
+            <Button
+              variant="ghost"
               disabled={props.pausePending}
               onClick={props.onPauseToggle}
             >
@@ -595,15 +594,14 @@ function SchedulerTaskDetail(props: {
                 : props.job.disabled
                   ? 'Resume task'
                   : 'Pause task'}
-            </button>
-            <button
-              className="danger-button"
-              type="button"
+            </Button>
+            <Button
+              variant="danger"
               disabled={props.deletePending}
               onClick={props.onDelete}
             >
               {props.deletePending ? 'Deleting...' : 'Delete task'}
-            </button>
+            </Button>
           </div>
         </div>
       </CardContent>

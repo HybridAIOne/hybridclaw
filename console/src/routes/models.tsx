@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { fetchModels, saveModels } from '../api/client';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import {
   Card,
   CardContent,
@@ -272,14 +273,12 @@ export function ModelsPage() {
                 </Field>
 
                 <div className="button-row">
-                  <button
-                    className="primary-button"
-                    type="button"
+                  <Button
                     disabled={saveMutation.isPending}
                     onClick={() => saveMutation.mutate()}
                   >
                     {saveMutation.isPending ? 'Saving...' : 'Save selection'}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}

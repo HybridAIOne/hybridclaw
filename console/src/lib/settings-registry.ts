@@ -7,6 +7,7 @@ import {
 import {
   ADMIN_CONFIG_SECTION_OWNERS,
   type AdminConfigSectionOwner,
+  adminChannelOwner,
 } from './admin-config-owners';
 
 export interface SettingsRegistryEntry extends GeneratedSettingEntry {
@@ -34,8 +35,8 @@ const SECTION_OWNERS: Readonly<
   ...ADMIN_CONFIG_SECTION_OWNERS,
   agents: { label: 'Agents', to: '/admin/agents' },
   skills: { label: 'Skills', to: '/admin/skills' },
-  tools: { label: 'Extensions', to: '/admin/extensions?tab=tools' },
-  plugins: { label: 'Extensions', to: '/admin/extensions?tab=plugins' },
+  tools: { label: 'Plugins & Tools', to: '/admin/extensions?tab=tools' },
+  plugins: { label: 'Plugins & Tools', to: '/admin/extensions?tab=plugins' },
   adaptiveSkills: {
     label: 'Harness Evolution',
     to: '/admin/harness-evolution',
@@ -205,7 +206,11 @@ function fieldDescription(entry: GeneratedSettingEntry): string {
 export function settingsOwnerForPath(
   path: string,
 ): AdminConfigSectionOwner | undefined {
-  return FIELD_OWNERS[path] ?? SECTION_OWNERS[path.split('.')[0] ?? ''];
+  const [section, subpage] = path.split('.');
+  if (section === 'channelInstructions' && subpage) {
+    return adminChannelOwner(subpage === 'msteams' ? 'teams' : subpage);
+  }
+  return FIELD_OWNERS[path] ?? SECTION_OWNERS[section ?? ''];
 }
 
 export const SETTINGS_REGISTRY: ReadonlyArray<SettingsRegistryEntry> =

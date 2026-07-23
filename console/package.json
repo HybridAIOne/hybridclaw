@@ -7,7 +7,11 @@
   "scripts": {
     "build": "npm run registry:check && tsc --noEmit && vite build",
     "dev": "vite",
+    "pretest:visual": "npm run build",
+    "pretest:visual:update": "npm run build",
     "test": "vitest run --config vitest.config.ts",
+    "test:visual": "playwright test --config playwright.config.ts",
+    "test:visual:update": "playwright test --config playwright.config.ts --update-snapshots",
     "typecheck": "npm run registry:check && tsc --noEmit",
     "registry:check": "tsx ../scripts/generate-settings-registry.ts --check",
     "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters"
