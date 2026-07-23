@@ -3522,7 +3522,13 @@ export class TrustedAgentApprovalRuntime {
   }
 
   private classifyBashAction(args: Record<string, unknown>): ClassifiedAction {
-    const command = normalizeText(args.command);
+    // Newlines must survive here: buildBashInspectionSurface() strips heredoc
+    // bodies line by line, and CRITICAL_BASH_RE's [^\n] classes assume
+    // multi-line input. normalizeText() collapses newlines, which fed whole
+    // heredoc bodies into path extraction — e.g. PDF object keys like
+    // `/Type` inside a python heredoc classified as write-outside-workspace
+    // paths. Human-facing previews still collapse via normalizePreview().
+    const command = String(args.command || '').trim();
     const inspectionSurface = buildBashInspectionSurface(command);
     const lower = command.toLowerCase();
     const hosts = extractHostsFromUrlLikeText(command);
