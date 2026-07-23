@@ -98,7 +98,13 @@ function readTextFiles(dir, pattern) {
   const texts = [];
   for (const entry of entries) {
     if (!entry.isFile() || !pattern.test(entry.name)) continue;
-    const text = fs.readFileSync(path.join(dir, entry.name), 'utf8').trim();
+    const text = fs
+      .readFileSync(path.join(dir, entry.name), 'utf8')
+      .replace(/\r\n?/g, '\n')
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .join('\n')
+      .trim();
     if (text) texts.push({ file: entry.name, text });
   }
   texts.sort((a, b) => a.file.localeCompare(b.file));

@@ -28,6 +28,8 @@ export function buildTwilioSignature(params: {
       payload += `${name}${value}`;
     }
   }
+  // lgtm[js/insufficient-password-hash] HMAC-SHA1 is mandated by Twilio's
+  // webhook signature protocol; this authenticates a request, not a password.
   return createHmac('sha1', authToken).update(payload, 'utf8').digest('base64');
 }
 

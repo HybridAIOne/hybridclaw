@@ -165,7 +165,9 @@ function sha256Hex(text: string): string {
 
 function shortContentHash(text: string): string | null {
   if (!text) return null;
-  return createHash('md5').update(text).digest('hex').slice(0, 8);
+  // lgtm[js/insufficient-password-hash] This is a short display fingerprint
+  // for redacted trace content, not a password verifier.
+  return createHash('sha256').update(text).digest('hex').slice(0, 8);
 }
 
 function findNearestPackageRoot(startPath: string | undefined): string | null {

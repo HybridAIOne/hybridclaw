@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,6 +9,8 @@ import { afterEach, expect, test, vi } from 'vitest';
 let tempRoot = '';
 const ORIGINAL_POOL_TOKEN = process.env.MANAGED_BROWSER_POOL_TOKEN;
 const ORIGINAL_BIND_HOST = process.env.MANAGED_BROWSER_BIND_HOST;
+const ORIGINAL_ALLOW_PRIVATE_NETWORK =
+  process.env.BROWSER_ALLOW_PRIVATE_NETWORK;
 
 function makeTempRoot(): string {
   tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-browser-guard-'));
@@ -80,6 +83,34 @@ function sendConnect(port: number, authority: string): Promise<string> {
   });
 }
 
+function sendProxyHttpRequest(port: number, target: string): Promise<{
+  body: string;
+  statusCode: number;
+}> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        method: 'GET',
+        path: target,
+      },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          body += chunk;
+        });
+        res.on('end', () =>
+          resolve({ body, statusCode: res.statusCode || 0 }),
+        );
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   if (ORIGINAL_POOL_TOKEN === undefined) {
@@ -91,6 +122,12 @@ afterEach(() => {
     delete process.env.MANAGED_BROWSER_BIND_HOST;
   } else {
     process.env.MANAGED_BROWSER_BIND_HOST = ORIGINAL_BIND_HOST;
+  }
+  if (ORIGINAL_ALLOW_PRIVATE_NETWORK === undefined) {
+    delete process.env.BROWSER_ALLOW_PRIVATE_NETWORK;
+  } else {
+    process.env.BROWSER_ALLOW_PRIVATE_NETWORK =
+      ORIGINAL_ALLOW_PRIVATE_NETWORK;
   }
   if (tempRoot) {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -190,6 +227,107 @@ test('managed browser guard proxy validates CONNECT ports before upstream connec
   expect(invalidPort).toContain('invalid CONNECT port');
 });
 
+test('managed browser guard pins DNS and rejects private targets even when tenant policy allows the host', async () => {
+  const root = makeTempRoot();
+  let upstreamRequests = 0;
+  const upstream = http.createServer((_req, res) => {
+    upstreamRequests += 1;
+    res.end('private response');
+  });
+  const upstreamPort = await listen(upstream);
+  const policyPath = path.join(root, 'tenants.yaml');
+  fs.writeFileSync(
+    policyPath,
+    [
+      'tenants:',
+      '  tenant-a:',
+      '    network:',
+      '      default: deny',
+      '      rules:',
+      '        - action: allow',
+      '          host: 127.0.0.1',
+      `          port: ${upstreamPort}`,
+      '          methods: ["GET"]',
+      '          paths: ["/**"]',
+      '          agent: "*"',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  delete process.env.BROWSER_ALLOW_PRIVATE_NETWORK;
+
+  const { createGuardProxyServer } = await import(
+    '../infra/managed-browser/guard-proxy.js'
+  );
+  const proxy = createGuardProxyServer({
+    policyPath,
+    fixedContext: { tenantId: 'tenant-a', agentId: 'agent-a' },
+  });
+  const proxyPort = await listen(proxy);
+
+  const response = await sendProxyHttpRequest(
+    proxyPort,
+    `http://127.0.0.1:${upstreamPort}/private`,
+  );
+  await new Promise<void>((resolve) => proxy.close(() => resolve()));
+  await new Promise<void>((resolve) => upstream.close(() => resolve()));
+
+  expect(response).toEqual({
+    body: 'target resolution denied',
+    statusCode: 403,
+  });
+  expect(upstreamRequests).toBe(0);
+});
+
+test('managed browser guard forwards to a policy-approved pinned private address only when explicitly enabled', async () => {
+  const root = makeTempRoot();
+  const upstream = http.createServer((_req, res) => {
+    res.end('allowed response');
+  });
+  const upstreamPort = await listen(upstream);
+  const policyPath = path.join(root, 'tenants.yaml');
+  fs.writeFileSync(
+    policyPath,
+    [
+      'tenants:',
+      '  tenant-a:',
+      '    network:',
+      '      default: deny',
+      '      rules:',
+      '        - action: allow',
+      '          host: 127.0.0.1',
+      `          port: ${upstreamPort}`,
+      '          methods: ["GET"]',
+      '          paths: ["/**"]',
+      '          agent: "*"',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  process.env.BROWSER_ALLOW_PRIVATE_NETWORK = 'true';
+
+  const { createGuardProxyServer } = await import(
+    '../infra/managed-browser/guard-proxy.js'
+  );
+  const proxy = createGuardProxyServer({
+    policyPath,
+    fixedContext: { tenantId: 'tenant-a', agentId: 'agent-a' },
+  });
+  const proxyPort = await listen(proxy);
+
+  const response = await sendProxyHttpRequest(
+    proxyPort,
+    `http://127.0.0.1:${upstreamPort}/allowed`,
+  );
+  await new Promise<void>((resolve) => proxy.close(() => resolve()));
+  await new Promise<void>((resolve) => upstream.close(() => resolve()));
+
+  expect(response).toEqual({
+    body: 'allowed response',
+    statusCode: 200,
+  });
+});
+
 test('managed browser pool validates bearer tokens, bind config, and TTL cleanup', async () => {
   const {
     buildPublicCdpUrl,
@@ -268,6 +406,33 @@ test('managed browser pool keeps ping public and protects health when token is s
   expect(unauthenticatedHealth.status).toBe(401);
   expect(authenticatedHealth.status).toBe(200);
   expect(await authenticatedHealth.json()).toMatchObject({ ok: true });
+});
+
+test('managed browser pool does not expose internal error details in responses', async () => {
+  process.env.MANAGED_BROWSER_POOL_TOKEN = 'stack-test-token';
+  vi.resetModules();
+  const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const { createManagedBrowserPoolServer } = await import(
+    '../infra/managed-browser/server.js'
+  );
+  const server = createManagedBrowserPoolServer();
+  const port = await listen(server);
+
+  const response = await fetch(`http://127.0.0.1:${port}/leases`, {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer stack-test-token',
+      'Content-Type': 'application/json',
+    },
+    body: '{}',
+  });
+  const body = await response.json();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+
+  expect(response.status).toBe(500);
+  expect(body).toEqual({ error: 'internal server error' });
+  expect(JSON.stringify(body)).not.toContain('tenantId');
+  expect(errorSpy).toHaveBeenCalled();
 });
 
 test('managed browser pool waits for a valid DevToolsActivePort file', async () => {

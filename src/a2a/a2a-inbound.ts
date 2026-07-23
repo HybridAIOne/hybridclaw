@@ -147,11 +147,16 @@ export function extractA2AMtlsPublicKeyPem(
 
 function extractBearerToken(authorization: string | null | undefined): string {
   const normalized = String(authorization || '').trim();
-  const match = normalized.match(/^Bearer\s+(.+)$/i);
-  if (!match?.[1]?.trim()) {
+  const separator = [...normalized].findIndex((character) =>
+    /\s/u.test(character),
+  );
+  const scheme =
+    separator < 0 ? normalized : normalized.slice(0, separator).trim();
+  const token = separator < 0 ? '' : normalized.slice(separator).trim();
+  if (scheme.toLowerCase() !== 'bearer' || !token) {
     throw new A2ADelegationTokenError('Authorization bearer token is required');
   }
-  return match[1].trim();
+  return token;
 }
 
 function normalizeAudience(url: URL): string {

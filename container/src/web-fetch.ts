@@ -9,6 +9,7 @@
 
 import { lookup } from 'node:dns/promises';
 import net from 'node:net';
+import { stripTags } from './search-utils.js';
 
 const DEFAULT_MAX_CHARS = 50_000;
 const MAX_RESPONSE_BYTES = 2_000_000;
@@ -103,22 +104,67 @@ function writeCache(key: string, value: WebFetchResult): void {
   cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
-function decodeEntities(value: string): string {
-  return value
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
-      String.fromCharCode(parseInt(hex, 16)),
-    )
-    .replace(/&#(\d+);/gi, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
+function findHtmlTagEnd(value: string, start: number): number {
+  let quote = '';
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote) {
+      if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '>') {
+      return index;
+    }
+  }
+  return -1;
 }
 
-function stripTags(value: string): string {
-  return decodeEntities(value.replace(/<[^>]+>/g, ''));
+function removeRawHtmlElement(value: string, tagName: string): string {
+  const lower = value.toLowerCase();
+  const openPrefix = `<${tagName}`;
+  const closePrefix = `</${tagName}`;
+  let output = '';
+  let cursor = 0;
+  while (cursor < value.length) {
+    let openStart = lower.indexOf(openPrefix, cursor);
+    while (
+      openStart >= 0 &&
+      ![' ', '\t', '\r', '\n', '>', '/'].includes(
+        lower[openStart + openPrefix.length] || '',
+      )
+    ) {
+      openStart = lower.indexOf(openPrefix, openStart + openPrefix.length);
+    }
+    if (openStart < 0) break;
+    output += value.slice(cursor, openStart);
+    const openEnd = findHtmlTagEnd(value, openStart + openPrefix.length);
+    if (openEnd < 0) return output;
+
+    let closeStart = lower.indexOf(closePrefix, openEnd + 1);
+    while (
+      closeStart >= 0 &&
+      ![' ', '\t', '\r', '\n', '>'].includes(
+        lower[closeStart + closePrefix.length] || '',
+      )
+    ) {
+      closeStart = lower.indexOf(closePrefix, closeStart + closePrefix.length);
+    }
+    if (closeStart < 0) return output;
+    const closeEnd = findHtmlTagEnd(value, closeStart + closePrefix.length);
+    if (closeEnd < 0) return output;
+    cursor = closeEnd + 1;
+  }
+  return output + value.slice(cursor);
+}
+
+function removeRawHtmlElements(value: string): string {
+  let output = value;
+  for (const tagName of ['script', 'style', 'noscript']) {
+    output = removeRawHtmlElement(output, tagName);
+  }
+  return output;
 }
 
 function normalizeWhitespace(value: string): string {
@@ -136,10 +182,7 @@ function htmlToMarkdown(html: string): { text: string; title?: string } {
     ? normalizeWhitespace(stripTags(titleMatch[1]))
     : undefined;
 
-  let text = html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, '');
+  let text = removeRawHtmlElements(html);
 
   // Links
   text = text.replace(

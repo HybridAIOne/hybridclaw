@@ -947,16 +947,15 @@ function endpointBasePayload(surface, operation, stakesTier) {
 
 function smarthomeEventGatewayUrl(opts) {
   const host = opts.regionHost || DEFAULT_SMARTHOME_REGION_HOST;
-  if (
-    ![
-      'api.amazonalexa.com',
-      'api.eu.amazonalexa.com',
-      'api.fe.amazonalexa.com',
-    ].includes(host)
-  ) {
-    fail(
-      '--region-host must be one of api.amazonalexa.com, api.eu.amazonalexa.com, api.fe.amazonalexa.com.',
-    );
+  switch (host) {
+    case 'api.amazonalexa.com':
+    case 'api.eu.amazonalexa.com':
+    case 'api.fe.amazonalexa.com':
+      break;
+    default:
+      fail(
+        '--region-host must be one of api.amazonalexa.com, api.eu.amazonalexa.com, api.fe.amazonalexa.com.',
+      );
   }
   return `https://${host}/v3/events`;
 }

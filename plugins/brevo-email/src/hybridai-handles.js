@@ -1,10 +1,10 @@
 import { normalizeLower } from './normalize.js';
 
 function normalizeBaseUrl(value) {
-  const trimmed = String(value || '')
-    .trim()
-    .replace(/\/+$/, '');
-  return trimmed || 'https://hybridai.one';
+  const trimmed = String(value || '').trim();
+  let end = trimmed.length;
+  while (end > 0 && trimmed[end - 1] === '/') end -= 1;
+  return trimmed.slice(0, end) || 'https://hybridai.one';
 }
 
 const HYBRIDAI_HANDLES_TIMEOUT_MS = 10_000;

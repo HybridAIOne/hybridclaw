@@ -468,6 +468,11 @@ function runHostBash(
   args: string[],
   timeoutMs: number,
 ): SpawnSyncReturns<string> {
+  // lgtm[js/command-line-injection] Executing a caller-supplied command is the
+  // explicit contract of the approval-gated bash tool; arguments are passed
+  // positionally to a fixed executable rather than interpolated into a command.
+  // lgtm[js/shell-command-injection-from-environment] Workspace paths are
+  // positional wrapper arguments and cwd metadata, not shell source text.
   return spawnSync('bash', args, {
     timeout: timeoutMs,
     encoding: 'utf-8',

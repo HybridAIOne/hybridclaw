@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import net from 'node:net';
 
 /**
@@ -145,10 +145,7 @@ export function dockerExec(
   cmd: string,
   timeoutMs = 10_000,
 ): string {
-  // Double-quote the sh -c argument so single quotes work inside commands.
-  // Only double quotes are escaped — does not protect against $() or backticks.
-  const escaped = cmd.replace(/"/g, '\\"');
-  return execSync(`docker exec ${containerName} sh -c "${escaped}"`, {
+  return execFileSync('docker', ['exec', containerName, 'sh', '-c', cmd], {
     encoding: 'utf-8',
     timeout: timeoutMs,
   }).trim();

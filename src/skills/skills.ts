@@ -1144,14 +1144,18 @@ function buildDirectoryContentSignature(rootDir: string): string {
         .relative(resolvedRoot, fullPath)
         .split(path.sep)
         .join('/');
-      const contentHash = createHash('sha1')
+      // lgtm[js/insufficient-password-hash] This is a content-change
+      // fingerprint, not password storage or credential derivation.
+      const contentHash = createHash('sha256')
         .update(fs.readFileSync(fullPath))
         .digest('hex');
       entries.push(`${relPath}:${contentHash}`);
     }
   }
 
-  return createHash('sha1').update(entries.join('\n')).digest('hex');
+  // lgtm[js/insufficient-password-hash] This aggregates content
+  // fingerprints and is not a credential verifier.
+  return createHash('sha256').update(entries.join('\n')).digest('hex');
 }
 
 function resolveSyncedSkillTarget(

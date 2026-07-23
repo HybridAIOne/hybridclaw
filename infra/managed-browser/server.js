@@ -501,8 +501,9 @@ async function route(req, res) {
 export function createManagedBrowserPoolServer() {
   const server = http.createServer((req, res) => {
     route(req, res).catch((error) => {
+      console.error('managed browser request failed', error);
       sendJson(res, 500, {
-        error: error instanceof Error ? error.message : String(error),
+        error: 'internal server error',
       });
     });
   });

@@ -44,10 +44,11 @@ export function formatSlackMrkdwn(content: string): string {
 
   text = text.replace(/^(>+\s)/gm, (match) => stashPlaceholder(match));
 
-  text = text
-    .replaceAll('&amp;', '&')
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>');
+  text = text.replace(/&(amp|lt|gt);/g, (_entity, name: string) => {
+    if (name === 'amp') return '&';
+    if (name === 'lt') return '<';
+    return '>';
+  });
   text = text
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')

@@ -213,7 +213,7 @@ test('fetchHybridAIBots scopes cached bot lists by base URL', async () => {
   process.env.HYBRIDAI_API_KEY = 'hai-bot-test';
 
   const fetchSpy = vi.fn(async (url: string) => {
-    const id = url.startsWith('https://hybridai.one')
+    const id = new URL(url).origin === 'https://hybridai.one'
       ? 'official-bot'
       : 'custom-bot';
     return new Response(JSON.stringify({ data: [{ id, name: id }] }), {

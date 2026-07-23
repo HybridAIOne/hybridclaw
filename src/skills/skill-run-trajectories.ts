@@ -614,6 +614,8 @@ export function getSkillRunTrajectories(params: {
     return records
       .map((record) => ({
         record,
+        // lgtm[js/insufficient-password-hash] This stable digest orders
+        // trajectory samples; it never verifies or stores credentials.
         sampleKey: createHash('sha256')
           .update(
             `${seed}\0${record.skill_id}\0${record.agent_id}\0${record.run_id}\0${record.captured_at}`,

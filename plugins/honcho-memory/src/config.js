@@ -111,10 +111,12 @@ function normalizeBaseUrl(value) {
 
 function defaultWorkspaceId(cwd) {
   const base = path.basename(String(cwd || '').trim()) || 'hybridclaw';
-  const normalized = base
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+  let normalized = base.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  let start = 0;
+  let end = normalized.length;
+  while (normalized[start] === '-') start += 1;
+  while (end > start && normalized[end - 1] === '-') end -= 1;
+  normalized = normalized.slice(start, end);
   return normalized || 'hybridclaw';
 }
 

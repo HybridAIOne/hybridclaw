@@ -33,23 +33,119 @@ const SECOND_OPINION_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
 function decodeEntities(value: string): string {
-  return value
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
-      String.fromCharCode(Number.parseInt(hex, 16)),
-    )
-    .replace(/&#(\d+);/gi, (_, dec) =>
-      String.fromCharCode(Number.parseInt(dec, 10)),
-    );
+  return value.replace(
+    /&(nbsp|amp|quot|#39|lt|gt|#x([0-9a-f]+)|#(\d+));/gi,
+    (
+      entity,
+      name: string,
+      hex: string | undefined,
+      dec: string | undefined,
+    ) => {
+      if (hex) return String.fromCharCode(Number.parseInt(hex, 16));
+      if (dec) return String.fromCharCode(Number.parseInt(dec, 10));
+      switch (name.toLowerCase()) {
+        case 'nbsp':
+          return ' ';
+        case 'amp':
+          return '&';
+        case 'quot':
+          return '"';
+        case '#39':
+          return "'";
+        case 'lt':
+          return '<';
+        case 'gt':
+          return '>';
+        default:
+          return entity;
+      }
+    },
+  );
 }
 
 function stripTags(value: string): string {
-  return decodeEntities(value.replace(/<[^>]+>/g, ''));
+  let output = '';
+  let inTag = false;
+  let quote = '';
+  for (const character of value) {
+    if (!inTag) {
+      if (character === '<') {
+        inTag = true;
+      } else {
+        output += character;
+      }
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '>') {
+      inTag = false;
+    }
+  }
+  return decodeEntities(output);
+}
+
+function findHtmlTagEnd(value: string, start: number): number {
+  let quote = '';
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote) {
+      if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '>') {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function removeRawHtmlElement(value: string, tagName: string): string {
+  const lower = value.toLowerCase();
+  const openPrefix = `<${tagName}`;
+  const closePrefix = `</${tagName}`;
+  let output = '';
+  let cursor = 0;
+  while (cursor < value.length) {
+    let openStart = lower.indexOf(openPrefix, cursor);
+    while (
+      openStart >= 0 &&
+      ![' ', '\t', '\r', '\n', '>', '/'].includes(
+        lower[openStart + openPrefix.length] || '',
+      )
+    ) {
+      openStart = lower.indexOf(openPrefix, openStart + openPrefix.length);
+    }
+    if (openStart < 0) break;
+    output += value.slice(cursor, openStart);
+    const openEnd = findHtmlTagEnd(value, openStart + openPrefix.length);
+    if (openEnd < 0) return output;
+
+    let closeStart = lower.indexOf(closePrefix, openEnd + 1);
+    while (
+      closeStart >= 0 &&
+      ![' ', '\t', '\r', '\n', '>'].includes(
+        lower[closeStart + closePrefix.length] || '',
+      )
+    ) {
+      closeStart = lower.indexOf(closePrefix, closeStart + closePrefix.length);
+    }
+    if (closeStart < 0) return output;
+    const closeEnd = findHtmlTagEnd(value, closeStart + closePrefix.length);
+    if (closeEnd < 0) return output;
+    cursor = closeEnd + 1;
+  }
+  return output + value.slice(cursor);
+}
+
+function removeRawHtmlElements(value: string): string {
+  return removeRawHtmlElement(removeRawHtmlElement(value, 'script'), 'style');
 }
 
 function normalizeWhitespace(value: string): string {
@@ -353,9 +449,7 @@ function buildProviderChain(): SecondOpinionWebSearchProvider[] {
 }
 
 function htmlToExcerpt(value: string): string {
-  const withoutScripts = value
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ');
+  const withoutScripts = removeRawHtmlElements(value);
   return normalizeWhitespace(stripTags(withoutScripts)).slice(
     0,
     SECOND_OPINION_FETCH_EXCERPT_LIMIT,

@@ -321,6 +321,8 @@ function buildEventUid(
     row.timestamp,
     row.run_id,
   ].join('|');
+  // lgtm[js/insufficient-password-hash] This digest is an event idempotency
+  // key, not a credential or password verifier.
   return createHash('sha256').update(raw).digest('hex');
 }
 

@@ -94,6 +94,17 @@ describe('gateway docs HTTP integration', () => {
     expect(html.toLowerCase()).toContain('install');
   });
 
+  it('escapes markup supplied through the docs search query', async () => {
+    const payload = '<script id="search-injection">alert(1)</script>';
+    const res = await fetch(
+      `${baseUrl}/docs?search=${encodeURIComponent(payload)}`,
+    );
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).not.toContain('<script id="search-injection">');
+    expect(html).toContain('&lt;script');
+  });
+
   it('GET /development/getting-started returns a marked legacy redirect to /docs/getting-started', async () => {
     const res = await fetch(`${baseUrl}/development/getting-started`, {
       redirect: 'manual',

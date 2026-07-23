@@ -819,7 +819,7 @@ describe('reference invoice adapters', () => {
   test('AWS adapter signs Invoicing API requests and downloads invoice PDFs', async () => {
     const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.includes('invoicing.us-east-1.amazonaws.com')) {
+      if (new URL(url).hostname === 'invoicing.us-east-1.amazonaws.com') {
         expect(init?.headers).toEqual(
           expect.objectContaining({
             authorization: expect.stringContaining('AWS4-HMAC-SHA256'),
@@ -952,7 +952,7 @@ describe('reference invoice adapters', () => {
   test('GCP adapter verifies Cloud Billing access and uses browser driver for billing documents', async () => {
     const fetchMock = vi.fn(async (input: string | URL) => {
       const url = String(input);
-      if (url.includes('cloudbilling.googleapis.com')) {
+      if (new URL(url).hostname === 'cloudbilling.googleapis.com') {
         expect(url).toContain('/billingAccounts/ABCDEF-123456-789ABC');
         return new Response(
           JSON.stringify({
@@ -1029,7 +1029,7 @@ describe('reference invoice adapters', () => {
   test('GCP adapter obtains OAuth tokens from refresh-token credentials', async () => {
     const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.includes('oauth2.googleapis.com')) {
+      if (new URL(url).hostname === 'oauth2.googleapis.com') {
         expect(String(init?.body)).toContain('grant_type=refresh_token');
         return new Response(JSON.stringify({ access_token: 'oauth-token' }), {
           status: 200,
