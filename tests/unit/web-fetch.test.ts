@@ -1,10 +1,74 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.resetModules();
   vi.doUnmock('node:dns/promises');
   vi.unstubAllGlobals();
+});
+
+describe('web fetch timeout', () => {
+  it('rejects and cancels a response body that stalls after headers', async () => {
+    vi.useFakeTimers();
+    const cancelMock = vi.fn();
+    const stalledBody = new ReadableStream<Uint8Array>({
+      cancel: cancelMock,
+    });
+    const fetchMock = vi.fn(async () => {
+      return new Response(stalledBody, {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { webFetch } = await import('../../container/src/web-fetch.js');
+    const outcome = webFetch({
+      url: 'https://93.184.216.34/stalled-body',
+      extractMode: 'text',
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(await outcome).toMatchObject({
+      name: 'TimeoutError',
+      message: 'Web fetch timed out after 30000ms',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects when the SSRF DNS lookup does not settle', async () => {
+    vi.useFakeTimers();
+    const lookupMock = vi.fn(
+      () => new Promise<never>(() => undefined),
+    );
+    vi.doMock('node:dns/promises', () => ({ lookup: lookupMock }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { webFetch } = await import('../../container/src/web-fetch.js');
+    const outcome = webFetch({
+      url: 'https://stalled.example/resource',
+      extractMode: 'text',
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(await outcome).toMatchObject({
+      name: 'TimeoutError',
+      message: 'Web fetch timed out after 30000ms',
+    });
+    expect(lookupMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('web fetch Cloudflare challenge retry', () => {
