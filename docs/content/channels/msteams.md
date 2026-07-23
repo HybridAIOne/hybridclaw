@@ -61,7 +61,8 @@ is not required.
    prompted.
 3. Enter the **Application (client) ID** from Step 1. If Azure asks for a tenant
    ID, enter the **Directory (tenant) ID** from the same app registration.
-4. Set the bot's messaging endpoint to:
+4. Set the bot's messaging endpoint. For a HybridClaw Cloud instance, replace
+   the placeholder with the cloud hostname assigned to your instance:
 
    ```text
    https://u-xxxxxxxxxxxx.sbx.hybridai.one/api/msteams/messages
@@ -70,18 +71,19 @@ is not required.
 5. In the Azure Bot resource, open **Settings** -> **Channels** and enable the
    **Microsoft Teams** channel.
 
-The endpoint above is for the hosted HybridClaw environment used by this guide.
-For a different cloud or self-hosted deployment, use its public HTTPS origin
-with the same path:
+The `u-xxxxxxxxxxxx.sbx.hybridai.one` pattern applies only to HybridClaw Cloud
+instances. For a local HybridClaw instance, first open a public HTTPS tunnel
+using ngrok or Tailscale Funnel. Follow
+[Configure Local With A Public Tunnel](../getting-started/local-vs-cloud.md#configure-local-with-a-public-tunnel),
+then use the tunnel's public hostname with the same path:
 
 ```text
-https://<your-public-host>/api/msteams/messages
+https://<your-tunnel-host>/api/msteams/messages
 ```
 
-For local testing, expose the gateway's HTTP port through an HTTPS tunnel or
-reverse proxy first. The local endpoint is
-`http://127.0.0.1:9090/api/msteams/messages`, but Azure Bot must be configured
-with the public HTTPS URL.
+The local gateway endpoint is
+`http://127.0.0.1:9090/api/msteams/messages`, but Azure Bot cannot call that
+loopback address and must be configured with the public tunnel URL.
 
 ## Step 5: Create and download the Teams app
 
