@@ -2,21 +2,68 @@
 
 ## Unreleased
 
+## [0.28.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.4) - 2026-07-24
+
 ### Added
 
 - **Once-per-release console updates**: The admin console shows an ultra-short
   What's New dialog once for each release, and the sidebar version number
   reopens it on demand.
+- **Complete Microsoft Teams setup in the console**: The Channels workspace can
+  store the required Teams app password in encrypted runtime secrets, reports
+  whether it is configured, and does not mark Teams active until the app ID,
+  tenant ID, and password are all ready.
+
+### Changed
+
+- **Stable conversation prompt caching**: Static core instructions, workspace
+  memory, and skills use stable prompt segments; turn-local context sits beside
+  the latest user turn; and history trimming preserves complete messages.
+  Anthropic requests add cache breakpoints across stable prompt blocks and the
+  retained conversation prefix, improving reuse across tool loops and later
+  turns.
+- **Refined admin navigation and design system**: Admin tabs are searchable
+  from the command palette, clearer labels and icons make grouped workflows
+  easier to scan, Labs starts collapsed, and shared components plus visual
+  contract tests keep console surfaces consistent.
+- **Expanded Microsoft Teams guidance**: The channel documentation covers local
+  tunnel setup, Entra registration, client secrets, SSO values, manifest
+  packaging, installation, and troubleshooting as one end-to-end workflow.
+- **Age-eligible dependency refresh**: Pinned runtime and development packages
+  move to releases that satisfy the repository's minimum-age policy. Generated
+  metadata drops stale workspace lock entries and keeps Electron's newer
+  `undici` override scoped to its download helper.
+
+### Fixed
+
+- **HybridAI activity notifications show the actual user prompt**: Interactive
+  agent turns send the raw user text as transient request metadata, separately
+  from the compiled model context. Background turns omit the field, and
+  confidential values are redacted before the prompt crosses the sandbox
+  boundary.
+- **Shell approval inspection preserves heredoc boundaries**: Bash
+  classification keeps newlines while removing heredoc bodies, preventing
+  content such as PDF object keys from being misread as writes outside the
+  workspace.
+- **Web fetches respect their deadline**: DNS resolution, redirects, response
+  headers, and body streaming share an enforced timeout instead of allowing a
+  stalled phase to run indefinitely.
+- **Inline PDF previews work under the console CSP**: Blob-backed PDF artifacts
+  can render in the sandboxed preview while retaining their pinned PDF content
+  type.
+- **Microsoft Teams app icon visibility**: The manifest's outline icon uses a
+  white glyph on transparency so it remains visible in the Teams app rail.
+- **Release provenance audit setup**: The publish workflow installs every
+  component's dependencies before verifying npm registry signatures.
+- **CodeQL security hardening**: Managed-browser proxy connections resolve and
+  pin policy-checked addresses while rejecting private-network targets; docs
+  and static-file serving validate filesystem boundaries; channel and plugin
+  errors avoid exposing internal details; URL, hostname, and HTML parsing use
+  stricter validation; and non-credential content fingerprints use SHA-256.
 
 ## [0.28.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.3) - 2026-07-22
 
 ### Fixed
-
-- **HybridAI activity notifications now show the actual user prompt**:
-  interactive agent turns send the raw user text as transient request metadata,
-  separately from the compiled model context. Background turns omit the field,
-  and confidential values are redacted before the prompt crosses the sandbox
-  boundary.
 
 - **Prompt-cache usage is now visible through the OpenAI-compatible API**: the
   gateway parsed upstream cache reads and writes internally but dropped them

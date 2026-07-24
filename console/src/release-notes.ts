@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.28.3',
+  version: '0.28.4',
   highlights: [
-    'Encrypted A2A gateway messaging.',
-    'Automatic model-tier failover.',
-    'Direct OpenAI API support.',
-    'Searchable admin settings.',
+    'Stable conversation prompt caching.',
+    'Refined admin navigation and design.',
+    'Guided Microsoft Teams setup.',
+    'Security and dependency hardening.',
   ],
 } as const;
 
