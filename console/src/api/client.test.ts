@@ -316,14 +316,14 @@ describe('client command helpers', () => {
       }),
     );
 
-    await installPlugin('test-token', '@hybridaione/hybridclaw-whatsapp');
+    await installPlugin('test-token', '@example/plugin-package');
 
     const request = vi.mocked(fetch).mock.calls[0]?.[1];
     expect(JSON.parse(String(request?.body))).toEqual({
       sessionId: 'web-admin-channels',
       guildId: null,
       channelId: 'web',
-      args: ['plugin', 'install', '@hybridaione/hybridclaw-whatsapp', '--yes'],
+      args: ['plugin', 'install', '@example/plugin-package', '--yes'],
     });
   });
 

@@ -8,8 +8,8 @@ Section 4(d)).
 
 This file is generated from the committed lockfiles by
 `scripts/generate-third-party-notices.mjs`; regenerate with `npm run notices`.
-Scope: production dependencies of core distributed components; the opt-in WhatsApp plugin carries a separate notice file.
-Dev-only tooling is not distributed and therefore not listed. Platform-specific
+Scope: production dependencies of each distributed component. Dev-only
+tooling is not distributed and therefore not listed. Platform-specific
 optional dependencies are inventoried from lockfile metadata; their license
 texts ship inside the respective packages.
 

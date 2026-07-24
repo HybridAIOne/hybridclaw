@@ -1356,7 +1356,7 @@ async function importFreshCli(options?: {
     createWhatsAppPairingSession,
     isWhatsAppTransportInstalled: vi.fn(() => true),
     WHATSAPP_PLUGIN_INSTALL_HINT:
-      'Install it with: hybridclaw plugin install @hybridaione/hybridclaw-whatsapp',
+      'Install it with: hybridclaw plugin install https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
   }));
   vi.doMock('node:readline/promises', () => ({
     default: {
@@ -3138,7 +3138,8 @@ describe('CLI hybridai commands', () => {
       pluginInstallResult: {
         pluginId: 'whatsapp',
         pluginDir: '/tmp/.hybridclaw/plugins/whatsapp',
-        source: '@hybridaione/hybridclaw-whatsapp',
+        source:
+          'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
         alreadyInstalled: false,
         dependenciesInstalled: true,
         dependencySummary: {
@@ -3157,7 +3158,7 @@ describe('CLI hybridai commands', () => {
     await cli.main(['plugin', 'enable', 'whatsapp', '--yes']);
 
     expect(installPlugin).toHaveBeenCalledWith(
-      '@hybridaione/hybridclaw-whatsapp',
+      'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
       {
         approveDependencyInstall: true,
         onDependenciesAlreadySatisfied: expect.any(Function),

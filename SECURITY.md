@@ -215,13 +215,14 @@ Dependency updates should use `npm ci` for verification and keep
 ad-hoc `npm update` runs; use the lockfile-only update script below so npm's
 configured release-age gate applies and the resulting diff can be reviewed. Do
 not add git, tarball, or non-registry dependencies without a specific security
-review. The optional WhatsApp plugin has its own dependency closure and
-lockfiles under `plugins/whatsapp/`; those dependencies are not conveyed in
-core npm, Docker, desktop, or Homebrew artifacts. Normal core install, update,
-setup, build, lint, typecheck, test, and release workflows do not install or
-compile the plugin. Its dependency tree is installed only through an explicit
-plugin enable/install action (with dependency approval) or an explicitly named
-WhatsApp-plugin development command.
+review. The optional WhatsApp plugin has its own GPL-3.0-only repository,
+lockfiles, dependency policy, license notices, CI, and release artifacts at
+[`HybridAIOne/hybridclaw-whatsapp`](https://github.com/HybridAIOne/hybridclaw-whatsapp).
+Those sources and dependencies are not conveyed in core npm, Docker, desktop,
+or Homebrew artifacts. Normal core install, update, setup, build, lint,
+typecheck, test, audit, and release workflows do not download or compile the
+plugin. Its dependency tree is installed only through an explicit plugin
+enable/install action with dependency approval.
 
 The optional-at-runtime LINE personal-account channel uses version-pinned JSR
 tarballs from `https://npm.jsr.io` because JSR packages are not resolvable from

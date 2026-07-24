@@ -14,7 +14,8 @@ export interface ChannelPluginStatus extends ChannelPluginCatalogEntry {
 const CHANNEL_PLUGIN_CATALOG = {
   whatsapp: {
     pluginId: 'whatsapp',
-    installSource: '@hybridaione/hybridclaw-whatsapp',
+    installSource:
+      'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
   },
 } as const satisfies Partial<
   Record<ChannelKind, Omit<ChannelPluginCatalogEntry, 'channel'>>

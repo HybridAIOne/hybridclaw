@@ -4,11 +4,12 @@
 
 ### Fixed
 
-- **WhatsApp remains strictly install-on-demand**: Normal core install, update,
-  setup, build, lint, typecheck, test, and release workflows do not install or
-  compile the separate WhatsApp package. Explicitly enabling WhatsApp routes
-  through the approved plugin installer, and its license notices ship with the
-  plugin instead of the core notice bundle.
+- **WhatsApp remains strictly install-on-demand**: Its source, dependencies,
+  license notices, CI, and releases live in the separate GPL-3.0-only
+  `HybridAIOne/hybridclaw-whatsapp` repository. Normal core install, update,
+  setup, build, lint, typecheck, test, audit, and release workflows never fetch
+  or compile it. Explicitly enabling WhatsApp installs a pinned release through
+  the approved plugin installer.
 - **HybridAI requests omit duplicate prompt metadata**: Agent turns no longer
   copy raw user text into a separate provider request field, preventing
   OpenAI-compatible backends from forwarding it as completion metadata.
@@ -188,7 +189,7 @@
   `libsignal` dependency are excluded from core npm, Docker, desktop, and
   Homebrew artifacts. Existing linked sessions remain in
   `~/.hybridclaw/credentials/whatsapp`; install the transport with
-  `hybridclaw plugin install @hybridaione/hybridclaw-whatsapp`.
+  `hybridclaw plugin enable whatsapp`.
 - **Secret inspection terminology**: `hybridclaw secret status <NAME>` and
   `/secret status <NAME>` replace the misleading `secret show` spelling. The
   command reports only whether a secret exists and never decrypts or prints its

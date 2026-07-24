@@ -4,11 +4,7 @@
     "npm-shrinkwrap.json": "fa929eaa1a8a7a2373fdde74aa194e5a68c994c140d56efaa61f1ff8f8cfbb62",
     "container/package-lock.json": "35807746f66699475cc7bb271d2589f654e350b413abecd5e99417ad1809e0e0",
     "container/npm-shrinkwrap.json": "35807746f66699475cc7bb271d2589f654e350b413abecd5e99417ad1809e0e0",
-    "plugins/brevo-email/package-lock.json": "3377225eb3bdbb252eaa28ad420b9a725ea1da533417388557aa1984730229b5",
-    "plugins/whatsapp/package-lock.json": "a80140f6687804addf0416a443c1c578fed6d89771f6a03eee5adeccdd9bae86",
-    "plugins/whatsapp/npm-shrinkwrap.json": "a80140f6687804addf0416a443c1c578fed6d89771f6a03eee5adeccdd9bae86"
+    "plugins/brevo-email/package-lock.json": "3377225eb3bdbb252eaa28ad420b9a725ea1da533417388557aa1984730229b5"
   },
-  "licenses": {
-    "libsignal@6.0.0": "GPL-3.0"
-  }
+  "licenses": {}
 }

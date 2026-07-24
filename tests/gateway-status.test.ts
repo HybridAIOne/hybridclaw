@@ -936,7 +936,8 @@ test('getGatewayStatus includes the current WhatsApp pairing QR text', async () 
   expect(status.channelPlugins).toContainEqual({
     channel: 'whatsapp',
     pluginId: 'whatsapp',
-    installSource: '@hybridaione/hybridclaw-whatsapp',
+    installSource:
+      'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
     transportAvailable: false,
   });
   expect(status.whatsapp).toMatchObject({

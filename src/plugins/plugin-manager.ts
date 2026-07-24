@@ -13,7 +13,6 @@ import {
   type MiddlewarePhase,
 } from '../agent/middleware.js';
 import type { ChannelInfo } from '../channels/channel.js';
-import { getChannelPluginCatalogEntryByPluginId } from '../channels/channel-plugin-catalog.js';
 import {
   listChannels,
   registerChannel,
@@ -1066,18 +1065,7 @@ export class PluginManager {
     const out: PluginCandidate[] = [];
     for (const entry of entries) {
       try {
-        const manifestPath = path.join(entry, MANIFEST_FILE_NAME);
-        if (!fs.existsSync(manifestPath)) {
-          throw new Error(`Missing ${MANIFEST_FILE_NAME}`);
-        }
-        const manifest = loadPluginManifest(manifestPath);
-        if (
-          source === 'bundled' &&
-          getChannelPluginCatalogEntryByPluginId(manifest.id)
-        ) {
-          continue;
-        }
-        out.push(this.scanPluginDir(entry, source, manifest));
+        out.push(this.scanPluginDir(entry, source));
       } catch (error) {
         this.logger.warn(
           { pluginDir: entry, source, error },
@@ -1091,13 +1079,12 @@ export class PluginManager {
   private scanPluginDir(
     dir: string,
     source: PluginCandidate['source'],
-    loadedManifest?: PluginManifest,
   ): PluginCandidate {
     const manifestPath = path.join(dir, MANIFEST_FILE_NAME);
     if (!fs.existsSync(manifestPath)) {
       throw new Error(`Missing ${MANIFEST_FILE_NAME}`);
     }
-    const manifest = loadedManifest || loadPluginManifest(manifestPath);
+    const manifest = loadPluginManifest(manifestPath);
     const entrypoint = resolvePluginEntrypoint(dir, manifest);
     return {
       id: manifest.id,

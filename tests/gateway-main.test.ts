@@ -578,7 +578,7 @@ async function importFreshGatewayMain(options?: {
     sendWhatsAppMediaToChat: vi.fn(async () => {}),
     shutdownWhatsApp: state.shutdownWhatsApp,
     WHATSAPP_PLUGIN_INSTALL_HINT:
-      'Install it with: hybridclaw plugin install @hybridaione/hybridclaw-whatsapp',
+      'Install it with: hybridclaw plugin install https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
   }));
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
     ensurePluginManagerInitialized: vi.fn(async () => ({})),

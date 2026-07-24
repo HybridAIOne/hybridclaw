@@ -47,7 +47,7 @@ async function importFreshCli(
     }),
     isWhatsAppTransportInstalled: () => true,
     WHATSAPP_PLUGIN_INSTALL_HINT:
-      'Install it with: hybridclaw plugin install @hybridaione/hybridclaw-whatsapp',
+      'Install it with: hybridclaw plugin install https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
   }));
   vi.doMock('../src/plugins/plugin-manager.ts', () => ({
     ensurePluginManagerInitialized: async () => ({}),

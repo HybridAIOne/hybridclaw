@@ -1148,7 +1148,8 @@ test('handleGatewayCommand installs a registered on-demand plugin when enabling 
   installPluginMock.mockResolvedValueOnce({
     pluginId: 'whatsapp',
     pluginDir: '/tmp/.hybridclaw/plugins/whatsapp',
-    source: '@hybridaione/hybridclaw-whatsapp',
+    source:
+      'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
     alreadyInstalled: false,
     dependenciesInstalled: true,
     dependencySummary: {
@@ -1176,7 +1177,7 @@ test('handleGatewayCommand installs a registered on-demand plugin when enabling 
   });
 
   expect(installPluginMock).toHaveBeenCalledWith(
-    '@hybridaione/hybridclaw-whatsapp',
+    'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
     { approveDependencyInstall: false },
   );
   expect(setPluginEnabledMock).toHaveBeenCalledWith('whatsapp', true);
@@ -1213,7 +1214,8 @@ test('handleTextChannelApprovalCommand approves install-on-demand plugin enable 
     .mockResolvedValueOnce({
       pluginId: 'whatsapp',
       pluginDir: '/tmp/.hybridclaw/plugins/whatsapp',
-      source: '@hybridaione/hybridclaw-whatsapp',
+      source:
+        'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
       alreadyInstalled: false,
       dependenciesInstalled: true,
       dependencySummary: {
@@ -1264,7 +1266,7 @@ test('handleTextChannelApprovalCommand approves install-on-demand plugin enable 
   expect(handled).not.toBeNull();
   expect(installPluginMock).toHaveBeenNthCalledWith(
     3,
-    '@hybridaione/hybridclaw-whatsapp',
+    'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
     { approveDependencyInstall: true },
   );
   expect(setPluginEnabledMock).toHaveBeenCalledWith('whatsapp', true);

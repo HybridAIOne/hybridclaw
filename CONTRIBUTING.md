@@ -61,8 +61,8 @@ Notes:
   `container/`.
 - `npm run build` compiles both the root package and the container runtime.
 - Core setup, build, lint, typecheck, and tests do not install or compile the
-  opt-in WhatsApp plugin. Run `npm run check:whatsapp-plugin` explicitly when
-  working on that separate package.
+  opt-in WhatsApp plugin. Contribute to that GPL-licensed package in
+  [`HybridAIOne/hybridclaw-whatsapp`](https://github.com/HybridAIOne/hybridclaw-whatsapp).
 
 ## Everyday Commands
 

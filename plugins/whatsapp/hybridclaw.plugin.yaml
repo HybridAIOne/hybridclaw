@@ -1,8 +1,0 @@
-id: whatsapp
-name: WhatsApp
-version: 0.1.0
-kind: channel
-description: WhatsApp Web channel transport for HybridClaw.
-entrypoint: dist/index.js
-requires:
-  node: 22.x
