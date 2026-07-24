@@ -59,4 +59,47 @@ describe.sequential('container delegate tool', () => {
       },
     ]);
   });
+
+  test('accepts per-spawn tier overrides and rejects ambiguous model overrides', async () => {
+    const accepted = await executeTool(
+      'delegate',
+      JSON.stringify({
+        mode: 'parallel',
+        tasks: [
+          { prompt: 'Use the economy route.', tier: 'economy' },
+          { prompt: 'Use the advanced route.', tier: 'advanced' },
+        ],
+      }),
+    );
+    expect(accepted).toContain('Delegation accepted (parallel');
+    expect(getPendingSideEffects()?.delegations?.[0]?.tasks).toEqual([
+      { prompt: 'Use the economy route.', tier: 'economy' },
+      { prompt: 'Use the advanced route.', tier: 'advanced' },
+    ]);
+
+    resetSideEffects();
+    const rejected = await executeTool(
+      'delegate',
+      JSON.stringify({
+        prompt: 'Ambiguous route.',
+        model: 'gpt-5',
+        tier: 'advanced',
+      }),
+    );
+    expect(rejected).toContain('cannot specify both "model" and "tier"');
+    expect(getPendingSideEffects()?.delegations ?? []).toEqual([]);
+
+    const crossLevelRejected = await executeTool(
+      'delegate',
+      JSON.stringify({
+        mode: 'parallel',
+        tier: 'advanced',
+        tasks: [{ prompt: 'Conflicting child pin.', model: 'gpt-5' }],
+      }),
+    );
+    expect(crossLevelRejected).toContain(
+      'cannot specify both "model" and "tier"',
+    );
+    expect(getPendingSideEffects()?.delegations ?? []).toEqual([]);
+  });
 });

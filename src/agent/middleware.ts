@@ -1,4 +1,8 @@
 import { logger } from '../logger.js';
+import type {
+  ModelRoutingTarget,
+  ModelRoutingZone,
+} from '../providers/model-routing.js';
 import type { ChatMessage } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { ToolExecution } from '../types/execution.js';
@@ -32,6 +36,16 @@ export interface AgentTurnContext {
   model?: string;
   currentModel?: string;
   agentModel?: string;
+  agentRouting?: {
+    start?: string;
+    max?: string;
+    sovereignty?: ModelRoutingZone;
+    target?: Partial<ModelRoutingTarget>;
+  };
+  skillRouting?: {
+    minTier?: string;
+    sensitivity?: string;
+  };
   stickyTier?: string;
   chatbotId?: string;
   isInteractiveSource?: boolean;

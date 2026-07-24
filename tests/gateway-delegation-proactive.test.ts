@@ -533,6 +533,50 @@ test('delegation prefers configured delegate model over echoed parent-model over
   ]);
 });
 
+test('delegation tier overrides resolve to the configured tier model', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  const { normalizeDelegationEffect } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  initDatabase({
+    quiet: true,
+    dbPath: path.join(homeDir, 'hybridclaw.db'),
+  });
+  updateRuntimeConfig((draft) => {
+    draft.routing.enabled = true;
+    draft.routing.defaultStart = 'economy';
+    draft.routing.tiers = [
+      { name: 'economy', models: ['gpt-5-mini'] },
+      { name: 'advanced', models: ['gpt-5'] },
+    ];
+  });
+
+  expect(
+    normalizeDelegationEffect(
+      { mode: 'single', prompt: 'Do the hard task.', tier: 'advanced' },
+      'gpt-5-mini',
+    ).plan?.tasks,
+  ).toEqual([
+    { prompt: 'Do the hard task.', model: 'gpt-5', tier: 'advanced' },
+  ]);
+  expect(
+    normalizeDelegationEffect(
+      {
+        mode: 'single',
+        prompt: 'Ambiguous task.',
+        tier: 'advanced',
+        model: 'gpt-5-mini',
+      },
+      'gpt-5-mini',
+    ).error,
+  ).toContain('both model and tier');
+});
+
 test('delegation disabled returns no descriptor and fails the durable job row', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

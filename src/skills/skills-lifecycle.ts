@@ -351,6 +351,7 @@ function toRuntimeInstalledSkillManifest(params: {
     credentials: params.manifest.credentials,
     configVariables: params.manifest.configVariables,
     supportedChannels: params.manifest.supportedChannels,
+    routing: params.manifest.routing,
     installedAt: params.previous?.installedAt || now,
     updatedAt: now,
   };
@@ -511,6 +512,7 @@ function resolveSkillPackageTarget(nameOrId: string): {
         credentials: installed.credentials,
         configVariables: installed.configVariables,
         supportedChannels: installed.supportedChannels,
+        routing: installed.routing,
       },
       source: 'installed',
       installed,

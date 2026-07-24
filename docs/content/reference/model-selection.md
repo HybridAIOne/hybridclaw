@@ -126,7 +126,16 @@ one tier expresses provider fallback order.
       }
     ],
     "defaultStart": "economy",
-    "escalationStickyTurns": 3
+    "escalationStickyTurns": 3,
+    "sovereignty": "region",
+    "target": { "quality": 0.6, "speed": 0.4 },
+    "sensitivityZones": {
+      "public": "cloud",
+      "internal": "region",
+      "confidential": "hai",
+      "restricted": "local"
+    },
+    "budgetClamp": { "enabled": false }
   }
 }
 ```
@@ -139,8 +148,20 @@ Routing follows these rules:
 
 - an explicit request model or `/model set` session override remains a hard pin
   and bypasses the ladder
-- an agent's configured model chooses its starting tier when that model appears
-  in the ladder; otherwise `routing.defaultStart` applies
+- an agent can set `routing.start`, `routing.max`, `routing.sovereignty`, and a
+  partial quality/speed `routing.target`; an agent's configured model remains
+  the start preference when no explicit agent start is configured
+- an invoked skill can declare `routing.minTier` and `routing.sensitivity` in
+  its manifest; the minimum is a floor and sensitivity maps through
+  `routing.sensitivityZones` to a maximum sovereignty zone
+- the effective sovereignty limit is the most restrictive tenant, agent, and
+  skill zone; ineligible models are removed before routing and an empty ladder
+  creates a pending F14 operator interaction without calling a disallowed model
+- higher quality targets choose a higher starting rung and skip the same-rung
+  weak-output retry at `0.75` or above; speed reorders models within each rung
+  from the gateway's measured latency history
+- `routing.budgetClamp.enabled` optionally lowers the maximum rung as the
+  agent's monthly budget is consumed; the flag defaults to `false`
 - heartbeat, scheduler, and full-auto turns start at the lowest tier
 - models later in one tier handle eligible provider fallback before HybridClaw
   moves to the next tier
@@ -152,10 +173,15 @@ Routing follows these rules:
   `routing.escalationStickyTurns` interactive turns; set the value to `0` to
   disable stickiness
 - `/escalate` raises exactly the next unpinned agent turn by one tier
+- delegated subagent tasks can request a routing `tier` instead of a concrete
+  `model`; the two fields are mutually exclusive
 
 Audit output records `route.escalated` events and adds the route tier, reason,
 and escalation state to each model-usage attempt. Enabling routing activates
-the bundled `tier-router` middleware automatically.
+the bundled `tier-router` middleware automatically. The console shows the
+active composer policy, route and zone chips on assistant turns, automatic or
+policy escalation notices, and the task cost plus counterfactual saving when
+pricing metadata is available.
 
 ## Codex Turn Runtime
 

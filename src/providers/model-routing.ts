@@ -7,11 +7,24 @@ export interface ModelRoutingTier {
   models: string[];
 }
 
+export interface ModelRoutingTarget {
+  quality: number;
+  speed: number;
+}
+
+export interface ModelRoutingBudgetClampConfig {
+  enabled: boolean;
+}
+
 export interface ModelRoutingConfig {
   enabled: boolean;
   tiers: ModelRoutingTier[];
   defaultStart: string;
   escalationStickyTurns: number;
+  sovereignty?: ModelRoutingZone;
+  target?: ModelRoutingTarget;
+  sensitivityZones?: Record<string, ModelRoutingZone>;
+  budgetClamp?: ModelRoutingBudgetClampConfig;
 }
 
 export interface ResolveLadderContext {
@@ -21,6 +34,8 @@ export interface ResolveLadderContext {
   stickyTier?: string;
   maximumZone?: ModelRoutingZone;
   modelZones?: Readonly<Record<string, ModelRoutingZone | undefined>>;
+  speedTarget?: number;
+  modelLatenciesMs?: Readonly<Record<string, number | undefined>>;
 }
 
 export type LadderResolutionReason =
@@ -45,6 +60,24 @@ export interface ResolvedLadder {
   exhausted: boolean;
 }
 
+export interface ModelRoutingTurnMetadata {
+  enabled: true;
+  startTier: string | null;
+  finalTier: string | null;
+  model: string | null;
+  zone: ModelRoutingZone | null;
+  reason: string;
+  escalated: boolean;
+  attempts: number;
+  sovereignty: ModelRoutingZone;
+  target: ModelRoutingTarget;
+  actualCostUsd?: number;
+  counterfactualCostUsd?: number;
+  savedUsd?: number;
+  exhausted?: boolean;
+  approvalId?: string;
+}
+
 const ZONE_INDEX = new Map<ModelRoutingZone, number>(
   MODEL_ROUTING_ZONES.map((zone, index) => [zone, index]),
 );
@@ -56,6 +89,117 @@ export function normalizeModelRoutingZone(value: unknown): ModelRoutingZone {
   return MODEL_ROUTING_ZONES.includes(normalized as ModelRoutingZone)
     ? (normalized as ModelRoutingZone)
     : 'cloud';
+}
+
+export function isModelRoutingZone(value: unknown): value is ModelRoutingZone {
+  return (
+    typeof value === 'string' &&
+    MODEL_ROUTING_ZONES.includes(value.trim().toLowerCase() as ModelRoutingZone)
+  );
+}
+
+export function mostRestrictiveModelRoutingZone(
+  ...zones: Array<ModelRoutingZone | undefined>
+): ModelRoutingZone {
+  let mostRestrictive = MODEL_ROUTING_ZONES.length - 1;
+  for (const zone of zones) {
+    if (!zone) continue;
+    mostRestrictive = Math.min(
+      mostRestrictive,
+      ZONE_INDEX.get(zone) ?? MODEL_ROUTING_ZONES.length - 1,
+    );
+  }
+  return MODEL_ROUTING_ZONES[mostRestrictive] ?? 'cloud';
+}
+
+function clampTarget(value: number | undefined, fallback: number): number {
+  return Math.max(0, Math.min(1, value ?? fallback));
+}
+
+export function normalizeModelRoutingTarget(
+  target?: Partial<ModelRoutingTarget>,
+  fallback: ModelRoutingTarget = { quality: 0.5, speed: 0.3 },
+): ModelRoutingTarget {
+  return {
+    quality: clampTarget(target?.quality, fallback.quality),
+    speed: clampTarget(target?.speed, fallback.speed),
+  };
+}
+
+export function resolveTargetStartTier(
+  tiers: ModelRoutingTier[],
+  quality: number,
+): string | undefined {
+  if (tiers.length === 0) return undefined;
+  const index = Math.round(clampTarget(quality, 0.5) * (tiers.length - 1));
+  return tiers[index]?.name;
+}
+
+export function resolveWeakOutputRetries(quality: number): number {
+  return clampTarget(quality, 0.5) >= 0.75 ? 0 : 1;
+}
+
+export function resolveBudgetMaximumTier(
+  tiers: ModelRoutingTier[],
+  usageRatio: number,
+): string | undefined {
+  if (tiers.length === 0) return undefined;
+  const remainingRatio = 1 - Math.max(0, Math.min(1, usageRatio));
+  const maximumIndex = Math.floor(remainingRatio * (tiers.length - 1));
+  return tiers[maximumIndex]?.name;
+}
+
+export function resolveSensitivityMaximumZone(
+  sensitivity: string | undefined,
+  sensitivityZones: Readonly<Record<string, ModelRoutingZone>> | undefined,
+): ModelRoutingZone | undefined {
+  if (!sensitivity) return undefined;
+  const normalized = sensitivity.trim().toLowerCase();
+  if (!normalized) return undefined;
+  return sensitivityZones?.[normalized] ?? 'local';
+}
+
+export function orderRoutingModelsByTarget(
+  models: string[],
+  speed: number,
+  modelLatenciesMs: Readonly<Record<string, number | undefined>> | undefined,
+): string[] {
+  const normalizedSpeed = clampTarget(speed, 0.3);
+  if (normalizedSpeed === 0 || models.length < 2 || !modelLatenciesMs) {
+    return [...models];
+  }
+  const measured = models
+    .map((model) => modelLatenciesMs[model])
+    .filter(
+      (latency): latency is number =>
+        typeof latency === 'number' && Number.isFinite(latency) && latency >= 0,
+    );
+  if (measured.length < 2) return [...models];
+
+  const minimumLatency = Math.min(...measured);
+  const maximumLatency = Math.max(...measured);
+  const latencyRange = maximumLatency - minimumLatency;
+  const lastIndex = models.length - 1;
+  return models
+    .map((model, index) => {
+      const latency = modelLatenciesMs[model];
+      const positionScore = index / lastIndex;
+      const latencyScore =
+        typeof latency === 'number' && Number.isFinite(latency) && latency >= 0
+          ? latencyRange === 0
+            ? 0
+            : (latency - minimumLatency) / latencyRange
+          : 1;
+      return {
+        model,
+        index,
+        score:
+          (1 - normalizedSpeed) * positionScore +
+          normalizedSpeed * latencyScore,
+      };
+    })
+    .sort((a, b) => a.score - b.score || a.index - b.index)
+    .map((entry) => entry.model);
 }
 
 export function modelRoutingZoneAllows(
@@ -144,8 +288,12 @@ export function resolveLadder(
     .map(
       (tier, sourceIndex): ResolvedModelRoutingTier => ({
         name: tier.name,
-        models: tier.models.filter((model) =>
-          modelRoutingZoneAllows(maximumZone, context.modelZones?.[model]),
+        models: orderRoutingModelsByTarget(
+          tier.models.filter((model) =>
+            modelRoutingZoneAllows(maximumZone, context.modelZones?.[model]),
+          ),
+          context.speedTarget ?? config.target?.speed ?? 0.3,
+          context.modelLatenciesMs,
         ),
         sourceIndex,
       }),

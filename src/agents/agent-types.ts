@@ -1,6 +1,11 @@
 import { parseAgentIdentity } from '../identity/agent-id.js';
 import { parseUserId } from '../identity/user-id.js';
 import {
+  isModelRoutingZone,
+  type ModelRoutingTarget,
+  type ModelRoutingZone,
+} from '../providers/model-routing.js';
+import {
   parseSecretRefInput,
   type SecretRef,
 } from '../security/secret-refs.js';
@@ -62,6 +67,13 @@ export interface AgentBudgetConfig {
   unit: AgentBudgetUnit;
 }
 
+export interface AgentRoutingConfig {
+  start?: string;
+  max?: string;
+  sovereignty?: ModelRoutingZone;
+  target?: Partial<ModelRoutingTarget>;
+}
+
 export interface AgentConfig {
   id: string;
   archived?: boolean;
@@ -87,6 +99,7 @@ export interface AgentConfig {
   webSearch?: AgentWebSearchConfig;
   proxy?: AgentProxyConfig;
   budget?: AgentBudgetConfig;
+  routing?: AgentRoutingConfig;
 }
 
 export interface AgentDefaultsConfig {
@@ -247,6 +260,102 @@ export function cloneAgentBudgetConfig(
   value: AgentBudgetConfig | undefined,
 ): AgentBudgetConfig | undefined {
   return value ? { ...value, unit: value.unit ?? value.currency } : undefined;
+}
+
+export function cloneAgentRoutingConfig(
+  value: AgentRoutingConfig | undefined,
+): AgentRoutingConfig | undefined {
+  if (!value) return undefined;
+  return {
+    ...value,
+    ...(value.target ? { target: { ...value.target } } : {}),
+  };
+}
+
+export function normalizeAgentRoutingConfig(
+  value: unknown,
+  path = 'agents.list[].routing',
+  fallback?: AgentRoutingConfig,
+): AgentRoutingConfig | undefined {
+  if (value === undefined) return cloneAgentRoutingConfig(fallback);
+  if (value === null || value === '') return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${path} must be an object or null.`);
+  }
+  const raw = value as Record<string, unknown>;
+  const start = Object.hasOwn(raw, 'start')
+    ? normalizeTrimmedString(raw.start)
+    : fallback?.start;
+  const max = Object.hasOwn(raw, 'max')
+    ? normalizeTrimmedString(raw.max)
+    : fallback?.max;
+  const rawSovereignty = Object.hasOwn(raw, 'sovereignty')
+    ? raw.sovereignty
+    : fallback?.sovereignty;
+  if (rawSovereignty !== undefined && !isModelRoutingZone(rawSovereignty)) {
+    throw new Error(
+      `${path}.sovereignty must be one of: local, hai, region, cloud.`,
+    );
+  }
+
+  let target = fallback?.target ? { ...fallback.target } : undefined;
+  if (Object.hasOwn(raw, 'target')) {
+    if (raw.target === null || raw.target === '') {
+      target = undefined;
+    } else if (
+      !raw.target ||
+      typeof raw.target !== 'object' ||
+      Array.isArray(raw.target)
+    ) {
+      throw new Error(`${path}.target must be an object or null.`);
+    } else {
+      target = {};
+      for (const field of ['quality', 'speed'] as const) {
+        const rawValue = (raw.target as Record<string, unknown>)[field];
+        if (rawValue === undefined) continue;
+        const parsed =
+          typeof rawValue === 'number'
+            ? rawValue
+            : typeof rawValue === 'string' && rawValue.trim()
+              ? Number.parseFloat(rawValue)
+              : Number.NaN;
+        if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+          throw new Error(`${path}.target.${field} must be between 0 and 1.`);
+        }
+        target[field] = parsed;
+      }
+      if (Object.keys(target).length === 0) target = undefined;
+    }
+  }
+
+  const normalized: AgentRoutingConfig = {
+    ...(start ? { start } : {}),
+    ...(max ? { max } : {}),
+    ...(rawSovereignty
+      ? {
+          sovereignty: String(rawSovereignty)
+            .trim()
+            .toLowerCase() as ModelRoutingZone,
+        }
+      : {}),
+    ...(target ? { target } : {}),
+  };
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+export function agentRoutingConfigEquals(
+  a: AgentRoutingConfig | undefined,
+  b: AgentRoutingConfig | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.start === b.start &&
+    a.max === b.max &&
+    a.sovereignty === b.sovereignty &&
+    a.target?.quality === b.target?.quality &&
+    a.target?.speed === b.target?.speed
+  );
 }
 
 function resolveAgentBudgetUnit(params: {

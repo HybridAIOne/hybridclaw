@@ -1099,6 +1099,14 @@ describe('ChatPage', () => {
         messageCount: 1,
         promptTokens: null,
         completionTokens: null,
+        routing: {
+          enabled: false,
+          pinned: false,
+          startTier: null,
+          maxTier: null,
+          sovereignty: 'cloud',
+          target: { quality: 0.5, speed: 0.3 },
+        },
       },
     });
 

@@ -14,6 +14,7 @@ const routing = {
   ],
   defaultStart: 'general',
   escalationStickyTurns: 3,
+  target: { quality: 0.5, speed: 0.3 },
 };
 
 describe('tier-router decision table', () => {
@@ -49,7 +50,7 @@ describe('tier-router decision table', () => {
         { source: 'discord', agentModel: 'local/small' },
         false,
       ),
-    ).toMatchObject({ startTier: 'economy', reason: 'agent-start' });
+    ).toMatchObject({ startTier: 'economy', reason: 'agent-model-start' });
     expect(
       resolveTierRoutingDecision(
         routing,
@@ -61,6 +62,31 @@ describe('tier-router decision table', () => {
         false,
       ),
     ).toMatchObject({ startTier: 'advanced', reason: 'sticky-tier' });
+  });
+
+  test('applies agent start, skill floor, sticky state, and manual escalation in order', () => {
+    expect(
+      resolveTierRoutingDecision(
+        routing,
+        {
+          source: 'discord',
+          agentRouting: { start: 'economy' },
+          skillRouting: { minTier: 'general' },
+        },
+        false,
+      ),
+    ).toMatchObject({ startTier: 'general', reason: 'skill-minimum-tier' });
+    expect(
+      resolveTierRoutingDecision(
+        routing,
+        {
+          source: 'discord',
+          agentRouting: { start: 'economy' },
+          skillRouting: { minTier: 'general' },
+        },
+        true,
+      ),
+    ).toMatchObject({ startTier: 'advanced', reason: 'manual-escalate' });
   });
 
   test('never routes an explicitly pinned request or session', () => {
@@ -114,7 +140,7 @@ test('/escalate raises exactly the next unpinned agent turn', async () => {
   });
   expect(middleware.routing(context)).toMatchObject({
     metadata: {
-      tierRouter: { startTier: 'general', reason: 'default-start' },
+      tierRouter: { startTier: 'general', reason: 'quality-target' },
     },
   });
 });

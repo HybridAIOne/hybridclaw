@@ -367,6 +367,11 @@ import {
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
+import {
+  mostRestrictiveModelRoutingZone,
+  normalizeModelRoutingTarget,
+  resolveTargetStartTier,
+} from '../providers/model-routing.js';
 import { discoverOpenRouterModels } from '../providers/openrouter-discovery.js';
 import { isRuntimeProviderId } from '../providers/provider-ids.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
@@ -1174,6 +1179,7 @@ interface NormalizedDelegationTask {
   prompt: string;
   label?: string;
   model: string;
+  tier?: string;
 }
 
 interface NormalizedDelegationPlan {
@@ -1672,6 +1678,7 @@ function mapGatewayAdminAgent(
     ...(resolved.proxy
       ? { proxy: mapGatewayAdminAgentProxyConfig(resolved.proxy) }
       : {}),
+    routing: resolved.routing ? structuredClone(resolved.routing) : null,
     role: resolved.role || null,
     reportsTo: resolved.reportsTo || null,
     delegatesTo: Array.isArray(resolved.delegatesTo)
@@ -5407,6 +5414,7 @@ export function createGatewayAdminAgent(params: {
   chatbotId?: string | null;
   enableRag?: boolean | null;
   proxy?: AgentConfig['proxy'] | null;
+  routing?: AgentConfig['routing'] | null;
   role?: string | null;
   reportsTo?: string | null;
   delegatesTo?: string[] | null;
@@ -5425,6 +5433,9 @@ export function createGatewayAdminAgent(params: {
       ? { enableRag: params.enableRag }
       : {}),
     ...(params.proxy !== undefined ? { proxy: params.proxy ?? undefined } : {}),
+    ...(params.routing !== undefined
+      ? { routing: params.routing ?? undefined }
+      : {}),
     ...buildGatewayAdminAgentOrgChartPatch(params),
     ...(params.workspace?.trim() ? { workspace: params.workspace.trim() } : {}),
   });
@@ -5442,6 +5453,7 @@ export function updateGatewayAdminAgent(
     chatbotId?: string | null;
     enableRag?: boolean | null;
     proxy?: AgentConfig['proxy'] | null;
+    routing?: AgentConfig['routing'] | null;
     role?: string | null;
     reportsTo?: string | null;
     delegatesTo?: string[] | null;
@@ -5478,6 +5490,9 @@ export function updateGatewayAdminAgent(
       ? { enableRag: params.enableRag }
       : {}),
     ...(params.proxy !== undefined ? { proxy: params.proxy ?? undefined } : {}),
+    ...(params.routing !== undefined
+      ? { routing: params.routing ?? undefined }
+      : {}),
     ...buildGatewayAdminAgentOrgChartPatch(params),
   });
   const finalAgent =
@@ -9950,6 +9965,7 @@ function normalizeDelegationTask(
     fallbackModel: string;
     parentModel: string;
     configuredDelegateModel: string;
+    fallbackTier?: string;
   },
 ): NormalizedDelegationTask | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -9957,17 +9973,35 @@ function normalizeDelegationTask(
   const prompt = typeof task.prompt === 'string' ? task.prompt.trim() : '';
   if (!prompt) return null;
   const label = typeof task.label === 'string' ? task.label.trim() : '';
-  const model = resolveDelegationRequestedModel({
-    requestedModel: task.model,
-    fallbackModel: params.fallbackModel,
-    parentModel: params.parentModel,
-    configuredDelegateModel: params.configuredDelegateModel,
-  });
+  const requestedTier = String(task.tier || params.fallbackTier || '').trim();
+  if (requestedTier && String(task.model || '').trim()) return null;
+  const tierModel = requestedTier
+    ? resolveDelegationTierModel(requestedTier)
+    : null;
+  if (requestedTier && !tierModel) return null;
+  const model =
+    tierModel ||
+    resolveDelegationRequestedModel({
+      requestedModel: task.model,
+      fallbackModel: params.fallbackModel,
+      parentModel: params.parentModel,
+      configuredDelegateModel: params.configuredDelegateModel,
+    });
   return {
     prompt,
     label: label || undefined,
     model,
+    ...(requestedTier ? { tier: requestedTier } : {}),
   };
+}
+
+function resolveDelegationTierModel(tierName: string): string | null {
+  const routing = getRuntimeConfig().routing;
+  if (!routing.enabled) return null;
+  return (
+    routing.tiers.find((tier) => tier.name === tierName)?.models[0]?.trim() ||
+    null
+  );
 }
 
 function resolveDelegationFallbackModel(parentModel: string): string {
@@ -10034,16 +10068,29 @@ export function normalizeDelegationEffect(
   }
 
   const label = typeof effect.label === 'string' ? effect.label.trim() : '';
+  const effectModel = String(effect.model || '').trim();
+  const effectTier = String(effect.tier || '').trim();
+  if (effectModel && effectTier) {
+    return { error: 'Delegation cannot specify both model and tier' };
+  }
+  const tierModel = effectTier ? resolveDelegationTierModel(effectTier) : null;
+  if (effectTier && !tierModel) {
+    return {
+      error: `Delegation references unknown routing tier: ${effectTier}`,
+    };
+  }
   const configuredDelegateModel =
     getRuntimeConfig().proactive.delegation.model.trim();
   const resolvedFallbackModel =
     configuredDelegateModel || resolveDelegationFallbackModel(fallbackModel);
-  const baseModel = resolveDelegationRequestedModel({
-    requestedModel: effect.model,
-    fallbackModel: resolvedFallbackModel,
-    parentModel: fallbackModel,
-    configuredDelegateModel,
-  });
+  const baseModel =
+    tierModel ||
+    resolveDelegationRequestedModel({
+      requestedModel: effect.model,
+      fallbackModel: resolvedFallbackModel,
+      parentModel: fallbackModel,
+      configuredDelegateModel,
+    });
   const prompt = typeof effect.prompt === 'string' ? effect.prompt.trim() : '';
   const rawTasks = Array.isArray(effect.tasks) ? effect.tasks : [];
   const rawChain = Array.isArray(effect.chain) ? effect.chain : [];
@@ -10060,7 +10107,14 @@ export function normalizeDelegationEffect(
       plan: {
         mode,
         label: label || undefined,
-        tasks: [{ prompt, label: label || undefined, model: baseModel }],
+        tasks: [
+          {
+            prompt,
+            label: label || undefined,
+            model: baseModel,
+            ...(effectTier ? { tier: effectTier } : {}),
+          },
+        ],
       },
     };
   }
@@ -10076,10 +10130,24 @@ export function normalizeDelegationEffect(
   }
   const tasks: NormalizedDelegationTask[] = [];
   for (let i = 0; i < sourceTasks.length; i++) {
+    const sourceTask = sourceTasks[i];
+    const taskModel = String(sourceTask?.model || '').trim();
+    const taskTier = String(sourceTask?.tier || '').trim();
+    if (taskModel && taskTier) {
+      return {
+        error: `${mode} delegation task #${i + 1} cannot specify both model and tier`,
+      };
+    }
+    if (taskTier && !resolveDelegationTierModel(taskTier)) {
+      return {
+        error: `${mode} delegation task #${i + 1} references unknown routing tier: ${taskTier}`,
+      };
+    }
     const normalized = normalizeDelegationTask(sourceTasks[i], {
       fallbackModel: baseModel,
       parentModel: fallbackModel,
       configuredDelegateModel,
+      fallbackTier: effectTier || undefined,
     });
     if (!normalized)
       return { error: `${mode} delegation task #${i + 1} is invalid` };
@@ -11114,24 +11182,61 @@ export async function prepareSessionAutoReset(params: {
 function buildGatewaySessionContextUsageSnapshot(
   session: Session,
   statusSnapshot?: SessionStatusSnapshot,
-): ReturnType<typeof buildContextUsageSnapshot> {
+): ReturnType<typeof buildContextUsageSnapshot> & {
+  routing: {
+    enabled: boolean;
+    pinned: boolean;
+    startTier: string | null;
+    maxTier: string | null;
+    sovereignty: string;
+    target: { quality: number; speed: number };
+  };
+} {
   const runtime = resolveSessionRuntimeTarget(session);
   const sessionModel = runtime.model;
   const modelContextWindowTokens = resolveKnownModelContextWindow(sessionModel);
-  return buildContextUsageSnapshot({
-    sessionId: session.id,
-    model: sessionModel,
-    messageCount: session.message_count,
-    compactionCount: session.compaction_count,
-    modelContextWindowTokens,
-    ...(statusSnapshot ? { statusSnapshot } : {}),
-  });
+  const routing = getRuntimeConfig().routing;
+  const agent = resolveAgentConfig(session.agent_id);
+  const target = normalizeModelRoutingTarget(
+    { ...routing.target, ...agent.routing?.target },
+    routing.target,
+  );
+  const agentModel = resolveAgentModel(agent);
+  const agentModelTier = agentModel
+    ? routing.tiers.find((tier) => tier.models.includes(agentModel))?.name
+    : undefined;
+  return {
+    ...buildContextUsageSnapshot({
+      sessionId: session.id,
+      model: sessionModel,
+      messageCount: session.message_count,
+      compactionCount: session.compaction_count,
+      modelContextWindowTokens,
+      ...(statusSnapshot ? { statusSnapshot } : {}),
+    }),
+    routing: {
+      enabled: routing.enabled,
+      pinned: Boolean(session.model?.trim()),
+      startTier:
+        agent.routing?.start ||
+        agentModelTier ||
+        resolveTargetStartTier(routing.tiers, target.quality) ||
+        routing.defaultStart ||
+        null,
+      maxTier: agent.routing?.max || routing.tiers.at(-1)?.name || null,
+      sovereignty: mostRestrictiveModelRoutingZone(
+        routing.sovereignty,
+        agent.routing?.sovereignty,
+      ),
+      target,
+    },
+  };
 }
 
 export function getGatewaySessionContextUsage(sessionId: string): {
   status: 'ok' | 'not_found';
   sessionId: string;
-  snapshot: ReturnType<typeof buildContextUsageSnapshot> | null;
+  snapshot: ReturnType<typeof buildGatewaySessionContextUsageSnapshot> | null;
 } {
   const session = memoryService.getSessionById(sessionId);
   if (!session) {

@@ -6,6 +6,38 @@ import {
 } from '../src/types/activity-trace.js';
 
 describe('ActivityTraceBuilder', () => {
+  it('persists routing metadata even when a turn has no streamed steps', () => {
+    const builder = new ActivityTraceBuilder();
+    builder.setRouting({
+      enabled: true,
+      startTier: 'economy',
+      finalTier: 'general',
+      model: 'gpt-5-mini',
+      zone: 'cloud',
+      reason: 'tier-escalation',
+      escalated: true,
+      attempts: 2,
+      sovereignty: 'cloud',
+      target: { quality: 0.5, speed: 0.3 },
+    });
+
+    expect(builder.isEmpty()).toBe(false);
+    expect(builder.build(20)).toMatchObject({
+      steps: [],
+      routing: { startTier: 'economy', finalTier: 'general' },
+    });
+  });
+
+  it('drops malformed persisted routing metadata', () => {
+    expect(
+      parseActivityTrace(
+        JSON.stringify({
+          steps: [],
+          routing: { enabled: true, reason: { unexpected: true } },
+        }),
+      ),
+    ).toBeNull();
+  });
   it('merges consecutive thinking deltas and collapses tool start/finish', () => {
     const builder = new ActivityTraceBuilder();
     builder.pushThinking('Weighing ');

@@ -819,27 +819,30 @@ export function emitInteractionNeededEvent(input: {
   runId?: string;
   parentRunId?: string;
   recordAudit?: (event: RecordAuditEventInput) => void;
+  includeBrowserEvent?: boolean;
 }): void {
   const record = input.recordAudit || recordAuditEvent;
   const runId = input.runId || makeAuditRunId('interaction');
-  record({
-    sessionId: input.session.sessionId,
-    runId,
-    ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
-    event: {
-      type: 'browser.escalation_2fa',
-      approvalId: input.session.approvalId,
-      agentId: input.session.agentId || null,
-      skillId: input.session.skillId || null,
-      modality: input.session.modality,
-      context: input.session.context,
-      frameSnapshot: input.session.frameSnapshot,
-      routing: resolveInteractionRouting(
-        input.session.modality,
-        input.session.escalationTarget,
-      ),
-    },
-  });
+  if (input.includeBrowserEvent !== false) {
+    record({
+      sessionId: input.session.sessionId,
+      runId,
+      ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
+      event: {
+        type: 'browser.escalation_2fa',
+        approvalId: input.session.approvalId,
+        agentId: input.session.agentId || null,
+        skillId: input.session.skillId || null,
+        modality: input.session.modality,
+        context: input.session.context,
+        frameSnapshot: input.session.frameSnapshot,
+        routing: resolveInteractionRouting(
+          input.session.modality,
+          input.session.escalationTarget,
+        ),
+      },
+    });
+  }
   record({
     sessionId: input.session.sessionId,
     runId,

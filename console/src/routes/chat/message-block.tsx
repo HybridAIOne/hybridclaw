@@ -12,6 +12,7 @@ import { fetchAgentAvatarBlob, fetchArtifactBlob } from '../../api/chat';
 import type {
   ChatArtifact,
   ChatMessage,
+  ChatModelRoutingMetadata,
   ResponseRatingValue,
 } from '../../api/chat-types';
 import { Button } from '../../components/button';
@@ -102,6 +103,48 @@ const CODE_ICON =
   '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 7-5 5 5 5"/><path d="m15 7 5 5-5 5"/><path d="m13.5 5-3 14"/></svg>';
 const LEADING_SKILL_COMMAND_RE =
   /^\/([A-Za-z0-9][A-Za-z0-9._-]*)(?=$|[\s:.,!?;)\]}])/u;
+
+function formatRoutingCost(value: number): string {
+  return `$${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}`;
+}
+
+function RoutingTurnSummary(props: { routing: ChatModelRoutingMetadata }) {
+  const { routing } = props;
+  const routeLabel = routing.finalTier
+    ? routing.startTier && routing.startTier !== routing.finalTier
+      ? `${routing.startTier} → ${routing.finalTier}`
+      : routing.finalTier
+    : routing.startTier || 'No eligible route';
+  return (
+    <div className={css.routingSummary} data-testid="routing-turn-summary">
+      <div className={css.routingChips}>
+        <span className={css.routingChip}>{routeLabel}</span>
+        <span className={css.routingChip}>
+          {routing.zone || `≤ ${routing.sovereignty}`}
+        </span>
+        <span className={css.routingChip}>{routing.attempts} attempt(s)</span>
+      </div>
+      {routing.escalated ? (
+        <span className={css.routingNotice}>
+          Escalated automatically · {routing.reason.replaceAll('_', ' ')}
+        </span>
+      ) : null}
+      {routing.exhausted ? (
+        <span className={css.routingNotice}>
+          Routing paused for operator approval
+        </span>
+      ) : null}
+      {routing.actualCostUsd !== undefined ? (
+        <span className={css.routingCost}>
+          Task cost {formatRoutingCost(routing.actualCostUsd)}
+          {routing.savedUsd !== undefined && routing.savedUsd > 0
+            ? ` · saved ${formatRoutingCost(routing.savedUsd)}`
+            : ''}
+        </span>
+      ) : null}
+    </div>
+  );
+}
 
 // Attach a hover-revealed copy button to each <pre> in a code block. The
 // markdown is injected via dangerouslySetInnerHTML, so React owns that subtree
@@ -549,6 +592,8 @@ export const MessageBlock = memo(function MessageBlock(props: {
           )}
         </div>
       ) : null}
+
+      {msg.routing ? <RoutingTurnSummary routing={msg.routing} /> : null}
 
       {artifactEntries.map(({ artifact, key }) => (
         <ArtifactCard key={key} artifact={artifact} token={token} />

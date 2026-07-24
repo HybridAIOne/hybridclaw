@@ -2,6 +2,25 @@ import { expect, test } from 'vitest';
 
 import { parseSkillManifestFromMarkdown } from '../src/skills/skill-manifest.js';
 
+test('parses routing floors and sensitivity from skill frontmatter', () => {
+  const manifest = parseSkillManifestFromMarkdown(
+    `---
+name: Confidential Analysis
+routing:
+  minTier: general
+  sensitivity: confidential
+---
+Analyze the supplied material.
+`,
+    { name: 'fallback' },
+  );
+
+  expect(manifest.routing).toEqual({
+    minTier: 'general',
+    sensitivity: 'confidential',
+  });
+});
+
 test('parses manifest fields using the documented source priority', () => {
   const manifest = parseSkillManifestFromMarkdown(
     `---

@@ -8,6 +8,7 @@ import type {
   AgentBudgetCurrency,
   AgentBudgetUnit,
   AgentProxyConversationScope,
+  AgentRoutingConfig,
 } from '../agents/agent-types.js';
 import type {
   AgentTeamStructureDiff,
@@ -33,6 +34,7 @@ import type {
   McpOAuthStartResult,
   McpOAuthStatus,
 } from '../mcp/mcp-oauth.js';
+import type { ModelRoutingTurnMetadata } from '../providers/model-routing.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type {
   SkillInstallSpec,
@@ -136,6 +138,7 @@ export interface GatewayChatResult {
   effectiveUserPrompt?: string;
   userMessageId?: number;
   assistantMessageId?: number;
+  routing?: ModelRoutingTurnMetadata;
 }
 
 export interface GatewayChatToolProgressEvent {
@@ -1317,6 +1320,7 @@ export interface GatewayAdminAgent {
   chatbotId: string | null;
   enableRag: boolean | null;
   proxy?: GatewayAdminAgentProxyConfig | null;
+  routing?: AgentRoutingConfig | null;
   role: string | null;
   reportsTo: string | null;
   delegatesTo: string[] | null;

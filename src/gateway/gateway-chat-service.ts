@@ -31,6 +31,7 @@ import {
 import {
   getChannel,
   getChannelByContextId,
+  normalizeSkillConfigChannelKind,
 } from '../channels/channel-registry.js';
 import {
   FULLAUTO_NEVER_APPROVE_TOOLS,
@@ -52,6 +53,7 @@ import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcri
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
   createFreshSessionInstance,
+  getUsageTotals,
   logAudit,
   storeSemanticMemory,
 } from '../memory/db.js';
@@ -72,10 +74,20 @@ import {
   collectModelLookupCandidates,
   matchesModelFamily,
 } from '../providers/model-lookup.js';
-import { isGpt5ModelId } from '../providers/model-metadata.js';
 import {
+  isGpt5ModelId,
+  MODEL_METADATA_USD_TO_EUR,
+} from '../providers/model-metadata.js';
+import {
+  type ModelRoutingTurnMetadata,
+  modelRoutingZoneAllows,
+  mostRestrictiveModelRoutingZone,
+  normalizeModelRoutingTarget,
   type ResolvedLadder,
+  resolveBudgetMaximumTier,
   resolveLadder,
+  resolveSensitivityMaximumZone,
+  resolveWeakOutputRetries,
 } from '../providers/model-routing.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
@@ -83,8 +95,10 @@ import { maybeAutoTitleSession } from '../session/session-title.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import {
   expandResolvedSkillInvocation,
+  loadSkills,
   promoteWorkspaceSkills,
   resolveObservedSkillName,
+  resolveSkillInvocationForTurn,
 } from '../skills/skills.js';
 import {
   deriveSkillExecutionOutcome,
@@ -99,7 +113,10 @@ import {
 } from '../types/execution.js';
 import type { CanonicalSessionContext } from '../types/session.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
-import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
+import {
+  estimateRoutingSavingsUsd,
+  resolveUsageCostUsdAfterMetadataRefresh,
+} from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { parseJsonObject } from '../utils/json-object.js';
 import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
@@ -177,9 +194,17 @@ import {
   recordBootstrapOnboardingUserReply,
 } from './hatching-completion.js';
 import {
+  createSuspendedSession,
+  emitInteractionNeededEvent,
+} from './interactive-escalation.js';
+import {
   executeModelRouting,
   type ModelRoutingAttempt,
 } from './model-routing-execution.js';
+import {
+  getModelRoutingLatencies,
+  recordModelRoutingLatency,
+} from './model-routing-latency.js';
 import {
   consumeStickyModelRoutingTier,
   peekStickyModelRoutingTier,
@@ -591,6 +616,10 @@ interface TierRouterMetadata {
   startTier?: string;
   model?: string;
   reason?: string;
+  target?: {
+    quality?: number;
+    speed?: number;
+  };
 }
 
 function getConciergeRouterMetadata(
@@ -607,6 +636,50 @@ function getTierRouterMetadata(
   const raw = event?.metadata?.tierRouter;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   return raw as TierRouterMetadata;
+}
+
+function moreRestrictiveMaximumTier(
+  tiers: ReadonlyArray<{ name: string }>,
+  left?: string,
+  right?: string,
+): string | undefined {
+  if (!left) return right;
+  if (!right) return left;
+  const leftIndex = tiers.findIndex((tier) => tier.name === left);
+  const rightIndex = tiers.findIndex((tier) => tier.name === right);
+  if (leftIndex < 0) throw new Error(`Unknown routing tier \`${left}\`.`);
+  if (rightIndex < 0) throw new Error(`Unknown routing tier \`${right}\`.`);
+  return leftIndex <= rightIndex ? left : right;
+}
+
+function clampRoutingStartToMaximum(
+  tiers: ReadonlyArray<{ name: string }>,
+  start: string,
+  maximum?: string,
+): string {
+  if (!maximum) return start;
+  const startIndex = tiers.findIndex((tier) => tier.name === start);
+  const maximumIndex = tiers.findIndex((tier) => tier.name === maximum);
+  if (startIndex < 0) throw new Error(`Unknown routing tier \`${start}\`.`);
+  if (maximumIndex < 0) {
+    throw new Error(`Unknown routing tier \`${maximum}\`.`);
+  }
+  return startIndex > maximumIndex ? maximum : start;
+}
+
+function resolveAgentBudgetUsageRatio(
+  agentId: string,
+  budget: NonNullable<ReturnType<typeof resolveAgentConfig>>['budget'],
+): number | null {
+  if (!budget) return null;
+  const totals = getUsageTotals({ agentId, window: 'monthly' });
+  const used =
+    budget.unit === 'tokens'
+      ? totals.total_tokens
+      : budget.unit === 'EUR'
+        ? totals.total_cost_usd / MODEL_METADATA_USD_TO_EUR.usdPerEur
+        : totals.total_cost_usd;
+  return used / budget.cap;
 }
 
 function resolvePluginRoutingModel(params: {
@@ -1259,6 +1332,25 @@ async function handleGatewayMessageInner(
   let effectiveUserTurnContent = userTurnContent;
   let effectiveUserTurnContentExpanded = contextRefResult.message;
   let effectiveUserTurnContentStripped = contextRefResult.strippedMessage;
+  const history = memoryService
+    .getConversationHistory(req.sessionId, MAX_HISTORY_MESSAGES * 2)
+    .filter((message) => !isSilentReply(message.content))
+    .slice(0, MAX_HISTORY_MESSAGES);
+  const routingSkills = loadSkills(
+    agentId,
+    normalizeSkillConfigChannelKind(channelType || channel?.kind),
+  );
+  const previousUserMessage = history.find(
+    (message) => message.role === 'user',
+  );
+  const explicitSkillInvocationForRouting = resolveSkillInvocationForTurn({
+    content: userTurnContent,
+    skills: routingSkills,
+    previousUserContent:
+      typeof previousUserMessage?.content === 'string'
+        ? previousUserMessage.content
+        : null,
+  });
   const canonicalContextScope = resolveCanonicalContextScope(session);
   if (isFullAutoEnabled(session)) {
     syncFullAutoRuntimeContext(req.sessionId, {
@@ -1303,9 +1395,71 @@ async function handleGatewayMessageInner(
   const explicitModelPinned = Boolean(
     req.model?.trim() || session.model?.trim() || onboardingModelPinned,
   );
+  const modelRoutingConfig = getRuntimeConfig().routing;
+  const routingTarget = normalizeModelRoutingTarget(
+    {
+      ...modelRoutingConfig.target,
+      ...resolvedAgent.routing?.target,
+    },
+    modelRoutingConfig.target,
+  );
+  const skillRouting =
+    explicitSkillInvocationForRouting?.skill.manifest.routing;
+  const routingMaximumZone = mostRestrictiveModelRoutingZone(
+    modelRoutingConfig.sovereignty,
+    resolvedAgent.routing?.sovereignty,
+    resolveSensitivityMaximumZone(
+      skillRouting?.sensitivity,
+      modelRoutingConfig.sensitivityZones,
+    ),
+  );
+  let routingMaximumTier = resolvedAgent.routing?.max;
+  if (
+    modelRoutingConfig.enabled &&
+    modelRoutingConfig.budgetClamp?.enabled &&
+    resolvedAgent.budget
+  ) {
+    const usageRatio = resolveAgentBudgetUsageRatio(
+      agentId,
+      resolvedAgent.budget,
+    );
+    if (usageRatio !== null) {
+      routingMaximumTier = moreRestrictiveMaximumTier(
+        modelRoutingConfig.tiers,
+        routingMaximumTier,
+        resolveBudgetMaximumTier(modelRoutingConfig.tiers, usageRatio),
+      );
+    }
+  }
   let routingExecutionNotice: string | null = null;
   let tierRoutingLadder: ResolvedLadder | null = null;
-  if (pluginManager?.hasMiddleware('routing')) {
+  let tierRoutingMetadata: TierRouterMetadata | null = null;
+  let routingTurnMetadata: ModelRoutingTurnMetadata | undefined;
+  if (modelRoutingConfig.enabled && explicitModelPinned) {
+    const pinnedZone = getModelCatalogMetadata(model).zone;
+    if (!modelRoutingZoneAllows(routingMaximumZone, pinnedZone)) {
+      const pinnedTier =
+        modelRoutingConfig.tiers.find((tier) => tier.models.includes(model))
+          ?.name || null;
+      routingTurnMetadata = {
+        enabled: true,
+        startTier: pinnedTier,
+        finalTier: null,
+        model: null,
+        zone: null,
+        reason: 'pinned-model-sovereignty',
+        escalated: false,
+        attempts: 0,
+        sovereignty: routingMaximumZone,
+        target: routingTarget,
+        exhausted: true,
+      };
+    }
+  }
+  if (
+    !routingTurnMetadata?.exhausted &&
+    pluginManager?.hasMiddleware('routing')
+  ) {
     const stickyTier = isInteractiveSource
       ? peekStickyModelRoutingTier(req.sessionId)
       : undefined;
@@ -1319,6 +1473,8 @@ async function handleGatewayMessageInner(
       model: model || undefined,
       currentModel: model,
       agentModel: resolveAgentModel(resolvedAgent) || undefined,
+      agentRouting: resolvedAgent.routing,
+      skillRouting: explicitSkillInvocationForRouting?.skill.manifest.routing,
       stickyTier,
       chatbotId,
       isInteractiveSource,
@@ -1336,7 +1492,7 @@ async function handleGatewayMessageInner(
     const tierRoutingEvent = routingOutcome.events.find((event) =>
       Boolean(event.metadata?.tierRouter),
     );
-    const tierRoutingMetadata = getTierRouterMetadata(tierRoutingEvent);
+    tierRoutingMetadata = getTierRouterMetadata(tierRoutingEvent);
     for (const event of routingOutcome.events) {
       if (event.action === 'allow') continue;
       logger.info(
@@ -1434,9 +1590,41 @@ async function handleGatewayMessageInner(
       effectiveUserTurnContentExpanded = routingOutcome.userContent;
     }
     if (tierRoutingMetadata?.startTier) {
-      tierRoutingLadder = resolveLadder(getRuntimeConfig().routing, {
-        startTier: tierRoutingMetadata.startTier,
+      const effectiveStartTier = clampRoutingStartToMaximum(
+        modelRoutingConfig.tiers,
+        tierRoutingMetadata.startTier,
+        routingMaximumTier,
+      );
+      const allRoutingModels = modelRoutingConfig.tiers.flatMap(
+        (tier) => tier.models,
+      );
+      tierRoutingLadder = resolveLadder(modelRoutingConfig, {
+        startTier: effectiveStartTier,
+        minimumTier: skillRouting?.minTier,
+        maximumTier: routingMaximumTier,
+        maximumZone: routingMaximumZone,
+        modelZones: Object.fromEntries(
+          allRoutingModels.map((routingModel) => [
+            routingModel,
+            getModelCatalogMetadata(routingModel).zone,
+          ]),
+        ),
+        speedTarget: routingTarget.speed,
+        modelLatenciesMs: getModelRoutingLatencies(allRoutingModels),
       });
+      routingTurnMetadata = {
+        enabled: true,
+        startTier: tierRoutingLadder.startTier,
+        finalTier: null,
+        model: null,
+        zone: null,
+        reason: tierRoutingMetadata.reason || tierRoutingLadder.reason,
+        escalated: false,
+        attempts: 0,
+        sovereignty: routingMaximumZone,
+        target: routingTarget,
+        ...(tierRoutingLadder.exhausted ? { exhausted: true } : {}),
+      };
       if (!tierRoutingLadder.exhausted && tierRoutingLadder.startTier) {
         if (isInteractiveSource) {
           consumeStickyModelRoutingTier(req.sessionId);
@@ -1445,8 +1633,103 @@ async function handleGatewayMessageInner(
           tierRoutingLadder.tiers[tierRoutingLadder.startIndex]?.models[0] ||
           model;
         provider = resolveModelProvider(model);
+        if (
+          isInteractiveSource &&
+          skillRouting?.minTier &&
+          modelRoutingConfig.escalationStickyTurns
+        ) {
+          setStickyModelRoutingTier(
+            req.sessionId,
+            tierRoutingLadder.startTier,
+            modelRoutingConfig.escalationStickyTurns,
+          );
+        }
       }
     }
+  }
+  if (routingTurnMetadata?.exhausted) {
+    const prompt = [
+      'Model routing is paused because no configured model satisfies the active routing policy.',
+      `Required start: ${routingTurnMetadata.startTier || 'unknown'}.`,
+      `Maximum tier: ${routingMaximumTier || 'highest configured tier'}.`,
+      `Maximum sovereignty zone: ${routingMaximumZone}.`,
+      'Review the tenant, agent, skill, or budget policy and approve after updating it.',
+    ].join(' ');
+    const suspended = createSuspendedSession({
+      sessionId: req.sessionId,
+      prompt,
+      userId: req.userId,
+      modality: 'push',
+      expectedReturnKinds: ['approved', 'declined', 'timeout'],
+      frameSnapshot: {
+        url: 'hybridclaw://model-routing',
+        title: 'Model routing policy escalation',
+      },
+      context: {
+        host: 'model routing policy',
+        pageTitle: 'F14 policy escalation',
+      },
+      agentId,
+      skillId: explicitSkillInvocationForRouting?.skill.name || null,
+      escalationTarget: resolveAgentEscalationTarget(agentId),
+    });
+    emitInteractionNeededEvent({
+      session: suspended,
+      runId,
+      includeBrowserEvent: false,
+    });
+    routingTurnMetadata.approvalId = suspended.approvalId;
+    recordAuditEvent({
+      sessionId: req.sessionId,
+      runId,
+      event: {
+        type: 'route.exhausted',
+        startTier: tierRoutingMetadata?.startTier || null,
+        minimumTier: skillRouting?.minTier || null,
+        maximumTier: routingMaximumTier || null,
+        maximumZone: routingMaximumZone,
+        approvalId: suspended.approvalId,
+      },
+    });
+    const storedUserContent = buildStoredUserTurnContent(
+      userTurnContent,
+      media,
+    );
+    const storedTurn = recordSuccessfulTurn({
+      sessionId: req.sessionId,
+      agentId,
+      chatbotId,
+      enableRag,
+      model,
+      channelId: req.channelId,
+      promptMode: req.promptMode,
+      runId,
+      turnIndex,
+      userId: req.userId,
+      username: req.username,
+      canonicalScopeId: canonicalContextScope,
+      userContent: storedUserContent,
+      resultText: prompt,
+      toolCallCount: 0,
+      startedAt,
+      replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+    });
+    const result: GatewayChatResult = {
+      status: 'success',
+      result: prompt,
+      messageRole: 'approval',
+      toolsUsed: [],
+      agentId,
+      model,
+      provider,
+      routing: routingTurnMetadata,
+      assistantPresentation:
+        getGatewayAssistantPresentationForMessageAgent(agentId),
+      userMessageId: storedTurn.userMessageId,
+      assistantMessageId: storedTurn.assistantMessageId,
+    };
+    await emitPostTurnForResult(result);
+    return attachSessionIdentity(result);
   }
   const postRoutingModel = resolveOnboardingTurnModel({
     bootstrapFile: startupBootstrapFile,
@@ -1627,10 +1910,6 @@ async function handleGatewayMessageInner(
     return attachSessionIdentity(result);
   }
 
-  const history = memoryService
-    .getConversationHistory(req.sessionId, MAX_HISTORY_MESSAGES * 2)
-    .filter((message) => !isSilentReply(message.content))
-    .slice(0, MAX_HISTORY_MESSAGES);
   let pluginsUsed: string[] = [];
   let canonicalContext: CanonicalSessionContext = {
     summary: null,
@@ -1743,6 +2022,8 @@ async function handleGatewayMessageInner(
       },
       allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
       blockedTools: mediaPolicy.blockedTools,
+      preloadedSkills: routingSkills,
+      resolvedSkillInvocation: explicitSkillInvocationForRouting,
     });
   let historyStart = 0;
   while (messages[historyStart]?.role === 'system') historyStart += 1;
@@ -2081,6 +2362,7 @@ async function handleGatewayMessageInner(
         ladder: tierRoutingLadder,
         agentId,
         chatbotId,
+        weakOutputRetries: resolveWeakOutputRetries(routingTarget.quality),
         onEscalation: (event) => {
           recordAuditEvent({
             sessionId: req.sessionId,
@@ -2112,6 +2394,18 @@ async function handleGatewayMessageInner(
       model = routed.model;
       provider = resolveModelProvider(model);
       routingAttempts = routed.attempts;
+      for (const attempt of routed.attempts) {
+        recordModelRoutingLatency(attempt.model, attempt.durationMs);
+      }
+      if (routingTurnMetadata) {
+        routingTurnMetadata.finalTier = routed.tier;
+        routingTurnMetadata.model = routed.model;
+        routingTurnMetadata.zone = getModelCatalogMetadata(routed.model).zone;
+        routingTurnMetadata.reason =
+          routed.attempts.at(-1)?.routeReason || routingTurnMetadata.reason;
+        routingTurnMetadata.escalated = routed.escalated;
+        routingTurnMetadata.attempts = routed.attempts.length;
+      }
       const finalEvents = bufferedEvents.get(output);
       chatbotId = finalEvents?.chatbotId || chatbotId;
       for (const delta of finalEvents?.text || []) emitTextDeltas?.(delta);
@@ -2122,14 +2416,11 @@ async function handleGatewayMessageInner(
       for (const approval of finalEvents?.approvals || []) {
         onApprovalProgress(approval);
       }
-      if (
-        routed.escalated &&
-        getRuntimeConfig().routing.escalationStickyTurns
-      ) {
+      if (routed.escalated && modelRoutingConfig.escalationStickyTurns) {
         setStickyModelRoutingTier(
           req.sessionId,
           routed.tier,
-          getRuntimeConfig().routing.escalationStickyTurns,
+          modelRoutingConfig.escalationStickyTurns,
         );
       }
     } else {
@@ -2223,6 +2514,12 @@ async function handleGatewayMessageInner(
       toolExecutions,
     });
     let costUsd = 0;
+    const routingCostAttempts: Array<{
+      model: string;
+      promptTokens: number;
+      completionTokens: number;
+      costUsd: number;
+    }> = [];
     if (!routingAttempts) {
       const usagePayload = buildTokenUsageAuditPayload(
         messages,
@@ -2295,6 +2592,12 @@ async function handleGatewayMessageInner(
           tokenUsage: attempt.output.tokenUsage,
           usage: usagePayload,
         });
+        routingCostAttempts.push({
+          model: attempt.model,
+          promptTokens: firstNumber([usagePayload.promptTokens]) || 0,
+          completionTokens: firstNumber([usagePayload.completionTokens]) || 0,
+          costUsd: attemptCostUsd,
+        });
         if (index === routingAttempts.length - 1) costUsd = attemptCostUsd;
         enqueueTokenUsage({
           sessionId: req.sessionId,
@@ -2311,6 +2614,26 @@ async function handleGatewayMessageInner(
           routeReason: attempt.routeReason,
           escalated: attempt.escalated,
         });
+      }
+    }
+    if (
+      routingTurnMetadata &&
+      tierRoutingLadder?.referenceModel &&
+      routingCostAttempts.length > 0
+    ) {
+      const referenceUsage = routingCostAttempts.at(-1);
+      if (referenceUsage) {
+        const savings = estimateRoutingSavingsUsd({
+          referenceModel: tierRoutingLadder.referenceModel,
+          referenceUsage,
+          attempts: routingCostAttempts,
+        });
+        if (savings) {
+          routingTurnMetadata.actualCostUsd = savings.actualCostUsd;
+          routingTurnMetadata.counterfactualCostUsd =
+            savings.counterfactualCostUsd;
+          routingTurnMetadata.savedUsd = savings.savedUsd;
+        }
       }
     }
     for (const event of buildMediaGenerationUsageEvents({
@@ -2506,6 +2829,7 @@ async function handleGatewayMessageInner(
         artifacts: output.artifacts,
         toolExecutions,
         tokenUsage: output.tokenUsage,
+        routing: routingTurnMetadata,
         error: errorMessage,
       };
       captureGatewayChatResultError({
@@ -2724,6 +3048,7 @@ async function handleGatewayMessageInner(
       toolExecutions,
       pendingApproval: output.pendingApproval,
       tokenUsage: output.tokenUsage,
+      routing: routingTurnMetadata,
       effectiveUserPrompt: output.effectiveUserPrompt,
       assistantPresentation:
         getGatewayAssistantPresentationForMessageAgent(agentId),

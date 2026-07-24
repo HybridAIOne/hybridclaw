@@ -1396,6 +1396,7 @@ export function ChatPage() {
             selectedModelId={selectedModelId}
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
             initialValue={initialComposerPrompt}
+            routing={contextQuery.data?.snapshot?.routing}
           />
         </div>
         <Dialog

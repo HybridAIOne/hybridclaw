@@ -967,6 +967,7 @@ function createDefaultSkillManifest(name: string): SkillManifest {
     credentials: [],
     configVariables: [],
     supportedChannels: [...DEFAULT_SKILL_SUPPORTED_CHANNELS],
+    routing: {},
   };
 }
 

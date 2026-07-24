@@ -53,6 +53,7 @@ interface ExecuteModelRoutingParams {
   ) => Promise<ContainerOutput>;
   onEscalation?: (event: ModelRoutingEscalationEvent) => void;
   resolveRuntime?: typeof resolveModelRuntimeCredentials;
+  weakOutputRetries?: number;
 }
 
 class RoutingAttemptError extends Error {
@@ -144,7 +145,7 @@ export async function executeModelRouting(
     const tier = tiers[tierOffset];
     if (!tier?.models[0]) continue;
     const primaryModel = tier.models[0];
-    let weakOutputRetried = false;
+    let weakOutputRetries = 0;
     let nextAttemptReason =
       tierOffset === 0 ? params.ladder.reason : 'tier-escalation';
     let tierTrigger: ModelRoutingEscalationTrigger | null = null;
@@ -181,9 +182,9 @@ export async function executeModelRouting(
             tierTrigger = trigger;
             if (
               (trigger === 'empty_output' || trigger === 'narrate_only') &&
-              !weakOutputRetried
+              weakOutputRetries < Math.max(0, params.weakOutputRetries ?? 1)
             ) {
-              weakOutputRetried = true;
+              weakOutputRetries += 1;
               nextAttemptReason = `${trigger}_retry`;
               continue;
             }

@@ -28,6 +28,7 @@ async function createFixture() {
     draft.routing.enabled = true;
     draft.routing.defaultStart = 'economy';
     draft.routing.escalationStickyTurns = 3;
+    draft.routing.target = { quality: 0, speed: 0 };
     draft.routing.tiers = [
       { name: 'economy', models: ['lmstudio/test-cheap'] },
       { name: 'general', models: ['lmstudio/test-strong'] },
@@ -59,6 +60,178 @@ useCleanMocks({
     delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
   },
   resetModules: true,
+});
+
+test('sovereignty exhaustion raises F14 and makes zero model calls', async () => {
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig((draft) => {
+    draft.routing.sovereignty = 'local';
+    draft.routing.tiers = [
+      { name: 'economy', models: ['gpt-5-mini'] },
+      { name: 'general', models: ['gpt-5'] },
+    ];
+  });
+
+  const sessionId = 'session-tier-sovereignty-exhausted';
+  const result = await fixture.handleGatewayMessage({
+    sessionId,
+    guildId: null,
+    channelId: 'tui',
+    userId: 'user-1',
+    username: 'user',
+    content: 'Keep this local.',
+    chatbotId: 'bot_test',
+    workspacePathOverride: fixture.workspacePath,
+  });
+
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    status: 'success',
+    messageRole: 'approval',
+    routing: {
+      exhausted: true,
+      attempts: 0,
+      sovereignty: 'local',
+    },
+  });
+
+  const { getSuspendedSession } = await import(
+    '../src/gateway/interactive-escalation.ts'
+  );
+  expect(getSuspendedSession(sessionId)).toMatchObject({
+    status: 'pending',
+    context: { pageTitle: 'F14 policy escalation' },
+  });
+  const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+  const wire = fs
+    .readFileSync(getAuditWirePath(sessionId), 'utf-8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  expect(wire.some((record) => record.event?.type === 'route.exhausted')).toBe(
+    true,
+  );
+  expect(
+    wire.some(
+      (record) => record.event?.type === 'escalation.interaction_needed',
+    ),
+  ).toBe(true);
+  expect(
+    wire.some((record) => record.event?.type === 'browser.escalation_2fa'),
+  ).toBe(false);
+});
+
+test('hai sovereignty never records a model usage event above hai', async () => {
+  const allowedZones = new Set(['local', 'hai']);
+  for (const quality of [0, 0.5, 1]) {
+    runAgentMock.mockReset();
+    runAgentMock.mockResolvedValue({
+      status: 'success',
+      result: 'policy-compliant output',
+      toolsUsed: [],
+      toolExecutions: [],
+    });
+    const fixture = await createFixture();
+    fixture.updateRuntimeConfig((draft) => {
+      draft.local.endpoints = [
+        {
+          name: 'haigpu',
+          type: 'vllm',
+          enabled: true,
+          baseUrl: 'http://haigpu:8000/v1',
+          zone: 'hai',
+        },
+      ];
+      draft.routing.sovereignty = 'hai';
+      draft.routing.target = { quality, speed: 0 };
+      draft.routing.tiers = [
+        { name: 'economy', models: ['lmstudio/test-cheap'] },
+        { name: 'general', models: ['haigpu/test-mid'] },
+        { name: 'advanced', models: ['hybridai/gpt-5'] },
+      ];
+    });
+    const sessionId = `session-tier-sovereignty-hai-${quality}`;
+
+    await fixture.handleGatewayMessage({
+      sessionId,
+      guildId: null,
+      channelId: 'tui',
+      userId: 'user-1',
+      username: 'user',
+      content: 'Keep this at or below HAI.',
+      chatbotId: 'bot_test',
+      workspacePathOverride: fixture.workspacePath,
+    });
+
+    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const usageEvents = fs
+      .readFileSync(getAuditWirePath(sessionId), 'utf-8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+      .filter((record) => record.event?.type === 'model.usage');
+    if (quality < 1) expect(usageEvents).toHaveLength(1);
+    for (const record of usageEvents) {
+      expect(allowedZones.has(record.event.routeZone)).toBe(true);
+    }
+    expect(
+      runAgentMock.mock.calls.every(
+        ([params]) => params.model !== 'hybridai/gpt-5',
+      ),
+    ).toBe(true);
+  }
+});
+
+test('an invoked skill applies its minimum tier and sensitivity policy', async () => {
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'skill-routed output',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+  const fixture = await createFixture();
+  const skillsRoot = path.join(fixture.homeDir, 'routing-skills');
+  const skillDir = path.join(skillsRoot, 'secure-work');
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, 'SKILL.md'),
+    `---
+name: secure-work
+description: Route secure work through the declared policy.
+user-invocable: true
+routing:
+  minTier: general
+  sensitivity: restricted
+---
+
+# Secure work
+`,
+    'utf-8',
+  );
+  fixture.updateRuntimeConfig((draft) => {
+    draft.skills.extraDirs = [skillsRoot];
+  });
+
+  const result = await fixture.handleGatewayMessage({
+    sessionId: 'session-tier-skill-policy',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'user-1',
+    username: 'user',
+    content: '/secure-work Complete the task.',
+    chatbotId: 'bot_test',
+    workspacePathOverride: fixture.workspacePath,
+  });
+
+  expect(result).toMatchObject({
+    status: 'success',
+    model: 'lmstudio/test-strong',
+    routing: {
+      startTier: 'general',
+      sovereignty: 'local',
+    },
+  });
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
 });
 
 test('gateway escalates once, emits route telemetry, and hides failed deltas', async () => {
@@ -184,6 +357,84 @@ test('an explicit session model remains a hard pin', async () => {
   expect(result.model).toBe('lmstudio/pinned');
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   expect(runAgentMock.mock.calls[0]?.[0].model).toBe('lmstudio/pinned');
+});
+
+test('a hard pin cannot bypass the sovereignty ceiling', async () => {
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig((draft) => {
+    draft.routing.sovereignty = 'local';
+  });
+  const sessionId = 'session-tier-pinned-sovereignty';
+  fixture.memoryService.getOrCreateSession(sessionId, null, 'tui');
+  fixture.updateSessionModel(sessionId, 'hybridai/gpt-5');
+
+  const result = await fixture.handleGatewayMessage({
+    sessionId,
+    guildId: null,
+    channelId: 'tui',
+    userId: 'user-1',
+    username: 'user',
+    content: 'Use the pinned cloud model.',
+    chatbotId: 'bot_test',
+    workspacePathOverride: fixture.workspacePath,
+  });
+
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    messageRole: 'approval',
+    routing: {
+      reason: 'pinned-model-sovereignty',
+      exhausted: true,
+      attempts: 0,
+    },
+  });
+});
+
+test('the opt-in budget clamp lowers the selected maximum tier', async () => {
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'budget-aware output',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig((draft) => {
+    draft.routing.budgetClamp = { enabled: true };
+    draft.routing.target = { quality: 1, speed: 0 };
+    draft.agents.list = [
+      {
+        id: 'main',
+        budget: { cap: 100, currency: 'USD', unit: 'tokens' },
+      },
+    ];
+  });
+  const { recordUsageEvent } = await import('../src/memory/db.ts');
+  recordUsageEvent({
+    sessionId: 'prior-budget-usage',
+    agentId: 'main',
+    model: 'lmstudio/test-cheap',
+    inputTokens: 40,
+    outputTokens: 20,
+    totalTokens: 60,
+  });
+
+  const result = await fixture.handleGatewayMessage({
+    sessionId: 'session-tier-budget-clamp',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'user-1',
+    username: 'user',
+    content: 'Respect the remaining budget.',
+    chatbotId: 'bot_test',
+    workspacePathOverride: fixture.workspacePath,
+  });
+
+  expect(result).toMatchObject({
+    status: 'success',
+    model: 'lmstudio/test-cheap',
+    routing: { startTier: 'economy', finalTier: 'economy' },
+  });
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
 });
 
 test('a heartbeat turn starts on the bottom rung', async () => {

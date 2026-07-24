@@ -35,6 +35,7 @@ import {
   cloneAgentBudgetConfig,
   cloneAgentCv,
   cloneAgentProxyConfig,
+  cloneAgentRoutingConfig,
   cloneAgentWebSearchConfig,
   DEFAULT_AGENT_ID,
   normalizeAgentA2AConfig,
@@ -43,6 +44,7 @@ import {
   normalizeAgentEscalationTarget,
   normalizeAgentIdentityFields,
   normalizeAgentProxyConfig,
+  normalizeAgentRoutingConfig,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
@@ -204,6 +206,9 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   const budget = normalizeAgentBudgetConfig(
     (value as { budget?: unknown }).budget,
   );
+  const routing = normalizeAgentRoutingConfig(
+    (value as { routing?: unknown }).routing,
+  );
   return {
     id,
     ...identityFields,
@@ -225,6 +230,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...(webSearch ? { webSearch } : {}),
     ...(proxy ? { proxy } : {}),
     ...(budget ? { budget } : {}),
+    ...(routing ? { routing } : {}),
   };
 }
 
@@ -279,6 +285,11 @@ function fingerprintBudget(budget: AgentConfig['budget']): string {
     : `${budget.currency}:${budget.cap}`;
 }
 
+function fingerprintRouting(routing: AgentConfig['routing']): string {
+  const clone = cloneAgentRoutingConfig(routing);
+  return clone ? fingerprintString(JSON.stringify(clone)) : '';
+}
+
 function fingerprintAgent(agent: AgentConfig): string {
   return [
     fingerprintString(agent.id),
@@ -311,6 +322,7 @@ function fingerprintAgent(agent: AgentConfig): string {
     fingerprintWebSearch(agent.webSearch),
     fingerprintProxy(agent.proxy),
     fingerprintBudget(agent.budget),
+    fingerprintRouting(agent.routing),
   ].join('|');
 }
 
@@ -421,6 +433,9 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
       : {}),
     ...(agent.proxy ? { proxy: cloneAgentProxyConfig(agent.proxy) } : {}),
     ...(agent.budget ? { budget: cloneAgentBudgetConfig(agent.budget) } : {}),
+    ...(agent.routing
+      ? { routing: cloneAgentRoutingConfig(agent.routing) }
+      : {}),
   };
 }
 
@@ -478,6 +493,7 @@ function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
     a2a: cloneAgentA2AConfig(agent.a2a),
     proxy: cloneAgentProxyConfig(agent.proxy),
     budget: cloneAgentBudgetConfig(agent.budget),
+    routing: cloneAgentRoutingConfig(agent.routing),
     webSearch: cloneAgentWebSearchConfig(agent.webSearch),
   };
 }

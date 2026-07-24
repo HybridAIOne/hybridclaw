@@ -204,6 +204,7 @@ export function buildChatHistoryUiData(
           : null,
       a2aDelivery:
         msg.role === 'assistant' ? hydrateA2ADelivery(msg.content) : null,
+      routing: msg.activityTrace?.routing ?? null,
     };
     if (msg.role === 'assistant') {
       const trace = hydrateActivityTrace(msg.activityTrace, resolvedSessionId);

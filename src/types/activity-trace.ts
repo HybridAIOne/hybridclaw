@@ -8,6 +8,8 @@
  * trace so hydration is a near-identity map.
  */
 
+import type { ModelRoutingTurnMetadata } from '../providers/model-routing.js';
+
 export interface ActivityTraceThinkingStep {
   kind: 'thinking';
   text: string;
@@ -36,6 +38,7 @@ export interface ActivityTrace {
   steps: ActivityTraceStep[];
   /** Wall-clock duration of the turn, for the collapsed summary line. */
   elapsedMs?: number;
+  routing?: ModelRoutingTurnMetadata;
 }
 
 /**
@@ -46,6 +49,11 @@ export interface ActivityTrace {
  */
 export class ActivityTraceBuilder {
   private readonly steps: ActivityTraceStep[] = [];
+  private routing?: ModelRoutingTurnMetadata;
+
+  setRouting(routing: ModelRoutingTurnMetadata | undefined): void {
+    this.routing = routing ? structuredClone(routing) : undefined;
+  }
 
   pushThinking(delta: string): void {
     if (!delta) return;
@@ -105,12 +113,12 @@ export class ActivityTraceBuilder {
   }
 
   isEmpty(): boolean {
-    return this.steps.length === 0;
+    return this.steps.length === 0 && !this.routing;
   }
 
   /** Returns null when no activity occurred, so callers skip persisting. */
   build(elapsedMs?: number): ActivityTrace | null {
-    if (this.steps.length === 0) return null;
+    if (this.steps.length === 0 && !this.routing) return null;
     // A run can end while a tool is still marked running (no finish event);
     // present it as done in the persisted, terminal trace.
     const steps = this.steps.map((step) =>
@@ -121,6 +129,7 @@ export class ActivityTraceBuilder {
     return {
       steps,
       ...(typeof elapsedMs === 'number' && elapsedMs >= 0 ? { elapsedMs } : {}),
+      ...(this.routing ? { routing: structuredClone(this.routing) } : {}),
     };
   }
 }
@@ -135,6 +144,77 @@ function readString(
 ): string | undefined {
   const value = source[key];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function readNullableString(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  return typeof value === 'string' ? value : undefined;
+}
+
+function parseRoutingMetadata(value: unknown): ModelRoutingTurnMetadata | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const startTier = readNullableString(source.startTier);
+  const finalTier = readNullableString(source.finalTier);
+  const model = readNullableString(source.model);
+  const zone = readNullableString(source.zone);
+  const target = source.target;
+  if (
+    source.enabled !== true ||
+    startTier === undefined ||
+    finalTier === undefined ||
+    model === undefined ||
+    zone === undefined ||
+    typeof source.reason !== 'string' ||
+    typeof source.escalated !== 'boolean' ||
+    typeof source.attempts !== 'number' ||
+    !Number.isFinite(source.attempts) ||
+    !['local', 'hai', 'region', 'cloud'].includes(String(source.sovereignty)) ||
+    !target ||
+    typeof target !== 'object' ||
+    Array.isArray(target)
+  ) {
+    return null;
+  }
+  const quality = (target as Record<string, unknown>).quality;
+  const speed = (target as Record<string, unknown>).speed;
+  if (
+    typeof quality !== 'number' ||
+    !Number.isFinite(quality) ||
+    typeof speed !== 'number' ||
+    !Number.isFinite(speed) ||
+    (zone !== null && !['local', 'hai', 'region', 'cloud'].includes(zone))
+  ) {
+    return null;
+  }
+  const optionalNumber = (key: string): number | undefined => {
+    const raw = source[key];
+    return typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined;
+  };
+  const actualCostUsd = optionalNumber('actualCostUsd');
+  const counterfactualCostUsd = optionalNumber('counterfactualCostUsd');
+  const savedUsd = optionalNumber('savedUsd');
+  return {
+    enabled: true,
+    startTier,
+    finalTier,
+    model,
+    zone: zone as ModelRoutingTurnMetadata['zone'],
+    reason: source.reason,
+    escalated: source.escalated,
+    attempts: Math.max(0, Math.trunc(source.attempts)),
+    sovereignty: source.sovereignty as ModelRoutingTurnMetadata['sovereignty'],
+    target: { quality, speed },
+    ...(actualCostUsd !== undefined ? { actualCostUsd } : {}),
+    ...(counterfactualCostUsd !== undefined ? { counterfactualCostUsd } : {}),
+    ...(savedUsd !== undefined ? { savedUsd } : {}),
+    ...(typeof source.exhausted === 'boolean'
+      ? { exhausted: source.exhausted }
+      : {}),
+    ...(typeof source.approvalId === 'string'
+      ? { approvalId: source.approvalId }
+      : {}),
+  };
 }
 
 /** Defensive parse — tolerates corrupt or partial JSON by dropping bad steps. */
@@ -180,11 +260,15 @@ export function parseActivityTrace(
       steps.push(step);
     }
   }
-  if (steps.length === 0) return null;
+  const routing =
+    parseRoutingMetadata((parsed as { routing?: unknown }).routing) ??
+    undefined;
+  if (steps.length === 0 && !routing) return null;
 
   const elapsedMs = (parsed as { elapsedMs?: unknown }).elapsedMs;
   return {
     steps,
     ...(typeof elapsedMs === 'number' ? { elapsedMs } : {}),
+    ...(routing ? { routing } : {}),
   };
 }

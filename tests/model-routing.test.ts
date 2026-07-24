@@ -1,8 +1,14 @@
 import { describe, expect, test } from 'vitest';
 import {
   type ModelRoutingConfig,
+  mostRestrictiveModelRoutingZone,
   normalizeModelRoutingZone,
+  orderRoutingModelsByTarget,
+  resolveBudgetMaximumTier,
   resolveLadder,
+  resolveSensitivityMaximumZone,
+  resolveTargetStartTier,
+  resolveWeakOutputRetries,
 } from '../src/providers/model-routing.js';
 
 const config: ModelRoutingConfig = {
@@ -120,4 +126,71 @@ test('unknown zones default to cloud', () => {
   expect(normalizeModelRoutingZone(undefined)).toBe('cloud');
   expect(normalizeModelRoutingZone('unclassified')).toBe('cloud');
   expect(normalizeModelRoutingZone('HAI')).toBe('hai');
+});
+
+test('quality target moves monotonically up the configured ladder', () => {
+  const qualities = [0, 0.2, 0.5, 0.8, 1];
+  const indexes = qualities.map((quality) =>
+    config.tiers.findIndex(
+      (tier) => tier.name === resolveTargetStartTier(config.tiers, quality),
+    ),
+  );
+  expect(indexes).toEqual([...indexes].sort((a, b) => a - b));
+  expect(indexes[0]).toBe(0);
+  expect(indexes.at(-1)).toBe(config.tiers.length - 1);
+  expect(resolveWeakOutputRetries(0.74)).toBe(1);
+  expect(resolveWeakOutputRetries(0.75)).toBe(0);
+});
+
+test('speed target reorders within a rung using measured latency only', () => {
+  const models = ['preferred', 'fast', 'slow'];
+  const latencies = { preferred: 300, fast: 20, slow: 800 };
+  expect(orderRoutingModelsByTarget(models, 0, latencies)).toEqual(models);
+  expect(orderRoutingModelsByTarget(models, 1, latencies)).toEqual([
+    'fast',
+    'preferred',
+    'slow',
+  ]);
+  expect(orderRoutingModelsByTarget(models, 1, { preferred: 300 })).toEqual(
+    models,
+  );
+});
+
+test('sensitivity and budget policies fail closed and clamp monotonically', () => {
+  const sensitivityZones = {
+    public: 'cloud',
+    confidential: 'hai',
+  } as const;
+  expect(resolveSensitivityMaximumZone('confidential', sensitivityZones)).toBe(
+    'hai',
+  );
+  expect(resolveSensitivityMaximumZone('unknown-label', sensitivityZones)).toBe(
+    'local',
+  );
+  expect(mostRestrictiveModelRoutingZone('cloud', 'region', 'hai')).toBe('hai');
+  expect(resolveBudgetMaximumTier(config.tiers, 0)).toBe('advanced');
+  expect(resolveBudgetMaximumTier(config.tiers, 0.5)).toBe('general');
+  expect(resolveBudgetMaximumTier(config.tiers, 1)).toBe('economy');
+});
+
+test('sovereignty filtering never admits a model above the maximum zone', () => {
+  for (const maximumZone of ['local', 'hai', 'region', 'cloud'] as const) {
+    const resolved = resolveLadder(config, {
+      startTier: 'economy',
+      maximumZone,
+      modelZones,
+    });
+    const allowed = new Set(
+      maximumZone === 'local'
+        ? ['local']
+        : maximumZone === 'hai'
+          ? ['local', 'hai']
+          : maximumZone === 'region'
+            ? ['local', 'hai', 'region']
+            : ['local', 'hai', 'region', 'cloud'],
+    );
+    for (const model of resolved.tiers.flatMap((tier) => tier.models)) {
+      expect(allowed.has(modelZones[model])).toBe(true);
+    }
+  }
 });
