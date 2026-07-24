@@ -192,7 +192,8 @@ Interactive slash commands inside TUI:
   /secret list   /secret set <name> <value>   /secret status <name>   /secret unset <name>   /secret route ...
   /sessions [active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]
   /show [all|thinking|tools|none]
-  /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|unblock <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
+  /learn [--name <name>] [--category <category>] <source>
+  /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|create-from <source>|amend <name> [--apply|--reject|--rollback]|learn <name> [--apply|--reject|--rollback]|history <name>|unblock <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
   /status
   /stop
   /usage [summary|daily|monthly|model [daily|monthly] [agentId]]
@@ -748,10 +749,14 @@ Commands:
   hybridclaw skill revisions <skill-name>
   hybridclaw skill rollback <skill-name> <revision-id>
   hybridclaw skill setup <skill-name>
-  hybridclaw skill learn <skill-name>
-  hybridclaw skill learn <skill-name> --apply
-  hybridclaw skill learn <skill-name> --reject
-  hybridclaw skill learn <skill-name> --rollback
+  hybridclaw skill create-from [--name <name>] [--category <category>] <source>
+  hybridclaw skill create-from --apply <proposal-id>
+  hybridclaw skill create-from --reject <proposal-id>
+  hybridclaw skill amend <skill-name>
+  hybridclaw skill amend <skill-name> --apply
+  hybridclaw skill amend <skill-name> --reject
+  hybridclaw skill amend <skill-name> --rollback
+  hybridclaw skill learn <skill-name> [--apply|--reject|--rollback]
   hybridclaw skill history <skill-name>
   hybridclaw skill sync [--skip-skill-scan] <source>
   hybridclaw skill import [--force] [--skip-skill-scan] <source>
@@ -766,7 +771,9 @@ Notes:
   - \`--channel teams\` is normalized to \`msteams\`.
   - \`inspect\` shows observation-based health metrics for a skill or all observed skills.
   - \`runs\` shows recent execution observations for one skill.
-  - \`learn\` stages, applies, rejects, or rolls back skill amendments.
+  - \`create-from\` stages a new skill proposal from notes, a URL, a local file, or a local directory; review it before applying.
+  - \`amend\` stages, applies, rejects, or rolls back AdaptiveSkills amendments.
+  - \`learn\` remains a compatibility alias for \`amend\`.
   - \`history\` shows amendment versions for one skill, not execution runs.
   - \`unblock\` records a scanner bypass marker for a reviewed blocked skill.
   - \`sync\` is a convenience alias for \`import --force\` when you want to refresh an installed skill from the source without changing the source syntax.
