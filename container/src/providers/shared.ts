@@ -15,7 +15,6 @@ export type { RuntimeProvider } from './provider-ids.js';
 
 export interface NormalizedCallArgs {
   sessionId?: string;
-  activityUserPrompt?: string;
   provider: RuntimeProvider | undefined;
   providerMethod?: string;
   baseUrl: string;

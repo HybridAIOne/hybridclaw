@@ -72,7 +72,6 @@ test('handleGatewayMessage expands context references only for llm-facing paths'
 
   const request = runAgentMock.mock.calls[0]?.[0] as
     | {
-        activityUserPrompt?: string;
         messages?: Array<{ content: string; role: string }>;
       }
     | undefined;
@@ -83,7 +82,6 @@ test('handleGatewayMessage expands context references only for llm-facing paths'
   expect(userMessage?.content).toContain('File: src/app.ts');
   expect(userMessage?.content).toContain('export const answer = 42;');
   expect(userMessage?.content).not.toContain('@file:src/app.ts');
-  expect(request?.activityUserPrompt).toBe(content);
 
   const history = memoryService.getConversationHistory(sessionId, 10);
   expect(history.find((message) => message.role === 'user')?.content).toBe(
