@@ -10,9 +10,21 @@
   setup, build, lint, typecheck, test, audit, and release workflows never fetch
   or compile it. Explicitly enabling WhatsApp installs a pinned release through
   the approved plugin installer.
-- **HybridAI requests omit duplicate prompt metadata**: Agent turns no longer
-  copy raw user text into a separate provider request field, preventing
-  OpenAI-compatible backends from forwarding it as completion metadata.
+
+## [0.28.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.5) - 2026-07-24
+
+### Fixed
+
+- **Email sent immediately after setup is processed**: Email channel setup
+  seeds each mailbox folder's polling cursor before enabling the channel, so
+  messages arriving before the gateway's first poll are not skipped. Existing
+  compatible cursors remain intact when setup is rerun.
+- **Agents can install Python packages in sandbox images**: Gateway and
+  standalone container runtimes support both direct `pip install` commands and
+  isolated virtual environments.
+- **GPT models no longer trigger Provider API error 500 on HybridAI**: Agent
+  turns no longer copy raw user text into duplicate provider metadata that
+  caused the provider request to fail.
 
 ## [0.28.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.4) - 2026-07-24
 
