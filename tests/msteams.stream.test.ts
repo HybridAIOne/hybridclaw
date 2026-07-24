@@ -2,6 +2,177 @@ import { expect, test, vi } from 'vitest';
 
 import { MSTeamsStreamManager } from '../src/channels/msteams/stream.js';
 
+test('uses the Teams streaminfo protocol for direct-message progress and text', async () => {
+  vi.useFakeTimers();
+  try {
+    const sendActivity = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 'stream-1' })
+      .mockResolvedValue(undefined);
+    const turnContext = {
+      sendActivity,
+      updateActivity: vi.fn(async () => {}),
+      deleteActivity: vi.fn(async () => {}),
+    };
+    const stream = new MSTeamsStreamManager(turnContext as never, {
+      replyStyle: 'thread',
+      replyToId: 'incoming-1',
+      editIntervalMs: 500,
+      nativeStreaming: true,
+    });
+
+    await stream.updateInformative();
+    expect(sendActivity).toHaveBeenNthCalledWith(1, {
+      type: 'typing',
+      text: 'Thinking…',
+      entities: [
+        {
+          type: 'streaminfo',
+          streamType: 'informative',
+          streamSequence: 1,
+        },
+      ],
+    });
+
+    await stream.updateInformative('Searching…');
+    expect(sendActivity).toHaveBeenNthCalledWith(2, {
+      type: 'typing',
+      text: 'Searching…',
+      entities: [
+        {
+          type: 'streaminfo',
+          streamId: 'stream-1',
+          streamType: 'informative',
+          streamSequence: 2,
+        },
+      ],
+    });
+
+    await stream.append('Hello');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sendActivity).toHaveBeenNthCalledWith(3, {
+      type: 'typing',
+      text: 'Hello',
+      entities: [
+        {
+          type: 'streaminfo',
+          streamId: 'stream-1',
+          streamType: 'streaming',
+          streamSequence: 3,
+        },
+      ],
+    });
+
+    await stream.finalize('Hello world');
+    expect(sendActivity).toHaveBeenNthCalledWith(4, {
+      type: 'message',
+      text: 'Hello world',
+      entities: [
+        {
+          type: 'streaminfo',
+          streamId: 'stream-1',
+          streamType: 'final',
+        },
+      ],
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('falls back to normal Teams messages when native streaming is unavailable', async () => {
+  const sendActivity = vi
+    .fn()
+    .mockRejectedValueOnce({ statusCode: 403 })
+    .mockResolvedValueOnce({ id: 'activity-1' });
+  const turnContext = {
+    sendActivity,
+    updateActivity: vi.fn(async () => {}),
+    deleteActivity: vi.fn(async () => {}),
+  };
+  const stream = new MSTeamsStreamManager(turnContext as never, {
+    replyStyle: 'thread',
+    replyToId: 'incoming-1',
+    nativeStreaming: true,
+  });
+
+  await stream.updateInformative();
+  expect(stream.isNativeStreamingActive()).toBe(false);
+
+  await stream.finalize('Fallback reply');
+  expect(sendActivity).toHaveBeenNthCalledWith(2, {
+    type: 'message',
+    text: 'Fallback reply',
+    replyToId: 'incoming-1',
+  });
+});
+
+test('delivers the full reply when Teams rejects native stream finalization', async () => {
+  const sendActivity = vi
+    .fn()
+    .mockResolvedValueOnce({ id: 'stream-1' })
+    .mockRejectedValueOnce({ statusCode: 403 })
+    .mockResolvedValueOnce({ id: 'activity-1' });
+  const deleteActivity = vi.fn(async () => {});
+  const turnContext = {
+    sendActivity,
+    updateActivity: vi.fn(async () => {}),
+    deleteActivity,
+  };
+  const stream = new MSTeamsStreamManager(turnContext as never, {
+    replyStyle: 'thread',
+    replyToId: 'incoming-1',
+    nativeStreaming: true,
+  });
+
+  await stream.updateInformative();
+  await stream.finalize('Complete reply');
+
+  expect(deleteActivity).toHaveBeenCalledWith('stream-1');
+  expect(sendActivity).toHaveBeenNthCalledWith(3, {
+    type: 'message',
+    text: 'Complete reply',
+    replyToId: 'incoming-1',
+  });
+});
+
+test('honors a user cancellation instead of redelivering the reply', async () => {
+  const sendActivity = vi
+    .fn()
+    .mockResolvedValueOnce({ id: 'stream-1' })
+    .mockRejectedValueOnce({
+      response: {
+        status: 403,
+        data: {
+          error: {
+            code: 'ContentStreamNotAllowed',
+            message: 'Content stream was canceled by user.',
+          },
+        },
+      },
+    });
+  const deleteActivity = vi.fn(async () => {});
+  const onNativeCancellation = vi.fn();
+  const turnContext = {
+    sendActivity,
+    updateActivity: vi.fn(async () => {}),
+    deleteActivity,
+  };
+  const stream = new MSTeamsStreamManager(turnContext as never, {
+    replyStyle: 'thread',
+    replyToId: 'incoming-1',
+    nativeStreaming: true,
+    onNativeCancellation,
+  });
+
+  await stream.updateInformative();
+  await stream.finalize('Do not redeliver this reply');
+
+  expect(onNativeCancellation).toHaveBeenCalledTimes(1);
+  expect(sendActivity).toHaveBeenCalledTimes(2);
+  expect(deleteActivity).not.toHaveBeenCalled();
+});
+
 test('finalize omits the text field for attachment-only Teams stream sends', async () => {
   const sendActivity = vi.fn(async () => ({ id: 'activity-1' }));
   const turnContext = {

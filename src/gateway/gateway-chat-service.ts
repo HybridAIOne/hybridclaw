@@ -412,6 +412,8 @@ export function buildEmptyAgentResponseFallback(
 
 const GENERATED_MEDIA_ARTIFACT_RE =
   /(?:\/workspace\/|\.\/)?(\.generated-(?:images|videos)\/[A-Za-z0-9._@%+=-]+\.(?:png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm))/gi;
+const REFERENCED_WORKSPACE_ARTIFACT_RE =
+  /(?:\/workspace\/|\.\/)?([\p{L}\p{N}._@%+=-]+(?:\/[\p{L}\p{N}._@%+= -]+)*\.(?:docx|gif|jpe?g|m4a|m4v|mov|mp3|mp4|ogg|pdf|png|pptx|svg|wav|webm|webp|xlsx))/giu;
 
 function isGeneratedMediaPath(filePath: string): boolean {
   const parts = filePath.replace(/\\/g, '/').split('/');
@@ -448,6 +450,33 @@ function extractGeneratedMediaReferences(params: {
   const seen = new Set<string>();
   for (const textVariant of decodeArtifactTextVariants(params.resultText)) {
     for (const match of textVariant.matchAll(GENERATED_MEDIA_ARTIFACT_RE)) {
+      const relativePath = match[1];
+      if (!relativePath) continue;
+      const filePath = resolveWorkspaceRelativePath(
+        params.workspacePath,
+        relativePath,
+      );
+      if (!filePath || seen.has(filePath)) continue;
+      seen.add(filePath);
+      references.push({
+        filePath,
+        filename: path.basename(filePath),
+      });
+    }
+  }
+  return references;
+}
+
+function extractReferencedWorkspaceArtifacts(params: {
+  resultText: string;
+  workspacePath: string;
+}): Array<{ filePath: string; filename: string }> {
+  const references: Array<{ filePath: string; filename: string }> = [];
+  const seen = new Set<string>();
+  for (const textVariant of decodeArtifactTextVariants(params.resultText)) {
+    for (const match of textVariant.matchAll(
+      REFERENCED_WORKSPACE_ARTIFACT_RE,
+    )) {
       const relativePath = match[1];
       if (!relativePath) continue;
       const filePath = resolveWorkspaceRelativePath(
@@ -507,10 +536,16 @@ export function recoverGeneratedMediaArtifactsFromResultText(params: {
   const existing = Array.isArray(params.artifacts) ? params.artifacts : [];
   const recovered = [...existing];
   const seen = new Set(existing.map((artifact) => artifact.path));
-  const references = extractGeneratedMediaReferences({
-    resultText: params.resultText,
-    workspacePath: params.workspacePath,
-  });
+  const references = [
+    ...extractGeneratedMediaReferences({
+      resultText: params.resultText,
+      workspacePath: params.workspacePath,
+    }),
+    ...extractReferencedWorkspaceArtifacts({
+      resultText: params.resultText,
+      workspacePath: params.workspacePath,
+    }),
+  ];
   for (const reference of references) {
     if (seen.has(reference.filePath)) continue;
     seen.add(reference.filePath);

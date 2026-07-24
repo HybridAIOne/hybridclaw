@@ -34,6 +34,24 @@ export function buildResponseText(text: string, toolsUsed?: string[]): string {
   return body;
 }
 
+export function stripUnusableMSTeamsArtifactLinks(text: string): string {
+  return text.replace(
+    /\[([^\]\n]+)\]\(([^)\n]+)\)/g,
+    (link, label: string, rawTarget: string) => {
+      const target = rawTarget.trim().replace(/^<|>$/g, '');
+      const isLocalTarget =
+        /^(?:file|sandbox):/i.test(target) ||
+        /^\/?api\/artifact\?/i.test(target) ||
+        /^(?:\/workspace\/|\.\/)/i.test(target) ||
+        (!/^[a-z][a-z0-9+.-]*:/i.test(target) &&
+          /\.(?:docx|gif|jpe?g|m4a|m4v|mov|mp3|mp4|ogg|pdf|png|pptx|svg|wav|webm|webp|xlsx)(?:[?#].*)?$/i.test(
+            target,
+          ));
+      return isLocalTarget ? label : link;
+    },
+  );
+}
+
 export function buildAdaptiveCardAttachment(
   card: Record<string, unknown>,
 ): Attachment {

@@ -8,6 +8,8 @@ const credentialsFactoryMock = vi.fn();
 const authConfigMock = vi.fn();
 const typingStartMock = vi.fn();
 const typingStopMock = vi.fn();
+const streamUpdateInformativeMock = vi.fn(async () => {});
+const streamIsNativeStreamingActiveMock = vi.fn(() => true);
 const sendChunkedReplyMock = vi.fn(async () => {});
 const continueConversationAsyncMock = vi.fn();
 const buildTeamsAttachmentContextMock = vi.fn(async () => []);
@@ -200,7 +202,10 @@ async function importRuntime() {
     })),
   }));
   vi.doMock('../src/channels/msteams/stream.js', () => ({
-    MSTeamsStreamManager: class {},
+    MSTeamsStreamManager: class {
+      updateInformative = streamUpdateInformativeMock;
+      isNativeStreamingActive = streamIsNativeStreamingActiveMock;
+    },
   }));
   vi.doMock('../src/channels/msteams/typing.js', () => ({
     createMSTeamsTypingController: vi.fn(() => ({
@@ -218,6 +223,10 @@ afterEach(() => {
   authConfigMock.mockReset();
   typingStartMock.mockReset();
   typingStopMock.mockReset();
+  streamUpdateInformativeMock.mockReset();
+  streamUpdateInformativeMock.mockResolvedValue(undefined);
+  streamIsNativeStreamingActiveMock.mockReset();
+  streamIsNativeStreamingActiveMock.mockReturnValue(true);
   sendChunkedReplyMock.mockReset();
   continueConversationAsyncMock.mockReset();
   buildTeamsAttachmentContextMock.mockReset();
@@ -532,6 +541,38 @@ describe('Microsoft Teams runtime webhook adapter', () => {
       ['clear'],
       expect.any(Function),
     );
+    expect(typingStartMock).not.toHaveBeenCalled();
+    expect(typingStopMock).not.toHaveBeenCalled();
+  });
+
+  test('starts a native Teams informative stream for direct messages', async () => {
+    processMock.mockImplementation(
+      async (_req, _res, logic: (context: unknown) => Promise<void>) => {
+        await logic({
+          activity: {
+            type: 'message',
+            text: 'Hello',
+            conversation: {
+              id: 'conversation-123',
+              conversationType: 'personal',
+            },
+            recipient: { id: 'bot-id' },
+          },
+          sendActivity: vi.fn(async () => ({ id: 'reply-1' })),
+          turnState: new Map(),
+        });
+      },
+    );
+
+    const runtime = await importRuntime();
+    runtime.initMSTeams(vi.fn(async () => {}), vi.fn(async () => {}));
+
+    await runtime.handleMSTeamsWebhook(
+      makeRequest({ type: 'message', text: 'Hello' }),
+      makeResponse(),
+    );
+
+    expect(streamUpdateInformativeMock).toHaveBeenCalledWith();
     expect(typingStartMock).not.toHaveBeenCalled();
     expect(typingStopMock).not.toHaveBeenCalled();
   });

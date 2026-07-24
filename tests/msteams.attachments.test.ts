@@ -247,11 +247,11 @@ test('buildTeamsUploadedFileAttachment uses a file consent card for personal non
   });
 });
 
-test('buildTeamsUploadedFileAttachment rejects large non-personal uploads without a storage fallback', async () => {
+test('buildTeamsUploadedFileAttachment rejects non-image files outside personal chats', async () => {
   const { buildTeamsUploadedFileAttachment } = await importAttachmentsModule();
   const tempDir = makeTempDir('hybridclaw-msteams-');
-  const filePath = path.join(tempDir, 'large.zip');
-  fs.writeFileSync(filePath, Buffer.alloc(4_300_000, 1));
+  const filePath = path.join(tempDir, 'report.pdf');
+  fs.writeFileSync(filePath, Buffer.from('%PDF-1.7'));
 
   const connectorKey = Symbol('ConnectorClientKey');
   const turnContext = {
@@ -281,11 +281,60 @@ test('buildTeamsUploadedFileAttachment rejects large non-personal uploads withou
     buildTeamsUploadedFileAttachment({
       turnContext: turnContext as never,
       filePath,
-      mimeType: 'application/zip',
+      mimeType: 'application/pdf',
     }),
   ).rejects.toThrow(
-    'Teams file uploads larger than 4 MB in channels or group chats require SharePoint/OneDrive fallback, which is not implemented yet.',
+    'Teams bot file delivery is supported only in personal chats.',
   );
+  expect(
+    (
+      turnContext.turnState.get(connectorKey) as {
+        conversations: { uploadAttachment: ReturnType<typeof vi.fn> };
+      }
+    ).conversations.uploadAttachment,
+  ).not.toHaveBeenCalled();
+});
+
+test('buildTeamsUploadedFileAttachment infers personal chat when Teams omits conversationType', async () => {
+  const { buildTeamsUploadedFileAttachment } = await importAttachmentsModule();
+  const tempDir = makeTempDir('hybridclaw-msteams-');
+  const filePath = path.join(tempDir, 'report.pdf');
+  fs.writeFileSync(filePath, Buffer.from('%PDF-1.7'));
+
+  const uploadAttachment = vi.fn(async () => ({ id: 'attachment-123' }));
+  const connectorKey = Symbol('ConnectorClientKey');
+  const turnContext = {
+    activity: {
+      conversation: { id: 'conversation-123' },
+      channelData: {},
+      serviceUrl: 'https://smba.trafficmanager.net/de/tenant-id/',
+    },
+    adapter: {
+      ConnectorClientKey: connectorKey,
+    },
+    turnState: new Map([
+      [
+        connectorKey,
+        {
+          conversations: {
+            uploadAttachment,
+          },
+        },
+      ],
+    ]),
+  };
+
+  const attachment = await buildTeamsUploadedFileAttachment({
+    turnContext: turnContext as never,
+    filePath,
+    mimeType: 'application/pdf',
+  });
+
+  expect(uploadAttachment).not.toHaveBeenCalled();
+  expect(attachment).toMatchObject({
+    contentType: 'application/vnd.microsoft.teams.card.file.consent',
+    name: 'report.pdf',
+  });
 });
 
 test('maybeHandleMSTeamsFileConsentInvoke uploads the pending file and sends a file info card', async () => {

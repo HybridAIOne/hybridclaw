@@ -643,9 +643,18 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
     const stream = new MSTeamsStreamManager(turnContext, {
       replyStyle: policy.replyStyle,
       replyToId: activity.id,
+      nativeStreaming: isDm,
+      onNativeCancellation: () => abortController.abort(),
     });
     const typingController = createMSTeamsTypingController(turnContext);
-    typingController.start();
+    let legacyTypingStarted = false;
+    if (isDm) {
+      await stream.updateInformative();
+    }
+    if (!stream.isNativeStreamingActive()) {
+      typingController.start();
+      legacyTypingStarted = true;
+    }
     try {
       await messageHandler(
         sessionId,
@@ -665,7 +674,9 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
         },
       );
     } finally {
-      typingController.stop();
+      if (legacyTypingStarted) {
+        typingController.stop();
+      }
     }
   } finally {
     releaseActiveSession();

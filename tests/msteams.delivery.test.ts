@@ -3,7 +3,18 @@ import { expect, test, vi } from 'vitest';
 import {
   prepareChunkedActivities,
   sendChunkedReply,
+  stripUnusableMSTeamsArtifactLinks,
 } from '../src/channels/msteams/delivery.js';
+
+test('stripUnusableMSTeamsArtifactLinks keeps artifact names but removes local URLs', () => {
+  expect(
+    stripUnusableMSTeamsArtifactLinks(
+      'Created [dog_with_image.pdf](sandbox:/workspace/dog_with_image.pdf) and [docs](https://example.com/docs).',
+    ),
+  ).toBe(
+    'Created dog_with_image.pdf and [docs](https://example.com/docs).',
+  );
+});
 
 test('prepareChunkedActivities keeps attachment-only Teams sends empty', () => {
   const attachments = [
