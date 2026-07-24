@@ -27,7 +27,24 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
-- The next patch release adds deterministic model-tier routing for unpinned
+- HybridClaw v0.28.4 keeps conversation prefixes cache-stable across turns and
+  tool loops by separating static instructions, workspace memory, skills, and
+  turn-local context while preserving complete retained messages.
+- The console shows a short What's New dialog once per release, makes grouped
+  admin tabs searchable from the command palette, and applies shared components
+  and visual contracts consistently across admin workflows.
+- Microsoft Teams setup in Channels includes encrypted app-password storage,
+  complete readiness status, end-to-end Entra and tunnel guidance, and a
+  manifest icon that remains visible in the Teams app rail.
+- Security hardening pins policy-checked browser proxy addresses, validates
+  filesystem and hostname boundaries, avoids leaking internal channel errors,
+  and strengthens non-secret fingerprints. Shell approvals preserve heredoc
+  boundaries, web fetches enforce a shared deadline, and inline PDF previews
+  work under the console CSP.
+- Age-eligible dependency updates refresh pinned packages, remove stale
+  workspace lock entries, scope Electron's newer HTTP client override, and keep
+  third-party notices and signature audits aligned with every component.
+- HybridClaw v0.28.3 adds deterministic model-tier routing for unpinned
   turns: agents can start on a configured rung, system work starts at the
   lowest rung, retry-safe provider and output failures escalate with audit
   telemetry, successful escalation stays sticky, and `/escalate` raises one
