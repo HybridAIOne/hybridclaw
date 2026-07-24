@@ -31,7 +31,13 @@ RUN --mount=type=cache,target=/root/.npm \
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ripgrep git curl python3 python3-pip python-is-python3 unzip file poppler-utils qpdf pandoc
+    ripgrep git curl python3 python3-pip python3-venv python-is-python3 unzip file poppler-utils qpdf pandoc
+
+# Debian's PEP 668 marker makes bare `pip install` fail with
+# externally-managed-environment. This image is a disposable sandbox, so the
+# marker only blocks agents from installing the Python packages they need at
+# runtime; python3-venv above keeps the venv route working too.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install --break-system-packages \

@@ -63,11 +63,6 @@ function buildHybridAIRequestBody(
     messages: args.messages,
     enable_rag: args.enableRag,
   };
-  if (args.activityUserPrompt?.trim()) {
-    request.metadata = {
-      hybridclawUserPrompt: args.activityUserPrompt,
-    };
-  }
   if (args.tools.length > 0) {
     request.tools = args.tools;
     request.tool_choice = 'auto';

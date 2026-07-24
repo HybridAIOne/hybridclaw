@@ -640,3 +640,213 @@ describe('email connection manager', () => {
     );
   });
 });
+
+describe('setup-time cursor seeding', () => {
+  const SEED_CONFIG = {
+    address: BASE_EMAIL_CONFIG.address,
+    folders: BASE_EMAIL_CONFIG.folders,
+    imapHost: BASE_EMAIL_CONFIG.imapHost,
+    imapPort: BASE_EMAIL_CONFIG.imapPort,
+    imapSecure: BASE_EMAIL_CONFIG.imapSecure,
+  };
+
+  function cursorStatePathFor(dataDir: string): string {
+    return path.join(
+      dataDir,
+      'email',
+      `${Buffer.from(BASE_EMAIL_CONFIG.address).toString('base64url').replace(/=+$/g, '')}-cursor-state.json`,
+    );
+  }
+
+  test('seeded cursor makes the poller process mail that arrived before its first poll', async () => {
+    const dataDir = makeTempDir('hybridclaw-email-connection-');
+
+    let mailboxUids = [1, 2];
+    let uidNext = 3;
+    const processedUids: number[] = [];
+    const search = vi.fn(async () => [...mailboxUids]);
+    const status = vi.fn(async (folder: string) => ({
+      path: folder,
+      uidNext,
+      uidValidity: 1n,
+    }));
+    const messageFlagsAdd = vi.fn(async () => true);
+    const fetch = vi.fn(async function* (uids: number[]) {
+      for (const uid of uids) {
+        yield {
+          uid,
+          source: Buffer.from(`raw-${uid}`, 'utf8'),
+        };
+      }
+    });
+
+    vi.doMock('../src/config/config.js', () => ({
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('imapflow', () => ({
+      ImapFlow: class {
+        mailbox = {
+          path: 'INBOX',
+          uidNext,
+          uidValidity: 1n,
+        };
+        connect = vi.fn(async () => {});
+        logout = vi.fn(async () => {});
+        close = vi.fn(() => {});
+        removeAllListeners = vi.fn(() => {});
+        on = vi.fn(() => this);
+        getMailboxLock = vi.fn(async (folder: string) => {
+          this.mailbox = {
+            path: folder,
+            uidNext,
+            uidValidity: 1n,
+          };
+          return {
+            release: vi.fn(),
+          };
+        });
+        status = status;
+        search = search;
+        fetch = fetch;
+        messageFlagsAdd = messageFlagsAdd;
+      },
+    }));
+
+    const { createEmailConnectionManager, seedEmailFolderCursors } =
+      await import('../src/channels/email/connection.js');
+
+    const baselines = await seedEmailFolderCursors(SEED_CONFIG, 'secret');
+    expect(baselines).toEqual([
+      { folder: 'INBOX', lastProcessedUid: 2, seeded: true },
+    ]);
+
+    // Mail lands after setup but before the gateway's poller has ever run —
+    // without the seeded cursor, the first poll would baseline past it.
+    mailboxUids = [1, 2, 3];
+    uidNext = 4;
+
+    const manager = createEmailConnectionManager(
+      BASE_EMAIL_CONFIG,
+      'secret',
+      async (messages) => {
+        for (const message of messages) {
+          processedUids.push(message.uid);
+        }
+      },
+    );
+    await manager.start();
+    await manager.stop();
+
+    expect(processedUids).toEqual([3]);
+    expect(search).toHaveBeenCalledWith({ uid: '3:*' }, { uid: true });
+  });
+
+  test('re-running setup keeps an existing compatible cursor', async () => {
+    const dataDir = makeTempDir('hybridclaw-email-connection-');
+    const cursorStatePath = cursorStatePathFor(dataDir);
+    fs.mkdirSync(path.dirname(cursorStatePath), { recursive: true });
+    fs.writeFileSync(
+      cursorStatePath,
+      JSON.stringify(
+        {
+          version: 1,
+          folders: {
+            INBOX: {
+              uidValidity: '1',
+              lastProcessedUid: 1,
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const status = vi.fn(async (folder: string) => ({
+      path: folder,
+      uidNext: 5,
+      uidValidity: 1n,
+    }));
+
+    vi.doMock('../src/config/config.js', () => ({
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('imapflow', () => ({
+      ImapFlow: class {
+        connect = vi.fn(async () => {});
+        logout = vi.fn(async () => {});
+        status = status;
+      },
+    }));
+
+    const { seedEmailFolderCursors } = await import(
+      '../src/channels/email/connection.js'
+    );
+
+    const baselines = await seedEmailFolderCursors(SEED_CONFIG, 'secret');
+    expect(baselines).toEqual([
+      { folder: 'INBOX', lastProcessedUid: 1, seeded: false },
+    ]);
+
+    const persisted = JSON.parse(fs.readFileSync(cursorStatePath, 'utf8')) as {
+      folders: Record<string, { lastProcessedUid: number }>;
+    };
+    expect(persisted.folders.INBOX.lastProcessedUid).toBe(1);
+  });
+
+  test('reseeds from the mailbox head when UIDVALIDITY changed', async () => {
+    const dataDir = makeTempDir('hybridclaw-email-connection-');
+    const cursorStatePath = cursorStatePathFor(dataDir);
+    fs.mkdirSync(path.dirname(cursorStatePath), { recursive: true });
+    fs.writeFileSync(
+      cursorStatePath,
+      JSON.stringify(
+        {
+          version: 1,
+          folders: {
+            INBOX: {
+              uidValidity: '1',
+              lastProcessedUid: 7,
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const status = vi.fn(async (folder: string) => ({
+      path: folder,
+      uidNext: 5,
+      uidValidity: 2n,
+    }));
+
+    vi.doMock('../src/config/config.js', () => ({
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('imapflow', () => ({
+      ImapFlow: class {
+        connect = vi.fn(async () => {});
+        logout = vi.fn(async () => {});
+        status = status;
+      },
+    }));
+
+    const { seedEmailFolderCursors } = await import(
+      '../src/channels/email/connection.js'
+    );
+
+    const baselines = await seedEmailFolderCursors(SEED_CONFIG, 'secret');
+    expect(baselines).toEqual([
+      { folder: 'INBOX', lastProcessedUid: 4, seeded: true },
+    ]);
+
+    const persisted = JSON.parse(fs.readFileSync(cursorStatePath, 'utf8')) as {
+      folders: Record<string, { uidValidity: string; lastProcessedUid: number }>;
+    };
+    expect(persisted.folders.INBOX).toEqual({
+      uidValidity: '2',
+      lastProcessedUid: 4,
+    });
+  });
+});

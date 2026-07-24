@@ -9,6 +9,9 @@
   compile the separate WhatsApp package. Explicitly enabling WhatsApp routes
   through the approved plugin installer, and its license notices ship with the
   plugin instead of the core notice bundle.
+- **HybridAI requests omit duplicate prompt metadata**: Agent turns no longer
+  copy raw user text into a separate provider request field, preventing
+  OpenAI-compatible backends from forwarding it as completion metadata.
 
 ## [0.28.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.4) - 2026-07-24
 

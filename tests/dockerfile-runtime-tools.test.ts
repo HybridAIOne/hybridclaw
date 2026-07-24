@@ -25,10 +25,19 @@ function expectSpreadsheetRuntimeTools(runtime: string): void {
   expect(runtime).toContain('openpyxl==3.1.5');
 }
 
+function expectRuntimePipInstallable(runtime: string): void {
+  // Agents must be able to `pip install` at runtime: Debian's PEP 668 marker
+  // otherwise rejects bare installs, and without python3-venv the venv escape
+  // hatch fails too (no ensurepip).
+  expect(runtime).toMatch(/\bpython3-venv\b/);
+  expect(runtime).toContain('PIP_BREAK_SYSTEM_PACKAGES=1');
+}
+
 describe('Docker runtime tool parity', () => {
   test('gateway host-sandbox runtime includes spreadsheet inspection tools', () => {
     const runtime = runtimeStage(readRepoFile('Dockerfile'), 'runtime');
     expectSpreadsheetRuntimeTools(runtime);
+    expectRuntimePipInstallable(runtime);
     expect(runtime).toContain(
       'NODE_PATH=/usr/local/lib/node_modules:/app/node_modules:/app/container/node_modules',
     );
@@ -48,6 +57,7 @@ describe('Docker runtime tool parity', () => {
       'runtime-lite',
     );
     expectSpreadsheetRuntimeTools(runtime);
+    expectRuntimePipInstallable(runtime);
     expect(runtime).toContain('@e965/xlsx@0.20.3');
     expect(runtime).toContain('xlsx-populate@1.21.0');
     expect(runtime).toContain(
