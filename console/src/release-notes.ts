@@ -1,10 +1,9 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.28.4',
+  version: '0.28.5',
   highlights: [
-    'Stable conversation prompt caching.',
-    'Refined admin navigation and design.',
-    'Guided Microsoft Teams setup.',
-    'Security and dependency hardening.',
+    'Reliable email delivery immediately after setup.',
+    'Runtime Python package installation.',
+    'Fix Provider API error 500 with GPT models.',
   ],
 } as const;
 
