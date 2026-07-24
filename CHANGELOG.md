@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.28.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.6) - 2026-07-24
+
 ### Fixed
 
 - **WhatsApp remains strictly install-on-demand**: Its source, dependencies,
