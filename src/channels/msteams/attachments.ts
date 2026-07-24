@@ -292,12 +292,26 @@ function estimateDataUrlSize(url: string): number {
   return payload ? Buffer.from(payload, 'base64').length : 0;
 }
 
+function isPersonalFileConversation(activity: Partial<Activity>): boolean {
+  const conversationType = normalizeValue(
+    activity.conversation?.conversationType,
+  ).toLowerCase();
+  if (conversationType === 'personal') return true;
+  if (conversationType === 'groupchat') return false;
+  const channelData = isRecord(activity.channelData)
+    ? activity.channelData
+    : null;
+  const team =
+    channelData && isRecord(channelData.team) ? channelData.team : null;
+  return !normalizeValue(team?.id);
+}
+
 function shouldUseFileConsent(params: {
-  conversationType: string;
+  personalConversation: boolean;
   contentType: string;
   sizeBytes: number;
 }): boolean {
-  if (params.conversationType !== 'personal') {
+  if (!params.personalConversation) {
     return false;
   }
   if (!params.contentType.startsWith('image/')) {
@@ -917,6 +931,9 @@ export async function buildTeamsUploadedFileAttachment(params: {
   const conversationType = normalizeValue(
     params.turnContext.activity.conversation?.conversationType,
   ).toLowerCase();
+  const personalConversation = isPersonalFileConversation(
+    params.turnContext.activity,
+  );
   if (
     shouldInlinePersonalImageAttachment({
       conversationType,
@@ -933,7 +950,7 @@ export async function buildTeamsUploadedFileAttachment(params: {
 
   if (
     shouldUseFileConsent({
-      conversationType,
+      personalConversation,
       contentType,
       sizeBytes: fileBuffer.byteLength,
     })
@@ -951,9 +968,15 @@ export async function buildTeamsUploadedFileAttachment(params: {
     });
   }
 
+  if (!contentType.startsWith('image/')) {
+    throw new Error(
+      'Teams bot file delivery is supported only in personal chats. Channel and group-chat file delivery requires Microsoft Graph with OneDrive or SharePoint.',
+    );
+  }
+
   if (fileBuffer.byteLength >= FILE_CONSENT_THRESHOLD_BYTES) {
     throw new Error(
-      'Teams file uploads larger than 4 MB in channels or group chats require SharePoint/OneDrive fallback, which is not implemented yet.',
+      'Teams image uploads larger than 4 MB in channels or group chats require SharePoint/OneDrive fallback, which is not implemented yet.',
     );
   }
 

@@ -73,6 +73,7 @@ import {
   shutdownLine,
 } from '../channels/line/runtime.js';
 import { isLineChannelId } from '../channels/line/target.js';
+import { stripUnusableMSTeamsArtifactLinks } from '../channels/msteams/delivery.js';
 import {
   initSignal,
   type SignalReplyFn,
@@ -1628,6 +1629,19 @@ async function startDiscordIntegration(): Promise<boolean> {
   return true;
 }
 
+function formatMSTeamsActivityVerb(toolName: string): string {
+  const action = toolName.trim().toLowerCase().split('__').at(-1) || '';
+  if (/search|query|find|lookup/.test(action)) return 'Searching…';
+  if (/read|open|fetch|get|list|browse/.test(action)) return 'Reading…';
+  if (/create|generate|render|image/.test(action)) return 'Creating…';
+  if (/write|edit|update|apply|patch/.test(action)) return 'Updating…';
+  if (/exec|run|test|build|bash|shell|command/.test(action)) {
+    return 'Running…';
+  }
+  if (/send|post|message|email|notify/.test(action)) return 'Sending…';
+  return 'Working…';
+}
+
 async function startMSTeamsIntegration(): Promise<boolean> {
   const teamsConfig = getConfigSnapshot().msteams;
   const hasCredentials =
@@ -1707,6 +1721,14 @@ async function startMSTeamsIntegration(): Promise<boolean> {
                 if (!filteredDelta) return;
                 void appendStreamText(filteredDelta);
               },
+              onToolProgress: (event) => {
+                if (sawTextDelta) return;
+                void context.stream.updateInformative(
+                  event.phase === 'start'
+                    ? formatMSTeamsActivityVerb(event.toolName)
+                    : 'Thinking…',
+                );
+              },
               abortSignal: context.abortSignal,
             }),
           ),
@@ -1735,9 +1757,9 @@ async function startMSTeamsIntegration(): Promise<boolean> {
         const showMode = normalizeSessionShowMode(
           memoryService.getSessionById(effectiveSessionId)?.show_mode,
         );
-        const responseText = renderedText.trim()
+        let responseText = renderedText.trim()
           ? buildResponseText(
-              renderedText,
+              stripUnusableMSTeamsArtifactLinks(renderedText),
               sessionShowModeShowsTools(showMode)
                 ? result.toolsUsed
                 : undefined,
@@ -1790,6 +1812,11 @@ async function startMSTeamsIntegration(): Promise<boolean> {
             },
             'Failed to build Teams artifact attachments',
           );
+          const deliveryNotice =
+            'The artifact was created, but Teams could not deliver the file. Try the bot’s direct chat; if this already is a direct chat, enable file support (`supportsFiles`) in the Teams app manifest.';
+          responseText = responseText
+            ? `${responseText}\n\n${deliveryNotice}`
+            : deliveryNotice;
         }
 
         if (attachments?.length && sawTextDelta) {

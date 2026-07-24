@@ -5,16 +5,26 @@ import { parseJsonObject } from '../utils/json-object.js';
 import { finiteNumberOrNull } from '../utils/number-normalization.js';
 
 const COMMON_EXTENSION_MIME_TYPES: Record<string, string> = {
+  '.docx':
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.gif': 'image/gif',
   '.jpeg': 'image/jpeg',
   '.jpg': 'image/jpeg',
+  '.m4a': 'audio/mp4',
   '.m4v': 'video/mp4',
+  '.mp3': 'audio/mpeg',
   '.mov': 'video/quicktime',
   '.mp4': 'video/mp4',
+  '.ogg': 'audio/ogg',
+  '.pdf': 'application/pdf',
   '.png': 'image/png',
+  '.pptx':
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.svg': 'image/svg+xml',
+  '.wav': 'audio/wav',
   '.webm': 'video/webm',
   '.webp': 'image/webp',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
 export function extensionToMimeType(

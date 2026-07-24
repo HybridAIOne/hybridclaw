@@ -10,6 +10,15 @@
   setup, build, lint, typecheck, test, audit, and release workflows never fetch
   or compile it. Explicitly enabling WhatsApp installs a pinned release through
   the approved plugin installer.
+- **Microsoft Teams shows live agent activity in direct messages**: One-on-one
+  chats use Teams native streaming for Thinking, tool activity, and incremental
+  response updates, with standard typing and message delivery retained as the
+  fallback for unsupported scopes or clients.
+- **Microsoft Teams generated files no longer degrade into dead links**:
+  Referenced PDF, Office, image, audio, and video outputs are recovered as
+  artifacts, local-only Markdown links are removed, personal chats use Teams
+  file-consent cards, and unsupported channel/group-chat delivery is reported
+  explicitly.
 
 ## [0.28.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.5) - 2026-07-24
 

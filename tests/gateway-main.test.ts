@@ -1950,6 +1950,58 @@ describe('gateway bootstrap', () => {
     );
   });
 
+  test('updates the Teams informative activity while tools run', async () => {
+    const state = await importFreshGatewayMain();
+    state.handleGatewayMessage.mockImplementation(
+      async ({
+        onToolProgress,
+      }: {
+        onToolProgress?: (event: {
+          phase: 'start' | 'finish';
+          toolName: string;
+        }) => void;
+      }) => {
+        onToolProgress?.({ phase: 'start', toolName: 'web_search' });
+        onToolProgress?.({ phase: 'finish', toolName: 'web_search' });
+        return {
+          status: 'success' as const,
+          result: 'Found it.',
+          toolsUsed: ['web_search'],
+          artifacts: [],
+        };
+      },
+    );
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+      updateInformative: vi.fn(async () => {}),
+    };
+    const context = {
+      abortSignal: new AbortController().signal,
+      activity: { id: 'activity-1' },
+      policy: { replyStyle: 'thread' },
+      stream,
+      turnContext: { sendActivities: vi.fn() },
+    };
+
+    await state.teamsMessageHandler?.(
+      'teams:dm:user-aad-id',
+      null,
+      'a:teams-current-conversation',
+      'user-aad-id',
+      'alice',
+      'find it',
+      [],
+      vi.fn(async () => {}),
+      context,
+    );
+
+    expect(stream.updateInformative).toHaveBeenNthCalledWith(1, 'Searching…');
+    expect(stream.updateInformative).toHaveBeenNthCalledWith(2, 'Thinking…');
+  });
+
   test('keeps attachment-only Teams replies instead of discarding them', async () => {
     const state = await importFreshGatewayMain();
     state.buildTeamsArtifactAttachments.mockResolvedValue([
@@ -2070,6 +2122,57 @@ describe('gateway bootstrap', () => {
         name: 'attachment.png',
       },
     ]);
+  });
+
+  test('reports Teams artifact delivery failures instead of leaving only a dead link', async () => {
+    const state = await importFreshGatewayMain();
+    state.buildTeamsArtifactAttachments.mockRejectedValue(
+      new Error('Teams bot file delivery is supported only in personal chats.'),
+    );
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result:
+        'Created [dog_with_image.pdf](sandbox:/workspace/dog_with_image.pdf).',
+      toolsUsed: ['bash'],
+      artifacts: [
+        {
+          filename: 'dog_with_image.pdf',
+          mimeType: 'application/pdf',
+          path: '/tmp/dog_with_image.pdf',
+        },
+      ],
+    });
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+      updateInformative: vi.fn(async () => {}),
+    };
+    const context = {
+      abortSignal: new AbortController().signal,
+      activity: { id: 'activity-1' },
+      policy: { replyStyle: 'thread' },
+      stream,
+      turnContext: { sendActivities: vi.fn() },
+    };
+
+    await state.teamsMessageHandler?.(
+      'teams:channel:conversation-1',
+      'team-1',
+      'conversation-1',
+      'user-aad-id',
+      'alice',
+      'create a PDF',
+      [],
+      vi.fn(async () => {}),
+      context,
+    );
+
+    expect(stream.finalize).toHaveBeenCalledWith(
+      'Created dog_with_image.pdf.\n*Tools: bash*\n\nThe artifact was created, but Teams could not deliver the file. Try the bot’s direct chat; if this already is a direct chat, enable file support (`supportsFiles`) in the Teams app manifest.',
+      undefined,
+    );
   });
 
   test('stores rendered fallback text for Discord pending approvals', async () => {

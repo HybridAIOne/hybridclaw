@@ -132,6 +132,54 @@ describe('generated media artifact recovery', () => {
     ).toEqual([existing]);
   });
 
+  test('recovers a referenced PDF from the workspace root', () => {
+    const workspacePath = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-generated-artifacts-'),
+    );
+    tempDirs.push(workspacePath);
+    const pdfPath = path.join(workspacePath, 'dog_with_image.pdf');
+    fs.writeFileSync(pdfPath, '%PDF-1.7');
+
+    expect(
+      recoverGeneratedMediaArtifactsFromResultText({
+        workspacePath,
+        resultText:
+          'Erledigt: [dog_with_image.pdf](sandbox:/workspace/dog_with_image.pdf)',
+      }),
+    ).toEqual([
+      {
+        path: pdfPath,
+        filename: 'dog_with_image.pdf',
+        mimeType: 'application/pdf',
+      },
+    ]);
+  });
+
+  test('recovers a referenced Office artifact from a nested workspace path', () => {
+    const workspacePath = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-generated-artifacts-'),
+    );
+    tempDirs.push(workspacePath);
+    const outputDir = path.join(workspacePath, 'outputs');
+    fs.mkdirSync(outputDir);
+    const documentPath = path.join(outputDir, 'Überblick.docx');
+    fs.writeFileSync(documentPath, 'docx');
+
+    expect(
+      recoverGeneratedMediaArtifactsFromResultText({
+        workspacePath,
+        resultText: 'The document is `outputs/Überblick.docx`.',
+      }),
+    ).toEqual([
+      {
+        path: documentPath,
+        filename: 'Überblick.docx',
+        mimeType:
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      },
+    ]);
+  });
+
   test('recovers generated media artifacts without replacing assistant text', () => {
     const workspacePath = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-generated-artifacts-'),

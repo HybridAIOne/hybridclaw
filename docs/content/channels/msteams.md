@@ -94,7 +94,9 @@ loopback address and must be configured with the public tunnel URL.
 4. Use the same **Application (client) ID** for the bot and enable these scopes:
    - **Personal**
    - **Team**
-5. Save the app, open **Publish**, and download the app package.
+5. Enable file upload/download support for the bot. In the downloaded
+   manifest, verify that the bot entry contains `"supportsFiles": true`.
+6. Save the app, open **Publish**, and download the app package.
 
 Keep the downloaded `.zip` file intact. It is the package uploaded in the next
 step.
@@ -120,6 +122,18 @@ The app can take some time to appear in the organization's Teams app catalog.
 Team channel messages require a mention by default. A plain `hello` in a team
 channel does not trigger a reply unless you change the Teams policy in
 HybridClaw.
+
+Direct messages use Teams native streaming: the chat shows an informative
+progress bar such as **Thinking…** or **Searching…**, then replaces it with the
+incremental response. Teams supports this streaming experience only in
+one-on-one chats. Group chats and team channels use the standard typing and
+message-update fallback.
+
+Generated files are delivered in direct messages through a Teams file-consent
+card. Select **Accept** on that card to upload the file to OneDrive and receive
+an openable file card. The Teams bot file API supports this flow only in
+one-on-one chats; channel and group-chat file delivery requires a separate
+Microsoft Graph and SharePoint/OneDrive integration.
 
 ## Troubleshooting: the bot does not respond
 
