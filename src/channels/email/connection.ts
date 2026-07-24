@@ -13,6 +13,10 @@ const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
 const EMAIL_CURSOR_STATE_DIR = path.join(DATA_DIR, 'email');
 const EMAIL_CURSOR_STATE_VERSION = 1;
+// Cursor seeding runs inside `channels email setup`, which platforms exec with
+// their own deadline (e.g. sandbox provisioning) — fail fast rather than
+// eating the caller's whole budget on an unreachable IMAP host.
+const SEED_CONNECT_TIMEOUT_MS = 10_000;
 
 export interface EmailFetchedMessage {
   folder: string;
@@ -169,6 +173,78 @@ async function savePersistedFolderCursorState(
   };
   await fs.mkdir(path.dirname(statePath), { recursive: true });
   await fs.writeFile(statePath, JSON.stringify(serialized, null, 2));
+}
+
+export interface EmailCursorBaseline {
+  folder: string;
+  lastProcessedUid: number;
+  seeded: boolean;
+}
+
+/**
+ * Persist the current mailbox head as each folder's initial poll cursor.
+ *
+ * The poll loop only processes UIDs above its stored cursor, and when no
+ * cursor exists it seeds one from the mailbox head on its own first poll — so
+ * mail delivered between channel setup and that first poll was silently and
+ * permanently skipped. Seeding at setup time moves the baseline to the moment
+ * the channel is configured: everything delivered afterwards is processed no
+ * matter when the gateway's poller comes up, while a reused mailbox's
+ * pre-setup backlog stays unanswered. Folders that already have a cursor for
+ * the mailbox's current UIDVALIDITY are left untouched so re-running setup
+ * neither skips nor re-processes mail.
+ */
+export async function seedEmailFolderCursors(
+  config: Pick<
+    RuntimeEmailConfig,
+    'address' | 'folders' | 'imapHost' | 'imapPort' | 'imapSecure'
+  >,
+  password: string,
+): Promise<EmailCursorBaseline[]> {
+  const folders = resolveFolders(config.folders);
+  const client = new ImapFlow({
+    host: config.imapHost,
+    port: config.imapPort,
+    secure: config.imapSecure,
+    auth: {
+      user: config.address,
+      pass: password,
+    },
+    logger: false,
+    connectionTimeout: SEED_CONNECT_TIMEOUT_MS,
+    greetingTimeout: SEED_CONNECT_TIMEOUT_MS,
+  });
+  await client.connect();
+  try {
+    const persisted = await loadPersistedFolderCursorState(config.address);
+    const baselines: EmailCursorBaseline[] = [];
+    let changed = false;
+    for (const folder of folders) {
+      const mailboxStatus = await resolveMailboxStatus(client, folder);
+      const existing = persisted.get(folder);
+      if (existing && existing.uidValidity === mailboxStatus.uidValidity) {
+        baselines.push({
+          folder,
+          lastProcessedUid: existing.lastProcessedUid,
+          seeded: false,
+        });
+        continue;
+      }
+      const lastProcessedUid = mailboxStatus.uidNext - 1;
+      persisted.set(folder, {
+        uidValidity: mailboxStatus.uidValidity,
+        lastProcessedUid,
+      });
+      changed = true;
+      baselines.push({ folder, lastProcessedUid, seeded: true });
+    }
+    if (changed) {
+      await savePersistedFolderCursorState(config.address, persisted);
+    }
+    return baselines;
+  } finally {
+    await client.logout().catch(() => {});
+  }
 }
 
 export function createEmailConnectionManager(

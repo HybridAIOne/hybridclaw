@@ -20,11 +20,25 @@ function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-local-cli-'));
 }
 
-async function importFreshCli(homeDir: string) {
+async function importFreshCli(
+  homeDir: string,
+  options: { emailSeedError?: boolean } = {},
+) {
   process.env.HOME = homeDir;
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
   vi.resetModules();
+  vi.doMock('../src/channels/email/connection.ts', async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    // `channels email setup` seeds poll cursors over a real IMAP connection;
+    // these tests configure unreachable example.com hosts, so stub it.
+    seedEmailFolderCursors: async () => {
+      if (options.emailSeedError) {
+        throw new Error('IMAP unreachable');
+      }
+      return [{ folder: 'INBOX', lastProcessedUid: 41, seeded: true }];
+    },
+  }));
   vi.doMock('../src/channels/whatsapp/runtime.ts', () => ({
     createWhatsAppPairingSession: async () => ({
       start: async () => {},
@@ -875,6 +889,35 @@ test('channels email setup writes config and stores EMAIL_PASSWORD', async () =>
   );
   expect(logSpy).toHaveBeenCalledWith(
     `Saved email password to ${path.join(homeDir, '.hybridclaw', 'credentials.json')}`,
+  );
+  expect(logSpy).toHaveBeenCalledWith(
+    'Mailbox cursor: INBOX @ UID 41 (seeded at setup; only newer mail is processed)',
+  );
+});
+
+test('channels email setup still succeeds when cursor seeding cannot reach IMAP', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir, { emailSeedError: true });
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await cli.main([
+    'channels',
+    'email',
+    'setup',
+    '--address',
+    'agent@example.com',
+    '--password',
+    'email-app-password',
+    '--imap-host',
+    'imap.example.com',
+    '--smtp-host',
+    'smtp.example.com',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.email.enabled).toBe(true);
+  expect(logSpy).toHaveBeenCalledWith(
+    'Warning: could not reach the mailbox to seed poll cursors; mail that arrives before the gateway first polls may be skipped.',
   );
 });
 
