@@ -304,7 +304,6 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm --prefix container ci --ignore-scripts
-          npm --prefix plugins/whatsapp ci --ignore-scripts
 
       - name: Verify npm registry signatures
         run: npm run audit:signatures

@@ -5,9 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const WHATSAPP_WS_MIN_RELEASE_AGE_EXPIRES_AT = Date.parse(
-  '2026-07-21T17:12:26.000Z',
-);
 const maxAttempts = Number.parseInt(
   process.env.HYBRIDCLAW_NPM_AUDIT_SIGNATURE_ATTEMPTS || '3',
   10,
@@ -17,15 +14,7 @@ const retryDelayMs = Number.parseInt(
   10,
 );
 
-const whatsappAuditPolicyArgs = [];
 const jsrRegistryArg = '--@jsr:registry=https://npm.jsr.io';
-
-// ws@8.21.1 was published on 2026-07-14T17:12:25.599Z. Until npm's
-// seven-day age gate expires, bypass only the audit resolver so signature
-// verification can run against the reviewed, hash-pinned plugin lockfile.
-if (Date.now() < WHATSAPP_WS_MIN_RELEASE_AGE_EXPIRES_AT) {
-  whatsappAuditPolicyArgs.push('--min-release-age=0');
-}
 
 const targets = [
   {
@@ -36,18 +25,7 @@ const targets = [
     label: 'container',
     args: ['--prefix', 'container', jsrRegistryArg, 'audit', 'signatures'],
   },
-  {
-    label: 'whatsapp-plugin',
-    args: [
-      '--prefix',
-      'plugins/whatsapp',
-      ...whatsappAuditPolicyArgs,
-      'audit',
-      'signatures',
-    ],
-  },
 ];
-
 const missingAttestationPattern = /E404[\s\S]*\/-\/npm\/v1\/attestations\//u;
 
 const signatureFailurePatterns = [

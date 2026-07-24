@@ -1142,6 +1142,139 @@ test('handleGatewayCommand rejects enable for undiscovered plugins', async () =>
   );
 });
 
+test('handleGatewayCommand installs a registered on-demand plugin when enabling it', async () => {
+  setupHome();
+  pluginManagerMock.listPluginSummary.mockReturnValueOnce([]);
+  installPluginMock.mockResolvedValueOnce({
+    pluginId: 'whatsapp',
+    pluginDir: '/tmp/.hybridclaw/plugins/whatsapp',
+    source:
+      'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+    alreadyInstalled: false,
+    dependenciesInstalled: true,
+    dependencySummary: {
+      usedPackageJson: true,
+      installedNodePackages: [],
+      installedPipPackages: [],
+    },
+    configuredRequiredBins: [],
+    externalDependencies: [],
+    requiresEnv: [],
+    requiredConfigKeys: [],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-enable-whatsapp',
+    guildId: null,
+    channelId: 'tui',
+    args: ['plugin', 'enable', 'whatsapp'],
+  });
+
+  expect(installPluginMock).toHaveBeenCalledWith(
+    'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+    { approveDependencyInstall: false },
+  );
+  expect(setPluginEnabledMock).toHaveBeenCalledWith('whatsapp', true);
+  expect(reloadPluginManagerMock).toHaveBeenCalled();
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Enabled');
+  expect(result.text).toContain(
+    'Installed plugin `whatsapp` to `/tmp/.hybridclaw/plugins/whatsapp`.',
+  );
+  expect(result.text).toContain('Status: enabled');
+});
+
+test('handleTextChannelApprovalCommand approves install-on-demand plugin enable dependencies', async () => {
+  setupHome();
+  pluginManagerMock.listPluginSummary.mockReturnValue([]);
+  installPluginMock
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: true,
+        nodePackages: [],
+        pipPackages: [],
+      }),
+    )
+    .mockRejectedValueOnce(
+      new pluginDependencyApprovalRequiredError({
+        usesPackageJson: true,
+        nodePackages: [],
+        pipPackages: [],
+      }),
+    )
+    .mockResolvedValueOnce({
+      pluginId: 'whatsapp',
+      pluginDir: '/tmp/.hybridclaw/plugins/whatsapp',
+      source:
+        'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+      alreadyInstalled: false,
+      dependenciesInstalled: true,
+      dependencySummary: {
+        usedPackageJson: true,
+        installedNodePackages: [],
+        installedPipPackages: [],
+      },
+      configuredRequiredBins: [],
+      externalDependencies: [],
+      requiresEnv: [],
+      requiredConfigKeys: [],
+    });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { handleTextChannelApprovalCommand } = await import(
+    '../src/gateway/text-channel-commands.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const approval = await handleGatewayCommand({
+    sessionId: 'session-plugin-enable-whatsapp-approval',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['plugin', 'enable', 'whatsapp'],
+  });
+
+  expect(approval.kind).toBe('info');
+  if (approval.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${approval.kind}`);
+  }
+  expect(approval.title).toBe('Pending Approval');
+
+  const handled = await handleTextChannelApprovalCommand({
+    sessionId: 'session-plugin-enable-whatsapp-approval',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'local-user',
+    username: 'local-user',
+    args: ['approve', 'yes'],
+  });
+
+  expect(handled).not.toBeNull();
+  expect(installPluginMock).toHaveBeenNthCalledWith(
+    3,
+    'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+    { approveDependencyInstall: true },
+  );
+  expect(setPluginEnabledMock).toHaveBeenCalledWith('whatsapp', true);
+  expect(reloadPluginManagerMock).toHaveBeenCalled();
+  expect(handled?.text).toContain('Plugin Enabled');
+  expect(handled?.text).toContain('Installed plugin `whatsapp`');
+});
+
 test('handleGatewayCommand rejects plugin disable outside local TUI/web sessions', async () => {
   setupHome();
 

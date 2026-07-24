@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { getChannelPluginCatalogEntryByPluginId } from '../channels/channel-plugin-catalog.js';
 import { sendWebhookJson, WebhookHttpError } from '../channels/webhook-http.js';
 import { parseIdArg, parseLowerArg } from '../command-parsing.js';
 import {
@@ -644,6 +645,66 @@ export async function handlePluginGatewayCommand(params: {
         .listPluginSummary()
         .some((summary) => summary.id === pluginId)
     ) {
+      if (sub === 'enable') {
+        const installSource =
+          getChannelPluginCatalogEntryByPluginId(pluginId)?.installSource ||
+          listInstallablePlugins().find((plugin) => plugin.id === pluginId)
+            ?.installSource;
+        if (installSource) {
+          const installAndEnable = async (
+            approveDependencyInstall: boolean,
+          ): Promise<GatewayCommandResult> => {
+            const result = await installPlugin(installSource, {
+              approveDependencyInstall,
+            });
+            await setPluginEnabled(pluginId, true);
+            const reloadResult = await reloadPluginRuntime();
+            return infoCommand(
+              'Plugin Enabled',
+              [
+                `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
+                ...buildDependencyInstallLines(result),
+                `Status: enabled`,
+                reloadResult.message,
+              ].join('\n'),
+            );
+          };
+
+          try {
+            return await installAndEnable(false);
+          } catch (error) {
+            if (isDependencyApprovalRequiredError(error)) {
+              const step = resolveNextPluginDependencyApprovalStep({
+                sessionId: req.sessionId,
+                source: installSource,
+                plan: error.plan,
+              });
+              if (!step) return await installAndEnable(true);
+              await rememberPendingApproval({
+                sessionId: req.sessionId,
+                approvalId: step.approvalId,
+                prompt: step.prompt,
+                userId:
+                  String(req.userId || req.sessionId).trim() || req.sessionId,
+                commandAction: {
+                  approveArgs: ['plugin', 'enable', pluginId],
+                  actionKey: step.actionKey,
+                  allowSession: step.allowSession,
+                  allowAgent: step.allowAgent,
+                  allowAll: step.allowAll,
+                  denyTitle: 'Plugin Enable Cancelled',
+                  denyText: `Cancelled plugin enable for \`${pluginId}\`.`,
+                },
+              });
+              return infoCommand('Pending Approval', step.prompt);
+            }
+            return badCommand(
+              'Plugin Enable Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+      }
       return badCommand(
         'Plugin Not Found',
         [

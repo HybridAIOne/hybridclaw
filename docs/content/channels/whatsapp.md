@@ -17,18 +17,24 @@ and [Policies And Allowlists](./policies-and-allowlists.md).
 ## Step 1: Install The WhatsApp Plugin
 
 ```bash
-hybridclaw plugin install @hybridaione/hybridclaw-whatsapp
+hybridclaw plugin enable whatsapp
 ```
 
-For in-repo development after `npm run build`, use `hybridclaw plugin enable
-whatsapp` or install the local package with `hybridclaw plugin install
-./plugins/whatsapp`.
+This explicit enable action installs the plugin and its isolated dependencies
+after approval. For non-interactive use, pass `--yes`. Core HybridClaw install,
+update, setup, build, and test commands never install or compile WhatsApp.
+
+The plugin is developed and released from the separate
+[`HybridAIOne/hybridclaw-whatsapp`](https://github.com/HybridAIOne/hybridclaw-whatsapp)
+repository under GPL-3.0-only. HybridClaw pins a versioned release archive in
+its install catalog; the explicit enable command downloads that archive through
+the normal plugin dependency-approval flow.
 
 WhatsApp uses Baileys, whose dependency closure includes GPL-3.0-licensed
-`libsignal`. Keeping the transport in a separate plugin means core HybridClaw
-npm packages, Docker images, desktop bundles, and Homebrew artifacts do not
-convey that dependency closure. Install the plugin only on hosts where you want
-to use WhatsApp and have reviewed its licenses.
+`libsignal`. Keeping the transport and its dependencies in the GPL repository
+means core HybridClaw npm packages, Docker images, desktop bundles, and Homebrew
+artifacts do not convey that dependency closure. Install the plugin only on
+hosts where you want to use WhatsApp and have reviewed its licenses.
 
 Existing linked sessions are preserved. The plugin uses the same
 `~/.hybridclaw/credentials/whatsapp` auth directory as earlier HybridClaw

@@ -47,6 +47,11 @@ The install command:
   install hints
 - disables npm lifecycle scripts during install-time dependency resolution
 
+`plugin enable <plugin-id>` uses the same installer and approval flow when the
+plugin is registered as available but is not installed yet. This is how
+license-sensitive install-on-demand plugins such as WhatsApp remain completely
+outside normal core install, update, build, and test workflows.
+
 The reinstall command:
 
 - replaces the existing home install for the plugin id

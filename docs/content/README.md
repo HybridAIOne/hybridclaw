@@ -65,9 +65,11 @@ doc at once, start from [For Agents](./agents.md).
   or OpenAI paths with streaming on and off, connection timing, prompt-cache
   visibility, multi-provider gateway arms, long prompt files, and optional raw
   JSON output.
-- WhatsApp is an install-on-demand channel plugin, keeping Baileys and its GPL
-  dependency outside core distributions. The core dependency tree is AGPL-free,
-  and dependency policy rejects unapproved GPL, AGPL, and SSPL packages.
+- WhatsApp is released from a
+  [separate GPL repository](https://github.com/HybridAIOne/hybridclaw-whatsapp)
+  and installed only on demand, keeping Baileys and its GPL dependency outside
+  core distributions. The core dependency tree is AGPL-free, and dependency
+  policy rejects unapproved GPL, AGPL, and SSPL packages.
 - Release artifacts include MIT package metadata, comprehensive third-party
   notices, per-component CycloneDX and SPDX SBOMs, DCO enforcement, and a public
   code-provenance statement covering authorship and the project's independent

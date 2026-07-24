@@ -9,8 +9,9 @@
 //    (or file:/link:/workspace:/pinned npm.jsr.io tarball specs).
 // 2. Each npm-shrinkwrap.json must byte-match its package-lock.json pair.
 // 3. Lockfile changes must be approved via the SHA-256 hashes under
-//    "lockfiles" in scripts/dependency-policy-baseline.json, and new
-//    dependency lifecycle scripts require explicit review.
+//    "lockfiles" in scripts/dependency-policy-baseline.json. A deletion is
+//    approved by removing its baseline entry. New dependency lifecycle
+//    scripts require explicit review.
 // 4. License gate over every tracked package-lock.json (shrinkwraps are
 //    covered by check 2), read from the lockfile `license` metadata:
 //    - Forbidden (fails): strong copyleft and source-restricted families —
@@ -43,10 +44,6 @@ const LOCKFILE_BASELINE_PATH = 'scripts/dependency-policy-baseline.json';
 const SHRINKWRAP_PAIRS = [
   ['package-lock.json', 'npm-shrinkwrap.json'],
   ['container/package-lock.json', 'container/npm-shrinkwrap.json'],
-  [
-    'plugins/whatsapp/package-lock.json',
-    'plugins/whatsapp/npm-shrinkwrap.json',
-  ],
 ];
 const ALLOW_LOCKFILE_CHANGES = 'HYBRIDCLAW_ALLOW_LOCKFILE_CHANGES';
 const ALLOW_LIFECYCLE_SCRIPTS = 'HYBRIDCLAW_ALLOW_DEPENDENCY_LIFECYCLE_SCRIPTS';
@@ -472,7 +469,7 @@ function readLockfileBaseline() {
 }
 
 function isApprovedLockfile(filePath, baseline) {
-  if (!fs.existsSync(filePath)) return false;
+  if (!fs.existsSync(filePath)) return baseline[filePath] === undefined;
   return baseline[filePath] === hashFile(filePath);
 }
 

@@ -68,9 +68,10 @@ committed lockfiles:
   releases. Container images additionally carry BuildKit SBOM and provenance
   attestations; npm publishes with `--provenance`.
 - `scripts/check-dependency-policy.mjs` — CI license gate: GPL/AGPL/SSPL
-  dependencies fail unless explicitly baselined after review. Sole current
-  exception: `libsignal@6.0.0` (GPL-3.0) inside the optional, separately
-  installed WhatsApp plugin.
+  dependencies fail unless explicitly baselined after review. Core has no
+  strong-copyleft exceptions. The optional WhatsApp transport is developed,
+  audited, and released separately under GPL-3.0-only from
+  [`HybridAIOne/hybridclaw-whatsapp`](https://github.com/HybridAIOne/hybridclaw-whatsapp).
 
 ## License Header Policy
 

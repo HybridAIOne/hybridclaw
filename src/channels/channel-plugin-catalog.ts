@@ -14,7 +14,8 @@ export interface ChannelPluginStatus extends ChannelPluginCatalogEntry {
 const CHANNEL_PLUGIN_CATALOG = {
   whatsapp: {
     pluginId: 'whatsapp',
-    installSource: '@hybridaione/hybridclaw-whatsapp',
+    installSource:
+      'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
   },
 } as const satisfies Partial<
   Record<ChannelKind, Omit<ChannelPluginCatalogEntry, 'channel'>>
@@ -26,6 +27,17 @@ export function getChannelPluginCatalogEntry(
   const entry: Omit<ChannelPluginCatalogEntry, 'channel'> | undefined =
     CHANNEL_PLUGIN_CATALOG[channel as keyof typeof CHANNEL_PLUGIN_CATALOG];
   return entry ? { channel, ...entry } : undefined;
+}
+
+export function getChannelPluginCatalogEntryByPluginId(
+  pluginId: string,
+): ChannelPluginCatalogEntry | undefined {
+  const normalizedPluginId = String(pluginId || '').trim();
+  for (const channel of Object.keys(CHANNEL_PLUGIN_CATALOG)) {
+    const entry = getChannelPluginCatalogEntry(channel as ChannelKind);
+    if (entry?.pluginId === normalizedPluginId) return entry;
+  }
+  return undefined;
 }
 
 export function getChannelPluginInstallCommand(channel: ChannelKind): string {

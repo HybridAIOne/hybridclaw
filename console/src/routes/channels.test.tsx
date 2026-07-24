@@ -361,7 +361,8 @@ describe('ChannelsPage', () => {
         {
           channel: 'whatsapp',
           pluginId: 'whatsapp',
-          installSource: '@hybridaione/hybridclaw-whatsapp',
+          installSource:
+            'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
           transportAvailable: true,
         },
       ],
@@ -895,7 +896,8 @@ describe('ChannelsPage', () => {
         {
           channel: 'whatsapp',
           pluginId: 'whatsapp',
-          installSource: '@hybridaione/hybridclaw-whatsapp',
+          installSource:
+            'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
           transportAvailable: false,
         },
       ],
@@ -928,7 +930,7 @@ describe('ChannelsPage', () => {
     await waitFor(() => {
       expect(installPluginMock).toHaveBeenCalledWith(
         'test-token',
-        '@hybridaione/hybridclaw-whatsapp',
+        'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
       );
     });
   });
