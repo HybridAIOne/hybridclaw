@@ -1,9 +1,9 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.28.5',
+  version: '0.28.6',
   highlights: [
-    'Reliable email delivery immediately after setup.',
-    'Runtime Python package installation.',
-    'Fix Provider API error 500 with GPT models.',
+    'Live Microsoft Teams activity and streaming.',
+    'Openable generated files in Teams direct messages.',
+    'WhatsApp remains strictly install-on-demand.',
   ],
 } as const;
 
