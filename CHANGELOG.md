@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- **WhatsApp remains strictly install-on-demand**: Normal core install, update,
+  setup, build, lint, typecheck, test, and release workflows do not install or
+  compile the separate WhatsApp package. Explicitly enabling WhatsApp routes
+  through the approved plugin installer, and its license notices ship with the
+  plugin instead of the core notice bundle.
+
 ## [0.28.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.4) - 2026-07-24
 
 ### Added

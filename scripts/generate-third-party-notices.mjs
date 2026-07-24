@@ -3,8 +3,9 @@
 // Generates THIRD_PARTY_NOTICES.md from the committed lockfiles and the
 // installed node_modules trees:
 //
-// 1. Discovers every distributed component by walking the repo for
-//    package-lock.json files (same ignore rules as check-dependency-policy);
+// 1. Discovers core distributed components by walking the repo for
+//    package-lock.json files (same ignore rules as check-dependency-policy),
+//    excluding install-on-demand plugins unless selected with --component;
 //    the adjacent npm-shrinkwrap.json is preferred when present.
 // 2. Inventories every production dependency (lockfile entries flagged
 //    `dev: true` are excluded; dev-only tooling is not distributed).
@@ -19,16 +20,24 @@
 // Usage:
 //   node scripts/generate-third-party-notices.mjs          # (re)write the file
 //   node scripts/generate-third-party-notices.mjs --check  # fail if stale
+//   npm run notices:whatsapp-plugin                         # plugin-only file
 //
-// Requires production node_modules for every component:
+// Requires production node_modules for every selected component:
 //   npm run deps:verify && npm --prefix plugins/brevo-email ci --ignore-scripts
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const OUTPUT_PATH = 'THIRD_PARTY_NOTICES.md';
 const checkMode = process.argv.includes('--check');
+const componentArg = process.argv
+  .find((arg) => arg.startsWith('--component='))
+  ?.slice('--component='.length);
+const outputArg = process.argv
+  .find((arg) => arg.startsWith('--output='))
+  ?.slice('--output='.length);
+const OUTPUT_PATH = outputArg || 'THIRD_PARTY_NOTICES.md';
+const CORE_EXCLUDED_COMPONENTS = new Set(['plugins/whatsapp']);
 
 function fail(message) {
   console.error(`third-party-notices: ${message}`);
@@ -113,7 +122,13 @@ function readTextFiles(dir, pattern) {
 
 // --- Collect components and dependencies -----------------------------------
 
-const componentDirs = findLockfileDirs('.').sort();
+const componentDirs = findLockfileDirs('.')
+  .filter((dir) =>
+    componentArg
+      ? path.normalize(dir) === path.normalize(componentArg)
+      : !CORE_EXCLUDED_COMPONENTS.has(path.normalize(dir)),
+  )
+  .sort();
 if (componentDirs.length === 0) fail('no package-lock.json files found.');
 
 const components = [];
@@ -224,13 +239,16 @@ for (const pkg of sortedPackages) {
 }
 
 if (missingInstalls.length > 0) {
+  const installCommand = componentArg
+    ? '  npm run setup:whatsapp-plugin'
+    : '  npm run deps:verify && npm --prefix plugins/brevo-email ci --ignore-scripts';
   fail(
     `node_modules missing for ${missingInstalls.length} package(s) (e.g. ${missingInstalls
       .slice(0, 5)
       .join(
         ', ',
       )}). Install production dependencies for every component first:\n` +
-      '  npm run deps:verify && npm --prefix plugins/brevo-email ci --ignore-scripts',
+      installCommand,
   );
 }
 
@@ -248,11 +266,16 @@ lines.push(
   'Section 4(d)).',
 );
 lines.push('');
+const regenerateCommand = componentArg
+  ? 'npm run notices:whatsapp-plugin'
+  : 'npm run notices';
 lines.push(
   'This file is generated from the committed lockfiles by',
-  '`scripts/generate-third-party-notices.mjs`; regenerate with `npm run notices`.',
-  'Scope: production dependencies of each distributed component. Dev-only',
-  'tooling is not distributed and therefore not listed. Platform-specific',
+  `\`scripts/generate-third-party-notices.mjs\`; regenerate with \`${regenerateCommand}\`.`,
+  componentArg
+    ? `Scope: production dependencies of \`${componentArg}\`.`
+    : 'Scope: production dependencies of core distributed components; the opt-in WhatsApp plugin carries a separate notice file.',
+  'Dev-only tooling is not distributed and therefore not listed. Platform-specific',
   'optional dependencies are inventoried from lockfile metadata; their license',
   'texts ship inside the respective packages.',
 );

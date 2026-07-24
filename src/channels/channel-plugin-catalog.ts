@@ -28,6 +28,17 @@ export function getChannelPluginCatalogEntry(
   return entry ? { channel, ...entry } : undefined;
 }
 
+export function getChannelPluginCatalogEntryByPluginId(
+  pluginId: string,
+): ChannelPluginCatalogEntry | undefined {
+  const normalizedPluginId = String(pluginId || '').trim();
+  for (const channel of Object.keys(CHANNEL_PLUGIN_CATALOG)) {
+    const entry = getChannelPluginCatalogEntry(channel as ChannelKind);
+    if (entry?.pluginId === normalizedPluginId) return entry;
+  }
+  return undefined;
+}
+
 export function getChannelPluginInstallCommand(channel: ChannelKind): string {
   const entry = getChannelPluginCatalogEntry(channel);
   if (!entry) {

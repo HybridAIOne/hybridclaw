@@ -132,6 +132,21 @@ jobs:
       - name: Installer unit tests
         run: bash scripts/install.test.sh
 
+  whatsapp-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
+
+      - name: Setup Node.js workspace
+        uses: ./.github/actions/setup-node-workspace
+
+      - name: Build, typecheck, and test the opt-in WhatsApp plugin
+        run: npm run check:whatsapp-plugin
+
+      - name: Verify WhatsApp plugin npm registry signatures
+        run: npm run audit:signatures:whatsapp-plugin
+
   test:
     runs-on: ubuntu-latest
     permissions:

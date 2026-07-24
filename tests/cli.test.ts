@@ -3133,6 +3133,40 @@ describe('CLI hybridai commands', () => {
     );
   });
 
+  it('installs the opt-in WhatsApp plugin only when explicitly enabled', async () => {
+    const { cli, installPlugin, setPluginEnabled } = await importFreshCli({
+      pluginInstallResult: {
+        pluginId: 'whatsapp',
+        pluginDir: '/tmp/.hybridclaw/plugins/whatsapp',
+        source: '@hybridaione/hybridclaw-whatsapp',
+        alreadyInstalled: false,
+        dependenciesInstalled: true,
+        dependencySummary: {
+          usedPackageJson: true,
+          installedNodePackages: [],
+          installedPipPackages: [],
+        },
+        configuredRequiredBins: [],
+        externalDependencies: [],
+        requiresEnv: [],
+        requiredConfigKeys: [],
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'enable', 'whatsapp', '--yes']);
+
+    expect(installPlugin).toHaveBeenCalledWith(
+      '@hybridaione/hybridclaw-whatsapp',
+      {
+        approveDependencyInstall: true,
+        onDependenciesAlreadySatisfied: expect.any(Function),
+      },
+    );
+    expect(setPluginEnabled).toHaveBeenCalledWith('whatsapp', true);
+    expect(logSpy).toHaveBeenCalledWith('Enabled plugin whatsapp.');
+  });
+
   it('installs a plugin and leaves runtime config for optional overrides', async () => {
     const { cli, installPlugin } = await importFreshCli({
       pluginInstallResult: {

@@ -60,6 +60,9 @@ Notes:
 - `npm run setup` installs the container runtime dependencies under
   `container/`.
 - `npm run build` compiles both the root package and the container runtime.
+- Core setup, build, lint, typecheck, and tests do not install or compile the
+  opt-in WhatsApp plugin. Run `npm run check:whatsapp-plugin` explicitly when
+  working on that separate package.
 
 ## Everyday Commands
 

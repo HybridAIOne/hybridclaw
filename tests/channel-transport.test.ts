@@ -9,6 +9,7 @@ import {
 } from '../src/channels/channel-transport.js';
 import {
   getChannelPluginCatalogEntry,
+  getChannelPluginCatalogEntryByPluginId,
   getChannelPluginStatuses,
 } from '../src/channels/channel-plugin-catalog.js';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
@@ -50,6 +51,11 @@ test('registers, resolves, and unregisters a channel transport', () => {
 
 test('channel plugin catalog reports transport availability generically', () => {
   expect(getChannelPluginCatalogEntry('whatsapp')).toEqual({
+    channel: 'whatsapp',
+    pluginId: 'whatsapp',
+    installSource: '@hybridaione/hybridclaw-whatsapp',
+  });
+  expect(getChannelPluginCatalogEntryByPluginId('whatsapp')).toEqual({
     channel: 'whatsapp',
     pluginId: 'whatsapp',
     installSource: '@hybridaione/hybridclaw-whatsapp',

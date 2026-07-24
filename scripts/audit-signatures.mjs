@@ -27,7 +27,7 @@ if (Date.now() < WHATSAPP_WS_MIN_RELEASE_AGE_EXPIRES_AT) {
   whatsappAuditPolicyArgs.push('--min-release-age=0');
 }
 
-const targets = [
+const coreTargets = [
   {
     label: 'root',
     args: [jsrRegistryArg, 'audit', 'signatures'],
@@ -36,17 +36,20 @@ const targets = [
     label: 'container',
     args: ['--prefix', 'container', jsrRegistryArg, 'audit', 'signatures'],
   },
-  {
-    label: 'whatsapp-plugin',
-    args: [
-      '--prefix',
-      'plugins/whatsapp',
-      ...whatsappAuditPolicyArgs,
-      'audit',
-      'signatures',
-    ],
-  },
 ];
+const whatsappPluginTarget = {
+  label: 'whatsapp-plugin',
+  args: [
+    '--prefix',
+    'plugins/whatsapp',
+    ...whatsappAuditPolicyArgs,
+    'audit',
+    'signatures',
+  ],
+};
+const targets = process.argv.includes('--whatsapp-plugin')
+  ? [whatsappPluginTarget]
+  : coreTargets;
 
 const missingAttestationPattern = /E404[\s\S]*\/-\/npm\/v1\/attestations\//u;
 

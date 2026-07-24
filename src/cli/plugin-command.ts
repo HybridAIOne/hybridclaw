@@ -1,4 +1,5 @@
 import readline from 'node:readline/promises';
+import { getChannelPluginCatalogEntryByPluginId } from '../channels/channel-plugin-catalog.js';
 import { runtimeConfigPath } from '../config/runtime-config.js';
 import {
   filterAvailablePluginSummaryList,
@@ -6,6 +7,7 @@ import {
   formatPluginCatalogList,
   formatPluginSummaryList,
 } from '../plugins/plugin-formatting.js';
+import type { InstallPluginResult } from '../plugins/plugin-install.js';
 import {
   formatDependencyPlanDetails,
   listInstallablePlugins,
@@ -156,6 +158,43 @@ function printDependencyInstallSummary(params: {
       console.log(`Install docs for ${entry.name}: ${entry.installUrl}`);
     }
   }
+}
+
+async function installPluginWithApproval(
+  source: string,
+  approved: boolean,
+): Promise<InstallPluginResult | null> {
+  const { installPlugin } = await import('../plugins/plugin-install.js');
+  try {
+    return await installPlugin(source, {
+      approveDependencyInstall: approved,
+      onDependenciesAlreadySatisfied: (plan) => {
+        console.log(
+          `${green('[check]')} plugin dependencies (${formatDependencyPlanDetails(plan)}) already installed`,
+        );
+      },
+    });
+  } catch (error) {
+    if (!isDependencyApprovalRequiredError(error) || approved) throw error;
+    const confirmed = await confirmDependencyInstall(error.plan);
+    if (!confirmed) {
+      console.log('Plugin install cancelled.');
+      return null;
+    }
+    return await installPlugin(source, {
+      approveDependencyInstall: true,
+    });
+  }
+}
+
+function resolvePluginEnableInstallSource(pluginId: string): string | null {
+  const channelPlugin =
+    getChannelPluginCatalogEntryByPluginId(pluginId)?.installSource;
+  if (channelPlugin) return channelPlugin;
+  const available = listInstallablePlugins().find(
+    (plugin) => plugin.id === pluginId,
+  );
+  return available?.installSource || null;
 }
 
 function printPluginCheckReport(result: {
@@ -340,17 +379,56 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
 
   if (sub === 'enable' || sub === 'disable') {
     const pluginId = normalized[1];
+    const yes = normalized[2];
     if (!pluginId) {
       printPluginUsage();
       throw new Error(
         `Missing plugin id for \`hybridclaw plugin ${sub} <plugin-id>\`.`,
       );
     }
-    if (normalized.length !== 2) {
+    if (
+      normalized.length > (sub === 'enable' ? 3 : 2) ||
+      (sub === 'enable' && yes && yes !== '--yes')
+    ) {
       printPluginUsage();
       throw new Error(
         `Unexpected extra arguments for \`hybridclaw plugin ${sub} <plugin-id>\`.`,
       );
+    }
+
+    const { ensurePluginManagerInitialized } = await import(
+      '../plugins/plugin-manager.js'
+    );
+    const manager = await ensurePluginManagerInitialized();
+    const installed = manager
+      .listPluginSummary()
+      .some((plugin) => plugin.id === pluginId);
+    if (sub === 'enable' && !installed) {
+      const installSource = resolvePluginEnableInstallSource(pluginId);
+      if (!installSource) {
+        throw new Error(
+          `Plugin \`${pluginId}\` was not found and has no registered install source.`,
+        );
+      }
+      const installedPlugin = await installPluginWithApproval(
+        installSource,
+        yes === '--yes',
+      );
+      if (!installedPlugin) return;
+
+      const { setPluginEnabled } = await import('../plugins/plugin-config.js');
+      await setPluginEnabled(pluginId, true);
+      console.log(
+        `${green('[ok]')} Installed plugin ${installedPlugin.pluginId} to ${installedPlugin.pluginDir}.`,
+      );
+      printDependencyInstallSummary(installedPlugin);
+      console.log(`Enabled plugin ${installedPlugin.pluginId}.`);
+      console.log(
+        'Restart the gateway to load plugin changes if it is running:',
+      );
+      console.log('  hybridclaw gateway restart --foreground');
+      console.log('  hybridclaw gateway status');
+      return;
     }
 
     const { setPluginEnabled } = await import('../plugins/plugin-config.js');
@@ -388,32 +466,8 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
       );
     }
 
-    const { installPlugin } = await import('../plugins/plugin-install.js');
-    let result: Awaited<ReturnType<typeof installPlugin>>;
-    try {
-      result = await installPlugin(source, {
-        approveDependencyInstall: yes === '--yes',
-        onDependenciesAlreadySatisfied: (plan) => {
-          console.log(
-            `${green('[check]')} plugin dependencies (${formatDependencyPlanDetails(plan)}) already installed`,
-          );
-        },
-      });
-    } catch (error) {
-      if (isDependencyApprovalRequiredError(error)) {
-        if (yes === '--yes') throw error;
-        const confirmed = await confirmDependencyInstall(error.plan);
-        if (!confirmed) {
-          console.log('Plugin install cancelled.');
-          return;
-        }
-        result = await installPlugin(source, {
-          approveDependencyInstall: true,
-        });
-      } else {
-        throw error;
-      }
-    }
+    const result = await installPluginWithApproval(source, yes === '--yes');
+    if (!result) return;
 
     if (result.alreadyInstalled) {
       console.log(

@@ -2,14 +2,32 @@
 
 import fs from 'node:fs';
 
-const pairs = [
+const corePairs = [
   ['package-lock.json', 'npm-shrinkwrap.json'],
   ['container/package-lock.json', 'container/npm-shrinkwrap.json'],
+];
+const whatsappPluginPairs = [
   [
     'plugins/whatsapp/package-lock.json',
     'plugins/whatsapp/npm-shrinkwrap.json',
   ],
 ];
+const scope = process.argv[2] || '--all';
+const pairs =
+  scope === '--core'
+    ? corePairs
+    : scope === '--whatsapp-plugin'
+      ? whatsappPluginPairs
+      : scope === '--all'
+        ? [...corePairs, ...whatsappPluginPairs]
+        : null;
+
+if (!pairs) {
+  console.error(
+    'sync-shrinkwraps: expected --core, --whatsapp-plugin, or --all',
+  );
+  process.exit(1);
+}
 
 for (const [source, target] of pairs) {
   if (!fs.existsSync(source)) {

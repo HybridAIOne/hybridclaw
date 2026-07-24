@@ -55,3 +55,6 @@ jobs:
 
       - name: Verify npm registry signatures
         run: npm run audit:signatures
+
+      - name: Verify WhatsApp plugin npm registry signatures
+        run: npm run audit:signatures:whatsapp-plugin

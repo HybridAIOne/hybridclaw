@@ -886,6 +886,47 @@ test('plugin manager auto-discovers plugins from project directories without con
   ).resolves.toBe('workspace-auto:true:hello');
 });
 
+test('plugin manager does not discover install-on-demand channel plugins as bundled plugins', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const logger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn(),
+  };
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'whatsapp',
+      enabled: true,
+      config: {},
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+    logger: logger as never,
+  });
+
+  const discovered = await manager.discoverPlugins(config);
+
+  expect(discovered.some((candidate) => candidate.id === 'whatsapp')).toBe(
+    false,
+  );
+  expect(
+    logger.warn.mock.calls.some(
+      ([details, message]) =>
+        message === 'Skipping invalid plugin directory' &&
+        String(details?.pluginDir || '').endsWith('/plugins/whatsapp'),
+    ),
+  ).toBe(false);
+});
+
 test('plugin manager allows only one external memory provider plugin', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');

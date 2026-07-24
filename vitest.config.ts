@@ -12,6 +12,7 @@ const sharedTestConfig = {
 };
 
 const sharedExclude = ['node_modules/**', 'dist/**', 'container/**'];
+const whatsappPluginTestGlobs = ['tests/whatsapp*.test.ts'];
 
 // The installer Docker matrix (scripts/install.sh) lives in its own project so a
 // plain `vitest run --project e2e` — invoked by several CI jobs — never pulls it
@@ -51,8 +52,17 @@ export default defineConfig({
             'tests/**/*.e2e.test.ts',
             installE2eGlob,
             'tests/**/*.live.test.ts',
+            ...whatsappPluginTestGlobs,
             ...sharedExclude,
           ],
+        },
+      },
+      {
+        test: {
+          ...sharedTestConfig,
+          name: 'whatsapp-plugin',
+          include: whatsappPluginTestGlobs,
+          exclude: sharedExclude,
         },
       },
       {

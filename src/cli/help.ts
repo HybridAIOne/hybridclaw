@@ -795,7 +795,7 @@ export function printPluginUsage(): void {
 Commands:
   hybridclaw plugin list [installed|available]
   hybridclaw plugin config <plugin-id> [key] [value|--unset]
-  hybridclaw plugin enable <plugin-id>
+  hybridclaw plugin enable <plugin-id> [--yes]
   hybridclaw plugin disable <plugin-id>
   hybridclaw plugin install <path|plugin-id|npm-spec> [--yes]
   hybridclaw plugin reinstall <path|plugin-id|npm-spec> [--yes]
@@ -808,6 +808,7 @@ Examples:
   hybridclaw plugin config qmd-memory searchMode query
   hybridclaw plugin disable qmd-memory
   hybridclaw plugin enable qmd-memory
+  hybridclaw plugin enable whatsapp --yes
   hybridclaw plugin install ./plugins/example-plugin --yes
   hybridclaw plugin install mem0-memory --yes
   hybridclaw plugin install mempalace-memory --yes
@@ -822,7 +823,8 @@ Notes:
   - Bare plugin ids resolve to bundled plugins or \`./plugins/<plugin-id>\`; project-local plugins take priority.
   - \`list\` shows discovered plugin status plus installable bundled/project plugins; use \`installed\` or \`available\` to filter.
   - \`config\` edits top-level \`plugins.list[].config\` keys in ${runtimeConfigPath()}.
-  - \`enable\` and \`disable\` manage the top-level \`plugins.list[].enabled\` override in ${runtimeConfigPath()}.
+  - \`enable\` installs a registered but absent opt-in plugin before enabling it; dependency installation requires approval (\`--yes\` in non-interactive use).
+  - \`disable\` manages the top-level \`plugins.list[].enabled\` override in ${runtimeConfigPath()} without uninstalling plugin files.
   - \`install\` validates \`hybridclaw.plugin.yaml\` and can install declared Node.js and pip dependencies, but dependency installation requires approval.
   - \`reinstall\` replaces the home-installed plugin tree and preserves existing \`plugins.list[]\` overrides.
   - \`check\` reports the current dependency, env, and binary status for one discovered plugin.

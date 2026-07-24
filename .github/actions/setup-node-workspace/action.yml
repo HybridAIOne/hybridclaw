@@ -20,8 +20,6 @@ runs:
           container/npm-shrinkwrap.json
           container/package-lock.json
           console/package-lock.json
-          plugins/whatsapp/npm-shrinkwrap.json
-          plugins/whatsapp/package-lock.json
 
     - name: Use npm 11
       shell: bash
@@ -41,10 +39,6 @@ runs:
     - name: Install container dependencies
       shell: bash
       run: npm --prefix container ci --ignore-scripts --no-audit --fund=false
-
-    - name: Install WhatsApp plugin dependencies
-      shell: bash
-      run: npm --prefix plugins/whatsapp ci --ignore-scripts --no-audit --fund=false
 
     - name: Verify npm registry signatures
       shell: bash
