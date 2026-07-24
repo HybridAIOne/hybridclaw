@@ -27,6 +27,9 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
+- HybridClaw v0.28.6 shows live thinking and tool activity in one-on-one
+  Microsoft Teams chats, streams response text in place, and delivers generated
+  files through openable consent cards instead of sandbox-local links.
 - HybridClaw v0.28.4 keeps conversation prefixes cache-stable across turns and
   tool loops by separating static instructions, workspace memory, skills, and
   turn-local context while preserving complete retained messages.
