@@ -11,6 +11,10 @@ import {
   normalizeEmailAddress,
   normalizeEmailAllowEntry,
 } from '../channels/email/allowlist.js';
+import {
+  type EmailCursorBaseline,
+  seedEmailFolderCursors,
+} from '../channels/email/connection.js';
 import { normalizeIMessageHandle } from '../channels/imessage/handle.js';
 import { normalizeSignalDaemonUrl } from '../channels/signal/api.js';
 import { normalizeSignalRecipient } from '../channels/signal/target.js';
@@ -1753,6 +1757,28 @@ async function configureEmailChannel(args: string[]): Promise<void> {
     smtpSecure: parsed.smtpSecure ?? currentConfig.smtpSecure,
   });
 
+  // Seed the poll cursors BEFORE enabling the channel: once the config write
+  // lands, the (hot-reloading) gateway may start polling at any moment, and
+  // its first poll seeds missing cursors from the mailbox head — silently
+  // skipping everything delivered since setup. Seeding first closes that
+  // window. Best-effort: an unreachable IMAP host must not break setup.
+  let cursorBaselines: EmailCursorBaseline[] | null = null;
+  try {
+    cursorBaselines = await seedEmailFolderCursors(
+      {
+        address: resolved.address,
+        folders:
+          parsed.folders.length > 0 ? parsed.folders : currentConfig.folders,
+        imapHost: resolved.imapHost,
+        imapPort: resolved.imapPort,
+        imapSecure: resolved.imapSecure,
+      },
+      resolved.password,
+    );
+  } catch {
+    cursorBaselines = null;
+  }
+
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.email.enabled = true;
     draft.email.address = resolved.address;
@@ -1809,6 +1835,18 @@ async function configureEmailChannel(args: string[]): Promise<void> {
   );
   console.log(`SMTP secure: ${nextConfig.email.smtpSecure}`);
   console.log(`Folders: ${nextConfig.email.folders.join(', ')}`);
+  if (cursorBaselines) {
+    for (const baseline of cursorBaselines) {
+      console.log(
+        `Mailbox cursor: ${baseline.folder} @ UID ${baseline.lastProcessedUid}` +
+          `${baseline.seeded ? ' (seeded at setup; only newer mail is processed)' : ' (existing cursor kept)'}`,
+      );
+    }
+  } else {
+    console.log(
+      'Warning: could not reach the mailbox to seed poll cursors; mail that arrives before the gateway first polls may be skipped.',
+    );
+  }
   if (nextConfig.email.allowFrom.length > 0) {
     console.log(`Allowed senders: ${nextConfig.email.allowFrom.join(', ')}`);
   } else {
