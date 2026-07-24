@@ -94,7 +94,6 @@ describe('container model router', () => {
         >;
         expect(body.model).toBe('anthropic/claude-sonnet-4');
         expect(body.messages).toEqual(baseMessages);
-        expect(body.metadata).toBeUndefined();
         return new Response(
           JSON.stringify({
             id: 'resp_1',
@@ -132,59 +131,10 @@ describe('container model router', () => {
       messages: baseMessages,
       tools: [],
       maxTokens: 128,
-      activityUserPrompt: 'This must not reach OpenRouter metadata',
     });
 
     expect(response.choices[0]?.message.content).toBe('ok');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  test('sends raw activity prompts only on HybridAI chat callbacks', async () => {
-    const requestBodies: Array<Record<string, unknown>> = [];
-    const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL, init?: RequestInit) => {
-        requestBodies.push(
-          JSON.parse(String(init?.body || '{}')) as Record<string, unknown>,
-        );
-        return new Response(
-          JSON.stringify({
-            id: 'resp_hybridai',
-            model: 'gpt-5.4',
-            choices: [
-              {
-                message: { role: 'assistant', content: 'ok' },
-                finish_reason: 'stop',
-              },
-            ],
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        );
-      },
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const request = {
-      provider: 'hybridai' as const,
-      baseUrl: 'https://hybridai.one',
-      apiKey: 'hybridai-test-key',
-      model: 'gpt-5.4',
-      chatbotId: 'bot_123',
-      messages: baseMessages,
-      tools: [],
-    };
-    await callRoutedModel({
-      ...request,
-      activityUserPrompt: 'Please summarize my invoices',
-    });
-    await callRoutedModel(request);
-
-    expect(requestBodies[0]?.metadata).toEqual({
-      hybridclawUserPrompt: 'Please summarize my invoices',
-    });
-    expect(requestBodies[1]?.metadata).toBeUndefined();
   });
 
   test('routes Codex vision calls through the shared router', async () => {

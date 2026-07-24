@@ -1015,7 +1015,6 @@ async function runContainerInner(
   const {
     sessionId,
     messages,
-    activityUserPrompt,
     chatbotId,
     enableRag,
     model = HYBRIDAI_MODEL,
@@ -1113,7 +1112,6 @@ async function runContainerInner(
     sessionId,
     agentId,
     messages,
-    activityUserPrompt,
     chatbotId: modelRuntime.chatbotId,
     enableRag: modelRuntime.enableRag,
     apiKey: modelRuntime.apiKey,

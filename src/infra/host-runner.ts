@@ -873,7 +873,6 @@ async function runHostProcessInner(
   const {
     sessionId,
     messages,
-    activityUserPrompt,
     chatbotId,
     enableRag,
     model = HYBRIDAI_MODEL,
@@ -960,7 +959,6 @@ async function runHostProcessInner(
     sessionId,
     agentId,
     messages,
-    activityUserPrompt,
     chatbotId: modelRuntime.chatbotId,
     enableRag: modelRuntime.enableRag,
     apiKey: modelRuntime.apiKey,
