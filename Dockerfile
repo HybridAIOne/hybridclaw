@@ -43,10 +43,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       python3 \
       python3-pip \
+      python3-venv \
       python-is-python3 \
       unzip \
       file \
     && rm -rf /var/lib/apt/lists/*
+
+# Debian's PEP 668 marker makes bare `pip install` fail with
+# externally-managed-environment. This image is a disposable sandbox whose
+# agent runs as root, so the marker only blocks agents from installing the
+# Python packages they need at runtime; python3-venv above keeps the venv
+# route working too.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 RUN python3 -m pip install --break-system-packages \
       openpyxl==3.1.5
