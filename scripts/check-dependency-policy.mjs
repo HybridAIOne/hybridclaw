@@ -9,8 +9,9 @@
 //    (or file:/link:/workspace:/pinned npm.jsr.io tarball specs).
 // 2. Each npm-shrinkwrap.json must byte-match its package-lock.json pair.
 // 3. Lockfile changes must be approved via the SHA-256 hashes under
-//    "lockfiles" in scripts/dependency-policy-baseline.json, and new
-//    dependency lifecycle scripts require explicit review.
+//    "lockfiles" in scripts/dependency-policy-baseline.json. A deletion is
+//    approved by removing its baseline entry. New dependency lifecycle
+//    scripts require explicit review.
 // 4. License gate over every tracked package-lock.json (shrinkwraps are
 //    covered by check 2), read from the lockfile `license` metadata:
 //    - Forbidden (fails): strong copyleft and source-restricted families —
@@ -468,7 +469,7 @@ function readLockfileBaseline() {
 }
 
 function isApprovedLockfile(filePath, baseline) {
-  if (!fs.existsSync(filePath)) return false;
+  if (!fs.existsSync(filePath)) return baseline[filePath] === undefined;
   return baseline[filePath] === hashFile(filePath);
 }
 
