@@ -25,6 +25,7 @@ test('uses the Teams streaminfo protocol for direct-message progress and text', 
     expect(sendActivity).toHaveBeenNthCalledWith(1, {
       type: 'typing',
       text: 'Thinking…',
+      textFormat: 'markdown',
       entities: [
         {
           type: 'streaminfo',
@@ -38,6 +39,7 @@ test('uses the Teams streaminfo protocol for direct-message progress and text', 
     expect(sendActivity).toHaveBeenNthCalledWith(2, {
       type: 'typing',
       text: 'Searching…',
+      textFormat: 'markdown',
       entities: [
         {
           type: 'streaminfo',
@@ -53,6 +55,7 @@ test('uses the Teams streaminfo protocol for direct-message progress and text', 
     expect(sendActivity).toHaveBeenNthCalledWith(3, {
       type: 'typing',
       text: 'Hello',
+      textFormat: 'markdown',
       entities: [
         {
           type: 'streaminfo',
@@ -67,6 +70,7 @@ test('uses the Teams streaminfo protocol for direct-message progress and text', 
     expect(sendActivity).toHaveBeenNthCalledWith(4, {
       type: 'message',
       text: 'Hello world',
+      textFormat: 'markdown',
       entities: [
         {
           type: 'streaminfo',
@@ -103,6 +107,7 @@ test('falls back to normal Teams messages when native streaming is unavailable',
   expect(sendActivity).toHaveBeenNthCalledWith(2, {
     type: 'message',
     text: 'Fallback reply',
+    textFormat: 'markdown',
     replyToId: 'incoming-1',
   });
 });
@@ -132,6 +137,7 @@ test('delivers the full reply when Teams rejects native stream finalization', as
   expect(sendActivity).toHaveBeenNthCalledWith(3, {
     type: 'message',
     text: 'Complete reply',
+    textFormat: 'markdown',
     replyToId: 'incoming-1',
   });
 });
@@ -227,6 +233,7 @@ test('append throttles Teams stream edits instead of syncing every delta', async
     expect(sendActivity).toHaveBeenCalledWith({
       type: 'message',
       text: 'Hello',
+      textFormat: 'markdown',
       replyToId: 'incoming-1',
     });
 
@@ -242,6 +249,7 @@ test('append throttles Teams stream edits instead of syncing every delta', async
       id: 'activity-1',
       type: 'message',
       text: 'Hello world',
+      textFormat: 'markdown',
       replyToId: 'incoming-1',
     });
 
@@ -278,11 +286,13 @@ test('append surfaces send failures with a terminal Teams error message', async 
     expect(sendActivity).toHaveBeenNthCalledWith(1, {
       type: 'message',
       text: 'Hello',
+      textFormat: 'markdown',
       replyToId: 'incoming-1',
     });
     expect(sendActivity).toHaveBeenNthCalledWith(2, {
       type: 'message',
       text: 'Hello\n\nTeams streaming was interrupted while sending the reply. Please retry.',
+      textFormat: 'markdown',
       replyToId: 'incoming-1',
     });
 
@@ -340,6 +350,7 @@ test('stream retries transient Teams send and update failures', async () => {
       id: 'activity-1',
       type: 'message',
       text: 'Hello world',
+      textFormat: 'markdown',
       replyToId: 'incoming-1',
     });
   } finally {
