@@ -1,3 +1,4 @@
+import { isLineTransportInstalled } from '../../channels/line/runtime.js';
 import { getWhatsAppAuthStatus } from '../../channels/whatsapp/auth.js';
 import { isWhatsAppTransportInstalled } from '../../channels/whatsapp/runtime.js';
 import {
@@ -139,11 +140,16 @@ export async function checkChannels(): Promise<DiagResult[]> {
   const whatsappExpected =
     config.whatsapp.dmPolicy !== 'disabled' ||
     config.whatsapp.groupPolicy !== 'disabled';
-  if (whatsappExpected) {
+  const lineExpected = Boolean(config.line?.enabled);
+  if (whatsappExpected || lineExpected) {
     const { ensurePluginManagerInitialized } = await import(
       '../../plugins/plugin-manager.js'
     );
     await ensurePluginManagerInitialized().catch(() => undefined);
+  }
+  if (lineExpected && !isLineTransportInstalled()) {
+    segments.push('LINE plugin not installed');
+    severities.push('error');
   }
   if (whatsappExpected && !isWhatsAppTransportInstalled()) {
     segments.push('WhatsApp plugin not installed');

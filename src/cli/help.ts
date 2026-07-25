@@ -414,6 +414,7 @@ Notes:
   - Signal setup uses a signal-cli linked device; link with \`signal-cli link -n HybridClaw\`, start the daemon, then configure HybridClaw to connect to it.
   - WhatsApp setup starts a temporary pairing session and prints the QR code here when needed.
   - LINE setup opens an unofficial personal-account QR login and enables self-chat only.
+  - LINE setup requires the install-on-demand plugin: \`hybridclaw plugin enable line\`.
   - LINE personal-account automation may cause restrictions or an account ban.
   - Use \`--reset\` to wipe stale WhatsApp auth files and force a fresh QR.
   - \`hybridclaw auth whatsapp reset\` clears linked WhatsApp auth without starting a new pairing session.
@@ -532,10 +533,12 @@ Notes:
 
 export function printLineUsage(): void {
   console.log(`Usage:
+  hybridclaw plugin enable line
   hybridclaw auth line reset
   hybridclaw channels line setup [--reset]
 
 Notes:
+  - LINE is an install-on-demand plugin; enable it once before setup installs its isolated dependencies.
   - LINE support uses an unofficial personal-account protocol and may cause account restrictions or a ban.
   - The channel accepts and sends only the linked account's self-chat messages.
   - Persistent auth and E2EE state are stored under ~/.hybridclaw/credentials/line.`);
@@ -809,6 +812,7 @@ Examples:
   hybridclaw plugin disable qmd-memory
   hybridclaw plugin enable qmd-memory
   hybridclaw plugin enable whatsapp --yes
+  hybridclaw plugin enable line --yes
   hybridclaw plugin install ./plugins/example-plugin --yes
   hybridclaw plugin install mem0-memory --yes
   hybridclaw plugin install mempalace-memory --yes

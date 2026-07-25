@@ -80,6 +80,25 @@ test('channel plugin catalog reports transport availability generically', () => 
   );
 });
 
+test('channel plugin catalog resolves the bundled LINE plugin', () => {
+  expect(getChannelPluginCatalogEntry('line')).toEqual({
+    channel: 'line',
+    pluginId: 'line',
+    installSource: 'line',
+  });
+  expect(getChannelPluginCatalogEntryByPluginId('line')).toEqual({
+    channel: 'line',
+    pluginId: 'line',
+    installSource: 'line',
+  });
+  expect(getChannelPluginStatuses()).toContainEqual({
+    channel: 'line',
+    pluginId: 'line',
+    installSource: 'line',
+    transportAvailable: false,
+  });
+});
+
 test('plugin registration rollback removes a transport from a failed plugin', async () => {
   const cwd = await makeTempDir();
   const pluginDir = path.join(cwd, '.hybridclaw', 'plugins', 'broken-channel');

@@ -12,6 +12,10 @@ export interface ChannelPluginStatus extends ChannelPluginCatalogEntry {
 }
 
 const CHANNEL_PLUGIN_CATALOG = {
+  line: {
+    pluginId: 'line',
+    installSource: 'line',
+  },
   whatsapp: {
     pluginId: 'whatsapp',
     installSource:

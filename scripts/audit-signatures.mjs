@@ -14,16 +14,14 @@ const retryDelayMs = Number.parseInt(
   10,
 );
 
-const jsrRegistryArg = '--@jsr:registry=https://npm.jsr.io';
-
 const targets = [
   {
     label: 'root',
-    args: [jsrRegistryArg, 'audit', 'signatures'],
+    args: ['audit', 'signatures'],
   },
   {
     label: 'container',
-    args: ['--prefix', 'container', jsrRegistryArg, 'audit', 'signatures'],
+    args: ['--prefix', 'container', 'audit', 'signatures'],
   },
 ];
 const missingAttestationPattern = /E404[\s\S]*\/-\/npm\/v1\/attestations\//u;

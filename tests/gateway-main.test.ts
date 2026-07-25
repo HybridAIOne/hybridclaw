@@ -587,6 +587,8 @@ async function importFreshGatewayMain(options?: {
     initLine: state.initLine.mockImplementation(async (handler) => {
       state.lineMessageHandler = handler;
     }),
+    isLineTransportInstalled: vi.fn(() => true),
+    LINE_PLUGIN_INSTALL_HINT: 'Install it with: hybridclaw plugin install line',
     sendToLineSelfChat: vi.fn(async () => {}),
     shutdownLine: state.shutdownLine,
   }));

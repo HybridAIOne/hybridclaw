@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+
+- **LINE is now an install-on-demand channel plugin**: The unofficial LINEJS
+  client and its dependency closure moved out of the core dependency tree into
+  the bundled `line` plugin. Enable it explicitly with
+  `hybridclaw plugin enable line`; core install, update, build, and test
+  workflows no longer fetch or ship LINEJS. Existing linked sessions and the
+  `~/.hybridclaw/credentials/line` auth directory are preserved, and gateway,
+  CLI setup, doctor, and admin console now surface the plugin install state.
+
 ### Fixed
 
 - **WhatsApp remains strictly install-on-demand**: Its source, dependencies,

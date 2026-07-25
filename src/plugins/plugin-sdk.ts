@@ -7,8 +7,10 @@ export type {
   ChannelTransportPairingSession,
   ChannelTransportRegistration,
   ChannelTransportReplyFn,
+  LineChannelTransportRegistration,
   WhatsAppChannelTransportRegistration,
 } from '../channels/channel-transport.js';
+export type { LineTransportHost } from '../channels/line/transport-host.js';
 export {
   readWebhookJsonBody,
   sendWebhookJson,
@@ -17,6 +19,7 @@ export {
 export type { WhatsAppTransportHost } from '../channels/whatsapp/transport-host.js';
 export type {
   RuntimeConfig,
+  RuntimeLineConfig,
   RuntimeWhatsAppConfig,
 } from '../config/runtime-config.js';
 export type { GatewayChatResult } from '../gateway/gateway-types.js';
