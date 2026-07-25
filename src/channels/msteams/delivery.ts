@@ -4,6 +4,7 @@ import {
   type Activity,
   ActivityTypes,
   type Attachment,
+  TextFormatTypes,
 } from 'botframework-schema';
 import { MSTEAMS_TEXT_CHUNK_LIMIT } from '../../config/config.js';
 import type { MSTeamsReplyStyle } from '../../config/runtime-config.js';
@@ -58,11 +59,36 @@ export function buildAdaptiveCardAttachment(
   return CardFactory.adaptiveCard(card);
 }
 
+export function formatMSTeamsMarkdown(text: string): string {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  let inCodeFence = false;
+
+  return lines
+    .map((line, index) => {
+      if (line.trim().startsWith('```')) {
+        inCodeFence = !inCodeFence;
+        return line;
+      }
+
+      const nextLine = lines[index + 1];
+      if (
+        inCodeFence ||
+        !line.trim() ||
+        !nextLine?.trim() ||
+        line.endsWith('  ')
+      ) {
+        return line;
+      }
+      return `${line}  `;
+    })
+    .join('\n');
+}
+
 export function prepareChunkedActivities(params: {
   text: string;
   attachments?: Attachment[];
 }): MSTeamsChunkedActivity[] {
-  const chunks = chunkMessage(params.text, {
+  const chunks = chunkMessage(formatMSTeamsMarkdown(params.text), {
     maxChars: Math.max(200, Math.min(20_000, MSTEAMS_TEXT_CHUNK_LIMIT)),
     maxLines: 120,
   }).filter((entry) => entry.trim().length > 0);
@@ -89,7 +115,9 @@ export function buildMSTeamsMessageActivity(
   return {
     type: ActivityTypes.Message,
     ...(params.id ? { id: params.id } : {}),
-    ...(params.text ? { text: params.text } : {}),
+    ...(params.text
+      ? { text: params.text, textFormat: TextFormatTypes.Markdown }
+      : {}),
     ...(params.attachments?.length ? { attachments: params.attachments } : {}),
     ...(params.replyStyle === 'thread' && params.replyToId
       ? { replyToId: params.replyToId }

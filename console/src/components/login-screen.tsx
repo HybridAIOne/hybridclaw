@@ -15,11 +15,12 @@ export function LoginScreen() {
     <div className="login-shell">
       <div className="login-card">
         <p className="eyebrow">HybridClaw Admin</p>
-        <h1>Enter API token.</h1>
+        <h1>Enter the gateway web token.</h1>
         <p className="supporting-text">
-          This instance has <code>WEB_API_TOKEN</code> enabled. Enter it once
-          and the console will keep it in local storage, the same way
-          <code> /chat</code> already does.
+          This fallback is for self-hosted gateways. Enter the exact{' '}
+          <code>WEB_API_TOKEN</code> configured for this gateway, not a HybridAI
+          API key or scoped admin token. The console uses it only until this
+          page is reloaded.
         </p>
         <form className="stack-form" onSubmit={onSubmit}>
           <label className="field">
@@ -30,7 +31,7 @@ export function LoginScreen() {
               type="password"
               value={token}
               onChange={(event) => setToken(event.target.value)}
-              placeholder="Paste WEB_API_TOKEN"
+              placeholder="Paste this gateway's WEB_API_TOKEN"
             />
           </label>
           {auth.error ? <p className="error-banner">{auth.error}</p> : null}

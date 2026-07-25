@@ -1,3 +1,4 @@
+// @vitest-environment-options {"url":"https://instance.example.com/"}
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AUTH_REQUIRED_EVENT,
@@ -8,7 +9,6 @@ import {
   fetchAdminHybridAIBots,
   fetchAgentList,
   installPlugin,
-  isLoopbackHostnameForTest,
   readStoredToken,
   registerDistillAgent,
   setAuthReloadHandlerForTest,
@@ -220,7 +220,7 @@ describe('client command helpers', () => {
     ]);
   });
 
-  it('reloads local chat surfaces instead of prompting when auth expires', () => {
+  it('reloads admin surfaces instead of prompting when auth expires', () => {
     const reload = vi.fn();
     const restoreReload = setAuthReloadHandlerForTest(reload);
     const events: CustomEvent[] = [];
@@ -229,7 +229,7 @@ describe('client command helpers', () => {
     };
     window.addEventListener(AUTH_REQUIRED_EVENT, listener);
     window.sessionStorage.setItem(TOKEN_STORAGE_KEY, 'stale-token');
-    window.history.pushState(null, '', '/chat/sess_20260514_135843_6136cbbb');
+    window.history.pushState(null, '', '/admin/logs');
 
     dispatchAuthRequired('Unauthorized.');
 
@@ -239,13 +239,6 @@ describe('client command helpers', () => {
 
     window.removeEventListener(AUTH_REQUIRED_EVENT, listener);
     restoreReload();
-  });
-
-  it('matches the server 127/8 loopback hostname range', () => {
-    expect(isLoopbackHostnameForTest('127.0.0.1')).toBe(true);
-    expect(isLoopbackHostnameForTest('127.12.34.56')).toBe(true);
-    expect(isLoopbackHostnameForTest('localhost')).toBe(true);
-    expect(isLoopbackHostnameForTest('example.com')).toBe(false);
   });
 
   it('prompts instead of repeatedly reloading local auth failures', () => {

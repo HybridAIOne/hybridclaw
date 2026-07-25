@@ -3,6 +3,7 @@ import {
   type Activity,
   ActivityTypes,
   type Attachment,
+  TextFormatTypes,
 } from 'botframework-schema';
 import type { MSTeamsReplyStyle } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
@@ -359,6 +360,7 @@ export class MSTeamsStreamManager {
       {
         type: ActivityTypes.Typing,
         text,
+        textFormat: TextFormatTypes.Markdown,
         entities: [
           buildNativeStreamEntity({
             streamId: this.nativeStreamId,
@@ -393,6 +395,7 @@ export class MSTeamsStreamManager {
       {
         type: ActivityTypes.Message,
         text,
+        textFormat: TextFormatTypes.Markdown,
         ...(attachments?.length ? { attachments } : {}),
         entities: [
           buildNativeStreamEntity({

@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- **Cloud admin sessions recover after inactivity**: Expired browser sessions
+  reload through HybridAI sign-in instead of showing an unactionable
+  `WEB_API_TOKEN` prompt. The self-hosted fallback identifies the exact gateway
+  token it accepts and no longer claims to persist it in local storage.
 - **WhatsApp remains strictly install-on-demand**: Its source, dependencies,
   license notices, CI, and releases live in the separate GPL-3.0-only
   `HybridAIOne/hybridclaw-whatsapp` repository. Normal core install, update,
