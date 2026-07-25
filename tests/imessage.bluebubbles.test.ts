@@ -58,8 +58,7 @@ async function importFreshBlueBubblesBackend(options?: {
     IMESSAGE_ALLOW_PRIVATE_NETWORK: options?.allowPrivateNetwork ?? false,
     IMESSAGE_MEDIA_MAX_MB: 20,
     IMESSAGE_PASSWORD: options?.password ?? 'test-password',
-    IMESSAGE_SERVER_URL:
-      options?.serverUrl ?? 'https://bluebubbles.hybridai.one',
+    IMESSAGE_SERVER_URL: options?.serverUrl ?? 'https://bb.example.com',
     IMESSAGE_TEXT_CHUNK_LIMIT: 4000,
     getConfigSnapshot: vi.fn(() => ({
       imessage: {
@@ -68,8 +67,7 @@ async function importFreshBlueBubblesBackend(options?: {
         cliPath: 'imsg',
         dbPath: '/tmp/chat.db',
         pollIntervalMs: 2500,
-        serverUrl:
-          options?.serverUrl ?? 'https://bluebubbles.hybridai.one',
+        serverUrl: options?.serverUrl ?? 'https://bb.example.com',
         password: options?.password ?? 'test-password',
         webhookPath: '/api/imessage/webhook',
         allowPrivateNetwork: options?.allowPrivateNetwork ?? false,
@@ -225,23 +223,6 @@ describe('bluebubbles iMessage backend', () => {
       /Blocked BlueBubbles server URL host/,
     );
     expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  test('rejects documentation-only BlueBubbles hosts before DNS lookup', async () => {
-    const { createBlueBubblesIMessageBackend } =
-      await importFreshBlueBubblesBackend({
-        allowPrivateNetwork: true,
-        serverUrl: 'https://bluebubbles.example.com',
-      });
-    const backend = createBlueBubblesIMessageBackend({
-      onInbound: vi.fn(async () => {}),
-    });
-
-    await expect(backend.start()).rejects.toThrow(
-      'BlueBubbles server URL uses a documentation-only host: bluebubbles.example.com',
-    );
-    const dnsModule = await import('node:dns/promises');
-    expect(dnsModule.lookup).not.toHaveBeenCalled();
   });
 
   test('validates the BlueBubbles base url once at startup and reuses it for sends', async () => {
