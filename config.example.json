@@ -315,7 +315,7 @@
     "cliPath": "imsg",
     "dbPath": "/Users/example/Library/Messages/chat.db",
     "pollIntervalMs": 2500,
-    "serverUrl": "https://bluebubbles.example.com",
+    "serverUrl": "",
     "password": "",
     "webhookPath": "/api/imessage/webhook",
     "allowPrivateNetwork": false,

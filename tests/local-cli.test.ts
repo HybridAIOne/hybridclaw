@@ -955,7 +955,7 @@ test('channels imessage setup configures the remote backend and stores IMESSAGE_
     '--backend',
     'remote',
     '--server-url',
-    'https://bluebubbles.example.com',
+    'https://bluebubbles.test',
     '--password',
     'bluebubbles-password',
     '--allow-from',
@@ -970,7 +970,7 @@ test('channels imessage setup configures the remote backend and stores IMESSAGE_
   const secrets = await readRuntimeSecrets(homeDir);
   expect(config.imessage.enabled).toBe(true);
   expect(config.imessage.backend).toBe('bluebubbles');
-  expect(config.imessage.serverUrl).toBe('https://bluebubbles.example.com');
+  expect(config.imessage.serverUrl).toBe('https://bluebubbles.test');
   expect(rawIMessage.password).toEqual({
     source: 'store',
     id: 'IMESSAGE_PASSWORD',
