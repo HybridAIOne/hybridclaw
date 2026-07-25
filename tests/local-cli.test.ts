@@ -955,7 +955,7 @@ test('channels imessage setup configures the remote backend and stores IMESSAGE_
     '--backend',
     'remote',
     '--server-url',
-    'https://bluebubbles.example.com',
+    'https://bluebubbles.hybridai.one',
     '--password',
     'bluebubbles-password',
     '--allow-from',
@@ -970,7 +970,9 @@ test('channels imessage setup configures the remote backend and stores IMESSAGE_
   const secrets = await readRuntimeSecrets(homeDir);
   expect(config.imessage.enabled).toBe(true);
   expect(config.imessage.backend).toBe('bluebubbles');
-  expect(config.imessage.serverUrl).toBe('https://bluebubbles.example.com');
+  expect(config.imessage.serverUrl).toBe(
+    'https://bluebubbles.hybridai.one',
+  );
   expect(rawIMessage.password).toEqual({
     source: 'store',
     id: 'IMESSAGE_PASSWORD',
@@ -979,6 +981,29 @@ test('channels imessage setup configures the remote backend and stores IMESSAGE_
   expect(config.imessage.allowFrom).toEqual(['user@example.com']);
   expect(config.imessage.groupPolicy).toBe('disabled');
   expect(secrets.IMESSAGE_PASSWORD).toBe('bluebubbles-password');
+});
+
+test('channels imessage setup rejects documentation-only server URLs', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await expect(
+    cli.main([
+      'channels',
+      'imessage',
+      'setup',
+      '--backend',
+      'remote',
+      '--server-url',
+      'https://bluebubbles.example.com',
+    ]),
+  ).rejects.toThrow(
+    'BlueBubbles server URL uses a documentation-only host: bluebubbles.example.com',
+  );
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.imessage.enabled).toBe(false);
+  expect(config.imessage.serverUrl).toBe('');
 });
 
 test('local configure vllm stores api key in runtime secrets and writes a store ref', async () => {

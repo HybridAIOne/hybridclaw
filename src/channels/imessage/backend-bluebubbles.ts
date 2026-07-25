@@ -32,6 +32,7 @@ import {
 } from './handle.js';
 import { normalizeIMessageInbound } from './inbound.js';
 import type { IMessageOutboundMessageRef } from './self-echo-cache.js';
+import { parseBlueBubblesServerUrl } from './server-url.js';
 
 const MAX_WEBHOOK_BYTES = 1_000_000;
 const WEBHOOK_RATE_LIMIT = 120;
@@ -89,16 +90,7 @@ function isPrivateHostLabel(hostname: string): boolean {
 }
 
 async function assertSafeBlueBubblesBaseUrl(rawUrl: string): Promise<URL> {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    throw new Error(`Invalid BlueBubbles server URL: ${rawUrl}`);
-  }
-
-  if (!/^https?:$/i.test(parsed.protocol)) {
-    throw new Error('BlueBubbles server URL must use http or https.');
-  }
+  const parsed = parseBlueBubblesServerUrl(rawUrl);
   if (!IMESSAGE_ALLOW_PRIVATE_NETWORK) {
     const hostname = parsed.hostname.trim().toLowerCase();
     if (isPrivateHostLabel(hostname)) {

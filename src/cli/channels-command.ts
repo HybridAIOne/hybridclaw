@@ -16,6 +16,7 @@ import {
   seedEmailFolderCursors,
 } from '../channels/email/connection.js';
 import { normalizeIMessageHandle } from '../channels/imessage/handle.js';
+import { parseBlueBubblesServerUrl } from '../channels/imessage/server-url.js';
 import { normalizeSignalDaemonUrl } from '../channels/signal/api.js';
 import { normalizeSignalRecipient } from '../channels/signal/target.js';
 import { allowSlackWebhookInWorkspacePolicy } from '../channels/slack-webhook/policy.js';
@@ -2492,14 +2493,15 @@ async function configureIMessageChannel(args: string[]): Promise<void> {
   const currentConfig = getRuntimeConfig().imessage;
   const backend = parsed.backend || currentConfig.backend;
   const cliPath = parsed.cliPath || currentConfig.cliPath;
+  const serverUrl = parsed.serverUrl?.trim() || currentConfig.serverUrl.trim();
 
-  if (
-    backend === 'bluebubbles' &&
-    !(parsed.serverUrl?.trim() || currentConfig.serverUrl.trim())
-  ) {
-    throw new Error(
-      'Remote iMessage setup requires `--server-url <url>` or an existing `imessage.serverUrl` value.',
-    );
+  if (backend === 'bluebubbles') {
+    if (!serverUrl) {
+      throw new Error(
+        'Remote iMessage setup requires `--server-url <url>` or an existing `imessage.serverUrl` value.',
+      );
+    }
+    parseBlueBubblesServerUrl(serverUrl);
   }
   const nextConfig = updateRuntimeConfig((draft) => {
     draft.imessage.enabled = true;
