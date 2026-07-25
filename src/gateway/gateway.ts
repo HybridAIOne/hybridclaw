@@ -69,6 +69,8 @@ import {
 import { getLineAuthStatus, LineAuthLockError } from '../channels/line/auth.js';
 import {
   initLine,
+  isLineTransportInstalled,
+  LINE_PLUGIN_INSTALL_HINT,
   sendToLineSelfChat,
   shutdownLine,
 } from '../channels/line/runtime.js';
@@ -990,6 +992,13 @@ async function sendProactiveMessageNow(
   }
   const attachments = buildArtifactAttachments(artifacts);
   if (isLineChannelId(channelId)) {
+    if (!isLineTransportInstalled()) {
+      logger.warn(
+        { source, channelId },
+        `Proactive LINE message suppressed: transport plugin is not installed. ${LINE_PLUGIN_INSTALL_HINT}`,
+      );
+      return;
+    }
     const lineAuth = await getLineAuthStatus();
     if (!lineAuth.linked) {
       logger.info(
@@ -2041,6 +2050,22 @@ async function startLineIntegration(): Promise<boolean> {
     return false;
   }
 
+  try {
+    await ensurePluginManagerInitialized();
+  } catch (error) {
+    logger.warn(
+      { error },
+      'LINE integration disabled: plugin manager failed to initialize',
+    );
+    return false;
+  }
+  if (!isLineTransportInstalled()) {
+    logger.warn(
+      `LINE integration disabled: transport plugin is not installed. ${LINE_PLUGIN_INSTALL_HINT}`,
+    );
+    return false;
+  }
+
   const auth = await getLineAuthStatus();
   if (!auth.linked) {
     logger.warn(
@@ -2057,6 +2082,7 @@ async function startLineIntegration(): Promise<boolean> {
         userId,
         username,
         content,
+        media,
         reply,
         context,
       ) => {
@@ -2085,7 +2111,7 @@ async function startLineIntegration(): Promise<boolean> {
               userId,
               username,
               content,
-              media: [],
+              media,
               onProactiveMessage: async (message) => {
                 await deliverProactiveMessage(
                   message.channelId || channelId,

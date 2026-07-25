@@ -18,6 +18,16 @@ const requiredExactPaths = [
   'plugins/tier-router/hybridclaw.plugin.yaml',
   'plugins/tier-router/src/index.js',
   'plugins/tier-router/src/routing.js',
+  // The install-on-demand LINE channel plugin ships as source; enabling it
+  // installs its isolated dependency closure from this bundled directory.
+  'plugins/line/hybridclaw.plugin.yaml',
+  'plugins/line/package.json',
+  'plugins/line/package-lock.json',
+  'plugins/line/src/index.js',
+  'plugins/line/src/transport.js',
+  'plugins/line/src/connection.js',
+  'plugins/line/src/delivery.js',
+  'plugins/line/src/inbound.js',
 ];
 
 const requiredPrefixes = [

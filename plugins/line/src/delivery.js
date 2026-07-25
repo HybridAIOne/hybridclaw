@@ -1,12 +1,15 @@
-import type { Client } from '@jsr/evex__linejs';
-
-export function prepareLineTextChunks(text: string, limit: number): string[] {
+/**
+ * @param {string} text
+ * @param {number} limit
+ * @returns {string[]}
+ */
+export function prepareLineTextChunks(text, limit) {
   const normalized = String(text || '')
     .replace(/\r\n?/g, '\n')
     .trim();
   if (!normalized) return [];
   const chunkLimit = Math.max(200, Math.min(5_000, Math.trunc(limit)));
-  const chunks: string[] = [];
+  const chunks = [];
   let remaining = normalized;
 
   while (remaining.length > chunkLimit) {
@@ -23,12 +26,15 @@ export function prepareLineTextChunks(text: string, limit: number): string[] {
   return chunks;
 }
 
-export async function sendChunkedLineText(params: {
-  client: Client;
-  to: string;
-  text: string;
-  limit: number;
-}): Promise<void> {
+/**
+ * @param {{
+ *   client: import('@jsr/evex__linejs').Client;
+ *   to: string;
+ *   text: string;
+ *   limit: number;
+ * }} params
+ */
+export async function sendChunkedLineText(params) {
   for (const chunk of prepareLineTextChunks(params.text, params.limit)) {
     await params.client.base.talk.sendMessage({
       to: params.to,

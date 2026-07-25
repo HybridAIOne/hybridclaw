@@ -2,32 +2,16 @@ import { Client, TalkMessage } from '@jsr/evex__linejs';
 import { BaseClient } from '@jsr/evex__linejs/base';
 import { FileStorage } from '@jsr/evex__linejs/storage';
 import qrcode from 'qrcode-terminal';
-import { logger } from '../../logger.js';
-import {
-  acquireLineAuthLock,
-  ensureLineAuthStoragePath,
-  LINE_AUTH_STORAGE_KEY,
-  LINE_PROFILE_MID_STORAGE_KEY,
-  LINE_SYNC_STORAGE_KEY,
-} from './auth.js';
-import {
-  clearLinePairingState,
-  setLinePairingError,
-  setLinePairingPincode,
-  setLinePairingQr,
-} from './pairing-state.js';
 
-type LineMessageListener = (message: TalkMessage) => void | Promise<void>;
+/**
+ * @typedef {import('@hybridaione/hybridclaw/plugin-sdk').LineTransportHost} LineTransportHost
+ */
 
-export interface LineConnectionManager {
-  getClient: () => Client | null;
-  getSelfMid: () => string | null;
-  start: () => Promise<void>;
-  stop: () => Promise<void>;
-  waitForClient: () => Promise<Client>;
-}
-
-function renderLinePairingQrText(url: string): string {
+/**
+ * @param {string} url
+ * @returns {string}
+ */
+function renderLinePairingQrText(url) {
   let text = '';
   qrcode.generate(url, { small: true }, (rendered) => {
     text = rendered.trimEnd();
@@ -35,29 +19,27 @@ function renderLinePairingQrText(url: string): string {
   return text;
 }
 
-function serializeSyncState(sync: BaseClient['poll']['sync']): string {
+function serializeSyncState(sync) {
   return JSON.stringify(sync, (_key, value) =>
     typeof value === 'bigint' ? value.toString() : value,
   );
 }
 
-function parseRevision(value: unknown): number | bigint | undefined {
+function parseRevision(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && /^\d+$/.test(value)) return BigInt(value);
   return undefined;
 }
 
-function restoreSyncState(base: BaseClient, value: unknown): void {
+/**
+ * @param {LineTransportHost} host
+ * @param {InstanceType<typeof BaseClient>} base
+ * @param {unknown} value
+ */
+function restoreSyncState(host, base, value) {
   if (typeof value !== 'string' || !value.trim()) return;
   try {
-    const parsed = JSON.parse(value) as {
-      square?: unknown;
-      talk?: {
-        revision?: unknown;
-        globalRev?: unknown;
-        individualRev?: unknown;
-      };
-    };
+    const parsed = JSON.parse(value);
     base.poll.sync = {
       ...(typeof parsed.square === 'string' ? { square: parsed.square } : {}),
       talk: {
@@ -67,25 +49,27 @@ function restoreSyncState(base: BaseClient, value: unknown): void {
       },
     };
   } catch (error) {
-    logger.warn({ error }, 'Ignoring invalid persisted LINE sync state');
+    host.logger.warn({ error }, 'Ignoring invalid persisted LINE sync state');
   }
 }
 
-export function createLineConnectionManager(params?: {
-  onMessage?: LineMessageListener;
-}): LineConnectionManager {
-  const childLogger = logger.child({ channel: 'line' });
-  let client: Client | null = null;
-  let base: BaseClient | null = null;
-  let selfMid: string | null = null;
-  let releaseAuthLock: (() => void) | null = null;
-  let connectingPromise: Promise<Client> | null = null;
-  let eventLoopPromise: Promise<void> | null = null;
-  let fetchAbortController: AbortController | null = null;
+/**
+ * @param {LineTransportHost} host
+ * @param {{ onMessage?: (message: TalkMessage) => void | Promise<void> }} [params]
+ */
+export function createLineConnectionManager(host, params) {
+  const childLogger = host.logger.child({ channel: 'line' });
+  let client = null;
+  let base = null;
+  let selfMid = null;
+  let releaseAuthLock = null;
+  let connectingPromise = null;
+  let eventLoopPromise = null;
+  let fetchAbortController = null;
   let stopped = false;
-  const seenMessageIds = new Set<string>();
+  const seenMessageIds = new Set();
 
-  const runEventLoop = async (connectedClient: Client): Promise<void> => {
+  const runEventLoop = async (connectedClient) => {
     const stream = connectedClient.base.poll.listenTalkEvents();
     try {
       for await (const event of stream) {
@@ -118,14 +102,14 @@ export function createLineConnectionManager(params?: {
       }
     } catch (error) {
       if (!stopped) {
-        setLinePairingError('LINE event stream stopped unexpectedly.');
+        host.pairing.setError('LINE event stream stopped unexpectedly.');
         childLogger.warn({ error }, 'LINE event stream failed');
       }
     }
   };
 
-  const connect = async (): Promise<Client> => {
-    const storagePath = await ensureLineAuthStoragePath();
+  const connect = async () => {
+    const storagePath = await host.auth.ensureStoragePath();
     const storage = new FileStorage(storagePath);
     fetchAbortController = new AbortController();
     const nextBase = new BaseClient({
@@ -138,25 +122,29 @@ export function createLineConnectionManager(params?: {
 
     nextBase.on('qrcall', (url) => {
       const pairingQrText = renderLinePairingQrText(url);
-      setLinePairingQr({ text: pairingQrText, url });
+      host.pairing.setQr({ text: pairingQrText, url });
       childLogger.warn(
         'LINE personal-account QR login is unofficial and may cause account restrictions. Scan only if you accept that risk.',
       );
       qrcode.generate(url, { small: true });
     });
     nextBase.on('pincall', (pincode) => {
-      setLinePairingPincode(pincode);
+      host.pairing.setPincode(pincode);
       childLogger.info(`Confirm LINE login with PIN ${pincode}.`);
     });
     nextBase.on('update:authtoken', (authToken) => {
-      void storage.set(LINE_AUTH_STORAGE_KEY, authToken);
+      void storage.set(host.auth.storageKeys.authToken, authToken);
     });
     nextBase.on('update:syncdata', (sync) => {
-      void storage.set(LINE_SYNC_STORAGE_KEY, serializeSyncState(sync));
+      void storage.set(host.auth.storageKeys.sync, serializeSyncState(sync));
     });
 
-    restoreSyncState(nextBase, await storage.get(LINE_SYNC_STORAGE_KEY));
-    const cachedToken = await storage.get(LINE_AUTH_STORAGE_KEY);
+    restoreSyncState(
+      host,
+      nextBase,
+      await storage.get(host.auth.storageKeys.sync),
+    );
+    const cachedToken = await storage.get(host.auth.storageKeys.authToken);
     await nextBase.loginProcess.login(
       typeof cachedToken === 'string' && cachedToken.trim()
         ? { authToken: cachedToken }
@@ -169,11 +157,11 @@ export function createLineConnectionManager(params?: {
       .trim()
       .toLowerCase();
     if (!mid) throw new Error('LINE login succeeded without a profile MID.');
-    await storage.set(LINE_AUTH_STORAGE_KEY, nextClient.authToken);
-    await storage.set(LINE_PROFILE_MID_STORAGE_KEY, mid);
+    await storage.set(host.auth.storageKeys.authToken, nextClient.authToken);
+    await storage.set(host.auth.storageKeys.profileMid, mid);
     selfMid = mid;
     client = nextClient;
-    clearLinePairingState();
+    host.pairing.clear();
     eventLoopPromise = runEventLoop(nextClient);
     childLogger.info({ mid }, 'LINE personal-account connection established');
     return nextClient;
@@ -185,14 +173,14 @@ export function createLineConnectionManager(params?: {
     async start() {
       if (connectingPromise || client) return;
       stopped = false;
-      releaseAuthLock = await acquireLineAuthLock();
-      clearLinePairingState();
+      releaseAuthLock = await host.auth.acquireLock();
+      host.pairing.clear();
       connectingPromise = connect();
       void connectingPromise.catch((error) => {
         if (stopped) return;
         const message =
           error instanceof Error ? error.message : 'Unknown LINE login error';
-        setLinePairingError(message);
+        host.pairing.setError(message);
         childLogger.error({ error }, 'LINE connection failed');
       });
     },
@@ -208,7 +196,7 @@ export function createLineConnectionManager(params?: {
       }
       await connectingPromise?.catch(() => undefined);
       await eventLoopPromise?.catch(() => undefined);
-      clearLinePairingState();
+      host.pairing.clear();
       client = null;
       base = null;
       selfMid = null;

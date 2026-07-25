@@ -29,6 +29,10 @@ import path from 'node:path';
 
 const OUTPUT_PATH = 'THIRD_PARTY_NOTICES.md';
 const checkMode = process.argv.includes('--check');
+// Install-on-demand plugins whose dependency closures are fetched only when a
+// user explicitly enables them. They are not part of the distributed core
+// dependency tree, so they stay out of the core notices file.
+const CORE_EXCLUDED_COMPONENTS = new Set(['plugins/line']);
 
 function fail(message) {
   console.error(`third-party-notices: ${message}`);
@@ -113,7 +117,9 @@ function readTextFiles(dir, pattern) {
 
 // --- Collect components and dependencies -----------------------------------
 
-const componentDirs = findLockfileDirs('.').sort();
+const componentDirs = findLockfileDirs('.')
+  .filter((dir) => !CORE_EXCLUDED_COMPONENTS.has(path.normalize(dir)))
+  .sort();
 if (componentDirs.length === 0) fail('no package-lock.json files found.');
 
 const components = [];

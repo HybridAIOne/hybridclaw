@@ -16,6 +16,11 @@ import {
   seedEmailFolderCursors,
 } from '../channels/email/connection.js';
 import { normalizeIMessageHandle } from '../channels/imessage/handle.js';
+import {
+  createLinePairingSession,
+  isLineTransportInstalled,
+  LINE_PLUGIN_INSTALL_HINT,
+} from '../channels/line/runtime.js';
 import { normalizeSignalDaemonUrl } from '../channels/signal/api.js';
 import { normalizeSignalRecipient } from '../channels/signal/target.js';
 import { allowSlackWebhookInWorkspacePolicy } from '../channels/slack-webhook/policy.js';
@@ -55,12 +60,7 @@ import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { sleep } from '../utils/sleep.js';
 import { normalizeArgs, parseValueFlag } from './common.js';
 import { isHelpRequest, printChannelsUsage } from './help.js';
-import {
-  ensureLineAuthApi,
-  ensureLineConnectionApi,
-  getLineAuthApi,
-  getLineConnectionApi,
-} from './line-api.js';
+import { ensureLineAuthApi, getLineAuthApi } from './line-api.js';
 import {
   ensureWhatsAppAuthApi,
   ensureWhatsAppPhoneApi,
@@ -1943,6 +1943,33 @@ async function configureWhatsAppChannel(args: string[]): Promise<void> {
   await pairWhatsAppChannel();
 }
 
+async function pairLineChannel(): Promise<boolean> {
+  const { ensurePluginManagerInitialized } = await import(
+    '../plugins/plugin-manager.js'
+  );
+  await ensurePluginManagerInitialized();
+  if (!isLineTransportInstalled()) {
+    console.error(
+      `LINE transport plugin is not installed. ${LINE_PLUGIN_INSTALL_HINT}`,
+    );
+    process.exitCode = 1;
+    return false;
+  }
+  const session = await createLinePairingSession();
+  try {
+    console.log('Opening LINE QR login session...');
+    console.log(
+      'Scan the QR code with the LINE mobile app and confirm the PIN.',
+    );
+    await session.start();
+    const connection = await session.waitForConnection();
+    console.log(`LINE linked: ${connection.id || 'connected'}`);
+  } finally {
+    await session.stop().catch(() => {});
+  }
+  return true;
+}
+
 async function configureLineChannel(args: string[]): Promise<void> {
   let reset = false;
   for (const arg of args) {
@@ -1955,7 +1982,7 @@ async function configureLineChannel(args: string[]): Promise<void> {
     );
   }
 
-  await Promise.all([ensureLineAuthApi(), ensureLineConnectionApi()]);
+  await ensureLineAuthApi();
   ensureRuntimeConfigFile();
   updateRuntimeConfig((draft) => {
     draft.line.enabled = true;
@@ -1971,18 +1998,7 @@ async function configureLineChannel(args: string[]): Promise<void> {
     console.log(`Reset LINE auth state at ${getLineAuthApi().LINE_AUTH_DIR}.`);
   }
 
-  const manager = getLineConnectionApi().createLineConnectionManager();
-  try {
-    console.log('Opening LINE QR login session...');
-    console.log(
-      'Scan the QR code with the LINE mobile app and confirm the PIN.',
-    );
-    await manager.start();
-    const client = await manager.waitForClient();
-    console.log(`LINE linked: ${client.base.profile?.mid || 'connected'}`);
-  } finally {
-    await manager.stop().catch(() => undefined);
-  }
+  await pairLineChannel();
 }
 
 async function resolveInteractiveTelegramSetup(params: {

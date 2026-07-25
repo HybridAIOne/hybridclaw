@@ -49,8 +49,11 @@ The install command:
 
 `plugin enable <plugin-id>` uses the same installer and approval flow when the
 plugin is registered as available but is not installed yet. This is how
-license-sensitive install-on-demand plugins such as WhatsApp remain completely
-outside normal core install, update, build, and test workflows.
+license-sensitive install-on-demand plugins such as WhatsApp and LINE remain
+completely outside normal core install, update, build, and test workflows.
+WhatsApp installs from a pinned external release archive; LINE is bundled with
+HybridClaw as source but keeps its LINEJS dependency closure isolated until the
+plugin is explicitly enabled.
 
 The reinstall command:
 

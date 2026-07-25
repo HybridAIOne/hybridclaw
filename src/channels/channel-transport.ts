@@ -1,5 +1,6 @@
 import type { MediaContextItem } from '../types/container.js';
 import type { ChannelKind } from './channel.js';
+import type { LineTransportHost } from './line/transport-host.js';
 import type { WhatsAppTransportHost } from './whatsapp/transport-host.js';
 
 export type ChannelTransportReplyFn = (content: string) => Promise<void>;
@@ -52,7 +53,14 @@ export interface WhatsAppChannelTransportRegistration {
   create(host: WhatsAppTransportHost): ChannelTransportInstance;
 }
 
-export type ChannelTransportRegistration = WhatsAppChannelTransportRegistration;
+export interface LineChannelTransportRegistration {
+  kind: 'line';
+  create(host: LineTransportHost): ChannelTransportInstance;
+}
+
+export type ChannelTransportRegistration =
+  | LineChannelTransportRegistration
+  | WhatsAppChannelTransportRegistration;
 
 const transports = new Map<ChannelKind, ChannelTransportRegistration>();
 
@@ -78,6 +86,9 @@ export function hasChannelTransport(kind: ChannelKind): boolean {
 export function getChannelTransport(
   kind: 'whatsapp',
 ): WhatsAppChannelTransportRegistration | undefined;
+export function getChannelTransport(
+  kind: 'line',
+): LineChannelTransportRegistration | undefined;
 export function getChannelTransport(
   kind: ChannelKind,
 ): ChannelTransportRegistration | undefined;

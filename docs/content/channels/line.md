@@ -20,6 +20,24 @@ and webhook model.
 
 :::
 
+## Install the LINE plugin
+
+LINE is an install-on-demand channel plugin. The unofficial LINEJS client and
+its dependencies are not part of the core dependency tree; they are installed
+only when you explicitly enable the plugin:
+
+```bash
+hybridclaw plugin enable line
+```
+
+This explicit enable action installs the bundled plugin and its isolated
+dependencies after approval. For non-interactive use, pass `--yes`. Core
+HybridClaw install, update, setup, build, and test commands never install
+LINEJS.
+
+Existing linked sessions are preserved. The plugin uses the same
+`~/.hybridclaw/credentials/line` auth directory as earlier HybridClaw versions.
+
 ## Pair the account
 
 Stop the gateway first so only the setup process owns the auth state, then run:

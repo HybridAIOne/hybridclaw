@@ -14,7 +14,6 @@ const retryDelayMs = Number.parseInt(
   10,
 );
 
-const jsrRegistryArg = '--@jsr:registry=https://npm.jsr.io';
 const releaseAgeAuditArg = '--min-release-age=0';
 
 // npm ci already enforces the release-age gate while installing exact lockfile
@@ -23,18 +22,11 @@ const releaseAgeAuditArg = '--min-release-age=0';
 export const signatureAuditTargets = [
   {
     label: 'root',
-    args: [releaseAgeAuditArg, jsrRegistryArg, 'audit', 'signatures'],
+    args: [releaseAgeAuditArg, 'audit', 'signatures'],
   },
   {
     label: 'container',
-    args: [
-      '--prefix',
-      'container',
-      releaseAgeAuditArg,
-      jsrRegistryArg,
-      'audit',
-      'signatures',
-    ],
+    args: ['--prefix', 'container', releaseAgeAuditArg, 'audit', 'signatures'],
   },
 ];
 const missingAttestationPattern = /E404[\s\S]*\/-\/npm\/v1\/attestations\//u;

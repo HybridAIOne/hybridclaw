@@ -1,0 +1,8 @@
+id: line
+name: LINE
+version: 0.1.0
+kind: channel
+description: Unofficial LINE personal-account channel transport for HybridClaw.
+entrypoint: src/index.js
+requires:
+  node: 22.x

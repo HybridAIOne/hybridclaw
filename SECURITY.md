@@ -228,16 +228,18 @@ typecheck, test, audit, and release workflows do not download or compile the
 plugin. Its dependency tree is installed only through an explicit plugin
 enable/install action with dependency approval.
 
-The optional-at-runtime LINE personal-account channel uses version-pinned JSR
-tarballs from `https://npm.jsr.io` because JSR packages are not resolvable from
-the default npm registry when consumers install the published CLI. The direct
-LINEJS package and its two JSR runtime packages are all pinned to immutable
-versioned tarball URLs, recorded with integrity hashes in both lockfiles, and
-the dependency policy accepts only this narrow `npm.jsr.io` URL shape. Apache
-Thrift is overridden to `0.23.0` to exclude the high-severity vulnerable range
-pulled by LINEJS's declared dependency. The signature-audit helper routes only
-the `@jsr` scope to JSR so npm can verify JSR registry signatures while keeping
-all other packages on the npm registry.
+The optional LINE personal-account channel is a bundled install-on-demand
+plugin under `plugins/line` with its own `package.json` and lockfile. Its
+LINEJS dependency closure is not part of the core dependency tree and is
+installed only through an explicit plugin enable/install action with dependency
+approval. The plugin uses version-pinned JSR tarballs from `https://npm.jsr.io`
+because JSR packages are not resolvable from the default npm registry when
+consumers install the published CLI. The direct LINEJS package and its two JSR
+runtime packages are all pinned to immutable versioned tarball URLs, recorded
+with integrity hashes in the plugin lockfile, and the dependency policy accepts
+only this narrow `npm.jsr.io` URL shape. The plugin overrides Apache Thrift to
+`0.23.0` to exclude the high-severity vulnerable range pulled by LINEJS's
+declared dependency.
 
 Recommended dependency update workflow:
 
