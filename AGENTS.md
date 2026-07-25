@@ -258,8 +258,41 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
 - **File size:** aim for ~500 LOC; split when it improves clarity or
   testability. `src/skills/skills-guard.ts` and `src/skills/skills.ts` are
   current large exceptions — do not grow them further without splitting.
-- **Comments:** brief comments for tricky or non-obvious logic only. Do not add
-  comments, docstrings, or type annotations to code you did not change.
+- **Module headers:** every **new** file under `src/`, `container/src/`, and
+  `console/src/` opens with a short block comment (2–6 lines) stating the
+  contract, not the mechanics. Name the invariant the module guarantees, the
+  neighbour it is most often confused with, and what it deliberately does
+  *not* do. "What it does" is already readable from the exports; write down
+  what a reader cannot infer.
+
+  ```ts
+  /**
+   * Pending-approval registry — the store of record for prompts awaiting a human.
+   *
+   * Each prompt is `pending → resolved` exactly once, idempotent and
+   * first-responder-wins, so answering from Slack, Discord, the TUI, or the
+   * console is safe under a race. Channel button handlers are transports of
+   * these records, never a second registry.
+   *
+   * NOT the escalation router (`approval-presentation.ts` decides *where* a
+   * prompt is shown); this module only decides *whether it is still open*.
+   */
+  ```
+
+  When you materially change an existing file's contract, add or update its
+  header in the same PR. Backfill headers only for files whose invariants
+  cross module boundaries (approvals, policy, A2A, gateway routing, secrets) —
+  do not open drive-by header-only PRs across the tree.
+- **Decision provenance:** when a value, list, or threshold exists because
+  someone made a call rather than because it is derivable, record the call in
+  the comment: date, who decided, and what was deliberately deferred. Applies
+  to curated model lists, default tiers, timeouts, and pinned-red defaults.
+  Example: `// 120s (owner call, 2026-07-24): matches the inline prompt window;
+  queued-approval TTL semantics deferred to approvals-v2 phase 2.5.`
+- **Comments:** brief inline comments for tricky or non-obvious logic only. Do
+  not add inline comments or type annotations to code you did not change; the
+  module-header rule above is the exception and applies to new or
+  contract-changed files.
 - **Imports:** let Biome organize imports. Do not mix dynamic
   `await import()` and static `import` for the same module in production paths.
 - **Dependencies:** root `package.json` is for gateway/CLI deps. Container-only
