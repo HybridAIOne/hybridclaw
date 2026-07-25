@@ -1,6 +1,6 @@
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
-import { logStructuredAuditEvent } from '../memory/db.js';
+import { logStructuredAuditEvent } from '../memory/audit.js';
 import {
   redactHighEntropyStrings,
   redactSecretsDeep,
