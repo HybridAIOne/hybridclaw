@@ -205,6 +205,10 @@ controls:
   materializes the same safe npm config inside its isolated Docker context.
 - CI runs `npm audit signatures` after installs to verify npm registry
   signatures and available provenance attestations for installed packages.
+- The scheduled dependency audit rejects every moderate-or-higher production
+  advisory. Development-only advisories may be accepted only by exact GHSA ID
+  in `scripts/dependency-audit-allowlist.json`; exceptions require a reason,
+  expire automatically, and fail when they become stale.
 - Release publishing uses npm provenance through the trusted-publishing-capable
   npm CLI. The npm package should be configured on npmjs.com to use trusted
   publishing and to disallow token-based publishes after the OIDC workflow is

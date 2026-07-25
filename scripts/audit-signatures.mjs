@@ -14,14 +14,19 @@ const retryDelayMs = Number.parseInt(
   10,
 );
 
-const targets = [
+const releaseAgeAuditArg = '--min-release-age=0';
+
+// npm ci already enforces the release-age gate while installing exact lockfile
+// versions. The audit must still be able to inspect a freshly published
+// security fix that was explicitly reviewed and pinned in those lockfiles.
+export const signatureAuditTargets = [
   {
     label: 'root',
-    args: ['audit', 'signatures'],
+    args: [releaseAgeAuditArg, 'audit', 'signatures'],
   },
   {
     label: 'container',
-    args: ['--prefix', 'container', 'audit', 'signatures'],
+    args: ['--prefix', 'container', releaseAgeAuditArg, 'audit', 'signatures'],
   },
 ];
 const missingAttestationPattern = /E404[\s\S]*\/-\/npm\/v1\/attestations\//u;
@@ -131,7 +136,7 @@ export function runAudit(target) {
 }
 
 export function main() {
-  for (const target of targets) {
+  for (const target of signatureAuditTargets) {
     const status = runAudit(target);
     if (status !== 0) {
       return status;

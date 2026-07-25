@@ -15,7 +15,7 @@ texts ship inside the respective packages.
 
 ## @hybridaione/hybridclaw (`npm-shrinkwrap.json`)
 
-729 production dependencies.
+732 production dependencies.
 
 | Package | Version | License |
 | --- | --- | --- |
@@ -57,30 +57,32 @@ texts ship inside the respective packages.
 | @iconify/types | 2.0.0 | MIT |
 | @iconify/utils | 3.1.3 | MIT |
 | @img/colour | 1.1.0 | MIT |
-| @img/sharp-darwin-arm64 | 0.34.5 | Apache-2.0 |
-| @img/sharp-darwin-x64 | 0.34.5 | Apache-2.0 |
-| @img/sharp-libvips-darwin-arm64 | 1.2.4 | LGPL-3.0-or-later |
-| @img/sharp-libvips-darwin-x64 | 1.2.4 | LGPL-3.0-or-later |
-| @img/sharp-libvips-linux-arm | 1.2.4 | LGPL-3.0-or-later |
-| @img/sharp-libvips-linux-arm64 | 1.2.4 | LGPL-3.0-or-later |
-| @img/sharp-libvips-linux-ppc64 | 1.2.4 | LGPL-3.0-or-later |
-| @img/sharp-libvips-linux-riscv64 | 1.2.4 | LGPL-3.0-or-later |
-| @img/sharp-libvips-linux-s390x | 1.2.4 | LGPL-3.0-or-later |
-| @img/sharp-libvips-linux-x64 | 1.2.4 | LGPL-3.0-or-later |
-| @img/sharp-libvips-linuxmusl-arm64 | 1.2.4 | LGPL-3.0-or-later |
-| @img/sharp-libvips-linuxmusl-x64 | 1.2.4 | LGPL-3.0-or-later |
-| @img/sharp-linux-arm | 0.34.5 | Apache-2.0 |
-| @img/sharp-linux-arm64 | 0.34.5 | Apache-2.0 |
-| @img/sharp-linux-ppc64 | 0.34.5 | Apache-2.0 |
-| @img/sharp-linux-riscv64 | 0.34.5 | Apache-2.0 |
-| @img/sharp-linux-s390x | 0.34.5 | Apache-2.0 |
-| @img/sharp-linux-x64 | 0.34.5 | Apache-2.0 |
-| @img/sharp-linuxmusl-arm64 | 0.34.5 | Apache-2.0 |
-| @img/sharp-linuxmusl-x64 | 0.34.5 | Apache-2.0 |
-| @img/sharp-wasm32 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later AND MIT |
-| @img/sharp-win32-arm64 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later |
-| @img/sharp-win32-ia32 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later |
-| @img/sharp-win32-x64 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later |
+| @img/sharp-darwin-arm64 | 0.35.3 | Apache-2.0 |
+| @img/sharp-darwin-x64 | 0.35.3 | Apache-2.0 |
+| @img/sharp-freebsd-wasm32 | 0.35.3 | Apache-2.0 |
+| @img/sharp-libvips-darwin-arm64 | 1.3.2 | LGPL-3.0-or-later |
+| @img/sharp-libvips-darwin-x64 | 1.3.2 | LGPL-3.0-or-later |
+| @img/sharp-libvips-linux-arm | 1.3.2 | LGPL-3.0-or-later |
+| @img/sharp-libvips-linux-arm64 | 1.3.2 | LGPL-3.0-or-later |
+| @img/sharp-libvips-linux-ppc64 | 1.3.2 | LGPL-3.0-or-later |
+| @img/sharp-libvips-linux-riscv64 | 1.3.2 | LGPL-3.0-or-later |
+| @img/sharp-libvips-linux-s390x | 1.3.2 | LGPL-3.0-or-later |
+| @img/sharp-libvips-linux-x64 | 1.3.2 | LGPL-3.0-or-later |
+| @img/sharp-libvips-linuxmusl-arm64 | 1.3.2 | LGPL-3.0-or-later |
+| @img/sharp-libvips-linuxmusl-x64 | 1.3.2 | LGPL-3.0-or-later |
+| @img/sharp-linux-arm | 0.35.3 | Apache-2.0 |
+| @img/sharp-linux-arm64 | 0.35.3 | Apache-2.0 |
+| @img/sharp-linux-ppc64 | 0.35.3 | Apache-2.0 |
+| @img/sharp-linux-riscv64 | 0.35.3 | Apache-2.0 |
+| @img/sharp-linux-s390x | 0.35.3 | Apache-2.0 |
+| @img/sharp-linux-x64 | 0.35.3 | Apache-2.0 |
+| @img/sharp-linuxmusl-arm64 | 0.35.3 | Apache-2.0 |
+| @img/sharp-linuxmusl-x64 | 0.35.3 | Apache-2.0 |
+| @img/sharp-wasm32 | 0.35.3 | Apache-2.0 AND LGPL-3.0-or-later AND MIT |
+| @img/sharp-webcontainers-wasm32 | 0.35.3 | Apache-2.0 |
+| @img/sharp-win32-arm64 | 0.35.3 | Apache-2.0 AND LGPL-3.0-or-later |
+| @img/sharp-win32-ia32 | 0.35.3 | Apache-2.0 AND LGPL-3.0-or-later |
+| @img/sharp-win32-x64 | 0.35.3 | Apache-2.0 AND LGPL-3.0-or-later |
 | @isaacs/fs-minipass | 4.0.1 | ISC |
 | @jridgewell/sourcemap-codec | 1.5.5 | MIT |
 | @js-sdsl/ordered-map | 4.4.2 | MIT |
@@ -237,7 +239,7 @@ texts ship inside the respective packages.
 | accepts | 2.0.0 | MIT |
 | adaptivecards | 1.2.3 | MIT |
 | adler-32 | 1.3.1 | Apache-2.0 |
-| adm-zip | 0.5.18 | MIT |
+| adm-zip | 0.6.0 | MIT |
 | agent-base | 6.0.2 | MIT |
 | agent-base | 7.1.4 | MIT |
 | agent-browser | 0.27.0 | Apache-2.0 |
@@ -267,7 +269,7 @@ texts ship inside the respective packages.
 | botframework-connector | 4.23.3 | MIT |
 | botframework-schema | 4.23.3 | MIT |
 | botframework-streaming | 4.23.3 | MIT |
-| brace-expansion | 5.0.7 | MIT |
+| brace-expansion | 5.0.8 | MIT |
 | browserslist | 4.28.1 | MIT |
 | buffer | 5.7.1 | MIT |
 | buffer | 6.0.3 | MIT |
@@ -415,7 +417,7 @@ texts ship inside the respective packages.
 | fast-copy | 4.0.2 | MIT |
 | fast-deep-equal | 3.1.3 | MIT |
 | fast-safe-stringify | 2.1.1 | MIT |
-| fast-uri | 3.1.3 | BSD-3-Clause |
+| fast-uri | 3.1.4 | BSD-3-Clause |
 | file-uri-to-path | 1.0.0 | MIT |
 | filename-reserved-regex | 3.0.0 | MIT |
 | filenamify | 6.0.0 | MIT |
@@ -661,6 +663,7 @@ texts ship inside the respective packages.
 | selderee | 0.12.0 | MIT |
 | semifies | 1.0.0 | Apache-2.0 |
 | semver | 7.7.4 | ISC |
+| semver | 7.8.5 | ISC |
 | semver-compare | 1.0.0 | MIT |
 | send | 1.2.1 | MIT |
 | serialize-error | 7.0.1 | MIT |
@@ -669,7 +672,7 @@ texts ship inside the respective packages.
 | serve-static | 2.2.1 | MIT |
 | setimmediate | 1.0.5 | MIT |
 | setprototypeof | 1.2.0 | ISC |
-| sharp | 0.34.5 | Apache-2.0 |
+| sharp | 0.35.3 | Apache-2.0 |
 | shebang-command | 2.0.0 | MIT |
 | shebang-regex | 3.0.0 | MIT |
 | side-channel | 1.1.0 | MIT |
@@ -694,7 +697,7 @@ texts ship inside the respective packages.
 | strip-json-comments | 2.0.1 | MIT |
 | strip-json-comments | 5.0.3 | MIT |
 | stylis | 4.4.0 | MIT |
-| tar | 7.5.20 | BlueOak-1.0.0 |
+| tar | 7.5.22 | BlueOak-1.0.0 |
 | tar-fs | 2.1.4 | MIT |
 | tar-stream | 2.2.0 | MIT |
 | thread-stream | 3.2.0 | MIT |
@@ -905,7 +908,7 @@ texts ship inside the respective packages.
 | express | 5.2.1 | MIT |
 | express-rate-limit | 8.5.2 | MIT |
 | fast-deep-equal | 3.1.3 | MIT |
-| fast-uri | 3.1.3 | BSD-3-Clause |
+| fast-uri | 3.1.4 | BSD-3-Clause |
 | finalhandler | 2.1.1 | MIT |
 | forwarded | 0.2.0 | MIT |
 | fresh | 2.0.0 | MIT |
@@ -3298,7 +3301,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### Text 21 of 374
 
-Applies to: @isaacs/fs-minipass@4.0.1, chownr@1.1.4, ini@1.3.8, isexe@2.0.0, json-stringify-safe@5.0.1, once@1.4.0, semver@7.7.4, which@2.0.2, wrappy@1.0.2
+Applies to: @isaacs/fs-minipass@4.0.1, chownr@1.1.4, ini@1.3.8, isexe@2.0.0, json-stringify-safe@5.0.1, once@1.4.0, semver@7.7.4, semver@7.8.5, which@2.0.2, wrappy@1.0.2
 
 ````text
 The ISC License
@@ -4734,7 +4737,7 @@ Apache License
 
 ### Text 54 of 374
 
-Applies to: adm-zip@0.5.18
+Applies to: adm-zip@0.6.0
 
 ````text
 MIT License
@@ -5474,7 +5477,7 @@ SOFTWARE.
 
 ### Text 75 of 374
 
-Applies to: brace-expansion@5.0.7
+Applies to: brace-expansion@5.0.8
 
 ````text
 MIT License
@@ -9753,7 +9756,7 @@ SOFTWARE.
 
 ### Text 171 of 374
 
-Applies to: fast-uri@3.1.3
+Applies to: fast-uri@3.1.4
 
 ````text
 Copyright (c) 2011-2021, Gary Court until https://github.com/garycourt/uri-js/commit/a1acf730b4bba3f1097c9f52e7d9d3aba8cdcaae
@@ -12718,7 +12721,7 @@ terms above.
 
 ### Text 239 of 374
 
-Applies to: lru-cache@11.5.1, minipass@7.1.3, path-scurry@2.0.2, sax@1.6.0, tar@7.5.20
+Applies to: lru-cache@11.5.1, minipass@7.1.3, path-scurry@2.0.2, sax@1.6.0, tar@7.5.22
 
 ````text
 # Blue Oak Model License
@@ -15834,7 +15837,7 @@ CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ### Text 327 of 374
 
-Applies to: sharp@0.34.5
+Applies to: sharp@0.35.3
 
 ````text
 Apache License
@@ -17306,30 +17309,32 @@ the package itself or is available at <https://spdx.org/licenses/>.
 | --- | --- | --- | --- |
 | @apm-js-collab/code-transformer-bundler-plugins | 0.6.2 | MIT | no license file bundled with the package |
 | @emnapi/runtime | 1.11.1 | MIT | platform-specific optional dependency |
-| @img/sharp-darwin-arm64 | 0.34.5 | Apache-2.0 | platform-specific optional dependency |
-| @img/sharp-darwin-x64 | 0.34.5 | Apache-2.0 | platform-specific optional dependency |
-| @img/sharp-libvips-darwin-arm64 | 1.2.4 | LGPL-3.0-or-later | platform-specific optional dependency |
-| @img/sharp-libvips-darwin-x64 | 1.2.4 | LGPL-3.0-or-later | platform-specific optional dependency |
-| @img/sharp-libvips-linux-arm | 1.2.4 | LGPL-3.0-or-later | platform-specific optional dependency |
-| @img/sharp-libvips-linux-arm64 | 1.2.4 | LGPL-3.0-or-later | platform-specific optional dependency |
-| @img/sharp-libvips-linux-ppc64 | 1.2.4 | LGPL-3.0-or-later | platform-specific optional dependency |
-| @img/sharp-libvips-linux-riscv64 | 1.2.4 | LGPL-3.0-or-later | platform-specific optional dependency |
-| @img/sharp-libvips-linux-s390x | 1.2.4 | LGPL-3.0-or-later | platform-specific optional dependency |
-| @img/sharp-libvips-linux-x64 | 1.2.4 | LGPL-3.0-or-later | platform-specific optional dependency |
-| @img/sharp-libvips-linuxmusl-arm64 | 1.2.4 | LGPL-3.0-or-later | platform-specific optional dependency |
-| @img/sharp-libvips-linuxmusl-x64 | 1.2.4 | LGPL-3.0-or-later | platform-specific optional dependency |
-| @img/sharp-linux-arm | 0.34.5 | Apache-2.0 | platform-specific optional dependency |
-| @img/sharp-linux-arm64 | 0.34.5 | Apache-2.0 | platform-specific optional dependency |
-| @img/sharp-linux-ppc64 | 0.34.5 | Apache-2.0 | platform-specific optional dependency |
-| @img/sharp-linux-riscv64 | 0.34.5 | Apache-2.0 | platform-specific optional dependency |
-| @img/sharp-linux-s390x | 0.34.5 | Apache-2.0 | platform-specific optional dependency |
-| @img/sharp-linux-x64 | 0.34.5 | Apache-2.0 | platform-specific optional dependency |
-| @img/sharp-linuxmusl-arm64 | 0.34.5 | Apache-2.0 | platform-specific optional dependency |
-| @img/sharp-linuxmusl-x64 | 0.34.5 | Apache-2.0 | platform-specific optional dependency |
-| @img/sharp-wasm32 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later AND MIT | platform-specific optional dependency |
-| @img/sharp-win32-arm64 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later | platform-specific optional dependency |
-| @img/sharp-win32-ia32 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later | platform-specific optional dependency |
-| @img/sharp-win32-x64 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later | platform-specific optional dependency |
+| @img/sharp-darwin-arm64 | 0.35.3 | Apache-2.0 | platform-specific optional dependency |
+| @img/sharp-darwin-x64 | 0.35.3 | Apache-2.0 | platform-specific optional dependency |
+| @img/sharp-freebsd-wasm32 | 0.35.3 | Apache-2.0 | platform-specific optional dependency |
+| @img/sharp-libvips-darwin-arm64 | 1.3.2 | LGPL-3.0-or-later | platform-specific optional dependency |
+| @img/sharp-libvips-darwin-x64 | 1.3.2 | LGPL-3.0-or-later | platform-specific optional dependency |
+| @img/sharp-libvips-linux-arm | 1.3.2 | LGPL-3.0-or-later | platform-specific optional dependency |
+| @img/sharp-libvips-linux-arm64 | 1.3.2 | LGPL-3.0-or-later | platform-specific optional dependency |
+| @img/sharp-libvips-linux-ppc64 | 1.3.2 | LGPL-3.0-or-later | platform-specific optional dependency |
+| @img/sharp-libvips-linux-riscv64 | 1.3.2 | LGPL-3.0-or-later | platform-specific optional dependency |
+| @img/sharp-libvips-linux-s390x | 1.3.2 | LGPL-3.0-or-later | platform-specific optional dependency |
+| @img/sharp-libvips-linux-x64 | 1.3.2 | LGPL-3.0-or-later | platform-specific optional dependency |
+| @img/sharp-libvips-linuxmusl-arm64 | 1.3.2 | LGPL-3.0-or-later | platform-specific optional dependency |
+| @img/sharp-libvips-linuxmusl-x64 | 1.3.2 | LGPL-3.0-or-later | platform-specific optional dependency |
+| @img/sharp-linux-arm | 0.35.3 | Apache-2.0 | platform-specific optional dependency |
+| @img/sharp-linux-arm64 | 0.35.3 | Apache-2.0 | platform-specific optional dependency |
+| @img/sharp-linux-ppc64 | 0.35.3 | Apache-2.0 | platform-specific optional dependency |
+| @img/sharp-linux-riscv64 | 0.35.3 | Apache-2.0 | platform-specific optional dependency |
+| @img/sharp-linux-s390x | 0.35.3 | Apache-2.0 | platform-specific optional dependency |
+| @img/sharp-linux-x64 | 0.35.3 | Apache-2.0 | platform-specific optional dependency |
+| @img/sharp-linuxmusl-arm64 | 0.35.3 | Apache-2.0 | platform-specific optional dependency |
+| @img/sharp-linuxmusl-x64 | 0.35.3 | Apache-2.0 | platform-specific optional dependency |
+| @img/sharp-wasm32 | 0.35.3 | Apache-2.0 AND LGPL-3.0-or-later AND MIT | platform-specific optional dependency |
+| @img/sharp-webcontainers-wasm32 | 0.35.3 | Apache-2.0 | platform-specific optional dependency |
+| @img/sharp-win32-arm64 | 0.35.3 | Apache-2.0 AND LGPL-3.0-or-later | platform-specific optional dependency |
+| @img/sharp-win32-ia32 | 0.35.3 | Apache-2.0 AND LGPL-3.0-or-later | platform-specific optional dependency |
+| @img/sharp-win32-x64 | 0.35.3 | Apache-2.0 AND LGPL-3.0-or-later | platform-specific optional dependency |
 | @napi-rs/canvas | 0.1.100 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-android-arm64 | 0.1.100 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-darwin-arm64 | 0.1.100 | MIT | platform-specific optional dependency |
