@@ -1,6 +1,8 @@
 import { expect, test, vi } from 'vitest';
 
 import {
+  buildMSTeamsMessageActivity,
+  formatMSTeamsMarkdown,
   prepareChunkedActivities,
   sendChunkedReply,
   stripUnusableMSTeamsArtifactLinks,
@@ -36,6 +38,49 @@ test('prepareChunkedActivities keeps attachment-only Teams sends empty', () => {
       attachments,
     },
   ]);
+});
+
+test('formatMSTeamsMarkdown preserves visible line breaks outside code blocks', () => {
+  expect(
+    formatMSTeamsMarkdown(
+      [
+        'First line',
+        'Second line',
+        '',
+        '```ts',
+        'const first = 1;',
+        'const second = 2;',
+        '```',
+        'Final line',
+      ].join('\n'),
+    ),
+  ).toBe(
+    [
+      'First line  ',
+      'Second line',
+      '',
+      '```ts',
+      'const first = 1;',
+      'const second = 2;',
+      '```',
+      'Final line',
+    ].join('\n'),
+  );
+});
+
+test('buildMSTeamsMessageActivity marks text as Teams markdown', () => {
+  expect(
+    buildMSTeamsMessageActivity({
+      text: 'First line  \nSecond line',
+      replyStyle: 'thread',
+      replyToId: 'incoming-1',
+    }),
+  ).toEqual({
+    type: 'message',
+    text: 'First line  \nSecond line',
+    textFormat: 'markdown',
+    replyToId: 'incoming-1',
+  });
 });
 
 test('sendChunkedReply omits the text field for attachment-only Teams sends', async () => {
@@ -95,11 +140,13 @@ test('sendChunkedReply retries transient Teams transport failures', async () => 
     expect(sendActivity).toHaveBeenNthCalledWith(1, {
       type: 'message',
       text: 'Hello',
+      textFormat: 'markdown',
       replyToId: 'incoming-1',
     });
     expect(sendActivity).toHaveBeenNthCalledWith(2, {
       type: 'message',
       text: 'Hello',
+      textFormat: 'markdown',
       replyToId: 'incoming-1',
     });
   } finally {
