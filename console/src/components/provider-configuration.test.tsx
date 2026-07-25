@@ -59,27 +59,22 @@ describe('ProviderConfiguration', () => {
   it('edits provider enablement and endpoint from the Providers page', async () => {
     renderWithProviders(
       <ProviderConfiguration
-        filter=""
-        statuses={[
-          [
-            'openai',
-            {
-              kind: 'remote',
-              reachable: false,
-              detail: 'Not authenticated',
-              modelCount: 1,
-            },
-          ],
-        ]}
+        providerId="openai"
+        status={{
+          kind: 'remote',
+          reachable: false,
+          detail: 'Not authenticated',
+          modelCount: 1,
+        }}
       />,
     );
 
     expect(await screen.findByText('OpenAI')).toBeTruthy();
-    const credential = screen.getByLabelText(
-      'API key secret',
-    ) as HTMLSelectElement;
-    expect(credential.value).toBe('OPENAI_API_KEY');
-    expect(credential.disabled).toBe(true);
+    expect(screen.getByText('OPENAI_API_KEY')).toBeTruthy();
+    expect(await screen.findByText('Available')).toBeTruthy();
+    expect(
+      screen.queryByRole('combobox', { name: 'API key credential' }),
+    ).toBeNull();
 
     fireEvent.click(screen.getByRole('switch', { name: 'Enable OpenAI' }));
     fireEvent.change(screen.getByLabelText('OpenAI base URL'), {

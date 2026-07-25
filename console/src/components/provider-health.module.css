@@ -33,10 +33,30 @@
 .row {
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
   padding: 9px 16px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
   border-left: 2.5px solid transparent;
+  border-top: 0;
+  border-right: 0;
   transition: background 0.1s ease;
+}
+
+.rowButton {
+  appearance: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rowButton:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: -2px;
 }
 
 .row:last-of-type {
@@ -63,6 +83,12 @@
 
 .rowDown:hover {
   background: rgba(239, 68, 68, 0.04);
+}
+
+.rowSelected,
+.rowSelected:hover {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .rowTop {
@@ -264,6 +290,12 @@
 
 :global(html[data-theme="dark"]) .rowDown:hover {
   background: rgba(239, 68, 68, 0.07);
+}
+
+:global(html[data-theme="dark"]) .rowSelected,
+:global(html[data-theme="dark"]) .rowSelected:hover {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 :global(html[data-theme="dark"]) .name {

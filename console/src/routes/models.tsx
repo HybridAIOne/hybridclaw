@@ -167,6 +167,7 @@ export function ModelsPage() {
   const toast = useToast();
   const [filter, setFilter] = useState('');
   const [draft, setDraft] = useState<ModelDraft>(createDraft());
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
 
   const modelsQuery = useQuery({
     queryKey: ['models', auth.token],
@@ -238,55 +239,73 @@ export function ModelsPage() {
         }
       />
 
-      <div className="two-column-grid">
-        <ProviderHealth title="Provider health" entries={providerEntries} />
-
-        <Card variant="muted">
-          <CardHeader>
-            <CardTitle>Selection</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {modelsQuery.isLoading ? (
-              <div className="empty-state">Loading model catalog...</div>
-            ) : (
-              <div className="stack-form">
-                <Field>
-                  <FieldLabel>Default model</FieldLabel>
-                  <NativeSelect
-                    value={draft.defaultModel}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        defaultModel: event.target.value,
-                      }))
-                    }
-                  >
-                    <NativeSelectOption value="">
-                      Select model
+      <Card variant="muted">
+        <CardHeader>
+          <CardTitle>Selection</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {modelsQuery.isLoading ? (
+            <div className="empty-state">Loading model catalog...</div>
+          ) : (
+            <div className="stack-form">
+              <Field>
+                <FieldLabel>Default model</FieldLabel>
+                <NativeSelect
+                  value={draft.defaultModel}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      defaultModel: event.target.value,
+                    }))
+                  }
+                >
+                  <NativeSelectOption value="">Select model</NativeSelectOption>
+                  {(modelsQuery.data?.models || []).map((model) => (
+                    <NativeSelectOption key={model.id} value={model.id}>
+                      {model.id}
                     </NativeSelectOption>
-                    {(modelsQuery.data?.models || []).map((model) => (
-                      <NativeSelectOption key={model.id} value={model.id}>
-                        {model.id}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </Field>
+                  ))}
+                </NativeSelect>
+              </Field>
 
-                <div className="button-row">
-                  <Button
-                    disabled={saveMutation.isPending}
-                    onClick={() => saveMutation.mutate()}
-                  >
-                    {saveMutation.isPending ? 'Saving...' : 'Save selection'}
-                  </Button>
-                </div>
+              <div className="button-row">
+                <Button
+                  disabled={saveMutation.isPending}
+                  onClick={() => saveMutation.mutate()}
+                >
+                  {saveMutation.isPending ? 'Saving...' : 'Save selection'}
+                </Button>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      <ProviderConfiguration filter={filter} statuses={providerEntries} />
+      <div className="two-column-grid">
+        <ProviderHealth
+          title="Provider health"
+          entries={providerEntries}
+          selectedName={selectedProvider}
+          onSelect={setSelectedProvider}
+        />
+        {selectedProvider ? (
+          <ProviderConfiguration
+            providerId={selectedProvider}
+            status={
+              providerEntries.find(([name]) => name === selectedProvider)?.[1]
+            }
+          />
+        ) : (
+          <Card variant="muted">
+            <CardHeader>
+              <CardTitle>Provider configuration</CardTitle>
+              <CardDescription>
+                Select a provider to view its settings.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        )}
+      </div>
 
       <Card>
         <CardHeader>

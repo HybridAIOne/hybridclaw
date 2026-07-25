@@ -45,9 +45,16 @@ const DOT_CLASS: Record<HealthStatus, string> = {
 interface ProviderRowProps {
   name: string;
   provider: ProviderEntry;
+  selected?: boolean;
+  onSelect?: (name: string) => void;
 }
 
-function ProviderRow({ name, provider }: ProviderRowProps) {
+function ProviderRow({
+  name,
+  provider,
+  selected = false,
+  onSelect,
+}: ProviderRowProps) {
   const status = resolveStatus(name, provider);
   const isLocal = isLocalProvider(name, provider);
   const modelCount = provider.modelCount ?? 0;
@@ -60,14 +67,16 @@ function ProviderRow({ name, provider }: ProviderRowProps) {
 
   const rowClass = [
     styles.row,
+    onSelect ? styles.rowButton : '',
+    selected ? styles.rowSelected : '',
     status === 'warning' ? styles.rowWarning : '',
     status === 'down' ? styles.rowDown : '',
   ]
     .filter(Boolean)
     .join(' ');
 
-  return (
-    <div className={rowClass}>
+  const content = (
+    <>
       <div className={styles.rowTop}>
         <div className={styles.nameGroup}>
           <span
@@ -91,26 +100,61 @@ function ProviderRow({ name, provider }: ProviderRowProps) {
           <span className={styles.statusLabel}>{status}</span>
         </div>
       </div>
-    </div>
+    </>
   );
+
+  if (onSelect) {
+    return (
+      <button
+        type="button"
+        className={rowClass}
+        aria-pressed={selected}
+        onClick={() => onSelect(name)}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <div className={rowClass}>{content}</div>;
 }
 
 export interface ProviderHealthProps {
   title: string;
   entries: Array<[string, ProviderEntry]>;
+  selectedName?: string | null;
+  onSelect?: (name: string) => void;
 }
 
-export function ProviderHealth({ title, entries }: ProviderHealthProps) {
-  // Split into active (visible rows) and inactive (collapsed footer)
-  const activeEntries = entries.filter(([name, p]) => {
-    const status = resolveStatus(name, p);
-    return status !== 'inactive';
-  });
+function isInactiveEntry([name, provider]: [string, ProviderEntry]): boolean {
+  return resolveStatus(name, provider) === 'inactive';
+}
 
-  const inactiveEntries = entries.filter(([name, p]) => {
-    const status = resolveStatus(name, p);
-    return status === 'inactive';
-  });
+function isActiveEntry(entry: [string, ProviderEntry]): boolean {
+  return !isInactiveEntry(entry);
+}
+
+function renderProviderRow(
+  [name, provider]: [string, ProviderEntry],
+  props: ProviderHealthProps,
+) {
+  return (
+    <ProviderRow
+      key={name}
+      name={name}
+      provider={provider}
+      selected={props.selectedName === name}
+      onSelect={props.onSelect}
+    />
+  );
+}
+
+export function ProviderHealth(props: ProviderHealthProps) {
+  const { title, entries } = props;
+  const activeEntries = props.onSelect
+    ? entries
+    : entries.filter(isActiveEntry);
+  const inactiveEntries = props.onSelect ? [] : entries.filter(isInactiveEntry);
   return (
     <section className={styles.panel}>
       <div className={styles.panelHeader}>
@@ -121,9 +165,7 @@ export function ProviderHealth({ title, entries }: ProviderHealthProps) {
         <p className={styles.panelEmpty}>No provider health data available.</p>
       ) : (
         <>
-          {activeEntries.map(([name, provider]) => (
-            <ProviderRow key={name} name={name} provider={provider} />
-          ))}
+          {activeEntries.map((entry) => renderProviderRow(entry, props))}
           {inactiveEntries.length > 0 && (
             <div className={styles.inactiveFooter}>
               <span className={styles.inactiveDot} />

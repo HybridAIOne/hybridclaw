@@ -11,6 +11,53 @@ export interface SecretRefPickerProps {
   disabled?: boolean;
 }
 
+export function CanonicalSecretStatus(props: {
+  name: string;
+  providerReachable?: boolean;
+}) {
+  const { token } = useAuth();
+  const secretsQuery = useQuery({
+    queryKey: ['admin', 'secrets', token],
+    queryFn: () => fetchAdminSecrets(token),
+    retry: false,
+  });
+  const entry = secretsQuery.data?.secrets.find(
+    (secret) => secret.name === props.name,
+  );
+  const stored = entry?.state === 'set';
+  const available = stored || props.providerReachable === true;
+  const status = secretsQuery.isPending
+    ? 'Checking…'
+    : available
+      ? 'Available'
+      : 'Not configured';
+  const description = stored
+    ? 'Stored in the runtime secret store.'
+    : props.providerReachable
+      ? 'Available to the running provider outside the runtime secret store.'
+      : secretsQuery.isError
+        ? 'Credential metadata is unavailable.'
+        : 'No credential is available to this provider.';
+
+  return (
+    <div
+      className={styles.status}
+      role="status"
+      aria-label={`${props.name} credential status`}
+    >
+      <div className={styles.statusLine}>
+        <code>{props.name}</code>
+        <span
+          className={available ? styles.statusAvailable : styles.statusMissing}
+        >
+          {status}
+        </span>
+      </div>
+      <span className={styles.statusDescription}>{description}</span>
+    </div>
+  );
+}
+
 export function SecretRefPicker({
   value,
   onValueChange,
