@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { withMemoryDatabase } from '../memory/db.js';
+import { withMemoryDatabase } from '../memory/database.js';
 import {
   createScryptVerifier,
   isScryptVerifierMatch,

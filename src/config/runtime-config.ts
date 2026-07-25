@@ -4087,6 +4087,7 @@ function normalizeIMessageConfig(
   },
 ): RuntimeIMessageConfig {
   const raw = isRecord(value) ? value : {};
+  const serverUrl = normalizeBaseUrl(raw.serverUrl, fallback.serverUrl);
   return {
     enabled: normalizeBoolean(raw.enabled, fallback.enabled),
     backend: normalizeIMessageBackend(raw.backend, fallback.backend),
@@ -4104,7 +4105,7 @@ function normalizeIMessageConfig(
         max: 120_000,
       },
     ),
-    serverUrl: normalizeBaseUrl(raw.serverUrl, fallback.serverUrl),
+    serverUrl: serverUrl === 'https://bluebubbles.example.com' ? '' : serverUrl,
     password: normalizeString(
       opts?.password ?? raw.password,
       fallback.password,

@@ -40,7 +40,7 @@ jobs:
         run: npm --prefix container ci --ignore-scripts --no-audit --fund=false
 
       - name: Audit root workspace
-        run: npm audit --audit-level=moderate
+        run: npm run audit:dependencies
 
       - name: Audit container workspace
         run: npm --prefix container audit --audit-level=moderate
