@@ -4,10 +4,17 @@ import {
   hasSignatureValidationFailure,
   isMissingAttestationFailure,
   isTransientFailure,
+  signatureAuditTargets,
   shouldAllowMissingAttestationFailure,
 } from '../scripts/audit-signatures.mjs';
 
 describe('npm signature audit wrapper', () => {
+  test('does not apply the install release-age gate during verification', () => {
+    for (const target of signatureAuditTargets) {
+      expect(target.args).toContain('--min-release-age=0');
+    }
+  });
+
   test('treats npm registry attestation 404s as best-effort', () => {
     const output = `npm error code E404
 npm error 404 Not Found - GET https://registry.npmjs.org/-/npm/v1/attestations/@slack%2fweb-api@7.15.0 - Not found`;
