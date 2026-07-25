@@ -1,7 +1,8 @@
 import type Database from 'better-sqlite3';
 import type { RuntimeSchedulerJob } from '../config/runtime-config.js';
 import type { ScheduledTask } from '../types/scheduler.js';
-import { resolveSessionIdCompat, withMemoryDatabase } from './db.js';
+import { withMemoryDatabase } from './database.js';
+import { resolveSessionIdCompat } from './sessions.js';
 
 export interface StoredSchedulerJob extends RuntimeSchedulerJob {
   sortOrder: number;

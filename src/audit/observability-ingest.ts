@@ -17,15 +17,15 @@ import {
   OBSERVABILITY_LABEL,
 } from '../config/config.js';
 import { logger } from '../logger.js';
+import { getStructuredAuditAfterId } from '../memory/audit.js';
 import {
   deleteObservabilityIngestToken,
-  getAnyChatbotId,
   getObservabilityIngestTokenRecord,
   getObservabilityOffset,
-  getStructuredAuditAfterId,
   setObservabilityIngestToken,
   setObservabilityOffset,
-} from '../memory/db.js';
+} from '../memory/observability-store.js';
+import { getAnyChatbotId } from '../memory/sessions.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import { SlidingWindowRateLimiter } from '../utils/rate-limiter.js';
 import {

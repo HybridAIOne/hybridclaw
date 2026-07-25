@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { withMemoryDatabase } from './db.js';
+import { withMemoryDatabase } from './database.js';
 
 /**
  * Slugs for the artifact/app categories surfaced in the gallery "New App"
