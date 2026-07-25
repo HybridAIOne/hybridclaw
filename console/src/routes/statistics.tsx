@@ -185,7 +185,7 @@ export function StatisticsPage(
         <CardHeader>
           <CardTitle>Channel breakdown</CardTitle>
           <CardDescription>
-            Distribution of sessions and messages by channel
+            Distribution of sessions and messages by channel type
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -352,11 +352,12 @@ function ChannelBreakdown(props: { channels: AdminStatisticsChannelRow[] }) {
     );
   }
 
-  const totalSessions = props.channels.reduce(
+  const groupedChannels = groupChannelRows(props.channels);
+  const totalSessions = groupedChannels.reduce(
     (sum, row) => sum + row.sessionCount,
     0,
   );
-  const totalMessages = props.channels.reduce(
+  const totalMessages = groupedChannels.reduce(
     (sum, row) => sum + row.totalMessages,
     0,
   );
@@ -375,18 +376,21 @@ function ChannelBreakdown(props: { channels: AdminStatisticsChannelRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {props.channels.map((channel) => {
+          {groupedChannels.map((channel) => {
             const share =
               totalMessages > 0 ? channel.totalMessages / totalMessages : 0;
             return (
-              <tr key={channel.channelId}>
+              <tr key={channel.key}>
                 <td>
-                  <strong>{channel.channelId || '(unknown)'}</strong>
+                  <strong title={channel.title}>{channel.label}</strong>
                   <small>
                     {totalSessions > 0
                       ? `${Math.round((channel.sessionCount / totalSessions) * 100)}% of sessions`
                       : '—'}
                   </small>
+                  {channel.destinationCount > 1 ? (
+                    <small>{`${channel.destinationCount} destinations`}</small>
+                  ) : null}
                 </td>
                 <td style={{ textAlign: 'right' }}>{channel.sessionCount}</td>
                 <td style={{ textAlign: 'right' }}>{channel.totalMessages}</td>
@@ -428,5 +432,70 @@ function ChannelBreakdown(props: { channels: AdminStatisticsChannelRow[] }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+function compactDestination(value: string): string {
+  if (value.length <= 40) return value;
+  return `${value.slice(0, 24)}…${value.slice(-12)}`;
+}
+
+function formatChannelGroup(channelId: string): {
+  key: string;
+  label: string;
+  title?: string;
+} {
+  const normalized = channelId.trim();
+  if (!normalized || normalized === '(unknown)') {
+    return { key: 'unknown', label: 'Unknown' };
+  }
+  if (normalized === 'web') return { key: 'web', label: 'Web' };
+  if (normalized === 'tui') return { key: 'tui', label: 'TUI' };
+  if (normalized.startsWith('19:') || normalized.startsWith('a:')) {
+    return { key: 'msteams', label: 'Microsoft Teams' };
+  }
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+    return { key: 'email', label: 'Email' };
+  }
+  return {
+    key: `raw:${normalized}`,
+    label: compactDestination(normalized),
+    ...(normalized.length > 40 ? { title: normalized } : {}),
+  };
+}
+
+type GroupedChannelRow = AdminStatisticsChannelRow & {
+  key: string;
+  label: string;
+  title?: string;
+  destinationCount: number;
+};
+
+function groupChannelRows(
+  channels: AdminStatisticsChannelRow[],
+): GroupedChannelRow[] {
+  const grouped = new Map<string, GroupedChannelRow>();
+  for (const channel of channels) {
+    const display = formatChannelGroup(channel.channelId);
+    const current = grouped.get(display.key);
+    if (current) {
+      current.sessionCount += channel.sessionCount;
+      current.userMessages += channel.userMessages;
+      current.assistantMessages += channel.assistantMessages;
+      current.totalMessages += channel.totalMessages;
+      current.destinationCount += 1;
+      continue;
+    }
+    grouped.set(display.key, {
+      ...channel,
+      ...display,
+      destinationCount: 1,
+    });
+  }
+  return [...grouped.values()].sort(
+    (left, right) =>
+      right.totalMessages - left.totalMessages ||
+      right.sessionCount - left.sessionCount ||
+      left.label.localeCompare(right.label),
   );
 }

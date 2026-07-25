@@ -18,7 +18,7 @@ import { Input } from './input';
 import { NativeSelect, NativeSelectOption } from './native-select';
 import styles from './provider-configuration.module.css';
 import type { ProviderEntry } from './provider-health';
-import { SecretRefPicker } from './secret-ref-picker';
+import { CanonicalSecretStatus, SecretRefPicker } from './secret-ref-picker';
 import { Switch } from './switch';
 import { useToast } from './toast';
 
@@ -290,31 +290,33 @@ function ProviderConfigCard(props: {
         ) : null}
 
         {descriptor.secretName ? (
-          <Field>
-            <FieldLabel>API key secret</FieldLabel>
-            <SecretRefPicker
-              value={secretRefId(
-                descriptor.secretPath
-                  ? settingValue(props.draft, descriptor.secretPath)
-                  : undefined,
-                descriptor.secretName,
-              )}
-              disabled={!descriptor.secretPath}
-              onValueChange={(id) => {
-                if (!descriptor.secretPath) return;
-                props.onSettingChange(
-                  descriptor.secretPath,
-                  id ? { source: 'store', id } : '',
-                );
-              }}
-            />
-            {!descriptor.secretPath ? (
-              <FieldDescription>
-                This provider reads the canonical {descriptor.secretName}{' '}
-                secret.
-              </FieldDescription>
-            ) : null}
-          </Field>
+          descriptor.secretPath ? (
+            <Field>
+              <FieldLabel>API key credential</FieldLabel>
+              <SecretRefPicker
+                value={secretRefId(
+                  settingValue(props.draft, descriptor.secretPath),
+                  descriptor.secretName,
+                )}
+                onValueChange={(id) =>
+                  props.onSettingChange(
+                    descriptor.secretPath as string,
+                    id ? { source: 'store', id } : '',
+                  )
+                }
+              />
+            </Field>
+          ) : (
+            <div className={styles.providerCredential}>
+              <span className={styles.providerCredentialLabel}>
+                API key credential
+              </span>
+              <CanonicalSecretStatus
+                name={descriptor.secretName}
+                providerReachable={props.status?.reachable}
+              />
+            </div>
+          )
         ) : null}
 
         {descriptor.select ? (
@@ -345,8 +347,8 @@ function ProviderConfigCard(props: {
 }
 
 export function ProviderConfiguration(props: {
-  filter: string;
-  statuses: ReadonlyArray<[string, ProviderEntry]>;
+  providerId: string;
+  status?: ProviderEntry;
 }) {
   const auth = useAuth();
   const toast = useToast();
@@ -373,14 +375,19 @@ export function ProviderConfiguration(props: {
   }
   if (!draft) return null;
 
-  const needle = props.filter.trim().toLowerCase();
-  const visibleProviders = PROVIDERS.filter(
+  const descriptor = PROVIDERS.find(
     (provider) =>
-      settingValue(draft, provider.sectionPath) !== undefined &&
-      (!needle ||
-        `${provider.label} ${provider.id}`.toLowerCase().includes(needle)),
+      provider.id === props.providerId &&
+      settingValue(draft, provider.sectionPath) !== undefined,
   );
-  const statusMap = new Map(props.statuses);
+
+  if (!descriptor) {
+    return (
+      <div className="empty-state">
+        No editable configuration is available for this provider.
+      </div>
+    );
+  }
 
   return (
     <Form
@@ -403,24 +410,16 @@ export function ProviderConfiguration(props: {
           ) : null}
         </div>
       </div>
-      <div className={styles.providerGrid}>
-        {visibleProviders.map((descriptor) => (
-          <ProviderConfigCard
-            key={descriptor.id}
-            descriptor={descriptor}
-            draft={draft}
-            status={statusMap.get(descriptor.id)}
-            onSettingChange={(path, value) =>
-              setDraft((current) =>
-                current ? withSettingValue(current, path, value) : current,
-              )
-            }
-          />
-        ))}
-      </div>
-      {visibleProviders.length === 0 ? (
-        <div className="empty-state">No providers match this filter.</div>
-      ) : null}
+      <ProviderConfigCard
+        descriptor={descriptor}
+        draft={draft}
+        status={props.status}
+        onSettingChange={(path, value) =>
+          setDraft((current) =>
+            current ? withSettingValue(current, path, value) : current,
+          )
+        }
+      />
       <div className={styles.credentialsLink}>
         <a href="/admin/credentials">Manage all credentials →</a>
       </div>

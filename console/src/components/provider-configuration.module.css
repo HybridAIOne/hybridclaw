@@ -18,12 +18,6 @@
   font-size: 1.05rem;
 }
 
-.providerGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
 .providerCard {
   min-width: 0;
 }
@@ -39,6 +33,19 @@
 .providerFields {
   display: grid;
   gap: 14px;
+}
+
+.providerCredential {
+  display: grid;
+  gap: 12px;
+}
+
+.providerCredentialLabel {
+  width: fit-content;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text);
 }
 
 .statusHealthy,
@@ -69,12 +76,6 @@
   color: var(--primary);
   font-weight: 650;
   text-decoration: none;
-}
-
-@media (max-width: 980px) {
-  .providerGrid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 680px) {

@@ -192,6 +192,50 @@ afterEach(() => {
 });
 
 describe('OutputGuardPage', () => {
+  it('hides configuration fields while the guard is disabled', async () => {
+    fetchOutputGuardProfileMock.mockResolvedValue({
+      profile: {
+        enabled: false,
+        mode: 'rewrite',
+        policy: 'Hidden until enabled.',
+        doList: [],
+        dontList: [],
+        bannedPhrases: [],
+        bannedPatterns: [],
+        requirePhrases: [],
+        classifier: {
+          provider: 'default',
+          model: '',
+        },
+        rewriter: {
+          provider: 'default',
+          model: '',
+        },
+      },
+      revisions: [],
+    });
+
+    renderOutputGuardPage();
+
+    expect(
+      await screen.findByText(
+        'Enable Output Guard to configure its policy and models.',
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole('group', { name: 'Output guard mode' }),
+    ).toBeNull();
+    expect(screen.queryByText('Classifier')).toBeNull();
+    expect(screen.queryByDisplayValue('Hidden until enabled.')).toBeNull();
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Enabled' }));
+
+    expect(
+      screen.getByRole('group', { name: 'Output guard mode' }),
+    ).toBeTruthy();
+    expect(screen.getByDisplayValue('Hidden until enabled.')).toBeTruthy();
+  });
+
   it('edits profile lists and scores a pasted sample', async () => {
     renderOutputGuardPage();
 

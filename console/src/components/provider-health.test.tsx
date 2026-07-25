@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { type ProviderEntry, ProviderHealth } from './provider-health';
 
 const ENTRIES: Array<[string, ProviderEntry]> = [
@@ -52,5 +52,25 @@ describe('ProviderHealth', () => {
     );
 
     expect(screen.getByText(diagnostic).getAttribute('title')).toBe(diagnostic);
+  });
+
+  it('selects provider rows when used as a configuration navigator', () => {
+    const onSelect = vi.fn();
+    render(
+      <ProviderHealth
+        title="Provider health"
+        entries={ENTRIES}
+        selectedName="hybridai"
+        onSelect={onSelect}
+      />,
+    );
+
+    const hybridai = screen.getByRole('button', { name: /hybridai/i });
+    const ollama = screen.getByRole('button', { name: /ollama/i });
+    expect(hybridai.getAttribute('aria-pressed')).toBe('true');
+    expect(ollama.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(ollama);
+    expect(onSelect).toHaveBeenCalledWith('ollama');
   });
 });

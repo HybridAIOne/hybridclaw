@@ -24,7 +24,14 @@ vi.mock('../api/client', () => ({
   fetchAdminSecrets: () =>
     Promise.resolve({ secrets: [], total: 0, actions: [] }),
   fetchConfig: () =>
-    Promise.resolve({ path: '/tmp/config.json', config: {} as AdminConfig }),
+    Promise.resolve({
+      path: '/tmp/config.json',
+      config: {
+        hybridai: {
+          baseUrl: 'https://hybridai.one',
+        },
+      } as AdminConfig,
+    }),
   fetchModels: () => fetchModelsMock(),
   saveConfig: () => Promise.resolve({ path: '/tmp/config.json', config: {} }),
   saveModels: (token: string, payload: unknown) =>
@@ -216,6 +223,31 @@ describe('ModelsPage', () => {
     await screen.findByText('Default model');
     expect(screen.queryByText('Configured HybridAI models')).toBeNull();
     expect(screen.queryByText('Configured Codex models')).toBeNull();
+  });
+
+  it('shows provider configuration on the right only after selection', async () => {
+    fetchModelsMock.mockResolvedValue(makeModelsResponse());
+
+    renderModelsPage();
+
+    expect(
+      await screen.findByText('Select a provider to view its settings.'),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText('HybridAI base URL')).toBeNull();
+
+    fireEvent.click(await screen.findByRole('button', { name: /hybridai/i }));
+
+    expect(await screen.findByLabelText('HybridAI base URL')).toBeTruthy();
+    expect(screen.getByText('HYBRIDAI_API_KEY')).toBeTruthy();
+    expect(await screen.findByText('Available')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Available to the running provider outside the runtime secret store.',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText('Select a provider to view its settings.')).toBe(
+      null,
+    );
   });
 
   it('changes the default model through NativeSelect and saves it', async () => {

@@ -431,128 +431,145 @@ export function OutputGuardPage() {
                     <FieldLabel>Enabled</FieldLabel>
                   </FieldContent>
                 </Field>
-                <div className="field">
-                  <span>Mode</span>
-                  <SegmentedToggle
-                    ariaLabel="Output guard mode"
-                    value={profile.mode}
-                    options={[
-                      { value: 'rewrite', label: 'rewrite' },
-                      { value: 'block', label: 'block' },
-                      { value: 'flag', label: 'flag' },
-                    ]}
-                    onChange={(mode) =>
-                      setProfile((current) => ({
-                        ...current,
-                        mode,
-                      }))
-                    }
-                  />
-                </div>
-                <ModelSourceControl
-                  label="Classifier"
-                  ariaLabel="Output guard classifier source"
-                  value={profile.classifier}
-                  modelOptions={modelOptions}
-                  defaultOtherModelId={defaultOtherModelId}
-                  activeModelId={
-                    profile.classifier.provider === 'default'
-                      ? defaultModelId
-                      : auxiliaryModelId
-                  }
-                  activeModelFallback={
-                    profile.classifier.provider === 'default'
-                      ? 'No default model'
-                      : auxiliaryProvider === 'disabled'
-                        ? 'Aux model disabled'
-                        : 'Auto routing'
-                  }
-                  modelsLoading={modelsQuery.isLoading}
-                  onChange={(classifier) =>
-                    setProfile((current) => ({ ...current, classifier }))
-                  }
-                />
-                <ModelSourceControl
-                  label="Rewriter"
-                  ariaLabel="Output guard rewriter source"
-                  value={profile.rewriter}
-                  modelOptions={modelOptions}
-                  defaultOtherModelId={defaultOtherModelId}
-                  activeModelId={
-                    profile.rewriter.provider === 'default'
-                      ? defaultModelId
-                      : auxiliaryModelId
-                  }
-                  activeModelFallback={
-                    profile.rewriter.provider === 'default'
-                      ? 'No default model'
-                      : auxiliaryProvider === 'disabled'
-                        ? 'Aux model disabled'
-                        : 'Auto routing'
-                  }
-                  modelsLoading={modelsQuery.isLoading}
-                  onChange={(rewriter) =>
-                    setProfile((current) => ({ ...current, rewriter }))
-                  }
-                />
-                <label className="field textarea-field">
-                  <span>Policy</span>
-                  <Textarea
-                    rows={5}
-                    value={profile.policy}
-                    onChange={(event) =>
-                      setProfile((current) => ({
-                        ...current,
-                        policy: event.target.value,
-                      }))
-                    }
-                    placeholder="Clear, direct, concrete. No hype."
-                  />
-                </label>
-                <ListEditor
-                  label="Do"
-                  values={profile.doList}
-                  placeholder="Use concrete nouns"
-                  onChange={(doList) =>
-                    setProfile((current) => ({ ...current, doList }))
-                  }
-                />
-                <ListEditor
-                  label="Don't"
-                  values={profile.dontList}
-                  placeholder="Use hype or vague claims"
-                  onChange={(dontList) =>
-                    setProfile((current) => ({ ...current, dontList }))
-                  }
-                />
-                <small className="output-guard-list-note">
-                  Do and Don't guide rewrites and classifier context; banned and
-                  required rules stay deterministic.
-                </small>
-                <ListEditor
-                  label="Banned phrases"
-                  values={profile.bannedPhrases}
-                  placeholder="game changing"
-                  onChange={(bannedPhrases) =>
-                    setProfile((current) => ({ ...current, bannedPhrases }))
-                  }
-                />
-                <ListEditor
-                  label="Banned patterns"
-                  values={profile.bannedPatterns}
-                  placeholder="/\\bguarantee[sd]?\\b/i"
-                  onChange={(bannedPatterns) =>
-                    setProfile((current) => ({ ...current, bannedPatterns }))
-                  }
-                />
-                <ListEditor
-                  label="Required phrases"
-                  values={profile.requirePhrases}
-                  placeholder="Best regards"
-                  onChange={(requirePhrases) =>
-                    setProfile((current) => ({ ...current, requirePhrases }))
-                  }
-                />
+                {profile.enabled ? (
+                  <>
+                    <div className="field">
+                      <span>Mode</span>
+                      <SegmentedToggle
+                        ariaLabel="Output guard mode"
+                        value={profile.mode}
+                        options={[
+                          { value: 'rewrite', label: 'rewrite' },
+                          { value: 'block', label: 'block' },
+                          { value: 'flag', label: 'flag' },
+                        ]}
+                        onChange={(mode) =>
+                          setProfile((current) => ({
+                            ...current,
+                            mode,
+                          }))
+                        }
+                      />
+                    </div>
+                    <ModelSourceControl
+                      label="Classifier"
+                      ariaLabel="Output guard classifier source"
+                      value={profile.classifier}
+                      modelOptions={modelOptions}
+                      defaultOtherModelId={defaultOtherModelId}
+                      activeModelId={
+                        profile.classifier.provider === 'default'
+                          ? defaultModelId
+                          : auxiliaryModelId
+                      }
+                      activeModelFallback={
+                        profile.classifier.provider === 'default'
+                          ? 'No default model'
+                          : auxiliaryProvider === 'disabled'
+                            ? 'Aux model disabled'
+                            : 'Auto routing'
+                      }
+                      modelsLoading={modelsQuery.isLoading}
+                      onChange={(classifier) =>
+                        setProfile((current) => ({ ...current, classifier }))
+                      }
+                    />
+                    <ModelSourceControl
+                      label="Rewriter"
+                      ariaLabel="Output guard rewriter source"
+                      value={profile.rewriter}
+                      modelOptions={modelOptions}
+                      defaultOtherModelId={defaultOtherModelId}
+                      activeModelId={
+                        profile.rewriter.provider === 'default'
+                          ? defaultModelId
+                          : auxiliaryModelId
+                      }
+                      activeModelFallback={
+                        profile.rewriter.provider === 'default'
+                          ? 'No default model'
+                          : auxiliaryProvider === 'disabled'
+                            ? 'Aux model disabled'
+                            : 'Auto routing'
+                      }
+                      modelsLoading={modelsQuery.isLoading}
+                      onChange={(rewriter) =>
+                        setProfile((current) => ({ ...current, rewriter }))
+                      }
+                    />
+                    <label className="field textarea-field">
+                      <span>Policy</span>
+                      <Textarea
+                        rows={5}
+                        value={profile.policy}
+                        onChange={(event) =>
+                          setProfile((current) => ({
+                            ...current,
+                            policy: event.target.value,
+                          }))
+                        }
+                        placeholder="Clear, direct, concrete. No hype."
+                      />
+                    </label>
+                    <ListEditor
+                      label="Do"
+                      values={profile.doList}
+                      placeholder="Use concrete nouns"
+                      onChange={(doList) =>
+                        setProfile((current) => ({ ...current, doList }))
+                      }
+                    />
+                    <ListEditor
+                      label="Don't"
+                      values={profile.dontList}
+                      placeholder="Use hype or vague claims"
+                      onChange={(dontList) =>
+                        setProfile((current) => ({ ...current, dontList }))
+                      }
+                    />
+                    <small className="output-guard-list-note">
+                      Do and Don't guide rewrites and classifier context; banned
+                      and required rules stay deterministic.
+                    </small>
+                    <ListEditor
+                      label="Banned phrases"
+                      values={profile.bannedPhrases}
+                      placeholder="game changing"
+                      onChange={(bannedPhrases) =>
+                        setProfile((current) => ({
+                          ...current,
+                          bannedPhrases,
+                        }))
+                      }
+                    />
+                    <ListEditor
+                      label="Banned patterns"
+                      values={profile.bannedPatterns}
+                      placeholder="/\\bguarantee[sd]?\\b/i"
+                      onChange={(bannedPatterns) =>
+                        setProfile((current) => ({
+                          ...current,
+                          bannedPatterns,
+                        }))
+                      }
+                    />
+                    <ListEditor
+                      label="Required phrases"
+                      values={profile.requirePhrases}
+                      placeholder="Best regards"
+                      onChange={(requirePhrases) =>
+                        setProfile((current) => ({
+                          ...current,
+                          requirePhrases,
+                        }))
+                      }
+                    />
+                  </>
+                ) : (
+                  <p className="supporting-text">
+                    Enable Output Guard to configure its policy and models.
+                  </p>
+                )}
               </div>
             )}
           </CardContent>
