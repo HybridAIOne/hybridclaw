@@ -152,7 +152,7 @@ import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 export const CONFIG_FILE_NAME = 'config.json';
 export const CONFIG_VERSION = 36;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
-export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
+export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.6-luna';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
