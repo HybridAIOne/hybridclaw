@@ -211,10 +211,10 @@ test('local configure without model enables the backend and preserves the defaul
   expect(config.local.backends.lmstudio.baseUrl).toBe(
     'http://127.0.0.1:1234/v1',
   );
-  expect(config.hybridai.defaultModel).toBe('gpt-5.4-mini');
+  expect(config.hybridai.defaultModel).toBe('gpt-5.6-luna');
   expect(logSpy).toHaveBeenCalledWith('Configured model: none');
   expect(logSpy).toHaveBeenCalledWith(
-    'Default model unchanged: hybridai/gpt-5.4-mini',
+    'Default model unchanged: hybridai/gpt-5.6-luna',
   );
   expect(logSpy).toHaveBeenCalledWith('  /model list lmstudio');
 });
@@ -235,7 +235,7 @@ test('local configure --no-default preserves the existing default model', async 
 
   const config = readRuntimeConfig(homeDir);
   expect(config.local.backends.lmstudio.enabled).toBe(true);
-  expect(config.hybridai.defaultModel).toBe('gpt-5.4-mini');
+  expect(config.hybridai.defaultModel).toBe('gpt-5.6-luna');
 });
 
 test('help local prints local command usage', async () => {
@@ -1061,7 +1061,7 @@ test('local configure vllm with name stores a named endpoint secret ref', async 
     apiKey: 'gemma-secret-key',
     zone: 'cloud',
   });
-  expect(config.hybridai.defaultModel).toBe('gpt-5.4-mini');
+  expect(config.hybridai.defaultModel).toBe('gpt-5.6-luna');
   expect(rawEndpoint?.apiKey).toEqual({
     source: 'store',
     id: 'LOCAL_ENDPOINT_HAIGPU2_API_KEY',
