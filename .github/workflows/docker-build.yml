@@ -12,6 +12,12 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Constant, not the commit timestamp: layers only dedupe across releases if
+  # unchanged build steps keep producing byte-identical blobs. Paired with
+  # rewrite-timestamp=true on the image exporter.
+  SOURCE_DATE_EPOCH: '1704067200'
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -28,11 +34,14 @@ jobs:
             context: ./container
             file: ./container/Dockerfile
             target: runtime
-            scope: hybridclaw-agent
+            # Build inputs live entirely under container/, so its git tree hash
+            # identifies the image content. The gateway builds from the repo
+            # root, where the tree changes on every commit, so it has no key.
+            reuse_path: container
           - image: hybridclaw-gateway
             context: .
             file: ./Dockerfile
-            scope: hybridclaw-gateway
+            reuse_path: ''
     steps:
       - name: Checkout
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
@@ -40,13 +49,29 @@ jobs:
       - name: Resolve image tags
         id: meta
         shell: bash
+        env:
+          REUSE_PATH: ${{ matrix.reuse_path }}
         run: |
           set -euo pipefail
           OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           SHA_SHORT="${GITHUB_SHA::7}"
           IMAGE="ghcr.io/${OWNER_LC}/${{ matrix.image }}"
           TAGS="${IMAGE}:sha-${SHA_SHORT}"$'\n'"${IMAGE}:main"
-          { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
+
+          CONTENT_TAG=""
+          if [[ -n "${REUSE_PATH}" ]]; then
+            TREE="$(git rev-parse "HEAD:${REUSE_PATH}")"
+            CONTENT_TAG="${IMAGE}:tree-${TREE::12}"
+            TAGS="${TAGS}"$'\n'"${CONTENT_TAG}"
+          fi
+
+          {
+            echo "content_tag=${CONTENT_TAG}"
+            echo "cache_ref=${IMAGE}:buildcache"
+            echo "tags<<EOF"
+            echo "${TAGS}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
@@ -61,13 +86,45 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Retagging keeps the release pointed at a manifest users already hold, and
+      # avoids apt/pip drift changing an image whose own inputs did not change.
+      - name: Reuse image built from identical inputs
+        id: reuse
+        if: steps.meta.outputs.content_tag != ''
+        shell: bash
+        env:
+          CONTENT_TAG: ${{ steps.meta.outputs.content_tag }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          if ! docker buildx imagetools inspect "${CONTENT_TAG}" >/dev/null 2>&1; then
+            echo "No image for ${CONTENT_TAG}; building."
+            echo "reused=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          while IFS= read -r tag; do
+            [[ -n "${tag}" ]] || continue
+            if [[ "${tag}" == "${CONTENT_TAG}" ]]; then
+              continue
+            fi
+            if [[ "${tag}" == *"//"* || "${tag}" != *":"* ]]; then
+              echo "Invalid target image tag '${tag}'." >&2
+              exit 1
+            fi
+            docker buildx imagetools create --tag "${tag}" "${CONTENT_TAG}"
+          done <<< "${TAGS}"
+
+          echo "Retagged ${CONTENT_TAG}; skipped rebuild."
+          echo "reused=true" >> "${GITHUB_OUTPUT}"
+
       - name: Build and push
+        if: steps.reuse.outputs.reused != 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           target: ${{ matrix.target }}
-          push: true
           provenance: mode=max
           sbom: true
           platforms: linux/amd64,linux/arm64
@@ -75,5 +132,6 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.scope }}
-          cache-to: type=gha,mode=max,ignore-error=true,timeout=5m,scope=${{ matrix.scope }}
+          outputs: type=image,push=true,rewrite-timestamp=true
+          cache-from: type=registry,ref=${{ steps.meta.outputs.cache_ref }}
+          cache-to: type=registry,ref=${{ steps.meta.outputs.cache_ref }},mode=max
