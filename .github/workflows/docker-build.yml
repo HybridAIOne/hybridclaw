@@ -12,6 +12,12 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Constant, not the commit timestamp: layers only dedupe across releases if
+  # unchanged build steps keep producing byte-identical blobs. Paired with
+  # rewrite-timestamp=true on the image exporter.
+  SOURCE_DATE_EPOCH: '1704067200'
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -28,11 +34,9 @@ jobs:
             context: ./container
             file: ./container/Dockerfile
             target: runtime
-            scope: hybridclaw-agent
           - image: hybridclaw-gateway
             context: .
             file: ./Dockerfile
-            scope: hybridclaw-gateway
     steps:
       - name: Checkout
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
@@ -44,9 +48,17 @@ jobs:
           set -euo pipefail
           OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           SHA_SHORT="${GITHUB_SHA::7}"
+          VERSION="$(jq -r .version package.json)"
           IMAGE="ghcr.io/${OWNER_LC}/${{ matrix.image }}"
           TAGS="${IMAGE}:sha-${SHA_SHORT}"$'\n'"${IMAGE}:main"
-          { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "cache_ref=${IMAGE}:buildcache"
+            echo "version=v${VERSION}"
+            echo "tags<<EOF"
+            echo "${TAGS}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
@@ -67,7 +79,6 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           target: ${{ matrix.target }}
-          push: true
           provenance: mode=max
           sbom: true
           platforms: linux/amd64,linux/arm64
@@ -75,5 +86,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.scope }}
-          cache-to: type=gha,mode=max,ignore-error=true,timeout=5m,scope=${{ matrix.scope }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+          outputs: type=image,push=true,rewrite-timestamp=true
+          cache-from: type=registry,ref=${{ steps.meta.outputs.cache_ref }}
+          cache-to: type=registry,ref=${{ steps.meta.outputs.cache_ref }},mode=max

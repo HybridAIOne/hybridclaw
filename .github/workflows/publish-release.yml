@@ -19,6 +19,12 @@ permissions:
   attestations: write
   id-token: write
 
+env:
+  # Constant, not the commit timestamp: layers only dedupe across releases if
+  # unchanged build steps keep producing byte-identical blobs. Paired with
+  # rewrite-timestamp=true on the image exporter.
+  SOURCE_DATE_EPOCH: '1704067200'
+
 jobs:
   # Validate tag/package.json alignment once; both image jobs depend on this.
   validate:
@@ -131,6 +137,7 @@ jobs:
           fi
           {
             echo "source=${SOURCE}"
+            echo "cache_ref=ghcr.io/${OWNER_LC}/hybridclaw-agent:buildcache"
             echo "tags<<EOF"
             echo "${TAGS}"
             echo "EOF"
@@ -169,14 +176,14 @@ jobs:
         with:
           context: ./container
           target: runtime
-          push: true
           provenance: mode=max
           sbom: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ needs.validate.outputs.labels }}
-          cache-from: type=gha,scope=hybridclaw-agent
-          cache-to: type=gha,mode=max,ignore-error=true,timeout=5m,scope=hybridclaw-agent
+          outputs: type=image,push=true,rewrite-timestamp=true
+          cache-from: type=registry,ref=${{ steps.meta.outputs.cache_ref }}
+          cache-to: type=registry,ref=${{ steps.meta.outputs.cache_ref }},mode=max
 
       - name: Verify published agent tags
         uses: ./.github/actions/verify-published-tags
@@ -218,6 +225,7 @@ jobs:
           fi
           {
             echo "source=${SOURCE}"
+            echo "cache_ref=${GHCR_IMAGE}:buildcache"
             echo "tags<<EOF"
             echo "${TAGS}"
             echo "EOF"
@@ -257,14 +265,14 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          push: true
           provenance: mode=max
           sbom: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ needs.validate.outputs.labels }}
-          cache-from: type=gha,scope=hybridclaw-gateway
-          cache-to: type=gha,mode=max,ignore-error=true,timeout=5m,scope=hybridclaw-gateway
+          outputs: type=image,push=true,rewrite-timestamp=true
+          cache-from: type=registry,ref=${{ steps.meta.outputs.cache_ref }}
+          cache-to: type=registry,ref=${{ steps.meta.outputs.cache_ref }},mode=max
 
       - name: Verify published gateway tags
         uses: ./.github/actions/verify-published-tags

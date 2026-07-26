@@ -38,6 +38,15 @@ Maintainer overrides:
 
 Build context hygiene is enforced by `container/.dockerignore` to avoid shipping
 local secrets or artifacts into published images.
+
+Published images export with `rewrite-timestamp=true` under a fixed
+`SOURCE_DATE_EPOCH`, so a step that reruns still yields byte-identical filesystem
+layers when its content is unchanged. Registry-backed build caches avoid
+repeating unchanged work, while each build emits fresh image metadata and
+attestations for its commit. Without timestamp normalization, differing file
+mtimes alone gave every layer a fresh digest and each upgrade re-downloaded the
+whole image rather than a delta.
+
 Published images also include the built `/chat`, `/apps`, and `/agents`
 browser assets so the embedded web surfaces work from release images instead
 of source checkouts only.
