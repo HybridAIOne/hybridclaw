@@ -788,7 +788,7 @@ test('skill enable with missing name returns usage error', async () => {
   expect(result.text).toContain('skill enable <name>');
 });
 
-test('skill learn and history commands stage and show amendments', async () => {
+test('skill amend and history commands stage and show amendments', async () => {
   context = await createAdaptiveSkillsTestContext();
   context.dbModule.recordSkillObservation({
     skillName: context.skillName,
@@ -826,7 +826,7 @@ Keep the response concise.
     sessionId: 'session-skill-amend',
     guildId: null,
     channelId: 'web',
-    args: ['skill', 'learn', context.skillName],
+    args: ['skill', 'amend', context.skillName],
   });
 
   expect(staged.kind).toBe('info');
@@ -1109,8 +1109,35 @@ Keep the response concise.
   );
 });
 
-test('skill amend is rejected after the rename to learn', async () => {
+test('skill amend remains the explicit adaptive amendment command', async () => {
   context = await createAdaptiveSkillsTestContext();
+  context.dbModule.recordSkillObservation({
+    skillName: context.skillName,
+    sessionId: 'session-1',
+    runId: 'run-1',
+    outcome: 'failure',
+    errorCategory: 'model_error',
+    errorDetail: 'instructions too vague',
+    toolCallsAttempted: 1,
+    toolCallsFailed: 0,
+    durationMs: 90,
+  });
+
+  runAgentMock.mockResolvedValueOnce({
+    status: 'success',
+    result: JSON.stringify({
+      rationale: 'Clarify the expected steps.',
+      content: `---
+name: ${context.skillName}
+description: Demo skill for tests
+---
+Follow the user's request carefully.
+List the requested steps before acting.
+Keep the response concise.
+`,
+    }),
+    toolsUsed: [],
+  });
 
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
@@ -1122,13 +1149,83 @@ test('skill amend is rejected after the rename to learn', async () => {
     args: ['skill', 'amend', context.skillName],
   });
 
-  expect(result.kind).toBe('error');
-  if (result.kind !== 'error') {
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
-  expect(result.title).toBe('Usage');
-  expect(result.text).toContain('skill list [blocked]|enable');
-  expect(result.text).not.toContain('skill amend');
+  expect(result.title).toBe(`Skill Amendment (${context.skillName})`);
+  expect(result.text).toContain('Status: staged');
+  expect(result.text).toContain('Rationale: Clarify the expected steps.');
+});
+
+test('/learn stages and applies a guarded skill creation proposal', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  runAgentMock.mockResolvedValueOnce({
+    status: 'success',
+    result: JSON.stringify({
+      name: 'runbook-skill',
+      description: 'Use this skill when turning operational notes into a runbook.',
+      category: 'operations',
+      shortDescription: 'Turn operational notes into runbooks.',
+      tags: ['runbook'],
+      body: 'Extract preconditions, ordered steps, checks, and rollback notes. Keep the output concise and action-oriented.',
+      files: [
+        {
+          path: 'references/source-notes.md',
+          content: 'Created from local notes supplied through /learn.',
+        },
+      ],
+    }),
+    toolsUsed: [],
+  });
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const staged = await handleGatewayCommand({
+    sessionId: 'session-skill-create',
+    guildId: null,
+    channelId: 'web',
+    args: [
+      'learn',
+      '--name',
+      'runbook-skill',
+      '--category',
+      'operations',
+      'Turn these notes into a reusable runbook-writing skill.',
+    ],
+  });
+
+  expect(staged.kind).toBe('info');
+  if (staged.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${staged.kind}`);
+  }
+  expect(staged.title).toBe('Skill Creation Proposal');
+  expect(staged.text).toContain('Name: runbook-skill');
+  expect(staged.text).toContain('Status: staged');
+  expect(staged.text).toContain('Apply: /skill create-from --apply');
+
+  const proposalId = staged.text.match(/^ID: (skill-create-[^\n]+)/m)?.[1];
+  expect(proposalId).toBeTruthy();
+
+  const applied = await handleGatewayCommand({
+    sessionId: 'session-skill-create',
+    guildId: null,
+    channelId: 'web',
+    args: ['learn', '--apply', proposalId || ''],
+  });
+
+  expect(applied.kind).toBe('info');
+  if (applied.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${applied.kind}`);
+  }
+  expect(applied.title).toBe('Skill Created');
+  expect(applied.text).toContain('Status: applied');
+  const createdSkill = `${context.homeDir}/.hybridclaw/skills/runbook-skill/SKILL.md`;
+  expect(fs.readFileSync(createdSkill, 'utf-8')).toContain(
+    'Extract preconditions, ordered steps, checks, and rollback notes.',
+  );
 });
 
 test('skill import imports a community skill through the gateway command path', async () => {

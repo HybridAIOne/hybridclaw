@@ -163,13 +163,19 @@ hybridclaw skill disable <name>
 hybridclaw skill toggle [--channel <kind>]
 hybridclaw skill inspect <name>
 hybridclaw skill runs <name>
-hybridclaw skill learn <name> [--apply|--reject|--rollback]
+hybridclaw skill create-from [--name <name>] [--category <category>] <source>
+hybridclaw skill create-from --apply <proposal-id>
+hybridclaw skill create-from --reject <proposal-id>
+hybridclaw skill amend <name> [--apply|--reject|--rollback]
+hybridclaw skill learn <name> [--apply|--reject|--rollback] # alias for amend
 hybridclaw skill history <name>
 hybridclaw skill import [--force] [--skip-skill-scan] <source>
+/learn [--name <name>] [--category <category>] <source> # TUI/web skill proposal flow
 /skill-name [input]              # invoke in session
 /skill config                    # TUI/web skill availability checklist
 /skill import [--force] [--skip-skill-scan] <source> # TUI/web slash import
-/skill learn <name> [--apply|--reject|--rollback] # TUI/web slash amendment flow
+/skill create-from [--name <name>] [--category <category>] <source> # TUI/web skill proposal flow
+/skill amend <name> [--apply|--reject|--rollback] # TUI/web slash amendment flow
 
 # Agent packages
 hybridclaw agent config <json|--json <json>> [--activate]

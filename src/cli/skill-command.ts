@@ -6,6 +6,7 @@ import {
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import { parseSkillCreateFromArgs } from '../skills/skill-create-from-args.js';
 import {
   formatSkillAmendment,
   formatSkillHealthMetrics,
@@ -236,12 +237,56 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     return;
   }
 
-  if (sub === 'learn') {
+  if (sub === 'create-from') {
+    await ensureSkillCommandRuntime();
+    const parsed = parseSkillCreateFromArgs(normalized.slice(1), {
+      usageCommand: 'hybridclaw skill create-from',
+    });
+    if (!parsed.ok) {
+      printSkillUsage();
+      throw new Error(parsed.message);
+    }
+
+    const authoringModule = await import('../skills/skill-authoring.js');
+    if (parsed.action === 'apply') {
+      const proposal = authoringModule.applySkillCreationProposal(
+        parsed.proposalId,
+      );
+      printFormattedBlock(
+        authoringModule.formatSkillCreationProposal(proposal),
+      );
+      return;
+    }
+    if (parsed.action === 'reject') {
+      const proposal = authoringModule.rejectSkillCreationProposal(
+        parsed.proposalId,
+      );
+      printFormattedBlock(
+        authoringModule.formatSkillCreationProposal(proposal),
+      );
+      return;
+    }
+    if (parsed.action !== 'stage') {
+      throw new Error('Unexpected skill create-from action.');
+    }
+
+    const { DEFAULT_AGENT_ID } = await import('../agents/agent-types.js');
+    const proposal = await authoringModule.stageSkillCreationFromSources({
+      sourceDescription: parsed.sourceDescription,
+      suggestedName: parsed.suggestedName,
+      category: parsed.category,
+      agentId: DEFAULT_AGENT_ID,
+    });
+    printFormattedBlock(authoringModule.formatSkillCreationProposal(proposal));
+    return;
+  }
+
+  if (sub === 'learn' || sub === 'amend') {
     await ensureSkillCommandRuntime();
     const skillName = normalized[1];
     if (!skillName) {
       printSkillUsage();
-      throw new Error('Missing skill name for `hybridclaw skill learn`.');
+      throw new Error(`Missing skill name for \`hybridclaw skill ${sub}\`.`);
     }
 
     const { DEFAULT_AGENT_ID } = await import('../agents/agent-types.js');
