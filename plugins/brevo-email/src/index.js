@@ -8,6 +8,11 @@ import { createBrevoSmtpService } from './brevo-outbound.js';
 import { resolveBrevoConfig } from './config.js';
 
 const EMAIL_ADDRESS_RE = /^[^\s@<>]+@[^\s@<>]+$/;
+// Mirrors the core email channel's message-id check (src/channels/email/
+// threading.ts): a value that is not a message id names nothing a mail client
+// can thread on, and writing it into In-Reply-To/References detaches the reply
+// from its thread instead.
+const MESSAGE_ID_RE = /^<[^<>\s@]+@[^<>\s@]+>$/;
 
 function requireEmailAddress(field, value) {
   const email = String(value || '').trim();
@@ -46,6 +51,18 @@ function normalizeOptionalStringList(field, value) {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function requireThreadMessageId(field, value, omitField = field) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return undefined;
+  const candidate = trimmed.startsWith('<') ? trimmed : `<${trimmed}>`;
+  if (!MESSAGE_ID_RE.test(candidate)) {
+    throw new Error(
+      `${field} must be an email message id like <abc@example.com>, copied from the message being replied to. Omit ${omitField} unless you are replying to a specific message.`,
+    );
+  }
+  return candidate;
+}
+
 function resolveThreadReferences(inReplyTo, references) {
   const normalized = references ? [...new Set(references)] : [];
   if (normalized.length > 0) {
@@ -62,10 +79,15 @@ export function createSendEmailToolHandler(api, config, send) {
     const to = requireEmailAddress('to', args.to);
     const cc = args.cc ? requireEmailAddress('cc', args.cc) : undefined;
     const bcc = args.bcc ? requireEmailAddress('bcc', args.bcc) : undefined;
-    const inReplyTo = normalizeOptionalString('inReplyTo', args.inReplyTo);
+    const inReplyTo = requireThreadMessageId(
+      'inReplyTo',
+      normalizeOptionalString('inReplyTo', args.inReplyTo),
+    );
     const references = resolveThreadReferences(
       inReplyTo,
-      normalizeOptionalStringList('references', args.references),
+      normalizeOptionalStringList('references', args.references)?.map((entry) =>
+        requireThreadMessageId('references entries', entry, 'references'),
+      ),
     );
     const defaultAgentId = api.config.agents?.defaultAgentId || 'main';
     const agentId = resolveCurrentAgentId(api, context, defaultAgentId);

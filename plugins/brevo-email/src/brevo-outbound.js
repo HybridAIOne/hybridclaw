@@ -60,9 +60,17 @@ export function createBrevoSmtpService(
     },
   };
 
+  // Defence in depth for callers that reach the transport without going
+  // through the tool's validation: an id that is not a message id is dropped
+  // rather than written into a threading header, and a bare `local@domain`
+  // id is wrapped.
+  const MESSAGE_ID_RE = /^<[^<>\s@]+@[^<>\s@]+>$/;
+
   function normalizeMessageId(value) {
-    const candidate = String(value || '').trim();
-    return candidate || null;
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return null;
+    const candidate = trimmed.startsWith('<') ? trimmed : `<${trimmed}>`;
+    return MESSAGE_ID_RE.test(candidate) ? candidate : null;
   }
 
   function normalizeMessageIdList(value) {

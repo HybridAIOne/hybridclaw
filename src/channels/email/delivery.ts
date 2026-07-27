@@ -158,15 +158,26 @@ function normalizeMessageId(raw: string | null | undefined): string | null {
   return normalized || null;
 }
 
-function normalizeMessageIdList(raw: string[] | null | undefined): string[] {
+function normalizeMessageIdList(
+  raw: string[] | null | undefined,
+  to: string,
+): string[] {
   if (!Array.isArray(raw)) return [];
-  return [
-    ...new Set(
-      raw
-        .map((value) => normalizeThreadMessageId(value))
-        .filter((value): value is string => Boolean(value)),
-    ),
-  ];
+  const normalized: string[] = [];
+  for (const value of raw) {
+    const messageId = normalizeThreadMessageId(value);
+    if (messageId) {
+      normalized.push(messageId);
+      continue;
+    }
+    if (String(value || '').trim()) {
+      logger.warn(
+        { reference: value, to },
+        'Ignoring malformed explicit email references entry',
+      );
+    }
+  }
+  return [...new Set(normalized)];
 }
 
 /**
@@ -190,7 +201,7 @@ function resolveExplicitThreadHeaders(
       'Ignoring malformed explicit email inReplyTo; replying in the tracked thread instead',
     );
   }
-  const references = normalizeMessageIdList(params.references);
+  const references = normalizeMessageIdList(params.references, params.to);
   if (references.length > 0) {
     const lastReference = references[references.length - 1];
     if (!inReplyTo) {

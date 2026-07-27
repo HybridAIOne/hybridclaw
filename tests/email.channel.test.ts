@@ -12,6 +12,7 @@ import {
   createOutboundThreadContext,
   createThreadTracker,
   ensureReplySubject,
+  normalizeThreadMessageId,
 } from '../src/channels/email/threading.js';
 
 const BASE_EMAIL_CONFIG = {
@@ -147,6 +148,41 @@ describe('email threading helpers', () => {
       messageId: '<msg-2@example.com>',
       references: ['<ref-1@example.com>', '<msg-1@example.com>'],
     });
+  });
+});
+
+describe('thread message id validation', () => {
+  test('accepts real message ids, including bare and domain-literal forms', () => {
+    expect(normalizeThreadMessageId('<msg-1@example.com>')).toBe(
+      '<msg-1@example.com>',
+    );
+    expect(normalizeThreadMessageId('  msg-1@example.com  ')).toBe(
+      '<msg-1@example.com>',
+    );
+    expect(normalizeThreadMessageId('<a.b+c!#$%&*/=?^_`{|}~-@ex.co.uk>')).toBe(
+      '<a.b+c!#$%&*/=?^_`{|}~-@ex.co.uk>',
+    );
+    expect(normalizeThreadMessageId('<msg@[IPv6:2001:db8::1]>')).toBe(
+      '<msg@[IPv6:2001:db8::1]>',
+    );
+    expect(normalizeThreadMessageId('<msg@bücher.example>')).toBe(
+      '<msg@bücher.example>',
+    );
+  });
+
+  test('rejects values that name no message', () => {
+    // The shapes seen in practice: an internal id, a synthetic Sent-folder id
+    // from the audit log, a session key, prose, and header injection.
+    expect(normalizeThreadMessageId('<0f99ab14eeb8>')).toBeNull();
+    expect(normalizeThreadMessageId('synthetic:audit:42')).toBeNull();
+    expect(normalizeThreadMessageId('session-4f21')).toBeNull();
+    expect(normalizeThreadMessageId('the previous email')).toBeNull();
+    expect(normalizeThreadMessageId('<a@b>\r\nBcc: victim@example.com')).toBe(
+      null,
+    );
+    expect(normalizeThreadMessageId('<a@b@c>')).toBeNull();
+    expect(normalizeThreadMessageId('')).toBeNull();
+    expect(normalizeThreadMessageId(null)).toBeNull();
   });
 });
 
@@ -751,7 +787,7 @@ describe('email delivery helpers', () => {
     });
   });
 
-  test('omits threading headers when a malformed id has no thread to fall back to', async () => {
+  test('keeps the valid references entries and drops the malformed ones', async () => {
     vi.doMock('../src/config/config.ts', () => ({
       APP_VERSION: '0.7.1',
       DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
@@ -781,6 +817,38 @@ describe('email delivery helpers', () => {
         inReplyTo: '<ref-1@example.com>',
         references: '<ref-1@example.com>',
       }),
+    );
+  });
+
+  test('omits threading headers when nothing valid survives and no thread is tracked', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-headerless@example.com>',
+      })),
+    };
+
+    await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: 'Here is the update.',
+      subject: 'Quarterly plan',
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+      inReplyTo: 'session-4f21',
+      references: ['not-an-id'],
+    });
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.not.objectContaining({ inReplyTo: expect.anything() }),
+    );
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.not.objectContaining({ references: expect.anything() }),
     );
   });
 

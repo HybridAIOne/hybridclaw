@@ -267,3 +267,96 @@ test('send_email validates threading header argument types', async () => {
 
   expect(send).not.toHaveBeenCalled();
 });
+
+test('send_email rejects thread ids that are not message ids', async () => {
+  const send = vi.fn();
+  const handler = createSendEmailToolHandler(
+    {
+      config: {
+        agents: {
+          defaultAgentId: 'main',
+        },
+      },
+      resolveSessionAgentId: vi.fn(() => 'writer'),
+    } as never,
+    {
+      domain: 'agent.hybridai.one',
+      fromName: '',
+      fromAddress: '',
+      agentHandles: {
+        writer: 'writer-handle',
+      },
+    } as never,
+    send,
+  );
+
+  // An internal id written into In-Reply-To detaches the reply from its
+  // thread, so it is refused rather than sent.
+  await expect(
+    handler(
+      {
+        to: 'friend@example.com',
+        subject: 'Hello',
+        body: 'Test body',
+        inReplyTo: '<0f99ab14eeb8>',
+      },
+      { sessionId: 'session-1' },
+    ),
+  ).rejects.toThrow(/inReplyTo must be an email message id/);
+
+  await expect(
+    handler(
+      {
+        to: 'friend@example.com',
+        subject: 'Hello',
+        body: 'Test body',
+        references: ['<msg-1@example.com>', 'session-4f21'],
+      },
+      { sessionId: 'session-1' },
+    ),
+  ).rejects.toThrow(/references entries must be an email message id/);
+
+  expect(send).not.toHaveBeenCalled();
+});
+
+test('send_email wraps a bare message id in angle brackets', async () => {
+  const send = vi.fn();
+  const handler = createSendEmailToolHandler(
+    {
+      config: {
+        agents: {
+          defaultAgentId: 'main',
+        },
+      },
+      resolveSessionAgentId: vi.fn(() => 'writer'),
+    } as never,
+    {
+      domain: 'agent.hybridai.one',
+      fromName: '',
+      fromAddress: '',
+      agentHandles: {
+        writer: 'writer-handle',
+      },
+    } as never,
+    send,
+  );
+
+  await expect(
+    handler(
+      {
+        to: 'friend@example.com',
+        subject: 'Hello',
+        body: 'Test body',
+        inReplyTo: 'msg-1@example.com',
+      },
+      { sessionId: 'session-1' },
+    ),
+  ).resolves.toBeDefined();
+
+  expect(send).toHaveBeenCalledWith(
+    expect.objectContaining({
+      inReplyTo: '<msg-1@example.com>',
+      references: ['<msg-1@example.com>'],
+    }),
+  );
+});

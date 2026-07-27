@@ -860,7 +860,12 @@ function mapEmailMailboxMessage(message: EmailMailboxMessage) {
     id: `${message.folder}:${message.uid}`,
     folder: message.folder,
     uid: message.uid,
-    messageId: message.messageId,
+    // Sent entries reconstructed from the local audit log carry a synthetic
+    // id that names no real message (see buildSyntheticSentMessagesFromAudit).
+    // Surfacing it as `messageId` invites a caller to thread a reply on it,
+    // which cannot work — so expose only an id that can actually be replied
+    // to, and null otherwise.
+    messageId: normalizeThreadMessageId(message.messageId),
     subject: message.subject,
     from: {
       name: message.fromName,

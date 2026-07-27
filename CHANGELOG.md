@@ -22,7 +22,11 @@
   clients filed the answer as a new `HybridClaw` thread — and was then
   remembered as the thread for every later message to that recipient. Malformed
   ids reaching delivery from any other caller are dropped in favour of the
-  tracked thread, and a bare `local@domain` id is accepted and wrapped.
+  tracked thread, and a bare `local@domain` id is accepted and wrapped. The
+  `brevo-email` plugin's `send_email` validates the same way. A `message read`
+  result now reports `messageId: null` for a sent entry reconstructed from the
+  local audit log, instead of a synthetic id that names no real message and
+  cannot be replied to.
 - **Cloud admin sessions recover after inactivity**: Expired browser sessions
   reload through HybridAI sign-in instead of showing an unactionable
   `WEB_API_TOKEN` prompt. The self-hosted fallback identifies the exact gateway
