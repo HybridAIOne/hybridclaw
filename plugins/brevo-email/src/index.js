@@ -51,16 +51,24 @@ function normalizeOptionalStringList(field, value) {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function requireThreadMessageId(field, value, omitField = field) {
+const IGNORED_THREAD_ID_NOTE =
+  'Ignored: not an email message id. The email was sent without it. Omit ' +
+  'inReplyTo/references unless you are replying to a specific message, and ' +
+  'then pass that message’s Message-ID verbatim.';
+
+/**
+ * Return *value* as a message id, or null when it is not one.
+ *
+ * A value that is not a message id names nothing a mail client can thread on,
+ * so writing it into In-Reply-To/References detaches the reply from its
+ * thread. Dropping it is reported back in the tool result rather than failing
+ * the send: the email itself is what the caller actually wanted.
+ */
+function asThreadMessageId(value) {
   const trimmed = String(value || '').trim();
-  if (!trimmed) return undefined;
+  if (!trimmed) return null;
   const candidate = trimmed.startsWith('<') ? trimmed : `<${trimmed}>`;
-  if (!MESSAGE_ID_RE.test(candidate)) {
-    throw new Error(
-      `${field} must be an email message id like <abc@example.com>, copied from the message being replied to. Omit ${omitField} unless you are replying to a specific message.`,
-    );
-  }
-  return candidate;
+  return MESSAGE_ID_RE.test(candidate) ? candidate : null;
 }
 
 function resolveThreadReferences(inReplyTo, references) {
@@ -79,15 +87,29 @@ export function createSendEmailToolHandler(api, config, send) {
     const to = requireEmailAddress('to', args.to);
     const cc = args.cc ? requireEmailAddress('cc', args.cc) : undefined;
     const bcc = args.bcc ? requireEmailAddress('bcc', args.bcc) : undefined;
-    const inReplyTo = requireThreadMessageId(
+    const ignoredThreadIds = [];
+    const requestedInReplyTo = normalizeOptionalString(
       'inReplyTo',
-      normalizeOptionalString('inReplyTo', args.inReplyTo),
+      args.inReplyTo,
     );
+    const inReplyTo = asThreadMessageId(requestedInReplyTo) || undefined;
+    if (requestedInReplyTo && !inReplyTo) {
+      ignoredThreadIds.push(requestedInReplyTo);
+    }
+    const requestedReferences =
+      normalizeOptionalStringList('references', args.references) || [];
+    const validReferences = [];
+    for (const entry of requestedReferences) {
+      const messageId = asThreadMessageId(entry);
+      if (messageId) {
+        validReferences.push(messageId);
+        continue;
+      }
+      ignoredThreadIds.push(entry);
+    }
     const references = resolveThreadReferences(
       inReplyTo,
-      normalizeOptionalStringList('references', args.references)?.map((entry) =>
-        requireThreadMessageId('references entries', entry, 'references'),
-      ),
+      validReferences.length > 0 ? validReferences : undefined,
     );
     const defaultAgentId = api.config.agents?.defaultAgentId || 'main';
     const agentId = resolveCurrentAgentId(api, context, defaultAgentId);
@@ -113,7 +135,15 @@ export function createSendEmailToolHandler(api, config, send) {
       ...(inReplyTo ? { inReplyTo } : {}),
       ...(references ? { references } : {}),
     });
-    return { sent: true, from, to, subject: args.subject };
+    return {
+      sent: true,
+      from,
+      to,
+      subject: args.subject,
+      ...(ignoredThreadIds.length > 0
+        ? { ignoredThreadIds, ignoredThreadIdsNote: IGNORED_THREAD_ID_NOTE }
+        : {}),
+    };
   };
 }
 

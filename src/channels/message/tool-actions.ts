@@ -10,6 +10,7 @@ import {
   isSupportedProactiveChannelId,
 } from '../../gateway/proactive-delivery.js';
 import { agentWorkspaceDir } from '../../infra/ipc.js';
+import { logger } from '../../logger.js';
 import {
   enqueueProactiveMessage,
   getRecentMessages,
@@ -395,26 +396,30 @@ function normalizeEmailRecipientList(
   return normalized.length > 0 ? normalized : undefined;
 }
 
-const THREAD_MESSAGE_ID_HINT =
-  'must be an email message id like <abc@example.com>, as returned in the ' +
-  '`messageId` field of a message read result. Omit it to reply in the ' +
-  'current thread — threading headers are applied automatically.';
+// Reported back in the tool result when a thread id is discarded, so the
+// caller learns what happened and how to thread deliberately next time.
+const IGNORED_THREAD_ID_NOTE =
+  'Ignored: not an email message id. The reply was threaded on the current ' +
+  'email thread instead. Omit inReplyTo/references to reply in the current ' +
+  'thread, or pass the `messageId` of a message read result to reply to a ' +
+  'specific message.';
 
-function normalizeOptionalThreadMessageId(value: unknown): string | undefined {
-  if (value == null) return undefined;
+function normalizeOptionalThreadMessageId(value: unknown): {
+  messageId?: string;
+  ignored?: string;
+} {
+  if (value == null) return {};
   if (typeof value !== 'string') {
     throw new Error('inReplyTo must be a string.');
   }
   const normalized = value.trim();
-  if (!normalized) return undefined;
-  // Reject anything that is not a message id rather than passing it into an
-  // RFC 5322 header: an internal or invented id silently detaches the reply
-  // from its thread, and the caller cannot tell that it did.
+  if (!normalized) return {};
+  // A value that is not a message id names nothing a mail client can thread
+  // on. Drop it rather than write it into the header — the runtime's own
+  // thread context is a better answer than a dangling reference — and report
+  // the drop so the caller is not misled about what was sent.
   const messageId = normalizeThreadMessageId(normalized);
-  if (!messageId) {
-    throw new Error(`inReplyTo ${THREAD_MESSAGE_ID_HINT}`);
-  }
-  return messageId;
+  return messageId ? { messageId } : { ignored: normalized };
 }
 function normalizeEmailSenderName(value: unknown): string | null {
   const normalized = String(value || '')
@@ -442,13 +447,17 @@ function resolveEmailSenderNameForRequest(
   );
 }
 
-function normalizeThreadReferenceList(value: unknown): string[] | undefined {
-  if (value == null) return undefined;
+function normalizeThreadReferenceList(value: unknown): {
+  references?: string[];
+  ignored: string[];
+} {
+  if (value == null) return { ignored: [] };
   if (!Array.isArray(value)) {
     throw new Error('references must be an array of strings.');
   }
 
   const normalized: string[] = [];
+  const ignored: string[] = [];
   for (const entry of value) {
     if (typeof entry !== 'string') {
       throw new Error('references must contain only strings.');
@@ -456,13 +465,17 @@ function normalizeThreadReferenceList(value: unknown): string[] | undefined {
     const candidate = entry.trim();
     if (!candidate) continue;
     const messageId = normalizeThreadMessageId(candidate);
-    if (!messageId) {
-      throw new Error(`Each references entry ${THREAD_MESSAGE_ID_HINT}`);
+    if (messageId) {
+      normalized.push(messageId);
+      continue;
     }
-    normalized.push(messageId);
+    ignored.push(candidate);
   }
 
-  return normalized.length > 0 ? [...new Set(normalized)] : undefined;
+  return {
+    references: normalized.length > 0 ? [...new Set(normalized)] : undefined,
+    ignored,
+  };
 }
 
 function buildEmailSendResultMeta(params: {
@@ -471,13 +484,18 @@ function buildEmailSendResultMeta(params: {
   bcc: string[] | undefined;
   inReplyTo?: string;
   references?: string[];
+  ignoredThreadIds?: string[];
 }): Record<string, unknown> {
+  const ignoredThreadIds = params.ignoredThreadIds || [];
   return {
     ...(params.subject ? { subject: params.subject } : {}),
     ...(params.cc ? { cc: params.cc } : {}),
     ...(params.bcc ? { bcc: params.bcc } : {}),
     ...(params.inReplyTo ? { inReplyTo: params.inReplyTo } : {}),
     ...(params.references ? { references: params.references } : {}),
+    ...(ignoredThreadIds.length > 0
+      ? { ignoredThreadIds, ignoredThreadIdsNote: IGNORED_THREAD_ID_NOTE }
+      : {}),
   };
 }
 
@@ -562,8 +580,20 @@ async function runEmailMessageSendAction(
   const subject = String(request.subject || '').trim() || null;
   const cc = normalizeEmailRecipientList(request.cc, 'cc');
   const bcc = normalizeEmailRecipientList(request.bcc, 'bcc');
-  const inReplyTo = normalizeOptionalThreadMessageId(request.inReplyTo);
-  const references = normalizeThreadReferenceList(request.references);
+  const { messageId: inReplyTo, ignored: ignoredInReplyTo } =
+    normalizeOptionalThreadMessageId(request.inReplyTo);
+  const { references, ignored: ignoredReferences } =
+    normalizeThreadReferenceList(request.references);
+  const ignoredThreadIds = [
+    ...(ignoredInReplyTo ? [ignoredInReplyTo] : []),
+    ...ignoredReferences,
+  ];
+  if (ignoredThreadIds.length > 0) {
+    logger.warn(
+      { ignoredThreadIds, to: channelId },
+      'Ignoring email thread ids that are not message ids; threading on the tracked thread instead',
+    );
+  }
   const fromName = resolveEmailSenderNameForRequest(request);
   const session = getSessionById(String(request.sessionId || '').trim());
   const agentId = session
@@ -584,6 +614,7 @@ async function runEmailMessageSendAction(
     bcc,
     inReplyTo,
     references,
+    ignoredThreadIds,
   });
   if (!content && !filePath) {
     throw new Error(

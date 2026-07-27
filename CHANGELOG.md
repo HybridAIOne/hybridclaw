@@ -15,18 +15,17 @@
 ### Fixed
 
 - **Email replies stay in their thread**: A `message` send whose `inReplyTo` or
-  `references` is not an RFC 5322 message id is now rejected with an actionable
-  error instead of being written into the outbound headers verbatim. Such a
-  value used to detach the reply from the thread the runtime was already
-  tracking — losing the `References` chain and the `Re:` subject, so mail
-  clients filed the answer as a new `HybridClaw` thread — and was then
-  remembered as the thread for every later message to that recipient. Malformed
-  ids reaching delivery from any other caller are dropped in favour of the
-  tracked thread, and a bare `local@domain` id is accepted and wrapped. The
-  `brevo-email` plugin's `send_email` validates the same way. A `message read`
-  result now reports `messageId: null` for a sent entry reconstructed from the
-  local audit log, instead of a synthetic id that names no real message and
-  cannot be replied to.
+  `references` is not an RFC 5322 message id now drops that id and threads the
+  reply on the current email thread, reporting what it dropped in the tool
+  result. Such a value used to be written into the outbound headers verbatim,
+  which detached the reply from the thread the runtime was already tracking —
+  losing the `References` chain and the `Re:` subject, so mail clients filed
+  the answer as a new `HybridClaw` thread — and was then remembered as the
+  thread for every later message to that recipient. A bare `local@domain` id
+  is accepted and wrapped. The `brevo-email` plugin's `send_email` behaves the
+  same way. A `message read` result now reports `messageId: null` for a sent
+  entry reconstructed from the local audit log, instead of a synthetic id that
+  names no real message and cannot be replied to.
 - **Cloud admin sessions recover after inactivity**: Expired browser sessions
   reload through HybridAI sign-in instead of showing an unactionable
   `WEB_API_TOKEN` prompt. The self-hosted fallback identifies the exact gateway

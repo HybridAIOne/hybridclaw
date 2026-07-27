@@ -184,13 +184,17 @@ async function deliverInboundEmail(): Promise<void> {
   const { handleGatewayMessage } = await import(
     '../src/gateway/gateway-chat-service.ts'
   );
-  const { createEmailRuntime, shutdownEmail } = await import(
+  // Use the module-level runtime, the way the gateway does
+  // (src/gateway/gateway.ts). The message tool's email sends go through the
+  // same default instance, so this is what shares the inbound thread context
+  // with a tool-driven reply; a private createEmailRuntime() instance would
+  // give the tool its own empty thread tracker and hide that.
+  const { initEmail, shutdownEmail } = await import(
     '../src/channels/email/runtime.js'
   );
-  const runtime = createEmailRuntime();
 
   try {
-    await runtime.initEmail(
+    await initEmail(
       async (
         sessionId,
         guildId,
@@ -229,7 +233,6 @@ async function deliverInboundEmail(): Promise<void> {
       },
     ]);
   } finally {
-    await runtime.shutdownEmail();
     await shutdownEmail();
   }
 }
@@ -315,10 +318,10 @@ test('agent email flow sends mail, acts on inbound mail, and replies in-thread',
   });
 });
 
-test('rejects a send whose inReplyTo is not a message id and still replies in-thread', async () => {
+test('a send whose inReplyTo is not a message id still lands in the inbound thread', async () => {
   await setupEmailAgentHome();
 
-  let toolError: unknown;
+  let toolResult: Record<string, unknown> | undefined;
   runAgentMock.mockImplementation(async (params: { sessionId: string }) => {
     const { runMessageToolAction } = await import(
       '../src/channels/message/tool-actions.js'
@@ -327,16 +330,13 @@ test('rejects a send whose inReplyTo is not a message id and still replies in-th
     // that is not the inbound Message-ID. Left alone it becomes a dangling
     // In-Reply-To, drops the Re: subject, and is then remembered as the thread
     // for everything sent afterwards.
-    toolError = await runMessageToolAction({
+    toolResult = await runMessageToolAction({
       action: 'send',
       channelId: 'boss@example.com',
       content: 'Received it.',
       inReplyTo: '<0f99ab14eeb8>',
       sessionId: params.sessionId,
-    }).then(
-      () => null,
-      (error: unknown) => error,
-    );
+    });
     return {
       agentId: 'main',
       artifacts: [],
@@ -351,14 +351,25 @@ test('rejects a send whose inReplyTo is not a message id and still replies in-th
 
   await deliverInboundEmail();
 
-  // The tool call fails loudly, so the agent can correct it, instead of
-  // silently sending an unthreaded reply.
-  expect(toolError).toBeInstanceOf(Error);
-  expect(String(toolError)).toMatch(/inReplyTo must be an email message id/);
+  // The send succeeds — the mail is what the agent actually wanted — and the
+  // result names the id that was dropped, so the agent is not misled about
+  // what went out.
+  expect(toolResult).toMatchObject({
+    ok: true,
+    ignoredThreadIds: ['<0f99ab14eeb8>'],
+  });
+  expect(String(toolResult?.ignoredThreadIdsNote)).toMatch(
+    /not an email message id/,
+  );
 
+  // The mail itself is threaded on the message the agent was answering, not
+  // on the id it supplied.
   const bossReply = findSentMail('boss@example.com');
   expect(bossReply).toMatchObject({
-    from: 'agent@example.com',
+    // A tool send carries the agent's display name; the threading below is
+    // what matters — it comes from the tracked inbound thread, not from the
+    // id the agent supplied.
+    from: { address: 'agent@example.com', name: 'Mail Agent' },
     inReplyTo: '<boss-runbook-1@example.com>',
     references: '<boss-runbook-1@example.com>',
     subject: 'Re: Runbook request',

@@ -268,7 +268,7 @@ test('send_email validates threading header argument types', async () => {
   expect(send).not.toHaveBeenCalled();
 });
 
-test('send_email rejects thread ids that are not message ids', async () => {
+test('send_email drops thread ids that are not message ids and reports them', async () => {
   const send = vi.fn();
   const handler = createSendEmailToolHandler(
     {
@@ -291,32 +291,33 @@ test('send_email rejects thread ids that are not message ids', async () => {
   );
 
   // An internal id written into In-Reply-To detaches the reply from its
-  // thread, so it is refused rather than sent.
-  await expect(
-    handler(
-      {
-        to: 'friend@example.com',
-        subject: 'Hello',
-        body: 'Test body',
-        inReplyTo: '<0f99ab14eeb8>',
-      },
-      { sessionId: 'session-1' },
-    ),
-  ).rejects.toThrow(/inReplyTo must be an email message id/);
+  // thread. The email still goes out — that is what was asked for — without
+  // the unusable header, and the result says what was dropped.
+  const result = await handler(
+    {
+      to: 'friend@example.com',
+      subject: 'Hello',
+      body: 'Test body',
+      inReplyTo: '<0f99ab14eeb8>',
+      references: ['<msg-1@example.com>', 'session-4f21'],
+    },
+    { sessionId: 'session-1' },
+  );
 
-  await expect(
-    handler(
-      {
-        to: 'friend@example.com',
-        subject: 'Hello',
-        body: 'Test body',
-        references: ['<msg-1@example.com>', 'session-4f21'],
-      },
-      { sessionId: 'session-1' },
-    ),
-  ).rejects.toThrow(/references entries must be an email message id/);
-
-  expect(send).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    sent: true,
+    ignoredThreadIds: ['<0f99ab14eeb8>', 'session-4f21'],
+  });
+  expect(String(result.ignoredThreadIdsNote)).toMatch(
+    /not an email message id/,
+  );
+  expect(send).toHaveBeenCalledWith(
+    expect.objectContaining({
+      to: 'friend@example.com',
+      references: ['<msg-1@example.com>'],
+    }),
+  );
+  expect(send.mock.calls[0]?.[0]).not.toHaveProperty('inReplyTo');
 });
 
 test('send_email wraps a bare message id in angle brackets', async () => {
