@@ -30,6 +30,7 @@ import {
   sendEmailAttachmentTo,
   sendToEmail,
 } from '../email/runtime.js';
+import { normalizeThreadMessageId } from '../email/threading.js';
 import { getLineAuthStatus } from '../line/auth.js';
 import { sendToLineSelfChat } from '../line/runtime.js';
 import { normalizeLineChannelId } from '../line/target.js';
@@ -394,13 +395,26 @@ function normalizeEmailRecipientList(
   return normalized.length > 0 ? normalized : undefined;
 }
 
+const THREAD_MESSAGE_ID_HINT =
+  'must be an email message id like <abc@example.com>, as returned in the ' +
+  '`messageId` field of a message read result. Omit it to reply in the ' +
+  'current thread — threading headers are applied automatically.';
+
 function normalizeOptionalThreadMessageId(value: unknown): string | undefined {
   if (value == null) return undefined;
   if (typeof value !== 'string') {
     throw new Error('inReplyTo must be a string.');
   }
   const normalized = value.trim();
-  return normalized || undefined;
+  if (!normalized) return undefined;
+  // Reject anything that is not a message id rather than passing it into an
+  // RFC 5322 header: an internal or invented id silently detaches the reply
+  // from its thread, and the caller cannot tell that it did.
+  const messageId = normalizeThreadMessageId(normalized);
+  if (!messageId) {
+    throw new Error(`inReplyTo ${THREAD_MESSAGE_ID_HINT}`);
+  }
+  return messageId;
 }
 function normalizeEmailSenderName(value: unknown): string | null {
   const normalized = String(value || '')
@@ -441,7 +455,11 @@ function normalizeThreadReferenceList(value: unknown): string[] | undefined {
     }
     const candidate = entry.trim();
     if (!candidate) continue;
-    normalized.push(candidate);
+    const messageId = normalizeThreadMessageId(candidate);
+    if (!messageId) {
+      throw new Error(`Each references entry ${THREAD_MESSAGE_ID_HINT}`);
+    }
+    normalized.push(messageId);
   }
 
   return normalized.length > 0 ? [...new Set(normalized)] : undefined;

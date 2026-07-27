@@ -4242,7 +4242,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           inReplyTo: {
             type: 'string',
             description:
-              'Optional parent message id for threaded replies when supported by the active channel.',
+              'Optional parent message id for threaded replies when supported by the active channel. Omit it to reply in the current thread, which is threaded automatically. On email it must be a message id like <abc@example.com>, copied verbatim from the messageId field of a message read result.',
           },
           references: {
             type: ['string', 'array'],
@@ -4250,7 +4250,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               type: 'string',
             },
             description:
-              'Optional ordered parent message id chain for threaded replies when supported by the active channel.',
+              'Optional ordered parent message id chain for threaded replies when supported by the active channel. Same id format and omission rule as inReplyTo.',
           },
           filePath: {
             type: 'string',

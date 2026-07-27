@@ -145,7 +145,7 @@ function findSentMail(to: string): Record<string, unknown> {
   return message || {};
 }
 
-test('agent email flow sends mail, acts on inbound mail, and replies in-thread', async () => {
+async function setupEmailAgentHome(): Promise<void> {
   setupHome();
 
   const { updateRuntimeConfig } = await import(
@@ -178,40 +178,9 @@ test('agent email flow sends mail, acts on inbound mail, and replies in-thread',
     displayName: 'Mail Agent',
     id: 'main',
   });
+}
 
-  runAgentMock.mockImplementation(
-    async (params: { channelId?: string; sessionId: string }) => {
-      const { runMessageToolAction } = await import(
-        '../src/channels/message/tool-actions.js'
-      );
-      const toolArgs = {
-        action: 'send' as const,
-        channelId: 'ops@example.com',
-        content: 'Please prepare the incident runbook for boss@example.com.',
-        sessionId: params.sessionId,
-        subject: 'Boss runbook request',
-      };
-      const toolResult = await runMessageToolAction(toolArgs);
-      return {
-        agentId: 'main',
-        artifacts: [],
-        model: 'test-model',
-        provider: 'test-provider',
-        result: 'I notified ops and will follow up here.',
-        status: 'success',
-        toolExecutions: [
-          {
-            arguments: JSON.stringify(toolArgs),
-            durationMs: 1,
-            name: 'message',
-            result: JSON.stringify(toolResult),
-          },
-        ],
-        toolsUsed: ['message'],
-      };
-    },
-  );
-
+async function deliverInboundEmail(): Promise<void> {
   const { handleGatewayMessage } = await import(
     '../src/gateway/gateway-chat-service.ts'
   );
@@ -263,6 +232,45 @@ test('agent email flow sends mail, acts on inbound mail, and replies in-thread',
     await runtime.shutdownEmail();
     await shutdownEmail();
   }
+}
+
+test('agent email flow sends mail, acts on inbound mail, and replies in-thread', async () => {
+  await setupEmailAgentHome();
+
+  runAgentMock.mockImplementation(
+    async (params: { channelId?: string; sessionId: string }) => {
+      const { runMessageToolAction } = await import(
+        '../src/channels/message/tool-actions.js'
+      );
+      const toolArgs = {
+        action: 'send' as const,
+        channelId: 'ops@example.com',
+        content: 'Please prepare the incident runbook for boss@example.com.',
+        sessionId: params.sessionId,
+        subject: 'Boss runbook request',
+      };
+      const toolResult = await runMessageToolAction(toolArgs);
+      return {
+        agentId: 'main',
+        artifacts: [],
+        model: 'test-model',
+        provider: 'test-provider',
+        result: 'I notified ops and will follow up here.',
+        status: 'success',
+        toolExecutions: [
+          {
+            arguments: JSON.stringify(toolArgs),
+            durationMs: 1,
+            name: 'message',
+            result: JSON.stringify(toolResult),
+          },
+        ],
+        toolsUsed: ['message'],
+      };
+    },
+  );
+
+  await deliverInboundEmail();
 
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   expect(runAgentMock.mock.calls[0]?.[0]).toMatchObject({
@@ -304,5 +312,56 @@ test('agent email flow sends mail, acts on inbound mail, and replies in-thread',
     references: '<boss-runbook-1@example.com>',
     subject: 'Re: Runbook request',
     text: 'I notified ops and will follow up here.',
+  });
+});
+
+test('rejects a send whose inReplyTo is not a message id and still replies in-thread', async () => {
+  await setupEmailAgentHome();
+
+  let toolError: unknown;
+  runAgentMock.mockImplementation(async (params: { sessionId: string }) => {
+    const { runMessageToolAction } = await import(
+      '../src/channels/message/tool-actions.js'
+    );
+    // An agent answering inbound mail through the message tool can pass an id
+    // that is not the inbound Message-ID. Left alone it becomes a dangling
+    // In-Reply-To, drops the Re: subject, and is then remembered as the thread
+    // for everything sent afterwards.
+    toolError = await runMessageToolAction({
+      action: 'send',
+      channelId: 'boss@example.com',
+      content: 'Received it.',
+      inReplyTo: '<0f99ab14eeb8>',
+      sessionId: params.sessionId,
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    return {
+      agentId: 'main',
+      artifacts: [],
+      model: 'test-model',
+      provider: 'test-provider',
+      result: 'Received it.',
+      status: 'success',
+      toolExecutions: [],
+      toolsUsed: ['message'],
+    };
+  });
+
+  await deliverInboundEmail();
+
+  // The tool call fails loudly, so the agent can correct it, instead of
+  // silently sending an unthreaded reply.
+  expect(toolError).toBeInstanceOf(Error);
+  expect(String(toolError)).toMatch(/inReplyTo must be an email message id/);
+
+  const bossReply = findSentMail('boss@example.com');
+  expect(bossReply).toMatchObject({
+    from: 'agent@example.com',
+    inReplyTo: '<boss-runbook-1@example.com>',
+    references: '<boss-runbook-1@example.com>',
+    subject: 'Re: Runbook request',
+    text: 'Received it.',
   });
 });

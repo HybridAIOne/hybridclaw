@@ -2,6 +2,9 @@ import { normalizeEmailAddress } from './allowlist.js';
 import { DEFAULT_EMAIL_SUBJECT } from './constants.js';
 
 const REPLY_SUBJECT_RE = /^re(?:\[\d+\])?:\s*/i;
+// RFC 5322 msg-id, narrowed to what mail actually carries: `<left@right>`,
+// no whitespace, angle brackets, or control characters inside either half.
+const MESSAGE_ID_RE = /^<[^<>\s@]+@[^<>\s@]+>$/;
 
 export interface ThreadContext {
   subject: string;
@@ -43,6 +46,25 @@ function normalizeThreadContext(context: ThreadContext): ThreadContext | null {
     messageId,
     references: normalizeReferenceList(context.references),
   };
+}
+
+/**
+ * Return *raw* as an RFC 5322 message id, or null when it is not one.
+ *
+ * Callers can hand a caller-supplied (and therefore arbitrary) string here
+ * before it becomes an `In-Reply-To`/`References` header. Bare `left@right`
+ * ids are accepted and wrapped, since that shape is common in hand-written
+ * and model-written tool calls and still names a real message; anything else
+ * — an internal id, a session key, prose — names nothing a mail client can
+ * thread on and is rejected.
+ */
+export function normalizeThreadMessageId(
+  raw: string | null | undefined,
+): string | null {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return null;
+  const candidate = trimmed.startsWith('<') ? trimmed : `<${trimmed}>`;
+  return MESSAGE_ID_RE.test(candidate) ? candidate : null;
 }
 
 export function hasReplySubjectPrefix(subject: string): boolean {

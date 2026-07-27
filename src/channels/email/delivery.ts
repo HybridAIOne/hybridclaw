@@ -17,6 +17,7 @@ import {
 import {
   createOutboundThreadContext,
   ensureReplySubject,
+  normalizeThreadMessageId,
   type ThreadContext,
 } from './threading.js';
 
@@ -162,16 +163,33 @@ function normalizeMessageIdList(raw: string[] | null | undefined): string[] {
   return [
     ...new Set(
       raw
-        .map((value) => normalizeMessageId(value))
+        .map((value) => normalizeThreadMessageId(value))
         .filter((value): value is string => Boolean(value)),
     ),
   ];
 }
 
+/**
+ * Explicit thread headers deliberately replace the account's tracked thread —
+ * that is how a caller replies to a message other than the latest one. So a
+ * value that is not a message id must not survive this far: it would detach
+ * the reply from the thread the runtime already knows about, dropping the
+ * inbound `References` chain and the `Re:` subject continuity with it, and
+ * would then be remembered as the thread for every later message. Dropping
+ * such a value falls back to the tracked thread, which is the right answer
+ * whenever the caller was answering the message that opened it.
+ */
 function resolveExplicitThreadHeaders(
   params: EmailSendParams,
 ): ExplicitThreadHeaders | null {
-  let inReplyTo = normalizeMessageId(params.inReplyTo);
+  const requestedInReplyTo = normalizeMessageId(params.inReplyTo);
+  let inReplyTo = normalizeThreadMessageId(requestedInReplyTo);
+  if (requestedInReplyTo && !inReplyTo) {
+    logger.warn(
+      { inReplyTo: requestedInReplyTo, to: params.to },
+      'Ignoring malformed explicit email inReplyTo; replying in the tracked thread instead',
+    );
+  }
   const references = normalizeMessageIdList(params.references);
   if (references.length > 0) {
     const lastReference = references[references.length - 1];

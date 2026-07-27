@@ -14,6 +14,15 @@
 
 ### Fixed
 
+- **Email replies stay in their thread**: A `message` send whose `inReplyTo` or
+  `references` is not an RFC 5322 message id is now rejected with an actionable
+  error instead of being written into the outbound headers verbatim. Such a
+  value used to detach the reply from the thread the runtime was already
+  tracking — losing the `References` chain and the `Re:` subject, so mail
+  clients filed the answer as a new `HybridClaw` thread — and was then
+  remembered as the thread for every later message to that recipient. Malformed
+  ids reaching delivery from any other caller are dropped in favour of the
+  tracked thread, and a bare `local@domain` id is accepted and wrapped.
 - **Cloud admin sessions recover after inactivity**: Expired browser sessions
   reload through HybridAI sign-in instead of showing an unactionable
   `WEB_API_TOKEN` prompt. The self-hosted fallback identifies the exact gateway

@@ -706,6 +706,115 @@ describe('email delivery helpers', () => {
     });
   });
 
+  test('replies in the tracked thread when the explicit inReplyTo is not a message id', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-fallback@example.com>',
+      })),
+    };
+
+    const result = await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: 'Received it.',
+      selfAddress: 'agent@example.com',
+      threadContext: {
+        subject: 'Quarterly plan',
+        messageId: '<msg-1@example.com>',
+        references: ['<ref-1@example.com>'],
+      },
+      // An internal id, not a message id: it names nothing a mail client can
+      // thread on, so it must not detach the reply from the tracked thread.
+      inReplyTo: '<0f99ab14eeb8>',
+    });
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: 'Re: Quarterly plan',
+        inReplyTo: '<msg-1@example.com>',
+        references: '<ref-1@example.com> <msg-1@example.com>',
+        text: 'Received it.',
+      }),
+    );
+    // The remembered thread keeps the inbound message, so later replies on
+    // this thread stay attached to it too.
+    expect(result.threadContext).toEqual({
+      subject: 'Re: Quarterly plan',
+      messageId: '<sent-fallback@example.com>',
+      references: ['<ref-1@example.com>', '<msg-1@example.com>'],
+    });
+  });
+
+  test('omits threading headers when a malformed id has no thread to fall back to', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-unthreaded@example.com>',
+      })),
+    };
+
+    await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: 'Here is the update.',
+      subject: 'Quarterly plan',
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+      inReplyTo: 'session-4f21',
+      references: ['not-an-id', '<ref-1@example.com>'],
+    });
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: 'Quarterly plan',
+        inReplyTo: '<ref-1@example.com>',
+        references: '<ref-1@example.com>',
+      }),
+    );
+  });
+
+  test('accepts an explicit message id that omits its angle brackets', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-bare@example.com>',
+      })),
+    };
+
+    await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: 'Here is the update.',
+      subject: 'Quarterly plan',
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+      inReplyTo: 'msg-1@example.com',
+    });
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inReplyTo: '<msg-1@example.com>',
+        references: '<msg-1@example.com>',
+      }),
+    );
+  });
+
   test('extracts inline subject prefixes and attaches files', async () => {
     vi.doMock('../src/config/config.ts', () => ({
       APP_VERSION: '0.7.1',
