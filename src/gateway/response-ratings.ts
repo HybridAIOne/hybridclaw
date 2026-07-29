@@ -11,6 +11,7 @@ import {
 import { logger } from '../logger.js';
 import {
   clearResponseRating,
+  getResponseRatingsForMessages,
   getResponseRatingTarget,
   type ResponseRatingTarget,
   upsertResponseRating,
@@ -129,6 +130,49 @@ async function forwardHybridAIChatFeedbackForRating(input: {
       err,
     });
   }
+}
+
+/**
+ * Applies channel reaction changes (e.g. Teams 👍/👎) to a response rating.
+ * Removals only clear the rating when it matches the removed reaction, so a
+ * withdrawn 👍 does not wipe a later explicit /thumbs down.
+ */
+export function applyReactionRatingChanges(input: {
+  sessionId: string;
+  messageId: number;
+  operatorUserId: string;
+  addedRatings: ResponseRatingValue[];
+  removedRatings: ResponseRatingValue[];
+  sourceSurface: string;
+}): SubmitResponseRatingResult | null {
+  const current =
+    getResponseRatingsForMessages({
+      sessionId: input.sessionId,
+      messageIds: [input.messageId],
+      operatorUserId: input.operatorUserId,
+    }).get(input.messageId) ?? null;
+
+  let next: ResponseRatingValue | null | undefined;
+  let effective = current;
+  for (const rating of input.removedRatings) {
+    if (effective === rating) {
+      next = null;
+      effective = null;
+    }
+  }
+  for (const rating of input.addedRatings) {
+    next = rating;
+    effective = rating;
+  }
+  if (next === undefined || next === current) return null;
+
+  return submitResponseRating({
+    sessionId: input.sessionId,
+    messageId: input.messageId,
+    operatorUserId: input.operatorUserId,
+    rating: next,
+    sourceSurface: input.sourceSurface,
+  });
 }
 
 export function submitResponseRating(

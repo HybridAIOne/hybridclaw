@@ -111,6 +111,23 @@ Team channel messages require a mention by default. A plain `hello` in a team
 channel does not trigger a reply unless you change the Teams policy in
 HybridClaw.
 
+## Rating answers
+
+Two ways to rate a HybridClaw answer from Teams:
+
+- Send `/thumbs up` or `/thumbs down` to rate the latest answer in the
+  conversation. Append free text to record a correction, for example
+  `/thumbs down Correct answer is: 200`. `/thumbs clear` removes your rating.
+- React to an answer with 👍 (like) or 👎. Adding the reaction records the
+  rating for that specific message; removing it clears the rating again if it
+  still matches. Reactions only map to answers the bot sent since the rating
+  feature was enabled, and only the like/dislike-style reaction types are
+  interpreted — hearts, laughs, and other emojis are ignored.
+
+Ratings are stored per user and feed the same response-rating pipeline as the
+web console thumbs (audit trail, adaptive-skill feedback, and HybridAI chat
+feedback forwarding).
+
 ## Troubleshooting: the bot does not respond
 
 The default DM policy is `allowlist`, so the bot does not respond to a direct

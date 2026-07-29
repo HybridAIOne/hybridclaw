@@ -290,6 +290,61 @@ describe('response ratings', () => {
     });
   });
 
+  test('applies reaction rating changes with matching-removal semantics', async () => {
+    const service = await setup();
+    const base = {
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      sourceSurface: 'msteams',
+    };
+    const readRating = () =>
+      service.getResponseRatingsForMessages({
+        sessionId: service.sessionId,
+        messageIds: [service.assistantMessageId],
+        operatorUserId: 'operator-a',
+      });
+
+    const added = service.applyReactionRatingChanges({
+      ...base,
+      addedRatings: ['up'],
+      removedRatings: [],
+    });
+    expect(added?.rating).toBe('up');
+
+    expect(
+      service.applyReactionRatingChanges({
+        ...base,
+        addedRatings: [],
+        removedRatings: ['down'],
+      }),
+    ).toBeNull();
+    expect(readRating()).toEqual(new Map([[service.assistantMessageId, 'up']]));
+
+    const flipped = service.applyReactionRatingChanges({
+      ...base,
+      addedRatings: ['down'],
+      removedRatings: ['up'],
+    });
+    expect(flipped?.rating).toBe('down');
+
+    const cleared = service.applyReactionRatingChanges({
+      ...base,
+      addedRatings: [],
+      removedRatings: ['down'],
+    });
+    expect(cleared?.rating).toBeNull();
+    expect(readRating()).toEqual(new Map());
+
+    expect(
+      service.applyReactionRatingChanges({
+        ...base,
+        addedRatings: [],
+        removedRatings: ['up'],
+      }),
+    ).toBeNull();
+  });
+
   test('ignores comments when clearing a rating', async () => {
     const service = await setup();
 

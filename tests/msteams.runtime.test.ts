@@ -137,6 +137,7 @@ async function importRuntime() {
   vi.doMock('botframework-schema', () => ({
     ActivityTypes: {
       Message: 'message',
+      MessageReaction: 'messageReaction',
     },
   }));
   vi.doMock('../src/config/config.js', () => ({
@@ -399,6 +400,75 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     ).toThrow(
       'Teams runtime requires both message and command handlers during initialization.',
     );
+  });
+
+  test('dispatches Teams message reactions to the reaction handler', async () => {
+    processMock.mockImplementation(
+      async (_req, _res, logic: (context: unknown) => Promise<void>) => {
+        await logic({
+          activity: {
+            type: 'messageReaction',
+            replyToId: 'bot-activity-9',
+            conversation: { id: 'conversation-123' },
+            recipient: { id: 'bot-id' },
+            from: { id: 'user-id', name: 'User' },
+            reactionsAdded: [{ type: 'like' }],
+            reactionsRemoved: [{ type: 'heart' }],
+          },
+          turnState: new Map(),
+        });
+      },
+    );
+
+    const runtime = await importRuntime();
+    const onMessage = vi.fn(async () => {});
+    const onCommand = vi.fn(async () => {});
+    const onReaction = vi.fn(async () => {});
+    runtime.initMSTeams(onMessage, onCommand, onReaction);
+
+    const req = makeRequest({ type: 'messageReaction' });
+    const res = makeResponse();
+    await runtime.handleMSTeamsWebhook(req, res);
+
+    expect(onReaction).toHaveBeenCalledWith({
+      sessionId: 'teams:dm:user',
+      channelId: 'conversation-123',
+      userId: 'user-id',
+      username: 'User',
+      activityId: 'bot-activity-9',
+      added: ['like'],
+      removed: ['heart'],
+    });
+    expect(onMessage).not.toHaveBeenCalled();
+    expect(onCommand).not.toHaveBeenCalled();
+  });
+
+  test('consumes Teams message reactions without a registered handler', async () => {
+    processMock.mockImplementation(
+      async (_req, _res, logic: (context: unknown) => Promise<void>) => {
+        await logic({
+          activity: {
+            type: 'messageReaction',
+            replyToId: 'bot-activity-9',
+            conversation: { id: 'conversation-123' },
+            reactionsAdded: [{ type: 'like' }],
+          },
+          turnState: new Map(),
+        });
+      },
+    );
+
+    const runtime = await importRuntime();
+    const onMessage = vi.fn(async () => {});
+    const onCommand = vi.fn(async () => {});
+    runtime.initMSTeams(onMessage, onCommand);
+
+    const req = makeRequest({ type: 'messageReaction' });
+    const res = makeResponse();
+    await runtime.handleMSTeamsWebhook(req, res);
+
+    expect(onMessage).not.toHaveBeenCalled();
+    expect(onCommand).not.toHaveBeenCalled();
   });
 
   test('starts Teams typing while command messages are handled', async () => {
