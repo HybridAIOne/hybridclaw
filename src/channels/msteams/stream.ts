@@ -54,6 +54,8 @@ export class MSTeamsStreamManager {
   private nativeCancelled = false;
   private nativeFailed = false;
   private nativeStreamId: string | null = null;
+  private nativeFinalId: string | null = null;
+  private readonly nativeRemainderIds: string[] = [];
   private nativeSequence = 0;
   private nativeLastText = '';
   private nativeLastInformativeText = '';
@@ -75,6 +77,16 @@ export class MSTeamsStreamManager {
 
   isNativeStreamingActive(): boolean {
     return this.nativeStreaming && !this.nativeCancelled && !this.nativeFailed;
+  }
+
+  /** Teams activity ids of every message this stream delivered. */
+  getDeliveredActivityIds(): string[] {
+    const ids = new Set<string>();
+    for (const entry of this.sent) ids.add(entry.id);
+    if (this.nativeFinalId) ids.add(this.nativeFinalId);
+    if (this.nativeStreamId) ids.add(this.nativeStreamId);
+    for (const id of this.nativeRemainderIds) ids.add(id);
+    return [...ids];
   }
 
   updateInformative(text = INITIAL_INFORMATIVE_TEXT): Promise<void> {
@@ -337,7 +349,7 @@ export class MSTeamsStreamManager {
       remaining.length === 0 ? first.attachments : undefined,
     );
     for (const chunk of remaining) {
-      await sendMSTeamsActivityWithRetry(
+      const response = await sendMSTeamsActivityWithRetry(
         this.turnContext,
         buildMSTeamsMessageActivity({
           text: chunk.text,
@@ -346,6 +358,8 @@ export class MSTeamsStreamManager {
         }),
         'msteams.stream.native.remainder',
       );
+      const remainderId = String(response?.id || '').trim();
+      if (remainderId) this.nativeRemainderIds.push(remainderId);
     }
     this.lastFlushAt = Date.now();
   }
@@ -390,7 +404,7 @@ export class MSTeamsStreamManager {
     if (!this.nativeStreamId) {
       throw new Error('Teams native streaming was not initialized.');
     }
-    await sendMSTeamsActivityWithRetry(
+    const response = await sendMSTeamsActivityWithRetry(
       this.turnContext,
       {
         type: ActivityTypes.Message,
@@ -406,6 +420,8 @@ export class MSTeamsStreamManager {
       },
       'msteams.stream.native.final',
     );
+    const finalId = String(response?.id || '').trim();
+    if (finalId) this.nativeFinalId = finalId;
   }
 
   private async disableNativeStreaming(error: unknown): Promise<void> {
