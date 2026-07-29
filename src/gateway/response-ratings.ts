@@ -24,12 +24,17 @@ export interface SubmitResponseRatingInput {
   messageId: number;
   operatorUserId: string;
   rating: ResponseRatingValue | null;
+  /** Optional free-text note, e.g. the expected answer for a thumbs-down. */
+  comment?: string | null;
+  /** Surface the rating came from ('web', 'msteams', ...); defaults to 'web'. */
+  sourceSurface?: string;
 }
 
 export interface SubmitResponseRatingResult {
   sessionId: string;
   messageId: number;
   rating: ResponseRatingValue | null;
+  comment: string | null;
 }
 
 export class ResponseRatingNotFoundError extends Error {
@@ -73,6 +78,7 @@ async function forwardHybridAIChatFeedbackForRating(input: {
   messageId: number;
   operatorUserId: string;
   rating: ResponseRatingValue;
+  comment: string | null;
   target: ResponseRatingTarget;
 }): Promise<void> {
   let apiKey = '';
@@ -96,6 +102,7 @@ async function forwardHybridAIChatFeedbackForRating(input: {
       ? `[${agentId}] ${input.target.assistant_content}`
       : input.target.assistant_content,
     external_user_id: input.operatorUserId,
+    ...(input.comment ? { comment: input.comment } : {}),
   };
 
   try {
@@ -130,6 +137,8 @@ export function submitResponseRating(
   const sessionId = input.sessionId.trim();
   if (!sessionId) throw new Error('Missing `sessionId`.');
   const operatorUserId = input.operatorUserId.trim() || 'web';
+  const comment = input.rating ? input.comment?.trim() || null : null;
+  const sourceSurface = input.sourceSurface?.trim().toLowerCase() || 'web';
   const target = getResponseRatingTarget({
     sessionId,
     messageId: input.messageId,
@@ -147,6 +156,7 @@ export function submitResponseRating(
       messageId: input.messageId,
       operatorUserId,
       rating: input.rating,
+      comment,
       agentId: target.agent_id,
       model: target.model,
       provider: target.provider,
@@ -166,7 +176,7 @@ export function submitResponseRating(
     recordSkillFeedbackForObservation({
       observationId: target.skill_observation_id,
       sessionId,
-      feedback: `${skillFeedbackLabel} from ${operatorUserId} on web response ${input.messageId}`,
+      feedback: `${skillFeedbackLabel} from ${operatorUserId} on ${sourceSurface} response ${input.messageId}${comment ? `: ${comment}` : ''}`,
       sentiment: input.rating === 'up' ? 'positive' : 'negative',
     });
   }
@@ -185,8 +195,9 @@ export function submitResponseRating(
       skillRunId: target.skill_run_id,
       skillObservationId: target.skill_observation_id,
       operatorUserId,
-      sourceSurface: 'web',
+      sourceSurface,
       rating: input.rating,
+      comment,
       ratedAt: new Date().toISOString(),
     },
   });
@@ -197,6 +208,7 @@ export function submitResponseRating(
       messageId: input.messageId,
       operatorUserId,
       rating: input.rating,
+      comment,
       target,
     });
   }
@@ -205,5 +217,6 @@ export function submitResponseRating(
     sessionId,
     messageId: input.messageId,
     rating: input.rating,
+    comment,
   };
 }
