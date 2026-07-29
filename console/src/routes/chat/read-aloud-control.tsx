@@ -1,17 +1,20 @@
 /**
- * Read-aloud control — speaks exactly one assistant response on user request.
+ * Read-aloud control — owns explicit playback for one completed response.
  *
- * Playback is globally exclusive and starts synchronously in the click handler
- * for iOS Safari; starting another response cancels the current one.
+ * Starting one response stops any other, unlocks audio in the click gesture,
+ * and delegates authenticated speech generation to the gateway.
  *
- * NOT automatic TTS or realtime voice chat; it never speaks streamed content.
+ * NOT automatic narration or browser speech synthesis.
  */
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '../../components/button';
 import { cx } from '../../lib/cx';
+import { unlockAudio } from './audio-unlock';
 import css from './chat-page.module.css';
+import { useMediaCapabilities } from './media-capabilities';
 import { getSpeechCopy } from './speech-copy';
+import { SpeechPlayback } from './speech-playback';
 
 interface ActiveReadAloud {
   id: string;
@@ -19,13 +22,6 @@ interface ActiveReadAloud {
 }
 
 let activeReadAloud: ActiveReadAloud | null = null;
-
-function canReadAloud(): boolean {
-  return Boolean(
-    window.speechSynthesis &&
-      typeof window.SpeechSynthesisUtterance === 'function',
-  );
-}
 
 export function textFromRenderedMarkdown(html: string): string {
   const root = document.createElement('div');
@@ -38,92 +34,87 @@ export function textFromRenderedMarkdown(html: string): string {
   return (root.textContent || '').replace(/\s+/g, ' ').trim();
 }
 
-export function ReadAloudControl(props: { text: string }) {
+export function ReadAloudControl(props: { text: string; token: string }) {
   const id = useId();
   const copy = useMemo(() => getSpeechCopy(navigator.language), []);
-  const supported = canReadAloud();
-  const [playing, setPlaying] = useState(false);
+  const capabilities = useMediaCapabilities(props.token);
+  const browserSupported = typeof window.Audio === 'function';
+  const available = capabilities?.readAloud === true;
+  const [status, setStatus] = useState<'idle' | 'loading' | 'playing'>('idle');
   const [error, setError] = useState('');
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const playbackRef = useRef<SpeechPlayback | null>(null);
 
   const stop = () => {
+    playbackRef.current?.dispose();
+    playbackRef.current = null;
     if (activeReadAloud?.id === id) activeReadAloud = null;
-    utteranceRef.current = null;
-    window.speechSynthesis?.cancel();
-    setPlaying(false);
+    setStatus('idle');
   };
 
   useEffect(() => {
     return () => {
-      if (activeReadAloud?.id === id) {
-        activeReadAloud = null;
-        window.speechSynthesis?.cancel();
-      }
+      playbackRef.current?.dispose();
+      playbackRef.current = null;
+      if (activeReadAloud?.id === id) activeReadAloud = null;
     };
   }, [id]);
 
   const handleClick = () => {
-    if (!supported) return;
-    if (playing) {
+    if (!available || !browserSupported) return;
+    if (status !== 'idle') {
       stop();
       return;
     }
 
-    if (activeReadAloud) activeReadAloud.stop();
-    else window.speechSynthesis.cancel();
+    // This must remain synchronous with the click: iOS expires the playback
+    // gesture before the authenticated speech request resolves.
+    unlockAudio();
+    activeReadAloud?.stop();
     setError('');
+    setStatus('loading');
 
-    const utterance = new SpeechSynthesisUtterance(props.text);
-    utterance.lang = navigator.language;
-    utterance.onend = () => {
-      if (utteranceRef.current !== utterance) return;
-      utteranceRef.current = null;
-      if (activeReadAloud?.id === id) activeReadAloud = null;
-      setPlaying(false);
-    };
-    utterance.onerror = () => {
-      if (utteranceRef.current !== utterance) return;
-      utteranceRef.current = null;
-      if (activeReadAloud?.id === id) activeReadAloud = null;
-      setPlaying(false);
-      setError(copy.readFailed);
-    };
-    utteranceRef.current = utterance;
+    let playback: SpeechPlayback | null = null;
+    playback = new SpeechPlayback({
+      token: props.token,
+      text: props.text,
+      onPlaying: () => {
+        if (playback && playbackRef.current === playback) setStatus('playing');
+      },
+      onSettled: (failed) => {
+        if (!playback || playbackRef.current !== playback) return;
+        playbackRef.current = null;
+        if (activeReadAloud?.id === id) activeReadAloud = null;
+        setStatus('idle');
+        if (failed) setError(copy.readFailed);
+      },
+    });
+    playbackRef.current = playback;
     activeReadAloud = { id, stop };
-    setPlaying(true);
-
-    // Keep this synchronous with the pointer/keyboard activation. iOS Safari
-    // rejects speech started after an awaited task because the user gesture
-    // has expired.
-    try {
-      window.speechSynthesis.speak(utterance);
-    } catch {
-      utteranceRef.current = null;
-      if (activeReadAloud?.id === id) activeReadAloud = null;
-      setPlaying(false);
-      setError(copy.readFailed);
-    }
+    playback.start();
   };
 
-  const label = !supported
+  const active = status !== 'idle';
+  const label = !browserSupported
     ? copy.readUnsupported
-    : playing
-      ? copy.stopReading
-      : copy.read;
+    : capabilities?.readAloud === false
+      ? copy.readUnavailable
+      : active
+        ? copy.stopReading
+        : copy.read;
 
   return (
     <>
       <Button
         variant="ghost"
         size="icon"
-        className={cx(css.actionButton, playing && css.actionButtonPlaying)}
+        className={cx(css.actionButton, active && css.actionButtonPlaying)}
         title={label}
         aria-label={label}
-        aria-pressed={playing}
-        disabled={!supported || !props.text}
+        aria-pressed={active}
+        disabled={!available || !browserSupported || !props.text}
         onClick={handleClick}
       >
-        {playing ? (
+        {active ? (
           <svg
             viewBox="0 0 24 24"
             width="14"
@@ -151,9 +142,13 @@ export function ReadAloudControl(props: { text: string }) {
           </svg>
         )}
       </Button>
-      {playing || error ? (
+      {active || error ? (
         <span className={css.messageSpeechStatus} role="status">
-          {playing ? copy.reading : error}
+          {status === 'loading'
+            ? copy.preparingSpeech
+            : status === 'playing'
+              ? copy.reading
+              : error}
         </span>
       ) : null}
     </>

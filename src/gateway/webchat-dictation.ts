@@ -39,6 +39,12 @@ export function isSupportedDictationMimeType(
   return mimeType ? mimeType in DICTATION_EXTENSION_BY_MIME_TYPE : false;
 }
 
+export async function isWebchatDictationAvailable(): Promise<boolean> {
+  const config = getRuntimeConfig().media.audio;
+  if (!config.enabled) return false;
+  return (await resolveAudioTranscriptionModels(config)).length > 0;
+}
+
 export async function transcribeWebchatDictation(params: {
   audio: Buffer;
   mimeType: string;

@@ -582,7 +582,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
           ) : null}
           {isAssistant ? (
             <>
-              <ReadAloudControl text={speechText} />
+              <ReadAloudControl text={speechText} token={token} />
               <Button
                 variant="ghost"
                 size="icon"

@@ -158,6 +158,8 @@ saved revision history directly.
 - `openai.enabled`, `openai.baseUrl`, and `openai.models` configure the direct
   OpenAI Responses API provider. Store its API key as `OPENAI_API_KEY` in the
   encrypted runtime secret store and select models with the `openai/` prefix.
+  Webchat read-aloud also uses this base URL and key for authenticated,
+  non-retained OpenAI TTS requests.
 - `HYBRIDAI_FALLBACK_CHAIN` accepts a JSON array of fallback entries with
   `model`, optional `baseUrl`, `keyEnv`, `chatbotId`, and `agentId`. Gateway
   model calls use the chain for auth and rate-limit failures, then cool down

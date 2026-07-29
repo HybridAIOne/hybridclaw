@@ -1811,6 +1811,9 @@ aside[data-state="collapsed"] .chatSidebarContent {
   position: absolute;
   right: 0;
   bottom: calc(100% + 8px);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   width: max-content;
   max-width: min(320px, calc(100vw - 48px));
   padding: 5px 9px;
@@ -1827,6 +1830,22 @@ aside[data-state="collapsed"] .chatSidebarContent {
   color: var(--danger);
 }
 
+.dictationWave {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 14px;
+}
+
+.dictationWave > span {
+  width: 2px;
+  height: 12px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: scaleY(var(--dictation-scale));
+  transition: transform 75ms linear;
+}
+
 @keyframes dictationPulse {
   50% {
     box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger) 10%, transparent);
@@ -1836,6 +1855,10 @@ aside[data-state="collapsed"] .chatSidebarContent {
 @media (prefers-reduced-motion: reduce) {
   .dictationButtonRecording {
     animation: none;
+  }
+
+  .dictationWave > span {
+    transition: none;
   }
 }
 

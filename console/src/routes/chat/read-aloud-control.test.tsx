@@ -1,56 +1,80 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ReadAloudControl,
   textFromRenderedMarkdown,
 } from './read-aloud-control';
 
-class FakeUtterance {
-  lang = '';
-  onend: (() => void) | null = null;
-  onerror: (() => void) | null = null;
+const mocks = vi.hoisted(() => ({
+  capabilities: { dictation: true, readAloud: true },
+  playback: vi.fn(),
+  unlockAudio: vi.fn(),
+}));
 
-  constructor(readonly text: string) {}
-}
+vi.mock('./audio-unlock', () => ({
+  unlockAudio: mocks.unlockAudio,
+}));
 
-function installSpeechSynthesis() {
-  const synthesis = {
-    cancel: vi.fn(),
-    speak: vi.fn(),
-  };
-  vi.stubGlobal(
-    'SpeechSynthesisUtterance',
-    FakeUtterance as unknown as typeof SpeechSynthesisUtterance,
-  );
-  vi.stubGlobal('speechSynthesis', synthesis as unknown as SpeechSynthesis);
-  return synthesis;
-}
+vi.mock('./media-capabilities', () => ({
+  useMediaCapabilities: () => mocks.capabilities,
+}));
+
+vi.mock('./speech-playback', () => ({
+  SpeechPlayback: class {
+    readonly implementation: { start: () => void; dispose: () => void };
+
+    constructor(params: unknown) {
+      this.implementation = mocks.playback(params);
+    }
+
+    start() {
+      this.implementation.start();
+    }
+
+    dispose() {
+      this.implementation.dispose();
+    }
+  },
+}));
 
 describe('ReadAloudControl', () => {
+  beforeEach(() => {
+    mocks.capabilities = { dictation: true, readAloud: true };
+    mocks.playback.mockReset();
+    mocks.unlockAudio.mockReset();
+    vi.stubGlobal('Audio', class {});
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('starts and stops speech only from an explicit button action', () => {
-    const synthesis = installSpeechSynthesis();
-    render(<ReadAloudControl text="A concise response." />);
+  it('unlocks and starts generated speech only from an explicit action', () => {
+    const start = vi.fn();
+    const dispose = vi.fn();
+    mocks.playback.mockImplementation(() => ({ start, dispose }));
+    render(<ReadAloudControl text="A concise response." token="test-token" />);
 
-    expect(synthesis.speak).not.toHaveBeenCalled();
-    const start = screen.getByRole('button', { name: 'Read response aloud' });
-    fireEvent.click(start);
+    expect(mocks.playback).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Read response aloud' }),
+    );
 
-    expect(synthesis.speak).toHaveBeenCalledTimes(1);
-    const utterance = synthesis.speak.mock.calls[0]?.[0] as unknown as {
-      lang: string;
-      text: string;
+    expect(mocks.unlockAudio).toHaveBeenCalledTimes(1);
+    expect(mocks.playback).toHaveBeenCalledWith({
+      token: 'test-token',
+      text: 'A concise response.',
+      onPlaying: expect.any(Function),
+      onSettled: expect.any(Function),
+    });
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status').textContent).toBe('Preparing audio…');
+
+    const callbacks = mocks.playback.mock.calls[0]?.[0] as {
+      onPlaying: () => void;
+      onSettled: (failed: boolean) => void;
     };
-    expect(utterance.text).toBe('A concise response.');
-    expect(utterance.lang).toBe(navigator.language);
-    expect(
-      screen
-        .getByRole('button', { name: 'Stop reading response' })
-        .getAttribute('aria-pressed'),
-    ).toBe('true');
+    act(() => callbacks.onPlaying());
     expect(screen.getByRole('status').textContent).toBe(
       'Reading response aloud…',
     );
@@ -58,41 +82,45 @@ describe('ReadAloudControl', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Stop reading response' }),
     );
-    expect(synthesis.cancel).toHaveBeenCalled();
-    expect(
-      screen
-        .getByRole('button', { name: 'Read response aloud' })
-        .getAttribute('aria-pressed'),
-    ).toBe('false');
+    expect(dispose).toHaveBeenCalled();
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
-  it('finishes cleanly when the browser reports the utterance ended', async () => {
-    const synthesis = installSpeechSynthesis();
-    render(<ReadAloudControl text="Done." />);
+  it('shows a retryable error when generated speech fails', () => {
+    mocks.playback.mockImplementation(() => ({
+      start: vi.fn(),
+      dispose: vi.fn(),
+    }));
+    render(<ReadAloudControl text="Done." token="test-token" />);
 
     fireEvent.click(
       screen.getByRole('button', { name: 'Read response aloud' }),
     );
-    const utterance = synthesis.speak.mock.calls[0]?.[0] as unknown as {
-      onend: () => void;
+    const callbacks = mocks.playback.mock.calls[0]?.[0] as {
+      onSettled: (failed: boolean) => void;
     };
-    await act(async () => utterance.onend());
+    act(() => callbacks.onSettled(true));
 
+    expect(screen.getByRole('status').textContent).toBe(
+      'The response could not be read aloud. Please try again.',
+    );
     expect(
       screen
         .getByRole('button', { name: 'Read response aloud' })
-        .getAttribute('aria-pressed'),
-    ).toBe('false');
-    expect(screen.queryByRole('status')).toBeNull();
+        .hasAttribute('disabled'),
+    ).toBe(false);
   });
 
-  it('degrades to a disabled control when speech synthesis is unsupported', () => {
-    render(<ReadAloudControl text="Text remains readable." />);
+  it('degrades to a disabled control when server speech is unavailable', () => {
+    mocks.capabilities = { dictation: true, readAloud: false };
+    render(
+      <ReadAloudControl text="Text remains readable." token="test-token" />,
+    );
 
     expect(
       screen
         .getByRole('button', {
-          name: 'Your browser does not support read aloud.',
+          name: 'Read aloud requires an OpenAI API key.',
         })
         .hasAttribute('disabled'),
     ).toBe(true);

@@ -447,8 +447,14 @@ import {
 } from './text-channel-commands.js';
 import {
   isSupportedDictationMimeType,
+  isWebchatDictationAvailable,
   transcribeWebchatDictation,
 } from './webchat-dictation.js';
+import {
+  isWebchatSpeechAvailable,
+  MAX_WEBCHAT_SPEECH_CHARS,
+  synthesizeWebchatSpeech,
+} from './webchat-speech.js';
 
 const SITE_DIR = resolveInstallPath('docs');
 const CONSOLE_DIST_DIR = resolveInstallPath('console', 'dist');
@@ -3503,6 +3509,7 @@ async function handleApiMediaTranscription(
   const abortController = new AbortController();
   const abort = () => abortController.abort();
   req.once('aborted', abort);
+  res.once('close', abort);
   try {
     const text = await transcribeWebchatDictation({
       audio: buffer,
@@ -3512,6 +3519,78 @@ async function handleApiMediaTranscription(
     sendJson(res, 200, { text });
   } finally {
     req.off('aborted', abort);
+    res.off('close', abort);
+  }
+}
+
+async function handleApiMediaCapabilities(res: ServerResponse): Promise<void> {
+  const dictation = await isWebchatDictationAvailable().catch(() => false);
+  sendJson(res, 200, {
+    dictation,
+    readAloud: isWebchatSpeechAvailable(),
+  });
+}
+
+async function handleApiMediaSpeech(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = await readJsonBody(req);
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    Array.isArray(body) ||
+    typeof (body as { text?: unknown }).text !== 'string'
+  ) {
+    sendJson(res, 400, { error: 'Missing `text` in request body.' });
+    return;
+  }
+
+  const text = (body as { text: string }).text.trim();
+  if (!text) {
+    sendJson(res, 400, { error: 'Speech text is empty.' });
+    return;
+  }
+  if (text.length > MAX_WEBCHAT_SPEECH_CHARS) {
+    sendJson(res, 413, {
+      error: `Speech text exceeds ${MAX_WEBCHAT_SPEECH_CHARS} characters.`,
+    });
+    return;
+  }
+
+  const quotaDecision = consumeGatewayMediaUploadQuota({
+    key: resolveApiMediaUploadQuotaKey(req),
+    bytes: Buffer.byteLength(text, 'utf8'),
+  });
+  if (!quotaDecision.allowed) {
+    res.setHeader(
+      'Retry-After',
+      String(Math.max(1, Math.ceil(quotaDecision.retryAfterMs / 1_000))),
+    );
+    sendJson(res, 429, {
+      error: 'Speech generation quota exceeded. Try again later.',
+    });
+    return;
+  }
+
+  const abortController = new AbortController();
+  const abort = () => abortController.abort();
+  req.once('aborted', abort);
+  res.once('close', abort);
+  try {
+    const audio = await synthesizeWebchatSpeech({
+      text,
+      abortSignal: abortController.signal,
+    });
+    res.writeHead(200, {
+      'Cache-Control': 'no-store',
+      'Content-Length': String(audio.length),
+      'Content-Type': 'audio/mpeg',
+    });
+    res.end(audio);
+  } finally {
+    req.off('aborted', abort);
+    res.off('close', abort);
   }
 }
 
@@ -11047,8 +11126,16 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiMediaUpload(req, res);
             return;
           }
+          if (pathname === '/api/media/capabilities' && method === 'GET') {
+            await handleApiMediaCapabilities(res);
+            return;
+          }
           if (pathname === '/api/media/transcribe' && method === 'POST') {
             await handleApiMediaTranscription(req, res);
+            return;
+          }
+          if (pathname === '/api/media/speech' && method === 'POST') {
+            await handleApiMediaSpeech(req, res);
             return;
           }
           if (pathname === '/api/command' && method === 'POST') {

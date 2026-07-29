@@ -6,31 +6,34 @@ sidebar_position: 6
 
 # Voice And TTS
 
-HybridClaw has shared inbound audio transcription, but it does not currently
-ship a first-party `tts.*` runtime config or a built-in speech-synthesis
-provider.
+HybridClaw has shared inbound audio transcription and explicit webchat
+read-aloud playback. It does not ship a general-purpose `tts.*` runtime config
+or agent-facing speech-synthesis tool.
 
-The webchat has user-controlled audio conveniences that do not require a
-`tts.*` provider:
+The webchat has two user-controlled audio conveniences:
 
-- The composer microphone uses the browser's speech-recognition service in
-  Chrome and Safari. In browsers without that API, it records a short
-  dictation take and sends it to the configured `media.audio` transcription
-  chain. The transcript is inserted into the composer for review and editing;
-  it is not sent automatically.
-- Each completed assistant message has a read-aloud action backed by the
-  browser's speech-synthesis engine. Playback starts and stops only through
-  that message action.
+- The composer microphone records a dictation take and sends it through the
+  configured `media.audio` transcription chain. The transcript is inserted
+  into the composer for review and editing; it is not sent automatically.
+- Each completed assistant message has a read-aloud action. The gateway
+  generates short MP3 clips through OpenAI TTS using `OPENAI_API_KEY`, then the
+  browser plays them in order. Playback starts and stops only through that
+  message action.
 - Unsupported browsers and denied microphone permissions keep normal text chat
   available. Labels and status text follow English, German, or French browser
   locales, with English as the fallback.
 
-Browser-native dictation is handled under the browser vendor's speech-service
-terms and is not uploaded to HybridClaw. On the server fallback path, dictation
-audio is written to a private operating-system temporary file only while
-transcription runs, then removed. It is not added to the uploaded-media cache
-or conversation history. The resulting text follows the same persistence path
-as typed text after the user sends it.
+Dictation audio is sent only to the authenticated gateway. It is written to a
+private operating-system temporary file while transcription runs, then
+removed; it is not added to the uploaded-media cache or conversation history.
+The resulting text follows the same persistence path as typed text only after
+the user sends it.
+
+Read-aloud sends bounded text chunks from the existing assistant response to
+the configured `openai.baseUrl`. The gateway does not store the generated audio
+and marks each response `Cache-Control: no-store`. The OpenAI API key remains
+gateway-side. On iOS, HybridClaw warms and reuses one audio element during the
+explicit button gesture so fetched clips can play after the request completes.
 
 If you are looking for the Twilio phone channel, inbound and outbound call
 setup, or ConversationRelay webhooks, see
@@ -47,6 +50,8 @@ exists:
 
 - **Inbound audio**: the gateway can transcribe attached `audio/*` media before
   the agent runs via `media.audio`.
+- **Webchat read-aloud**: completed assistant responses can be played with
+  OpenAI TTS when `OPENAI_API_KEY` is configured.
 - **Outbound audio**: HybridClaw can send generated audio files back to
   supported channels:
   - Discord sends local file attachments.
@@ -151,5 +156,7 @@ tool notes.
 Do not confuse these two paths:
 
 - `media.audio` is **speech-to-text** for inbound attachments
-- TTS is **text-to-speech** for outbound replies and currently depends on your
-  own local tool, MCP server, or custom script
+- the webchat read-aloud action is **text-to-speech** for local playback and
+  uses the gateway's `OPENAI_API_KEY`
+- agent-generated TTS artifacts for outbound channel replies still depend on
+  your own local tool, MCP server, or custom script

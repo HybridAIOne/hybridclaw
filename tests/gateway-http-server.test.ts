@@ -476,6 +476,8 @@ function makeResponse() {
     getHeader(name: string) {
       return headers[resolveHeaderKey(name)];
     },
+    once: vi.fn(),
+    off: vi.fn(),
     writeHead(statusCode: number, headers: Record<string, string | string[]>) {
       response.statusCode = statusCode;
       Object.assign(response.headers, headers);
@@ -679,7 +681,12 @@ async function importFreshHealth(options?: {
   const loggerError = vi.fn();
   const loggerInfo = vi.fn();
   const loggerWarn = vi.fn();
+  const isWebchatDictationAvailable = vi.fn(async () => true);
   const transcribeWebchatDictation = vi.fn(async () => 'Dictated text');
+  const isWebchatSpeechAvailable = vi.fn(() => true);
+  const synthesizeWebchatSpeech = vi.fn(async () =>
+    Buffer.from('generated-mp3'),
+  );
   const getGatewayHistory = vi.fn((sessionId: string) => ({
     sessionId,
     agentId: 'research',
@@ -2792,9 +2799,15 @@ async function importFreshHealth(options?: {
     consumeGatewayMediaUploadQuota,
   }));
   vi.doMock('../src/gateway/webchat-dictation.js', () => ({
+    isWebchatDictationAvailable,
     isSupportedDictationMimeType: (value: string | null | undefined) =>
       value === 'audio/mp4' || value === 'audio/webm',
     transcribeWebchatDictation,
+  }));
+  vi.doMock('../src/gateway/webchat-speech.js', () => ({
+    isWebchatSpeechAvailable,
+    MAX_WEBCHAT_SPEECH_CHARS: 4_096,
+    synthesizeWebchatSpeech,
   }));
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
     findLoadedPluginCommand: vi.fn(() => undefined),
@@ -2971,7 +2984,10 @@ async function importFreshHealth(options?: {
     claimQueuedProactiveMessages,
     getDelegationJob,
     consumeGatewayMediaUploadQuota,
+    isWebchatDictationAvailable,
     transcribeWebchatDictation,
+    isWebchatSpeechAvailable,
+    synthesizeWebchatSpeech,
     listLoadedPluginCommands,
   };
 }
@@ -12885,6 +12901,100 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(429);
     expect(res.headers['Retry-After']).toBe('2');
     expect(state.transcribeWebchatDictation).not.toHaveBeenCalled();
+  });
+
+  test('reports authenticated webchat media capabilities', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/media/capabilities',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      dictation: true,
+      readAloud: true,
+    });
+    expect(state.isWebchatDictationAvailable).toHaveBeenCalledTimes(1);
+    expect(state.isWebchatSpeechAvailable).toHaveBeenCalledTimes(1);
+  });
+
+  test('generates authenticated webchat speech without retaining it', async () => {
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/speech',
+      body: { text: 'Read this response.' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('audio/mpeg');
+    expect(res.headers['Cache-Control']).toBe('no-store');
+    expect(Buffer.concat(res.chunks)).toEqual(Buffer.from('generated-mp3'));
+    expect(state.synthesizeWebchatSpeech).toHaveBeenCalledWith({
+      text: 'Read this response.',
+      abortSignal: expect.any(AbortSignal),
+    });
+    expect(res.once).toHaveBeenCalledWith('close', expect.any(Function));
+    expect(res.off).toHaveBeenCalledWith('close', expect.any(Function));
+    expect(state.consumeGatewayMediaUploadQuota).toHaveBeenCalledWith({
+      key: 'gateway-token',
+      bytes: Buffer.byteLength('Read this response.', 'utf8'),
+    });
+    expect(fs.existsSync(path.join(dataDir, 'uploaded-media-cache'))).toBe(
+      false,
+    );
+  });
+
+  test('requires authentication and quota for webchat speech', async () => {
+    const unauthorizedState = await importFreshHealth();
+    const unauthorizedReq = makeRequest({
+      method: 'POST',
+      url: '/api/media/speech',
+      body: { text: 'Private response.' },
+      noAuth: true,
+    });
+    const unauthorizedRes = makeResponse();
+
+    unauthorizedState.handler(
+      unauthorizedReq as never,
+      unauthorizedRes as never,
+    );
+    await waitForResponse(
+      unauthorizedRes,
+      (next) => next.writableEnded,
+    );
+    expect(unauthorizedRes.statusCode).toBe(401);
+    expect(unauthorizedState.synthesizeWebchatSpeech).not.toHaveBeenCalled();
+
+    const limitedState = await importFreshHealth({
+      mediaUploadQuotaDecision: {
+        allowed: false,
+        remainingBytes: 0,
+        retryAfterMs: 3_000,
+        usedBytes: 100 * 1024 * 1024,
+      },
+    });
+    const limitedReq = makeRequest({
+      method: 'POST',
+      url: '/api/media/speech',
+      body: { text: 'Private response.' },
+    });
+    const limitedRes = makeResponse();
+
+    limitedState.handler(limitedReq as never, limitedRes as never);
+    await waitForResponse(limitedRes, (next) => next.writableEnded);
+    expect(limitedRes.statusCode).toBe(429);
+    expect(limitedRes.headers['Retry-After']).toBe('3');
+    expect(limitedState.synthesizeWebchatSpeech).not.toHaveBeenCalled();
   });
 
   test('starts with an empty DATA_DIR and returns 503 for media uploads', async () => {
