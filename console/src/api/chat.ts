@@ -6,6 +6,7 @@ import type {
   ChatHistoryResponse,
   ChatMobileQrResponse,
   ChatRecentResponse,
+  DictationTranscriptionResponse,
   MediaUploadResponse,
   RateResponseRequest,
   RateResponseResponse,
@@ -164,6 +165,22 @@ export function uploadMedia(
       'Content-Type': file.type || 'application/octet-stream',
       'X-Hybridclaw-Filename': encodeURIComponent(file.name || 'upload'),
     },
+  });
+}
+
+export function transcribeDictation(
+  token: string,
+  recording: Blob,
+  signal?: AbortSignal,
+): Promise<DictationTranscriptionResponse> {
+  return requestJson<DictationTranscriptionResponse>('/api/media/transcribe', {
+    token,
+    method: 'POST',
+    rawBody: recording,
+    extraHeaders: {
+      'Content-Type': recording.type || 'audio/webm',
+    },
+    signal,
   });
 }
 

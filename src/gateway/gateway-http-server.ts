@@ -1,3 +1,12 @@
+/**
+ * Gateway HTTP boundary — authenticates and validates every console/API route.
+ *
+ * Route handlers may invoke host services, but must not bypass their policy,
+ * retention, quota, or path-containment contracts.
+ *
+ * NOT the gateway chat runtime; this module only owns HTTP transport concerns.
+ */
+
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
@@ -436,6 +445,10 @@ import {
   renderTextChannelCommandResult,
   resolveTextChannelSlashCommands,
 } from './text-channel-commands.js';
+import {
+  isSupportedDictationMimeType,
+  transcribeWebchatDictation,
+} from './webchat-dictation.js';
 
 const SITE_DIR = resolveInstallPath('docs');
 const CONSOLE_DIST_DIR = resolveInstallPath('console', 'dist');
@@ -3452,6 +3465,54 @@ async function handleApiMediaUpload(
       filename: stored.filename,
     },
   });
+}
+
+async function handleApiMediaTranscription(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const mimeType = normalizeMimeType(
+    normalizeHeaderValue(req.headers['content-type']),
+  );
+  if (!mimeType || !isSupportedDictationMimeType(mimeType)) {
+    sendJson(res, 415, { error: 'Unsupported dictation audio format.' });
+    return;
+  }
+
+  const buffer = await readRequestBody(req, MAX_MEDIA_UPLOAD_BYTES);
+  if (buffer.length === 0) {
+    sendJson(res, 400, { error: 'Dictation recording is empty.' });
+    return;
+  }
+
+  const quotaDecision = consumeGatewayMediaUploadQuota({
+    key: resolveApiMediaUploadQuotaKey(req),
+    bytes: buffer.length,
+  });
+  if (!quotaDecision.allowed) {
+    res.setHeader(
+      'Retry-After',
+      String(Math.max(1, Math.ceil(quotaDecision.retryAfterMs / 1_000))),
+    );
+    sendJson(res, 429, {
+      error: 'Media upload quota exceeded. Try again later.',
+    });
+    return;
+  }
+
+  const abortController = new AbortController();
+  const abort = () => abortController.abort();
+  req.once('aborted', abort);
+  try {
+    const text = await transcribeWebchatDictation({
+      audio: buffer,
+      mimeType,
+      abortSignal: abortController.signal,
+    });
+    sendJson(res, 200, { text });
+  } finally {
+    req.off('aborted', abort);
+  }
 }
 
 async function handleApiChatStream(
@@ -10984,6 +11045,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/media/upload' && method === 'POST') {
             await handleApiMediaUpload(req, res);
+            return;
+          }
+          if (pathname === '/api/media/transcribe' && method === 'POST') {
+            await handleApiMediaTranscription(req, res);
             return;
           }
           if (pathname === '/api/command' && method === 'POST') {

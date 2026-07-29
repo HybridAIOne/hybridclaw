@@ -1,3 +1,10 @@
+/**
+ * Webchat composer — keeps drafts, attachments, mentions, and dictation under
+ * user control until an explicit send action.
+ *
+ * NOT the chat transport; it prepares reviewed input and delegates submission.
+ */
+
 import {
   type ChangeEvent,
   type ClipboardEvent,
@@ -23,6 +30,7 @@ import {
   AgentSwitchSelect,
 } from './agent-switch-select';
 import css from './chat-page.module.css';
+import { DictationControl } from './dictation-control';
 import {
   type ModelSwitchEntry,
   ModelSwitchSelect,
@@ -401,6 +409,31 @@ export function Composer(props: {
     [closePanel, resize, restoreComposerFocusAt],
   );
 
+  const insertDictationTranscript = useCallback(
+    (transcript: string) => {
+      const ta = textareaRef.current;
+      const normalized = transcript.trim();
+      if (!ta || !normalized) return;
+
+      const selectionStart = ta.selectionStart ?? ta.value.length;
+      const selectionEnd = ta.selectionEnd ?? selectionStart;
+      const before = ta.value.slice(0, selectionStart);
+      const after = ta.value.slice(selectionEnd);
+      const leadingSpace = before && !/\s$/u.test(before) ? ' ' : '';
+      const trailingSpace = after && !/^\s/u.test(after) ? ' ' : '';
+      const inserted = `${leadingSpace}${normalized}${trailingSpace}`;
+      ta.value = `${before}${inserted}${after}`;
+      const nextCursor = before.length + inserted.length;
+      ta.setSelectionRange(nextCursor, nextCursor);
+      setComposerValue(ta.value);
+      setComposerCaretIndex(nextCursor);
+      closePanel();
+      resize();
+      restoreComposerFocusAt(nextCursor);
+    },
+    [closePanel, resize, restoreComposerFocusAt],
+  );
+
   const submit = () => {
     if (props.isStreaming) {
       props.onStop();
@@ -617,39 +650,49 @@ export function Composer(props: {
                 onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
               />
             </div>
-            <button
-              type="button"
-              className={cx(css.sendButton, props.isStreaming && css.stopping)}
-              onClick={submit}
-              aria-label={props.isStreaming ? 'Stop' : 'Send message'}
-            >
-              {props.isStreaming ? (
-                <svg
-                  viewBox="0 0 24 24"
-                  width="16"
-                  height="16"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <rect x="6" y="6" width="12" height="12" rx="2" />
-                </svg>
-              ) : (
-                <svg
-                  viewBox="0 0 24 24"
-                  width="16"
-                  height="16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M12 19V5" />
-                  <path d="m5 12 7-7 7 7" />
-                </svg>
-              )}
-            </button>
+            <div className={css.composerRightActions}>
+              <DictationControl
+                token={props.token}
+                disabled={props.isStreaming}
+                onTranscript={insertDictationTranscript}
+              />
+              <button
+                type="button"
+                className={cx(
+                  css.sendButton,
+                  props.isStreaming && css.stopping,
+                )}
+                onClick={submit}
+                aria-label={props.isStreaming ? 'Stop' : 'Send message'}
+              >
+                {props.isStreaming ? (
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                ) : (
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 19V5" />
+                    <path d="m5 12 7-7 7 7" />
+                  </svg>
+                )}
+              </button>
+            </div>
             <input
               ref={fileInputRef}
               type="file"

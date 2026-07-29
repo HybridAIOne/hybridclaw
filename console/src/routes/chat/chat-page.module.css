@@ -1100,6 +1100,17 @@ aside[data-state="collapsed"] .chatSidebarContent {
   color: var(--success);
 }
 
+.messageActions .actionButtonPlaying {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+
+.messageSpeechStatus {
+  align-self: center;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
 .branchSwitcher {
   display: inline-flex;
   align-items: center;
@@ -1641,6 +1652,14 @@ aside[data-state="collapsed"] .chatSidebarContent {
   min-width: 0;
 }
 
+.composerRightActions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .composerInputWrap {
   position: relative;
   flex: 1 1 auto;
@@ -1733,6 +1752,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .attachButton,
+.dictationButton,
 .sendButton {
   display: flex;
   align-items: center;
@@ -1749,6 +1769,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .attachButton:focus-visible,
+.dictationButton:focus-visible,
 .sendButton:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
   outline-offset: 2px;
@@ -1763,6 +1784,59 @@ aside[data-state="collapsed"] .chatSidebarContent {
 .attachButton:hover {
   background: var(--chat-hover-bg);
   color: var(--text);
+}
+
+.dictationButton {
+  background: transparent;
+  color: var(--muted-foreground);
+}
+
+.dictationButton:hover:not(:disabled) {
+  background: var(--chat-hover-bg);
+  color: var(--text);
+}
+
+.dictationButton:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.dictationButtonRecording {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  animation: dictationPulse 1.4s ease-in-out infinite;
+}
+
+.speechStatus {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: max-content;
+  max-width: min(320px, calc(100vw - 48px));
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-card);
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.speechStatusActive {
+  color: var(--danger);
+}
+
+@keyframes dictationPulse {
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger) 10%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dictationButtonRecording {
+    animation: none;
+  }
 }
 
 /* Shared pill chrome used by the agent and model switchers sitting side-by-side

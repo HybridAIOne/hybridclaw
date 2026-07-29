@@ -10,6 +10,24 @@ HybridClaw has shared inbound audio transcription, but it does not currently
 ship a first-party `tts.*` runtime config or a built-in speech-synthesis
 provider.
 
+The webchat has user-controlled audio conveniences that do not require a
+`tts.*` provider:
+
+- The composer microphone records a short dictation take and sends it to the
+  configured `media.audio` transcription chain. The transcript is inserted
+  into the composer for review and editing; it is not sent automatically.
+- Each completed assistant message has a read-aloud action backed by the
+  browser's speech-synthesis engine. Playback starts and stops only through
+  that message action.
+- Unsupported browsers and denied microphone permissions keep normal text chat
+  available. Labels and status text follow English, German, or French browser
+  locales, with English as the fallback.
+
+Dictation audio is written to a private operating-system temporary file only
+while transcription runs, then removed. It is not added to the uploaded-media
+cache or conversation history. The resulting text follows the same persistence
+path as typed text after the user sends it.
+
 If you are looking for the Twilio phone channel, inbound and outbound call
 setup, or ConversationRelay webhooks, see
 [Twilio Voice](./twilio-voice.md).

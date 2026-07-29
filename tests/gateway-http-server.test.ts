@@ -679,6 +679,7 @@ async function importFreshHealth(options?: {
   const loggerError = vi.fn();
   const loggerInfo = vi.fn();
   const loggerWarn = vi.fn();
+  const transcribeWebchatDictation = vi.fn(async () => 'Dictated text');
   const getGatewayHistory = vi.fn((sessionId: string) => ({
     sessionId,
     agentId: 'research',
@@ -2790,6 +2791,11 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/gateway/media-upload-quota.ts', () => ({
     consumeGatewayMediaUploadQuota,
   }));
+  vi.doMock('../src/gateway/webchat-dictation.js', () => ({
+    isSupportedDictationMimeType: (value: string | null | undefined) =>
+      value === 'audio/mp4' || value === 'audio/webm',
+    transcribeWebchatDictation,
+  }));
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
     findLoadedPluginCommand: vi.fn(() => undefined),
     listLoadedPluginCommands,
@@ -2965,6 +2971,7 @@ async function importFreshHealth(options?: {
     claimQueuedProactiveMessages,
     getDelegationJob,
     consumeGatewayMediaUploadQuota,
+    transcribeWebchatDictation,
     listLoadedPluginCommands,
   };
 }
@@ -12803,6 +12810,81 @@ describe('gateway HTTP server', () => {
     expect(fs.existsSync(path.join(dataDir, 'uploaded-media-cache'))).toBe(
       false,
     );
+  });
+
+  test('transcribes authenticated webchat dictation without storing media', async () => {
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/transcribe',
+      headers: { 'content-type': 'audio/mp4; codecs=mp4a.40.2' },
+      body: Buffer.from('voice-bytes'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ text: 'Dictated text' });
+    expect(state.transcribeWebchatDictation).toHaveBeenCalledWith({
+      audio: Buffer.from('voice-bytes'),
+      mimeType: 'audio/mp4',
+      abortSignal: expect.any(AbortSignal),
+    });
+    expect(state.consumeGatewayMediaUploadQuota).toHaveBeenCalledWith({
+      key: 'gateway-token',
+      bytes: 'voice-bytes'.length,
+    });
+    expect(fs.existsSync(path.join(dataDir, 'uploaded-media-cache'))).toBe(
+      false,
+    );
+  });
+
+  test('rejects unsupported webchat dictation before transcription', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/transcribe',
+      headers: { 'content-type': 'text/plain' },
+      body: Buffer.from('not-audio'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(415);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unsupported dictation audio format.',
+    });
+    expect(state.transcribeWebchatDictation).not.toHaveBeenCalled();
+  });
+
+  test('applies media quota limits to webchat dictation', async () => {
+    const state = await importFreshHealth({
+      mediaUploadQuotaDecision: {
+        allowed: false,
+        remainingBytes: 0,
+        retryAfterMs: 2_000,
+        usedBytes: 100 * 1024 * 1024,
+      },
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/transcribe',
+      headers: { 'content-type': 'audio/webm' },
+      body: Buffer.from('voice-bytes'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(429);
+    expect(res.headers['Retry-After']).toBe('2');
+    expect(state.transcribeWebchatDictation).not.toHaveBeenCalled();
   });
 
   test('starts with an empty DATA_DIR and returns 503 for media uploads', async () => {
