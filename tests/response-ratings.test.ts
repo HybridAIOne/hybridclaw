@@ -233,6 +233,103 @@ describe('response ratings', () => {
     });
   });
 
+  test('persists comment and source surface and propagates them to sinks', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = await setup({
+      apiKey: 'hai-feedback-test-key',
+      chatbotId: 'bot-feedback',
+    });
+
+    const result = service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      rating: 'down',
+      comment: '  Correct answer is: 200  ',
+      sourceSurface: 'msteams',
+    });
+
+    expect(result.comment).toBe('Correct answer is: 200');
+    const stored = service.upsertResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      rating: 'down',
+      comment: 'Correct answer is: 200',
+    });
+    expect(stored.comment).toBe('Correct answer is: 200');
+    expect(service.recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          sourceSurface: 'msteams',
+          rating: 'down',
+          comment: 'Correct answer is: 200',
+        }),
+      }),
+    );
+    expect(service.recordSkillFeedbackForObservation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        feedback:
+          expect.stringContaining('msteams response') &&
+          expect.stringContaining('Correct answer is: 200'),
+        sentiment: 'negative',
+      }),
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [, request] = fetchMock.mock.calls[0] as [
+      string,
+      RequestInit & { body: string },
+    ];
+    expect(JSON.parse(request.body)).toMatchObject({
+      rating: 'down',
+      comment: 'Correct answer is: 200',
+    });
+  });
+
+  test('ignores comments when clearing a rating', async () => {
+    const service = await setup();
+
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      rating: 'up',
+    });
+    const cleared = service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      rating: null,
+      comment: 'should be dropped',
+    });
+
+    expect(cleared.comment).toBeNull();
+  });
+
+  test('finds the latest assistant message id for a session', async () => {
+    const service = await setup();
+
+    expect(service.getLatestAssistantMessageId(service.sessionId)).toBe(
+      service.assistantMessageId,
+    );
+    const laterAssistantMessageId = service.storeMessage(
+      service.sessionId,
+      'assistant',
+      null,
+      'assistant',
+      'Follow-up answer',
+      'main',
+    );
+    expect(service.getLatestAssistantMessageId(service.sessionId)).toBe(
+      laterAssistantMessageId,
+    );
+    expect(service.getLatestAssistantMessageId('missing-session')).toBeNull();
+  });
+
   test('forwards accepted ratings to chat feedback endpoint with stored prompt and response', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

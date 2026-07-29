@@ -56,6 +56,7 @@ export interface ResponseRatingRecord {
   message_id: number;
   operator_user_id: string;
   rating: ResponseRatingValue;
+  comment: string | null;
   agent_id: string | null;
   model: string | null;
   provider: string | null;
