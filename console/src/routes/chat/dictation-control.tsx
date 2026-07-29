@@ -1,8 +1,9 @@
 /**
- * Dictation control — owns one explicit, cancellable microphone recording.
+ * Dictation control — owns one explicit, cancellable microphone session.
  *
- * Recordings are sent only to HybridClaw's authenticated transcription route,
- * then the returned text is handed to the composer for review and editing.
+ * Browser speech recognition handles the common Chrome/Safari path; browsers
+ * without it record into HybridClaw's authenticated transcription route.
+ * Either path returns editable composer text and never sends it automatically.
  *
  * NOT a send action or realtime voice session; it never submits chat content.
  */
@@ -16,6 +17,44 @@ import { getSpeechCopy } from './speech-copy';
 
 type DictationState = 'idle' | 'requesting' | 'recording' | 'transcribing';
 
+interface BrowserSpeechRecognitionAlternative {
+  transcript: string;
+}
+
+interface BrowserSpeechRecognitionResult {
+  readonly length: number;
+  readonly [index: number]: BrowserSpeechRecognitionAlternative;
+}
+
+interface BrowserSpeechRecognitionResultList {
+  readonly length: number;
+  readonly [index: number]: BrowserSpeechRecognitionResult;
+}
+
+interface BrowserSpeechRecognitionEvent extends Event {
+  resultIndex: number;
+  results: BrowserSpeechRecognitionResultList;
+}
+
+interface BrowserSpeechRecognitionErrorEvent extends Event {
+  error: string;
+}
+
+interface BrowserSpeechRecognition {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onend: ((event: Event) => void) | null;
+  onerror: ((event: BrowserSpeechRecognitionErrorEvent) => void) | null;
+  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
+  onstart: ((event: Event) => void) | null;
+  abort(): void;
+  start(): void;
+  stop(): void;
+}
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
 // 120s (Codex implementation call, 2026-07-29): enough for composer
 // dictation while bounding forgotten recordings; configurable durations and
 // realtime voice activity detection are deliberately deferred.
@@ -27,7 +66,19 @@ const MIME_TYPE_CANDIDATES = [
   'audio/ogg;codecs=opus',
 ] as const;
 
-function canRecordAudio(): boolean {
+function getBrowserSpeechRecognitionConstructor(): BrowserSpeechRecognitionConstructor | null {
+  const speechWindow = window as Window & {
+    SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+  };
+  return (
+    speechWindow.SpeechRecognition ??
+    speechWindow.webkitSpeechRecognition ??
+    null
+  );
+}
+
+function canRecordForServerTranscription(): boolean {
   return (
     typeof navigator.mediaDevices?.getUserMedia === 'function' &&
     typeof window.MediaRecorder === 'function'
@@ -55,15 +106,30 @@ function isPermissionDenied(error: unknown): boolean {
   );
 }
 
+function readRecognitionTranscript(
+  results: BrowserSpeechRecognitionResultList,
+): string {
+  const segments: string[] = [];
+  for (let index = 0; index < results.length; index += 1) {
+    const transcript = results[index]?.[0]?.transcript.trim();
+    if (transcript) segments.push(transcript);
+  }
+  return segments.join(' ').trim();
+}
+
 export function DictationControl(props: {
   disabled: boolean;
   onTranscript: (text: string) => void;
   token: string;
 }) {
   const copy = useMemo(() => getSpeechCopy(navigator.language), []);
-  const supported = canRecordAudio();
+  const recognitionConstructor = getBrowserSpeechRecognitionConstructor();
+  const supported =
+    recognitionConstructor !== null || canRecordForServerTranscription();
   const [state, setState] = useState<DictationState>('idle');
   const [message, setMessage] = useState('');
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const recognitionTranscriptRef = useRef('');
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -83,6 +149,17 @@ export function DictationControl(props: {
     recorderRef.current = null;
     stopTracks(streamRef.current);
     streamRef.current = null;
+  }, [clearTimeoutRef]);
+
+  const resetRecognition = useCallback(() => {
+    clearTimeoutRef();
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null;
+    if (!recognition) return;
+    recognition.onstart = null;
+    recognition.onresult = null;
+    recognition.onerror = null;
+    recognition.onend = null;
   }, [clearTimeoutRef]);
 
   const transcribe = useCallback(
@@ -141,8 +218,93 @@ export function DictationControl(props: {
     recorder.stop();
   }, [clearTimeoutRef]);
 
-  const startRecording = useCallback(async () => {
-    if (!supported || props.disabled) return;
+  const startBrowserRecognition = useCallback(() => {
+    if (!recognitionConstructor || props.disabled) return;
+    const sequence = ++requestSequenceRef.current;
+    setState('requesting');
+    setMessage(copy.requestingMic);
+
+    const recognition = new recognitionConstructor();
+    let errorMessage = '';
+    recognitionRef.current = recognition;
+    recognitionTranscriptRef.current = '';
+    recognition.lang = navigator.language || 'en-US';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.onstart = () => {
+      if (
+        !mountedRef.current ||
+        sequence !== requestSequenceRef.current ||
+        recognitionRef.current !== recognition
+      ) {
+        recognition.abort();
+        return;
+      }
+      setState('recording');
+      setMessage(copy.listening);
+    };
+    recognition.onresult = (event) => {
+      recognitionTranscriptRef.current = readRecognitionTranscript(
+        event.results,
+      );
+    };
+    recognition.onerror = (event) => {
+      if (event.error === 'aborted') return;
+      if (
+        event.error === 'not-allowed' ||
+        event.error === 'service-not-allowed'
+      ) {
+        errorMessage = copy.micDenied;
+        return;
+      }
+      errorMessage =
+        event.error === 'no-speech' ? copy.noSpeech : copy.micFailed;
+    };
+    recognition.onend = () => {
+      const transcript = recognitionTranscriptRef.current.trim();
+      resetRecognition();
+      if (!mountedRef.current || sequence !== requestSequenceRef.current) {
+        return;
+      }
+      setState('idle');
+      if (errorMessage) {
+        setMessage(errorMessage);
+        return;
+      }
+      if (!transcript) {
+        setMessage(copy.noSpeech);
+        return;
+      }
+      setMessage('');
+      props.onTranscript(transcript);
+    };
+
+    try {
+      recognition.start();
+      timeoutRef.current = window.setTimeout(() => {
+        if (recognitionRef.current !== recognition) return;
+        setState('transcribing');
+        setMessage(copy.transcribing);
+        recognition.stop();
+      }, MAX_DICTATION_DURATION_MS);
+    } catch (error) {
+      resetRecognition();
+      if (!mountedRef.current || sequence !== requestSequenceRef.current) {
+        return;
+      }
+      setState('idle');
+      setMessage(isPermissionDenied(error) ? copy.micDenied : copy.micFailed);
+    }
+  }, [
+    copy,
+    props.disabled,
+    props.onTranscript,
+    recognitionConstructor,
+    resetRecognition,
+  ]);
+
+  const startServerRecording = useCallback(async () => {
+    if (!canRecordForServerTranscription() || props.disabled) return;
     const sequence = ++requestSequenceRef.current;
     setState('requesting');
     setMessage(copy.requestingMic);
@@ -198,19 +360,36 @@ export function DictationControl(props: {
       setState('idle');
       setMessage(isPermissionDenied(error) ? copy.micDenied : copy.micFailed);
     }
-  }, [
-    copy,
-    props.disabled,
-    resetRecording,
-    stopRecording,
-    supported,
-    transcribe,
-  ]);
+  }, [copy, props.disabled, resetRecording, stopRecording, transcribe]);
+
+  const stopDictation = useCallback(() => {
+    const recognition = recognitionRef.current;
+    if (recognition) {
+      clearTimeoutRef();
+      setState('transcribing');
+      setMessage(copy.transcribing);
+      recognition.stop();
+      return;
+    }
+    stopRecording();
+  }, [clearTimeoutRef, copy.transcribing, stopRecording]);
+
+  const startDictation = useCallback(() => {
+    if (recognitionConstructor) {
+      startBrowserRecognition();
+      return;
+    }
+    void startServerRecording();
+  }, [recognitionConstructor, startBrowserRecognition, startServerRecording]);
 
   const cancel = useCallback(() => {
     requestSequenceRef.current += 1;
     transcriptionAbortRef.current?.abort();
     transcriptionAbortRef.current = null;
+    const recognition = recognitionRef.current;
+    resetRecognition();
+    recognitionTranscriptRef.current = '';
+    recognition?.abort();
     const recorder = recorderRef.current;
     recorderRef.current = null;
     if (recorder && recorder.state !== 'inactive') {
@@ -223,7 +402,7 @@ export function DictationControl(props: {
     chunksRef.current = [];
     setState('idle');
     setMessage('');
-  }, [resetRecording]);
+  }, [resetRecognition, resetRecording]);
 
   useEffect(() => {
     if (props.disabled && state !== 'idle') cancel();
@@ -234,6 +413,9 @@ export function DictationControl(props: {
       mountedRef.current = false;
       requestSequenceRef.current += 1;
       transcriptionAbortRef.current?.abort();
+      const recognition = recognitionRef.current;
+      resetRecognition();
+      recognition?.abort();
       const recorder = recorderRef.current;
       recorderRef.current = null;
       if (recorder && recorder.state !== 'inactive') {
@@ -244,15 +426,15 @@ export function DictationControl(props: {
       }
       resetRecording();
     };
-  }, [resetRecording]);
+  }, [resetRecognition, resetRecording]);
 
   const handleClick = () => {
     if (state === 'idle') {
-      void startRecording();
+      startDictation();
       return;
     }
     if (state === 'recording') {
-      stopRecording();
+      stopDictation();
       return;
     }
     cancel();

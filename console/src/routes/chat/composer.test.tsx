@@ -90,6 +90,59 @@ describe('Composer', () => {
     clearAgentAvatarUrlCacheForTest();
   });
 
+  it('uses browser speech recognition and keeps the transcript editable', async () => {
+    class FakeSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = '';
+      onend: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onresult: ((event: Event) => void) | null = null;
+      onstart: ((event: Event) => void) | null = null;
+
+      start() {
+        this.onstart?.(new Event('start'));
+      }
+
+      stop() {
+        const result = {
+          0: { transcript: 'browser dictated message' },
+          length: 1,
+        };
+        this.onresult?.(
+          Object.assign(new Event('result'), {
+            resultIndex: 0,
+            results: { 0: result, length: 1 },
+          }),
+        );
+        this.onend?.(new Event('end'));
+      }
+
+      abort() {
+        this.onend?.(new Event('end'));
+      }
+    }
+
+    vi.stubGlobal('SpeechRecognition', FakeSpeechRecognition);
+    const onSend = vi.fn();
+
+    try {
+      renderComposer({ onSend });
+      fireEvent.click(screen.getByRole('button', { name: 'Voice input' }));
+      await screen.findByRole('button', { name: 'Stop recording' });
+      fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }));
+
+      await waitFor(() =>
+        expect(getTextarea().value).toBe('browser dictated message'),
+      );
+      expect(transcribeDictationMock).not.toHaveBeenCalled();
+      expect(onSend).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(getTextarea());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('inserts dictated text for review without sending it', async () => {
     const originalMediaDevices = Object.getOwnPropertyDescriptor(
       navigator,
