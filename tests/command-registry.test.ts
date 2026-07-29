@@ -1086,3 +1086,60 @@ test('registers context as a canonical slash/text command', async () => {
   ).toEqual(['context']);
   expect(mapCanonicalCommandToGatewayArgs(['context'])).toEqual(['context']);
 });
+
+test('registers thumbs as a text and slash command and maps ratings', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    mapCanonicalCommandToGatewayArgs,
+    parseCanonicalSlashCommandArgs,
+  } = await importCommandRegistry();
+
+  expect(isRegisteredTextCommandName('thumbs')).toBe(true);
+  expect(
+    mapCanonicalCommandToGatewayArgs([
+      'thumbs',
+      'down',
+      'Correct',
+      'answer',
+      'is:',
+      '200',
+    ]),
+  ).toEqual(['thumbs', 'down', 'Correct', 'answer', 'is:', '200']);
+
+  expect(buildCanonicalSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'thumbs',
+        options: expect.arrayContaining([
+          expect.objectContaining({ kind: 'subcommand', name: 'up' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'down' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'clear' }),
+        ]),
+      }),
+    ]),
+  );
+
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'thumbs',
+      getString: (name) =>
+        name === 'comment' ? 'Correct answer is: 200' : null,
+      getSubcommand: () => 'down',
+    }),
+  ).toEqual(['thumbs', 'down', 'Correct answer is: 200']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'thumbs',
+      getString: () => null,
+      getSubcommand: () => 'clear',
+    }),
+  ).toEqual(['thumbs', 'clear']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'thumbs',
+      getString: () => null,
+      getSubcommand: () => null,
+    }),
+  ).toBeNull();
+});

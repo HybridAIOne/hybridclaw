@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- **Rate answers from chat channels with `/thumbs`**: `/thumbs up|down [comment]`
+  records the same per-operator response rating as the web console thumbs from
+  Microsoft Teams, Discord, Slack, and local text sessions, including an
+  optional correction note (for example `/thumbs down Correct answer is: 200`).
+  Ratings persist the note and originating surface and flow into the
+  response-ratings store, audit trail, adaptive-skill feedback, and HybridAI
+  chat-feedback forwarding; `/thumbs clear` removes a rating.
+- **Native Teams reactions count as feedback**: A 👍 (like) or 👎 reaction on a
+  HybridClaw answer in Microsoft Teams records the same response rating as
+  `/thumbs up|down`, and withdrawing the reaction clears it again when it still
+  matches. Other reaction types are ignored.
+
 ### Changed
 
 - **LINE is now an install-on-demand channel plugin**: The unofficial LINEJS
