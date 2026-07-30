@@ -2,7 +2,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
+import { readHybridAIApiKey } from '../auth/hybridai-auth.js';
+import { HYBRIDAI_BASE_URL } from '../config/config.js';
 import type {
   RuntimeAudioCliModelConfig,
   RuntimeAudioProviderModelConfig,
@@ -18,6 +19,7 @@ import { expandUserPath } from './path-utils.js';
 const ABSOLUTE_MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const CLI_OUTPUT_MAX_BUFFER = 5 * 1024 * 1024;
 const GEMINI_CLI_PROBE_TIMEOUT_MS = 8_000;
+const DEFAULT_HYBRIDAI_MODEL = 'gpt-4o-mini-transcribe';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini-transcribe';
 const DEFAULT_GROQ_MODEL = 'whisper-large-v3-turbo';
 const DEFAULT_DEEPGRAM_MODEL = 'nova-3';
@@ -52,6 +54,14 @@ const COMMON_WHISPER_CPP_MODEL_PATHS = [
 export interface AudioTranscriptionResult {
   text: string;
   backend: string;
+}
+
+/**
+ * HybridAI serves audio on its OpenAI-compatible surface, which is rooted at
+ * `/v1` — the same shape every other OpenAI-compatible provider here uses.
+ */
+function hybridAIAudioBaseUrl(): string {
+  return `${HYBRIDAI_BASE_URL.trim().replace(/\/+$/, '')}/v1`;
 }
 
 function normalizeBaseUrl(
@@ -328,6 +338,9 @@ function readProviderApiKey(
   provider: RuntimeAudioTranscriptionProvider,
 ): string | null {
   const storedSecrets = readStoredRuntimeSecrets();
+  if (provider === 'hybridai') {
+    return readHybridAIApiKey();
+  }
   if (provider === 'openai') {
     return (
       String(process.env.OPENAI_API_KEY || '').trim() ||
@@ -364,6 +377,7 @@ function readProviderApiKey(
 function resolveProviderModel(entry: RuntimeAudioProviderModelConfig): string {
   const configured = (entry.model || '').trim();
   if (configured) return configured;
+  if (entry.provider === 'hybridai') return DEFAULT_HYBRIDAI_MODEL;
   if (entry.provider === 'openai') return DEFAULT_OPENAI_MODEL;
   if (entry.provider === 'groq') return DEFAULT_GROQ_MODEL;
   if (entry.provider === 'deepgram') return DEFAULT_DEEPGRAM_MODEL;
@@ -373,6 +387,9 @@ function resolveProviderModel(entry: RuntimeAudioProviderModelConfig): string {
 function resolveProviderBaseUrl(
   entry: RuntimeAudioProviderModelConfig,
 ): string {
+  if (entry.provider === 'hybridai') {
+    return normalizeBaseUrl(entry.baseUrl, hybridAIAudioBaseUrl());
+  }
   if (entry.provider === 'openai') {
     return normalizeBaseUrl(entry.baseUrl, DEFAULT_OPENAI_BASE_URL);
   }
@@ -415,6 +432,12 @@ function resolveEntryLanguage(
 
 function resolveAutoProviderEntries(): RuntimeAudioProviderModelConfig[] {
   const entries: RuntimeAudioProviderModelConfig[] = [];
+  // HybridAI first: it is the default provider, so a signed-in operator gets
+  // dictation with no extra credential to configure. Its endpoint is
+  // OpenAI-compatible, and a failure here falls through to the next backend.
+  if (readProviderApiKey('hybridai')) {
+    entries.push({ type: 'provider', provider: 'hybridai' });
+  }
   if (readProviderApiKey('openai')) {
     entries.push({ type: 'provider', provider: 'openai' });
   }
@@ -895,7 +918,11 @@ async function transcribeWithProvider(params: {
   const timeoutMs = resolveEntryTimeoutMs(params.entry, params.config);
 
   let text: string;
-  if (params.entry.provider === 'openai' || params.entry.provider === 'groq') {
+  if (
+    params.entry.provider === 'hybridai' ||
+    params.entry.provider === 'openai' ||
+    params.entry.provider === 'groq'
+  ) {
     text = await transcribeOpenAiCompatibleAudio({
       baseUrl,
       apiKey,

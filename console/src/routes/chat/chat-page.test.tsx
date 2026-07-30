@@ -120,6 +120,10 @@ vi.mock('../../api/chat', () => ({
     token: string,
     params: { channelId?: string; keepSessionId?: string },
   ) => cleanupNoUserChatSessionsMock(token, params),
+  fetchMediaCapabilities: vi.fn(async () => ({
+    dictation: false,
+    readAloud: false,
+  })),
   fetchAppStatus: (token: string) => fetchAppStatusMock(token),
   fetchChatRecent: (
     token: string,

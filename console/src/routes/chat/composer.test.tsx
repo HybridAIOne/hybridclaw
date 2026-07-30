@@ -10,8 +10,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ChatCommandSuggestion,
   ChatCommandsResponse,
+  DictationTranscriptionResponse,
+  MediaCapabilitiesResponse,
   MediaItem,
 } from '../../api/chat-types';
+import { HttpResponseError } from '../../api/client';
 import { clearAgentAvatarUrlCacheForTest } from './agent-avatar-url';
 import css from './chat-page.module.css';
 import { Composer } from './composer';
@@ -20,12 +23,25 @@ const fetchChatCommandsMock =
   vi.fn<(token: string, query?: string) => Promise<ChatCommandsResponse>>();
 const fetchAgentAvatarBlobMock =
   vi.fn<(token: string, imageUrl: string) => Promise<Blob>>();
+const transcribeDictationMock =
+  vi.fn<
+    (
+      token: string,
+      recording: Blob,
+      signal?: AbortSignal,
+    ) => Promise<DictationTranscriptionResponse>
+  >();
+const fetchMediaCapabilitiesMock =
+  vi.fn<(token: string) => Promise<MediaCapabilitiesResponse>>();
 
 vi.mock('../../api/chat', () => ({
   fetchAgentAvatarBlob: (token: string, imageUrl: string) =>
     fetchAgentAvatarBlobMock(token, imageUrl),
   fetchChatCommands: (token: string, query?: string) =>
     fetchChatCommandsMock(token, query),
+  fetchMediaCapabilities: (token: string) => fetchMediaCapabilitiesMock(token),
+  transcribeDictation: (token: string, recording: Blob, signal?: AbortSignal) =>
+    transcribeDictationMock(token, recording, signal),
 }));
 
 const APPROVE: ChatCommandSuggestion = {
@@ -64,6 +80,12 @@ describe('Composer', () => {
   beforeEach(() => {
     fetchAgentAvatarBlobMock.mockReset();
     fetchChatCommandsMock.mockReset();
+    fetchMediaCapabilitiesMock.mockReset();
+    fetchMediaCapabilitiesMock.mockResolvedValue({
+      dictation: true,
+      readAloud: true,
+    });
+    transcribeDictationMock.mockReset();
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
       writable: true,
@@ -75,6 +97,149 @@ describe('Composer', () => {
       value: vi.fn(),
     });
     clearAgentAvatarUrlCacheForTest();
+  });
+
+  it('inserts dictated text for review without sending it', async () => {
+    const originalMediaDevices = Object.getOwnPropertyDescriptor(
+      navigator,
+      'mediaDevices',
+    );
+    const stopTrack = vi.fn();
+    const stream = {
+      getTracks: () => [{ stop: stopTrack }],
+    } as unknown as MediaStream;
+    const getUserMedia = vi.fn(async () => stream);
+    const recorderStart = vi.fn();
+
+    class FakeMediaRecorder {
+      static isTypeSupported = vi.fn((type: string) => type === 'audio/mp4');
+      state: RecordingState = 'inactive';
+      mimeType: string;
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onstop: ((event: Event) => void) | null = null;
+
+      constructor(_stream: MediaStream, options?: MediaRecorderOptions) {
+        this.mimeType = options?.mimeType || '';
+      }
+
+      start(timeslice?: number) {
+        this.state = 'recording';
+        recorderStart(timeslice);
+      }
+
+      stop() {
+        this.state = 'inactive';
+        this.ondataavailable?.({
+          data: new Blob(['voice'.repeat(20)], { type: this.mimeType }),
+        } as BlobEvent);
+        this.onstop?.(new Event('stop'));
+      }
+    }
+
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia },
+    });
+    vi.stubGlobal(
+      'MediaRecorder',
+      FakeMediaRecorder as unknown as typeof MediaRecorder,
+    );
+    transcribeDictationMock.mockResolvedValue({
+      text: 'dictated message',
+    });
+    const onSend = vi.fn();
+
+    try {
+      renderComposer({ onSend });
+      const voiceInput = screen.getByRole('button', { name: 'Voice input' });
+      await waitFor(() =>
+        expect(voiceInput.hasAttribute('disabled')).toBe(false),
+      );
+      fireEvent.click(voiceInput);
+      await screen.findByRole('button', { name: 'Stop recording' });
+      fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }));
+
+      await waitFor(() => expect(getTextarea().value).toBe('dictated message'));
+      expect(transcribeDictationMock).toHaveBeenCalledWith(
+        'test-token',
+        expect.any(Blob),
+        expect.any(AbortSignal),
+      );
+      expect(onSend).not.toHaveBeenCalled();
+      expect(getUserMedia).toHaveBeenCalledWith({
+        audio: {
+          noiseSuppression: { ideal: true },
+          echoCancellation: { ideal: true },
+          autoGainControl: { ideal: true },
+        },
+      });
+      expect(recorderStart).toHaveBeenCalledWith(1_000);
+      expect(document.activeElement).toBe(getTextarea());
+      expect(stopTrack).toHaveBeenCalled();
+
+      transcribeDictationMock.mockRejectedValueOnce(
+        new HttpResponseError('No speech was detected in the recording.', 422),
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Voice input' }));
+      await screen.findByRole('button', { name: 'Stop recording' });
+      fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }));
+      expect(
+        await screen.findByText('No speech was detected. Please try again.'),
+      ).not.toBeNull();
+      expect(getTextarea().value).toBe('dictated message');
+    } finally {
+      vi.unstubAllGlobals();
+      if (originalMediaDevices) {
+        Object.defineProperty(navigator, 'mediaDevices', originalMediaDevices);
+      } else {
+        Reflect.deleteProperty(navigator, 'mediaDevices');
+      }
+    }
+  });
+
+  it('shows permission denial and leaves text chat usable', async () => {
+    const originalMediaDevices = Object.getOwnPropertyDescriptor(
+      navigator,
+      'mediaDevices',
+    );
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn(async () => {
+          throw new DOMException('denied', 'NotAllowedError');
+        }),
+      },
+    });
+    vi.stubGlobal('MediaRecorder', class {} as unknown as typeof MediaRecorder);
+
+    try {
+      renderComposer();
+      const voiceInput = screen.getByRole('button', { name: 'Voice input' });
+      await waitFor(() =>
+        expect(voiceInput.hasAttribute('disabled')).toBe(false),
+      );
+      fireEvent.click(voiceInput);
+
+      expect(
+        await screen.findByText(
+          'No access to the microphone. Please allow it in your browser settings.',
+        ),
+      ).not.toBeNull();
+      expect(getTextarea().hasAttribute('disabled')).toBe(false);
+      expect(
+        screen
+          .getByRole('button', { name: 'Voice input' })
+          .hasAttribute('disabled'),
+      ).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+      if (originalMediaDevices) {
+        Object.defineProperty(navigator, 'mediaDevices', originalMediaDevices);
+      } else {
+        Reflect.deleteProperty(navigator, 'mediaDevices');
+      }
+    }
   });
 
   it('strips the leading slash before fetching command suggestions', async () => {
