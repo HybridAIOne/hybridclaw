@@ -317,6 +317,7 @@ export type IMessageBackend = 'local' | 'bluebubbles';
 export type IMessageDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type RuntimeAudioTranscriptionProvider =
+  | 'hybridai'
   | 'openai'
   | 'groq'
   | 'deepgram'
@@ -6588,6 +6589,7 @@ function normalizeAudioTranscriptionProvider(
 ): RuntimeAudioTranscriptionProvider | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
+  if (normalized === 'hybridai') return 'hybridai';
   if (normalized === 'openai') return 'openai';
   if (normalized === 'groq') return 'groq';
   if (normalized === 'deepgram') return 'deepgram';

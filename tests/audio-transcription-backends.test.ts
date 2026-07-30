@@ -10,6 +10,8 @@ import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const ORIGINAL_PATH = process.env.PATH;
 const ORIGINAL_GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
+const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
+const ORIGINAL_OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 const DEFAULT_AUDIO_CONFIG = {
   enabled: true,
@@ -29,6 +31,8 @@ useCleanMocks({
   cleanup: () => {
     process.env.PATH = ORIGINAL_PATH;
     process.env.GOOGLE_API_KEY = ORIGINAL_GOOGLE_API_KEY;
+    process.env.HYBRIDAI_API_KEY = ORIGINAL_HYBRIDAI_API_KEY;
+    process.env.OPENAI_API_KEY = ORIGINAL_OPENAI_API_KEY;
   },
   restoreAllMocks: false,
   resetModules: true,
@@ -96,4 +100,56 @@ test('google provider fallback uses the current default Gemini model', async () 
     backend: 'google/gemini-3.1-flash-lite-preview',
   });
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+
+test('hybridai transcribes through the OpenAI-compatible surface at /v1', async () => {
+  process.env.HYBRIDAI_API_KEY = 'test-hybridai-key';
+
+  const audioDir = makeTempDir('hybridclaw-audio-hybridai-');
+  const audioPath = path.join(audioDir, 'voice-note.ogg');
+  fs.writeFileSync(audioPath, 'audio-bytes', 'utf8');
+
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    expect(String(input)).toBe('https://hybridai.one/v1/audio/transcriptions');
+    expect(new Headers(init?.headers).get('authorization')).toBe(
+      'Bearer test-hybridai-key',
+    );
+    return new Response(JSON.stringify({ text: 'transcribed by hybridai' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const transcript = await transcribeAudioWithFallback({
+    filePath: audioPath,
+    fileName: 'voice-note.ogg',
+    mimeType: 'audio/ogg',
+    config: DEFAULT_AUDIO_CONFIG,
+    models: [{ type: 'provider', provider: 'hybridai' }],
+  });
+
+  expect(transcript).toEqual({
+    text: 'transcribed by hybridai',
+    backend: 'hybridai/gpt-4o-mini-transcribe',
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test('hybridai leads the auto-detected provider order', async () => {
+  // HybridAI is the default provider, so a signed-in operator should get
+  // dictation without configuring a second credential.
+  const binDir = makeTempDir('hybridclaw-audio-order-');
+  process.env.PATH = binDir;
+  process.env.HYBRIDAI_API_KEY = 'test-hybridai-key';
+  process.env.OPENAI_API_KEY = 'test-openai-key';
+
+  const entries = await resolveAudioTranscriptionModels(DEFAULT_AUDIO_CONFIG);
+  const providers = entries
+    .filter((entry) => entry.type === 'provider')
+    .map((entry) => entry.provider);
+
+  expect(providers[0]).toBe('hybridai');
+  expect(providers).toContain('openai');
 });
