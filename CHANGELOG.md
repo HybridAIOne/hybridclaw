@@ -14,6 +14,13 @@
 
 ### Fixed
 
+- **Observability ingest follows `HYBRIDAI_BASE_URL`**: When the platform base
+  URL is set via the `HYBRIDAI_BASE_URL` environment variable, the
+  observability ingest endpoint now defaults to that same host instead of the
+  built-in default. Deployments pointed at a non-default platform host no
+  longer post observability events to the wrong platform (which surfaced as a
+  recurring `Observability ingest token unavailable: Invalid API key` warning).
+  An explicit `observability.baseUrl` in the config file still wins.
 - **Cloud admin sessions recover after inactivity**: Expired browser sessions
   reload through HybridAI sign-in instead of showing an unactionable
   `WEB_API_TOKEN` prompt. The self-hosted fallback identifies the exact gateway
