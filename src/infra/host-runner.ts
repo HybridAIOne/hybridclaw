@@ -1004,6 +1004,7 @@ async function runHostProcessInner(
         createdAt: task.created_at,
       }),
     ),
+    skillCatalog: params.skillCatalog,
     allowedTools,
     blockedTools,
     media,

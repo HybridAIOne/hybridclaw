@@ -51,6 +51,10 @@ import {
   SEARCH_TOOL_DEFINITIONS,
 } from './tools/search-tools.js';
 import {
+  runSkillsList,
+  SKILLS_LIST_TOOL_DEFINITION,
+} from './tools/skills-list.js';
+import {
   type DelegationSideEffect,
   type DelegationTaskSpec,
   type MediaContextItem,
@@ -2911,6 +2915,9 @@ async function executeToolInternal(
       return result.output;
     }
 
+    case 'skills_list':
+      return runSkillsList(args);
+
     case 'bash': {
       const blocked = guardCommand(args.command);
       if (blocked) return failTool(blocked);
@@ -3953,6 +3960,7 @@ const BASH_TOOL_DEFINITION: ToolDefinition = {
 };
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
+  SKILLS_LIST_TOOL_DEFINITION,
   {
     type: 'function',
     function: {
