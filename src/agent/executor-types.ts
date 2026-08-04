@@ -3,6 +3,7 @@ import type {
   AddressEnvelope,
   ContainerOutput,
   MediaContextItem,
+  SkillCatalogEntry,
 } from '../types/container.js';
 import type {
   EscalationTarget,
@@ -40,6 +41,7 @@ export interface ExecutorRequest {
   fullAutoNeverApproveTools?: string[];
   scheduleSideEffectsEnabled?: boolean;
   scheduledTasks?: ScheduledTask[];
+  skillCatalog?: SkillCatalogEntry[];
   allowedTools?: string[];
   blockedTools?: string[];
   onTextDelta?: (delta: string) => void;

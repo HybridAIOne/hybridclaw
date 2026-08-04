@@ -60,6 +60,10 @@ const TOOL_GROUPS: ToolGroup[] = [
     tools: ['memory', 'session_search'],
   },
   {
+    label: 'Skills',
+    tools: ['skills_list'],
+  },
+  {
     label: 'Vision',
     tools: ['vision_analyze'],
   },

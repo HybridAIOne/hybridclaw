@@ -103,6 +103,7 @@ import {
   formatLineSafeToolProgressText,
   formatToolCallStartProgressText,
 } from './tool-progress-log.js';
+import { setEligibleSkillsCatalog } from './tools/skills-list.js';
 import {
   executeToolWithMetadata,
   getMessageToolDescription,
@@ -1977,6 +1978,7 @@ async function main(): Promise<void> {
   await syncMcpConfig(firstInput.mcpServers);
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
+  setEligibleSkillsCatalog(firstInput.skillCatalog);
   setScheduleSideEffectsEnabled(
     firstInput.scheduleSideEffectsEnabled !== false,
   );
@@ -2168,6 +2170,7 @@ async function main(): Promise<void> {
     await syncMcpConfig(input.mcpServers);
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
+    setEligibleSkillsCatalog(input.skillCatalog);
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
     setPersistentBashStateEnabled(input.persistBashState !== false);

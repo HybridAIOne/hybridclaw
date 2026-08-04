@@ -40,6 +40,13 @@ export interface AddressEnvelope {
   fanoutAlias?: 'team' | 'all';
 }
 
+export interface SkillCatalogEntry {
+  name: string;
+  description: string;
+  category: string;
+  location: string;
+}
+
 export interface ProviderCredential {
   apiKey?: string;
   baseUrl?: string;
@@ -97,6 +104,7 @@ export interface ContainerInput {
   configuredDiscordChannels?: string[];
   activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
+  skillCatalog?: SkillCatalogEntry[];
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];

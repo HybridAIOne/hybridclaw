@@ -13,6 +13,7 @@ import {
 import * as runtimeConfig from '../src/config/runtime-config.js';
 import * as providerFactory from '../src/providers/factory.js';
 import type { Skill } from '../src/skills/skills.js';
+import { buildSkillsPrompt } from '../src/skills/skills.js';
 
 test('buildToolsSummary groups the full tool catalog', () => {
   const summary = buildToolsSummary();
@@ -30,6 +31,7 @@ test('buildToolsSummary groups the full tool catalog', () => {
   );
   expect(summary).toContain('**Communication**: `message`');
   expect(summary).toContain('**Delegation**: `delegate`');
+  expect(summary).toContain('**Skills**: `skills_list`');
   expect(summary).toContain('**Vision**: `vision_analyze`');
   expect(summary).toContain('**Image Generation**: `image_generate`');
   expect(summary).toContain('**Video Generation**: `video_generate`');
@@ -306,6 +308,48 @@ test('buildSystemPromptFromHooks keeps the skill catalog stable when the user ex
   expect(prompt).toContain('<available_skills>');
   expect(prompt).toContain('<name>pdf</name>');
   expect(prompt).toContain('<name>apple-music</name>');
+});
+
+test('buildSkillsPrompt preserves every skill identity before compacting descriptions', () => {
+  const skills = Array.from({ length: 80 }, (_, index) =>
+    makeSkill({
+      name: index === 79 ? 'pdf' : `catalog-skill-${String(index).padStart(2, '0')}`,
+      category: index === 79 ? 'office' : 'catalog',
+      description: `Skill ${index} ${'detailed routing guidance '.repeat(30)}`,
+      location:
+        index === 79
+          ? 'skills/pdf/SKILL.md'
+          : `skills/catalog-skill-${index}/SKILL.md`,
+    }),
+  );
+
+  const prompt = buildSkillsPrompt(skills);
+
+  for (const skill of skills) {
+    expect(prompt).toContain(`<name>${skill.name}</name>`);
+    expect(prompt).toContain(`<location>${skill.location}</location>`);
+  }
+  expect(prompt).toContain('compacted_descriptions="80"');
+  expect(prompt).toContain('omitted_skills="0"');
+  expect(prompt).toContain('Use skills_list to search');
+  expect(prompt).not.toContain('<capabilities>');
+  expect(prompt).not.toContain('<required_credentials>');
+});
+
+test('buildSkillsPrompt reports identity omissions when the minimum catalog exceeds its budget', () => {
+  const skills = Array.from({ length: 300 }, (_, index) =>
+    makeSkill({
+      name: `oversized-skill-${index}`,
+      description: 'x',
+      location: `skills/${'nested-location-'.repeat(8)}${index}/SKILL.md`,
+    }),
+  );
+
+  const prompt = buildSkillsPrompt(skills);
+  const omitted = Number(prompt.match(/omitted_skills="(\d+)"/)?.[1]);
+
+  expect(omitted).toBeGreaterThan(0);
+  expect(prompt).toContain('Use skills_list to search');
 });
 
 test('buildSystemPromptFromHooks uses the provided workspace path in runtime metadata', () => {
