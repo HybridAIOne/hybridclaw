@@ -21,6 +21,7 @@ export const SKILLS_LIST_TOOL_DEFINITION: ToolDefinition = {
           description: 'Maximum results to return (default 20, maximum 100).',
         },
       },
+      required: [],
     },
   },
 };
