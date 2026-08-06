@@ -12845,7 +12845,14 @@ export async function handleGatewayCommand(
             if (!privateKey) {
               return badCommand(
                 'Voice Not Configured',
-                'Store `VONAGE_PRIVATE_KEY` in the encrypted secret store before using `voice call`.',
+                'Store `VONAGE_PRIVATE_KEY` in the encrypted secret store (or set `voice.vonage.privateKey`) before using `voice call`.',
+              );
+            }
+
+            if (!String(VONAGE_SIGNATURE_SECRET || '').trim()) {
+              return badCommand(
+                'Voice Not Configured',
+                'Store `VONAGE_SIGNATURE_SECRET` in the encrypted secret store (or set `voice.vonage.signatureSecret`) before using `voice call`; without it the gateway rejects Vonage answer webhooks, so the call would dial and then fail.',
               );
             }
 

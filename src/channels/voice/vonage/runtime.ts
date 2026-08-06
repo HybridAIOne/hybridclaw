@@ -138,7 +138,7 @@ function validateSignedWebhook(params: {
     );
     return false;
   }
-  if (claims.jti && !replayProtector.observe(claims.jti)) {
+  if (!replayProtector.observe(claims.jti)) {
     logger.warn(
       { remoteIp: params.remoteIp, path: params.path },
       'Vonage voice webhook rejected: replayed signed-callback JWT',

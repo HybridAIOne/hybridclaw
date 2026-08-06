@@ -66,6 +66,8 @@ export function mintVonageApplicationJwt(params: {
       jti: randomUUID(),
     }),
   );
+  // lgtm[js/insufficient-password-hash] RS256 JWT signing is mandated by
+  // Vonage's API auth protocol; the key is an RSA signing key, not a password.
   const signature = createSign('RSA-SHA256')
     .update(`${header}.${payload}`)
     .sign(privateKey)
@@ -124,6 +126,8 @@ export function verifyVonageWebhookJwt(params: {
     return null;
   }
 
+  // lgtm[js/insufficient-password-hash] HS256 is mandated by Vonage's
+  // signed-webhook protocol; this authenticates a request, not a password.
   const expectedSignature = createHmac('sha256', signatureSecret)
     .update(`${headerSegment}.${payloadSegment}`)
     .digest();
@@ -141,6 +145,13 @@ export function verifyVonageWebhookJwt(params: {
     iat > now + WEBHOOK_JWT_MAX_CLOCK_SKEW_SECONDS ||
     now - iat > WEBHOOK_JWT_MAX_AGE_SECONDS
   ) {
+    return null;
+  }
+
+  // Vonage always issues a jti; a token without one cannot participate in
+  // replay protection, so treat it as invalid rather than waving it through.
+  const jti = typeof payload.jti === 'string' ? payload.jti.trim() : '';
+  if (!jti) {
     return null;
   }
 
@@ -164,8 +175,5 @@ export function verifyVonageWebhookJwt(params: {
     }
   }
 
-  return {
-    jti: typeof payload.jti === 'string' ? payload.jti : '',
-    iat,
-  };
+  return { jti, iat };
 }

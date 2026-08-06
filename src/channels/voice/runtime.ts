@@ -290,6 +290,18 @@ function sendUnavailableTwiml(res: ServerResponse): void {
   );
 }
 
+function sendInactiveProviderNotFound(res: ServerResponse): void {
+  if (res.headersSent) {
+    if (!res.writableEnded) {
+      res.end();
+    }
+    return;
+  }
+  res.statusCode = 404;
+  res.setHeader('content-type', 'text/plain; charset=utf-8');
+  res.end('Voice provider not active for this endpoint.');
+}
+
 function sendDuplicateReplayTwiml(res: ServerResponse): void {
   sendXml(
     res,
@@ -623,10 +635,24 @@ export async function handleVoiceWebhook(
   url: URL,
 ): Promise<boolean> {
   const voiceConfig = getConfigSnapshot().voice;
+  const paths = resolveVoiceWebhookPaths(voiceConfig.webhookPath);
+  const isTwilioPath =
+    url.pathname === paths.webhookPath || url.pathname === paths.actionPath;
+  const isVonagePath =
+    url.pathname === paths.answerPath ||
+    url.pathname === paths.inputPath ||
+    url.pathname === paths.eventPath;
   if (voiceConfig.provider === 'vonage') {
+    if (isTwilioPath) {
+      sendInactiveProviderNotFound(res);
+      return true;
+    }
     return handleVonageVoiceWebhook(req, res, url);
   }
-  const paths = resolveVoiceWebhookPaths(voiceConfig.webhookPath);
+  if (isVonagePath) {
+    sendInactiveProviderNotFound(res);
+    return true;
+  }
   if (req.method !== 'POST') {
     return false;
   }

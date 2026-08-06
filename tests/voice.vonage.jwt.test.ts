@@ -21,7 +21,7 @@ function decodeSegment(segment: string): Record<string, unknown> {
 function buildWebhookJwt(params: {
   secret?: string;
   iat?: number;
-  jti?: string;
+  jti?: string | null;
   payloadHash?: string;
   alg?: string;
 }): string {
@@ -31,7 +31,7 @@ function buildWebhookJwt(params: {
   const payload = Buffer.from(
     JSON.stringify({
       iat: params.iat ?? Math.floor(Date.now() / 1000),
-      jti: params.jti ?? 'test-jti',
+      ...(params.jti === null ? {} : { jti: params.jti ?? 'test-jti' }),
       iss: 'Vonage',
       api_key: 'test-api-key',
       ...(params.payloadHash ? { payload_hash: params.payloadHash } : {}),
@@ -145,6 +145,19 @@ test('verifyVonageWebhookJwt rejects a missing payload hash for signed bodies', 
       rawBody: '{"uuid":"call-1"}',
     }),
   ).toBeNull();
+});
+
+test('verifyVonageWebhookJwt rejects tokens without a jti claim', () => {
+  for (const jti of [null, ''] as const) {
+    const token = buildWebhookJwt({ jti });
+    expect(
+      verifyVonageWebhookJwt({
+        token,
+        signatureSecret: SIGNATURE_SECRET,
+        rawBody: '',
+      }),
+    ).toBeNull();
+  }
 });
 
 test('verifyVonageWebhookJwt rejects non-HS256 algorithms', () => {

@@ -270,6 +270,56 @@ test('voice call creates an outbound Vonage call with the stored private key', a
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
+test('voice call refuses to dial when the Vonage signature secret is missing', async () => {
+  setupHome();
+
+  const { generateKeyPairSync } = await import('node:crypto');
+  const { privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+  });
+  const fetchMock = vi.fn();
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { refreshRuntimeSecretsFromEnv } = await import(
+    '../src/config/config.ts'
+  );
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { saveNamedRuntimeSecrets } = await import(
+    '../src/security/runtime-secrets.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  updateRuntimeConfig((draft) => {
+    draft.ops.gatewayBaseUrl = 'https://voice.example.com';
+    draft.voice.enabled = true;
+    draft.voice.provider = 'vonage';
+    draft.voice.vonage.applicationId = 'app-123';
+    draft.voice.vonage.fromNumber = '+14155550123';
+  });
+  saveNamedRuntimeSecrets({ VONAGE_PRIVATE_KEY: privateKey });
+  refreshRuntimeSecretsFromEnv();
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-voice-command-vonage-no-secret',
+    guildId: null,
+    channelId: 'web',
+    args: ['voice', 'call', '+4915123456789'],
+  });
+
+  expect(result.kind).toBe('error');
+  expect(result.title).toBe('Voice Not Configured');
+  expect(result.text).toContain('VONAGE_SIGNATURE_SECRET');
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
 test('voice info reports Vonage configuration when the provider is vonage', async () => {
   setupHome();
 

@@ -81,11 +81,11 @@ function makeResponse() {
   };
 }
 
-function mockVonageConfig() {
+function mockVonageConfig(provider: 'twilio' | 'vonage' = 'vonage') {
   const getConfigSnapshot = vi.fn(() => ({
     voice: {
       enabled: true,
-      provider: 'vonage',
+      provider,
       twilio: {
         accountSid: '',
         authToken: '',
@@ -169,6 +169,44 @@ test('answer webhook with a valid signed callback returns greeting NCCO', async 
     action: 'input',
     eventUrl: ['https://voice.example.com/voice/input'],
   });
+  await shutdownVoice();
+});
+
+test('Twilio-only paths respond 404 while the Vonage provider is active', async () => {
+  mockVonageConfig();
+  const { handleVoiceWebhook, initVoice, shutdownVoice } = await import(
+    '../src/channels/voice/runtime.js'
+  );
+  await initVoice(async () => {});
+
+  const { req } = makeJsonRequest({ url: '/voice/webhook', body: {} });
+  const res = makeResponse();
+  const handled = await handleVoiceWebhook(
+    req as never,
+    res as never,
+    new URL('https://voice.example.com/voice/webhook'),
+  );
+  expect(handled).toBe(true);
+  expect(res.statusCode).toBe(404);
+  await shutdownVoice();
+});
+
+test('Vonage paths respond 404 while the Twilio provider is active', async () => {
+  mockVonageConfig('twilio');
+  const { handleVoiceWebhook, initVoice, shutdownVoice } = await import(
+    '../src/channels/voice/runtime.js'
+  );
+  await initVoice(async () => {});
+
+  const { req } = makeJsonRequest({ url: '/voice/answer', body: {} });
+  const res = makeResponse();
+  const handled = await handleVoiceWebhook(
+    req as never,
+    res as never,
+    new URL('https://voice.example.com/voice/answer'),
+  );
+  expect(handled).toBe(true);
+  expect(res.statusCode).toBe(404);
   await shutdownVoice();
 });
 
