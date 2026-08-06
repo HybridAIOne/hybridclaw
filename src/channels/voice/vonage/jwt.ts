@@ -66,10 +66,10 @@ export function mintVonageApplicationJwt(params: {
       jti: randomUUID(),
     }),
   );
-  // lgtm[js/insufficient-password-hash] RS256 JWT signing is mandated by
-  // Vonage's API auth protocol; the key is an RSA signing key, not a password.
   const signature = createSign('RSA-SHA256')
     .update(`${header}.${payload}`)
+    // lgtm[js/insufficient-password-hash] RS256 JWT signing is mandated by
+    // Vonage's API auth protocol; the key is an RSA signing key, not a password.
     .sign(privateKey)
     .toString('base64url');
   return `${header}.${payload}.${signature}`;
