@@ -256,14 +256,11 @@ saved revision history directly.
   `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
   config, and note that `email.pollIntervalMs` defaults to `30000`
   milliseconds and is clamped to a minimum of `1000`
-- `voice.*` for the phone channel, including the provider selection
-  (`twilio` or `vonage`), webhook path, concurrency, relay voice/STT
-  options, and per-provider credentials; the Twilio auth token can stay
-  empty in config when you store `TWILIO_AUTH_TOKEN` in the encrypted
-  runtime secret store or use a SecretRef-backed `voice.twilio.authToken`,
-  and the Vonage private key and signature secret likewise map to
-  `VONAGE_PRIVATE_KEY` / `VONAGE_SIGNATURE_SECRET` or SecretRef-backed
-  `voice.vonage.privateKey` / `voice.vonage.signatureSecret`
+- `voice.*` for the Twilio ConversationRelay channel, including webhook path,
+  concurrency, relay voice/STT options, and Twilio number/account settings;
+  the auth token can stay empty in config when you store `TWILIO_AUTH_TOKEN`
+  in the encrypted runtime secret store or use a SecretRef-backed
+  `voice.twilio.authToken`
 - `deployment.mode`, `deployment.public_url`, `deployment.a2a_local_mode`,
   `deployment.a2a_e2ee_required`, `deployment.tunnel.provider`, and
   `deployment.tunnel.health_check_interval_ms` declare whether the gateway runs
@@ -432,8 +429,7 @@ native model audio input for supported sessions. Today that path is enabled for
 `vllm` and attaches the original current-turn audio when no transcript block
 was prepended already.
 
-For the Twilio phone channel, see [Twilio Voice](../guides/twilio-voice.md);
-for the Vonage alternative, see [Vonage Voice](../guides/vonage-voice.md).
+For the Twilio phone channel, see [Twilio Voice](../guides/twilio-voice.md).
 For the local speech and fallback workflow, see
 [Voice And TTS](../guides/voice-tts.md).
 
@@ -453,8 +449,7 @@ Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
 `NGROK_AUTHTOKEN`, `DISCORD_TOKEN`, `DISCORD_WEBHOOK_URL`,
 `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_WEBHOOK_URL`,
 `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`,
-`IMESSAGE_PASSWORD`, `TWILIO_AUTH_TOKEN`, `VONAGE_PRIVATE_KEY`,
-`VONAGE_SIGNATURE_SECRET`, `MSTEAMS_APP_PASSWORD`,
+`IMESSAGE_PASSWORD`, `TWILIO_AUTH_TOKEN`, `MSTEAMS_APP_PASSWORD`,
 `CLOUDFLARE_TUNNEL_TOKEN`, `CLOUDFLARE_CERT_PEM`,
 `CLOUDFLARE_TUNNEL_JSON`, `BROWSER_USE_API_KEY`, `WEB_API_TOKEN`, and
 `GATEWAY_API_TOKEN`.
@@ -503,8 +498,7 @@ credential checks run.
   new configuration should not use env-backed SecretRefs
 - current built-in SecretRef surfaces include `ops.webApiToken`,
   `ops.gatewayApiToken`, `email.password`, `imessage.password`,
-  `voice.twilio.authToken`, `voice.vonage.privateKey`,
-  `voice.vonage.signatureSecret`, `local.backends.vllm.apiKey`,
+  `voice.twilio.authToken`, `local.backends.vllm.apiKey`,
   `browser.browserUseCloud.apiKeyRef`, `web.search.searxngBearerTokenRef`, and
   per-agent `agents.list[].webSearch.searxngBearerTokenRef`
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently stored in plain

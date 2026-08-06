@@ -17,7 +17,7 @@ import {
   randomUUID,
   timingSafeEqual,
 } from 'node:crypto';
-import { isRecord } from '../../../utils/type-guards.js';
+import { isRecord } from './utils.js';
 
 const APPLICATION_JWT_TTL_SECONDS = 900;
 // 300s (owner call, 2026-08-06): max accepted webhook JWT age; pairs with the
@@ -25,32 +25,24 @@ const APPLICATION_JWT_TTL_SECONDS = 900;
 // by iat once it ages out of the replay cache.
 export const WEBHOOK_JWT_MAX_AGE_SECONDS = 300;
 const WEBHOOK_JWT_MAX_CLOCK_SKEW_SECONDS = 30;
-
-function base64UrlEncode(data: Buffer | string): string {
+function base64UrlEncode(data) {
   return Buffer.from(data).toString('base64url');
 }
-
-function base64UrlDecode(segment: string): Buffer | null {
+function base64UrlDecode(segment) {
   try {
     return Buffer.from(segment, 'base64url');
   } catch {
     return null;
   }
 }
-
-export function normalizeVonagePrivateKey(raw: string): string {
+export function normalizeVonagePrivateKey(raw) {
   // Secret stores and env vars commonly hold PEM keys with literal "\n"
   // escapes; restore real newlines before handing the key to node:crypto.
   return String(raw || '')
     .replace(/\\n/g, '\n')
     .trim();
 }
-
-export function mintVonageApplicationJwt(params: {
-  applicationId: string;
-  privateKey: string;
-  nowSeconds?: number;
-}): string {
+export function mintVonageApplicationJwt(params) {
   const applicationId = String(params.applicationId || '').trim();
   const privateKey = normalizeVonagePrivateKey(params.privateKey);
   if (!applicationId || !privateKey) {
@@ -74,28 +66,14 @@ export function mintVonageApplicationJwt(params: {
     .toString('base64url');
   return `${header}.${payload}.${signature}`;
 }
-
-export interface VonageWebhookJwtClaims {
-  jti: string;
-  iat: number;
-}
-
-export function extractBearerToken(
-  authorizationHeader: string | null | undefined,
-): string {
+export function extractBearerToken(authorizationHeader) {
   const raw = String(authorizationHeader || '').trim();
   if (!/^bearer\s/i.test(raw)) {
     return '';
   }
   return raw.replace(/^bearer\s+/i, '').trim();
 }
-
-export function verifyVonageWebhookJwt(params: {
-  token: string;
-  signatureSecret: string;
-  rawBody: string;
-  nowSeconds?: number;
-}): VonageWebhookJwtClaims | null {
+export function verifyVonageWebhookJwt(params) {
   const token = String(params.token || '').trim();
   const signatureSecret = String(params.signatureSecret || '');
   if (!token || !signatureSecret) {
@@ -106,16 +84,14 @@ export function verifyVonageWebhookJwt(params: {
     return null;
   }
   const [headerSegment, payloadSegment, signatureSegment] = segments;
-
   const headerBuffer = base64UrlDecode(headerSegment);
   const payloadBuffer = base64UrlDecode(payloadSegment);
   const actualSignature = base64UrlDecode(signatureSegment);
   if (!headerBuffer || !payloadBuffer || !actualSignature) {
     return null;
   }
-
-  let header: unknown;
-  let payload: unknown;
+  let header;
+  let payload;
   try {
     header = JSON.parse(headerBuffer.toString('utf8'));
     payload = JSON.parse(payloadBuffer.toString('utf8'));
@@ -125,7 +101,6 @@ export function verifyVonageWebhookJwt(params: {
   if (!isRecord(header) || header.alg !== 'HS256' || !isRecord(payload)) {
     return null;
   }
-
   // lgtm[js/insufficient-password-hash] HS256 is mandated by Vonage's
   // signed-webhook protocol; this authenticates a request, not a password.
   const expectedSignature = createHmac('sha256', signatureSecret)
@@ -137,7 +112,6 @@ export function verifyVonageWebhookJwt(params: {
   ) {
     return null;
   }
-
   const iat = typeof payload.iat === 'number' ? payload.iat : Number.NaN;
   const now = params.nowSeconds ?? Math.floor(Date.now() / 1000);
   if (
@@ -147,14 +121,12 @@ export function verifyVonageWebhookJwt(params: {
   ) {
     return null;
   }
-
   // Vonage always issues a jti; a token without one cannot participate in
   // replay protection, so treat it as invalid rather than waving it through.
   const jti = typeof payload.jti === 'string' ? payload.jti.trim() : '';
   if (!jti) {
     return null;
   }
-
   const payloadHash =
     typeof payload.payload_hash === 'string' ? payload.payload_hash : '';
   if (params.rawBody) {
@@ -174,6 +146,5 @@ export function verifyVonageWebhookJwt(params: {
       return null;
     }
   }
-
   return { jti, iat };
 }

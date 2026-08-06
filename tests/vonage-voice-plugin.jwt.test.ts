@@ -10,7 +10,7 @@ import {
   mintVonageApplicationJwt,
   normalizeVonagePrivateKey,
   verifyVonageWebhookJwt,
-} from '../src/channels/voice/vonage/jwt.js';
+} from '../plugins/vonage-voice/src/jwt.js';
 
 const SIGNATURE_SECRET = 'test-signature-secret-at-least-32-bytes-long';
 

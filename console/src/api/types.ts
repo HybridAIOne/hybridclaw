@@ -163,19 +163,10 @@ export interface GatewayStatus {
   };
   voice?: {
     enabled: boolean;
-    provider: 'twilio' | 'vonage';
     accountSidConfigured: boolean;
     fromNumberConfigured: boolean;
     authTokenConfigured: boolean;
     authTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
-    vonage?: {
-      applicationIdConfigured: boolean;
-      fromNumberConfigured: boolean;
-      privateKeyConfigured: boolean;
-      privateKeySource: 'config' | 'env' | 'runtime-secrets' | null;
-      signatureSecretConfigured: boolean;
-      signatureSecretSource: 'config' | 'env' | 'runtime-secrets' | null;
-    };
     webhookPath: string;
     maxConcurrentCalls: number;
   };
@@ -759,16 +750,10 @@ export interface AdminConfig {
   };
   voice: {
     enabled: boolean;
-    provider: 'twilio' | 'vonage';
+    provider: 'twilio';
     twilio: {
       accountSid: string;
       authToken: string;
-      fromNumber: string;
-    };
-    vonage: {
-      applicationId: string;
-      privateKey: string;
-      signatureSecret: string;
       fromNumber: string;
     };
     relay: {

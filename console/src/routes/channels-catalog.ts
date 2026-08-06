@@ -37,8 +37,6 @@ interface ChannelCatalogOptions {
   telegramTokenConfigured?: boolean;
   threemaSecretConfigured?: boolean;
   voiceAuthTokenConfigured?: boolean;
-  voicePrivateKeyConfigured?: boolean;
-  voiceSignatureSecretConfigured?: boolean;
   whatsappLinked?: boolean;
   lineLinked?: boolean;
   emailPasswordConfigured?: boolean;
@@ -379,25 +377,17 @@ function describeVoice(
   config: AdminConfig,
   options: ChannelCatalogOptions,
 ): ChannelCatalogItem {
-  const isVonage = config.voice.provider === 'vonage';
-  const secretsConfigured = isVonage
-    ? options.voicePrivateKeyConfigured === true &&
-      options.voiceSignatureSecretConfigured === true
-    : options.voiceAuthTokenConfigured === true;
-  const accountId = isVonage
-    ? config.voice.vonage.applicationId.trim()
-    : config.voice.twilio.accountSid.trim();
-  const fromNumber = isVonage
-    ? config.voice.vonage.fromNumber.trim()
-    : config.voice.twilio.fromNumber.trim();
+  const authTokenConfigured = options.voiceAuthTokenConfigured === true;
+  const accountSid = config.voice.twilio.accountSid.trim();
+  const fromNumber = config.voice.twilio.fromNumber.trim();
   const active =
-    config.voice.enabled && !!accountId && !!fromNumber && secretsConfigured;
+    config.voice.enabled && !!accountSid && !!fromNumber && authTokenConfigured;
   const configured =
     active ||
     config.voice.enabled ||
-    !!accountId ||
+    !!accountSid ||
     !!fromNumber ||
-    secretsConfigured;
+    authTokenConfigured;
   const statusTone = active
     ? 'active'
     : configured
@@ -407,7 +397,7 @@ function describeVoice(
   return {
     kind: 'voice',
     label: 'Voice',
-    summary: `${isVonage ? 'Vonage' : 'Twilio'} · webhook ${config.voice.webhookPath}`,
+    summary: `Twilio · webhook ${config.voice.webhookPath}`,
     statusTone,
     statusLabel:
       statusTone === 'active'

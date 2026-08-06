@@ -2766,30 +2766,6 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: '',
     },
     {
-      path: 'voice.vonage.applicationId',
-      section: 'voice',
-      kind: 'string',
-      defaultValue: '',
-    },
-    {
-      path: 'voice.vonage.fromNumber',
-      section: 'voice',
-      kind: 'string',
-      defaultValue: '',
-    },
-    {
-      path: 'voice.vonage.privateKey',
-      section: 'voice',
-      kind: 'string',
-      defaultValue: '',
-    },
-    {
-      path: 'voice.vonage.signatureSecret',
-      section: 'voice',
-      kind: 'string',
-      defaultValue: '',
-    },
-    {
       path: 'voice.webhookPath',
       section: 'voice',
       kind: 'string',

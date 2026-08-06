@@ -539,19 +539,10 @@ export interface GatewayStatus {
   };
   voice?: {
     enabled: boolean;
-    provider: 'twilio' | 'vonage';
     accountSidConfigured: boolean;
     fromNumberConfigured: boolean;
     authTokenConfigured: boolean;
     authTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
-    vonage: {
-      applicationIdConfigured: boolean;
-      fromNumberConfigured: boolean;
-      privateKeyConfigured: boolean;
-      privateKeySource: 'config' | 'env' | 'runtime-secrets' | null;
-      signatureSecretConfigured: boolean;
-      signatureSecretSource: 'config' | 'env' | 'runtime-secrets' | null;
-    };
     webhookPath: string;
     maxConcurrentCalls: number;
   };

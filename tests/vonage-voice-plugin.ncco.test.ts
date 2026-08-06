@@ -6,7 +6,7 @@ import {
   parseVonageAnswerWebhook,
   parseVonageEventWebhook,
   parseVonageInputWebhook,
-} from '../src/channels/voice/vonage/ncco.js';
+} from '../plugins/vonage-voice/src/ncco.js';
 
 const SPEECH_SETTINGS = {
   language: 'en-US',

@@ -15,9 +15,8 @@ That means:
 - The same gateway can handle inbound calls and place outbound calls through
   Twilio's Calls API.
 
-This guide covers the Twilio-specific setup. For the Vonage-based phone
-channel alternative, see [Vonage Voice](./vonage-voice.md). For local
-file-based speech generation and generic audio tooling, see
+This guide covers the Twilio-specific setup. For local file-based speech
+generation and generic audio tooling, see
 [Voice And TTS](./voice-tts.md).
 
 ## What You Need

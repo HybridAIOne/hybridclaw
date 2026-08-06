@@ -16,33 +16,27 @@ import {
 import { ReplayProtector, validateTwilioSignature } from './security.js';
 import { type VoiceCallSession, VoiceCallSessionStore } from './session.js';
 import { formatTextForVoice } from './text.js';
-import type { VoiceResponseStream } from './types.js';
 import {
-  handleVonageVoiceWebhook,
-  initVonageVoice,
-  shutdownVonageVoice,
-} from './vonage/runtime.js';
+  buildPublicHttpUrl,
+  buildPublicWsUrl,
+  resolveVoiceWebhookPaths,
+} from './twilio-manager.js';
 import {
   buildConversationRelayTwiml,
   buildEmptyTwiml,
   buildHangupTwiml,
   readTwilioFormBody,
 } from './webhook.js';
-import {
-  buildPublicHttpUrl,
-  buildPublicWsUrl,
-  resolveVoiceWebhookPaths,
-} from './webhook-paths.js';
 
 export type VoiceReplyFn = (content: string) => Promise<void>;
 
 export interface VoiceMessageContext {
   abortSignal: AbortSignal;
   callSid: string;
-  providerSessionId: string;
+  twilioSessionId: string;
   remoteIp: string;
   setupMessage: ConversationRelaySetupMessage | null;
-  responseStream: VoiceResponseStream;
+  responseStream: ConversationRelayResponseStream;
 }
 
 export type VoiceMessageHandler = (
@@ -290,18 +284,6 @@ function sendUnavailableTwiml(res: ServerResponse): void {
   );
 }
 
-function sendInactiveProviderNotFound(res: ServerResponse): void {
-  if (res.headersSent) {
-    if (!res.writableEnded) {
-      res.end();
-    }
-    return;
-  }
-  res.statusCode = 404;
-  res.setHeader('content-type', 'text/plain; charset=utf-8');
-  res.end('Voice provider not active for this endpoint.');
-}
-
 function sendDuplicateReplayTwiml(res: ServerResponse): void {
   sendXml(
     res,
@@ -400,7 +382,7 @@ async function dispatchPromptToHandler(
       {
         abortSignal: controller.signal,
         callSid: session.callSid,
-        providerSessionId: session.providerSessionId || '',
+        twilioSessionId: session.twilioSessionId || '',
         remoteIp: session.remoteIp,
         setupMessage: session.setupMessage,
         responseStream,
@@ -610,9 +592,6 @@ export async function initVoice(
   voiceMessageHandler = messageHandler;
   draining = false;
   sessionStore.updateLimits(getConfigSnapshot().voice.maxConcurrentCalls);
-  if (getConfigSnapshot().voice.provider === 'vonage') {
-    initVonageVoice(messageHandler);
-  }
   if (runtimeInitialized) {
     return;
   }
@@ -634,25 +613,7 @@ export async function handleVoiceWebhook(
   res: ServerResponse,
   url: URL,
 ): Promise<boolean> {
-  const voiceConfig = getConfigSnapshot().voice;
-  const paths = resolveVoiceWebhookPaths(voiceConfig.webhookPath);
-  const isTwilioPath =
-    url.pathname === paths.webhookPath || url.pathname === paths.actionPath;
-  const isVonagePath =
-    url.pathname === paths.answerPath ||
-    url.pathname === paths.inputPath ||
-    url.pathname === paths.eventPath;
-  if (voiceConfig.provider === 'vonage') {
-    if (isTwilioPath) {
-      sendInactiveProviderNotFound(res);
-      return true;
-    }
-    return handleVonageVoiceWebhook(req, res, url);
-  }
-  if (isVonagePath) {
-    sendInactiveProviderNotFound(res);
-    return true;
-  }
+  const paths = resolveVoiceWebhookPaths(getConfigSnapshot().voice.webhookPath);
   if (req.method !== 'POST') {
     return false;
   }
@@ -809,11 +770,7 @@ export function handleVoiceUpgrade(
   head: Buffer,
   url: URL,
 ): boolean {
-  const voiceConfig = getConfigSnapshot().voice;
-  if (voiceConfig.provider !== 'twilio') {
-    return false;
-  }
-  const paths = resolveVoiceWebhookPaths(voiceConfig.webhookPath);
+  const paths = resolveVoiceWebhookPaths(getConfigSnapshot().voice.webhookPath);
   if (url.pathname !== paths.relayPath) {
     return false;
   }
@@ -865,7 +822,6 @@ export function handleVoiceUpgrade(
 
 export async function shutdownVoice(opts?: { drain?: boolean }): Promise<void> {
   draining = true;
-  await shutdownVonageVoice({ drain: opts?.drain });
   if (opts?.drain) {
     const deadline = Date.now() + SHUTDOWN_DRAIN_TIMEOUT_MS;
     while (sessionStore.activeCount() > 0 && Date.now() < deadline) {

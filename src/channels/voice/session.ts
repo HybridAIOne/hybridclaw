@@ -34,7 +34,7 @@ const ALLOWED_TRANSITIONS: Record<VoiceCallState, VoiceCallState[]> = {
 
 export interface VoiceCallSession {
   callSid: string;
-  providerSessionId: string | null;
+  twilioSessionId: string | null;
   channelId: string;
   gatewaySessionId: string;
   remoteIp: string;
@@ -73,7 +73,7 @@ function createSession(params: {
   const timestamp = now();
   return {
     callSid: params.callSid,
-    providerSessionId: null,
+    twilioSessionId: null,
     channelId: buildVoiceChannelId(params.callSid),
     gatewaySessionId: buildGatewaySessionId(params.callSid),
     remoteIp: params.remoteIp,
@@ -173,7 +173,7 @@ export class VoiceCallSessionStore {
     if (!existing) {
       return null;
     }
-    existing.providerSessionId = setup.sessionId;
+    existing.twilioSessionId = setup.sessionId;
     existing.remoteIp = params.remoteIp;
     existing.from = setup.from;
     existing.to = setup.to;

@@ -128,9 +128,8 @@ import {
 import {
   createTwilioOutboundCall,
   normalizeTwilioPhoneNumber,
+  resolveVoiceWebhookPaths,
 } from '../channels/voice/twilio-manager.js';
-import { createVonageOutboundCall } from '../channels/voice/vonage/api.js';
-import { resolveVoiceWebhookPaths } from '../channels/voice/webhook-paths.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
 import {
@@ -184,8 +183,6 @@ import {
   TELEGRAM_BOT_TOKEN,
   THREEMA_GATEWAY_SECRET,
   TWILIO_AUTH_TOKEN,
-  VONAGE_PRIVATE_KEY,
-  VONAGE_SIGNATURE_SECRET,
   WEB_API_TOKEN,
 } from '../config/config.js';
 import {
@@ -3445,31 +3442,30 @@ function resolveGatewayPasswordStatus(params: {
   };
 }
 
-function resolveGatewayVoiceSecretStatus(params: {
-  secretName: string;
+function resolveGatewayVoiceAuthStatus(params: {
   envValues: Array<string | undefined>;
   configValue: string;
   storedValue?: string;
-}): {
-  configured: boolean;
-  source: 'config' | 'env' | 'runtime-secrets' | null;
-} {
+}): Pick<
+  NonNullable<GatewayStatus['voice']>,
+  'authTokenConfigured' | 'authTokenSource'
+> {
   const credential = resolveRuntimeCredentialStatus(
-    params.secretName,
+    'TWILIO_AUTH_TOKEN',
     params.envValues,
     params.storedValue,
   );
   if (credential.source) {
     return {
-      configured: Boolean(credential.value),
-      source: credential.source,
+      authTokenConfigured: Boolean(credential.value),
+      authTokenSource: credential.source,
     };
   }
 
   const configValue = String(params.configValue || '').trim();
   return {
-    configured: Boolean(configValue),
-    source: configValue ? 'config' : null,
+    authTokenConfigured: Boolean(configValue),
+    authTokenSource: configValue ? 'config' : null,
   };
 }
 
@@ -4242,12 +4238,8 @@ function isLoopbackHostname(hostname: string): boolean {
   );
 }
 
-function resolveVoiceCommandWebhookUrl(
-  webhookBasePath: string,
-  provider: 'twilio' | 'vonage',
-): {
+function resolveVoiceCommandWebhookUrl(webhookBasePath: string): {
   url?: string;
-  eventUrl?: string;
   error?: string;
 } {
   const baseUrl = String(GATEWAY_BASE_URL || '').trim();
@@ -4276,18 +4268,12 @@ function resolveVoiceCommandWebhookUrl(
   if (isLoopbackHostname(parsed.hostname)) {
     return {
       error:
-        'Set `ops.gatewayBaseUrl` to a public tunnel or hostname before using `voice call`; the voice provider cannot reach localhost webhooks.',
+        'Set `ops.gatewayBaseUrl` to a public tunnel or hostname before using `voice call`; Twilio cannot reach localhost webhooks.',
     };
   }
 
   const paths = resolveVoiceWebhookPaths(webhookBasePath);
   const normalizedBaseUrl = parsed.toString().replace(/\/+$/, '');
-  if (provider === 'vonage') {
-    return {
-      url: `${normalizedBaseUrl}${paths.answerPath}`,
-      eventUrl: `${normalizedBaseUrl}${paths.eventPath}`,
-    };
-  }
   return {
     url: `${normalizedBaseUrl}${paths.webhookPath}`,
   };
@@ -4885,23 +4871,10 @@ export async function getGatewayStatus(
     appPasswordConfigured: Boolean(msteamsCredential.value),
     appPasswordSource: msteamsCredential.source,
   } as NonNullable<GatewayStatus['msteams']>;
-  const voiceAuth = resolveGatewayVoiceSecretStatus({
-    secretName: 'TWILIO_AUTH_TOKEN',
+  const voiceAuth = resolveGatewayVoiceAuthStatus({
     envValues: [TWILIO_AUTH_TOKEN],
     configValue: runtimeConfig.voice.twilio.authToken,
     storedValue: storedSecrets.TWILIO_AUTH_TOKEN,
-  });
-  const vonagePrivateKey = resolveGatewayVoiceSecretStatus({
-    secretName: 'VONAGE_PRIVATE_KEY',
-    envValues: [VONAGE_PRIVATE_KEY],
-    configValue: runtimeConfig.voice.vonage.privateKey,
-    storedValue: storedSecrets.VONAGE_PRIVATE_KEY,
-  });
-  const vonageSignatureSecret = resolveGatewayVoiceSecretStatus({
-    secretName: 'VONAGE_SIGNATURE_SECRET',
-    envValues: [VONAGE_SIGNATURE_SECRET],
-    configValue: runtimeConfig.voice.vonage.signatureSecret,
-    storedValue: storedSecrets.VONAGE_SIGNATURE_SECRET,
   });
   return {
     status: 'ok',
@@ -4963,27 +4936,14 @@ export async function getGatewayStatus(
     msteams,
     voice: {
       enabled: runtimeConfig.voice.enabled,
-      provider: runtimeConfig.voice.provider,
       accountSidConfigured: Boolean(
         runtimeConfig.voice.twilio.accountSid.trim(),
       ),
       fromNumberConfigured: Boolean(
         runtimeConfig.voice.twilio.fromNumber.trim(),
       ),
-      authTokenConfigured: voiceAuth.configured,
-      authTokenSource: voiceAuth.source,
-      vonage: {
-        applicationIdConfigured: Boolean(
-          runtimeConfig.voice.vonage.applicationId.trim(),
-        ),
-        fromNumberConfigured: Boolean(
-          runtimeConfig.voice.vonage.fromNumber.trim(),
-        ),
-        privateKeyConfigured: vonagePrivateKey.configured,
-        privateKeySource: vonagePrivateKey.source,
-        signatureSecretConfigured: vonageSignatureSecret.configured,
-        signatureSecretSource: vonageSignatureSecret.source,
-      },
+      authTokenConfigured: voiceAuth.authTokenConfigured,
+      authTokenSource: voiceAuth.authTokenSource,
       webhookPath: runtimeConfig.voice.webhookPath,
       maxConcurrentCalls: runtimeConfig.voice.maxConcurrentCalls,
     },
@@ -12767,35 +12727,20 @@ export async function handleGatewayCommand(
         const sub = parseLowerArg(req.args, 1);
         const publicWebhook = resolveVoiceCommandWebhookUrl(
           voiceConfig.webhookPath,
-          voiceConfig.provider,
         );
 
         if (!sub || sub === 'info' || sub === 'status') {
-          const providerLines =
-            voiceConfig.provider === 'vonage'
-              ? [
-                  `Application ID: ${voiceConfig.vonage.applicationId.trim() ? 'configured' : 'unset'}`,
-                  `From number: ${voiceConfig.vonage.fromNumber.trim() || '(unset)'}`,
-                  `Private key: ${String(VONAGE_PRIVATE_KEY || '').trim() ? 'configured' : 'unset'}`,
-                  `Signature secret: ${String(VONAGE_SIGNATURE_SECRET || '').trim() ? 'configured' : 'unset'}`,
-                  publicWebhook.url
-                    ? `Answer webhook: ${publicWebhook.url}`
-                    : `Answer webhook: unavailable (${publicWebhook.error})`,
-                ]
-              : [
-                  `Account SID: ${voiceConfig.twilio.accountSid.trim() ? 'configured' : 'unset'}`,
-                  `From number: ${voiceConfig.twilio.fromNumber.trim() || '(unset)'}`,
-                  `Auth token: ${String(TWILIO_AUTH_TOKEN || '').trim() ? 'configured' : 'unset'}`,
-                  publicWebhook.url
-                    ? `Webhook: ${publicWebhook.url}`
-                    : `Webhook: unavailable (${publicWebhook.error})`,
-                ];
           return infoCommand(
             'Voice',
             [
               `Enabled: ${voiceConfig.enabled ? 'on' : 'off'}`,
               `Provider: ${voiceConfig.provider}`,
-              ...providerLines,
+              `Account SID: ${voiceConfig.twilio.accountSid.trim() ? 'configured' : 'unset'}`,
+              `From number: ${voiceConfig.twilio.fromNumber.trim() || '(unset)'}`,
+              `Auth token: ${String(TWILIO_AUTH_TOKEN || '').trim() ? 'configured' : 'unset'}`,
+              publicWebhook.url
+                ? `Webhook: ${publicWebhook.url}`
+                : `Webhook: unavailable (${publicWebhook.error})`,
               'Usage: `voice call <e164-number>`',
             ].join('\n'),
           );
@@ -12809,71 +12754,16 @@ export async function handleGatewayCommand(
             );
           }
 
+          if (voiceConfig.provider !== 'twilio') {
+            return badCommand(
+              'Voice Provider Unsupported',
+              `\`voice call\` currently supports only the Twilio provider, but configured provider is \`${voiceConfig.provider}\`.`,
+            );
+          }
+
           const to = normalizeTwilioPhoneNumber(req.args.slice(2).join(' '));
           if (!to) {
             return badCommand('Usage', 'Usage: `voice call <e164-number>`');
-          }
-
-          if (!publicWebhook.url) {
-            return badCommand(
-              'Voice Webhook Not Public',
-              publicWebhook.error ||
-                'Set `ops.gatewayBaseUrl` to a public URL before using `voice call`.',
-            );
-          }
-
-          if (voiceConfig.provider === 'vonage') {
-            const applicationId = voiceConfig.vonage.applicationId.trim();
-            if (!applicationId) {
-              return badCommand(
-                'Voice Not Configured',
-                'Set `voice.vonage.applicationId` before using `voice call`.',
-              );
-            }
-
-            const from = normalizeTwilioPhoneNumber(
-              voiceConfig.vonage.fromNumber,
-            );
-            if (!from) {
-              return badCommand(
-                'Voice Not Configured',
-                'Set `voice.vonage.fromNumber` to an E.164 number like `+14155550123` before using `voice call`.',
-              );
-            }
-
-            const privateKey = String(VONAGE_PRIVATE_KEY || '').trim();
-            if (!privateKey) {
-              return badCommand(
-                'Voice Not Configured',
-                'Store `VONAGE_PRIVATE_KEY` in the encrypted secret store (or set `voice.vonage.privateKey`) before using `voice call`.',
-              );
-            }
-
-            if (!String(VONAGE_SIGNATURE_SECRET || '').trim()) {
-              return badCommand(
-                'Voice Not Configured',
-                'Store `VONAGE_SIGNATURE_SECRET` in the encrypted secret store (or set `voice.vonage.signatureSecret`) before using `voice call`; without it the gateway rejects Vonage answer webhooks, so the call would dial and then fail.',
-              );
-            }
-
-            try {
-              const call = await createVonageOutboundCall({
-                applicationId,
-                privateKey,
-                from,
-                to,
-                answerUrl: publicWebhook.url,
-                eventUrl: publicWebhook.eventUrl || publicWebhook.url,
-              });
-              return plainCommand(
-                `Calling ${to} from ${from} via Vonage (call UUID: ${call.uuid}, status: ${call.status}).`,
-              );
-            } catch (error) {
-              return badCommand(
-                'Voice Call Failed',
-                error instanceof Error ? error.message : String(error),
-              );
-            }
           }
 
           const accountSid = voiceConfig.twilio.accountSid.trim();
@@ -12899,6 +12789,14 @@ export async function handleGatewayCommand(
             return badCommand(
               'Voice Not Configured',
               'Store `TWILIO_AUTH_TOKEN` in the encrypted secret store before using `voice call`.',
+            );
+          }
+
+          if (!publicWebhook.url) {
+            return badCommand(
+              'Voice Webhook Not Public',
+              publicWebhook.error ||
+                'Set `ops.gatewayBaseUrl` to a public URL before using `voice call`.',
             );
           }
 

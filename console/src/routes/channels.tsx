@@ -353,8 +353,6 @@ function ManagedSecretField(props: {
     | 'TELEGRAM_BOT_TOKEN'
     | 'THREEMA_GATEWAY_SECRET'
     | 'TWILIO_AUTH_TOKEN'
-    | 'VONAGE_PRIVATE_KEY'
-    | 'VONAGE_SIGNATURE_SECRET'
     | 'EMAIL_PASSWORD'
     | 'IMESSAGE_PASSWORD'
     | 'MSTEAMS_APP_PASSWORD';
@@ -2352,14 +2350,9 @@ function VoiceChannelEditor(props: {
   form: UseFormControllerReturn<AdminConfig>;
   authTokenConfigured: boolean;
   authTokenSource: SecretSource;
-  vonagePrivateKeyConfigured: boolean;
-  vonagePrivateKeySource: SecretSource;
-  vonageSignatureSecretConfigured: boolean;
-  vonageSignatureSecretSource: SecretSource;
   token: string;
   onSecretSaved: () => void;
 }) {
-  const provider = props.draft.voice.provider;
   return (
     <>
       <FormField
@@ -2377,105 +2370,37 @@ function VoiceChannelEditor(props: {
         )}
       />
 
-      <FormField
-        name="voice.provider"
-        render={({ field }) => (
-          <Field>
-            <FieldLabel>Provider</FieldLabel>
-            <NativeSelect
-              value={field.value as string}
-              onChange={field.onChange}
-            >
-              <NativeSelectOption value="twilio">twilio</NativeSelectOption>
-              <NativeSelectOption value="vonage">vonage</NativeSelectOption>
-            </NativeSelect>
-          </Field>
-        )}
+      <div className="field-grid">
+        <FormField
+          name="voice.twilio.accountSid"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Twilio account SID</FieldLabel>
+              <Input {...field} placeholder="AC..." />
+            </Field>
+          )}
+        />
+        <FormField
+          name="voice.twilio.fromNumber"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>From number</FieldLabel>
+              <Input {...field} placeholder="+14155550123" />
+            </Field>
+          )}
+        />
+      </div>
+
+      <ManagedSecretField
+        label="Twilio auth token"
+        secretName="TWILIO_AUTH_TOKEN"
+        secretLabel="token"
+        configValue={props.draft.voice.twilio.authToken}
+        configured={props.authTokenConfigured}
+        source={props.authTokenSource}
+        token={props.token}
+        onSecretSaved={props.onSecretSaved}
       />
-
-      {provider === 'twilio' ? (
-        <>
-          <div className="field-grid">
-            <FormField
-              name="voice.twilio.accountSid"
-              render={({ field }) => (
-                <Field>
-                  <FieldLabel>Twilio account SID</FieldLabel>
-                  <Input {...field} placeholder="AC..." />
-                </Field>
-              )}
-            />
-            <FormField
-              name="voice.twilio.fromNumber"
-              render={({ field }) => (
-                <Field>
-                  <FieldLabel>From number</FieldLabel>
-                  <Input {...field} placeholder="+14155550123" />
-                </Field>
-              )}
-            />
-          </div>
-
-          <ManagedSecretField
-            label="Twilio auth token"
-            secretName="TWILIO_AUTH_TOKEN"
-            secretLabel="token"
-            configValue={props.draft.voice.twilio.authToken}
-            configured={props.authTokenConfigured}
-            source={props.authTokenSource}
-            token={props.token}
-            onSecretSaved={props.onSecretSaved}
-          />
-        </>
-      ) : (
-        <>
-          <div className="field-grid">
-            <FormField
-              name="voice.vonage.applicationId"
-              render={({ field }) => (
-                <Field>
-                  <FieldLabel>Vonage application ID</FieldLabel>
-                  <Input
-                    {...field}
-                    placeholder="aaaaaaaa-bbbb-cccc-dddd-0123456789ab"
-                  />
-                </Field>
-              )}
-            />
-            <FormField
-              name="voice.vonage.fromNumber"
-              render={({ field }) => (
-                <Field>
-                  <FieldLabel>From number</FieldLabel>
-                  <Input {...field} placeholder="+14155550123" />
-                </Field>
-              )}
-            />
-          </div>
-
-          <ManagedSecretField
-            label="Vonage application private key"
-            secretName="VONAGE_PRIVATE_KEY"
-            secretLabel="secret"
-            configValue={props.draft.voice.vonage.privateKey}
-            configured={props.vonagePrivateKeyConfigured}
-            source={props.vonagePrivateKeySource}
-            token={props.token}
-            onSecretSaved={props.onSecretSaved}
-          />
-
-          <ManagedSecretField
-            label="Vonage signature secret"
-            secretName="VONAGE_SIGNATURE_SECRET"
-            secretLabel="secret"
-            configValue={props.draft.voice.vonage.signatureSecret}
-            configured={props.vonageSignatureSecretConfigured}
-            source={props.vonageSignatureSecretSource}
-            token={props.token}
-            onSecretSaved={props.onSecretSaved}
-          />
-        </>
-      )}
 
       <div className="field-grid">
         <FormField
@@ -2503,61 +2428,53 @@ function VoiceChannelEditor(props: {
         />
       </div>
 
-      {provider === 'twilio' ? (
-        <div className="field-grid">
-          <FormField
-            name="voice.relay.ttsProvider"
-            render={({ field }) => (
-              <Field>
-                <FieldLabel>TTS provider</FieldLabel>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="default">
-                    default
-                  </NativeSelectOption>
-                  <NativeSelectOption value="google">google</NativeSelectOption>
-                  <NativeSelectOption value="amazon">amazon</NativeSelectOption>
-                </NativeSelect>
-              </Field>
-            )}
-          />
-          <FormField
-            name="voice.relay.voice"
-            render={({ field }) => (
-              <Field>
-                <FieldLabel>Voice</FieldLabel>
-                <Input {...field} placeholder="en-US-Journey-D" />
-              </Field>
-            )}
-          />
-        </div>
-      ) : null}
+      <div className="field-grid">
+        <FormField
+          name="voice.relay.ttsProvider"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>TTS provider</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="default">default</NativeSelectOption>
+                <NativeSelectOption value="google">google</NativeSelectOption>
+                <NativeSelectOption value="amazon">amazon</NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
+          name="voice.relay.voice"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Voice</FieldLabel>
+              <Input {...field} placeholder="en-US-Journey-D" />
+            </Field>
+          )}
+        />
+      </div>
 
       <div className="field-grid">
-        {provider === 'twilio' ? (
-          <FormField
-            name="voice.relay.transcriptionProvider"
-            render={({ field }) => (
-              <Field>
-                <FieldLabel>Transcription provider</FieldLabel>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="default">
-                    default
-                  </NativeSelectOption>
-                  <NativeSelectOption value="deepgram">
-                    deepgram
-                  </NativeSelectOption>
-                  <NativeSelectOption value="google">google</NativeSelectOption>
-                </NativeSelect>
-              </Field>
-            )}
-          />
-        ) : null}
+        <FormField
+          name="voice.relay.transcriptionProvider"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Transcription provider</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="default">default</NativeSelectOption>
+                <NativeSelectOption value="deepgram">
+                  deepgram
+                </NativeSelectOption>
+                <NativeSelectOption value="google">google</NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
         <FormField
           name="voice.relay.language"
           render={({ field }) => (
@@ -2596,9 +2513,9 @@ function VoiceChannelEditor(props: {
       <ChannelInstructionsField kind="voice" />
 
       <p className="muted-copy">
-        {provider === 'twilio'
-          ? 'Voice uses Twilio ConversationRelay. Expose the configured webhook path over public HTTPS and WSS so Twilio can reach both the webhook and the relay socket.'
-          : 'Voice uses the Vonage Voice API in a turn-based speech loop. Point your Vonage application answer/event URLs at the configured webhook path over public HTTPS and enable signed callbacks.'}
+        Voice uses Twilio ConversationRelay. Expose the configured webhook path
+        over public HTTPS and WSS so Twilio can reach both the webhook and the
+        relay socket.
       </p>
     </>
   );
@@ -3622,10 +3539,6 @@ function renderSelectedEditor(
     voice: {
       configured: boolean;
       source: SecretSource;
-      vonagePrivateKeyConfigured: boolean;
-      vonagePrivateKeySource: SecretSource;
-      vonageSignatureSecretConfigured: boolean;
-      vonageSignatureSecretSource: SecretSource;
     };
     email: {
       configured: boolean;
@@ -3767,16 +3680,6 @@ function renderSelectedEditor(
           form={form}
           authTokenConfigured={secretStatus.voice.configured}
           authTokenSource={secretStatus.voice.source}
-          vonagePrivateKeyConfigured={
-            secretStatus.voice.vonagePrivateKeyConfigured
-          }
-          vonagePrivateKeySource={secretStatus.voice.vonagePrivateKeySource}
-          vonageSignatureSecretConfigured={
-            secretStatus.voice.vonageSignatureSecretConfigured
-          }
-          vonageSignatureSecretSource={
-            secretStatus.voice.vonageSignatureSecretSource
-          }
           token={token}
           onSecretSaved={onSecretSaved}
         />
@@ -3876,10 +3779,6 @@ export function ChannelsPage() {
         signalAccountConfigured: statusQuery.data?.signal?.accountConfigured,
         signalCliAvailable: statusQuery.data?.signal?.cliAvailable,
         voiceAuthTokenConfigured: statusQuery.data?.voice?.authTokenConfigured,
-        voicePrivateKeyConfigured:
-          statusQuery.data?.voice?.vonage?.privateKeyConfigured,
-        voiceSignatureSecretConfigured:
-          statusQuery.data?.voice?.vonage?.signatureSecretConfigured,
         whatsappLinked: statusQuery.data?.whatsapp?.linked,
         lineLinked: statusQuery.data?.line?.linked,
         emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,
@@ -3965,14 +3864,6 @@ export function ChannelsPage() {
     voice: {
       configured: statusQuery.data?.voice?.authTokenConfigured ?? false,
       source: statusQuery.data?.voice?.authTokenSource ?? null,
-      vonagePrivateKeyConfigured:
-        statusQuery.data?.voice?.vonage?.privateKeyConfigured ?? false,
-      vonagePrivateKeySource:
-        statusQuery.data?.voice?.vonage?.privateKeySource ?? null,
-      vonageSignatureSecretConfigured:
-        statusQuery.data?.voice?.vonage?.signatureSecretConfigured ?? false,
-      vonageSignatureSecretSource:
-        statusQuery.data?.voice?.vonage?.signatureSecretSource ?? null,
     },
     email: {
       configured: statusQuery.data?.email?.passwordConfigured ?? false,

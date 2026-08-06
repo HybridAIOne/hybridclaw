@@ -39,7 +39,6 @@ Main docs landing pages:
 - [Office Dependencies](./guides/office-dependencies.md)
 - [TUI MCP](./guides/tui-mcp.md)
 - [Twilio Voice](./guides/twilio-voice.md)
-- [Vonage Voice](./guides/vonage-voice.md)
 - [Voice / TTS](./guides/voice-tts.md)
 
 ## Channels

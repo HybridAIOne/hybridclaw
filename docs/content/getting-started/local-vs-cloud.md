@@ -31,8 +31,6 @@ Choose a public URL when you use:
 
 - Microsoft Teams, because Azure Bot Framework delivers inbound messages by HTTPS webhook
 - Twilio Voice, because Twilio needs both an HTTPS webhook and a WSS relay URL
-- Vonage Voice, because Vonage needs public HTTPS answer, input, and event
-  webhooks
 - remote BlueBubbles iMessage relay webhooks
 - plugin inbound webhooks or external callbacks that target this gateway
 - hierarchical swarm or cross-instance delegation where another HybridClaw instance must reach this gateway over HTTP

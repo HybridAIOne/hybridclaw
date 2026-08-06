@@ -362,7 +362,7 @@ sessions because they read or mutate local runtime state.
 | `memory inspect`, `memory query` | Web, TUI, CLI gateway command client | Exposes local workspace/session memory internals |
 | `plugin install`, `plugin reinstall`, `plugin config`, `plugin disable` | Web, TUI, CLI gateway command client | Mutates local plugin and runtime state |
 | `skill install`, `skill setup` | Web, TUI, CLI gateway command client | Runs installer workflows on the local machine |
-| `voice call`, `voice info` | Web, TUI, CLI gateway command client | Places outbound voice calls (Twilio or Vonage) and inspects local voice config |
+| `voice call`, `voice info` | Web, TUI, CLI gateway command client | Places outbound Twilio calls and inspects local voice config |
 | `dream`, `eval` | Web, TUI, CLI gateway command client | Uses local workspaces and local loopback surfaces |
 
 Remote channels can still resolve normal pending approvals, but they cannot run

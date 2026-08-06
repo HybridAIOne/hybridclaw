@@ -24,6 +24,7 @@ hybridclaw plugin install ./plugins/mem0-memory
 hybridclaw plugin install ./plugins/mempalace-memory
 hybridclaw plugin install ./plugins/qmd-memory
 hybridclaw plugin install ./plugins/brevo-email
+hybridclaw plugin install ./plugins/vonage-voice
 hybridclaw plugin install @scope/hybridclaw-plugin-example
 hybridclaw plugin reinstall ./plugins/example-plugin
 hybridclaw plugin uninstall example-plugin
@@ -54,6 +55,10 @@ completely outside normal core install, update, build, and test workflows.
 WhatsApp installs from a pinned external release archive; LINE is bundled with
 HybridClaw as source but keeps its LINEJS dependency closure isolated until the
 plugin is explicitly enabled.
+
+Vonage Voice is also bundled as an install-on-demand plugin. Its webhook
+runtime, credentials, and outbound calling command stay outside the built-in
+Twilio voice channel.
 
 The reinstall command:
 
@@ -116,6 +121,9 @@ or change one top-level `plugins.list[].config` key without editing
   `fromName`, `fromAddress`, and `agentHandles`. The bundled `send_email` tool
   also accepts optional `inReplyTo` and `references` Message-ID headers when
   you need to continue an existing email thread.
+- `vonage-voice` provides signed, turn-based inbound and outbound phone calls
+  through Vonage Voice without adding Vonage configuration to the core voice
+  channel.
 
 Example config writes:
 

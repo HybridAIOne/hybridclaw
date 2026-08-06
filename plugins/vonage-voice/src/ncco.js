@@ -9,9 +9,7 @@
  * NOT the conversation engine — deciding *what* to say and when to transfer
  * a live call onto one of these NCCOs is vonage-manager/runtime territory.
  */
-import { isRecord } from '../../../utils/type-guards.js';
-
-export type VonageNccoAction = Record<string, unknown>;
+import { isRecord } from './utils.js';
 
 const TALK_TEXT_LIMIT = 1_500;
 // 30s/45s (owner call, 2026-08-06): reply turns give the caller 30s to start
@@ -21,18 +19,11 @@ const REPLY_START_TIMEOUT_SECONDS = 30;
 const PARK_START_TIMEOUT_SECONDS = 45;
 const SPEECH_MAX_DURATION_SECONDS = 60;
 const SPEECH_END_ON_SILENCE_SECONDS = 1.5;
-
-export interface VonageSpeechSettings {
-  language: string;
-  inputEventUrl: string;
-}
-
-function splitTalkText(text: string): string[] {
+function splitTalkText(text) {
   const normalized = String(text || '').trim();
   if (!normalized) return [];
   if (normalized.length <= TALK_TEXT_LIMIT) return [normalized];
-
-  const chunks: string[] = [];
+  const chunks = [];
   let remaining = normalized;
   while (remaining.length > TALK_TEXT_LIMIT) {
     const window = remaining.slice(0, TALK_TEXT_LIMIT);
@@ -54,12 +45,7 @@ function splitTalkText(text: string): string[] {
   if (remaining) chunks.push(remaining);
   return chunks;
 }
-
-function buildTalkActions(params: {
-  text: string;
-  language: string;
-  bargeIn: boolean;
-}): VonageNccoAction[] {
+function buildTalkActions(params) {
   return splitTalkText(params.text).map((chunk) => ({
     action: 'talk',
     text: chunk,
@@ -67,11 +53,7 @@ function buildTalkActions(params: {
     bargeIn: params.bargeIn,
   }));
 }
-
-function buildSpeechInputAction(
-  settings: VonageSpeechSettings,
-  startTimeoutSeconds: number,
-): VonageNccoAction {
+function buildSpeechInputAction(settings, startTimeoutSeconds) {
   return {
     action: 'input',
     type: ['speech'],
@@ -85,13 +67,7 @@ function buildSpeechInputAction(
     eventMethod: 'POST',
   };
 }
-
-export function buildReplyNcco(params: {
-  text: string;
-  language: string;
-  interruptible: boolean;
-  inputEventUrl: string;
-}): VonageNccoAction[] {
+export function buildReplyNcco(params) {
   return [
     ...buildTalkActions({
       text: params.text,
@@ -101,54 +77,21 @@ export function buildReplyNcco(params: {
     buildSpeechInputAction(params, REPLY_START_TIMEOUT_SECONDS),
   ];
 }
-
-export function buildParkNcco(
-  settings: VonageSpeechSettings,
-): VonageNccoAction[] {
+export function buildParkNcco(settings) {
   return [buildSpeechInputAction(settings, PARK_START_TIMEOUT_SECONDS)];
 }
-
-export function buildGoodbyeNcco(params: {
-  message: string;
-  language: string;
-}): VonageNccoAction[] {
+export function buildGoodbyeNcco(params) {
   return buildTalkActions({
     text: params.message,
     language: params.language,
     bargeIn: false,
   });
 }
-
-export interface VonageAnswerWebhook {
-  uuid: string;
-  conversationUuid: string;
-  from: string;
-  to: string;
-  regionUrl: string;
-}
-
-export interface VonageInputWebhook {
-  uuid: string;
-  conversationUuid: string;
-  transcript: string;
-  timedOut: boolean;
-  dtmfDigits: string;
-}
-
-export interface VonageEventWebhook {
-  uuid: string;
-  conversationUuid: string;
-  status: string;
-}
-
-function readString(record: Record<string, unknown>, key: string): string {
+function readString(record, key) {
   const value = record[key];
   return typeof value === 'string' ? value.trim() : '';
 }
-
-export function parseVonageAnswerWebhook(
-  body: unknown,
-): VonageAnswerWebhook | null {
+export function parseVonageAnswerWebhook(body) {
   if (!isRecord(body)) return null;
   const uuid = readString(body, 'uuid');
   if (!uuid) return null;
@@ -160,14 +103,10 @@ export function parseVonageAnswerWebhook(
     regionUrl: readString(body, 'region_url'),
   };
 }
-
-export function parseVonageInputWebhook(
-  body: unknown,
-): VonageInputWebhook | null {
+export function parseVonageInputWebhook(body) {
   if (!isRecord(body)) return null;
   const uuid = readString(body, 'uuid');
   if (!uuid) return null;
-
   let transcript = '';
   let timedOut = false;
   if (isRecord(body.speech)) {
@@ -177,17 +116,14 @@ export function parseVonageInputWebhook(
       ? body.speech.results
       : [];
     const first = results.find(
-      (entry): entry is Record<string, unknown> =>
-        isRecord(entry) && typeof entry.text === 'string',
+      (entry) => isRecord(entry) && typeof entry.text === 'string',
     );
     transcript = first ? String(first.text).trim() : '';
   }
-
   let dtmfDigits = '';
   if (isRecord(body.dtmf)) {
     dtmfDigits = readString(body.dtmf, 'digits');
   }
-
   return {
     uuid,
     conversationUuid: readString(body, 'conversation_uuid'),
@@ -196,10 +132,7 @@ export function parseVonageInputWebhook(
     dtmfDigits,
   };
 }
-
-export function parseVonageEventWebhook(
-  body: unknown,
-): VonageEventWebhook | null {
+export function parseVonageEventWebhook(body) {
   if (!isRecord(body)) return null;
   const uuid = readString(body, 'uuid') || readString(body, 'call_uuid');
   if (!uuid) return null;
@@ -209,7 +142,6 @@ export function parseVonageEventWebhook(
     status: readString(body, 'status').toLowerCase(),
   };
 }
-
 export const VONAGE_TERMINAL_CALL_STATUSES = new Set([
   'completed',
   'failed',

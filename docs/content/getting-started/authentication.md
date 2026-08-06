@@ -448,8 +448,6 @@ Current built-in SecretRef surfaces include:
 - `email.password`
 - `imessage.password`
 - `voice.twilio.authToken`
-- `voice.vonage.privateKey`
-- `voice.vonage.signatureSecret`
 - `local.backends.vllm.apiKey`
 - `browser.browserUseCloud.apiKeyRef`
 - `web.search.searxngBearerTokenRef`

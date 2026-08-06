@@ -128,7 +128,7 @@ npm run desktop
 | Area | Built in |
 | --- | --- |
 | Skills | 79 bundled skills, production business helpers, eval fixtures, packaged skill lifecycle, and human-distillation workflows |
-| Channels | Discord, Slack, Signal, LINE self-chat, Telegram, Microsoft Teams, email, iMessage, fax, Twilio or Vonage voice, web, incoming webhooks, and an install-on-demand WhatsApp plugin |
+| Channels | Discord, Slack, Signal, LINE self-chat, Telegram, Microsoft Teams, email, iMessage, fax, Twilio voice, web, incoming webhooks, and an install-on-demand WhatsApp plugin |
 | Runtime | Gateway service, TUI client, web chat, Apps gallery, searchable admin console, loopback OpenAI-compatible API, and Docker or host execution with document and spreadsheet tooling |
 | Governance | Encrypted runtime secrets, scoped API tokens, SecretRef credential isolation, approval policies, sandbox controls, hash-chained audit trails, dependency license gates, SBOMs, and third-party notices |
 | Memory | Local memory files, SQLite persistence, semantic recall, session compaction, optional HybridAI cloud memory sync |

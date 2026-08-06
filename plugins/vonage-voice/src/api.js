@@ -9,35 +9,26 @@
  * NOT webhook handling — inbound validation and the turn loop live in
  * vonage-manager.ts; NCCO shapes come from ncco.ts.
  */
-import { isRecord } from '../../../utils/type-guards.js';
+
 import { mintVonageApplicationJwt } from './jwt.js';
-import type { VonageNccoAction } from './ncco.js';
+import { isRecord } from './utils.js';
 
 const VONAGE_DEFAULT_API_BASE_URL = 'https://api.nexmo.com';
-
-export interface VonageOutboundCall {
-  uuid: string;
-  status: string;
-  conversationUuid: string;
-}
-
-function toVonageNumber(e164: string): string {
+function toVonageNumber(e164) {
   return String(e164 || '').replace(/^\+/, '');
 }
-
-function normalizeApiBaseUrl(regionUrl?: string): string {
+function normalizeApiBaseUrl(regionUrl) {
   const trimmed = String(regionUrl || '').trim();
   if (!/^https:\/\//i.test(trimmed)) {
     return VONAGE_DEFAULT_API_BASE_URL;
   }
   return trimmed.replace(/\/+$/, '');
 }
-
-async function extractVonageErrorDetail(response: Response): Promise<string> {
+async function extractVonageErrorDetail(response) {
   const rawText = await response.text().catch(() => '');
   if (rawText.trim()) {
     try {
-      const payload: unknown = JSON.parse(rawText);
+      const payload = JSON.parse(rawText);
       if (isRecord(payload)) {
         const detail = payload.detail ?? payload.title ?? payload.error_title;
         if (typeof detail === 'string' && detail.trim()) {
@@ -51,15 +42,7 @@ async function extractVonageErrorDetail(response: Response): Promise<string> {
   }
   return response.statusText || 'Request failed';
 }
-
-export async function createVonageOutboundCall(params: {
-  applicationId: string;
-  privateKey: string;
-  from: string;
-  to: string;
-  answerUrl: string;
-  eventUrl: string;
-}): Promise<VonageOutboundCall> {
+export async function createVonageOutboundCall(params) {
   const token = mintVonageApplicationJwt({
     applicationId: params.applicationId,
     privateKey: params.privateKey,
@@ -79,13 +62,11 @@ export async function createVonageOutboundCall(params: {
       event_method: 'POST',
     }),
   });
-
   if (!response.ok) {
     const detail = await extractVonageErrorDetail(response);
     throw new Error(`Vonage call failed (${response.status}): ${detail}`);
   }
-
-  const payload: unknown = await response.json().catch(() => null);
+  const payload = await response.json().catch(() => null);
   if (
     !isRecord(payload) ||
     typeof payload.uuid !== 'string' ||
@@ -93,7 +74,6 @@ export async function createVonageOutboundCall(params: {
   ) {
     throw new Error('Vonage call failed: invalid response payload');
   }
-
   return {
     uuid: payload.uuid,
     status: payload.status,
@@ -103,14 +83,7 @@ export async function createVonageOutboundCall(params: {
         : '',
   };
 }
-
-export async function transferVonageCallToNcco(params: {
-  applicationId: string;
-  privateKey: string;
-  callUuid: string;
-  ncco: VonageNccoAction[];
-  regionUrl?: string;
-}): Promise<void> {
+export async function transferVonageCallToNcco(params) {
   const token = mintVonageApplicationJwt({
     applicationId: params.applicationId,
     privateKey: params.privateKey,
@@ -130,7 +103,6 @@ export async function transferVonageCallToNcco(params: {
       }),
     },
   );
-
   if (!response.ok) {
     const detail = await extractVonageErrorDetail(response);
     throw new Error(`Vonage transfer failed (${response.status}): ${detail}`);
