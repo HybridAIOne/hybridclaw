@@ -628,7 +628,7 @@ export interface RuntimeLineConfig {
   textChunkLimit: number;
 }
 
-export type RuntimeVoiceProvider = 'twilio';
+export type RuntimeVoiceProvider = 'twilio' | 'vonage';
 export type RuntimeVoiceRelayTtsProvider = 'amazon' | 'default' | 'google';
 export type RuntimeVoiceRelayTranscriptionProvider =
   | 'deepgram'
@@ -638,6 +638,13 @@ export type RuntimeVoiceRelayTranscriptionProvider =
 export interface RuntimeVoiceTwilioConfig {
   accountSid: string;
   authToken: string;
+  fromNumber: string;
+}
+
+export interface RuntimeVoiceVonageConfig {
+  applicationId: string;
+  privateKey: string;
+  signatureSecret: string;
   fromNumber: string;
 }
 
@@ -654,6 +661,7 @@ export interface RuntimeVoiceConfig {
   enabled: boolean;
   provider: RuntimeVoiceProvider;
   twilio: RuntimeVoiceTwilioConfig;
+  vonage: RuntimeVoiceVonageConfig;
   relay: RuntimeVoiceRelayConfig;
   webhookPath: string;
   maxConcurrentCalls: number;
@@ -1750,6 +1758,12 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       authToken: '',
       fromNumber: '',
     },
+    vonage: {
+      applicationId: '',
+      privateKey: '',
+      signatureSecret: '',
+      fromNumber: '',
+    },
     relay: {
       ttsProvider: 'default',
       voice: '',
@@ -2158,6 +2172,8 @@ const SECRET_INPUT_PATHS = [
   'telegram.botToken',
   'threema.secret',
   'voice.twilio.authToken',
+  'voice.vonage.privateKey',
+  'voice.vonage.signatureSecret',
   'local.backends.vllm.apiKey',
 ] as const;
 type RuntimeConfigSecretInputPath = (typeof SECRET_INPUT_PATHS)[number];
@@ -3576,8 +3592,8 @@ function normalizeVoiceProvider(
 ): RuntimeVoiceProvider {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'twilio') {
-    return 'twilio';
+  if (normalized === 'twilio' || normalized === 'vonage') {
+    return normalized;
   }
   return fallback;
 }
@@ -3975,10 +3991,13 @@ function normalizeVoiceConfig(
   fallback: RuntimeVoiceConfig,
   opts?: {
     authToken?: unknown;
+    vonagePrivateKey?: unknown;
+    vonageSignatureSecret?: unknown;
   },
 ): RuntimeVoiceConfig {
   const raw = isRecord(value) ? value : {};
   const rawTwilio = isRecord(raw.twilio) ? raw.twilio : {};
+  const rawVonage = isRecord(raw.vonage) ? raw.vonage : {};
   const rawRelay = isRecord(raw.relay) ? raw.relay : {};
   return {
     enabled: normalizeBoolean(raw.enabled, fallback.enabled),
@@ -3997,6 +4016,28 @@ function normalizeVoiceConfig(
       fromNumber: normalizeString(
         rawTwilio.fromNumber,
         fallback.twilio.fromNumber,
+        { allowEmpty: true },
+      ),
+    },
+    vonage: {
+      applicationId: normalizeString(
+        rawVonage.applicationId,
+        fallback.vonage.applicationId,
+        { allowEmpty: true },
+      ),
+      privateKey: normalizeString(
+        opts?.vonagePrivateKey ?? rawVonage.privateKey,
+        fallback.vonage.privateKey,
+        { allowEmpty: true },
+      ),
+      signatureSecret: normalizeString(
+        opts?.vonageSignatureSecret ?? rawVonage.signatureSecret,
+        fallback.vonage.signatureSecret,
+        { allowEmpty: true },
+      ),
+      fromNumber: normalizeString(
+        rawVonage.fromNumber,
+        fallback.vonage.fromNumber,
         { allowEmpty: true },
       ),
     },
@@ -5393,6 +5434,18 @@ function getSecretInputFromSource(
     const twilio = voice && isRecord(voice.twilio) ? voice.twilio : null;
     return twilio && hasOwn(twilio, 'authToken') ? twilio.authToken : undefined;
   }
+  if (
+    secretPath === 'voice.vonage.privateKey' ||
+    secretPath === 'voice.vonage.signatureSecret'
+  ) {
+    const voice = isRecord(source.voice) ? source.voice : null;
+    const vonage = voice && isRecord(voice.vonage) ? voice.vonage : null;
+    const key =
+      secretPath === 'voice.vonage.privateKey'
+        ? 'privateKey'
+        : 'signatureSecret';
+    return vonage && hasOwn(vonage, key) ? vonage[key] : undefined;
+  }
 
   const local = isRecord(source.local) ? source.local : null;
   const backends = local && isRecord(local.backends) ? local.backends : null;
@@ -5445,6 +5498,21 @@ function setSecretInputOnSource(
     const twilio = isRecord(voice.twilio) ? voice.twilio : {};
     voice.twilio = twilio;
     twilio.authToken = value;
+    return;
+  }
+  if (
+    secretPath === 'voice.vonage.privateKey' ||
+    secretPath === 'voice.vonage.signatureSecret'
+  ) {
+    const voice = isRecord(source.voice) ? source.voice : {};
+    source.voice = voice;
+    const vonage = isRecord(voice.vonage) ? voice.vonage : {};
+    voice.vonage = vonage;
+    vonage[
+      secretPath === 'voice.vonage.privateKey'
+        ? 'privateKey'
+        : 'signatureSecret'
+    ] = value;
     return;
   }
 
@@ -7178,6 +7246,22 @@ function normalizeRuntimeConfig(
       required: isSecretRefInput(rawVoiceTwilio.authToken) && voiceEnabled,
     },
   );
+  const rawVoiceVonage = isRecord(rawVoice.vonage) ? rawVoice.vonage : {};
+  const resolvedVonagePrivateKey = resolveConfiguredSecretInput(
+    rawVoiceVonage.privateKey,
+    {
+      path: 'voice.vonage.privateKey',
+      required: isSecretRefInput(rawVoiceVonage.privateKey) && voiceEnabled,
+    },
+  );
+  const resolvedVonageSignatureSecret = resolveConfiguredSecretInput(
+    rawVoiceVonage.signatureSecret,
+    {
+      path: 'voice.vonage.signatureSecret',
+      required:
+        isSecretRefInput(rawVoiceVonage.signatureSecret) && voiceEnabled,
+    },
+  );
   const resolvedVllmApiKey = resolveConfiguredSecretInput(
     rawVllmBackend.apiKey,
     {
@@ -7755,6 +7839,8 @@ function normalizeRuntimeConfig(
     line: normalizeLineConfig(rawLine, DEFAULT_RUNTIME_CONFIG.line),
     voice: normalizeVoiceConfig(rawVoice, DEFAULT_RUNTIME_CONFIG.voice, {
       authToken: resolvedVoiceAuthToken,
+      vonagePrivateKey: resolvedVonagePrivateKey,
+      vonageSignatureSecret: resolvedVonageSignatureSecret,
     }),
     imessage: normalizeIMessageConfig(
       rawIMessage,

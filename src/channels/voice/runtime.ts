@@ -16,27 +16,33 @@ import {
 import { ReplayProtector, validateTwilioSignature } from './security.js';
 import { type VoiceCallSession, VoiceCallSessionStore } from './session.js';
 import { formatTextForVoice } from './text.js';
+import type { VoiceResponseStream } from './types.js';
 import {
-  buildPublicHttpUrl,
-  buildPublicWsUrl,
-  resolveVoiceWebhookPaths,
-} from './twilio-manager.js';
+  handleVonageVoiceWebhook,
+  initVonageVoice,
+  shutdownVonageVoice,
+} from './vonage/runtime.js';
 import {
   buildConversationRelayTwiml,
   buildEmptyTwiml,
   buildHangupTwiml,
   readTwilioFormBody,
 } from './webhook.js';
+import {
+  buildPublicHttpUrl,
+  buildPublicWsUrl,
+  resolveVoiceWebhookPaths,
+} from './webhook-paths.js';
 
 export type VoiceReplyFn = (content: string) => Promise<void>;
 
 export interface VoiceMessageContext {
   abortSignal: AbortSignal;
   callSid: string;
-  twilioSessionId: string;
+  providerSessionId: string;
   remoteIp: string;
   setupMessage: ConversationRelaySetupMessage | null;
-  responseStream: ConversationRelayResponseStream;
+  responseStream: VoiceResponseStream;
 }
 
 export type VoiceMessageHandler = (
@@ -382,7 +388,7 @@ async function dispatchPromptToHandler(
       {
         abortSignal: controller.signal,
         callSid: session.callSid,
-        twilioSessionId: session.twilioSessionId || '',
+        providerSessionId: session.providerSessionId || '',
         remoteIp: session.remoteIp,
         setupMessage: session.setupMessage,
         responseStream,
@@ -592,6 +598,9 @@ export async function initVoice(
   voiceMessageHandler = messageHandler;
   draining = false;
   sessionStore.updateLimits(getConfigSnapshot().voice.maxConcurrentCalls);
+  if (getConfigSnapshot().voice.provider === 'vonage') {
+    initVonageVoice(messageHandler);
+  }
   if (runtimeInitialized) {
     return;
   }
@@ -613,7 +622,11 @@ export async function handleVoiceWebhook(
   res: ServerResponse,
   url: URL,
 ): Promise<boolean> {
-  const paths = resolveVoiceWebhookPaths(getConfigSnapshot().voice.webhookPath);
+  const voiceConfig = getConfigSnapshot().voice;
+  if (voiceConfig.provider === 'vonage') {
+    return handleVonageVoiceWebhook(req, res, url);
+  }
+  const paths = resolveVoiceWebhookPaths(voiceConfig.webhookPath);
   if (req.method !== 'POST') {
     return false;
   }
@@ -770,7 +783,11 @@ export function handleVoiceUpgrade(
   head: Buffer,
   url: URL,
 ): boolean {
-  const paths = resolveVoiceWebhookPaths(getConfigSnapshot().voice.webhookPath);
+  const voiceConfig = getConfigSnapshot().voice;
+  if (voiceConfig.provider !== 'twilio') {
+    return false;
+  }
+  const paths = resolveVoiceWebhookPaths(voiceConfig.webhookPath);
   if (url.pathname !== paths.relayPath) {
     return false;
   }
@@ -822,6 +839,7 @@ export function handleVoiceUpgrade(
 
 export async function shutdownVoice(opts?: { drain?: boolean }): Promise<void> {
   draining = true;
+  await shutdownVonageVoice({ drain: opts?.drain });
   if (opts?.drain) {
     const deadline = Date.now() + SHUTDOWN_DRAIN_TIMEOUT_MS;
     while (sessionStore.activeCount() > 0 && Date.now() < deadline) {

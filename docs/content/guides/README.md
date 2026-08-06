@@ -27,6 +27,8 @@ These pages focus on common operator workflows after the base install works.
 - [Hatching Task Ideas](./hatching-task-ideas.md) for first-run questions and starter jobs tailored to the user's tools and goals
 - [Twilio Voice](./twilio-voice.md) for phone-channel setup, public webhook
   exposure, testing, and troubleshooting
+- [Vonage Voice](./vonage-voice.md) for the Vonage phone-channel alternative
+  with signed webhooks and turn-based speech
 - [Voice and TTS](./voice-tts.md) for voice reply and speech backend setup
 - [Optional Office Dependencies](./office-dependencies.md) for host-side
   office tooling

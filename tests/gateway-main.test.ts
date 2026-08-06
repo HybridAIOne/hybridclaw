@@ -1072,7 +1072,7 @@ describe('gateway bootstrap', () => {
       {
         abortSignal: new AbortController().signal,
         callSid: 'CA123',
-        twilioSessionId: 'VX123',
+        providerSessionId: 'VX123',
         remoteIp: '127.0.0.1',
         setupMessage: null,
         responseStream,
@@ -1110,7 +1110,7 @@ describe('gateway bootstrap', () => {
       {
         abortSignal: new AbortController().signal,
         callSid: 'CA123',
-        twilioSessionId: 'VX123',
+        providerSessionId: 'VX123',
         remoteIp: '127.0.0.1',
         setupMessage: null,
         responseStream,

@@ -298,6 +298,12 @@
       "authToken": "",
       "fromNumber": ""
     },
+    "vonage": {
+      "applicationId": "",
+      "privateKey": "",
+      "signatureSecret": "",
+      "fromNumber": ""
+    },
     "relay": {
       "ttsProvider": "default",
       "voice": "",

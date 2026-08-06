@@ -130,6 +130,16 @@ function syncRuntimeSecretExports(): void {
     'TWILIO_AUTH_TOKEN',
     storedSecrets,
   );
+  VONAGE_PRIVATE_KEY = readRuntimeSecretValue(
+    ['VONAGE_PRIVATE_KEY'],
+    'VONAGE_PRIVATE_KEY',
+    storedSecrets,
+  );
+  VONAGE_SIGNATURE_SECRET = readRuntimeSecretValue(
+    ['VONAGE_SIGNATURE_SECRET'],
+    'VONAGE_SIGNATURE_SECRET',
+    storedSecrets,
+  );
   MSTEAMS_APP_PASSWORD = readRuntimeSecretValue(
     ['MSTEAMS_APP_PASSWORD'],
     'MSTEAMS_APP_PASSWORD',
@@ -248,6 +258,8 @@ export let TELEGRAM_BOT_TOKEN = '';
 export let THREEMA_GATEWAY_SECRET = '';
 export let IMESSAGE_PASSWORD = '';
 export let TWILIO_AUTH_TOKEN = '';
+export let VONAGE_PRIVATE_KEY = '';
+export let VONAGE_SIGNATURE_SECRET = '';
 export let MSTEAMS_APP_PASSWORD = '';
 export let SLACK_BOT_TOKEN = '';
 export let SLACK_APP_TOKEN = '';
@@ -379,6 +391,8 @@ export let VOICE_ENABLED = false;
 export let VOICE_PROVIDER: RuntimeConfig['voice']['provider'] = 'twilio';
 export let VOICE_TWILIO_ACCOUNT_SID = '';
 export let VOICE_TWILIO_FROM_NUMBER = '';
+export let VOICE_VONAGE_APPLICATION_ID = '';
+export let VOICE_VONAGE_FROM_NUMBER = '';
 export let VOICE_RELAY_TTS_PROVIDER: RuntimeConfig['voice']['relay']['ttsProvider'] =
   'default';
 export let VOICE_RELAY_VOICE = '';
@@ -937,6 +951,20 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
       'TWILIO_AUTH_TOKEN',
       storedSecrets,
     ) || config.voice.twilio.authToken;
+  VOICE_VONAGE_APPLICATION_ID = config.voice.vonage.applicationId;
+  VOICE_VONAGE_FROM_NUMBER = config.voice.vonage.fromNumber;
+  VONAGE_PRIVATE_KEY =
+    readRuntimeSecretValue(
+      ['VONAGE_PRIVATE_KEY'],
+      'VONAGE_PRIVATE_KEY',
+      storedSecrets,
+    ) || config.voice.vonage.privateKey;
+  VONAGE_SIGNATURE_SECRET =
+    readRuntimeSecretValue(
+      ['VONAGE_SIGNATURE_SECRET'],
+      'VONAGE_SIGNATURE_SECRET',
+      storedSecrets,
+    ) || config.voice.vonage.signatureSecret;
   VOICE_RELAY_TTS_PROVIDER = config.voice.relay.ttsProvider;
   VOICE_RELAY_VOICE = config.voice.relay.voice;
   VOICE_RELAY_TRANSCRIPTION_PROVIDER = config.voice.relay.transcriptionProvider;

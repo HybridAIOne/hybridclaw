@@ -147,6 +147,10 @@
           "path": "guides/twilio-voice.md"
         },
         {
+          "title": "Vonage Voice",
+          "path": "guides/vonage-voice.md"
+        },
+        {
           "title": "Voice TTS",
           "path": "guides/voice-tts.md"
         }

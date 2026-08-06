@@ -83,7 +83,7 @@ import {
   handleVoiceUpgrade,
   handleVoiceWebhook,
 } from '../channels/voice/runtime.js';
-import { resolveVoiceWebhookPaths } from '../channels/voice/twilio-manager.js';
+import { resolveVoiceWebhookPaths } from '../channels/voice/webhook-paths.js';
 import { parseLowerArg } from '../command-parsing.js';
 import {
   DATA_DIR,
@@ -10172,10 +10172,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       );
       return;
     }
+    const isVoicePostRoute =
+      pathname === voicePaths.webhookPath ||
+      pathname === voicePaths.actionPath ||
+      pathname === voicePaths.answerPath ||
+      pathname === voicePaths.inputPath ||
+      pathname === voicePaths.eventPath;
     if (
-      method === 'POST' &&
-      (pathname === voicePaths.webhookPath ||
-        pathname === voicePaths.actionPath)
+      (method === 'POST' && isVoicePostRoute) ||
+      (method === 'GET' && pathname === voicePaths.answerPath)
     ) {
       dispatchWebhookRoute(res, () => handleVoiceWebhook(req, res, url));
       return;

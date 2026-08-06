@@ -36,5 +36,6 @@ If you are still working through first-run onboarding, start with
 - [WhatsApp](./whatsapp.md)
 - [LINE](./line.md)
 - [Twilio Voice](../guides/twilio-voice.md)
+- [Vonage Voice](../guides/vonage-voice.md)
 - [iMessage](./imessage.md)
 - [Microsoft Teams](./msteams.md)

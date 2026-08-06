@@ -215,6 +215,12 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
         authToken: '',
         fromNumber: '',
       },
+      vonage: {
+        applicationId: '',
+        privateKey: '',
+        signatureSecret: '',
+        fromNumber: '',
+      },
       relay: {
         ttsProvider: 'default',
         voice: '',

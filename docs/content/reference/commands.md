@@ -68,9 +68,9 @@ container mode it also shows the configured image name, resolved image
 version, and short image id when available.
 `hybridclaw tui --resume <sessionId>` and `hybridclaw --resume <sessionId>`
 reopen an earlier TUI session by canonical session id.
-`gateway voice info` reports the current local Twilio voice setup, and
+`gateway voice info` reports the current local voice setup, and
 `gateway voice call <number>` places an outbound call through the configured
-Twilio account.
+Twilio or Vonage account.
 Use `--debug-model-responses` only for local troubleshooting; it writes raw
 provider response diagnostics and the last prompt under the HybridClaw data
 directory. Use `--system-prompt=<parts|none>` and `--tools=full|none` for
@@ -418,8 +418,8 @@ Threema uses Gateway Basic mode for outbound text delivery. For the
 step-by-step setup guides, see
 [Channels: Overview](../channels/overview.md) and
 [Connect Your First Channel](../getting-started/first-channel.md).
-Twilio voice is configured through `/admin/channels` or direct `voice.*`
-config keys, then inspected or used for outbound dialing with
+Voice (Twilio or Vonage) is configured through `/admin/channels` or direct
+`voice.*` config keys, then inspected or used for outbound dialing with
 `hybridclaw gateway voice info` and `hybridclaw gateway voice call <number>`.
 Local TUI/web sessions can also write channel config and secrets with
 `/config set ...` and `/secret set ...`; see
@@ -733,7 +733,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/status` | local and chat channels | Show runtime, session, and agent status |
 | `/stop` or `/abort` | TUI and active local runs | Stop the current foreground request and full-auto mode |
 | `/usage [summary|daily|monthly|model ...]` | local and chat channels | Show token/cost usage summaries |
-| `/voice [info|call <e164-number>]` | local TUI/web | Inspect voice setup or place a Twilio outbound call |
+| `/voice [info|call <e164-number>]` | local TUI/web | Inspect voice setup or place an outbound call via the configured provider |
 | `/exit`, `/quit`, or `/q` | TUI | Exit the TUI |
 
 ### Standing Goals
@@ -796,7 +796,7 @@ reserved for the R5.3 signal when that spend-tracking enforcement lands.
 - local TUI/web sessions support `/context` to inspect context-window usage,
   remaining headroom, and compaction count for the active session
 - local TUI and web chat expose `/voice info` and `/voice call <e164-number>`
-  for local Twilio diagnostics and outbound dialing
+  for local voice diagnostics and outbound dialing
 - Local TUI and web chat sessions expose `/config`, `/config check`,
   `/config reload`, `/config get <key>`, `/config set <key> <value>`,
   `/concierge`, `/auth status <provider>`, and

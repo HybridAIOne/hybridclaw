@@ -1010,10 +1010,19 @@ test('getGatewayStatus includes voice Twilio credential status', async () => {
 
   expect(status.voice).toEqual({
     enabled: true,
+    provider: 'twilio',
     accountSidConfigured: true,
     fromNumberConfigured: true,
     authTokenConfigured: true,
     authTokenSource: 'runtime-secrets',
+    vonage: {
+      applicationIdConfigured: false,
+      fromNumberConfigured: false,
+      privateKeyConfigured: false,
+      privateKeySource: null,
+      signatureSecretConfigured: false,
+      signatureSecretSource: null,
+    },
     webhookPath: '/voice',
     maxConcurrentCalls: 8,
   });

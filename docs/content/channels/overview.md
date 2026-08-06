@@ -29,6 +29,7 @@ If you are still in first-run onboarding mode, start with
 | WhatsApp | Linked-device QR pairing and phone-based DM tests | `hybridclaw channels whatsapp setup ...` | [WhatsApp](./whatsapp.md) |
 | LINE | Unofficial personal-account QR login and self-chat only | `hybridclaw channels line setup` | [LINE](./line.md) |
 | Twilio Voice | Phone calls when you already have a public HTTPS/WSS endpoint | `/admin/channels` | [Twilio Voice](../guides/twilio-voice.md) |
+| Vonage Voice | Phone calls over signed HTTPS webhooks, no websocket needed | `/admin/channels` | [Vonage Voice](../guides/vonage-voice.md) |
 | iMessage | Local Mac runtime or remote BlueBubbles relay | `hybridclaw channels imessage setup ...` | [iMessage](./imessage.md) |
 | Microsoft Teams | Entra/Azure bot registration and HTTPS webhook delivery | `hybridclaw auth login msteams ...` | [Microsoft Teams](./msteams.md) |
 

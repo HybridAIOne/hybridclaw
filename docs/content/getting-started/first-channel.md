@@ -37,6 +37,8 @@ Keep the first rollout narrow:
   want a personal self-chat-only channel
 - [Twilio Voice](../guides/twilio-voice.md) when you want phone calls and
   already have a public HTTPS/WSS tunnel or host for Twilio callbacks
+- [Vonage Voice](../guides/vonage-voice.md) when you want phone calls through
+  Vonage with signed HTTPS webhooks and no websocket requirement
 - [iMessage](../channels/imessage.md) when HybridClaw runs on a Mac or can
   reach a BlueBubbles relay
 - [Microsoft Teams](../channels/msteams.md) when you already have Entra/Azure
@@ -57,6 +59,7 @@ jump directly to one transport:
 - [WhatsApp](../channels/whatsapp.md)
 - [LINE](../channels/line.md)
 - [Twilio Voice](../guides/twilio-voice.md)
+- [Vonage Voice](../guides/vonage-voice.md)
 - [iMessage](../channels/imessage.md)
 - [Microsoft Teams](../channels/msteams.md)
 

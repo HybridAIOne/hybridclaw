@@ -141,6 +141,8 @@ import {
   SLACK_APP_TOKEN,
   SLACK_BOT_TOKEN,
   TWILIO_AUTH_TOKEN,
+  VONAGE_PRIVATE_KEY,
+  VONAGE_SIGNATURE_SECRET,
 } from '../config/config.js';
 import {
   type RuntimeConfig,
@@ -449,6 +451,10 @@ function hasVoiceConfigChanged(
     next.twilio.accountSid !== prev.twilio.accountSid ||
     next.twilio.authToken !== prev.twilio.authToken ||
     next.twilio.fromNumber !== prev.twilio.fromNumber ||
+    next.vonage.applicationId !== prev.vonage.applicationId ||
+    next.vonage.privateKey !== prev.vonage.privateKey ||
+    next.vonage.signatureSecret !== prev.vonage.signatureSecret ||
+    next.vonage.fromNumber !== prev.vonage.fromNumber ||
     next.relay.ttsProvider !== prev.relay.ttsProvider ||
     next.relay.voice !== prev.relay.voice ||
     next.relay.transcriptionProvider !== prev.relay.transcriptionProvider ||
@@ -3155,25 +3161,51 @@ async function refreshDiscordWebhookIntegrationForConfigChange(
 
 async function startVoiceIntegration(): Promise<boolean> {
   const voiceConfig = getConfigSnapshot().voice;
-  const twilioAuthToken = String(TWILIO_AUTH_TOKEN || '').trim();
   if (!voiceConfig.enabled) {
     logger.info('Voice integration disabled in config');
     return false;
   }
-  if (
-    !voiceConfig.twilio.accountSid.trim() ||
-    !twilioAuthToken ||
-    !voiceConfig.twilio.fromNumber.trim()
-  ) {
-    logger.warn(
-      {
-        accountSidConfigured: Boolean(voiceConfig.twilio.accountSid.trim()),
-        authTokenConfigured: Boolean(twilioAuthToken),
-        fromNumberConfigured: Boolean(voiceConfig.twilio.fromNumber.trim()),
-      },
-      'Voice integration disabled: Twilio credentials are incomplete',
-    );
-    return false;
+  if (voiceConfig.provider === 'twilio') {
+    const twilioAuthToken = String(TWILIO_AUTH_TOKEN || '').trim();
+    if (
+      !voiceConfig.twilio.accountSid.trim() ||
+      !twilioAuthToken ||
+      !voiceConfig.twilio.fromNumber.trim()
+    ) {
+      logger.warn(
+        {
+          accountSidConfigured: Boolean(voiceConfig.twilio.accountSid.trim()),
+          authTokenConfigured: Boolean(twilioAuthToken),
+          fromNumberConfigured: Boolean(voiceConfig.twilio.fromNumber.trim()),
+        },
+        'Voice integration disabled: Twilio credentials are incomplete',
+      );
+      return false;
+    }
+  } else {
+    if (
+      !voiceConfig.vonage.applicationId.trim() ||
+      !String(VONAGE_PRIVATE_KEY || '').trim() ||
+      !String(VONAGE_SIGNATURE_SECRET || '').trim() ||
+      !voiceConfig.vonage.fromNumber.trim()
+    ) {
+      logger.warn(
+        {
+          applicationIdConfigured: Boolean(
+            voiceConfig.vonage.applicationId.trim(),
+          ),
+          privateKeyConfigured: Boolean(
+            String(VONAGE_PRIVATE_KEY || '').trim(),
+          ),
+          signatureSecretConfigured: Boolean(
+            String(VONAGE_SIGNATURE_SECRET || '').trim(),
+          ),
+          fromNumberConfigured: Boolean(voiceConfig.vonage.fromNumber.trim()),
+        },
+        'Voice integration disabled: Vonage credentials are incomplete',
+      );
+      return false;
+    }
   }
 
   try {

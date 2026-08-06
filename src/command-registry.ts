@@ -309,7 +309,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   voice: {
     command: '/voice [info|call <e164-number>]',
-    description: 'Inspect voice status or place an outbound Twilio call',
+    description: 'Inspect voice status or place an outbound voice call',
   },
   skill: {
     command:
@@ -1789,7 +1789,7 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'voice',
-      description: 'Inspect voice status or place an outbound Twilio call',
+      description: 'Inspect voice status or place an outbound voice call',
       tuiOnly: true,
       tuiMenuEntries: [
         {
