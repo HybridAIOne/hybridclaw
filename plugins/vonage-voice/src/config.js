@@ -4,9 +4,10 @@ export function resolveConfig(api) {
   const config = api.pluginConfig;
   const applicationId = String(config.applicationId || '').trim();
   const fromNumber = String(config.fromNumber || '').trim();
-  const publicBaseUrl = String(config.publicBaseUrl || '')
-    .trim()
-    .replace(/\/+$/, '');
+  let publicBaseUrl = String(config.publicBaseUrl || '').trim();
+  while (publicBaseUrl.endsWith('/')) {
+    publicBaseUrl = publicBaseUrl.slice(0, -1);
+  }
   const privateKey = String(
     api.getCredential('VONAGE_PRIVATE_KEY') || '',
   ).trim();

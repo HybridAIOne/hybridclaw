@@ -58,3 +58,19 @@ test('fails fast when a required Vonage credential is missing', async () => {
 
   expect(() => plugin.register(api)).toThrow('VONAGE_PRIVATE_KEY is required');
 });
+
+test('removes trailing slashes from the public webhook URL', async () => {
+  const trailingSlashes = '/'.repeat(10_000);
+  const { api } = createApi({
+    pluginConfig: {
+      applicationId: 'app-id',
+      fromNumber: '+14155550123',
+      publicBaseUrl: `https://voice.example.com${trailingSlashes}`,
+    },
+  });
+  const { resolveConfig } = await import(
+    '../plugins/vonage-voice/src/config.js'
+  );
+
+  expect(resolveConfig(api).publicBaseUrl).toBe('https://voice.example.com');
+});
