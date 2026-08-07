@@ -14,6 +14,11 @@
 
 ### Fixed
 
+- **Microsoft Teams no longer duplicates incoming message text**: Teams
+  delivers rich-composed messages both as plain activity text and as a
+  `text/html` attachment with the same content; the inbound parser now drops
+  attachment snippets that match the primary text instead of appending the
+  message to itself (`question\n\nquestion`).
 - **Cloud admin sessions recover after inactivity**: Expired browser sessions
   reload through HybridAI sign-in instead of showing an unactionable
   `WEB_API_TOKEN` prompt. The self-hosted fallback identifies the exact gateway
