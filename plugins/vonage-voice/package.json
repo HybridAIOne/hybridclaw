@@ -1,0 +1,11 @@
+{
+  "name": "hybridclaw-plugin-vonage-voice",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "HybridClaw plugin providing turn-based phone calls through the Vonage Voice API",
+  "engines": {
+    "node": "22.x"
+  }
+}

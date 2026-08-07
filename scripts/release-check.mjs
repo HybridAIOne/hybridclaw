@@ -28,6 +28,10 @@ const requiredExactPaths = [
   'plugins/line/src/connection.js',
   'plugins/line/src/delivery.js',
   'plugins/line/src/inbound.js',
+  'plugins/vonage-voice/hybridclaw.plugin.yaml',
+  'plugins/vonage-voice/package.json',
+  'plugins/vonage-voice/src/index.js',
+  'plugins/vonage-voice/src/runtime.js',
 ];
 
 const requiredPrefixes = [

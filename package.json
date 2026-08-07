@@ -42,6 +42,7 @@
     "infra/managed-browser/",
     "plugins/concierge-router/",
     "plugins/line/",
+    "plugins/vonage-voice/",
     "plugins/tier-router/",
     "container/Dockerfile",
     "container/.dockerignore",

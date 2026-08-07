@@ -1,0 +1,51 @@
+id: vonage-voice
+name: Vonage Voice
+version: 0.1.0
+kind: channel
+description: Turn-based inbound and outbound phone calls through the Vonage Voice API.
+entrypoint: src/index.js
+requires:
+  node: 22.x
+credentials:
+  - VONAGE_PRIVATE_KEY
+  - VONAGE_SIGNATURE_SECRET
+configSchema:
+  type: object
+  additionalProperties: false
+  required:
+    - applicationId
+    - fromNumber
+    - publicBaseUrl
+  properties:
+    applicationId:
+      type: string
+      minLength: 1
+    fromNumber:
+      type: string
+      pattern: '^\\+[1-9][0-9]{7,14}$'
+    publicBaseUrl:
+      type: string
+      pattern: '^https://'
+    language:
+      type: string
+      default: en-US
+    welcomeGreeting:
+      type: string
+      default: Hello! How can I help you today?
+    interruptible:
+      type: boolean
+      default: true
+    maxConcurrentCalls:
+      type: integer
+      default: 8
+      minimum: 1
+      maximum: 100
+configUiHints:
+  applicationId:
+    label: Application ID
+  fromNumber:
+    label: Vonage Number
+    placeholder: '+14155550123'
+  publicBaseUrl:
+    label: Public Gateway URL
+    placeholder: https://voice.example.com
