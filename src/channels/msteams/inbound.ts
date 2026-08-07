@@ -264,10 +264,16 @@ export function extractPrimaryText(activity: Partial<Activity>): string {
 }
 
 export function cleanIncomingContent(activity: Partial<Activity>): string {
-  const parts = [
-    extractPrimaryText(activity),
-    ...extractAttachmentText(activity),
-  ].filter((entry) => entry.length > 0);
+  const primaryText = extractPrimaryText(activity);
+  // Teams sends rich-composed messages both as activity.text and as a
+  // text/html attachment with the same content; keep only attachment
+  // snippets that add something beyond the primary text.
+  const attachmentText = extractAttachmentText(activity).filter(
+    (snippet) => snippet !== primaryText,
+  );
+  const parts = [primaryText, ...attachmentText].filter(
+    (entry) => entry.length > 0,
+  );
   return parts.join('\n\n').trim();
 }
 
