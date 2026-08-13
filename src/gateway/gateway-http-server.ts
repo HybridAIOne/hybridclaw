@@ -3485,6 +3485,13 @@ async function handleApiMediaTranscription(
     return;
   }
 
+  if (!(await isWebchatDictationAvailable().catch(() => false))) {
+    sendJson(res, 503, {
+      error: 'No audio transcription backend is available.',
+    });
+    return;
+  }
+
   const buffer = await readRequestBody(req, MAX_MEDIA_UPLOAD_BYTES);
   if (buffer.length === 0) {
     sendJson(res, 400, { error: 'Dictation recording is empty.' });
@@ -3508,8 +3515,8 @@ async function handleApiMediaTranscription(
 
   const abortController = new AbortController();
   const abort = () => abortController.abort();
-  req.once('aborted', abort);
-  res.once('close', abort);
+  req.on('aborted', abort);
+  res.on('close', abort);
   try {
     const text = await transcribeWebchatDictation({
       audio: buffer,
@@ -3558,6 +3565,13 @@ async function handleApiMediaSpeech(
     return;
   }
 
+  if (!isWebchatSpeechAvailable()) {
+    sendJson(res, 503, {
+      error: 'Read aloud requires a HybridAI or OpenAI API key.',
+    });
+    return;
+  }
+
   const quotaDecision = consumeGatewayMediaUploadQuota({
     key: resolveApiMediaUploadQuotaKey(req),
     bytes: Buffer.byteLength(text, 'utf8'),
@@ -3575,8 +3589,8 @@ async function handleApiMediaSpeech(
 
   const abortController = new AbortController();
   const abort = () => abortController.abort();
-  req.once('aborted', abort);
-  res.once('close', abort);
+  req.on('aborted', abort);
+  res.on('close', abort);
   try {
     const audio = await synthesizeWebchatSpeech({
       text,

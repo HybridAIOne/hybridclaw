@@ -120,7 +120,7 @@ describe('ReadAloudControl', () => {
     expect(
       screen
         .getByRole('button', {
-          name: 'Read aloud requires an OpenAI API key.',
+          name: 'Read aloud requires a HybridAI or OpenAI API key.',
         })
         .hasAttribute('disabled'),
     ).toBe(true);

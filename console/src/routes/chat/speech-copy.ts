@@ -43,7 +43,7 @@ const ENGLISH: SpeechCopy = {
   read: 'Read response aloud',
   readFailed: 'The response could not be read aloud. Please try again.',
   readUnsupported: 'Your browser does not support read aloud.',
-  readUnavailable: 'Read aloud requires an OpenAI API key.',
+  readUnavailable: 'Read aloud requires a HybridAI or OpenAI API key.',
   reading: 'Reading response aloud…',
   requestingMic: 'Requesting microphone access…',
   stopDictation: 'Stop recording',
@@ -68,7 +68,8 @@ const GERMAN: SpeechCopy = {
   readFailed:
     'Die Antwort konnte nicht vorgelesen werden. Bitte versuchen Sie es erneut.',
   readUnsupported: 'Ihr Browser unterstützt kein Vorlesen.',
-  readUnavailable: 'Für Vorlesen ist ein OpenAI-API-Schlüssel erforderlich.',
+  readUnavailable:
+    'Für Vorlesen ist ein HybridAI- oder OpenAI-API-Schlüssel erforderlich.',
   reading: 'Antwort wird vorgelesen…',
   requestingMic: 'Mikrofonzugriff wird angefragt…',
   stopDictation: 'Aufnahme stoppen',
@@ -93,7 +94,8 @@ const FRENCH: SpeechCopy = {
     "La réponse n'a pas pu être lue à voix haute. Veuillez réessayer.",
   readUnsupported:
     'Votre navigateur ne prend pas en charge la lecture à voix haute.',
-  readUnavailable: 'La lecture à voix haute nécessite une clé API OpenAI.',
+  readUnavailable:
+    'La lecture à voix haute nécessite une clé API HybridAI ou OpenAI.',
   reading: 'Lecture de la réponse…',
   requestingMic: "Demande d'accès au microphone…",
   stopDictation: "Arrêter l'enregistrement",

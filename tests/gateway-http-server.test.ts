@@ -476,6 +476,7 @@ function makeResponse() {
     getHeader(name: string) {
       return headers[resolveHeaderKey(name)];
     },
+    on: vi.fn(),
     once: vi.fn(),
     off: vi.fn(),
     writeHead(statusCode: number, headers: Record<string, string | string[]>) {
@@ -12903,6 +12904,28 @@ describe('gateway HTTP server', () => {
     expect(state.transcribeWebchatDictation).not.toHaveBeenCalled();
   });
 
+  test('rejects webchat dictation without consuming quota when unavailable', async () => {
+    const state = await importFreshHealth();
+    state.isWebchatDictationAvailable.mockResolvedValue(false);
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/transcribe',
+      headers: { 'content-type': 'audio/webm' },
+      body: Buffer.from('voice-bytes'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(503);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'No audio transcription backend is available.',
+    });
+    expect(state.consumeGatewayMediaUploadQuota).not.toHaveBeenCalled();
+    expect(state.transcribeWebchatDictation).not.toHaveBeenCalled();
+  });
+
   test('reports authenticated webchat media capabilities', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -12943,7 +12966,7 @@ describe('gateway HTTP server', () => {
       text: 'Read this response.',
       abortSignal: expect.any(AbortSignal),
     });
-    expect(res.once).toHaveBeenCalledWith('close', expect.any(Function));
+    expect(res.on).toHaveBeenCalledWith('close', expect.any(Function));
     expect(res.off).toHaveBeenCalledWith('close', expect.any(Function));
     expect(state.consumeGatewayMediaUploadQuota).toHaveBeenCalledWith({
       key: 'gateway-token',
@@ -12995,6 +13018,27 @@ describe('gateway HTTP server', () => {
     expect(limitedRes.statusCode).toBe(429);
     expect(limitedRes.headers['Retry-After']).toBe('3');
     expect(limitedState.synthesizeWebchatSpeech).not.toHaveBeenCalled();
+  });
+
+  test('rejects webchat speech without consuming quota when unavailable', async () => {
+    const state = await importFreshHealth();
+    state.isWebchatSpeechAvailable.mockReturnValue(false);
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/speech',
+      body: { text: 'Read this response.' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(503);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Read aloud requires a HybridAI or OpenAI API key.',
+    });
+    expect(state.consumeGatewayMediaUploadQuota).not.toHaveBeenCalled();
+    expect(state.synthesizeWebchatSpeech).not.toHaveBeenCalled();
   });
 
   test('starts with an empty DATA_DIR and returns 503 for media uploads', async () => {

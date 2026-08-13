@@ -193,7 +193,7 @@ export function DictationControl(props: {
         let speechSeen = false;
 
         const sample = () => {
-          if (recorder.state === 'inactive') return;
+          if (!mountedRef.current || recorder.state === 'inactive') return;
           analyser.getFloatTimeDomainData(samples);
           let sumSquares = 0;
           for (const amplitude of samples) {
