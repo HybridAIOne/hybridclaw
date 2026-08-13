@@ -482,8 +482,64 @@ function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
   };
 }
 
+// Database-backed fields that runtime surfaces (gateway admin console, CLI,
+// distill service) may set without a corresponding entry in the runtime
+// config. Identity fields and `archived` are excluded because upsertAgent
+// already preserves them; `budget` and `webSearch` are config-only and never
+// stored in the database.
+const DB_BACKED_OPTIONAL_AGENT_FIELDS = [
+  'name',
+  'displayName',
+  'imageAsset',
+  'emptyChatHeader',
+  'model',
+  'skills',
+  'workspace',
+  'chatbotId',
+  'enableRag',
+  'owner',
+  'role',
+  'reportsTo',
+  'delegatesTo',
+  'peers',
+  'cv',
+  'escalationTarget',
+  'a2a',
+  'proxy',
+] as const satisfies ReadonlyArray<keyof AgentConfig>;
+
+function mergeConfiguredAgentWithStored(
+  configured: AgentConfig,
+  stored: AgentConfig | undefined,
+): AgentConfig {
+  if (!stored) return configured;
+  // Config sync must not clear settings it does not manage: runtime edits
+  // (for example enabling proxy mode in the gateway console) are persisted
+  // only in the database, so a config entry that omits a field keeps the
+  // stored value instead of overwriting it with NULL on every reload.
+  // Config-specified values still take precedence.
+  const merged: AgentConfig = { ...configured };
+  for (const field of DB_BACKED_OPTIONAL_AGENT_FIELDS) {
+    copyStoredAgentFieldIfUnset(merged, stored, field);
+  }
+  return merged;
+}
+
+function copyStoredAgentFieldIfUnset<Field extends keyof AgentConfig>(
+  merged: AgentConfig,
+  stored: AgentConfig,
+  field: Field,
+): void {
+  if (merged[field] === undefined && stored[field] !== undefined) {
+    merged[field] = stored[field];
+  }
+}
+
 function syncConfiguredAgentsToDatabase(): void {
   const currentAgents = dbListAgents();
+  const storedAgentsById = new Map(
+    currentAgents.map((agent) => [agent.id, agent] as const),
+  );
   const mainAgent = configuredAgents.find(
     (entry) => entry.id === DEFAULT_AGENT_ID,
   );
@@ -492,16 +548,25 @@ function syncConfiguredAgentsToDatabase(): void {
     currentAgents.map((agent) => [agent.id, agent] as const),
   );
   if (!mainAgent) {
-    const defaultMainAgent = {
-      id: DEFAULT_AGENT_ID,
-      name: 'Main Agent',
-    };
+    const storedMainAgent = storedAgentsById.get(DEFAULT_AGENT_ID);
+    const defaultMainAgent = storedMainAgent
+      ? mergeConfiguredAgentWithStored(
+          { id: DEFAULT_AGENT_ID },
+          storedMainAgent,
+        )
+      : {
+          id: DEFAULT_AGENT_ID,
+          name: 'Main Agent',
+        };
     agentsToUpsert.push(defaultMainAgent);
     finalAgentsById.set(DEFAULT_AGENT_ID, defaultMainAgent);
   }
 
   for (const agent of configuredAgents) {
-    const nextAgent = configuredAgentForDatabase(agent);
+    const nextAgent = mergeConfiguredAgentWithStored(
+      configuredAgentForDatabase(agent),
+      storedAgentsById.get(agent.id),
+    );
     agentsToUpsert.push(nextAgent);
     finalAgentsById.set(nextAgent.id, nextAgent);
   }
