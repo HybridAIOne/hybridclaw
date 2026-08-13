@@ -35,7 +35,16 @@ Important:
 
 ## How The Channel Works
 
-The flow is:
+The channel has two modes, selected with `voice.mode`:
+
+- `relay` (default): turn-based conversation where Twilio owns speech
+  recognition and synthesis.
+- `realtime`: speech-to-speech conversation powered by the OpenAI Realtime
+  API, with barge-in and natural back-and-forth — comparable to advanced
+  voice modes in consumer assistants. See
+  [Realtime Voice Mode](#realtime-voice-mode) below.
+
+The relay flow is:
 
 1. Twilio sends an inbound webhook to HybridClaw.
 2. HybridClaw returns TwiML with `<Connect><ConversationRelay>`.
@@ -46,7 +55,7 @@ The flow is:
 
 For outbound calls, `hybridclaw gateway voice call <number>` tells Twilio to
 dial the destination and point the live call back at the same HybridClaw voice
-webhook.
+webhook. Outbound calls use the same configured mode as inbound calls.
 
 ## Minimum Config
 
@@ -92,11 +101,68 @@ Notes:
 - `ops.gatewayBaseUrl` must be the public URL Twilio sees, not a local one.
 - `voice.webhookPath` controls the base path for:
   - `<webhookPath>/webhook`
-  - `<webhookPath>/relay`
+  - `<webhookPath>/relay` (relay mode)
+  - `<webhookPath>/stream` (realtime mode)
   - `<webhookPath>/action`
 - `voice.twilio.fromNumber` must be an E.164 number like `+14155550123`.
 - leave `voice.twilio.authToken` empty when you store the real token in the
   encrypted secret store.
+
+## Realtime Voice Mode
+
+Set `voice.mode` to `"realtime"` to run calls through the OpenAI Realtime API
+instead of Twilio's turn-based ConversationRelay:
+
+```json
+{
+  "voice": {
+    "enabled": true,
+    "provider": "twilio",
+    "mode": "realtime",
+    "realtime": {
+      "model": "gpt-realtime",
+      "voice": "marin",
+      "greeting": "Hello! How can I help you today?",
+      "instructions": ""
+    }
+  }
+}
+```
+
+The realtime flow is:
+
+1. Twilio sends the same inbound webhook to HybridClaw.
+2. HybridClaw returns TwiML with `<Connect><Stream>` (Twilio Media Streams).
+3. Twilio opens a websocket at `<webhookPath>/stream` and streams the caller's
+   raw audio (8kHz µ-law).
+4. HybridClaw bridges that audio to an OpenAI realtime session, which listens,
+   detects turns, and speaks directly — audio passes through in both
+   directions without transcoding.
+5. When the caller interrupts, the bridge cancels the model's response and
+   flushes Twilio's audio buffer, so the model stops talking immediately.
+
+The realtime model fronts the conversation but is not the agent. It handles
+greetings and small talk itself; for anything that needs the assistant's
+knowledge, memory, or tools it calls a `consult_agent` tool, which runs a
+normal gateway agent turn in the same voice session — with the usual approval
+policy, session persistence, and audit logging — and speaks the reply. Turns
+handled directly by the realtime model are not persisted to the session
+transcript; consulted turns are.
+
+Requirements and notes:
+
+- Realtime mode needs an OpenAI API key. Set the `OPENAI_API_KEY` environment
+  variable or store it in the encrypted secret store (same flow as the Twilio
+  auth token, secret name `OPENAI_API_KEY`). The gateway refuses to start the
+  voice channel in realtime mode without it.
+- `voice.realtime.voice` accepts any OpenAI realtime voice name (for example
+  `marin`, `cedar`, `alloy`).
+- `voice.realtime.instructions` is appended to the built-in call instructions;
+  use it for tone, language, or caller-handling guidance.
+- `voice.relay.*` settings are ignored in realtime mode, and
+  `channelInstructions.voice` still applies to the consulted agent turns.
+- Realtime API audio is billed by OpenAI per minute of input and output audio
+  in addition to Twilio's per-minute call pricing.
 
 ## Store The Twilio Secret
 

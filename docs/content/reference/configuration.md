@@ -256,10 +256,14 @@ saved revision history directly.
   `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
   config, and note that `email.pollIntervalMs` defaults to `30000`
   milliseconds and is clamped to a minimum of `1000`
-- `voice.*` for the Twilio ConversationRelay channel, including webhook path,
-  concurrency, relay voice/STT options, and Twilio number/account settings;
-  the auth token can stay empty in config when you store `TWILIO_AUTH_TOKEN`
-  in the encrypted runtime secret store or use a SecretRef-backed
+- `voice.*` for the Twilio phone channel, including webhook path, concurrency,
+  and Twilio number/account settings; `voice.mode` selects `relay`
+  (ConversationRelay, `voice.relay.*` voice/STT options) or `realtime`
+  (OpenAI Realtime speech-to-speech over Twilio Media Streams, configured via
+  `voice.realtime.model`, `voice.realtime.voice`, `voice.realtime.greeting`,
+  and `voice.realtime.instructions`; requires an `OPENAI_API_KEY`). The auth
+  token can stay empty in config when you store `TWILIO_AUTH_TOKEN` in the
+  encrypted runtime secret store or use a SecretRef-backed
   `voice.twilio.authToken`
 - `deployment.mode`, `deployment.public_url`, `deployment.a2a_local_mode`,
   `deployment.a2a_e2ee_required`, `deployment.tunnel.provider`, and

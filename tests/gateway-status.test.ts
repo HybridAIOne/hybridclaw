@@ -1010,6 +1010,7 @@ test('getGatewayStatus includes voice Twilio credential status', async () => {
 
   expect(status.voice).toEqual({
     enabled: true,
+    mode: 'relay',
     accountSidConfigured: true,
     fromNumberConfigured: true,
     authTokenConfigured: true,

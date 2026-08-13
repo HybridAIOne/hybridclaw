@@ -136,6 +136,7 @@ import {
   HEARTBEAT_INTERVAL,
   MSTEAMS_APP_ID,
   MSTEAMS_APP_PASSWORD,
+  OPENAI_API_KEY,
   onConfigChange,
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
   SLACK_APP_TOKEN,
@@ -3175,6 +3176,12 @@ async function startVoiceIntegration(): Promise<boolean> {
     );
     return false;
   }
+  if (voiceConfig.mode === 'realtime' && !String(OPENAI_API_KEY || '').trim()) {
+    logger.warn(
+      'Voice integration disabled: realtime mode requires an OpenAI API key (OPENAI_API_KEY)',
+    );
+    return false;
+  }
 
   try {
     await initVoice(
@@ -3302,6 +3309,7 @@ async function startVoiceIntegration(): Promise<boolean> {
     logger.info(
       {
         provider: voiceConfig.provider,
+        mode: voiceConfig.mode,
         webhookPath: voiceConfig.webhookPath,
         maxConcurrentCalls: voiceConfig.maxConcurrentCalls,
       },

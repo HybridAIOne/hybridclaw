@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- **Realtime voice mode for phone calls**: `voice.mode: "realtime"` runs
+  Twilio calls through the OpenAI Realtime API as natural speech-to-speech
+  conversations with barge-in, instead of the turn-based ConversationRelay
+  flow. The realtime model fronts the call and forwards substantive requests
+  to the full gateway agent via a `consult_agent` tool, so tools, approvals,
+  and session persistence keep working. Configure via `voice.realtime.*`;
+  requires an `OPENAI_API_KEY`.
+
 ### Changed
 
 - **LINE is now an install-on-demand channel plugin**: The unofficial LINEJS

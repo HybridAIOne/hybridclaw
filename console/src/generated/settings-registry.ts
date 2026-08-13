@@ -2706,10 +2706,40 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 8,
     },
     {
+      path: 'voice.mode',
+      section: 'voice',
+      kind: 'string',
+      defaultValue: 'relay',
+    },
+    {
       path: 'voice.provider',
       section: 'voice',
       kind: 'string',
       defaultValue: 'twilio',
+    },
+    {
+      path: 'voice.realtime.greeting',
+      section: 'voice',
+      kind: 'string',
+      defaultValue: 'Hello! How can I help you today?',
+    },
+    {
+      path: 'voice.realtime.instructions',
+      section: 'voice',
+      kind: 'string',
+      defaultValue: '',
+    },
+    {
+      path: 'voice.realtime.model',
+      section: 'voice',
+      kind: 'string',
+      defaultValue: 'gpt-realtime',
+    },
+    {
+      path: 'voice.realtime.voice',
+      section: 'voice',
+      kind: 'string',
+      defaultValue: 'marin',
     },
     {
       path: 'voice.relay.interruptible',

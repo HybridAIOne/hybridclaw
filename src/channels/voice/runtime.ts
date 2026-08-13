@@ -1,7 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import WebSocket, * as wsModule from 'ws';
-import { getConfigSnapshot, TWILIO_AUTH_TOKEN } from '../../config/config.js';
+import {
+  getConfigSnapshot,
+  OPENAI_API_KEY,
+  TWILIO_AUTH_TOKEN,
+} from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { VOICE_CAPABILITIES } from '../channel.js';
@@ -13,6 +17,8 @@ import {
   mergePromptFragment,
   parseConversationRelayMessage,
 } from './conversation-relay.js';
+import { parseMediaStreamMessage } from './media-stream.js';
+import { RealtimeCallBridge } from './realtime-bridge.js';
 import { ReplayProtector, validateTwilioSignature } from './security.js';
 import { type VoiceCallSession, VoiceCallSessionStore } from './session.js';
 import { formatTextForVoice } from './text.js';
@@ -25,6 +31,7 @@ import {
   buildConversationRelayTwiml,
   buildEmptyTwiml,
   buildHangupTwiml,
+  buildMediaStreamTwiml,
   readTwilioFormBody,
 } from './webhook.js';
 
@@ -309,12 +316,21 @@ function isReconnectableFailure(params: Record<string, string>): boolean {
   );
 }
 
-function buildRelayTwimlForRequest(
+function buildVoiceTwimlForRequest(
   req: IncomingMessage,
   callSid: string,
 ): string {
   const voiceConfig = getConfigSnapshot().voice;
   const paths = resolveVoiceWebhookPaths(voiceConfig.webhookPath);
+  if (voiceConfig.mode === 'realtime') {
+    return buildMediaStreamTwiml({
+      websocketUrl: buildPublicWsUrl(req, paths.streamPath),
+      actionUrl: buildPublicHttpUrl(req, paths.actionPath),
+      customParameters: {
+        callReference: callSid,
+      },
+    });
+  }
   return buildConversationRelayTwiml({
     websocketUrl: buildPublicWsUrl(req, paths.relayPath),
     actionUrl: buildPublicHttpUrl(req, paths.actionPath),
@@ -586,6 +602,224 @@ function handleWebSocketConnection(ws: WebSocket, remoteIp: string): void {
     logger.debug({ error, callSid, remoteIp }, 'Voice relay websocket error');
   });
 }
+async function dispatchRealtimeConsult(
+  session: VoiceCallSession,
+  content: string,
+  bridgeSignal: AbortSignal,
+): Promise<string> {
+  const handler = voiceMessageHandler;
+  if (!handler) {
+    throw new Error('Voice runtime is unavailable.');
+  }
+  const controller = new AbortController();
+  const onBridgeAbort = () => controller.abort();
+  bridgeSignal.addEventListener('abort', onBridgeAbort, { once: true });
+  sessionStore.setController(session.callSid, controller);
+  const chunks: string[] = [];
+  const responseStream = new ConversationRelayResponseStream(
+    async (payload) => {
+      if (payload.type === 'text' && typeof payload.token === 'string') {
+        chunks.push(payload.token);
+      }
+    },
+    {
+      interruptible: false,
+      language: getConfigSnapshot().voice.relay.language,
+    },
+  );
+  const reply: VoiceReplyFn = async (text) => {
+    await responseStream.reply(formatTextForVoice(text));
+  };
+  try {
+    await handler(
+      session.gatewaySessionId,
+      null,
+      session.channelId,
+      session.userId,
+      session.username,
+      content,
+      [],
+      reply,
+      {
+        abortSignal: controller.signal,
+        callSid: session.callSid,
+        twilioSessionId: session.twilioSessionId || '',
+        remoteIp: session.remoteIp,
+        setupMessage: session.setupMessage,
+        responseStream,
+      },
+    );
+    // The stream buffers its final token until finish(); flush it into the
+    // collector or the reply would lose its last chunk.
+    if (!responseStream.finished) {
+      await responseStream.finish();
+    }
+  } finally {
+    bridgeSignal.removeEventListener('abort', onBridgeAbort);
+    if (session.controller === controller) {
+      sessionStore.setController(session.callSid, null);
+    }
+  }
+  return chunks.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+function teardownRealtimeSession(
+  callSid: string,
+  next: 'ended' | 'failed',
+): void {
+  const session = sessionStore.get(callSid);
+  if (!session) {
+    return;
+  }
+  session.controller?.abort();
+  session.realtimeBridge?.close();
+  session.realtimeBridge = null;
+  transitionSession(callSid, next);
+  sessionStore.remove(callSid);
+}
+
+function handleMediaStreamConnection(ws: WebSocket, remoteIp: string): void {
+  let callSid: string | null = null;
+
+  ws.on('message', (raw) => {
+    void (async () => {
+      try {
+        const message = parseMediaStreamMessage(raw);
+        if (message.type === 'connected' || message.type === 'mark') {
+          return;
+        }
+        if (message.type === 'start') {
+          const reference =
+            message.customParameters?.callReference || message.callSid;
+          const session = reference ? sessionStore.get(reference) : undefined;
+          if (!session) {
+            throw new Error(
+              `Media stream started for unknown voice call ${reference || 'unknown'}`,
+            );
+          }
+          callSid = session.callSid;
+          const apiKey = String(OPENAI_API_KEY || '').trim();
+          if (!apiKey) {
+            throw new Error(
+              'Realtime voice mode requires an OpenAI API key (OPENAI_API_KEY).',
+            );
+          }
+          const voiceConfig = getConfigSnapshot().voice;
+          const bridge = new RealtimeCallBridge({
+            apiKey,
+            config: voiceConfig.realtime,
+            caller: {
+              from: session.from,
+              to: session.to,
+              callerName: session.callerName,
+            },
+            streamSid: message.streamSid,
+            sendToTwilio: async (payload) => {
+              if (!session.ws || session.ws.readyState !== WebSocket.OPEN) {
+                throw new Error('Voice websocket is not connected.');
+              }
+              await sendWsPayload(session.ws, payload);
+            },
+            consultAgent: (request, abortSignal) =>
+              dispatchRealtimeConsult(session, request, abortSignal),
+            onTranscript: (role, text) => {
+              logger.debug(
+                {
+                  callSid: session.callSid,
+                  role,
+                  transcriptLength: text.length,
+                },
+                'Voice realtime transcript',
+              );
+            },
+            onStateChange: (state) => {
+              transitionSession(session.callSid, state);
+            },
+            onError: (errorMessage) => {
+              logger.warn(
+                { callSid: session.callSid, errorMessage },
+                'Voice realtime bridge error',
+              );
+            },
+            onClosed: () => {
+              // Upstream loss is unrecoverable; end the Twilio stream so the
+              // caller is not left in silence.
+              if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+                session.ws.close();
+              }
+            },
+          });
+          sessionStore.attachMediaStream({
+            callSid: session.callSid,
+            streamSid: message.streamSid,
+            ws,
+            bridge,
+          });
+          transitionSession(session.callSid, 'listening');
+          logger.info(
+            {
+              callSid: session.callSid,
+              streamSid: message.streamSid,
+              remoteIp,
+            },
+            'Voice media stream started',
+          );
+          return;
+        }
+        if (!callSid) {
+          throw new Error('Media stream frame arrived before start.');
+        }
+        const session = sessionStore.get(callSid);
+        if (!session?.realtimeBridge) {
+          throw new Error(`Unknown voice session for call ${callSid}`);
+        }
+        if (message.type === 'media') {
+          session.realtimeBridge.handleCallerAudio(message.payload);
+          return;
+        }
+        if (message.type === 'dtmf') {
+          logger.info(
+            { callSid, digit: message.digit },
+            'Voice media stream DTMF received',
+          );
+          session.realtimeBridge.handleDtmf(message.digit);
+          return;
+        }
+        logger.info({ callSid }, 'Voice media stream stopped');
+        teardownRealtimeSession(callSid, 'ended');
+      } catch (error) {
+        logger.warn(
+          { error, callSid, remoteIp },
+          'Voice media stream message failed',
+        );
+        if (callSid) {
+          teardownRealtimeSession(callSid, 'failed');
+        }
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close(1008, 'Invalid voice media stream message');
+        }
+      }
+    })();
+  });
+
+  ws.on('close', (code, reason) => {
+    logger.info(
+      { callSid, remoteIp, code, reason: decodeCloseReason(reason) },
+      'Voice media stream websocket closed',
+    );
+    if (callSid) {
+      teardownRealtimeSession(callSid, 'ended');
+    }
+  });
+
+  ws.on('error', (error) => {
+    logger.debug(
+      { error, callSid, remoteIp },
+      'Voice media stream websocket error',
+    );
+  });
+}
+
 export async function initVoice(
   messageHandler: VoiceMessageHandler,
 ): Promise<void> {
@@ -604,7 +838,16 @@ export async function initVoice(
     capabilities: VOICE_CAPABILITIES,
   });
   websocketServer.on('connection', (ws: WebSocket, req: IncomingMessage) => {
-    handleWebSocketConnection(ws, resolveRemoteIp(req));
+    const remoteIp = resolveRemoteIp(req);
+    const paths = resolveVoiceWebhookPaths(
+      getConfigSnapshot().voice.webhookPath,
+    );
+    const pathname = new URL(req.url || '/', 'http://localhost').pathname;
+    if (pathname === paths.streamPath) {
+      handleMediaStreamConnection(ws, remoteIp);
+      return;
+    }
+    handleWebSocketConnection(ws, remoteIp);
   });
 }
 
@@ -688,7 +931,7 @@ export async function handleVoiceWebhook(
       },
       'Voice webhook accepted',
     );
-    sendXml(res, 200, buildRelayTwimlForRequest(req, callSid));
+    sendXml(res, 200, buildVoiceTwimlForRequest(req, callSid));
     return true;
   }
 
@@ -743,7 +986,7 @@ export async function handleVoiceWebhook(
     ) {
       sessionStore.markReconnectAttempt(callSid);
       transitionSession(callSid, 'relay-connecting');
-      sendXml(res, 200, buildRelayTwimlForRequest(req, callSid));
+      sendXml(res, 200, buildVoiceTwimlForRequest(req, callSid));
       return true;
     }
 
@@ -770,8 +1013,11 @@ export function handleVoiceUpgrade(
   head: Buffer,
   url: URL,
 ): boolean {
-  const paths = resolveVoiceWebhookPaths(getConfigSnapshot().voice.webhookPath);
-  if (url.pathname !== paths.relayPath) {
+  const voiceConfig = getConfigSnapshot().voice;
+  const paths = resolveVoiceWebhookPaths(voiceConfig.webhookPath);
+  const activePath =
+    voiceConfig.mode === 'realtime' ? paths.streamPath : paths.relayPath;
+  if (url.pathname !== activePath) {
     return false;
   }
   const remoteIp = resolveRemoteIp(req);
@@ -832,6 +1078,16 @@ export async function shutdownVoice(opts?: { drain?: boolean }): Promise<void> {
   await Promise.all(
     sessionStore.list().map(async (session) => {
       session.controller?.abort();
+      const isRealtimeSession = session.realtimeBridge !== null;
+      session.realtimeBridge?.close();
+      session.realtimeBridge = null;
+      if (isRealtimeSession) {
+        // Media stream sockets carry raw audio frames; the ConversationRelay
+        // end payload below would be an unknown event to Twilio.
+        session.ws?.close();
+        sessionStore.remove(session.callSid);
+        return;
+      }
       if (session.ws && session.ws.readyState === WebSocket.OPEN) {
         try {
           await sendWsPayload(session.ws, {
