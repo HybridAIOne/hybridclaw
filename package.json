@@ -115,7 +115,7 @@
   "dependencies": {
     "@e965/xlsx": "0.20.3",
     "@huggingface/transformers": "3.8.1",
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@ngrok/ngrok": "1.7.0",
     "@opentelemetry/api": "1.9.1",
     "@opentelemetry/exporter-trace-otlp-grpc": "0.220.0",
@@ -134,7 +134,7 @@
     "discord.js": "14.27.0",
     "docx": "9.7.1",
     "iconv-lite": "0.7.3",
-    "imapflow": "1.4.7",
+    "imapflow": "1.6.5",
     "impit": "0.14.3",
     "jose": "6.2.3",
     "mailparser": "3.9.14",
@@ -142,11 +142,10 @@
     "node-pty": "1.1.0",
     "nodemailer": "9.0.3",
     "pdf-lib": "1.17.1",
-    "pdfjs-dist": "5.7.284",
+    "pdfjs-dist": "6.2.108",
     "pino": "9.14.0",
     "pino-pretty": "13.1.3",
     "playwright": "1.61.1",
-    "pptxgenjs": "4.0.1",
     "qrcode-terminal": "0.12.0",
     "sanitize-html": "2.17.6",
     "stemmer": "2.0.1",
@@ -172,23 +171,32 @@
     "vitest": "4.1.8"
   },
   "overrides": {
-    "@hono/node-server": "2.0.10",
-    "undici": "6.27.0",
+    "@hono/node-server": "2.1.0",
+    "undici": "6.28.0",
     "lodash": "4.18.1",
     "uuid": "11.1.1",
     "vite": "8.0.16",
     "nodemailer": "9.0.3",
-    "hono": "4.12.30",
+    "hono": "4.12.34",
     "cheerio": {
-      "undici": "7.28.0"
+      "undici": "7.29.0"
     },
     "@electron/get": {
-      "undici": "7.28.0"
+      "undici": "7.29.0"
     },
-    "fast-uri": "3.1.4",
+    "fast-uri": "3.1.5",
+    "ip-address": "10.4.0",
+    "js-yaml": "4.3.1",
+    "docx": {
+      "nanoid": "5.1.16"
+    },
+    "postcss": {
+      ".": "8.5.23",
+      "nanoid": "5.1.16"
+    },
     "camoufox-js": {
       "adm-zip": "0.6.0",
-      "brace-expansion": "5.0.8",
+      "brace-expansion": "5.0.9",
       "ua-parser-js": "1.0.41"
     },
     "sharp": "0.35.3",
