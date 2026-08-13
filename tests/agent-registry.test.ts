@@ -190,6 +190,78 @@ test('listAgents refreshes externally updated database-backed registry', async (
   expect(listAgents().map((agent) => agent.id)).toEqual(['main', 'external']);
 });
 
+test('config sync preserves database-only agent settings across registry reloads', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAgentById, getStoredAgentConfig, initAgentRegistry, upsertRegisteredAgent } =
+    await import('../src/agents/agent-registry.ts');
+
+  const configuredList = [
+    { id: 'main', name: 'Main Agent' },
+    { id: 'gateway', name: 'Gateway Agent', model: 'gpt-5-mini' },
+  ];
+
+  initDatabase({ quiet: true });
+  initAgentRegistry({ list: configuredList });
+
+  // Simulate runtime edits (gateway console) that persist only to the DB.
+  upsertRegisteredAgent({
+    ...getStoredAgentConfig('gateway')!,
+    chatbotId: 'bot-gateway',
+    proxy: {
+      kind: 'hybridai',
+      baseUrl: 'https://hybridai.example',
+      chatbotId: 'bot-proxy',
+      apiKey: { source: 'store', id: 'HYBRIDAI_API_KEY' },
+    },
+  });
+  upsertRegisteredAgent({
+    ...getStoredAgentConfig('main')!,
+    chatbotId: 'bot-main',
+  });
+
+  // Simulate a gateway restart: the registry re-initializes from the same
+  // runtime config, which does not mention proxy or chatbotId.
+  initAgentRegistry({ list: configuredList });
+
+  expect(getAgentById('gateway')?.proxy).toEqual(
+    expect.objectContaining({
+      kind: 'hybridai',
+      chatbotId: 'bot-proxy',
+    }),
+  );
+  expect(getAgentById('gateway')?.chatbotId).toBe('bot-gateway');
+  expect(getAgentById('main')?.chatbotId).toBe('bot-main');
+
+  // Config-specified values still win over stored ones on reload.
+  initAgentRegistry({
+    list: [
+      { id: 'main', name: 'Main Agent' },
+      { id: 'gateway', name: 'Gateway Agent', model: 'gpt-5.2' },
+    ],
+  });
+  expect(getAgentById('gateway')?.model).toBe('gpt-5.2');
+  expect(getAgentById('gateway')?.proxy).toEqual(
+    expect.objectContaining({ chatbotId: 'bot-proxy' }),
+  );
+
+  // A reload whose config omits the main agent seeds it from the stored row
+  // instead of resetting it.
+  initAgentRegistry({
+    list: [{ id: 'gateway', name: 'Gateway Agent', model: 'gpt-5.2' }],
+  });
+  expect(getAgentById('main')?.chatbotId).toBe('bot-main');
+
+  // Explicit clears through the registry API still remove the setting.
+  const { proxy: _cleared, ...storedWithoutProxy } =
+    getStoredAgentConfig('gateway')!;
+  upsertRegisteredAgent(storedWithoutProxy);
+  expect(getAgentById('gateway')?.proxy).toBeUndefined();
+});
+
 test('agent skill allowlists persist through runtime config normalization and the registry', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
