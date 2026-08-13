@@ -1,6 +1,1 @@
-{
-  "GHSA-mh99-v99m-4gvg": {
-    "expires": "2026-08-08",
-    "reason": "Development-only electron-builder 26.x paths still require legacy minimatch releases that cannot use brace-expansion 5.x. Remove this exception when a stable electron-builder release adopts patched dependencies."
-  }
-}
+{}
