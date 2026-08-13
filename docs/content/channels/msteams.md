@@ -135,6 +135,21 @@ an openable file card. The Teams bot file API supports this flow only in
 one-on-one chats; channel and group-chat file delivery requires a separate
 Microsoft Graph and SharePoint/OneDrive integration.
 
+## Troubleshooting: a generated file is only a link
+
+If a direct-message response names a generated PDF, document, spreadsheet,
+presentation, image, audio file, or video but does not show a file-consent
+card, verify that the bot entry in the installed Teams app manifest contains
+`"supportsFiles": true`. After changing the manifest, download and upload a new
+app package, then reinstall or update the app in Teams.
+
+Select **Accept** on the consent card to complete the upload. Declining the card
+leaves the file in HybridClaw's sandbox and does not create a Teams attachment.
+
+Team channels and group chats cannot use bot file-consent cards. HybridClaw
+reports that limitation in the reply instead of displaying a local link that
+Teams cannot open.
+
 ## Troubleshooting: the bot does not respond
 
 The default DM policy is `allowlist`, so the bot does not respond to a direct
