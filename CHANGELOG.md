@@ -11,6 +11,12 @@
   to the full gateway agent via a `consult_agent` tool, so tools, approvals,
   and session persistence keep working. Configure via `voice.realtime.*`;
   requires an `OPENAI_API_KEY`.
+- **Voice mode in the web console chat**: A microphone button in the composer
+  starts a realtime speech-to-speech session in the browser using the same
+  OpenAI Realtime engine and `voice.realtime.*` settings — no Twilio setup
+  needed. Consulted requests run as ordinary web chat turns and appear in the
+  session transcript; the button only shows when an `OPENAI_API_KEY` is
+  configured.
 
 ## [0.28.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.6) - 2026-07-26
 

@@ -436,6 +436,11 @@ import {
   renderTextChannelCommandResult,
   resolveTextChannelSlashCommands,
 } from './text-channel-commands.js';
+import {
+  isWebchatVoiceAvailable,
+  WEBCHAT_VOICE_STREAM_PATH,
+  webchatVoiceManager,
+} from './webchat-voice.js';
 
 const SITE_DIR = resolveInstallPath('docs');
 const CONSOLE_DIST_DIR = resolveInstallPath('console', 'dist');
@@ -10945,6 +10950,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiChatContext(res, url);
             return;
           }
+          if (pathname === '/api/chat/voice' && method === 'GET') {
+            const voiceConfig = getRuntimeConfig().voice.realtime;
+            sendJson(res, 200, {
+              available: isWebchatVoiceAvailable(),
+              model: voiceConfig.model,
+              voice: voiceConfig.voice,
+            });
+            return;
+          }
           if (pathname === '/api/agents' && method === 'GET') {
             await handleApiAgents(res);
             return;
@@ -11173,6 +11187,32 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (handleVoiceUpgrade(req, socket, head, url)) {
+      return;
+    }
+
+    if (url.pathname === WEBCHAT_VOICE_STREAM_PATH) {
+      // Same browser-auth gate as the admin terminal stream: a signed session
+      // cookie or an authenticated same-origin request (including the
+      // loopback local web session). No query tokens, no API tokens.
+      const voiceSessionPayload = getSessionAuthPayload(req);
+      const voiceRequestAuth = resolveAuthContext(req, url, {
+        allowApiTokens: false,
+        allowQueryToken: false,
+        allowLocalWebSession: true,
+        requireSameOrigin: true,
+      });
+      if (voiceSessionPayload === null && voiceRequestAuth.kind === 'none') {
+        writeUpgradeError(socket, 401, 'Unauthorized');
+        return;
+      }
+      if (!isWebchatVoiceAvailable()) {
+        writeUpgradeError(socket, 503, 'Voice Unavailable');
+        return;
+      }
+      webchatVoiceManager.handleUpgrade(req, socket, head, {
+        userId: resolveGatewayRequestUserId({ req, channelId: 'web' }) || null,
+        username: null,
+      });
       return;
     }
 

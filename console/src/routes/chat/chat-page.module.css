@@ -2224,3 +2224,110 @@ aside[data-state="collapsed"] .chatSidebarContent {
     animation: none;
   }
 }
+
+/* Realtime voice mode */
+.voiceButtonActive {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.voicePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--chat-hover-bg);
+}
+
+.voicePanelHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.voiceIndicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--muted-foreground);
+  flex-shrink: 0;
+}
+
+.voiceIndicatorListening {
+  background: var(--accent);
+  animation: voicePulse 1.6s ease-in-out infinite;
+}
+
+.voiceIndicatorSpeaking {
+  background: #3fb950;
+}
+
+.voiceIndicatorThinking {
+  background: #d29922;
+  animation: voicePulse 1s ease-in-out infinite;
+}
+
+.voiceIndicatorError {
+  background: #f85149;
+}
+
+.voiceStatusLabel {
+  flex: 1;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.voiceEndButton {
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.voiceEndButton:hover {
+  background: var(--chat-hover-bg);
+  color: var(--text);
+}
+
+.voiceTranscripts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+
+.voiceTranscriptLine {
+  display: flex;
+  gap: 8px;
+}
+
+.voiceTranscriptRole {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+@keyframes voicePulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voiceIndicatorListening,
+  .voiceIndicatorThinking {
+    animation: none;
+  }
+}

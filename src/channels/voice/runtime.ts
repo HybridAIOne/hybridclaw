@@ -17,7 +17,11 @@ import {
   mergePromptFragment,
   parseConversationRelayMessage,
 } from './conversation-relay.js';
-import { parseMediaStreamMessage } from './media-stream.js';
+import {
+  buildMediaStreamClearPayload,
+  buildMediaStreamMediaPayload,
+  parseMediaStreamMessage,
+} from './media-stream.js';
 import { RealtimeCallBridge } from './realtime-bridge.js';
 import { ReplayProtector, validateTwilioSignature } from './security.js';
 import { type VoiceCallSession, VoiceCallSessionStore } from './session.js';
@@ -713,12 +717,25 @@ function handleMediaStreamConnection(ws: WebSocket, remoteIp: string): void {
               to: session.to,
               callerName: session.callerName,
             },
-            streamSid: message.streamSid,
-            sendToTwilio: async (payload) => {
+            surface: 'phone',
+            audioFormat: { type: 'audio/pcmu' },
+            sendAudio: async (base64Audio) => {
               if (!session.ws || session.ws.readyState !== WebSocket.OPEN) {
                 throw new Error('Voice websocket is not connected.');
               }
-              await sendWsPayload(session.ws, payload);
+              await sendWsPayload(
+                session.ws,
+                buildMediaStreamMediaPayload(message.streamSid, base64Audio),
+              );
+            },
+            clearPlayback: async () => {
+              if (!session.ws || session.ws.readyState !== WebSocket.OPEN) {
+                throw new Error('Voice websocket is not connected.');
+              }
+              await sendWsPayload(
+                session.ws,
+                buildMediaStreamClearPayload(message.streamSid),
+              );
             },
             consultAgent: (request, abortSignal) =>
               dispatchRealtimeConsult(session, request, abortSignal),

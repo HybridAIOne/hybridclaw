@@ -261,7 +261,9 @@ saved revision history directly.
   (ConversationRelay, `voice.relay.*` voice/STT options) or `realtime`
   (OpenAI Realtime speech-to-speech over Twilio Media Streams, configured via
   `voice.realtime.model`, `voice.realtime.voice`, `voice.realtime.greeting`,
-  and `voice.realtime.instructions`; requires an `OPENAI_API_KEY`). The auth
+  and `voice.realtime.instructions`; requires an `OPENAI_API_KEY`). The
+  `voice.realtime.*` settings also drive web console voice mode, which needs
+  only the OpenAI key and works with the Twilio channel disabled. The auth
   token can stay empty in config when you store `TWILIO_AUTH_TOKEN` in the
   encrypted runtime secret store or use a SecretRef-backed
   `voice.twilio.authToken`

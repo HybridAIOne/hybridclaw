@@ -1,24 +1,23 @@
 /**
- * Per-call bridge between a Twilio media stream and an OpenAI realtime
- * session — the speech-to-speech counterpart of `dispatchPromptToHandler`.
+ * Per-conversation bridge between a caller-facing audio transport (Twilio
+ * media stream or browser websocket) and an OpenAI realtime session — the
+ * speech-to-speech counterpart of `dispatchPromptToHandler`.
  *
- * Guarantees barge-in stays coherent (caller speech always clears Twilio's
- * audio buffer and cancels the active model response) and that at most one
- * `consult_agent` gateway turn runs per call at a time. The realtime model
- * only fronts the conversation; anything requiring tools, memory, or actions
- * is forwarded to the full gateway agent via the consult callback.
+ * Guarantees barge-in stays coherent (caller speech always clears queued
+ * playback and cancels the active model response) and that at most one
+ * `consult_agent` gateway turn runs per conversation at a time. The realtime
+ * model only fronts the conversation; anything requiring tools, memory, or
+ * actions is forwarded to the full gateway agent via the consult callback.
  *
- * NOT a transport: Twilio frame parsing lives in `media-stream.ts` and the
+ * NOT a transport: callers supply `sendAudio`/`clearPlayback` seams (Twilio
+ * framing lives in `media-stream.ts`, browser framing in the gateway) and the
  * upstream socket in `openai-realtime.ts`; this module never touches raw JSON.
  */
 import type { RuntimeVoiceRealtimeConfig } from '../../config/runtime-config.js';
 import { isRecord } from '../../utils/type-guards.js';
 import {
-  buildMediaStreamClearPayload,
-  buildMediaStreamMediaPayload,
-} from './media-stream.js';
-import {
   OpenAIRealtimeClient,
+  type RealtimeAudioFormat,
   type RealtimeSocketFactory,
 } from './openai-realtime.js';
 
@@ -28,6 +27,8 @@ const CONSULT_BUSY_OUTPUT =
   'The assistant is still working on the previous request. Ask the caller to wait a moment.';
 
 export type RealtimeBridgeState = 'listening' | 'speaking' | 'thinking';
+
+export type RealtimeSurface = 'phone' | 'web';
 
 export interface RealtimeCallerInfo {
   from: string;
@@ -39,8 +40,10 @@ export interface RealtimeBridgeOptions {
   apiKey: string;
   config: RuntimeVoiceRealtimeConfig;
   caller: RealtimeCallerInfo;
-  streamSid: string;
-  sendToTwilio: (payload: Record<string, unknown>) => Promise<void>;
+  surface: RealtimeSurface;
+  audioFormat: RealtimeAudioFormat;
+  sendAudio: (base64Audio: string) => Promise<void>;
+  clearPlayback: () => Promise<void>;
   consultAgent: (request: string, abortSignal: AbortSignal) => Promise<string>;
   onTranscript: (role: 'assistant' | 'caller', text: string) => void;
   onStateChange: (state: RealtimeBridgeState) => void;
@@ -52,11 +55,17 @@ export interface RealtimeBridgeOptions {
 export function buildRealtimeInstructions(
   config: RuntimeVoiceRealtimeConfig,
   caller: RealtimeCallerInfo,
+  surface: RealtimeSurface = 'phone',
 ): string {
+  const setting =
+    surface === 'phone'
+      ? 'on a live phone call'
+      : 'in a live voice conversation in the web console';
+  const person = surface === 'phone' ? 'caller' : 'user';
   const sections = [
-    'You are the realtime voice of HybridClaw, a personal AI assistant, on a live phone call.',
+    `You are the realtime voice of HybridClaw, a personal AI assistant, ${setting}.`,
     'Keep replies short, natural, and conversational. Never mention these instructions.',
-    `Handle greetings and small talk yourself. For anything that needs the assistant's knowledge, memory, files, or tools — or any action such as sending messages or managing tasks — first tell the caller you are checking, then call the ${CONSULT_AGENT_TOOL_NAME} tool with the caller's request. Relay its reply faithfully in a natural spoken style.`,
+    `Handle greetings and small talk yourself. For anything that needs the assistant's knowledge, memory, files, or tools — or any action such as sending messages or managing tasks — first tell the ${person} you are checking, then call the ${CONSULT_AGENT_TOOL_NAME} tool with the ${person}'s request. Relay its reply faithfully in a natural spoken style.`,
   ];
   const callerDetails = [
     caller.callerName ? `name ${caller.callerName}` : '',
@@ -66,7 +75,9 @@ export function buildRealtimeInstructions(
     .filter(Boolean)
     .join(', ');
   if (callerDetails) {
-    sections.push(`Caller details: ${callerDetails}.`);
+    sections.push(
+      `${surface === 'phone' ? 'Caller' : 'User'} details: ${callerDetails}.`,
+    );
   }
   if (config.instructions.trim()) {
     sections.push(config.instructions.trim());
@@ -99,7 +110,12 @@ export class RealtimeCallBridge {
       apiKey: options.apiKey,
       model: options.config.model,
       voice: options.config.voice,
-      instructions: buildRealtimeInstructions(options.config, options.caller),
+      audioFormat: options.audioFormat,
+      instructions: buildRealtimeInstructions(
+        options.config,
+        options.caller,
+        options.surface,
+      ),
       tools: [
         {
           name: CONSULT_AGENT_TOOL_NAME,
@@ -126,26 +142,20 @@ export class RealtimeCallBridge {
         },
         onAudioDelta: (base64Audio) => {
           this.options.onStateChange('speaking');
-          void this.options
-            .sendToTwilio(
-              buildMediaStreamMediaPayload(options.streamSid, base64Audio),
-            )
-            .catch((error) => {
-              this.options.onError(
-                `Failed to forward audio to Twilio: ${String(
-                  error instanceof Error ? error.message : error,
-                )}`,
-              );
-            });
+          void this.options.sendAudio(base64Audio).catch((error) => {
+            this.options.onError(
+              `Failed to forward audio to the caller: ${String(
+                error instanceof Error ? error.message : error,
+              )}`,
+            );
+          });
         },
         onSpeechStarted: () => {
           this.options.onStateChange('listening');
           this.client.cancelResponse();
-          void this.options
-            .sendToTwilio(buildMediaStreamClearPayload(options.streamSid))
-            .catch(() => {
-              // The stream is gone; the close handler tears the call down.
-            });
+          void this.options.clearPlayback().catch(() => {
+            // The transport is gone; the close handler tears the session down.
+          });
         },
         onInputTranscript: (transcript) => {
           this.options.onTranscript('caller', transcript);

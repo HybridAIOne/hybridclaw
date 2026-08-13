@@ -17,6 +17,7 @@ import {
   fetchAppStatus,
   fetchChatContext,
   fetchChatRecent,
+  fetchChatVoiceCapability,
   rateChatResponse,
   uploadMedia,
 } from '../../api/chat';
@@ -81,6 +82,7 @@ import { EditInline, MessageBlock } from './message-block';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
 import { useStickToBottom } from './use-stick-to-bottom';
+import { VoicePanel } from './voice-panel';
 
 type BranchInfo = {
   current: number;
@@ -341,6 +343,22 @@ export function ChatPage() {
     staleTime: 30_000,
     enabled: chatApiReady,
   });
+
+  const voiceCapabilityQuery = useQuery({
+    queryKey: ['chat-voice-capability', auth.token],
+    queryFn: () => fetchChatVoiceCapability(auth.token),
+    staleTime: Infinity,
+    enabled: chatApiReady,
+  });
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const handleVoiceAssistantTurn = useCallback(() => {
+    // Consulted voice turns persist as ordinary web chat messages; refetch so
+    // they appear in the transcript without leaving voice mode.
+    void queryClient.invalidateQueries({
+      queryKey: chatHistoryQueryKey(auth.token, getSessionId()),
+    });
+    refreshRecent();
+  }, [queryClient, auth.token, getSessionId, refreshRecent]);
 
   const modelsQuery = useQuery({
     queryKey: ['models', auth.token],
@@ -1383,6 +1401,14 @@ export function ChatPage() {
             </div>
           ) : null}
 
+          {voiceOpen ? (
+            <VoicePanel
+              sessionId={sessionId}
+              agentId={effectiveAgentId}
+              onAssistantTurn={handleVoiceAssistantTurn}
+              onClose={() => setVoiceOpen(false)}
+            />
+          ) : null}
           <Composer
             isStreaming={stream.isStreaming}
             onSend={handleSendMessage}
@@ -1396,6 +1422,9 @@ export function ChatPage() {
             selectedModelId={selectedModelId}
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
             initialValue={initialComposerPrompt}
+            voiceAvailable={voiceCapabilityQuery.data?.available === true}
+            voiceActive={voiceOpen}
+            onVoiceToggle={() => setVoiceOpen((open) => !open)}
           />
         </div>
         <Dialog

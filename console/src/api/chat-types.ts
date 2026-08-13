@@ -10,6 +10,12 @@ export interface ChatRecentResponse {
   sessions: ChatRecentSession[];
 }
 
+export interface ChatVoiceCapabilityResponse {
+  available: boolean;
+  model: string;
+  voice: string;
+}
+
 export interface ChatCleanupResponse {
   deletedCount: number;
   deletedSessionIds: string[];

@@ -65,14 +65,16 @@ class FakeRealtimeSocket implements RealtimeSocket {
 function createBridge(overrides?: Partial<RealtimeBridgeOptions>): {
   bridge: RealtimeCallBridge;
   socket: FakeRealtimeSocket;
-  twilioPayloads: Array<Record<string, unknown>>;
+  sentAudio: string[];
+  clears: number[];
   states: RealtimeBridgeState[];
   transcripts: Array<{ role: string; text: string }>;
   errors: string[];
   consultAgent: ReturnType<typeof vi.fn>;
 } {
   const socket = new FakeRealtimeSocket();
-  const twilioPayloads: Array<Record<string, unknown>> = [];
+  const sentAudio: string[] = [];
+  const clears: number[] = [];
   const states: RealtimeBridgeState[] = [];
   const transcripts: Array<{ role: string; text: string }> = [];
   const errors: string[] = [];
@@ -81,9 +83,13 @@ function createBridge(overrides?: Partial<RealtimeBridgeOptions>): {
     apiKey: 'test-key',
     config: REALTIME_CONFIG,
     caller: CALLER,
-    streamSid: 'MZ123',
-    sendToTwilio: async (payload) => {
-      twilioPayloads.push(payload);
+    surface: 'phone',
+    audioFormat: { type: 'audio/pcmu' },
+    sendAudio: async (base64Audio) => {
+      sentAudio.push(base64Audio);
+    },
+    clearPlayback: async () => {
+      clears.push(1);
     },
     consultAgent,
     onTranscript: (role, text) => {
@@ -106,7 +112,8 @@ function createBridge(overrides?: Partial<RealtimeBridgeOptions>): {
   return {
     bridge,
     socket,
-    twilioPayloads,
+    sentAudio,
+    clears,
     states,
     transcripts,
     errors,
@@ -126,6 +133,27 @@ test('buildRealtimeInstructions layers persona, caller details, and extras', () 
   expect(instructions).toContain('name Ada Example');
   expect(instructions).toContain('calling from +15550001111');
   expect(instructions).toContain('Prefer metric units.');
+});
+
+test('web surface swaps the phone framing and PCM16 audio format', () => {
+  const instructions = buildRealtimeInstructions(REALTIME_CONFIG, CALLER, 'web');
+  expect(instructions).toContain('web console');
+  expect(instructions).not.toContain('phone call');
+  expect(instructions).toContain('User details');
+
+  const { socket } = createBridge({
+    surface: 'web',
+    audioFormat: { type: 'audio/pcm', rate: 24000 },
+  });
+  socket.open();
+  const [sessionUpdate] = socket.sentOfType('session.update');
+  const session = sessionUpdate.session as Record<string, unknown>;
+  const audio = session.audio as {
+    input: { format: { type: string; rate?: number } };
+    output: { format: { type: string; rate?: number } };
+  };
+  expect(audio.input.format).toEqual({ type: 'audio/pcm', rate: 24000 });
+  expect(audio.output.format).toEqual({ type: 'audio/pcm', rate: 24000 });
 });
 
 test('bridge configures a µ-law realtime session and speaks the greeting', () => {
@@ -153,8 +181,8 @@ test('bridge configures a µ-law realtime session and speaks the greeting', () =
   });
 });
 
-test('bridge forwards caller audio upstream and model audio to Twilio', () => {
-  const { bridge, socket, twilioPayloads, states } = createBridge();
+test('bridge forwards caller audio upstream and model audio downstream', () => {
+  const { bridge, socket, sentAudio, states } = createBridge();
   socket.open();
 
   bridge.handleCallerAudio('dGVzdA==');
@@ -164,14 +192,12 @@ test('bridge forwards caller audio upstream and model audio to Twilio', () => {
 
   socket.serverEvent({ type: 'response.created' });
   socket.serverEvent({ type: 'response.output_audio.delta', delta: 'bXU=' });
-  expect(twilioPayloads).toEqual([
-    { event: 'media', streamSid: 'MZ123', media: { payload: 'bXU=' } },
-  ]);
+  expect(sentAudio).toEqual(['bXU=']);
   expect(states).toContain('speaking');
 });
 
-test('caller speech clears Twilio audio and cancels the active response', () => {
-  const { socket, twilioPayloads, states } = createBridge();
+test('caller speech clears queued playback and cancels the active response', () => {
+  const { socket, clears, states } = createBridge();
   socket.open();
   socket.serverEvent({ type: 'response.created' });
 
@@ -179,7 +205,7 @@ test('caller speech clears Twilio audio and cancels the active response', () => 
 
   expect(states).toContain('listening');
   expect(socket.sentOfType('response.cancel')).toHaveLength(1);
-  expect(twilioPayloads).toContainEqual({ event: 'clear', streamSid: 'MZ123' });
+  expect(clears).toHaveLength(1);
 
   // A second speech start without an active response must not double-cancel.
   socket.serverEvent({ type: 'input_audio_buffer.speech_started' });

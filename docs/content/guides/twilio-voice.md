@@ -163,6 +163,12 @@ Requirements and notes:
   `channelInstructions.voice` still applies to the consulted agent turns.
 - Realtime API audio is billed by OpenAI per minute of input and output audio
   in addition to Twilio's per-minute call pricing.
+- The same realtime engine also powers voice mode in the web console chat
+  (microphone button in the composer). Browser voice needs only the OpenAI
+  key — it works even when the Twilio voice channel is disabled, and it uses
+  the same `voice.realtime.*` model, voice, greeting, and instructions
+  settings. It is the quickest way to try realtime voice before wiring up a
+  phone number.
 
 ## Store The Twilio Secret
 

@@ -1,10 +1,11 @@
 /**
- * OpenAI Realtime API websocket client for speech-to-speech phone calls.
+ * OpenAI Realtime API websocket client for speech-to-speech conversations.
  *
  * Owns the upstream socket lifecycle and the GA realtime event vocabulary
  * (`session.update`, `input_audio_buffer.append`, `response.*`), surfacing a
  * typed callback seam so callers never touch raw realtime JSON. Audio stays
- * base64 µ-law end to end — this module never transcodes.
+ * base64 in the caller-chosen wire format (µ-law for phone calls, PCM16 for
+ * browsers) end to end — this module never transcodes.
  *
  * NOT the call bridge (`realtime-bridge.ts` decides *what* to do with events);
  * this module only guarantees a validated, ordered event stream.
@@ -14,6 +15,11 @@ import { isRecord } from '../../utils/type-guards.js';
 
 const OPENAI_REALTIME_URL = 'wss://api.openai.com/v1/realtime';
 const SOCKET_OPEN = 1;
+
+/** Wire format for both directions of the realtime session. */
+export type RealtimeAudioFormat =
+  | { type: 'audio/pcmu' }
+  | { type: 'audio/pcm'; rate: 24000 };
 
 export interface RealtimeFunctionTool {
   name: string;
@@ -64,6 +70,7 @@ export interface OpenAIRealtimeClientOptions {
   apiKey: string;
   model: string;
   voice: string;
+  audioFormat: RealtimeAudioFormat;
   instructions: string;
   tools: RealtimeFunctionTool[];
   callbacks: OpenAIRealtimeCallbacks;
@@ -92,12 +99,12 @@ export class OpenAIRealtimeClient {
           instructions: options.instructions,
           audio: {
             input: {
-              format: { type: 'audio/pcmu' },
+              format: options.audioFormat,
               transcription: { model: 'gpt-4o-mini-transcribe' },
               turn_detection: { type: 'server_vad' },
             },
             output: {
-              format: { type: 'audio/pcmu' },
+              format: options.audioFormat,
               voice: options.voice,
             },
           },
