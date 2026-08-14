@@ -47,6 +47,39 @@ test('cleanIncomingContent maps Teams mention bodies to agent addresses', async 
   ).toBe('@Research-Agent hi there');
 });
 
+test('cleanIncomingContent drops the html attachment mirroring the text', async () => {
+  const { cleanIncomingContent } = await importInboundModule();
+
+  expect(
+    cleanIncomingContent({
+      text: 'how many fused couplers are we selling per year?',
+      attachments: [
+        {
+          contentType: 'text/html',
+          content:
+            '<p>how many fused couplers are we selling per year?</p>',
+        },
+      ],
+    }),
+  ).toBe('how many fused couplers are we selling per year?');
+});
+
+test('cleanIncomingContent keeps html attachments that add content', async () => {
+  const { cleanIncomingContent } = await importInboundModule();
+
+  expect(
+    cleanIncomingContent({
+      text: 'see the forwarded note',
+      attachments: [
+        {
+          contentType: 'text/html',
+          content: '<p>quarterly numbers attached below</p>',
+        },
+      ],
+    }),
+  ).toBe('see the forwarded note\n\nquarterly numbers attached below');
+});
+
 test('cleanIncomingContent extracts nested Adaptive Card text', async () => {
   const { cleanIncomingContent } = await importInboundModule();
 

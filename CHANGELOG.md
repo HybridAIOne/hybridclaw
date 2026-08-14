@@ -16,6 +16,11 @@
 
 ### Fixed
 
+- **Microsoft Teams no longer duplicates incoming message text**: Teams
+  delivers rich-composed messages both as plain activity text and as a
+  `text/html` attachment with the same content; the inbound parser now drops
+  attachment snippets that match the primary text instead of appending the
+  message to itself (`question\n\nquestion`).
 - **Observability ingest follows `HYBRIDAI_BASE_URL`**: When the platform base
   URL is set via the `HYBRIDAI_BASE_URL` environment variable, the
   observability ingest endpoint now defaults to that same host instead of the
