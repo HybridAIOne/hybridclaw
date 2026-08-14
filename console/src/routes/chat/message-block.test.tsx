@@ -24,6 +24,10 @@ vi.mock('../../api/chat', () => ({
     fetchAgentAvatarBlobMock(token, imageUrl),
   fetchArtifactBlob: (token: string, artifactPath: string) =>
     fetchArtifactBlobMock(token, artifactPath),
+  fetchMediaCapabilities: vi.fn(async () => ({
+    dictation: false,
+    readAloud: false,
+  })),
 }));
 
 vi.mock('../../api/client', () => ({

@@ -18,7 +18,15 @@
   session transcript; the button only shows when an `OPENAI_API_KEY` is
   configured.
 
-## [0.28.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.6) - 2026-07-26
+## [0.28.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.6) - 2026-08-14
+
+### Added
+
+- **Agent-setting changes are attributable without exposing values**: Gateway
+  logs record which persisted agent fields changed or were cleared, together
+  with the actor, route, and source responsible. Boot-time no-op syncs stay
+  silent, and logs contain field names only so customer configuration and
+  secret references are not disclosed.
 
 ### Changed
 
@@ -29,9 +37,34 @@
   workflows no longer fetch or ship LINEJS. Existing linked sessions and the
   `~/.hybridclaw/credentials/line` auth directory are preserved, and gateway,
   CLI setup, doctor, and admin console now surface the plugin install state.
+- **WhatsApp remains strictly install-on-demand**: Its source, dependencies,
+  license notices, CI, and releases live in the separate GPL-3.0-only
+  `HybridAIOne/hybridclaw-whatsapp` repository. Normal core install, update,
+  setup, build, lint, typecheck, test, audit, and release workflows never fetch
+  or compile it. Explicitly enabling WhatsApp installs a pinned release through
+  the approved plugin installer.
+- **Container releases reuse stable image layers**: Reproducible filesystem
+  timestamps, registry-backed build caches, and version-independent dependency
+  layers keep unchanged blobs identical across releases. After the first image
+  built with this layout, upgrades download the changed layers instead of
+  republishing the complete agent and gateway filesystems.
 
 ### Fixed
 
+- **Runtime-set agent settings survive config sync and restarts**: Agent config
+  synchronization merges configured fields over stored rows instead of
+  clearing database-only proxy, chatbot, CV, and organization settings that
+  were omitted from the runtime config. Explicitly configured values and
+  intentional clears remain authoritative.
+- **Microsoft Teams no longer duplicates incoming message text**: Teams
+  delivers rich-composed messages both as plain activity text and as a
+  `text/html` attachment with the same content; the inbound parser now drops
+  attachment snippets that match the primary text instead of appending the
+  message to itself (`question\n\nquestion`).
+- **Microsoft Teams preserves reply line breaks**: Outbound and streamed text
+  is marked as Markdown, with single newlines emitted as hard breaks while code
+  fences remain unchanged. Multiline replies retain their layout in personal
+  chats, group chats, and channels.
 - **Observability ingest follows `HYBRIDAI_BASE_URL`**: When the platform base
   URL is set via the `HYBRIDAI_BASE_URL` environment variable, the
   observability ingest endpoint now defaults to that same host instead of the
@@ -43,12 +76,19 @@
   reload through HybridAI sign-in instead of showing an unactionable
   `WEB_API_TOKEN` prompt. The self-hosted fallback identifies the exact gateway
   token it accepts and no longer claims to persist it in local storage.
-- **WhatsApp remains strictly install-on-demand**: Its source, dependencies,
-  license notices, CI, and releases live in the separate GPL-3.0-only
-  `HybridAIOne/hybridclaw-whatsapp` repository. Normal core install, update,
-  setup, build, lint, typecheck, test, audit, and release workflows never fetch
-  or compile it. Explicitly enabling WhatsApp installs a pinned release through
-  the approved plugin installer.
+- **Provider, channel, and Output Guard controls reflect active state**: Teams
+  statistics aggregate under one channel, provider health selects a single
+  matching configuration pane, externally supplied credentials report their
+  effective status, and disabled Output Guard policy controls stay hidden.
+- **Legacy BlueBubbles example URLs self-heal**: Configurations copied from the
+  old example host clear that exact placeholder during normalization instead
+  of attempting DNS resolution. Real configured BlueBubbles endpoints are
+  unchanged.
+- **Published dependency trees contain no known npm audit vulnerabilities**:
+  Root, container, desktop, and packaged-consumer dependencies use patched,
+  age-eligible versions. The unpatched and unused `image-size` parser is removed
+  from the sandbox presentation-tool installation without affecting PPTX
+  generation.
 - **Microsoft Teams shows live agent activity in direct messages**: One-on-one
   chats use Teams native streaming for Thinking, tool activity, and incremental
   response updates, with standard typing and message delivery retained as the

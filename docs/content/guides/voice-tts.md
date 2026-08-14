@@ -6,9 +6,36 @@ sidebar_position: 6
 
 # Voice And TTS
 
-HybridClaw has shared inbound audio transcription, but it does not currently
-ship a first-party `tts.*` runtime config or a built-in speech-synthesis
-provider.
+HybridClaw has shared inbound audio transcription and explicit webchat
+read-aloud playback. It does not ship a general-purpose `tts.*` runtime config
+or agent-facing speech-synthesis tool.
+
+The webchat has two user-controlled audio conveniences:
+
+- The composer microphone records a dictation take and sends it through the
+  configured `media.audio` transcription chain. The transcript is inserted
+  into the composer for review and editing; it is not sent automatically.
+- Each completed assistant message has a read-aloud action. The gateway
+  generates short MP3 clips through HybridAI's OpenAI-compatible speech
+  endpoint — no extra credential beyond your HybridAI login — falling back to
+  OpenAI TTS when `OPENAI_API_KEY` is configured. The browser plays the clips
+  in order. Playback starts and stops only through that message action.
+- Unsupported browsers and denied microphone permissions keep normal text chat
+  available. Labels and status text follow English, German, or French browser
+  locales, with English as the fallback.
+
+Dictation audio is sent only to the authenticated gateway. It is written to a
+private operating-system temporary file while transcription runs, then
+removed; it is not added to the uploaded-media cache or conversation history.
+The resulting text follows the same persistence path as typed text only after
+the user sends it.
+
+Read-aloud sends bounded text chunks from the existing assistant response to
+whichever speech backend is configured: `<hybridai.baseUrl>/v1/audio/speech`
+first, then `<openai.baseUrl>/audio/speech`. The gateway does not store the
+generated audio and marks each response `Cache-Control: no-store`. Provider API
+keys remain gateway-side. On iOS, HybridClaw warms and reuses one audio element during the
+explicit button gesture so fetched clips can play after the request completes.
 
 If you are looking for the Twilio phone channel, inbound and outbound call
 setup, or ConversationRelay webhooks, see
@@ -25,6 +52,8 @@ exists:
 
 - **Inbound audio**: the gateway can transcribe attached `audio/*` media before
   the agent runs via `media.audio`.
+- **Webchat read-aloud**: completed assistant responses can be played through
+  HybridAI (default) or OpenAI TTS.
 - **Outbound audio**: HybridClaw can send generated audio files back to
   supported channels:
   - Discord sends local file attachments.
@@ -129,5 +158,7 @@ tool notes.
 Do not confuse these two paths:
 
 - `media.audio` is **speech-to-text** for inbound attachments
-- TTS is **text-to-speech** for outbound replies and currently depends on your
-  own local tool, MCP server, or custom script
+- the webchat read-aloud action is **text-to-speech** for local playback and
+  uses the gateway's HybridAI credentials, or `OPENAI_API_KEY` as a fallback
+- agent-generated TTS artifacts for outbound channel replies still depend on
+  your own local tool, MCP server, or custom script

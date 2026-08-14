@@ -1,13 +1,13 @@
 # Code Provenance And IP Statement
 
-Status: 2026-07-21. Maintained alongside the compliance tooling
+Status: 2026-08-14. Maintained alongside the compliance tooling
 (`THIRD_PARTY_NOTICES.md`, `npm run sbom`, DCO workflow); update this document
 when the facts below change.
 
 ## Summary
 
 HybridClaw is an independent, from-scratch implementation. All first-party
-code is copyright HybridAIOne and the project contributors, licensed under the
+code is copyright HybridAI GmbH and the project contributors, licensed under the
 MIT License (`LICENSE`). It is not a fork of, and contains no code derived
 from, OpenClaw or any other assistant runtime.
 
@@ -53,7 +53,7 @@ relationship:
 
 Because no OpenClaw code is included, the MIT attribution obligation toward
 the OpenClaw Foundation does not attach; `LICENSE` correctly names only
-HybridAIOne. If OpenClaw code is ever incorporated, its copyright notice must
+HybridAI GmbH. If OpenClaw code is ever incorporated, its copyright notice must
 be added to `THIRD_PARTY_NOTICES.md` at that time.
 
 ## Third-Party Code

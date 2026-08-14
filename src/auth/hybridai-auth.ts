@@ -85,6 +85,17 @@ export function getHybridAIApiKey(): string {
   return apiKey;
 }
 
+/**
+ * The HybridAI key when one is configured, otherwise null.
+ *
+ * For callers that treat "not signed in" as a capability being unavailable
+ * rather than an error — feature discovery and optional backends — where
+ * catching {@link getHybridAIApiKey}'s throw would be control flow.
+ */
+export function readHybridAIApiKey(): string | null {
+  return readCurrentApiKey() || null;
+}
+
 function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, '') || DEFAULT_BASE_URL;
 }

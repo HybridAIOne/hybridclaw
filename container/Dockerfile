@@ -52,6 +52,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pillow==11.3.0 \
     openpyxl==3.1.5
 
+# Security owner call, 2026-08-13: PptxGenJS does not import image-size;
+# remove the unpatched parser until upstream drops the unused dependency.
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g --ignore-scripts \
     docx@9.5.1 \
@@ -59,7 +61,9 @@ RUN --mount=type=cache,target=/root/.npm \
     csv-parse@6.1.0 \
     iconv-lite@0.7.0 \
     @e965/xlsx@0.20.3 \
-    xlsx-populate@1.21.0
+    xlsx-populate@1.21.0 \
+    && npm pkg delete dependencies.image-size --prefix /usr/local/lib/node_modules/pptxgenjs \
+    && rm -rf /usr/local/lib/node_modules/pptxgenjs/node_modules/image-size
 
 RUN ln -s /usr/local/lib/node_modules/@e965/xlsx /usr/local/lib/node_modules/xlsx
 
