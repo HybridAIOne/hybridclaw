@@ -1,8 +1,8 @@
 /**
  * Webchat speech copy — the localized labels and status text for audio UX.
  *
- * Locale selection follows the browser because the console has no global
- * translation runtime; the same locale is also passed to speech synthesis.
+ * Locale selection follows the console document because the console has no
+ * global translation runtime; browser preferences do not override UI copy.
  *
  * NOT a general console i18n registry; it deliberately covers only dictation
  * and read-aloud controls.

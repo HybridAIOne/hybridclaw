@@ -67,7 +67,7 @@ export function DictationControl(props: {
   onTranscript: (text: string) => void;
   token: string;
 }) {
-  const copy = useMemo(() => getSpeechCopy(navigator.language), []);
+  const copy = useMemo(() => getSpeechCopy(document.documentElement.lang), []);
   const capabilities = useMediaCapabilities(props.token);
   const browserSupported = canRecord();
   const available = browserSupported && capabilities?.dictation === true;
