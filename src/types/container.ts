@@ -1,3 +1,4 @@
+import type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
 import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import type { ChatMessage } from './api.js';
@@ -32,26 +33,13 @@ export interface MediaContextItem {
   filename: string;
 }
 
+export type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
 export type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 
 export interface AddressEnvelope {
   to: string | string[];
   from?: string | null;
   fanoutAlias?: 'team' | 'all';
-}
-
-/**
- * Minimal routing identity for one skill eligible in the current session.
- * Distinct from the richer `SkillCatalogEntry` in `src/skills/skills.ts`, which
- * describes management-surface catalog rows rather than runtime routing.
- */
-export interface SessionSkillCatalogEntry {
-  name: string;
-  description: string;
-  category: string;
-  location: string;
-  /** Credential ids the skill declares; omitted when it declares none. */
-  requiredCredentials?: string[];
 }
 
 export interface ProviderCredential {

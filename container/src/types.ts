@@ -1,3 +1,4 @@
+import type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
 import type {
   StakesScore as CanonicalStakesScore,
   StakesSignal as CanonicalStakesSignal,
@@ -193,6 +194,7 @@ export interface ScheduledTaskInput {
   createdAt: string;
 }
 
+export type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
 export type { WebSearchConfig } from '../shared/web-search-config.js';
 
 export interface ProviderCredential {
@@ -221,16 +223,6 @@ export interface AddressEnvelope {
   to: string | string[];
   from?: string | null;
   fanoutAlias?: 'team' | 'all';
-}
-
-/** Minimal routing identity for one skill eligible in the current session. */
-export interface SessionSkillCatalogEntry {
-  name: string;
-  description: string;
-  category: string;
-  location: string;
-  /** Credential ids the skill declares; omitted when it declares none. */
-  requiredCredentials?: string[];
 }
 
 export interface ContainerInput {

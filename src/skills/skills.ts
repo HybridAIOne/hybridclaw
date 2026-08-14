@@ -81,6 +81,11 @@ export interface SkillInstallSpec {
   chmod?: string;
 }
 
+/**
+ * A skill as parsed from disk, before any consumer-specific state is attached.
+ * Shared base for `Skill`, `SkillCatalogEntry`, and `BlockedSkillCatalogEntry`;
+ * each adds only the fields its own surface needs.
+ */
 interface SkillCandidate {
   name: string;
   description: string;
@@ -107,30 +112,8 @@ interface SkillCandidate {
   source: SkillSource;
 }
 
-export interface Skill {
-  name: string;
-  description: string;
-  category: string;
-  manifest: SkillManifest;
-  userInvocable: boolean;
-  disableModelInvocation: boolean;
-  always: boolean;
-  requires: {
-    bins: string[];
-    env: string[];
-  };
-  metadata: {
-    hybridclaw: {
-      shortDescription?: string;
-      logoPath?: string;
-      tags: string[];
-      relatedSkills: string[];
-      install: SkillInstallSpec[];
-    };
-  };
-  filePath: string;
-  baseDir: string;
-  source: SkillSource;
+/** A discovered skill resolved for runtime use, with a prompt-visible path. */
+export interface Skill extends SkillCandidate {
   location: string;
 }
 
@@ -1727,30 +1710,8 @@ export function expandResolvedSkillInvocation(
   return lines.join('\n');
 }
 
-export interface SkillCatalogEntry {
-  name: string;
-  description: string;
-  category: string;
-  manifest: SkillManifest;
-  userInvocable: boolean;
-  disableModelInvocation: boolean;
-  always: boolean;
-  requires: {
-    bins: string[];
-    env: string[];
-  };
-  metadata: {
-    hybridclaw: {
-      shortDescription?: string;
-      logoPath?: string;
-      tags: string[];
-      relatedSkills: string[];
-      install: SkillInstallSpec[];
-    };
-  };
-  filePath: string;
-  baseDir: string;
-  source: SkillSource;
+/** A discovered skill as shown on management surfaces, with eligibility state. */
+export interface SkillCatalogEntry extends SkillCandidate {
   available: boolean;
   enabled: boolean;
   missing: string[];
