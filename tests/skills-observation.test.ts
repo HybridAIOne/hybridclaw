@@ -1499,14 +1499,18 @@ test('captures opt-in skill_run trajectories in append-only files keyed by date 
       }
     ).event.tool_executions_full[0]?.result.content.length,
   ).toBeGreaterThan(4_500);
-  expect(infoSpy).toHaveBeenCalledTimes(1);
-  expect(infoSpy).toHaveBeenCalledWith(
-    {
-      agentCount: 1,
-      storeDir,
-    },
-    `Trajectory capture enabled for 1 agent(s) -> ${storeDir}`,
+  const trajectoryLogs = infoSpy.mock.calls.filter(([, message]) =>
+    String(message).startsWith('Trajectory capture enabled'),
   );
+  expect(trajectoryLogs).toEqual([
+    [
+      {
+        agentCount: 1,
+        storeDir,
+      },
+      `Trajectory capture enabled for 1 agent(s) -> ${storeDir}`,
+    ],
+  ]);
   infoSpy.mockRestore();
   if (process.platform !== 'win32') {
     expect(fs.statSync(storeDir).mode & 0o777).toBe(0o700);
