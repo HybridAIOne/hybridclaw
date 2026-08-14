@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Incomplete BlueBubbles configuration is actionable before startup**:
+  `hybridclaw config check` rejects an enabled BlueBubbles backend without a
+  real server URL, and the gateway reports setup and disable commands without
+  emitting an initialization stack trace.
+
 ## [0.28.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.6) - 2026-08-14
 
 ### Added
