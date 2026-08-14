@@ -158,6 +158,8 @@ saved revision history directly.
 - `openai.enabled`, `openai.baseUrl`, and `openai.models` configure the direct
   OpenAI Responses API provider. Store its API key as `OPENAI_API_KEY` in the
   encrypted runtime secret store and select models with the `openai/` prefix.
+  Webchat read-aloud falls back to this base URL and key for authenticated,
+  non-retained OpenAI TTS requests.
 - `HYBRIDAI_FALLBACK_CHAIN` accepts a JSON array of fallback entries with
   `model`, optional `baseUrl`, `keyEnv`, `chatbotId`, and `agentId`. Gateway
   model calls use the chain for auth and rate-limit failures, then cool down
@@ -418,7 +420,11 @@ instead of per-channel temp directories.
 
 `media.audio` auto-detect prefers local CLIs first
 (`sherpa-onnx-offline`, `whisper-cli`, `whisper`), then `gemini`, then
-provider-backed APIs (`openai`, `groq`, `deepgram`, `google`).
+provider-backed APIs (`hybridai`, `openai`, `groq`, `deepgram`, `google`).
+`hybridai` leads the provider group because it is the default chat provider, so
+a signed-in operator gets transcription with no extra credential; it calls
+HybridAI's OpenAI-compatible `/v1/audio/transcriptions`. A backend that fails
+falls through to the next one in the chain.
 
 `whisper-cli` auto-detect also requires a whisper.cpp model file. If the
 binary exists but HybridClaw still skips local transcription, set

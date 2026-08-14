@@ -6,15 +6,17 @@ import type {
   ChatHistoryResponse,
   ChatMobileQrResponse,
   ChatRecentResponse,
+  DictationTranscriptionResponse,
+  MediaCapabilitiesResponse,
   MediaUploadResponse,
   RateResponseRequest,
   RateResponseResponse,
 } from './chat-types';
 import {
   buildWebCommandRequestBody,
-  dispatchAuthRequired,
   requestHeaders,
   requestJson,
+  throwResponseError,
   validateToken,
 } from './client';
 import type { AdminCommandResult } from './types';
@@ -167,6 +169,45 @@ export function uploadMedia(
   });
 }
 
+export function transcribeDictation(
+  token: string,
+  recording: Blob,
+  signal?: AbortSignal,
+): Promise<DictationTranscriptionResponse> {
+  return requestJson<DictationTranscriptionResponse>('/api/media/transcribe', {
+    token,
+    method: 'POST',
+    rawBody: recording,
+    extraHeaders: {
+      'Content-Type': recording.type || 'audio/webm',
+    },
+    signal,
+  });
+}
+
+export function fetchMediaCapabilities(
+  token: string,
+): Promise<MediaCapabilitiesResponse> {
+  return requestJson<MediaCapabilitiesResponse>('/api/media/capabilities', {
+    token,
+  });
+}
+
+export async function synthesizeSpeech(
+  token: string,
+  text: string,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const response = await fetch('/api/media/speech', {
+    method: 'POST',
+    headers: requestHeaders(token, { text }),
+    body: JSON.stringify({ text }),
+    signal,
+  });
+  if (!response.ok) await throwResponseError(response);
+  return response.blob();
+}
+
 export function artifactUrl(path: string): string {
   const params = new URLSearchParams({ path });
   return `/api/artifact?${params.toString()}`;
@@ -186,26 +227,7 @@ async function fetchAuthenticatedBlob(
   });
 
   if (!response.ok) {
-    const contentType = (response.headers.get('content-type') || '')
-      .toLowerCase()
-      .trim();
-    let message = `${response.status} ${response.statusText}`;
-
-    if (contentType.includes('application/json')) {
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string;
-        text?: string;
-      } | null;
-      message = payload?.error || payload?.text || message;
-    } else {
-      const text = (await response.text().catch(() => '')).trim();
-      if (text) message = text;
-    }
-
-    if (response.status === 401) {
-      dispatchAuthRequired(message);
-    }
-    throw new Error(message);
+    await throwResponseError(response);
   }
 
   return response.blob();

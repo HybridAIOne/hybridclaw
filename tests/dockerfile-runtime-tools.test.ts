@@ -46,6 +46,8 @@ describe('Docker runtime tool parity', () => {
     ) as Record<string, Record<string, string>>;
     expect(packageJson.dependencies?.['@e965/xlsx']).toBe('0.20.3');
     expect(packageJson.dependencies?.['xlsx-populate']).toBe('1.21.0');
+    expect(packageJson.dependencies?.['pptxgenjs']).toBeUndefined();
+    expect(packageJson.dependencies?.['image-size']).toBeUndefined();
     expect(runtime).toContain(
       'ln -s /app/node_modules/@e965/xlsx /app/node_modules/xlsx',
     );
@@ -60,6 +62,12 @@ describe('Docker runtime tool parity', () => {
     expectRuntimePipInstallable(runtime);
     expect(runtime).toContain('@e965/xlsx@0.20.3');
     expect(runtime).toContain('xlsx-populate@1.21.0');
+    expect(runtime).toContain(
+      'npm pkg delete dependencies.image-size --prefix /usr/local/lib/node_modules/pptxgenjs',
+    );
+    expect(runtime).toContain(
+      'rm -rf /usr/local/lib/node_modules/pptxgenjs/node_modules/image-size',
+    );
     expect(runtime).toContain(
       'ln -s /usr/local/lib/node_modules/@e965/xlsx /usr/local/lib/node_modules/xlsx',
     );

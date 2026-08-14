@@ -89,7 +89,7 @@ function buildSkillRunEvent(): SkillRunEvent {
     agent_id: 'main',
     session_id: 'session-1',
     run_id: 'run-1',
-    created_at: '2026-05-15T07:59:30.000Z',
+    created_at: new Date().toISOString(),
     input: { content: 'Use demo-skill.', truncated: false },
     output: { content: 'Done.', truncated: false },
     input_full: null,

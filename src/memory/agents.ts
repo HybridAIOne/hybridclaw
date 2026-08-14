@@ -504,7 +504,94 @@ export function listAgents(): AgentConfig[] {
   return rows.map(mapAgentRow);
 }
 
-export function upsertAgent(agent: AgentConfig): AgentConfig {
+interface SerializedAgentSettings {
+  name: string | null;
+  displayName: string | null;
+  imageAsset: string | null;
+  emptyChatHeader: string | null;
+  model: string | null;
+  skills: string | null;
+  chatbotId: string | null;
+  enableRag: number | null;
+  workspace: string | null;
+  owner: string | null;
+  role: string | null;
+  reportsTo: string | null;
+  delegatesTo: string | null;
+  peers: string | null;
+  cv: string | null;
+  escalationTarget: string | null;
+  a2a: string | null;
+  proxy: string | null;
+}
+
+function serializeAgentSettings(agent: AgentConfig): SerializedAgentSettings {
+  return {
+    name: agent.name?.trim() || null,
+    displayName: agent.displayName?.trim() || null,
+    imageAsset: agent.imageAsset?.trim() || null,
+    emptyChatHeader: agent.emptyChatHeader?.trim() || null,
+    model: serializeAgentModelConfig(agent.model),
+    skills: serializeAgentSkillsConfig(agent.skills),
+    chatbotId: agent.chatbotId?.trim() || null,
+    enableRag:
+      typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null,
+    workspace: agent.workspace?.trim() || null,
+    owner: agent.owner?.trim() || null,
+    role: agent.role?.trim() || null,
+    reportsTo: agent.reportsTo?.trim() || null,
+    delegatesTo: serializeAgentStringArray(agent.delegatesTo),
+    peers: serializeAgentStringArray(agent.peers),
+    cv: serializeAgentCv(agent.cv),
+    escalationTarget: serializeAgentEscalationTarget(agent.escalationTarget),
+    a2a: serializeAgentA2AConfig(agent.a2a),
+    proxy: serializeAgentProxyConfig(agent.proxy),
+  };
+}
+
+// Field names only — values may embed customer configuration, so the log
+// records what changed and who asked, never the contents.
+function logAgentSettingsChange(params: {
+  agentId: string;
+  previous: SerializedAgentSettings | null;
+  next: SerializedAgentSettings;
+  meta?: RuntimeConfigChangeMeta;
+}): void {
+  const attribution = {
+    ...(params.meta?.actor ? { actor: params.meta.actor } : {}),
+    ...(params.meta?.route ? { route: params.meta.route } : {}),
+    ...(params.meta?.source ? { source: params.meta.source } : {}),
+  };
+  const { previous } = params;
+  if (!previous) {
+    logger.info({ agentId: params.agentId, ...attribution }, 'Agent created');
+    return;
+  }
+  const fields = Object.keys(params.next) as Array<
+    keyof SerializedAgentSettings
+  >;
+  const changedFields = fields.filter(
+    (field) => params.next[field] !== previous[field],
+  );
+  if (changedFields.length === 0) return;
+  const clearedFields = changedFields.filter(
+    (field) => params.next[field] === null,
+  );
+  logger.info(
+    {
+      agentId: params.agentId,
+      changedFields,
+      ...(clearedFields.length > 0 ? { clearedFields } : {}),
+      ...attribution,
+    },
+    'Agent settings updated',
+  );
+}
+
+export function upsertAgent(
+  agent: AgentConfig,
+  options?: { meta?: RuntimeConfigChangeMeta },
+): AgentConfig {
   const normalizedId = agent.id.trim();
   if (!normalizedId) {
     throw new Error('Agent id is required.');
@@ -518,25 +605,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
       : existingAgent?.archived
         ? 1
         : 0;
-  const normalizedName = agent.name?.trim() || null;
-  const normalizedDisplayName = agent.displayName?.trim() || null;
-  const normalizedImageAsset = agent.imageAsset?.trim() || null;
-  const normalizedEmptyChatHeader = agent.emptyChatHeader?.trim() || null;
-  const normalizedModel = serializeAgentModelConfig(agent.model);
-  const normalizedSkills = serializeAgentSkillsConfig(agent.skills);
-  const normalizedChatbotId = agent.chatbotId?.trim() || null;
-  const normalizedWorkspace = agent.workspace?.trim() || null;
-  const normalizedOwner = agent.owner?.trim() || null;
-  const normalizedRole = agent.role?.trim() || null;
-  const normalizedReportsTo = agent.reportsTo?.trim() || null;
-  const normalizedDelegatesTo = serializeAgentStringArray(agent.delegatesTo);
-  const normalizedPeers = serializeAgentStringArray(agent.peers);
-  const normalizedCv = serializeAgentCv(agent.cv);
-  const normalizedEscalationTarget = serializeAgentEscalationTarget(
-    agent.escalationTarget,
-  );
-  const normalizedA2A = serializeAgentA2AConfig(agent.a2a);
-  const normalizedProxy = serializeAgentProxyConfig(agent.proxy);
+  const settings = serializeAgentSettings(agent);
   const explicitIdentity = normalizeAgentIdentityFields({
     canonicalId: agent.canonicalId,
     ownerUserId: agent.ownerUserId,
@@ -547,7 +616,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const shouldReplaceDefaultIdentity =
     !explicitOwnerUserId &&
     !explicitCanonicalId &&
-    Boolean(normalizedOwner) &&
+    Boolean(settings.owner) &&
     isDefaultPlaceholderIdentity(existingAgent);
   const existingOwnerUserId = shouldReplaceDefaultIdentity
     ? undefined
@@ -571,14 +640,12 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     : allocateCanonicalAgentIdentity({
         database: getAgentDatabase(),
         agentId: normalizedId,
-        owner: normalizedOwner,
+        owner: settings.owner,
         ownerUserId: normalizedOwnerUserId,
       });
   const canonicalId =
     explicitCanonicalId || existingCanonicalId || identity?.canonicalId || null;
   const ownerUserId = normalizedOwnerUserId || identity?.ownerUserId || null;
-  const enableRag =
-    typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;
   getAgentDatabase()
     .prepare(
       `INSERT INTO agents (
@@ -636,29 +703,35 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
       archived,
       canonicalId,
       ownerUserId,
-      normalizedName,
-      normalizedDisplayName,
-      normalizedImageAsset,
-      normalizedEmptyChatHeader,
-      normalizedModel,
-      normalizedSkills,
-      normalizedChatbotId,
-      enableRag,
-      normalizedWorkspace,
-      normalizedOwner,
-      normalizedRole,
-      normalizedReportsTo,
-      normalizedDelegatesTo,
-      normalizedPeers,
-      normalizedCv,
-      normalizedEscalationTarget,
-      normalizedA2A,
-      normalizedProxy,
+      settings.name,
+      settings.displayName,
+      settings.imageAsset,
+      settings.emptyChatHeader,
+      settings.model,
+      settings.skills,
+      settings.chatbotId,
+      settings.enableRag,
+      settings.workspace,
+      settings.owner,
+      settings.role,
+      settings.reportsTo,
+      settings.delegatesTo,
+      settings.peers,
+      settings.cv,
+      settings.escalationTarget,
+      settings.a2a,
+      settings.proxy,
     );
   const storedAgent = getAgentById(normalizedId);
   if (!storedAgent) {
     throw new Error(`Failed to read persisted agent: ${normalizedId}`);
   }
+  logAgentSettingsChange({
+    agentId: normalizedId,
+    previous: existingAgent ? serializeAgentSettings(existingAgent) : null,
+    next: settings,
+    meta: options?.meta,
+  });
   return storedAgent;
 }
 
@@ -686,7 +759,7 @@ export function upsertAgentWithTeamRevision(params: {
   return withRuntimeRevisionDatabaseAttached(() => {
     const upsert = getAgentDatabase().transaction(() => {
       syncAttachedTeamRevisionState(listAgents(), params.meta);
-      const stored = upsertAgent(params.agent);
+      const stored = upsertAgent(params.agent, { meta: params.meta });
       syncAttachedTeamRevisionState(params.finalAgents, params.meta);
       return stored;
     });
@@ -703,7 +776,7 @@ export function upsertAgentsWithTeamRevision(params: {
     const upsert = getAgentDatabase().transaction(() => {
       syncAttachedTeamRevisionState(listAgents(), params.meta);
       for (const agent of params.agents) {
-        upsertAgent(agent);
+        upsertAgent(agent, { meta: params.meta });
       }
       syncAttachedTeamRevisionState(params.finalAgents, params.meta);
       return listAgents();

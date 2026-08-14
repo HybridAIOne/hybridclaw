@@ -240,6 +240,15 @@ export interface MediaUploadResponse {
   media: MediaItem;
 }
 
+export interface DictationTranscriptionResponse {
+  text: string;
+}
+
+export interface MediaCapabilitiesResponse {
+  dictation: boolean;
+  readAloud: boolean;
+}
+
 export interface BranchResponse {
   sessionId: string;
 }

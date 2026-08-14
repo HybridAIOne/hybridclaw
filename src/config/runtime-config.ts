@@ -317,6 +317,7 @@ export type IMessageBackend = 'local' | 'bluebubbles';
 export type IMessageDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type RuntimeAudioTranscriptionProvider =
+  | 'hybridai'
   | 'openai'
   | 'groq'
   | 'deepgram'
@@ -6588,6 +6589,7 @@ function normalizeAudioTranscriptionProvider(
 ): RuntimeAudioTranscriptionProvider | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
+  if (normalized === 'hybridai') return 'hybridai';
   if (normalized === 'openai') return 'openai';
   if (normalized === 'groq') return 'groq';
   if (normalized === 'deepgram') return 'deepgram';
@@ -8521,7 +8523,15 @@ function normalizeRuntimeConfig(
         rawObservability.enabled,
         DEFAULT_RUNTIME_CONFIG.observability.enabled,
       ),
-      baseUrl: normalizeBaseUrl(rawObservability.baseUrl, hybridBaseUrl),
+      // Observability posts to the same platform the agent talks to. The
+      // HYBRIDAI_BASE_URL env override wins over the config-file hybridai
+      // baseUrl for LLM calls (see applyRuntimeConfig), so the ingest default
+      // must follow it too — otherwise a deployment pointed elsewhere via env
+      // silently reports to the default platform host with a foreign API key.
+      baseUrl: normalizeBaseUrl(
+        rawObservability.baseUrl,
+        normalizeBaseUrl(process.env.HYBRIDAI_BASE_URL, hybridBaseUrl),
+      ),
       ingestPath: normalizeApiPath(
         rawObservability.ingestPath,
         DEFAULT_RUNTIME_CONFIG.observability.ingestPath,

@@ -1,3 +1,12 @@
+/**
+ * Gateway HTTP boundary — authenticates and validates every console/API route.
+ *
+ * Route handlers may invoke host services, but must not bypass their policy,
+ * retention, quota, or path-containment contracts.
+ *
+ * NOT the gateway chat runtime; this module only owns HTTP transport concerns.
+ */
+
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
@@ -436,6 +445,16 @@ import {
   renderTextChannelCommandResult,
   resolveTextChannelSlashCommands,
 } from './text-channel-commands.js';
+import {
+  isSupportedDictationMimeType,
+  isWebchatDictationAvailable,
+  transcribeWebchatDictation,
+} from './webchat-dictation.js';
+import {
+  isWebchatSpeechAvailable,
+  MAX_WEBCHAT_SPEECH_CHARS,
+  synthesizeWebchatSpeech,
+} from './webchat-speech.js';
 
 const SITE_DIR = resolveInstallPath('docs');
 const CONSOLE_DIST_DIR = resolveInstallPath('console', 'dist');
@@ -3452,6 +3471,141 @@ async function handleApiMediaUpload(
       filename: stored.filename,
     },
   });
+}
+
+async function handleApiMediaTranscription(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const mimeType = normalizeMimeType(
+    normalizeHeaderValue(req.headers['content-type']),
+  );
+  if (!mimeType || !isSupportedDictationMimeType(mimeType)) {
+    sendJson(res, 415, { error: 'Unsupported dictation audio format.' });
+    return;
+  }
+
+  if (!(await isWebchatDictationAvailable().catch(() => false))) {
+    sendJson(res, 503, {
+      error: 'No audio transcription backend is available.',
+    });
+    return;
+  }
+
+  const buffer = await readRequestBody(req, MAX_MEDIA_UPLOAD_BYTES);
+  if (buffer.length === 0) {
+    sendJson(res, 400, { error: 'Dictation recording is empty.' });
+    return;
+  }
+
+  const quotaDecision = consumeGatewayMediaUploadQuota({
+    key: resolveApiMediaUploadQuotaKey(req),
+    bytes: buffer.length,
+  });
+  if (!quotaDecision.allowed) {
+    res.setHeader(
+      'Retry-After',
+      String(Math.max(1, Math.ceil(quotaDecision.retryAfterMs / 1_000))),
+    );
+    sendJson(res, 429, {
+      error: 'Media upload quota exceeded. Try again later.',
+    });
+    return;
+  }
+
+  const abortController = new AbortController();
+  const abort = () => abortController.abort();
+  req.on('aborted', abort);
+  res.on('close', abort);
+  try {
+    const text = await transcribeWebchatDictation({
+      audio: buffer,
+      mimeType,
+      abortSignal: abortController.signal,
+    });
+    sendJson(res, 200, { text });
+  } finally {
+    req.off('aborted', abort);
+    res.off('close', abort);
+  }
+}
+
+async function handleApiMediaCapabilities(res: ServerResponse): Promise<void> {
+  const dictation = await isWebchatDictationAvailable().catch(() => false);
+  sendJson(res, 200, {
+    dictation,
+    readAloud: isWebchatSpeechAvailable(),
+  });
+}
+
+async function handleApiMediaSpeech(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = await readJsonBody(req);
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    Array.isArray(body) ||
+    typeof (body as { text?: unknown }).text !== 'string'
+  ) {
+    sendJson(res, 400, { error: 'Missing `text` in request body.' });
+    return;
+  }
+
+  const text = (body as { text: string }).text.trim();
+  if (!text) {
+    sendJson(res, 400, { error: 'Speech text is empty.' });
+    return;
+  }
+  if (text.length > MAX_WEBCHAT_SPEECH_CHARS) {
+    sendJson(res, 413, {
+      error: `Speech text exceeds ${MAX_WEBCHAT_SPEECH_CHARS} characters.`,
+    });
+    return;
+  }
+
+  if (!isWebchatSpeechAvailable()) {
+    sendJson(res, 503, {
+      error: 'Read aloud requires a HybridAI or OpenAI API key.',
+    });
+    return;
+  }
+
+  const quotaDecision = consumeGatewayMediaUploadQuota({
+    key: resolveApiMediaUploadQuotaKey(req),
+    bytes: Buffer.byteLength(text, 'utf8'),
+  });
+  if (!quotaDecision.allowed) {
+    res.setHeader(
+      'Retry-After',
+      String(Math.max(1, Math.ceil(quotaDecision.retryAfterMs / 1_000))),
+    );
+    sendJson(res, 429, {
+      error: 'Speech generation quota exceeded. Try again later.',
+    });
+    return;
+  }
+
+  const abortController = new AbortController();
+  const abort = () => abortController.abort();
+  req.on('aborted', abort);
+  res.on('close', abort);
+  try {
+    const audio = await synthesizeWebchatSpeech({
+      text,
+      abortSignal: abortController.signal,
+    });
+    res.writeHead(200, {
+      'Cache-Control': 'no-store',
+      'Content-Length': String(audio.length),
+      'Content-Type': 'audio/mpeg',
+    });
+    res.end(audio);
+  } finally {
+    req.off('aborted', abort);
+    res.off('close', abort);
+  }
 }
 
 async function handleApiChatStream(
@@ -10984,6 +11138,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/media/upload' && method === 'POST') {
             await handleApiMediaUpload(req, res);
+            return;
+          }
+          if (pathname === '/api/media/capabilities' && method === 'GET') {
+            await handleApiMediaCapabilities(res);
+            return;
+          }
+          if (pathname === '/api/media/transcribe' && method === 'POST') {
+            await handleApiMediaTranscription(req, res);
+            return;
+          }
+          if (pathname === '/api/media/speech' && method === 'POST') {
+            await handleApiMediaSpeech(req, res);
             return;
           }
           if (pathname === '/api/command' && method === 'POST') {

@@ -238,6 +238,7 @@ export async function requestJson<T>(
     rawBody?: BodyInit;
     extraHeaders?: HeadersInit;
     onAuthError?: 'dispatch' | 'ignore';
+    signal?: AbortSignal;
   },
 ): Promise<T> {
   const response = await fetch(pathname, {
@@ -250,6 +251,7 @@ export async function requestJson<T>(
       options.body !== undefined
         ? JSON.stringify(options.body)
         : (options.rawBody ?? undefined),
+    signal: options.signal,
   });
 
   if (!response.ok) {
