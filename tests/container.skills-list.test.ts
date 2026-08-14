@@ -19,6 +19,7 @@ test('skills_list searches the complete eligible session catalog', () => {
       description: 'Create, inspect, and edit PDF files.',
       category: 'office',
       location: 'skills/pdf/SKILL.md',
+      requiredCredentials: ['pdf-service-token'],
     },
   ]);
 
@@ -36,6 +37,7 @@ test('skills_list searches the complete eligible session catalog', () => {
       description: 'Create, inspect, and edit PDF files.',
       category: 'office',
       location: 'skills/pdf/SKILL.md',
+      requiredCredentials: ['pdf-service-token'],
     },
   ]);
   expect(result.matchCount).toBe(1);

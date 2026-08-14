@@ -34,6 +34,13 @@ HybridClaw uses progressive disclosure for model-visible skills. The system
 prompt starts with compact metadata and a workspace-readable `SKILL.md`
 location; the model reads the full skill only after routing the request.
 
+The prompt entry carries `name`, `category`, `description`, and `location`
+only. Manifest details are deliberately excluded because they do not inform
+routing: `supported_channels` is already a hard filter (a skill unsupported on
+the active channel never reaches the prompt), `id` duplicates `name`, and
+`version` and `capabilities` matter only once the skill is loaded. Declared
+credential ids stay reachable through `skills_list`.
+
 The prompt budget preserves skill names and locations before spending space on
 descriptions. When the catalog is too large, descriptions are shortened first.
 If even the identity-only catalog cannot fit, the prompt includes an explicit

@@ -40,11 +40,18 @@ export interface AddressEnvelope {
   fanoutAlias?: 'team' | 'all';
 }
 
-export interface SkillCatalogEntry {
+/**
+ * Minimal routing identity for one skill eligible in the current session.
+ * Distinct from the richer `SkillCatalogEntry` in `src/skills/skills.ts`, which
+ * describes management-surface catalog rows rather than runtime routing.
+ */
+export interface SessionSkillCatalogEntry {
   name: string;
   description: string;
   category: string;
   location: string;
+  /** Credential ids the skill declares; omitted when it declares none. */
+  requiredCredentials?: string[];
 }
 
 export interface ProviderCredential {
@@ -104,7 +111,7 @@ export interface ContainerInput {
   configuredDiscordChannels?: string[];
   activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
-  skillCatalog?: SkillCatalogEntry[];
+  skillCatalog?: SessionSkillCatalogEntry[];
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];

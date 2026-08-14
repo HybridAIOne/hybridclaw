@@ -223,11 +223,14 @@ export interface AddressEnvelope {
   fanoutAlias?: 'team' | 'all';
 }
 
-export interface SkillCatalogEntry {
+/** Minimal routing identity for one skill eligible in the current session. */
+export interface SessionSkillCatalogEntry {
   name: string;
   description: string;
   category: string;
   location: string;
+  /** Credential ids the skill declares; omitted when it declares none. */
+  requiredCredentials?: string[];
 }
 
 export interface ContainerInput {
@@ -278,7 +281,7 @@ export interface ContainerInput {
   configuredDiscordChannels?: string[];
   activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
-  skillCatalog?: SkillCatalogEntry[];
+  skillCatalog?: SessionSkillCatalogEntry[];
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];

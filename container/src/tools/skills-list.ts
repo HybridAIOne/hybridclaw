@@ -1,6 +1,6 @@
-import type { SkillCatalogEntry, ToolDefinition } from '../types.js';
+import type { SessionSkillCatalogEntry, ToolDefinition } from '../types.js';
 
-let eligibleSkills: SkillCatalogEntry[] = [];
+let eligibleSkills: SessionSkillCatalogEntry[] = [];
 
 export const SKILLS_LIST_TOOL_DEFINITION: ToolDefinition = {
   type: 'function',
@@ -27,7 +27,7 @@ export const SKILLS_LIST_TOOL_DEFINITION: ToolDefinition = {
 };
 
 export function setEligibleSkillsCatalog(
-  skills: readonly SkillCatalogEntry[] | undefined,
+  skills: readonly SessionSkillCatalogEntry[] | undefined,
 ): void {
   eligibleSkills = (skills || []).map((skill) => ({ ...skill }));
 }
