@@ -27,9 +27,15 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
-- HybridClaw v0.28.6 shows live thinking and tool activity in one-on-one
-  Microsoft Teams chats, streams response text in place, and delivers generated
-  files through openable consent cards instead of sandbox-local links.
+- HybridClaw v0.28.6 preserves runtime-set agent settings across config sync
+  and restarts, and records field-level changes with actor and route
+  attribution without logging configuration values.
+- HybridClaw v0.28.6 keeps Microsoft Teams text singular and multiline, shows
+  live thinking and tool activity in one-on-one chats, streams response text
+  in place, and delivers generated files through openable consent cards.
+- HybridClaw v0.28.6 ships audited root and container dependency trees without
+  known npm vulnerabilities, while reproducible container layers let later
+  upgrades reuse unchanged image blobs.
 - HybridClaw v0.28.4 keeps conversation prefixes cache-stable across turns and
   tool loops by separating static instructions, workspace memory, skills, and
   turn-local context while preserving complete retained messages.
@@ -68,11 +74,13 @@ doc at once, start from [For Agents](./agents.md).
   or OpenAI paths with streaming on and off, connection timing, prompt-cache
   visibility, multi-provider gateway arms, long prompt files, and optional raw
   JSON output.
-- WhatsApp is released from a
+- LINE and WhatsApp are install-on-demand channel plugins. WhatsApp is released
+  from a
   [separate GPL repository](https://github.com/HybridAIOne/hybridclaw-whatsapp)
-  and installed only on demand, keeping Baileys and its GPL dependency outside
-  core distributions. The core dependency tree is AGPL-free, and dependency
-  policy rejects unapproved GPL, AGPL, and SSPL packages.
+  to keep Baileys and its GPL dependency outside core distributions, while the
+  unofficial LINEJS dependency closure is installed only after explicit
+  enablement. The core dependency tree is AGPL-free, and dependency policy
+  rejects unapproved GPL, AGPL, and SSPL packages.
 - Release artifacts include MIT package metadata, comprehensive third-party
   notices, per-component CycloneDX and SPDX SBOMs, DCO enforcement, and a public
   code-provenance statement covering authorship and the project's independent

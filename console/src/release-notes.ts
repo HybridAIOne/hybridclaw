@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
   version: '0.28.6',
   highlights: [
-    'Live Microsoft Teams activity and streaming.',
-    'Openable files in Teams direct messages.',
-    'Reliable cloud admin reauthentication.',
-    'LINE and WhatsApp remain install-on-demand.',
+    'Reliable Teams text, streaming, and file delivery.',
+    'Agent settings persist with change attribution.',
+    'Dependencies ship without known npm advisories.',
+    'LINE and WhatsApp install only when enabled.',
   ],
 } as const;
 
