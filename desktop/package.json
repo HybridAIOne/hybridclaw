@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "module",
   "description": "macOS wrapper for the HybridClaw chat and admin web surfaces",
-  "author": "HybridAI One",
+  "author": "HybridAI GmbH",
   "main": "dist/main.js",
   "scripts": {
     "build:icon": "node scripts/build-icon.mjs",
