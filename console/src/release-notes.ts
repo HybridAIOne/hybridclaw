@@ -1,7 +1,7 @@
 export const LATEST_RELEASE_NOTES = {
   version: '0.28.6',
   highlights: [
-    'Reliable Teams text, streaming, and file delivery.',
+    'Reliable Teams text, streaming, file delivery.',
     'Agent settings persist with change attribution.',
     'Dependencies ship without known npm advisories.',
     'LINE and WhatsApp install only when enabled.',
