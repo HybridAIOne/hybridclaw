@@ -110,7 +110,7 @@ Studio, llama.cpp, and vLLM.
 ## Is HybridClaw a fork or a rewrite of OpenClaw?
 
 Neither. HybridClaw is an independent implementation built from scratch (MIT,
-copyright HybridAIOne): its git history starts from its own initial commit,
+copyright HybridAI GmbH): its git history starts from its own initial commit,
 and a line-level comparison of both codebases shows no derived code — under 1%
 of lines overlap, all of them generic TypeScript idioms. The resemblance is
 category-level: both are MIT-licensed personal-AI-assistant runtimes.
