@@ -1,3 +1,10 @@
+/**
+ * Chat message presentation — renders persisted/streaming turns and explicit
+ * per-message actions without changing conversation state on its own.
+ *
+ * NOT the chat stream or history store; callbacks own all durable mutations.
+ */
+
 import {
   memo,
   type ReactNode,
@@ -25,6 +32,10 @@ import { findAgentMentions } from './agent-mention-display';
 import { ApprovalCard } from './approval-card';
 import css from './chat-page.module.css';
 import type { ChatUiMessage } from './chat-ui-message';
+import {
+  ReadAloudControl,
+  textFromRenderedMarkdown,
+} from './read-aloud-control';
 import { TraceBlock } from './trace-block';
 
 const STREAM_MARKDOWN_RENDER_INTERVAL_MS = 120;
@@ -478,6 +489,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
   const isUser = msg.role === 'user';
   const isAssistant = msg.role === 'assistant';
+  const speechText = isAssistant ? textFromRenderedMarkdown(renderedHtml) : '';
   const shouldRenderBubble =
     isUser ||
     isA2ADeliveryStatus ||
@@ -570,6 +582,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
           ) : null}
           {isAssistant ? (
             <>
+              <ReadAloudControl text={speechText} token={token} />
               <Button
                 variant="ghost"
                 size="icon"
