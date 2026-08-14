@@ -985,6 +985,8 @@ export async function transcribeAudioWithFallback(params: {
   if (!stat.isFile()) return null;
 
   let fileBuffer: Buffer | null = null;
+  const failedBackends: string[] = [];
+  let lastError: unknown;
 
   for (const entry of models) {
     if (params.abortSignal?.aborted) break;
@@ -1014,16 +1016,23 @@ export async function transcribeAudioWithFallback(params: {
         abortSignal: params.abortSignal,
       });
     } catch (error) {
-      logger.warn(
-        {
-          error,
-          backend: entry.type === 'cli' ? entry.command : entry.provider,
-          fileName: params.fileName,
-          filePath: params.filePath,
-        },
-        'Audio transcription backend failed; trying next backend',
+      failedBackends.push(
+        entry.type === 'cli' ? entry.command : entry.provider,
       );
+      lastError = error;
     }
+  }
+
+  if (failedBackends.length > 0 && !params.abortSignal?.aborted) {
+    logger.warn(
+      {
+        error: lastError,
+        failedBackends,
+        fileName: params.fileName,
+        filePath: params.filePath,
+      },
+      'All audio transcription backends failed',
+    );
   }
 
   return null;

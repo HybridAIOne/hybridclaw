@@ -6,6 +6,7 @@ import {
   resolveAudioTranscriptionModels,
   transcribeAudioWithFallback,
 } from '../src/media/audio-transcription-backends.js';
+import { logger } from '../src/logger.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const ORIGINAL_PATH = process.env.PATH;
@@ -152,4 +153,82 @@ test('hybridai leads the auto-detected provider order', async () => {
 
   expect(providers[0]).toBe('hybridai');
   expect(providers).toContain('openai');
+});
+
+test('does not warn when a later audio backend recovers the request', async () => {
+  const audioDir = makeTempDir('hybridclaw-audio-fallback-');
+  const audioPath = path.join(audioDir, 'voice-note.ogg');
+  fs.writeFileSync(audioPath, 'audio-bytes', 'utf8');
+  const warnSpy = vi
+    .spyOn(logger, 'warn')
+    .mockImplementation(() => undefined);
+
+  try {
+    const transcript = await transcribeAudioWithFallback({
+      filePath: audioPath,
+      fileName: 'voice-note.ogg',
+      mimeType: 'audio/ogg',
+      config: DEFAULT_AUDIO_CONFIG,
+      models: [
+        {
+          type: 'cli',
+          command: process.execPath,
+          args: ['-e', 'process.exit(1)'],
+        },
+        {
+          type: 'cli',
+          command: process.execPath,
+          args: ['-e', 'process.stdout.write("fallback transcript")'],
+        },
+      ],
+    });
+
+    expect(transcript).toEqual({
+      text: 'fallback transcript',
+      backend: `cli:${path.basename(process.execPath)}`,
+    });
+    expect(warnSpy).not.toHaveBeenCalled();
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
+
+test('warns once only after every audio backend fails', async () => {
+  const audioDir = makeTempDir('hybridclaw-audio-failure-');
+  const audioPath = path.join(audioDir, 'voice-note.ogg');
+  fs.writeFileSync(audioPath, 'audio-bytes', 'utf8');
+  const warnSpy = vi
+    .spyOn(logger, 'warn')
+    .mockImplementation(() => undefined);
+
+  try {
+    await expect(
+      transcribeAudioWithFallback({
+        filePath: audioPath,
+        fileName: 'voice-note.ogg',
+        mimeType: 'audio/ogg',
+        config: DEFAULT_AUDIO_CONFIG,
+        models: [
+          {
+            type: 'cli',
+            command: process.execPath,
+            args: ['-e', 'process.exit(1)'],
+          },
+        ],
+      }),
+    ).resolves.toBeNull();
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.any(Error),
+        failedBackends: [process.execPath],
+        fileName: 'voice-note.ogg',
+        filePath: audioPath,
+      }),
+      'All audio transcription backends failed',
+    );
+  } finally {
+    warnSpy.mockRestore();
+  }
 });
