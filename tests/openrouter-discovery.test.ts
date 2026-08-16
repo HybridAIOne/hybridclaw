@@ -27,6 +27,57 @@ afterEach(() => {
 });
 
 describe('openrouter discovery', () => {
+  test('preserves supported reasoning efforts and disable availability', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: 'qwen/qwen3.8-27b',
+                  reasoning: {
+                    mandatory: false,
+                    supported_efforts: ['xhigh', 'medium', 'low'],
+                  },
+                },
+                { id: 'openai/gpt-4.1' },
+                {
+                  id: 'openai/gpt-5.5-pro',
+                  reasoning: {
+                    mandatory: true,
+                    supported_efforts: ['xhigh', 'high', 'medium'],
+                  },
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    const discovery = await importFreshDiscovery();
+    const store = discovery.createOpenRouterDiscoveryStore();
+    await store.discoverModels({ force: true });
+
+    expect(store.getModelReasoningEfforts('qwen/qwen3.8-27b')).toEqual([
+      'none',
+      'low',
+      'medium',
+      'xhigh',
+    ]);
+    expect(store.getModelReasoningEfforts('openai/gpt-4.1')).toEqual([]);
+    expect(store.getModelReasoningEfforts('openai/gpt-5.5-pro')).toEqual([
+      'medium',
+      'high',
+      'xhigh',
+    ]);
+  });
+
   test('normalizes model ids when checking whether a discovered model is free', async () => {
     vi.stubGlobal(
       'fetch',

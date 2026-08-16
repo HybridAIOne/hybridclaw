@@ -1,4 +1,8 @@
 import {
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+} from '../../container/shared/reasoning-effort.js';
+import {
   CodexAuthError,
   type CodexResolvedCredentials,
   resolveCodexCredentials,
@@ -115,6 +119,20 @@ function readCodexMaxTokens(entry: Record<string, unknown>): number | null {
   );
 }
 
+function readCodexReasoningEfforts(
+  entry: Record<string, unknown>,
+): ReasoningEffort[] {
+  if (!Array.isArray(entry.supported_reasoning_levels)) return [];
+  const supported = new Set<ReasoningEffort>();
+  for (const level of entry.supported_reasoning_levels) {
+    if (!isRecord(level) || typeof level.effort !== 'string') continue;
+    if (REASONING_EFFORTS.includes(level.effort as ReasoningEffort)) {
+      supported.add(level.effort as ReasoningEffort);
+    }
+  }
+  return REASONING_EFFORTS.filter((effort) => supported.has(effort));
+}
+
 function appendForwardCompatCodexModels(modelNames: string[]): string[] {
   const ordered = [...modelNames];
   const seen = new Set(modelNames);
@@ -134,18 +152,21 @@ export interface CodexDiscoveryStore {
   getModelNames: () => string[];
   getModelContextWindow: (model: string) => number | null;
   getModelMaxTokens: (model: string) => number | null;
+  getModelReasoningEfforts: (model: string) => ReasoningEffort[] | null;
 }
 
 interface CodexDiscoveryState {
   discoveredModelNames: string[];
   contextWindowByModel: Map<string, number>;
   maxTokensByModel: Map<string, number>;
+  reasoningEffortsByModel: Map<string, ReasoningEffort[]>;
 }
 
 const buildEmptyCodexDiscoveryState = (): CodexDiscoveryState => ({
   discoveredModelNames: [],
   contextWindowByModel: new Map(),
   maxTokensByModel: new Map(),
+  reasoningEffortsByModel: new Map(),
 });
 
 function createHttpStatusError(status: number): Error & { httpStatus: number } {
@@ -188,6 +209,7 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
     const discovered = new Set<string>();
     const contextWindows = new Map<string, number>();
     const maxTokens = new Map<string, number>();
+    const reasoningEfforts = new Map<string, ReasoningEffort[]>();
     for (const entry of data) {
       if (!isRecord(entry) || !isCodexModelSupportedInApi(entry)) continue;
       const normalized = normalizeCodexModelName(readCodexModelId(entry));
@@ -201,6 +223,7 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
       if (maxTokensForModel != null) {
         maxTokens.set(normalized, maxTokensForModel);
       }
+      reasoningEfforts.set(normalized, readCodexReasoningEfforts(entry));
     }
     for (const supplemental of CODEX_SUPPLEMENTAL_MODELS) {
       discovered.add(supplemental);
@@ -215,6 +238,7 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
       discoveredModelNames,
       contextWindowByModel: contextWindows,
       maxTokensByModel: maxTokens,
+      reasoningEffortsByModel: reasoningEfforts,
     };
   }
 
@@ -269,6 +293,12 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
       const normalized = normalizeCodexModelName(model);
       return state.maxTokensByModel.get(normalized) ?? null;
     },
+    getModelReasoningEfforts: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = normalizeCodexModelName(model);
+      const efforts = state.reasoningEffortsByModel.get(normalized);
+      return efforts ? [...efforts] : null;
+    },
   };
 }
 
@@ -292,6 +322,12 @@ export function getDiscoveredCodexModelContextWindow(
 
 export function getDiscoveredCodexModelMaxTokens(model: string): number | null {
   return defaultCodexDiscoveryStore.getModelMaxTokens(model);
+}
+
+export function getDiscoveredCodexModelReasoningEfforts(
+  model: string,
+): ReasoningEffort[] | null {
+  return defaultCodexDiscoveryStore.getModelReasoningEfforts(model);
 }
 
 export function getDiscoveredCodexModelPricingUsdPerToken(

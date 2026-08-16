@@ -1,8 +1,8 @@
 /**
  * Composer thinking control — selects one explicit effort for submitted turns.
  *
- * Model default remains distinct from Off; this component does not persist
- * preferences or decide whether a provider supports a particular level.
+ * Model default remains distinct from Off; the caller supplies the exact
+ * provider-supported tiers and this component never invents extra choices.
  */
 
 import { useState } from 'react';
@@ -29,13 +29,17 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = {
 
 export function ThinkingEffortControl(props: {
   value?: ReasoningEffort;
+  supportedEfforts: ReasoningEffort[];
   disabled?: boolean;
   onChange: (value?: ReasoningEffort) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const sliderValue = props.value
-    ? REASONING_EFFORTS.indexOf(props.value)
-    : REASONING_EFFORTS.indexOf('medium');
+  const efforts = REASONING_EFFORTS.filter((effort) =>
+    props.supportedEfforts.includes(effort),
+  );
+  const selectedIndex = props.value ? efforts.indexOf(props.value) : -1;
+  const defaultIndex = Math.max(0, efforts.indexOf('medium'));
+  const sliderValue = selectedIndex >= 0 ? selectedIndex : defaultIndex;
   const valueLabel = props.value ? EFFORT_LABELS[props.value] : 'Model default';
 
   return (
@@ -76,18 +80,24 @@ export function ThinkingEffortControl(props: {
           )}
           type="range"
           min={0}
-          max={REASONING_EFFORTS.length - 1}
+          max={efforts.length - 1}
           step={1}
           value={sliderValue}
           aria-label="Thinking effort level"
           aria-valuetext={valueLabel}
           onChange={(event) => {
-            const effort = REASONING_EFFORTS[Number(event.currentTarget.value)];
+            const effort = efforts[Number(event.currentTarget.value)];
             if (effort) props.onChange(effort);
           }}
         />
-        <div className={css.thinkingEffortTicks} aria-hidden="true">
-          {REASONING_EFFORTS.map((effort) => (
+        <div
+          className={css.thinkingEffortTicks}
+          style={{
+            gridTemplateColumns: `repeat(${efforts.length}, minmax(0, 1fr))`,
+          }}
+          aria-hidden="true"
+        >
+          {efforts.map((effort) => (
             <span key={effort}>{EFFORT_LABELS[effort]}</span>
           ))}
         </div>

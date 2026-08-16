@@ -447,12 +447,13 @@ export function ChatPage() {
     [agentOptions],
   );
   const modelOptions = modelsQuery.data?.models ?? EMPTY_MODELS;
-  const selectedModelSupportsReasoning =
-    modelOptions.find((model) => model.id === selectedModelId)?.isReasoning !==
-    false;
-  const effectiveReasoningEffort = selectedModelSupportsReasoning
-    ? reasoningEffort
-    : undefined;
+  const supportedReasoningEfforts =
+    modelOptions.find((model) => model.id === selectedModelId)
+      ?.supportedReasoningEfforts ?? [];
+  const effectiveReasoningEffort =
+    reasoningEffort && supportedReasoningEfforts.includes(reasoningEffort)
+      ? reasoningEffort
+      : undefined;
 
   const [previewApp, setPreviewApp] = useState<{
     id: string;
@@ -1404,8 +1405,8 @@ export function ChatPage() {
             models={modelOptions}
             selectedModelId={selectedModelId}
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
-            reasoningAvailable={selectedModelSupportsReasoning}
-            reasoningEffort={reasoningEffort}
+            supportedReasoningEfforts={supportedReasoningEfforts}
+            reasoningEffort={effectiveReasoningEffort}
             onReasoningEffortChange={setReasoningEffort}
             initialValue={initialComposerPrompt}
           />

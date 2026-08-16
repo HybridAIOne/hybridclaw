@@ -11,6 +11,7 @@ function model(
     backend: null,
     contextWindow: null,
     isReasoning: false,
+    supportedReasoningEfforts: [],
     family: null,
     parameterSize: null,
     provider: 'hybridai',

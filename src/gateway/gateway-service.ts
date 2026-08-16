@@ -7031,6 +7031,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
           capabilities: metadata.capabilities,
           metadataSources: metadata.sources,
           isReasoning: info?.isReasoning ?? metadata.capabilities.reasoning,
+          supportedReasoningEfforts: metadata.supportedReasoningEfforts,
           thinkingFormat: info?.thinkingFormat || null,
           family: info?.family || null,
           parameterSize: info?.parameterSize || null,

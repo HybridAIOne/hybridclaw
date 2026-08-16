@@ -68,6 +68,7 @@ function renderComposer(
       onStop={vi.fn()}
       onUploadFiles={vi.fn<(_: File[]) => Promise<MediaItem[]>>()}
       token="test-token"
+      supportedReasoningEfforts={['none', 'low', 'medium', 'high', 'xhigh']}
       {...overrides}
     />,
   );
@@ -123,11 +124,34 @@ describe('Composer', () => {
   });
 
   it('hides the thinking control for non-reasoning models', () => {
-    renderComposer({ reasoningAvailable: false });
+    renderComposer({ supportedReasoningEfforts: [] });
 
     expect(
       screen.queryByRole('button', { name: /Thinking effort:/ }),
     ).toBeNull();
+  });
+
+  it('only offers reasoning efforts supported by the selected model', () => {
+    const onReasoningEffortChange = vi.fn();
+    renderComposer({
+      supportedReasoningEfforts: ['none', 'low', 'medium', 'xhigh'],
+      onReasoningEffortChange,
+    });
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Thinking effort: Model default',
+      }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Thinking effort' });
+    expect(within(dialog).queryByText('High')).toBeNull();
+    expect(within(dialog).getByText('XHigh')).toBeTruthy();
+
+    fireEvent.change(
+      within(dialog).getByRole('slider', { name: 'Thinking effort level' }),
+      { target: { value: '3' } },
+    );
+    expect(onReasoningEffortChange).toHaveBeenLastCalledWith('xhigh');
   });
 
   it('inserts dictated text for review without sending it', async () => {

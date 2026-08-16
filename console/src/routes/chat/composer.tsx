@@ -91,7 +91,7 @@ export function Composer(props: {
   models?: ModelSwitchEntry[];
   selectedModelId?: string;
   onModelSwitch?: (modelId: string) => void;
-  reasoningAvailable?: boolean;
+  supportedReasoningEfforts: ReasoningEffort[];
   reasoningEffort?: ReasoningEffort;
   onReasoningEffortChange?: (effort?: ReasoningEffort) => void;
   initialValue?: string;
@@ -654,9 +654,10 @@ export function Composer(props: {
                 disabled={props.isStreaming}
                 onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
               />
-              {props.reasoningAvailable !== false ? (
+              {props.supportedReasoningEfforts.length > 0 ? (
                 <ThinkingEffortControl
                   value={props.reasoningEffort}
+                  supportedEfforts={props.supportedReasoningEfforts}
                   disabled={props.isStreaming}
                   onChange={(effort) => props.onReasoningEffortChange?.(effort)}
                 />

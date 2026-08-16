@@ -54,7 +54,19 @@ describe('codex discovery', () => {
         async () =>
           new Response(
             JSON.stringify({
-              data: [{ id: 'gpt-5.4', context_window: 400_000 }],
+              data: [
+                {
+                  id: 'gpt-5.4',
+                  context_window: 400_000,
+                  supported_reasoning_levels: [
+                    { effort: 'low' },
+                    { effort: 'medium' },
+                    { effort: 'high' },
+                    { effort: 'xhigh' },
+                    { effort: 'max' },
+                  ],
+                },
+              ],
             }),
             {
               status: 200,
@@ -71,6 +83,12 @@ describe('codex discovery', () => {
     await expect(store.discoverModels({ force: true })).resolves.toContain(
       'openai-codex/gpt-5.4',
     );
+    expect(store.getModelReasoningEfforts('gpt-5.4')).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ]);
     await expect(store.discoverModels({ force: true })).resolves.toContain(
       'openai-codex/gpt-5.4',
     );

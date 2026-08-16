@@ -1404,6 +1404,7 @@ export interface GatewayAdminModelCatalogEntry {
   };
   metadataSources: string[];
   isReasoning: boolean;
+  supportedReasoningEfforts: ReasoningEffort[];
   thinkingFormat: string | null;
   family: string | null;
   parameterSize: string | null;

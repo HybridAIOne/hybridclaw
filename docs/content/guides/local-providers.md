@@ -61,9 +61,10 @@ keys provided through the CLI are stored in the encrypted runtime secret store
 and referenced from config.
 
 In web chat, the thinking control leaves the backend's default unchanged until
-you choose an explicit level. Choosing **Off** sends `enable_thinking: false`
-to Qwen-compatible OpenAI endpoints and `think: false` to Ollama. Other levels
-are forwarded where the backend supports granular reasoning effort.
+you choose an explicit setting. It only presents controls HybridClaw can map
+for the selected model. Choosing **Off** sends `enable_thinking: false` to
+Qwen-compatible OpenAI endpoints and `think: false` to Ollama. Granular levels
+appear when the backend advertises or documents support for them.
 
 For host-served local backends, restart the gateway with `--sandbox=host` so
 the runtime can reach those local endpoints directly.
