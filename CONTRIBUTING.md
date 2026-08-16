@@ -79,6 +79,7 @@ npm run format
 npm run test:unit
 npm run test:integration
 npm run test:e2e
+npm run test:golden
 npm run test:live
 
 # Runtime and packaging
@@ -87,6 +88,16 @@ npm run release:check
 npm --prefix container run lint
 npm --prefix container run release:check
 ```
+
+`npm run test:golden` builds the shipping JavaScript first, then replays the
+keyless JSONL transcript through the assembled gateway and container tool
+artifacts. Review fixture changes under `tests/fixtures/golden-transcripts/`:
+they pin prompts, tool schemas, audit and persistence records, UI activity, and
+filesystem effects.
+
+When an intentional behavior change affects the snapshot, run
+`npm run test:golden:update` and review every changed JSONL row before
+committing it.
 
 ## Console Dev Server
 

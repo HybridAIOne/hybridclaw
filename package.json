@@ -82,6 +82,8 @@
     "test:integration": "vitest run --configLoader runner --project integration --passWithNoTests",
     "test:e2e": "vitest run --configLoader runner --project e2e --passWithNoTests",
     "test:install-e2e": "vitest run --configLoader runner --project install-e2e",
+    "test:golden": "npm run build && vitest run --configLoader runner --project golden",
+    "test:golden:update": "npm run build && HYBRIDCLAW_UPDATE_GOLDEN_TRANSCRIPTS=1 vitest run --configLoader runner --project golden",
     "test:console": "npm --workspace console run test",
     "audit:dependencies": "node ./scripts/audit-dependencies.mjs",
     "audit:signatures": "node ./scripts/audit-signatures.mjs",

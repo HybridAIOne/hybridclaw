@@ -173,6 +173,9 @@ jobs:
       - name: Integration tests
         run: npx vitest run --project integration
 
+      - name: Golden transcript tests
+        run: npx vitest run --project golden
+
       - name: Unit tests with coverage
         run: npx vitest run --coverage --project unit
 

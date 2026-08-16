@@ -191,6 +191,7 @@ npm run format                       # biome check --write src
 npm run test:unit                    # vitest unit suite
 npm run test:integration             # integration tests
 npm run test:e2e                     # end-to-end tests
+npm run test:golden                  # keyless built-product transcript snapshots
 npm run test:live                    # live tests (requires credentials)
 npm run release:check                # verify release readiness
 npm --prefix container run lint      # container lint
@@ -465,13 +466,14 @@ When the user says "bump release":
 | `src/` changes      | `npm run typecheck`, `npm run lint`, targeted Vitest suites |
 | `container/` changes| `npm --prefix container run lint`, `npm run build`, IPC boundary tests |
 | `skills/` changes   | `hybridclaw skill list`, targeted skill tests               |
+| Transcript surfaces | `npm run test:golden`, review expected JSONL diffs           |
 | Release/packaging   | Both `release:check` scripts, verify versioned docs         |
 | Security surfaces   | Include boundary and failure-mode tests                     |
 
 ### Conventions
 
 - Test files: `tests/*.test.ts`, `*.integration.test.ts`, `*.e2e.test.ts`,
-  `*.live.test.ts`.
+  `*.golden.test.ts`, `*.live.test.ts`.
 - Live tests require credentials. Skip them unless your change needs them,
   and state that explicitly in your handoff.
 - If you skip a relevant check, state what you skipped and why.

@@ -20,6 +20,7 @@ const sharedExclude = ['node_modules/**', 'dist/**', 'container/**'];
 // Note the `-e2e` suffix does NOT match the `.e2e.test.ts` glob, so it must be
 // excluded from the broad `unit` include explicitly.
 const installE2eGlob = 'tests/**/*.install-e2e.test.ts';
+const goldenTranscriptGlob = 'tests/**/*.golden.test.ts';
 
 export default defineConfig({
   test: {
@@ -50,6 +51,7 @@ export default defineConfig({
             'tests/**/*.integration.test.ts',
             'tests/**/*.e2e.test.ts',
             installE2eGlob,
+            goldenTranscriptGlob,
             'tests/**/*.live.test.ts',
             ...sharedExclude,
           ],
@@ -78,6 +80,15 @@ export default defineConfig({
           name: 'install-e2e',
           include: [installE2eGlob],
           exclude: sharedExclude,
+        },
+      },
+      {
+        test: {
+          ...sharedTestConfig,
+          name: 'golden',
+          include: [goldenTranscriptGlob],
+          exclude: sharedExclude,
+          maxWorkers: 1,
         },
       },
       {

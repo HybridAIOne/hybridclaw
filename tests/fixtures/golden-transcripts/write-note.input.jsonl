@@ -1,0 +1,6 @@
+{"type":"session","version":1,"name":"write-note","request":{"sessionId":"golden-write-note","channelId":"web","userId":"golden-user","username":"Ada","content":"Create artifacts/golden-note.txt containing exactly: Golden transcript artifact.","model":"test-model","chatbotId":"golden-bot"},"traceElapsedMs":30}
+{"type":"assistant.thinking","text":"I should create the requested file and verify the tool result."}
+{"type":"assistant.text","text":"I’ll create the requested note."}
+{"type":"tool.call","name":"write","arguments":{"path":"artifacts/golden-note.txt","contents":"Golden transcript artifact.\n"},"durationMs":7}
+{"type":"assistant.text","text":"Created `artifacts/golden-note.txt`."}
+{"type":"assistant.final","text":"Created `artifacts/golden-note.txt`."}
