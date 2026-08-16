@@ -61,6 +61,7 @@ interface RunCodexAppServerTurnParams {
   requestHeaders?: Record<string, string>;
   maxTokens?: number;
   modelBehavior?: ContainerInput['modelBehavior'];
+  reasoningEffort?: ContainerInput['reasoningEffort'];
   debugModelResponses?: boolean;
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
@@ -1194,6 +1195,7 @@ export async function runCodexAppServerTurn(
       input: buildCodexUserInput(params.messages, effectiveUserPrompt),
       cwd: params.cwd || process.cwd(),
       model: normalizeCodexModelName(params.model),
+      ...(params.reasoningEffort ? { effort: params.reasoningEffort } : {}),
     })) as Record<string, unknown>;
     const turnRecord = isRecord(turn.turn) ? turn.turn : {};
     if (readString(turnRecord, 'status') === 'completed') {

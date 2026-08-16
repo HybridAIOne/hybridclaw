@@ -1,4 +1,5 @@
 import { getProviderContextError } from '../../shared/provider-context.js';
+import type { ReasoningEffort } from '../../shared/reasoning-effort.js';
 import { extractResponseTextContent } from '../../shared/response-text.js';
 import type { ModelBehavior } from '../model-behavior.js';
 import type {
@@ -57,6 +58,7 @@ export interface RoutedModelContext {
   contextWindow?: number;
   modelBehavior?: ModelBehavior;
   thinkingFormat?: 'qwen';
+  reasoningEffort?: ReasoningEffort;
   debugModelResponses?: boolean;
 }
 
@@ -105,6 +107,7 @@ function buildCallArgs(params: RoutedModelCallParams): NormalizedCallArgs {
     contextWindow: params.contextWindow,
     modelBehavior: params.modelBehavior,
     thinkingFormat: params.thinkingFormat,
+    reasoningEffort: params.reasoningEffort,
   };
 }
 

@@ -1,5 +1,6 @@
 import type { JsonWebKey } from 'node:crypto';
 import type { BaseMessageOptions } from 'discord.js';
+import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { A2AEnvelope } from '../a2a/envelope.js';
 import type { A2AIncomingPairingRequest } from '../a2a/pairing.js';
 import type { A2ATrustedPublicKeyPeer } from '../a2a/trust-ledger.js';
@@ -188,6 +189,7 @@ export interface GatewayChatRequestBody {
   agentId?: string | null;
   chatbotId?: string | null;
   model?: string | null;
+  reasoningEffort?: ReasoningEffort;
   enableRag?: boolean;
   /**
    * Marks an Apps-builder conversation. HTML artifacts are captured into the
@@ -231,6 +233,7 @@ export interface GatewayChatRequest {
   addressEnvelope?: GatewayAddressEnvelope;
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];
+  reasoningEffort?: GatewayChatRequestBody['reasoningEffort'];
   enableRag?: GatewayChatRequestBody['enableRag'];
   promptMode?: PromptMode;
   includePromptParts?: PromptPartName[];

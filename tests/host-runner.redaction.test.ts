@@ -832,6 +832,7 @@ test('HostExecutor uses discovered maxTokens for Anthropic OpenRouter models', a
     chatbotId: '',
     enableRag: false,
     model: 'openrouter/anthropic/claude-sonnet-4',
+    reasoningEffort: 'xhigh',
     agentId: 'default',
     channelId: 'web',
   });
@@ -840,6 +841,7 @@ test('HostExecutor uses discovered maxTokens for Anthropic OpenRouter models', a
     String(proc.stdin.write.mock.calls[0]?.[0] || '').trim(),
   ) as Record<string, unknown>;
   expect(firstInput.maxTokens).toBe(64_000);
+  expect(firstInput.reasoningEffort).toBe('xhigh');
 });
 
 test('HostExecutor exposes the bundled agent-browser binary to host agent processes', async () => {

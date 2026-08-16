@@ -572,8 +572,15 @@ function buildRequestBody(
   }
 
   const model = stripAnthropicModelPrefix(args.model).toLowerCase();
-  if (/^claude-(?:sonnet-(?:4-6|5)|opus-4-(?:6|7|8))(?:$|-)/.test(model)) {
+  if (args.reasoningEffort === 'none') {
+    request.thinking = { type: 'disabled' };
+  } else if (
+    /^claude-(?:sonnet-(?:4-6|5)|opus-4-(?:6|7|8))(?:$|-)/.test(model)
+  ) {
     request.thinking = { type: 'adaptive', display: 'summarized' };
+  }
+  if (args.reasoningEffort && args.reasoningEffort !== 'none') {
+    request.output_config = { effort: args.reasoningEffort };
   }
 
   return request;

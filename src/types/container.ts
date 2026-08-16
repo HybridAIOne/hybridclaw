@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import type { ChatMessage } from './api.js';
@@ -78,6 +79,7 @@ export interface ContainerInput {
   contextWindow?: number;
   modelBehavior?: ModelBehavior;
   thinkingFormat?: 'qwen';
+  reasoningEffort?: ReasoningEffort;
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
   browserProvider?: string;

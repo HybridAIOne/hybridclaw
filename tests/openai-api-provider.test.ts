@@ -63,6 +63,7 @@ describe('OpenAI API provider', () => {
         instructions: 'Be concise.',
         max_output_tokens: 512,
         include: ['reasoning.encrypted_content'],
+        reasoning: { effort: 'xhigh' },
         tool_choice: 'auto',
         parallel_tool_calls: true,
         tools: [
@@ -109,7 +110,10 @@ describe('OpenAI API provider', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await callOpenAIResponsesProvider(baseArgs);
+    const response = await callOpenAIResponsesProvider({
+      ...baseArgs,
+      reasoningEffort: 'xhigh',
+    });
 
     expect(response.choices[0]?.message.tool_calls).toEqual([
       {

@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from '../../shared/reasoning-effort.js';
 import {
   type ModelBehavior,
   type ModelThinkingFormat,
@@ -31,6 +32,7 @@ export interface NormalizedCallArgs {
   contextWindow: number | undefined;
   modelBehavior?: ModelBehavior;
   thinkingFormat: ModelThinkingFormat | undefined;
+  reasoningEffort?: ReasoningEffort;
 }
 
 export interface NormalizedStreamCallArgs extends NormalizedCallArgs {

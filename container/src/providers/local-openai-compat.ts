@@ -349,6 +349,14 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
   ) {
     request.max_tokens = Math.floor(args.maxTokens);
   }
+  if (args.reasoningEffort) {
+    request.reasoning_effort = args.reasoningEffort;
+    if (usesQwenCompat(args)) {
+      request.chat_template_kwargs = {
+        enable_thinking: args.reasoningEffort !== 'none',
+      };
+    }
+  }
   return request;
 }
 

@@ -17,6 +17,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { ReasoningEffort } from '../../../../container/shared/reasoning-effort.js';
 import { fetchChatCommands } from '../../api/chat';
 import type { ChatCommandSuggestion, MediaItem } from '../../api/chat-types';
 import { Popover, PopoverAnchor } from '../../components/popover';
@@ -41,6 +42,7 @@ import {
   type SlashPanelMode,
   SlashSuggestionsPanel,
 } from './slash-suggestions-panel';
+import { ThinkingEffortControl } from './thinking-effort-control';
 
 type SuggestionKind = 'slash' | 'agent';
 
@@ -89,6 +91,9 @@ export function Composer(props: {
   models?: ModelSwitchEntry[];
   selectedModelId?: string;
   onModelSwitch?: (modelId: string) => void;
+  reasoningAvailable?: boolean;
+  reasoningEffort?: ReasoningEffort;
+  onReasoningEffortChange?: (effort?: ReasoningEffort) => void;
   initialValue?: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -649,6 +654,13 @@ export function Composer(props: {
                 disabled={props.isStreaming}
                 onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
               />
+              {props.reasoningAvailable !== false ? (
+                <ThinkingEffortControl
+                  value={props.reasoningEffort}
+                  disabled={props.isStreaming}
+                  onChange={(effort) => props.onReasoningEffortChange?.(effort)}
+                />
+              ) : null}
             </div>
             <div className={css.composerRightActions}>
               <DictationControl

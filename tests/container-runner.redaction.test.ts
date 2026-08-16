@@ -842,6 +842,7 @@ test('ContainerExecutor disables internal text streaming when no text callback i
     chatbotId: 'bot-a',
     enableRag: false,
     model: 'gpt-5',
+    reasoningEffort: 'none',
     agentId: 'default',
     channelId: 'web',
   });
@@ -851,6 +852,7 @@ test('ContainerExecutor disables internal text streaming when no text callback i
     String(proc.stdin.write.mock.calls[0]?.[0] || '').trim(),
   ) as Record<string, unknown>;
   expect(firstInput).toMatchObject({
+    reasoningEffort: 'none',
     streamTextDeltas: false,
   });
 });

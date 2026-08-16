@@ -99,6 +99,37 @@ describe('Composer', () => {
     clearAgentAvatarUrlCacheForTest();
   });
 
+  it('selects explicit thinking effort including Off and restores model default', () => {
+    const onReasoningEffortChange = vi.fn();
+    renderComposer({ onReasoningEffortChange });
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Thinking effort: Model default',
+      }),
+    );
+    const slider = screen.getByRole('slider', {
+      name: 'Thinking effort level',
+    });
+
+    fireEvent.change(slider, { target: { value: '0' } });
+    expect(onReasoningEffortChange).toHaveBeenLastCalledWith('none');
+
+    fireEvent.change(slider, { target: { value: '4' } });
+    expect(onReasoningEffortChange).toHaveBeenLastCalledWith('xhigh');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use model default' }));
+    expect(onReasoningEffortChange).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('hides the thinking control for non-reasoning models', () => {
+    renderComposer({ reasoningAvailable: false });
+
+    expect(
+      screen.queryByRole('button', { name: /Thinking effort:/ }),
+    ).toBeNull();
+  });
+
   it('inserts dictated text for review without sending it', async () => {
     const originalMediaDevices = Object.getOwnPropertyDescriptor(
       navigator,
