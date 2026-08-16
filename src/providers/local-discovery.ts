@@ -58,7 +58,8 @@ function normalizeModelId(modelId: string): string {
 function isReasoningModel(modelId: string): boolean {
   return (
     /\b(r1|reasoning|think)\b/i.test(modelId) ||
-    /(^|[-_.])r1($|[-_.])/i.test(modelId)
+    /(^|[-_.])r1($|[-_.])/i.test(modelId) ||
+    /(^|[/_.-])qwen3(?:[/_.-]|$)/i.test(modelId)
   );
 }
 

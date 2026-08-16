@@ -1,3 +1,5 @@
+import type { ReasoningEffort } from '../../../container/shared/reasoning-effort.js';
+
 export const LOG_LEVELS = [
   'fatal',
   'error',
@@ -1028,6 +1030,7 @@ export interface ChatModel {
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
   isReasoning: boolean;
+  supportedReasoningEfforts: ReasoningEffort[];
   family: string | null;
   parameterSize: string | null;
 }

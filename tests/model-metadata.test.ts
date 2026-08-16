@@ -189,6 +189,25 @@ test('Claude Sonnet 5 has current context and output limits', () => {
   });
 });
 
+test('reasoning controls match model-specific provider tiers', () => {
+  expect(
+    resolveStaticModelCatalogMetadata('hybridai/gpt-4.1')
+      .supportedReasoningEfforts,
+  ).toEqual([]);
+  expect(
+    resolveStaticModelCatalogMetadata('anthropic/claude-sonnet-4-6')
+      .supportedReasoningEfforts,
+  ).toEqual(['none', 'low', 'medium', 'high']);
+  expect(
+    resolveStaticModelCatalogMetadata('hybridai/gpt-5.1')
+      .supportedReasoningEfforts,
+  ).toEqual(['none', 'low', 'medium', 'high']);
+  expect(
+    resolveStaticModelCatalogMetadata('openai-codex/gpt-5.5-pro')
+      .supportedReasoningEfforts,
+  ).toEqual(['medium', 'high', 'xhigh']);
+});
+
 test.each([
   ['openai/gpt-5.6-sol', 1_050_000],
   ['openai/gpt-5.6-terra', 1_050_000],

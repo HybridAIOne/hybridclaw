@@ -12463,6 +12463,54 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('forwards a valid thinking effort from web chat to the gateway', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayMessage.mockImplementation(
+      async (request: { sessionId: string }) => ({
+        status: 'success' as const,
+        result: 'Done.',
+        sessionId: request.sessionId,
+        toolsUsed: [],
+        toolExecutions: [],
+        artifacts: [],
+      }),
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { content: 'Follow the contract', reasoningEffort: 'none' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningEffort: 'none' }),
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('rejects unsupported thinking effort values at the web chat boundary', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { content: 'Follow the contract', reasoningEffort: 'ultra' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (response) => response.writableEnded);
+
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Invalid `reasoningEffort`; expected none, low, medium, high, or xhigh.',
+    });
+  });
+
   test('accepts media-only chat requests and forwards media to the gateway handler', async () => {
     const state = await importFreshHealth();
     const media = [

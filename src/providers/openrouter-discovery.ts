@@ -1,3 +1,7 @@
+import {
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+} from '../../container/shared/reasoning-effort.js';
 import { OPENROUTER_BASE_URL, OPENROUTER_ENABLED } from '../config/config.js';
 import { logger } from '../logger.js';
 import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
@@ -69,6 +73,26 @@ function isVisionCapableOpenRouterModel(
   return false;
 }
 
+function readOpenRouterReasoningEfforts(
+  entry: Record<string, unknown>,
+): ReasoningEffort[] {
+  const reasoning = isRecord(entry.reasoning) ? entry.reasoning : null;
+  if (!reasoning) return [];
+
+  const mandatory = reasoning.mandatory === true;
+  const advertised = Array.isArray(reasoning.supported_efforts)
+    ? reasoning.supported_efforts.filter(
+        (value): value is ReasoningEffort =>
+          typeof value === 'string' &&
+          REASONING_EFFORTS.includes(value as ReasoningEffort),
+      )
+    : REASONING_EFFORTS.filter((effort) => effort !== 'none');
+  const supported = new Set<ReasoningEffort>(advertised);
+  if (mandatory) supported.delete('none');
+  else supported.add('none');
+  return REASONING_EFFORTS.filter((effort) => supported.has(effort));
+}
+
 function isFreeOpenRouterModel(entry: Record<string, unknown>): boolean {
   const pricing = isRecord(entry.pricing) ? entry.pricing : null;
   if (!pricing) return false;
@@ -101,6 +125,7 @@ export interface OpenRouterDiscoveryStore {
     model: string,
   ) => { input: number | null; output: number | null } | null;
   isModelVisionCapable: (model: string) => boolean;
+  getModelReasoningEfforts: (model: string) => ReasoningEffort[] | null;
 }
 
 interface OpenRouterDiscoveryState {
@@ -110,6 +135,7 @@ interface OpenRouterDiscoveryState {
   maxTokensByModel: Map<string, number>;
   pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
   visionCapableModels: Set<string>;
+  reasoningEffortsByModel: Map<string, ReasoningEffort[]>;
 }
 
 const buildEmptyOpenRouterDiscoveryState = (): OpenRouterDiscoveryState => ({
@@ -119,6 +145,7 @@ const buildEmptyOpenRouterDiscoveryState = (): OpenRouterDiscoveryState => ({
   maxTokensByModel: new Map(),
   pricingByModel: new Map(),
   visionCapableModels: new Set(),
+  reasoningEffortsByModel: new Map(),
 });
 
 export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
@@ -152,6 +179,7 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
     const maxTokens = new Map<string, number>();
     const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
     const visionCapable = new Set<string>();
+    const reasoningEffortsByModel = new Map<string, ReasoningEffort[]>();
     for (const entry of data) {
       if (!isRecord(entry) || typeof entry.id !== 'string') continue;
       const normalized = normalizeOpenRouterModelName(entry.id);
@@ -190,6 +218,10 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
         if (isVisionCapableOpenRouterModel(entry)) {
           visionCapable.add(normalized);
         }
+        reasoningEffortsByModel.set(
+          normalized,
+          readOpenRouterReasoningEfforts(entry),
+        );
       }
     }
     return {
@@ -199,6 +231,7 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
       maxTokensByModel: maxTokens,
       pricingByModel,
       visionCapableModels: visionCapable,
+      reasoningEffortsByModel,
     };
   }
 
@@ -260,6 +293,12 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
       const normalized = normalizeOpenRouterModelName(model);
       return state.visionCapableModels.has(normalized);
     },
+    getModelReasoningEfforts: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = normalizeOpenRouterModelName(model);
+      const efforts = state.reasoningEffortsByModel.get(normalized);
+      return efforts ? [...efforts] : null;
+    },
   };
 }
 
@@ -301,4 +340,10 @@ export function isDiscoveredOpenRouterModelVisionCapable(
   model: string,
 ): boolean {
   return defaultOpenRouterDiscoveryStore.isModelVisionCapable(model);
+}
+
+export function getDiscoveredOpenRouterModelReasoningEfforts(
+  model: string,
+): ReasoningEffort[] | null {
+  return defaultOpenRouterDiscoveryStore.getModelReasoningEfforts(model);
 }

@@ -15,6 +15,7 @@ import {
   getDiscoveredCodexModelMaxTokens,
   getDiscoveredCodexModelNames,
   getDiscoveredCodexModelPricingUsdPerToken,
+  getDiscoveredCodexModelReasoningEfforts,
 } from './codex-discovery.js';
 import { resolveModelProvider } from './factory.js';
 import {
@@ -79,6 +80,7 @@ import {
   getDiscoveredOpenRouterModelContextWindow,
   getDiscoveredOpenRouterModelMaxTokens,
   getDiscoveredOpenRouterModelPricingUsdPerToken,
+  getDiscoveredOpenRouterModelReasoningEfforts,
   isDiscoveredOpenRouterModelFree,
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
@@ -94,6 +96,40 @@ export interface ModelCatalogMetadata extends StaticModelCatalogMetadata {
     input: number | null;
     output: number | null;
   };
+}
+
+function isQwen3Model(model: string): boolean {
+  return /(^|[/_.-])qwen-?3(?:[/_.-]|$)/i.test(model);
+}
+
+function resolveKnownModelReasoningEfforts(
+  model: string,
+  staticMetadata: StaticModelCatalogMetadata,
+): StaticModelCatalogMetadata['supportedReasoningEfforts'] {
+  const normalized = model.trim().toLowerCase();
+  if (normalized.startsWith(OPENAI_CODEX_MODEL_PREFIX)) {
+    const discovered = getDiscoveredCodexModelReasoningEfforts(model);
+    if (discovered != null) return discovered;
+    return staticMetadata.supportedReasoningEfforts.filter(
+      (effort) => effort !== 'none',
+    );
+  }
+  if (normalized.startsWith(OPENROUTER_MODEL_PREFIX)) {
+    const discovered = getDiscoveredOpenRouterModelReasoningEfforts(model);
+    if (discovered != null) return discovered;
+  }
+
+  const local = getLocalModelInfo(model);
+  if (local?.backend === 'ollama' && /gpt-oss/i.test(model)) {
+    return ['low', 'medium', 'high'];
+  }
+  if (local?.backend === 'ollama' && local.isReasoning) return ['none'];
+  if (local && isQwen3Model(model)) return ['none'];
+  if (normalized.startsWith(HYBRIDAI_MODEL_PREFIX) && isQwen3Model(model)) {
+    return ['none'];
+  }
+
+  return [...staticMetadata.supportedReasoningEfforts];
 }
 
 export type ModelCapabilityRequirements = Partial<ModelCapabilityFlags>;
@@ -619,6 +655,10 @@ export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
   const pricingUsdPerToken = resolveKnownModelPricingUsdPerToken(model);
   const zone = resolveKnownModelZone(model);
   const vision = isModelVisionCapable(model);
+  const supportedReasoningEfforts = resolveKnownModelReasoningEfforts(
+    model,
+    staticMetadata,
+  );
 
   return {
     ...staticMetadata,
@@ -626,7 +666,8 @@ export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
       staticMetadata.known ||
       contextWindow != null ||
       maxTokens != null ||
-      vision,
+      vision ||
+      supportedReasoningEfforts.length > 0,
     contextWindow,
     maxTokens,
     zone,
@@ -634,7 +675,11 @@ export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
     capabilities: {
       ...staticMetadata.capabilities,
       vision,
+      reasoning:
+        staticMetadata.capabilities.reasoning ||
+        supportedReasoningEfforts.length > 0,
     },
+    supportedReasoningEfforts,
   };
 }
 

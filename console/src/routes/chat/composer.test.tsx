@@ -68,6 +68,7 @@ function renderComposer(
       onStop={vi.fn()}
       onUploadFiles={vi.fn<(_: File[]) => Promise<MediaItem[]>>()}
       token="test-token"
+      supportedReasoningEfforts={['none', 'low', 'medium', 'high', 'xhigh']}
       {...overrides}
     />,
   );
@@ -97,6 +98,60 @@ describe('Composer', () => {
       value: vi.fn(),
     });
     clearAgentAvatarUrlCacheForTest();
+  });
+
+  it('selects explicit thinking effort including Off and restores model default', () => {
+    const onReasoningEffortChange = vi.fn();
+    renderComposer({ onReasoningEffortChange });
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Thinking effort: Model default',
+      }),
+    );
+    const slider = screen.getByRole('slider', {
+      name: 'Thinking effort level',
+    });
+
+    fireEvent.change(slider, { target: { value: '0' } });
+    expect(onReasoningEffortChange).toHaveBeenLastCalledWith('none');
+
+    fireEvent.change(slider, { target: { value: '4' } });
+    expect(onReasoningEffortChange).toHaveBeenLastCalledWith('xhigh');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use model default' }));
+    expect(onReasoningEffortChange).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('hides the thinking control for non-reasoning models', () => {
+    renderComposer({ supportedReasoningEfforts: [] });
+
+    expect(
+      screen.queryByRole('button', { name: /Thinking effort:/ }),
+    ).toBeNull();
+  });
+
+  it('only offers reasoning efforts supported by the selected model', () => {
+    const onReasoningEffortChange = vi.fn();
+    renderComposer({
+      supportedReasoningEfforts: ['none', 'low', 'medium', 'xhigh'],
+      onReasoningEffortChange,
+    });
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Thinking effort: Model default',
+      }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Thinking effort' });
+    expect(within(dialog).queryByText('High')).toBeNull();
+    expect(within(dialog).getByText('XHigh')).toBeTruthy();
+
+    fireEvent.change(
+      within(dialog).getByRole('slider', { name: 'Thinking effort level' }),
+      { target: { value: '3' } },
+    );
+    expect(onReasoningEffortChange).toHaveBeenLastCalledWith('xhigh');
   });
 
   it('inserts dictated text for review without sending it', async () => {

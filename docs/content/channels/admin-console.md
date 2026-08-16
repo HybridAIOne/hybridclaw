@@ -148,6 +148,9 @@ changes before navigation.
   renders assistant message blocks with better structured content handling
 - the web chat route supports explicit agent addressing with autocomplete,
   avatar-backed mention pills, and stable addressed-agent routing
+- the web chat composer includes a model-aware thinking-effort slider that
+  only presents provider-supported settings; Off appears only when the model
+  permits thinking to be disabled
 - the web chat route renders slash-command results distinctly and lets
   operators apply persisted thumbs-up/down ratings to assistant responses
 - the web chat route syntax-highlights completed code blocks, shows language

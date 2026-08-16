@@ -254,6 +254,7 @@ function buildSelectedModelFallback(modelId: string): ModelSwitchEntry | null {
     backend,
     contextWindow: null,
     isReasoning: false,
+    supportedReasoningEfforts: [],
     family: null,
     parameterSize: null,
   };

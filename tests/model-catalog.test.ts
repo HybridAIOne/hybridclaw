@@ -116,6 +116,16 @@ test('model catalog metadata resolves context and capabilities from static data'
   expect(metadata.sources).toEqual(
     expect.arrayContaining(['https://developers.openai.com/api/docs/models']),
   );
+  expect(metadata.supportedReasoningEfforts).toEqual([
+    'low',
+    'medium',
+    'high',
+  ]);
+
+  expect(
+    catalog.getModelCatalogMetadata('openai-codex/gpt-5.6-luna')
+      .supportedReasoningEfforts,
+  ).toEqual(['low', 'medium', 'high', 'xhigh']);
 
   const flagship = catalog.getModelCatalogMetadata('hybridai/gpt-5.5');
   expect(flagship.known).toBe(true);
@@ -560,6 +570,14 @@ test('available model catalog reloads OpenRouter discovery after 60 minutes', as
                 request: '0',
               },
             },
+            {
+              id: 'qwen/qwen3.8-27b',
+              reasoning: {
+                mandatory: false,
+                supported_efforts: ['xhigh', 'medium', 'low'],
+              },
+            },
+            { id: 'openai/gpt-4.1' },
           ],
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -594,12 +612,22 @@ test('available model catalog reloads OpenRouter discovery after 60 minutes', as
   );
   expect(catalog.getAvailableModelList('openrouter')).toEqual([
     'openrouter/beta/model-c:free',
+    'openrouter/openai/gpt-4.1',
+    'openrouter/qwen/qwen3.8-27b',
     'openrouter/zeta/model-b',
   ]);
   expect(
     catalog.getModelCatalogMetadata('openrouter/zeta/model-b')
       .pricingUsdPerToken,
   ).toEqual({ input: 1, output: 1 });
+  expect(
+    catalog.getModelCatalogMetadata('openrouter/qwen/qwen3.8-27b')
+      .supportedReasoningEfforts,
+  ).toEqual(['none', 'low', 'medium', 'xhigh']);
+  expect(
+    catalog.getModelCatalogMetadata('openrouter/openai/gpt-4.1')
+      .supportedReasoningEfforts,
+  ).toEqual([]);
   expect(catalog.getAvailableModelList('codex')).toEqual([]);
 });
 

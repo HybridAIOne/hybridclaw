@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
+import type { ReasoningEffort } from '../../../../container/shared/reasoning-effort.js';
 import { executeCommand } from '../../api/chat';
 import type {
   AssistantPresentation,
@@ -51,6 +52,7 @@ interface UseChatStreamOptions {
   setError: (err: string) => void;
   refreshRecent: () => void;
   onSessionIdCorrection: (serverSessionId: string) => void;
+  reasoningEffort?: ReasoningEffort;
   onModelResolved?: (modelId: string) => void;
   onAppsCaptured?: (
     apps: Array<{ id: string; title: string; kind: 'web' | 'live' }>,
@@ -118,6 +120,7 @@ export function useChatStream(
     setError,
     refreshRecent,
     onSessionIdCorrection,
+    reasoningEffort,
     onModelResolved,
     onAppsCaptured,
     resolveAddressedAgentPresentation,
@@ -408,6 +411,7 @@ export function useChatStream(
             username: 'web',
             content,
             stream: true,
+            ...(reasoningEffort ? { reasoningEffort } : {}),
             ...(media.length > 0 ? { media } : {}),
             ...(opts?.appBuild ? { appBuild: true } : {}),
             ...(opts?.appCategory ? { appCategory: opts.appCategory } : {}),
@@ -621,6 +625,7 @@ export function useChatStream(
       getSessionId,
       writeMessages,
       onSessionIdCorrection,
+      reasoningEffort,
       onModelResolved,
       onAppsCaptured,
       resolveAddressedAgentPresentation,

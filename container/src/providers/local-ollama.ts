@@ -143,6 +143,16 @@ function buildRequestBody(
       num_predict: Math.floor(args.maxTokens),
     };
   }
+  if (args.reasoningEffort === 'none') {
+    request.think = false;
+  } else if (args.reasoningEffort) {
+    const normalizedModel = normalizeOllamaModelName(args.model);
+    request.think = normalizedModel.toLowerCase().includes('gpt-oss')
+      ? args.reasoningEffort === 'xhigh'
+        ? 'high'
+        : args.reasoningEffort
+      : true;
+  }
   return request;
 }
 

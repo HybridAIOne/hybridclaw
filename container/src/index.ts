@@ -779,6 +779,7 @@ async function callHybridAIWithRetry(params: {
   contextWindow?: number;
   modelBehavior?: ContainerInput['modelBehavior'];
   thinkingFormat?: 'qwen';
+  reasoningEffort?: ContainerInput['reasoningEffort'];
 }): Promise<ChatCompletionResponse> {
   const {
     sessionId,
@@ -802,6 +803,7 @@ async function callHybridAIWithRetry(params: {
     contextWindow,
     modelBehavior,
     thinkingFormat,
+    reasoningEffort,
   } = params;
   let attempt = 0;
   let delayMs = RETRY_BASE_DELAY_MS;
@@ -849,6 +851,7 @@ async function callHybridAIWithRetry(params: {
             contextWindow,
             modelBehavior,
             thinkingFormat,
+            reasoningEffort,
           });
         } catch (streamErr) {
           const fallbackEligible = shouldDowngradeStreamToNonStreaming(
@@ -882,6 +885,7 @@ async function callHybridAIWithRetry(params: {
             contextWindow,
             modelBehavior,
             thinkingFormat,
+            reasoningEffort,
           });
         }
       } else {
@@ -903,6 +907,7 @@ async function callHybridAIWithRetry(params: {
           contextWindow,
           modelBehavior,
           thinkingFormat,
+          reasoningEffort,
         });
       }
       response.timing = {
@@ -959,6 +964,7 @@ interface ProcessRequestParams {
   contextWindow?: number;
   modelBehavior?: ContainerInput['modelBehavior'];
   thinkingFormat?: 'qwen';
+  reasoningEffort?: ContainerInput['reasoningEffort'];
   model: string;
   chatbotId: string;
   enableRag: boolean;
@@ -1022,6 +1028,7 @@ async function processRequest(
     contextWindow,
     modelBehavior,
     thinkingFormat,
+    reasoningEffort,
     model,
     chatbotId,
     enableRag,
@@ -1125,6 +1132,7 @@ async function processRequest(
       requestHeaders,
       maxTokens,
       modelBehavior,
+      reasoningEffort,
       debugModelResponses,
       gatewayBaseUrl,
       gatewayApiToken,
@@ -1378,6 +1386,7 @@ async function processRequest(
         contextWindow,
         modelBehavior,
         thinkingFormat,
+        reasoningEffort,
       });
     } catch (err) {
       const failed: ContainerOutput = {
@@ -2055,6 +2064,7 @@ async function main(): Promise<void> {
       contextWindow: firstInput.contextWindow,
       modelBehavior: firstInput.modelBehavior,
       thinkingFormat: firstInput.thinkingFormat,
+      reasoningEffort: firstInput.reasoningEffort,
       model: firstInput.model,
       chatbotId: firstInput.chatbotId,
       enableRag: firstInput.enableRag,
@@ -2098,6 +2108,7 @@ async function main(): Promise<void> {
         contextWindow: firstInput.contextWindow,
         modelBehavior: firstInput.modelBehavior,
         thinkingFormat: firstInput.thinkingFormat,
+        reasoningEffort: firstInput.reasoningEffort,
         model: firstInput.model,
         chatbotId: firstInput.chatbotId,
         enableRag: firstInput.enableRag,
@@ -2249,6 +2260,7 @@ async function main(): Promise<void> {
       contextWindow: input.contextWindow,
       modelBehavior: input.modelBehavior,
       thinkingFormat: input.thinkingFormat,
+      reasoningEffort: input.reasoningEffort,
       model: input.model,
       chatbotId: input.chatbotId,
       enableRag: input.enableRag,
@@ -2291,6 +2303,7 @@ async function main(): Promise<void> {
         contextWindow: input.contextWindow,
         modelBehavior: input.modelBehavior,
         thinkingFormat: input.thinkingFormat,
+        reasoningEffort: input.reasoningEffort,
         model: input.model,
         chatbotId: input.chatbotId,
         enableRag: input.enableRag,

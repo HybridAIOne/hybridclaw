@@ -13,6 +13,7 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { v5 as uuidv5 } from 'uuid';
 import * as yazl from 'yazl';
+import { isReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import {
   EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE,
   EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE,
@@ -3203,6 +3204,16 @@ async function handleApiChat(
     });
     return;
   }
+  if (
+    body.reasoningEffort !== undefined &&
+    !isReasoningEffort(body.reasoningEffort)
+  ) {
+    sendJson(res, 400, {
+      error:
+        'Invalid `reasoningEffort`; expected none, low, medium, high, or xhigh.',
+    });
+    return;
+  }
 
   const sessionId =
     normalizeOptionalString(body.sessionId) ||
@@ -3234,6 +3245,7 @@ async function handleApiChat(
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
     model: body.model,
+    reasoningEffort: body.reasoningEffort,
     ...(body.appBuild ? { appBuild: true } : {}),
     ...(typeof body.appCategory === 'string'
       ? { appCategory: body.appCategory }

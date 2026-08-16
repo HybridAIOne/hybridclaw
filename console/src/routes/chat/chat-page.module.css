@@ -1862,8 +1862,8 @@ aside[data-state="collapsed"] .chatSidebarContent {
   }
 }
 
-/* Shared pill chrome used by the agent and model switchers sitting side-by-side
-   in the composer. */
+/* Shared pill chrome used by the agent, model, and thinking controls in the
+   composer. */
 .composerPill {
   position: relative;
   display: inline-flex;
@@ -1893,7 +1893,8 @@ aside[data-state="collapsed"] .chatSidebarContent {
 .composerPill:hover:not(:disabled):not([data-disabled]),
 .composerPill:focus,
 .composerPill:focus-within,
-.composerPill[data-state="open"] {
+.composerPill[data-state="open"],
+.composerPill[aria-expanded="true"] {
   background: var(--chat-hover-bg);
   color: var(--text);
 }
@@ -1959,6 +1960,86 @@ aside[data-state="collapsed"] .chatSidebarContent {
 .composerPill[data-state="open"] .composerPillChevron {
   transform: rotate(180deg);
   opacity: 1;
+}
+
+.thinkingEffortTrigger {
+  max-width: 150px;
+}
+
+.thinkingEffortTriggerText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thinkingEffortPopover {
+  width: min(360px, calc(100vw - 16px));
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-raised);
+}
+
+.thinkingEffortHeading {
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.thinkingEffortValue {
+  margin-top: 3px;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.thinkingEffortRange {
+  width: 100%;
+  margin: 18px 0 4px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.thinkingEffortRangeDefault {
+  opacity: 0.55;
+}
+
+.thinkingEffortTicks {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+}
+
+.thinkingEffortTicks > span {
+  text-align: center;
+}
+
+.thinkingEffortTicks > span:first-child {
+  text-align: left;
+}
+
+.thinkingEffortTicks > span:last-child {
+  text-align: right;
+}
+
+.thinkingEffortDefault {
+  width: 100%;
+  margin-top: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.thinkingEffortDefault:hover,
+.thinkingEffortDefault:focus-visible,
+.thinkingEffortDefault[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .sendButton {
@@ -2237,6 +2318,24 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
   .composerWrapper {
     padding: 0 12px;
+  }
+
+  .composerLeftActions {
+    gap: 4px;
+  }
+
+  .composerActions {
+    gap: 4px;
+  }
+
+  .thinkingEffortTrigger {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .thinkingEffortTriggerText {
+    display: none;
   }
 
   .emptyState h1 {

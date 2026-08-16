@@ -80,6 +80,32 @@ afterEach(() => {
 });
 
 describe('HybridAI container provider', () => {
+  test('disables Qwen thinking in the provider request', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return makeEventStreamResponse([
+          'data: {"choices":[{"delta":{"content":"Done"},"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]);
+      }),
+    );
+
+    await callHybridAIProviderStream({
+      ...baseStreamArgs,
+      model: 'hybridai/qwen/qwen3.5-27b',
+      reasoningEffort: 'none',
+      onTextDelta: () => undefined,
+    });
+
+    expect(requestBody?.reasoning_effort).toBe('none');
+    expect(requestBody?.chat_template_kwargs).toEqual({
+      enable_thinking: false,
+    });
+  });
+
   test('keeps delta-only streams unchanged, including repeated text', async () => {
     const streamed = await streamPayloads([
       { choices: [{ delta: { content: 'Ja' } }] },

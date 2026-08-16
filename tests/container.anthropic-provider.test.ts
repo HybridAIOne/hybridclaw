@@ -47,6 +47,39 @@ afterEach(() => {
 });
 
 describe('Anthropic container provider', () => {
+  test('disables thinking when explicitly requested', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.thinking).toEqual({ type: 'disabled' });
+        expect(body.output_config).toBeUndefined();
+        return new Response(
+          JSON.stringify({
+            id: 'msg_no_thinking',
+            model: 'claude-sonnet-4-6',
+            role: 'assistant',
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 4, output_tokens: 2 },
+            content: [{ type: 'text', text: 'done' }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }),
+    );
+
+    await callAnthropicProvider({
+      ...baseArgs,
+      reasoningEffort: 'none',
+    });
+  });
+
   test('sets an inference timeout signal on non-streaming API requests', async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
     const fetchMock = vi.fn(

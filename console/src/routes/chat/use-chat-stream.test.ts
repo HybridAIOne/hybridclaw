@@ -103,6 +103,71 @@ describe('useChatStream', () => {
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
   });
 
+  it('sends the selected thinking effort with the chat request', async () => {
+    const harness = makeHarness();
+    requestChatStreamMock.mockResolvedValue({
+      status: 'ok',
+      sessionId: SESSION_ID,
+      result: 'Done',
+      messageRole: 'assistant',
+    });
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+          reasoningEffort: 'none',
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('Follow the contract', []);
+    });
+
+    expect(requestChatStreamMock).toHaveBeenCalledWith(
+      '/api/chat',
+      expect.objectContaining({
+        body: expect.objectContaining({ reasoningEffort: 'none' }),
+      }),
+    );
+  });
+
+  it('leaves thinking effort unset when using the model default', async () => {
+    const harness = makeHarness();
+    requestChatStreamMock.mockResolvedValue({
+      status: 'ok',
+      sessionId: SESSION_ID,
+      result: 'Done',
+      messageRole: 'assistant',
+    });
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('Use the default', []);
+    });
+
+    const request = requestChatStreamMock.mock.calls[0]?.[1] as {
+      body?: Record<string, unknown>;
+    };
+    expect(request.body).not.toHaveProperty('reasoningEffort');
+  });
+
   it('keeps replayRequest on hidden-user approval responses', async () => {
     const approval: ChatStreamApproval = {
       type: 'approval',

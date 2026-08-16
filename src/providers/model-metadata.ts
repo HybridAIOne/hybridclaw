@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import { collectModelLookupCandidates } from './model-lookup.js';
 
 export interface ModelCapabilityFlags {
@@ -23,6 +24,7 @@ interface StaticModelMetadataEntry {
   maxTokens?: number | null;
   capabilities: ModelCapabilityFlags;
   sources: string[];
+  supportedReasoningEfforts?: ReasoningEffort[];
   model_overlay?: ModelOverlay;
 }
 
@@ -41,6 +43,8 @@ const STATIC_MODEL_METADATA_ALIASES: Record<string, string> = {
   'claude-haiku-4.5': 'claude-haiku-4-5',
   'claude-opus-4.1': 'claude-opus-4-1',
   'claude-opus-4.6': 'claude-opus-4-6',
+  'claude-opus-4.7': 'claude-opus-4-7',
+  'claude-opus-4.8': 'claude-opus-4-8',
   'claude-sonnet-4.5': 'claude-sonnet-4-5',
   'claude-sonnet-4.6': 'claude-sonnet-4-6',
 };
@@ -52,25 +56,55 @@ const coreModelCapabilities: ModelCapabilityFlags = {
   reasoning: true,
 };
 
+const nonReasoningCoreModelCapabilities: ModelCapabilityFlags = {
+  ...coreModelCapabilities,
+  reasoning: false,
+};
+
+// Supported UI tiers (owner call, 2026-08-16): mirror provider model metadata;
+// provider-only `minimal` and `max` tiers remain deferred until the UI supports them.
+const NONE_LOW_MEDIUM_HIGH_XHIGH: ReasoningEffort[] = [
+  'none',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+];
+const NONE_LOW_MEDIUM_HIGH: ReasoningEffort[] = [
+  'none',
+  'low',
+  'medium',
+  'high',
+];
+const LOW_MEDIUM_HIGH_XHIGH: ReasoningEffort[] = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+];
+const LOW_MEDIUM_HIGH: ReasoningEffort[] = ['low', 'medium', 'high'];
+const MEDIUM_HIGH_XHIGH: ReasoningEffort[] = ['medium', 'high', 'xhigh'];
+
 const STATIC_MODEL_METADATA: Record<string, StaticModelMetadataEntry> = {
   'gpt-4.1': {
     contextWindow: 1_047_576,
-    capabilities: coreModelCapabilities,
+    capabilities: nonReasoningCoreModelCapabilities,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-4.1-mini': {
     contextWindow: 1_047_576,
-    capabilities: coreModelCapabilities,
+    capabilities: nonReasoningCoreModelCapabilities,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-4.1-nano': {
     contextWindow: 1_047_576,
-    capabilities: coreModelCapabilities,
+    capabilities: nonReasoningCoreModelCapabilities,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: LOW_MEDIUM_HIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5-chat-latest': {
@@ -81,26 +115,31 @@ const STATIC_MODEL_METADATA: Record<string, StaticModelMetadataEntry> = {
   'gpt-5-codex': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: LOW_MEDIUM_HIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5-mini': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: LOW_MEDIUM_HIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5-nano': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: LOW_MEDIUM_HIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5-pro': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: ['high'],
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.1': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.1-chat-latest': {
@@ -111,21 +150,25 @@ const STATIC_MODEL_METADATA: Record<string, StaticModelMetadataEntry> = {
   'gpt-5.1-codex': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: LOW_MEDIUM_HIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.1-codex-max': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.1-codex-mini': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: LOW_MEDIUM_HIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.2': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.2-chat-latest': {
@@ -136,66 +179,78 @@ const STATIC_MODEL_METADATA: Record<string, StaticModelMetadataEntry> = {
   'gpt-5.2-codex': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.2-pro': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.3-codex': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.3-codex-spark': {
     contextWindow: 128_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.4': {
     contextWindow: 1_050_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.4-mini': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.4-nano': {
     contextWindow: 400_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.5': {
     contextWindow: 1_000_000,
     maxTokens: 128_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.5-pro': {
     contextWindow: 1_000_000,
     maxTokens: 128_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.6-sol': {
     contextWindow: 1_050_000,
     maxTokens: 128_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.6-terra': {
     contextWindow: 1_050_000,
     maxTokens: 128_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'gpt-5.6-luna': {
     contextWindow: 400_000,
     maxTokens: 128_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.openaiModels],
   },
   'claude-haiku-4-5': {
@@ -214,6 +269,19 @@ const STATIC_MODEL_METADATA: Record<string, StaticModelMetadataEntry> = {
     contextWindow: 200_000,
     maxTokens: 32_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH,
+    sources: [MODEL_METADATA_SOURCES.anthropicModels],
+  },
+  'claude-opus-4-7': {
+    contextWindow: null,
+    capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH_XHIGH,
+    sources: [MODEL_METADATA_SOURCES.anthropicModels],
+  },
+  'claude-opus-4-8': {
+    contextWindow: null,
+    capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.anthropicModels],
   },
   'claude-sonnet-4': {
@@ -232,12 +300,14 @@ const STATIC_MODEL_METADATA: Record<string, StaticModelMetadataEntry> = {
     contextWindow: 200_000,
     maxTokens: 64_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH,
     sources: [MODEL_METADATA_SOURCES.anthropicModels],
   },
   'claude-sonnet-5': {
     contextWindow: 1_000_000,
     maxTokens: 128_000,
     capabilities: coreModelCapabilities,
+    supportedReasoningEfforts: NONE_LOW_MEDIUM_HIGH_XHIGH,
     sources: [MODEL_METADATA_SOURCES.anthropicModels],
   },
 };
@@ -247,6 +317,7 @@ export interface StaticModelCatalogMetadata {
   contextWindow: number | null;
   maxTokens: number | null;
   capabilities: ModelCapabilityFlags;
+  supportedReasoningEfforts: ReasoningEffort[];
   sources: string[];
 }
 
@@ -356,6 +427,7 @@ export function resolveStaticModelCatalogMetadata(
       contextWindow: null,
       maxTokens: null,
       capabilities: { ...EMPTY_CAPABILITIES },
+      supportedReasoningEfforts: [],
       sources: [],
     };
   }
@@ -365,6 +437,7 @@ export function resolveStaticModelCatalogMetadata(
     contextWindow: entry.contextWindow,
     maxTokens: entry.maxTokens ?? null,
     capabilities: entry.capabilities,
+    supportedReasoningEfforts: [...(entry.supportedReasoningEfforts ?? [])],
     sources: uniqueStrings(entry.sources),
   };
 }

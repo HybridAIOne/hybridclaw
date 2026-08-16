@@ -102,6 +102,7 @@ describe('local container providers', () => {
       expect(body.stream).toBe(false);
       expect(body.tools).toEqual(tools);
       expect(body.options).toEqual({ num_predict: 64 });
+      expect(body.think).toBe(false);
       expect(messages[0]?.images).toEqual(['ZmFrZQ==']);
       return new Response(
         JSON.stringify({
@@ -146,6 +147,7 @@ describe('local container providers', () => {
       maxTokens: 64,
       isLocal: true,
       contextWindow: 32_768,
+      reasoningEffort: 'none',
     });
 
     expect(result.choices[0]?.message.content).toBe('done');
@@ -491,6 +493,10 @@ describe('local container providers', () => {
       >;
       expect(body.tools).toEqual(tools);
       expect(body.tool_choice).toBe('auto');
+      expect(body.reasoning_effort).toBe('none');
+      expect(body.chat_template_kwargs).toEqual({
+        enable_thinking: false,
+      });
       const messages = body.messages as Array<Record<string, unknown>>;
       expect(messages).toEqual([
         { role: 'user', content: 'hello' },
@@ -569,6 +575,7 @@ describe('local container providers', () => {
       contextWindow: 32_768,
       modelBehavior: { thinkingFormat: 'qwen' },
       thinkingFormat: 'qwen',
+      reasoningEffort: 'none',
     });
 
     expect(result.choices[0]?.message.content).toBe('ok');

@@ -74,12 +74,33 @@ function buildHybridAIRequestBody(
   ) {
     request.max_tokens = Math.floor(args.maxTokens);
   }
+  if (args.reasoningEffort) {
+    request.reasoning_effort = args.reasoningEffort;
+    if (model.toLowerCase().includes('qwen')) {
+      request.chat_template_kwargs = {
+        enable_thinking: args.reasoningEffort !== 'none',
+      };
+    }
+  }
+  const normalizedModel = model.toLowerCase();
   if (
+    args.reasoningEffort === 'none' &&
+    normalizedModel.startsWith('anthropic/claude-')
+  ) {
+    request.thinking = { type: 'disabled' };
+  } else if (
     /^anthropic\/claude-(?:sonnet-(?:4-6|5)|opus-4-(?:6|7|8))(?:$|-)/.test(
-      model.toLowerCase(),
+      normalizedModel,
     )
   ) {
     request.thinking = { type: 'adaptive', display: 'summarized' };
+  }
+  if (
+    args.reasoningEffort &&
+    args.reasoningEffort !== 'none' &&
+    normalizedModel.startsWith('anthropic/claude-')
+  ) {
+    request.output_config = { effort: args.reasoningEffort };
   }
   return request;
 }

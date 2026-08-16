@@ -193,6 +193,9 @@ function buildCodexRequestBody(
   if (args.provider === 'openai') {
     body.include = ['reasoning.encrypted_content'];
   }
+  if (args.reasoningEffort) {
+    body.reasoning = { effort: args.reasoningEffort };
+  }
   if (args.tools.length > 0) {
     body.tools = convertToolsToResponsesTools(args.tools);
     body.tool_choice = 'auto';

@@ -482,6 +482,7 @@ describe('local discovery', () => {
                 { name: 'reasoning-model', details: {}, size: 2 },
                 { name: 'qwen-think', details: {}, size: 3 },
                 { name: 'llama3.2', details: {}, size: 4 },
+                { name: 'qwen3.5:27b', details: {}, size: 5 },
               ],
             }),
             { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -504,6 +505,7 @@ describe('local discovery', () => {
       true,
     );
     expect(models.find((m) => m.id === 'qwen-think')?.isReasoning).toBe(true);
+    expect(models.find((m) => m.id === 'qwen3.5:27b')?.isReasoning).toBe(true);
     expect(models.find((m) => m.id === 'llama3.2')?.isReasoning).toBe(false);
   });
 
