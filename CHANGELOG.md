@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Email replies stay in their thread**: An agent that supplies its own parent
+  message id when answering mail no longer breaks threading when that value is
+  not a message id — for example an identifier read out of the subject line.
+  Unusable parents are rejected and the thread the runtime already tracked is
+  used instead, so the reply keeps its `Re:` subject and lands in the original
+  conversation rather than starting an untitled one.
+
 ## [0.28.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.7) - 2026-08-17
 
 ### Added
