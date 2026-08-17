@@ -18,12 +18,39 @@
   session transcript; the button only shows when an `OPENAI_API_KEY` is
   configured.
 
+## [0.28.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.7) - 2026-08-17
+
+### Added
+
+- **Webchat supports dictation and read-aloud playback**: The composer
+  microphone transcribes a recording into an editable draft, and completed
+  assistant messages can be played as speech. Audio stays gateway-side through
+  the configured transcription chain and HybridAI's OpenAI-compatible speech
+  endpoint, with OpenAI fallback when configured.
+- **Vonage Voice is available as an install-on-demand plugin**: Turn-based
+  inbound and outbound phone calls use Vonage-hosted speech recognition and
+  synthesis, validate signed callbacks against tampering and replay, and keep
+  provider credentials out of the core runtime configuration.
+
+### Changed
+
+- **First-party ownership uses the HybridAI GmbH legal name**: The MIT license
+  and code-provenance documentation identify the company's current legal
+  entity consistently.
+
 ### Fixed
 
+- **Skills remain discoverable under prompt limits**: Large catalogs preserve
+  skill names and locations before compacting descriptions, report any
+  omitted prompt entries, and expose the complete eligible catalog through the
+  read-only `skills_list` recovery tool.
 - **Incomplete BlueBubbles configuration is actionable before startup**:
   `hybridclaw config check` rejects an enabled BlueBubbles backend without a
   real server URL, and the gateway reports setup and disable commands without
   emitting an initialization stack trace.
+- **Recovered audio fallbacks stay quiet**: Transcription chains warn only
+  when every configured backend fails, while webchat speech labels follow the
+  console language instead of an unrelated browser preference.
 
 ## [0.28.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.6) - 2026-08-14
 
