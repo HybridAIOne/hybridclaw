@@ -326,6 +326,27 @@ test('malformed tool arguments produce a rephrase prompt', async () => {
   expect(String(output?.output)).toContain('rephrase');
 });
 
+test('late response.cancel rejections stay silent; real errors surface', () => {
+  const { socket, errors } = createBridge();
+  socket.open();
+
+  socket.serverEvent({
+    type: 'error',
+    error: {
+      type: 'invalid_request_error',
+      code: 'response_cancel_not_active',
+      message: 'Cancellation failed: no active response found',
+    },
+  });
+  expect(errors).toHaveLength(0);
+
+  socket.serverEvent({
+    type: 'error',
+    error: { type: 'server_error', message: 'boom' },
+  });
+  expect(errors).toEqual(['boom']);
+});
+
 test('DTMF digits are injected as caller text', () => {
   const { bridge, socket } = createBridge();
   socket.open();

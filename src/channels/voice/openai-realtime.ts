@@ -261,6 +261,11 @@ export class OpenAIRealtimeClient {
     }
     if (type === 'error') {
       const error = isRecord(parsed.error) ? parsed.error : {};
+      // Benign barge-in race: the response finished server-side before our
+      // response.cancel arrived. Nothing to surface.
+      if (normalizeString(error.code) === 'response_cancel_not_active') {
+        return;
+      }
       this.callbacks.onError(
         normalizeString(error.message) || 'Unknown realtime error',
       );

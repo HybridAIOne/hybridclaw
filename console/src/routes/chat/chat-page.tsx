@@ -64,6 +64,7 @@ import {
   readStoredUserId,
 } from '../../lib/chat-helpers';
 import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
+import { cx } from '../../lib/cx';
 import { getErrorMessage } from '../../lib/error-message';
 import { useDebouncedValue } from '../../lib/use-debounced-value';
 import { findAgentMentions } from './agent-mention-display';
@@ -82,6 +83,7 @@ import { EditInline, MessageBlock } from './message-block';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
 import { useStickToBottom } from './use-stick-to-bottom';
+import { useVoiceSession } from './use-voice-session';
 import { VoicePanel } from './voice-panel';
 
 type BranchInfo = {
@@ -568,6 +570,20 @@ export function ChatPage() {
     agentOptions
       .find((agent) => agent.id.toLowerCase() === effectiveAgentId)
       ?.emptyChatHeader?.trim() || DEFAULT_EMPTY_CHAT_HEADER;
+
+  const voiceSession = useVoiceSession({
+    sessionId,
+    agentId: effectiveAgentId,
+    onAssistantTurn: handleVoiceAssistantTurn,
+  });
+  const { start: startVoice, stop: stopVoice } = voiceSession;
+  useEffect(() => {
+    if (voiceOpen) {
+      void startVoice();
+    } else {
+      stopVoice();
+    }
+  }, [voiceOpen, startVoice, stopVoice]);
 
   const deleteSessionMutation = useMutation({
     mutationFn: (targetSessionId: string) =>
@@ -1250,7 +1266,8 @@ export function ChatPage() {
     [branchFamilies, handleOpenSession],
   );
 
-  const isEmpty = visibleMessages.length === 0;
+  const isEmpty =
+    visibleMessages.length === 0 && voiceSession.transcripts.length === 0;
   const isSwitchingSession = historyQuery.isFetching;
 
   const sidebarProps = {
@@ -1376,6 +1393,30 @@ export function ChatPage() {
                     />
                   ),
                 )}
+                {voiceSession.transcripts.map((entry) => (
+                  <div
+                    key={`voice-${entry.id}`}
+                    className={cx(
+                      css.messageBlock,
+                      entry.role === 'user'
+                        ? css.messageBlockUser
+                        : css.messageBlockAssistant,
+                    )}
+                  >
+                    <div
+                      className={cx(
+                        css.bubble,
+                        entry.role === 'user'
+                          ? css.bubbleUser
+                          : css.bubbleAssistant,
+                        css.bubbleVoice,
+                      )}
+                    >
+                      <span className={css.voiceBubbleTag}>Voice</span>
+                      {entry.text}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -1403,9 +1444,8 @@ export function ChatPage() {
 
           {voiceOpen ? (
             <VoicePanel
-              sessionId={sessionId}
-              agentId={effectiveAgentId}
-              onAssistantTurn={handleVoiceAssistantTurn}
+              status={voiceSession.status}
+              error={voiceSession.error}
               onClose={() => setVoiceOpen(false)}
             />
           ) : null}

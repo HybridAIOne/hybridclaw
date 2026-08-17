@@ -1,16 +1,16 @@
 /**
- * Voice mode panel: the visible surface of a realtime voice session, shown
- * above the composer while the mic is live. Auto-starts its session on mount
- * and guarantees the session ends when the panel unmounts or the user closes
- * it, so voice can never keep running invisibly.
+ * Voice mode status bar, shown above the composer while the mic is live.
+ * Purely presentational: the session lifecycle is owned by the chat page,
+ * which starts the session when voice mode opens and guarantees it ends when
+ * voice mode closes, so voice can never keep running invisibly. Transcripts
+ * render inline in the conversation, not here.
  *
  * NOT the transport: audio and websocket handling live in
  * `use-voice-session.ts` / `voice-audio.ts`.
  */
-import { useEffect } from 'react';
 import { cx } from '../../lib/cx';
 import css from './chat-page.module.css';
-import { useVoiceSession, type VoiceSessionStatus } from './use-voice-session';
+import type { VoiceSessionStatus } from './use-voice-session';
 
 const STATUS_LABELS: Record<VoiceSessionStatus, string> = {
   idle: 'Starting…',
@@ -23,61 +23,34 @@ const STATUS_LABELS: Record<VoiceSessionStatus, string> = {
 };
 
 export function VoicePanel(props: {
-  sessionId: string;
-  agentId?: string | null;
-  onAssistantTurn?: () => void;
+  status: VoiceSessionStatus;
+  error: string | null;
   onClose: () => void;
 }) {
-  const session = useVoiceSession({
-    sessionId: props.sessionId,
-    agentId: props.agentId,
-    onAssistantTurn: props.onAssistantTurn,
-  });
-  const { start } = session;
-
-  useEffect(() => {
-    void start();
-  }, [start]);
-
   return (
     <div className={css.voicePanel} role="status" aria-live="polite">
       <div className={css.voicePanelHeader}>
         <span
           className={cx(
             css.voiceIndicator,
-            session.status === 'listening' && css.voiceIndicatorListening,
-            session.status === 'speaking' && css.voiceIndicatorSpeaking,
-            session.status === 'thinking' && css.voiceIndicatorThinking,
-            session.status === 'error' && css.voiceIndicatorError,
+            props.status === 'listening' && css.voiceIndicatorListening,
+            props.status === 'speaking' && css.voiceIndicatorSpeaking,
+            props.status === 'thinking' && css.voiceIndicatorThinking,
+            props.status === 'error' && css.voiceIndicatorError,
           )}
           aria-hidden="true"
         />
         <span className={css.voiceStatusLabel}>
-          {session.error || STATUS_LABELS[session.status]}
+          {props.error || STATUS_LABELS[props.status]}
         </span>
         <button
           type="button"
           className={css.voiceEndButton}
-          onClick={() => {
-            session.stop();
-            props.onClose();
-          }}
+          onClick={props.onClose}
         >
           End voice
         </button>
       </div>
-      {session.transcripts.length > 0 ? (
-        <div className={css.voiceTranscripts}>
-          {session.transcripts.map((entry) => (
-            <div key={entry.id} className={css.voiceTranscriptLine}>
-              <span className={css.voiceTranscriptRole}>
-                {entry.role === 'user' ? 'You' : 'HybridClaw'}
-              </span>
-              <span>{entry.text}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }

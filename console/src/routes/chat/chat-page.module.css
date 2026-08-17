@@ -2392,24 +2392,27 @@ aside[data-state="collapsed"] .chatSidebarContent {
   color: var(--text);
 }
 
-.voiceTranscripts {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 120px;
-  overflow-y: auto;
-  font-size: 0.8rem;
-  color: var(--muted-foreground);
+/* Ephemeral voice turns rendered inline in the conversation. They live only
+   in client memory (never in session history), so they are visually marked
+   and disappear on reload. */
+.bubbleVoice {
+  opacity: 0.92;
+  border-style: dashed;
 }
 
-.voiceTranscriptLine {
-  display: flex;
-  gap: 8px;
+.bubbleUser.bubbleVoice {
+  border: 1px dashed
+    color-mix(in srgb, var(--primary-foreground) 45%, transparent);
 }
 
-.voiceTranscriptRole {
-  flex-shrink: 0;
-  font-weight: 600;
+.voiceBubbleTag {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.65;
 }
 
 @keyframes voicePulse {

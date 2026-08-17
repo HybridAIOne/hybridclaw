@@ -3,15 +3,18 @@
  * lifecycle and wires it to the `VoiceAudioPipeline` — mic chunks up, model
  * audio and barge-in clears down, plus state and transcript frames for the UI.
  *
- * Guarantees teardown is idempotent (stop, server `ended`, socket close, and
- * unmount all funnel through one cleanup path) so the mic never stays hot
- * after the panel closes.
+ * Guarantees teardown is idempotent (stop, server `ended`, socket close,
+ * session switch, and unmount all funnel through one cleanup path) so the mic
+ * never stays hot after voice mode closes.
  *
- * NOT the UI: rendering lives in `voice-panel.tsx`.
+ * NOT the UI: the status bar lives in `voice-panel.tsx` and transcripts
+ * render inline in the chat page's conversation view.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { chatVoiceSocketUrl } from '../../api/client';
 import { VoiceAudioPipeline } from './voice-audio';
+
+const TRANSCRIPT_LIMIT = 100;
 
 export type VoiceSessionStatus =
   | 'idle'
@@ -134,7 +137,9 @@ export function useVoiceSession(options: {
         const text = frame.text;
         transcriptIdRef.current += 1;
         const id = transcriptIdRef.current;
-        setTranscripts((current) => [...current, { id, role, text }].slice(-8));
+        setTranscripts((current) =>
+          [...current, { id, role, text }].slice(-TRANSCRIPT_LIMIT),
+        );
         if (role === 'assistant') {
           optionsRef.current.onAssistantTurn?.();
         }
@@ -159,11 +164,16 @@ export function useVoiceSession(options: {
     });
   }, [stop]);
 
+  // Ephemeral voice turns belong to one chat session: switching sessions (or
+  // unmounting) ends the live session and drops the inline transcript.
+  const sessionId = options.sessionId;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId intentionally tears down the live call on session switch.
   useEffect(() => {
     return () => {
       stop();
+      setTranscripts([]);
     };
-  }, [stop]);
+  }, [sessionId, stop]);
 
   return { status, error, transcripts, start, stop };
 }
