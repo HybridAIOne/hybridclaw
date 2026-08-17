@@ -16,6 +16,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { chatVoiceSocketUrl } from '../../api/client';
 import { VoiceAudioPipeline } from './voice-audio';
 
+// ~20s of mic audio at the pipeline's ~171ms chunk cadence.
+const PENDING_AUDIO_LIMIT = 120;
+
 export type VoiceSessionStatus =
   | 'idle'
   | 'connecting'
@@ -63,12 +66,22 @@ export function useVoiceSession(options: {
     setStatus('connecting');
     const pipeline = new VoiceAudioPipeline();
     pipelineRef.current = pipeline;
+    // The mic captures before the gateway session is up; buffer those chunks
+    // and flush on `ready` so speech from the first seconds is not lost.
+    const pendingAudio: string[] = [];
+    let sessionReady = false;
+    const sendAudio = (socket: WebSocket, base64Pcm: string) => {
+      socket.send(JSON.stringify({ type: 'audio', payload: base64Pcm }));
+    };
     try {
       await pipeline.start((base64Pcm) => {
         const socket = socketRef.current;
-        if (socket && socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: 'audio', payload: base64Pcm }));
+        if (sessionReady && socket && socket.readyState === WebSocket.OPEN) {
+          sendAudio(socket, base64Pcm);
+          return;
         }
+        pendingAudio.push(base64Pcm);
+        if (pendingAudio.length > PENDING_AUDIO_LIMIT) pendingAudio.shift();
       });
     } catch {
       pipelineRef.current = null;
@@ -96,6 +109,11 @@ export function useVoiceSession(options: {
         return;
       }
       if (frame.type === 'ready') {
+        sessionReady = true;
+        if (socket.readyState === WebSocket.OPEN) {
+          for (const chunk of pendingAudio) sendAudio(socket, chunk);
+        }
+        pendingAudio.length = 0;
         setStatus('listening');
         return;
       }

@@ -196,6 +196,25 @@ test('bridge forwards caller audio upstream and model audio downstream', () => {
   expect(states).toContain('speaking');
 });
 
+test('caller audio from before the socket opens is flushed after setup', () => {
+  const { bridge, socket } = createBridge();
+  socket.readyState = 0;
+
+  bridge.handleCallerAudio('ZWFybHk=');
+  expect(socket.sentOfType('input_audio_buffer.append')).toHaveLength(0);
+
+  socket.readyState = 1;
+  socket.open();
+
+  const types = socket.sent.map((event) => event.type);
+  expect(types.indexOf('session.update')).toBeLessThan(
+    types.indexOf('input_audio_buffer.append'),
+  );
+  expect(socket.sentOfType('input_audio_buffer.append')).toEqual([
+    { type: 'input_audio_buffer.append', audio: 'ZWFybHk=' },
+  ]);
+});
+
 test('caller speech clears queued playback and cancels the active response', () => {
   const { socket, clears, states } = createBridge();
   socket.open();

@@ -77,11 +77,17 @@ export interface OpenAIRealtimeClientOptions {
   socketFactory?: RealtimeSocketFactory;
 }
 
+// Caller audio arriving before the realtime socket is ready is queued and
+// flushed on open, so speech from the first seconds of a call is not lost.
+// Rolling cap: ~5s of 20ms phone frames, ~40s of 171ms web chunks.
+const PENDING_AUDIO_LIMIT = 250;
+
 export class OpenAIRealtimeClient {
   private readonly socket: RealtimeSocket;
   private readonly callbacks: OpenAIRealtimeCallbacks;
   private responseActive = false;
   private closed = false;
+  private pendingAudio: string[] = [];
 
   constructor(options: OpenAIRealtimeClientOptions) {
     this.callbacks = options.callbacks;
@@ -117,6 +123,7 @@ export class OpenAIRealtimeClient {
           tool_choice: 'auto',
         },
       });
+      this.flushPendingAudio();
     });
     this.socket.on('message', (data) => {
       this.handleServerEvent(data);
@@ -139,8 +146,23 @@ export class OpenAIRealtimeClient {
   }
 
   appendAudio(base64Audio: string): void {
-    if (!base64Audio) return;
+    if (!base64Audio || this.closed) return;
+    if (this.socket.readyState !== SOCKET_OPEN) {
+      this.pendingAudio.push(base64Audio);
+      if (this.pendingAudio.length > PENDING_AUDIO_LIMIT) {
+        this.pendingAudio.shift();
+      }
+      return;
+    }
     this.sendEvent({ type: 'input_audio_buffer.append', audio: base64Audio });
+  }
+
+  private flushPendingAudio(): void {
+    const pending = this.pendingAudio;
+    this.pendingAudio = [];
+    for (const audio of pending) {
+      this.sendEvent({ type: 'input_audio_buffer.append', audio });
+    }
   }
 
   createResponse(instructions?: string): void {
