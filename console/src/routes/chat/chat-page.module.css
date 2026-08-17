@@ -2337,79 +2337,135 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .voiceModeButtonActive {
-  background: var(--accent);
-  color: var(--primary-foreground);
   animation: voicePulse 1.6s ease-in-out infinite;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .voiceModeButtonActive {
-    animation: none;
-  }
-}
-
-.voicePanel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0 0 8px;
-  padding: 10px 14px;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: var(--chat-hover-bg);
-}
-
-.voicePanelHeader {
+/* Live-call capsule: a compact centered pill above the composer while voice
+   mode is active. The waveform mirrors the voice button glyph; its color and
+   motion encode state (primary breathing = listening, success dancing =
+   speaking, muted sweep = thinking). */
+.voiceCapsule {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 auto 8px;
+  padding: 6px 8px 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-card);
+  color: var(--muted-foreground);
 }
 
-.voiceIndicator {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: var(--muted-foreground);
+.voiceWave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
   flex-shrink: 0;
 }
 
-.voiceIndicatorListening {
-  background: var(--accent);
-  animation: voicePulse 1.6s ease-in-out infinite;
+.voiceWaveBar {
+  width: 3px;
+  height: 8px;
+  border-radius: 2px;
+  background: currentColor;
 }
 
-.voiceIndicatorSpeaking {
-  background: #3fb950;
+.voiceWaveBar:nth-child(2) {
+  height: 12px;
+  animation-delay: 0.12s;
 }
 
-.voiceIndicatorThinking {
-  background: #d29922;
-  animation: voicePulse 1s ease-in-out infinite;
+.voiceWaveBar:nth-child(3) {
+  height: 16px;
+  animation-delay: 0.24s;
 }
 
-.voiceIndicatorError {
-  background: #f85149;
+.voiceWaveBar:nth-child(4) {
+  height: 12px;
+  animation-delay: 0.36s;
+}
+
+.voiceWaveBar:nth-child(5) {
+  animation-delay: 0.48s;
+}
+
+.voiceCapsuleListening {
+  color: var(--primary);
+}
+
+.voiceCapsuleListening .voiceWaveBar {
+  animation-name: voiceWaveBreathe;
+  animation-duration: 1.8s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.voiceCapsuleSpeaking {
+  color: var(--success);
+}
+
+.voiceCapsuleSpeaking .voiceWaveBar {
+  animation-name: voiceWaveDance;
+  animation-duration: 0.9s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.voiceCapsuleThinking .voiceWaveBar {
+  animation-name: voiceWaveSweep;
+  animation-duration: 1.4s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.voiceCapsuleEnded {
+  opacity: 0.85;
+}
+
+.voiceCapsuleError {
+  color: var(--danger);
 }
 
 .voiceStatusLabel {
-  flex: 1;
   font-size: 0.85rem;
+  font-weight: 500;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voiceCapsuleError .voiceStatusLabel {
+  color: var(--danger);
 }
 
 .voiceEndButton {
-  border: 1px solid var(--line-strong);
+  border: none;
   border-radius: 999px;
-  background: transparent;
+  background: var(--chat-hover-bg);
   color: var(--muted-foreground);
-  padding: 4px 12px;
-  font-size: 0.8rem;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
   cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 
 .voiceEndButton:hover {
-  background: var(--chat-hover-bg);
-  color: var(--text);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.voiceEndButton:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--danger) 55%, transparent);
+  outline-offset: 2px;
 }
 
 /* Spoken turns from realtime voice mode (message source 'voice'). Persisted
@@ -2445,9 +2501,41 @@ aside[data-state="collapsed"] .chatSidebarContent {
   }
 }
 
+@keyframes voiceWaveBreathe {
+  0%,
+  100% {
+    transform: scaleY(0.6);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes voiceWaveDance {
+  0%,
+  100% {
+    transform: scaleY(0.4);
+  }
+  50% {
+    transform: scaleY(1.15);
+  }
+}
+
+@keyframes voiceWaveSweep {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .voiceIndicatorListening,
-  .voiceIndicatorThinking {
+  .voiceModeButtonActive,
+  .voiceWaveBar {
     animation: none;
   }
 }
