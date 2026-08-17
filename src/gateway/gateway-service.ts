@@ -111,6 +111,7 @@ import {
   fetchLiveAdminEmailMailbox,
   fetchLiveAdminEmailMessage,
 } from '../channels/email/admin-mailbox.js';
+import { getEmailAuthFailedAccountAddresses } from '../channels/email/runtime.js';
 import { getLineAuthStatus } from '../channels/line/auth.js';
 import { getLinePairingState } from '../channels/line/pairing-state.js';
 import {
@@ -4931,7 +4932,10 @@ export async function getGatewayStatus(
     slack,
     slackWebhook,
     telegram,
-    email,
+    email: {
+      ...email,
+      authFailedAccounts: getEmailAuthFailedAccountAddresses(),
+    },
     emailEnabled: runtimeConfig.email.enabled === true,
     imessage,
     msteams,

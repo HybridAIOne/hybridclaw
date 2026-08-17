@@ -527,6 +527,7 @@ export interface GatewayStatus {
   email?: {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
+    authFailedAccounts?: string[];
   };
   emailEnabled?: boolean;
   imessage?: {

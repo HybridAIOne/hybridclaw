@@ -419,6 +419,8 @@ describe('email connection manager', () => {
 
   test('keeps expected DNS failures local and logs a readable reconnect warning', async () => {
     const dataDir = makeTempDir('hybridclaw-email-connection-');
+    // Pin jitter to its midpoint so reconnect delays are exact in assertions.
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const childLogger = {
       warn: vi.fn(),
       error: vi.fn(),
@@ -485,6 +487,8 @@ describe('email connection manager', () => {
 
   test('keeps IMAP shutdown socket errors local after scheduling reconnect', async () => {
     const dataDir = makeTempDir('hybridclaw-email-connection-');
+    // Pin jitter to its midpoint so reconnect delays are exact in assertions.
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const childLogger = {
       warn: vi.fn(),
       error: vi.fn(),
@@ -588,6 +592,8 @@ describe('email connection manager', () => {
 
   test('still rejects unexpected connect failures on initial start', async () => {
     const dataDir = makeTempDir('hybridclaw-email-connection-');
+    // Pin jitter to its midpoint so reconnect delays are exact in assertions.
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const childLogger = {
       warn: vi.fn(),
       error: vi.fn(),
@@ -848,5 +854,136 @@ describe('setup-time cursor seeding', () => {
       uidValidity: '2',
       lastProcessedUid: 4,
     });
+  });
+
+  test('stops retrying after repeated authentication failures and reports it', async () => {
+    const dataDir = makeTempDir('hybridclaw-email-connection-');
+    vi.useFakeTimers();
+
+    const connect = vi.fn(async () => {
+      throw Object.assign(new Error('Authentication failed'), {
+        authenticationFailed: true,
+      });
+    });
+
+    vi.doMock('../src/config/config.js', () => ({
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('imapflow', () => ({
+      ImapFlow: class {
+        connect = connect;
+        logout = vi.fn(async () => {});
+        close = vi.fn(() => {});
+        removeAllListeners = vi.fn(() => {});
+        on = vi.fn(() => this);
+      },
+    }));
+
+    const { createEmailConnectionManager } = await import(
+      '../src/channels/email/connection.js'
+    );
+
+    try {
+      const manager = createEmailConnectionManager(
+        BASE_EMAIL_CONFIG,
+        'wrong-password',
+        async () => {},
+      );
+      await expect(manager.start()).rejects.toThrow('Authentication failed');
+      expect(connect).toHaveBeenCalledTimes(1);
+      expect(manager.getStatus()).toEqual({
+        authFailed: false,
+        consecutiveAuthFailures: 1,
+      });
+
+      // Backoff doubles from 1s with ±20% jitter; 10s covers attempts 2 and 3.
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(connect).toHaveBeenCalledTimes(3);
+      expect(manager.getStatus()).toEqual({
+        authFailed: true,
+        consecutiveAuthFailures: 3,
+      });
+
+      // Terminal: even long after the backoff ceiling, no further logins.
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+      expect(connect).toHaveBeenCalledTimes(3);
+
+      await manager.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('keeps retrying transport-level connect failures without tripping the auth breaker', async () => {
+    const dataDir = makeTempDir('hybridclaw-email-connection-');
+    vi.useFakeTimers();
+
+    const connect = vi.fn(async () => {
+      throw Object.assign(new Error('connect ECONNREFUSED'), {
+        code: 'ECONNREFUSED',
+      });
+    });
+
+    vi.doMock('../src/config/config.js', () => ({
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('imapflow', () => ({
+      ImapFlow: class {
+        connect = connect;
+        logout = vi.fn(async () => {});
+        close = vi.fn(() => {});
+        removeAllListeners = vi.fn(() => {});
+        on = vi.fn(() => this);
+      },
+    }));
+
+    const { createEmailConnectionManager } = await import(
+      '../src/channels/email/connection.js'
+    );
+
+    try {
+      const manager = createEmailConnectionManager(
+        BASE_EMAIL_CONFIG,
+        'secret',
+        async () => {},
+      );
+      await manager.start().catch(() => {});
+      expect(connect).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(connect.mock.calls.length).toBeGreaterThanOrEqual(4);
+      expect(manager.getStatus()).toEqual({
+        authFailed: false,
+        consecutiveAuthFailures: 0,
+      });
+
+      await manager.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('isEmailAuthenticationError matches ImapFlow auth failures only', async () => {
+    const { isEmailAuthenticationError } = await import(
+      '../src/channels/email/connection.js'
+    );
+    expect(
+      isEmailAuthenticationError(
+        Object.assign(new Error('no'), { authenticationFailed: true }),
+      ),
+    ).toBe(true);
+    expect(
+      isEmailAuthenticationError(
+        Object.assign(new Error('no'), {
+          serverResponseCode: 'AUTHENTICATIONFAILED',
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isEmailAuthenticationError(
+        Object.assign(new Error('refused'), { code: 'ECONNREFUSED' }),
+      ),
+    ).toBe(false);
+    expect(isEmailAuthenticationError(null)).toBe(false);
   });
 });

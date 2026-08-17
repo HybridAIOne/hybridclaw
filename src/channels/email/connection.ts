@@ -10,7 +10,19 @@ import {
 } from '../../utils/transport-errors.js';
 
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
-const MAX_RECONNECT_DELAY_MS = 60_000;
+// Reconnect ceiling for transport-level failures. A short cap (this used to be
+// 60s) makes every gateway retry against an unreachable or refusing mail host
+// once a minute forever, which providers read as hostile traffic; five minutes
+// keeps recovery reasonable without that connection pressure.
+const MAX_RECONNECT_DELAY_MS = 300_000;
+// Spread reconnects so a fleet of gateways sharing one egress IP does not
+// retry against the mail host in lockstep.
+const RECONNECT_JITTER_RATIO = 0.2;
+// Failed logins are what mail-server intrusion detection (fail2ban and
+// provider-side abuse handling) counts. Wrong credentials never fix themselves
+// by retrying, so give up quickly and stay stopped until the gateway restarts
+// or the email config changes.
+const MAX_CONSECUTIVE_AUTH_FAILURES = 3;
 const EMAIL_CURSOR_STATE_DIR = path.join(DATA_DIR, 'email');
 const EMAIL_CURSOR_STATE_VERSION = 1;
 // Cursor seeding runs inside `channels email setup`, which platforms exec with
@@ -24,9 +36,33 @@ export interface EmailFetchedMessage {
   raw: Buffer;
 }
 
+export interface EmailConnectionStatus {
+  authFailed: boolean;
+  consecutiveAuthFailures: number;
+}
+
 export interface EmailConnectionManager {
   start: () => Promise<void>;
   stop: () => Promise<void>;
+  getStatus: () => EmailConnectionStatus;
+}
+
+export function isEmailAuthenticationError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as {
+    authenticationFailed?: unknown;
+    serverResponseCode?: unknown;
+  };
+  if (candidate.authenticationFailed === true) return true;
+  return (
+    String(candidate.serverResponseCode || '').toUpperCase() ===
+    'AUTHENTICATIONFAILED'
+  );
+}
+
+function applyReconnectJitter(delayMs: number): number {
+  const jitterSpan = delayMs * RECONNECT_JITTER_RATIO;
+  return Math.round(delayMs - jitterSpan + Math.random() * 2 * jitterSpan);
 }
 
 type EmailConnectionConfig = Pick<
@@ -264,6 +300,8 @@ export function createEmailConnectionManager(
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let connectingPromise: Promise<void> | null = null;
   let stateLoaded = false;
+  let consecutiveAuthFailures = 0;
+  let authFailed = false;
 
   const clearPollTimer = (): void => {
     if (!pollTimer) return;
@@ -315,11 +353,38 @@ export function createEmailConnectionManager(
   const scheduleReconnect = (reason: string, error?: unknown): void => {
     clearPollTimer();
     void closeClient();
-    if (stopped || reconnectTimer) return;
+    if (stopped || reconnectTimer || authFailed) return;
 
-    const delayMs = reconnectDelayMs;
+    if (error && isEmailAuthenticationError(error)) {
+      consecutiveAuthFailures += 1;
+      if (consecutiveAuthFailures >= MAX_CONSECUTIVE_AUTH_FAILURES) {
+        authFailed = true;
+        childLogger.error(
+          {
+            address: config.address,
+            host: config.imapHost,
+            attempts: consecutiveAuthFailures,
+          },
+          'Email IMAP authentication keeps failing; stopping retries for this mailbox so the mail server does not treat this gateway as a brute-force source. Update the mailbox credentials, then restart the gateway or change the email config.',
+        );
+        return;
+      }
+      childLogger.warn(
+        {
+          address: config.address,
+          host: config.imapHost,
+          attempt: consecutiveAuthFailures,
+          maxAttempts: MAX_CONSECUTIVE_AUTH_FAILURES,
+        },
+        `Email IMAP authentication failed (attempt ${consecutiveAuthFailures}/${MAX_CONSECUTIVE_AUTH_FAILURES}). Retrying connection in ${formatReconnectDelay(reconnectDelayMs)}.`,
+      );
+    }
+
+    const delayMs = applyReconnectJitter(reconnectDelayMs);
     reconnectDelayMs = Math.min(reconnectDelayMs * 2, MAX_RECONNECT_DELAY_MS);
-    if (error && isExpectedTransportError(error)) {
+    if (error && isEmailAuthenticationError(error)) {
+      // Already logged above with attempt context.
+    } else if (error && isExpectedTransportError(error)) {
       childLogger.warn(
         {
           delayMs,
@@ -570,6 +635,7 @@ export function createEmailConnectionManager(
 
       client = nextClient;
       reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
+      consecutiveAuthFailures = 0;
       await initializeFolders();
       await pollInbox();
     })()
@@ -602,6 +668,12 @@ export function createEmailConnectionManager(
       persistedCursorState.clear();
       stateLoaded = false;
       await closeClient();
+    },
+    getStatus(): EmailConnectionStatus {
+      return {
+        authFailed,
+        consecutiveAuthFailures,
+      };
     },
   };
 }

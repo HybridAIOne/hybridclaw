@@ -711,6 +711,11 @@ export function createEmailRuntime() {
       );
     },
     shutdownEmail: runtimeLifecycle.shutdown,
+    getAuthFailedAccountAddresses(): string[] {
+      return [...accountStates.values()]
+        .filter((state) => state.connectionManager?.getStatus().authFailed)
+        .map((state) => state.account.address);
+    },
   };
 }
 
@@ -743,4 +748,13 @@ export async function shutdownEmail(): Promise<void> {
   const runtime = defaultRuntime;
   defaultRuntime = null;
   await runtime?.shutdownEmail();
+}
+
+/**
+ * Addresses of configured email accounts whose IMAP poller gave up after
+ * repeated authentication failures. Surfaced in gateway status so stale
+ * mailbox credentials are visible instead of silently dead.
+ */
+export function getEmailAuthFailedAccountAddresses(): string[] {
+  return defaultRuntime?.getAuthFailedAccountAddresses() ?? [];
 }
