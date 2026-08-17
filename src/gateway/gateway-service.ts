@@ -420,6 +420,7 @@ import {
   getAgentScoreboard,
   getObservedAgentSkillCount,
 } from '../skills/agent-scoreboard.js';
+import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import { loadSkillDocsCatalog } from '../skills/skill-docs.js';
 import {
   type BlockedSkillCatalogEntry,
@@ -8910,7 +8911,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     }
     const baseAssistantMessages = hasPrelude ? 1 : 0;
 
-    const { messages } = buildConversationContext({
+    const { messages, skills } = buildConversationContext({
       agentId: resolved.agentId,
       history: [],
       currentUserContent: bootstrapAutostartPrompt,
@@ -9132,6 +9133,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         ...loadPolicyFullAutoNeverApprove(agentWorkspaceDir(resolved.agentId)),
       ],
       scheduledTasks: [],
+      skillCatalog: buildEligibleSkillCatalog(skills),
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
     hatchingCompletion = recordBootstrapHatchingTurnResult({

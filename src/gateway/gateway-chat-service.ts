@@ -81,6 +81,7 @@ import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { maybeAutoTitleSession } from '../session/session-title.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
+import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import {
   expandResolvedSkillInvocation,
   promoteWorkspaceSkills,
@@ -2082,6 +2083,7 @@ async function handleGatewayMessageInner(
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         scheduledTasks,
+        skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
         blockedTools: mediaPolicy.blockedTools,
         onTextDelta: params.onTextDelta,
@@ -2185,6 +2187,7 @@ async function handleGatewayMessageInner(
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         scheduledTasks,
+        skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
         blockedTools: mediaPolicy.blockedTools,
         onTextDelta: emitTextDeltas,

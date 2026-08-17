@@ -42,6 +42,7 @@ describe('ReadAloudControl', () => {
     mocks.capabilities = { dictation: true, readAloud: true };
     mocks.playback.mockReset();
     mocks.unlockAudio.mockReset();
+    document.documentElement.lang = 'en';
     vi.stubGlobal('Audio', class {});
   });
 
@@ -124,6 +125,28 @@ describe('ReadAloudControl', () => {
         })
         .hasAttribute('disabled'),
     ).toBe(true);
+  });
+
+  it('uses the console language instead of the browser preference', () => {
+    const languageDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      'language',
+    );
+    Object.defineProperty(navigator, 'language', {
+      configurable: true,
+      value: 'de-DE',
+    });
+
+    try {
+      render(<ReadAloudControl text="English UI" token="test-token" />);
+      expect(
+        screen.getByRole('button', { name: 'Read response aloud' }),
+      ).toBeTruthy();
+    } finally {
+      if (languageDescriptor) {
+        Object.defineProperty(navigator, 'language', languageDescriptor);
+      }
+    }
   });
 
   it('turns rendered markdown into natural speech text', () => {

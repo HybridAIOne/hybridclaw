@@ -3380,6 +3380,15 @@ async function startIMessageIntegration(): Promise<boolean> {
     logger.info('iMessage integration disabled in config');
     return false;
   }
+  if (
+    imessageConfig.backend === 'bluebubbles' &&
+    !imessageConfig.serverUrl.trim()
+  ) {
+    logger.warn(
+      'iMessage integration not started: imessage.serverUrl is required for the BlueBubbles backend. Configure it with `hybridclaw channels imessage setup --backend remote --server-url <url>` or disable iMessage with `hybridclaw config set imessage.enabled false`.',
+    );
+    return false;
+  }
 
   try {
     await initIMessage(

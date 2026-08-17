@@ -12,7 +12,9 @@ import {
 } from '../src/channels/channel-registry.js';
 import * as runtimeConfig from '../src/config/runtime-config.js';
 import * as providerFactory from '../src/providers/factory.js';
+import { buildEligibleSkillCatalog } from '../src/skills/skill-catalog.js';
 import type { Skill } from '../src/skills/skills.js';
+import { buildSkillsPrompt } from '../src/skills/skills.js';
 
 test('buildToolsSummary groups the full tool catalog', () => {
   const summary = buildToolsSummary();
@@ -30,6 +32,7 @@ test('buildToolsSummary groups the full tool catalog', () => {
   );
   expect(summary).toContain('**Communication**: `message`');
   expect(summary).toContain('**Delegation**: `delegate`');
+  expect(summary).toContain('**Skills**: `skills_list`');
   expect(summary).toContain('**Vision**: `vision_analyze`');
   expect(summary).toContain('**Image Generation**: `image_generate`');
   expect(summary).toContain('**Video Generation**: `video_generate`');
@@ -63,6 +66,20 @@ test('buildToolsSummary groups MCP tools separately from other tools', () => {
   );
   expect(summary).not.toContain('**Other**:');
 });
+
+function makeManifest(): NonNullable<Skill['manifest']> {
+  return {
+    id: 'pdf',
+    name: 'pdf',
+    version: '1.0.0',
+    capabilities: [],
+    middleware: { preSend: false, postReceive: false },
+    requiredCredentials: [],
+    credentials: [],
+    configVariables: [],
+    supportedChannels: [],
+  };
+}
 
 function makeSkill(overrides: Partial<Skill> = {}): Skill {
   return {
@@ -306,6 +323,102 @@ test('buildSystemPromptFromHooks keeps the skill catalog stable when the user ex
   expect(prompt).toContain('<available_skills>');
   expect(prompt).toContain('<name>pdf</name>');
   expect(prompt).toContain('<name>apple-music</name>');
+});
+
+test('buildSkillsPrompt preserves every skill identity before compacting descriptions', () => {
+  const skills = Array.from({ length: 80 }, (_, index) =>
+    makeSkill({
+      name: index === 79 ? 'pdf' : `catalog-skill-${String(index).padStart(2, '0')}`,
+      category: index === 79 ? 'office' : 'catalog',
+      description: `Skill ${index} ${'detailed routing guidance '.repeat(30)}`,
+      location:
+        index === 79
+          ? 'skills/pdf/SKILL.md'
+          : `skills/catalog-skill-${index}/SKILL.md`,
+    }),
+  );
+
+  const prompt = buildSkillsPrompt(skills);
+
+  for (const skill of skills) {
+    expect(prompt).toContain(`<name>${skill.name}</name>`);
+    expect(prompt).toContain(`<location>${skill.location}</location>`);
+  }
+  // The compaction limit is picked from an arithmetic upper bound of the
+  // rendered size, so the result must still land inside the 30k char budget.
+  expect(prompt.length).toBeLessThan(31_000);
+  expect(prompt).toContain('compacted_descriptions="80"');
+  expect(prompt).toContain('omitted_skills="0"');
+  expect(prompt).toContain('Use skills_list to search');
+  expect(prompt).not.toContain('<capabilities>');
+  expect(prompt).not.toContain('<required_credentials>');
+});
+
+test('buildSkillsPrompt reports identity omissions when the minimum catalog exceeds its budget', () => {
+  const skills = Array.from({ length: 300 }, (_, index) =>
+    makeSkill({
+      name: `oversized-skill-${index}`,
+      description: 'x',
+      location: `skills/${'nested-location-'.repeat(8)}${index}/SKILL.md`,
+    }),
+  );
+
+  const prompt = buildSkillsPrompt(skills);
+  const omitted = Number(prompt.match(/omitted_skills="(\d+)"/)?.[1]);
+
+  expect(omitted).toBeGreaterThan(0);
+  expect(prompt).toContain('Use skills_list to search');
+});
+
+test('buildSkillsPrompt never splits an XML escape when compacting', () => {
+  const skills = Array.from({ length: 50 }, (_, index) =>
+    makeSkill({
+      name: `escaping-skill-${index}`,
+      description: '<&>'.repeat(400),
+      location: `skills/escaping-skill-${index}/SKILL.md`,
+    }),
+  );
+
+  const prompt = buildSkillsPrompt(skills);
+  const descriptions = [...prompt.matchAll(/<description>(.*)<\/description>/g)];
+
+  expect(descriptions.length).toBeGreaterThan(0);
+  for (const [, description] of descriptions) {
+    // Every `&` must open a complete entity; a mid-entity cut would leave a
+    // bare `&` or a truncated `&am` behind.
+    expect(description.replace(/&(amp|lt|gt|quot|apos);/g, '')).not.toContain(
+      '&',
+    );
+  }
+});
+
+test('buildEligibleSkillCatalog carries credential ids the prompt drops', () => {
+  const withCredentials = makeSkill({
+    name: 'calendar',
+    manifest: {
+      ...makeManifest(),
+      requiredCredentials: [
+        {
+          id: 'google-oauth',
+          kind: 'oauth',
+          required: true,
+          secretRef: { provider: 'env', key: 'GOOGLE_TOKEN' },
+          scope: 'calendar.events',
+          howToObtain: 'Run the Google OAuth flow.',
+        },
+      ],
+    },
+  });
+  const withoutCredentials = makeSkill({ name: 'pdf' });
+
+  const catalog = buildEligibleSkillCatalog([
+    withCredentials,
+    withoutCredentials,
+  ]);
+
+  expect(catalog[0].requiredCredentials).toEqual(['google-oauth']);
+  expect(catalog[1]).not.toHaveProperty('requiredCredentials');
+  expect(buildSkillsPrompt([withCredentials])).not.toContain('google-oauth');
 });
 
 test('buildSystemPromptFromHooks uses the provided workspace path in runtime metadata', () => {

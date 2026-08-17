@@ -36,7 +36,7 @@ export function textFromRenderedMarkdown(html: string): string {
 
 export function ReadAloudControl(props: { text: string; token: string }) {
   const id = useId();
-  const copy = useMemo(() => getSpeechCopy(navigator.language), []);
+  const copy = useMemo(() => getSpeechCopy(document.documentElement.lang), []);
   const capabilities = useMediaCapabilities(props.token);
   const browserSupported = typeof window.Audio === 'function';
   const available = capabilities?.readAloud === true;

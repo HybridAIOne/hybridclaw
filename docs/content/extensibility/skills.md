@@ -28,6 +28,30 @@ Skill roots include:
 - trust-aware scanning blocks risky personal or workspace skills
 - bundled repo skills are mirrored into `/workspace/skills/<name>` inside the agent runtime so bundled script paths like `skills/pdf/scripts/...` stay valid
 
+## Runtime Discovery
+
+HybridClaw uses progressive disclosure for model-visible skills. The system
+prompt starts with compact metadata and a workspace-readable `SKILL.md`
+location; the model reads the full skill only after routing the request.
+
+The prompt entry carries `name`, `category`, `description`, and `location`
+only. Manifest details are deliberately excluded because they do not inform
+routing: `supported_channels` is already a hard filter (a skill unsupported on
+the active channel never reaches the prompt), `id` duplicates `name`, and
+`version` and `capabilities` matter only once the skill is loaded. Declared
+credential ids stay reachable through `skills_list`.
+
+The prompt budget preserves skill names and locations before spending space on
+descriptions. When the catalog is too large, descriptions are shortened first.
+If even the identity-only catalog cannot fit, the prompt includes an explicit
+compaction notice and the runtime emits a structured warning with included and
+omitted counts.
+
+The read-only `skills_list` tool lists or searches the complete catalog of
+skills eligible for the current agent and channel. It is the recovery path when
+prompt metadata was compacted; it does not expose disabled or policy-filtered
+skills.
+
 ## Frontmatter Contract
 
 - required: `name`, `description`

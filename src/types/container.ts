@@ -1,3 +1,4 @@
+import type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
 import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import type { ChatMessage } from './api.js';
@@ -32,6 +33,7 @@ export interface MediaContextItem {
   filename: string;
 }
 
+export type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
 export type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 
 export interface AddressEnvelope {
@@ -97,6 +99,7 @@ export interface ContainerInput {
   configuredDiscordChannels?: string[];
   activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
+  skillCatalog?: SessionSkillCatalogEntry[];
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
