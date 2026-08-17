@@ -1,3 +1,4 @@
+import type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
 import type {
   StakesScore as CanonicalStakesScore,
   StakesSignal as CanonicalStakesSignal,
@@ -193,6 +194,7 @@ export interface ScheduledTaskInput {
   createdAt: string;
 }
 
+export type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
 export type { WebSearchConfig } from '../shared/web-search-config.js';
 
 export interface ProviderCredential {
@@ -271,6 +273,7 @@ export interface ContainerInput {
   configuredDiscordChannels?: string[];
   activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
+  skillCatalog?: SessionSkillCatalogEntry[];
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
