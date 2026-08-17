@@ -670,6 +670,9 @@ export function Composer(props: {
                   aria-label={
                     props.voiceActive ? 'End voice mode' : 'Start voice mode'
                   }
+                  title={
+                    props.voiceActive ? 'End voice mode' : 'Start voice mode'
+                  }
                   aria-pressed={props.voiceActive === true}
                 >
                   <svg
