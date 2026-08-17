@@ -1753,6 +1753,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .attachButton,
 .dictationButton,
+.voiceModeButton,
 .sendButton {
   display: flex;
   align-items: center;
@@ -1770,6 +1771,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .attachButton:focus-visible,
 .dictationButton:focus-visible,
+.voiceModeButton:focus-visible,
 .sendButton:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
   outline-offset: 2px;
@@ -2323,9 +2325,27 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 /* Realtime voice mode */
-.voiceButtonActive {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  color: var(--accent);
+/* Realtime voice mode: filled accent circle with a waveform glyph, sitting
+   between the dictation mic and send (ChatGPT-style pairing). */
+.voiceModeButton {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.voiceModeButton:hover {
+  background: color-mix(in srgb, var(--primary) 85%, var(--foreground) 15%);
+}
+
+.voiceModeButtonActive {
+  background: var(--accent);
+  color: var(--primary-foreground);
+  animation: voicePulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voiceModeButtonActive {
+    animation: none;
+  }
 }
 
 .voicePanel {
