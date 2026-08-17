@@ -29,8 +29,12 @@ import {
   type RealtimeBridgeState,
   RealtimeCallBridge,
 } from '../channels/voice/realtime-bridge.js';
+import {
+  isRealtimeCredentialConfigured,
+  resolveRealtimeConnection,
+} from '../channels/voice/realtime-credentials.js';
 import { formatTextForVoice } from '../channels/voice/text.js';
-import { getConfigSnapshot, OPENAI_API_KEY } from '../config/config.js';
+import { getConfigSnapshot } from '../config/config.js';
 import {
   getRuntimeConfig,
   resolveDefaultAgentId,
@@ -55,7 +59,9 @@ export interface WebchatVoiceIdentity {
 }
 
 export function isWebchatVoiceAvailable(): boolean {
-  return Boolean(String(OPENAI_API_KEY || '').trim());
+  return isRealtimeCredentialConfigured(
+    getConfigSnapshot().voice.realtime.provider,
+  );
 }
 
 interface ClientFrame {
@@ -166,12 +172,10 @@ export class WebchatVoiceConnection {
       this.fail('Voice session already started.', 1008);
       return;
     }
-    const apiKey = String(OPENAI_API_KEY || '').trim();
-    if (!apiKey) {
-      this.fail(
-        'Realtime voice requires an OpenAI API key (OPENAI_API_KEY).',
-        1011,
-      );
+    const voiceConfig = getConfigSnapshot().voice.realtime;
+    const resolved = resolveRealtimeConnection(voiceConfig.provider);
+    if (!resolved.connection) {
+      this.fail(resolved.error, 1011);
       return;
     }
     if (this.startTimer) {
@@ -184,9 +188,8 @@ export class WebchatVoiceConnection {
     const sessionId = resolveVoiceSessionId(frame.sessionId, agentId);
     const userId = this.identity.userId || sessionId;
     const username = this.identity.username || 'web';
-    const voiceConfig = getConfigSnapshot().voice.realtime;
     this.bridge = new RealtimeCallBridge({
-      apiKey,
+      connection: resolved.connection,
       config: voiceConfig,
       caller: { from: '', to: '', callerName: username },
       surface: 'web',

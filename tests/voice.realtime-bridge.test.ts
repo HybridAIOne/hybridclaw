@@ -8,6 +8,7 @@ import {
 } from '../src/channels/voice/realtime-bridge.js';
 
 const REALTIME_CONFIG = {
+  provider: 'openai' as const,
   model: 'gpt-realtime',
   voice: 'marin',
   greeting: 'Hi there!',
@@ -80,7 +81,10 @@ function createBridge(overrides?: Partial<RealtimeBridgeOptions>): {
   const errors: string[] = [];
   const consultAgent = vi.fn(async () => 'You have two meetings today.');
   const bridge = new RealtimeCallBridge({
-    apiKey: 'test-key',
+    connection: {
+      url: 'wss://api.openai.com/v1/realtime',
+      apiKey: 'test-key',
+    },
     config: REALTIME_CONFIG,
     caller: CALLER,
     surface: 'phone',

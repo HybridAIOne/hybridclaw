@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import type { RealtimeSocket } from '../src/channels/voice/openai-realtime.js';
 
 const REALTIME_CONFIG = {
+  provider: 'openai' as const,
   model: 'gpt-realtime',
   voice: 'marin',
   greeting: 'Hello from voice!',
@@ -90,6 +91,7 @@ const persistVoiceTranscript = vi.fn();
 async function createConnection(params?: { apiKey?: string }) {
   vi.doMock('../src/config/config.js', () => ({
     OPENAI_API_KEY: params?.apiKey ?? 'test-key',
+    HYBRIDAI_BASE_URL: 'https://hybridai.example',
     getConfigSnapshot: () => ({ voice: { realtime: REALTIME_CONFIG } }),
   }));
   vi.doMock('../src/config/runtime-config.js', () => ({

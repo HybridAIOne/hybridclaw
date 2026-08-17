@@ -13,7 +13,6 @@
 import WebSocket from 'ws';
 import { isRecord } from '../../utils/type-guards.js';
 
-const OPENAI_REALTIME_URL = 'wss://api.openai.com/v1/realtime';
 const SOCKET_OPEN = 1;
 
 /** Wire format for both directions of the realtime session. */
@@ -67,6 +66,8 @@ function normalizeString(value: unknown): string {
 }
 
 export interface OpenAIRealtimeClientOptions {
+  /** Realtime endpoint without the model query, e.g. from `resolveRealtimeConnection`. */
+  url: string;
   apiKey: string;
   model: string;
   voice: string;
@@ -92,7 +93,7 @@ export class OpenAIRealtimeClient {
   constructor(options: OpenAIRealtimeClientOptions) {
     this.callbacks = options.callbacks;
     const factory = options.socketFactory || defaultSocketFactory;
-    const url = `${OPENAI_REALTIME_URL}?model=${encodeURIComponent(options.model)}`;
+    const url = `${options.url}?model=${encodeURIComponent(options.model)}`;
     this.socket = factory(url, {
       Authorization: `Bearer ${options.apiKey}`,
     });

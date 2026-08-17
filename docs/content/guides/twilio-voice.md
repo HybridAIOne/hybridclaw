@@ -151,10 +151,15 @@ tagged `source: 'voice'`, alongside the consulted turns.
 
 Requirements and notes:
 
-- Realtime mode needs an OpenAI API key. Set the `OPENAI_API_KEY` environment
+- Realtime mode needs a realtime credential. With the default
+  `voice.realtime.provider` of `openai`, set the `OPENAI_API_KEY` environment
   variable or store it in the encrypted secret store (same flow as the Twilio
-  auth token, secret name `OPENAI_API_KEY`). The gateway refuses to start the
-  voice channel in realtime mode without it.
+  auth token, secret name `OPENAI_API_KEY`). Set the provider to `hybridai`
+  to route sessions through the HybridAI platform's `/v1/realtime` proxy
+  instead, authenticated with your signed-in HybridAI credential (or
+  `HYBRIDAI_API_KEY`) — no OpenAI key required. The gateway refuses to start
+  the voice channel in realtime mode without the selected provider's
+  credential.
 - `voice.realtime.voice` accepts any OpenAI realtime voice name (for example
   `marin`, `cedar`, `alloy`).
 - `voice.realtime.instructions` is appended to the built-in call instructions;
@@ -164,11 +169,11 @@ Requirements and notes:
 - Realtime API audio is billed by OpenAI per minute of input and output audio
   in addition to Twilio's per-minute call pricing.
 - The same realtime engine also powers voice mode in the web console chat
-  (microphone button in the composer). Browser voice needs only the OpenAI
-  key — it works even when the Twilio voice channel is disabled, and it uses
-  the same `voice.realtime.*` model, voice, greeting, and instructions
-  settings. It is the quickest way to try realtime voice before wiring up a
-  phone number.
+  (microphone button in the composer). Browser voice needs only the realtime
+  credential — it works even when the Twilio voice channel is disabled, and it
+  uses the same `voice.realtime.*` provider, model, voice, greeting, and
+  instructions settings. It is the quickest way to try realtime voice before
+  wiring up a phone number.
 
 ## Store The Twilio Secret
 

@@ -20,6 +20,7 @@ import {
   type RealtimeAudioFormat,
   type RealtimeSocketFactory,
 } from './openai-realtime.js';
+import type { RealtimeConnection } from './realtime-credentials.js';
 
 export const CONSULT_AGENT_TOOL_NAME = 'consult_agent';
 
@@ -37,7 +38,7 @@ export interface RealtimeCallerInfo {
 }
 
 export interface RealtimeBridgeOptions {
-  apiKey: string;
+  connection: RealtimeConnection;
   config: RuntimeVoiceRealtimeConfig;
   caller: RealtimeCallerInfo;
   surface: RealtimeSurface;
@@ -107,7 +108,8 @@ export class RealtimeCallBridge {
   constructor(options: RealtimeBridgeOptions) {
     this.options = options;
     this.client = new OpenAIRealtimeClient({
-      apiKey: options.apiKey,
+      url: options.connection.url,
+      apiKey: options.connection.apiKey,
       model: options.config.model,
       voice: options.config.voice,
       audioFormat: options.audioFormat,

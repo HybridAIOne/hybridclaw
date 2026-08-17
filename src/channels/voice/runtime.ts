@@ -1,11 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import WebSocket, * as wsModule from 'ws';
-import {
-  getConfigSnapshot,
-  OPENAI_API_KEY,
-  TWILIO_AUTH_TOKEN,
-} from '../../config/config.js';
+import { getConfigSnapshot, TWILIO_AUTH_TOKEN } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { VOICE_CAPABILITIES } from '../channel.js';
@@ -23,6 +19,7 @@ import {
   parseMediaStreamMessage,
 } from './media-stream.js';
 import { RealtimeCallBridge } from './realtime-bridge.js';
+import { resolveRealtimeConnection } from './realtime-credentials.js';
 import { ReplayProtector, validateTwilioSignature } from './security.js';
 import { type VoiceCallSession, VoiceCallSessionStore } from './session.js';
 import { formatTextForVoice } from './text.js';
@@ -713,15 +710,15 @@ function handleMediaStreamConnection(ws: WebSocket, remoteIp: string): void {
             );
           }
           callSid = session.callSid;
-          const apiKey = String(OPENAI_API_KEY || '').trim();
-          if (!apiKey) {
-            throw new Error(
-              'Realtime voice mode requires an OpenAI API key (OPENAI_API_KEY).',
-            );
-          }
           const voiceConfig = getConfigSnapshot().voice;
+          const resolved = resolveRealtimeConnection(
+            voiceConfig.realtime.provider,
+          );
+          if (!resolved.connection) {
+            throw new Error(resolved.error);
+          }
           const bridge = new RealtimeCallBridge({
-            apiKey,
+            connection: resolved.connection,
             config: voiceConfig.realtime,
             caller: {
               from: session.from,
