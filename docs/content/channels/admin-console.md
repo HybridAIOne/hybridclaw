@@ -155,8 +155,9 @@ changes before navigation.
 - the web chat route offers a realtime voice mode (microphone button in the
   composer) when an OpenAI API key is configured: mic audio streams to the
   OpenAI Realtime API for natural speech-to-speech conversation with
-  interruption support, and substantive requests run as ordinary web chat
-  turns via `consult_agent`, so they appear in the session transcript
+  interruption support; spoken turns persist into the conversation as
+  voice-tagged messages, and substantive requests run as ordinary web chat
+  turns via `consult_agent`
 - destructive admin actions use explicit browser confirmation dialogs before
   HybridClaw applies the requested change
 

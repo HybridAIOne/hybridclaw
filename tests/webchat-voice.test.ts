@@ -85,6 +85,8 @@ const handleGatewayMessage = vi.fn(async () => ({
   toolsUsed: [],
 }));
 
+const persistVoiceTranscript = vi.fn();
+
 async function createConnection(params?: { apiKey?: string }) {
   vi.doMock('../src/config/config.js', () => ({
     OPENAI_API_KEY: params?.apiKey ?? 'test-key',
@@ -96,6 +98,10 @@ async function createConnection(params?: { apiKey?: string }) {
   }));
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage,
+  }));
+  vi.doMock('../src/gateway/voice-transcript-store.js', () => ({
+    persistVoiceTranscript,
+    VOICE_MESSAGE_SOURCE: 'voice',
   }));
   vi.doMock('../src/logger.js', () => ({
     logger: {
@@ -130,9 +136,11 @@ async function flushAsync(): Promise<void> {
 
 afterEach(() => {
   handleGatewayMessage.mockClear();
+  persistVoiceTranscript.mockClear();
   vi.doUnmock('../src/config/config.js');
   vi.doUnmock('../src/config/runtime-config.js');
   vi.doUnmock('../src/gateway/gateway-chat-service.js');
+  vi.doUnmock('../src/gateway/voice-transcript-store.js');
   vi.doUnmock('../src/logger.js');
   vi.resetModules();
 });
@@ -234,6 +242,39 @@ test('transcripts reach the browser with web roles', async () => {
   expect(browser.sentOfType('transcript')).toEqual([
     { type: 'transcript', role: 'user', text: 'What time is it?' },
     { type: 'transcript', role: 'assistant', text: 'It is noon.' },
+  ]);
+});
+
+test('spoken turns persist into session history as voice messages', async () => {
+  const { browser, realtime } = await createConnection();
+  const sessionId = 'agent:main:channel:web:chat:dm:peer:abc123';
+  browser.clientFrame({ type: 'start', sessionId, agentId: 'main' });
+  realtime.open();
+
+  realtime.serverEvent({
+    type: 'conversation.item.input_audio_transcription.completed',
+    transcript: 'What time is it?',
+  });
+  realtime.serverEvent({
+    type: 'response.output_audio_transcript.done',
+    transcript: 'It is noon.',
+  });
+
+  expect(persistVoiceTranscript.mock.calls.map(([params]) => params)).toEqual([
+    expect.objectContaining({
+      sessionId,
+      channelId: 'web',
+      agentId: 'main',
+      userId: 'user-1',
+      username: 'Ada',
+      role: 'user',
+      text: 'What time is it?',
+    }),
+    expect.objectContaining({
+      sessionId,
+      role: 'assistant',
+      text: 'It is noon.',
+    }),
   ]);
 });
 

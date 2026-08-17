@@ -2392,9 +2392,9 @@ aside[data-state="collapsed"] .chatSidebarContent {
   color: var(--text);
 }
 
-/* Ephemeral voice turns rendered inline in the conversation. They live only
-   in client memory (never in session history), so they are visually marked
-   and disappear on reload. */
+/* Spoken turns from realtime voice mode (message source 'voice'). Persisted
+   like any other message; the tag and dashed border distinguish speech from
+   typed chat, e.g. next to the consult turns of the same exchange. */
 .bubbleVoice {
   opacity: 0.92;
   border-style: dashed;

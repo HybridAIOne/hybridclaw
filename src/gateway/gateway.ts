@@ -144,7 +144,9 @@ import {
   TWILIO_AUTH_TOKEN,
 } from '../config/config.js';
 import {
+  getRuntimeConfig,
   type RuntimeConfig,
+  resolveDefaultAgentId,
   startRuntimeConfigWatcher,
 } from '../config/runtime-config.js';
 import { resolveLocalInstanceId } from '../identity/agent-id.js';
@@ -269,6 +271,7 @@ import {
   renderTextChannelCommandResult,
   resolveTextChannelSlashCommands,
 } from './text-channel-commands.js';
+import { persistVoiceTranscript } from './voice-transcript-store.js';
 
 let detachConfigListener: (() => void) | null = null;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
@@ -3304,6 +3307,14 @@ async function startVoiceIntegration(): Promise<boolean> {
             }
           }
         }
+      },
+      {
+        transcriptPersister: (params) => {
+          persistVoiceTranscript({
+            ...params,
+            agentId: resolveDefaultAgentId(getRuntimeConfig()),
+          });
+        },
       },
     );
     logger.info(

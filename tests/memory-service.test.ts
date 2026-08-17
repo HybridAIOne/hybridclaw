@@ -667,7 +667,7 @@ describe.sequential('schema migrations', () => {
       .all() as Array<{ version: number; description: string }>;
     inspect.close();
 
-    expect(Number(schemaVersion)).toBe(53);
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
     expect(agentColumns.some((column) => column.name === 'archived')).toBe(true);
     expect(migrations).toEqual([
       {
@@ -676,6 +676,33 @@ describe.sequential('schema migrations', () => {
       },
       { version: 53, description: 'Persist archived agent state' },
     ]);
+  });
+
+  test('adds the message source column to pre-v54 databases', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    const collision = new Database(dbPath);
+    collision.exec(`
+      ALTER TABLE messages DROP COLUMN source;
+      DELETE FROM migrations WHERE version = 54;
+      PRAGMA user_version = 53;
+    `);
+    collision.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const messageColumns = inspect.pragma('table_info(messages)') as Array<{
+      name: string;
+    }>;
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(messageColumns.some((column) => column.name === 'source')).toBe(
+      true,
+    );
   });
 
   test('self-heals schema v30 databases from parallel migrations', () => {

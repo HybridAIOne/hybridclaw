@@ -145,9 +145,9 @@ The realtime model fronts the conversation but is not the agent. It handles
 greetings and small talk itself; for anything that needs the assistant's
 knowledge, memory, or tools it calls a `consult_agent` tool, which runs a
 normal gateway agent turn in the same voice session — with the usual approval
-policy, session persistence, and audit logging — and speaks the reply. Turns
-handled directly by the realtime model are not persisted to the session
-transcript; consulted turns are.
+policy, session persistence, and audit logging — and speaks the reply. Every
+spoken turn is persisted to the session as a regular user/assistant message
+tagged `source: 'voice'`, alongside the consulted turns.
 
 Requirements and notes:
 

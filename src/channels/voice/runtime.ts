@@ -62,6 +62,16 @@ export type VoiceMessageHandler = (
   context: VoiceMessageContext,
 ) => Promise<void>;
 
+/** Gateway-provided sink that persists realtime spoken turns into history. */
+export type VoiceTranscriptPersister = (params: {
+  sessionId: string;
+  channelId: string;
+  userId: string;
+  username: string | null;
+  role: 'user' | 'assistant';
+  text: string;
+}) => void;
+
 const MAX_PENDING_UPGRADES = 32;
 const MAX_CONNECTIONS_PER_IP = 16;
 const REPLAY_TTL_MS = 30_000;
@@ -74,6 +84,7 @@ const PREINIT_MAX_CONCURRENT_CALLS = 1;
 const replayProtector = new ReplayProtector(REPLAY_TTL_MS);
 let draining = false;
 let voiceMessageHandler: VoiceMessageHandler | null = null;
+let voiceTranscriptPersister: VoiceTranscriptPersister | null = null;
 let missingTwilioAuthTokenLogged = false;
 const sessionStore = new VoiceCallSessionStore(
   PREINIT_MAX_CONCURRENT_CALLS,
@@ -748,6 +759,14 @@ function handleMediaStreamConnection(ws: WebSocket, remoteIp: string): void {
                 },
                 'Voice realtime transcript',
               );
+              voiceTranscriptPersister?.({
+                sessionId: session.gatewaySessionId,
+                channelId: session.channelId,
+                userId: session.userId,
+                username: session.username,
+                role: role === 'caller' ? 'user' : 'assistant',
+                text,
+              });
             },
             onStateChange: (state) => {
               transitionSession(session.callSid, state);
@@ -839,8 +858,10 @@ function handleMediaStreamConnection(ws: WebSocket, remoteIp: string): void {
 
 export async function initVoice(
   messageHandler: VoiceMessageHandler,
+  options?: { transcriptPersister?: VoiceTranscriptPersister },
 ): Promise<void> {
   voiceMessageHandler = messageHandler;
+  voiceTranscriptPersister = options?.transcriptPersister || null;
   draining = false;
   sessionStore.updateLimits(getConfigSnapshot().voice.maxConcurrentCalls);
   if (runtimeInitialized) {
@@ -1124,6 +1145,7 @@ export async function shutdownVoice(opts?: { drain?: boolean }): Promise<void> {
   );
   runtimeInitialized = false;
   voiceMessageHandler = null;
+  voiceTranscriptPersister = null;
   websocketServer.removeAllListeners();
   websocketServer = new WebSocketServerCtor({ noServer: true });
 }

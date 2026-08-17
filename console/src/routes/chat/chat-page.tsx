@@ -64,7 +64,6 @@ import {
   readStoredUserId,
 } from '../../lib/chat-helpers';
 import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
-import { cx } from '../../lib/cx';
 import { getErrorMessage } from '../../lib/error-message';
 import { useDebouncedValue } from '../../lib/use-debounced-value';
 import { findAgentMentions } from './agent-mention-display';
@@ -353,9 +352,10 @@ export function ChatPage() {
     enabled: chatApiReady,
   });
   const [voiceOpen, setVoiceOpen] = useState(false);
-  const handleVoiceAssistantTurn = useCallback(() => {
-    // Consulted voice turns persist as ordinary web chat messages; refetch so
-    // they appear in the transcript without leaving voice mode.
+  const handleVoiceTranscript = useCallback(() => {
+    // The gateway persists every spoken turn (and consulted turns) as
+    // ordinary web chat messages; refetch so they appear in the conversation
+    // without leaving voice mode.
     void queryClient.invalidateQueries({
       queryKey: chatHistoryQueryKey(auth.token, getSessionId()),
     });
@@ -574,7 +574,7 @@ export function ChatPage() {
   const voiceSession = useVoiceSession({
     sessionId,
     agentId: effectiveAgentId,
-    onAssistantTurn: handleVoiceAssistantTurn,
+    onTranscript: handleVoiceTranscript,
   });
   const { start: startVoice, stop: stopVoice } = voiceSession;
   useEffect(() => {
@@ -1266,8 +1266,7 @@ export function ChatPage() {
     [branchFamilies, handleOpenSession],
   );
 
-  const isEmpty =
-    visibleMessages.length === 0 && voiceSession.transcripts.length === 0;
+  const isEmpty = visibleMessages.length === 0;
   const isSwitchingSession = historyQuery.isFetching;
 
   const sidebarProps = {
@@ -1393,30 +1392,6 @@ export function ChatPage() {
                     />
                   ),
                 )}
-                {voiceSession.transcripts.map((entry) => (
-                  <div
-                    key={`voice-${entry.id}`}
-                    className={cx(
-                      css.messageBlock,
-                      entry.role === 'user'
-                        ? css.messageBlockUser
-                        : css.messageBlockAssistant,
-                    )}
-                  >
-                    <div
-                      className={cx(
-                        css.bubble,
-                        entry.role === 'user'
-                          ? css.bubbleUser
-                          : css.bubbleAssistant,
-                        css.bubbleVoice,
-                      )}
-                    >
-                      <span className={css.voiceBubbleTag}>Voice</span>
-                      {entry.text}
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           )}

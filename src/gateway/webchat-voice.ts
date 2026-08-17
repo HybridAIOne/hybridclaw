@@ -4,9 +4,10 @@
  * Owns the `/api/chat/voice/stream` websocket protocol: JSON frames carrying
  * base64 PCM16 (24 kHz mono) mic audio from the browser into a per-connection
  * `RealtimeCallBridge`, and model audio, barge-in clears, state, and
- * transcripts back. `consult_agent` runs an ordinary web chat turn through
- * `handleGatewayMessage`, so tools, approvals, and session history behave
- * exactly like typed chat.
+ * transcripts back. Spoken turns persist into session history as regular
+ * user/assistant messages tagged `source: 'voice'`. `consult_agent` runs an
+ * ordinary web chat turn through `handleGatewayMessage`, so tools, approvals,
+ * and session history behave exactly like typed chat.
  *
  * Threat model: the HTTP server authenticates the upgrade (session cookie or
  * loopback web session) BEFORE handing sockets to this module — nothing here
@@ -40,6 +41,7 @@ import {
   classifySessionKeyShape,
 } from '../session/session-key.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
+import { persistVoiceTranscript } from './voice-transcript-store.js';
 
 export const WEBCHAT_VOICE_STREAM_PATH = '/api/chat/voice/stream';
 
@@ -217,11 +219,17 @@ export class WebchatVoiceConnection {
           { sessionId, role, transcriptLength: text.length },
           'Webchat voice transcript',
         );
-        sendFrame(this.ws, {
-          type: 'transcript',
-          role: role === 'caller' ? 'user' : 'assistant',
+        const chatRole = role === 'caller' ? 'user' : 'assistant';
+        persistVoiceTranscript({
+          sessionId,
+          channelId: 'web',
+          agentId,
+          userId,
+          username,
+          role: chatRole,
           text,
         });
+        sendFrame(this.ws, { type: 'transcript', role: chatRole, text });
       },
       onStateChange: (state: RealtimeBridgeState) => {
         sendFrame(this.ws, { type: 'state', state });

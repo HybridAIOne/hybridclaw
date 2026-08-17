@@ -21,7 +21,7 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 53;
+export const DATABASE_SCHEMA_VERSION = 54;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -970,6 +970,7 @@ function migrateV1(database: Database.Database): void {
       content TEXT NOT NULL,
       artifacts_json TEXT,
       activity_trace_json TEXT,
+      source TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
@@ -3402,6 +3403,27 @@ function migrateV53(
   recordMigration(database, 53, 'Persist archived agent state');
 }
 
+function messageSourceNeedMigration(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'messages') &&
+    !columnExists(database, 'messages', 'source')
+  );
+}
+
+function migrateV54(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'messages',
+    column: 'source',
+    ddl: 'source TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 54, 'Persist message source (e.g. voice turns)');
+}
+
 export function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3527,6 +3549,9 @@ export function runMigrations(
   if (currentVersion < 51) migrateV51(database);
   if (currentVersion < 53 || agentArchivedNeedMigration(database)) {
     migrateV53(database, opts);
+  }
+  if (currentVersion < 54 || messageSourceNeedMigration(database)) {
+    migrateV54(database, opts);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);

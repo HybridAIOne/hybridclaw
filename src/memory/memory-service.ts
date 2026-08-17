@@ -175,6 +175,7 @@ export interface MemoryBackend {
     content: string,
     agentId?: string | null,
     artifacts?: ArtifactMetadata[] | null,
+    source?: string | null,
   ) => number;
   storeSemanticMemory: (params: {
     sessionId: string;
@@ -731,6 +732,7 @@ export class MemoryService {
     content: string;
     agentId?: string | null;
     artifacts?: ArtifactMetadata[] | null;
+    source?: string | null;
   }): number {
     return this.backend.storeMessage(
       params.sessionId,
@@ -740,6 +742,7 @@ export class MemoryService {
       params.content,
       params.agentId,
       params.artifacts,
+      params.source,
     );
   }
 

@@ -1,7 +1,9 @@
 /**
  * Realtime voice session hook: owns the `/api/chat/voice/stream` websocket
  * lifecycle and wires it to the `VoiceAudioPipeline` — mic chunks up, model
- * audio and barge-in clears down, plus state and transcript frames for the UI.
+ * audio and barge-in clears down, plus status for the UI. Transcript frames
+ * only signal that a turn was persisted; the chat page refetches history to
+ * render it.
  *
  * Guarantees teardown is idempotent (stop, server `ended`, socket close,
  * session switch, and unmount all funnel through one cleanup path) so the mic
@@ -14,8 +16,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { chatVoiceSocketUrl } from '../../api/client';
 import { VoiceAudioPipeline } from './voice-audio';
 
-const TRANSCRIPT_LIMIT = 100;
-
 export type VoiceSessionStatus =
   | 'idle'
   | 'connecting'
@@ -25,29 +25,21 @@ export type VoiceSessionStatus =
   | 'ended'
   | 'error';
 
-export interface VoiceTranscriptEntry {
-  id: number;
-  role: 'user' | 'assistant';
-  text: string;
-}
-
 export function useVoiceSession(options: {
   sessionId: string;
   agentId?: string | null;
-  onAssistantTurn?: () => void;
+  /** Fired per spoken turn; the gateway has already persisted it to history. */
+  onTranscript?: (role: 'user' | 'assistant') => void;
 }): {
   status: VoiceSessionStatus;
   error: string | null;
-  transcripts: VoiceTranscriptEntry[];
   start: () => Promise<void>;
   stop: () => void;
 } {
   const [status, setStatus] = useState<VoiceSessionStatus>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [transcripts, setTranscripts] = useState<VoiceTranscriptEntry[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
   const pipelineRef = useRef<VoiceAudioPipeline | null>(null);
-  const transcriptIdRef = useRef(0);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
@@ -68,7 +60,6 @@ export function useVoiceSession(options: {
   const start = useCallback(async () => {
     if (socketRef.current) return;
     setError(null);
-    setTranscripts([]);
     setStatus('connecting');
     const pipeline = new VoiceAudioPipeline();
     pipelineRef.current = pipeline;
@@ -132,17 +123,9 @@ export function useVoiceSession(options: {
         typeof frame.text === 'string' &&
         (frame.role === 'user' || frame.role === 'assistant')
       ) {
-        const role: 'user' | 'assistant' =
-          frame.role === 'user' ? 'user' : 'assistant';
-        const text = frame.text;
-        transcriptIdRef.current += 1;
-        const id = transcriptIdRef.current;
-        setTranscripts((current) =>
-          [...current, { id, role, text }].slice(-TRANSCRIPT_LIMIT),
+        optionsRef.current.onTranscript?.(
+          frame.role === 'user' ? 'user' : 'assistant',
         );
-        if (role === 'assistant') {
-          optionsRef.current.onAssistantTurn?.();
-        }
         return;
       }
       if (frame.type === 'error' && typeof frame.message === 'string') {
@@ -164,16 +147,15 @@ export function useVoiceSession(options: {
     });
   }, [stop]);
 
-  // Ephemeral voice turns belong to one chat session: switching sessions (or
-  // unmounting) ends the live session and drops the inline transcript.
+  // A live voice call belongs to one chat session: switching sessions (or
+  // unmounting) ends it.
   const sessionId = options.sessionId;
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId intentionally tears down the live call on session switch.
   useEffect(() => {
     return () => {
       stop();
-      setTranscripts([]);
     };
   }, [sessionId, stop]);
 
-  return { status, error, transcripts, start, stop };
+  return { status, error, start, stop };
 }
