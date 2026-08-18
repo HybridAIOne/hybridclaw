@@ -159,7 +159,9 @@ changes before navigation.
   audio streams to the realtime API for natural speech-to-speech conversation
   with interruption support; spoken turns persist into the conversation as
   voice-tagged messages, and substantive requests run as ordinary web chat
-  turns via `consult_agent`
+  turns via `consult_agent`; while a consult runs, the live-call capsule shows
+  what the agent is currently doing (for example `Checking — web search…`)
+  and long consults get short spoken progress updates
 - destructive admin actions use explicit browser confirmation dialogs before
   HybridClaw applies the requested change
 
