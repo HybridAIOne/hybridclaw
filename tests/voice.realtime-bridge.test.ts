@@ -249,7 +249,10 @@ test('consult_agent tool calls run the gateway turn and return its reply', async
 
   expect(consultAgent).toHaveBeenCalledWith(
     'What is on my calendar?',
-    expect.any(AbortSignal),
+    expect.objectContaining({
+      abortSignal: expect.any(AbortSignal),
+      onToolProgress: expect.any(Function),
+    }),
   );
   expect(states).toContain('thinking');
   const outputs = socket
@@ -382,6 +385,104 @@ test('DTMF digits are injected as caller text', () => {
   expect(items).toHaveLength(1);
   const content = items[0].content as Array<{ type: string; text: string }>;
   expect(content[0].text).toContain('"5"');
+});
+
+test('long consults speak out-of-band reassurance with live tool activity', async () => {
+  vi.useFakeTimers();
+  try {
+    let resolveConsult: (reply: string) => void = () => {};
+    let toolProgress: (event: {
+      toolName: string;
+      phase: 'start' | 'finish';
+    }) => void = () => {};
+    const consultAgent = vi.fn(
+      (_request: string, hooks: { onToolProgress: typeof toolProgress }) => {
+        toolProgress = hooks.onToolProgress;
+        return new Promise<string>((resolve) => {
+          resolveConsult = resolve;
+        });
+      },
+    );
+    const consultActivity: Array<string | null> = [];
+    const { socket } = createBridge({
+      consultAgent,
+      onConsultActivity: (label) => {
+        consultActivity.push(label);
+      },
+    });
+    socket.open();
+    socket.serverEvent({
+      type: 'response.function_call_arguments.done',
+      call_id: 'call_1',
+      name: 'consult_agent',
+      arguments: JSON.stringify({ request: 'Audit my inbox' }),
+    });
+    await Promise.resolve();
+
+    toolProgress({ toolName: 'web_search', phase: 'start' });
+    expect(consultActivity).toEqual(['web search']);
+
+    await vi.advanceTimersByTimeAsync(7_000);
+    const [first] = socket.sentOfType('response.create');
+    expect(first.response).toEqual({
+      conversation: 'none',
+      instructions: expect.stringContaining('web search'),
+    });
+
+    // Repeats stay out-of-band on the follow-up cadence.
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(socket.sentOfType('response.create')).toHaveLength(2);
+
+    resolveConsult('Inbox is clean.');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(consultActivity).toEqual(['web search', null]);
+
+    // No further reassurance once the consult resolved.
+    await vi.advanceTimersByTimeAsync(30_000);
+    const reassurances = socket
+      .sentOfType('response.create')
+      .filter(
+        (event) =>
+          (event.response as { conversation?: string } | undefined)
+            ?.conversation === 'none',
+      );
+    expect(reassurances).toHaveLength(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('reassurance stays silent while the caller speaks or the model talks', async () => {
+  vi.useFakeTimers();
+  try {
+    const consultAgent = vi.fn(() => new Promise<string>(() => {}));
+    const { socket } = createBridge({ consultAgent });
+    socket.open();
+    socket.serverEvent({
+      type: 'response.function_call_arguments.done',
+      call_id: 'call_1',
+      name: 'consult_agent',
+      arguments: JSON.stringify({ request: 'Slow request' }),
+    });
+    await Promise.resolve();
+
+    // Caller starts speaking before the first reassurance fires.
+    socket.serverEvent({ type: 'input_audio_buffer.speech_started' });
+    await vi.advanceTimersByTimeAsync(7_000);
+    expect(socket.sentOfType('response.create')).toHaveLength(0);
+
+    // Their utterance is transcribed; the next tick may speak again.
+    socket.serverEvent({
+      type: 'conversation.item.input_audio_transcription.completed',
+      transcript: 'Take your time.',
+    });
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(socket.sentOfType('response.create')).toHaveLength(1);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('transcripts are surfaced per role and close aborts consults', () => {

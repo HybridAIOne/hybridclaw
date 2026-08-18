@@ -8,6 +8,9 @@
  * `consult_agent` gateway turn runs per conversation at a time. The realtime
  * model only fronts the conversation; anything requiring tools, memory, or
  * actions is forwarded to the full gateway agent via the consult callback.
+ * Long consults stay audibly attended: tool progress from the consulted turn
+ * feeds spoken out-of-band reassurances (never over caller speech or an
+ * active response) and a live activity label for UI surfaces.
  *
  * NOT a transport: callers supply `sendAudio`/`clearPlayback` seams (Twilio
  * framing lives in `media-stream.ts`, browser framing in the gateway) and the
@@ -27,6 +30,13 @@ export const CONSULT_AGENT_TOOL_NAME = 'consult_agent';
 const CONSULT_BUSY_OUTPUT =
   'The assistant is still working on the previous request. Ask the caller to wait a moment.';
 
+// 7s/12s (PR #1395 call, 2026-08-19): the first reassurance lands before the
+// caller starts wondering whether the line dropped; repeats stay sparse so a
+// long consult sounds attended, not robotic. Tuning deferred to live-call
+// feedback.
+const CONSULT_REASSURE_FIRST_MS = 7_000;
+const CONSULT_REASSURE_INTERVAL_MS = 12_000;
+
 export type RealtimeBridgeState = 'listening' | 'speaking' | 'thinking';
 
 export type RealtimeSurface = 'phone' | 'web';
@@ -37,6 +47,23 @@ export interface RealtimeCallerInfo {
   callerName: string;
 }
 
+export interface RealtimeConsultToolProgress {
+  toolName: string;
+  phase: 'start' | 'finish';
+}
+
+export interface RealtimeConsultHooks {
+  abortSignal: AbortSignal;
+  onToolProgress: (event: RealtimeConsultToolProgress) => void;
+}
+
+/** "web_search" → "web search", for spoken status and UI labels. */
+export function humanizeConsultToolName(toolName: string): string {
+  return String(toolName || '')
+    .replace(/[_-]+/g, ' ')
+    .trim();
+}
+
 export interface RealtimeBridgeOptions {
   connection: RealtimeConnection;
   config: RuntimeVoiceRealtimeConfig;
@@ -45,9 +72,17 @@ export interface RealtimeBridgeOptions {
   audioFormat: RealtimeAudioFormat;
   sendAudio: (base64Audio: string) => Promise<void>;
   clearPlayback: () => Promise<void>;
-  consultAgent: (request: string, abortSignal: AbortSignal) => Promise<string>;
+  consultAgent: (
+    request: string,
+    hooks: RealtimeConsultHooks,
+  ) => Promise<string>;
   onTranscript: (role: 'assistant' | 'caller', text: string) => void;
   onStateChange: (state: RealtimeBridgeState) => void;
+  /**
+   * Live consult activity for UI surfaces: a humanized tool label while the
+   * consulted agent works, then null when the consult resolves.
+   */
+  onConsultActivity?: (label: string | null) => void;
   onError: (message: string) => void;
   onClosed: () => void;
   socketFactory?: RealtimeSocketFactory;
@@ -103,6 +138,9 @@ export class RealtimeCallBridge {
   private readonly options: RealtimeBridgeOptions;
   private readonly consultAbort = new AbortController();
   private consultInFlight = false;
+  private consultActivity: string | null = null;
+  private reassureTimer: NodeJS.Timeout | null = null;
+  private callerSpeaking = false;
   private closed = false;
 
   constructor(options: RealtimeBridgeOptions) {
@@ -153,6 +191,7 @@ export class RealtimeCallBridge {
           });
         },
         onSpeechStarted: () => {
+          this.callerSpeaking = true;
           this.options.onStateChange('listening');
           this.client.cancelResponse();
           void this.options.clearPlayback().catch(() => {
@@ -160,6 +199,7 @@ export class RealtimeCallBridge {
           });
         },
         onInputTranscript: (transcript) => {
+          this.callerSpeaking = false;
           this.options.onTranscript('caller', transcript);
         },
         onOutputTranscript: (transcript) => {
@@ -199,8 +239,41 @@ export class RealtimeCallBridge {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.stopReassurance();
     this.consultAbort.abort();
     this.client.close();
+  }
+
+  /**
+   * Speaks a short out-of-band "still working" line while a consult runs, but
+   * only into silence: never over the caller's speech or an active response.
+   */
+  private scheduleReassurance(delayMs: number): void {
+    this.stopReassurance();
+    this.reassureTimer = setTimeout(() => {
+      this.reassureTimer = null;
+      if (this.closed || !this.consultInFlight || !this.client.isOpen) {
+        return;
+      }
+      if (!this.callerSpeaking && !this.client.hasActiveResponse) {
+        const activity = this.consultActivity
+          ? ` It is currently busy with: ${this.consultActivity}.`
+          : '';
+        this.client.createOutOfBandResponse(
+          `The assistant is still working on the request.${activity} Briefly reassure the ${
+            this.options.surface === 'phone' ? 'caller' : 'user'
+          } in one short natural sentence. Do not call tools.`,
+        );
+      }
+      this.scheduleReassurance(CONSULT_REASSURE_INTERVAL_MS);
+    }, delayMs);
+  }
+
+  private stopReassurance(): void {
+    if (this.reassureTimer) {
+      clearTimeout(this.reassureTimer);
+      this.reassureTimer = null;
+    }
   }
 
   private handleFunctionCall(
@@ -225,9 +298,20 @@ export class RealtimeCallBridge {
       return;
     }
     this.consultInFlight = true;
+    this.consultActivity = null;
     this.options.onStateChange('thinking');
+    this.scheduleReassurance(CONSULT_REASSURE_FIRST_MS);
     void this.options
-      .consultAgent(request, this.consultAbort.signal)
+      .consultAgent(request, {
+        abortSignal: this.consultAbort.signal,
+        onToolProgress: (event) => {
+          if (this.closed || !this.consultInFlight) return;
+          if (event.phase === 'start') {
+            this.consultActivity = humanizeConsultToolName(event.toolName);
+            this.options.onConsultActivity?.(this.consultActivity);
+          }
+        },
+      })
       .then((reply) => {
         return reply.trim() || 'The assistant returned no reply.';
       })
@@ -244,6 +328,9 @@ export class RealtimeCallBridge {
       })
       .then((output) => {
         this.consultInFlight = false;
+        this.consultActivity = null;
+        this.stopReassurance();
+        this.options.onConsultActivity?.(null);
         if (this.closed || !output) {
           return;
         }

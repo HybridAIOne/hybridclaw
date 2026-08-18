@@ -3,8 +3,8 @@
  *
  * Owns the `/api/chat/voice/stream` websocket protocol: JSON frames carrying
  * base64 PCM16 (24 kHz mono) mic audio from the browser into a per-connection
- * `RealtimeCallBridge`, and model audio, barge-in clears, state, and
- * transcripts back. Spoken turns persist into session history as regular
+ * `RealtimeCallBridge`, and model audio, barge-in clears, state, consult
+ * activity labels, and transcripts back. Spoken turns persist into session history as regular
  * user/assistant messages tagged `source: 'voice'`. `consult_agent` runs an
  * ordinary web chat turn through `handleGatewayMessage`, so tools, approvals,
  * and session history behave exactly like typed chat.
@@ -200,7 +200,7 @@ export class WebchatVoiceConnection {
       clearPlayback: async () => {
         sendFrame(this.ws, { type: 'clear' });
       },
-      consultAgent: async (request, abortSignal) => {
+      consultAgent: async (request, hooks) => {
         const result = await handleGatewayMessage({
           sessionId,
           guildId: null,
@@ -209,13 +209,17 @@ export class WebchatVoiceConnection {
           username,
           content: request,
           agentId,
-          abortSignal,
+          abortSignal: hooks.abortSignal,
+          onToolProgress: (event) => hooks.onToolProgress(event),
           source: 'webchat.voice',
         });
         if (result.status !== 'success') {
           throw new Error(result.error || 'Chat turn failed.');
         }
         return formatTextForVoice(result.result || '');
+      },
+      onConsultActivity: (label) => {
+        sendFrame(this.ws, { type: 'consult', label });
       },
       onTranscript: (role, text) => {
         logger.debug(

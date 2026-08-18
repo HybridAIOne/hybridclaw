@@ -1421,6 +1421,7 @@ export function ChatPage() {
             <VoicePanel
               status={voiceSession.status}
               error={voiceSession.error}
+              consultActivity={voiceSession.consultActivity}
               onClose={() => setVoiceOpen(false)}
             />
           ) : null}

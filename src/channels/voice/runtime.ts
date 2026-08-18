@@ -45,6 +45,11 @@ export interface VoiceMessageContext {
   remoteIp: string;
   setupMessage: ConversationRelaySetupMessage | null;
   responseStream: ConversationRelayResponseStream;
+  /** Realtime consults only: live tool activity for spoken reassurance. */
+  onToolProgress?: (event: {
+    toolName: string;
+    phase: 'start' | 'finish';
+  }) => void;
 }
 
 export type VoiceMessageHandler = (
@@ -617,8 +622,15 @@ function handleWebSocketConnection(ws: WebSocket, remoteIp: string): void {
 async function dispatchRealtimeConsult(
   session: VoiceCallSession,
   content: string,
-  bridgeSignal: AbortSignal,
+  hooks: {
+    abortSignal: AbortSignal;
+    onToolProgress: (event: {
+      toolName: string;
+      phase: 'start' | 'finish';
+    }) => void;
+  },
 ): Promise<string> {
+  const bridgeSignal = hooks.abortSignal;
   const handler = voiceMessageHandler;
   if (!handler) {
     throw new Error('Voice runtime is unavailable.');
@@ -659,6 +671,7 @@ async function dispatchRealtimeConsult(
         remoteIp: session.remoteIp,
         setupMessage: session.setupMessage,
         responseStream,
+        onToolProgress: hooks.onToolProgress,
       },
     );
     // The stream buffers its final token until finish(); flush it into the
@@ -745,8 +758,8 @@ function handleMediaStreamConnection(ws: WebSocket, remoteIp: string): void {
                 buildMediaStreamClearPayload(message.streamSid),
               );
             },
-            consultAgent: (request, abortSignal) =>
-              dispatchRealtimeConsult(session, request, abortSignal),
+            consultAgent: (request, hooks) =>
+              dispatchRealtimeConsult(session, request, hooks),
             onTranscript: (role, text) => {
               logger.debug(
                 {

@@ -80,10 +80,10 @@ class FakeBrowserSocket {
   }
 }
 
-const handleGatewayMessage = vi.fn(async () => ({
+const handleGatewayMessage = vi.fn(async (_request: unknown) => ({
   status: 'success' as const,
   result: 'You have **two** meetings today.',
-  toolsUsed: [],
+  toolsUsed: [] as string[],
 }));
 
 const persistVoiceTranscript = vi.fn();
@@ -277,6 +277,44 @@ test('spoken turns persist into session history as voice messages', async () => 
       role: 'assistant',
       text: 'It is noon.',
     }),
+  ]);
+});
+
+test('consult tool activity streams to the browser as consult frames', async () => {
+  handleGatewayMessage.mockImplementationOnce(async (request: unknown) => {
+    const req = request as {
+      onToolProgress?: (event: {
+        sessionId: string;
+        toolName: string;
+        phase: 'start' | 'finish';
+      }) => void;
+    };
+    req.onToolProgress?.({
+      sessionId: 'ignored',
+      toolName: 'web_search',
+      phase: 'start',
+    });
+    return {
+      status: 'success' as const,
+      result: 'Found it.',
+      toolsUsed: ['web_search'],
+    };
+  });
+  const { browser, realtime } = await createConnection();
+  browser.clientFrame({ type: 'start' });
+  realtime.open();
+
+  realtime.serverEvent({
+    type: 'response.function_call_arguments.done',
+    call_id: 'call_1',
+    name: 'consult_agent',
+    arguments: JSON.stringify({ request: 'Find the doc' }),
+  });
+  await flushAsync();
+
+  expect(browser.sentOfType('consult')).toEqual([
+    { type: 'consult', label: 'web search' },
+    { type: 'consult', label: null },
   ]);
 });
 

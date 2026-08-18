@@ -36,11 +36,14 @@ export function useVoiceSession(options: {
 }): {
   status: VoiceSessionStatus;
   error: string | null;
+  /** Humanized tool label while a consulted agent turn works, else null. */
+  consultActivity: string | null;
   start: () => Promise<void>;
   stop: () => void;
 } {
   const [status, setStatus] = useState<VoiceSessionStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [consultActivity, setConsultActivity] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const pipelineRef = useRef<VoiceAudioPipeline | null>(null);
   const optionsRef = useRef(options);
@@ -55,6 +58,7 @@ export function useVoiceSession(options: {
     socket?.close();
     pipelineRef.current?.stop();
     pipelineRef.current = null;
+    setConsultActivity(null);
     setStatus((current) =>
       current === 'error' || current === 'idle' ? current : 'ended',
     );
@@ -133,7 +137,14 @@ export function useVoiceSession(options: {
           state === 'thinking'
         ) {
           setStatus(state);
+          if (state !== 'thinking') setConsultActivity(null);
         }
+        return;
+      }
+      if (frame.type === 'consult') {
+        setConsultActivity(
+          typeof frame.label === 'string' && frame.label ? frame.label : null,
+        );
         return;
       }
       if (
@@ -175,5 +186,5 @@ export function useVoiceSession(options: {
     };
   }, [sessionId, stop]);
 
-  return { status, error, start, stop };
+  return { status, error, consultActivity, start, stop };
 }

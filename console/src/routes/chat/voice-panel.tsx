@@ -39,8 +39,13 @@ const WAVE_BARS = [0, 1, 2, 3, 4];
 export function VoicePanel(props: {
   status: VoiceSessionStatus;
   error: string | null;
+  consultActivity?: string | null;
   onClose: () => void;
 }) {
+  const label =
+    props.status === 'thinking' && props.consultActivity
+      ? `Checking — ${props.consultActivity}…`
+      : STATUS_LABELS[props.status];
   return (
     <div
       className={cx(css.voiceCapsule, STATUS_CLASSES[props.status])}
@@ -52,9 +57,7 @@ export function VoicePanel(props: {
           <span key={bar} className={css.voiceWaveBar} />
         ))}
       </span>
-      <span className={css.voiceStatusLabel}>
-        {props.error || STATUS_LABELS[props.status]}
-      </span>
+      <span className={css.voiceStatusLabel}>{props.error || label}</span>
       <button
         type="button"
         className={css.voiceEndButton}

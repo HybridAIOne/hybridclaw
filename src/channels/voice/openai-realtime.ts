@@ -173,6 +173,18 @@ export class OpenAIRealtimeClient {
     });
   }
 
+  /**
+   * Speaks a one-off status line without appending it to the conversation —
+   * the GA out-of-band response shape (`conversation: 'none'`), used for
+   * "still working" reassurance while a function call is outstanding.
+   */
+  createOutOfBandResponse(instructions: string): void {
+    this.sendEvent({
+      type: 'response.create',
+      response: { conversation: 'none', instructions },
+    });
+  }
+
   cancelResponse(): void {
     if (!this.responseActive) return;
     this.sendEvent({ type: 'response.cancel' });

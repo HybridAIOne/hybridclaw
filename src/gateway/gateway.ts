@@ -3221,6 +3221,9 @@ async function startVoiceIntegration(): Promise<boolean> {
             source: 'voice',
             reply: textReply,
             abortSignal: context.abortSignal,
+            onToolProgress: context.onToolProgress
+              ? (event) => context.onToolProgress?.(event)
+              : undefined,
             onTextDelta: (delta) => {
               const filteredDelta = streamFilter.push(delta);
               if (!filteredDelta) return;
