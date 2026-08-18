@@ -2736,6 +2736,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 'gpt-realtime',
     },
     {
+      path: 'voice.realtime.provider',
+      section: 'voice',
+      kind: 'string',
+      defaultValue: 'openai',
+    },
+    {
       path: 'voice.realtime.voice',
       section: 'voice',
       kind: 'string',
