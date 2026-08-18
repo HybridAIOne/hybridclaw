@@ -87,6 +87,31 @@ export function buildGoodbyeNcco(params) {
     bargeIn: false,
   });
 }
+/**
+ * Realtime mode: hand the call's audio to our websocket endpoint as linear
+ * PCM at 8 kHz (matches the µ-law realtime session sample rate — no
+ * resampling anywhere). The goodbye talk plays once the websocket leg ends.
+ */
+export function buildRealtimeConnectNcco(params) {
+  return [
+    {
+      action: 'connect',
+      endpoint: [
+        {
+          type: 'websocket',
+          uri: params.websocketUri,
+          'content-type': 'audio/l16;rate=8000',
+          headers: { callUuid: params.callUuid },
+        },
+      ],
+    },
+    ...buildTalkActions({
+      text: 'Goodbye.',
+      language: params.language,
+      bargeIn: false,
+    }),
+  ];
+}
 function readString(record, key) {
   const value = record[key];
   return typeof value === 'string' ? value.trim() : '';

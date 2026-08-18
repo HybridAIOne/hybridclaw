@@ -23,12 +23,17 @@ export function resolveConfig(api) {
   }
   if (!privateKey) throw new Error('VONAGE_PRIVATE_KEY is required.');
   if (!signatureSecret) throw new Error('VONAGE_SIGNATURE_SECRET is required.');
+  const mode = String(config.mode || 'turn').trim() || 'turn';
+  if (mode !== 'turn' && mode !== 'realtime') {
+    throw new Error('Vonage mode must be "turn" or "realtime".');
+  }
   return {
     applicationId,
     fromNumber,
     publicBaseUrl,
     privateKey,
     signatureSecret,
+    mode,
     language: String(config.language || 'en-US').trim() || 'en-US',
     welcomeGreeting:
       String(config.welcomeGreeting || '').trim() ||

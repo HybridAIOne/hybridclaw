@@ -7,12 +7,15 @@ import {
 import {
   buildGoodbyeNcco,
   buildParkNcco,
+  buildRealtimeConnectNcco,
   buildReplyNcco,
   parseVonageAnswerWebhook,
   parseVonageEventWebhook,
   parseVonageInputWebhook,
   VONAGE_TERMINAL_CALL_STATUSES,
 } from './ncco.js';
+import { createVonageRealtimeStreams } from './realtime.js';
+import { buildVoiceSessionKey } from './utils.js';
 
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_SILENT_TIMEOUTS = 3;
@@ -41,25 +44,16 @@ async function readRawJson(req) {
   }
 }
 
-function buildVoiceSessionKey(agentId, callUuid) {
-  return [
-    'agent',
-    encodeURIComponent(agentId),
-    'channel',
-    'voice',
-    'chat',
-    'dm',
-    'peer',
-    encodeURIComponent(callUuid),
-  ].join(':');
-}
-
 export function createVonageRuntime(api, config) {
   const sessions = new Map();
   const replayCache = new Map();
   const agentId = api.config.agents?.defaultAgentId || 'main';
   const webhookBase = `${config.publicBaseUrl}/api/plugin-webhooks/vonage-voice`;
   const inputEventUrl = `${webhookBase}/input`;
+  const realtimeStreams =
+    config.mode === 'realtime'
+      ? createVonageRealtimeStreams(api, config)
+      : null;
 
   function validateWebhook(ctx, rawBody) {
     const token = extractBearerToken(ctx.req.headers.authorization);
@@ -164,11 +158,44 @@ export function createVonageRuntime(api, config) {
         );
         return;
       }
+      if (realtimeStreams && !api.isRealtimeVoiceAvailable()) {
+        ctx.logger.warn(
+          { callUuid: answer.uuid },
+          'Vonage realtime call refused: realtime voice is not configured',
+        );
+        sendJson(
+          ctx.res,
+          200,
+          buildGoodbyeNcco({
+            message:
+              'The voice assistant is not available right now. Please try again later.',
+            language: config.language,
+          }),
+        );
+        return;
+      }
       sessions.set(answer.uuid, {
         ...answer,
         busy: false,
         silentTimeouts: 0,
       });
+      if (realtimeStreams) {
+        const token = realtimeStreams.mintStreamToken({
+          uuid: answer.uuid,
+          from: answer.from,
+          to: answer.to,
+        });
+        sendJson(
+          ctx.res,
+          200,
+          buildRealtimeConnectNcco({
+            websocketUri: realtimeStreams.websocketUri(token),
+            callUuid: answer.uuid,
+            language: config.language,
+          }),
+        );
+        return;
+      }
       sendJson(
         ctx.res,
         200,
@@ -235,9 +262,18 @@ export function createVonageRuntime(api, config) {
       sendJson(ctx.res, 200, {});
     },
 
+    handleStreamUpgrade(ctx) {
+      if (!realtimeStreams) {
+        ctx.reject(404, 'Realtime mode is not enabled');
+        return;
+      }
+      return realtimeStreams.handleStreamUpgrade(ctx);
+    },
+
     stop() {
       sessions.clear();
       replayCache.clear();
+      realtimeStreams?.stop();
     },
   };
 }
