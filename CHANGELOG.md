@@ -17,6 +17,17 @@
   needed. Consulted requests run as ordinary web chat turns and appear in the
   session transcript; the button only shows when an `OPENAI_API_KEY` is
   configured.
+- **Realtime mode for the Vonage Voice plugin**: `plugin config vonage-voice
+  mode realtime` runs Vonage calls as the same speech-to-speech conversations
+  over Vonage websocket audio, reusing the core realtime engine and
+  `voice.realtime.*` settings while keeping Vonage credentials in the plugin.
+  Built on two new plugin API seams — `registerWebsocketWebhook` and
+  `createRealtimeVoiceSession` — available to any channel plugin.
+- **Live progress during realtime voice consults**: While the realtime model
+  consults the full agent, long-running turns speak short "still working"
+  updates naming the current tool activity (never over the caller), and the
+  web console's live-call capsule shows what the agent is doing, for example
+  `Checking — web search…`.
 
 ## [0.28.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.7) - 2026-08-17
 
