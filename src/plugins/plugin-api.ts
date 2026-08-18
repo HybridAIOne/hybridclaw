@@ -19,6 +19,10 @@ import {
   writePluginConfigValue,
 } from './plugin-config.js';
 import type { PluginManager } from './plugin-manager.js';
+import {
+  createPluginRealtimeVoiceSession,
+  isPluginRealtimeVoiceAvailable,
+} from './plugin-realtime-voice.js';
 import type {
   HybridClawPluginApi,
   MemoryLayerPlugin,
@@ -32,10 +36,13 @@ import type {
   PluginMiddlewareSkill,
   PluginOutputGuard,
   PluginPromptHook,
+  PluginRealtimeVoiceSession,
+  PluginRealtimeVoiceSessionOptions,
   PluginRegistrationMode,
   PluginRuntime,
   PluginService,
   PluginToolDefinition,
+  PluginWebsocketWebhookDefinition,
 } from './plugin-types.js';
 
 function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
@@ -149,10 +156,26 @@ export function createPluginApi(params: {
     registerInboundWebhook(webhook: PluginInboundWebhookDefinition): void {
       params.manager.registerInboundWebhook(params.pluginId, webhook);
     },
+    registerWebsocketWebhook(webhook: PluginWebsocketWebhookDefinition): void {
+      params.manager.registerWebsocketWebhook(params.pluginId, webhook);
+    },
     dispatchInboundMessage(
       request: PluginDispatchInboundMessageRequest,
     ): Promise<import('../gateway/gateway-types.js').GatewayChatResult> {
       return params.manager.dispatchInboundMessage(params.pluginId, request);
+    },
+    isRealtimeVoiceAvailable(): boolean {
+      return isPluginRealtimeVoiceAvailable();
+    },
+    createRealtimeVoiceSession(
+      options: PluginRealtimeVoiceSessionOptions,
+    ): PluginRealtimeVoiceSession {
+      return createPluginRealtimeVoiceSession(options, {
+        pluginId: params.pluginId,
+        agentId: resolvePluginSessionAgentId(options.session.sessionId),
+        dispatch: (request) =>
+          params.manager.dispatchInboundMessage(params.pluginId, request),
+      });
     },
     on<K extends PluginHookName>(
       event: K,

@@ -2033,6 +2033,84 @@ test('plugin manager resolves fixed plugin inbound webhook routes and enforces H
   ).resolves.toBe(false);
 });
 
+test('plugin manager routes websocket webhooks and enforces handler settlement', async () => {
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    getRuntimeConfig: () => {
+      const config = loadRuntimeConfig();
+      config.plugins.list = [];
+      return config;
+    },
+  });
+
+  manager.registerInboundWebhook('demo-plugin', {
+    name: 'answer',
+    async handler() {},
+  });
+  expect(() =>
+    manager.registerWebsocketWebhook('demo-plugin', {
+      name: 'answer',
+      async handler() {},
+    }),
+  ).toThrow('already registered');
+  expect(() =>
+    manager.registerWebsocketWebhook('demo-plugin', {
+      name: '',
+      async handler() {},
+    }),
+  ).toThrow('missing `name`');
+
+  const rejected: Array<{ statusCode: number; message: string }> = [];
+  manager.registerWebsocketWebhook('demo-plugin', {
+    name: 'stream',
+    handler(ctx) {
+      ctx.reject(401, 'Invalid stream token');
+    },
+  });
+  manager.registerWebsocketWebhook('demo-plugin', {
+    name: 'silent',
+    handler() {
+      // Neither accepts nor rejects; the manager must fail the upgrade.
+    },
+  });
+
+  const upgradeParams = (pathname: string) => ({
+    pathname,
+    url: new URL(`http://localhost${pathname}`),
+    req: makeWebhookRequest({ method: 'GET', url: pathname }),
+    socket: {} as never,
+    head: Buffer.alloc(0),
+    rejectUpgrade: (statusCode: number, message: string) => {
+      rejected.push({ statusCode, message });
+    },
+  });
+
+  await expect(
+    manager.handleWebsocketUpgrade(
+      upgradeParams('/api/plugin-webhooks/demo-plugin/missing'),
+    ),
+  ).resolves.toBe(false);
+
+  await expect(
+    manager.handleWebsocketUpgrade(
+      upgradeParams('/api/plugin-webhooks/demo-plugin/stream'),
+    ),
+  ).resolves.toBe(true);
+  expect(rejected).toEqual([
+    { statusCode: 401, message: 'Invalid stream token' },
+  ]);
+
+  await expect(
+    manager.handleWebsocketUpgrade(
+      upgradeParams('/api/plugin-webhooks/demo-plugin/silent'),
+    ),
+  ).resolves.toBe(true);
+  expect(rejected[1]).toEqual({
+    statusCode: 500,
+    message: 'Plugin websocket handler did not settle',
+  });
+});
+
 test('plugin manager rejects unsupported inbound webhook methods', async () => {
   const { PluginManager } = await import('../src/plugins/plugin-manager.js');
   const manager = new PluginManager();

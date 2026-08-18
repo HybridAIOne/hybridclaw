@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Ajv, type AnySchemaObject, type ErrorObject } from 'ajv';
+import * as wsModule from 'ws';
 import { parse as parseYaml } from 'yaml';
 import {
   type AgentTurnContext,
@@ -81,6 +82,9 @@ import type {
   PluginToolDefinition,
   PluginToolHandlerContext,
   PluginToolSchema,
+  PluginWebsocket,
+  PluginWebsocketWebhookContext,
+  PluginWebsocketWebhookDefinition,
 } from './plugin-types.js';
 import { buildPluginInboundWebhookPath } from './plugin-webhooks.js';
 
@@ -166,6 +170,28 @@ type RegisteredInboundWebhook = {
   logger: PluginLogger;
 };
 
+type RegisteredWebsocketWebhook = {
+  pluginId: string;
+  path: string;
+  webhook: PluginWebsocketWebhookDefinition & { name: string };
+  logger: PluginLogger;
+};
+
+type PluginWebsocketServerLike = {
+  handleUpgrade: (
+    req: import('node:http').IncomingMessage,
+    socket: import('node:stream').Duplex,
+    head: Buffer,
+    cb: (ws: PluginWebsocket) => void,
+  ) => void;
+};
+
+const PLUGIN_WEBSOCKET_MAX_FRAME_BYTES = 256 * 1024;
+// 32 (PR #1395 call, 2026-08-19): plugin websockets are per-call media
+// streams, not fan-out subscriptions; matches the voice runtime's
+// pending-upgrade cap. Raise only with a concrete plugin that needs more.
+const PLUGIN_WEBSOCKET_MAX_ACTIVE = 32;
+
 type RegisteredHook<K extends PluginHookName = PluginHookName> = {
   pluginId: string;
   priority: number;
@@ -204,6 +230,7 @@ type PluginRegistrationSnapshot = {
   middlewares: RegisteredMiddleware[];
   services: RegisteredService[];
   inboundWebhooks: Map<string, RegisteredInboundWebhook>;
+  websocketWebhooks: Map<string, RegisteredWebsocketWebhook>;
   providers: RegisteredProvider[];
   channels: RegisteredChannel[];
   channelTransports: RegisteredChannelTransport[];
@@ -834,6 +861,9 @@ export class PluginManager {
   private tools = new Map<string, RegisteredTool>();
   private services: RegisteredService[] = [];
   private inboundWebhooks = new Map<string, RegisteredInboundWebhook>();
+  private websocketWebhooks = new Map<string, RegisteredWebsocketWebhook>();
+  private activeWebsocketCount = 0;
+  private websocketServer: PluginWebsocketServerLike | null = null;
   private providers: RegisteredProvider[] = [];
   private channels: RegisteredChannel[] = [];
   private channelTransports: RegisteredChannelTransport[] = [];
@@ -1464,6 +1494,29 @@ export class PluginManager {
     });
   }
 
+  registerWebsocketWebhook(
+    pluginId: string,
+    webhook: PluginWebsocketWebhookDefinition,
+  ): void {
+    const normalizedName = safeString(() => webhook.name, '').trim();
+    if (!normalizedName) {
+      throw new Error('Plugin websocket webhook is missing `name`.');
+    }
+    const path = buildPluginInboundWebhookPath(pluginId, normalizedName);
+    if (this.websocketWebhooks.has(path) || this.inboundWebhooks.has(path)) {
+      throw new Error(`Plugin webhook path "${path}" is already registered.`);
+    }
+    this.websocketWebhooks.set(path, {
+      pluginId,
+      path,
+      webhook: { ...webhook, name: normalizedName },
+      logger: this.logger.child({
+        pluginId,
+        webhookName: normalizedName,
+      }) as PluginLogger,
+    });
+  }
+
   registerHook<K extends PluginHookName>(
     pluginId: string,
     name: K,
@@ -1566,6 +1619,7 @@ export class PluginManager {
       middlewares: [...this.middlewares],
       services: [...this.services],
       inboundWebhooks: new Map(this.inboundWebhooks),
+      websocketWebhooks: new Map(this.websocketWebhooks),
       providers: [...this.providers],
       channels: [...this.channels],
       channelTransports: [...this.channelTransports],
@@ -1592,6 +1646,7 @@ export class PluginManager {
     this.recomputeMiddlewareFlags();
     this.services = [...snapshot.services];
     this.inboundWebhooks = new Map(snapshot.inboundWebhooks);
+    this.websocketWebhooks = new Map(snapshot.websocketWebhooks);
     this.providers = [...snapshot.providers];
     for (const entry of this.channelTransports) {
       unregisterChannelTransport(entry.transport.kind);
@@ -1789,6 +1844,99 @@ export class PluginManager {
         params.res.statusCode = 204;
       }
       params.res.end();
+    }
+    return true;
+  }
+
+  /**
+   * Routes a websocket upgrade on the plugin webhook path to its registered
+   * handler. Returns false when no handler owns the path (caller answers
+   * 404). The handler must validate the peer before accepting — the gateway
+   * performs no auth here, mirroring HTTP plugin webhooks.
+   */
+  async handleWebsocketUpgrade(params: {
+    pathname: string;
+    url: URL;
+    req: import('node:http').IncomingMessage;
+    socket: import('node:stream').Duplex;
+    head: Buffer;
+    rejectUpgrade: (statusCode: number, message: string) => void;
+  }): Promise<boolean> {
+    await this.ensureInitialized();
+    const entry = this.websocketWebhooks.get(params.pathname);
+    if (!entry) {
+      return false;
+    }
+    if (this.activeWebsocketCount >= PLUGIN_WEBSOCKET_MAX_ACTIVE) {
+      entry.logger.warn(
+        { path: entry.path },
+        'Plugin websocket upgrade rejected: too many active sockets',
+      );
+      params.rejectUpgrade(503, 'Too many plugin websocket sessions');
+      return true;
+    }
+    this.websocketServer ??= new (
+      wsModule as unknown as {
+        WebSocketServer: new (options: {
+          noServer: true;
+          maxPayload: number;
+        }) => PluginWebsocketServerLike;
+      }
+    ).WebSocketServer({
+      noServer: true,
+      maxPayload: PLUGIN_WEBSOCKET_MAX_FRAME_BYTES,
+    });
+    const server = this.websocketServer;
+    let settled = false;
+    const context: PluginWebsocketWebhookContext = {
+      req: params.req,
+      url: params.url,
+      pluginId: entry.pluginId,
+      webhookName: entry.webhook.name,
+      path: entry.path,
+      logger: entry.logger,
+      accept: () => {
+        if (settled) {
+          return Promise.reject(
+            new Error('Plugin websocket upgrade already settled.'),
+          );
+        }
+        settled = true;
+        this.activeWebsocketCount += 1;
+        return new Promise<PluginWebsocket>((resolve) => {
+          server.handleUpgrade(params.req, params.socket, params.head, (ws) => {
+            ws.on('close', () => {
+              this.activeWebsocketCount = Math.max(
+                0,
+                this.activeWebsocketCount - 1,
+              );
+            });
+            resolve(ws);
+          });
+        });
+      },
+      reject: (statusCode, message) => {
+        if (settled) return;
+        settled = true;
+        params.rejectUpgrade(statusCode, message);
+      },
+    };
+    try {
+      await entry.webhook.handler(context);
+    } catch (error) {
+      entry.logger.warn(
+        { path: entry.path, error },
+        'Plugin websocket webhook handler failed',
+      );
+      if (!settled) {
+        settled = true;
+        params.rejectUpgrade(500, 'Plugin websocket handler failed');
+      }
+      return true;
+    }
+    if (!settled) {
+      settled = true;
+      params.rejectUpgrade(500, 'Plugin websocket handler did not settle');
     }
     return true;
   }

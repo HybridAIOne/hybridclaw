@@ -271,6 +271,7 @@ import { getGatewayAdminLogs } from './gateway-log-service.js';
 import {
   getGatewayAdminPlugins,
   handleGatewayPluginWebhook,
+  handleGatewayPluginWebsocketUpgrade,
   runGatewayPluginTool,
 } from './gateway-plugin-service.js';
 import { requestGatewayRestart } from './gateway-restart.js';
@@ -11379,6 +11380,32 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         userId: resolveGatewayRequestUserId({ req, channelId: 'web' }) || null,
         username: null,
       });
+      return;
+    }
+
+    if (isPluginInboundWebhookPath(url.pathname)) {
+      // Peer auth happens inside the owning plugin handler, mirroring HTTP
+      // plugin webhooks (e.g. signed one-time stream tokens).
+      void handleGatewayPluginWebsocketUpgrade({
+        req,
+        socket,
+        head,
+        url,
+        rejectUpgrade: (statusCode, message) =>
+          writeUpgradeError(socket, statusCode, message),
+      })
+        .then((handled) => {
+          if (!handled) {
+            writeUpgradeError(socket, 404, 'Not Found');
+          }
+        })
+        .catch((error: unknown) => {
+          logger.warn(
+            { error, pathname: url.pathname },
+            'Plugin websocket upgrade failed',
+          );
+          writeUpgradeError(socket, 500, 'Upgrade failed');
+        });
       return;
     }
 
