@@ -65,3 +65,35 @@ export function getChannelPluginStatuses(): ChannelPluginStatus[] {
     };
   });
 }
+
+export interface ChannelPluginAvailabilityChange {
+  channel: ChannelKind;
+  available: boolean;
+}
+
+export type ChannelPluginAvailabilitySnapshot = ReadonlyMap<
+  ChannelKind,
+  boolean
+>;
+
+export function snapshotChannelPluginTransportAvailability(): ChannelPluginAvailabilitySnapshot {
+  return new Map(
+    Object.keys(CHANNEL_PLUGIN_CATALOG).map((channel) => [
+      channel as ChannelKind,
+      hasChannelTransport(channel as ChannelKind),
+    ]),
+  );
+}
+
+export function diffChannelPluginTransportAvailability(
+  before: ChannelPluginAvailabilitySnapshot,
+  after: ChannelPluginAvailabilitySnapshot,
+): ChannelPluginAvailabilityChange[] {
+  const changes: ChannelPluginAvailabilityChange[] = [];
+  for (const [channel, available] of after) {
+    if ((before.get(channel) ?? false) !== available) {
+      changes.push({ channel, available });
+    }
+  }
+  return changes;
+}

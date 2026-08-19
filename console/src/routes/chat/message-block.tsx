@@ -30,6 +30,7 @@ import { renderMarkdown } from '../../lib/markdown';
 import { A2ADeliveryChip } from './a2a-delivery-chip';
 import { findAgentMentions } from './agent-mention-display';
 import { ApprovalCard } from './approval-card';
+import type { ApprovalItemState } from './approval-lifecycle';
 import css from './chat-page.module.css';
 import type { ChatUiMessage } from './chat-ui-message';
 import {
@@ -402,6 +403,8 @@ export const MessageBlock = memo(function MessageBlock(props: {
   skillInvocationTargets?: ReadonlyMap<string, string>;
   onApprovalAction: (action: ApprovalAction, approvalId: string) => void;
   approvalBusy: boolean;
+  /** Lifecycle state for this message's approval item, if it has one. */
+  approvalState?: ApprovalItemState;
   branchInfo: { current: number; total: number } | null;
   onBranchNav: (message: ChatMessage, direction: -1 | 1) => void;
 }) {
@@ -437,6 +440,13 @@ export const MessageBlock = memo(function MessageBlock(props: {
   const isDraft = msg.role === 'draft';
   const isA2ADeliveryStatus = Boolean(msg.a2aDelivery);
   const shouldRenderApprovalCard = isApproval && Boolean(msg.pendingApproval);
+  // A text-rendered approval item (role 'approval' without its structured
+  // payload, or an assistant/command message announcing one in plain text) —
+  // chat-page has already worked out whether it's still actionable.
+  const isTextApprovalItem =
+    Boolean(props.approvalState) && !shouldRenderApprovalCard;
+  const showApprovalTextActions =
+    isTextApprovalItem && props.approvalState?.status === 'active';
   const isMarkdownMessage =
     !isA2ADeliveryStatus &&
     (msg.role === 'assistant' ||
@@ -541,14 +551,47 @@ export const MessageBlock = memo(function MessageBlock(props: {
               approval={msg.pendingApproval}
               busy={props.approvalBusy}
               onAction={props.onApprovalAction}
+              status={props.approvalState?.status}
+              respondedAction={props.approvalState?.respondedAction}
             />
           ) : isMarkdownMessage ? (
-            <div
-              ref={markdownRef}
-              className={css.markdownContent}
-              // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
-              dangerouslySetInnerHTML={{ __html: renderedHtml }}
-            />
+            <>
+              <div
+                ref={markdownRef}
+                className={css.markdownContent}
+                // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
+                dangerouslySetInnerHTML={{ __html: renderedHtml }}
+              />
+              {showApprovalTextActions ? (
+                <div className={css.approvalTextActions}>
+                  <Button
+                    size="sm"
+                    disabled={props.approvalBusy}
+                    onClick={() =>
+                      props.onApprovalAction(
+                        'once',
+                        props.approvalState?.approvalId ?? '',
+                      )
+                    }
+                  >
+                    Allow once
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    disabled={props.approvalBusy}
+                    onClick={() =>
+                      props.onApprovalAction(
+                        'deny',
+                        props.approvalState?.approvalId ?? '',
+                      )
+                    }
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : null}
+            </>
           ) : isUser ? (
             <UserMessageContent
               content={stripAppBuildDirective(msg.content)}

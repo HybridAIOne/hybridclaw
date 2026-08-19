@@ -33,6 +33,7 @@ import {
   startObservabilityIngest,
   stopObservabilityIngest,
 } from '../audit/observability-ingest.js';
+import type { ChannelPluginAvailabilityChange } from '../channels/channel-plugin-catalog.js';
 import { buildResponseText } from '../channels/discord/delivery.js';
 import { rewriteUserMentionsForMessage } from '../channels/discord/mentions.js';
 import {
@@ -233,6 +234,7 @@ import {
 import { startGatewayHttpServer } from './gateway-http-server.js';
 import {
   initGatewayService,
+  setChannelPluginAvailabilityListener,
   stopGatewayPlugins,
 } from './gateway-plugin-service.js';
 import {
@@ -3153,6 +3155,60 @@ async function refreshLineIntegrationForConfigChange(
   await startLineIntegration();
 }
 
+/**
+ * Starts or stops install-on-demand channel integrations when a plugin
+ * runtime reload changes which channel transports are registered. This is
+ * what makes an admin-console plugin install take effect immediately: the
+ * install reloads the plugin manager (registering the transport), and this
+ * hook then brings the channel runtime up without requiring a full gateway
+ * restart. The reverse transition (transport removed by uninstall/disable)
+ * shuts the channel runtime down so it does not keep using a dead transport.
+ */
+async function refreshChannelIntegrationsForPluginAvailability(
+  changes: ChannelPluginAvailabilityChange[],
+): Promise<void> {
+  const externalChannelsEnabled = !isA2ALocalModeEnabled(getConfigSnapshot());
+  for (const change of changes) {
+    logger.info(
+      { channel: change.channel, transportAvailable: change.available },
+      change.available
+        ? 'Channel transport plugin became available; refreshing channel integration'
+        : 'Channel transport plugin became unavailable; stopping channel integration',
+    );
+    switch (change.channel) {
+      case 'whatsapp': {
+        await shutdownWhatsApp().catch((error) => {
+          logger.debug(
+            { error },
+            'Failed to stop WhatsApp runtime during plugin availability refresh',
+          );
+        });
+        if (change.available && externalChannelsEnabled) {
+          await startWhatsAppIntegration();
+        }
+        break;
+      }
+      case 'line': {
+        await shutdownLine().catch((error) => {
+          logger.debug(
+            { error },
+            'Failed to stop LINE runtime during plugin availability refresh',
+          );
+        });
+        if (change.available && externalChannelsEnabled) {
+          await startLineIntegration();
+        }
+        break;
+      }
+      default:
+        logger.warn(
+          { channel: change.channel },
+          'No integration refresh handler for channel plugin availability change',
+        );
+    }
+  }
+}
+
 async function refreshThreemaIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
@@ -3698,6 +3754,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
       detachConfigListener();
       detachConfigListener = null;
     }
+    setChannelPluginAvailabilityListener(null);
     await runShutdownStep(
       'set Discord maintenance presence',
       setDiscordMaintenancePresence,
@@ -4093,6 +4150,9 @@ async function main(): Promise<void> {
   void hybridAIProbe.get().catch((err) => {
     logger.warn({ err }, 'Startup warm-up of HybridAI probe failed');
   });
+  setChannelPluginAvailabilityListener(
+    refreshChannelIntegrationsForPluginAvailability,
+  );
   detachConfigListener = onConfigChange((next, prev) => {
     a2aLocalModeTransition = a2aLocalModeTransition
       .then(() => refreshA2ALocalModeForConfigChange(next, prev))
