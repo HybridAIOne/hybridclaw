@@ -95,9 +95,23 @@ export type CommandHandler = (
   reply: ReplyFn,
 ) => Promise<void>;
 
+export interface MSTeamsReactionEvent {
+  sessionId: string;
+  channelId: string;
+  userId: string;
+  username: string;
+  /** Teams activity id of the message the reaction targets. */
+  activityId: string;
+  added: string[];
+  removed: string[];
+}
+
+export type ReactionHandler = (event: MSTeamsReactionEvent) => Promise<void>;
+
 let adapter: CloudAdapter | null = null;
 let messageHandler: MessageHandler | null = null;
 let commandHandler: CommandHandler | null = null;
+let reactionHandler: ReactionHandler | null = null;
 let adapterCredentials: {
   appId: string;
   password: string;
@@ -536,6 +550,53 @@ function ensureTeamsRuntimeReady(): CloudAdapter {
   return buildAdapter();
 }
 
+function extractReactionTypes(
+  reactions: Array<{ type?: string | null }> | undefined,
+): string[] {
+  if (!Array.isArray(reactions)) return [];
+  return reactions
+    .map((reaction) => normalizeValue(String(reaction?.type ?? '')))
+    .filter(Boolean);
+}
+
+async function maybeHandleMSTeamsMessageReaction(
+  turnContext: TurnContext,
+): Promise<boolean> {
+  const activity = turnContext.activity as Activity;
+  if (activity.type !== ActivityTypes.MessageReaction) return false;
+  if (!reactionHandler) return true;
+
+  const actor = extractActorIdentity(activity);
+  const reactedActivityId = normalizeValue(activity.replyToId);
+  const channelId = normalizeValue(activity.conversation?.id);
+  if (!actor.userId || !reactedActivityId || !channelId) return true;
+
+  const added = extractReactionTypes(activity.reactionsAdded);
+  const removed = extractReactionTypes(activity.reactionsRemoved);
+  if (added.length === 0 && removed.length === 0) return true;
+
+  const sessionId = buildSessionIdFromActivity(activity);
+  const username =
+    actor.displayName || actor.username || actor.aadObjectId || actor.userId;
+  try {
+    await reactionHandler({
+      sessionId,
+      channelId,
+      userId: actor.userId,
+      username,
+      activityId: reactedActivityId,
+      added,
+      removed,
+    });
+  } catch (error) {
+    logger.warn(
+      { error, sessionId, channelId },
+      'Teams message reaction handling failed',
+    );
+  }
+  return true;
+}
+
 async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
   if (!messageHandler || !commandHandler) {
     throw new Error('Teams runtime was not initialized with handlers.');
@@ -686,6 +747,7 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
 export function initMSTeams(
   onMessage: MessageHandler,
   onCommand: CommandHandler,
+  onReaction?: ReactionHandler,
 ): void {
   if (typeof onMessage !== 'function' || typeof onCommand !== 'function') {
     throw new Error(
@@ -694,6 +756,7 @@ export function initMSTeams(
   }
   messageHandler = onMessage;
   commandHandler = onCommand;
+  reactionHandler = typeof onReaction === 'function' ? onReaction : null;
   registerChannel({
     kind: 'msteams',
     id: 'msteams',
@@ -745,6 +808,9 @@ export async function handleMSTeamsWebhook(
       createAdapterResponse(res),
       async (turnContext) => {
         if (await maybeHandleMSTeamsFileConsentInvoke(turnContext)) {
+          return;
+        }
+        if (await maybeHandleMSTeamsMessageReaction(turnContext)) {
           return;
         }
         await handleIncomingMessage(turnContext);

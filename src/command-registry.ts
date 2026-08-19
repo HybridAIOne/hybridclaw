@@ -87,6 +87,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'rag',
   'model',
   'status',
+  'thumbs',
   'memory',
   'show',
   'approve',
@@ -317,6 +318,11 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     description:
       'Manage skill config, dependencies, health, runs, amendments, and imports',
   },
+  thumbs: {
+    command: '/thumbs up|down [comment]',
+    description:
+      'Rate the last answer; optionally add a correction or the expected answer',
+  },
   usage: {
     command: '/usage [summary|daily|monthly|model [daily|monthly] [agentId]]',
     description: 'Show usage',
@@ -494,6 +500,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'status':
       return ['status'];
+
+    case 'thumbs':
+      return ['thumbs', ...parts.slice(1)];
 
     case 'memory': {
       const sub = (parts[1] || '').trim().toLowerCase();
@@ -707,6 +716,45 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'status',
       description: 'Show HybridClaw runtime status (only visible to you)',
+    },
+    {
+      name: 'thumbs',
+      description: 'Rate the last answer with an optional correction note',
+      tuiMenu: {
+        label: '/thumbs up|down [comment]',
+        insertText: '/thumbs ',
+      },
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'up',
+          description: 'Mark the last answer as helpful',
+          options: [
+            {
+              kind: 'string',
+              name: 'comment',
+              description: 'Optional note',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'down',
+          description: 'Mark the last answer as wrong or unhelpful',
+          options: [
+            {
+              kind: 'string',
+              name: 'comment',
+              description: 'Optional correction or expected answer',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'clear',
+          description: 'Remove your rating from the last answer',
+        },
+      ],
     },
     {
       // Web-console only: handled client-side by the chat composer, which opens
@@ -3110,6 +3158,18 @@ export function parseCanonicalSlashCommandArgs(
   switch (interaction.commandName) {
     case 'status':
       return ['status'];
+
+    case 'thumbs': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (subcommand === 'up' || subcommand === 'down') {
+        const comment = normalizeStringOption(interaction, 'comment');
+        return comment
+          ? ['thumbs', subcommand, comment]
+          : ['thumbs', subcommand];
+      }
+      if (subcommand === 'clear') return ['thumbs', 'clear'];
+      return null;
+    }
 
     case 'btw': {
       const question = normalizeStringOption(interaction, 'question', true);
