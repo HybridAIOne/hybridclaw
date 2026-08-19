@@ -2,8 +2,33 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Email replies stay in their thread**: An agent that supplies its own parent
+  message id when answering mail no longer breaks threading when that value is
+  not a message id — for example an identifier read out of the subject line.
+  Unusable parents are rejected and the thread the runtime already tracked is
+  used instead, so the reply keeps its `Re:` subject and lands in the original
+  conversation rather than starting an untitled one.
+- **Chat approval prompts resolve instead of lingering**: Acting on an
+  approval card marks it handled instead of leaving live buttons behind, a
+  card superseded by a newer request or past its expiry says so instead of
+  offering a dead-end action, and pending approvals that arrive as plain text
+  — after a reload, or from a command's output — regain Allow/Cancel actions.
+
 ### Added
 
+- **Rate answers from chat channels with `/thumbs`**: `/thumbs up|down [comment]`
+  records the same per-operator response rating as the web console thumbs from
+  Microsoft Teams, Discord, Slack, and local text sessions, including an
+  optional correction note (for example `/thumbs down Correct answer is: 200`).
+  Ratings persist the note and originating surface and flow into the
+  response-ratings store, audit trail, adaptive-skill feedback, and HybridAI
+  chat-feedback forwarding; `/thumbs clear` removes a rating.
+- **Native Teams reactions count as feedback**: A 👍 (like) or 👎 reaction on a
+  HybridClaw answer in Microsoft Teams records the same response rating as
+  `/thumbs up|down`, and withdrawing the reaction clears it again when it still
+  matches. Other reaction types are ignored.
 - **Realtime voice mode for phone calls**: `voice.mode: "realtime"` runs
   Twilio calls through the OpenAI Realtime API as natural speech-to-speech
   conversations with barge-in, instead of the turn-based ConversationRelay

@@ -1094,6 +1094,7 @@ export class PluginManager {
       .map((entry) => path.join(dir, entry.name));
     const out: PluginCandidate[] = [];
     for (const entry of entries) {
+      if (!fs.existsSync(path.join(entry, MANIFEST_FILE_NAME))) continue;
       try {
         out.push(this.scanPluginDir(entry, source));
       } catch (error) {

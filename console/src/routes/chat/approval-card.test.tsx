@@ -63,4 +63,77 @@ describe('ApprovalCard', () => {
     expect(onAction).toHaveBeenCalledWith('session', 'approve123');
     expect(screen.queryByRole('button', { name: 'Trust agent' })).toBeNull();
   });
+
+  it('hides the action buttons and explains why for a responded card', () => {
+    const onAction = vi.fn();
+
+    render(
+      <ApprovalCard
+        approval={makeApproval()}
+        busy={false}
+        onAction={onAction}
+        status="responded"
+        respondedAction="session"
+      />,
+    );
+
+    expect(screen.getByText('Approved for this session.')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Trust session' })).toBeNull();
+  });
+
+  it.each([
+    ['once', 'Approved — the agent will continue.'],
+    ['agent', 'Approved for this agent.'],
+    ['all', 'Always allowed.'],
+    ['deny', 'Cancelled.'],
+  ] as const)('captions a responded %s action correctly', (action, caption) => {
+    render(
+      <ApprovalCard
+        approval={makeApproval()}
+        busy={false}
+        onAction={vi.fn()}
+        status="responded"
+        respondedAction={action}
+      />,
+    );
+    expect(screen.getByText(caption)).not.toBeNull();
+  });
+
+  it('hides the action buttons and explains a superseded card', () => {
+    render(
+      <ApprovalCard
+        approval={makeApproval()}
+        busy={false}
+        onAction={vi.fn()}
+        status="superseded"
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        'No longer pending — superseded by a newer approval request.',
+      ),
+    ).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+  });
+
+  it('hides the action buttons and explains an expired card', () => {
+    render(
+      <ApprovalCard
+        approval={makeApproval()}
+        busy={false}
+        onAction={vi.fn()}
+        status="expired"
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        'Expired — ask the agent to retry if you still want this.',
+      ),
+    ).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+  });
 });

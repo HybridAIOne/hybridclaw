@@ -678,15 +678,15 @@ describe.sequential('schema migrations', () => {
     ]);
   });
 
-  test('adds the message source column to pre-v54 databases', () => {
+  test('adds the message source column to pre-v55 databases', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });
 
     const collision = new Database(dbPath);
     collision.exec(`
       ALTER TABLE messages DROP COLUMN source;
-      DELETE FROM migrations WHERE version = 54;
-      PRAGMA user_version = 53;
+      DELETE FROM migrations WHERE version = 55;
+      PRAGMA user_version = 54;
     `);
     collision.close();
 

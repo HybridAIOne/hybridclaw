@@ -67,6 +67,7 @@ import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
 import { getErrorMessage } from '../../lib/error-message';
 import { useDebouncedValue } from '../../lib/use-debounced-value';
 import { findAgentMentions } from './agent-mention-display';
+import { deriveApprovalStates } from './approval-lifecycle';
 import {
   type ChatHistoryUiData,
   chatHistoryQueryKey,
@@ -96,6 +97,7 @@ const ERROR_BANNER_VISIBLE_MS = 5000;
 const ERROR_BANNER_FADE_MS = 200;
 const BOOTSTRAP_AUTOSTART_THINKING_ID = 'bootstrap-autostart-thinking';
 const BOOTSTRAP_AUTOSTART_REFETCH_MS = 1500;
+const APPROVAL_EXPIRY_TICK_MS = 30_000;
 const DEFAULT_EMPTY_CHAT_HEADER = 'Ready to claw through your to-do list?';
 type RecentChatScope = 'user' | 'all';
 
@@ -232,6 +234,12 @@ export function ChatPage() {
   const [errorExiting, setErrorExiting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
+  // approvalId -> action taken, so an acted-on card stops looking pending
+  // even before the next history refresh confirms it server-side.
+  const [resolvedApprovals, setResolvedApprovals] = useState<
+    Map<string, ApprovalAction>
+  >(() => new Map());
+  const [approvalNow, setApprovalNow] = useState(() => Date.now());
   const [mobileQr, setMobileQr] = useState<ChatMobileQrResponse | null>(null);
   const [mobileQrBusy, setMobileQrBusy] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
@@ -559,6 +567,32 @@ export function ChatPage() {
       },
     ];
   }, [isBootstrapAutostartStarting, messages, sessionId]);
+  const approvalStates = useMemo(
+    () => deriveApprovalStates(messages, resolvedApprovals, approvalNow),
+    [messages, resolvedApprovals, approvalNow],
+  );
+  // Only the active approval's expiry can flip a card's state, and only when
+  // it has a real deadline — no point ticking a clock nothing is watching.
+  const activeApprovalExpiresAt = useMemo(() => {
+    for (const state of approvalStates.values()) {
+      if (
+        state.status === 'active' &&
+        state.expiresAt != null &&
+        Number.isFinite(state.expiresAt)
+      ) {
+        return state.expiresAt;
+      }
+    }
+    return null;
+  }, [approvalStates]);
+  useEffect(() => {
+    if (activeApprovalExpiresAt == null) return;
+    if (activeApprovalExpiresAt <= approvalNow) return;
+    const interval = window.setInterval(() => {
+      setApprovalNow(Date.now());
+    }, APPROVAL_EXPIRY_TICK_MS);
+    return () => window.clearInterval(interval);
+  }, [activeApprovalExpiresAt, approvalNow]);
   const branchFamilies =
     historyQuery.data?.branchFamilies ?? EMPTY_BRANCH_FAMILIES;
   const effectiveAgentId =
@@ -834,7 +868,17 @@ export function ChatPage() {
       setApprovalBusy(true);
       try {
         jumpToBottom();
-        await stream.sendMessage(cmd, [], { hideUser: true });
+        const sent = await stream.sendMessage(cmd, [], { hideUser: true });
+        // Mark it handled only once the send succeeds — a failed send (e.g.
+        // another run already in flight) leaves it unresolved so the user
+        // can retry.
+        if (sent) {
+          setResolvedApprovals((prev) => {
+            const next = new Map(prev);
+            next.set(approvalId, action);
+            return next;
+          });
+        }
       } finally {
         setApprovalBusy(false);
       }
@@ -1387,6 +1431,7 @@ export function ChatPage() {
                       skillInvocationTargets={skillInvocationTargets}
                       onApprovalAction={handleApprovalAction}
                       approvalBusy={approvalBusy}
+                      approvalState={approvalStates.get(msg.id)}
                       branchInfo={branchInfoMap.get(msg.id) ?? null}
                       onBranchNav={handleBranchNav}
                     />

@@ -21,7 +21,7 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 54;
+export const DATABASE_SCHEMA_VERSION = 55;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3066,6 +3066,7 @@ function createResponseRatingsSchema(database: Database.Database): void {
       message_id INTEGER NOT NULL,
       operator_user_id TEXT NOT NULL,
       rating TEXT NOT NULL CHECK (rating IN ('up', 'down')),
+      comment TEXT,
       agent_id TEXT,
       model TEXT,
       provider TEXT,
@@ -3414,6 +3415,22 @@ function migrateV54(
   database: Database.Database,
   opts?: InitDatabaseOptions,
 ): void {
+  if (tableExists(database, 'response_ratings')) {
+    addColumnIfMissing({
+      database,
+      table: 'response_ratings',
+      column: 'comment',
+      ddl: 'comment TEXT',
+      quiet: opts?.quiet === true,
+    });
+  }
+  recordMigration(database, 54, 'Persist free-text response rating comments');
+}
+
+function migrateV55(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
   addColumnIfMissing({
     database,
     table: 'messages',
@@ -3421,7 +3438,7 @@ function migrateV54(
     ddl: 'source TEXT',
     quiet: opts?.quiet === true,
   });
-  recordMigration(database, 54, 'Persist message source (e.g. voice turns)');
+  recordMigration(database, 55, 'Persist message source (e.g. voice turns)');
 }
 
 export function runMigrations(
@@ -3550,8 +3567,15 @@ export function runMigrations(
   if (currentVersion < 53 || agentArchivedNeedMigration(database)) {
     migrateV53(database, opts);
   }
-  if (currentVersion < 54 || messageSourceNeedMigration(database)) {
+  if (
+    currentVersion < 54 ||
+    (tableExists(database, 'response_ratings') &&
+      !columnExists(database, 'response_ratings', 'comment'))
+  ) {
     migrateV54(database, opts);
+  }
+  if (currentVersion < 55 || messageSourceNeedMigration(database)) {
+    migrateV55(database, opts);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);

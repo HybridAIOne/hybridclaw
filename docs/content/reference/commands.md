@@ -731,6 +731,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/show [all|thinking|tools|none]` | local and chat channels | Control thinking/tool activity visibility |
 | `/skill ...` or `/<skill>` | local TUI/web | Manage skills or explicitly invoke one skill |
 | `/status` | local and chat channels | Show runtime, session, and agent status |
+| `/thumbs up|down [comment]` or `/thumbs clear` | local and chat channels | Rate the last answer, optionally adding a correction or the expected answer |
 | `/stop` or `/abort` | TUI and active local runs | Stop the current foreground request and full-auto mode |
 | `/usage [summary|daily|monthly|model ...]` | local and chat channels | Show token/cost usage summaries |
 | `/voice [info|call <e164-number>]` | local TUI/web | Inspect voice setup or place a Twilio outbound call |

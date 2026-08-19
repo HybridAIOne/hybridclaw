@@ -39,6 +39,7 @@ interface ResponseRatingRow {
   message_id: number;
   operator_user_id: string;
   rating: string;
+  comment: string | null;
   agent_id: string | null;
   model: string | null;
   provider: string | null;
@@ -130,6 +131,7 @@ function mapResponseRatingRow(
     message_id: row.message_id,
     operator_user_id: row.operator_user_id,
     rating,
+    comment: row.comment,
     agent_id: row.agent_id,
     model: row.model,
     provider: row.provider,
@@ -211,6 +213,17 @@ export function getConversationHistory(
     resolvedSessionId,
     limit,
   );
+}
+
+export function getLatestAssistantMessageId(sessionId: string): number | null {
+  const row = queryOne<{ id: number }, [string]>(
+    getMessageDatabase(),
+    `SELECT id FROM messages
+     WHERE session_id = ? AND role = 'assistant'
+     ORDER BY id DESC LIMIT 1`,
+    resolveSessionIdCompat(sessionId),
+  );
+  return row?.id ?? null;
 }
 
 function inferProviderFromModel(model: string | null): string | null {
@@ -319,6 +332,7 @@ export function upsertResponseRating(input: {
   messageId: number;
   operatorUserId: string;
   rating: ResponseRatingValue;
+  comment?: string | null;
   agentId?: string | null;
   model?: string | null;
   provider?: string | null;
@@ -333,14 +347,16 @@ export function upsertResponseRating(input: {
        message_id,
        operator_user_id,
        rating,
+       comment,
        agent_id,
        model,
        provider,
        skill_name
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(session_id, message_id, operator_user_id)
      DO UPDATE SET
        rating = excluded.rating,
+       comment = excluded.comment,
        agent_id = excluded.agent_id,
        model = excluded.model,
        provider = excluded.provider,
@@ -353,6 +369,7 @@ export function upsertResponseRating(input: {
       input.messageId,
       operatorUserId,
       input.rating,
+      input.comment?.trim() || null,
       input.agentId?.trim() || null,
       input.model?.trim() || null,
       input.provider?.trim() || null,

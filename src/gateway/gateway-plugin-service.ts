@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { getChannelPluginCatalogEntryByPluginId } from '../channels/channel-plugin-catalog.js';
+import {
+  type ChannelPluginAvailabilityChange,
+  type ChannelPluginAvailabilitySnapshot,
+  diffChannelPluginTransportAvailability,
+  getChannelPluginCatalogEntryByPluginId,
+  snapshotChannelPluginTransportAvailability,
+} from '../channels/channel-plugin-catalog.js';
 import { sendWebhookJson, WebhookHttpError } from '../channels/webhook-http.js';
 import { parseIdArg, parseLowerArg } from '../command-parsing.js';
 import {
@@ -391,22 +397,64 @@ function isDependencyApprovalRequiredError(error: unknown): error is {
   );
 }
 
+type ChannelPluginAvailabilityListener = (
+  changes: ChannelPluginAvailabilityChange[],
+) => Promise<void>;
+
+let channelPluginAvailabilityListener: ChannelPluginAvailabilityListener | null =
+  null;
+
+/**
+ * The gateway registers a listener here so channel integrations can be
+ * started/stopped when a plugin reload changes which channel transports are
+ * installed (e.g. a WhatsApp plugin install from the admin console). Without
+ * this, an installed transport sits registered-but-idle until the next full
+ * gateway restart.
+ */
+export function setChannelPluginAvailabilityListener(
+  listener: ChannelPluginAvailabilityListener | null,
+): void {
+  channelPluginAvailabilityListener = listener;
+}
+
+async function notifyChannelPluginAvailabilityChanges(
+  before: ChannelPluginAvailabilitySnapshot,
+): Promise<void> {
+  const listener = channelPluginAvailabilityListener;
+  if (!listener) return;
+  const changes = diffChannelPluginTransportAvailability(
+    before,
+    snapshotChannelPluginTransportAvailability(),
+  );
+  if (changes.length === 0) return;
+  try {
+    await listener(changes);
+  } catch (error) {
+    logger.warn(
+      { error, changes },
+      'Channel integration refresh failed after plugin runtime reload',
+    );
+  }
+}
+
 export async function reloadPluginRuntime(): Promise<{
   ok: boolean;
   message: string;
 }> {
+  const availabilityBefore = snapshotChannelPluginTransportAvailability();
   try {
     await reloadPluginManager();
-    return {
-      ok: true,
-      message: 'Plugin runtime reloaded.',
-    };
   } catch (error) {
     return {
       ok: false,
       message: `Plugin runtime reload failed: ${error instanceof Error ? error.message : String(error)}.`,
     };
   }
+  await notifyChannelPluginAvailabilityChanges(availabilityBefore);
+  return {
+    ok: true,
+    message: 'Plugin runtime reloaded.',
+  };
 }
 
 async function rollbackPluginRuntimeConfigChange(

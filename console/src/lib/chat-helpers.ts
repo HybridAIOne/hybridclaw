@@ -90,6 +90,30 @@ export function buildApprovalSummary(
   return lines.join('\n');
 }
 
+const APPROVAL_ID_RE = /Approval ID:\s*([A-Za-z0-9_-]+)/;
+
+// Approvals that surface as plain chat text — a `**Pending Approval**` info
+// block from a slash command, or an approval-role message whose structured
+// payload didn't survive a history restore — carry no buttons of their own.
+// This recognizes that text (mirroring the gateway's own heuristic) and pulls
+// the approval id back out so the UI can offer actions anyway.
+export function parseApprovalAnnouncement(
+  content: string,
+): { approvalId: string } | null {
+  const text = String(content ?? '').trim();
+  if (!text) return null;
+  const looksLikeApproval =
+    text.startsWith('Approval needed for:') ||
+    text.startsWith('**Pending Approval**') ||
+    text.startsWith('I need your approval before I ') ||
+    text.includes('Approval expires in') ||
+    text.includes('Reply `yes` to approve once.');
+  if (!looksLikeApproval) return null;
+  const match = text.match(APPROVAL_ID_RE);
+  const approvalId = match?.[1]?.trim();
+  return approvalId ? { approvalId } : null;
+}
+
 const APPROVAL_COMMAND_MAP: Record<ApprovalAction, string> = {
   once: '/approve yes',
   session: '/approve session',

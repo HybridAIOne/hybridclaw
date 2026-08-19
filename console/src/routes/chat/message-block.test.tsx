@@ -1209,3 +1209,95 @@ describe('MessageBlock code-block copy button', () => {
     }
   });
 });
+
+describe('MessageBlock text-announced approvals', () => {
+  beforeEach(() => {
+    renderMarkdownMock.mockReset();
+    renderMarkdownMock.mockImplementation((content) => `<p>${content}</p>`);
+  });
+
+  const announcementText = [
+    'Approval needed for: trigger a thumbnail snapshot',
+    'Approval ID: approve123',
+    'Reply `yes` to approve once.',
+  ].join('\n');
+
+  it('renders Allow/Cancel actions for an active text approval item and dispatches the parsed id', () => {
+    const onApprovalAction = vi.fn();
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          role: 'assistant',
+          content: announcementText,
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={onApprovalAction}
+        approvalBusy={false}
+        approvalState={{ approvalId: 'approve123', status: 'active' }}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allow once' }));
+    expect(onApprovalAction).toHaveBeenCalledWith('once', 'approve123');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onApprovalAction).toHaveBeenCalledWith('deny', 'approve123');
+  });
+
+  it('renders no actions for a resolved (non-active) text approval item', () => {
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          role: 'assistant',
+          content: announcementText,
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        approvalState={{
+          approvalId: 'approve123',
+          status: 'responded',
+          respondedAction: 'once',
+        }}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  });
+
+  it('renders no actions for plain assistant text with no approval state', () => {
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          role: 'assistant',
+          content: 'Just a normal reply.',
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  });
+});
