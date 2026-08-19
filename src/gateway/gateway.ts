@@ -33,6 +33,7 @@ import {
   startObservabilityIngest,
   stopObservabilityIngest,
 } from '../audit/observability-ingest.js';
+import type { ChannelPluginAvailabilityChange } from '../channels/channel-plugin-catalog.js';
 import { buildResponseText } from '../channels/discord/delivery.js';
 import { rewriteUserMentionsForMessage } from '../channels/discord/mentions.js';
 import {
@@ -76,6 +77,11 @@ import {
 } from '../channels/line/runtime.js';
 import { isLineChannelId } from '../channels/line/target.js';
 import { stripUnusableMSTeamsArtifactLinks } from '../channels/msteams/delivery.js';
+import {
+  mapMSTeamsReactionToRating,
+  recordMSTeamsRatingTargets,
+  resolveMSTeamsRatingTarget,
+} from '../channels/msteams/reactions.js';
 import {
   initSignal,
   type SignalReplyFn,
@@ -163,6 +169,7 @@ import {
   deleteQueuedProactiveMessage,
   enqueueProactiveMessage,
   failStaleDelegationJobs,
+  getLatestAssistantMessageId,
   getMostRecentSessionChannelId,
   getQueuedProactiveMessageCount,
   initDatabase,
@@ -227,6 +234,7 @@ import {
 import { startGatewayHttpServer } from './gateway-http-server.js';
 import {
   initGatewayService,
+  setChannelPluginAvailabilityListener,
   stopGatewayPlugins,
 } from './gateway-plugin-service.js';
 import {
@@ -1672,6 +1680,26 @@ async function startMSTeamsIntegration(): Promise<boolean> {
     );
   }
 
+  const recordMSTeamsReactionTargetsForStream = (
+    sessionId: string,
+    stream: { getDeliveredActivityIds(): string[] },
+  ): void => {
+    try {
+      const messageId = getLatestAssistantMessageId(sessionId);
+      if (!messageId) return;
+      recordMSTeamsRatingTargets({
+        sessionId,
+        activityIds: stream.getDeliveredActivityIds(),
+        messageId,
+      });
+    } catch (error) {
+      logger.debug(
+        { error, sessionId },
+        'Failed to record Teams reaction rating targets',
+      );
+    }
+  };
+
   const { initMSTeams } = await import('../channels/msteams/runtime.js');
   initMSTeams(
     async (
@@ -1831,9 +1859,17 @@ async function startMSTeamsIntegration(): Promise<boolean> {
         if (attachments?.length && sawTextDelta) {
           await context.stream.finalize(responseText);
           await reply('', attachments);
+          recordMSTeamsReactionTargetsForStream(
+            effectiveSessionId,
+            context.stream,
+          );
           return;
         }
         await context.stream.finalize(responseText, attachments);
+        recordMSTeamsReactionTargetsForStream(
+          effectiveSessionId,
+          context.stream,
+        );
       } catch (error) {
         logger.error(
           { error, sessionId, channelId },
@@ -1862,6 +1898,75 @@ async function startMSTeamsIntegration(): Promise<boolean> {
           'Teams command handling failed',
         );
         await reply(formatGatewayErrorReply(error));
+      }
+    },
+    async (event) => {
+      const addedRatings = event.added
+        .map(mapMSTeamsReactionToRating)
+        .filter((rating): rating is NonNullable<typeof rating> =>
+          Boolean(rating),
+        );
+      const removedRatings = event.removed
+        .map(mapMSTeamsReactionToRating)
+        .filter((rating): rating is NonNullable<typeof rating> =>
+          Boolean(rating),
+        );
+      const unmapped = [...event.added, ...event.removed].filter(
+        (type) => !mapMSTeamsReactionToRating(type),
+      );
+      if (unmapped.length > 0) {
+        logger.debug(
+          { sessionId: event.sessionId, reactionTypes: unmapped },
+          'Ignored Teams reaction types without a rating mapping',
+        );
+      }
+      if (addedRatings.length === 0 && removedRatings.length === 0) return;
+
+      const messageId = resolveMSTeamsRatingTarget(
+        event.sessionId,
+        event.activityId,
+      );
+      if (!messageId) {
+        logger.debug(
+          { sessionId: event.sessionId, activityId: event.activityId },
+          'Teams reaction targets an activity without a known rating target',
+        );
+        return;
+      }
+      const { applyReactionRatingChanges, ResponseRatingNotFoundError } =
+        await import('./response-ratings.js');
+      try {
+        const result = applyReactionRatingChanges({
+          sessionId: event.sessionId,
+          messageId,
+          operatorUserId: event.userId,
+          addedRatings,
+          removedRatings,
+          sourceSurface: 'msteams',
+        });
+        if (result) {
+          logger.info(
+            {
+              sessionId: event.sessionId,
+              messageId,
+              rating: result.rating,
+              userId: event.userId,
+            },
+            'Recorded Teams reaction as response rating',
+          );
+        }
+      } catch (error) {
+        if (error instanceof ResponseRatingNotFoundError) {
+          logger.debug(
+            { sessionId: event.sessionId, messageId },
+            'Teams reaction rating target no longer exists',
+          );
+          return;
+        }
+        logger.warn(
+          { error, sessionId: event.sessionId, messageId },
+          'Failed to record Teams reaction as response rating',
+        );
       }
     },
   );
@@ -3050,6 +3155,60 @@ async function refreshLineIntegrationForConfigChange(
   await startLineIntegration();
 }
 
+/**
+ * Starts or stops install-on-demand channel integrations when a plugin
+ * runtime reload changes which channel transports are registered. This is
+ * what makes an admin-console plugin install take effect immediately: the
+ * install reloads the plugin manager (registering the transport), and this
+ * hook then brings the channel runtime up without requiring a full gateway
+ * restart. The reverse transition (transport removed by uninstall/disable)
+ * shuts the channel runtime down so it does not keep using a dead transport.
+ */
+async function refreshChannelIntegrationsForPluginAvailability(
+  changes: ChannelPluginAvailabilityChange[],
+): Promise<void> {
+  const externalChannelsEnabled = !isA2ALocalModeEnabled(getConfigSnapshot());
+  for (const change of changes) {
+    logger.info(
+      { channel: change.channel, transportAvailable: change.available },
+      change.available
+        ? 'Channel transport plugin became available; refreshing channel integration'
+        : 'Channel transport plugin became unavailable; stopping channel integration',
+    );
+    switch (change.channel) {
+      case 'whatsapp': {
+        await shutdownWhatsApp().catch((error) => {
+          logger.debug(
+            { error },
+            'Failed to stop WhatsApp runtime during plugin availability refresh',
+          );
+        });
+        if (change.available && externalChannelsEnabled) {
+          await startWhatsAppIntegration();
+        }
+        break;
+      }
+      case 'line': {
+        await shutdownLine().catch((error) => {
+          logger.debug(
+            { error },
+            'Failed to stop LINE runtime during plugin availability refresh',
+          );
+        });
+        if (change.available && externalChannelsEnabled) {
+          await startLineIntegration();
+        }
+        break;
+      }
+      default:
+        logger.warn(
+          { channel: change.channel },
+          'No integration refresh handler for channel plugin availability change',
+        );
+    }
+  }
+}
+
 async function refreshThreemaIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
@@ -3372,6 +3531,15 @@ async function startIMessageIntegration(): Promise<boolean> {
     logger.info('iMessage integration disabled in config');
     return false;
   }
+  if (
+    imessageConfig.backend === 'bluebubbles' &&
+    !imessageConfig.serverUrl.trim()
+  ) {
+    logger.warn(
+      'iMessage integration not started: imessage.serverUrl is required for the BlueBubbles backend. Configure it with `hybridclaw channels imessage setup --backend remote --server-url <url>` or disable iMessage with `hybridclaw config set imessage.enabled false`.',
+    );
+    return false;
+  }
 
   try {
     await initIMessage(
@@ -3586,6 +3754,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
       detachConfigListener();
       detachConfigListener = null;
     }
+    setChannelPluginAvailabilityListener(null);
     await runShutdownStep(
       'set Discord maintenance presence',
       setDiscordMaintenancePresence,
@@ -3981,6 +4150,9 @@ async function main(): Promise<void> {
   void hybridAIProbe.get().catch((err) => {
     logger.warn({ err }, 'Startup warm-up of HybridAI probe failed');
   });
+  setChannelPluginAvailabilityListener(
+    refreshChannelIntegrationsForPluginAvailability,
+  );
   detachConfigListener = onConfigChange((next, prev) => {
     a2aLocalModeTransition = a2aLocalModeTransition
       .then(() => refreshA2ALocalModeForConfigChange(next, prev))

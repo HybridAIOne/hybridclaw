@@ -35,6 +35,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
   expect(names).toEqual(
     new Set([
       'status',
+      'thumbs',
       'btw',
       'show',
       'approve',

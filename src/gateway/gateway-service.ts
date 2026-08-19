@@ -264,6 +264,7 @@ import {
   getAllSessions,
   getDelegationJob,
   getFullAutoSessionCount,
+  getLatestAssistantMessageId,
   getMemoryValue,
   getQueuedProactiveMessageCount,
   getRecentMessages,
@@ -420,6 +421,7 @@ import {
   getAgentScoreboard,
   getObservedAgentSkillCount,
 } from '../skills/agent-scoreboard.js';
+import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import { loadSkillDocsCatalog } from '../skills/skill-docs.js';
 import {
   type BlockedSkillCatalogEntry,
@@ -651,6 +653,10 @@ import {
   getGatewayAdminProviderStatus,
 } from './provider-status.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
+import {
+  ResponseRatingNotFoundError,
+  submitResponseRating,
+} from './response-ratings.js';
 import {
   describeSessionShowMode,
   isSessionShowMode,
@@ -8909,7 +8915,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     }
     const baseAssistantMessages = hasPrelude ? 1 : 0;
 
-    const { messages } = buildConversationContext({
+    const { messages, skills } = buildConversationContext({
       agentId: resolved.agentId,
       history: [],
       currentUserContent: bootstrapAutostartPrompt,
@@ -9131,6 +9137,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         ...loadPolicyFullAutoNeverApprove(agentWorkspaceDir(resolved.agentId)),
       ],
       scheduledTasks: [],
+      skillCatalog: buildEligibleSkillCatalog(skills),
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
     hatchingCompletion = recordBootstrapHatchingTurnResult({
@@ -11238,6 +11245,56 @@ export async function handleGatewayCommand(
           ({ command, description }) => `\`${command}\`: ${description}`,
         );
         return infoCommand('HybridClaw Commands', help.join('\n'));
+      }
+
+      case 'thumbs': {
+        const sub = parseLowerArg(req.args, 1);
+        if (sub !== 'up' && sub !== 'down' && sub !== 'clear') {
+          return badCommand(
+            'Usage',
+            'Usage: `/thumbs up|down [comment]` — rate the last answer, optionally adding a correction or the expected answer. `/thumbs clear` removes your rating.',
+          );
+        }
+        const messageId = getLatestAssistantMessageId(session.id);
+        if (!messageId) {
+          return badCommand(
+            'Nothing To Rate',
+            'There is no assistant answer in this session to rate yet.',
+          );
+        }
+        const rating = sub === 'clear' ? null : sub;
+        const comment = req.args.slice(2).join(' ').trim() || null;
+        const sourceSurface =
+          parseSessionKey(session.id)?.channelKind ||
+          String(req.channelId || '').trim() ||
+          'web';
+        try {
+          const submitted = submitResponseRating({
+            sessionId: session.id,
+            messageId,
+            operatorUserId: String(req.userId || ''),
+            rating,
+            comment,
+            sourceSurface,
+          });
+          if (!submitted.rating) {
+            return plainCommand('Rating removed from the last answer.');
+          }
+          const symbol = submitted.rating === 'up' ? '👍' : '👎';
+          return plainCommand(
+            submitted.comment
+              ? `Feedback recorded: ${symbol} — “${submitted.comment}”. Thanks!`
+              : `Feedback recorded: ${symbol}. Thanks!`,
+          );
+        } catch (error) {
+          if (error instanceof ResponseRatingNotFoundError) {
+            return badCommand(
+              'Nothing To Rate',
+              'The last assistant answer could not be found anymore.',
+            );
+          }
+          throw error;
+        }
       }
 
       case 'agent': {

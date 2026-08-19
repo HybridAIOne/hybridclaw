@@ -1339,6 +1339,88 @@ test('handleGatewayCommand installs a plugin from a local TUI/web session and re
   expect(result.text).toContain('Plugin runtime reloaded.');
 });
 
+test('handleGatewayCommand plugin install notifies channel availability listener when a transport appears', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { setChannelPluginAvailabilityListener } = await import(
+    '../src/gateway/gateway-plugin-service.ts'
+  );
+  const { registerChannelTransport, unregisterChannelTransport } = await import(
+    '../src/channels/channel-transport.js'
+  );
+
+  initDatabase({ quiet: true });
+
+  const listener = vi.fn(async () => {});
+  setChannelPluginAvailabilityListener(listener);
+  reloadPluginManagerMock.mockImplementationOnce(async () => {
+    registerChannelTransport({
+      kind: 'whatsapp',
+      create: () => ({
+        init: async () => {},
+        shutdown: async () => {},
+        sendText: async () => {},
+        sendMedia: async () => {},
+      }),
+    });
+    return pluginManagerMock;
+  });
+
+  try {
+    const result = await handleGatewayCommand({
+      sessionId: 'session-plugin-install-transport',
+      guildId: null,
+      channelId: 'tui',
+      args: ['plugin', 'install', './plugins/qmd-memory', '--yes'],
+    });
+
+    expect(result.kind).toBe('info');
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith([
+      { channel: 'whatsapp', available: true },
+    ]);
+  } finally {
+    setChannelPluginAvailabilityListener(null);
+    unregisterChannelTransport('whatsapp');
+  }
+});
+
+test('handleGatewayCommand plugin install skips channel availability listener when transports are unchanged', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { setChannelPluginAvailabilityListener } = await import(
+    '../src/gateway/gateway-plugin-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const listener = vi.fn(async () => {});
+  setChannelPluginAvailabilityListener(listener);
+
+  try {
+    const result = await handleGatewayCommand({
+      sessionId: 'session-plugin-install-no-transport',
+      guildId: null,
+      channelId: 'tui',
+      args: ['plugin', 'install', './plugins/qmd-memory', '--yes'],
+    });
+
+    expect(result.kind).toBe('info');
+    expect(reloadPluginManagerMock).toHaveBeenCalled();
+    expect(listener).not.toHaveBeenCalled();
+  } finally {
+    setChannelPluginAvailabilityListener(null);
+  }
+});
+
 test('handleGatewayCommand reports missing binary guidance after plugin install', async () => {
   setupHome();
   installPluginMock.mockResolvedValueOnce({

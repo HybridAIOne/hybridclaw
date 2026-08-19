@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.28.6',
+  version: '0.28.7',
   highlights: [
-    'Reliable Teams text, streaming, and file delivery.',
-    'Agent settings persist with change attribution.',
-    'Dependencies ship without known npm advisories.',
-    'LINE and WhatsApp install only when enabled.',
+    'Webchat dictation and read-aloud controls.',
+    'Vonage Voice is available as a plugin.',
+    'Skills stay discoverable under prompt limits.',
+    'BlueBubbles setup errors are actionable.',
   ],
 } as const;
 

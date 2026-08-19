@@ -8,9 +8,11 @@ import {
   unregisterChannelTransport,
 } from '../src/channels/channel-transport.js';
 import {
+  diffChannelPluginTransportAvailability,
   getChannelPluginCatalogEntry,
   getChannelPluginCatalogEntryByPluginId,
   getChannelPluginStatuses,
+  snapshotChannelPluginTransportAvailability,
 } from '../src/channels/channel-plugin-catalog.js';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import { PluginManager } from '../src/plugins/plugin-manager.js';
@@ -78,6 +80,31 @@ test('channel plugin catalog reports transport availability generically', () => 
       transportAvailable: true,
     }),
   );
+});
+
+test('channel plugin availability snapshot diff reports transitions', () => {
+  const before = snapshotChannelPluginTransportAvailability();
+  expect(before.get('whatsapp')).toBe(false);
+  expect(
+    diffChannelPluginTransportAvailability(
+      before,
+      snapshotChannelPluginTransportAvailability(),
+    ),
+  ).toEqual([]);
+
+  registerChannelTransport(createTransportRegistration());
+  const after = snapshotChannelPluginTransportAvailability();
+  expect(diffChannelPluginTransportAvailability(before, after)).toEqual([
+    { channel: 'whatsapp', available: true },
+  ]);
+
+  unregisterChannelTransport('whatsapp');
+  expect(
+    diffChannelPluginTransportAvailability(
+      after,
+      snapshotChannelPluginTransportAvailability(),
+    ),
+  ).toEqual([{ channel: 'whatsapp', available: false }]);
 });
 
 test('channel plugin catalog resolves the bundled LINE plugin', () => {

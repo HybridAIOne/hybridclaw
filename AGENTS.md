@@ -242,6 +242,11 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
 
 - Before diagnosing gateway/runtime issues, inspect the actual checkout, the
   running process, runtime state, logs, and `hybridclaw gateway status`.
+- The coding agent's shell Node version is not evidence about the gateway
+  runtime. If the CLI bootstrap rejects the shell's Node version, invoke the
+  installed CLI with the live gateway's Node 22 binary (discovered from the
+  running process) and continue silently. Report a Node runtime mismatch only
+  when the live gateway process itself is using the wrong version.
 - Use `hybridclaw gateway status` to compare the PID file, API-reported PID,
   entrypoint, package root, Node version, Git commit/branch, and
   source-vs-build freshness before concluding that a gateway is stale.

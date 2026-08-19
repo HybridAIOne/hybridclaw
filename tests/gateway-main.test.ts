@@ -26,6 +26,7 @@ function createGatewayMainTestState(options?: {
   emailPassword?: string;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  imessageServerUrl?: string;
   lineEnabled?: boolean;
   slackEnabled?: boolean;
   slackInitError?: Error;
@@ -170,6 +171,8 @@ function createGatewayMainTestState(options?: {
       imessage: {
         enabled: options?.imessageEnabled ?? false,
         backend: 'bluebubbles',
+        serverUrl:
+          options?.imessageServerUrl ?? 'https://bluebubbles.test',
         webhookPath: '/api/imessage/webhook',
       },
       whatsapp: {
@@ -266,6 +269,7 @@ function createGatewayMainTestState(options?: {
     ),
     failStaleDelegationJobs: vi.fn(() => 0),
     listAgents: vi.fn(() => []),
+    setChannelPluginAvailabilityListener: vi.fn(),
     stopGatewayPlugins: vi.fn(async () => {}),
     listQueuedProactiveMessages: vi.fn(() => []),
     loggerDebug: vi.fn(),
@@ -346,6 +350,7 @@ async function importFreshGatewayMain(options?: {
   discordInitError?: Error;
   imessageInitError?: Error;
   imessageEnabled?: boolean;
+  imessageServerUrl?: string;
   lineEnabled?: boolean;
   slackEnabled?: boolean;
   hasSlackCredentials?: boolean;
@@ -719,6 +724,8 @@ async function importFreshGatewayMain(options?: {
   }));
   vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
     initGatewayService: state.initGatewayService,
+    setChannelPluginAvailabilityListener:
+      state.setChannelPluginAvailabilityListener,
     stopGatewayPlugins: state.stopGatewayPlugins,
   }));
   vi.doMock('../src/gateway/gateway-http-server.js', () => ({
@@ -1011,6 +1018,28 @@ describe('gateway bootstrap', () => {
       'Gateway channels',
       expect.objectContaining({
         imessage: true,
+      }),
+    );
+  });
+
+  test('does not initialize BlueBubbles without a server URL', async () => {
+    const state = await importFreshGatewayMain({
+      imessageEnabled: true,
+      imessageServerUrl: '',
+    });
+
+    expect(state.initIMessage).not.toHaveBeenCalled();
+    expect(state.imessageMessageHandler).toBeNull();
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'imessage.serverUrl is required for the BlueBubbles backend',
+      ),
+    );
+    expectInfoLog(
+      state,
+      'Gateway channels',
+      expect.objectContaining({
+        imessage: false,
       }),
     );
   });

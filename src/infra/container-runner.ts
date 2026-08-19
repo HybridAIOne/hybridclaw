@@ -1157,6 +1157,7 @@ async function runContainerInner(
         createdAt: task.created_at,
       }),
     ),
+    skillCatalog: params.skillCatalog,
     allowedTools,
     blockedTools,
     media,

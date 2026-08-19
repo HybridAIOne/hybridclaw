@@ -332,6 +332,31 @@ function getDeploymentConfigIssues(rawConfig: Record<string, unknown>): {
   return { missingFields, invalidFields };
 }
 
+function isEnabledBlueBubblesServerUrlMissing(
+  rawConfig: Record<string, unknown>,
+): boolean {
+  const rawIMessage = rawConfig.imessage;
+  if (
+    !rawIMessage ||
+    typeof rawIMessage !== 'object' ||
+    Array.isArray(rawIMessage)
+  ) {
+    return false;
+  }
+
+  const imessage = rawIMessage as Record<string, unknown>;
+  if (imessage.enabled !== true || imessage.backend !== 'bluebubbles') {
+    return false;
+  }
+
+  const serverUrl =
+    typeof imessage.serverUrl === 'string' ? imessage.serverUrl.trim() : '';
+  return (
+    !serverUrl ||
+    serverUrl.replace(/\/+$/, '') === 'https://bluebubbles.example.com'
+  );
+}
+
 export async function checkConfigFile(): Promise<DiagResult[]> {
   const filePath = runtimeConfigPath();
   const displayPath = shortenHomePath(filePath);
@@ -383,6 +408,11 @@ export async function checkConfigFile(): Promise<DiagResult[]> {
   ].filter(Boolean) as string[];
   const deploymentIssues = getDeploymentConfigIssues(rawConfig);
   missingFields.push(...deploymentIssues.missingFields);
+  if (isEnabledBlueBubblesServerUrlMissing(rawConfig)) {
+    missingFields.push(
+      'imessage.serverUrl (required when the BlueBubbles backend is enabled)',
+    );
+  }
 
   if (missingFields.length > 0 || deploymentIssues.invalidFields.length > 0) {
     const detail = [

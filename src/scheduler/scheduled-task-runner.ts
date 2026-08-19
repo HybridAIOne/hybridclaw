@@ -16,6 +16,7 @@ import {
   migrateLegacySessionKey,
 } from '../session/session-key.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
+import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
@@ -80,7 +81,7 @@ export async function runIsolatedScheduledTask(params: {
     sessionKey: cronSessionId,
     mainSessionKey: mainSessionKey?.trim() || cronSessionId,
   });
-  const { messages } = buildConversationContext({
+  const { messages, skills } = buildConversationContext({
     agentId,
     history: [],
     currentUserContent: prompt,
@@ -134,6 +135,7 @@ export async function runIsolatedScheduledTask(params: {
       agentId,
       channelId,
       blockedTools: ['cron'],
+      skillCatalog: buildEligibleSkillCatalog(skills),
     });
     emitToolExecutionAuditEvents({
       sessionId: activeSessionId,
