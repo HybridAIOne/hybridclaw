@@ -17,6 +17,7 @@ import {
   fetchAppStatus,
   fetchChatContext,
   fetchChatRecent,
+  fetchChatVoiceCapability,
   rateChatResponse,
   uploadMedia,
 } from '../../api/chat';
@@ -82,6 +83,8 @@ import { EditInline, MessageBlock } from './message-block';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
 import { useStickToBottom } from './use-stick-to-bottom';
+import { useVoiceSession } from './use-voice-session';
+import { VoicePanel } from './voice-panel';
 
 type BranchInfo = {
   current: number;
@@ -350,6 +353,23 @@ export function ChatPage() {
     enabled: chatApiReady,
   });
 
+  const voiceCapabilityQuery = useQuery({
+    queryKey: ['chat-voice-capability', auth.token],
+    queryFn: () => fetchChatVoiceCapability(auth.token),
+    staleTime: Infinity,
+    enabled: chatApiReady,
+  });
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const handleVoiceTranscript = useCallback(() => {
+    // The gateway persists every spoken turn (and consulted turns) as
+    // ordinary web chat messages; refetch so they appear in the conversation
+    // without leaving voice mode.
+    void queryClient.invalidateQueries({
+      queryKey: chatHistoryQueryKey(auth.token, getSessionId()),
+    });
+    refreshRecent();
+  }, [queryClient, auth.token, getSessionId, refreshRecent]);
+
   const modelsQuery = useQuery({
     queryKey: ['models', auth.token],
     queryFn: () => fetchModels(auth.token),
@@ -584,6 +604,20 @@ export function ChatPage() {
     agentOptions
       .find((agent) => agent.id.toLowerCase() === effectiveAgentId)
       ?.emptyChatHeader?.trim() || DEFAULT_EMPTY_CHAT_HEADER;
+
+  const voiceSession = useVoiceSession({
+    sessionId,
+    agentId: effectiveAgentId,
+    onTranscript: handleVoiceTranscript,
+  });
+  const { start: startVoice, stop: stopVoice } = voiceSession;
+  useEffect(() => {
+    if (voiceOpen) {
+      void startVoice();
+    } else {
+      stopVoice();
+    }
+  }, [voiceOpen, startVoice, stopVoice]);
 
   const deleteSessionMutation = useMutation({
     mutationFn: (targetSessionId: string) =>
@@ -1428,6 +1462,14 @@ export function ChatPage() {
             </div>
           ) : null}
 
+          {voiceOpen ? (
+            <VoicePanel
+              status={voiceSession.status}
+              error={voiceSession.error}
+              consultActivity={voiceSession.consultActivity}
+              onClose={() => setVoiceOpen(false)}
+            />
+          ) : null}
           <Composer
             isStreaming={stream.isStreaming}
             onSend={handleSendMessage}
@@ -1441,6 +1483,9 @@ export function ChatPage() {
             selectedModelId={selectedModelId}
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
             initialValue={initialComposerPrompt}
+            voiceAvailable={voiceCapabilityQuery.data?.available === true}
+            voiceActive={voiceOpen}
+            onVoiceToggle={() => setVoiceOpen((open) => !open)}
           />
         </div>
         <Dialog

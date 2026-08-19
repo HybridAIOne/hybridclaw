@@ -678,6 +678,33 @@ describe.sequential('schema migrations', () => {
     ]);
   });
 
+  test('adds the message source column to pre-v55 databases', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    const collision = new Database(dbPath);
+    collision.exec(`
+      ALTER TABLE messages DROP COLUMN source;
+      DELETE FROM migrations WHERE version = 55;
+      PRAGMA user_version = 54;
+    `);
+    collision.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const messageColumns = inspect.pragma('table_info(messages)') as Array<{
+      name: string;
+    }>;
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(messageColumns.some((column) => column.name === 'source')).toBe(
+      true,
+    );
+  });
+
   test('self-heals schema v30 databases from parallel migrations', () => {
     const branchDbPath = createTempDbPath();
     const branchDb = new Database(branchDbPath);

@@ -3,6 +3,7 @@ import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import { buildSessionKey } from '../../session/session-key.js';
 import { buildVoiceChannelId } from './channel-id.js';
 import type { ConversationRelaySetupMessage } from './conversation-relay.js';
+import type { RealtimeCallBridge } from './realtime-bridge.js';
 
 export type VoiceCallState =
   | 'initiated'
@@ -22,9 +23,26 @@ const ALLOWED_TRANSITIONS: Record<VoiceCallState, VoiceCallState[]> = {
   initiated: ['twiml-issued', 'relay-connecting', 'listening', 'failed'],
   'twiml-issued': ['relay-connecting', 'listening', 'failed'],
   'relay-connecting': ['listening', 'failed', 'reconnecting'],
-  listening: ['thinking', 'interrupted', 'ending', 'failed', 'reconnecting'],
+  // Realtime mode speaks without a preceding gateway turn and consults the
+  // agent mid-speech, so listening -> speaking and speaking -> thinking are
+  // legal in addition to the relay-mode cycle.
+  listening: [
+    'thinking',
+    'speaking',
+    'interrupted',
+    'ending',
+    'failed',
+    'reconnecting',
+  ],
   thinking: ['speaking', 'interrupted', 'ending', 'failed', 'reconnecting'],
-  speaking: ['listening', 'interrupted', 'ending', 'failed', 'reconnecting'],
+  speaking: [
+    'listening',
+    'thinking',
+    'interrupted',
+    'ending',
+    'failed',
+    'reconnecting',
+  ],
   interrupted: ['listening', 'thinking', 'ending', 'failed', 'reconnecting'],
   reconnecting: ['relay-connecting', 'failed', 'ended'],
   ending: ['ended', 'failed'],
@@ -49,6 +67,8 @@ export interface VoiceCallSession {
   ws: WebSocket | null;
   controller: AbortController | null;
   setupMessage: ConversationRelaySetupMessage | null;
+  streamSid: string | null;
+  realtimeBridge: RealtimeCallBridge | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -88,6 +108,8 @@ function createSession(params: {
     ws: null,
     controller: null,
     setupMessage: null,
+    streamSid: null,
+    realtimeBridge: null,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -152,6 +174,21 @@ export class VoiceCallSessionStore {
     });
     this.sessions.set(params.callSid, session);
     this.activeSessions += 1;
+    return session;
+  }
+
+  attachMediaStream(params: {
+    callSid: string;
+    streamSid: string;
+    ws: WebSocket;
+    bridge: RealtimeCallBridge;
+  }): VoiceCallSession | undefined {
+    const session = this.sessions.get(params.callSid);
+    if (!session) return undefined;
+    session.streamSid = params.streamSid;
+    session.ws = params.ws;
+    session.realtimeBridge = params.bridge;
+    session.updatedAt = now();
     return session;
   }
 

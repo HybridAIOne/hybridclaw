@@ -7,6 +7,7 @@ export interface VoiceWebhookPaths {
   basePath: string;
   webhookPath: string;
   relayPath: string;
+  streamPath: string;
   actionPath: string;
 }
 
@@ -44,6 +45,7 @@ export function resolveVoiceWebhookPaths(
     basePath: normalizedBasePath,
     webhookPath: `${normalizedBasePath}/webhook`,
     relayPath: `${normalizedBasePath}/relay`,
+    streamPath: `${normalizedBasePath}/stream`,
     actionPath: `${normalizedBasePath}/action`,
   };
 }

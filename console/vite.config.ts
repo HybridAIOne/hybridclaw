@@ -26,7 +26,9 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 4173,
     proxy: {
-      '/api': 'http://127.0.0.1:9090',
+      // ws:true lets the voice and admin-terminal websockets reach the
+      // gateway from the standalone Vite dev server.
+      '/api': { target: 'http://127.0.0.1:9090', ws: true },
       '/health': 'http://127.0.0.1:9090',
     },
   },

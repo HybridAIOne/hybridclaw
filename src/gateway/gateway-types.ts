@@ -539,6 +539,7 @@ export interface GatewayStatus {
   };
   voice?: {
     enabled: boolean;
+    mode: 'realtime' | 'relay';
     accountSidConfigured: boolean;
     fromNumberConfigured: boolean;
     authTokenConfigured: boolean;

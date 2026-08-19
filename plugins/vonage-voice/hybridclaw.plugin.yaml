@@ -2,7 +2,7 @@ id: vonage-voice
 name: Vonage Voice
 version: 0.1.0
 kind: channel
-description: Turn-based inbound and outbound phone calls through the Vonage Voice API.
+description: Inbound and outbound phone calls through the Vonage Voice API, turn-based or realtime speech-to-speech.
 entrypoint: src/index.js
 requires:
   node: 22.x
@@ -26,6 +26,10 @@ configSchema:
     publicBaseUrl:
       type: string
       pattern: '^https://'
+    mode:
+      type: string
+      enum: [turn, realtime]
+      default: turn
     language:
       type: string
       default: en-US
@@ -43,6 +47,8 @@ configSchema:
 configUiHints:
   applicationId:
     label: Application ID
+  mode:
+    label: Call Mode
   fromNumber:
     label: Vonage Number
     placeholder: '+14155550123'

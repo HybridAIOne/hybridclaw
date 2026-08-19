@@ -630,6 +630,8 @@ export interface RuntimeLineConfig {
 }
 
 export type RuntimeVoiceProvider = 'twilio';
+export type RuntimeVoiceMode = 'realtime' | 'relay';
+export type RuntimeVoiceRealtimeProvider = 'hybridai' | 'openai';
 export type RuntimeVoiceRelayTtsProvider = 'amazon' | 'default' | 'google';
 export type RuntimeVoiceRelayTranscriptionProvider =
   | 'deepgram'
@@ -651,11 +653,21 @@ export interface RuntimeVoiceRelayConfig {
   welcomeGreeting: string;
 }
 
+export interface RuntimeVoiceRealtimeConfig {
+  provider: RuntimeVoiceRealtimeProvider;
+  model: string;
+  voice: string;
+  greeting: string;
+  instructions: string;
+}
+
 export interface RuntimeVoiceConfig {
   enabled: boolean;
   provider: RuntimeVoiceProvider;
+  mode: RuntimeVoiceMode;
   twilio: RuntimeVoiceTwilioConfig;
   relay: RuntimeVoiceRelayConfig;
+  realtime: RuntimeVoiceRealtimeConfig;
   webhookPath: string;
   maxConcurrentCalls: number;
 }
@@ -1746,6 +1758,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   voice: {
     enabled: false,
     provider: 'twilio',
+    mode: 'relay',
     twilio: {
       accountSid: '',
       authToken: '',
@@ -1758,6 +1771,13 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       language: 'en-US',
       interruptible: true,
       welcomeGreeting: 'Hello! How can I help you today?',
+    },
+    realtime: {
+      provider: 'openai',
+      model: 'gpt-realtime',
+      voice: 'marin',
+      greeting: 'Hello! How can I help you today?',
+      instructions: '',
     },
     webhookPath: '/voice',
     maxConcurrentCalls: 8,
@@ -3583,6 +3603,30 @@ function normalizeVoiceProvider(
   return fallback;
 }
 
+function normalizeVoiceMode(
+  value: unknown,
+  fallback: RuntimeVoiceMode,
+): RuntimeVoiceMode {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'relay' || normalized === 'realtime') {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeVoiceRealtimeProvider(
+  value: unknown,
+  fallback: RuntimeVoiceRealtimeProvider,
+): RuntimeVoiceRealtimeProvider {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'openai' || normalized === 'hybridai') {
+    return normalized;
+  }
+  return fallback;
+}
+
 function normalizeVoiceRelayTtsProvider(
   value: unknown,
   fallback: RuntimeVoiceRelayTtsProvider,
@@ -3981,9 +4025,11 @@ function normalizeVoiceConfig(
   const raw = isRecord(value) ? value : {};
   const rawTwilio = isRecord(raw.twilio) ? raw.twilio : {};
   const rawRelay = isRecord(raw.relay) ? raw.relay : {};
+  const rawRealtime = isRecord(raw.realtime) ? raw.realtime : {};
   return {
     enabled: normalizeBoolean(raw.enabled, fallback.enabled),
     provider: normalizeVoiceProvider(raw.provider, fallback.provider),
+    mode: normalizeVoiceMode(raw.mode, fallback.mode),
     twilio: {
       accountSid: normalizeString(
         rawTwilio.accountSid,
@@ -4024,6 +4070,28 @@ function normalizeVoiceConfig(
         rawRelay.welcomeGreeting,
         fallback.relay.welcomeGreeting,
         { allowEmpty: false },
+      ),
+    },
+    realtime: {
+      provider: normalizeVoiceRealtimeProvider(
+        rawRealtime.provider,
+        fallback.realtime.provider,
+      ),
+      model: normalizeString(rawRealtime.model, fallback.realtime.model, {
+        allowEmpty: false,
+      }),
+      voice: normalizeString(rawRealtime.voice, fallback.realtime.voice, {
+        allowEmpty: false,
+      }),
+      greeting: normalizeString(
+        rawRealtime.greeting,
+        fallback.realtime.greeting,
+        { allowEmpty: false },
+      ),
+      instructions: normalizeString(
+        rawRealtime.instructions,
+        fallback.realtime.instructions,
+        { allowEmpty: true },
       ),
     },
     webhookPath: normalizeApiPath(raw.webhookPath, fallback.webhookPath),

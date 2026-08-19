@@ -16,17 +16,25 @@ export default {
       handler: (ctx) => runtime.handleAnswer(ctx),
     });
     api.registerInboundWebhook({
-      name: 'input',
-      method: 'POST',
-      description: 'Vonage speech input callback',
-      handler: (ctx) => runtime.handleInput(ctx),
-    });
-    api.registerInboundWebhook({
       name: 'event',
       method: 'POST',
       description: 'Vonage call status callback',
       handler: (ctx) => runtime.handleEvent(ctx),
     });
+    if (config.mode === 'realtime') {
+      api.registerWebsocketWebhook({
+        name: 'stream',
+        description: 'Vonage realtime call audio stream',
+        handler: (ctx) => runtime.handleStreamUpgrade(ctx),
+      });
+    } else {
+      api.registerInboundWebhook({
+        name: 'input',
+        method: 'POST',
+        description: 'Vonage speech input callback',
+        handler: (ctx) => runtime.handleInput(ctx),
+      });
+    }
     api.registerService({
       id: 'vonage-voice-runtime',
       stop: () => runtime.stop(),
@@ -39,6 +47,7 @@ export default {
         if (subcommand === 'info' || subcommand === 'status') {
           return [
             'Vonage Voice plugin is ready.',
+            `Mode: ${config.mode === 'realtime' ? 'realtime speech-to-speech' : 'turn-based'}`,
             `Answer webhook: ${runtime.answerUrl}`,
             `Event webhook: ${runtime.eventUrl}`,
             'Usage: /vonage call <e164-number>',

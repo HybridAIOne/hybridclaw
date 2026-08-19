@@ -1269,6 +1269,36 @@ export async function handleGatewayPluginWebhook(
   }
 }
 
+/**
+ * Routes a websocket upgrade on the plugin webhook path. Returns false when
+ * no plugin websocket webhook owns the path, so the HTTP server can answer
+ * 404; peer auth is the owning plugin handler's responsibility.
+ */
+export async function handleGatewayPluginWebsocketUpgrade(params: {
+  req: IncomingMessage;
+  socket: import('node:stream').Duplex;
+  head: Buffer;
+  url: URL;
+  rejectUpgrade: (statusCode: number, message: string) => void;
+}): Promise<boolean> {
+  const { pluginManager } = await tryEnsurePluginManagerInitializedForGateway({
+    sessionId: `plugin-webhook:${params.url.pathname}`,
+    channelId: params.url.pathname,
+    surface: 'webhook',
+  });
+  if (!pluginManager) {
+    return false;
+  }
+  return pluginManager.handleWebsocketUpgrade({
+    pathname: params.url.pathname,
+    url: params.url,
+    req: params.req,
+    socket: params.socket,
+    head: params.head,
+    rejectUpgrade: params.rejectUpgrade,
+  });
+}
+
 export async function runGatewayPluginTool(params: {
   toolName: string;
   args: Record<string, unknown>;

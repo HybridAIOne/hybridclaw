@@ -472,6 +472,13 @@ export interface PluginDispatchInboundMessageRequest {
   onProactiveMessage?: (
     message: PluginInboundProactiveMessage,
   ) => void | Promise<void>;
+  onToolProgress?: (event: {
+    sessionId: string;
+    toolName: string;
+    phase: 'start' | 'finish';
+    preview?: string;
+    durationMs?: number;
+  }) => void;
   abortSignal?: AbortSignal;
 }
 
@@ -493,6 +500,84 @@ export interface PluginInboundWebhookDefinition {
   handler: (context: PluginInboundWebhookContext) => Promise<void> | void;
 }
 
+/** Structural view of a `ws` socket, so plugins never import `ws` directly. */
+export interface PluginWebsocket {
+  on(
+    event: 'message',
+    listener: (data: unknown, isBinary: boolean) => void,
+  ): void;
+  on(event: 'close', listener: (code: number, reason: unknown) => void): void;
+  on(event: 'error', listener: (error: Error) => void): void;
+  send(data: string | Buffer, cb?: (error?: Error) => void): void;
+  close(code?: number, reason?: string): void;
+  readyState: number;
+}
+
+export interface PluginWebsocketWebhookContext {
+  req: IncomingMessage;
+  url: URL;
+  pluginId: string;
+  webhookName: string;
+  path: string;
+  logger: PluginLogger;
+  /**
+   * Completes the upgrade and hands back the socket. Call at most once; a
+   * handler that neither accepts nor rejects fails the upgrade.
+   */
+  accept: () => Promise<PluginWebsocket>;
+  /** Refuses the upgrade with an HTTP status before any socket exists. */
+  reject: (statusCode: number, message: string) => void;
+}
+
+/**
+ * Websocket upgrades on the plugin webhook path. Like HTTP plugin webhooks,
+ * upgrades are NOT authenticated by the gateway — the handler must validate
+ * the peer (signed token, allow-list) before calling `accept()`.
+ */
+export interface PluginWebsocketWebhookDefinition {
+  name: string;
+  description?: string;
+  handler: (context: PluginWebsocketWebhookContext) => Promise<void> | void;
+}
+
+export interface PluginRealtimeVoiceCallerInfo {
+  from: string;
+  to: string;
+  callerName?: string;
+}
+
+export interface PluginRealtimeVoiceSessionIdentity {
+  sessionId: string;
+  channelId: string;
+  userId: string;
+  username: string | null;
+}
+
+/**
+ * A realtime speech-to-speech voice session backed by the core realtime
+ * engine (`voice.realtime.*` config and credentials). Transport audio is
+ * 16-bit LE mono PCM at 8 kHz; model audio is delivered as paced 20 ms
+ * frames so barge-in can cut playback promptly.
+ */
+export interface PluginRealtimeVoiceSessionOptions {
+  caller: PluginRealtimeVoiceCallerInfo;
+  session: PluginRealtimeVoiceSessionIdentity;
+  /** Overrides the configured realtime greeting for this call. */
+  greeting?: string;
+  sendAudio: (frame: Buffer) => void;
+  onStateChange?: (state: 'listening' | 'speaking' | 'thinking') => void;
+  onError?: (message: string) => void;
+  onClosed?: () => void;
+}
+
+export interface PluginRealtimeVoiceSession {
+  /** 16-bit LE mono PCM at 8 kHz from the caller. */
+  handleCallerAudio(frame: Buffer): void;
+  handleDtmf(digit: string): void;
+  close(): void;
+  readonly isOpen: boolean;
+}
+
 export interface HybridClawPluginApi {
   readonly pluginId: string;
   readonly pluginDir: string;
@@ -512,9 +597,21 @@ export interface HybridClawPluginApi {
   registerCommand(cmd: PluginCommandDefinition): void;
   registerService(svc: PluginService): void;
   registerInboundWebhook(webhook: PluginInboundWebhookDefinition): void;
+  registerWebsocketWebhook(webhook: PluginWebsocketWebhookDefinition): void;
   dispatchInboundMessage(
     request: PluginDispatchInboundMessageRequest,
   ): Promise<GatewayChatResult>;
+  /** Whether realtime voice credentials are configured for this gateway. */
+  isRealtimeVoiceAvailable(): boolean;
+  /**
+   * Opens a realtime speech-to-speech session for a live call this plugin
+   * transports. Throws when realtime voice is not configured. Consulted
+   * agent turns run through `dispatchInboundMessage` semantics (approvals,
+   * audit, session history) and spoken turns persist as voice transcripts.
+   */
+  createRealtimeVoiceSession(
+    options: PluginRealtimeVoiceSessionOptions,
+  ): PluginRealtimeVoiceSession;
   on<K extends PluginHookName>(
     event: K,
     handler: PluginHookHandlerMap[K],

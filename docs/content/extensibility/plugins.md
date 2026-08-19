@@ -58,7 +58,8 @@ plugin is explicitly enabled.
 
 Vonage Voice is also bundled as an install-on-demand plugin. Its webhook
 runtime, credentials, and outbound calling command stay outside the built-in
-Twilio voice channel.
+Twilio voice channel. Its optional realtime mode reuses the core realtime
+voice engine through the plugin API rather than its own model credentials.
 
 The reinstall command:
 
@@ -121,9 +122,9 @@ or change one top-level `plugins.list[].config` key without editing
   `fromName`, `fromAddress`, and `agentHandles`. The bundled `send_email` tool
   also accepts optional `inReplyTo` and `references` Message-ID headers when
   you need to continue an existing email thread.
-- `vonage-voice` provides signed, turn-based inbound and outbound phone calls
-  through Vonage Voice without adding Vonage configuration to the core voice
-  channel.
+- `vonage-voice` provides signed inbound and outbound phone calls through
+  Vonage Voice without adding Vonage configuration to the core voice channel —
+  turn-based by default, or realtime speech-to-speech with `mode: realtime`.
 
 Example config writes:
 
@@ -367,7 +368,27 @@ plus the parsed `URL`, and can reuse `readWebhookJsonBody(...)`,
 To hand a normalized inbound event back into the standard assistant turn flow,
 plugins can call `api.dispatchInboundMessage(...)`. That runs the same gateway
 turn pipeline used by built-in channels and returns the standard gateway chat
-result so the plugin can deliver the reply through its own transport.
+result so the plugin can deliver the reply through its own transport. The
+request accepts an optional `onToolProgress` callback for live tool activity
+during the turn.
+
+Plugins can also register websocket endpoints on the same route prefix through
+`api.registerWebsocketWebhook({ name, handler })`. The handler receives the
+upgrade request plus `accept()` / `reject(statusCode, message)`; exactly one
+must be called. Like HTTP plugin webhooks, the gateway performs no peer
+authentication on these upgrades — the handler must validate the peer itself
+(for example with a signed single-use token in the URL) before accepting.
+
+Channel plugins that transport live phone audio can open a realtime
+speech-to-speech session with `api.createRealtimeVoiceSession(...)`. The core
+realtime engine (configured by `voice.realtime.*`) fronts the conversation,
+consults the full agent through the plugin dispatch pipeline (so approvals,
+audit, and session history behave like any other turn), and persists spoken
+turns as voice transcripts. Transport audio is 16-bit LE mono PCM at 8 kHz;
+model audio arrives as paced 20 ms frames so barge-in can cut playback
+promptly. `api.isRealtimeVoiceAvailable()` reports whether realtime
+credentials are configured. The bundled `vonage-voice` plugin's realtime mode
+is the reference implementation.
 
 Classifier middleware uses one decision shape for routing, inbound prompt
 preparation, and outbound response inspection:

@@ -10,6 +10,12 @@ export interface ChatRecentResponse {
   sessions: ChatRecentSession[];
 }
 
+export interface ChatVoiceCapabilityResponse {
+  available: boolean;
+  model: string;
+  voice: string;
+}
+
 export interface ChatCleanupResponse {
   deletedCount: number;
   deletedSessionIds: string[];
@@ -61,6 +67,8 @@ export interface ChatHistoryMessage {
   artifacts?: ChatArtifact[];
   assistantPresentation?: AssistantPresentation | null;
   activityTrace?: ChatActivityTrace | null;
+  /** Provenance of the turn, e.g. 'voice' for realtime speech transcripts. */
+  source?: string | null;
 }
 
 export type ResponseRatingValue = 'up' | 'down';
@@ -284,4 +292,6 @@ export interface ChatMessage {
   responseRating?: ResponseRatingValue | null;
   branchKey?: string | null;
   a2aDelivery?: A2ADeliveryDescriptor | null;
+  /** Provenance of the turn, e.g. 'voice' for realtime speech transcripts. */
+  source?: string | null;
 }

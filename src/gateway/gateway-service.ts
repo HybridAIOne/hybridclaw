@@ -4942,6 +4942,7 @@ export async function getGatewayStatus(
     msteams,
     voice: {
       enabled: runtimeConfig.voice.enabled,
+      mode: runtimeConfig.voice.mode,
       accountSidConfigured: Boolean(
         runtimeConfig.voice.twilio.accountSid.trim(),
       ),
@@ -12792,6 +12793,7 @@ export async function handleGatewayCommand(
             [
               `Enabled: ${voiceConfig.enabled ? 'on' : 'off'}`,
               `Provider: ${voiceConfig.provider}`,
+              `Mode: ${voiceConfig.mode}`,
               `Account SID: ${voiceConfig.twilio.accountSid.trim() ? 'configured' : 'unset'}`,
               `From number: ${voiceConfig.twilio.fromNumber.trim() || '(unset)'}`,
               `Auth token: ${String(TWILIO_AUTH_TOKEN || '').trim() ? 'configured' : 'unset'}`,

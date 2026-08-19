@@ -517,6 +517,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
       css.messageBlockAssistant,
   );
 
+  const isVoice = msg.source === 'voice';
   const bubbleClass = cx(
     css.bubble,
     isUser && css.bubbleUser,
@@ -525,6 +526,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
     msg.role === 'system' && css.bubbleSystem,
     msg.role === 'command' && css.bubbleCommand,
     isA2ADeliveryStatus && css.bubbleA2AStatus,
+    isVoice && css.bubbleVoice,
   );
 
   return (
@@ -544,6 +546,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
       {shouldRenderBubble ? (
         <div className={bubbleClass}>
+          {isVoice ? <span className={css.voiceBubbleTag}>Voice</span> : null}
           {isA2ADeliveryStatus && msg.a2aDelivery ? (
             <A2ADeliveryChip descriptor={msg.a2aDelivery} token={token} />
           ) : shouldRenderApprovalCard && msg.pendingApproval ? (

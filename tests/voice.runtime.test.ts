@@ -232,6 +232,92 @@ test('handleVoiceWebhook hangs up cleanly when voice runtime is unavailable', as
   await shutdownVoice();
 });
 
+test('handleVoiceWebhook returns media stream TwiML in realtime mode', async () => {
+  const getConfigSnapshot = vi.fn(() => ({
+    voice: {
+      enabled: true,
+      provider: 'twilio',
+      mode: 'realtime',
+      twilio: {
+        accountSid: 'AC123',
+        authToken: '',
+        fromNumber: '+14155550123',
+      },
+      relay: {
+        ttsProvider: 'default',
+        voice: '',
+        transcriptionProvider: 'default',
+        language: 'en-US',
+        interruptible: true,
+        welcomeGreeting: 'Hello! How can I help you today?',
+      },
+      realtime: {
+        model: 'gpt-realtime',
+        voice: 'marin',
+        greeting: 'Hello! How can I help you today?',
+        instructions: '',
+      },
+      webhookPath: '/voice',
+      maxConcurrentCalls: 8,
+    },
+  }));
+
+  vi.doMock('../src/config/config.js', () => ({
+    GATEWAY_BASE_URL: '',
+    OPENAI_API_KEY: 'test-key',
+    TWILIO_AUTH_TOKEN: 'env-voice-token',
+    getConfigSnapshot,
+  }));
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    },
+  }));
+
+  const { handleVoiceWebhook, initVoice, shutdownVoice } = await import(
+    '../src/channels/voice/runtime.js'
+  );
+  await initVoice(async () => {});
+  const body = {
+    CallSid: 'CA123',
+    From: '+15550001111',
+    To: '+15550002222',
+  };
+  const signature = buildTwilioSignature({
+    authToken: 'env-voice-token',
+    url: 'https://voice.example.com/voice/webhook',
+    values: body,
+  });
+  const req = makeFormRequest({
+    url: '/voice/webhook',
+    body,
+    headers: {
+      'x-forwarded-proto': 'https',
+      'x-twilio-signature': signature,
+    },
+  });
+  const res = makeResponse();
+
+  const handled = await handleVoiceWebhook(
+    req as never,
+    res as never,
+    new URL('http://voice.example.com/voice/webhook'),
+  );
+
+  expect(handled).toBe(true);
+  expect(res.statusCode).toBe(200);
+  expect(res.body).toContain(
+    '<Stream url="wss://voice.example.com/voice/stream">',
+  );
+  expect(res.body).toContain('<Parameter name="callReference" value="CA123" />');
+  expect(res.body).not.toContain('<ConversationRelay');
+
+  await shutdownVoice();
+});
+
 test('handleVoiceWebhook rejects duplicate Twilio webhook replays', async () => {
   const getConfigSnapshot = vi.fn(() => ({
     voice: {

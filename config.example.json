@@ -293,6 +293,7 @@
   "voice": {
     "enabled": false,
     "provider": "twilio",
+    "mode": "relay",
     "twilio": {
       "accountSid": "",
       "authToken": "",
@@ -305,6 +306,12 @@
       "language": "en-US",
       "interruptible": true,
       "welcomeGreeting": "Hello! How can I help you today?"
+    },
+    "realtime": {
+      "model": "gpt-realtime",
+      "voice": "marin",
+      "greeting": "Hello! How can I help you today?",
+      "instructions": ""
     },
     "webhookPath": "/voice",
     "maxConcurrentCalls": 8

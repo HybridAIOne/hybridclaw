@@ -152,6 +152,16 @@ changes before navigation.
   operators apply persisted thumbs-up/down ratings to assistant responses
 - the web chat route syntax-highlights completed code blocks, shows language
   labels, and keeps copy controls reachable on hover and touch devices
+- the web chat route offers a realtime voice mode (microphone button in the
+  composer) when the configured `voice.realtime.provider` has a credential —
+  an OpenAI API key for `openai`, or the signed-in HybridAI credential for
+  `hybridai` (which routes through the platform's `/v1/realtime` proxy): mic
+  audio streams to the realtime API for natural speech-to-speech conversation
+  with interruption support; spoken turns persist into the conversation as
+  voice-tagged messages, and substantive requests run as ordinary web chat
+  turns via `consult_agent`; while a consult runs, the live-call capsule shows
+  what the agent is currently doing (for example `Checking — web search…`)
+  and long consults get short spoken progress updates
 - destructive admin actions use explicit browser confirmation dialogs before
   HybridClaw applies the requested change
 

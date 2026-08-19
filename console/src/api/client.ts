@@ -727,6 +727,14 @@ export function stopAdminTerminal(
   );
 }
 
+export function chatVoiceSocketUrl(): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return new URL(
+    '/api/chat/voice/stream',
+    `${protocol}//${window.location.host}`,
+  ).toString();
+}
+
 export function adminTerminalSocketUrl(
   _token: string,
   sessionId: string,

@@ -149,6 +149,7 @@ export function storeMessage(
   content: string,
   agentId?: string | null,
   artifacts?: ArtifactMetadata[] | null,
+  source?: string | null,
 ): number {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
   const normalizedAgentId = agentId?.trim() || null;
@@ -163,8 +164,9 @@ export function storeMessage(
          agent_id,
          content,
          artifacts_json,
+         source,
          created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
     )
     .run(
       resolvedSessionId,
@@ -174,6 +176,7 @@ export function storeMessage(
       normalizedAgentId,
       content,
       artifactsJson,
+      source?.trim() || null,
     );
 
   getMessageDatabase()

@@ -119,6 +119,7 @@ import {
   shutdownThreema,
 } from '../channels/threema/runtime.js';
 import { isThreemaChannelId } from '../channels/threema/target.js';
+import { resolveRealtimeConnection } from '../channels/voice/realtime-credentials.js';
 import { initVoice, shutdownVoice } from '../channels/voice/runtime.js';
 import {
   createVoiceTextStreamFormatter,
@@ -149,7 +150,9 @@ import {
   TWILIO_AUTH_TOKEN,
 } from '../config/config.js';
 import {
+  getRuntimeConfig,
   type RuntimeConfig,
+  resolveDefaultAgentId,
   startRuntimeConfigWatcher,
 } from '../config/runtime-config.js';
 import { resolveLocalInstanceId } from '../identity/agent-id.js';
@@ -276,6 +279,7 @@ import {
   renderTextChannelCommandResult,
   resolveTextChannelSlashCommands,
 } from './text-channel-commands.js';
+import { persistVoiceTranscript } from './voice-transcript-store.js';
 
 let detachConfigListener: (() => void) | null = null;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
@@ -3334,6 +3338,16 @@ async function startVoiceIntegration(): Promise<boolean> {
     );
     return false;
   }
+  if (voiceConfig.mode === 'realtime') {
+    const resolved = resolveRealtimeConnection(voiceConfig.realtime.provider);
+    if (!resolved.connection) {
+      logger.warn(
+        { provider: voiceConfig.realtime.provider },
+        `Voice integration disabled: ${resolved.error}`,
+      );
+      return false;
+    }
+  }
 
   try {
     await initVoice(
@@ -3366,6 +3380,9 @@ async function startVoiceIntegration(): Promise<boolean> {
             source: 'voice',
             reply: textReply,
             abortSignal: context.abortSignal,
+            onToolProgress: context.onToolProgress
+              ? (event) => context.onToolProgress?.(event)
+              : undefined,
             onTextDelta: (delta) => {
               const filteredDelta = streamFilter.push(delta);
               if (!filteredDelta) return;
@@ -3457,10 +3474,19 @@ async function startVoiceIntegration(): Promise<boolean> {
           }
         }
       },
+      {
+        transcriptPersister: (params) => {
+          persistVoiceTranscript({
+            ...params,
+            agentId: resolveDefaultAgentId(getRuntimeConfig()),
+          });
+        },
+      },
     );
     logger.info(
       {
         provider: voiceConfig.provider,
+        mode: voiceConfig.mode,
         webhookPath: voiceConfig.webhookPath,
         maxConcurrentCalls: voiceConfig.maxConcurrentCalls,
       },

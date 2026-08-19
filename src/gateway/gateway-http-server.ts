@@ -271,6 +271,7 @@ import { getGatewayAdminLogs } from './gateway-log-service.js';
 import {
   getGatewayAdminPlugins,
   handleGatewayPluginWebhook,
+  handleGatewayPluginWebsocketUpgrade,
   runGatewayPluginTool,
 } from './gateway-plugin-service.js';
 import { requestGatewayRestart } from './gateway-restart.js';
@@ -455,6 +456,11 @@ import {
   MAX_WEBCHAT_SPEECH_CHARS,
   synthesizeWebchatSpeech,
 } from './webchat-speech.js';
+import {
+  isWebchatVoiceAvailable,
+  WEBCHAT_VOICE_STREAM_PATH,
+  webchatVoiceManager,
+} from './webchat-voice.js';
 
 const SITE_DIR = resolveInstallPath('docs');
 const CONSOLE_DIST_DIR = resolveInstallPath('console', 'dist');
@@ -11099,6 +11105,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiChatContext(res, url);
             return;
           }
+          if (pathname === '/api/chat/voice' && method === 'GET') {
+            const voiceConfig = getRuntimeConfig().voice.realtime;
+            sendJson(res, 200, {
+              available: isWebchatVoiceAvailable(),
+              model: voiceConfig.model,
+              voice: voiceConfig.voice,
+            });
+            return;
+          }
           if (pathname === '/api/agents' && method === 'GET') {
             await handleApiAgents(res);
             return;
@@ -11339,6 +11354,58 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (handleVoiceUpgrade(req, socket, head, url)) {
+      return;
+    }
+
+    if (url.pathname === WEBCHAT_VOICE_STREAM_PATH) {
+      // Same browser-auth gate as the admin terminal stream: a signed session
+      // cookie or an authenticated same-origin request (including the
+      // loopback local web session). No query tokens, no API tokens.
+      const voiceSessionPayload = getSessionAuthPayload(req);
+      const voiceRequestAuth = resolveAuthContext(req, url, {
+        allowApiTokens: false,
+        allowQueryToken: false,
+        allowLocalWebSession: true,
+        requireSameOrigin: true,
+      });
+      if (voiceSessionPayload === null && voiceRequestAuth.kind === 'none') {
+        writeUpgradeError(socket, 401, 'Unauthorized');
+        return;
+      }
+      if (!isWebchatVoiceAvailable()) {
+        writeUpgradeError(socket, 503, 'Voice Unavailable');
+        return;
+      }
+      webchatVoiceManager.handleUpgrade(req, socket, head, {
+        userId: resolveGatewayRequestUserId({ req, channelId: 'web' }) || null,
+        username: null,
+      });
+      return;
+    }
+
+    if (isPluginInboundWebhookPath(url.pathname)) {
+      // Peer auth happens inside the owning plugin handler, mirroring HTTP
+      // plugin webhooks (e.g. signed one-time stream tokens).
+      void handleGatewayPluginWebsocketUpgrade({
+        req,
+        socket,
+        head,
+        url,
+        rejectUpgrade: (statusCode, message) =>
+          writeUpgradeError(socket, statusCode, message),
+      })
+        .then((handled) => {
+          if (!handled) {
+            writeUpgradeError(socket, 404, 'Not Found');
+          }
+        })
+        .catch((error: unknown) => {
+          logger.warn(
+            { error, pathname: url.pathname },
+            'Plugin websocket upgrade failed',
+          );
+          writeUpgradeError(socket, 500, 'Upgrade failed');
+        });
       return;
     }
 

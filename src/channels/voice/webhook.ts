@@ -96,6 +96,24 @@ export function buildConversationRelayTwiml(params: {
   );
 }
 
+export function buildMediaStreamTwiml(params: {
+  websocketUrl: string;
+  actionUrl: string;
+  customParameters?: Record<string, string>;
+}): string {
+  const parameterXml = Object.entries(params.customParameters || {})
+    .map(
+      ([name, value]) => `<Parameter${buildXmlAttributes({ name, value })} />`,
+    )
+    .join('');
+  return (
+    '<?xml version="1.0" encoding="UTF-8"?>' +
+    `<Response><Connect${buildXmlAttributes({ action: params.actionUrl })}>` +
+    `<Stream${buildXmlAttributes({ url: params.websocketUrl })}>${parameterXml}</Stream>` +
+    '</Connect></Response>'
+  );
+}
+
 export function buildHangupTwiml(message: string): string {
   return (
     '<?xml version="1.0" encoding="UTF-8"?>' +

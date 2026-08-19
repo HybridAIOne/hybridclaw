@@ -15,6 +15,7 @@
   card superseded by a newer request or past its expiry says so instead of
   offering a dead-end action, and pending approvals that arrive as plain text
   — after a reload, or from a command's output — regain Allow/Cancel actions.
+
 ### Added
 
 - **Rate answers from chat channels with `/thumbs`**: `/thumbs up|down [comment]`
@@ -28,6 +29,30 @@
   HybridClaw answer in Microsoft Teams records the same response rating as
   `/thumbs up|down`, and withdrawing the reaction clears it again when it still
   matches. Other reaction types are ignored.
+- **Realtime voice mode for phone calls**: `voice.mode: "realtime"` runs
+  Twilio calls through the OpenAI Realtime API as natural speech-to-speech
+  conversations with barge-in, instead of the turn-based ConversationRelay
+  flow. The realtime model fronts the call and forwards substantive requests
+  to the full gateway agent via a `consult_agent` tool, so tools, approvals,
+  and session persistence keep working. Configure via `voice.realtime.*`;
+  requires an `OPENAI_API_KEY`.
+- **Voice mode in the web console chat**: A microphone button in the composer
+  starts a realtime speech-to-speech session in the browser using the same
+  OpenAI Realtime engine and `voice.realtime.*` settings — no Twilio setup
+  needed. Consulted requests run as ordinary web chat turns and appear in the
+  session transcript; the button only shows when an `OPENAI_API_KEY` is
+  configured.
+- **Realtime mode for the Vonage Voice plugin**: `plugin config vonage-voice
+  mode realtime` runs Vonage calls as the same speech-to-speech conversations
+  over Vonage websocket audio, reusing the core realtime engine and
+  `voice.realtime.*` settings while keeping Vonage credentials in the plugin.
+  Built on two new plugin API seams — `registerWebsocketWebhook` and
+  `createRealtimeVoiceSession` — available to any channel plugin.
+- **Live progress during realtime voice consults**: While the realtime model
+  consults the full agent, long-running turns speak short "still working"
+  updates naming the current tool activity (never over the caller), and the
+  web console's live-call capsule shows what the agent is doing, for example
+  `Checking — web search…`.
 
 ## [0.28.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.7) - 2026-08-17
 

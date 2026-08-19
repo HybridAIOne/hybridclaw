@@ -62,6 +62,10 @@ export type {
   PluginOutputGuardOutcome,
   PluginPromptBuildContext,
   PluginPromptHook,
+  PluginRealtimeVoiceCallerInfo,
+  PluginRealtimeVoiceSession,
+  PluginRealtimeVoiceSessionIdentity,
+  PluginRealtimeVoiceSessionOptions,
   PluginRegistrationMode,
   PluginRuntime,
   PluginRuntimeToolDefinition,
@@ -74,6 +78,9 @@ export type {
   PluginToolHookContext,
   PluginToolSchema,
   PluginToolSchemaProperty,
+  PluginWebsocket,
+  PluginWebsocketWebhookContext,
+  PluginWebsocketWebhookDefinition,
 } from './plugin-types.js';
 export {
   buildPluginInboundWebhookPath,

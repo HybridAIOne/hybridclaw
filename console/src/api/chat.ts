@@ -6,6 +6,7 @@ import type {
   ChatHistoryResponse,
   ChatMobileQrResponse,
   ChatRecentResponse,
+  ChatVoiceCapabilityResponse,
   DictationTranscriptionResponse,
   MediaCapabilitiesResponse,
   MediaUploadResponse,
@@ -90,6 +91,12 @@ export function fetchChatContext(
     `/api/chat/context?${params.toString()}`,
     { token },
   );
+}
+
+export function fetchChatVoiceCapability(
+  token: string,
+): Promise<ChatVoiceCapabilityResponse> {
+  return requestJson<ChatVoiceCapabilityResponse>('/api/chat/voice', { token });
 }
 
 export function fetchChatCommands(

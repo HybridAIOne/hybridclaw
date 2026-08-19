@@ -90,6 +90,9 @@ export function Composer(props: {
   selectedModelId?: string;
   onModelSwitch?: (modelId: string) => void;
   initialValue?: string;
+  voiceAvailable?: boolean;
+  voiceActive?: boolean;
+  onVoiceToggle?: () => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -656,6 +659,40 @@ export function Composer(props: {
                 disabled={props.isStreaming}
                 onTranscript={insertDictationTranscript}
               />
+              {props.voiceAvailable ? (
+                <button
+                  type="button"
+                  className={cx(
+                    css.voiceModeButton,
+                    props.voiceActive && css.voiceModeButtonActive,
+                  )}
+                  onClick={() => props.onVoiceToggle?.()}
+                  aria-label={
+                    props.voiceActive ? 'End voice mode' : 'Start voice mode'
+                  }
+                  title={
+                    props.voiceActive ? 'End voice mode' : 'Start voice mode'
+                  }
+                  aria-pressed={props.voiceActive === true}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M4 10v4" />
+                    <path d="M8 7v10" />
+                    <path d="M12 4v16" />
+                    <path d="M16 7v10" />
+                    <path d="M20 10v4" />
+                  </svg>
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={cx(

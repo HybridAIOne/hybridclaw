@@ -1772,6 +1772,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .attachButton,
 .dictationButton,
+.voiceModeButton,
 .sendButton {
   display: flex;
   align-items: center;
@@ -1789,6 +1790,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .attachButton:focus-visible,
 .dictationButton:focus-visible,
+.voiceModeButton:focus-visible,
 .sendButton:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
   outline-offset: 2px;
@@ -2337,6 +2339,222 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 @media (prefers-reduced-motion: reduce) {
   .a2aDeliveryDotPulse {
+    animation: none;
+  }
+}
+
+/* Realtime voice mode */
+/* Realtime voice mode: filled accent circle with a waveform glyph, sitting
+   between the dictation mic and send (ChatGPT-style pairing). */
+.voiceModeButton {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.voiceModeButton:hover {
+  background: color-mix(in srgb, var(--primary) 85%, var(--foreground) 15%);
+}
+
+.voiceModeButtonActive {
+  animation: voicePulse 1.6s ease-in-out infinite;
+}
+
+/* Live-call capsule: a compact centered pill above the composer while voice
+   mode is active. The waveform mirrors the voice button glyph; its color and
+   motion encode state (primary breathing = listening, success dancing =
+   speaking, muted sweep = thinking). */
+.voiceCapsule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 auto 8px;
+  padding: 6px 8px 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-card);
+  color: var(--muted-foreground);
+}
+
+.voiceWave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.voiceWaveBar {
+  width: 3px;
+  height: 8px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.voiceWaveBar:nth-child(2) {
+  height: 12px;
+  animation-delay: 0.12s;
+}
+
+.voiceWaveBar:nth-child(3) {
+  height: 16px;
+  animation-delay: 0.24s;
+}
+
+.voiceWaveBar:nth-child(4) {
+  height: 12px;
+  animation-delay: 0.36s;
+}
+
+.voiceWaveBar:nth-child(5) {
+  animation-delay: 0.48s;
+}
+
+.voiceCapsuleListening {
+  color: var(--primary);
+}
+
+.voiceCapsuleListening .voiceWaveBar {
+  animation-name: voiceWaveBreathe;
+  animation-duration: 1.8s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.voiceCapsuleSpeaking {
+  color: var(--success);
+}
+
+.voiceCapsuleSpeaking .voiceWaveBar {
+  animation-name: voiceWaveDance;
+  animation-duration: 0.9s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.voiceCapsuleThinking .voiceWaveBar {
+  animation-name: voiceWaveSweep;
+  animation-duration: 1.4s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.voiceCapsuleEnded {
+  opacity: 0.85;
+}
+
+.voiceCapsuleError {
+  color: var(--danger);
+}
+
+.voiceStatusLabel {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voiceCapsuleError .voiceStatusLabel {
+  color: var(--danger);
+}
+
+.voiceEndButton {
+  border: none;
+  border-radius: 999px;
+  background: var(--chat-hover-bg);
+  color: var(--muted-foreground);
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.voiceEndButton:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.voiceEndButton:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--danger) 55%, transparent);
+  outline-offset: 2px;
+}
+
+/* Spoken turns from realtime voice mode (message source 'voice'). Persisted
+   like any other message; the tag and dashed border distinguish speech from
+   typed chat, e.g. next to the consult turns of the same exchange. */
+.bubbleVoice {
+  opacity: 0.92;
+  border-style: dashed;
+}
+
+.bubbleUser.bubbleVoice {
+  border: 1px dashed
+    color-mix(in srgb, var(--primary-foreground) 45%, transparent);
+}
+
+.voiceBubbleTag {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+@keyframes voicePulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes voiceWaveBreathe {
+  0%,
+  100% {
+    transform: scaleY(0.6);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes voiceWaveDance {
+  0%,
+  100% {
+    transform: scaleY(0.4);
+  }
+  50% {
+    transform: scaleY(1.15);
+  }
+}
+
+@keyframes voiceWaveSweep {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voiceModeButtonActive,
+  .voiceWaveBar {
     animation: none;
   }
 }
