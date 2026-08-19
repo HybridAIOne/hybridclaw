@@ -706,6 +706,75 @@ describe('email delivery helpers', () => {
     });
   });
 
+  // Regression: a caller (an agent calling the message-send tool) can supply
+  // any string as the parent. Lifting the run id out of the inbound Subject
+  // and passing it as the parent produced `In-Reply-To: <b5f8b8885a84>` on the
+  // wire — syntactically not a msg-id (RFC 5322 requires `id-left@id-right`),
+  // so it matches nothing in any client, and the reply orphans out of its
+  // thread. The known thread context must win over an unusable parent.
+  test('ignores a caller-supplied parent that is not a Message-ID', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-orphan@example.com>',
+      })),
+    };
+
+    await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: 'Received, thanks.',
+      selfAddress: 'agent@example.com',
+      threadContext: {
+        subject: 'weekly status b5f8b8885a84',
+        messageId: '<178634181362.1410672.119560@example.com>',
+        references: [],
+      },
+      inReplyTo: 'b5f8b8885a84',
+    });
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: 'Re: weekly status b5f8b8885a84',
+        inReplyTo: '<178634181362.1410672.119560@example.com>',
+        references: '<178634181362.1410672.119560@example.com>',
+      }),
+    );
+  });
+
+  test('drops an unusable parent when no thread context is known', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_TEXT_CHUNK_LIMIT: 50000,
+    }));
+    const { sendEmail } = await import('../src/channels/email/delivery.js');
+    const transport = {
+      sendMail: vi.fn(async () => ({
+        messageId: '<sent-no-thread@example.com>',
+      })),
+    };
+
+    await sendEmail({
+      transport,
+      to: 'boss@example.com',
+      body: 'Received, thanks.',
+      subject: 'Status',
+      selfAddress: 'agent@example.com',
+      threadContext: null,
+      inReplyTo: 'b5f8b8885a84',
+    });
+
+    expect(transport.sendMail.mock.calls[0]?.[0]?.inReplyTo).toBeUndefined();
+    expect(transport.sendMail.mock.calls[0]?.[0]?.references).toBeUndefined();
+    expect(transport.sendMail.mock.calls[0]?.[0]?.subject).toBe('Status');
+  });
+
   test('extracts inline subject prefixes and attaches files', async () => {
     vi.doMock('../src/config/config.ts', () => ({
       APP_VERSION: '0.7.1',
@@ -944,6 +1013,117 @@ describe('email runtime', () => {
       expect.any(Buffer),
       ['\\Seen'],
       expect.any(Date),
+    );
+  });
+
+  // End-to-end shape of the bug: the agent answers an inbound mail by
+  // addressing the sender and supplying its own parent id, taken from the
+  // inbound Subject rather than from the Message-ID. The runtime already
+  // remembered the real thread for that sender, so the reply must still land
+  // in it instead of starting an untitled one.
+  test('keeps a reply in its thread when the agent supplies an unusable parent', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_PASSWORD: 'email-app-password',
+      EMAIL_TEXT_CHUNK_LIMIT: 50_000,
+      getConfigSnapshot: () => ({
+        email: BASE_EMAIL_CONFIG,
+      }),
+    }));
+
+    const sendMail = vi.fn(async () => ({
+      messageId: '<sent-reply@example.com>',
+    }));
+    const createTransport = vi.fn(() => ({
+      close: vi.fn(async () => {}),
+      verify: vi.fn(async () => {}),
+      sendMail,
+    }));
+    const callbacks = new Map<
+      string,
+      (
+        messages: Array<{ folder: string; raw: Buffer; uid: number }>,
+      ) => Promise<void>
+    >();
+
+    vi.doMock('nodemailer', () => ({ default: { createTransport } }));
+    vi.doMock('imapflow', () => ({
+      ImapFlow: class {
+        mailbox = { path: 'Sent' };
+        connect = vi.fn(async () => {});
+        logout = vi.fn(async () => {});
+        close = vi.fn(() => {});
+        list = vi.fn(async () => [
+          { path: 'Sent', name: 'Sent', flags: new Set<string>() },
+        ]);
+        getMailboxLock = vi.fn(async (folder: string) => ({
+          path: folder,
+          release: vi.fn(),
+        }));
+        search = vi.fn(async () => []);
+        append = vi.fn(async () => ({ destination: 'Sent', uid: 7 }));
+      },
+    }));
+    vi.doMock('../src/channels/email/connection.ts', () => ({
+      createEmailConnectionManager: vi.fn(
+        (
+          config: { address: string },
+          _password: string,
+          callback: (
+            messages: Array<{ folder: string; raw: Buffer; uid: number }>,
+          ) => Promise<void>,
+        ) => {
+          callbacks.set(config.address, callback);
+          return { start: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
+        },
+      ),
+    }));
+    vi.doMock('../src/channels/email/inbound.ts', () => ({
+      cleanupEmailInboundMedia: vi.fn(async () => {}),
+      processInboundEmail: vi.fn(async () => ({
+        sessionId: 'agent:main:channel:email:chat:dm:peer:boss%40example.com',
+        agentId: 'main',
+        guildId: null,
+        channelId: 'boss@example.com',
+        userId: 'boss@example.com',
+        username: 'Boss',
+        content: 'Please reply in-thread with a short confirmation.',
+        media: [],
+        senderAddress: 'boss@example.com',
+        senderName: 'Boss',
+        subject: 'weekly status b5f8b8885a84',
+        threadContext: {
+          subject: 'weekly status b5f8b8885a84',
+          messageId: '<178634181362.1410672.119560@example.com>',
+          references: [],
+        },
+      })),
+    }));
+
+    const { createEmailRuntime } = await import(
+      '../src/channels/email/runtime.js'
+    );
+    const runtime = createEmailRuntime();
+
+    await runtime.initEmail(async (...args) => {
+      // The agent addresses the sender itself and hands over a "parent" it
+      // lifted out of the subject line instead of the real Message-ID.
+      await runtime.sendToEmail('boss@example.com', 'Received, thanks.', {
+        inReplyTo: 'b5f8b8885a84',
+      });
+      void args;
+    });
+    await callbacks.get('agent@example.com')?.([
+      { folder: 'INBOX', raw: Buffer.from('raw'), uid: 1 },
+    ]);
+
+    expect(sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'boss@example.com',
+        subject: 'Re: weekly status b5f8b8885a84',
+        inReplyTo: '<178634181362.1410672.119560@example.com>',
+      }),
     );
   });
 

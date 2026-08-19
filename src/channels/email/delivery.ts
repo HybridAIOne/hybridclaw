@@ -152,9 +152,26 @@ export function renderEmailHtml(text: string): string | undefined {
   ].join('');
 }
 
+// RFC 5322: msg-id = "<" id-left "@" id-right ">". Senders vary on the angle
+// brackets, so accept either form, but require the `@` — a value without one
+// is not a message id and can never match a message in any mailbox.
+const MESSAGE_ID_RE = /^<?[^\s<>@]+@[^\s<>@]+>?$/;
+
+/**
+ * Return *raw* if it can be a Message-ID, otherwise null.
+ *
+ * Callers may pass a parent they constructed themselves — an agent answering
+ * a mail can hand over a run id it read out of the subject line rather than
+ * the message's own id. Forwarding that verbatim ships a threading header
+ * that matches nothing, orphaning the reply out of its thread and (because a
+ * supplied parent suppresses the known thread context) dropping the reply
+ * subject with it. Rejecting the value instead lets the caller fall back to
+ * the thread the runtime already tracked.
+ */
 function normalizeMessageId(raw: string | null | undefined): string | null {
   const normalized = String(raw || '').trim();
-  return normalized || null;
+  if (!normalized) return null;
+  return MESSAGE_ID_RE.test(normalized) ? normalized : null;
 }
 
 function normalizeMessageIdList(raw: string[] | null | undefined): string[] {

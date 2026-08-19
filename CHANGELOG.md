@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- **Email replies stay in their thread**: An agent that supplies its own parent
+  message id when answering mail no longer breaks threading when that value is
+  not a message id — for example an identifier read out of the subject line.
+  Unusable parents are rejected and the thread the runtime already tracked is
+  used instead, so the reply keeps its `Re:` subject and lands in the original
+  conversation rather than starting an untitled one.
 - **Chat approval prompts resolve instead of lingering**: Acting on an
   approval card marks it handled instead of leaving live buttons behind, a
   card superseded by a newer request or past its expiry says so instead of

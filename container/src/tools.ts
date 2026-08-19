@@ -4250,7 +4250,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           inReplyTo: {
             type: 'string',
             description:
-              'Optional parent message id for threaded replies when supported by the active channel.',
+              'Optional parent message id for threaded replies when supported by the active channel. Pass only an id the channel itself reported for an existing message — on email that is an RFC 5322 Message-ID such as "<abc@example.com>". Never derive one from a subject line, body text, or run identifier. Omit it to keep replying in the current thread, which is the right choice unless you are deliberately answering a different message.',
           },
           references: {
             type: ['string', 'array'],
@@ -4258,7 +4258,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               type: 'string',
             },
             description:
-              'Optional ordered parent message id chain for threaded replies when supported by the active channel.',
+              'Optional ordered parent message id chain for threaded replies when supported by the active channel. Same rules as inReplyTo: channel-reported ids only, never invented ones.',
           },
           filePath: {
             type: 'string',
