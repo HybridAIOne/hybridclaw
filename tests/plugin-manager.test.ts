@@ -886,6 +886,39 @@ test('plugin manager auto-discovers plugins from project directories without con
   ).resolves.toBe('workspace-auto:true:hello');
 });
 
+test('plugin manager ignores manifestless directories during automatic discovery', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const stalePluginDir = path.join(
+    cwd,
+    '.hybridclaw',
+    'plugins',
+    'whatsapp',
+  );
+  fs.mkdirSync(path.join(stalePluginDir, 'dist'), { recursive: true });
+  fs.mkdirSync(path.join(stalePluginDir, 'node_modules'), { recursive: true });
+  const logger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn(),
+  };
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+    logger: logger as never,
+  });
+
+  await expect(manager.discoverPlugins(config)).resolves.toEqual([]);
+  expect(logger.warn).not.toHaveBeenCalled();
+});
+
 test('plugin manager allows only one external memory provider plugin', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');
