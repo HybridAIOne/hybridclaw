@@ -269,6 +269,7 @@ function createGatewayMainTestState(options?: {
     ),
     failStaleDelegationJobs: vi.fn(() => 0),
     listAgents: vi.fn(() => []),
+    setChannelPluginAvailabilityListener: vi.fn(),
     stopGatewayPlugins: vi.fn(async () => {}),
     listQueuedProactiveMessages: vi.fn(() => []),
     loggerDebug: vi.fn(),
@@ -723,6 +724,8 @@ async function importFreshGatewayMain(options?: {
   }));
   vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
     initGatewayService: state.initGatewayService,
+    setChannelPluginAvailabilityListener:
+      state.setChannelPluginAvailabilityListener,
     stopGatewayPlugins: state.stopGatewayPlugins,
   }));
   vi.doMock('../src/gateway/gateway-http-server.js', () => ({
