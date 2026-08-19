@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Chat approval prompts resolve instead of lingering**: Acting on an
+  approval card marks it handled instead of leaving live buttons behind, a
+  card superseded by a newer request or past its expiry says so instead of
+  offering a dead-end action, and pending approvals that arrive as plain text
+  — after a reload, or from a command's output — regain Allow/Cancel actions.
 ### Added
 
 - **Rate answers from chat channels with `/thumbs`**: `/thumbs up|down [comment]`

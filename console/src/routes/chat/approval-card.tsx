@@ -2,7 +2,30 @@ import { useMemo } from 'react';
 import type { ChatStreamApproval } from '../../api/chat-types';
 import { Button } from '../../components/button';
 import type { ApprovalAction } from '../../lib/chat-helpers';
+import { cx } from '../../lib/cx';
+import type { ApprovalItemStatus } from './approval-lifecycle';
 import css from './chat-page.module.css';
+
+const RESPONDED_CAPTION: Record<ApprovalAction, string> = {
+  once: 'Approved — the agent will continue.',
+  session: 'Approved for this session.',
+  agent: 'Approved for this agent.',
+  all: 'Always allowed.',
+  deny: 'Cancelled.',
+};
+
+function inactiveCaption(
+  status: Exclude<ApprovalItemStatus, 'active'>,
+  respondedAction?: ApprovalAction,
+): string {
+  if (status === 'responded') {
+    return respondedAction ? RESPONDED_CAPTION[respondedAction] : 'Resolved.';
+  }
+  if (status === 'superseded') {
+    return 'No longer pending — superseded by a newer approval request.';
+  }
+  return 'Expired — ask the agent to retry if you still want this.';
+}
 
 const TRUST_APPROVAL_BUTTONS: ReadonlyArray<{
   label: string;
@@ -140,8 +163,12 @@ export function ApprovalCard(props: {
   approval: ChatStreamApproval;
   busy: boolean;
   onAction: (action: ApprovalAction, approvalId: string) => void;
+  status?: ApprovalItemStatus;
+  respondedAction?: ApprovalAction;
 }) {
   const { approval } = props;
+  const status = props.status ?? 'active';
+  const isActive = status === 'active';
   const rows = useMemo(() => buildApprovalRows(approval), [approval]);
   const intro = useMemo(() => buildApprovalIntro(approval), [approval]);
   const availableTrustButtons = TRUST_APPROVAL_BUTTONS.filter((btn) =>
@@ -154,7 +181,9 @@ export function ApprovalCard(props: {
   };
 
   return (
-    <div className={css.approvalCard}>
+    <div
+      className={cx(css.approvalCard, !isActive && css.approvalCardInactive)}
+    >
       <div className={css.approvalHeader}>
         {tierLabel ? (
           <span className={css.approvalTier}>{tierLabel}</span>
@@ -175,39 +204,47 @@ export function ApprovalCard(props: {
           ))}
         </dl>
       ) : null}
-      <div className={css.approvalPrimaryActions}>
-        <Button
-          size="sm"
-          disabled={props.busy}
-          onClick={() => handleAction('once')}
-        >
-          Allow once
-        </Button>
-        <Button
-          variant="danger"
-          size="sm"
-          disabled={props.busy}
-          onClick={() => handleAction('deny')}
-        >
-          Cancel
-        </Button>
-      </div>
-      {availableTrustButtons.length > 0 ? (
-        <div className={css.approvalTrustActions}>
-          {availableTrustButtons.map((btn) => (
+      {isActive ? (
+        <>
+          <div className={css.approvalPrimaryActions}>
             <Button
-              key={btn.action}
-              variant="outline"
               size="sm"
-              className={css.approvalAllow}
               disabled={props.busy}
-              onClick={() => handleAction(btn.action)}
+              onClick={() => handleAction('once')}
             >
-              {btn.label}
+              Allow once
             </Button>
-          ))}
-        </div>
-      ) : null}
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={props.busy}
+              onClick={() => handleAction('deny')}
+            >
+              Cancel
+            </Button>
+          </div>
+          {availableTrustButtons.length > 0 ? (
+            <div className={css.approvalTrustActions}>
+              {availableTrustButtons.map((btn) => (
+                <Button
+                  key={btn.action}
+                  variant="outline"
+                  size="sm"
+                  className={css.approvalAllow}
+                  disabled={props.busy}
+                  onClick={() => handleAction(btn.action)}
+                >
+                  {btn.label}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <p className={css.approvalStatusLine}>
+          {inactiveCaption(status, props.respondedAction)}
+        </p>
+      )}
     </div>
   );
 }
