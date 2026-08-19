@@ -5,6 +5,7 @@ import {
 
 export const MSTEAMS_CONVERSATION_REFERENCE_KEY =
   'msteams:conversation-reference';
+export const MSTEAMS_RATING_TARGETS_KEY = 'msteams:rating-targets';
 export { isRecord } from '../../utils/type-guards.js';
 export { normalizeValue };
 
