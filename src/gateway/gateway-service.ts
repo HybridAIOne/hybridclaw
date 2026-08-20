@@ -4972,6 +4972,7 @@ export async function getGatewayStatus(
       ...lineAuth,
       enabled: runtimeConfig.line.enabled,
       pairingQrText: linePairing.pairingQrText,
+      pairingQrSvg: linePairing.pairingQrSvg,
       pairingUrl: linePairing.pairingUrl,
       pincode: linePairing.pincode,
       pairingUpdatedAt: linePairing.updatedAt,

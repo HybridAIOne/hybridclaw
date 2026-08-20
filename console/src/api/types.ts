@@ -183,6 +183,7 @@ export interface GatewayStatus {
     linked: boolean;
     mid: string | null;
     pairingQrText: string | null;
+    pairingQrSvg: string | null;
     pairingUrl: string | null;
     pincode: string | null;
     pairingUpdatedAt: string | null;
