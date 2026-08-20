@@ -18,7 +18,11 @@ import {
   useState,
 } from 'react';
 import { fetchChatCommands } from '../../api/chat';
-import type { ChatCommandSuggestion, MediaItem } from '../../api/chat-types';
+import type {
+  ChatCommandSuggestion,
+  ChatModelRoutingContext,
+  MediaItem,
+} from '../../api/chat-types';
 import { Popover, PopoverAnchor } from '../../components/popover';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
@@ -88,6 +92,7 @@ export function Composer(props: {
   onAgentSwitch?: (agentId: string) => void;
   models?: ModelSwitchEntry[];
   selectedModelId?: string;
+  modelRouting?: ChatModelRoutingContext | null;
   onModelSwitch?: (modelId: string) => void;
   initialValue?: string;
   voiceAvailable?: boolean;
@@ -649,6 +654,7 @@ export function Composer(props: {
               <ModelSwitchSelect
                 models={modelOptions}
                 selectedModelId={selectedModelId}
+                routing={props.modelRouting}
                 disabled={props.isStreaming}
                 onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
               />

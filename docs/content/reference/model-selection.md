@@ -139,6 +139,9 @@ Routing follows these rules:
 
 - an explicit request model or `/model set` session override remains a hard pin
   and bypasses the ladder
+- in web chat, an unpinned routed session is labeled `Auto · <tier>` in the
+  model switcher; opening the switcher shows its starting model, and selecting
+  any concrete model pins that session
 - an agent's configured model chooses its starting tier when that model appears
   in the ladder; otherwise `routing.defaultStart` applies
 - heartbeat, scheduler, and full-auto turns start at the lowest tier

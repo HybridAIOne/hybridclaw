@@ -7,6 +7,7 @@ import {
   useState,
 } from 'react';
 import type { GatewayModelProviderKey } from '../../../../src/gateway/model-provider-keys.js';
+import type { ChatModelRoutingContext } from '../../api/chat-types';
 import type { ChatModel } from '../../api/types';
 import {
   Local as LocalIcon,
@@ -521,6 +522,7 @@ function modelMatchesQuery(model: ParsedModel, query: string): boolean {
 export function ModelSwitchSelect(props: {
   models: ModelSwitchEntry[];
   selectedModelId: string;
+  routing?: ChatModelRoutingContext | null;
   disabled?: boolean;
   onSwitch: (modelId: string) => void;
 }) {
@@ -574,6 +576,24 @@ export function ModelSwitchSelect(props: {
   const selected =
     parsed.find((m) => m.id === selectedModelId) ??
     (selectedFallback ? parseModel(selectedFallback) : undefined);
+  const routing = props.routing?.active ? props.routing : null;
+  const routingModelId = routing?.startModel?.trim() ?? '';
+  const routingModelFallback = buildSelectedModelFallback(routingModelId);
+  const routingModel =
+    parsed.find((model) => model.id === routingModelId) ??
+    (routingModelFallback ? parseModel(routingModelFallback) : undefined);
+  const triggerModel = routingModel ?? selected;
+  const routingTierLabel = routing?.startTier
+    ? pretty(routing.startTier, {})
+    : 'Routing';
+  const triggerLabel = routing
+    ? `Auto · ${routingTierLabel}`
+    : selected?.displayName || '';
+  const routingDescription = routing
+    ? `Automatic routing is active. Starts at ${routingTierLabel}${
+        routingModel ? ` with ${routingModel.displayName}` : ''
+      }. Select a model to pin this chat.`
+    : null;
 
   if (props.models.length === 0 && !selected) return null;
 
@@ -582,38 +602,43 @@ export function ModelSwitchSelect(props: {
       value={selected ? selected.id : ''}
       disabled={props.disabled}
       onValueChange={(next) => {
-        if (!next || next === selectedModelId) return;
+        if (!next || (!routing && next === selectedModelId)) return;
         props.onSwitch(next);
       }}
     >
       <SelectTrigger
-        aria-label="Switch model"
-        title="Switch model"
+        aria-label={
+          routing ? 'Switch model, automatic routing active' : 'Switch model'
+        }
+        title={routingDescription ?? 'Switch model'}
         className={cx(css.composerPill, chrome.triggerPill)}
       >
-        {selected ? (
+        {triggerModel ? (
           <span aria-hidden="true" className={chrome.triggerLogo}>
             <VendorIcon
-              vendor={selected.vendor}
-              fallbackProvider={selected.provider}
+              vendor={triggerModel.vendor}
+              fallbackProvider={triggerModel.provider}
               size={16}
             />
           </span>
         ) : null}
-        <SelectValue placeholder="Select model">
-          {selected ? selected.displayName : ''}
-        </SelectValue>
+        <SelectValue placeholder="Select model">{triggerLabel}</SelectValue>
         <SelectIcon />
       </SelectTrigger>
       <SelectContent
         align="start"
         header={
-          <Search
-            value={query}
-            onValueChange={setQuery}
-            placeholder="Search models…"
-            aria-label="Search models"
-          />
+          <div className={chrome.headerStack}>
+            {routingDescription ? (
+              <div className={chrome.routingNotice}>{routingDescription}</div>
+            ) : null}
+            <Search
+              value={query}
+              onValueChange={setQuery}
+              placeholder="Search models…"
+              aria-label="Search models"
+            />
+          </div>
         }
         rail={
           <Rail>

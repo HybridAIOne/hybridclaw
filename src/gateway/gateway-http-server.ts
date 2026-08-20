@@ -4260,6 +4260,7 @@ function handleApiChatContext(res: ServerResponse, url: URL): void {
   sendJson(res, 200, {
     sessionId: result.sessionId,
     snapshot: result.snapshot,
+    routing: result.routing,
   });
 }
 

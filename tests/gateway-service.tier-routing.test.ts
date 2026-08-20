@@ -39,8 +39,12 @@ async function createFixture() {
   const { handleGatewayMessage } = await import(
     '../src/gateway/gateway-chat-service.ts'
   );
+  const { getGatewaySessionContextUsage } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
   const { memoryService } = await import('../src/memory/memory-service.ts');
   return {
+    getGatewaySessionContextUsage,
     handleGatewayMessage,
     homeDir,
     memoryService,
@@ -59,6 +63,26 @@ useCleanMocks({
     delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
   },
   resetModules: true,
+});
+
+test('session context reports automatic routing until a model is pinned', async () => {
+  const fixture = await createFixture();
+  const sessionId = 'session-tier-indicator';
+  fixture.memoryService.getOrCreateSession(sessionId, null, 'web');
+
+  expect(fixture.getGatewaySessionContextUsage(sessionId).routing).toEqual({
+    active: true,
+    startTier: 'economy',
+    startModel: 'lmstudio/test-cheap',
+  });
+
+  fixture.updateSessionModel(sessionId, 'lmstudio/pinned');
+
+  expect(fixture.getGatewaySessionContextUsage(sessionId).routing).toEqual({
+    active: false,
+    startTier: null,
+    startModel: null,
+  });
 });
 
 test('gateway escalates once, emits route telemetry, and hides failed deltas', async () => {

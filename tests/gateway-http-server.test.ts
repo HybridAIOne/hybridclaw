@@ -872,10 +872,24 @@ async function importFreshHealth(options?: {
     result: '',
     toolExecutions: [],
   }));
-  const getGatewaySessionContextUsage = vi.fn((sessionId: string) => ({
-    sessionId,
-    snapshot: null,
-  }));
+  const getGatewaySessionContextUsage = vi.fn(
+    (
+      sessionId: string,
+    ): {
+      status: 'ok';
+      sessionId: string;
+      snapshot: Record<string, unknown> | null;
+      routing?: {
+        active: boolean;
+        startTier: string | null;
+        startModel: string | null;
+      } | null;
+    } => ({
+      status: 'ok',
+      sessionId,
+      snapshot: null,
+    }),
+  );
   const readSystemPromptMessage = vi.fn(
     (messages: Array<{ role?: string; content?: unknown }>) => {
       const first = messages[0];
@@ -6989,6 +7003,36 @@ describe('gateway HTTP server', () => {
           createdCount: 2,
           deletedCount: 1,
         },
+      },
+    });
+  });
+
+  test('returns session-scoped model routing metadata for chat context', async () => {
+    const state = await importFreshHealth();
+    state.getGatewaySessionContextUsage.mockReturnValueOnce({
+      status: 'ok',
+      sessionId: 's1',
+      snapshot: { sessionId: 's1', model: 'openai/gpt-5.6-luna' },
+      routing: {
+        active: true,
+        startTier: 'economy',
+        startModel: 'vllm/google/gemma-4-e4b-it',
+      },
+    });
+    const req = makeRequest({ url: '/api/chat/context?sessionId=s1' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      sessionId: 's1',
+      snapshot: { sessionId: 's1', model: 'openai/gpt-5.6-luna' },
+      routing: {
+        active: true,
+        startTier: 'economy',
+        startModel: 'vllm/google/gemma-4-e4b-it',
       },
     });
   });

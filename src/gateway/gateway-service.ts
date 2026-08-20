@@ -1,3 +1,10 @@
+/**
+ * Gateway application service — authoritative host operations shared by transports.
+ *
+ * It resolves persisted runtime/session state but does not authenticate callers;
+ * HTTP authorization and response shaping belong to gateway-http-server.ts.
+ */
+
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -11136,19 +11143,49 @@ function buildGatewaySessionContextUsageSnapshot(
   });
 }
 
+export interface GatewaySessionModelRouting {
+  active: boolean;
+  startTier: string | null;
+  startModel: string | null;
+}
+
+function buildGatewaySessionModelRouting(
+  session: Session,
+): GatewaySessionModelRouting {
+  const routing = getRuntimeConfig().routing;
+  if (!routing.enabled || session.model?.trim()) {
+    return { active: false, startTier: null, startModel: null };
+  }
+
+  const agentModel = resolveAgentModel(resolveAgentConfig(session.agent_id));
+  const startTier =
+    (agentModel
+      ? routing.tiers.find((tier) => tier.models.includes(agentModel))
+      : undefined) ??
+    routing.tiers.find((tier) => tier.name === routing.defaultStart);
+
+  return {
+    active: true,
+    startTier: startTier?.name ?? null,
+    startModel: startTier?.models[0]?.trim() || null,
+  };
+}
+
 export function getGatewaySessionContextUsage(sessionId: string): {
   status: 'ok' | 'not_found';
   sessionId: string;
   snapshot: ReturnType<typeof buildContextUsageSnapshot> | null;
+  routing: GatewaySessionModelRouting | null;
 } {
   const session = memoryService.getSessionById(sessionId);
   if (!session) {
-    return { status: 'not_found', sessionId, snapshot: null };
+    return { status: 'not_found', sessionId, snapshot: null, routing: null };
   }
   return {
     status: 'ok',
     sessionId: session.id,
     snapshot: buildGatewaySessionContextUsageSnapshot(session),
+    routing: buildGatewaySessionModelRouting(session),
   };
 }
 

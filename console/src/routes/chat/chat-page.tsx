@@ -1481,6 +1481,7 @@ export function ChatPage() {
             onAgentSwitch={(agentId) => void handleAgentSwitch(agentId)}
             models={modelOptions}
             selectedModelId={selectedModelId}
+            modelRouting={contextQuery.data?.routing}
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
             initialValue={initialComposerPrompt}
             voiceAvailable={voiceCapabilityQuery.data?.available === true}

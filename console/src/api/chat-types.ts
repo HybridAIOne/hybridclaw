@@ -118,9 +118,16 @@ export interface ChatContextSnapshot {
   completionTokens: number | null;
 }
 
+export interface ChatModelRoutingContext {
+  active: boolean;
+  startTier: string | null;
+  startModel: string | null;
+}
+
 export interface ChatContextResponse {
   sessionId: string;
   snapshot: ChatContextSnapshot | null;
+  routing?: ChatModelRoutingContext | null;
 }
 
 export interface ChatCommandSuggestion {

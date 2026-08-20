@@ -1,3 +1,17 @@
+.headerStack {
+  display: grid;
+  gap: 8px;
+}
+
+.routingNotice {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
 .search {
   display: flex;
   align-items: center;
