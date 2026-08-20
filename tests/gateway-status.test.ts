@@ -3271,7 +3271,7 @@ test('model list includes discovered OpenRouter models', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Available Models');
-  expect(result.text).toContain('hybridai/gpt-4.1-mini');
+  expect(result.text).toContain('hybridai/gpt-5.6-luna');
   expect(result.text).toContain('openrouter/openai/gpt-4.1-mini');
   expect(result.text).toContain(
     'openrouter/nvidia/nemotron-3-super-120b-a12b:free',
@@ -3279,8 +3279,8 @@ test('model list includes discovered OpenRouter models', async () => {
   expect(result.modelCatalog).toEqual(
     expect.arrayContaining([
       {
-        value: 'hybridai/gpt-4.1-mini',
-        label: 'hybridai/gpt-4.1-mini (current)',
+        value: 'hybridai/gpt-5.6-luna',
+        label: 'hybridai/gpt-5.6-luna (current)',
         isFree: false,
       },
       {
@@ -3579,7 +3579,7 @@ test('model list includes discovered HybridAI models', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Available Models (hybridai)');
-  expect(result.text).toContain('hybridai/gpt-4.1-mini');
+  expect(result.text).toContain('hybridai/gpt-5.6-luna');
   expect(result.text).toContain('hybridai/gpt-5-ultra');
   expect(result.text).toContain('hybridai/mistral/mistral-small');
   expect(fetchMock).toHaveBeenCalledTimes(1);

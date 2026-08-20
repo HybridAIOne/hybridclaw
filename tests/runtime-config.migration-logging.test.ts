@@ -135,6 +135,58 @@ describe('runtime config migration logging', () => {
     expect(stored.local.backends.ollama.enabled).toBe(false);
   });
 
+  it.each(['gpt-5.4-mini', 'hybridai/gpt-5.4-mini'])(
+    'migrates the previous HybridAI default %s to Luna',
+    async (previousDefault) => {
+      const homeDir = makeTempHome();
+      writeRuntimeConfig(homeDir, (config) => {
+        config.version = 36;
+        config.hybridai.defaultModel = previousDefault;
+      });
+
+      const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+      const stored = JSON.parse(
+        fs.readFileSync(
+          path.join(homeDir, '.hybridclaw', 'config.json'),
+          'utf-8',
+        ),
+      ) as RuntimeConfig;
+
+      expect(runtimeConfig.getRuntimeConfig().hybridai.defaultModel).toBe(
+        'gpt-5.6-luna',
+      );
+      expect(stored.hybridai.defaultModel).toBe('gpt-5.6-luna');
+      expect(stored.version).toBe(runtimeConfig.CONFIG_VERSION);
+    },
+  );
+
+  it('preserves a custom HybridAI default during the Luna migration', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.version = 36;
+      config.hybridai.defaultModel = 'gpt-5-nano';
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+
+    expect(runtimeConfig.getRuntimeConfig().hybridai.defaultModel).toBe(
+      'gpt-5-nano',
+    );
+  });
+
+  it('preserves an explicit GPT-5.4 Mini selection after migration', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.hybridai.defaultModel = 'gpt-5.4-mini';
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+
+    expect(runtimeConfig.getRuntimeConfig().hybridai.defaultModel).toBe(
+      'gpt-5.4-mini',
+    );
+  });
+
   it('preserves explicitly enabled Ollama backends', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {

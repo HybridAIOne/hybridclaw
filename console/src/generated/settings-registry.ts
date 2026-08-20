@@ -2691,7 +2691,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'version',
       section: 'version',
       kind: 'number',
-      defaultValue: 36,
+      defaultValue: 37,
     },
     {
       path: 'voice.enabled',
