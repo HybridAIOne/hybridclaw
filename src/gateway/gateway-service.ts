@@ -4931,6 +4931,7 @@ export async function getGatewayStatus(
       accountConfigured: Boolean(runtimeConfig.signal.account.trim()),
       pairingStatus: signalPairing.status,
       pairingQrText: signalPairing.pairingQrText,
+      pairingQrSvg: signalPairing.pairingQrSvg,
       pairingUri: signalPairing.pairingUri,
       pairingUpdatedAt: signalPairing.updatedAt,
       pairingError: signalPairing.error,

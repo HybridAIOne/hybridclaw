@@ -2468,6 +2468,16 @@ th {
   white-space: pre;
 }
 
+.signal-pairing-qr {
+  box-sizing: border-box;
+  display: block;
+  width: min(320px, 100%);
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
 .logs-layout {
   align-items: start;
   grid-template-columns: minmax(240px, 0.45fr) minmax(0, 1.55fr);

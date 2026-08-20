@@ -8,6 +8,7 @@ export type SignalPairingStatus =
 export interface SignalPairingState {
   status: SignalPairingStatus;
   pairingQrText: string | null;
+  pairingQrSvg: string | null;
   pairingUri: string | null;
   updatedAt: string | null;
   error: string | null;
@@ -16,6 +17,7 @@ export interface SignalPairingState {
 let currentPairingState: SignalPairingState = {
   status: 'idle',
   pairingQrText: null,
+  pairingQrSvg: null,
   pairingUri: null,
   updatedAt: null,
   error: null,
@@ -29,6 +31,7 @@ export function setSignalPairingStarting(): void {
   currentPairingState = {
     status: 'starting',
     pairingQrText: null,
+    pairingQrSvg: null,
     pairingUri: null,
     updatedAt: now(),
     error: null,
@@ -37,11 +40,13 @@ export function setSignalPairingStarting(): void {
 
 export function setSignalPairingQr(params: {
   pairingQrText: string;
+  pairingQrSvg: string;
   pairingUri: string;
 }): void {
   currentPairingState = {
     status: 'qr',
     pairingQrText: params.pairingQrText,
+    pairingQrSvg: params.pairingQrSvg,
     pairingUri: params.pairingUri,
     updatedAt: now(),
     error: null,
@@ -70,6 +75,7 @@ export function clearSignalPairingState(): void {
   currentPairingState = {
     status: 'idle',
     pairingQrText: null,
+    pairingQrSvg: null,
     pairingUri: null,
     updatedAt: null,
     error: null,

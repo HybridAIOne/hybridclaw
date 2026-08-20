@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import qrcode from 'qrcode-terminal';
+import { renderQrSvg } from '../../gateway/qr-svg.js';
 import {
   getSignalPairingState,
   type SignalPairingState,
@@ -54,6 +55,7 @@ function appendOutput(chunk: Buffer | string): void {
   setSignalPairingQr({
     pairingUri,
     pairingQrText: renderPairingQrText(pairingUri),
+    pairingQrSvg: renderQrSvg(pairingUri, 'Signal linked-device QR'),
   });
 }
 

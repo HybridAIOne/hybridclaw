@@ -140,6 +140,7 @@ export interface GatewayStatus {
     accountConfigured: boolean;
     pairingStatus: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
     pairingQrText: string | null;
+    pairingQrSvg: string | null;
     pairingUri: string | null;
     pairingUpdatedAt: string | null;
     pairingError: string | null;
@@ -1006,6 +1007,7 @@ export interface AdminBrowserPoolLaunchResponse {
 export interface SignalLinkResponse {
   status: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
   pairingQrText: string | null;
+  pairingQrSvg: string | null;
   pairingUri: string | null;
   updatedAt: string | null;
   error: string | null;

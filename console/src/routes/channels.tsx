@@ -1456,6 +1456,12 @@ function SignalChannelEditor(props: {
             external daemon/sidecar.
             {props.cliError ? ` ${props.cliError}` : ''}
           </p>
+        ) : signalLink?.pairingQrSvg ? (
+          <img
+            className="signal-pairing-qr"
+            src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(signalLink.pairingQrSvg)}`}
+            alt="Signal linked-device QR"
+          />
         ) : signalLink?.pairingQrText ? (
           <pre
             className="whatsapp-pairing-qr"
