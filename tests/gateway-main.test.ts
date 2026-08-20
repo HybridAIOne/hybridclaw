@@ -642,6 +642,7 @@ async function importFreshGatewayMain(options?: {
     },
   }));
   vi.doMock('../src/memory/db.js', () => ({
+    closeDatabase: vi.fn(),
     deleteQueuedProactiveMessage: vi.fn(),
     enqueueProactiveMessage: vi.fn(() => ({ dropped: 0, queued: 1 })),
     failStaleDelegationJobs: state.failStaleDelegationJobs,
