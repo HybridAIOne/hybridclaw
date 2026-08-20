@@ -80,3 +80,43 @@ test('hybridai provider without a signed-in key explains itself', async () => {
   expect(resolved.error).toContain('HybridAI API key');
   expect(credentials.isRealtimeCredentialConfigured('hybridai')).toBe(false);
 });
+
+test('auto prefers hybridai when a HybridAI credential is present', async () => {
+  const credentials = await loadCredentials({
+    hybridaiKey: 'hai-key',
+    openaiKey: 'sk-unused',
+  });
+
+  const resolved = credentials.resolveRealtimeConnection('auto');
+
+  expect(resolved.connection).toEqual({
+    url: 'wss://hybridai.one/v1/realtime',
+    apiKey: 'hai-key',
+  });
+  expect(credentials.isRealtimeCredentialConfigured('auto')).toBe(true);
+});
+
+test('auto falls back to openai when only OPENAI_API_KEY is set', async () => {
+  const credentials = await loadCredentials({
+    hybridaiKey: null,
+    openaiKey: 'sk-test',
+  });
+
+  const resolved = credentials.resolveRealtimeConnection('auto');
+
+  expect(resolved.connection).toEqual({
+    url: 'wss://api.openai.com/v1/realtime',
+    apiKey: 'sk-test',
+  });
+});
+
+test('auto without any credential names both options', async () => {
+  const credentials = await loadCredentials({ hybridaiKey: null });
+
+  const resolved = credentials.resolveRealtimeConnection('auto');
+
+  expect(resolved.connection).toBeNull();
+  expect(resolved.error).toContain('HYBRIDAI_API_KEY');
+  expect(resolved.error).toContain('OPENAI_API_KEY');
+  expect(credentials.isRealtimeCredentialConfigured('auto')).toBe(false);
+});
