@@ -169,6 +169,7 @@ import {
   runMemoryConsolidation,
 } from '../memory/consolidation-runner.js';
 import {
+  closeDatabase,
   deleteQueuedProactiveMessage,
   enqueueProactiveMessage,
   failStaleDelegationJobs,
@@ -3833,6 +3834,9 @@ function setupShutdown(broadcastShutdown: () => void): void {
     await runShutdownStep('stop gateway plugins', stopGatewayPlugins);
     stopScheduler();
     stopMemoryConsolidationScheduler();
+    // Every database writer is stopped by now; checkpoint and close so no
+    // WAL is left behind if the process is killed during the flushes below.
+    await runShutdownStep('close database', closeDatabase);
     await runShutdownStep('shut down OTel', shutdownOtel);
     await runShutdownStep('flush Sentry', shutdownSentry);
     if (proactiveFlushTimer) {

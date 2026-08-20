@@ -18,6 +18,7 @@ export {
 } from './audit.js';
 export * from './canonical-sessions.js';
 export {
+  closeDatabase,
   initDatabase,
   isDatabaseInitialized,
   withMemoryDatabase,
