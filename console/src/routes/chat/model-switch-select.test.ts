@@ -110,6 +110,50 @@ describe('parseModel', () => {
     expect(trigger.textContent).not.toContain('Qwen3.6 27b Fp8');
   });
 
+  it('labels automatic routing and lets the displayed default be explicitly pinned', () => {
+    const onSwitch = vi.fn();
+    render(
+      createElement(ModelSwitchSelect, {
+        models: [
+          model({
+            id: 'openai-codex/gpt-5.6-luna',
+            provider: 'codex',
+          }),
+          model({
+            id: 'haigpu2/google/gemma-4-e4b-it',
+            provider: 'vllm',
+            backend: 'vllm',
+          }),
+        ],
+        selectedModelId: 'openai-codex/gpt-5.6-luna',
+        routing: {
+          active: true,
+          startTier: 'economy',
+          startModel: 'haigpu2/google/gemma-4-e4b-it',
+        },
+        onSwitch,
+      }),
+    );
+
+    const trigger = screen.getByRole('combobox', {
+      name: 'Switch model, automatic routing active',
+    });
+    expect(trigger.textContent).toContain('Auto · Economy');
+    expect(trigger.title).toContain('Starts at Economy with Gemma 4 E4b It');
+
+    fireEvent.click(trigger);
+    expect(
+      screen.getByText(/Automatic routing is active/).textContent,
+    ).toContain('Select a model to pin this chat.');
+    fireEvent.click(
+      document.querySelector<HTMLElement>(
+        '[data-value="openai-codex/gpt-5.6-luna"]',
+      ) as HTMLElement,
+    );
+
+    expect(onSwitch).toHaveBeenCalledWith('openai-codex/gpt-5.6-luna');
+  });
+
   it('disambiguates duplicate local model names by route in the dropdown', () => {
     render(
       createElement(ModelSwitchSelect, {
