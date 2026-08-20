@@ -1,6 +1,6 @@
 {
   "name": "hybridclaw-agent",
-  "version": "0.28.7",
+  "version": "0.29.0",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
@@ -31,7 +31,7 @@
     "mermaid": "11.16.1",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "6.2.108",
-    "playwright": "1.61.1",
+    "playwright": "1.62.1",
     "yaml": "2.9.0"
   },
   "optionalDependencies": {

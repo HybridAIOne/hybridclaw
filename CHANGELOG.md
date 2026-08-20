@@ -2,32 +2,7 @@
 
 ## Unreleased
 
-### Fixed
-
-- **A stale write-ahead log no longer bricks the gateway**: The gateway now
-  checkpoints and closes its SQLite database during shutdown, after the last
-  database writer has stopped — previously it exited without closing, so a
-  container stop or kill during the remaining shutdown work could strand a
-  `-wal` file that no longer matches the database. And at startup, a database
-  that fails its integrity check only because of such a leftover WAL — a hard
-  kill or a backup restored without its sidecar files can produce one — is
-  recovered by setting the WAL aside (kept on disk as `*.corrupt-<timestamp>`
-  for inspection) and continuing from the last checkpoint, instead of
-  crash-looping with `database disk image is malformed` on every start until
-  someone deletes the file by hand. A database whose main file is itself
-  damaged still refuses to start, with the WAL left in place for manual
-  repair.
-- **Email replies stay in their thread**: An agent that supplies its own parent
-  message id when answering mail no longer breaks threading when that value is
-  not a message id — for example an identifier read out of the subject line.
-  Unusable parents are rejected and the thread the runtime already tracked is
-  used instead, so the reply keeps its `Re:` subject and lands in the original
-  conversation rather than starting an untitled one.
-- **Chat approval prompts resolve instead of lingering**: Acting on an
-  approval card marks it handled instead of leaving live buttons behind, a
-  card superseded by a newer request or past its expiry says so instead of
-  offering a dead-end action, and pending approvals that arrive as plain text
-  — after a reload, or from a command's output — regain Allow/Cancel actions.
+## [0.29.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.0) - 2026-08-20
 
 ### Added
 
@@ -43,18 +18,17 @@
   `/thumbs up|down`, and withdrawing the reaction clears it again when it still
   matches. Other reaction types are ignored.
 - **Realtime voice mode for phone calls**: `voice.mode: "realtime"` runs
-  Twilio calls through the OpenAI Realtime API as natural speech-to-speech
-  conversations with barge-in, instead of the turn-based ConversationRelay
-  flow. The realtime model fronts the call and forwards substantive requests
-  to the full gateway agent via a `consult_agent` tool, so tools, approvals,
-  and session persistence keep working. Configure via `voice.realtime.*`;
-  requires an `OPENAI_API_KEY`.
+  Twilio calls as natural speech-to-speech conversations with barge-in,
+  instead of the turn-based ConversationRelay flow. The realtime model fronts
+  the call and forwards substantive requests to the full gateway agent via a
+  `consult_agent` tool, so tools, approvals, and session persistence keep
+  working. Configure the OpenAI or HybridAI backend via `voice.realtime.*`.
 - **Voice mode in the web console chat**: A microphone button in the composer
   starts a realtime speech-to-speech session in the browser using the same
-  OpenAI Realtime engine and `voice.realtime.*` settings — no Twilio setup
-  needed. Consulted requests run as ordinary web chat turns and appear in the
-  session transcript; the button only shows when an `OPENAI_API_KEY` is
-  configured.
+  realtime engine and `voice.realtime.*` settings — no Twilio setup needed.
+  Consulted requests run as ordinary web chat turns and appear in the session
+  transcript; the button only shows when the selected provider has a usable
+  credential.
 - **Realtime mode for the Vonage Voice plugin**: `plugin config vonage-voice
   mode realtime` runs Vonage calls as the same speech-to-speech conversations
   over Vonage websocket audio, reusing the core realtime engine and
@@ -66,6 +40,47 @@
   updates naming the current tool activity (never over the caller), and the
   web console's live-call capsule shows what the agent is doing, for example
   `Checking — web search…`.
+- **Automatic model routing is visible in web chat**: Unpinned routed sessions
+  show `Auto · <tier>` in the model switcher together with the starting model,
+  while selecting a concrete model still pins the session.
+
+### Changed
+
+- **HybridAI defaults to GPT-5.6 Luna**: New configurations and onboarding use
+  `gpt-5.6-luna`; existing configurations still on the former GPT-5.4 Mini
+  default migrate automatically, while explicit custom model choices remain
+  unchanged.
+- **Runtime and development dependencies are refreshed**: Age-eligible
+  patch/minor updates cover telemetry, diagnostics, mail, browser automation,
+  the web console, and tests, with overrides keeping the installed
+  production tree clear of known npm advisories.
+
+### Fixed
+
+- **A stale write-ahead log no longer bricks the gateway**: Shutdown now
+  checkpoints and closes SQLite after the last writer stops. At startup, an
+  otherwise healthy database with a mismatched leftover WAL is recovered by
+  moving the sidecar to `*.corrupt-<timestamp>` for inspection and continuing
+  from the last checkpoint; genuine main-database corruption still fails fast
+  and leaves the WAL untouched for manual repair.
+- **Email replies stay in their thread**: An agent that supplies its own parent
+  message id when answering mail no longer breaks threading when that value is
+  not a message id — for example an identifier read out of the subject line.
+  Unusable parents are rejected and the thread the runtime already tracked is
+  used instead, so the reply keeps its `Re:` subject and lands in the original
+  conversation rather than starting an untitled one.
+- **Chat approval prompts resolve instead of lingering**: Acting on an
+  approval card marks it handled instead of leaving live buttons behind, a
+  card superseded by a newer request or past its expiry says so instead of
+  offering a dead-end action, and pending approvals that arrive as plain text
+  — after a reload, or from a command's output — regain Allow/Cancel actions.
+- **Channel plugins start without a gateway restart**: Enabling or installing
+  a WhatsApp, LINE, or other channel transport through a runtime plugin reload
+  starts its integration immediately; disabling or removing it stops the live
+  integration cleanly.
+- **Incomplete plugin directories stay silent**: Automatic discovery ignores
+  directories without a plugin manifest, so stale build output or partially
+  removed plugins do not produce misleading startup warnings.
 
 ## [0.28.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.7) - 2026-08-17
 

@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.28.7',
+  version: '0.29.0',
   highlights: [
-    'Webchat dictation and read-aloud controls.',
-    'Vonage Voice is available as a plugin.',
-    'Skills stay discoverable under prompt limits.',
-    'BlueBubbles setup errors are actionable.',
+    'Realtime voice works on calls and web chat.',
+    '/thumbs and Teams reactions capture feedback.',
+    'HybridAI defaults to GPT-5.6 Luna.',
+    'Safer SQLite shutdown and stale WAL recovery.',
   ],
 } as const;
 
