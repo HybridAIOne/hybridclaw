@@ -21,17 +21,166 @@ export function initDatabase(opts?: InitDatabaseOptions): void {
   const quiet = opts?.quiet === true;
   const dbPath = path.resolve(opts?.dbPath || DB_PATH);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  // SQLite foreign-key enforcement is connection-scoped, so enable it before
-  // running migrations or accepting writes on this writable connection.
-  db.pragma('foreign_keys = ON');
-  db.pragma('busy_timeout = 5000');
+  db = openDatabaseWithWalRecovery(dbPath);
   runMigrations(db, opts);
   migrateLegacyTasksToJobsTable();
   ensureDefaultSchedulerJobs();
   databaseInitialized = true;
   if (!quiet) logger.info({ path: dbPath }, 'Database initialized');
+}
+
+/**
+ * Checkpoint and close the database. Call this on shutdown after every
+ * subsystem that writes to the database has stopped: a clean checkpoint +
+ * close flushes the WAL into the main file and removes it, so a later kill
+ * of the process cannot leave a WAL on disk that no longer matches the
+ * database file.
+ */
+export function closeDatabase(): void {
+  if (!databaseInitialized) return;
+  databaseInitialized = false;
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)');
+  } catch (error) {
+    logger.warn({ error }, 'WAL checkpoint during database close failed');
+  }
+  try {
+    db.close();
+  } catch (error) {
+    logger.warn({ error }, 'Database close failed');
+  }
+}
+
+function isCorruptionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as { code?: unknown }).code;
+  if (
+    typeof code === 'string' &&
+    (code.startsWith('SQLITE_CORRUPT') || code === 'SQLITE_NOTADB')
+  ) {
+    return true;
+  }
+  return error.message.includes('database disk image is malformed');
+}
+
+type CheckedOpen =
+  | { ok: true; database: Database.Database }
+  | { ok: false; database: Database.Database | null };
+
+/**
+ * Open dbPath and report whether `PRAGMA quick_check` passes. On corruption
+ * the (still open) connection is returned so the caller can dispose of it
+ * safely; non-corruption errors are rethrown.
+ */
+function openCheckedConnection(dbPath: string): CheckedOpen {
+  let database: Database.Database | undefined;
+  try {
+    database = new Database(dbPath);
+    database.pragma('journal_mode = WAL');
+    // SQLite foreign-key enforcement is connection-scoped, so enable it before
+    // running migrations or accepting writes on this writable connection.
+    database.pragma('foreign_keys = ON');
+    database.pragma('busy_timeout = 5000');
+    const rows = database.pragma('quick_check(1)') as Array<
+      Record<string, unknown>
+    >;
+    if (rows.length === 1 && Object.values(rows[0] ?? {})[0] === 'ok') {
+      return { ok: true, database };
+    }
+  } catch (error) {
+    if (!isCorruptionError(error)) {
+      try {
+        database?.close();
+      } catch {
+        // The original error is the one worth surfacing.
+      }
+      throw error;
+    }
+  }
+  return { ok: false, database: database ?? null };
+}
+
+/**
+ * Open the database, verifying integrity first. If the combination of main
+ * file + WAL is corrupt but the main file alone is intact, quarantine the
+ * -wal/-shm files and continue from the last checkpoint.
+ *
+ * A WAL that no longer matches the database file is what a hard kill of the
+ * runtime can leave behind (cached WAL writes lost while checkpointed main
+ * file writes survived). Recovering that stale WAL makes every read fail
+ * with SQLITE_CORRUPT even though the main file is fine — and because the
+ * WAL sits next to the database, the failure survives restarts until the
+ * WAL is removed. Losing the WAL's tail is strictly better than an
+ * unbootable gateway; the quarantined files are kept for inspection.
+ */
+function openDatabaseWithWalRecovery(dbPath: string): Database.Database {
+  const walPath = `${dbPath}-wal`;
+  const shmPath = `${dbPath}-shm`;
+  const hadWalBeforeOpen = fs.existsSync(walPath);
+
+  const first = openCheckedConnection(dbPath);
+  if (first.ok) return first.database;
+
+  if (!hadWalBeforeOpen) {
+    try {
+      first.database?.close();
+    } catch {
+      // Failing anyway.
+    }
+    throw new Error(
+      `Database at ${dbPath} failed its integrity check and there is no WAL to discard; manual repair required`,
+    );
+  }
+
+  // Preserve the WAL and shm for inspection, then empty the WAL BEFORE
+  // closing the failed connection: closing the last connection makes SQLite
+  // checkpoint the WAL into the main file, which would apply the very
+  // corruption being discarded (observed to overwrite and truncate an intact
+  // main file). Against an empty WAL that checkpoint cannot copy anything.
+  const suffix = `.corrupt-${Date.now()}`;
+  const walQuarantine = `${walPath}${suffix}`;
+  const shmQuarantine = `${shmPath}${suffix}`;
+  fs.copyFileSync(walPath, walQuarantine);
+  const hadShm = fs.existsSync(shmPath);
+  if (hadShm) fs.copyFileSync(shmPath, shmQuarantine);
+  fs.truncateSync(walPath, 0);
+  try {
+    first.database?.close();
+  } catch {
+    // The connection already failed its check; carry on with recovery.
+  }
+  fs.rmSync(walPath, { force: true });
+  fs.rmSync(shmPath, { force: true });
+  logger.warn(
+    { path: dbPath, quarantined: walQuarantine },
+    'Database failed its integrity check; retrying without the WAL in case a stale WAL was left behind by a hard kill',
+  );
+
+  const second = openCheckedConnection(dbPath);
+  if (second.ok) {
+    logger.warn(
+      { path: dbPath },
+      'Database recovered by discarding a stale WAL; changes that only existed in the WAL are lost',
+    );
+    return second.database;
+  }
+
+  // The main file itself is damaged — put the WAL back so no state is lost
+  // for whoever repairs this by hand.
+  try {
+    second.database?.close();
+  } catch {
+    // No WAL is present at this point, so closing cannot make things worse.
+  }
+  fs.copyFileSync(walQuarantine, walPath);
+  fs.rmSync(walQuarantine, { force: true });
+  if (hadShm) {
+    fs.copyFileSync(shmQuarantine, shmPath);
+    fs.rmSync(shmQuarantine, { force: true });
+  }
+  throw new Error(
+    `Database at ${dbPath} failed its integrity check even without its WAL; manual repair required`,
+  );
 }
 
 export function isDatabaseInitialized(): boolean {

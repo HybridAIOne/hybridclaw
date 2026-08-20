@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- **A stale write-ahead log no longer bricks the gateway**: The gateway now
+  checkpoints and closes its SQLite database during shutdown, after the last
+  database writer has stopped — previously it exited without closing, so a
+  container stop or kill during the remaining shutdown work could strand a
+  `-wal` file that no longer matches the database. And at startup, a database
+  that fails its integrity check only because of such a leftover WAL — a hard
+  kill or a backup restored without its sidecar files can produce one — is
+  recovered by setting the WAL aside (kept on disk as `*.corrupt-<timestamp>`
+  for inspection) and continuing from the last checkpoint, instead of
+  crash-looping with `database disk image is malformed` on every start until
+  someone deletes the file by hand. A database whose main file is itself
+  damaged still refuses to start, with the WAL left in place for manual
+  repair.
 - **Email replies stay in their thread**: An agent that supplies its own parent
   message id when answering mail no longer breaks threading when that value is
   not a message id — for example an identifier read out of the subject line.
