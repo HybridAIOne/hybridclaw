@@ -1,6 +1,7 @@
 import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import { getConfigSnapshot } from '../../config/config.js';
 import type { RuntimeLineConfig } from '../../config/runtime-config.js';
+import { renderQrSvg } from '../../gateway/qr-svg.js';
 import { logger } from '../../logger.js';
 import type { PluginLogger } from '../../plugins/plugin-types.js';
 import { buildSessionKey } from '../../session/session-key.js';
@@ -43,7 +44,7 @@ export interface LineTransportHost {
     clear: typeof clearLinePairingState;
     setError: typeof setLinePairingError;
     setPincode: typeof setLinePairingPincode;
-    setQr: typeof setLinePairingQr;
+    setQr: (params: { text: string; url: string }) => void;
   };
   target: {
     normalizeUserMid: typeof normalizeLineUserMid;
@@ -75,7 +76,12 @@ export function createLineTransportHost(): LineTransportHost {
       clear: clearLinePairingState,
       setError: setLinePairingError,
       setPincode: setLinePairingPincode,
-      setQr: setLinePairingQr,
+      setQr: ({ text, url }) =>
+        setLinePairingQr({
+          text,
+          url,
+          svg: renderQrSvg(url, 'LINE pairing QR'),
+        }),
     },
     target: {
       normalizeUserMid: normalizeLineUserMid,

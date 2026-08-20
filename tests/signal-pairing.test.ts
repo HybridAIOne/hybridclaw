@@ -77,8 +77,12 @@ describe('Signal pairing', () => {
       status: 'qr',
       pairingUri: 'sgnl://linkdevice?uuid=abc&pub_key=def',
       pairingQrText: 'qr:sgnl://linkdevice?uuid=abc&pub_key=def',
+      pairingQrSvg: expect.stringContaining('<svg'),
       error: null,
     });
+    expect(getSignalLinkState().pairingQrSvg).toContain(
+      'aria-label="Signal linked-device QR"',
+    );
   });
 
   test('records spawn errors for the admin UI', async () => {

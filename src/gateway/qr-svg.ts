@@ -17,7 +17,10 @@ const QRCode = require('qrcode-terminal/vendor/QRCode') as QRCodeConstructor;
 const QRErrorCorrectLevel =
   require('qrcode-terminal/vendor/QRCode/QRErrorCorrectLevel') as { M: number };
 
-export function renderQrSvg(input: string): string {
+export function renderQrSvg(
+  input: string,
+  ariaLabel = 'Mobile session QR code',
+): string {
   const qr = new QRCode(-1, QRErrorCorrectLevel.M);
   qr.addData(input);
   qr.make();
@@ -38,7 +41,7 @@ export function renderQrSvg(input: string): string {
   }
 
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" role="img" aria-label="Mobile session QR code">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" role="img" aria-label="${ariaLabel}">`,
     '<rect width="100%" height="100%" fill="#fff"/>',
     '<g fill="#111827">',
     rects.join(''),

@@ -976,6 +976,7 @@ function LineChannelEditor(props: {
   form: UseFormControllerReturn<AdminConfig>;
   linked: boolean;
   pairingQrText: string | null;
+  pairingQrSvg: string | null;
   pincode: string | null;
   pairingError: string | null;
 }) {
@@ -1003,7 +1004,13 @@ function LineChannelEditor(props: {
       {!props.linked ? (
         <div className="field whatsapp-pairing-field">
           <span>Pairing QR</span>
-          {props.pairingQrText ? (
+          {props.pairingQrSvg ? (
+            <img
+              className="channel-pairing-qr"
+              src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(props.pairingQrSvg)}`}
+              alt="LINE pairing QR"
+            />
+          ) : props.pairingQrText ? (
             <pre
               className="whatsapp-pairing-qr"
               role="img"
@@ -1456,6 +1463,12 @@ function SignalChannelEditor(props: {
             external daemon/sidecar.
             {props.cliError ? ` ${props.cliError}` : ''}
           </p>
+        ) : signalLink?.pairingQrSvg ? (
+          <img
+            className="channel-pairing-qr"
+            src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(signalLink.pairingQrSvg)}`}
+            alt="Signal linked-device QR"
+          />
         ) : signalLink?.pairingQrText ? (
           <pre
             className="whatsapp-pairing-qr"
@@ -3563,6 +3576,7 @@ function renderSelectedEditor(
   lineStatus: {
     linked: boolean;
     pairingQrText: string | null;
+    pairingQrSvg: string | null;
     pincode: string | null;
     pairingError: string | null;
   },
@@ -3605,6 +3619,7 @@ function renderSelectedEditor(
           form={form}
           linked={lineStatus.linked}
           pairingQrText={lineStatus.pairingQrText}
+          pairingQrSvg={lineStatus.pairingQrSvg}
           pincode={lineStatus.pincode}
           pairingError={lineStatus.pairingError}
         />
@@ -3890,6 +3905,7 @@ export function ChannelsPage() {
   const lineStatus = {
     linked: statusQuery.data?.line?.linked ?? false,
     pairingQrText: statusQuery.data?.line?.pairingQrText ?? null,
+    pairingQrSvg: statusQuery.data?.line?.pairingQrSvg ?? null,
     pincode: statusQuery.data?.line?.pincode ?? null,
     pairingError: statusQuery.data?.line?.pairingError ?? null,
   };

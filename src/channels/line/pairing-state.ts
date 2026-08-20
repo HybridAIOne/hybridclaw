@@ -1,5 +1,6 @@
 export interface LinePairingState {
   pairingQrText: string | null;
+  pairingQrSvg: string | null;
   pairingUrl: string | null;
   pincode: string | null;
   error: string | null;
@@ -8,15 +9,21 @@ export interface LinePairingState {
 
 let currentState: LinePairingState = {
   pairingQrText: null,
+  pairingQrSvg: null,
   pairingUrl: null,
   pincode: null,
   error: null,
   updatedAt: null,
 };
 
-export function setLinePairingQr(params: { text: string; url: string }): void {
+export function setLinePairingQr(params: {
+  text: string;
+  svg: string;
+  url: string;
+}): void {
   currentState = {
     pairingQrText: params.text,
+    pairingQrSvg: params.svg,
     pairingUrl: params.url,
     pincode: null,
     error: null,
@@ -44,6 +51,7 @@ export function setLinePairingError(error: string): void {
 export function clearLinePairingState(): void {
   currentState = {
     pairingQrText: null,
+    pairingQrSvg: null,
     pairingUrl: null,
     pincode: null,
     error: null,
