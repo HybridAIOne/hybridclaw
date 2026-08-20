@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A corrupted main database file no longer bricks the gateway either**:
+  Startup now runs a full integrity check (catching a silently diverged
+  index that used to slip past the quicker check and return wrong query
+  results) and, if the main database file itself is damaged, self-heals in
+  two stages instead of refusing to boot. Index-only damage is repaired
+  losslessly by rebuilding the affected indexes; damage in the table data
+  itself is repaired by rebuilding the database from every row that can
+  still be read, dropping and logging the rows that can't. The damaged
+  original is preserved beside the database as `*.corrupt-<timestamp>` for
+  inspection either way.
+
 ## [0.29.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.0) - 2026-08-20
 
 ### Added
