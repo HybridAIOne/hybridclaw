@@ -49,7 +49,8 @@ export function resolveRealtimeConnection(
       connection: null;
       error: string;
     } {
-  const hybridaiApiKey = String(readHybridAIApiKey() || '').trim();
+  const hybridaiApiKey =
+    provider === 'openai' ? '' : String(readHybridAIApiKey() || '').trim();
   if (provider === 'hybridai' || (provider === 'auto' && hybridaiApiKey)) {
     if (!hybridaiApiKey) {
       return {

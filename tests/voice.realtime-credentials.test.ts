@@ -9,6 +9,7 @@ afterEach(() => {
 async function loadCredentials(params: {
   openaiKey?: string;
   hybridaiKey?: string | null;
+  readHybridAI?: () => string | null;
   baseUrl?: string;
 }) {
   vi.doMock('../src/config/config.js', () => ({
@@ -16,13 +17,19 @@ async function loadCredentials(params: {
     HYBRIDAI_BASE_URL: params.baseUrl ?? 'https://hybridai.one',
   }));
   vi.doMock('../src/auth/hybridai-auth.js', () => ({
-    readHybridAIApiKey: () => params.hybridaiKey ?? null,
+    readHybridAIApiKey:
+      params.readHybridAI ?? (() => params.hybridaiKey ?? null),
   }));
   return import('../src/channels/voice/realtime-credentials.js');
 }
 
 test('openai provider connects to api.openai.com with OPENAI_API_KEY', async () => {
-  const credentials = await loadCredentials({ openaiKey: 'sk-test' });
+  const credentials = await loadCredentials({
+    openaiKey: 'sk-test',
+    readHybridAI: () => {
+      throw new Error('HybridAI auth should not be read');
+    },
+  });
 
   const resolved = credentials.resolveRealtimeConnection('openai');
 
