@@ -13,6 +13,7 @@ import {
 import { refreshRuntimeSecretsFromEnv } from './config/config.js';
 import {
   acceptSecurityTrustModel,
+  DEFAULT_HYBRIDAI_MODEL,
   ensureRuntimeConfigFile,
   getLastKnownGoodRuntimeConfigMetadata,
   getRuntimeConfig,
@@ -366,7 +367,7 @@ function defaultHybridAIModel(): string {
   const config = getRuntimeConfig();
   const current = config.hybridai.defaultModel.trim();
   if (current && resolveModelProvider(current) === 'hybridai') return current;
-  return 'gpt-4.1-mini';
+  return DEFAULT_HYBRIDAI_MODEL;
 }
 
 function defaultCodexModel(): string {

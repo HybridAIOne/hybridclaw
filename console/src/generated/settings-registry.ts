@@ -1274,7 +1274,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'hybridai.defaultModel',
       section: 'hybridai',
       kind: 'string',
-      defaultValue: 'gpt-5.4-mini',
+      defaultValue: 'gpt-5.6-luna',
     },
     {
       path: 'hybridai.enableRag',
@@ -2691,7 +2691,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'version',
       section: 'version',
       kind: 'number',
-      defaultValue: 36,
+      defaultValue: 37,
     },
     {
       path: 'voice.enabled',

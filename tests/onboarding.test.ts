@@ -55,9 +55,16 @@ function writeRuntimeConfig(
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 }
 
-async function runHybridAIOnboarding(commandName: string): Promise<string> {
+async function runHybridAIOnboarding(
+  commandName: string,
+  initialDefaultModel?: string,
+): Promise<{ homeDir: string; output: string }> {
   const homeDir = makeTempHome();
-  writeRuntimeConfig(homeDir);
+  writeRuntimeConfig(homeDir, (config) => {
+    if (initialDefaultModel) {
+      config.hybridai.defaultModel = initialDefaultModel;
+    }
+  });
 
   process.env.HOME = homeDir;
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
@@ -72,7 +79,15 @@ async function runHybridAIOnboarding(commandName: string): Promise<string> {
     configurable: true,
   });
 
-  const answers = ['n', 'n', '', '', 'hai-testkey1234567890', ''];
+  const answers = [
+    'n',
+    'n',
+    '',
+    '',
+    'hai-testkey1234567890',
+    '',
+    ...(initialDefaultModel ? [''] : []),
+  ];
   vi.doMock('node:readline/promises', () => ({
     default: {
       createInterface: () => ({
@@ -145,7 +160,7 @@ async function runHybridAIOnboarding(commandName: string): Promise<string> {
     preferredAuth: 'hybridai',
   });
 
-  return lines.join('\n');
+  return { homeDir, output: lines.join('\n') };
 }
 
 afterEach(() => {
@@ -194,9 +209,22 @@ afterEach(() => {
 });
 
 test('interactive onboarding suggests starting the TUI after HybridAI setup', async () => {
-  const output = await runHybridAIOnboarding('hybridclaw onboarding');
+  const { output } = await runHybridAIOnboarding('hybridclaw onboarding');
 
   expect(output).toContain('Start HybridClaw now with `hybridclaw tui`.');
+});
+
+test('interactive HybridAI onboarding falls back to the runtime default model', async () => {
+  const { homeDir, output } = await runHybridAIOnboarding(
+    'hybridclaw onboarding',
+    'anthropic/claude-sonnet-4-6',
+  );
+  const config = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as RuntimeConfig;
+
+  expect(config.hybridai.defaultModel).toBe('gpt-5.6-luna');
+  expect(output).toContain('Default model set to: gpt-5.6-luna');
 });
 
 test('interactive onboarding offers last-known-good restore when runtime config is invalid JSON', async () => {
@@ -530,7 +558,7 @@ test('non-interactive onboarding reports invalid runtime config before trust acc
 });
 
 test('interactive onboarding does not print the start hint when TUI is already launching', async () => {
-  const output = await runHybridAIOnboarding('hybridclaw tui');
+  const { output } = await runHybridAIOnboarding('hybridclaw tui');
 
   expect(output).not.toContain('Start HybridClaw now with `hybridclaw tui`.');
 });
@@ -588,7 +616,7 @@ test('tui bootstrap does not prompt for remote auth when trust is already accept
 });
 
 test('interactive onboarding does not print the start hint after auth login', async () => {
-  const output = await runHybridAIOnboarding('hybridclaw auth login');
+  const { output } = await runHybridAIOnboarding('hybridclaw auth login');
 
   expect(output).not.toContain('Start HybridClaw now with `hybridclaw tui`.');
 });

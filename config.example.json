@@ -1,5 +1,5 @@
 {
-  "version": 36,
+  "version": 37,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -352,7 +352,7 @@
   },
   "hybridai": {
     "baseUrl": "https://hybridai.one",
-    "defaultModel": "gpt-4.1-mini",
+    "defaultModel": "gpt-5.6-luna",
     "onboardingModel": "",
     "defaultChatbotId": "",
     "maxTokens": 4096,

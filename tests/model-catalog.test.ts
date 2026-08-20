@@ -276,7 +276,7 @@ test('available model catalog merges the current default model with discovered l
 
   expect(choices).toEqual(
     expect.arrayContaining([
-      { name: 'hybridai/gpt-4.1-mini', value: 'hybridai/gpt-4.1-mini' },
+      { name: 'hybridai/gpt-5.6-luna', value: 'hybridai/gpt-5.6-luna' },
       {
         name: 'lmstudio/qwen/qwen3.5-9b',
         value: 'lmstudio/qwen/qwen3.5-9b',
@@ -294,7 +294,7 @@ test('available model catalog merges the current default model with discovered l
     catalog.getModelCatalogMetadata('lmstudio/qwen/qwen3.5-9b').zone,
   ).toBe('local');
   expect(catalog.getAvailableModelList('hybridai')).toContain(
-    'hybridai/gpt-4.1-mini',
+    'hybridai/gpt-5.6-luna',
   );
 });
 

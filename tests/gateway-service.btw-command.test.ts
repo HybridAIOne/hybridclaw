@@ -98,7 +98,7 @@ test('btw command answers side question using a tool-less model call', async () 
   expect(call?.task).toBe('btw');
   expect(call?.tools).toEqual([]);
   expect(call?.model).toBeUndefined();
-  expect(call?.fallbackModel).toBe('gpt-5.4-mini');
+  expect(call?.fallbackModel).toBe('gpt-5.6-luna');
   expect(call?.maxTokens).toBe(160);
   expect(call?.timeoutMs).toBe(300_000);
   const systemMessage = call?.messages?.find((m) => m.role === 'system');
