@@ -4,7 +4,7 @@ export const LATEST_RELEASE_NOTES = {
     'Realtime voice works on calls and web chat.',
     '/thumbs and Teams reactions capture feedback.',
     'HybridAI defaults to GPT-5.6 Luna.',
-    'SQLite shutdown and stale WAL recovery are safer.',
+    'Safer SQLite shutdown and stale WAL recovery.',
   ],
 } as const;
 
