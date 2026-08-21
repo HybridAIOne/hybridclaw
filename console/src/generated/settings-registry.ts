@@ -2739,7 +2739,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'voice.realtime.provider',
       section: 'voice',
       kind: 'string',
-      defaultValue: 'openai',
+      defaultValue: 'auto',
     },
     {
       path: 'voice.realtime.voice',

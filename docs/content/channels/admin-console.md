@@ -154,8 +154,8 @@ changes before navigation.
   labels, and keeps copy controls reachable on hover and touch devices
 - the web chat route offers a realtime voice mode (microphone button in the
   composer) when the configured `voice.realtime.provider` has a credential —
-  an OpenAI API key for `openai`, or the signed-in HybridAI credential for
-  `hybridai` (which routes through the platform's `/v1/realtime` proxy): mic
+  by default the signed-in HybridAI credential (routing through the
+  platform's `/v1/realtime` proxy), or an OpenAI API key: mic
   audio streams to the realtime API for natural speech-to-speech conversation
   with interruption support; spoken turns persist into the conversation as
   voice-tagged messages, and substantive requests run as ordinary web chat
