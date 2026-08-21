@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.29.0',
+  version: '0.29.1',
   highlights: [
-    'Realtime voice works on calls and web chat.',
-    '/thumbs and Teams reactions capture feedback.',
-    'HybridAI defaults to GPT-5.6 Luna.',
-    'Safer SQLite shutdown and stale WAL recovery.',
+    'Teams uploads preserve type and stream safely.',
+    'Realtime voice selects available credentials.',
+    'Idle agents release capacity reliably.',
+    'Feedback, pairing QRs, and cloud reads are fixed.',
   ],
 } as const;
 
