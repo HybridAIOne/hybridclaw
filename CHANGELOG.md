@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- Liveness health probes no longer reset an agent process's idle timeout, so
+  idle per-session processes exit after the idle window as intended.
+- When the process pool is at capacity, idle session-bound agent processes
+  are now evicted (least-recently-used first) instead of rejecting new
+  sessions with "Too many active host agent processes".
 ### Added
 
 - **Teams file uploads match console chat metadata**: Files attached in a

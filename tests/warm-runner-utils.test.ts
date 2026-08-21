@@ -2,14 +2,17 @@ import { expect, test, vi } from 'vitest';
 import { WarmProcessPool } from '../src/infra/warm-process-pool.js';
 import {
   claimWarmEntry,
+  collectIdleSessionEvictions,
   createWarmSessionId,
   enforceWarmPoolPressure,
   formatWarmRunnerTerminalError,
   getCachedObservedMemoryBytes,
+  IDLE_SESSION_EVICTION_MIN_AGE_MS,
   maintainWarmPool,
   observeAgentLifecycleLine,
   type MemorySample,
   type WarmRunnerEntry,
+  type WarmRunnerHealthEntry,
 } from '../src/infra/warm-runner-utils.js';
 
 function makeWarmPool(config: {
@@ -43,6 +46,26 @@ function makeEntry(
     pendingColdStartProbeStartedAt: null,
     stderrHistory: [],
     stop: vi.fn(),
+  };
+}
+
+function makeHealthEntry(params: {
+  id: string;
+  lastUsedAt: number;
+  activity?: WarmRunnerEntry['activity'];
+  killed?: boolean;
+  exitCode?: number | null;
+}): WarmRunnerHealthEntry {
+  return {
+    ...makeEntry(params.id, 'agent_a', params.lastUsedAt),
+    ipcSessionId: params.id,
+    startedAt: 0,
+    terminalError: null,
+    activity: params.activity,
+    process: {
+      killed: params.killed ?? false,
+      exitCode: params.exitCode ?? null,
+    },
   };
 }
 
@@ -295,4 +318,109 @@ test('uses the last known memory sample while refreshing a changed pool sample',
     totalBytes: 1024,
   });
   expect(refreshInFlight).toBe(false);
+});
+
+test('collectIdleSessionEvictions returns nothing under capacity', () => {
+  const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+  const pool = new Map<string, WarmRunnerHealthEntry>([
+    ['s1', makeHealthEntry({ id: 's1', lastUsedAt: 0 })],
+  ]);
+  const warmPool = makeWarmPool({}) as unknown as WarmProcessPool<WarmRunnerHealthEntry>;
+
+  const evictions = collectIdleSessionEvictions({
+    pool,
+    warmPool,
+    maxProcessCount: 3,
+  });
+
+  expect(evictions).toEqual([]);
+  nowSpy.mockRestore();
+});
+
+test('collectIdleSessionEvictions skips busy entries', () => {
+  const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+  const pool = new Map<string, WarmRunnerHealthEntry>([
+    [
+      's1',
+      makeHealthEntry({
+        id: 's1',
+        lastUsedAt: 0,
+        activity: { notify: vi.fn() } as WarmRunnerEntry['activity'],
+      }),
+    ],
+  ]);
+  const warmPool = makeWarmPool({}) as unknown as WarmProcessPool<WarmRunnerHealthEntry>;
+
+  const evictions = collectIdleSessionEvictions({
+    pool,
+    warmPool,
+    maxProcessCount: 1,
+  });
+
+  expect(evictions).toEqual([]);
+  nowSpy.mockRestore();
+});
+
+test('collectIdleSessionEvictions skips dead processes', () => {
+  const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+  const pool = new Map<string, WarmRunnerHealthEntry>([
+    ['s1', makeHealthEntry({ id: 's1', lastUsedAt: 0, killed: true })],
+    ['s2', makeHealthEntry({ id: 's2', lastUsedAt: 0, exitCode: 1 })],
+  ]);
+  const warmPool = makeWarmPool({}) as unknown as WarmProcessPool<WarmRunnerHealthEntry>;
+
+  const evictions = collectIdleSessionEvictions({
+    pool,
+    warmPool,
+    maxProcessCount: 1,
+  });
+
+  expect(evictions).toEqual([]);
+  nowSpy.mockRestore();
+});
+
+test('collectIdleSessionEvictions skips entries used too recently', () => {
+  const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+  const pool = new Map<string, WarmRunnerHealthEntry>([
+    [
+      's1',
+      makeHealthEntry({
+        id: 's1',
+        lastUsedAt: 1_000_000 - (IDLE_SESSION_EVICTION_MIN_AGE_MS - 1),
+      }),
+    ],
+  ]);
+  const warmPool = makeWarmPool({}) as unknown as WarmProcessPool<WarmRunnerHealthEntry>;
+
+  const evictions = collectIdleSessionEvictions({
+    pool,
+    warmPool,
+    maxProcessCount: 1,
+  });
+
+  expect(evictions).toEqual([]);
+  nowSpy.mockRestore();
+});
+
+test('collectIdleSessionEvictions returns LRU-first up to the excess count', () => {
+  const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+  const oldest = makeHealthEntry({ id: 'oldest', lastUsedAt: 100 });
+  const middle = makeHealthEntry({ id: 'middle', lastUsedAt: 200 });
+  const newest = makeHealthEntry({ id: 'newest', lastUsedAt: 300 });
+  const pool = new Map<string, WarmRunnerHealthEntry>([
+    ['newest', newest],
+    ['oldest', oldest],
+    ['middle', middle],
+  ]);
+  const warmPool = makeWarmPool({}) as unknown as WarmProcessPool<WarmRunnerHealthEntry>;
+
+  // pool.size(3) + warmPool.size(0) + 1 - maxProcessCount(3) = 1 excess slot needed.
+  const evictions = collectIdleSessionEvictions({
+    pool,
+    warmPool,
+    maxProcessCount: 3,
+  });
+
+  expect(evictions).toEqual([oldest]);
+  nowSpy.mockRestore();
 });

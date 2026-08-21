@@ -2130,8 +2130,9 @@ async function main(): Promise<void> {
   );
 
   // Subsequent requests come via IPC file polling
+  let idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
   while (true) {
-    const input = await waitForInput(IDLE_TIMEOUT_MS);
+    const input = await waitForInput(Math.max(0, idleDeadlineAt - Date.now()));
 
     if (!input) {
       console.error('[hybridclaw-agent] idle timeout, exiting');
@@ -2139,6 +2140,8 @@ async function main(): Promise<void> {
       return;
     }
     if (input.healthCheck?.nonce) {
+      // Answering a liveness probe must not extend the idle deadline —
+      // otherwise frequent polling keeps an idle process alive forever.
       writeHealthOutput({
         status: 'success',
         result: `HEALTH_OK:${input.healthCheck.nonce}`,
@@ -2236,6 +2239,7 @@ async function main(): Promise<void> {
       immediate.sideEffects = getPendingSideEffects();
       writeOutput(immediate);
       requestInFlight = false;
+      idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
       console.error('[approval] resolved user response without model run');
       continue;
     }
@@ -2317,6 +2321,7 @@ async function main(): Promise<void> {
     output.sideEffects = getPendingSideEffects();
     writeOutput(output);
     requestInFlight = false;
+    idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
     console.error(`[hybridclaw-agent] request complete: ${output.status}`);
   }
 }
