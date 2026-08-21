@@ -116,8 +116,10 @@ The app can take some time to appear in the organization's Teams app catalog.
 
 1. Install the app from your organization's Teams app catalog.
 2. Open a direct message with the bot and send `hello`.
-3. Add the app to a team and send `@BotName hello` in a channel.
-4. Confirm the bot replies in both places.
+3. Attach a file in the direct message and ask the bot to inspect or summarize
+   it.
+4. Add the app to a team and send `@BotName hello` in a channel.
+5. Confirm the bot replies in both places.
 
 Team channel messages require a mention by default. A plain `hello` in a team
 channel does not trigger a reply unless you change the Teams policy in
@@ -134,6 +136,13 @@ card. Select **Accept** on that card to upload the file to OneDrive and receive
 an openable file card. The Teams bot file API supports this flow only in
 one-on-one chats; channel and group-chat file delivery requires a separate
 Microsoft Graph and SharePoint/OneDrive integration.
+
+Files attached by the user in a direct message are downloaded into
+HybridClaw's managed upload cache and exposed to the agent in the same way as
+console chat uploads. Common image and audio formats, PDF and Office documents,
+JSON, CSV, Markdown, plain text, and XML retain their media type. The default
+per-file limit is 20 MB and is controlled by `msteams.mediaMaxMb` under
+**Advanced delivery settings**.
 
 ## Troubleshooting: a generated file is only a link
 

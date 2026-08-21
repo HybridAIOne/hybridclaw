@@ -605,6 +605,52 @@ test('buildTeamsAttachmentContext extracts Teams file download info attachments'
   );
 });
 
+test('buildTeamsAttachmentContext recognizes console-compatible document uploads', async () => {
+  const { buildTeamsAttachmentContext } = await importAttachmentsModule();
+  const markdown = Buffer.from('# Project notes\n\nShip the Teams upload.');
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(markdown, {
+        status: 200,
+        headers: {
+          'content-length': String(markdown.length),
+          'content-type': 'application/octet-stream',
+        },
+      }),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const media = await buildTeamsAttachmentContext({
+    activity: {
+      attachments: [
+        {
+          contentType: 'application/vnd.microsoft.teams.file.download.info',
+          content: {
+            downloadUrl:
+              'https://contoso.blob.core.windows.net/teams/project-notes.md?sig=test',
+            fileName: 'project-notes.md',
+            fileType: 'md',
+          },
+          name: 'project-notes.md',
+        },
+      ],
+    },
+  });
+  trackTempDirFromMediaPath(media[0]?.path);
+
+  expect(media).toHaveLength(1);
+  expect(media[0]).toEqual({
+    path: expect.any(String),
+    url: 'https://contoso.blob.core.windows.net/teams/project-notes.md?sig=test',
+    originalUrl:
+      'https://contoso.blob.core.windows.net/teams/project-notes.md?sig=test',
+    mimeType: 'text/markdown',
+    sizeBytes: markdown.length,
+    filename: 'project-notes.md',
+  });
+  expect(fs.readFileSync(media[0]?.path || '')).toEqual(markdown);
+});
+
 test('buildTeamsAttachmentContext extracts inline html image urls', async () => {
   const { buildTeamsAttachmentContext } = await importAttachmentsModule();
   const fetchMock = vi.fn(

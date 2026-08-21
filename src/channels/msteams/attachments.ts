@@ -1,3 +1,8 @@
+/**
+ * Teams attachment boundary — stages trusted-host inbound uploads and builds
+ * outbound Bot Framework attachments. Cached local paths are the agent-facing
+ * source of record; delivery and streaming stay in their neighboring modules.
+ */
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -18,22 +23,33 @@ import type { MediaContextItem } from '../../types/container.js';
 import type { ArtifactMetadata } from '../../types/execution.js';
 import { isRecord, normalizeValue } from './utils.js';
 
-const OUTBOUND_MIME_TYPE_BY_EXTENSION: Record<string, string> = {
+const MIME_TYPE_BY_EXTENSION: Record<string, string> = {
+  '.bmp': 'image/bmp',
+  '.csv': 'text/csv',
+  '.flac': 'audio/flac',
   '.gif': 'image/gif',
+  '.json': 'application/json',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.m4a': 'audio/mp4',
+  '.md': 'text/markdown',
+  '.mov': 'video/quicktime',
   '.mp3': 'audio/mpeg',
+  '.mp4': 'video/mp4',
   '.ogg': 'audio/ogg',
   '.pdf': 'application/pdf',
   '.png': 'image/png',
   '.pptx':
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.wav': 'audio/wav',
+  '.webm': 'video/webm',
   '.webp': 'image/webp',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   '.docx':
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.svg': 'image/svg+xml',
+  '.txt': 'text/plain',
+  '.xml': 'text/xml',
 };
 const HTML_IMAGE_SRC_RE = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
 const TEAMS_FILE_DOWNLOAD_INFO_CONTENT_TYPE =
@@ -163,9 +179,7 @@ function inferOutboundMimeType(
   const normalizedPreferred = normalizeValue(preferredMimeType);
   if (normalizedPreferred) return normalizedPreferred;
   const extension = path.extname(filePath).toLowerCase();
-  return (
-    OUTBOUND_MIME_TYPE_BY_EXTENSION[extension] || 'application/octet-stream'
-  );
+  return MIME_TYPE_BY_EXTENSION[extension] || 'application/octet-stream';
 }
 
 function inferMimeTypeFromFilename(
@@ -183,13 +197,13 @@ function inferMimeTypeFromFilename(
     return normalizedFallback;
   }
   const extension = path.extname(filename).toLowerCase();
-  return OUTBOUND_MIME_TYPE_BY_EXTENSION[extension] || null;
+  return MIME_TYPE_BY_EXTENSION[extension] || null;
 }
 
 function inferMimeTypeFromTeamsFileType(fileType: string): string | null {
   const normalized = normalizeValue(fileType).toLowerCase();
   if (!normalized) return null;
-  return OUTBOUND_MIME_TYPE_BY_EXTENSION[`.${normalized}`] || null;
+  return MIME_TYPE_BY_EXTENSION[`.${normalized}`] || null;
 }
 
 function sniffMimeTypeFromBuffer(buffer: Buffer): string | null {
