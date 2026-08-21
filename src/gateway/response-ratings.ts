@@ -103,7 +103,9 @@ async function forwardHybridAIChatFeedbackForRating(input: {
       ? `[${agentId}] ${input.target.assistant_content}`
       : input.target.assistant_content,
     external_user_id: input.operatorUserId,
-    ...(input.comment ? { comment: input.comment } : {}),
+    ...(input.rating === 'down' && input.comment
+      ? { better_response: input.comment }
+      : {}),
   };
 
   try {

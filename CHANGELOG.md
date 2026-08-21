@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Thumbs-down corrections reach HybridAI**: `/thumbs down <correction>`
+  forwards the optional text as `better_response`, so HybridAI stores the
+  expected answer instead of silently discarding it.
+  Manifesto: Principle VIII - A coworker doesn't break overnight.
+
 ## [0.29.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.0) - 2026-08-20
 
 ### Added
