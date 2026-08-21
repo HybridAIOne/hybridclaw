@@ -4,7 +4,7 @@ export const LATEST_RELEASE_NOTES = {
     'Teams uploads preserve type and stream safely.',
     'Realtime voice selects available credentials.',
     'Idle agents release capacity reliably.',
-    'Feedback, pairing QRs, and cloud reads are fixed.',
+    'Feedback, pairing QRs, and cloud reads work.',
   ],
 } as const;
 
