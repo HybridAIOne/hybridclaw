@@ -284,9 +284,14 @@ describe('response ratings', () => {
       string,
       RequestInit & { body: string },
     ];
-    expect(JSON.parse(request.body)).toMatchObject({
+    expect(JSON.parse(request.body)).toEqual({
+      chatbot_id: 'bot-feedback',
+      browser_id: service.sessionId,
       rating: 'down',
-      comment: 'Correct answer is: 200',
+      user_message: 'Hello',
+      bot_response: '[main] Hi there',
+      external_user_id: 'operator-a',
+      better_response: 'Correct answer is: 200',
     });
   });
 

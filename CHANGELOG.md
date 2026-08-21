@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- **Thumbs-down corrections reach HybridAI**: `/thumbs down <correction>`
+  forwards the optional text as `better_response`, so HybridAI stores the
+  expected answer instead of silently discarding it.
+  Manifesto: Principle VIII - A coworker doesn't break overnight.
 - Liveness health probes no longer reset an agent process's idle timeout, so
   idle per-session processes exit after the idle window as intended.
 - When the process pool is at capacity, idle session-bound agent processes
