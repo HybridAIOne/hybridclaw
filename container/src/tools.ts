@@ -36,6 +36,10 @@ import {
   resolveRuntimeProviderContext,
 } from './providers/provider-ids.js';
 import {
+  resolveCurrentTurnMediaReadPath,
+  resolveCurrentTurnMediaSandboxPath,
+} from './read-path.js';
+import {
   DISCORD_MEDIA_CACHE_ROOT,
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   replaceWorkspaceRootInOutput,
@@ -2706,7 +2710,11 @@ async function executeToolInternal(
       try {
         let content = '';
         if (TASK_SANDBOX_FS_ENABLED) {
-          const sandboxPath = resolveTaskSandboxPath(args.path);
+          const sandboxPath =
+            resolveCurrentTurnMediaSandboxPath(
+              args.path,
+              currentMediaContext,
+            ) || resolveTaskSandboxPath(args.path);
           if (!sandboxPath) {
             return failTool(`Error: Path escapes workspace: ${args.path}`);
           }
@@ -2714,7 +2722,9 @@ async function executeToolInternal(
           tempDirToCleanup = copied.tempDir;
           content = fs.readFileSync(copied.localPath, 'utf-8');
         } else {
-          const filePath = safeJoin(args.path);
+          const filePath =
+            resolveCurrentTurnMediaReadPath(args.path, currentMediaContext) ||
+            safeJoin(args.path);
           if (!fs.existsSync(filePath))
             return failTool(`Error: File not found: ${args.path}`);
           content = fs.readFileSync(filePath, 'utf-8');
