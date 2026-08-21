@@ -1803,7 +1803,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'msteams.mediaMaxMb',
       section: 'msteams',
       kind: 'number',
-      defaultValue: 20,
+      defaultValue: 100,
     },
     {
       path: 'msteams.replyStyle',
