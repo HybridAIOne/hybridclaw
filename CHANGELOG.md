@@ -2,17 +2,8 @@
 
 ## Unreleased
 
-### Fixed
+## [0.29.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.1) - 2026-08-21
 
-- **Thumbs-down corrections reach HybridAI**: `/thumbs down <correction>`
-  forwards the optional text as `better_response`, so HybridAI stores the
-  expected answer instead of silently discarding it.
-  Manifesto: Principle VIII - A coworker doesn't break overnight.
-- Liveness health probes no longer reset an agent process's idle timeout, so
-  idle per-session processes exit after the idle window as intended.
-- When the process pool is at capacity, idle session-bound agent processes
-  are now evicted (least-recently-used first) instead of rejecting new
-  sessions with "Too many active host agent processes".
 ### Added
 
 - **Teams file uploads match console chat metadata**: Files attached in a
@@ -21,6 +12,7 @@
   Office uploads retain their media type. Downloads stream into the managed
   cache with a configurable 100 MB default limit, and oversized partial files
   are removed instead of falling back to a remote URL.
+
 ### Changed
 
 - **Realtime voice picks its backend from the credentials you have**: The
@@ -32,6 +24,24 @@
   they discovered the provider setting. This matches how dictation and
   speech output already resolve their backends; explicit `openai` and
   `hybridai` settings keep pinning a single backend.
+
+### Fixed
+
+- **Thumbs-down corrections reach HybridAI**: `/thumbs down <correction>`
+  forwards the optional text as `better_response`, so HybridAI stores the
+  expected answer instead of silently discarding it.
+  Manifesto: Principle VIII - A coworker doesn't break overnight.
+- **Idle agent processes release capacity reliably**: Liveness health probes
+  no longer reset an agent process's idle timeout, and a full process pool
+  evicts idle session-bound processes least-recently-used first instead of
+  rejecting new sessions.
+- **Signal and LINE pairing codes scan from the console**: Pairing flows expose
+  crisp SVG QR codes to the admin console instead of relying on distorted
+  terminal-rendered text; the terminal flow keeps its existing text output.
+- **Cloud-workspace attachments resolve to their real paths**: The container
+  read tool recognizes allowed absolute media paths before applying workspace
+  display aliases, while current-turn media checks and existing write and
+  search boundaries remain unchanged.
 
 ## [0.29.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.0) - 2026-08-20
 
