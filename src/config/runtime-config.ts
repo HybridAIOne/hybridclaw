@@ -636,7 +636,7 @@ export interface RuntimeLineConfig {
 
 export type RuntimeVoiceProvider = 'twilio';
 export type RuntimeVoiceMode = 'realtime' | 'relay';
-export type RuntimeVoiceRealtimeProvider = 'hybridai' | 'openai';
+export type RuntimeVoiceRealtimeProvider = 'auto' | 'hybridai' | 'openai';
 export type RuntimeVoiceRelayTtsProvider = 'amazon' | 'default' | 'google';
 export type RuntimeVoiceRelayTranscriptionProvider =
   | 'deepgram'
@@ -1778,7 +1778,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       welcomeGreeting: 'Hello! How can I help you today?',
     },
     realtime: {
-      provider: 'openai',
+      provider: 'auto',
       model: 'gpt-realtime',
       voice: 'marin',
       greeting: 'Hello! How can I help you today?',
@@ -3626,7 +3626,11 @@ function normalizeVoiceRealtimeProvider(
 ): RuntimeVoiceRealtimeProvider {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'openai' || normalized === 'hybridai') {
+  if (
+    normalized === 'auto' ||
+    normalized === 'openai' ||
+    normalized === 'hybridai'
+  ) {
     return normalized;
   }
   return fallback;

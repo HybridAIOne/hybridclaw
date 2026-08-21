@@ -8,6 +8,17 @@
   forwards the optional text as `better_response`, so HybridAI stores the
   expected answer instead of silently discarding it.
   Manifesto: Principle VIII - A coworker doesn't break overnight.
+### Changed
+
+- **Realtime voice picks its backend from the credentials you have**: The
+  default `voice.realtime.provider` is now `auto` — the HybridAI platform's
+  realtime proxy when a HybridAI credential is present (signed in, or
+  `HYBRIDAI_API_KEY`), otherwise OpenAI with `OPENAI_API_KEY`. Previously the
+  default was `openai`, so a signed-in operator without an OpenAI key saw no
+  voice button in the web console and no working realtime phone mode until
+  they discovered the provider setting. This matches how dictation and
+  speech output already resolve their backends; explicit `openai` and
+  `hybridai` settings keep pinning a single backend.
 
 ## [0.29.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.0) - 2026-08-20
 

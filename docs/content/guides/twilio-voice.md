@@ -155,15 +155,16 @@ alongside the consulted turns.
 
 Requirements and notes:
 
-- Realtime mode needs a realtime credential. With the default
-  `voice.realtime.provider` of `openai`, set the `OPENAI_API_KEY` environment
-  variable or store it in the encrypted secret store (same flow as the Twilio
-  auth token, secret name `OPENAI_API_KEY`). Set the provider to `hybridai`
-  to route sessions through the HybridAI platform's `/v1/realtime` proxy
-  instead, authenticated with your signed-in HybridAI credential (or
-  `HYBRIDAI_API_KEY`) — no OpenAI key required. The gateway refuses to start
-  the voice channel in realtime mode without the selected provider's
-  credential.
+- Realtime mode needs a realtime credential. The default
+  `voice.realtime.provider` of `auto` uses the HybridAI platform's
+  `/v1/realtime` proxy when a HybridAI credential is present (signed in, or
+  `HYBRIDAI_API_KEY`), and OpenAI otherwise. Set the provider to `openai` or
+  `hybridai` to pin one backend: `openai` needs the `OPENAI_API_KEY`
+  environment variable or the encrypted secret store (same flow as the
+  Twilio auth token, secret name `OPENAI_API_KEY`); `hybridai` needs only
+  the HybridAI credential — no OpenAI key required. The gateway refuses to
+  start the voice channel in realtime mode without a credential for the
+  selected provider.
 - `voice.realtime.voice` accepts any OpenAI realtime voice name (for example
   `marin`, `cedar`, `alloy`).
 - `voice.realtime.instructions` is appended to the built-in call instructions;
