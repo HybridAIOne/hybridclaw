@@ -7,7 +7,9 @@
 - **Teams file uploads match console chat metadata**: Files attached in a
   Microsoft Teams direct message are staged for the agent even without message
   text, and JSON, CSV, Markdown, plain-text, XML, image, audio, video, PDF, and
-  Office uploads retain their media type.
+  Office uploads retain their media type. Downloads stream into the managed
+  cache with a configurable 100 MB default limit, and oversized partial files
+  are removed instead of falling back to a remote URL.
 
 ## [0.29.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.0) - 2026-08-20
 

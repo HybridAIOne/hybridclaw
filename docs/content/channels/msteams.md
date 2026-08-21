@@ -140,9 +140,9 @@ Microsoft Graph and SharePoint/OneDrive integration.
 Files attached by the user in a direct message are downloaded into
 HybridClaw's managed upload cache and exposed to the agent in the same way as
 console chat uploads. Common image and audio formats, PDF and Office documents,
-JSON, CSV, Markdown, plain text, and XML retain their media type. The default
-per-file limit is 20 MB and is controlled by `msteams.mediaMaxMb` under
-**Advanced delivery settings**.
+JSON, CSV, Markdown, plain text, and XML retain their media type. Downloads are
+streamed into the managed cache with a default per-file limit of 100 MB,
+controlled by `msteams.mediaMaxMb` under **Advanced delivery settings**.
 
 ## Troubleshooting: a generated file is only a link
 

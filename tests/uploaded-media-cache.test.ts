@@ -132,3 +132,81 @@ test('createUploadedMediaContextItem preserves a provided originalUrl', async ()
   );
   expect(fs.existsSync(hostPath)).toBe(true);
 });
+
+test('createUploadedMediaContextItemFromStream writes chunks without buffering the full upload', async () => {
+  vi.resetModules();
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-uploaded-media-stream-'),
+  );
+  dataDirs.push(dataDir);
+
+  vi.doMock('../src/config/config.ts', () => ({
+    get CONTAINER_SANDBOX_MODE() {
+      return 'host';
+    },
+    get DATA_DIR() {
+      return dataDir;
+    },
+  }));
+
+  const { createUploadedMediaContextItemFromStream } = await import(
+    '../src/media/uploaded-media-cache.js'
+  );
+  async function* chunks(): AsyncGenerator<Uint8Array> {
+    yield Buffer.from('streamed ');
+    yield Buffer.from('content');
+  }
+
+  const item = await createUploadedMediaContextItemFromStream({
+    attachmentName: 'notes.md',
+    chunks: chunks(),
+    maxBytes: 32,
+    mimeType: 'text/markdown',
+  });
+
+  expect(item.sizeBytes).toBe(16);
+  expect(fs.readFileSync(item.path || '', 'utf8')).toBe('streamed content');
+});
+
+test('createUploadedMediaContextItemFromStream removes partial files that exceed the limit', async () => {
+  vi.resetModules();
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-uploaded-media-limit-'),
+  );
+  dataDirs.push(dataDir);
+
+  vi.doMock('../src/config/config.ts', () => ({
+    get CONTAINER_SANDBOX_MODE() {
+      return 'host';
+    },
+    get DATA_DIR() {
+      return dataDir;
+    },
+  }));
+
+  const {
+    createUploadedMediaContextItemFromStream,
+    resolveUploadedMediaCacheHostDir,
+    UPLOADED_MEDIA_CACHE_LIMIT_ERROR,
+  } = await import('../src/media/uploaded-media-cache.js');
+  async function* chunks(): AsyncGenerator<Uint8Array> {
+    yield Buffer.from('123');
+    yield Buffer.from('456');
+  }
+
+  await expect(
+    createUploadedMediaContextItemFromStream({
+      attachmentName: 'too-large.txt',
+      chunks: chunks(),
+      maxBytes: 5,
+      mimeType: 'text/plain',
+    }),
+  ).rejects.toThrow(UPLOADED_MEDIA_CACHE_LIMIT_ERROR);
+
+  const cacheDir = resolveUploadedMediaCacheHostDir();
+  const cachedFiles = fs
+    .readdirSync(cacheDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .flatMap((entry) => fs.readdirSync(path.join(cacheDir, entry.name)));
+  expect(cachedFiles).toEqual([]);
+});

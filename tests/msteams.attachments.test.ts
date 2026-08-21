@@ -749,6 +749,41 @@ test('buildTeamsAttachmentContext rejects oversized data url images before writi
   expect(writeFileSpy).not.toHaveBeenCalled();
 });
 
+test('buildTeamsAttachmentContext streams remote files and removes oversized partial downloads', async () => {
+  const { buildTeamsAttachmentContext } = await importAttachmentsModule({
+    MSTEAMS_MEDIA_MAX_MB: 1,
+  });
+  const oversizedBuffer = Buffer.alloc(1_048_577, 1);
+  const response = new Response(oversizedBuffer, {
+    status: 200,
+    headers: {
+      'content-type': 'application/pdf',
+    },
+  });
+  const arrayBufferSpy = vi.spyOn(response, 'arrayBuffer');
+  vi.stubGlobal('fetch', vi.fn(async () => response));
+
+  const media = await buildTeamsAttachmentContext({
+    activity: {
+      attachments: [
+        {
+          contentType: 'application/vnd.microsoft.teams.file.download.info',
+          content: {
+            downloadUrl:
+              'https://contoso.blob.core.windows.net/teams/too-large.pdf?sig=test',
+            fileName: 'too-large.pdf',
+            fileType: 'pdf',
+          },
+          name: 'too-large.pdf',
+        },
+      ],
+    },
+  });
+
+  expect(media).toEqual([]);
+  expect(arrayBufferSpy).not.toHaveBeenCalled();
+});
+
 test('buildTeamsAttachmentContext retries Teams media downloads with auth for Teams hosts', async () => {
   const { buildTeamsAttachmentContext } = await importAttachmentsModule({
     MSTEAMS_MEDIA_ALLOW_HOSTS: ['*.teams.microsoft.com'],
