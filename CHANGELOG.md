@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **Teams file uploads match console chat metadata**: Files attached in a
+  Microsoft Teams direct message are staged for the agent even without message
+  text, and JSON, CSV, Markdown, plain-text, XML, image, audio, video, PDF, and
+  Office uploads retain their media type. Downloads stream into the managed
+  cache with a configurable 100 MB default limit, and oversized partial files
+  are removed instead of falling back to a remote URL.
 ### Changed
 
 - **Realtime voice picks its backend from the credentials you have**: The

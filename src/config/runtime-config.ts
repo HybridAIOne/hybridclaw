@@ -1662,7 +1662,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     requireMention: true,
     textChunkLimit: 4_000,
     replyStyle: 'thread',
-    mediaMaxMb: 20,
+    // 100 MB (owner call, 2026-08-21): Teams downloads stream to the managed
+    // cache; the console upload limit remains 20 MB.
+    mediaMaxMb: 100,
     dangerouslyAllowNameMatching: false,
     mediaAllowHosts: [
       'graph.microsoft.com',
