@@ -1,11 +1,16 @@
 /**
  * Resolves which upstream serves realtime voice sessions.
  *
- * `voice.realtime.provider` selects between OpenAI directly (`openai`, the
- * default, using OPENAI_API_KEY) and the HybridAI platform's `/v1/realtime`
- * proxy (`hybridai`, using the signed-in HybridAI credential and
+ * `voice.realtime.provider` selects between OpenAI directly (`openai`, using
+ * OPENAI_API_KEY) and the HybridAI platform's `/v1/realtime` proxy
+ * (`hybridai`, using the signed-in HybridAI credential and
  * HYBRIDAI_BASE_URL). Both speak the same realtime protocol, so everything
  * past the connection URL and bearer token is provider-agnostic.
+ *
+ * The default is `auto`: HybridAI when a HybridAI credential is present,
+ * otherwise OpenAI — the same signed-in-operator-first order the dictation
+ * and speech backends use, so realtime voice works with whichever credential
+ * the operator already has, with no provider setting to discover.
  *
  * Shared by the Twilio phone path and the web console path so the two
  * surfaces cannot drift on provider selection or error wording.
@@ -44,9 +49,10 @@ export function resolveRealtimeConnection(
       connection: null;
       error: string;
     } {
-  if (provider === 'hybridai') {
-    const apiKey = String(readHybridAIApiKey() || '').trim();
-    if (!apiKey) {
+  const hybridaiApiKey =
+    provider === 'openai' ? '' : String(readHybridAIApiKey() || '').trim();
+  if (provider === 'hybridai' || (provider === 'auto' && hybridaiApiKey)) {
+    if (!hybridaiApiKey) {
       return {
         connection: null,
         error:
@@ -54,7 +60,10 @@ export function resolveRealtimeConnection(
       };
     }
     return {
-      connection: { url: hybridaiRealtimeUrl(HYBRIDAI_BASE_URL), apiKey },
+      connection: {
+        url: hybridaiRealtimeUrl(HYBRIDAI_BASE_URL),
+        apiKey: hybridaiApiKey,
+      },
       error: null,
     };
   }
@@ -62,7 +71,10 @@ export function resolveRealtimeConnection(
   if (!apiKey) {
     return {
       connection: null,
-      error: 'Realtime voice requires an OpenAI API key (OPENAI_API_KEY).',
+      error:
+        provider === 'auto'
+          ? 'Realtime voice requires a credential: sign in to HybridAI (or set HYBRIDAI_API_KEY), or set OPENAI_API_KEY.'
+          : 'Realtime voice requires an OpenAI API key (OPENAI_API_KEY).',
     };
   }
   return { connection: { url: OPENAI_REALTIME_URL, apiKey }, error: null };

@@ -264,7 +264,8 @@ saved revision history directly.
   (OpenAI Realtime speech-to-speech over Twilio Media Streams, configured via
   `voice.realtime.model`, `voice.realtime.voice`, `voice.realtime.greeting`,
   and `voice.realtime.instructions`). `voice.realtime.provider` selects the
-  realtime backend: `openai` (the default; requires an `OPENAI_API_KEY`) or
+  realtime backend: `auto` (the default: HybridAI when a HybridAI credential
+  is present, otherwise OpenAI), `openai` (requires an `OPENAI_API_KEY`), or
   `hybridai` (the HybridAI platform's `/v1/realtime` proxy at
   `HYBRIDAI_BASE_URL`, authenticated with your signed-in HybridAI credential
   or `HYBRIDAI_API_KEY` — no OpenAI key needed). The `voice.realtime.*`
