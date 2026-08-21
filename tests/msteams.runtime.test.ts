@@ -16,6 +16,7 @@ const buildTeamsAttachmentContextMock = vi.fn(async () => []);
 const maybeHandleMSTeamsFileConsentInvokeMock = vi.fn(async () => false);
 const getMemoryValueMock = vi.fn();
 const setMemoryValueMock = vi.fn();
+const cleanIncomingContentMock = vi.fn(() => 'Hi!');
 const extractPrimaryTextMock = vi.fn(() => 'Hi!');
 const parseCommandMock = vi.fn(() => ({
   args: [],
@@ -181,7 +182,7 @@ async function importRuntime() {
   }));
   vi.doMock('../src/channels/msteams/inbound.js', () => ({
     buildSessionIdFromActivity: vi.fn(() => 'teams:dm:user'),
-    cleanIncomingContent: vi.fn(() => 'Hi!'),
+    cleanIncomingContent: cleanIncomingContentMock,
     extractPrimaryText: extractPrimaryTextMock,
     extractActorIdentity: vi.fn(() => ({
       aadObjectId: 'user-aad-id',
@@ -237,6 +238,8 @@ afterEach(() => {
   getMemoryValueMock.mockReset();
   getMemoryValueMock.mockReturnValue(null);
   setMemoryValueMock.mockReset();
+  cleanIncomingContentMock.mockReset();
+  cleanIncomingContentMock.mockReturnValue('Hi!');
   parseCommandMock.mockReset();
   parseCommandMock.mockReturnValue({
     args: [],
@@ -701,6 +704,72 @@ describe('Microsoft Teams runtime webhook adapter', () => {
           path: '/tmp/teams-image.png',
           sizeBytes: 3,
           url: 'https://example.com/teams-image.png',
+        },
+      ],
+      expect.any(Function),
+      expect.any(Object),
+    );
+  });
+
+  test('forwards attachment-only Teams uploads to the message handler', async () => {
+    processMock.mockImplementation(
+      async (_req, _res, logic: (context: unknown) => Promise<void>) => {
+        await logic({
+          activity: {
+            type: 'message',
+            text: '',
+            attachments: [
+              {
+                contentType:
+                  'application/vnd.microsoft.teams.file.download.info',
+                name: 'project-notes.md',
+              },
+            ],
+            conversation: { id: 'conversation-123' },
+            recipient: { id: 'bot-id' },
+          },
+          sendActivity: vi.fn(async () => ({ id: 'reply-1' })),
+          turnState: new Map(),
+        });
+      },
+    );
+    cleanIncomingContentMock.mockReturnValueOnce('');
+    buildTeamsAttachmentContextMock.mockResolvedValueOnce([
+      {
+        filename: 'project-notes.md',
+        mimeType: 'text/markdown',
+        originalUrl: 'https://example.com/project-notes.md',
+        path: '/uploaded-media-cache/2026-08-21/project-notes.md',
+        sizeBytes: 42,
+        url: 'https://example.com/project-notes.md',
+      },
+    ]);
+
+    const runtime = await importRuntime();
+    const onMessage = vi.fn(async () => {});
+    const onCommand = vi.fn(async () => {});
+    runtime.initMSTeams(onMessage, onCommand);
+
+    await runtime.handleMSTeamsWebhook(
+      makeRequest({ type: 'message', text: '' }),
+      makeResponse(),
+    );
+
+    expect(onMessage).toHaveBeenCalledWith(
+      'teams:dm:user',
+      null,
+      'conversation-123',
+      'user-id',
+      'User',
+      '',
+      [
+        {
+          filename: 'project-notes.md',
+          mimeType: 'text/markdown',
+          originalUrl: 'https://example.com/project-notes.md',
+          path: '/uploaded-media-cache/2026-08-21/project-notes.md',
+          sizeBytes: 42,
+          url: 'https://example.com/project-notes.md',
         },
       ],
       expect.any(Function),

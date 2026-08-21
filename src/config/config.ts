@@ -350,7 +350,9 @@ export let MSTEAMS_REQUIRE_MENTION = true;
 export let MSTEAMS_TEXT_CHUNK_LIMIT = 4_000;
 export let MSTEAMS_REPLY_STYLE: RuntimeConfig['msteams']['replyStyle'] =
   'thread';
-export let MSTEAMS_MEDIA_MAX_MB = 20;
+// 100 MB (owner call, 2026-08-21): Teams downloads stream to the managed
+// cache; the console upload limit remains 20 MB.
+export let MSTEAMS_MEDIA_MAX_MB = 100;
 export let MSTEAMS_DANGEROUSLY_ALLOW_NAME_MATCHING = false;
 export let MSTEAMS_MEDIA_ALLOW_HOSTS: string[] = [];
 export let MSTEAMS_MEDIA_AUTH_ALLOW_HOSTS: string[] = [];

@@ -102,6 +102,7 @@ import { parseToolProgressLine } from './tool-progress-parser.js';
 import { WarmProcessPool } from './warm-process-pool.js';
 import {
   claimWarmEntry,
+  collectIdleSessionEvictions,
   enforceWarmPoolPressure,
   formatWarmRunnerTerminalError,
   getCachedObservedMemoryBytes,
@@ -246,6 +247,19 @@ async function waitForHostCapacity(
         maxProcessCount: MAX_CONCURRENT_CONTAINERS,
       }),
     );
+    if (getTotalHostProcessCount() < MAX_CONCURRENT_CONTAINERS) break;
+    for (const entry of collectIdleSessionEvictions({
+      pool,
+      warmPool,
+      maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+    })) {
+      logger.info(
+        { sessionId: entry.sessionId, agentId: entry.agentId },
+        'Evicting idle host agent process to free capacity',
+      );
+      stopHostProcess(entry);
+      removePoolEntry(entry);
+    }
     if (getTotalHostProcessCount() < MAX_CONCURRENT_CONTAINERS) break;
     if (abortSignal?.aborted) return 'aborted';
     const remainingMs = deadline - Date.now();

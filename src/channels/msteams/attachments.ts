@@ -1,3 +1,8 @@
+/**
+ * Teams attachment boundary — stages trusted-host inbound uploads and builds
+ * outbound Bot Framework attachments. Cached local paths are the agent-facing
+ * source of record; delivery and streaming stay in their neighboring modules.
+ */
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -13,27 +18,42 @@ import {
   MSTEAMS_TENANT_ID,
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
-import { createUploadedMediaContextItem } from '../../media/uploaded-media-cache.js';
+import {
+  createUploadedMediaContextItem,
+  createUploadedMediaContextItemFromStream,
+  UPLOADED_MEDIA_CACHE_LIMIT_ERROR,
+} from '../../media/uploaded-media-cache.js';
 import type { MediaContextItem } from '../../types/container.js';
 import type { ArtifactMetadata } from '../../types/execution.js';
 import { isRecord, normalizeValue } from './utils.js';
 
-const OUTBOUND_MIME_TYPE_BY_EXTENSION: Record<string, string> = {
+const MIME_TYPE_BY_EXTENSION: Record<string, string> = {
+  '.bmp': 'image/bmp',
+  '.csv': 'text/csv',
+  '.flac': 'audio/flac',
   '.gif': 'image/gif',
+  '.json': 'application/json',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.m4a': 'audio/mp4',
+  '.md': 'text/markdown',
+  '.mov': 'video/quicktime',
   '.mp3': 'audio/mpeg',
+  '.mp4': 'video/mp4',
   '.ogg': 'audio/ogg',
   '.pdf': 'application/pdf',
   '.png': 'image/png',
   '.pptx':
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.wav': 'audio/wav',
+  '.webm': 'video/webm',
   '.webp': 'image/webp',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   '.docx':
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.svg': 'image/svg+xml',
+  '.txt': 'text/plain',
+  '.xml': 'text/xml',
 };
 const HTML_IMAGE_SRC_RE = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
 const TEAMS_FILE_DOWNLOAD_INFO_CONTENT_TYPE =
@@ -163,9 +183,7 @@ function inferOutboundMimeType(
   const normalizedPreferred = normalizeValue(preferredMimeType);
   if (normalizedPreferred) return normalizedPreferred;
   const extension = path.extname(filePath).toLowerCase();
-  return (
-    OUTBOUND_MIME_TYPE_BY_EXTENSION[extension] || 'application/octet-stream'
-  );
+  return MIME_TYPE_BY_EXTENSION[extension] || 'application/octet-stream';
 }
 
 function inferMimeTypeFromFilename(
@@ -183,13 +201,13 @@ function inferMimeTypeFromFilename(
     return normalizedFallback;
   }
   const extension = path.extname(filename).toLowerCase();
-  return OUTBOUND_MIME_TYPE_BY_EXTENSION[extension] || null;
+  return MIME_TYPE_BY_EXTENSION[extension] || null;
 }
 
 function inferMimeTypeFromTeamsFileType(fileType: string): string | null {
   const normalized = normalizeValue(fileType).toLowerCase();
   if (!normalized) return null;
-  return OUTBOUND_MIME_TYPE_BY_EXTENSION[`.${normalized}`] || null;
+  return MIME_TYPE_BY_EXTENSION[`.${normalized}`] || null;
 }
 
 function sniffMimeTypeFromBuffer(buffer: Buffer): string | null {
@@ -683,6 +701,61 @@ async function stageInboundTeamsBuffer(params: {
   });
 }
 
+async function readResponseChunks(response: Response): Promise<{
+  cancel: () => Promise<void>;
+  chunks: AsyncIterable<Uint8Array>;
+  prefix: Buffer;
+}> {
+  if (!response.body) {
+    throw new Error('Teams attachment response did not include a body.');
+  }
+  const reader = response.body.getReader();
+  let first: ReadableStreamReadResult<Uint8Array>;
+  try {
+    first = await reader.read();
+  } catch (error) {
+    reader.releaseLock();
+    throw error;
+  }
+  const prefix = Buffer.from(first.value || []);
+  let released = false;
+
+  async function release(cancel: boolean): Promise<void> {
+    if (released) return;
+    released = true;
+    if (cancel) {
+      await reader.cancel().catch(() => {});
+    }
+    reader.releaseLock();
+  }
+
+  async function* chunks(): AsyncGenerator<Uint8Array> {
+    let current = first;
+    try {
+      while (!current.done) {
+        if (current.value?.length) yield current.value;
+        current = await reader.read();
+      }
+    } finally {
+      await release(!current.done);
+    }
+  }
+
+  return {
+    cancel: () => release(true),
+    chunks: chunks(),
+    prefix,
+  };
+}
+
+function isUploadedMediaLimitError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === UPLOADED_MEDIA_CACHE_LIMIT_ERROR ||
+      error.message === 'Teams attachment exceeds configured media limit.')
+  );
+}
+
 async function buildMediaItem(params: {
   url: string;
   filename: string;
@@ -744,14 +817,15 @@ async function buildMediaItem(params: {
       contentLength > 0 &&
       contentLength > getMaxInboundTeamsMediaBytes()
     ) {
+      await response.body?.cancel().catch(() => {});
       throw new Error('Teams attachment exceeds configured media limit.');
     }
-    const buffer = Buffer.from(await response.arrayBuffer());
     const responseMimeType =
       normalizeValue(response.headers.get('content-type'))
         .split(';')[0]
         .trim()
         .toLowerCase() || null;
+    const responseStream = await readResponseChunks(response);
     const resolvedMimeType =
       (responseMimeType &&
       !GENERIC_MIME_TYPES.has(responseMimeType) &&
@@ -759,24 +833,40 @@ async function buildMediaItem(params: {
         ? responseMimeType
         : null) ||
       inferMimeTypeFromFilename(fallback.filename, fallback.mimeType) ||
-      sniffMimeTypeFromBuffer(buffer) ||
+      sniffMimeTypeFromBuffer(responseStream.prefix) ||
       null;
-    const staged = await stageInboundTeamsBuffer({
-      buffer,
-      filename: fallback.filename,
-      mimeType: resolvedMimeType,
-      sizeBytes: buffer.length,
-      originalUrl: fallback.url,
-    });
+    let staged: MediaContextItem;
+    try {
+      staged = await createUploadedMediaContextItemFromStream({
+        attachmentName: fallback.filename,
+        chunks: responseStream.chunks,
+        maxBytes: getMaxInboundTeamsMediaBytes(),
+        mimeType: resolvedMimeType,
+        originalUrl: fallback.url,
+      });
+    } catch (error) {
+      await responseStream.cancel();
+      throw error;
+    }
     return {
       ...staged,
       url: fallback.url,
       originalUrl: fallback.url,
       mimeType: resolvedMimeType || null,
-      sizeBytes: buffer.length,
+      sizeBytes: staged.sizeBytes,
       filename: fallback.filename,
     };
   } catch (error) {
+    if (isUploadedMediaLimitError(error)) {
+      logger.warn(
+        {
+          filename: fallback.filename,
+          maxBytes: getMaxInboundTeamsMediaBytes(),
+        },
+        'Skipping Teams attachment that exceeds configured media limit',
+      );
+      return null;
+    }
     logger.debug(
       { error, url: fallback.url, name: fallback.filename },
       'Failed to stage Teams attachment locally; using remote URL fallback',

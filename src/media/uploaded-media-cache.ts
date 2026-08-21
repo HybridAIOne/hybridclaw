@@ -1,3 +1,8 @@
+/**
+ * Uploaded-media cache — the bounded local store for untrusted inbound files.
+ * Runtime paths remain stable across host and container modes, and incomplete
+ * streamed writes are never exposed. It does not decide transport allowlists.
+ */
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,6 +13,8 @@ import type { MediaContextItem } from '../types/container.js';
 import { normalizeMimeType } from './mime-utils.js';
 
 export const UPLOADED_MEDIA_CACHE_ROOT_DISPLAY = '/uploaded-media-cache';
+export const UPLOADED_MEDIA_CACHE_LIMIT_ERROR =
+  'uploaded_media_cache_limit_exceeded';
 
 const UPLOADED_MEDIA_CACHE_DIR_MODE = 0o700;
 const UPLOADED_MEDIA_CACHE_FILE_MODE = 0o644;
@@ -274,11 +281,16 @@ export function startUploadedMediaCacheCleanup(params?: {
   return cleanupPromise;
 }
 
-export async function writeUploadedMediaCacheFile(params: {
+interface UploadedMediaCacheTarget {
+  hostPath: string;
+  runtimePath: string;
+  filename: string;
+}
+
+async function prepareUploadedMediaCacheTarget(params: {
   attachmentName: string;
-  buffer: Buffer;
   mimeType?: string | null;
-}): Promise<{ hostPath: string; runtimePath: string; filename: string }> {
+}): Promise<UploadedMediaCacheTarget> {
   const cacheDir = resolveUploadedMediaCacheHostDir();
   const datePrefix = new Date().toISOString().slice(0, 10);
   const unique = randomUUID().slice(0, 8);
@@ -292,21 +304,73 @@ export async function writeUploadedMediaCacheFile(params: {
 
   await ensureCacheDirectory(cacheDir);
   await ensureCacheDirectory(dayDir);
-  await fs.promises.writeFile(hostPath, params.buffer, {
-    mode: UPLOADED_MEDIA_CACHE_FILE_MODE,
-  });
 
   const runtimePath = normalizeUploadedMediaPathForRuntime(hostPath);
   if (!runtimePath) {
     throw new Error(`uploaded_media_cache_path_error:${hostPath}`);
   }
 
-  startUploadedMediaCacheCleanup();
   return {
     hostPath,
     runtimePath,
     filename,
   };
+}
+
+export async function writeUploadedMediaCacheFile(params: {
+  attachmentName: string;
+  buffer: Buffer;
+  mimeType?: string | null;
+}): Promise<UploadedMediaCacheTarget> {
+  const target = await prepareUploadedMediaCacheTarget(params);
+  await fs.promises.writeFile(target.hostPath, params.buffer, {
+    mode: UPLOADED_MEDIA_CACHE_FILE_MODE,
+  });
+  startUploadedMediaCacheCleanup();
+  return target;
+}
+
+export async function writeUploadedMediaCacheStream(params: {
+  attachmentName: string;
+  chunks: AsyncIterable<Uint8Array>;
+  maxBytes: number;
+  mimeType?: string | null;
+}): Promise<UploadedMediaCacheTarget & { sizeBytes: number }> {
+  const maxBytes = Math.floor(params.maxBytes);
+  if (!Number.isFinite(maxBytes) || maxBytes < 1) {
+    throw new Error('uploaded_media_cache_invalid_limit');
+  }
+
+  const target = await prepareUploadedMediaCacheTarget(params);
+  const partialPath = `${target.hostPath}.part-${randomUUID().slice(0, 8)}`;
+  let handle: Awaited<ReturnType<typeof fs.promises.open>> | null = null;
+  let sizeBytes = 0;
+  try {
+    handle = await fs.promises.open(
+      partialPath,
+      'wx',
+      UPLOADED_MEDIA_CACHE_FILE_MODE,
+    );
+    for await (const chunk of params.chunks) {
+      const buffer = Buffer.from(chunk);
+      if (buffer.length === 0) continue;
+      sizeBytes += buffer.length;
+      if (sizeBytes > maxBytes) {
+        throw new Error(UPLOADED_MEDIA_CACHE_LIMIT_ERROR);
+      }
+      await handle.writeFile(buffer);
+    }
+    await handle.close();
+    handle = null;
+    await fs.promises.rename(partialPath, target.hostPath);
+  } catch (error) {
+    await handle?.close().catch(() => {});
+    await fs.promises.rm(partialPath, { force: true }).catch(() => {});
+    throw error;
+  }
+
+  startUploadedMediaCacheCleanup();
+  return { ...target, sizeBytes };
 }
 
 export async function createUploadedMediaContextItem(params: {
@@ -333,6 +397,33 @@ export async function createUploadedMediaContextItem(params: {
       typeof params.sizeBytes === 'number' && Number.isFinite(params.sizeBytes)
         ? Math.max(0, Math.floor(params.sizeBytes))
         : params.buffer.length,
+    filename,
+  };
+}
+
+export async function createUploadedMediaContextItemFromStream(params: {
+  attachmentName: string;
+  chunks: AsyncIterable<Uint8Array>;
+  maxBytes: number;
+  mimeType?: string | null;
+  originalUrl?: string | null;
+}): Promise<MediaContextItem> {
+  const normalizedMimeType = normalizeMimeType(params.mimeType);
+  const { runtimePath, filename, sizeBytes } =
+    await writeUploadedMediaCacheStream({
+      attachmentName: params.attachmentName,
+      chunks: params.chunks,
+      maxBytes: params.maxBytes,
+      mimeType: normalizedMimeType,
+    });
+  const originalUrl = String(params.originalUrl || '').trim() || runtimePath;
+
+  return {
+    path: runtimePath,
+    url: originalUrl,
+    originalUrl,
+    mimeType: normalizedMimeType,
+    sizeBytes,
     filename,
   };
 }
