@@ -185,6 +185,10 @@ function resolveRootBoundPath(
       return resolvedActual;
     }
 
+    if (ALLOWED_HOST_ROOTS.some((root) => isWithinRoot(resolvedActual, root))) {
+      return resolvedActual;
+    }
+
     const fromDisplay = resolveDisplayAbsoluteToActual(
       path.posix.normalize(normalizedInput),
       displayRoot,
@@ -194,9 +198,6 @@ function resolveRootBoundPath(
       return isWithinRoot(fromDisplay, actualRoot) ? fromDisplay : null;
     }
 
-    if (ALLOWED_HOST_ROOTS.some((root) => isWithinRoot(resolvedActual, root))) {
-      return resolvedActual;
-    }
     return null;
   }
 

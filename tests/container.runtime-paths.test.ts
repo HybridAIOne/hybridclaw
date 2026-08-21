@@ -157,6 +157,25 @@ describe.sequential('container runtime path aliases', () => {
     ).toBe('/workspace/.data/data/agents/main/workspace/output.pdf');
   });
 
+  test('prefers real paths under allowed roots over the workspace display alias', async () => {
+    const workspaceRoot = '/workspace/.data/data/agents/main/workspace';
+    const uploadedRoot = '/workspace/.data/data/uploaded-media-cache';
+    const uploadedFile = `${uploadedRoot}/2026-08-21/note.txt`;
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/workspace');
+    vi.stubEnv(
+      'HYBRIDCLAW_AGENT_ALLOWED_ROOTS',
+      JSON.stringify([uploadedRoot]),
+    );
+    vi.resetModules();
+
+    const { resolveWorkspacePath } = await import(
+      '../container/src/runtime-paths.ts'
+    );
+
+    expect(resolveWorkspacePath(uploadedFile)).toBe(uploadedFile);
+  });
+
   test('resolves uploaded-media cache display paths', async () => {
     const { resolveMediaPath } = await import(
       '../container/src/runtime-paths.ts'
