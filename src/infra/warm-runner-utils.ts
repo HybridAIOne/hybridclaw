@@ -24,6 +24,9 @@ export const AGENT_REQUEST_START_LINE =
 export const IDLE_TIMEOUT_MS = 300_000;
 export const STDERR_HISTORY_LIMIT = 20;
 export const MEMORY_SAMPLE_TTL_MS = 5_000;
+// Guards the race window between a session passing its capacity check and
+// setting `activity` for the run it is about to start.
+export const IDLE_SESSION_EVICTION_MIN_AGE_MS = 10_000;
 
 export interface WarmRunnerEntry extends WarmProcessPoolEntry {
   sessionId: string;
@@ -384,6 +387,29 @@ export function claimWarmEntry<T extends WarmRunnerEntry>(params: {
   params.pool.set(params.sessionId, entry);
   params.logClaim(entry);
   return entry;
+}
+
+export function collectIdleSessionEvictions<
+  T extends WarmRunnerHealthEntry,
+>(params: {
+  pool: Map<string, T>;
+  warmPool: WarmProcessPool<T>;
+  maxProcessCount: number;
+}): T[] {
+  const excess =
+    params.pool.size + params.warmPool.size + 1 - params.maxProcessCount;
+  if (excess <= 0) return [];
+
+  const now = Date.now();
+  const candidates = Array.from(params.pool.values()).filter(
+    (entry) =>
+      !entry.activity &&
+      !entry.process.killed &&
+      entry.process.exitCode === null &&
+      now - entry.lastUsedAt >= IDLE_SESSION_EVICTION_MIN_AGE_MS,
+  );
+  candidates.sort((left, right) => left.lastUsedAt - right.lastUsedAt);
+  return candidates.slice(0, excess);
 }
 
 export function maintainWarmPool<T extends WarmRunnerEntry>(params: {

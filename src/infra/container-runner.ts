@@ -113,6 +113,7 @@ import { parseToolProgressLine } from './tool-progress-parser.js';
 import { WarmProcessPool } from './warm-process-pool.js';
 import {
   claimWarmEntry,
+  collectIdleSessionEvictions,
   enforceWarmPoolPressure,
   formatWarmRunnerTerminalError,
   getCachedObservedMemoryBytes,
@@ -1083,6 +1084,23 @@ async function runContainerInner(
         maxProcessCount: MAX_CONCURRENT_CONTAINERS,
       }),
     );
+  }
+  if (
+    getTotalContainerProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
+    !pool.has(sessionId)
+  ) {
+    for (const entry of collectIdleSessionEvictions({
+      pool,
+      warmPool,
+      maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+    })) {
+      logger.info(
+        { sessionId: entry.sessionId, agentId: entry.agentId },
+        'Evicting idle container agent process to free capacity',
+      );
+      stopPoolEntry(entry);
+      removePoolEntry(entry);
+    }
   }
   if (
     getTotalContainerProcessCount() >= MAX_CONCURRENT_CONTAINERS &&

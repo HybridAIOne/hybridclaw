@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- Liveness health probes no longer reset an agent process's idle timeout, so
+  idle per-session processes exit after the idle window as intended.
+- When the process pool is at capacity, idle session-bound agent processes
+  are now evicted (least-recently-used first) instead of rejecting new
+  sessions with "Too many active host agent processes".
+
 ## [0.29.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.0) - 2026-08-20
 
 ### Added
