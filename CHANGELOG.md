@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Signal QR linking completes and survives gateway replacement**: The amd64
+  gateway bundles signal-cli 0.14.7, stores its linked-device identity in the
+  persistent gateway data volume, and removes expired QR material after a
+  successful or failed provisioning attempt instead of leaving a stale code in
+  the admin console.
+
 ## [0.29.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.1) - 2026-08-21
 
 ### Added

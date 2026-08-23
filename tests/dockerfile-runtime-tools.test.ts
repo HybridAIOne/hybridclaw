@@ -51,6 +51,10 @@ describe('Docker runtime tool parity', () => {
     expect(runtime).toContain(
       'ln -s /app/node_modules/@e965/xlsx /app/node_modules/xlsx',
     );
+    expect(runtime).toContain('ARG SIGNAL_CLI_VERSION=0.14.7');
+    expect(runtime).toContain(
+      '{"dataDir":"/workspace/.data/signal-cli"}',
+    );
   });
 
   test('standalone agent runtime includes spreadsheet inspection tools', () => {

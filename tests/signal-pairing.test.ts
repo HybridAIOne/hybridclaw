@@ -7,7 +7,7 @@ vi.mock('node:child_process', () => ({
   spawn: spawnMock,
   spawnSync: vi.fn(() => ({
     status: 0,
-    stdout: 'signal-cli 0.14.2\n',
+    stdout: 'signal-cli 0.14.7\n',
     stderr: '',
     error: undefined,
   })),
@@ -83,6 +83,43 @@ describe('Signal pairing', () => {
     expect(getSignalLinkState().pairingQrSvg).toContain(
       'aria-label="Signal linked-device QR"',
     );
+
+    child.emit('close', 0);
+    expect(getSignalLinkState()).toMatchObject({
+      status: 'complete',
+      pairingUri: null,
+      pairingQrText: null,
+      pairingQrSvg: null,
+      error: null,
+    });
+  });
+
+  test('clears and redacts pairing material when signal-cli fails', async () => {
+    const child = createFakeSignalCliProcess();
+    spawnMock.mockReturnValue(child);
+    const { getSignalLinkState, startSignalLink } = await import(
+      '../src/channels/signal/pairing.ts'
+    );
+
+    startSignalLink();
+    child.stdout.emit(
+      'data',
+      'Open this link: sgnl://linkdevice?uuid=abc&pub_key=def',
+    );
+    child.stderr.emit('data', '\nLink request error: StatusCode: 409');
+    child.emit('close', 3);
+
+    expect(getSignalLinkState()).toMatchObject({
+      status: 'error',
+      pairingUri: null,
+      pairingQrText: null,
+      pairingQrSvg: null,
+      error: expect.stringContaining('StatusCode: 409'),
+    });
+    expect(getSignalLinkState().error).toContain(
+      '[Signal linked-device URI redacted]',
+    );
+    expect(getSignalLinkState().error).not.toContain('sgnl://');
   });
 
   test('records spawn errors for the admin UI', async () => {
@@ -97,6 +134,9 @@ describe('Signal pairing', () => {
 
     expect(getSignalLinkState()).toMatchObject({
       status: 'error',
+      pairingUri: null,
+      pairingQrText: null,
+      pairingQrSvg: null,
       error: 'signal-cli not found',
     });
   });

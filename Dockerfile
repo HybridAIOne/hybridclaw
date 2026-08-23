@@ -38,7 +38,9 @@ RUN npm prune --omit=dev \
 FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS runtime
 
 ARG TARGETARCH
-ARG SIGNAL_CLI_VERSION=0.14.2
+# 0.14.7 (maintainer diagnosis, 2026-08-23): Signal rejects 0.14.2's final
+# linked-device provisioning request with HTTP 409 after accepting the QR.
+ARG SIGNAL_CLI_VERSION=0.14.7
 
 # The agent runtime needs root to install packages, manage files, etc.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -74,6 +76,13 @@ RUN if [ "${TARGETARCH}" = "amd64" ]; then \
     else \
       echo "signal-cli native release is not available for TARGETARCH=${TARGETARCH}; use an external signal-cli daemon or sidecar."; \
     fi
+
+# Keep the bundled signal-cli linked identity in the gateway's persistent data
+# mount. The system config also makes later bare daemon commands use the same
+# account store as the admin QR-link flow.
+RUN mkdir -p /etc/signal-cli \
+    && printf '%s\n' '{"dataDir":"/workspace/.data/signal-cli"}' \
+      > /etc/signal-cli/config.json
 
 WORKDIR /app
 

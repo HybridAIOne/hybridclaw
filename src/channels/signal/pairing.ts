@@ -14,6 +14,7 @@ const DEFAULT_SIGNAL_CLI_PATH = 'signal-cli';
 const DEFAULT_SIGNAL_LINK_DEVICE_NAME = 'HybridClaw';
 const SIGNAL_LINK_TIMEOUT_MS = 180_000;
 const SIGNAL_LINK_URI_RE = /sgnl:\/\/linkdevice\?[^\s"'<>]+/i;
+const SIGNAL_LINK_URI_GLOBAL_RE = /sgnl:\/\/linkdevice\?[^\s"'<>]+/gi;
 const OUTPUT_LIMIT = 8_000;
 
 let activeLinkProcess: ChildProcess | null = null;
@@ -57,6 +58,13 @@ function appendOutput(chunk: Buffer | string): void {
     pairingQrText: renderPairingQrText(pairingUri),
     pairingQrSvg: renderQrSvg(pairingUri, 'Signal linked-device QR'),
   });
+}
+
+function redactPairingUris(value: string): string {
+  return value.replace(
+    SIGNAL_LINK_URI_GLOBAL_RE,
+    '[Signal linked-device URI redacted]',
+  );
 }
 
 function clearActiveTimeout(): void {
@@ -152,7 +160,7 @@ export function startSignalLink(params?: {
     }
     if (getSignalPairingState().status === 'error') return;
     setSignalPairingError(
-      capturedOutput.trim() ||
+      redactPairingUris(capturedOutput).trim() ||
         `signal-cli link exited with code ${code ?? 'unknown'}.`,
     );
   });
