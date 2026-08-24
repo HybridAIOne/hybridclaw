@@ -33,6 +33,7 @@ import {
 import { getLineAuthStatus } from '../line/auth.js';
 import { sendToLineSelfChat } from '../line/runtime.js';
 import { normalizeLineChannelId } from '../line/target.js';
+import { isMSTeamsSessionId } from '../msteams/utils.js';
 import { sendToSignalChat } from '../signal/runtime.js';
 import { normalizeSignalChannelId } from '../signal/target.js';
 import { maybeRunSlackToolAction } from '../slack/tool-actions.js';
@@ -72,7 +73,6 @@ const MESSAGE_TOOL_LINE_PREFIX_RE = /^line:/i;
 const MESSAGE_TOOL_SIGNAL_PREFIX_RE = /^signal:/i;
 const MESSAGE_TOOL_SLACK_WEBHOOK_PREFIX_RE = /^slack[_-]?webhook(?::|$)/i;
 const MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE = /^(?:msteams|teams):current$/i;
-const MESSAGE_TOOL_TEAMS_SESSION_PREFIX_RE = /^teams:/i;
 const MESSAGE_TOOL_TELEGRAM_PREFIX_RE = /^(telegram|tg):/i;
 const MESSAGE_TOOL_THREEMA_PREFIX_RE = /^threema:/i;
 const MESSAGE_TOOL_WHATSAPP_PREFIX_RE = /^whatsapp:/i;
@@ -211,7 +211,7 @@ function isLikelyMSTeamsToolRequest(
   request: DiscordToolActionRequest,
 ): boolean {
   const sessionId = normalizeMessageToolValue(request.sessionId);
-  if (MESSAGE_TOOL_TEAMS_SESSION_PREFIX_RE.test(sessionId)) {
+  if (isMSTeamsSessionId(sessionId)) {
     return true;
   }
 
@@ -219,7 +219,7 @@ function isLikelyMSTeamsToolRequest(
   if (!channelId) return false;
   return (
     MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE.test(channelId) ||
-    MESSAGE_TOOL_TEAMS_SESSION_PREFIX_RE.test(channelId) ||
+    isMSTeamsSessionId(channelId) ||
     looksLikeMSTeamsConversationId(channelId)
   );
 }

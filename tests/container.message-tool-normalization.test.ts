@@ -394,6 +394,44 @@ describe.sequential('container message tool normalization', () => {
     expect(payload.filePath).toBe('package.json');
   });
 
+  test('send targets the current Teams conversation for canonical session keys', async () => {
+    const canonicalSessionId =
+      'agent:main:channel:msteams:chat:dm:peer:user-aad-id';
+    const fetchMock = mockGatewayFetch({
+      ok: true,
+      action: 'send',
+      channelId: 'a:teams-current-conversation',
+    });
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+    vi.spyOn(fs, 'statSync').mockReturnValue({
+      isFile: () => true,
+    } as fs.Stats);
+    setGatewayContext(
+      'http://gateway.local',
+      'token',
+      'a:teams-current-conversation',
+    );
+    setSessionContext(canonicalSessionId);
+
+    const result = await executeTool(
+      'message',
+      JSON.stringify({
+        action: 'send',
+        filePath: 'package.json',
+      }),
+    );
+
+    expect(result).toContain('"ok": true');
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const payload = JSON.parse(String(init.body || '{}')) as Record<
+      string,
+      unknown
+    >;
+    expect(payload.channelId).toBe('a:teams-current-conversation');
+    expect(payload.sessionId).toBe(canonicalSessionId);
+    expect(payload.filePath).toBe('package.json');
+  });
+
   test('message tool description does not advertise inactive WhatsApp', () => {
     setGatewayContext(
       'http://gateway.local',

@@ -253,7 +253,8 @@ const MESSAGE_TOOL_DESCRIPTION_BASE =
   'Send or read messages on active communication channels.';
 let gatewayConfiguredChannels: string[] = [];
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
-const TEAMS_SESSION_ID_RE = /^teams:/i;
+// Matches legacy `teams:...` ids and canonical `agent:...:channel:msteams:...` keys.
+const TEAMS_SESSION_ID_RE = /^teams:|:channel:msteams:/i;
 let persistentBashStateEnabled = true;
 type PersistentBashSession = {
   sessionDir: string;

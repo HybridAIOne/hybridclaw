@@ -188,7 +188,13 @@ async function importFreshMessageToolActions(a2aLocalMode = false) {
   }));
   const enqueueProactiveMessage = vi.fn(() => ({ queued: 1, dropped: 0 }));
   let currentTeamsChannelId = 'a:teams-current-conversation';
-  let knownTeamsSessions = [
+  let knownTeamsSessions: Array<{
+    id: string;
+    guild_id: string | null;
+    channel_id: string;
+    last_active: string;
+    created_at: string;
+  }> = [
     {
       id: 'teams:dm:user-aad-id',
       guild_id: null,
@@ -987,6 +993,109 @@ test('send action prefers the active Teams conversation over accidental WhatsApp
     channelId: teamsConversationId,
     transport: 'msteams',
     attachmentCount: 1,
+  });
+});
+
+test('send action resolves canonical msteams session keys for current Teams uploads', async () => {
+  const state = await importFreshMessageToolActions();
+  const canonicalSessionId =
+    'agent:main:channel:msteams:chat:dm:peer:user-aad-id';
+  state.setKnownTeamsSessions([
+    {
+      id: canonicalSessionId,
+      guild_id: null,
+      channel_id: 'a:teams-current-conversation',
+      last_active: '2026-03-13T19:00:00.000Z',
+      created_at: '2026-03-13T18:00:00.000Z',
+    },
+  ]);
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    sessionId: canonicalSessionId,
+    channelId: 'a:teams-current-conversation',
+    content: 'attached pdf',
+    filePath: '.browser-artifacts/hybridclaw-homepage.png',
+  });
+
+  expect(state.sendToActiveMSTeamsSession).toHaveBeenCalledWith({
+    sessionId: canonicalSessionId,
+    text: 'attached pdf',
+    filePath:
+      '/tmp/hybridclaw-agent-workspace/.browser-artifacts/hybridclaw-homepage.png',
+  });
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'a:teams-current-conversation',
+    transport: 'msteams',
+    attachmentCount: 1,
+  });
+});
+
+test('send action targets the current Teams chat via msteams:current with a canonical session key', async () => {
+  const state = await importFreshMessageToolActions();
+  const canonicalSessionId =
+    'agent:main:channel:msteams:chat:dm:peer:user-aad-id';
+  state.setKnownTeamsSessions([
+    {
+      id: canonicalSessionId,
+      guild_id: null,
+      channel_id: 'a:teams-current-conversation',
+      last_active: '2026-03-13T19:00:00.000Z',
+      created_at: '2026-03-13T18:00:00.000Z',
+    },
+  ]);
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    sessionId: canonicalSessionId,
+    channelId: 'msteams:current',
+    content: 'hello current teams chat',
+  });
+
+  expect(state.sendToActiveMSTeamsSession).toHaveBeenCalledWith({
+    sessionId: canonicalSessionId,
+    text: 'hello current teams chat',
+    filePath: null,
+  });
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    transport: 'msteams',
+  });
+});
+
+test('channel-info reports DM state for canonical msteams session keys', async () => {
+  const state = await importFreshMessageToolActions();
+  const canonicalSessionId =
+    'agent:main:channel:msteams:chat:dm:peer:user-aad-id';
+  state.setKnownTeamsSessions([
+    {
+      id: canonicalSessionId,
+      guild_id: null,
+      channel_id: 'a:teams-current-conversation',
+      last_active: '2026-03-13T19:00:00.000Z',
+      created_at: '2026-03-13T18:00:00.000Z',
+    },
+  ]);
+
+  const result = await state.runMessageToolAction({
+    action: 'channel-info',
+    sessionId: canonicalSessionId,
+    channelId: 'msteams:current',
+  });
+
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'channel-info',
+    transport: 'msteams',
+    channel: {
+      id: 'a:teams-current-conversation',
+      sessionId: canonicalSessionId,
+      isDm: true,
+    },
   });
 });
 
