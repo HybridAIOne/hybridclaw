@@ -124,7 +124,21 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
       `docker exec ${CONTAINER_NAME} signal-cli --version`,
       { encoding: 'utf-8', timeout: 10_000 },
     ).trim();
-    expect(result).toContain('signal-cli');
+    expect(result).toContain('signal-cli 0.14.7');
+
+    const signalConfig = execSync(
+      `docker exec ${CONTAINER_NAME} cat /etc/signal-cli/config.json`,
+      { encoding: 'utf-8', timeout: 10_000 },
+    ).trim();
+    expect(JSON.parse(signalConfig)).toEqual({
+      dataDir: '/workspace/.data/signal-cli',
+    });
+
+    const dataDirResult = execSync(
+      `docker exec ${CONTAINER_NAME} sh -lc 'signal-cli listAccounts >/dev/null 2>&1 && test -d /workspace/.data/signal-cli && test ! -e /root/.local/share/signal-cli && echo ok'`,
+      { encoding: 'utf-8', timeout: 10_000 },
+    ).trim();
+    expect(dataDirResult).toBe('ok');
   });
 
   // ── HTTP endpoint checks ─────────────────────────────────────────────

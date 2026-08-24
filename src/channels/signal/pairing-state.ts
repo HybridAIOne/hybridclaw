@@ -1,3 +1,9 @@
+/**
+ * Signal pairing state shared by the gateway API and admin console.
+ *
+ * Terminal states discard provisioning URIs and rendered QR material so an
+ * expired link token cannot remain actionable. Process lifecycle lives elsewhere.
+ */
 export type SignalPairingStatus =
   | 'idle'
   | 'starting'
@@ -55,8 +61,10 @@ export function setSignalPairingQr(params: {
 
 export function setSignalPairingComplete(): void {
   currentPairingState = {
-    ...currentPairingState,
     status: 'complete',
+    pairingQrText: null,
+    pairingQrSvg: null,
+    pairingUri: null,
     updatedAt: now(),
     error: null,
   };
@@ -64,8 +72,10 @@ export function setSignalPairingComplete(): void {
 
 export function setSignalPairingError(error: string): void {
   currentPairingState = {
-    ...currentPairingState,
     status: 'error',
+    pairingQrText: null,
+    pairingQrSvg: null,
+    pairingUri: null,
     updatedAt: now(),
     error,
   };

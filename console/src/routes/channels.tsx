@@ -1463,13 +1463,24 @@ function SignalChannelEditor(props: {
             external daemon/sidecar.
             {props.cliError ? ` ${props.cliError}` : ''}
           </p>
-        ) : signalLink?.pairingQrSvg ? (
+        ) : signalLink?.status === 'error' ? (
+          <p className="muted-copy">
+            {signalLink.error || 'Signal linked-device setup failed.'}
+          </p>
+        ) : signalLink?.status === 'complete' ? (
+          <p className="muted-copy">
+            Linked-device flow completed. Start the daemon and save the account
+            below.
+          </p>
+        ) : signalLink?.status === 'starting' ? (
+          <p className="muted-copy">Waiting for signal-cli to print a QR.</p>
+        ) : signalLink?.status === 'qr' && signalLink.pairingQrSvg ? (
           <img
             className="channel-pairing-qr"
             src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(signalLink.pairingQrSvg)}`}
             alt="Signal linked-device QR"
           />
-        ) : signalLink?.pairingQrText ? (
+        ) : signalLink?.status === 'qr' && signalLink.pairingQrText ? (
           <pre
             className="whatsapp-pairing-qr"
             role="img"
@@ -1477,17 +1488,6 @@ function SignalChannelEditor(props: {
           >
             {signalLink.pairingQrText}
           </pre>
-        ) : signalLink?.status === 'starting' ? (
-          <p className="muted-copy">Waiting for signal-cli to print a QR.</p>
-        ) : signalLink?.status === 'complete' ? (
-          <p className="muted-copy">
-            Linked-device flow completed. Start the daemon and save the account
-            below.
-          </p>
-        ) : signalLink?.status === 'error' ? (
-          <p className="muted-copy">
-            {signalLink.error || 'Signal linked-device setup failed.'}
-          </p>
         ) : (
           <p className="muted-copy">
             Starts `signal-cli link -n HybridClaw` on the gateway host

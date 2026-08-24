@@ -1516,6 +1516,34 @@ describe('ChannelsPage', () => {
     ).toBe('▄▄\n██');
   });
 
+  it('does not render stale Signal pairing material after an error', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    fetchSignalLinkMock.mockResolvedValue({
+      status: 'error',
+      pairingQrText: 'stale QR text',
+      pairingQrSvg: '<svg>stale QR</svg>',
+      pairingUri: 'sgnl://linkdevice?uuid=stale&pub_key=stale',
+      updatedAt: new Date().toISOString(),
+      error: 'Link request error: StatusCode: 409',
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /Signal/i });
+    fireEvent.click(screen.getByRole('button', { name: /Signal/i }));
+
+    expect(
+      await screen.findByText('Link request error: StatusCode: 409'),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole('img', { name: 'Signal linked-device QR' }),
+    ).toBeNull();
+    expect(screen.queryByText('stale QR text')).toBeNull();
+  });
+
   it('disables Signal linked-device setup when signal-cli is unavailable', async () => {
     fetchConfigMock.mockResolvedValue({
       path: '/tmp/config.json',

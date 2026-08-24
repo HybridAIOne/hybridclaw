@@ -53,6 +53,11 @@ The admin UI enables **Start QR link** only when the gateway can run
 `signal-cli --version`. If the probe fails, install `signal-cli` in the gateway
 runtime or use a sidecar daemon and complete the link flow there.
 
+The bundled amd64 gateway stores this linked-device identity under
+`/workspace/.data/signal-cli`. Keep `/workspace/.data` on the gateway's
+persistent volume so replacing or restarting the container does not require a
+new QR link.
+
 This is the same model as WhatsApp linked-device setup: your phone remains the
 primary Signal device, and the server gets its own linked session. Do not use
 the SMS registration flow for your personal phone number unless you understand
