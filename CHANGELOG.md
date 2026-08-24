@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## [0.29.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.2) - 2026-08-24
+
+### Added
+
+- **External web apps can start realtime voice sessions securely**: API tokens
+  with the scoped `voice.session` permission can mint single-use stream tokens
+  that expire after 60 seconds, allowing browser clients to connect without
+  putting a long-lived credential in the WebSocket URL. The existing voice
+  concurrency, frame-size, session-key, and start-deadline limits still apply.
+
+### Changed
+
+- **Signal setup is easier to find in the documentation**: The channel guide
+  appears in the docs navigation, and the maintainer landing page is trimmed
+  to its focused contributor guidance.
+
 ### Fixed
 
 - **Signal QR linking completes and survives gateway replacement**: The amd64
@@ -9,6 +25,10 @@
   persistent gateway data volume, and removes expired QR material after a
   successful or failed provisioning attempt instead of leaving a stale code in
   the admin console.
+- **Teams message-tool sends recognize current conversations**: Canonical Teams
+  session keys resolve through the same shared codec in the gateway and
+  container, so agent-initiated messages and attachments target the active chat
+  instead of failing after the reply pipeline has already delivered them.
 
 ## [0.29.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.1) - 2026-08-21
 

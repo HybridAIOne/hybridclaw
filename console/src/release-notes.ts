@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.29.1',
+  version: '0.29.2',
   highlights: [
-    'Teams uploads preserve type and stream safely.',
-    'Realtime voice selects available credentials.',
-    'Idle agents release capacity reliably.',
-    'Feedback, pairing QRs, and cloud reads work.',
+    'Web apps can start secure realtime voice.',
+    'Signal linking persists and clears stale QRs.',
+    'Teams sends find canonical conversations.',
+    'Signal setup is easier to find in docs.',
   ],
 } as const;
 
