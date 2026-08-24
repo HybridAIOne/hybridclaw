@@ -14,6 +14,7 @@ import {
   isMSTeamsDmSessionId,
   isMSTeamsSessionId,
   isRecord,
+  looksLikeMSTeamsConversationId,
   MSTEAMS_CONVERSATION_REFERENCE_KEY,
   normalizeValue,
 } from './utils.js';
@@ -37,11 +38,6 @@ interface MSTeamsMemberLookupCandidate {
   id: string;
   name: string;
   lastSeenAt: string | null;
-}
-
-function looksLikeMSTeamsConversationId(value: string): boolean {
-  const normalized = normalizeValue(value);
-  return /^(?:a:|19:)/.test(normalized);
 }
 
 function normalizeMSTeamsMemberLookupQuery(

@@ -33,7 +33,10 @@ import {
 import { getLineAuthStatus } from '../line/auth.js';
 import { sendToLineSelfChat } from '../line/runtime.js';
 import { normalizeLineChannelId } from '../line/target.js';
-import { isMSTeamsSessionId } from '../msteams/utils.js';
+import {
+  isMSTeamsSessionId,
+  looksLikeMSTeamsConversationId,
+} from '../msteams/utils.js';
 import { sendToSignalChat } from '../signal/runtime.js';
 import { normalizeSignalChannelId } from '../signal/target.js';
 import { maybeRunSlackToolAction } from '../slack/tool-actions.js';
@@ -201,10 +204,6 @@ function normalizeEmailMessageTarget(rawTarget: string): string | null {
 
 function normalizeMessageToolValue(rawValue: string | undefined): string {
   return String(rawValue || '').trim();
-}
-
-function looksLikeMSTeamsConversationId(value: string): boolean {
-  return /^(?:a:|19:)/.test(normalizeMessageToolValue(value));
 }
 
 function isLikelyMSTeamsToolRequest(
