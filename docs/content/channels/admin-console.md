@@ -161,7 +161,9 @@ changes before navigation.
   voice-tagged messages, and substantive requests run as ordinary web chat
   turns via `consult_agent`; while a consult runs, the live-call capsule shows
   what the agent is currently doing (for example `Checking — web search…`)
-  and long consults get short spoken progress updates
+  and long consults get short spoken progress updates; external web apps can
+  run the same voice sessions via scoped API tokens — see
+  [Realtime Voice for Web Apps](../guides/voice-web-api.md)
 - destructive admin actions use explicit browser confirmation dialogs before
   HybridClaw applies the requested change
 

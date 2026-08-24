@@ -624,6 +624,7 @@ async function importFreshHealth(options?: {
     string,
     { id: string; label: string; claims: Record<string, unknown> }
   >;
+  webchatVoiceAvailable?: boolean;
   mediaUploadQuotaDecision?: {
     allowed: boolean;
     remainingBytes: number;
@@ -688,6 +689,10 @@ async function importFreshHealth(options?: {
   const synthesizeWebchatSpeech = vi.fn(async () =>
     Buffer.from('generated-mp3'),
   );
+  const isWebchatVoiceAvailableMock = vi.fn(
+    () => options?.webchatVoiceAvailable ?? true,
+  );
+  const webchatVoiceUpgrade = vi.fn();
   const getGatewayHistory = vi.fn((sessionId: string) => ({
     sessionId,
     agentId: 'research',
@@ -2824,6 +2829,16 @@ async function importFreshHealth(options?: {
     MAX_WEBCHAT_SPEECH_CHARS: 4_096,
     synthesizeWebchatSpeech,
   }));
+  vi.doMock('../src/gateway/webchat-voice.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/gateway/webchat-voice.js')
+    >('../src/gateway/webchat-voice.js');
+    return {
+      ...actual,
+      isWebchatVoiceAvailable: isWebchatVoiceAvailableMock,
+      webchatVoiceManager: { handleUpgrade: webchatVoiceUpgrade },
+    };
+  });
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
     findLoadedPluginCommand: vi.fn(() => undefined),
     listLoadedPluginCommands,
@@ -2941,6 +2956,8 @@ async function importFreshHealth(options?: {
     handleTerminalUpgrade,
     broadcastShutdownTerminal,
     upgradeHandler,
+    isWebchatVoiceAvailableMock,
+    webchatVoiceUpgrade,
     moveGatewayAdminSchedulerJob,
     requestGatewayRestart,
     ResponseRatingNotFoundError,
@@ -17106,6 +17123,231 @@ describe('gateway HTTP server', () => {
     expect(sseRes.writableEnded).toBe(true);
     expect(state.broadcastShutdownTerminal).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'shutdown' }),
+    );
+  });
+
+  test('mints a voice stream token for an API token scoped to voice.session', async () => {
+    const state = await importFreshHealth({
+      apiTokens: {
+        hck_voice_token: {
+          id: 'voicetok00001',
+          label: 'webapp',
+          claims: { actions: ['voice.session'] },
+        },
+      },
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/voice/token',
+      noAuth: true,
+      headers: {
+        authorization: 'Bearer hck_voice_token',
+        origin: 'https://webapp.example',
+      },
+      body: { userId: 'visitor-1', username: 'Visitor' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.getHeader('Access-Control-Allow-Origin')).toBe('*');
+    const payload = JSON.parse(res.body) as {
+      token: string;
+      expiresIn: number;
+      path: string;
+    };
+    expect(payload.token.length).toBeGreaterThan(20);
+    expect(payload.expiresIn).toBe(60);
+    expect(payload.path).toBe(`/api/chat/voice/stream?token=${payload.token}`);
+
+    const socket = { write: vi.fn(), destroy: vi.fn() };
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: `/api/chat/voice/stream?token=${payload.token}`,
+        remoteAddress: '203.0.113.10',
+        noAuth: true,
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(socket.write).not.toHaveBeenCalled();
+    expect(state.webchatVoiceUpgrade).toHaveBeenCalledWith(
+      expect.anything(),
+      socket,
+      expect.any(Buffer),
+      { userId: 'visitor-1', username: 'Visitor' },
+    );
+
+    // Stream tokens are single-use: a replay is rejected.
+    const replaySocket = { write: vi.fn(), destroy: vi.fn() };
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: `/api/chat/voice/stream?token=${payload.token}`,
+        remoteAddress: '203.0.113.10',
+        noAuth: true,
+      }) as never,
+      replaySocket as never,
+      Buffer.alloc(0) as never,
+    );
+    expect(String(replaySocket.write.mock.calls[0]?.[0] || '')).toContain(
+      '401 Unauthorized',
+    );
+    expect(state.webchatVoiceUpgrade).toHaveBeenCalledTimes(1);
+  });
+
+  test('voice token identity defaults to the minting API token actor', async () => {
+    const state = await importFreshHealth({
+      apiTokens: {
+        hck_voice_token: {
+          id: 'voicetok00001',
+          label: 'webapp',
+          claims: { actions: ['voice.session'] },
+        },
+      },
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/voice/token',
+      noAuth: true,
+      headers: { authorization: 'Bearer hck_voice_token' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    const payload = JSON.parse(res.body) as { token: string };
+
+    const socket = { write: vi.fn(), destroy: vi.fn() };
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: `/api/chat/voice/stream?token=${payload.token}`,
+        remoteAddress: '203.0.113.10',
+        noAuth: true,
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.webchatVoiceUpgrade).toHaveBeenCalledWith(
+      expect.anything(),
+      socket,
+      expect.any(Buffer),
+      { userId: 'apiToken:voicetok00001:webapp', username: null },
+    );
+  });
+
+  test('rejects voice token mints for API tokens without voice.session', async () => {
+    const state = await importFreshHealth({
+      apiTokens: {
+        hck_chat_only: {
+          id: 'chattok000001',
+          label: 'chat',
+          claims: { actions: ['chat.send'] },
+        },
+      },
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/voice/token',
+      noAuth: true,
+      headers: { authorization: 'Bearer hck_chat_only' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(403);
+    expect(res.getHeader('Access-Control-Allow-Origin')).toBe('*');
+  });
+
+  test('rejects unauthenticated voice token mints but answers preflight', async () => {
+    const state = await importFreshHealth();
+
+    const postRes = makeResponse();
+    state.handler(
+      makeRequest({
+        method: 'POST',
+        url: '/api/chat/voice/token',
+        noAuth: true,
+      }) as never,
+      postRes as never,
+    );
+    await waitForResponse(postRes, (next) => next.writableEnded);
+    expect(postRes.statusCode).toBe(401);
+    expect(postRes.getHeader('Access-Control-Allow-Origin')).toBe('*');
+
+    const preflightRes = makeResponse();
+    state.handler(
+      makeRequest({
+        method: 'OPTIONS',
+        url: '/api/chat/voice/token',
+        noAuth: true,
+        headers: { origin: 'https://webapp.example' },
+      }) as never,
+      preflightRes as never,
+    );
+    await waitForResponse(preflightRes, (next) => next.writableEnded);
+    expect(preflightRes.statusCode).toBe(204);
+    expect(preflightRes.getHeader('Access-Control-Allow-Origin')).toBe('*');
+    expect(preflightRes.getHeader('Access-Control-Allow-Headers')).toBe(
+      'Authorization, Content-Type',
+    );
+  });
+
+  test('returns 503 for voice token mints when realtime voice is unavailable', async () => {
+    const state = await importFreshHealth({
+      webchatVoiceAvailable: false,
+      apiTokens: {
+        hck_voice_token: {
+          id: 'voicetok00001',
+          label: 'webapp',
+          claims: { actions: ['voice.session'] },
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(
+      makeRequest({
+        method: 'POST',
+        url: '/api/chat/voice/token',
+        noAuth: true,
+        headers: { authorization: 'Bearer hck_voice_token' },
+      }) as never,
+      res as never,
+    );
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(503);
+  });
+
+  test('rejects voice stream upgrades with a garbage query token', async () => {
+    const state = await importFreshHealth();
+    const socket = { write: vi.fn(), destroy: vi.fn() };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/chat/voice/stream?token=bogus',
+        remoteAddress: '203.0.113.10',
+        noAuth: true,
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.webchatVoiceUpgrade).not.toHaveBeenCalled();
+    expect(String(socket.write.mock.calls[0]?.[0] || '')).toContain(
+      '401 Unauthorized',
     );
   });
 });

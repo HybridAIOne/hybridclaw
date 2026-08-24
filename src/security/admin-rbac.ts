@@ -15,6 +15,7 @@ export const ADMIN_RBAC_ACTIONS = [
   ...ADMIN_TOKEN_RBAC_ACTIONS,
   'openai.api',
   'chat.send',
+  'voice.session',
   'status.read',
   'agents.read',
   'apps.read',
@@ -392,6 +393,9 @@ export function resolveAdminRbacAction(
   }
   if (pathname === '/api/chat' && method === 'POST') {
     return 'chat.send';
+  }
+  if (pathname === '/api/chat/voice/token' && method === 'POST') {
+    return 'voice.session';
   }
   if (pathname === '/api/command' && method === 'POST') {
     return 'chat.send';

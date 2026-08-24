@@ -9,9 +9,12 @@
  * ordinary web chat turn through `handleGatewayMessage`, so tools, approvals,
  * and session history behave exactly like typed chat.
  *
- * Threat model: the HTTP server authenticates the upgrade (session cookie or
- * loopback web session) BEFORE handing sockets to this module — nothing here
- * may run for anonymous peers. This module still enforces its own limits:
+ * Threat model: the HTTP server authenticates the upgrade BEFORE handing
+ * sockets to this module — nothing here may run for anonymous peers. Two
+ * upgrade credentials exist: a session cookie / loopback web session (the
+ * console), or a single-use short-lived stream token minted here over the
+ * authenticated `/api/chat/voice/token` route (external API clients; browsers
+ * cannot set websocket headers). This module still enforces its own limits:
  * bounded frame size, a concurrent-session cap, a start deadline for idle
  * sockets, and canonical-session-id validation so a client cannot consult
  * into an arbitrary key shape. Audio payloads are opaque and never logged;
@@ -20,7 +23,7 @@
  * NOT the Twilio path: phone calls live in `src/channels/voice/runtime.ts`.
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import WebSocket, * as wsModule from 'ws';
@@ -48,14 +51,56 @@ import { handleGatewayMessage } from './gateway-chat-service.js';
 import { persistVoiceTranscript } from './voice-transcript-store.js';
 
 export const WEBCHAT_VOICE_STREAM_PATH = '/api/chat/voice/stream';
+export const WEBCHAT_VOICE_TOKEN_PATH = '/api/chat/voice/token';
 
 const MAX_CONCURRENT_SESSIONS = 4;
 const MAX_FRAME_BYTES = 256 * 1024;
 const START_DEADLINE_MS = 10_000;
+// 60s single-use TTL, small pending cap (call, 2026-08-24): clients mint and
+// connect immediately, so the cap only bounds unclaimed mints.
+const STREAM_TOKEN_TTL_MS = 60_000;
+const MAX_PENDING_STREAM_TOKENS = 32;
 
 export interface WebchatVoiceIdentity {
   userId: string | null;
   username: string | null;
+}
+
+interface PendingVoiceStreamToken {
+  identity: WebchatVoiceIdentity;
+  expiresAtMs: number;
+}
+
+const pendingStreamTokens = new Map<string, PendingVoiceStreamToken>();
+
+function prunePendingStreamTokens(): void {
+  const now = Date.now();
+  for (const [token, entry] of pendingStreamTokens) {
+    if (entry.expiresAtMs <= now) pendingStreamTokens.delete(token);
+  }
+}
+
+export function mintWebchatVoiceStreamToken(
+  identity: WebchatVoiceIdentity,
+): { token: string; expiresInSeconds: number } | null {
+  prunePendingStreamTokens();
+  if (pendingStreamTokens.size >= MAX_PENDING_STREAM_TOKENS) return null;
+  const token = randomBytes(24).toString('base64url');
+  pendingStreamTokens.set(token, {
+    identity,
+    expiresAtMs: Date.now() + STREAM_TOKEN_TTL_MS,
+  });
+  return { token, expiresInSeconds: STREAM_TOKEN_TTL_MS / 1000 };
+}
+
+export function consumeWebchatVoiceStreamToken(
+  token: string,
+): WebchatVoiceIdentity | null {
+  prunePendingStreamTokens();
+  const entry = pendingStreamTokens.get(token);
+  if (!entry) return null;
+  pendingStreamTokens.delete(token);
+  return entry.identity;
 }
 
 export function isWebchatVoiceAvailable(): boolean {

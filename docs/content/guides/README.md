@@ -30,5 +30,7 @@ These pages focus on common operator workflows after the base install works.
 - [Vonage Voice Plugin](./vonage-voice.md) for turn-based or realtime phone
   calls through the install-on-demand Vonage integration
 - [Voice and TTS](./voice-tts.md) for voice reply and speech backend setup
+- [Realtime Voice for Web Apps](./voice-web-api.md) for browser voice
+  sessions from your own web app via scoped API tokens
 - [Optional Office Dependencies](./office-dependencies.md) for host-side
   office tooling
