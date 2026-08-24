@@ -7,6 +7,7 @@ import {
   formatMessageToolChannelList,
   normalizeMessageToolChannelKinds,
 } from '../shared/message-tool-channels.js';
+import { isMSTeamsSessionId } from '../shared/msteams-session-ids.js';
 import { buildSanitizedEnv } from '../shared/sensitive-env.js';
 import {
   currentDateStampInTimezone,
@@ -253,7 +254,6 @@ const MESSAGE_TOOL_DESCRIPTION_BASE =
   'Send or read messages on active communication channels.';
 let gatewayConfiguredChannels: string[] = [];
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
-const TEAMS_SESSION_ID_RE = /^teams:/i;
 let persistentBashStateEnabled = true;
 type PersistentBashSession = {
   sessionDir: string;
@@ -680,7 +680,7 @@ function resolveGatewayDiscordChannelFallback(): string {
 }
 
 function resolveGatewayMSTeamsChannelFallback(): string {
-  if (!TEAMS_SESSION_ID_RE.test(currentSessionId)) return '';
+  if (!isMSTeamsSessionId(currentSessionId)) return '';
   return readStringValue(gatewayChannelId) || '';
 }
 

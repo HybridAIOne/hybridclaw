@@ -11,7 +11,10 @@ import {
   sendToActiveMSTeamsSession,
 } from './runtime.js';
 import {
+  isMSTeamsDmSessionId,
+  isMSTeamsSessionId,
   isRecord,
+  looksLikeMSTeamsConversationId,
   MSTEAMS_CONVERSATION_REFERENCE_KEY,
   normalizeValue,
 } from './utils.js';
@@ -19,7 +22,6 @@ import {
 const MESSAGE_TOOL_READ_DEFAULT_LIMIT = 20;
 const MESSAGE_TOOL_READ_MAX_LIMIT = 100;
 const MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE = /^(?:msteams|teams):current$/i;
-const MESSAGE_TOOL_TEAMS_SESSION_PREFIX_RE = /^teams:/i;
 
 interface StoredMSTeamsReferenceUser {
   id: string;
@@ -36,15 +38,6 @@ interface MSTeamsMemberLookupCandidate {
   id: string;
   name: string;
   lastSeenAt: string | null;
-}
-
-function isMSTeamsSessionId(value: string): boolean {
-  return MESSAGE_TOOL_TEAMS_SESSION_PREFIX_RE.test(normalizeValue(value));
-}
-
-function looksLikeMSTeamsConversationId(value: string): boolean {
-  const normalized = normalizeValue(value);
-  return /^(?:a:|19:)/.test(normalized);
 }
 
 function normalizeMSTeamsMemberLookupQuery(
@@ -393,7 +386,7 @@ function runMSTeamsChannelInfoAction(
       id: targetSession.channel_id,
       sessionId: targetSession.id,
       teamId: targetSession.guild_id,
-      isDm: targetSession.id.startsWith('teams:dm:'),
+      isDm: isMSTeamsDmSessionId(targetSession.id),
       active: hasActiveMSTeamsSession(targetSession.id),
       proactiveAvailable: Boolean(
         getMemoryValue(targetSession.id, MSTEAMS_CONVERSATION_REFERENCE_KEY),
