@@ -190,9 +190,9 @@ texts ship inside the respective packages.
 | @tanstack/history | 1.162.1 | MIT |
 | @tanstack/query-core | 5.101.4 | MIT |
 | @tanstack/react-query | 5.101.4 | MIT |
-| @tanstack/react-router | 1.170.27 | MIT |
+| @tanstack/react-router | 1.170.29 | MIT |
 | @tanstack/react-store | 0.9.3 | MIT |
-| @tanstack/router-core | 1.171.22 | MIT |
+| @tanstack/router-core | 1.171.24 | MIT |
 | @tanstack/store | 0.9.3 | MIT |
 | @types/body-parser | 1.19.6 | MIT |
 | @types/connect | 3.4.38 | MIT |
@@ -671,7 +671,7 @@ texts ship inside the respective packages.
 | safe-buffer | 5.2.1 | MIT |
 | safe-stable-stringify | 2.5.0 | MIT |
 | safer-buffer | 2.1.2 | MIT |
-| sanitize-html | 2.17.6 | MIT |
+| sanitize-html | 2.17.7 | MIT |
 | sax | 1.6.1 | BlueOak-1.0.0 |
 | scheduler | 0.27.0 | MIT |
 | secure-json-parse | 4.1.0 | BSD-3-Clause |
@@ -4031,7 +4031,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### Text 40 of 364
 
-Applies to: @tanstack/history@1.162.1, @tanstack/query-core@5.101.4, @tanstack/react-query@5.101.4, @tanstack/react-router@1.170.27, @tanstack/router-core@1.171.22
+Applies to: @tanstack/history@1.162.1, @tanstack/query-core@5.101.4, @tanstack/react-query@5.101.4, @tanstack/react-router@1.170.29, @tanstack/router-core@1.171.24
 
 ````text
 MIT License
@@ -15431,7 +15431,7 @@ SOFTWARE.
 
 ### Text 310 of 364
 
-Applies to: sanitize-html@2.17.6
+Applies to: sanitize-html@2.17.7
 
 ````text
 Copyright (c) 2013, 2014, 2015 P'unk Avenue LLC
