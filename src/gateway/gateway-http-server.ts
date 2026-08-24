@@ -457,8 +457,11 @@ import {
   synthesizeWebchatSpeech,
 } from './webchat-speech.js';
 import {
+  consumeWebchatVoiceStreamToken,
   isWebchatVoiceAvailable,
+  mintWebchatVoiceStreamToken,
   WEBCHAT_VOICE_STREAM_PATH,
+  WEBCHAT_VOICE_TOKEN_PATH,
   webchatVoiceManager,
 } from './webchat-voice.js';
 
@@ -2705,6 +2708,58 @@ function resolveGatewayRequestUserId(params: {
     normalizeOptionalString(params.requestedUserId) ||
     normalizeOptionalString(params.fallbackUserId)
   );
+}
+
+// Bearer-token browser clients only: cookie auth is never accepted
+// cross-origin on this route, and `*` without Allow-Credentials keeps
+// credentialed cross-site requests rejected by the browser.
+const VOICE_TOKEN_CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+  'Access-Control-Max-Age': '600',
+};
+
+function setVoiceTokenCorsHeaders(res: ServerResponse): void {
+  for (const [name, value] of Object.entries(VOICE_TOKEN_CORS_HEADERS)) {
+    res.setHeader(name, value);
+  }
+}
+
+function normalizeVoiceIdentityField(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 128) : null;
+}
+
+async function handleApiChatVoiceToken(
+  req: IncomingMessage,
+  res: ServerResponse,
+  authContext: ResolvedAuthContext,
+): Promise<void> {
+  if (!isWebchatVoiceAvailable()) {
+    sendJson(res, 503, { error: 'Realtime voice is not configured.' });
+    return;
+  }
+  const body = (await readJsonBody(req)) as Record<string, unknown>;
+  const actor =
+    resolveApiTokenActor(authContext) ||
+    resolveAdminSessionActor(authContext.payload) ||
+    resolveGatewayRequestUserId({ req, channelId: 'web' }) ||
+    null;
+  const minted = mintWebchatVoiceStreamToken({
+    userId: normalizeVoiceIdentityField(body.userId) || actor,
+    username: normalizeVoiceIdentityField(body.username),
+  });
+  if (!minted) {
+    sendJson(res, 429, { error: 'Too many pending voice stream tokens.' });
+    return;
+  }
+  sendJson(res, 200, {
+    token: minted.token,
+    expiresIn: minted.expiresInSeconds,
+    path: `${WEBCHAT_VOICE_STREAM_PATH}?token=${minted.token}`,
+  });
 }
 
 function isWithinRoot(candidate: string, root: string): boolean {
@@ -10537,6 +10592,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         return;
       }
 
+      if (pathname === WEBCHAT_VOICE_TOKEN_PATH) {
+        // Browser clients mint from third-party origins with a bearer token;
+        // reflect CORS on every outcome so failures stay visible cross-origin.
+        setVoiceTokenCorsHeaders(res);
+        if (method === 'OPTIONS') {
+          // Preflight carries no credentials; auth happens on the POST.
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+      }
+
       const authContext = resolveAuthContext(req, url, {
         allowQueryToken: false,
         allowLocalWebSession: true,
@@ -11115,6 +11182,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             });
             return;
           }
+          if (pathname === WEBCHAT_VOICE_TOKEN_PATH && method === 'POST') {
+            await handleApiChatVoiceToken(req, res, authContext);
+            return;
+          }
           if (pathname === '/api/agents' && method === 'GET') {
             await handleApiAgents(res);
             return;
@@ -11359,9 +11430,26 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (url.pathname === WEBCHAT_VOICE_STREAM_PATH) {
-      // Same browser-auth gate as the admin terminal stream: a signed session
-      // cookie or an authenticated same-origin request (including the
-      // loopback local web session). No query tokens, no API tokens.
+      // Two credentials: a single-use stream token minted over the
+      // authenticated `/api/chat/voice/token` route (external web apps;
+      // browsers cannot set websocket headers), or the same browser-auth
+      // gate as the admin terminal stream — a signed session cookie or an
+      // authenticated same-origin request (including the loopback local web
+      // session). No long-lived query tokens, no direct API tokens.
+      const streamToken = (url.searchParams.get('token') || '').trim();
+      if (streamToken) {
+        const streamIdentity = consumeWebchatVoiceStreamToken(streamToken);
+        if (!streamIdentity) {
+          writeUpgradeError(socket, 401, 'Unauthorized');
+          return;
+        }
+        if (!isWebchatVoiceAvailable()) {
+          writeUpgradeError(socket, 503, 'Voice Unavailable');
+          return;
+        }
+        webchatVoiceManager.handleUpgrade(req, socket, head, streamIdentity);
+        return;
+      }
       const voiceSessionPayload = getSessionAuthPayload(req);
       const voiceRequestAuth = resolveAuthContext(req, url, {
         allowApiTokens: false,

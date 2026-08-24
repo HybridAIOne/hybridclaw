@@ -177,6 +177,10 @@ describe('admin RBAC role bundles', () => {
     );
     expect(resolveAdminRbacAction('/v1/models', 'GET')).toBe('openai.api');
     expect(resolveAdminRbacAction('/api/chat', 'POST')).toBe('chat.send');
+    expect(resolveAdminRbacAction('/api/chat/voice/token', 'POST')).toBe(
+      'voice.session',
+    );
+    expect(resolveAdminRbacAction('/api/chat/voice/token', 'GET')).toBeNull();
     expect(resolveAdminRbacAction('/api/command', 'POST')).toBe('chat.send');
     expect(resolveAdminRbacAction('/api/status', 'GET')).toBe('status.read');
     expect(resolveAdminRbacAction('/api/agents', 'GET')).toBe('agents.read');

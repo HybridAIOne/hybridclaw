@@ -132,6 +132,34 @@ async function createConnection(params?: { apiKey?: string }) {
   return { browser, realtime, finished };
 }
 
+async function loadWebchatVoiceModule() {
+  vi.doMock('../src/config/config.js', () => ({
+    OPENAI_API_KEY: 'test-key',
+    HYBRIDAI_BASE_URL: 'https://hybridai.example',
+    getConfigSnapshot: () => ({ voice: { realtime: REALTIME_CONFIG } }),
+  }));
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    getRuntimeConfig: () => ({}),
+    resolveDefaultAgentId: () => 'main',
+  }));
+  vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
+    handleGatewayMessage,
+  }));
+  vi.doMock('../src/gateway/voice-transcript-store.js', () => ({
+    persistVoiceTranscript,
+    VOICE_MESSAGE_SOURCE: 'voice',
+  }));
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+    },
+  }));
+  return import('../src/gateway/webchat-voice.js');
+}
+
 async function flushAsync(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
@@ -350,4 +378,71 @@ test('starting without an OpenAI key fails closed', async () => {
   expect(String(error.message)).toContain('OpenAI API key');
   expect(browser.closeCode).toBe(1011);
   expect(finished).toHaveBeenCalled();
+});
+
+test('stream tokens are single-use and carry the minted identity', async () => {
+  const { mintWebchatVoiceStreamToken, consumeWebchatVoiceStreamToken } =
+    await loadWebchatVoiceModule();
+
+  const minted = mintWebchatVoiceStreamToken({
+    userId: 'apiToken:abc123',
+    username: 'kiosk',
+  });
+  expect(minted).not.toBeNull();
+  expect(minted?.expiresInSeconds).toBe(60);
+
+  expect(consumeWebchatVoiceStreamToken(minted?.token ?? '')).toEqual({
+    userId: 'apiToken:abc123',
+    username: 'kiosk',
+  });
+  expect(consumeWebchatVoiceStreamToken(minted?.token ?? '')).toBeNull();
+});
+
+test('unknown stream tokens are rejected', async () => {
+  const { consumeWebchatVoiceStreamToken } = await loadWebchatVoiceModule();
+
+  expect(consumeWebchatVoiceStreamToken('not-a-token')).toBeNull();
+});
+
+test('stream tokens expire after their TTL', async () => {
+  vi.useFakeTimers();
+  try {
+    const { mintWebchatVoiceStreamToken, consumeWebchatVoiceStreamToken } =
+      await loadWebchatVoiceModule();
+
+    const minted = mintWebchatVoiceStreamToken({
+      userId: 'user_a',
+      username: null,
+    });
+    vi.advanceTimersByTime(61_000);
+    expect(consumeWebchatVoiceStreamToken(minted?.token ?? '')).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('pending stream tokens are capped until stale mints expire', async () => {
+  vi.useFakeTimers();
+  try {
+    const { mintWebchatVoiceStreamToken } = await loadWebchatVoiceModule();
+
+    for (let index = 0; index < 32; index += 1) {
+      expect(
+        mintWebchatVoiceStreamToken({
+          userId: `user_${index}`,
+          username: null,
+        }),
+      ).not.toBeNull();
+    }
+    expect(
+      mintWebchatVoiceStreamToken({ userId: 'user_overflow', username: null }),
+    ).toBeNull();
+
+    vi.advanceTimersByTime(61_000);
+    expect(
+      mintWebchatVoiceStreamToken({ userId: 'user_fresh', username: null }),
+    ).not.toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });

@@ -98,7 +98,7 @@ hybridclaw token revoke <token-id>
 - `--role` accepts admin RBAC role bundles such as `admin.viewer`,
   `admin.security_manager`, or `admin.full`
 - `--actions` accepts explicit action names such as `openai.api`,
-  `chat.send`, `status.read`, `admin.tokens.read`,
+  `chat.send`, `voice.session`, `status.read`, `admin.tokens.read`,
   `admin.tokens.create`, and `admin.tokens.revoke`
 - `/admin/credentials?tab=api-tokens` provides the same create/list/revoke workflow in the browser
   with role presets, action filters, and expiry presets
