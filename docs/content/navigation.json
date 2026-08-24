@@ -70,6 +70,10 @@
           "path": "channels/telegram.md"
         },
         {
+          "title": "Signal",
+          "path": "channels/signal.md"
+        },
+        {
           "title": "Threema",
           "path": "channels/threema.md"
         },

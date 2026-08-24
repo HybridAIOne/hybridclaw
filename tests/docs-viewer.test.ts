@@ -161,6 +161,9 @@ describe('docs viewer helpers', () => {
       channels?.pages.some((page) => page.path === 'channels/telegram.md'),
     ).toBe(true);
     expect(
+      channels?.pages.some((page) => page.path === 'channels/signal.md'),
+    ).toBe(true);
+    expect(
       channels?.pages.some((page) => page.path === 'channels/email.md'),
     ).toBe(true);
     expect(
@@ -181,6 +184,13 @@ describe('docs viewer helpers', () => {
         '../reference/commands.md?plain=1#agent-install',
       ),
     ).toBe('/docs/reference/commands?plain=1#agent-install');
+    expect(
+      resolveDocLinkHref(
+        'channels/README.md',
+        './signal.md',
+        '/hybridclaw/docs',
+      ),
+    ).toBe('/hybridclaw/docs/channels/signal');
   });
 
   test('can resolve links against the static published markdown content path', () => {
