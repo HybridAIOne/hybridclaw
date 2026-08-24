@@ -14,6 +14,11 @@
 
 ### Changed
 
+- **Age-eligible dependency patches harden desktop and web surfaces**: Electron
+  41.10.5 includes upstream sandbox, use-after-free, crash, and installer fixes;
+  sanitize-html 2.17.7 closes an SVG URL sanitization gap; and TanStack Router
+  1.170.29 improves SSR hydration and code-split route reuse. Each release has
+  cleared the repository's seven-day minimum age gate.
 - **Signal setup is easier to find in the documentation**: The channel guide
   appears in the docs navigation, and the maintainer landing page is trimmed
   to its focused contributor guidance.

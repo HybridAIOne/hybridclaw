@@ -4,7 +4,7 @@ export const LATEST_RELEASE_NOTES = {
     'Web apps can start secure realtime voice.',
     'Signal linking persists and clears stale QRs.',
     'Teams sends find canonical conversations.',
-    'Signal setup is easier to find in docs.',
+    'Desktop and HTML dependencies are hardened.',
   ],
 } as const;
 
