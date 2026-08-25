@@ -430,7 +430,8 @@ When the user says "bump release":
    - any user-facing version text (for example `src/tui.ts` banner)
 3. **Always** update `console/src/release-notes.ts` for the new version with up
    to four ultra-short highlights for the What's New dialog. Do not carry the
-   previous release's version or highlights forward.
+   previous release's version or highlights forward. For a patch release whose
+   changes are only technical or internal, use the single highlight `Bug fixes`.
 4. Review the generated lockfile diff. Even a version-only release changes the
    lockfile bytes, so update the matching SHA-256 entries in
    `scripts/dependency-policy-baseline.json` after confirming that no dependency
