@@ -84,7 +84,9 @@ loopback address and must be configured with the public tunnel URL.
 4. Use the same **Application (client) ID** for the bot and enable these scopes:
    - **Personal**
    - **Team**
-5. Save the app, open **Publish**, and download the app package.
+5. Enable file upload/download support for the bot. In the downloaded
+   manifest, verify that the bot entry contains `"supportsFiles": true`.
+6. Save the app, open **Publish**, and download the app package.
 
 Keep the downloaded `.zip` file intact. It is the package uploaded in the next
 step.
@@ -104,12 +106,33 @@ The app can take some time to appear in the organization's Teams app catalog.
 
 1. Install the app from your organization's Teams app catalog.
 2. Open a direct message with the bot and send `hello`.
-3. Add the app to a team and send `@BotName hello` in a channel.
-4. Confirm the bot replies in both places.
+3. Attach a file in the direct message and ask the bot to inspect or summarize
+   it.
+4. Add the app to a team and send `@BotName hello` in a channel.
+5. Confirm the bot replies in both places.
 
 Team channel messages require a mention by default. A plain `hello` in a team
 channel does not trigger a reply unless you change the Teams policy in
 HybridClaw.
+
+Direct messages use Teams native streaming: the chat shows an informative
+progress bar such as **Thinking…** or **Searching…**, then replaces it with the
+incremental response. Teams supports this streaming experience only in
+one-on-one chats. Group chats and team channels use the standard typing and
+message-update fallback.
+
+Generated files are delivered in direct messages through a Teams file-consent
+card. Select **Accept** on that card to upload the file to OneDrive and receive
+an openable file card. The Teams bot file API supports this flow only in
+one-on-one chats; channel and group-chat file delivery requires a separate
+Microsoft Graph and SharePoint/OneDrive integration.
+
+Files attached by the user in a direct message are downloaded into
+HybridClaw's managed upload cache and exposed to the agent in the same way as
+console chat uploads. Common image and audio formats, PDF and Office documents,
+JSON, CSV, Markdown, plain text, and XML retain their media type. Downloads are
+streamed into the managed cache with a default per-file limit of 100 MB,
+controlled by `msteams.mediaMaxMb` under **Advanced delivery settings**.
 
 ## Rating answers
 
@@ -127,6 +150,70 @@ Two ways to rate a HybridClaw answer from Teams:
 Ratings are stored per user and feed the same response-rating pipeline as the
 web console thumbs (audit trail, adaptive-skill feedback, and HybridAI chat
 feedback forwarding).
+
+Teams has no slash-command menu. In a team channel or group chat, mention the
+bot so the command reaches it, for example `@BotName /thumbs down Wrong total`.
+
+## Update an installed Teams app
+
+What the bot may do inside Teams comes from the app package installed in the
+Microsoft tenant, not from HybridClaw. A capability that lives in the manifest
+stays off until a new package version is published and uploaded, even after the
+matching HybridClaw release is running. Channel settings and credentials never
+need a new package.
+
+| Change | New app package required |
+|---|---|
+| Enable or disable bot file upload and download (`supportsFiles`) | Yes |
+| Add or remove bot scopes (personal, team, group chat) | Yes |
+| Change the app name, description, or icons | Yes |
+| Change the messaging endpoint | No, it is an Azure Bot resource setting |
+| Rotate `MSTEAMS_APP_PASSWORD` | No |
+| Change DM policy, allowlists, or media limits | No, they are HybridClaw channel settings |
+| Rate answers with `/thumbs` or 👍/👎 reactions | No |
+
+1. Open the existing app in the
+   [Teams Developer Portal](https://dev.teams.cloud.microsoft/). Edit that app
+   instead of creating a second one. The manifest `id` must stay the same, or
+   Teams installs a separate bot next to the current one, with its own chats.
+2. Change the app features. To deliver generated files and accept attachments,
+   enable file upload and download support for the bot so that the bot entry in
+   the manifest contains `"supportsFiles": true`.
+3. Raise the manifest `version`, for example from `1.0.0` to `1.0.1`. Teams
+   rejects an update whose version is not higher than the installed one.
+4. Open **Publish** and download the app package.
+5. Open the [Teams admin center](https://admin.teams.microsoft.com/), go to
+   **Teams apps** -> **Manage apps**, select the app, and upload the downloaded
+   package as an update.
+6. Wait for the tenant catalog to serve the new version. Existing installations
+   are updated in place and users do not have to install the app again, but the
+   update can take a while to reach every client. Restarting Teams makes it
+   appear sooner. Added scopes or permissions can still require the app to be
+   added again where it is used.
+
+The app's **About** entry in the Teams client shows the installed version.
+Confirm that it matches the package that was uploaded before investigating a
+newly enabled capability on the HybridClaw side.
+
+HybridClaw does not generate this bot package. It does generate the separate
+Teams app package for the Apps tab experience, available as **Download org app**
+on `/admin/teams`. That package installs static and configurable tabs and
+contains no bot entry, so it neither replaces nor updates the bot app.
+
+## Troubleshooting: a generated file is only a link
+
+If a direct-message response names a generated PDF, document, spreadsheet,
+presentation, image, audio file, or video but does not show a file-consent
+card, verify that the bot entry in the installed Teams app manifest contains
+`"supportsFiles": true`. Changing that flag requires a new app package: follow
+[Update an installed Teams app](#update-an-installed-teams-app).
+
+Select **Accept** on the consent card to complete the upload. Declining the card
+leaves the file in HybridClaw's sandbox and does not create a Teams attachment.
+
+Team channels and group chats cannot use bot file-consent cards. HybridClaw
+reports that limitation in the reply instead of displaying a local link that
+Teams cannot open.
 
 ## Troubleshooting: the bot does not respond
 
