@@ -9,13 +9,13 @@ import { renderWithProviders } from '../test-utils';
 import { PluginsPage } from './plugins';
 
 const fetchPluginsMock = vi.fn<() => Promise<AdminPluginsResponse>>();
-const installPluginMock =
-  vi.fn<(token: string, source: string) => Promise<AdminCommandResult>>();
+const installOfficialPluginMock =
+  vi.fn<(token: string, pluginId: string) => Promise<AdminCommandResult>>();
 
 vi.mock('../api/client', () => ({
   fetchPlugins: () => fetchPluginsMock(),
-  installPlugin: (token: string, source: string) =>
-    installPluginMock(token, source),
+  installOfficialPlugin: (token: string, pluginId: string) =>
+    installOfficialPluginMock(token, pluginId),
 }));
 
 vi.mock('../auth', () => ({
@@ -47,18 +47,27 @@ function makeResponse(): AdminPluginsResponse {
         hooks: ['before_prompt'],
       },
     ],
+    availableOfficialPlugins: [
+      {
+        id: 'whatsapp',
+        name: 'WhatsApp',
+        version: null,
+        description: 'Official WhatsApp transport maintained by HybridAIOne.',
+        source: 'channel',
+      },
+    ],
   };
 }
 
 describe('PluginsPage', () => {
   beforeEach(() => {
     fetchPluginsMock.mockReset();
-    installPluginMock.mockReset();
+    installOfficialPluginMock.mockReset();
     fetchPluginsMock.mockResolvedValue(makeResponse());
   });
 
-  it('installs a trimmed plugin source and refreshes the registry', async () => {
-    installPluginMock.mockResolvedValue({
+  it('installs a selected official plugin and refreshes the registry', async () => {
+    installOfficialPluginMock.mockResolvedValue({
       kind: 'info',
       title: 'Plugin Installed',
       text: 'Installed plugin `demo-plugin`.',
@@ -67,26 +76,20 @@ describe('PluginsPage', () => {
     renderWithProviders(<PluginsPage />);
     await screen.findByText('Memory Store');
 
-    fireEvent.change(screen.getByLabelText('Plugin source'), {
-      target: { value: '  @example/demo-plugin  ' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Install plugin' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Install WhatsApp' }));
 
     await waitFor(() => {
-      expect(installPluginMock).toHaveBeenCalledWith(
+      expect(installOfficialPluginMock).toHaveBeenCalledWith(
         'test-token',
-        '@example/demo-plugin',
+        'whatsapp',
       );
       expect(fetchPluginsMock).toHaveBeenCalledTimes(2);
     });
-    expect(
-      (screen.getByLabelText('Plugin source') as HTMLInputElement).value,
-    ).toBe('');
     expect(await screen.findByText('Plugin Installed')).toBeTruthy();
   });
 
-  it('surfaces command errors and keeps the source for correction', async () => {
-    installPluginMock.mockResolvedValue({
+  it('surfaces command errors and keeps the official plugin available', async () => {
+    installOfficialPluginMock.mockResolvedValue({
       kind: 'error',
       title: 'Plugin Install Failed',
       text: 'Plugin manifest was not found.',
@@ -95,32 +98,22 @@ describe('PluginsPage', () => {
     renderWithProviders(<PluginsPage />);
     await screen.findByText('Memory Store');
 
-    fireEvent.change(screen.getByLabelText('Plugin source'), {
-      target: { value: './missing-plugin' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Install plugin' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Install WhatsApp' }));
 
     expect(await screen.findByText('Plugin installation failed')).toBeTruthy();
     expect(screen.getByText('Plugin manifest was not found.')).toBeTruthy();
     expect(
-      (screen.getByLabelText('Plugin source') as HTMLInputElement).value,
-    ).toBe('./missing-plugin');
+      screen.getByRole('button', { name: 'Install WhatsApp' }),
+    ).toBeTruthy();
     expect(fetchPluginsMock).toHaveBeenCalledTimes(1);
   });
 
-  it('does not allow an empty plugin source', async () => {
+  it('does not expose an arbitrary plugin source input', async () => {
     renderWithProviders(<PluginsPage />);
     await screen.findByText('Memory Store');
 
-    const installButton = screen.getByRole('button', {
-      name: 'Install plugin',
-    });
-    expect((installButton as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.change(screen.getByLabelText('Plugin source'), {
-      target: { value: '   ' },
-    });
-    expect((installButton as HTMLButtonElement).disabled).toBe(true);
-    expect(installPluginMock).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Plugin source')).toBeNull();
+    expect(screen.getByText('Official · channel')).toBeTruthy();
+    expect(installOfficialPluginMock).not.toHaveBeenCalled();
   });
 });

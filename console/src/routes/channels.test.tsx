@@ -13,8 +13,8 @@ const fetchAdminAgentsMock = vi.fn<() => Promise<AdminAgent[]>>();
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchEmailConfigMock = vi.fn();
 const fetchSignalLinkMock = vi.fn();
-const installPluginMock =
-  vi.fn<(token: string, source: string) => Promise<AdminCommandResult>>();
+const installOfficialPluginMock =
+  vi.fn<(token: string, pluginId: string) => Promise<AdminCommandResult>>();
 const saveConfigMock = vi.fn();
 const saveDiscordWebhookTargetMock = vi.fn();
 const saveSlackWebhookTargetMock = vi.fn();
@@ -28,8 +28,8 @@ vi.mock('../api/client', () => ({
   fetchConfig: () => fetchConfigMock(),
   fetchEmailConfig: (...args: unknown[]) => fetchEmailConfigMock(...args),
   fetchSignalLink: (...args: unknown[]) => fetchSignalLinkMock(...args),
-  installPlugin: (token: string, source: string) =>
-    installPluginMock(token, source),
+  installOfficialPlugin: (token: string, pluginId: string) =>
+    installOfficialPluginMock(token, pluginId),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
   saveDiscordWebhookTarget: (...args: unknown[]) =>
     saveDiscordWebhookTargetMock(...args),
@@ -342,7 +342,7 @@ describe('ChannelsPage', () => {
     fetchConfigMock.mockReset();
     fetchEmailConfigMock.mockReset();
     fetchSignalLinkMock.mockReset();
-    installPluginMock.mockReset();
+    installOfficialPluginMock.mockReset();
     saveConfigMock.mockReset();
     saveDiscordWebhookTargetMock.mockReset();
     saveSlackWebhookTargetMock.mockReset();
@@ -351,7 +351,7 @@ describe('ChannelsPage', () => {
     validateTokenMock.mockReset();
     useAuthMock.mockReset();
     fetchAdminAgentsMock.mockResolvedValue([]);
-    installPluginMock.mockResolvedValue({
+    installOfficialPluginMock.mockResolvedValue({
       kind: 'info',
       title: 'Plugin Installed',
       text: 'Installed plugin `whatsapp`.',
@@ -930,9 +930,9 @@ describe('ChannelsPage', () => {
     );
 
     await waitFor(() => {
-      expect(installPluginMock).toHaveBeenCalledWith(
+      expect(installOfficialPluginMock).toHaveBeenCalledWith(
         'test-token',
-        'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+        'whatsapp',
       );
     });
   });
@@ -975,9 +975,9 @@ describe('ChannelsPage', () => {
     );
 
     await waitFor(() => {
-      expect(installPluginMock).toHaveBeenCalledWith(
+      expect(installOfficialPluginMock).toHaveBeenCalledWith(
         'test-token',
-        '@hybridaione/hybridclaw-line',
+        'line',
       );
     });
   });

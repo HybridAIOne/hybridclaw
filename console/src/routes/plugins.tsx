@@ -5,8 +5,8 @@
  * gateway reloads; discovery and dependency policy remain gateway concerns.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, useDeferredValue, useState } from 'react';
-import { fetchPlugins, installPlugin } from '../api/client';
+import { useDeferredValue, useState } from 'react';
+import { fetchPlugins, installOfficialPlugin } from '../api/client';
 import type { AdminPlugin } from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
@@ -101,7 +101,6 @@ export function PluginsPage(props: { embedded?: boolean } = {}) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [filter, setFilter] = useState('');
-  const [installSource, setInstallSource] = useState('');
   const deferredFilter = useDeferredValue(filter);
   const filterNeedle = deferredFilter.trim().toLowerCase();
 
@@ -111,13 +110,12 @@ export function PluginsPage(props: { embedded?: boolean } = {}) {
   });
 
   const installMutation = useMutation({
-    mutationFn: async (source: string) => {
-      const result = await installPlugin(auth.token, source);
+    mutationFn: async (pluginId: string) => {
+      const result = await installOfficialPlugin(auth.token, pluginId);
       if (result.kind === 'error') throw new Error(result.text);
       return result;
     },
     onSuccess: async (result) => {
-      setInstallSource('');
       await queryClient.invalidateQueries({
         queryKey: ['plugins', auth.token],
       });
@@ -130,12 +128,6 @@ export function PluginsPage(props: { embedded?: boolean } = {}) {
       toast.error('Plugin installation failed', getErrorMessage(error));
     },
   });
-
-  function handleInstall(event: FormEvent<HTMLFormElement>): void {
-    event.preventDefault();
-    const source = installSource.trim();
-    if (source) installMutation.mutate(source);
-  }
 
   const filteredPlugins = (pluginsQuery.data?.plugins || []).filter((plugin) =>
     matchesPluginFilter(plugin, filterNeedle),
@@ -175,32 +167,57 @@ export function PluginsPage(props: { embedded?: boolean } = {}) {
 
       <Card variant="muted" className="plugin-install-card">
         <CardHeader>
-          <CardTitle>Install a plugin</CardTitle>
+          <CardTitle>Official plugins</CardTitle>
           <CardDescription>
-            Add a reviewed plugin from a plugin ID, npm package, local path, or
-            archive URL. Installation approves its declared dependencies and
-            reloads the plugin runtime.
+            Install capabilities curated and maintained by HybridClaw. Advanced
+            third-party and local sources remain available from the CLI.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="plugin-install-form" onSubmit={handleInstall}>
-            <Input
-              value={installSource}
-              onChange={(event) => setInstallSource(event.target.value)}
-              placeholder="Plugin ID, package, path, or archive URL"
-              aria-label="Plugin source"
-              autoComplete="off"
-              spellCheck={false}
-              disabled={installMutation.isPending}
-            />
-            <Button
-              type="submit"
-              loading={installMutation.isPending}
-              disabled={!installSource.trim()}
-            >
-              {installMutation.isPending ? 'Installing...' : 'Install plugin'}
-            </Button>
-          </form>
+          {pluginsQuery.isLoading ? (
+            <div className="empty-state">Loading official plugins...</div>
+          ) : pluginsQuery.data?.availableOfficialPlugins.length ? (
+            <div className="list-stack selectable-list">
+              {pluginsQuery.data.availableOfficialPlugins.map((plugin) => {
+                const label = plugin.name || plugin.id;
+                const isInstalling =
+                  installMutation.isPending &&
+                  installMutation.variables === plugin.id;
+                return (
+                  <div className="list-row" key={plugin.id}>
+                    <div>
+                      <strong>{label}</strong>
+                      <small>
+                        {plugin.id}
+                        {plugin.version ? ` · v${plugin.version}` : ''}
+                      </small>
+                      {plugin.description ? (
+                        <small>{plugin.description}</small>
+                      ) : null}
+                    </div>
+                    <div className="plugin-catalog-action">
+                      <span className="list-status">
+                        Official · {plugin.source}
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        loading={isInstalling}
+                        disabled={installMutation.isPending}
+                        onClick={() => installMutation.mutate(plugin.id)}
+                      >
+                        {isInstalling ? 'Installing...' : `Install ${label}`}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="empty-state">
+              Every available official plugin is already installed.
+            </div>
+          )}
         </CardContent>
       </Card>
 

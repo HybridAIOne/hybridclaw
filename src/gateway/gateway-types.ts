@@ -1749,6 +1749,14 @@ export interface GatewayAdminPlugin {
   hooks: string[];
 }
 
+export interface GatewayAdminOfficialPlugin {
+  id: string;
+  name: string | null;
+  version: string | null;
+  description: string | null;
+  source: 'bundled' | 'channel';
+}
+
 export interface GatewayAdminPluginsResponse {
   totals: {
     totalPlugins: number;
@@ -1759,6 +1767,7 @@ export interface GatewayAdminPluginsResponse {
     hooks: number;
   };
   plugins: GatewayAdminPlugin[];
+  availableOfficialPlugins: GatewayAdminOfficialPlugin[];
 }
 
 export interface GatewayAdminOutputGuardProfile {

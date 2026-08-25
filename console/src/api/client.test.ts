@@ -8,7 +8,7 @@ import {
   dispatchAuthRequired,
   fetchAdminHybridAIBots,
   fetchAgentList,
-  installPlugin,
+  installOfficialPlugin,
   readStoredToken,
   registerDistillAgent,
   setAuthReloadHandlerForTest,
@@ -299,7 +299,7 @@ describe('client command helpers', () => {
     });
   });
 
-  it('installs a channel plugin through a local web admin command', async () => {
+  it('installs an official plugin through a local web admin command', async () => {
     vi.mocked(fetch).mockResolvedValue(
       new Response(JSON.stringify({ kind: 'info', text: 'installed' }), {
         status: 200,
@@ -309,14 +309,14 @@ describe('client command helpers', () => {
       }),
     );
 
-    await installPlugin('test-token', '@example/plugin-package');
+    await installOfficialPlugin('test-token', 'whatsapp');
 
     const request = vi.mocked(fetch).mock.calls[0]?.[1];
     expect(JSON.parse(String(request?.body))).toEqual({
-      sessionId: 'web-admin-channels',
+      sessionId: 'web-admin-plugins',
       guildId: null,
       channelId: 'web',
-      args: ['plugin', 'install', '@example/plugin-package', '--yes'],
+      args: ['plugin', 'install-official', 'whatsapp', '--yes'],
     });
   });
 

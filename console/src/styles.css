@@ -605,11 +605,12 @@ code {
   border-color: var(--line-strong);
 }
 
-.plugin-install-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+.plugin-catalog-action {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  justify-content: flex-end;
 }
 
 .skills-review-grid {
@@ -4389,8 +4390,8 @@ th {
     grid-template-columns: 1fr;
   }
 
-  .plugin-install-form {
-    grid-template-columns: 1fr;
+  .plugin-catalog-action {
+    justify-content: flex-start;
   }
 
   .jobs-columns {
