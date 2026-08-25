@@ -185,9 +185,10 @@ Supported environment variables:
 - `SENTRY_ENVIRONMENT` optionally overrides the Sentry environment; the default is `production`
 - `SENTRY_RELEASE` optionally overrides the Sentry release name; the default is `hybridclaw@<package-version>`
 - `SENTRY_TRACES_SAMPLE_RATE` optionally enables Sentry transaction sampling with a value from `0` to `1`; set it with `hybridclaw env set SENTRY_TRACES_SAMPLE_RATE <rate>`
+- `SENTRY_USER_ID` optionally attaches a stable pseudonymous deployment user ID to every event; it is read only from the process environment so stored runtime settings cannot replace an operator-provided identity
 
 Process environment variables with the same names are fallback values when no
-runtime env value is stored.
+runtime env value is stored, except `SENTRY_USER_ID`, which is process-only.
 
 HybridClaw already owns OpenTelemetry setup, so the Sentry SDK is initialized
 with its OpenTelemetry auto-setup disabled. Sentry events are passed through the

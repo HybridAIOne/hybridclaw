@@ -103,7 +103,7 @@ function summarizeParsedErrorBody(
     parsed?.type === 'permission_error' &&
     /premium models require a paid plan or token-credit balance/i.test(message)
   ) {
-    return 'Premium model access requires a paid plan or token-credit balance. The non-premium HybridAI model is `gpt-4.1-mini`; use `/model set gpt-4.1-mini`, add credits, or switch to a configured `huggingface/...`, `openrouter/...`, or `openai-codex/...` model.';
+    return 'Premium model access requires a paid plan or token-credit balance. The non-premium HybridAI model is `gpt-5.6-luna`; use `/model set gpt-5.6-luna`, add credits, or switch to a configured `huggingface/...`, `openrouter/...`, or `openai-codex/...` model.';
   }
   return message;
 }
