@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const sentryInit = vi.fn(() => ({}));
 const sentrySetTag = vi.fn();
+const sentryGlobalScopeSetUser = vi.fn();
 const sentryCaptureException = vi.fn();
 const sentryFlush = vi.fn(async () => true);
 const originalNpmPackageVersion = process.env.npm_package_version;
@@ -15,6 +16,7 @@ async function importFreshSentry() {
   vi.doMock('@sentry/node', () => ({
     captureException: sentryCaptureException,
     flush: sentryFlush,
+    getGlobalScope: () => ({ setUser: sentryGlobalScopeSetUser }),
     init: sentryInit,
     setTag: sentrySetTag,
   }));
@@ -32,6 +34,7 @@ describe('Sentry observability', () => {
     delete process.env.SENTRY_ENVIRONMENT;
     delete process.env.SENTRY_RELEASE;
     delete process.env.SENTRY_TRACES_SAMPLE_RATE;
+    delete process.env.SENTRY_USER_ID;
     if (originalNpmPackageVersion === undefined) {
       delete process.env.npm_package_version;
     } else {
@@ -39,6 +42,7 @@ describe('Sentry observability', () => {
     }
     sentryInit.mockClear();
     sentrySetTag.mockClear();
+    sentryGlobalScopeSetUser.mockClear();
     sentryCaptureException.mockClear();
     sentryFlush.mockClear();
   });
@@ -80,6 +84,35 @@ describe('Sentry observability', () => {
       'service',
       'hybridclaw-gateway',
     );
+    expect(sentryGlobalScopeSetUser).not.toHaveBeenCalled();
+  });
+
+  test('sets a process-provided pseudonymous user id', async () => {
+    process.env.SENTRY_DSN = 'https://public@example.com/1';
+    process.env.SENTRY_USER_ID = 'platform-user-123';
+    const { initSentry } = await importFreshSentry();
+
+    await initSentry();
+
+    expect(sentryGlobalScopeSetUser).toHaveBeenCalledOnce();
+    expect(sentryGlobalScopeSetUser).toHaveBeenCalledWith({
+      id: 'platform-user-123',
+    });
+  });
+
+  test('does not let stored runtime env override deployment user identity', async () => {
+    runtimeEnvValues = {
+      SENTRY_DSN: 'https://public@example.com/1',
+      SENTRY_USER_ID: 'stored-user',
+    };
+    process.env.SENTRY_USER_ID = 'deployment-user';
+    const { initSentry } = await importFreshSentry();
+
+    await initSentry();
+
+    expect(sentryGlobalScopeSetUser).toHaveBeenCalledWith({
+      id: 'deployment-user',
+    });
   });
 
   test('defaults environment and release from app version', async () => {

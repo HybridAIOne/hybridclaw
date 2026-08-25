@@ -119,7 +119,7 @@ saved revision history directly.
   `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_SERVICE_NAME` for optional built-in
   distributed tracing export to OTLP collectors; see
   [Runtime Internals](../developer-guide/runtime.md)
-- `SENTRY_DSN` runtime env value for optional Sentry gateway error reporting; `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, and `SENTRY_TRACES_SAMPLE_RATE` are optional overrides. Set values with `hybridclaw env set` and see [Runtime Internals](../developer-guide/runtime.md)
+- `SENTRY_DSN` runtime env value for optional Sentry gateway error reporting; `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, and `SENTRY_TRACES_SAMPLE_RATE` are optional overrides. Deployments can pass the process-only `SENTRY_USER_ID` to attach a stable pseudonymous user identity. Set runtime values with `hybridclaw env set` and see [Runtime Internals](../developer-guide/runtime.md)
 - `hybridai.baseUrl` for the HybridAI API origin; `HYBRIDAI_BASE_URL` can
   override it for the current process without rewriting `config.json`
 - `hybridai.maxTokens` for the default completion output budget; the shipped

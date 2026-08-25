@@ -120,6 +120,9 @@ export async function initSentry(): Promise<void> {
         },
       });
       if (!client) return;
+      const userId = String(process.env.SENTRY_USER_ID || '').trim();
+      // A gateway process belongs to one deployment user, including background work.
+      if (userId) sdk.getGlobalScope().setUser({ id: userId });
       sdk.setTag('service', 'hybridclaw-gateway');
       sentry = sdk;
       initialized = true;
