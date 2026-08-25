@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.29.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.3) - 2026-08-25
+
+### Added
+
+- **Sentry events can carry a pseudonymous deployment user**: Operators can
+  pass a process-only `SENTRY_USER_ID` to correlate gateway errors and
+  background work without allowing stored runtime settings to replace that
+  identity.
+
 ### Fixed
 
 - **Premium-model errors now point at the current free model**: The guidance
