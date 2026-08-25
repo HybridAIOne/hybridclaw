@@ -1,9 +1,6 @@
 export const LATEST_RELEASE_NOTES = {
   version: '0.29.3',
-  highlights: [
-    'Sentry supports pseudonymous deployment IDs.',
-    'Premium errors name the current free model.',
-  ],
+  highlights: ['Bug fixes'],
 } as const;
 
 export function getReleaseHighlights(version: string): readonly string[] {
