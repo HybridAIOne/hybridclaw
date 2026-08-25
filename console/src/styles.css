@@ -601,6 +601,17 @@ code {
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
 }
 
+.plugin-install-card {
+  border-color: var(--line-strong);
+}
+
+.plugin-install-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
 .skills-review-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -4375,6 +4386,10 @@ th {
   }
 
   .jobs-board-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .plugin-install-form {
     grid-template-columns: 1fr;
   }
 

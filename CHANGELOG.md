@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- **Plugins can be installed from the web console**: The Plugins & Tools page
+  accepts a plugin ID, npm package, local path, or archive URL, reports install
+  failures inline, and refreshes the live registry after the gateway reloads
+  the plugin runtime.
+
 ## [0.29.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.2) - 2026-08-24
 
 ### Added
