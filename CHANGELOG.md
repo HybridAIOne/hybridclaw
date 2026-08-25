@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Premium-model errors now point at the current free model**: The guidance
+  shown when a HybridAI request is rejected for premium-model access names
+  `gpt-5.6-luna` — the model available without a paid plan or credits — instead
+  of the retired free-tier default `gpt-4.1-mini`.
+
 ## [0.29.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.2) - 2026-08-24
 
 ### Added
