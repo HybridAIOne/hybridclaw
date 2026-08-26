@@ -307,14 +307,17 @@
       "interruptible": true,
       "welcomeGreeting": "Hello! How can I help you today?"
     },
+    "webhookPath": "/voice",
+    "maxConcurrentCalls": 8
+  },
+  "speech": {
     "realtime": {
+      "provider": "auto",
       "model": "gpt-realtime",
       "voice": "marin",
       "greeting": "Hello! How can I help you today?",
       "instructions": ""
-    },
-    "webhookPath": "/voice",
-    "maxConcurrentCalls": 8
+    }
   },
   "imessage": {
     "enabled": false,

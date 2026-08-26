@@ -625,6 +625,7 @@ async function importFreshHealth(options?: {
     { id: string; label: string; claims: Record<string, unknown> }
   >;
   webchatVoiceAvailable?: boolean;
+  realtimeResolvedProvider?: 'hybridai' | 'openai' | null;
   mediaUploadQuotaDecision?: {
     allowed: boolean;
     remainingBytes: number;
@@ -2839,6 +2840,24 @@ async function importFreshHealth(options?: {
       webchatVoiceManager: { handleUpgrade: webchatVoiceUpgrade },
     };
   });
+  const realtimeResolvedProvider = options?.realtimeResolvedProvider ?? null;
+  vi.doMock('../src/channels/voice/realtime-credentials.js', () => ({
+    resolveRealtimeConnection: vi.fn(() =>
+      realtimeResolvedProvider
+        ? {
+            connection: {
+              provider: realtimeResolvedProvider,
+              url: 'wss://example.test/v1/realtime',
+              apiKey: 'test-key',
+            },
+            error: null,
+          }
+        : { connection: null, error: 'no credential' },
+    ),
+    isRealtimeCredentialConfigured: vi.fn(
+      () => realtimeResolvedProvider !== null,
+    ),
+  }));
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
     findLoadedPluginCommand: vi.fn(() => undefined),
     listLoadedPluginCommands,
@@ -17124,6 +17143,45 @@ describe('gateway HTTP server', () => {
     expect(state.broadcastShutdownTerminal).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'shutdown' }),
     );
+  });
+
+  test('chat voice capability reports the resolved realtime provider', async () => {
+    const state = await importFreshHealth({
+      realtimeResolvedProvider: 'hybridai',
+    });
+    const req = makeRequest({ url: '/api/chat/voice' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      available: true,
+      provider: 'hybridai',
+      model: 'gpt-realtime',
+      voice: 'marin',
+    });
+  });
+
+  test('chat voice capability reports a null provider without a credential', async () => {
+    const state = await importFreshHealth({
+      realtimeResolvedProvider: null,
+      webchatVoiceAvailable: false,
+    });
+    const req = makeRequest({ url: '/api/chat/voice' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      available: false,
+      provider: null,
+      model: 'gpt-realtime',
+      voice: 'marin',
+    });
   });
 
   test('mints a voice stream token for an API token scoped to voice.session', async () => {

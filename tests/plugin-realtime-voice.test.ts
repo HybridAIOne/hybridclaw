@@ -72,7 +72,7 @@ async function createSession(params?: {
   vi.doMock('../src/config/config.js', () => ({
     OPENAI_API_KEY: params?.apiKey ?? 'test-key',
     HYBRIDAI_BASE_URL: 'https://hybridai.example',
-    getConfigSnapshot: () => ({ voice: { realtime: REALTIME_CONFIG } }),
+    getConfigSnapshot: () => ({ speech: { realtime: REALTIME_CONFIG } }),
   }));
   vi.doMock('../src/gateway/voice-transcript-store.js', () => ({
     persistVoiceTranscript,

@@ -753,6 +753,7 @@ export interface AdminConfig {
   voice: {
     enabled: boolean;
     provider: 'twilio';
+    mode: 'relay' | 'realtime';
     twilio: {
       accountSid: string;
       authToken: string;
@@ -768,6 +769,15 @@ export interface AdminConfig {
     };
     webhookPath: string;
     maxConcurrentCalls: number;
+  };
+  speech: {
+    realtime: {
+      provider: 'auto' | 'hybridai' | 'openai';
+      model: string;
+      voice: string;
+      greeting: string;
+      instructions: string;
+    };
   };
   whatsapp: {
     dmPolicy: 'open' | 'pairing' | 'allowlist' | 'disabled';

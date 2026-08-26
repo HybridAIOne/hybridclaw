@@ -103,6 +103,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'mcp',
   'plugin',
   'voice',
+  'speech',
   'clear',
   'reset',
   'compact',
@@ -645,6 +646,9 @@ export function mapCanonicalCommandToGatewayArgs(
       }
       return null;
     }
+
+    case 'speech':
+      return parts.length > 1 ? ['speech', ...parts.slice(1)] : ['speech'];
 
     case 'fullauto':
       return parts.length > 1 ? ['fullauto', ...parts.slice(1)] : ['fullauto'];
@@ -1870,6 +1874,74 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'number',
               description: 'Destination phone number in E.164 format',
+              required: true,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      name: 'speech',
+      description:
+        'Show or change realtime speech settings (provider, model, voice)',
+      tuiOnly: true,
+      tuiMenuEntries: [
+        {
+          id: 'speech.info',
+          label: '/speech',
+          insertText: '/speech',
+          description:
+            'Show the realtime speech provider, model, voice, and credential status',
+        },
+        {
+          id: 'speech.provider',
+          label: '/speech provider <auto|hybridai|openai>',
+          insertText: '/speech provider ',
+          description: 'Choose the realtime speech backend',
+          depth: 1,
+        },
+        {
+          id: 'speech.model',
+          label: '/speech model <model-id>',
+          insertText: '/speech model ',
+          description: 'Set the realtime speech model',
+          depth: 1,
+        },
+        {
+          id: 'speech.voice',
+          label: '/speech voice <voice-name>',
+          insertText: '/speech voice ',
+          description: 'Set the realtime speaking voice',
+          depth: 1,
+        },
+      ],
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'info',
+          description:
+            'Show the realtime speech provider, model, voice, and credential status',
+        },
+        {
+          kind: 'subcommand',
+          name: 'set',
+          description: 'Change a realtime speech setting',
+          options: [
+            {
+              kind: 'string',
+              name: 'setting',
+              description: 'Which realtime speech setting to change',
+              required: true,
+              choices: [
+                { name: 'provider', value: 'provider' },
+                { name: 'model', value: 'model' },
+                { name: 'voice', value: 'voice' },
+              ],
+            },
+            {
+              kind: 'string',
+              name: 'value',
+              description: 'New value for the chosen setting',
               required: true,
             },
           ],
@@ -3320,6 +3392,17 @@ export function parseCanonicalSlashCommandArgs(
       if (subcommand === 'call') {
         const number = normalizeStringOption(interaction, 'number', true);
         return number ? ['voice', 'call', number] : null;
+      }
+      return null;
+    }
+
+    case 'speech': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (!subcommand || subcommand === 'info') return ['speech'];
+      if (subcommand === 'set') {
+        const setting = normalizeStringOption(interaction, 'setting', true);
+        const value = normalizeStringOption(interaction, 'value', true);
+        return setting && value ? ['speech', setting, value] : null;
       }
       return null;
     }

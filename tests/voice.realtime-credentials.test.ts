@@ -34,6 +34,7 @@ test('openai provider connects to api.openai.com with OPENAI_API_KEY', async () 
   const resolved = credentials.resolveRealtimeConnection('openai');
 
   expect(resolved.connection).toEqual({
+    provider: 'openai',
     url: 'wss://api.openai.com/v1/realtime',
     apiKey: 'sk-test',
   });
@@ -59,6 +60,7 @@ test('hybridai provider derives a wss URL from HYBRIDAI_BASE_URL', async () => {
   const resolved = credentials.resolveRealtimeConnection('hybridai');
 
   expect(resolved.connection).toEqual({
+    provider: 'hybridai',
     url: 'wss://hybridai.one/v1/realtime',
     apiKey: 'hai-key',
   });
@@ -97,6 +99,7 @@ test('auto prefers hybridai when a HybridAI credential is present', async () => 
   const resolved = credentials.resolveRealtimeConnection('auto');
 
   expect(resolved.connection).toEqual({
+    provider: 'hybridai',
     url: 'wss://hybridai.one/v1/realtime',
     apiKey: 'hai-key',
   });
@@ -112,6 +115,7 @@ test('auto falls back to openai when only OPENAI_API_KEY is set', async () => {
   const resolved = credentials.resolveRealtimeConnection('auto');
 
   expect(resolved.connection).toEqual({
+    provider: 'openai',
     url: 'wss://api.openai.com/v1/realtime',
     apiKey: 'sk-test',
   });

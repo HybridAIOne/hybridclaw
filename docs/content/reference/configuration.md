@@ -261,19 +261,28 @@ saved revision history directly.
 - `voice.*` for the Twilio phone channel, including webhook path, concurrency,
   and Twilio number/account settings; `voice.mode` selects `relay`
   (ConversationRelay, `voice.relay.*` voice/STT options) or `realtime`
-  (OpenAI Realtime speech-to-speech over Twilio Media Streams, configured via
-  `voice.realtime.model`, `voice.realtime.voice`, `voice.realtime.greeting`,
-  and `voice.realtime.instructions`). `voice.realtime.provider` selects the
-  realtime backend: `auto` (the default: HybridAI when a HybridAI credential
-  is present, otherwise OpenAI), `openai` (requires an `OPENAI_API_KEY`), or
-  `hybridai` (the HybridAI platform's `/v1/realtime` proxy at
-  `HYBRIDAI_BASE_URL`, authenticated with your signed-in HybridAI credential
-  or `HYBRIDAI_API_KEY` — no OpenAI key needed). The `voice.realtime.*`
-  settings also drive web console voice mode, which needs only the realtime
-  credential and works with the Twilio channel disabled. The auth
+  (speech-to-speech over Twilio Media Streams, driven by the shared
+  `speech.realtime.*` settings below). The auth
   token can stay empty in config when you store `TWILIO_AUTH_TOKEN` in the
   encrypted runtime secret store or use a SecretRef-backed
   `voice.twilio.authToken`
+- `speech.realtime.*` for the realtime speech engine shared by realtime phone
+  calls, web console voice mode, and plugin realtime sessions:
+  `speech.realtime.model`, `speech.realtime.voice`,
+  `speech.realtime.greeting`, and `speech.realtime.instructions`.
+  `speech.realtime.provider` selects the backend: `auto` (the default:
+  HybridAI when a HybridAI credential is present, otherwise OpenAI), `openai`
+  (requires an `OPENAI_API_KEY`), or `hybridai` (the HybridAI platform's
+  `/v1/realtime` proxy at `HYBRIDAI_BASE_URL`, authenticated with your
+  signed-in HybridAI credential or `HYBRIDAI_API_KEY` — no OpenAI key
+  needed). Web console voice mode needs only the realtime credential and
+  works with the Twilio channel disabled. Manage these settings in the admin
+  console (`/admin/config?section=speech`, or the Realtime speech section of
+  the voice channel editor) or from a local session via
+  `/speech provider|model|voice <value>`; `/speech` reports the resolved
+  provider and credential status. Configs from v0.29.x that still set the
+  legacy `voice.realtime.*` keys are migrated to `speech.realtime.*` on
+  startup
 - `deployment.mode`, `deployment.public_url`, `deployment.a2a_local_mode`,
   `deployment.a2a_e2ee_required`, `deployment.tunnel.provider`, and
   `deployment.tunnel.health_check_interval_ms` declare whether the gateway runs

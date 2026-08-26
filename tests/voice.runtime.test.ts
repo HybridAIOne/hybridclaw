@@ -251,14 +251,16 @@ test('handleVoiceWebhook returns media stream TwiML in realtime mode', async () 
         interruptible: true,
         welcomeGreeting: 'Hello! How can I help you today?',
       },
+      webhookPath: '/voice',
+      maxConcurrentCalls: 8,
+    },
+    speech: {
       realtime: {
         model: 'gpt-realtime',
         voice: 'marin',
         greeting: 'Hello! How can I help you today?',
         instructions: '',
       },
-      webhookPath: '/voice',
-      maxConcurrentCalls: 8,
     },
   }));
 

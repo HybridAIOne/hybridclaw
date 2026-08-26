@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Added
+
+- **Realtime speech settings are now visible and editable everywhere**: The
+  new `/speech` command reports the realtime provider — including which
+  backend `auto` resolved to — model, voice, and credential status, and
+  `/speech provider|model|voice <value>` changes a setting from a local
+  session. The admin console gains a Speech settings section, and the voice
+  channel editor gains the missing call-mode selector plus a Realtime speech
+  section (provider, model, voice, greeting, extra instructions). In web
+  chat, hovering the voice button or the live-call capsule shows the active
+  provider, model, and voice.
+
+### Changed
+
+- **Realtime speech config moved out of the phone channel**: The settings
+  formerly at `voice.realtime.*` now live at the top-level
+  `speech.realtime.*`, reflecting that they drive realtime phone calls, web
+  console voice mode, and plugin realtime sessions alike — web voice works
+  with the Twilio channel disabled. Existing configs are migrated
+  automatically on startup; `voice.*` remains purely the Twilio phone
+  channel.
+
 ## [0.29.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.3) - 2026-08-25
 
 ### Added

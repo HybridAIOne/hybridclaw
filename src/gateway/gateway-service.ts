@@ -132,6 +132,7 @@ import {
   SLACK_WEBHOOK_DEFAULT_TARGET,
   slackWebhookSecretNameForTarget,
 } from '../channels/slack-webhook/target.js';
+import { resolveRealtimeConnection } from '../channels/voice/realtime-credentials.js';
 import {
   createTwilioOutboundCall,
   normalizeTwilioPhoneNumber,
@@ -208,6 +209,7 @@ import {
   type RuntimeConfig,
   type RuntimeHttpRequestAuthRule,
   type RuntimeHttpRequestAuthRuleSecret,
+  type RuntimeSpeechRealtimeProvider,
   reloadRuntimeConfig,
   resolveDefaultAgentId,
   runtimeConfigPath,
@@ -1165,6 +1167,32 @@ const MAX_RALPH_ITERATIONS = 64;
 const RESET_CONFIRMATION_TTL_MS = 120_000;
 const DISCORD_CHANNEL_MODE_VALUES = new Set(['off', 'mention', 'free']);
 const DISCORD_GROUP_POLICY_VALUES = new Set(['open', 'allowlist', 'disabled']);
+
+const SPEECH_REALTIME_PROVIDER_VALUES = new Set(['auto', 'hybridai', 'openai']);
+
+/**
+ * Status lines for the realtime speech engine (`speech.realtime.*`), shared
+ * by `/speech` and the realtime section of `/voice info`. The prefix keeps
+ * both surfaces' labels aligned ("Realtime provider: …").
+ */
+function buildSpeechRealtimeStatusLines(prefix: string): string[] {
+  const realtimeConfig = getRuntimeConfig().speech.realtime;
+  const resolved = resolveRealtimeConnection(realtimeConfig.provider);
+  return [
+    realtimeConfig.provider === 'auto'
+      ? `${prefix}provider: auto (${
+          resolved.connection
+            ? `using ${resolved.connection.provider}`
+            : 'no credential found'
+        })`
+      : `${prefix}provider: ${realtimeConfig.provider}`,
+    `${prefix}model: ${realtimeConfig.model}`,
+    `${prefix}voice: ${realtimeConfig.voice}`,
+    resolved.connection
+      ? `${prefix}credential: configured`
+      : `${prefix}credential: missing — ${resolved.error}`,
+  ];
+}
 const IMAGE_QUESTION_RE =
   /(what(?:'s| is)? on (?:the )?(?:image|picture|photo|screenshot)|describe (?:this|the) (?:image|picture|photo)|image|picture|photo|screenshot|ocr|diagram|chart|grafik|bild|foto|was steht|was ist auf dem bild)/i;
 const BROWSER_TAB_RE =
@@ -12839,7 +12867,8 @@ export async function handleGatewayCommand(
               publicWebhook.url
                 ? `Webhook: ${publicWebhook.url}`
                 : `Webhook: unavailable (${publicWebhook.error})`,
-              'Usage: `voice call <e164-number>`',
+              ...buildSpeechRealtimeStatusLines('Realtime '),
+              'Usage: `voice call <e164-number>`; realtime speech settings live under `speech`',
             ].join('\n'),
           );
         }
@@ -12918,6 +12947,77 @@ export async function handleGatewayCommand(
         }
 
         return badCommand('Usage', 'Usage: `voice [info|call <e164-number>]`');
+      }
+
+      case 'speech': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Speech Command Restricted',
+            '`speech` edits local runtime config and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const sub = parseLowerArg(req.args, 1);
+
+        if (!sub || sub === 'info' || sub === 'status') {
+          return infoCommand(
+            'Speech',
+            [
+              ...buildSpeechRealtimeStatusLines('Realtime '),
+              'Usage: `speech provider auto|hybridai|openai`, `speech model <model>`, or `speech voice <voice>`',
+            ].join('\n'),
+          );
+        }
+
+        if (sub === 'provider') {
+          const requested = parseLowerArg(req.args, 2);
+          if (!requested) {
+            return infoCommand(
+              'Speech Provider',
+              [
+                buildSpeechRealtimeStatusLines('Realtime ')[0],
+                'Usage: `speech provider auto|hybridai|openai`',
+              ].join('\n'),
+            );
+          }
+          if (!SPEECH_REALTIME_PROVIDER_VALUES.has(requested)) {
+            return badCommand(
+              'Usage',
+              'Usage: `speech provider auto|hybridai|openai`',
+            );
+          }
+          const provider = requested as RuntimeSpeechRealtimeProvider;
+          updateRuntimeConfig((draft) => {
+            draft.speech.realtime.provider = provider;
+          });
+          const resolved = resolveRealtimeConnection(provider);
+          return plainCommand(
+            resolved.connection
+              ? `Realtime speech provider set to \`${provider}\` (sessions will use ${resolved.connection.provider}).`
+              : `Realtime speech provider set to \`${provider}\`, but no usable credential: ${resolved.error}`,
+          );
+        }
+
+        if (sub === 'model' || sub === 'voice') {
+          const value = req.args.slice(2).join(' ').trim();
+          if (!value) {
+            return badCommand(
+              'Usage',
+              `Usage: \`speech ${sub} <${sub === 'model' ? 'model-id' : 'voice-name'}>\``,
+            );
+          }
+          updateRuntimeConfig((draft) => {
+            draft.speech.realtime[sub] = value;
+          });
+          return plainCommand(
+            `Realtime speech ${sub} set to \`${value}\`. New voice sessions pick it up immediately.`,
+          );
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `speech [info|provider|model|voice] <value>`',
+        );
       }
 
       case 'config': {

@@ -40,6 +40,7 @@ export function VoicePanel(props: {
   status: VoiceSessionStatus;
   error: string | null;
   consultActivity?: string | null;
+  detail?: string | null;
   onClose: () => void;
 }) {
   const label =
@@ -51,6 +52,7 @@ export function VoicePanel(props: {
       className={cx(css.voiceCapsule, STATUS_CLASSES[props.status])}
       role="status"
       aria-live="polite"
+      title={props.detail || undefined}
     >
       <span className={css.voiceWave} aria-hidden="true">
         {WAVE_BARS.map((bar) => (

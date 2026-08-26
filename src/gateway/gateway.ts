@@ -3340,10 +3340,11 @@ async function startVoiceIntegration(): Promise<boolean> {
     return false;
   }
   if (voiceConfig.mode === 'realtime') {
-    const resolved = resolveRealtimeConnection(voiceConfig.realtime.provider);
+    const realtimeProvider = getConfigSnapshot().speech.realtime.provider;
+    const resolved = resolveRealtimeConnection(realtimeProvider);
     if (!resolved.connection) {
       logger.warn(
-        { provider: voiceConfig.realtime.provider },
+        { provider: realtimeProvider },
         `Voice integration disabled: ${resolved.error}`,
       );
       return false;
