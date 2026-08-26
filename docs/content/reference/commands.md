@@ -718,6 +718,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/memory inspect [sessionId]` | local TUI/web | Inspect built-in memory layers |
 | `/memory query <query>` | local TUI/web | Preview prompt-time memory attachment |
 | `/model [info|list|set|clear|default|select]` | local and chat channels | Inspect or set session/default models |
+| `/new` | local and chat channels | Start a fresh session for the current chat; the previous session stays switchable via `/sessions` |
 | `/paste` | TUI | Attach a copied local file or clipboard image |
 | `/policy [status|list|allow|deny|delete|preset|default|reset]` | local TUI/web | Inspect or update workspace network policy |
 | `/plugin [list|enable|disable|config|install|reinstall|reload|uninstall]` | local TUI/web | Manage runtime plugins |
@@ -727,7 +728,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/schedule add|list|remove|toggle ...` | local and chat channels | Manage scheduled tasks for the session |
 | `/secret [list|set|status|unset|route]` | local TUI/web | Manage encrypted secrets and HTTP auth routes |
 | `/second-opinion [compare|validate|fact-check]` | local and chat channels | Ask a stronger configured model to compare, validate, or fact-check |
-| `/sessions [active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]` | local and chat channels | Inspect active session tracking or prune old persisted sessions |
+| `/sessions [list|switch <number|session-id>|active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]` | local and chat channels | List or switch sessions for the current chat, inspect active session tracking, or prune old persisted sessions |
 | `/show [all|thinking|tools|none]` | local and chat channels | Control thinking/tool activity visibility |
 | `/skill ...` or `/<skill>` | local TUI/web | Manage skills or explicitly invoke one skill |
 | `/status` | local and chat channels | Show runtime, session, and agent status |
