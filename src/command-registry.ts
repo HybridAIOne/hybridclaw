@@ -105,6 +105,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'voice',
   'speech',
   'clear',
+  'new',
   'reset',
   'compact',
   'context',
@@ -671,6 +672,9 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'clear':
       return ['clear'];
 
+    case 'new':
+      return ['new'];
+
     case 'reset':
       return parts.length > 1 ? ['reset', ...parts.slice(1)] : ['reset'];
 
@@ -686,7 +690,7 @@ export function mapCanonicalCommandToGatewayArgs(
     }
 
     case 'sessions':
-      return ['sessions'];
+      return ['sessions', ...parts.slice(1)];
 
     case 'audit':
       return ['audit', ...parts.slice(1)];
@@ -2376,6 +2380,11 @@ function buildSlashCommandCatalogDefinitions(
       description: 'Clear session history',
     },
     {
+      name: 'new',
+      description:
+        'Start a fresh session for this chat; the previous session stays switchable via /sessions',
+    },
+    {
       name: 'reset',
       description:
         'Clear session history, reset session settings, and remove the current agent workspace',
@@ -2506,7 +2515,7 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'sessions',
       description:
-        'List chat sessions, inspect active sandbox sessions, or prune old persisted sessions',
+        'List or switch sessions for this chat, inspect active sandbox sessions, or prune old persisted sessions',
     },
     {
       name: 'audit',
@@ -3711,6 +3720,9 @@ export function parseCanonicalSlashCommandArgs(
 
     case 'clear':
       return ['clear'];
+
+    case 'new':
+      return ['new'];
 
     case 'reset': {
       const confirm = normalizeStringOption(interaction, 'confirm');

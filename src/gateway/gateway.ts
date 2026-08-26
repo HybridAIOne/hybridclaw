@@ -76,7 +76,10 @@ import {
   shutdownLine,
 } from '../channels/line/runtime.js';
 import { isLineChannelId } from '../channels/line/target.js';
-import { stripUnusableMSTeamsArtifactLinks } from '../channels/msteams/delivery.js';
+import {
+  buildMSTeamsSessionSwitcherCard,
+  stripUnusableMSTeamsArtifactLinks,
+} from '../channels/msteams/delivery.js';
 import {
   mapMSTeamsReactionToRating,
   recordMSTeamsRatingTargets,
@@ -254,6 +257,7 @@ import type {
   GatewayChatApprovalEvent,
   GatewayChatRequest,
   GatewayChatResult,
+  GatewayCommandResult,
 } from './gateway-types.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
@@ -801,6 +805,14 @@ async function handleTextChannelCommand(params: {
   username: string;
   args: string[];
   reply: ReplyFn;
+  /**
+   * Channel-specific presentation hook. Return true after delivering the
+   * result to skip the default text reply.
+   */
+  onCommandResult?: (
+    result: GatewayCommandResult,
+    renderedText: string,
+  ) => Promise<boolean>;
 }): Promise<void> {
   const { sessionId, guildId, channelId, userId, username, args, reply } =
     params;
@@ -842,6 +854,9 @@ async function handleTextChannelCommand(params: {
     },
   });
   const text = renderTextChannelCommandResult(result);
+  if (params.onCommandResult && (await params.onCommandResult(result, text))) {
+    return;
+  }
   if (result.components !== undefined) {
     await reply(text, undefined, result.components);
     return;
@@ -1896,6 +1911,13 @@ async function startMSTeamsIntegration(): Promise<boolean> {
           username,
           args,
           reply: bridgedReply,
+          onCommandResult: async (result, renderedText) => {
+            if (!result.sessionSwitcher?.length) return false;
+            await reply(renderedText, [
+              buildMSTeamsSessionSwitcherCard(result.sessionSwitcher),
+            ]);
+            return true;
+          },
         });
       } catch (error) {
         logger.error(

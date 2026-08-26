@@ -131,6 +131,29 @@ incremental response. Teams supports this streaming experience only in
 one-on-one chats. Group chats and team channels use the standard typing and
 message-update fallback.
 
+## Sessions
+
+HybridClaw maps Teams conversations to sessions using the containers Teams
+provides natively:
+
+- **Team channels:** every channel post starts its own session. Mention the
+  bot in a new post for a fresh session; reply inside the post's thread to
+  continue that session.
+- **Group chats:** each group chat is one session, shared by all
+  participants. Create another group chat that includes the bot to run a
+  parallel session, and rename the chat to name the session.
+- **Direct messages:** the one-on-one chat is one ongoing session. Send
+  `/new` to start a fresh session; the previous conversation is preserved.
+  Send `/sessions list` to see the sessions for the chat — the reply includes
+  an Adaptive Card with buttons to switch back — or switch directly with
+  `/sessions switch <number|session-id>`.
+
+`/new` and `/sessions` work in every Teams conversation, not only direct
+messages. To surface them as native compose-box suggestions, add both to the
+bot **command list** in the Teams Developer Portal (app -> **Features** ->
+**Bot** -> commands), then publish the new package as described in
+[Update an installed Teams app](#update-an-installed-teams-app).
+
 Generated files are delivered in direct messages through a Teams file-consent
 card. Select **Accept** on that card to upload the file to OneDrive and receive
 an openable file card. The Teams bot file API supports this flow only in
@@ -177,6 +200,7 @@ need a new package.
 | Enable or disable bot file upload and download (`supportsFiles`) | Yes |
 | Add or remove bot scopes (personal, team, group chat) | Yes |
 | Change the app name, description, or icons | Yes |
+| Add compose-box command suggestions (bot command list) | Yes |
 | Change the messaging endpoint | No, it is an Azure Bot resource setting |
 | Rotate `MSTEAMS_APP_PASSWORD` | No |
 | Change DM policy, allowlists, or media limits | No, they are HybridClaw channel settings |
@@ -238,7 +262,8 @@ message until the sender is allowed.
 4. Save the channel settings and send another direct message to the bot.
 
 Using `open` allows any user who can reach the bot to send it direct messages.
-Prefer adding stable AAD object IDs before wider use. Do not use display names
+The DM policy applies only to one-on-one chats; group chats and team channels
+follow **Group policy**. Prefer adding stable AAD object IDs before wider use. Do not use display names
 unless there is no alternative: display names are mutable and not guaranteed
 to be unique.
 

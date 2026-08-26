@@ -21,6 +21,8 @@ export const msteamsAgentPromptAdapter: ChannelAgentPromptAdapter = {
     }
     if (teamId) {
       hints.push(`- Current Teams team: \`${teamId}\`.`);
+    } else if (channelId.startsWith('19:')) {
+      hints.push('- Current Teams context is a group chat.');
     } else {
       hints.push('- Current Teams context is a direct message.');
     }

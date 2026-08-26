@@ -237,7 +237,13 @@ export interface PluginSessionResetContext {
   userId: string;
   agentId: string;
   channelId: string;
-  reason: 'clear' | 'reset' | 'auto-reset' | 'workspace-reset';
+  reason:
+    | 'clear'
+    | 'new'
+    | 'reset'
+    | 'auto-reset'
+    | 'switch'
+    | 'workspace-reset';
 }
 
 export interface PluginCompactionContext {

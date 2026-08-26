@@ -44,8 +44,8 @@ import {
   extractPrimaryText,
   extractTeamsTeamId,
   hasBotMention,
-  isTeamsDm,
   parseCommand,
+  resolveTeamsConversationKind,
 } from './inbound.js';
 import {
   type ResolveMSTeamsChannelPolicyResult,
@@ -612,7 +612,8 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
   const channelId = normalizeValue(activity.conversation?.id);
   if (!channelId) return;
 
-  const isDm = isTeamsDm(activity);
+  const conversationKind = resolveTeamsConversationKind(activity);
+  const isDm = conversationKind === 'personal';
   const policy = resolveMSTeamsChannelPolicy({
     isDm,
     teamId,

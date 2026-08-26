@@ -297,6 +297,7 @@ import {
   getUsageTotals,
   listMessageTrendByDay,
   listSemanticMemoriesForSession,
+  listSessionInstancesForKey,
   listSessionTrendByDay,
   listStatsByChannel,
   listStructuredAuditEntries,
@@ -309,6 +310,7 @@ import {
   recordRequestLog,
   sessionHasUserMessages,
   setMemoryValue,
+  switchCurrentSessionInstance,
   updateSessionAgent,
   updateSessionChatbot,
   updateSessionModel,
@@ -13442,6 +13444,32 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'new': {
+        if (!sessionHasUserMessages(session.id)) {
+          return plainCommand('This is already a fresh session.');
+        }
+        const rotated = createFreshSessionInstance(session.id);
+        req.sessionId = rotated.session.id;
+        session = rotated.session;
+        if (pluginManager) {
+          await pluginManager.handleSessionReset({
+            previousSessionId: rotated.previousSession.id,
+            sessionId: rotated.session.id,
+            userId: String(req.userId || ''),
+            agentId: resolveSessionAgentId(rotated.previousSession),
+            channelId: req.channelId,
+            reason: 'new',
+          });
+        }
+        return infoCommand(
+          'New Session',
+          [
+            'Started a fresh session for this chat.',
+            `The previous session (${rotated.deletedMessages} message${rotated.deletedMessages === 1 ? '' : 's'}) is preserved — use \`/sessions list\` and \`/sessions switch\` to continue it later.`,
+          ].join('\n'),
+        );
+      }
+
       case 'reset': {
         const sub = parseLowerArg(req.args, 1);
         if (sub && sub !== 'yes' && sub !== 'no') {
@@ -13925,6 +13953,102 @@ export async function handleGatewayCommand(
 
       case 'sessions': {
         const sub = parseLowerArg(req.args, 1);
+        if (sub === 'list') {
+          const sessionKey = session.session_key || session.id;
+          const instances = listSessionInstancesForKey(sessionKey, {
+            limit: 10,
+          });
+          if (instances.length === 0) {
+            return plainCommand('No sessions recorded for this chat yet.');
+          }
+          const boundariesBySessionId = getSessionBoundaryMessagesBySessionIds(
+            instances.map((instance) => instance.id),
+          );
+          const describeInstance = (
+            instance: (typeof instances)[number],
+          ): string => {
+            const boundary = boundariesBySessionId.get(instance.id) || {
+              firstMessage: null,
+              lastMessage: null,
+            };
+            return `${instance.message_count} msgs, last: ${formatDisplayTimestamp(instance.last_active)}${formatSessionSnippetSummary(boundary)}`;
+          };
+          const lines = instances.map((instance, index) => {
+            const marker = instance.is_current ? ' — current' : '';
+            return `${index + 1}. \`${instance.id}\`${marker} — ${describeInstance(instance)}`;
+          });
+          return infoCommand(
+            'Sessions For This Chat',
+            [
+              ...lines,
+              '',
+              'Use `/sessions switch <number|session-id>` to continue an older session, or `/new` to start a fresh one.',
+            ].join('\n'),
+            undefined,
+            {
+              sessionSwitcher: instances.map((instance, index) => ({
+                sessionId: instance.id,
+                label: `${index + 1}. ${describeInstance(instance)}`,
+                isCurrent: Boolean(instance.is_current),
+              })),
+            },
+          );
+        }
+        if (sub === 'switch') {
+          const targetArg = parseIdArg(req.args, 2);
+          if (!targetArg) {
+            return badCommand(
+              'Usage',
+              'Usage: `sessions switch <number|session-id>` — numbers come from `sessions list`.',
+            );
+          }
+          const sessionKey = session.session_key || session.id;
+          let targetSessionId = targetArg;
+          if (/^\d{1,2}$/.test(targetArg)) {
+            const instances = listSessionInstancesForKey(sessionKey, {
+              limit: 10,
+            });
+            const byIndex = instances[Number(targetArg) - 1];
+            if (!byIndex) {
+              return badCommand(
+                'Not Found',
+                `No session ${targetArg} in \`sessions list\` for this chat.`,
+              );
+            }
+            targetSessionId = byIndex.id;
+          }
+          let switched: ReturnType<typeof switchCurrentSessionInstance>;
+          try {
+            switched = switchCurrentSessionInstance({
+              sessionKey,
+              targetSessionId,
+            });
+          } catch (error) {
+            return badCommand('Switch Failed', (error as Error).message);
+          }
+          if (switched.previousSession?.id === switched.session.id) {
+            return plainCommand(
+              `Session \`${switched.session.id}\` is already active.`,
+            );
+          }
+          req.sessionId = switched.session.id;
+          const previousSession = switched.previousSession;
+          session = switched.session;
+          if (pluginManager && previousSession) {
+            await pluginManager.handleSessionReset({
+              previousSessionId: previousSession.id,
+              sessionId: switched.session.id,
+              userId: String(req.userId || ''),
+              agentId: resolveSessionAgentId(previousSession),
+              channelId: req.channelId,
+              reason: 'switch',
+            });
+          }
+          return infoCommand(
+            'Session Switched',
+            `Now continuing session \`${switched.session.id}\` (${switched.session.message_count} message${switched.session.message_count === 1 ? '' : 's'}).`,
+          );
+        }
         if (sub === 'active') {
           const activeSessionIds = getActiveExecutorSessionIds();
           if (activeSessionIds.length === 0) {
@@ -14049,7 +14173,7 @@ export async function handleGatewayCommand(
         if (sub) {
           return badCommand(
             'Usage',
-            `Usage: \`sessions\`, \`sessions active\`, \`sessions clear-active\`, or ${SESSION_PRUNE_USAGE.replace(
+            `Usage: \`sessions\`, \`sessions list\`, \`sessions switch <number|session-id>\`, \`sessions active\`, \`sessions clear-active\`, or ${SESSION_PRUNE_USAGE.replace(
               'Usage: ',
               '',
             )}`,

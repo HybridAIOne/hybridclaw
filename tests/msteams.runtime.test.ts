@@ -192,7 +192,7 @@ async function importRuntime() {
     })),
     extractTeamsTeamId: vi.fn(() => null),
     hasBotMention: vi.fn(() => false),
-    isTeamsDm: vi.fn(() => true),
+    resolveTeamsConversationKind: vi.fn(() => 'personal'),
     parseCommand: parseCommandMock,
   }));
   vi.doMock('../src/channels/msteams/send-permissions.js', () => ({

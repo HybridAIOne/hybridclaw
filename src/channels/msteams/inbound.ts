@@ -238,12 +238,37 @@ export function extractTeamsTeamId(activity: Partial<Activity>): string | null {
   return teamId || null;
 }
 
-export function isTeamsDm(activity: Partial<Activity>): boolean {
+export type MSTeamsConversationKind = 'personal' | 'group' | 'channel';
+
+export function resolveTeamsConversationKind(
+  activity: Partial<Activity>,
+): MSTeamsConversationKind {
   const conversationType = normalizeValue(
     activity.conversation?.conversationType,
   ).toLowerCase();
-  if (conversationType === 'personal') return true;
-  return !extractTeamsTeamId(activity);
+  if (conversationType === 'personal') return 'personal';
+  if (conversationType === 'groupchat') return 'group';
+  if (conversationType === 'channel') return 'channel';
+  return extractTeamsTeamId(activity) ? 'channel' : 'personal';
+}
+
+export interface ParsedTeamsConversationId {
+  baseId: string;
+  messageId: string | null;
+}
+
+// Teams channel activities carry the root post id inside conversation.id
+// ("19:...@thread.tacv2;messageid=123"), so every post thread arrives as its
+// own conversation.
+export function parseTeamsConversationId(
+  conversationId: string,
+): ParsedTeamsConversationId {
+  const normalized = normalizeValue(conversationId);
+  const match = normalized.match(/^(.+);messageid=([^;=]+)$/i);
+  if (!match) {
+    return { baseId: normalized, messageId: null };
+  }
+  return { baseId: match[1], messageId: match[2] };
 }
 
 export function hasBotMention(
@@ -297,14 +322,26 @@ export function buildSessionIdFromActivity(
   activity: Partial<Activity>,
   agentId = DEFAULT_AGENT_ID,
 ): string {
-  const actor = extractActorIdentity(activity);
-  const teamId = extractTeamsTeamId(activity);
+  const kind = resolveTeamsConversationKind(activity);
   const conversationId = normalizeValue(activity.conversation?.id);
-  if (!teamId) {
+  if (kind === 'personal') {
+    const actor = extractActorIdentity(activity);
     return buildSessionKey(agentId, 'msteams', 'dm', actor.userId);
   }
-  return buildSessionKey(agentId, 'msteams', 'channel', conversationId, {
-    topicId: teamId,
+  if (kind === 'group') {
+    return buildSessionKey(agentId, 'msteams', 'group', conversationId);
+  }
+
+  const teamId = extractTeamsTeamId(activity);
+  const { baseId, messageId } = parseTeamsConversationId(conversationId);
+  if (messageId) {
+    return buildSessionKey(agentId, 'msteams', 'thread', baseId, {
+      threadId: messageId,
+      ...(teamId ? { topicId: teamId } : {}),
+    });
+  }
+  return buildSessionKey(agentId, 'msteams', 'channel', baseId, {
+    ...(teamId ? { topicId: teamId } : {}),
   });
 }
 

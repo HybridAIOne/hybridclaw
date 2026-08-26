@@ -156,3 +156,99 @@ test('cleanIncomingContent falls back to HTML attachment content', async () => {
     }),
   ).toBe('Hello world One Two');
 });
+
+test('parseTeamsConversationId splits the channel root post id', async () => {
+  const { parseTeamsConversationId } = await importInboundModule();
+
+  expect(
+    parseTeamsConversationId('19:channel@thread.tacv2;messageid=1755000000001'),
+  ).toEqual({
+    baseId: '19:channel@thread.tacv2',
+    messageId: '1755000000001',
+  });
+  expect(parseTeamsConversationId('19:group@thread.v2')).toEqual({
+    baseId: '19:group@thread.v2',
+    messageId: null,
+  });
+});
+
+test('resolveTeamsConversationKind classifies personal, group, and channel chats', async () => {
+  const { resolveTeamsConversationKind } = await importInboundModule();
+
+  expect(
+    resolveTeamsConversationKind({
+      conversation: { conversationType: 'personal', id: 'a:1' },
+    } as never),
+  ).toBe('personal');
+  expect(
+    resolveTeamsConversationKind({
+      conversation: { conversationType: 'groupChat', id: '19:group@thread.v2' },
+    } as never),
+  ).toBe('group');
+  expect(
+    resolveTeamsConversationKind({
+      conversation: { id: '19:channel@thread.tacv2;messageid=5' },
+      channelData: { team: { id: '19:team@thread.tacv2' } },
+    } as never),
+  ).toBe('channel');
+  expect(
+    resolveTeamsConversationKind({
+      conversation: { id: 'a:legacy' },
+    } as never),
+  ).toBe('personal');
+});
+
+test('buildSessionIdFromActivity keys personal chats by user', async () => {
+  const { buildSessionIdFromActivity } = await importInboundModule();
+
+  expect(
+    buildSessionIdFromActivity({
+      conversation: { conversationType: 'personal', id: 'a:1' },
+      from: { id: '29:enc', aadObjectId: 'User-AAD' },
+    } as never),
+  ).toBe('agent:main:channel:msteams:chat:dm:peer:user-aad');
+});
+
+test('buildSessionIdFromActivity keys group chats by conversation', async () => {
+  const { buildSessionIdFromActivity } = await importInboundModule();
+
+  expect(
+    buildSessionIdFromActivity({
+      conversation: {
+        conversationType: 'groupChat',
+        id: '19:Group@thread.v2',
+      },
+      from: { id: '29:enc', aadObjectId: 'user-aad' },
+    } as never),
+  ).toBe('agent:main:channel:msteams:chat:group:peer:19%3Agroup%40thread.v2');
+});
+
+test('buildSessionIdFromActivity keys channel posts as per-thread sessions', async () => {
+  const { buildSessionIdFromActivity } = await importInboundModule();
+
+  expect(
+    buildSessionIdFromActivity({
+      conversation: {
+        conversationType: 'channel',
+        id: '19:channel@thread.tacv2;messageid=1755000000001',
+      },
+      channelData: { team: { id: '19:team@thread.tacv2' } },
+      from: { id: '29:enc', aadObjectId: 'user-aad' },
+    } as never),
+  ).toBe(
+    'agent:main:channel:msteams:chat:thread:peer:19%3Achannel%40thread.tacv2:thread:1755000000001:topic:19%3Ateam%40thread.tacv2',
+  );
+
+  expect(
+    buildSessionIdFromActivity({
+      conversation: {
+        conversationType: 'channel',
+        id: '19:channel@thread.tacv2',
+      },
+      channelData: { team: { id: '19:team@thread.tacv2' } },
+      from: { id: '29:enc', aadObjectId: 'user-aad' },
+    } as never),
+  ).toBe(
+    'agent:main:channel:msteams:chat:channel:peer:19%3Achannel%40thread.tacv2:topic:19%3Ateam%40thread.tacv2',
+  );
+});

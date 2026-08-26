@@ -2,11 +2,36 @@ import { expect, test, vi } from 'vitest';
 
 import {
   buildMSTeamsMessageActivity,
+  buildMSTeamsSessionSwitcherCard,
   formatMSTeamsMarkdown,
   prepareChunkedActivities,
   sendChunkedReply,
   stripUnusableMSTeamsArtifactLinks,
 } from '../src/channels/msteams/delivery.js';
+
+test('buildMSTeamsSessionSwitcherCard offers switch and new-session actions', () => {
+  const attachment = buildMSTeamsSessionSwitcherCard([
+    { sessionId: 'sess_current', label: '1. current', isCurrent: true },
+    { sessionId: 'sess_older', label: '2. older chat', isCurrent: false },
+  ]);
+
+  expect(attachment.contentType).toBe(
+    'application/vnd.microsoft.card.adaptive',
+  );
+  const card = attachment.content as {
+    actions: Array<{
+      title: string;
+      data: { msteams: { type: string; text: string } };
+    }>;
+  };
+  expect(card.actions).toHaveLength(2);
+  expect(card.actions[0].title).toBe('2. older chat');
+  expect(card.actions[0].data.msteams).toMatchObject({
+    type: 'messageBack',
+    text: '/sessions switch sess_older',
+  });
+  expect(card.actions[1].data.msteams.text).toBe('/new');
+});
 
 test('stripUnusableMSTeamsArtifactLinks keeps artifact names but removes local URLs', () => {
   expect(
