@@ -256,13 +256,18 @@ export class RealtimeCallBridge {
         return;
       }
       if (!this.callerSpeaking && !this.client.hasActiveResponse) {
+        const person = this.options.surface === 'phone' ? 'caller' : 'user';
+        // Left unconstrained, the realtime model invents status — including
+        // asking for credentials the consult never needed. Pin it to the real
+        // tool activity and forbid everything else.
         const activity = this.consultActivity
-          ? ` It is currently busy with: ${this.consultActivity}.`
-          : '';
+          ? `It is currently using its "${this.consultActivity}" tool — mention that step in plain language.`
+          : 'Do not guess what it is doing.';
         this.client.createOutOfBandResponse(
-          `The assistant is still working on the request.${activity} Briefly reassure the ${
-            this.options.surface === 'phone' ? 'caller' : 'user'
-          } in one short natural sentence. Do not call tools.`,
+          `The assistant is still working on the request. ${activity} ` +
+            `Reassure the ${person} in one short natural sentence that work continues. ` +
+            `Say nothing else: do not speculate about status or problems, do not ask the ${person} anything, ` +
+            'and do not claim to need access, credentials, or more details. Do not call tools.',
         );
       }
       this.scheduleReassurance(CONSULT_REASSURE_INTERVAL_MS);
