@@ -28,13 +28,6 @@ Describe the change in 2-5 bullets:
       [DCO](https://developercertificate.org/); the contribution is licensed
       under the repository's MIT license.
 
-## Manifesto Principle
-
-Which manifesto principle does this serve?
-
-- Principle:
-- Changelog tag added or updated: `Manifesto: Principle <Roman numeral> - <principle title>.`
-
 ## Validation
 
 List the checks you ran and the concrete scenarios you verified.
