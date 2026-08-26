@@ -110,16 +110,21 @@ Notes:
 
 ## Realtime Voice Mode
 
-Set `voice.mode` to `"realtime"` to run calls through the OpenAI Realtime API
-instead of Twilio's turn-based ConversationRelay:
+Set `voice.mode` to `"realtime"` to run calls through the realtime speech
+engine instead of Twilio's turn-based ConversationRelay. The engine itself is
+configured by the top-level `speech.realtime.*` settings, which are shared
+with web console voice mode:
 
 ```json
 {
   "voice": {
     "enabled": true,
     "provider": "twilio",
-    "mode": "realtime",
+    "mode": "realtime"
+  },
+  "speech": {
     "realtime": {
+      "provider": "auto",
       "model": "gpt-realtime",
       "voice": "marin",
       "greeting": "Hello! How can I help you today?",
@@ -156,7 +161,7 @@ alongside the consulted turns.
 Requirements and notes:
 
 - Realtime mode needs a realtime credential. The default
-  `voice.realtime.provider` of `auto` uses the HybridAI platform's
+  `speech.realtime.provider` of `auto` uses the HybridAI platform's
   `/v1/realtime` proxy when a HybridAI credential is present (signed in, or
   `HYBRIDAI_API_KEY`), and OpenAI otherwise. Set the provider to `openai` or
   `hybridai` to pin one backend: `openai` needs the `OPENAI_API_KEY`
@@ -165,10 +170,10 @@ Requirements and notes:
   the HybridAI credential — no OpenAI key required. The gateway refuses to
   start the voice channel in realtime mode without a credential for the
   selected provider.
-- `voice.realtime.voice` accepts any OpenAI realtime voice name (for example
+- `speech.realtime.voice` accepts any OpenAI realtime voice name (for example
   `marin`, `cedar`, `alloy`).
-- `voice.realtime.instructions` is appended to the built-in call instructions;
-  use it for tone, language, or caller-handling guidance.
+- `speech.realtime.instructions` is appended to the built-in call
+  instructions; use it for tone, language, or caller-handling guidance.
 - `voice.relay.*` settings are ignored in realtime mode, and
   `channelInstructions.voice` still applies to the consulted agent turns.
 - Realtime API audio is billed by OpenAI per minute of input and output audio
@@ -176,9 +181,17 @@ Requirements and notes:
 - The same realtime engine also powers voice mode in the web console chat
   (microphone button in the composer). Browser voice needs only the realtime
   credential — it works even when the Twilio voice channel is disabled, and it
-  uses the same `voice.realtime.*` provider, model, voice, greeting, and
+  uses the same `speech.realtime.*` provider, model, voice, greeting, and
   instructions settings. It is the quickest way to try realtime voice before
   wiring up a phone number.
+- All `speech.realtime.*` settings are editable in the admin console (the
+  Speech section of `/admin/config`, or the Realtime speech section under
+  Channels → Voice), and from a local session: `/speech` shows which provider
+  `auto` resolved to and whether a credential is available, and
+  `/speech provider|model|voice <value>` changes a setting — new voice
+  sessions pick changes up immediately.
+- Configs written by v0.29.x used `voice.realtime.*` for these settings; the
+  gateway migrates them to `speech.realtime.*` on startup.
 
 ## Store The Twilio Secret
 

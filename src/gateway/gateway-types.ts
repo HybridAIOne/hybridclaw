@@ -551,6 +551,7 @@ export interface GatewayStatus {
     fromNumberConfigured: boolean;
     authTokenConfigured: boolean;
     authTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
+    realtimeConfigured: boolean;
     webhookPath: string;
     maxConcurrentCalls: number;
   };

@@ -723,16 +723,14 @@ function handleMediaStreamConnection(ws: WebSocket, remoteIp: string): void {
             );
           }
           callSid = session.callSid;
-          const voiceConfig = getConfigSnapshot().voice;
-          const resolved = resolveRealtimeConnection(
-            voiceConfig.realtime.provider,
-          );
+          const realtimeConfig = getConfigSnapshot().speech.realtime;
+          const resolved = resolveRealtimeConnection(realtimeConfig.provider);
           if (!resolved.connection) {
             throw new Error(resolved.error);
           }
           const bridge = new RealtimeCallBridge({
             connection: resolved.connection,
-            config: voiceConfig.realtime,
+            config: realtimeConfig,
             caller: {
               from: session.from,
               to: session.to,

@@ -153,7 +153,7 @@ changes before navigation.
 - the web chat route syntax-highlights completed code blocks, shows language
   labels, and keeps copy controls reachable on hover and touch devices
 - the web chat route offers a realtime voice mode (microphone button in the
-  composer) when the configured `voice.realtime.provider` has a credential —
+  composer) when the configured `speech.realtime.provider` has a credential —
   by default the signed-in HybridAI credential (routing through the
   platform's `/v1/realtime` proxy), or an OpenAI API key: mic
   audio streams to the realtime API for natural speech-to-speech conversation
@@ -163,7 +163,10 @@ changes before navigation.
   what the agent is currently doing (for example `Checking — web search…`)
   and long consults get short spoken progress updates; external web apps can
   run the same voice sessions via scoped API tokens — see
-  [Realtime Voice for Web Apps](../guides/voice-web-api.md)
+  [Realtime Voice for Web Apps](../guides/voice-web-api.md); hovering the
+  voice button or the live-call capsule shows the active provider, model, and
+  voice, all editable in the Speech settings section or under Channels →
+  Voice (`speech.realtime.*`)
 - destructive admin actions use explicit browser confirmation dialogs before
   HybridClaw applies the requested change
 

@@ -14,9 +14,11 @@ with tools, approvals, and session history.
 
 ## Prerequisites
 
-- Realtime voice credentials configured (`voice.realtime.provider`, see
+- Realtime voice credentials configured (`speech.realtime.provider`, see
   [Configuration](../reference/configuration.md)). `GET /api/chat/voice`
-  reports `available: true` when the gateway can start sessions.
+  reports `available: true` when the gateway can start sessions, plus the
+  resolved `provider` (`hybridai`, `openai`, or `null` without a credential)
+  and the configured `model` and `voice`.
 - The gateway reachable over HTTPS from the browser (a tunnel or public
   deployment).
 

@@ -55,7 +55,7 @@ export interface PluginRealtimeVoiceDeps {
 
 export function isPluginRealtimeVoiceAvailable(): boolean {
   return isRealtimeCredentialConfigured(
-    getConfigSnapshot().voice.realtime.provider,
+    getConfigSnapshot().speech.realtime.provider,
   );
 }
 
@@ -63,7 +63,7 @@ export function createPluginRealtimeVoiceSession(
   options: PluginRealtimeVoiceSessionOptions,
   deps: PluginRealtimeVoiceDeps,
 ): PluginRealtimeVoiceSession {
-  const voiceConfig = getConfigSnapshot().voice.realtime;
+  const voiceConfig = getConfigSnapshot().speech.realtime;
   const resolved = resolveRealtimeConnection(voiceConfig.provider);
   if (!resolved.connection) {
     throw new Error(resolved.error);

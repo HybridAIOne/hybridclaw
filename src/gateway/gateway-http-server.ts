@@ -88,6 +88,7 @@ import {
   getSignalLinkState,
   startSignalLink,
 } from '../channels/signal/pairing.js';
+import { resolveRealtimeConnection } from '../channels/voice/realtime-credentials.js';
 import {
   handleVoiceUpgrade,
   handleVoiceWebhook,
@@ -11174,9 +11175,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/chat/voice' && method === 'GET') {
-            const voiceConfig = getRuntimeConfig().voice.realtime;
+            const voiceConfig = getRuntimeConfig().speech.realtime;
             sendJson(res, 200, {
               available: isWebchatVoiceAvailable(),
+              provider:
+                resolveRealtimeConnection(voiceConfig.provider).connection
+                  ?.provider ?? null,
               model: voiceConfig.model,
               voice: voiceConfig.voice,
             });

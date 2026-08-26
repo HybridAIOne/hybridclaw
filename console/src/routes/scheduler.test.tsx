@@ -222,6 +222,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
     voice: {
       enabled: false,
       provider: 'twilio',
+      mode: 'relay',
       twilio: {
         accountSid: '',
         authToken: '',
@@ -237,6 +238,15 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       },
       webhookPath: '/voice',
       maxConcurrentCalls: 8,
+    },
+    speech: {
+      realtime: {
+        provider: 'auto',
+        model: 'gpt-realtime',
+        voice: 'marin',
+        greeting: 'Hello! How can I help you today?',
+        instructions: '',
+      },
     },
     whatsapp: {
       dmPolicy: 'disabled',

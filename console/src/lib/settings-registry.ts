@@ -104,6 +104,7 @@ const SECTION_ORDER = [
   'whatsapp',
   'line',
   'voice',
+  'speech',
   'imessage',
   'email',
   'hybridai',
