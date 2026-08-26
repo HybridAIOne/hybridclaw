@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Codex requests reuse their prompt cache**: Requests to the Codex Responses
+  API now carry a `prompt_cache_key` derived from the session id, so every call
+  in a conversation routes to the same cache instead of relying on a randomly
+  assigned key. A ten-call tool-using turn previously reprocessed the full
+  ~40K-token prefix on six of its calls; those calls now read from cache.
+  Manifesto: Principle IX - A coworker thinks before they spend.
+
 ## [0.29.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.3) - 2026-08-25
 
 ### Added
