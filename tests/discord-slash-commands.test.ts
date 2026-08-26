@@ -55,6 +55,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
       'memory',
       'plugin',
       'clear',
+      'new',
       'reset',
       'usage',
       'export',

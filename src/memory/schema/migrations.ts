@@ -16,12 +16,14 @@ import {
 import { parseUserId } from '../../identity/user-id.js';
 import { logger } from '../../logger.js';
 import {
+  buildSessionKey,
   inspectSessionKeyMigration,
   isLegacySessionKey,
+  parseSessionKey,
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 55;
+export const DATABASE_SCHEMA_VERSION = 56;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3441,6 +3443,63 @@ function migrateV55(
   recordMigration(database, 55, 'Persist message source (e.g. voice turns)');
 }
 
+function migrateV56(database: Database.Database): void {
+  // Teams channel activities embed the root post id in conversation.id
+  // ("...;messageid=123"). Those sessions are now keyed as chat-type
+  // "thread" with the post id split into the thread segment.
+  if (
+    tableExists(database, 'sessions') &&
+    columnExists(database, 'sessions', 'session_key')
+  ) {
+    const rows = database
+      .prepare(
+        `SELECT DISTINCT session_key
+         FROM sessions
+         WHERE session_key LIKE 'agent:%:channel:msteams:chat:channel:peer:%'`,
+      )
+      .all() as Array<{ session_key: string }>;
+    const updateSessions = database.prepare(
+      `UPDATE sessions
+       SET main_session_key = CASE
+             WHEN main_session_key = ? THEN ?
+             ELSE main_session_key
+           END,
+           session_key = ?
+       WHERE session_key = ?`,
+    );
+    const updateKvStore = tableExists(database, 'kv_store')
+      ? database.prepare(
+          'UPDATE OR IGNORE kv_store SET agent_id = ? WHERE agent_id = ?',
+        )
+      : null;
+    for (const row of rows) {
+      const parsed = parseSessionKey(row.session_key);
+      if (parsed?.channelKind !== 'msteams' || parsed.chatType !== 'channel') {
+        continue;
+      }
+      const match = parsed.peerId.match(/^(.+);messageid=([^;=]+)$/i);
+      if (!match) continue;
+      const nextKey = buildSessionKey(
+        parsed.agentId,
+        'msteams',
+        'thread',
+        match[1],
+        {
+          threadId: match[2],
+          ...(parsed.topicId ? { topicId: parsed.topicId } : {}),
+        },
+      );
+      updateSessions.run(row.session_key, nextKey, nextKey, row.session_key);
+      updateKvStore?.run(nextKey, row.session_key);
+    }
+  }
+  recordMigration(
+    database,
+    56,
+    'Re-key Teams channel-thread sessions as chat-type thread',
+  );
+}
+
 export function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3577,6 +3636,7 @@ export function runMigrations(
   if (currentVersion < 55 || messageSourceNeedMigration(database)) {
     migrateV55(database, opts);
   }
+  if (currentVersion < 56) migrateV56(database);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

@@ -68,6 +68,12 @@ export interface GatewayModelCatalogEntry {
   recommended?: boolean;
 }
 
+export interface GatewaySessionSwitcherEntry {
+  sessionId: string;
+  label: string;
+  isCurrent: boolean;
+}
+
 export interface GatewayCommandResult {
   kind: 'plain' | 'info' | 'error';
   title?: string;
@@ -77,6 +83,7 @@ export interface GatewayCommandResult {
   mainSessionKey?: string;
   components?: GatewayMessageComponents;
   modelCatalog?: GatewayModelCatalogEntry[];
+  sessionSwitcher?: GatewaySessionSwitcherEntry[];
 }
 
 export interface GatewayAssistantPresentation {
