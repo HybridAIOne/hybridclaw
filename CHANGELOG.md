@@ -4,10 +4,11 @@
 
 ### Added
 
-- **Official plugins can be installed from the web console**: The Plugins &
-  Tools page lists curated bundled and channel plugins, reports install failures
-  inline, and refreshes the live registry after the gateway reloads the plugin
-  runtime. Third-party and local sources are not exposed in the console.
+- **Plugins can be installed from the web console**: The Plugins & Tools page
+  combines one-click installs from the official catalog with direct installs
+  from plugin IDs, npm packages, local paths, and archive URLs. It reports
+  failures inline and refreshes the live registry after the gateway reloads the
+  plugin runtime.
 
 ## [0.29.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.3) - 2026-08-25
 

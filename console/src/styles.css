@@ -613,6 +613,13 @@ code {
   justify-content: flex-end;
 }
 
+.plugin-install-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
 .skills-review-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -4392,6 +4399,10 @@ th {
 
   .plugin-catalog-action {
     justify-content: flex-start;
+  }
+
+  .plugin-install-form {
+    grid-template-columns: 1fr;
   }
 
   .jobs-columns {

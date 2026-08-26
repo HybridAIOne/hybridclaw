@@ -1224,6 +1224,18 @@ export function installOfficialPlugin(
   ]);
 }
 
+export function installPlugin(
+  token: string,
+  source: string,
+): Promise<AdminCommandResult> {
+  return runAdminCommand(token, 'web-admin-plugins', [
+    'plugin',
+    'install',
+    source,
+    '--yes',
+  ]);
+}
+
 export function fetchAdminSecrets(
   token: string,
 ): Promise<AdminSecretsResponse> {

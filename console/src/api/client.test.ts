@@ -9,6 +9,7 @@ import {
   fetchAdminHybridAIBots,
   fetchAgentList,
   installOfficialPlugin,
+  installPlugin,
   readStoredToken,
   registerDistillAgent,
   setAuthReloadHandlerForTest,
@@ -317,6 +318,27 @@ describe('client command helpers', () => {
       guildId: null,
       channelId: 'web',
       args: ['plugin', 'install-official', 'whatsapp', '--yes'],
+    });
+  });
+
+  it('installs a plugin source through a local web admin command', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ kind: 'info', text: 'installed' }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+
+    await installPlugin('test-token', '@example/demo-plugin');
+
+    const request = vi.mocked(fetch).mock.calls[0]?.[1];
+    expect(JSON.parse(String(request?.body))).toEqual({
+      sessionId: 'web-admin-plugins',
+      guildId: null,
+      channelId: 'web',
+      args: ['plugin', 'install', '@example/demo-plugin', '--yes'],
     });
   });
 
