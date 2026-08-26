@@ -10,6 +10,24 @@
   assigned key. A ten-call tool-using turn previously reprocessed the full
   ~40K-token prefix on six of its calls; those calls now read from cache.
   Manifesto: Principle IX - A coworker thinks before they spend.
+### Added
+
+- **Multiple sessions per chat with `/new` and `/sessions switch`**: `/new`
+  starts a fresh session for the current chat while preserving the previous
+  conversation, `/sessions list` shows the sessions recorded for the chat, and
+  `/sessions switch <number|session-id>` re-activates an earlier one. In
+  Microsoft Teams the session list arrives with an Adaptive Card whose buttons
+  switch sessions or start a new one.
+
+### Changed
+
+- **Microsoft Teams conversations map to sessions the Teams-native way**: every
+  team-channel post is its own session (replying in the post's thread continues
+  it), each group chat is one shared session governed by the group policy
+  instead of blending into members' personal DM sessions, and one-on-one chats
+  keep one ongoing session per user. Existing channel-thread sessions are
+  re-keyed automatically; group chats start fresh sessions under the new
+  per-conversation keys.
 
 ## [0.29.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.3) - 2026-08-25
 

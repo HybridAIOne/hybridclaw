@@ -794,6 +794,61 @@ export function createFreshSessionInstance(
   };
 }
 
+export function listSessionInstancesForKey(
+  sessionKey: string,
+  options?: { limit?: number },
+): Session[] {
+  const normalizedKey = String(sessionKey || '').trim();
+  if (!normalizedKey) return [];
+  const limit = Math.max(1, Math.floor(options?.limit ?? 10));
+  return queryAll<Session, [string, number]>(
+    getSessionDatabase(),
+    `SELECT *
+     FROM sessions
+     WHERE session_key = ?
+     ORDER BY is_current DESC, last_active DESC
+     LIMIT ?`,
+    normalizedKey,
+    limit,
+  );
+}
+
+export function switchCurrentSessionInstance(params: {
+  sessionKey: string;
+  targetSessionId: string;
+}): { previousSession: Session | null; session: Session } {
+  const normalizedKey = String(params.sessionKey || '').trim();
+  const target = getSessionById(String(params.targetSessionId || '').trim());
+  if (!target) {
+    throw new Error(`Session ${params.targetSessionId} was not found.`);
+  }
+  if (!normalizedKey || target.session_key !== normalizedKey) {
+    throw new Error(
+      `Session ${target.id} does not belong to this conversation.`,
+    );
+  }
+  const previousSession =
+    selectCurrentSessionBySessionKey(normalizedKey) || null;
+  if (previousSession?.id === target.id) {
+    return { previousSession, session: target };
+  }
+
+  const nowIso = new Date().toISOString();
+  const switchTx = getSessionDatabase().transaction(() => {
+    getSessionDatabase()
+      .prepare('UPDATE sessions SET is_current = 0 WHERE session_key = ?')
+      .run(normalizedKey);
+    getSessionDatabase()
+      .prepare(
+        'UPDATE sessions SET is_current = 1, last_active = ? WHERE id = ?',
+      )
+      .run(nowIso, target.id);
+  });
+  switchTx();
+
+  return { previousSession, session: requireSessionById(target.id) };
+}
+
 export function getAnyChatbotId(): string | null {
   const row = queryOne<Pick<Session, 'chatbot_id'>>(
     getSessionDatabase(),
