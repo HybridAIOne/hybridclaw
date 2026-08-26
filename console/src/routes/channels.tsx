@@ -3898,6 +3898,7 @@ export function ChannelsPage() {
         signalAccountConfigured: statusQuery.data?.signal?.accountConfigured,
         signalCliAvailable: statusQuery.data?.signal?.cliAvailable,
         voiceAuthTokenConfigured: statusQuery.data?.voice?.authTokenConfigured,
+        voiceRealtimeConfigured: statusQuery.data?.voice?.realtimeConfigured,
         whatsappLinked: statusQuery.data?.whatsapp?.linked,
         lineLinked: statusQuery.data?.line?.linked,
         emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,

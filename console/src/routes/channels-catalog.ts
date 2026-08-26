@@ -37,6 +37,7 @@ interface ChannelCatalogOptions {
   telegramTokenConfigured?: boolean;
   threemaSecretConfigured?: boolean;
   voiceAuthTokenConfigured?: boolean;
+  voiceRealtimeConfigured?: boolean;
   whatsappLinked?: boolean;
   lineLinked?: boolean;
   emailPasswordConfigured?: boolean;
@@ -378,6 +379,7 @@ function describeVoice(
   options: ChannelCatalogOptions,
 ): ChannelCatalogItem {
   const authTokenConfigured = options.voiceAuthTokenConfigured === true;
+  const realtimeConfigured = options.voiceRealtimeConfigured === true;
   const accountSid = config.voice.twilio.accountSid.trim();
   const fromNumber = config.voice.twilio.fromNumber.trim();
   const active =
@@ -397,7 +399,9 @@ function describeVoice(
   return {
     kind: 'voice',
     label: 'Voice',
-    summary: `Twilio · webhook ${config.voice.webhookPath}`,
+    summary: `Twilio · webhook ${config.voice.webhookPath}${
+      realtimeConfigured ? ' · realtime speech ready (web chat works)' : ''
+    }`,
     statusTone,
     statusLabel:
       statusTone === 'active'

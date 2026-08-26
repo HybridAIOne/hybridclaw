@@ -298,6 +298,41 @@ test('speech model and voice setters persist trimmed values', async () => {
   expect(missingValue.kind).toBe('error');
 });
 
+test('config get/set on the legacy voice.realtime keys redirects to speech.realtime', async () => {
+  setupHome();
+
+  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const setResult = await handleGatewayCommand({
+    sessionId: 'session-legacy-realtime-set',
+    guildId: null,
+    channelId: 'web',
+    args: ['config', 'set', 'voice.realtime.voice', 'cedar'],
+  });
+
+  expect(setResult.kind).toBe('error');
+  expect(setResult.title).toBe('Config Key Moved');
+  expect(setResult.text).toContain('speech.realtime.voice');
+  expect(getRuntimeConfig().speech.realtime.voice).toBe('marin');
+
+  const getResult = await handleGatewayCommand({
+    sessionId: 'session-legacy-realtime-get',
+    guildId: null,
+    channelId: 'web',
+    args: ['config', 'get', 'voice.realtime.provider'],
+  });
+
+  expect(getResult.kind).toBe('error');
+  expect(getResult.title).toBe('Config Key Moved');
+  expect(getResult.text).toContain('speech.realtime.provider');
+});
+
 test('speech command stays restricted to local sessions', async () => {
   setupHome();
 

@@ -415,6 +415,7 @@ describe('ChannelsPage', () => {
         fromNumberConfigured: false,
         authTokenConfigured: false,
         authTokenSource: null,
+        realtimeConfigured: false,
         webhookPath: '/voice',
         maxConcurrentCalls: 8,
       },
@@ -1634,6 +1635,45 @@ describe('ChannelsPage', () => {
     expect(screen.getByLabelText('Twilio account SID')).toBeTruthy();
     expect(screen.getByLabelText('Webhook path')).toBeTruthy();
     expect(screen.getByLabelText('Channel instructions')).toBeTruthy();
+  });
+
+  it('flags realtime speech readiness on the voice catalog card', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    const voiceStatus = {
+      enabled: false,
+      accountSidConfigured: false,
+      fromNumberConfigured: false,
+      authTokenConfigured: false,
+      authTokenSource: null,
+      realtimeConfigured: true,
+      webhookPath: '/voice',
+      maxConcurrentCalls: 8,
+    };
+    useAuthMock.mockReturnValue({
+      token: 'test-token',
+      gatewayStatus: { voice: voiceStatus },
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      voice: voiceStatus,
+    });
+
+    renderChannelsPage();
+
+    const voiceButton = await screen.findByRole('button', { name: /Voice/i });
+    expect(voiceButton.textContent || '').toContain('realtime speech ready');
   });
 
   it('saves channel-specific instructions through the config endpoint', async () => {

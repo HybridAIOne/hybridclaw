@@ -1494,7 +1494,10 @@ export function ChatPage() {
             voiceAvailable={voiceCapability?.available === true}
             voiceDetail={voiceDetail}
             voiceActive={voiceOpen}
-            onVoiceToggle={() => setVoiceOpen((open) => !open)}
+            onVoiceToggle={() => {
+              if (!voiceOpen) void voiceCapabilityQuery.refetch();
+              setVoiceOpen((open) => !open);
+            }}
           />
         </div>
         <Dialog

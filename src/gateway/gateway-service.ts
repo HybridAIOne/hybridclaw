@@ -132,7 +132,10 @@ import {
   SLACK_WEBHOOK_DEFAULT_TARGET,
   slackWebhookSecretNameForTarget,
 } from '../channels/slack-webhook/target.js';
-import { resolveRealtimeConnection } from '../channels/voice/realtime-credentials.js';
+import {
+  isRealtimeCredentialConfigured,
+  resolveRealtimeConnection,
+} from '../channels/voice/realtime-credentials.js';
 import {
   createTwilioOutboundCall,
   normalizeTwilioPhoneNumber,
@@ -1169,6 +1172,20 @@ const DISCORD_CHANNEL_MODE_VALUES = new Set(['off', 'mention', 'free']);
 const DISCORD_GROUP_POLICY_VALUES = new Set(['open', 'allowlist', 'disabled']);
 
 const SPEECH_REALTIME_PROVIDER_VALUES = new Set(['auto', 'hybridai', 'openai']);
+
+/**
+ * voice.realtime.* moved to speech.realtime.* in config v38. A `config set`
+ * on the old path would vanish silently: normalization drops the unknown
+ * voice.realtime block, and the legacy fallback never applies to a full
+ * config draft (speech.realtime is always present there). Redirect instead
+ * of no-opping — the old key circulated in v0.29.x docs and chats.
+ */
+function legacyVoiceRealtimeKeyHint(key: string): string | null {
+  if (key !== 'voice.realtime' && !key.startsWith('voice.realtime.')) {
+    return null;
+  }
+  return key.replace(/^voice\.realtime/, 'speech.realtime');
+}
 
 /**
  * Status lines for the realtime speech engine (`speech.realtime.*`), shared
@@ -4987,6 +5004,9 @@ export async function getGatewayStatus(
       ),
       authTokenConfigured: voiceAuth.authTokenConfigured,
       authTokenSource: voiceAuth.authTokenSource,
+      realtimeConfigured: isRealtimeCredentialConfigured(
+        runtimeConfig.speech.realtime.provider,
+      ),
       webhookPath: runtimeConfig.voice.webhookPath,
       maxConcurrentCalls: runtimeConfig.voice.maxConcurrentCalls,
     },
@@ -13088,6 +13108,13 @@ export async function handleGatewayCommand(
           if (!key || req.args.length > 3) {
             return badCommand('Usage', 'Usage: `config get <key>`');
           }
+          const movedKey = legacyVoiceRealtimeKeyHint(key);
+          if (movedKey) {
+            return badCommand(
+              'Config Key Moved',
+              `\`${key}\` moved to \`${movedKey}\` (config v38). Use \`config get ${movedKey}\` or the \`speech\` command.`,
+            );
+          }
           try {
             const value = getRuntimeConfigValueAtPath(getRuntimeConfig(), key);
             return infoCommand(
@@ -13114,6 +13141,13 @@ export async function handleGatewayCommand(
             return badCommand(
               'Usage',
               'Usage: `config`, `config check`, `config reload`, `config get <key>`, or `config set <key> <value>`',
+            );
+          }
+          const movedKey = legacyVoiceRealtimeKeyHint(key);
+          if (movedKey) {
+            return badCommand(
+              'Config Key Moved',
+              `\`${key}\` moved to \`${movedKey}\` (config v38); writing the old key would have no effect. Use \`config set ${movedKey} ${rawValue}\` or the \`speech\` command.`,
             );
           }
           try {
