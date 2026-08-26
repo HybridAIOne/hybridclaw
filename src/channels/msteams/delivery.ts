@@ -59,6 +59,73 @@ export function buildAdaptiveCardAttachment(
   return CardFactory.adaptiveCard(card);
 }
 
+export interface MSTeamsSessionSwitcherEntry {
+  sessionId: string;
+  label: string;
+  isCurrent: boolean;
+}
+
+const SESSION_SWITCHER_MAX_ACTIONS = 5;
+const SESSION_SWITCHER_TITLE_LIMIT = 60;
+
+function truncateCardTitle(title: string): string {
+  const normalized = title.trim();
+  if (normalized.length <= SESSION_SWITCHER_TITLE_LIMIT) return normalized;
+  return `${normalized.slice(0, SESSION_SWITCHER_TITLE_LIMIT - 1)}…`;
+}
+
+function buildMessageBackAction(params: {
+  title: string;
+  commandText: string;
+}): Record<string, unknown> {
+  return {
+    type: 'Action.Submit',
+    title: truncateCardTitle(params.title),
+    data: {
+      msteams: {
+        type: 'messageBack',
+        text: params.commandText,
+        displayText: params.commandText,
+      },
+    },
+  };
+}
+
+export function buildMSTeamsSessionSwitcherCard(
+  entries: MSTeamsSessionSwitcherEntry[],
+): Attachment {
+  const actions = entries
+    .filter((entry) => !entry.isCurrent)
+    .slice(0, SESSION_SWITCHER_MAX_ACTIONS)
+    .map((entry) =>
+      buildMessageBackAction({
+        title: entry.label,
+        commandText: `/sessions switch ${entry.sessionId}`,
+      }),
+    );
+  actions.push(
+    buildMessageBackAction({
+      title: 'Start a new session',
+      commandText: '/new',
+    }),
+  );
+
+  return buildAdaptiveCardAttachment({
+    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+    type: 'AdaptiveCard',
+    version: '1.4',
+    body: [
+      {
+        type: 'TextBlock',
+        text: 'Switch session',
+        weight: 'Bolder',
+        wrap: true,
+      },
+    ],
+    actions,
+  });
+}
+
 export function formatMSTeamsMarkdown(text: string): string {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   let inCodeFence = false;
