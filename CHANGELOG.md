@@ -9,6 +9,28 @@
   from plugin IDs, npm packages, local paths, and archive URLs. It reports
   failures inline and refreshes the live registry after the gateway reloads the
   plugin runtime.
+- **Realtime speech settings are now visible and editable everywhere**: The
+  new `/speech` command reports the realtime provider — including which
+  backend `auto` resolved to — model, voice, and credential status, and
+  `/speech provider|model|voice <value>` changes a setting from a local
+  session. The admin console gains a Speech settings section, and the voice
+  channel editor gains the missing call-mode selector plus a Realtime speech
+  section (provider, model, voice, greeting, extra instructions). In web
+  chat, hovering the voice button or the live-call capsule shows the active
+  provider, model, and voice, and the channels catalog marks the Voice card
+  "realtime speech ready" when a realtime credential is available even
+  without Twilio.
+
+### Changed
+
+- **Realtime speech config moved out of the phone channel**: The settings
+  formerly at `voice.realtime.*` now live at the top-level
+  `speech.realtime.*`, reflecting that they drive realtime phone calls, web
+  console voice mode, and plugin realtime sessions alike — web voice works
+  with the Twilio channel disabled. Existing configs are migrated
+  automatically on startup, and `config get`/`config set` on the old keys
+  point at the new location instead of silently doing nothing; `voice.*`
+  remains purely the Twilio phone channel.
 - **Multiple sessions per chat with `/new` and `/sessions switch`**: `/new`
   starts a fresh session for the current chat while preserving the previous
   conversation, `/sessions list` shows the sessions recorded for the chat, and

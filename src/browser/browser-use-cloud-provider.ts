@@ -155,14 +155,14 @@ interface ActiveCloudSession {
   accruedCostUsd: number;
 }
 
-const DEFAULT_BASE_URL = 'https://api.browser-use.com/api/v3';
+const DEFAULT_BASE_URL = 'https://api.browser-use.com/api/v4';
 const DEFAULT_API_KEY_REF: SecretRef = {
   source: 'store',
   id: 'BROWSER_USE_API_KEY',
 };
 const DEFAULT_BROWSER_USE_CLOUD_PRICING: BrowserUseCloudPricing = {
-  // Browser Use Cloud documents Pay As You Go browser sessions at $0.06/hour.
-  browserUsdPerMinute: 0.001,
+  // Browser Use Cloud documents browser sessions at $0.02/hour.
+  browserUsdPerMinute: 0.02 / 60,
   actionUsd: 0,
 };
 const MINIMUM_BILLED_MINUTES = 1;

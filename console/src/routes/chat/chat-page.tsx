@@ -359,6 +359,12 @@ export function ChatPage() {
     staleTime: Infinity,
     enabled: chatApiReady,
   });
+  const voiceCapability = voiceCapabilityQuery.data;
+  const voiceDetail = voiceCapability?.available
+    ? [voiceCapability.provider, voiceCapability.model, voiceCapability.voice]
+        .filter(Boolean)
+        .join(' · ')
+    : null;
   const [voiceOpen, setVoiceOpen] = useState(false);
   const handleVoiceTranscript = useCallback(() => {
     // The gateway persists every spoken turn (and consulted turns) as
@@ -1467,6 +1473,7 @@ export function ChatPage() {
               status={voiceSession.status}
               error={voiceSession.error}
               consultActivity={voiceSession.consultActivity}
+              detail={voiceDetail}
               onClose={() => setVoiceOpen(false)}
             />
           ) : null}
@@ -1484,9 +1491,13 @@ export function ChatPage() {
             modelRouting={contextQuery.data?.routing}
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
             initialValue={initialComposerPrompt}
-            voiceAvailable={voiceCapabilityQuery.data?.available === true}
+            voiceAvailable={voiceCapability?.available === true}
+            voiceDetail={voiceDetail}
             voiceActive={voiceOpen}
-            onVoiceToggle={() => setVoiceOpen((open) => !open)}
+            onVoiceToggle={() => {
+              if (!voiceOpen) void voiceCapabilityQuery.refetch();
+              setVoiceOpen((open) => !open);
+            }}
           />
         </div>
         <Dialog

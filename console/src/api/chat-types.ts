@@ -12,6 +12,7 @@ export interface ChatRecentResponse {
 
 export interface ChatVoiceCapabilityResponse {
   available: boolean;
+  provider: 'hybridai' | 'openai' | null;
   model: string;
   voice: string;
 }

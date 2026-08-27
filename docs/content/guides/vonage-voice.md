@@ -53,7 +53,7 @@ that speaks the finished reply.
 
 Realtime mode runs calls as natural speech-to-speech conversations with
 instant barge-in, using the gateway's realtime voice engine — the same
-`voice.realtime.*` settings (provider, model, voice, instructions) and
+`speech.realtime.*` settings (provider, model, voice, instructions) and
 credential (`OPENAI_API_KEY` or the HybridAI provider) that power the Twilio
 realtime mode and the web console voice mode. The Twilio channel itself can
 stay disabled. Answered calls where no realtime credential is configured are

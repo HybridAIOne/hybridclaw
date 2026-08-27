@@ -682,6 +682,48 @@ test('registers voice as a local slash/text command', async () => {
   ).toEqual(['voice', 'call', '+14155551212']);
 });
 
+test('registers speech as a local slash/text command', async () => {
+  const {
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    parseCanonicalSlashCommandArgs,
+    mapCanonicalCommandToGatewayArgs,
+  } = await importCommandRegistry();
+  expect(isRegisteredTextCommandName('speech')).toBe(true);
+  expect(buildTuiSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'speech',
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'subcommand',
+            name: 'set',
+          }),
+        ]),
+      }),
+    ]),
+  );
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'speech',
+      getString: () => null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['speech']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'speech',
+      getString: (name) =>
+        name === 'setting' ? 'provider' : name === 'value' ? 'openai' : null,
+      getSubcommand: () => 'set',
+    }),
+  ).toEqual(['speech', 'provider', 'openai']);
+  expect(mapCanonicalCommandToGatewayArgs(['speech'])).toEqual(['speech']);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['speech', 'voice', 'cedar']),
+  ).toEqual(['speech', 'voice', 'cedar']);
+});
+
 test('parses /concierge profile into gateway args', async () => {
   const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
     await importCommandRegistry();

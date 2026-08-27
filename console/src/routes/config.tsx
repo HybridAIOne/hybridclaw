@@ -61,6 +61,7 @@ const ENUM_OPTIONS: Readonly<Record<string, ReadonlyArray<string>>> = {
     'per-channel-peer',
     'per-account-channel-peer',
   ],
+  'speech.realtime.provider': ['auto', 'hybridai', 'openai'],
   'web.search.provider': ['auto', 'brave', 'perplexity', 'searxng', 'tavily'],
 };
 

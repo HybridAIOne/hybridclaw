@@ -196,7 +196,7 @@ test('browser-use cloud provider launches via stored SecretRef and emits audit p
   );
   const provider = new BrowserUseCloudProvider({
     apiKeyRef: { source: 'store', id: 'BROWSER_USE_API_KEY' },
-    baseUrl: 'https://api.browser-use.test/api/v3',
+    baseUrl: 'https://api.browser-use.test/api/v4',
     browser: {
       timeoutMinutes: 5,
       proxyCountryCode: null,
@@ -215,7 +215,7 @@ test('browser-use cloud provider launches via stored SecretRef and emits audit p
   });
 
   expect(fetchMock).toHaveBeenCalledWith(
-    'https://api.browser-use.test/api/v3/browsers',
+    'https://api.browser-use.test/api/v4/browsers',
     expect.objectContaining({
       method: 'POST',
       headers: expect.objectContaining({
@@ -234,7 +234,7 @@ test('browser-use cloud provider launches via stored SecretRef and emits audit p
 
   const { getSessionUsageTotals } = await import('../src/memory/db.js');
   const totals = getSessionUsageTotals('session-cloud');
-  expect(totals.total_cost_usd).toBeCloseTo(0.001, 6);
+  expect(totals.total_cost_usd).toBeCloseTo(0.02 / 60, 6);
   expect(totals.call_count).toBe(1);
 
   const auditEvents = getRecentStructuredAuditForSession('session-cloud', 10);
@@ -337,7 +337,7 @@ test('browser-use cloud provider records action usage, resolves fill secrets, an
   expect(locator.pressSequentially).toHaveBeenCalledWith('secret-password');
   expect(secretAudit).toHaveBeenCalled();
   expect(fetchMock).toHaveBeenLastCalledWith(
-    'https://api.browser-use.com/api/v3/browsers/cloud-session-2',
+    'https://api.browser-use.com/api/v4/browsers/cloud-session-2',
     expect.objectContaining({
       method: 'PATCH',
       body: JSON.stringify({ action: 'stop' }),
@@ -538,7 +538,7 @@ test('browser-use cloud provider rejects non-websocket CDP URLs and stops the cl
   ).rejects.toThrow(/expected a ws:\/\/ or wss:\/\//u);
   expect(mock.connectOverCDP).not.toHaveBeenCalled();
   expect(fetchMock).toHaveBeenLastCalledWith(
-    'https://api.browser-use.com/api/v3/browsers/cloud-session-bad-cdp',
+    'https://api.browser-use.com/api/v4/browsers/cloud-session-bad-cdp',
     expect.objectContaining({
       method: 'PATCH',
       body: JSON.stringify({ action: 'stop' }),
@@ -590,7 +590,7 @@ test('browser-use cloud provider stops cloud session when CDP connection fails',
     }),
   ).rejects.toThrow(/cdp unavailable/u);
   expect(fetchMock).toHaveBeenLastCalledWith(
-    'https://api.browser-use.com/api/v3/browsers/cloud-session-connect-fail',
+    'https://api.browser-use.com/api/v4/browsers/cloud-session-connect-fail',
     expect.objectContaining({
       method: 'PATCH',
       body: JSON.stringify({ action: 'stop' }),
@@ -707,7 +707,7 @@ test('browser-use cloud provider closes CDP handle and stops cloud session when 
   ).rejects.toThrow(/did not expose a browser context/u);
   expect(mock.browser.close).toHaveBeenCalledTimes(1);
   expect(fetchMock).toHaveBeenLastCalledWith(
-    'https://api.browser-use.com/api/v3/browsers/cloud-session-no-context',
+    'https://api.browser-use.com/api/v4/browsers/cloud-session-no-context',
     expect.objectContaining({
       method: 'PATCH',
       body: JSON.stringify({ action: 'stop' }),

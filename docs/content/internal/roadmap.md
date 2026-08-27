@@ -623,7 +623,6 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 Engineering hygiene that ships alongside P0:
 
 - ⬜ **A1** — End-to-end smoke scenario exercising #1 + #2 + #3 + #4 + #5 + #6 in one run.
-- ✅ **A2** — `CHANGELOG.md` with manifesto-principle tags per entry.
 - ✅ **A3** — Test-fixtures library (agents, clients, threads, secrets).
 - ⬜ **A4** — CI cost-regression gate against the eval suite.
 - ⬜ **A5** — Threat-model document for any feature touching secrets or keys.

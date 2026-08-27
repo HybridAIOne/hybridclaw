@@ -300,6 +300,44 @@ describe('runtime config migration logging', () => {
     );
   });
 
+  it('migrates legacy voice.realtime into speech.realtime on startup', async () => {
+    const homeDir = makeTempHome();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    writeRuntimeConfig(homeDir, (config) => {
+      config.version = 37;
+      delete (config as unknown as { speech?: unknown }).speech;
+      (config.voice as unknown as Record<string, unknown>).realtime = {
+        provider: 'openai',
+        model: 'custom-realtime-model',
+        voice: 'cedar',
+        greeting: 'Hi there!',
+        instructions: 'Be brief.',
+      };
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
+    ) as RuntimeConfig & { voice: { realtime?: unknown } };
+
+    expect(runtimeConfig.getRuntimeConfig().speech.realtime).toEqual({
+      provider: 'openai',
+      model: 'custom-realtime-model',
+      voice: 'cedar',
+      greeting: 'Hi there!',
+      instructions: 'Be brief.',
+    });
+    expect(stored.speech.realtime.provider).toBe('openai');
+    expect(stored.voice.realtime).toBeUndefined();
+    expect(stored.version).toBe(runtimeConfig.CONFIG_VERSION);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[runtime-config] migrated legacy voice.realtime into speech.realtime; realtime speech settings now live at speech.realtime',
+    );
+  });
+
   it('normalizes MCP server transport aliases on startup', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {

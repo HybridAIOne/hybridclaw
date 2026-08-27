@@ -92,7 +92,7 @@ async function createConnection(params?: { apiKey?: string }) {
   vi.doMock('../src/config/config.js', () => ({
     OPENAI_API_KEY: params?.apiKey ?? 'test-key',
     HYBRIDAI_BASE_URL: 'https://hybridai.example',
-    getConfigSnapshot: () => ({ voice: { realtime: REALTIME_CONFIG } }),
+    getConfigSnapshot: () => ({ speech: { realtime: REALTIME_CONFIG } }),
   }));
   vi.doMock('../src/config/runtime-config.js', () => ({
     getRuntimeConfig: () => ({}),
@@ -136,7 +136,7 @@ async function loadWebchatVoiceModule() {
   vi.doMock('../src/config/config.js', () => ({
     OPENAI_API_KEY: 'test-key',
     HYBRIDAI_BASE_URL: 'https://hybridai.example',
-    getConfigSnapshot: () => ({ voice: { realtime: REALTIME_CONFIG } }),
+    getConfigSnapshot: () => ({ speech: { realtime: REALTIME_CONFIG } }),
   }));
   vi.doMock('../src/config/runtime-config.js', () => ({
     getRuntimeConfig: () => ({}),

@@ -2383,6 +2383,30 @@ function VoiceChannelEditor(props: {
         )}
       />
 
+      <FormField
+        name="voice.mode"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Phone call mode</FieldLabel>
+            <NativeSelect
+              value={field.value as string}
+              onChange={field.onChange}
+            >
+              <NativeSelectOption value="relay">
+                relay (turn-based ConversationRelay)
+              </NativeSelectOption>
+              <NativeSelectOption value="realtime">
+                realtime (speech-to-speech)
+              </NativeSelectOption>
+            </NativeSelect>
+            <FieldDescription>
+              How incoming and outgoing phone calls are handled. The web console
+              voice mode always uses the realtime settings below.
+            </FieldDescription>
+          </Field>
+        )}
+      />
+
       <div className="field-grid">
         <FormField
           name="voice.twilio.accountSid"
@@ -2440,6 +2464,11 @@ function VoiceChannelEditor(props: {
           )}
         />
       </div>
+
+      <h4>Relay voice</h4>
+      <p className="muted-copy">
+        Turn-based settings used by phone calls in relay mode.
+      </p>
 
       <div className="field-grid">
         <FormField
@@ -2523,12 +2552,87 @@ function VoiceChannelEditor(props: {
           </Field>
         )}
       />
+
+      <h4>Realtime speech</h4>
+      <p className="muted-copy">
+        Speech-to-speech settings (<code>speech.realtime</code>) shared by
+        realtime phone calls and the voice button in the web chat — the web chat
+        uses them even when this channel is disabled.
+      </p>
+
+      <div className="field-grid">
+        <FormField
+          name="speech.realtime.provider"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Provider</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="auto">
+                  auto (HybridAI when signed in, else OpenAI)
+                </NativeSelectOption>
+                <NativeSelectOption value="hybridai">
+                  hybridai
+                </NativeSelectOption>
+                <NativeSelectOption value="openai">openai</NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
+          name="speech.realtime.model"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Model</FieldLabel>
+              <Input {...field} placeholder="gpt-realtime" />
+            </Field>
+          )}
+        />
+      </div>
+
+      <FormField
+        name="speech.realtime.voice"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Voice</FieldLabel>
+            <Input {...field} placeholder="marin" />
+            <FieldDescription>
+              Speaking voice for realtime sessions, e.g. marin, cedar, or alloy.
+            </FieldDescription>
+          </Field>
+        )}
+      />
+
+      <FormField
+        name="speech.realtime.greeting"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Greeting</FieldLabel>
+            <Textarea rows={3} {...field} />
+          </Field>
+        )}
+      />
+
+      <FormField
+        name="speech.realtime.instructions"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Extra instructions</FieldLabel>
+            <Textarea rows={3} {...field} />
+            <FieldDescription>
+              Appended to the built-in realtime voice instructions.
+            </FieldDescription>
+          </Field>
+        )}
+      />
+
       <ChannelInstructionsField kind="voice" />
 
       <p className="muted-copy">
-        Voice uses Twilio ConversationRelay. Expose the configured webhook path
-        over public HTTPS and WSS so Twilio can reach both the webhook and the
-        relay socket.
+        Phone calls use Twilio. Expose the configured webhook path over public
+        HTTPS and WSS so Twilio can reach both the webhook and the audio socket.
       </p>
     </>
   );
@@ -3794,6 +3898,7 @@ export function ChannelsPage() {
         signalAccountConfigured: statusQuery.data?.signal?.accountConfigured,
         signalCliAvailable: statusQuery.data?.signal?.cliAvailable,
         voiceAuthTokenConfigured: statusQuery.data?.voice?.authTokenConfigured,
+        voiceRealtimeConfigured: statusQuery.data?.voice?.realtimeConfigured,
         whatsappLinked: statusQuery.data?.whatsapp?.linked,
         lineLinked: statusQuery.data?.line?.linked,
         emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,

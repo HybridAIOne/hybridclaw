@@ -1,7 +1,7 @@
 /**
  * Resolves which upstream serves realtime voice sessions.
  *
- * `voice.realtime.provider` selects between OpenAI directly (`openai`, using
+ * `speech.realtime.provider` selects between OpenAI directly (`openai`, using
  * OPENAI_API_KEY) and the HybridAI platform's `/v1/realtime` proxy
  * (`hybridai`, using the signed-in HybridAI credential and
  * HYBRIDAI_BASE_URL). Both speak the same realtime protocol, so everything
@@ -17,11 +17,14 @@
  */
 import { readHybridAIApiKey } from '../../auth/hybridai-auth.js';
 import { HYBRIDAI_BASE_URL, OPENAI_API_KEY } from '../../config/config.js';
-import type { RuntimeVoiceRealtimeProvider } from '../../config/runtime-config.js';
+import type { RuntimeSpeechRealtimeProvider } from '../../config/runtime-config.js';
 
 export const OPENAI_REALTIME_URL = 'wss://api.openai.com/v1/realtime';
 
+export type ResolvedRealtimeProvider = 'hybridai' | 'openai';
+
 export interface RealtimeConnection {
+  provider: ResolvedRealtimeProvider;
   url: string;
   apiKey: string;
 }
@@ -42,7 +45,7 @@ export function hybridaiRealtimeUrl(baseUrl: string): string {
  * live socket rather than to a caller that could recover.
  */
 export function resolveRealtimeConnection(
-  provider: RuntimeVoiceRealtimeProvider,
+  provider: RuntimeSpeechRealtimeProvider,
 ):
   | { connection: RealtimeConnection; error: null }
   | {
@@ -61,6 +64,7 @@ export function resolveRealtimeConnection(
     }
     return {
       connection: {
+        provider: 'hybridai',
         url: hybridaiRealtimeUrl(HYBRIDAI_BASE_URL),
         apiKey: hybridaiApiKey,
       },
@@ -77,11 +81,14 @@ export function resolveRealtimeConnection(
           : 'Realtime voice requires an OpenAI API key (OPENAI_API_KEY).',
     };
   }
-  return { connection: { url: OPENAI_REALTIME_URL, apiKey }, error: null };
+  return {
+    connection: { provider: 'openai', url: OPENAI_REALTIME_URL, apiKey },
+    error: null,
+  };
 }
 
 export function isRealtimeCredentialConfigured(
-  provider: RuntimeVoiceRealtimeProvider,
+  provider: RuntimeSpeechRealtimeProvider,
 ): boolean {
   return resolveRealtimeConnection(provider).connection !== null;
 }

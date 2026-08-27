@@ -381,7 +381,7 @@ authentication on these upgrades — the handler must validate the peer itself
 
 Channel plugins that transport live phone audio can open a realtime
 speech-to-speech session with `api.createRealtimeVoiceSession(...)`. The core
-realtime engine (configured by `voice.realtime.*`) fronts the conversation,
+realtime engine (configured by `speech.realtime.*`) fronts the conversation,
 consults the full agent through the plugin dispatch pipeline (so approvals,
 audit, and session history behave like any other turn), and persists spoken
 turns as voice transcripts. Transport audio is 16-bit LE mono PCM at 8 kHz;
