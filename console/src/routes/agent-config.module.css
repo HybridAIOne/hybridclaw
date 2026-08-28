@@ -1,0 +1,196 @@
+.scopeCard,
+.dangerCard {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel-bg);
+}
+
+.scopeHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.scopeTitle {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.agentId {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
+.modelRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.scopeToolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.scopeToolbar > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.scopeCount {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.scopeGroups {
+  display: grid;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-muted);
+}
+
+.scopeGroup {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+}
+
+.scopeGroupHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.scopeItems {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 2px;
+}
+
+.scopeItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.scopeItem:hover {
+  background: var(--panel-bg);
+}
+
+.scopeItemText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.scopeItemName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.scopeItemText small {
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scopeBadge {
+  font-style: normal;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0 5px;
+}
+
+.overviewGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.overviewCard {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  text-align: left;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel-bg);
+  cursor: pointer;
+}
+
+.overviewCard:hover {
+  border-color: var(--line-strong);
+}
+
+.overviewCard code {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
+.overviewCounts {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.overviewCounts em {
+  font-style: normal;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+}
+
+.dangerCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-color: var(--danger);
+}
+
+.saveBar {
+  position: sticky;
+  bottom: 16px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 12px 12px 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--panel-bg);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 18%);
+  font-weight: 500;
+}

@@ -1325,6 +1325,7 @@ export interface GatewayAdminAgent {
   emptyChatHeader: string | null;
   model: string | null;
   skills: string[] | null;
+  tools: string[] | null;
   chatbotId: string | null;
   enableRag: boolean | null;
   proxy?: GatewayAdminAgentProxyConfig | null;

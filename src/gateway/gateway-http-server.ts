@@ -4967,6 +4967,7 @@ type ApiAdminAgentPayloadBody = {
   name?: unknown;
   model?: unknown;
   skills?: unknown;
+  tools?: unknown;
   chatbotId?: unknown;
   enableRag?: unknown;
   archived?: unknown;
@@ -4985,6 +4986,7 @@ type ApiAdminAgentPayload = {
   name?: string;
   model?: string;
   skills?: string[] | null;
+  tools?: string[] | null;
   chatbotId?: string;
   enableRag?: boolean;
   archived?: boolean;
@@ -5166,6 +5168,7 @@ async function readApiAdminAgentPayload(
     name: typeof body.name === 'string' ? body.name : undefined,
     model: typeof body.model === 'string' ? body.model : undefined,
     skills: normalizeApiAdminAgentSkills(body.skills),
+    tools: normalizeApiAdminAgentStringArray('tools', body.tools),
     chatbotId: typeof body.chatbotId === 'string' ? body.chatbotId : undefined,
     enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
     archived: typeof body.archived === 'boolean' ? body.archived : undefined,
@@ -5212,6 +5215,7 @@ async function handleApiAdminAgentCollectionResource(
           name: payload.name,
           model: payload.model,
           skills: payload.skills,
+          tools: payload.tools,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
           proxy: payload.proxy,
@@ -5251,6 +5255,7 @@ async function handleApiAdminAgentResource(
           name: payload.name,
           model: payload.model,
           skills: payload.skills,
+          tools: payload.tools,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
           archived: payload.archived,

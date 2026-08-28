@@ -36,6 +36,7 @@ function sameAgentConfig(a: AgentConfig | undefined, b: AgentConfig): boolean {
     a.emptyChatHeader === b.emptyChatHeader &&
     sameModelConfig(a.model, b.model) &&
     sameStringArray(a.skills, b.skills) &&
+    sameStringArray(a.tools, b.tools) &&
     a.workspace === b.workspace &&
     a.chatbotId === b.chatbotId &&
     a.enableRag === b.enableRag &&

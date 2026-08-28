@@ -107,6 +107,80 @@ describe('SecretsPage', () => {
     expect(await screen.findByText('OPENAI_API_KEY')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Rotate/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Unset$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Add secret/i })).toBeNull();
+  });
+
+  it('adds an arbitrary secret through the write-only admin endpoint', async () => {
+    fetchAdminSecretsMock.mockResolvedValue(makeResponse());
+    overwriteAdminSecretMock.mockResolvedValue({
+      secret: {
+        name: 'MY_CUSTOM_TOKEN',
+        state: 'set',
+        created_at: '2026-05-17T11:00:00.000Z',
+        last_rotated_at: '2026-05-17T11:00:00.000Z',
+        length: 20,
+        fingerprint: { length: 20, sha256_prefix: 'customfinger' },
+      },
+    });
+
+    renderWithProviders(<SecretsPage />);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /^Add secret$/i }),
+    );
+
+    const nameInput = (await screen.findByLabelText(
+      'Name',
+    )) as HTMLInputElement;
+    const valueInput = screen.getByLabelText('Value') as HTMLInputElement;
+    const dialog = nameInput.closest('[role="dialog"]');
+    expect(dialog).toBeTruthy();
+    expect(nameInput.pattern).toBe('[A-Z][A-Z0-9_]*');
+    expect(valueInput.type).toBe('password');
+
+    fireEvent.change(nameInput, { target: { value: 'MY_CUSTOM_TOKEN' } });
+    fireEvent.change(valueInput, { target: { value: 'custom-super-secret' } });
+    fireEvent.click(
+      within(dialog as HTMLElement).getByRole('button', {
+        name: /^Add secret$/i,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(overwriteAdminSecretMock).toHaveBeenCalledWith(
+        'test-token',
+        'MY_CUSTOM_TOKEN',
+        'custom-super-secret',
+      ),
+    );
+    await waitFor(() => expect(screen.queryByLabelText('Value')).toBeNull());
+    expect(document.body.textContent ?? '').not.toMatch(/custom-super-secret/);
+  });
+
+  it('does not overwrite an existing secret through the add dialog', async () => {
+    fetchAdminSecretsMock.mockResolvedValue(makeResponse());
+
+    renderWithProviders(<SecretsPage />);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /^Add secret$/i }),
+    );
+    fireEvent.change(await screen.findByLabelText('Name'), {
+      target: { value: 'OPENAI_API_KEY' },
+    });
+    fireEvent.change(screen.getByLabelText('Value'), {
+      target: { value: 'replacement-secret' },
+    });
+
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: /^Add secret$/i }),
+    );
+
+    expect(overwriteAdminSecretMock).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText(/already exists\. Use Rotate to replace it\./i),
+    ).toBeTruthy();
   });
 
   it('shows an unauthorized empty state when the list endpoint returns 403', async () => {

@@ -872,20 +872,25 @@ export function ChatPage() {
       const cmd = buildApprovalCommand(action, approvalId);
       if (!cmd) return;
       setApprovalBusy(true);
+      setResolvedApprovals((prev) => {
+        const next = new Map(prev);
+        next.set(approvalId, action);
+        return next;
+      });
+      let sent = false;
       try {
         jumpToBottom();
-        const sent = await stream.sendMessage(cmd, [], { hideUser: true });
-        // Mark it handled only once the send succeeds — a failed send (e.g.
-        // another run already in flight) leaves it unresolved so the user
-        // can retry.
-        if (sent) {
+        sent = await stream.sendMessage(cmd, [], { hideUser: true });
+      } finally {
+        // A send rejected before it starts (for example, because another run
+        // is active) restores the pending card so the user can retry.
+        if (!sent) {
           setResolvedApprovals((prev) => {
             const next = new Map(prev);
-            next.set(approvalId, action);
+            if (next.get(approvalId) === action) next.delete(approvalId);
             return next;
           });
         }
-      } finally {
         setApprovalBusy(false);
       }
     },

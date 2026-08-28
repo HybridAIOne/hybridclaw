@@ -1187,6 +1187,7 @@ export interface AdminAgent {
   emptyChatHeader?: string | null;
   model: string | null;
   skills: string[] | null;
+  tools: string[] | null;
   chatbotId: string | null;
   enableRag: boolean | null;
   proxy?: AdminAgentProxyConfig | null;
@@ -1201,6 +1202,17 @@ export interface AdminAgent {
 
 export interface AdminAgentsResponse {
   agents: AdminAgent[];
+}
+
+/** Editable agent fields shared by the create and update admin endpoints. */
+export interface AdminAgentSettingsPayload {
+  name?: string;
+  model?: string;
+  workspace?: string;
+  /** `null` clears the allowlist so every skill stays available. */
+  skills?: string[] | null;
+  /** `null` clears the allowlist so every tool stays available. */
+  tools?: string[] | null;
 }
 
 export interface AdminHybridAIBot {

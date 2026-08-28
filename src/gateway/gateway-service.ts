@@ -1726,6 +1726,7 @@ function mapGatewayAdminAgent(
     emptyChatHeader: resolved.emptyChatHeader || null,
     model: resolveAgentModel(resolved) || null,
     skills: Array.isArray(resolved.skills) ? [...resolved.skills] : null,
+    tools: Array.isArray(resolved.tools) ? [...resolved.tools] : null,
     chatbotId: resolved.chatbotId || null,
     enableRag:
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
@@ -5470,6 +5471,7 @@ export function createGatewayAdminAgent(params: {
   name?: string | null;
   model?: string | null;
   skills?: string[] | null;
+  tools?: string[] | null;
   chatbotId?: string | null;
   enableRag?: boolean | null;
   proxy?: AgentConfig['proxy'] | null;
@@ -5485,6 +5487,9 @@ export function createGatewayAdminAgent(params: {
     ...(params.model?.trim() ? { model: params.model.trim() } : {}),
     ...(params.skills !== undefined
       ? { skills: params.skills == null ? undefined : [...params.skills] }
+      : {}),
+    ...(params.tools !== undefined
+      ? { tools: params.tools == null ? undefined : [...params.tools] }
       : {}),
     ...(params.chatbotId?.trim() ? { chatbotId: params.chatbotId.trim() } : {}),
     ...(typeof params.enableRag === 'boolean'
@@ -5505,6 +5510,7 @@ export function updateGatewayAdminAgent(
     name?: string | null;
     model?: string | null;
     skills?: string[] | null;
+    tools?: string[] | null;
     chatbotId?: string | null;
     enableRag?: boolean | null;
     proxy?: AgentConfig['proxy'] | null;
@@ -5533,6 +5539,9 @@ export function updateGatewayAdminAgent(
       : {}),
     ...(params.skills !== undefined
       ? { skills: params.skills == null ? undefined : [...params.skills] }
+      : {}),
+    ...(params.tools !== undefined
+      ? { tools: params.tools == null ? undefined : [...params.tools] }
       : {}),
     ...(params.chatbotId !== undefined
       ? { chatbotId: params.chatbotId?.trim() || undefined }

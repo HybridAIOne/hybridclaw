@@ -2696,7 +2696,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
           icon: 'chat',
         },
         {
-          href: '/agents',
+          href: '/admin/agents',
           label: 'Agents',
           icon: 'agents',
         },

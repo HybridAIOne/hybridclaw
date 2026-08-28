@@ -29,7 +29,7 @@ import {
   type PromptRuntimeInfo,
   type SkillPromptMode,
 } from './prompt-hooks.js';
-import { mergeBlockedToolNames } from './tool-policy.js';
+import { mergeAllowedToolNames, mergeBlockedToolNames } from './tool-policy.js';
 
 interface HistoryMessage {
   role: string;
@@ -157,6 +157,10 @@ export function buildConversationContext(params: {
     scheduleCloudMemorySync(agentId);
   }
   const mergedBlockedTools = mergeBlockedToolNames({ explicit: blockedTools });
+  const mergedAllowedTools = mergeAllowedToolNames({
+    agentId,
+    explicit: allowedTools,
+  });
   const skills = loadSkills(
     agentId,
     normalizeSkillConfigChannelKind(runtimeInfo?.channel?.kind),
@@ -181,7 +185,7 @@ export function buildConversationContext(params: {
     omitPromptParts,
     extraSafetyText,
     runtimeInfo,
-    allowedTools,
+    allowedTools: mergedAllowedTools,
     blockedTools: mergedBlockedTools,
   });
 

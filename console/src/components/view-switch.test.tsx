@@ -10,15 +10,32 @@ const mockRouterState = vi.hoisted(() => ({
 type MockLinkProps = {
   to: string;
   className?: string;
+  activeOptions?: { exact?: boolean };
   children: ReactNode;
 };
 
+// Mirrors the router's own active marking, including the fuzzy prefix match it
+// applies by default, so the nav's active resolution stays the only source.
+function isRouterActive(to: string, exact: boolean | undefined): boolean {
+  const { pathname } = mockRouterState;
+  if (exact) return pathname === to;
+  return pathname === to || pathname.startsWith(`${to}/`);
+}
+
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ to, className, children }: MockLinkProps) => (
-    <a data-router-link="true" href={to} className={className}>
-      {children}
-    </a>
-  ),
+  Link: ({ to, className, activeOptions, children }: MockLinkProps) => {
+    const active = isRouterActive(to, activeOptions?.exact);
+    return (
+      <a
+        data-router-link="true"
+        href={to}
+        className={active ? `${className} active` : className}
+        aria-current={active ? 'page' : undefined}
+      >
+        {children}
+      </a>
+    );
+  },
   useRouterState: (params: {
     select: (state: { location: { pathname: string } }) => string;
   }) =>
@@ -42,7 +59,7 @@ describe('ViewSwitchNav', () => {
     );
 
     const agentsLink = screen.getByRole('link', { name: 'Agents' });
-    expect(agentsLink.getAttribute('href')).toBe('/agents');
+    expect(agentsLink.getAttribute('href')).toBe('/admin/agents');
     expect(agentsLink.dataset.routerLink).toBe('true');
 
     const docsLink = screen.getByRole('link', { name: 'Docs' });
@@ -51,13 +68,17 @@ describe('ViewSwitchNav', () => {
   });
 
   it('marks the agents SPA view active by pathname', () => {
-    mockRouterState.pathname = '/agents';
+    mockRouterState.pathname = '/admin/agents';
 
     render(<ViewSwitchNav />);
 
     const agentsItem = screen.getByText('Agents').closest('.view-switch-link');
     expect(agentsItem?.getAttribute('aria-current')).toBe('page');
     expect(agentsItem?.className).toContain('active');
+
+    const adminItem = screen.getByText('Admin').closest('.view-switch-link');
+    expect(adminItem?.getAttribute('aria-current')).toBeNull();
+    expect(adminItem?.className).not.toContain('active');
   });
 
   it('renders custom local and external navigation items', () => {
