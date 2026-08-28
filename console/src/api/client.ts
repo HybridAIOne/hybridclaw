@@ -13,6 +13,7 @@ import type {
   AdminAgentMarkdownRevisionResponse,
   AdminAgentProxyConfig,
   AdminAgentScoreboardResponse,
+  AdminAgentSettingsPayload,
   AdminAgentsResponse,
   AdminApiTokenCreatePayload,
   AdminApiTokenCreateResponse,
@@ -799,7 +800,7 @@ export async function fetchAdminHybridAIBots(
 export async function updateAdminAgent(
   token: string,
   agentId: string,
-  payload: {
+  payload: AdminAgentSettingsPayload & {
     proxy?: AdminAgentProxyConfig | null;
     archived?: boolean;
   },
@@ -813,6 +814,34 @@ export async function updateAdminAgent(
     },
   );
   return response.agent;
+}
+
+export async function createAdminAgent(
+  token: string,
+  payload: AdminAgentSettingsPayload & { id: string },
+): Promise<AdminAgent> {
+  const response = await requestJson<{ agent: AdminAgent }>(
+    '/api/admin/agents',
+    {
+      token,
+      method: 'POST',
+      body: payload,
+    },
+  );
+  return response.agent;
+}
+
+export function deleteAdminAgent(
+  token: string,
+  agentId: string,
+): Promise<{ deleted: boolean; agentId: string }> {
+  return requestJson<{ deleted: boolean; agentId: string }>(
+    `/api/admin/agents/${encodeURIComponent(agentId)}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
 }
 
 export function fetchAdminTeamStructure(
@@ -1212,11 +1241,23 @@ export function setRuntimeSecret(
   ]);
 }
 
+export function installOfficialPlugin(
+  token: string,
+  pluginId: string,
+): Promise<AdminCommandResult> {
+  return runAdminCommand(token, 'web-admin-plugins', [
+    'plugin',
+    'install-official',
+    pluginId,
+    '--yes',
+  ]);
+}
+
 export function installPlugin(
   token: string,
   source: string,
 ): Promise<AdminCommandResult> {
-  return runAdminCommand(token, 'web-admin-channels', [
+  return runAdminCommand(token, 'web-admin-plugins', [
     'plugin',
     'install',
     source,

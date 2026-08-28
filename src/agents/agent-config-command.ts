@@ -192,6 +192,11 @@ function applyAgentConfigFieldUpdates(
     if (skills !== undefined) next.skills = skills;
     else delete next.skills;
   }
+  if (Object.hasOwn(updates, 'tools')) {
+    const tools = normalizeOptionalStringArrayField('tools', updates.tools);
+    if (tools !== undefined) next.tools = tools;
+    else delete next.tools;
+  }
   if (Object.hasOwn(updates, 'workspace')) {
     const workspace = normalizeOptionalStringField(
       'workspace',

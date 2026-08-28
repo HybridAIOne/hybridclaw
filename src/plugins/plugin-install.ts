@@ -1,3 +1,7 @@
+/**
+ * Plugin installation boundary — resolves sources, stages plugin trees, and
+ * installs declared dependencies. Trust decisions stay with its callers.
+ */
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -297,8 +301,26 @@ export function listInstallablePlugins(options?: {
   cwd?: string;
 }): PluginAvailableSummary[] {
   const cwd = options?.cwd || process.cwd();
+  return listInstallablePluginsFromRoots(listPluginCatalogRoots(cwd));
+}
+
+export function listBundledInstallablePlugins(): PluginAvailableSummary[] {
+  return listInstallablePluginsFromRoots([
+    {
+      dir: path.join(PACKAGE_ROOT, 'plugins'),
+      source: 'bundled',
+    },
+  ]);
+}
+
+function listInstallablePluginsFromRoots(
+  roots: Array<{
+    dir: string;
+    source: PluginAvailableSummary['source'];
+  }>,
+): PluginAvailableSummary[] {
   const discovered = new Map<string, PluginAvailableSummary>();
-  for (const root of listPluginCatalogRoots(cwd)) {
+  for (const root of roots) {
     if (!fs.existsSync(root.dir)) continue;
     const entries = fs
       .readdirSync(root.dir, { withFileTypes: true })

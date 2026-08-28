@@ -95,7 +95,7 @@ describe('config reload integration', () => {
 
     expect(cfg.ui.navigation).toEqual([
       { href: '/chat', icon: 'chat', label: 'Chat' },
-      { href: '/agents', icon: 'agents', label: 'Agents' },
+      { href: '/admin/agents', icon: 'agents', label: 'Agents' },
       { href: '/admin', icon: 'admin', label: 'Admin' },
       {
         href: 'https://github.com/HybridAIOne/hybridclaw',
@@ -142,6 +142,20 @@ describe('config reload integration', () => {
         label: 'Cloud',
       },
       { href: 'https://example.com/', label: 'Bad image' },
+    ]);
+  });
+
+  it('rewrites stored navigation still pointing at the legacy agents path', () => {
+    writeConfig({
+      ui: {
+        navigation: [{ label: 'Agents', href: '/agents', icon: 'agents' }],
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    expect(cfg.ui.navigation).toEqual([
+      { href: '/admin/agents', icon: 'agents', label: 'Agents' },
     ]);
   });
 

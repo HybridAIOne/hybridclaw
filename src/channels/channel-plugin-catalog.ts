@@ -1,3 +1,7 @@
+/**
+ * Official channel-plugin catalog — the source of truth for install-on-demand
+ * transports. Entries are curated code provenance, not runtime availability.
+ */
 import type { ChannelKind } from './channel.js';
 import { hasChannelTransport } from './channel-transport.js';
 
@@ -7,30 +11,51 @@ export interface ChannelPluginCatalogEntry {
   installSource: string;
 }
 
-export interface ChannelPluginStatus extends ChannelPluginCatalogEntry {
+export interface OfficialChannelPluginCatalogEntry
+  extends ChannelPluginCatalogEntry {
+  name: string;
+  description: string;
+}
+
+export interface ChannelPluginStatus {
+  channel: ChannelKind;
+  pluginId: string;
+  installSource: string;
   transportAvailable: boolean;
 }
 
+// Official web-install allowlist (owner call, 2026-08-25): third-party catalog
+// discovery and publisher verification are deliberately deferred.
 const CHANNEL_PLUGIN_CATALOG = {
   line: {
     pluginId: 'line',
+    name: 'LINE',
+    description: 'Official LINE personal-account transport.',
     installSource: 'line',
   },
   whatsapp: {
     pluginId: 'whatsapp',
+    name: 'WhatsApp',
+    description: 'Official WhatsApp transport maintained by HybridAIOne.',
     installSource:
       'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
   },
 } as const satisfies Partial<
-  Record<ChannelKind, Omit<ChannelPluginCatalogEntry, 'channel'>>
+  Record<ChannelKind, Omit<OfficialChannelPluginCatalogEntry, 'channel'>>
 >;
 
 export function getChannelPluginCatalogEntry(
   channel: ChannelKind,
 ): ChannelPluginCatalogEntry | undefined {
-  const entry: Omit<ChannelPluginCatalogEntry, 'channel'> | undefined =
+  const entry =
     CHANNEL_PLUGIN_CATALOG[channel as keyof typeof CHANNEL_PLUGIN_CATALOG];
-  return entry ? { channel, ...entry } : undefined;
+  return entry
+    ? {
+        channel,
+        pluginId: entry.pluginId,
+        installSource: entry.installSource,
+      }
+    : undefined;
 }
 
 export function getChannelPluginCatalogEntryByPluginId(
@@ -44,6 +69,17 @@ export function getChannelPluginCatalogEntryByPluginId(
   return undefined;
 }
 
+export function getOfficialChannelPluginCatalogEntries(): OfficialChannelPluginCatalogEntry[] {
+  return Object.keys(CHANNEL_PLUGIN_CATALOG).map((channel) => {
+    const entry =
+      CHANNEL_PLUGIN_CATALOG[channel as keyof typeof CHANNEL_PLUGIN_CATALOG];
+    if (!entry) {
+      throw new Error(`Invalid channel plugin catalog entry: ${channel}`);
+    }
+    return { channel: channel as ChannelKind, ...entry };
+  });
+}
+
 export function getChannelPluginInstallCommand(channel: ChannelKind): string {
   const entry = getChannelPluginCatalogEntry(channel);
   if (!entry) {
@@ -55,15 +91,12 @@ export function getChannelPluginInstallCommand(channel: ChannelKind): string {
 }
 
 export function getChannelPluginStatuses(): ChannelPluginStatus[] {
-  return Object.keys(CHANNEL_PLUGIN_CATALOG).map((channel) => {
-    const entry = getChannelPluginCatalogEntry(channel as ChannelKind);
-    if (!entry)
-      throw new Error(`Invalid channel plugin catalog entry: ${channel}`);
-    return {
-      ...entry,
-      transportAvailable: hasChannelTransport(entry.channel),
-    };
-  });
+  return getOfficialChannelPluginCatalogEntries().map((entry) => ({
+    channel: entry.channel,
+    pluginId: entry.pluginId,
+    installSource: entry.installSource,
+    transportAvailable: hasChannelTransport(entry.channel),
+  }));
 }
 
 export interface ChannelPluginAvailabilityChange {

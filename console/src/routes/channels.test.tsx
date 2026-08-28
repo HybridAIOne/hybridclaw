@@ -13,8 +13,8 @@ const fetchAdminAgentsMock = vi.fn<() => Promise<AdminAgent[]>>();
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchEmailConfigMock = vi.fn();
 const fetchSignalLinkMock = vi.fn();
-const installPluginMock =
-  vi.fn<(token: string, source: string) => Promise<AdminCommandResult>>();
+const installOfficialPluginMock =
+  vi.fn<(token: string, pluginId: string) => Promise<AdminCommandResult>>();
 const saveConfigMock = vi.fn();
 const saveDiscordWebhookTargetMock = vi.fn();
 const saveSlackWebhookTargetMock = vi.fn();
@@ -28,8 +28,8 @@ vi.mock('../api/client', () => ({
   fetchConfig: () => fetchConfigMock(),
   fetchEmailConfig: (...args: unknown[]) => fetchEmailConfigMock(...args),
   fetchSignalLink: (...args: unknown[]) => fetchSignalLinkMock(...args),
-  installPlugin: (token: string, source: string) =>
-    installPluginMock(token, source),
+  installOfficialPlugin: (token: string, pluginId: string) =>
+    installOfficialPluginMock(token, pluginId),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
   saveDiscordWebhookTarget: (...args: unknown[]) =>
     saveDiscordWebhookTargetMock(...args),
@@ -210,6 +210,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
     voice: {
       enabled: false,
       provider: 'twilio',
+      mode: 'relay',
       twilio: {
         accountSid: '',
         authToken: '',
@@ -225,6 +226,15 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       },
       webhookPath: '/voice',
       maxConcurrentCalls: 8,
+    },
+    speech: {
+      realtime: {
+        provider: 'auto',
+        model: 'gpt-realtime',
+        voice: 'marin',
+        greeting: 'Hello! How can I help you today?',
+        instructions: '',
+      },
     },
     whatsapp: {
       dmPolicy: 'pairing',
@@ -318,6 +328,7 @@ function makeAgent(overrides: Partial<AdminAgent> = {}): AdminAgent {
     name: 'Main',
     model: 'gpt-5',
     skills: [],
+    tools: null,
     chatbotId: null,
     enableRag: true,
     proxy: null,
@@ -342,7 +353,7 @@ describe('ChannelsPage', () => {
     fetchConfigMock.mockReset();
     fetchEmailConfigMock.mockReset();
     fetchSignalLinkMock.mockReset();
-    installPluginMock.mockReset();
+    installOfficialPluginMock.mockReset();
     saveConfigMock.mockReset();
     saveDiscordWebhookTargetMock.mockReset();
     saveSlackWebhookTargetMock.mockReset();
@@ -351,7 +362,7 @@ describe('ChannelsPage', () => {
     validateTokenMock.mockReset();
     useAuthMock.mockReset();
     fetchAdminAgentsMock.mockResolvedValue([]);
-    installPluginMock.mockResolvedValue({
+    installOfficialPluginMock.mockResolvedValue({
       kind: 'info',
       title: 'Plugin Installed',
       text: 'Installed plugin `whatsapp`.',
@@ -405,6 +416,7 @@ describe('ChannelsPage', () => {
         fromNumberConfigured: false,
         authTokenConfigured: false,
         authTokenSource: null,
+        realtimeConfigured: false,
         webhookPath: '/voice',
         maxConcurrentCalls: 8,
       },
@@ -930,9 +942,9 @@ describe('ChannelsPage', () => {
     );
 
     await waitFor(() => {
-      expect(installPluginMock).toHaveBeenCalledWith(
+      expect(installOfficialPluginMock).toHaveBeenCalledWith(
         'test-token',
-        'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+        'whatsapp',
       );
     });
   });
@@ -975,9 +987,9 @@ describe('ChannelsPage', () => {
     );
 
     await waitFor(() => {
-      expect(installPluginMock).toHaveBeenCalledWith(
+      expect(installOfficialPluginMock).toHaveBeenCalledWith(
         'test-token',
-        '@hybridaione/hybridclaw-line',
+        'line',
       );
     });
   });
@@ -1624,6 +1636,45 @@ describe('ChannelsPage', () => {
     expect(screen.getByLabelText('Twilio account SID')).toBeTruthy();
     expect(screen.getByLabelText('Webhook path')).toBeTruthy();
     expect(screen.getByLabelText('Channel instructions')).toBeTruthy();
+  });
+
+  it('flags realtime speech readiness on the voice catalog card', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    const voiceStatus = {
+      enabled: false,
+      accountSidConfigured: false,
+      fromNumberConfigured: false,
+      authTokenConfigured: false,
+      authTokenSource: null,
+      realtimeConfigured: true,
+      webhookPath: '/voice',
+      maxConcurrentCalls: 8,
+    };
+    useAuthMock.mockReturnValue({
+      token: 'test-token',
+      gatewayStatus: { voice: voiceStatus },
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      voice: voiceStatus,
+    });
+
+    renderChannelsPage();
+
+    const voiceButton = await screen.findByRole('button', { name: /Voice/i });
+    expect(voiceButton.textContent || '').toContain('realtime speech ready');
   });
 
   it('saves channel-specific instructions through the config endpoint', async () => {

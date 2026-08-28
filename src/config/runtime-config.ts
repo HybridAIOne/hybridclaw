@@ -150,7 +150,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 37;
+export const CONFIG_VERSION = 38;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.6-luna';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -636,7 +636,7 @@ export interface RuntimeLineConfig {
 
 export type RuntimeVoiceProvider = 'twilio';
 export type RuntimeVoiceMode = 'realtime' | 'relay';
-export type RuntimeVoiceRealtimeProvider = 'auto' | 'hybridai' | 'openai';
+export type RuntimeSpeechRealtimeProvider = 'auto' | 'hybridai' | 'openai';
 export type RuntimeVoiceRelayTtsProvider = 'amazon' | 'default' | 'google';
 export type RuntimeVoiceRelayTranscriptionProvider =
   | 'deepgram'
@@ -658,23 +658,32 @@ export interface RuntimeVoiceRelayConfig {
   welcomeGreeting: string;
 }
 
-export interface RuntimeVoiceRealtimeConfig {
-  provider: RuntimeVoiceRealtimeProvider;
-  model: string;
-  voice: string;
-  greeting: string;
-  instructions: string;
-}
-
 export interface RuntimeVoiceConfig {
   enabled: boolean;
   provider: RuntimeVoiceProvider;
   mode: RuntimeVoiceMode;
   twilio: RuntimeVoiceTwilioConfig;
   relay: RuntimeVoiceRelayConfig;
-  realtime: RuntimeVoiceRealtimeConfig;
   webhookPath: string;
   maxConcurrentCalls: number;
+}
+
+/**
+ * Speech settings shared across surfaces, not tied to the `voice` phone
+ * channel: `speech.realtime` drives realtime phone calls, web console voice
+ * mode, and plugin realtime sessions alike. Future speech-output settings
+ * (TTS, dictation) belong here too.
+ */
+export interface RuntimeSpeechRealtimeConfig {
+  provider: RuntimeSpeechRealtimeProvider;
+  model: string;
+  voice: string;
+  greeting: string;
+  instructions: string;
+}
+
+export interface RuntimeSpeechConfig {
+  realtime: RuntimeSpeechRealtimeConfig;
 }
 
 export interface RuntimeSlackConfig {
@@ -1113,6 +1122,7 @@ export interface RuntimeConfig {
   whatsapp: RuntimeWhatsAppConfig;
   line: RuntimeLineConfig;
   voice: RuntimeVoiceConfig;
+  speech: RuntimeSpeechConfig;
   imessage: RuntimeIMessageConfig;
   email: RuntimeEmailConfig;
   hybridai: {
@@ -1455,7 +1465,7 @@ const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
 const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 const DEFAULT_UI_NAVIGATION_ITEMS: ReadonlyArray<RuntimeUiNavigationItem> = [
   { href: '/chat', label: 'Chat', icon: 'chat' },
-  { href: '/agents', label: 'Agents', icon: 'agents' },
+  { href: '/admin/agents', label: 'Agents', icon: 'agents' },
   { href: '/admin', label: 'Admin', icon: 'admin' },
   {
     href: 'https://github.com/HybridAIOne/hybridclaw',
@@ -1779,6 +1789,10 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       interruptible: true,
       welcomeGreeting: 'Hello! How can I help you today?',
     },
+    webhookPath: '/voice',
+    maxConcurrentCalls: 8,
+  },
+  speech: {
     realtime: {
       provider: 'auto',
       model: 'gpt-realtime',
@@ -1786,8 +1800,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       greeting: 'Hello! How can I help you today?',
       instructions: '',
     },
-    webhookPath: '/voice',
-    maxConcurrentCalls: 8,
   },
   imessage: {
     enabled: false,
@@ -2979,6 +2991,11 @@ function normalizeAgentConfig(
     : fallback?.skills
       ? [...fallback.skills]
       : undefined;
+  const tools = Object.hasOwn(value, 'tools')
+    ? normalizeOptionalTrimmedUniqueStringArray(value.tools)
+    : fallback?.tools
+      ? [...fallback.tools]
+      : undefined;
   const owner = normalizeString(value.owner, fallback?.owner ?? '', {
     allowEmpty: true,
   });
@@ -3035,6 +3052,7 @@ function normalizeAgentConfig(
     ...buildOptionalAgentPresentation(displayName, imageAsset, emptyChatHeader),
     ...(model ? { model } : {}),
     ...(skills !== undefined ? { skills } : {}),
+    ...(tools !== undefined ? { tools } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
@@ -3622,10 +3640,10 @@ function normalizeVoiceMode(
   return fallback;
 }
 
-function normalizeVoiceRealtimeProvider(
+function normalizeSpeechRealtimeProvider(
   value: unknown,
-  fallback: RuntimeVoiceRealtimeProvider,
-): RuntimeVoiceRealtimeProvider {
+  fallback: RuntimeSpeechRealtimeProvider,
+): RuntimeSpeechRealtimeProvider {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
   if (
@@ -4036,7 +4054,6 @@ function normalizeVoiceConfig(
   const raw = isRecord(value) ? value : {};
   const rawTwilio = isRecord(raw.twilio) ? raw.twilio : {};
   const rawRelay = isRecord(raw.relay) ? raw.relay : {};
-  const rawRealtime = isRecord(raw.realtime) ? raw.realtime : {};
   return {
     enabled: normalizeBoolean(raw.enabled, fallback.enabled),
     provider: normalizeVoiceProvider(raw.provider, fallback.provider),
@@ -4083,8 +4100,27 @@ function normalizeVoiceConfig(
         { allowEmpty: false },
       ),
     },
+    webhookPath: normalizeApiPath(raw.webhookPath, fallback.webhookPath),
+    maxConcurrentCalls: normalizeInteger(
+      raw.maxConcurrentCalls,
+      fallback.maxConcurrentCalls,
+      {
+        min: 1,
+        max: 128,
+      },
+    ),
+  };
+}
+
+function normalizeSpeechConfig(
+  value: unknown,
+  fallback: RuntimeSpeechConfig,
+): RuntimeSpeechConfig {
+  const raw = isRecord(value) ? value : {};
+  const rawRealtime = isRecord(raw.realtime) ? raw.realtime : {};
+  return {
     realtime: {
-      provider: normalizeVoiceRealtimeProvider(
+      provider: normalizeSpeechRealtimeProvider(
         rawRealtime.provider,
         fallback.realtime.provider,
       ),
@@ -4105,15 +4141,6 @@ function normalizeVoiceConfig(
         { allowEmpty: true },
       ),
     },
-    webhookPath: normalizeApiPath(raw.webhookPath, fallback.webhookPath),
-    maxConcurrentCalls: normalizeInteger(
-      raw.maxConcurrentCalls,
-      fallback.maxConcurrentCalls,
-      {
-        min: 1,
-        max: 128,
-      },
-    ),
   };
 }
 
@@ -5241,7 +5268,9 @@ function normalizeUiNavigationItems(
     const href = normalizeUiNavigationHref(rawItem.href);
     if (!label || !href) continue;
     const item: RuntimeUiNavigationItem = {
-      href,
+      // `/agents` only ever redirected into the admin console, so stored
+      // navigation pointing at it never matched the view it lands on.
+      href: href === '/agents' ? '/admin/agents' : href,
       label: label.slice(0, MAX_UI_NAVIGATION_LABEL_LENGTH),
     };
     const icon = normalizeUiNavigationIcon(rawItem.icon);
@@ -7053,6 +7082,15 @@ function normalizeRuntimeConfig(
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
   const rawLine = isRecord(raw.line) ? raw.line : {};
   const rawVoice = isRecord(raw.voice) ? raw.voice : {};
+  // Legacy key (pre-v38): speech.realtime lived at voice.realtime. Honor the
+  // old location when the new one is absent so existing configs keep working;
+  // migrateConfigSchemaOnStartup rewrites the file to the new shape.
+  const rawSpeechRecord = isRecord(raw.speech) ? raw.speech : {};
+  const legacyVoiceRealtime = (rawVoice as Record<string, unknown>).realtime;
+  const rawSpeech =
+    !isRecord(rawSpeechRecord.realtime) && isRecord(legacyVoiceRealtime)
+      ? { ...rawSpeechRecord, realtime: legacyVoiceRealtime }
+      : rawSpeechRecord;
   const rawIMessage = isRecord(raw.imessage) ? raw.imessage : {};
   const rawEmail = isRecord(raw.email) ? raw.email : {};
   const rawHybridAi = isRecord(raw.hybridai) ? raw.hybridai : {};
@@ -7847,6 +7885,7 @@ function normalizeRuntimeConfig(
     voice: normalizeVoiceConfig(rawVoice, DEFAULT_RUNTIME_CONFIG.voice, {
       authToken: resolvedVoiceAuthToken,
     }),
+    speech: normalizeSpeechConfig(rawSpeech, DEFAULT_RUNTIME_CONFIG.speech),
     imessage: normalizeIMessageConfig(
       rawIMessage,
       DEFAULT_RUNTIME_CONFIG.imessage,
@@ -9196,6 +9235,15 @@ function migrateConfigSchemaOnStartup(): void {
     if (legacyAdditionalMountBinds.binds.length > 0) {
       console.warn(
         '[runtime-config] migrated legacy container.additionalMounts into container.binds; update config.json to use container.binds before additionalMounts is removed',
+      );
+    }
+    if (
+      isRecord(parsedRecord.voice) &&
+      isRecord(parsedRecord.voice.realtime) &&
+      !(isRecord(parsedRecord.speech) && isRecord(parsedRecord.speech.realtime))
+    ) {
+      console.warn(
+        '[runtime-config] migrated legacy voice.realtime into speech.realtime; realtime speech settings now live at speech.realtime',
       );
     }
     for (const warning of legacyAdditionalMountBinds.warnings) {

@@ -12,6 +12,7 @@ const {
   checkPluginMock,
   formatDependencyPlanDetailsMock,
   installPluginMock,
+  listBundledInstallablePluginsMock,
   listInstallablePluginsMock,
   pluginDependencyApprovalRequiredError,
   readPluginConfigEntryMock,
@@ -107,6 +108,7 @@ const {
       requiresEnv: ['DEMO_PLUGIN_TOKEN'],
       requiredConfigKeys: ['workspaceId'],
     })),
+    listBundledInstallablePluginsMock: vi.fn(() => []),
     listInstallablePluginsMock: vi.fn(() => []),
     readPluginConfigEntryMock: vi.fn((pluginId: string) => ({
       pluginId,
@@ -231,6 +233,7 @@ vi.mock('../src/plugins/plugin-install.js', () => ({
   checkPlugin: checkPluginMock,
   formatDependencyPlanDetails: formatDependencyPlanDetailsMock,
   installPlugin: installPluginMock,
+  listBundledInstallablePlugins: listBundledInstallablePluginsMock,
   listInstallablePlugins: listInstallablePluginsMock,
   PluginDependencyApprovalRequiredError: pluginDependencyApprovalRequiredError,
   reinstallPlugin: reinstallPluginMock,
@@ -273,6 +276,8 @@ const { setupHome } = setupGatewayTest({
     checkPluginMock.mockClear();
     formatDependencyPlanDetailsMock.mockClear();
     installPluginMock.mockClear();
+    listBundledInstallablePluginsMock.mockReset();
+    listBundledInstallablePluginsMock.mockReturnValue([]);
     listInstallablePluginsMock.mockClear();
     readPluginConfigEntryMock.mockClear();
     readPluginConfigValueMock.mockClear();
@@ -1482,6 +1487,53 @@ test('handleGatewayCommand reports missing binary guidance after plugin install'
   );
 });
 
+test('handleGatewayCommand resolves official web installs from the curated channel catalog', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-install-official',
+    guildId: null,
+    channelId: 'web',
+    args: ['plugin', 'install-official', 'whatsapp', '--yes'],
+  });
+
+  expect(installPluginMock).toHaveBeenCalledWith(
+    'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+    expect.objectContaining({ approveDependencyInstall: true }),
+  );
+  expect(result.kind).toBe('info');
+});
+
+test('handleGatewayCommand rejects plugin ids outside the official web catalog', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-install-unofficial',
+    guildId: null,
+    channelId: 'web',
+    args: ['plugin', 'install-official', '@unknown/plugin', '--yes'],
+  });
+
+  expect(installPluginMock).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    kind: 'error',
+    title: 'Official Plugin Not Found',
+    text: 'Plugin `@unknown/plugin` is not in the official HybridClaw catalog.',
+  });
+});
+
 test('handleGatewayCommand rejects plugin install outside local TUI/web sessions', async () => {
   setupHome();
 
@@ -2125,6 +2177,26 @@ test('getGatewayAdminPlugins summarizes plugin status for the admin console', as
       hooks: [],
     },
   ]);
+  listBundledInstallablePluginsMock.mockReturnValue([
+    {
+      id: 'demo-plugin',
+      name: 'Demo Plugin',
+      version: '1.0.0',
+      description: 'Already installed',
+      source: 'bundled',
+      dir: '/tmp/package/plugins/demo-plugin',
+      installSource: 'demo-plugin',
+    },
+    {
+      id: 'official-memory',
+      name: 'Official Memory',
+      version: '0.2.0',
+      description: 'Curated memory plugin',
+      source: 'bundled',
+      dir: '/tmp/package/plugins/official-memory',
+      installSource: 'official-memory',
+    },
+  ]);
 
   const result = await getGatewayAdminPlugins();
 
@@ -2165,6 +2237,29 @@ test('getGatewayAdminPlugins summarizes plugin status for the admin console', as
         commands: ['demo_status'],
         tools: ['demo_tool'],
         hooks: ['gateway_start'],
+      },
+    ],
+    availableOfficialPlugins: [
+      {
+        id: 'line',
+        name: 'LINE',
+        version: null,
+        description: 'Official LINE personal-account transport.',
+        source: 'channel',
+      },
+      {
+        id: 'official-memory',
+        name: 'Official Memory',
+        version: '0.2.0',
+        description: 'Curated memory plugin',
+        source: 'bundled',
+      },
+      {
+        id: 'whatsapp',
+        name: 'WhatsApp',
+        version: null,
+        description: 'Official WhatsApp transport maintained by HybridAIOne.',
+        source: 'channel',
       },
     ],
   });

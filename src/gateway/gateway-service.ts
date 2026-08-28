@@ -133,6 +133,10 @@ import {
   slackWebhookSecretNameForTarget,
 } from '../channels/slack-webhook/target.js';
 import {
+  isRealtimeCredentialConfigured,
+  resolveRealtimeConnection,
+} from '../channels/voice/realtime-credentials.js';
+import {
   createTwilioOutboundCall,
   normalizeTwilioPhoneNumber,
   resolveVoiceWebhookPaths,
@@ -208,6 +212,7 @@ import {
   type RuntimeConfig,
   type RuntimeHttpRequestAuthRule,
   type RuntimeHttpRequestAuthRuleSecret,
+  type RuntimeSpeechRealtimeProvider,
   reloadRuntimeConfig,
   resolveDefaultAgentId,
   runtimeConfigPath,
@@ -1167,6 +1172,46 @@ const MAX_RALPH_ITERATIONS = 64;
 const RESET_CONFIRMATION_TTL_MS = 120_000;
 const DISCORD_CHANNEL_MODE_VALUES = new Set(['off', 'mention', 'free']);
 const DISCORD_GROUP_POLICY_VALUES = new Set(['open', 'allowlist', 'disabled']);
+
+const SPEECH_REALTIME_PROVIDER_VALUES = new Set(['auto', 'hybridai', 'openai']);
+
+/**
+ * voice.realtime.* moved to speech.realtime.* in config v38. A `config set`
+ * on the old path would vanish silently: normalization drops the unknown
+ * voice.realtime block, and the legacy fallback never applies to a full
+ * config draft (speech.realtime is always present there). Redirect instead
+ * of no-opping — the old key circulated in v0.29.x docs and chats.
+ */
+function legacyVoiceRealtimeKeyHint(key: string): string | null {
+  if (key !== 'voice.realtime' && !key.startsWith('voice.realtime.')) {
+    return null;
+  }
+  return key.replace(/^voice\.realtime/, 'speech.realtime');
+}
+
+/**
+ * Status lines for the realtime speech engine (`speech.realtime.*`), shared
+ * by `/speech` and the realtime section of `/voice info`. The prefix keeps
+ * both surfaces' labels aligned ("Realtime provider: …").
+ */
+function buildSpeechRealtimeStatusLines(prefix: string): string[] {
+  const realtimeConfig = getRuntimeConfig().speech.realtime;
+  const resolved = resolveRealtimeConnection(realtimeConfig.provider);
+  return [
+    realtimeConfig.provider === 'auto'
+      ? `${prefix}provider: auto (${
+          resolved.connection
+            ? `using ${resolved.connection.provider}`
+            : 'no credential found'
+        })`
+      : `${prefix}provider: ${realtimeConfig.provider}`,
+    `${prefix}model: ${realtimeConfig.model}`,
+    `${prefix}voice: ${realtimeConfig.voice}`,
+    resolved.connection
+      ? `${prefix}credential: configured`
+      : `${prefix}credential: missing — ${resolved.error}`,
+  ];
+}
 const IMAGE_QUESTION_RE =
   /(what(?:'s| is)? on (?:the )?(?:image|picture|photo|screenshot)|describe (?:this|the) (?:image|picture|photo)|image|picture|photo|screenshot|ocr|diagram|chart|grafik|bild|foto|was steht|was ist auf dem bild)/i;
 const BROWSER_TAB_RE =
@@ -1681,6 +1726,7 @@ function mapGatewayAdminAgent(
     emptyChatHeader: resolved.emptyChatHeader || null,
     model: resolveAgentModel(resolved) || null,
     skills: Array.isArray(resolved.skills) ? [...resolved.skills] : null,
+    tools: Array.isArray(resolved.tools) ? [...resolved.tools] : null,
     chatbotId: resolved.chatbotId || null,
     enableRag:
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
@@ -4961,6 +5007,9 @@ export async function getGatewayStatus(
       ),
       authTokenConfigured: voiceAuth.authTokenConfigured,
       authTokenSource: voiceAuth.authTokenSource,
+      realtimeConfigured: isRealtimeCredentialConfigured(
+        runtimeConfig.speech.realtime.provider,
+      ),
       webhookPath: runtimeConfig.voice.webhookPath,
       maxConcurrentCalls: runtimeConfig.voice.maxConcurrentCalls,
     },
@@ -5422,6 +5471,7 @@ export function createGatewayAdminAgent(params: {
   name?: string | null;
   model?: string | null;
   skills?: string[] | null;
+  tools?: string[] | null;
   chatbotId?: string | null;
   enableRag?: boolean | null;
   proxy?: AgentConfig['proxy'] | null;
@@ -5437,6 +5487,9 @@ export function createGatewayAdminAgent(params: {
     ...(params.model?.trim() ? { model: params.model.trim() } : {}),
     ...(params.skills !== undefined
       ? { skills: params.skills == null ? undefined : [...params.skills] }
+      : {}),
+    ...(params.tools !== undefined
+      ? { tools: params.tools == null ? undefined : [...params.tools] }
       : {}),
     ...(params.chatbotId?.trim() ? { chatbotId: params.chatbotId.trim() } : {}),
     ...(typeof params.enableRag === 'boolean'
@@ -5457,6 +5510,7 @@ export function updateGatewayAdminAgent(
     name?: string | null;
     model?: string | null;
     skills?: string[] | null;
+    tools?: string[] | null;
     chatbotId?: string | null;
     enableRag?: boolean | null;
     proxy?: AgentConfig['proxy'] | null;
@@ -5485,6 +5539,9 @@ export function updateGatewayAdminAgent(
       : {}),
     ...(params.skills !== undefined
       ? { skills: params.skills == null ? undefined : [...params.skills] }
+      : {}),
+    ...(params.tools !== undefined
+      ? { tools: params.tools == null ? undefined : [...params.tools] }
       : {}),
     ...(params.chatbotId !== undefined
       ? { chatbotId: params.chatbotId?.trim() || undefined }
@@ -12841,7 +12898,8 @@ export async function handleGatewayCommand(
               publicWebhook.url
                 ? `Webhook: ${publicWebhook.url}`
                 : `Webhook: unavailable (${publicWebhook.error})`,
-              'Usage: `voice call <e164-number>`',
+              ...buildSpeechRealtimeStatusLines('Realtime '),
+              'Usage: `voice call <e164-number>`; realtime speech settings live under `speech`',
             ].join('\n'),
           );
         }
@@ -12922,6 +12980,77 @@ export async function handleGatewayCommand(
         return badCommand('Usage', 'Usage: `voice [info|call <e164-number>]`');
       }
 
+      case 'speech': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Speech Command Restricted',
+            '`speech` edits local runtime config and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const sub = parseLowerArg(req.args, 1);
+
+        if (!sub || sub === 'info' || sub === 'status') {
+          return infoCommand(
+            'Speech',
+            [
+              ...buildSpeechRealtimeStatusLines('Realtime '),
+              'Usage: `speech provider auto|hybridai|openai`, `speech model <model>`, or `speech voice <voice>`',
+            ].join('\n'),
+          );
+        }
+
+        if (sub === 'provider') {
+          const requested = parseLowerArg(req.args, 2);
+          if (!requested) {
+            return infoCommand(
+              'Speech Provider',
+              [
+                buildSpeechRealtimeStatusLines('Realtime ')[0],
+                'Usage: `speech provider auto|hybridai|openai`',
+              ].join('\n'),
+            );
+          }
+          if (!SPEECH_REALTIME_PROVIDER_VALUES.has(requested)) {
+            return badCommand(
+              'Usage',
+              'Usage: `speech provider auto|hybridai|openai`',
+            );
+          }
+          const provider = requested as RuntimeSpeechRealtimeProvider;
+          updateRuntimeConfig((draft) => {
+            draft.speech.realtime.provider = provider;
+          });
+          const resolved = resolveRealtimeConnection(provider);
+          return plainCommand(
+            resolved.connection
+              ? `Realtime speech provider set to \`${provider}\` (sessions will use ${resolved.connection.provider}).`
+              : `Realtime speech provider set to \`${provider}\`, but no usable credential: ${resolved.error}`,
+          );
+        }
+
+        if (sub === 'model' || sub === 'voice') {
+          const value = req.args.slice(2).join(' ').trim();
+          if (!value) {
+            return badCommand(
+              'Usage',
+              `Usage: \`speech ${sub} <${sub === 'model' ? 'model-id' : 'voice-name'}>\``,
+            );
+          }
+          updateRuntimeConfig((draft) => {
+            draft.speech.realtime[sub] = value;
+          });
+          return plainCommand(
+            `Realtime speech ${sub} set to \`${value}\`. New voice sessions pick it up immediately.`,
+          );
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `speech [info|provider|model|voice] <value>`',
+        );
+      }
+
       case 'config': {
         if (!isLocalSession(req)) {
           return badCommand(
@@ -12990,6 +13119,13 @@ export async function handleGatewayCommand(
           if (!key || req.args.length > 3) {
             return badCommand('Usage', 'Usage: `config get <key>`');
           }
+          const movedKey = legacyVoiceRealtimeKeyHint(key);
+          if (movedKey) {
+            return badCommand(
+              'Config Key Moved',
+              `\`${key}\` moved to \`${movedKey}\` (config v38). Use \`config get ${movedKey}\` or the \`speech\` command.`,
+            );
+          }
           try {
             const value = getRuntimeConfigValueAtPath(getRuntimeConfig(), key);
             return infoCommand(
@@ -13016,6 +13152,13 @@ export async function handleGatewayCommand(
             return badCommand(
               'Usage',
               'Usage: `config`, `config check`, `config reload`, `config get <key>`, or `config set <key> <value>`',
+            );
+          }
+          const movedKey = legacyVoiceRealtimeKeyHint(key);
+          if (movedKey) {
+            return badCommand(
+              'Config Key Moved',
+              `\`${key}\` moved to \`${movedKey}\` (config v38); writing the old key would have no effect. Use \`config set ${movedKey} ${rawValue}\` or the \`speech\` command.`,
             );
           }
           try {

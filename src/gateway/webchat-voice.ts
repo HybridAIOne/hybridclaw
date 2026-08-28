@@ -105,7 +105,7 @@ export function consumeWebchatVoiceStreamToken(
 
 export function isWebchatVoiceAvailable(): boolean {
   return isRealtimeCredentialConfigured(
-    getConfigSnapshot().voice.realtime.provider,
+    getConfigSnapshot().speech.realtime.provider,
   );
 }
 
@@ -217,7 +217,7 @@ export class WebchatVoiceConnection {
       this.fail('Voice session already started.', 1008);
       return;
     }
-    const voiceConfig = getConfigSnapshot().voice.realtime;
+    const voiceConfig = getConfigSnapshot().speech.realtime;
     const resolved = resolveRealtimeConnection(voiceConfig.provider);
     if (!resolved.connection) {
       this.fail(resolved.error, 1011);

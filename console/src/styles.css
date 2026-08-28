@@ -426,6 +426,21 @@ code {
   white-space: nowrap;
 }
 
+.agents-scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agents-scope > span {
+  white-space: nowrap;
+}
+
+.agents-scope [data-slot="native-select-wrapper"] {
+  min-width: 200px;
+}
+
 .agents-archive-list,
 .agents-archived-section {
   display: grid;
@@ -599,6 +614,25 @@ code {
 
 .two-column-grid {
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+}
+
+.plugin-install-card {
+  border-color: var(--line-strong);
+}
+
+.plugin-catalog-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.plugin-install-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .skills-review-grid {
@@ -4375,6 +4409,14 @@ th {
   }
 
   .jobs-board-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .plugin-catalog-action {
+    justify-content: flex-start;
+  }
+
+  .plugin-install-form {
     grid-template-columns: 1fr;
   }
 

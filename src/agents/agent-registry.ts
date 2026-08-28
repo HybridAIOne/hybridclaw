@@ -181,6 +181,9 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   const skills = normalizeOptionalTrimmedUniqueStringArray(
     (value as { skills?: unknown }).skills,
   );
+  const tools = normalizeOptionalTrimmedUniqueStringArray(
+    (value as { tools?: unknown }).tools,
+  );
   const owner = normalizeString((value as { owner?: unknown }).owner);
   const role = normalizeString((value as { role?: unknown }).role);
   const reportsTo = normalizeString(
@@ -211,6 +214,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...buildOptionalAgentPresentation(displayName, imageAsset, emptyChatHeader),
     ...(model ? { model } : {}),
     ...(skills !== undefined ? { skills } : {}),
+    ...(tools !== undefined ? { tools } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
@@ -291,6 +295,7 @@ function fingerprintAgent(agent: AgentConfig): string {
     fingerprintString(agent.emptyChatHeader),
     fingerprintModel(agent.model),
     fingerprintStringArray(agent.skills),
+    fingerprintStringArray(agent.tools),
     fingerprintString(agent.workspace),
     fingerprintString(agent.chatbotId),
     typeof agent.enableRag === 'boolean' ? String(agent.enableRag) : '',
@@ -376,6 +381,7 @@ function normalizeAgentsConfig(config: AgentsConfig | undefined): {
 function applyDefaults(agent: AgentConfig): AgentConfig {
   const model = cloneModelConfig(agent.model ?? configuredDefaults.model);
   const skills = agent.skills ? [...agent.skills] : undefined;
+  const tools = agent.tools ? [...agent.tools] : undefined;
   const chatbotId = normalizeString(
     agent.chatbotId ?? configuredDefaults.chatbotId,
   );
@@ -403,6 +409,7 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ),
     ...(model ? { model } : {}),
     ...(skills !== undefined ? { skills } : {}),
+    ...(tools !== undefined ? { tools } : {}),
     ...(agent.workspace ? { workspace: agent.workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
@@ -465,6 +472,7 @@ function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
     emptyChatHeader: agent.emptyChatHeader,
     model: cloneModelConfig(agent.model),
     skills: agent.skills,
+    tools: agent.tools,
     workspace: agent.workspace,
     chatbotId: agent.chatbotId,
     enableRag: agent.enableRag,
@@ -494,6 +502,7 @@ const DB_BACKED_OPTIONAL_AGENT_FIELDS = [
   'emptyChatHeader',
   'model',
   'skills',
+  'tools',
   'workspace',
   'chatbotId',
   'enableRag',

@@ -96,6 +96,7 @@ export function Composer(props: {
   onModelSwitch?: (modelId: string) => void;
   initialValue?: string;
   voiceAvailable?: boolean;
+  voiceDetail?: string | null;
   voiceActive?: boolean;
   onVoiceToggle?: () => void;
 }) {
@@ -677,7 +678,10 @@ export function Composer(props: {
                     props.voiceActive ? 'End voice mode' : 'Start voice mode'
                   }
                   title={
-                    props.voiceActive ? 'End voice mode' : 'Start voice mode'
+                    (props.voiceActive
+                      ? 'End voice mode'
+                      : 'Start voice mode') +
+                    (props.voiceDetail ? ` (${props.voiceDetail})` : '')
                   }
                   aria-pressed={props.voiceActive === true}
                 >

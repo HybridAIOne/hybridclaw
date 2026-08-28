@@ -2536,6 +2536,36 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: {},
     },
     {
+      path: 'speech.realtime.greeting',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: 'Hello! How can I help you today?',
+    },
+    {
+      path: 'speech.realtime.instructions',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: '',
+    },
+    {
+      path: 'speech.realtime.model',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: 'gpt-realtime',
+    },
+    {
+      path: 'speech.realtime.provider',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: 'auto',
+    },
+    {
+      path: 'speech.realtime.voice',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: 'marin',
+    },
+    {
       path: 'telegram.allowFrom',
       section: 'telegram',
       kind: 'list',
@@ -2666,7 +2696,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
           icon: 'chat',
         },
         {
-          href: '/agents',
+          href: '/admin/agents',
           label: 'Agents',
           icon: 'agents',
         },
@@ -2691,7 +2721,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'version',
       section: 'version',
       kind: 'number',
-      defaultValue: 37,
+      defaultValue: 38,
     },
     {
       path: 'voice.enabled',
@@ -2716,36 +2746,6 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       section: 'voice',
       kind: 'string',
       defaultValue: 'twilio',
-    },
-    {
-      path: 'voice.realtime.greeting',
-      section: 'voice',
-      kind: 'string',
-      defaultValue: 'Hello! How can I help you today?',
-    },
-    {
-      path: 'voice.realtime.instructions',
-      section: 'voice',
-      kind: 'string',
-      defaultValue: '',
-    },
-    {
-      path: 'voice.realtime.model',
-      section: 'voice',
-      kind: 'string',
-      defaultValue: 'gpt-realtime',
-    },
-    {
-      path: 'voice.realtime.provider',
-      section: 'voice',
-      kind: 'string',
-      defaultValue: 'auto',
-    },
-    {
-      path: 'voice.realtime.voice',
-      section: 'voice',
-      kind: 'string',
-      defaultValue: 'marin',
     },
     {
       path: 'voice.relay.interruptible',

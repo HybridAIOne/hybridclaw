@@ -5,6 +5,7 @@ export const ACTIVITY_TABS = [
 ] as const;
 
 export const AGENT_TABS = [
+  { id: 'configure', label: 'Configuration' },
   { id: 'scoreboard', label: 'Scoreboard' },
   { id: 'files', label: 'Workspace files' },
 ] as const;

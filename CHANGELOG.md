@@ -12,6 +12,45 @@
   Manifesto: Principle IX - A coworker thinks before they spend.
 ### Added
 
+- **Agents are configurable from the web console**: `/admin/agents` opens on a
+  new Configuration tab that edits an agent's display name, workspace
+  directory, pinned model, and — grouped, searchable, with per-group toggles —
+  which skills it may load and which tools it may call. Agents can also be
+  created and deleted from the browser. Each allowlist starts unrestricted:
+  unchecking an entry converts it into an explicit allowlist, and "Reset to
+  all" clears it so skills and tools installed later stay available.
+- **Per-agent tool allowlists**: the new `agents.list[].tools` key restricts
+  which tools an agent may call, mirroring `agents.list[].skills`. It is
+  intersected with the caller's allowlist, so it can only narrow a turn's
+  toolset, and globally disabled tools stay off regardless. Editable from the
+  console, `hybridclaw agent config`, and `config.json`.
+- **Plugins can be installed from the web console**: The Plugins & Tools page
+  combines one-click installs from the official catalog with direct installs
+  from plugin IDs, npm packages, local paths, and archive URLs. It reports
+  failures inline and refreshes the live registry after the gateway reloads the
+  plugin runtime.
+- **Realtime speech settings are now visible and editable everywhere**: The
+  new `/speech` command reports the realtime provider — including which
+  backend `auto` resolved to — model, voice, and credential status, and
+  `/speech provider|model|voice <value>` changes a setting from a local
+  session. The admin console gains a Speech settings section, and the voice
+  channel editor gains the missing call-mode selector plus a Realtime speech
+  section (provider, model, voice, greeting, extra instructions). In web
+  chat, hovering the voice button or the live-call capsule shows the active
+  provider, model, and voice, and the channels catalog marks the Voice card
+  "realtime speech ready" when a realtime credential is available even
+  without Twilio.
+
+### Changed
+
+- **Realtime speech config moved out of the phone channel**: The settings
+  formerly at `voice.realtime.*` now live at the top-level
+  `speech.realtime.*`, reflecting that they drive realtime phone calls, web
+  console voice mode, and plugin realtime sessions alike — web voice works
+  with the Twilio channel disabled. Existing configs are migrated
+  automatically on startup, and `config get`/`config set` on the old keys
+  point at the new location instead of silently doing nothing; `voice.*`
+  remains purely the Twilio phone channel.
 - **Multiple sessions per chat with `/new` and `/sessions switch`**: `/new`
   starts a fresh session for the current chat while preserving the previous
   conversation, `/sessions list` shows the sessions recorded for the chat, and
@@ -40,6 +79,12 @@
 
 ### Fixed
 
+- **The console view switcher highlights the page you are on**: its Agents
+  entry pointed at `/agents`, a redirect into `/admin/agents`, so following it
+  lit up Admin instead. It now links straight to the agents page, and the
+  switcher no longer lets the router mark Admin as a second current page on
+  every `/admin/*` route. Stored `ui.navigation` entries still pointing at
+  `/agents` are rewritten when the config loads.
 - **Premium-model errors now point at the current free model**: The guidance
   shown when a HybridAI request is rejected for premium-model access names
   `gpt-5.6-luna` — the model available without a paid plan or credits — instead

@@ -16,7 +16,7 @@
  * framing lives in `media-stream.ts`, browser framing in the gateway) and the
  * upstream socket in `openai-realtime.ts`; this module never touches raw JSON.
  */
-import type { RuntimeVoiceRealtimeConfig } from '../../config/runtime-config.js';
+import type { RuntimeSpeechRealtimeConfig } from '../../config/runtime-config.js';
 import { isRecord } from '../../utils/type-guards.js';
 import {
   OpenAIRealtimeClient,
@@ -66,7 +66,7 @@ export function humanizeConsultToolName(toolName: string): string {
 
 export interface RealtimeBridgeOptions {
   connection: RealtimeConnection;
-  config: RuntimeVoiceRealtimeConfig;
+  config: RuntimeSpeechRealtimeConfig;
   caller: RealtimeCallerInfo;
   surface: RealtimeSurface;
   audioFormat: RealtimeAudioFormat;
@@ -89,7 +89,7 @@ export interface RealtimeBridgeOptions {
 }
 
 export function buildRealtimeInstructions(
-  config: RuntimeVoiceRealtimeConfig,
+  config: RuntimeSpeechRealtimeConfig,
   caller: RealtimeCallerInfo,
   surface: RealtimeSurface = 'phone',
 ): string {

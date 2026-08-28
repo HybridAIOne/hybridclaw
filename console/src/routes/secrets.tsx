@@ -53,6 +53,7 @@ export function SecretsPage(props: { embedded?: boolean } = {}) {
   const queryClient = useQueryClient();
 
   const [overwriteTarget, setOverwriteTarget] = useState<string | null>(null);
+  const [addSecretOpen, setAddSecretOpen] = useState(false);
   const [unsetTarget, setUnsetTarget] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
 
@@ -76,6 +77,7 @@ export function SecretsPage(props: { embedded?: boolean } = {}) {
           : `Set ${variables.name}.`,
       );
       setOverwriteTarget(null);
+      setAddSecretOpen(false);
       await invalidate();
     },
     onError: (error) => {
@@ -149,13 +151,21 @@ export function SecretsPage(props: { embedded?: boolean } = {}) {
       aria-label="Filter secrets by name"
     />
   );
+  const actions = (
+    <div className={styles.actions}>
+      {filterInput}
+      {canOverwrite ? (
+        <Button type="button" onClick={() => setAddSecretOpen(true)}>
+          Add secret
+        </Button>
+      ) : null}
+    </div>
+  );
 
   return (
     <div className="page-stack">
-      {props.embedded ? (
-        <TabbedPageActions>{filterInput}</TabbedPageActions>
-      ) : null}
-      <PageHeader actions={props.embedded ? undefined : filterInput} />
+      {props.embedded ? <TabbedPageActions>{actions}</TabbedPageActions> : null}
+      <PageHeader actions={props.embedded ? undefined : actions} />
 
       <section className={styles.section} aria-label="Set">
         <div className={styles.sectionHead}>
@@ -306,6 +316,19 @@ export function SecretsPage(props: { embedded?: boolean } = {}) {
         }}
       />
 
+      <AddSecretDialog
+        open={addSecretOpen}
+        onClose={() => setAddSecretOpen(false)}
+        pending={overwriteMutation.isPending}
+        onSubmit={(name, value) => {
+          if (view.setAll.some((entry) => entry.name === name)) {
+            toast.error(`${name} already exists. Use Rotate to replace it.`);
+            return;
+          }
+          overwriteMutation.mutate({ name, value, wasSet: false });
+        }}
+      />
+
       <UnsetDialog
         name={unsetTarget}
         onClose={() => setUnsetTarget(null)}
@@ -317,6 +340,107 @@ export function SecretsPage(props: { embedded?: boolean } = {}) {
         }}
       />
     </div>
+  );
+}
+
+function AddSecretDialog(props: {
+  open: boolean;
+  onClose: () => void;
+  pending: boolean;
+  onSubmit: (name: string, value: string) => void;
+}) {
+  const nameRef = useRef<HTMLInputElement>(null);
+  const valueRef = useRef<HTMLInputElement>(null);
+  const nameId = useId();
+  const valueId = useId();
+  const noteId = useId();
+
+  const clearInputs = () => {
+    if (nameRef.current) nameRef.current.value = '';
+    if (valueRef.current) valueRef.current.value = '';
+  };
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = nameRef.current?.value.trim();
+    const value = valueRef.current?.value;
+    if (!name || !value?.trim()) return;
+    props.onSubmit(name, value);
+  };
+
+  return (
+    <Dialog
+      open={props.open}
+      onOpenChange={(next) => {
+        if (!next) {
+          clearInputs();
+          props.onClose();
+        }
+      }}
+    >
+      <DialogContent
+        role="dialog"
+        size="default"
+        preventCloseOnOutsideClick={props.pending}
+      >
+        <DialogHeader>
+          <DialogTitle>Add secret</DialogTitle>
+          <DialogDescription>
+            Create a write-only value in the encrypted runtime secret store.
+          </DialogDescription>
+        </DialogHeader>
+        <form className={styles.overwriteForm} onSubmit={handleSubmit}>
+          <Field>
+            <FieldLabel htmlFor={nameId}>Name</FieldLabel>
+            <Input
+              id={nameId}
+              ref={nameRef}
+              autoCapitalize="characters"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              pattern="[A-Z][A-Z0-9_]*"
+              maxLength={128}
+              required
+              title="Use uppercase letters, digits, and underscores; start with a letter."
+              disabled={props.pending}
+            />
+            <p className={styles.overwriteNote}>
+              Use uppercase letters, digits, and underscores, starting with a
+              letter.
+            </p>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={valueId}>Value</FieldLabel>
+            <Input
+              id={valueId}
+              ref={valueRef}
+              type="password"
+              autoComplete="new-password"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              required
+              aria-describedby={noteId}
+              disabled={props.pending}
+            />
+            <p id={noteId} className={styles.overwriteNote}>
+              The value cannot be read back after it is saved.
+            </p>
+          </Field>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              disabled={props.pending}
+              render={<DialogClose>Cancel</DialogClose>}
+            />
+            <Button type="submit" disabled={props.pending}>
+              {props.pending ? 'Saving…' : 'Add secret'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

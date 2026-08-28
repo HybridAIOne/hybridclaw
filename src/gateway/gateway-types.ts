@@ -551,6 +551,7 @@ export interface GatewayStatus {
     fromNumberConfigured: boolean;
     authTokenConfigured: boolean;
     authTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
+    realtimeConfigured: boolean;
     webhookPath: string;
     maxConcurrentCalls: number;
   };
@@ -1324,6 +1325,7 @@ export interface GatewayAdminAgent {
   emptyChatHeader: string | null;
   model: string | null;
   skills: string[] | null;
+  tools: string[] | null;
   chatbotId: string | null;
   enableRag: boolean | null;
   proxy?: GatewayAdminAgentProxyConfig | null;
@@ -1756,6 +1758,14 @@ export interface GatewayAdminPlugin {
   hooks: string[];
 }
 
+export interface GatewayAdminOfficialPlugin {
+  id: string;
+  name: string | null;
+  version: string | null;
+  description: string | null;
+  source: 'bundled' | 'channel';
+}
+
 export interface GatewayAdminPluginsResponse {
   totals: {
     totalPlugins: number;
@@ -1766,6 +1776,7 @@ export interface GatewayAdminPluginsResponse {
     hooks: number;
   };
   plugins: GatewayAdminPlugin[];
+  availableOfficialPlugins: GatewayAdminOfficialPlugin[];
 }
 
 export interface GatewayAdminOutputGuardProfile {

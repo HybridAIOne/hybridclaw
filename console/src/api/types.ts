@@ -168,6 +168,7 @@ export interface GatewayStatus {
     fromNumberConfigured: boolean;
     authTokenConfigured: boolean;
     authTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
+    realtimeConfigured?: boolean;
     webhookPath: string;
     maxConcurrentCalls: number;
   };
@@ -753,6 +754,7 @@ export interface AdminConfig {
   voice: {
     enabled: boolean;
     provider: 'twilio';
+    mode: 'relay' | 'realtime';
     twilio: {
       accountSid: string;
       authToken: string;
@@ -768,6 +770,15 @@ export interface AdminConfig {
     };
     webhookPath: string;
     maxConcurrentCalls: number;
+  };
+  speech: {
+    realtime: {
+      provider: 'auto' | 'hybridai' | 'openai';
+      model: string;
+      voice: string;
+      greeting: string;
+      instructions: string;
+    };
   };
   whatsapp: {
     dmPolicy: 'open' | 'pairing' | 'allowlist' | 'disabled';
@@ -1176,6 +1187,7 @@ export interface AdminAgent {
   emptyChatHeader?: string | null;
   model: string | null;
   skills: string[] | null;
+  tools: string[] | null;
   chatbotId: string | null;
   enableRag: boolean | null;
   proxy?: AdminAgentProxyConfig | null;
@@ -1190,6 +1202,17 @@ export interface AdminAgent {
 
 export interface AdminAgentsResponse {
   agents: AdminAgent[];
+}
+
+/** Editable agent fields shared by the create and update admin endpoints. */
+export interface AdminAgentSettingsPayload {
+  name?: string;
+  model?: string;
+  workspace?: string;
+  /** `null` clears the allowlist so every skill stays available. */
+  skills?: string[] | null;
+  /** `null` clears the allowlist so every tool stays available. */
+  tools?: string[] | null;
 }
 
 export interface AdminHybridAIBot {
@@ -2060,6 +2083,14 @@ export interface AdminPlugin {
   hooks: string[];
 }
 
+export interface AdminOfficialPlugin {
+  id: string;
+  name: string | null;
+  version: string | null;
+  description: string | null;
+  source: 'bundled' | 'channel';
+}
+
 export interface AdminPluginsResponse {
   totals: {
     totalPlugins: number;
@@ -2070,6 +2101,7 @@ export interface AdminPluginsResponse {
     hooks: number;
   };
   plugins: AdminPlugin[];
+  availableOfficialPlugins: AdminOfficialPlugin[];
 }
 
 export interface AdminOutputGuardProfile {

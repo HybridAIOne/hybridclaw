@@ -359,6 +359,12 @@ export function ChatPage() {
     staleTime: Infinity,
     enabled: chatApiReady,
   });
+  const voiceCapability = voiceCapabilityQuery.data;
+  const voiceDetail = voiceCapability?.available
+    ? [voiceCapability.provider, voiceCapability.model, voiceCapability.voice]
+        .filter(Boolean)
+        .join(' · ')
+    : null;
   const [voiceOpen, setVoiceOpen] = useState(false);
   const handleVoiceTranscript = useCallback(() => {
     // The gateway persists every spoken turn (and consulted turns) as
@@ -866,20 +872,25 @@ export function ChatPage() {
       const cmd = buildApprovalCommand(action, approvalId);
       if (!cmd) return;
       setApprovalBusy(true);
+      setResolvedApprovals((prev) => {
+        const next = new Map(prev);
+        next.set(approvalId, action);
+        return next;
+      });
+      let sent = false;
       try {
         jumpToBottom();
-        const sent = await stream.sendMessage(cmd, [], { hideUser: true });
-        // Mark it handled only once the send succeeds — a failed send (e.g.
-        // another run already in flight) leaves it unresolved so the user
-        // can retry.
-        if (sent) {
+        sent = await stream.sendMessage(cmd, [], { hideUser: true });
+      } finally {
+        // A send rejected before it starts (for example, because another run
+        // is active) restores the pending card so the user can retry.
+        if (!sent) {
           setResolvedApprovals((prev) => {
             const next = new Map(prev);
-            next.set(approvalId, action);
+            if (next.get(approvalId) === action) next.delete(approvalId);
             return next;
           });
         }
-      } finally {
         setApprovalBusy(false);
       }
     },
@@ -1467,6 +1478,7 @@ export function ChatPage() {
               status={voiceSession.status}
               error={voiceSession.error}
               consultActivity={voiceSession.consultActivity}
+              detail={voiceDetail}
               onClose={() => setVoiceOpen(false)}
             />
           ) : null}
@@ -1484,9 +1496,13 @@ export function ChatPage() {
             modelRouting={contextQuery.data?.routing}
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
             initialValue={initialComposerPrompt}
-            voiceAvailable={voiceCapabilityQuery.data?.available === true}
+            voiceAvailable={voiceCapability?.available === true}
+            voiceDetail={voiceDetail}
             voiceActive={voiceOpen}
-            onVoiceToggle={() => setVoiceOpen((open) => !open)}
+            onVoiceToggle={() => {
+              if (!voiceOpen) void voiceCapabilityQuery.refetch();
+              setVoiceOpen((open) => !open);
+            }}
           />
         </div>
         <Dialog
