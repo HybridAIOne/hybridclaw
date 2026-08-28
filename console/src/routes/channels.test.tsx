@@ -328,6 +328,7 @@ function makeAgent(overrides: Partial<AdminAgent> = {}): AdminAgent {
     name: 'Main',
     model: 'gpt-5',
     skills: [],
+    tools: null,
     chatbotId: null,
     enableRag: true,
     proxy: null,

@@ -38,6 +38,7 @@ function makeAgent(id: string, name: string, archived = false): AdminAgent {
     name,
     model: null,
     skills: null,
+    tools: null,
     chatbotId: null,
     enableRag: null,
     role: null,
@@ -75,7 +76,7 @@ describe('AgentsHubPage', () => {
       expect(selector.textContent).not.toContain('Retired');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Archive agents' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
     expect(screen.queryByRole('checkbox', { name: /Main Agent/ })).toBeNull();
     fireEvent.click(screen.getByRole('checkbox', { name: /Writer/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Archive selected' }));
@@ -95,9 +96,7 @@ describe('AgentsHubPage', () => {
     );
     renderWithProviders(<AgentsHubPage />);
 
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Archive agents' }),
-    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }));
     fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
 
     await waitFor(() => {

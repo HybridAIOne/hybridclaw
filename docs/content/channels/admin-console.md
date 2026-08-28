@@ -68,8 +68,16 @@ changes before navigation.
 - `/admin/agents` lets operators pick any registered agent and edit the
   allowlisted workspace bootstrap markdown files seeded into that agent's
   runtime workspace
-- `/admin/agents` combines the agent scoreboard and workspace files behind
-  tabs with a shared active-agent selector
+- `/admin/agents?tab=configure` edits one agent's display name, workspace
+  directory, pinned model, skill allowlist, and tool allowlist, and saves the
+  whole set in one request
+- `/admin/agents?tab=configure` treats an empty allowlist state as "everything
+  available": unchecking an entry converts the agent to an explicit allowlist,
+  and "Reset to all" clears it again so future skills and tools stay available
+- `/admin/agents` creates agents from the browser and deletes non-default
+  agents behind a typed-id confirmation
+- `/admin/agents` combines agent configuration, the scoreboard, and workspace
+  files behind tabs with a shared active-agent selector
 - `/admin/agents` archives non-default agents without deleting their files or
   history and removes archived agents from console selectors until restored
 - `/admin/agents` shows saved revisions for those markdown files and can
@@ -186,6 +194,8 @@ scoped to the built-in allowlist and is not a general workspace file browser.
 - you want to tune per-channel instructions such as spoken-style guidance for
   voice without editing prompt files
 - you want to verify saved settings without editing `config.json` directly
+- you want to change an agent's model, skills, or tools without editing
+  `config.json` or using `hybridclaw agent config`
 - you want to update an agent's workspace instructions from the browser
 - you want revision history before restoring an earlier agent prompt file
 - you want to inspect or roll back agent org-chart changes from the browser

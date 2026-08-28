@@ -325,6 +325,59 @@ test('agent skill allowlists persist through runtime config normalization and th
   expect(getAgentById('silent')?.skills).toEqual([]);
 });
 
+test('agent tool allowlists persist and narrow the effective toolset', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { getAgentById, initAgentRegistry, resolveAgentConfig } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { mergeAllowedToolNames } = await import(
+    '../src/agent/tool-policy.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const list = [
+    { id: 'main', name: 'Main Agent' },
+    {
+      id: 'reader',
+      name: 'Reader Agent',
+      tools: [' read ', 'grep', 'read'],
+    },
+    { id: 'mute', name: 'Mute Agent', tools: [] },
+  ];
+  updateRuntimeConfig((draft) => {
+    draft.agents.list = list;
+  });
+  initAgentRegistry({ list });
+
+  expect(resolveAgentConfig('reader').tools).toEqual(['read', 'grep']);
+  expect(getAgentById('reader')?.tools).toEqual(['read', 'grep']);
+  expect(resolveAgentConfig('mute').tools).toEqual([]);
+
+  // No configured allowlist leaves the caller's request untouched.
+  expect(mergeAllowedToolNames({ agentId: 'main' })).toBeUndefined();
+  expect(mergeAllowedToolNames({ agentId: 'main', explicit: ['bash'] })).toEqual(
+    ['bash'],
+  );
+
+  // A configured allowlist applies on its own and intersects with the caller's.
+  expect(mergeAllowedToolNames({ agentId: 'reader' })).toEqual(['read', 'grep']);
+  expect(
+    mergeAllowedToolNames({ agentId: 'reader', explicit: ['grep', 'bash'] }),
+  ).toEqual(['grep']);
+
+  // An empty allowlist means no tools, never "every tool".
+  expect(mergeAllowedToolNames({ agentId: 'mute', explicit: ['read'] })).toEqual(
+    [],
+  );
+});
+
 test('agent owner, role, and CV persist through runtime config and registry', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -1180,6 +1233,7 @@ test('database migration v6 adds agents and backfills legacy agent ids to main',
     true,
   );
   expect(agentColumns.some((column) => column.name === 'skills')).toBe(true);
+  expect(agentColumns.some((column) => column.name === 'tools')).toBe(true);
   expect(agentColumns.some((column) => column.name === 'archived')).toBe(true);
 
   const sessionRow = migratedDb

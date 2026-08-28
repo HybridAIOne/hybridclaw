@@ -7,6 +7,7 @@ import type {
   ExecutorRequest,
   ExecutorSessionHealthSnapshot,
 } from '../agent/executor-types.js';
+import { mergeAllowedToolNames } from '../agent/tool-policy.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   getGoogleWorkspaceRuntimeEnvRecoveryHint,
@@ -913,6 +914,10 @@ async function runHostProcessInner(
     maxWallClockMs,
     inactivityTimeoutMs,
   } = params;
+  const effectiveAllowedTools = mergeAllowedToolNames({
+    agentId,
+    explicit: allowedTools,
+  });
 
   const workspacePath = getHostWorkspacePath({
     sessionId,
@@ -1019,7 +1024,7 @@ async function runHostProcessInner(
       }),
     ),
     skillCatalog: params.skillCatalog,
-    allowedTools,
+    allowedTools: effectiveAllowedTools,
     blockedTools,
     media,
     audioTranscriptsPrepended,

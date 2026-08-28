@@ -54,6 +54,7 @@ type AgentRow = {
   empty_chat_header: string | null;
   model: string | null;
   skills: string | null;
+  tools: string | null;
   chatbot_id: string | null;
   enable_rag: number | null;
   workspace: string | null;
@@ -197,7 +198,7 @@ function parseAgentStringArray(
   } catch {
     logger.warn(
       { fieldName, payloadLength: normalized.length },
-      'Failed to parse persisted agent org-chart relationship list',
+      'Failed to parse persisted agent string list',
     );
     return undefined;
   }
@@ -438,6 +439,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const emptyChatHeader = row.empty_chat_header?.trim() || '';
   const model = parseAgentModelConfig(row.model);
   const skills = parseAgentSkillsConfig(row.skills);
+  const tools = parseAgentStringArray(row.tools, 'tools');
   const chatbotId = row.chatbot_id?.trim() || '';
   const workspace = row.workspace?.trim() || '';
   const owner = row.owner?.trim() || '';
@@ -460,6 +462,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(emptyChatHeader ? { emptyChatHeader } : {}),
     ...(model ? { model } : {}),
     ...(skills !== undefined ? { skills } : {}),
+    ...(tools !== undefined ? { tools } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(workspace ? { workspace } : {}),
     ...(typeof row.enable_rag === 'number'
@@ -478,7 +481,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, archived, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, created_at, updated_at';
+  'id, archived, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, tools, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -511,6 +514,7 @@ interface SerializedAgentSettings {
   emptyChatHeader: string | null;
   model: string | null;
   skills: string | null;
+  tools: string | null;
   chatbotId: string | null;
   enableRag: number | null;
   workspace: string | null;
@@ -533,6 +537,7 @@ function serializeAgentSettings(agent: AgentConfig): SerializedAgentSettings {
     emptyChatHeader: agent.emptyChatHeader?.trim() || null,
     model: serializeAgentModelConfig(agent.model),
     skills: serializeAgentSkillsConfig(agent.skills),
+    tools: serializeAgentStringArray(agent.tools),
     chatbotId: agent.chatbotId?.trim() || null,
     enableRag:
       typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null,
@@ -659,6 +664,7 @@ export function upsertAgent(
        empty_chat_header,
        model,
        skills,
+       tools,
        chatbot_id,
        enable_rag,
        workspace,
@@ -673,7 +679,7 @@ export function upsertAgent(
        proxy,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        archived = excluded.archived,
        canonical_id = excluded.canonical_id,
@@ -684,6 +690,7 @@ export function upsertAgent(
        empty_chat_header = excluded.empty_chat_header,
        model = excluded.model,
        skills = excluded.skills,
+       tools = excluded.tools,
        chatbot_id = excluded.chatbot_id,
        enable_rag = excluded.enable_rag,
        workspace = excluded.workspace,
@@ -709,6 +716,7 @@ export function upsertAgent(
       settings.emptyChatHeader,
       settings.model,
       settings.skills,
+      settings.tools,
       settings.chatbotId,
       settings.enableRag,
       settings.workspace,

@@ -198,6 +198,13 @@ saved revision history directly.
   HybridAI chatbot instead of running the local agent loop. Proxy agents
   require `kind: "hybridai"`, an HTTPS `baseUrl`, `chatbotId`, and a
   SecretRef-backed `apiKey`; `conversationScope` can be `channel` or `user`.
+- `agents.list[].skills` and `agents.list[].tools` restrict which skills that
+  agent may load and which tools it may call. Omit either key to leave the
+  agent unrestricted, including for skills and tools installed later; an empty
+  array means none. A configured tool allowlist is intersected with the
+  caller's allowlist, so it can only narrow a turn's toolset, and globally
+  disabled tools (`tools.disabled`) stay off regardless. Edit both from
+  `/admin/agents?tab=configure` or `hybridclaw agent config`.
 - `agents.list[].webSearch.searxngBaseUrl` and
   `agents.list[].webSearch.searxngBearerTokenRef` override the global SearXNG
   instance and bearer SecretRef for a specific agent

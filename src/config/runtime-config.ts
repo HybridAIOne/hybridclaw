@@ -1465,7 +1465,7 @@ const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
 const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 const DEFAULT_UI_NAVIGATION_ITEMS: ReadonlyArray<RuntimeUiNavigationItem> = [
   { href: '/chat', label: 'Chat', icon: 'chat' },
-  { href: '/agents', label: 'Agents', icon: 'agents' },
+  { href: '/admin/agents', label: 'Agents', icon: 'agents' },
   { href: '/admin', label: 'Admin', icon: 'admin' },
   {
     href: 'https://github.com/HybridAIOne/hybridclaw',
@@ -2991,6 +2991,11 @@ function normalizeAgentConfig(
     : fallback?.skills
       ? [...fallback.skills]
       : undefined;
+  const tools = Object.hasOwn(value, 'tools')
+    ? normalizeOptionalTrimmedUniqueStringArray(value.tools)
+    : fallback?.tools
+      ? [...fallback.tools]
+      : undefined;
   const owner = normalizeString(value.owner, fallback?.owner ?? '', {
     allowEmpty: true,
   });
@@ -3047,6 +3052,7 @@ function normalizeAgentConfig(
     ...buildOptionalAgentPresentation(displayName, imageAsset, emptyChatHeader),
     ...(model ? { model } : {}),
     ...(skills !== undefined ? { skills } : {}),
+    ...(tools !== undefined ? { tools } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
@@ -5262,7 +5268,9 @@ function normalizeUiNavigationItems(
     const href = normalizeUiNavigationHref(rawItem.href);
     if (!label || !href) continue;
     const item: RuntimeUiNavigationItem = {
-      href,
+      // `/agents` only ever redirected into the admin console, so stored
+      // navigation pointing at it never matched the view it lands on.
+      href: href === '/agents' ? '/admin/agents' : href,
       label: label.slice(0, MAX_UI_NAVIGATION_LABEL_LENGTH),
     };
     const icon = normalizeUiNavigationIcon(rawItem.icon);
