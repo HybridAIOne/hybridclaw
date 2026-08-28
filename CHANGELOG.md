@@ -4,6 +4,11 @@
 
 ### Added
 
+- **Plugins can be installed from the web console**: The Plugins & Tools page
+  combines one-click installs from the official catalog with direct installs
+  from plugin IDs, npm packages, local paths, and archive URLs. It reports
+  failures inline and refreshes the live registry after the gateway reloads the
+  plugin runtime.
 - **Realtime speech settings are now visible and editable everywhere**: The
   new `/speech` command reports the realtime provider — including which
   backend `auto` resolved to — model, voice, and credential status, and

@@ -1212,11 +1212,23 @@ export function setRuntimeSecret(
   ]);
 }
 
+export function installOfficialPlugin(
+  token: string,
+  pluginId: string,
+): Promise<AdminCommandResult> {
+  return runAdminCommand(token, 'web-admin-plugins', [
+    'plugin',
+    'install-official',
+    pluginId,
+    '--yes',
+  ]);
+}
+
 export function installPlugin(
   token: string,
   source: string,
 ): Promise<AdminCommandResult> {
-  return runAdminCommand(token, 'web-admin-channels', [
+  return runAdminCommand(token, 'web-admin-plugins', [
     'plugin',
     'install',
     source,

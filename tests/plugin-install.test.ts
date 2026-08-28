@@ -489,6 +489,25 @@ describe('plugin install', () => {
     );
   });
 
+  test('lists the bundled catalog independently from project plugins', async () => {
+    const { listBundledInstallablePlugins } = await import(
+      '../src/plugins/plugin-install.js'
+    );
+
+    const result = listBundledInstallablePlugins();
+
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.every((plugin) => plugin.source === 'bundled')).toBe(true);
+    expect(result).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'line',
+          installSource: 'line',
+        }),
+      ]),
+    );
+  });
+
   test('installs manifest-declared npm packages with scripts disabled when no package.json is present', async () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
     const cwd = makeTempDir('hybridclaw-plugin-cwd-');

@@ -2071,6 +2071,14 @@ export interface AdminPlugin {
   hooks: string[];
 }
 
+export interface AdminOfficialPlugin {
+  id: string;
+  name: string | null;
+  version: string | null;
+  description: string | null;
+  source: 'bundled' | 'channel';
+}
+
 export interface AdminPluginsResponse {
   totals: {
     totalPlugins: number;
@@ -2081,6 +2089,7 @@ export interface AdminPluginsResponse {
     hooks: number;
   };
   plugins: AdminPlugin[];
+  availableOfficialPlugins: AdminOfficialPlugin[];
 }
 
 export interface AdminOutputGuardProfile {

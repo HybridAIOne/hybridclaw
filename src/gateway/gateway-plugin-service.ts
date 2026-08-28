@@ -1,3 +1,8 @@
+/**
+ * Plugin gateway service — the authenticated command and admin boundary.
+ * Official web installs resolve server-side against curated catalog entries;
+ * plugin discovery and execution remain responsibilities of the manager.
+ */
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
@@ -5,6 +10,7 @@ import {
   type ChannelPluginAvailabilitySnapshot,
   diffChannelPluginTransportAvailability,
   getChannelPluginCatalogEntryByPluginId,
+  getOfficialChannelPluginCatalogEntries,
   snapshotChannelPluginTransportAvailability,
 } from '../channels/channel-plugin-catalog.js';
 import { sendWebhookJson, WebhookHttpError } from '../channels/webhook-http.js';
@@ -33,6 +39,7 @@ import {
   checkPlugin,
   formatDependencyPlanDetails,
   installPlugin,
+  listBundledInstallablePlugins,
   listInstallablePlugins,
   reinstallPlugin,
   uninstallPlugin,
@@ -50,6 +57,7 @@ import { consumeCommandApproval } from './command-approval-trust.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import type {
+  GatewayAdminOfficialPlugin,
   GatewayAdminPluginsResponse,
   GatewayCommandRequest,
   GatewayCommandResult,
@@ -86,6 +94,18 @@ function formatPluginConfigValue(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function resolveOfficialPluginInstallSource(pluginId: string): string | null {
+  const normalizedPluginId = String(pluginId || '').trim();
+  const bundled = listBundledInstallablePlugins().find(
+    (plugin) => plugin.id === normalizedPluginId,
+  );
+  if (bundled) return bundled.installSource;
+  return (
+    getChannelPluginCatalogEntryByPluginId(normalizedPluginId)?.installSource ??
+    null
+  );
 }
 
 function formatMissingBinaryRequirement(params: {
@@ -807,25 +827,32 @@ export async function handlePluginGatewayCommand(params: {
     }
   }
 
-  if (sub === 'install') {
-    const source = parseIdArg(req.args, 2);
+  if (sub === 'install' || sub === 'install-official') {
+    const requestedSource = parseIdArg(req.args, 2);
     const yes = parseIdArg(req.args, 3);
-    if (!source) {
-      return badCommand(
-        'Usage',
-        'Usage: `plugin install <path|plugin-id|npm-spec> [--yes]`',
-      );
+    const officialOnly = sub === 'install-official';
+    const usage = officialOnly
+      ? 'Usage: `plugin install-official <plugin-id> [--yes]`'
+      : 'Usage: `plugin install <path|plugin-id|npm-spec> [--yes]`';
+    if (!requestedSource) {
+      return badCommand('Usage', usage);
     }
     if (yes && yes !== '--yes') {
-      return badCommand(
-        'Usage',
-        'Usage: `plugin install <path|plugin-id|npm-spec> [--yes]`',
-      );
+      return badCommand('Usage', usage);
     }
     if (!isLocalSession(req)) {
       return badCommand(
         'Plugin Install Restricted',
         '`plugin install` is only available from local TUI/web sessions.',
+      );
+    }
+    const source = officialOnly
+      ? resolveOfficialPluginInstallSource(requestedSource)
+      : requestedSource;
+    if (!source) {
+      return badCommand(
+        'Official Plugin Not Found',
+        `Plugin \`${requestedSource}\` is not in the official HybridClaw catalog.`,
       );
     }
     const depsSatisfiedLines: string[] = [];
@@ -1209,6 +1236,29 @@ export async function getGatewayAdminPlugins(): Promise<GatewayAdminPluginsRespo
       hooks: [...plugin.hooks].sort((left, right) => left.localeCompare(right)),
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
+  const installedIds = new Set(plugins.map((plugin) => plugin.id));
+  const availableOfficialPlugins = new Map<string, GatewayAdminOfficialPlugin>(
+    listBundledInstallablePlugins().map((plugin) => [
+      plugin.id,
+      {
+        id: plugin.id,
+        name: plugin.name || null,
+        version: plugin.version || null,
+        description: plugin.description || null,
+        source: 'bundled' as const,
+      },
+    ]),
+  );
+  for (const plugin of getOfficialChannelPluginCatalogEntries()) {
+    if (availableOfficialPlugins.has(plugin.pluginId)) continue;
+    availableOfficialPlugins.set(plugin.pluginId, {
+      id: plugin.pluginId,
+      name: plugin.name,
+      version: null,
+      description: plugin.description,
+      source: 'channel',
+    });
+  }
 
   return {
     totals: {
@@ -1224,6 +1274,9 @@ export async function getGatewayAdminPlugins(): Promise<GatewayAdminPluginsRespo
       hooks: plugins.reduce((sum, plugin) => sum + plugin.hooks.length, 0),
     },
     plugins,
+    availableOfficialPlugins: [...availableOfficialPlugins.values()]
+      .filter((plugin) => !installedIds.has(plugin.id))
+      .sort((left, right) => left.id.localeCompare(right.id)),
   };
 }
 

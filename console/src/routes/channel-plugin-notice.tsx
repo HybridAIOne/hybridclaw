@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { installPlugin } from '../api/client';
+import { installOfficialPlugin } from '../api/client';
 import type { GatewayChannelPluginStatus } from '../api/types';
 import { Button } from '../components/button';
 import { useToast } from '../components/toast';
@@ -14,9 +14,9 @@ export function ChannelPluginNotice(props: {
   const toast = useToast();
   const installMutation = useMutation({
     mutationFn: async () => {
-      const result = await installPlugin(
+      const result = await installOfficialPlugin(
         props.token,
-        props.plugin.installSource,
+        props.plugin.pluginId,
       );
       if (result.kind === 'error') throw new Error(result.text);
       return result;
