@@ -13,12 +13,14 @@ import {
   DialogTitle,
 } from '../components/dialog';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
-import { TabbedPage } from '../components/tabbed-page';
+import { TabbedPage, TabbedPageActions } from '../components/tabbed-page';
 import { useToast } from '../components/toast';
 import { AGENT_TABS } from '../lib/admin-tabs';
 import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { getErrorMessage } from '../lib/error-message';
 import { logNavigationError } from '../lib/navigation';
+import { AgentConfigPage } from './agent-config';
+import { AgentCreateDialog } from './agent-create-dialog';
 import { AgentsPage } from './agent-scoreboard';
 import { AgentFilesPage } from './agents';
 import { mergeRouteSearch, readRouteTab } from './tabbed-route';
@@ -36,6 +38,7 @@ export function AgentsHubPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [selectedArchiveIds, setSelectedArchiveIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -51,11 +54,7 @@ export function AgentsHubPage() {
     () => (agentsQuery.data || []).filter((agent) => agent.archived),
     [agentsQuery.data],
   );
-  const activeTab = readRouteTab<AgentTab>(
-    search.tab,
-    AGENT_TABS,
-    'scoreboard',
-  );
+  const activeTab = readRouteTab<AgentTab>(search.tab, AGENT_TABS, 'configure');
   const selectedAgentId = activeAgents.some(
     (agent) => agent.id === search.agent,
   )
@@ -111,38 +110,50 @@ export function AgentsHubPage() {
       <TabbedPage
         tabs={AGENT_TABS}
         activeTab={activeTab}
+        description="Each agent has its own workspace, model, skills, and tools."
         actions={
-          <div className="header-actions">
-            <label className="header-actions">
-              <span className="supporting-text">Agent</span>
-              <NativeSelect
-                aria-label="Agent"
-                value={selectedAgentId || ''}
-                onChange={(event) =>
-                  updateSearch({ agent: event.target.value || undefined })
-                }
-              >
-                <NativeSelectOption value="">
-                  All active agents
-                </NativeSelectOption>
-                {activeAgents.map((agent) => (
-                  <NativeSelectOption key={agent.id} value={agent.id}>
-                    {agent.name ? `${agent.name} (${agent.id})` : agent.id}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </label>
-            <Button
-              variant="outline"
-              onClick={() => setArchiveDialogOpen(true)}
-            >
-              Archive agents
+          <>
+            <Button variant="ghost" onClick={() => setArchiveDialogOpen(true)}>
+              Archive
             </Button>
-          </div>
+            <Button onClick={() => setCreateDialogOpen(true)}>New agent</Button>
+          </>
         }
         onTabChange={(tab) => updateSearch({ tab })}
       >
-        {activeTab === 'files' ? (
+        <TabbedPageActions>
+          <label className="agents-scope">
+            <span className="supporting-text">Agent</span>
+            <NativeSelect
+              size="sm"
+              aria-label="Agent"
+              value={selectedAgentId || ''}
+              onChange={(event) =>
+                updateSearch({ agent: event.target.value || undefined })
+              }
+            >
+              <NativeSelectOption value="">
+                {activeTab === 'scoreboard'
+                  ? 'All active agents'
+                  : 'Select an agent…'}
+              </NativeSelectOption>
+              {activeAgents.map((agent) => (
+                <NativeSelectOption key={agent.id} value={agent.id}>
+                  {agent.name ? `${agent.name} (${agent.id})` : agent.id}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </label>
+        </TabbedPageActions>
+
+        {activeTab === 'configure' ? (
+          <AgentConfigPage
+            selectedAgentId={selectedAgentId}
+            onAgentChange={(agentId) =>
+              updateSearch({ agent: agentId || undefined })
+            }
+          />
+        ) : activeTab === 'files' ? (
           <AgentFilesPage
             embedded
             selectedAgentId={selectedAgentId}
@@ -155,6 +166,15 @@ export function AgentsHubPage() {
           />
         )}
       </TabbedPage>
+
+      <AgentCreateDialog
+        open={createDialogOpen}
+        existingAgentIds={(agentsQuery.data || []).map((agent) => agent.id)}
+        onOpenChange={setCreateDialogOpen}
+        onCreated={(agentId) =>
+          updateSearch({ tab: 'configure', agent: agentId })
+        }
+      />
 
       <Dialog open={archiveDialogOpen} onOpenChange={setArchiveDialogOpen}>
         <DialogContent size="lg">

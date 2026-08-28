@@ -23,7 +23,7 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 56;
+export const DATABASE_SCHEMA_VERSION = 57;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3500,6 +3500,28 @@ function migrateV56(database: Database.Database): void {
   );
 }
 
+function agentToolsNeedMigration(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'agents') &&
+    !columnExists(database, 'agents', 'tools')
+  );
+}
+
+function migrateV57(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'tools',
+    ddl: 'tools TEXT',
+    quiet: opts?.quiet === true,
+  });
+
+  recordMigration(database, 57, 'Persist per-agent tool allowlists');
+}
+
 export function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3637,6 +3659,9 @@ export function runMigrations(
     migrateV55(database, opts);
   }
   if (currentVersion < 56) migrateV56(database);
+  if (currentVersion < 57 || agentToolsNeedMigration(database)) {
+    migrateV57(database, opts);
+  }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

@@ -4,6 +4,18 @@
 
 ### Added
 
+- **Agents are configurable from the web console**: `/admin/agents` opens on a
+  new Configuration tab that edits an agent's display name, workspace
+  directory, pinned model, and — grouped, searchable, with per-group toggles —
+  which skills it may load and which tools it may call. Agents can also be
+  created and deleted from the browser. Each allowlist starts unrestricted:
+  unchecking an entry converts it into an explicit allowlist, and "Reset to
+  all" clears it so skills and tools installed later stay available.
+- **Per-agent tool allowlists**: the new `agents.list[].tools` key restricts
+  which tools an agent may call, mirroring `agents.list[].skills`. It is
+  intersected with the caller's allowlist, so it can only narrow a turn's
+  toolset, and globally disabled tools stay off regardless. Editable from the
+  console, `hybridclaw agent config`, and `config.json`.
 - **Plugins can be installed from the web console**: The Plugins & Tools page
   combines one-click installs from the official catalog with direct installs
   from plugin IDs, npm packages, local paths, and archive URLs. It reports
@@ -59,6 +71,12 @@
 
 ### Fixed
 
+- **The console view switcher highlights the page you are on**: its Agents
+  entry pointed at `/agents`, a redirect into `/admin/agents`, so following it
+  lit up Admin instead. It now links straight to the agents page, and the
+  switcher no longer lets the router mark Admin as a second current page on
+  every `/admin/*` route. Stored `ui.navigation` entries still pointing at
+  `/agents` are rewritten when the config loads.
 - **Premium-model errors now point at the current free model**: The guidance
   shown when a HybridAI request is rejected for premium-model access names
   `gpt-5.6-luna` — the model available without a paid plan or credits — instead

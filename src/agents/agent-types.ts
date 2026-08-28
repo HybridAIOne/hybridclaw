@@ -73,6 +73,7 @@ export interface AgentConfig {
   emptyChatHeader?: string;
   model?: AgentModelConfig;
   skills?: string[];
+  tools?: string[];
   workspace?: string;
   chatbotId?: string;
   enableRag?: boolean;

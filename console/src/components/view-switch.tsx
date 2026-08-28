@@ -15,7 +15,7 @@ export type ViewSwitchItem = {
 
 export const DEFAULT_VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
   { href: '/chat', icon: 'chat', label: 'Chat' },
-  { href: '/agents', icon: 'agents', label: 'Agents' },
+  { href: '/admin/agents', icon: 'agents', label: 'Agents' },
   { href: '/admin', icon: 'admin', label: 'Admin' },
   {
     href: 'https://github.com/HybridAIOne/hybridclaw',
@@ -145,7 +145,15 @@ export function ViewSwitchNav(props: {
             {inner}
           </span>
         ) : (
-          <Link key={key} className="view-switch-link" to={item.href}>
+          // This nav resolves its own active item, so the router must not add
+          // its fuzzy prefix match on top: `/admin` would otherwise claim
+          // `aria-current` on every `/admin/*` route as well.
+          <Link
+            key={key}
+            className="view-switch-link"
+            to={item.href}
+            activeOptions={{ exact: true }}
+          >
             {inner}
           </Link>
         );

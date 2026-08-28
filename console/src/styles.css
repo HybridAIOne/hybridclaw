@@ -426,6 +426,21 @@ code {
   white-space: nowrap;
 }
 
+.agents-scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agents-scope > span {
+  white-space: nowrap;
+}
+
+.agents-scope [data-slot="native-select-wrapper"] {
+  min-width: 200px;
+}
+
 .agents-archive-list,
 .agents-archived-section {
   display: grid;
