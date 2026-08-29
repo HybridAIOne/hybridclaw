@@ -90,6 +90,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       sendPolicy: 'open',
       sendAllowedChannelIds: [],
       freeResponseChannels: [],
+      botMessageChannels: [],
       textChunkLimit: 2000,
       maxLinesPerMessage: 17,
       humanDelay: {

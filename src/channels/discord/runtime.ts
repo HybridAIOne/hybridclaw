@@ -15,6 +15,7 @@ import { parseLowerArg } from '../../command-parsing.js';
 import {
   DISCORD_ACK_REACTION,
   DISCORD_ACK_REACTION_SCOPE,
+  DISCORD_BOT_MESSAGE_CHANNELS,
   DISCORD_COMMAND_ALLOWED_USER_IDS,
   DISCORD_COMMAND_MODE,
   DISCORD_COMMAND_USER_ID,
@@ -91,6 +92,7 @@ import {
   isTrigger as isTriggerInbound,
   type ParsedCommand,
   parseCommand as parseCommandInbound,
+  shouldIgnoreBotAuthoredMessage as shouldIgnoreBotAuthoredMessageInbound,
   shouldReplyInFreeMode as shouldReplyInFreeModeInbound,
   shouldSkipFreeReplyBecauseOtherUsersMentioned as shouldSkipFreeReplyBecauseOtherUsersMentionedInbound,
 } from './inbound.js';
@@ -2391,7 +2393,20 @@ export async function initDiscord(
   };
 
   client.on('messageCreate', async (msg: DiscordMessage) => {
-    if (msg.author.bot) return;
+    // Bot/webhook authors are ignored unless their channel opts in via
+    // discord.botMessageChannels. Our own messages are always ignored, even in
+    // an allowlisted channel, so the agent can never reply to itself.
+    if (
+      shouldIgnoreBotAuthoredMessageInbound({
+        authorId: msg.author.id,
+        authorIsBot: Boolean(msg.author.bot),
+        botUserId: client.user?.id || null,
+        channelId: msg.channelId,
+        botMessageChannels: DISCORD_BOT_MESSAGE_CHANNELS,
+      })
+    ) {
+      return;
+    }
 
     const sessionId = getSessionId(msg);
     const guildId = msg.guild?.id || null;

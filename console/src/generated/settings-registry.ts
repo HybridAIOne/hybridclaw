@@ -875,6 +875,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 'group-mentions',
     },
     {
+      path: 'discord.botMessageChannels',
+      section: 'discord',
+      kind: 'list',
+      defaultValue: [],
+    },
+    {
       path: 'discord.commandAllowedUserIds',
       section: 'discord',
       kind: 'list',

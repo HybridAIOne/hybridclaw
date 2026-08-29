@@ -9,6 +9,7 @@ import {
   isAuthorizedCommandUser,
   isTrigger,
   parseCommand,
+  shouldIgnoreBotAuthoredMessage,
   shouldReplyInFreeMode,
   shouldSkipFreeReplyBecauseOtherUsersMentioned,
 } from '../src/channels/discord/inbound.js';
@@ -387,4 +388,68 @@ test('command access uses legacy commandUserId in restricted mode', () => {
     legacyCommandUserId: '777',
   });
   expect(authorized).toBe(true);
+});
+
+const BOT_SELF_ID = '999999999999999999';
+const ALERTS_CHANNEL_ID = '111111111111111111';
+const GENERAL_CHANNEL_ID = '222222222222222222';
+
+test('bot-authored messages stay ignored in non-allowlisted channels', () => {
+  expect(
+    shouldIgnoreBotAuthoredMessage({
+      authorId: '333333333333333333',
+      authorIsBot: true,
+      botUserId: BOT_SELF_ID,
+      channelId: GENERAL_CHANNEL_ID,
+      botMessageChannels: [ALERTS_CHANNEL_ID],
+    }),
+  ).toBe(true);
+});
+
+test('bot-authored messages trigger in allowlisted channels', () => {
+  expect(
+    shouldIgnoreBotAuthoredMessage({
+      authorId: '333333333333333333',
+      authorIsBot: true,
+      botUserId: BOT_SELF_ID,
+      channelId: ALERTS_CHANNEL_ID,
+      botMessageChannels: [ALERTS_CHANNEL_ID],
+    }),
+  ).toBe(false);
+});
+
+test('our own messages are ignored even in allowlisted channels', () => {
+  expect(
+    shouldIgnoreBotAuthoredMessage({
+      authorId: BOT_SELF_ID,
+      authorIsBot: true,
+      botUserId: BOT_SELF_ID,
+      channelId: ALERTS_CHANNEL_ID,
+      botMessageChannels: [ALERTS_CHANNEL_ID],
+    }),
+  ).toBe(true);
+});
+
+test('bot-authored messages are ignored while our own user id is unknown', () => {
+  expect(
+    shouldIgnoreBotAuthoredMessage({
+      authorId: '333333333333333333',
+      authorIsBot: true,
+      botUserId: null,
+      channelId: ALERTS_CHANNEL_ID,
+      botMessageChannels: [ALERTS_CHANNEL_ID],
+    }),
+  ).toBe(true);
+});
+
+test('human messages are unaffected by the bot allowlist', () => {
+  expect(
+    shouldIgnoreBotAuthoredMessage({
+      authorId: '444444444444444444',
+      authorIsBot: false,
+      botUserId: BOT_SELF_ID,
+      channelId: GENERAL_CHANNEL_ID,
+      botMessageChannels: [],
+    }),
+  ).toBe(false);
 });
