@@ -63,6 +63,11 @@ itself.
 /config set discord.botMessageChannels ["123456789012345678"]
 ```
 
+Do not allowlist a channel that HybridClaw itself posts into through
+`discordWebhook`. Those messages arrive authored by the webhook rather than by
+the bot user, so the self-reply guard cannot recognize them as ours and the
+agent would answer its own notifications.
+
 ## Step 2: Start Or Restart The Gateway
 
 ```bash
