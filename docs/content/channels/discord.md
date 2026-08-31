@@ -45,9 +45,28 @@ Local config equivalent:
 /config set discord.commandUserId ""
 /config set discord.groupPolicy "disabled"
 /config set discord.freeResponseChannels []
+/config set discord.botMessageChannels []
 /config set discord.guilds {}
 /config set discord.prefix "!claw"
 ```
+
+## Optional: Let Bots Wake The Agent In Alert Channels
+
+Messages written by other bots and webhooks are ignored everywhere by default.
+List a channel ID in `discord.botMessageChannels` to let bot- and
+webhook-authored messages trigger the agent in that channel only — useful for
+an alerts channel fed by monitoring or CI webhooks. The agent's own messages
+are always ignored, including in these channels, so it can never reply to
+itself.
+
+```text
+/config set discord.botMessageChannels ["123456789012345678"]
+```
+
+Do not allowlist a channel that HybridClaw itself posts into through
+`discordWebhook`. Those messages arrive authored by the webhook rather than by
+the bot user, so the self-reply guard cannot recognize them as ours and the
+agent would answer its own notifications.
 
 ## Step 2: Start Or Restart The Gateway
 

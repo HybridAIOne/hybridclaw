@@ -1096,6 +1096,7 @@ export interface RuntimeConfig {
     sendPolicy: DiscordSendPolicy;
     sendAllowedChannelIds: string[];
     freeResponseChannels: string[];
+    botMessageChannels: string[];
     textChunkLimit: number;
     maxLinesPerMessage: number;
     humanDelay: RuntimeDiscordHumanDelayConfig;
@@ -1613,6 +1614,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     sendPolicy: 'open',
     sendAllowedChannelIds: [],
     freeResponseChannels: [],
+    botMessageChannels: [],
     textChunkLimit: 1_900,
     maxLinesPerMessage: 17,
     humanDelay: {
@@ -7784,6 +7786,10 @@ function normalizeRuntimeConfig(
       freeResponseChannels: normalizeStringArray(
         rawDiscord.freeResponseChannels,
         DEFAULT_RUNTIME_CONFIG.discord.freeResponseChannels,
+      ),
+      botMessageChannels: normalizeStringArray(
+        rawDiscord.botMessageChannels,
+        DEFAULT_RUNTIME_CONFIG.discord.botMessageChannels,
       ),
       textChunkLimit: normalizeInteger(
         rawDiscord.textChunkLimit,

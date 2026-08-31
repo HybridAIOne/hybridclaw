@@ -259,3 +259,33 @@ export function isTrigger(params: {
   if (params.hasBotMention) return true;
   return false;
 }
+
+/**
+ * Decides whether a bot-authored message may trigger the agent.
+ *
+ * Bot/webhook authors are ignored by default. They only pass in channels that
+ * are explicitly listed in `discord.botMessageChannels`, so alert channels can
+ * wake the agent without changing behavior anywhere else.
+ *
+ * The agent's own messages are ALWAYS ignored, allowlist or not: replying to
+ * ourselves would create an infinite self-reply loop.
+ */
+export function shouldIgnoreBotAuthoredMessage(params: {
+  authorId: string;
+  authorIsBot: boolean;
+  botUserId: string | null;
+  channelId: string;
+  botMessageChannels: string[];
+}): boolean {
+  const botId = params.botUserId?.trim() || '';
+  if (botId && params.authorId === botId) return true;
+  if (!params.authorIsBot) return false;
+  // Fail closed: if we cannot identify ourselves yet, never let a bot author
+  // through, because it could be us.
+  if (!botId) return true;
+
+  const allowed = new Set(
+    params.botMessageChannels.map((entry) => entry.trim()).filter(Boolean),
+  );
+  return !allowed.has(params.channelId);
+}
