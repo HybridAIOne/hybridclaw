@@ -1,4 +1,4 @@
-import type { AttachmentBuilder, Client, GuildMember } from 'discord.js';
+import type { AttachmentBuilder, Client, Embed, GuildMember } from 'discord.js';
 import type {
   ResolveSendAllowedParams,
   ResolveSendAllowedResult,
@@ -489,6 +489,31 @@ async function resolveGuildMemberIdFromLookup(params: {
   return { ok: true, userId: matched[0].member.id };
 }
 
+const DISCORD_READ_EMBEDS_PER_MESSAGE_LIMIT = 5;
+const DISCORD_READ_FIELDS_PER_EMBED_LIMIT = 10;
+
+function normalizeReadEmbeds(
+  embeds: readonly Embed[] | null | undefined,
+): Array<Record<string, unknown>> {
+  if (!embeds || embeds.length === 0) return [];
+  return embeds
+    .slice(0, DISCORD_READ_EMBEDS_PER_MESSAGE_LIMIT)
+    .map((embed) => ({
+      title: embed.title || null,
+      description: embed.description || null,
+      url: embed.url || null,
+      timestamp: embed.timestamp || null,
+      author: embed.author?.name ? { name: embed.author.name } : null,
+      footer: embed.footer?.text ? { text: embed.footer.text } : null,
+      fields: (embed.fields ?? [])
+        .slice(0, DISCORD_READ_FIELDS_PER_EMBED_LIMIT)
+        .map((field) => ({
+          name: field?.name || null,
+          value: field?.value || null,
+        })),
+    }));
+}
+
 function normalizeDate(value: Date | null | undefined): string | null {
   if (!value) return null;
   const ms = value.getTime();
@@ -952,6 +977,7 @@ async function runDiscordReadAction(
           size: attachment.size,
         }),
       ),
+      embeds: normalizeReadEmbeds(message.embeds),
       mentions: {
         users: Array.from(message.mentions.users.values()).map((user) => ({
           id: user.id,
