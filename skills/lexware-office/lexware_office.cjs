@@ -292,10 +292,7 @@ function buildReadRequest(operation, args) {
     return buildHttpRequest({ url: `${API_BASE}/v1/articles/${id}` });
   }
   if (operation === 'list-invoices') {
-    return buildVoucherListRequest(args, {
-      voucherType: 'invoice',
-      voucherStatus: popFlag(args, '--status'),
-    });
+    return buildVoucherListRequest(args, { voucherType: 'invoice' });
   }
   if (operation === 'get-invoice') {
     const id = popFlag(args, '--id');
@@ -311,10 +308,7 @@ function buildReadRequest(operation, args) {
     });
   }
   if (operation === 'list-quotations') {
-    return buildVoucherListRequest(args, {
-      voucherType: 'quotation',
-      voucherStatus: popFlag(args, '--status'),
-    });
+    return buildVoucherListRequest(args, { voucherType: 'quotation' });
   }
   if (operation === 'get-quotation') {
     const id = popFlag(args, '--id');
@@ -340,7 +334,6 @@ function buildReadRequest(operation, args) {
   if (operation === 'list-expenses') {
     return buildVoucherListRequest(args, {
       voucherType: 'purchaseinvoice,purchasecreditnote',
-      voucherStatus: popFlag(args, '--status'),
     });
   }
   if (operation === 'get-voucher') {
@@ -364,79 +357,78 @@ function buildReadRequest(operation, args) {
   die(`Unsupported read operation: ${operation}`);
 }
 
-function buildVoucherListRequest(args, defaults = {}) {
-  const url = appendQuery(`${API_BASE}/v1/voucherlist`, {
+function popVoucherListParams(args, defaults = {}) {
+  return {
     page: popFlag(args, '--page', '0'),
     size: parsePageSize(popFlag(args, '--size', '25')),
     voucherType: popFlag(args, '--voucher-type', defaults.voucherType),
-    voucherStatus: popFlag(args, '--status', defaults.voucherStatus),
+    // Lexware rejects GET /v1/voucherlist without voucherStatus; "any" is the
+    // documented wildcard, so the helper always sends a status.
+    voucherStatus: popFlag(args, '--status', 'any'),
     voucherNumber: popFlag(args, '--voucher-number'),
     contactId: popFlag(args, '--contact-id'),
     voucherDateFrom: popFlag(args, '--start-date'),
     voucherDateTo: popFlag(args, '--end-date'),
-  });
-  return buildHttpRequest({ url });
-}
-
-function statementWindow(args) {
-  return {
-    startDate: popFlag(args, '--start-date'),
-    endDate: popFlag(args, '--end-date'),
   };
 }
 
+function buildVoucherListRequestFromParams(params) {
+  const url = appendQuery(`${API_BASE}/v1/voucherlist`, params);
+  return buildHttpRequest({ url });
+}
+
+function buildVoucherListRequest(args, defaults = {}) {
+  return buildVoucherListRequestFromParams(popVoucherListParams(args, defaults));
+}
+
 function buildStatementPlan(args) {
-  const originalArgs = [...args];
-  const window = statementWindow(args);
+  const params = popVoucherListParams(args);
+  const revenueType =
+    params.voucherType ?? 'invoice,creditnote,salesinvoice,salescreditnote';
+  const expenseType = params.voucherType ?? 'purchaseinvoice,purchasecreditnote';
   return {
     command: 'income-statement-plan',
     note: 'Lexware Office Public API does not expose a native income-statement endpoint. Use voucherlist plus posting categories and aggregate revenue and expenses locally.',
     requestSequence: [
-      buildVoucherListRequest([...originalArgs], {
-        voucherType: 'invoice,creditnote,salesinvoice,salescreditnote',
-      }).httpRequest,
-      buildVoucherListRequest([...originalArgs], {
-        voucherType: 'purchaseinvoice,purchasecreditnote',
-      }).httpRequest,
+      buildVoucherListRequestFromParams({ ...params, voucherType: revenueType })
+        .httpRequest,
+      buildVoucherListRequestFromParams({ ...params, voucherType: expenseType })
+        .httpRequest,
       buildHttpRequest({ url: `${API_BASE}/v1/posting-categories` })
         .httpRequest,
     ],
-    window,
+    window: {
+      startDate: params.voucherDateFrom,
+      endDate: params.voucherDateTo,
+    },
     costMeasurement: COST_MEASUREMENT,
   };
 }
 
 function buildRevenuePlan(args) {
-  const originalArgs = [...args];
-  const window = statementWindow(args);
+  const params = popVoucherListParams(args, {
+    voucherType: 'invoice,creditnote,salesinvoice,salescreditnote',
+  });
   return {
     command: 'revenue-summary-plan',
-    requestSequence: [
-      buildVoucherListRequest([...originalArgs], {
-        voucherType: 'invoice,creditnote,salesinvoice,salescreditnote',
-      }).httpRequest,
-    ],
-    window,
+    requestSequence: [buildVoucherListRequestFromParams(params).httpRequest],
+    window: {
+      startDate: params.voucherDateFrom,
+      endDate: params.voucherDateTo,
+    },
     costMeasurement: COST_MEASUREMENT,
   };
 }
 
 function buildBankTransactionPlan(args) {
-  const status = popFlag(args, '--status');
-  const originalArgs = [...args];
-  if (status && status !== 'any') {
-    originalArgs.push('--status', status);
-  }
+  const params = popVoucherListParams(args, {
+    voucherType:
+      'invoice,creditnote,salesinvoice,salescreditnote,purchaseinvoice,purchasecreditnote',
+  });
   return {
     command: 'bank-transaction-plan',
     note: 'Lexware Office Public API exposes bank-linked payments as paymentItems with paymentItemType partPaymentFinancialTransaction on /v1/payments/{voucherId}. Fetch candidate vouchers first, then fetch payment details per voucher id.',
-    requestSequence: [
-      buildVoucherListRequest([...originalArgs], {
-        voucherType:
-          'invoice,creditnote,salesinvoice,salescreditnote,purchaseinvoice,purchasecreditnote',
-        voucherStatus: status && status !== 'any' ? status : undefined,
-      }).httpRequest,
-    ],
+    requestSequence: [buildVoucherListRequestFromParams(params).httpRequest],
     followUpRequestTemplate: {
       url: `${API_BASE}/v1/payments/{voucherId}`,
       method: 'GET',
@@ -984,16 +976,16 @@ Usage:
   node skills/lexware-office/lexware_office.cjs http-request list-contacts [--name NAME] [--email EMAIL] [--page N] [--size N]
   node skills/lexware-office/lexware_office.cjs http-request get-contact --id UUID
   node skills/lexware-office/lexware_office.cjs http-request list-products [--article-number VALUE] [--type PRODUCT|SERVICE] [--page N] [--size N]
-  node skills/lexware-office/lexware_office.cjs http-request list-invoices [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]
+  node skills/lexware-office/lexware_office.cjs http-request list-invoices [--status STATUS] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]
   node skills/lexware-office/lexware_office.cjs http-request get-invoice --id UUID
-  node skills/lexware-office/lexware_office.cjs http-request list-quotations [--status open|accepted|rejected|draft] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]
+  node skills/lexware-office/lexware_office.cjs http-request list-quotations [--status STATUS] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]
   node skills/lexware-office/lexware_office.cjs http-request get-quotation --id UUID
   node skills/lexware-office/lexware_office.cjs http-request download-quotation-file --id UUID
   node skills/lexware-office/lexware_office.cjs http-request render-quotation-document --id UUID
-  node skills/lexware-office/lexware_office.cjs http-request list-expenses [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]
+  node skills/lexware-office/lexware_office.cjs http-request list-expenses [--status STATUS] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]
   node skills/lexware-office/lexware_office.cjs http-request get-voucher --id UUID
   node skills/lexware-office/lexware_office.cjs http-request get-payment --voucher-id UUID
-  node skills/lexware-office/lexware_office.cjs http-request list-bank-transactions [--status any]
+  node skills/lexware-office/lexware_office.cjs http-request list-bank-transactions [--status STATUS]
   node skills/lexware-office/lexware_office.cjs http-request posting-categories
   node skills/lexware-office/lexware_office.cjs http-request income-statement-plan --start-date YYYY-MM-DD --end-date YYYY-MM-DD
   node skills/lexware-office/lexware_office.cjs income-statement --revenue-file PATH --expense-file PATH [--categories-file PATH]
@@ -1007,6 +999,12 @@ Usage:
   node skills/lexware-office/lexware_office.cjs http-request attach-file-to-voucher --voucher-id UUID --file PATH --operator-grant
   node skills/lexware-office/lexware_office.cjs http-request match-transaction --voucher-id UUID --voucher-json JSON --transaction-json JSON --operator-grant
   node skills/lexware-office/lexware_office.cjs eval-scenarios
+
+STATUS values (Lexware GET /v1/voucherlist requires voucherStatus; the helper
+defaults --status to "any"):
+  any | draft | open | paid | paidoff | voided | transferred | sepadebit | overdue | accepted | rejected
+  Comma-separated lists are allowed, e.g. --status open,overdue.
+  Invoices use draft|open|paid|paidoff|voided; quotations use draft|open|accepted|rejected.
 `;
 }
 
@@ -1019,6 +1017,13 @@ function main() {
   }
 
   const command = args.shift();
+  if (
+    command !== 'plan' &&
+    (args.includes('--help') || args.includes('-h'))
+  ) {
+    process.stdout.write(usage());
+    return;
+  }
   let payload;
   if (command === 'plan') {
     const request = args.join(' ').trim();
@@ -1036,6 +1041,11 @@ function main() {
     payload = runEvalScenarios();
   } else {
     die(`Unknown command: ${command}`);
+  }
+  if (command !== 'plan' && args.length > 0) {
+    die(
+      `Unknown arguments for ${command}: ${args.join(' ')}. Run --help for usage.`,
+    );
   }
 
   if (format === 'json') {
