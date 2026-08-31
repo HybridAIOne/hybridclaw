@@ -95,6 +95,7 @@ import {
   shouldIgnoreBotAuthoredMessage as shouldIgnoreBotAuthoredMessageInbound,
   shouldReplyInFreeMode as shouldReplyInFreeModeInbound,
   shouldSkipFreeReplyBecauseOtherUsersMentioned as shouldSkipFreeReplyBecauseOtherUsersMentionedInbound,
+  summarizeEmbeds as summarizeEmbedsInbound,
 } from './inbound.js';
 import {
   addMentionAlias,
@@ -371,6 +372,10 @@ function buildPendingHistoryContext(
   ].join('\n');
 }
 
+function prefixEmbedSummary(summary: string): string {
+  return summary ? `[embed] ${summary}` : '';
+}
+
 async function buildInboundHistorySnapshot(
   msg: DiscordMessage,
   excludeMessageIds: Set<string>,
@@ -390,18 +395,10 @@ async function buildInboundHistorySnapshot(
       const plainText = cleanIncomingContent(recent.content || '').trim();
       if (plainText) return plainText;
 
-      const embedChunks = recent.embeds
-        .map((embed) =>
-          [embed.title?.trim(), embed.description?.trim()]
-            .filter(Boolean)
-            .join(' — '),
-        )
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .slice(0, 3);
-      if (embedChunks.length > 0) {
-        return `[embed] ${embedChunks.join(' | ')}`;
-      }
+      const embedSummary = prefixEmbedSummary(
+        summarizeEmbedsInbound(recent.embeds),
+      );
+      if (embedSummary) return embedSummary;
 
       const attachmentNames = Array.from(recent.attachments.values())
         .map((attachment) => attachment.name?.trim())
@@ -835,6 +832,7 @@ function shouldHandleFreeModeMessage(
   msg: DiscordMessage,
   behavior: ResolvedChannelBehavior,
   content: string,
+  isAllowlistedBotMessage: boolean = false,
 ): boolean {
   if (!msg.guild) return true;
 
@@ -875,6 +873,7 @@ function shouldHandleFreeModeMessage(
     hasPrefixInvocation: hasPrefixedInvocation,
     isReplyToBot,
     hasAttachments: msg.attachments.size > 0,
+    isAllowlistedBotMessage,
   });
 }
 
@@ -2412,7 +2411,10 @@ export async function initDiscord(
     const guildId = msg.guild?.id || null;
     const channelId = msg.channelId;
     const behavior = resolveChannelBehavior(msg);
-    const content = cleanIncomingContent(msg.content);
+    // Commands below parse `msg.content`, never this fallback.
+    const content =
+      cleanIncomingContent(msg.content) ||
+      prefixEmbedSummary(summarizeEmbedsInbound(msg.embeds));
     observeMessageParticipants(msg, content);
     const immediateMentionLookup = buildMentionLookup(
       [msg],
@@ -2557,7 +2559,16 @@ export async function initDiscord(
       return;
     }
 
-    if (!shouldHandleFreeModeMessage(msg, behavior, content)) {
+    // A bot author only reaches here from an allowlisted channel.
+    const isAllowlistedBotMessage = Boolean(msg.author.bot);
+    if (
+      !shouldHandleFreeModeMessage(
+        msg,
+        behavior,
+        content,
+        isAllowlistedBotMessage,
+      )
+    ) {
       logger.debug(
         {
           channelId: msg.channelId,

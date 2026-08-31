@@ -190,6 +190,7 @@ export function shouldReplyInFreeMode(params: {
   hasPrefixInvocation: boolean;
   isReplyToBot: boolean;
   hasAttachments: boolean;
+  isAllowlistedBotMessage?: boolean;
 }): boolean {
   if (params.guildMessageMode !== 'free') return true;
   if (params.hasPrefixInvocation) return true;
@@ -200,6 +201,8 @@ export function shouldReplyInFreeMode(params: {
 
   const normalized = params.content.trim();
   if (!normalized) return false;
+  // After the empty check, so a textless bot post stays dropped.
+  if (params.isAllowlistedBotMessage) return true;
   if (FREE_MODE_ACK_ONLY_RE.test(normalized)) return false;
   if (URL_ONLY_RE.test(normalized)) return false;
   if (params.isAddressedToChannel) return true;
@@ -288,4 +291,53 @@ export function shouldIgnoreBotAuthoredMessage(params: {
     params.botMessageChannels.map((entry) => entry.trim()).filter(Boolean),
   );
   return !allowed.has(params.channelId);
+}
+
+export interface DiscordEmbedLike {
+  title?: string | null;
+  description?: string | null;
+  url?: string | null;
+  author?: { name?: string | null } | null;
+  footer?: { text?: string | null } | null;
+  fields?: ReadonlyArray<{
+    name?: string | null;
+    value?: string | null;
+  } | null> | null;
+}
+
+const EMBED_SUMMARY_MAX_EMBEDS = 3;
+const EMBED_SUMMARY_MAX_FIELDS = 6;
+const EMBED_SUMMARY_MAX_CHARS_PER_EMBED = 600;
+
+function summarizeEmbed(embed: DiscordEmbedLike): string {
+  const lines: string[] = [];
+  const push = (value: string | null | undefined): void => {
+    const trimmed = (value || '').trim();
+    if (trimmed) lines.push(trimmed);
+  };
+
+  push(embed.author?.name);
+  push(embed.title);
+  push(embed.description);
+  for (const field of (embed.fields ?? []).slice(0, EMBED_SUMMARY_MAX_FIELDS)) {
+    const name = (field?.name || '').trim();
+    const value = (field?.value || '').trim();
+    if (name && value) lines.push(`${name}: ${value}`);
+    else push(name || value);
+  }
+  push(embed.footer?.text);
+  push(embed.url);
+
+  const text = lines.join('\n');
+  if (text.length <= EMBED_SUMMARY_MAX_CHARS_PER_EMBED) return text;
+  return `${text.slice(0, EMBED_SUMMARY_MAX_CHARS_PER_EMBED - 1).trimEnd()}…`;
+}
+
+/** Plain-text rendering of a message's embeds; '' when they carry no text. */
+export function summarizeEmbeds(embeds: readonly DiscordEmbedLike[]): string {
+  return embeds
+    .slice(0, EMBED_SUMMARY_MAX_EMBEDS)
+    .map((embed) => summarizeEmbed(embed))
+    .filter(Boolean)
+    .join('\n\n');
 }

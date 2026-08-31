@@ -59,6 +59,11 @@ an alerts channel fed by monitoring or CI webhooks. The agent's own messages
 are always ignored, including in these channels, so it can never reply to
 itself.
 
+Such alerts usually carry their payload in an **embed** rather than message
+text, so HybridClaw renders the embed for the agent to read, and allowlisted
+channels skip the `free`-mode relevance heuristics — a status line is not
+phrased as a request. A post with no readable text is still ignored.
+
 ```text
 /config set discord.botMessageChannels ["123456789012345678"]
 ```

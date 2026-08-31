@@ -12,6 +12,7 @@ import {
   shouldIgnoreBotAuthoredMessage,
   shouldReplyInFreeMode,
   shouldSkipFreeReplyBecauseOtherUsersMentioned,
+  summarizeEmbeds,
 } from '../src/channels/discord/inbound.js';
 import {
   type MentionLookup,
@@ -451,5 +452,71 @@ test('human messages are unaffected by the bot allowlist', () => {
       channelId: GENERAL_CHANNEL_ID,
       botMessageChannels: [],
     }),
+  ).toBe(false);
+});
+
+// --- Embed-only messages (alert webhooks) ---------------------------------
+// Unassuming prose on purpose: no question mark, request verb, problem signal
+// or inline code, so it exercises the relevance gate the way an alert does.
+const ALERT_EMBED = {
+  author: { name: 'CI' },
+  title: 'Build succeeded',
+  description: 'Pipeline finished in 4m 12s',
+  url: 'https://example.com/runs/1',
+  footer: { text: 'triggered by scheduler' },
+  fields: [{ name: 'Environment', value: 'staging' }],
+};
+
+test('summarizeEmbeds renders an embed as text', () => {
+  expect(summarizeEmbeds([ALERT_EMBED])).toBe(
+    [
+      'CI',
+      'Build succeeded',
+      'Pipeline finished in 4m 12s',
+      'Environment: staging',
+      'triggered by scheduler',
+      'https://example.com/runs/1',
+    ].join('\n'),
+  );
+});
+
+test('summarizeEmbeds renders nothing for an embed with no text', () => {
+  // e.g. an image-only embed — the agent must not be handed a blank turn.
+  for (const embeds of [[], [{}], [{ title: '  ' }]]) {
+    expect(summarizeEmbeds(embeds)).toBe('');
+  }
+});
+
+test('summarizeEmbeds bounds what one message can contribute', () => {
+  const many = summarizeEmbeds([1, 2, 3, 4].map((n) => ({ title: `e${n}` })));
+  expect(many).toContain('e3');
+  expect(many).not.toContain('e4');
+
+  const fields = summarizeEmbeds([
+    { fields: Array.from({ length: 12 }, (_u, i) => ({ name: `f${i}`, value: 'v' })) },
+  ]);
+  expect(fields).toContain('f5: v');
+  expect(fields).not.toContain('f6: v');
+
+  const long = summarizeEmbeds([{ title: 'x'.repeat(5000) }]);
+  expect(long.length).toBeLessThanOrEqual(600);
+  expect(long.endsWith('…')).toBe(true);
+});
+
+test('the free-mode gate lets an allowlisted alert through, but not an empty one', () => {
+  const base = {
+    guildMessageMode: 'free' as const,
+    hasBotMention: false,
+    hasPrefixInvocation: false,
+    isReplyToBot: false,
+    hasAttachments: false,
+  };
+  const content = summarizeEmbeds([ALERT_EMBED]);
+  expect(shouldReplyInFreeMode({ ...base, content })).toBe(false);
+  expect(
+    shouldReplyInFreeMode({ ...base, content, isAllowlistedBotMessage: true }),
+  ).toBe(true);
+  expect(
+    shouldReplyInFreeMode({ ...base, content: '', isAllowlistedBotMessage: true }),
   ).toBe(false);
 });
