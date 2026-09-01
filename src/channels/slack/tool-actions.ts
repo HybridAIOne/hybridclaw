@@ -21,9 +21,38 @@ interface SlackMemberLookupCandidate {
   lastSeenAt: string | null;
 }
 
+type SessionKeyFields = Pick<Session, 'id' | 'session_key'>;
+
+// Since the multi-session re-keying, Slack session rows carry generated
+// `sess_*` instance ids; the Slack identity lives in `session_key`.
+// Pre-migration rows still use the canonical key as their row id, so both
+// columns are consulted.
+function isSlackSession(session: SessionKeyFields): boolean {
+  return isSlackSessionId(session.session_key) || isSlackSessionId(session.id);
+}
+
+// The canonical key the Slack runtime uses for its active-session map.
+function resolveSlackSessionKey(session: SessionKeyFields): string {
+  const sessionKey = normalizeValue(session.session_key);
+  if (isSlackSessionId(sessionKey)) return sessionKey;
+  return normalizeValue(session.id);
+}
+
+// Resolves a message-tool `sessionId` (instance id or canonical key) to its
+// Slack session row, or null when the id is unknown or belongs to another
+// channel.
+function resolveSlackRequestSession(
+  sessionId: string | undefined,
+): Session | null {
+  const normalized = normalizeValue(sessionId);
+  if (!normalized) return null;
+  const session = getSessionById(normalized);
+  if (!session || !isSlackSession(session)) return null;
+  return session;
+}
+
 function isLikelySlackRequest(request: DiscordToolActionRequest): boolean {
-  const sessionId = normalizeValue(request.sessionId);
-  if (isSlackSessionId(sessionId)) {
+  if (resolveSlackRequestSession(request.sessionId)) {
     return true;
   }
 
@@ -63,7 +92,7 @@ function pickMostRecentMatchingSession(
   const normalizedGuildId = normalizeValue(guildId) || null;
   const matched = getAllSessions().filter(
     (session) =>
-      isSlackSessionId(session.id) &&
+      isSlackSession(session) &&
       normalizeValue(session.channel_id) === target &&
       (!normalizedGuildId ||
         normalizeValue(session.guild_id) === normalizedGuildId),
@@ -74,10 +103,7 @@ function pickMostRecentMatchingSession(
 function resolveKnownSlackSession(
   request: DiscordToolActionRequest,
 ): Session | null {
-  const sessionId = normalizeValue(request.sessionId);
-  const currentSession = isSlackSessionId(sessionId)
-    ? getSessionById(sessionId) || null
-    : null;
+  const currentSession = resolveSlackRequestSession(request.sessionId);
   const rawChannelId = normalizeValue(request.channelId);
 
   if (!rawChannelId || MESSAGE_TOOL_SLACK_CURRENT_RE.test(rawChannelId)) {
@@ -102,13 +128,13 @@ function ensureAuthorizedSlackSendTarget(
   request: DiscordToolActionRequest,
   targetSession: Session,
 ): void {
-  const requesterSessionId = normalizeValue(request.sessionId);
-  if (!isSlackSessionId(requesterSessionId)) {
+  const requesterSession = resolveSlackRequestSession(request.sessionId);
+  if (!requesterSession) {
     throw new Error(
       'Slack send is only allowed from the current active Slack session.',
     );
   }
-  if (requesterSessionId !== targetSession.id) {
+  if (requesterSession.id !== targetSession.id) {
     throw new Error(
       'Slack send is only allowed to the current active Slack session.',
     );
@@ -243,7 +269,7 @@ async function runSlackSendAction(
   }
 
   const delivery = await sendToActiveSlackSession({
-    sessionId: targetSession.id,
+    sessionId: resolveSlackSessionKey(targetSession),
     text: resolvedFilePath ? '' : content,
     filePath: resolvedFilePath,
     filename: request.name,
@@ -308,7 +334,8 @@ function runSlackReadAction(
 function runSlackChannelInfoAction(
   targetSession: Session,
 ): Record<string, unknown> {
-  const parsed = parseSessionKey(targetSession.id);
+  const sessionKey = resolveSlackSessionKey(targetSession);
+  const parsed = parseSessionKey(sessionKey);
   const target = parseSlackChannelTarget(targetSession.channel_id);
   return {
     ok: true,
@@ -320,7 +347,7 @@ function runSlackChannelInfoAction(
       teamId: targetSession.guild_id,
       isDm: parsed?.chatType === 'dm',
       threadTs: target?.threadTs || null,
-      active: hasActiveSlackSession(targetSession.id),
+      active: hasActiveSlackSession(sessionKey),
       createdAt: targetSession.created_at,
       lastActive: targetSession.last_active,
     },

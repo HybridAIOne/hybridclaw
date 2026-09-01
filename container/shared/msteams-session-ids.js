@@ -18,3 +18,9 @@ export function isMSTeamsDmSessionId(value) {
   const parsed = parseSessionKey(normalized);
   return parsed?.channelKind === 'msteams' && parsed.chatType === 'dm';
 }
+
+// Bot Framework conversation ids: `a:...` for personal chats, `19:...` for
+// group chats and team channels.
+export function looksLikeMSTeamsConversationId(value) {
+  return /^(?:a:|19:)/.test(String(value || '').trim());
+}
