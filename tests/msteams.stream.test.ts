@@ -357,3 +357,36 @@ test('stream retries transient Teams send and update failures', async () => {
     vi.useRealTimers();
   }
 });
+
+test('reports the first delivered Teams message so the typing indicator can stop', async () => {
+  vi.useFakeTimers();
+  try {
+    const onMessageDelivered = vi.fn();
+    const sendActivity = vi.fn(async () => ({ id: 'activity-1' }));
+    const updateActivity = vi.fn(async () => {});
+    const turnContext = {
+      sendActivity,
+      updateActivity,
+      deleteActivity: vi.fn(async () => {}),
+    };
+
+    const stream = new MSTeamsStreamManager(turnContext as never, {
+      replyStyle: 'thread',
+      replyToId: 'incoming-1',
+      editIntervalMs: 500,
+      onMessageDelivered,
+    });
+
+    await stream.append('Hello');
+    expect(onMessageDelivered).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onMessageDelivered).toHaveBeenCalledTimes(1);
+
+    await stream.finalize('Hello world');
+    expect(updateActivity).toHaveBeenCalledTimes(1);
+    expect(onMessageDelivered).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});

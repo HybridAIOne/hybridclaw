@@ -35,6 +35,7 @@ export interface MSTeamsStreamOptions {
   editIntervalMs?: number;
   nativeStreaming?: boolean;
   onNativeCancellation?: () => void;
+  onMessageDelivered?: () => void;
 }
 
 export class MSTeamsStreamManager {
@@ -44,6 +45,7 @@ export class MSTeamsStreamManager {
   private readonly editIntervalMs: number;
   private readonly nativeStreaming: boolean;
   private readonly onNativeCancellation?: () => void;
+  private readonly onMessageDelivered?: () => void;
 
   private readonly sent: SentActivityRef[] = [];
   private content = '';
@@ -66,6 +68,7 @@ export class MSTeamsStreamManager {
     this.replyToId = options.replyToId;
     this.nativeStreaming = options.nativeStreaming === true;
     this.onNativeCancellation = options.onNativeCancellation;
+    this.onMessageDelivered = options.onMessageDelivered;
     this.editIntervalMs = Math.max(
       250,
       options.editIntervalMs ??
@@ -273,6 +276,7 @@ export class MSTeamsStreamManager {
           throw new Error('Teams sendActivity did not return an activity id.');
         }
         this.sent.push({ id: activityId, text: chunk.text });
+        this.notifyMessageDelivered();
         continue;
       }
 
@@ -422,6 +426,15 @@ export class MSTeamsStreamManager {
     );
     const finalId = String(response?.id || '').trim();
     if (finalId) this.nativeFinalId = finalId;
+  }
+
+  private notifyMessageDelivered(): void {
+    if (!this.onMessageDelivered) return;
+    try {
+      this.onMessageDelivered();
+    } catch (error) {
+      logger.debug({ error }, 'Teams stream delivery callback failed');
+    }
   }
 
   private async disableNativeStreaming(error: unknown): Promise<void> {

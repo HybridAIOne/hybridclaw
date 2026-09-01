@@ -702,13 +702,16 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
     }
 
     const abortController = new AbortController();
+    const typingController = createMSTeamsTypingController(turnContext);
     const stream = new MSTeamsStreamManager(turnContext, {
       replyStyle: policy.replyStyle,
       replyToId: activity.id,
       nativeStreaming: isDm,
       onNativeCancellation: () => abortController.abort(),
+      onMessageDelivered: () => {
+        typingController.stop();
+      },
     });
-    const typingController = createMSTeamsTypingController(turnContext);
     let legacyTypingStarted = false;
     if (isDm) {
       await stream.updateInformative();
