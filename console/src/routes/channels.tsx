@@ -106,9 +106,9 @@ function normalizeAllowListEntry(value: string): string | null {
   return trimmed || null;
 }
 
-function dedupeAllowListEntries(values: string[]): string[] {
+function dedupeAllowListEntries(values: string[] | undefined): string[] {
   const entries: string[] = [];
-  for (const value of values) {
+  for (const value of Array.isArray(values) ? values : []) {
     if (!value || entries.includes(value)) continue;
     entries.push(value);
   }

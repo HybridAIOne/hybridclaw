@@ -212,6 +212,8 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       enabled: false,
       provider: 'twilio',
       mode: 'relay',
+      callerPolicy: 'open',
+      allowFrom: [],
       twilio: {
         accountSid: '',
         authToken: '',
