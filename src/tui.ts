@@ -53,6 +53,10 @@ import {
 import { logger } from './logger.js';
 import { summarizeMediaFilenames } from './media/media-summary.js';
 import {
+  formatMemoryAccessSummary,
+  MEMORY_RECALL_ACTIVITY_TOOL_NAME,
+} from './memory/recall-presentation.js';
+import {
   normalizeModelCandidates,
   parseModelInfoSummaryFromText,
   parseModelNamesFromListText,
@@ -1477,8 +1481,12 @@ function printUsageFooter(
   tools: string[],
   plugins: string[],
   skill: string | undefined,
+  memoryAccess?: GatewayChatResult['memoryAccess'],
 ): void {
   const parts: string[] = [];
+  if (memoryAccess) {
+    parts.push(`🧠 ${GREEN}${formatMemoryAccessSummary(memoryAccess)}${RESET}`);
+  }
   if (tools.length > 0) {
     parts.push(`🔧 ${GREEN}${tools.join(', ')}${RESET}`);
   }
@@ -1707,7 +1715,11 @@ export function formatTuiToolActivityLine(params: {
     : '';
   const count = Math.max(1, params.count || 1);
   const countText = count > 1 ? ` ${MUTED}x${count}${RESET}` : '';
-  const body = `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${params.toolName}${RESET}${countText}${previewText}`;
+  const toolName =
+    params.toolName === MEMORY_RECALL_ACTIVITY_TOOL_NAME
+      ? 'memory recall'
+      : params.toolName;
+  const body = `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${toolName}${RESET}${countText}${previewText}`;
   const safeColumns = Math.max(1, params.columns - 1);
   return truncateAnsiTuiEnd(body, safeColumns);
 }
@@ -2982,11 +2994,14 @@ async function processMessage(
 
     const toolNames = [
       ...new Set([...streamedToolNames, ...collectToolNames(result)]),
-    ];
+    ].filter((toolName) => toolName !== MEMORY_RECALL_ACTIVITY_TOOL_NAME);
     const pluginNames = collectPluginNames(result);
     const skillName = result.skillUsed;
     const hasUsageFooters =
-      toolNames.length > 0 || pluginNames.length > 0 || !!skillName;
+      toolNames.length > 0 ||
+      pluginNames.length > 0 ||
+      !!skillName ||
+      !!result.memoryAccess;
     const finalText = result.result || 'No response.';
     const pendingApproval = resolvePendingApproval(
       result,
@@ -3023,7 +3038,7 @@ async function processMessage(
       } else if (hasStreamedText) {
         process.stdout.write(streamedResponseTrailingNewlines);
       }
-      printUsageFooter(toolNames, pluginNames, skillName);
+      printUsageFooter(toolNames, pluginNames, skillName, result.memoryAccess);
     }
 
     if (interrupted) {

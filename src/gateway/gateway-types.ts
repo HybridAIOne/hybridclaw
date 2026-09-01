@@ -52,7 +52,7 @@ import type {
   ToolExecution,
   ToolProgressEvent,
 } from '../types/execution.js';
-import type { MemoryCitation } from '../types/memory.js';
+import type { MemoryAccess, MemoryCitation } from '../types/memory.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import type { GatewayModelProviderKey } from './model-provider-keys.js';
@@ -124,6 +124,7 @@ export interface GatewayChatResult {
   assistantPresentation?: GatewayAssistantPresentation;
   model?: string;
   provider?: string;
+  memoryAccess?: MemoryAccess;
   memoryCitations?: MemoryCitation[];
   components?: GatewayMessageComponents;
   sessionId?: string;

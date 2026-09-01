@@ -209,6 +209,19 @@ export type ChatStreamEvent =
 
 export type ChatResultMessageRole = 'assistant' | 'approval' | 'command';
 
+export interface ChatMemoryCitation {
+  ref: string;
+  memoryId: number;
+  content: string;
+  confidence: number;
+}
+
+export interface ChatMemoryAccess {
+  semanticRecallAttempted: boolean;
+  summaryIncluded: boolean;
+  recalledMemories: ChatMemoryCitation[];
+}
+
 export type A2ADeliveryState = 'pending' | 'delivered' | 'failed' | 'unknown';
 
 /**
@@ -240,6 +253,7 @@ export interface ChatStreamResult {
   assistantPresentation?: AssistantPresentation | null;
   model?: string;
   provider?: string;
+  memoryAccess?: ChatMemoryAccess;
   artifacts?: ChatArtifact[];
   apps?: Array<{ id: string; title: string; kind: 'web' | 'live' }>;
   toolsUsed?: string[];

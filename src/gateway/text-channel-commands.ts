@@ -374,6 +374,7 @@ export async function handleTextChannelApprovalCommand(params: {
   const resultText = buildResponseText(
     approvalResultText,
     approvalResult.toolsUsed,
+    approvalResult.memoryAccess,
   );
   const pendingApproval = extractGatewayChatApprovalEvent(approvalResult);
   if (pendingApproval) {

@@ -691,6 +691,7 @@ test('handleGatewayMessage lets a plugin memory layer replace built-in memory', 
   });
 
   const sessionId = 'session-plugin-replacement';
+  const progressEvents: Array<{ toolName: string }> = [];
   const result = await handleGatewayMessage({
     sessionId,
     guildId: null,
@@ -700,10 +701,13 @@ test('handleGatewayMessage lets a plugin memory layer replace built-in memory', 
     content: 'What should you remember about the auth migration?',
     model: 'test-model',
     chatbotId: 'bot-1',
+    onToolProgress: (event) => progressEvents.push(event),
   });
 
   expect(result.status).toBe('success');
   expect(result.pluginsUsed).toEqual(['mempalace-memory']);
+  expect(result.memoryAccess).toBeUndefined();
+  expect(progressEvents).toEqual([]);
   expect(buildPromptMemorySpy).not.toHaveBeenCalled();
   expect(storeTurnSpy).not.toHaveBeenCalled();
   expect(appendCanonicalSpy).not.toHaveBeenCalled();

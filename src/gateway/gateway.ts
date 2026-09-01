@@ -1545,7 +1545,13 @@ async function startDiscordIntegration(): Promise<boolean> {
             ),
           );
           if (result.status === 'error') {
-            await context.stream.fail(formatAgentErrorReply(result.error));
+            await context.stream.fail(
+              buildResponseText(
+                formatAgentErrorReply(result.error),
+                undefined,
+                result.memoryAccess,
+              ),
+            );
             return;
           }
           const pendingApproval = extractGatewayChatApprovalEvent(result);
@@ -1579,7 +1585,7 @@ async function startDiscordIntegration(): Promise<boolean> {
           const responseText = buildResponseText(
             renderedText,
             sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
-            result.memoryCitations,
+            result.memoryAccess,
           );
           if (pendingApproval) {
             const { cleanup } = await handlePendingApprovalRouting({
@@ -1791,7 +1797,13 @@ async function startMSTeamsIntegration(): Promise<boolean> {
           ),
         );
         if (result.status === 'error') {
-          await context.stream.fail(formatAgentErrorReply(result.error));
+          await context.stream.fail(
+            buildResponseText(
+              formatAgentErrorReply(result.error),
+              undefined,
+              result.memoryAccess,
+            ),
+          );
           return;
         }
 
@@ -1807,21 +1819,27 @@ async function startMSTeamsIntegration(): Promise<boolean> {
         const renderedText = stripSilentToken(String(result.result || ''));
         const artifacts = result.artifacts || [];
         const effectiveSessionId = result.sessionId || sessionId;
-        if (!renderedText.trim() && artifacts.length === 0) {
+        if (
+          !renderedText.trim() &&
+          artifacts.length === 0 &&
+          !result.memoryAccess
+        ) {
           await context.stream.discard();
           return;
         }
         const showMode = normalizeSessionShowMode(
           memoryService.getSessionById(effectiveSessionId)?.show_mode,
         );
-        let responseText = renderedText.trim()
-          ? buildResponseText(
-              stripUnusableMSTeamsArtifactLinks(renderedText),
-              sessionShowModeShowsTools(showMode)
-                ? result.toolsUsed
-                : undefined,
-            )
-          : '';
+        let responseText =
+          renderedText.trim() || result.memoryAccess
+            ? buildResponseText(
+                stripUnusableMSTeamsArtifactLinks(renderedText),
+                sessionShowModeShowsTools(showMode)
+                  ? result.toolsUsed
+                  : undefined,
+                result.memoryAccess,
+              )
+            : '';
         const pendingApproval = extractGatewayChatApprovalEvent(result);
         if (pendingApproval) {
           await handlePendingApprovalRouting({
@@ -2101,7 +2119,13 @@ async function startWhatsAppIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(formatChannelGatewayErrorReply(result.error));
+            await reply(
+              buildResponseText(
+                formatChannelGatewayErrorReply(result.error),
+                undefined,
+                result.memoryAccess,
+              ),
+            );
             return;
           }
 
@@ -2112,7 +2136,11 @@ async function startWhatsAppIntegration(): Promise<boolean> {
           if (isSilentReply(result.result)) {
             return;
           }
-          if (!cleanedResultText.trim() && artifacts.length === 0) {
+          if (
+            !cleanedResultText.trim() &&
+            artifacts.length === 0 &&
+            !result.memoryAccess
+          ) {
             return;
           }
 
@@ -2120,12 +2148,13 @@ async function startWhatsAppIntegration(): Promise<boolean> {
           const showMode = normalizeSessionShowMode(
             memoryService.getSessionById(effectiveSessionId)?.show_mode,
           );
-          if (cleanedResultText.trim()) {
+          if (cleanedResultText.trim() || result.memoryAccess) {
             const responseText = buildResponseText(
               cleanedResultText,
               sessionShowModeShowsTools(showMode)
                 ? result.toolsUsed
                 : undefined,
+              result.memoryAccess,
             );
             await reply(responseText);
           }
@@ -2257,13 +2286,19 @@ async function startLineIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(formatChannelGatewayErrorReply(result.error));
+            await reply(
+              buildResponseText(
+                formatChannelGatewayErrorReply(result.error),
+                undefined,
+                result.memoryAccess,
+              ),
+            );
             return;
           }
           if (isSilentReply(result.result)) return;
 
           const cleanedText = stripSilentToken(String(result.result || ''));
-          if (cleanedText.trim()) {
+          if (cleanedText.trim() || result.memoryAccess) {
             const effectiveSessionId = result.sessionId || sessionId;
             const showMode = normalizeSessionShowMode(
               memoryService.getSessionById(effectiveSessionId)?.show_mode,
@@ -2274,6 +2309,7 @@ async function startLineIntegration(): Promise<boolean> {
                 sessionShowModeShowsTools(showMode)
                   ? result.toolsUsed
                   : undefined,
+                result.memoryAccess,
               ),
             );
           }
@@ -2408,7 +2444,13 @@ async function startEmailIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(formatChannelGatewayErrorReply(result.error));
+            await reply(
+              buildResponseText(
+                formatChannelGatewayErrorReply(result.error),
+                undefined,
+                result.memoryAccess,
+              ),
+            );
             return;
           }
 
@@ -2419,7 +2461,11 @@ async function startEmailIntegration(): Promise<boolean> {
           if (isSilentReply(result.result)) {
             return;
           }
-          if (!cleanedResultText.trim() && artifacts.length === 0) {
+          if (
+            !cleanedResultText.trim() &&
+            artifacts.length === 0 &&
+            !result.memoryAccess
+          ) {
             return;
           }
 
@@ -2433,12 +2479,13 @@ async function startEmailIntegration(): Promise<boolean> {
             provider: result.provider,
             tokenUsage: result.tokenUsage,
           });
-          if (cleanedResultText.trim()) {
+          if (cleanedResultText.trim() || result.memoryAccess) {
             const responseText = buildResponseText(
               cleanedResultText,
               sessionShowModeShowsTools(showMode)
                 ? result.toolsUsed
                 : undefined,
+              result.memoryAccess,
             );
             await reply(responseText, {
               ...(emailMetadata ? { metadata: emailMetadata } : {}),
@@ -2575,7 +2622,13 @@ async function startTelegramIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(formatChannelGatewayErrorReply(result.error));
+            await reply(
+              buildResponseText(
+                formatChannelGatewayErrorReply(result.error),
+                undefined,
+                result.memoryAccess,
+              ),
+            );
             return;
           }
 
@@ -2586,7 +2639,11 @@ async function startTelegramIntegration(): Promise<boolean> {
           if (isSilentReply(result.result)) {
             return;
           }
-          if (!cleanedResultText.trim() && artifacts.length === 0) {
+          if (
+            !cleanedResultText.trim() &&
+            artifacts.length === 0 &&
+            !result.memoryAccess
+          ) {
             return;
           }
 
@@ -2594,12 +2651,13 @@ async function startTelegramIntegration(): Promise<boolean> {
           const showMode = normalizeSessionShowMode(
             memoryService.getSessionById(effectiveSessionId)?.show_mode,
           );
-          if (cleanedResultText.trim()) {
+          if (cleanedResultText.trim() || result.memoryAccess) {
             const responseText = buildResponseText(
               cleanedResultText,
               sessionShowModeShowsTools(showMode)
                 ? result.toolsUsed
                 : undefined,
+              result.memoryAccess,
             );
             await reply(responseText);
           }
@@ -2733,7 +2791,13 @@ async function startSignalIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(formatChannelGatewayErrorReply(result.error));
+            await reply(
+              buildResponseText(
+                formatChannelGatewayErrorReply(result.error),
+                undefined,
+                result.memoryAccess,
+              ),
+            );
             return;
           }
 
@@ -2744,7 +2808,11 @@ async function startSignalIntegration(): Promise<boolean> {
           if (isSilentReply(result.result)) {
             return;
           }
-          if (!cleanedResultText.trim() && artifacts.length === 0) {
+          if (
+            !cleanedResultText.trim() &&
+            artifacts.length === 0 &&
+            !result.memoryAccess
+          ) {
             return;
           }
 
@@ -2752,12 +2820,13 @@ async function startSignalIntegration(): Promise<boolean> {
           const showMode = normalizeSessionShowMode(
             memoryService.getSessionById(effectiveSessionId)?.show_mode,
           );
-          if (cleanedResultText.trim()) {
+          if (cleanedResultText.trim() || result.memoryAccess) {
             const responseText = buildResponseText(
               cleanedResultText,
               sessionShowModeShowsTools(showMode)
                 ? result.toolsUsed
                 : undefined,
+              result.memoryAccess,
             );
             await reply(responseText);
           }
@@ -2945,7 +3014,13 @@ async function startSlackIntegration(): Promise<boolean> {
             return;
           }
           if (result.status === 'error') {
-            await reply(formatAgentErrorReply(result.error));
+            await reply(
+              buildResponseText(
+                formatAgentErrorReply(result.error),
+                undefined,
+                result.memoryAccess,
+              ),
+            );
             return;
           }
 
@@ -2956,7 +3031,11 @@ async function startSlackIntegration(): Promise<boolean> {
           if (isSilentReply(result.result)) {
             return;
           }
-          if (!cleanedResultText.trim() && artifacts.length === 0) {
+          if (
+            !cleanedResultText.trim() &&
+            artifacts.length === 0 &&
+            !result.memoryAccess
+          ) {
             return;
           }
 
@@ -2965,14 +3044,16 @@ async function startSlackIntegration(): Promise<boolean> {
             memoryService.getSessionById(effectiveSessionId)?.show_mode,
           );
           const pendingApproval = extractGatewayChatApprovalEvent(result);
-          const responseText = cleanedResultText.trim()
-            ? buildResponseText(
-                cleanedResultText,
-                sessionShowModeShowsTools(showMode)
-                  ? result.toolsUsed
-                  : undefined,
-              )
-            : '';
+          const responseText =
+            cleanedResultText.trim() || result.memoryAccess
+              ? buildResponseText(
+                  cleanedResultText,
+                  sessionShowModeShowsTools(showMode)
+                    ? result.toolsUsed
+                    : undefined,
+                  result.memoryAccess,
+                )
+              : '';
           if (pendingApproval) {
             await handlePendingApprovalRouting({
               pendingApproval,
@@ -3653,7 +3734,9 @@ async function startIMessageIntegration(): Promise<boolean> {
             ) {
               return;
             }
-            await reply(failureText);
+            await reply(
+              buildResponseText(failureText, undefined, result.memoryAccess),
+            );
             return;
           }
 
@@ -3664,9 +3747,28 @@ async function startIMessageIntegration(): Promise<boolean> {
           if (isSilentReply(result.result)) {
             return;
           }
-          if (!cleanedResultText.trim() && artifacts.length === 0) {
+          if (
+            !cleanedResultText.trim() &&
+            artifacts.length === 0 &&
+            !result.memoryAccess
+          ) {
             return;
           }
+
+          const effectiveSessionId = result.sessionId || sessionId;
+          const showMode = normalizeSessionShowMode(
+            memoryService.getSessionById(effectiveSessionId)?.show_mode,
+          );
+          const responseText =
+            cleanedResultText.trim() || result.memoryAccess
+              ? buildResponseText(
+                  cleanedResultText,
+                  sessionShowModeShowsTools(showMode)
+                    ? result.toolsUsed
+                    : undefined,
+                  result.memoryAccess,
+                )
+              : '';
 
           if (artifacts.length > 0) {
             await sendIMessageMediaToChat({
@@ -3674,7 +3776,7 @@ async function startIMessageIntegration(): Promise<boolean> {
               filePath: artifacts[0].path,
               mimeType: artifacts[0].mimeType,
               filename: artifacts[0].filename,
-              caption: cleanedResultText || undefined,
+              caption: responseText || undefined,
             });
             for (let index = 1; index < artifacts.length; index += 1) {
               await sendIMessageMediaToChat({
@@ -3687,7 +3789,7 @@ async function startIMessageIntegration(): Promise<boolean> {
             return;
           }
 
-          await reply(cleanedResultText);
+          await reply(responseText);
         } catch (error) {
           logger.error(
             { error, sessionId, channelId },

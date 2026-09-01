@@ -281,6 +281,25 @@ Use these commands when you need to explain why HybridClaw answered with
 certain prior context, or when you want to verify which memory layer is missing
 something.
 
+## Recall Transparency
+
+Every built-in prompt-memory check is exposed to the active client. Semantic
+recall emits `memory_recall` start and finish activity, including lookups with
+no matches. The finished activity reports whether the session summary was
+included and lists every semantic memory attached to the prompt, independently
+of whether the assistant cites it in the final answer.
+
+Web chat stores this activity with the assistant turn, so its collapsed
+“Recalled N memories” row remains available after reload. The TUI reports the
+same access in its activity/footer presentation. Text-channel deliveries append
+a compact memory footer with the recalled previews and confidence values. API
+clients receive the same data as structured `memoryAccess` result metadata.
+
+Memory transparency remains visible under `/show none`; that setting hides
+thinking and ordinary tool activity, not prompt-memory access. When a plugin
+replaces built-in memory, the plugin owns its own access reporting and the
+built-in `memory_recall` event is not emitted.
+
 ## Defaults, Caps, And Thresholds
 
 The values below describe the built-in defaults in the current codebase.

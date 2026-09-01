@@ -60,6 +60,10 @@ import {
   type BuildMemoryPromptResult,
   memoryService,
 } from '../memory/memory-service.js';
+import {
+  formatMemoryAccessActivityPreview,
+  MEMORY_RECALL_ACTIVITY_TOOL_NAME,
+} from '../memory/recall-presentation.js';
 import { withSpan } from '../observability/otel.js';
 import { captureSentryException } from '../observability/sentry.js';
 import { loadPolicyFullAutoNeverApprove } from '../policy/remote-policy-authority.js';
@@ -98,6 +102,7 @@ import {
   type PendingApproval,
   type ToolProgressEvent,
 } from '../types/execution.js';
+import type { MemoryAccess } from '../types/memory.js';
 import type { CanonicalSessionContext } from '../types/session.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
@@ -1521,6 +1526,26 @@ async function handleGatewayMessageInner(
 
   logger.debug(debugMeta, 'Gateway chat request received');
 
+  const emitGatewayToolProgress = (
+    event: ToolProgressEvent,
+    options?: { alwaysVisible?: boolean },
+  ): void => {
+    logger.debug(
+      {
+        ...debugMeta,
+        toolName: event.toolName,
+        phase: event.phase,
+        toolDurationMs: event.durationMs ?? null,
+        sinceStartMs: Date.now() - startedAt,
+      },
+      'Gateway tool progress',
+    );
+    // Always-visible memory access (user call, 2026-09-01): recall transparency
+    // deliberately survives `/show none`; other tool activity still obeys it.
+    if (!options?.alwaysVisible && !shouldEmitTools) return;
+    req.onToolProgress?.(event);
+  };
+
   recordAuditEvent({
     sessionId: req.sessionId,
     runId,
@@ -1719,6 +1744,22 @@ async function handleGatewayMessageInner(
   const pluginPromptSummary = formatPluginPromptContext(
     pluginPromptDetails.sections,
   );
+  const semanticRecallAttempted = !isGoalContinuationSource(source);
+  const builtInMemoryAccessed = !pluginMemoryBehavior.replacesBuiltInMemory;
+  const memoryAccessStartedAt = Date.now();
+  if (builtInMemoryAccessed) {
+    emitGatewayToolProgress(
+      {
+        sessionId: req.sessionId,
+        toolName: MEMORY_RECALL_ACTIVITY_TOOL_NAME,
+        phase: 'start',
+        preview: semanticRecallAttempted
+          ? 'Searching semantic memory'
+          : 'Checking memory context',
+      },
+      { alwaysVisible: true },
+    );
+  }
   const memoryContext: BuildMemoryPromptResult =
     pluginMemoryBehavior.replacesBuiltInMemory
       ? {
@@ -1730,8 +1771,30 @@ async function handleGatewayMessageInner(
       : memoryService.buildPromptMemoryContext({
           session,
           query: effectiveUserTurnContentStripped,
-          includeSemanticRecall: !isGoalContinuationSource(source),
+          includeSemanticRecall: semanticRecallAttempted,
         });
+  const sessionSummary = String(session.session_summary || '').trim();
+  const memoryAccess: MemoryAccess | undefined = builtInMemoryAccessed
+    ? {
+        semanticRecallAttempted,
+        summaryIncluded: sessionSummary
+          ? Boolean(memoryContext.promptSummary?.includes(sessionSummary))
+          : false,
+        recalledMemories: memoryContext.citationIndex,
+      }
+    : undefined;
+  if (memoryAccess) {
+    emitGatewayToolProgress(
+      {
+        sessionId: req.sessionId,
+        toolName: MEMORY_RECALL_ACTIVITY_TOOL_NAME,
+        phase: 'finish',
+        preview: formatMemoryAccessActivityPreview(memoryAccess),
+        durationMs: Date.now() - memoryAccessStartedAt,
+      },
+      { alwaysVisible: true },
+    );
+  }
   const mergedSessionSummary = pluginMemoryBehavior.replacesBuiltInMemory
     ? pluginPromptSummary || null
     : [canonicalPromptSummary, memoryContext.promptSummary]
@@ -1992,18 +2055,7 @@ async function handleGatewayMessageInner(
         ? (delta: string): void => req.onThinkingDelta?.(delta)
         : undefined;
     const onToolProgress = (event: ToolProgressEvent): void => {
-      logger.debug(
-        {
-          ...debugMeta,
-          toolName: event.toolName,
-          phase: event.phase,
-          toolDurationMs: event.durationMs ?? null,
-          sinceStartMs: Date.now() - startedAt,
-        },
-        'Gateway tool progress',
-      );
-      if (!shouldEmitTools) return;
-      req.onToolProgress?.(event);
+      emitGatewayToolProgress(event);
     };
     const onApprovalProgress = (approval: PendingApproval): void => {
       logger.debug(
@@ -2535,6 +2587,7 @@ async function handleGatewayMessageInner(
         agentId,
         model,
         provider,
+        memoryAccess,
         artifacts: output.artifacts,
         toolExecutions,
         tokenUsage: output.tokenUsage,
@@ -2751,6 +2804,7 @@ async function handleGatewayMessageInner(
         : {}),
       model,
       provider,
+      memoryAccess,
       memoryCitations: output.memoryCitations,
       artifacts: output.artifacts,
       toolExecutions,
@@ -2856,6 +2910,7 @@ async function handleGatewayMessageInner(
       agentId,
       model,
       provider,
+      memoryAccess,
       toolExecutions: undefined,
       error: errorMsg,
     });

@@ -9,7 +9,8 @@ import {
   DISCORD_TEXT_CHUNK_LIMIT,
 } from '../../config/config.js';
 import { chunkMessage } from '../../memory/chunk.js';
-import type { MemoryCitation } from '../../types/memory.js';
+import { formatMemoryAccessMarkdown } from '../../memory/recall-presentation.js';
+import type { MemoryAccess } from '../../types/memory.js';
 import { sleep } from '../../utils/sleep.js';
 import { getHumanDelayMs, type HumanDelayConfig } from './human-delay.js';
 import { type MentionLookup, rewriteUserMentions } from './mentions.js';
@@ -37,18 +38,14 @@ const DISCORD_CONTENT_LIMIT_WITH_MARGIN = 1_900;
 export function buildResponseText(
   text: string,
   toolsUsed?: string[],
-  memoryCitations?: MemoryCitation[],
+  memoryAccess?: MemoryAccess,
 ): string {
   let body = text;
-  if (memoryCitations && memoryCitations.length > 0) {
-    const citationLines = memoryCitations.map(
-      (citation) =>
-        `${citation.ref}: ${citation.content} (${Math.round(citation.confidence * 100)}%)`,
-    );
-    body += `\n\n*Recalled memories:*\n${citationLines.join('\n')}`;
+  if (memoryAccess) {
+    body += `${body ? '\n\n' : ''}${formatMemoryAccessMarkdown(memoryAccess)}`;
   }
   if (toolsUsed && toolsUsed.length > 0) {
-    const toolsLine = `\n*Tools: ${toolsUsed.join(', ')}*`;
+    const toolsLine = `${body ? '\n' : ''}*Tools: ${toolsUsed.join(', ')}*`;
     body += toolsLine;
   }
   return body;

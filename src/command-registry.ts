@@ -1011,7 +1011,8 @@ function buildSlashCommandCatalogDefinitions(
         {
           kind: 'subcommand',
           name: 'none',
-          description: 'Hide thinking and tool activity',
+          description:
+            'Hide thinking and ordinary tool activity; keep memory access visible',
         },
       ],
     },

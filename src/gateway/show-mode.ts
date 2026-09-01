@@ -40,7 +40,7 @@ export function describeSessionShowMode(mode: SessionShowMode): string {
     case 'tools':
       return 'Show tool activity only.';
     case 'none':
-      return 'Hide thinking and tool activity.';
+      return 'Hide thinking and ordinary tool activity. Memory access remains visible.';
     default:
       return 'Show thinking and tool activity.';
   }

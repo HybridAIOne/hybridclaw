@@ -38,3 +38,21 @@ test('preserves the message role in every show mode', () => {
     filterGatewayChatResultForSessionShowMode(result, 'none').messageRole,
   ).toBe('command');
 });
+
+test('preserves memory access transparency when other activity is hidden', () => {
+  const memoryAccess = {
+    semanticRecallAttempted: true,
+    summaryIncluded: false,
+    recalledMemories: [],
+  };
+  const result: GatewayChatResult = {
+    status: 'success',
+    result: 'Done.',
+    toolsUsed: ['search'],
+    memoryAccess,
+  };
+
+  const filtered = filterGatewayChatResultForSessionShowMode(result, 'none');
+  expect(filtered.toolsUsed).toEqual([]);
+  expect(filtered.memoryAccess).toBe(memoryAccess);
+});

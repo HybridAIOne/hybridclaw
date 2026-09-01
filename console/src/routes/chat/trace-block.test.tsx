@@ -89,6 +89,43 @@ describe('TraceBlock', () => {
     expect(screen.queryByText('npm test')).not.toBeNull();
   });
 
+  it('presents memory recall as first-class activity instead of a tool count', () => {
+    render(
+      <TraceBlock
+        message={makeTrace(
+          [
+            {
+              kind: 'tool',
+              toolName: 'memory_recall',
+              status: 'done',
+              argsPreview: 'Searching semantic memory',
+              resultPreview:
+                'Recalled 2 memories: concise changelogs · works in Berlin',
+              durationMs: 12,
+            },
+            {
+              kind: 'tool',
+              toolName: 'search',
+              status: 'done',
+            },
+          ],
+          { done: true, finishedAt: 2_000 },
+        )}
+      />,
+    );
+
+    expect(
+      screen.queryByText('Recalled 2 memories · 1 tool call · 1.0s'),
+    ).not.toBeNull();
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.queryByText('Memory recall')).not.toBeNull();
+    expect(
+      screen.queryByText(
+        'Recalled 2 memories: concise changelogs · works in Berlin',
+      ),
+    ).not.toBeNull();
+  });
+
   it('renders draft steps inside the expanded trace', () => {
     render(
       <TraceBlock
