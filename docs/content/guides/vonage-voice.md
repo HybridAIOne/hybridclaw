@@ -69,6 +69,17 @@ spoken turns persist into the call's session transcript. In realtime mode the
 `interruptible` setting is ignored (barge-in is always on) and DTMF digits are
 not delivered.
 
+## Restrict Who Can Call
+
+Caller gating is a property of the phone channel rather than of a transport, so
+Vonage applies the core `voice.callerPolicy` and `voice.allowFrom` settings —
+the same way it shares `speech.realtime.*`. Set them once and both the Twilio
+channel and this plugin honour them; see
+[Twilio Voice](./twilio-voice.md#restrict-who-can-call) for the semantics.
+
+Refused callers hear a short spoken message and the call ends before the
+plugin's concurrency limit is consulted.
+
 ## Verify And Call
 
 ```text

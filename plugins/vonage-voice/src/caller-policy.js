@@ -1,0 +1,38 @@
+/**
+ * Caller gating for Vonage calls, applying the core `voice.callerPolicy` and
+ * `voice.allowFrom` settings so the phone channel behaves the same whichever
+ * transport carries the call — the same way `speech.realtime.*` is shared.
+ *
+ * Kept as a local mirror of `src/channels/voice/caller-policy.ts` because
+ * plugins load from the workspace plugin directory and cannot import gateway
+ * internals, matching the existing per-channel duplication of these helpers.
+ */
+export function normalizeCallerIdentity(value) {
+  const candidate = String(value ?? '').replace(/[^\d+]/g, '');
+  if (!candidate) return null;
+  const digits = candidate.startsWith('+') ? candidate.slice(1) : candidate;
+  return digits ? `+${digits}` : null;
+}
+
+export function normalizeCallerAllowList(values) {
+  const list = [];
+  for (const value of values || []) {
+    if (String(value ?? '').trim() === '*') {
+      list.push('*');
+      continue;
+    }
+    const normalized = normalizeCallerIdentity(value);
+    if (normalized) list.push(normalized);
+  }
+  return [...new Set(list)];
+}
+
+export function isCallerAllowed(params) {
+  if (params.callerPolicy === 'disabled') return false;
+  if (params.callerPolicy === 'open') return true;
+  const allowFrom = normalizeCallerAllowList(params.allowFrom);
+  if (allowFrom.includes('*')) return true;
+  const caller = normalizeCallerIdentity(params.from);
+  if (!caller) return false;
+  return allowFrom.includes(caller);
+}

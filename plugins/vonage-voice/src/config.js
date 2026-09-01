@@ -23,6 +23,15 @@ export function resolveConfig(api) {
   }
   if (!privateKey) throw new Error('VONAGE_PRIVATE_KEY is required.');
   if (!signatureSecret) throw new Error('VONAGE_SIGNATURE_SECRET is required.');
+  // Caller gating is a property of the phone channel rather than of this
+  // transport, so it comes from the core voice config the same way
+  // speech.realtime.* does.
+  const voice = (api.config && api.config.voice) || {};
+  const callerPolicy =
+    typeof voice.callerPolicy === 'string' ? voice.callerPolicy : 'open';
+  const allowFrom = Array.isArray(voice.allowFrom)
+    ? voice.allowFrom.map((value) => String(value))
+    : [];
   const mode = String(config.mode || 'turn').trim() || 'turn';
   if (mode !== 'turn' && mode !== 'realtime') {
     throw new Error('Vonage mode must be "turn" or "realtime".');
@@ -33,6 +42,8 @@ export function resolveConfig(api) {
     publicBaseUrl,
     privateKey,
     signatureSecret,
+    callerPolicy,
+    allowFrom,
     mode,
     language: String(config.language || 'en-US').trim() || 'en-US',
     welcomeGreeting:

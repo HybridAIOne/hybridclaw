@@ -193,6 +193,43 @@ Requirements and notes:
 - Configs written by v0.29.x used `voice.realtime.*` for these settings; the
   gateway migrates them to `speech.realtime.*` on startup.
 
+## Restrict Who Can Call
+
+By default the channel answers every inbound caller. Because a call reaches the
+agent with its usual tools, a number that is published or guessed is an open
+door. Gate it with `voice.callerPolicy`:
+
+```json
+{
+  "voice": {
+    "callerPolicy": "allowlist",
+    "allowFrom": ["+4915123456789", "+14155550123"]
+  }
+}
+```
+
+- `open` (default) answers every caller.
+- `allowlist` answers only the numbers in `voice.allowFrom`. A single `*`
+  entry accepts any caller.
+- `disabled` refuses every caller.
+
+Refused callers hear a short spoken message and the call ends. The check runs
+before the concurrency limit, so a refused call does not consume a slot.
+
+Notes:
+
+- entries may be written with spaces, dashes, or without the leading `+`; they
+  are compared in a canonical `+<digits>` form
+- a caller who withholds their number arrives with an empty `From` and so never
+  matches an allowlist
+- the refused number is written to the gateway log, so you can see which number
+  to add
+- both settings are editable in the admin console under
+  Channels → Voice → Caller access
+- an allowlist gates unknown callers; it is not a defence against caller ID
+  spoofing. Restrict the agent's tools as well if the assistant can act on
+  anything sensitive.
+
 ## Store The Twilio Secret
 
 HybridClaw expects the Twilio auth token in the encrypted runtime secret store.

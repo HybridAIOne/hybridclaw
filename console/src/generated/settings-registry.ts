@@ -2730,6 +2730,18 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 38,
     },
     {
+      path: 'voice.allowFrom',
+      section: 'voice',
+      kind: 'list',
+      defaultValue: [],
+    },
+    {
+      path: 'voice.callerPolicy',
+      section: 'voice',
+      kind: 'string',
+      defaultValue: 'open',
+    },
+    {
       path: 'voice.enabled',
       section: 'voice',
       kind: 'boolean',

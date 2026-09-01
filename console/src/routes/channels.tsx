@@ -2465,6 +2465,47 @@ function VoiceChannelEditor(props: {
         />
       </div>
 
+      <h4>Caller access</h4>
+      <p className="muted-copy">
+        Which inbound callers reach the assistant. A caller who withholds their
+        number is never matched by an allowlist.
+      </p>
+
+      <FormField
+        name="voice.callerPolicy"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Caller policy</FieldLabel>
+            <NativeSelect
+              value={field.value as string}
+              onChange={field.onChange}
+            >
+              <NativeSelectOption value="open">
+                open (accept every caller)
+              </NativeSelectOption>
+              <NativeSelectOption value="allowlist">
+                allowlist (accept only the numbers below)
+              </NativeSelectOption>
+              <NativeSelectOption value="disabled">
+                disabled (reject every caller)
+              </NativeSelectOption>
+            </NativeSelect>
+          </Field>
+        )}
+      />
+
+      <FormField
+        name="voice.allowFrom"
+        render={({ field }) => (
+          <AllowListField
+            label="Allowed callers"
+            value={field.value as string[]}
+            placeholder="+14155551212 or *"
+            onChange={field.onChange}
+          />
+        )}
+      />
+
       <h4>Relay voice</h4>
       <p className="muted-copy">
         Turn-based settings used by phone calls in relay mode.

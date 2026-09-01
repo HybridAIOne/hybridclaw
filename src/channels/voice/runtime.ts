@@ -6,6 +6,7 @@ import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { VOICE_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
+import { isCallerAllowed, normalizeCallerIdentity } from './caller-policy.js';
 import {
   type ConversationRelayInboundMessage,
   ConversationRelayResponseStream,
@@ -304,6 +305,16 @@ function sendUnavailableTwiml(res: ServerResponse): void {
     200,
     buildHangupTwiml(
       'HybridClaw voice is unavailable right now. Please try again shortly.',
+    ),
+  );
+}
+
+function sendCallerRefusedTwiml(res: ServerResponse): void {
+  sendXml(
+    res,
+    200,
+    buildHangupTwiml(
+      'Sorry, this number is not available for your call. Goodbye.',
     ),
   );
 }
@@ -954,6 +965,29 @@ export async function handleVoiceWebhook(
         'Voice webhook rejected: missing CallSid',
       );
       sendXml(res, 400, buildEmptyTwiml());
+      return true;
+    }
+    const voiceConfig = getConfigSnapshot().voice;
+    if (
+      !isCallerAllowed({
+        callerPolicy: voiceConfig.callerPolicy,
+        allowFrom: voiceConfig.allowFrom,
+        from: String(body.From || ''),
+      })
+    ) {
+      // The refused number is logged so an operator can add a legitimate
+      // caller to allowFrom; without it the allowlist is undiagnosable.
+      logger.warn(
+        {
+          callSid,
+          remoteIp,
+          callerPolicy: voiceConfig.callerPolicy,
+          caller:
+            normalizeCallerIdentity(String(body.From || '')) || 'withheld',
+        },
+        'Voice webhook rejected: caller not permitted by callerPolicy',
+      );
+      sendCallerRefusedTwiml(res);
       return true;
     }
     const session = sessionStore.getOrCreateFromWebhook({

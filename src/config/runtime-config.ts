@@ -320,6 +320,7 @@ export type SignalGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type ThreemaDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageBackend = 'local' | 'bluebubbles';
 export type IMessageDmPolicy = 'open' | 'allowlist' | 'disabled';
+export type VoiceCallerPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type RuntimeAudioTranscriptionProvider =
   | 'hybridai'
@@ -664,6 +665,13 @@ export interface RuntimeVoiceConfig {
   mode: RuntimeVoiceMode;
   twilio: RuntimeVoiceTwilioConfig;
   relay: RuntimeVoiceRelayConfig;
+  /**
+   * Which inbound callers reach the assistant. `allowlist` accepts only the
+   * numbers in `allowFrom`; a caller who withholds their number is never
+   * matched by an allowlist.
+   */
+  callerPolicy: VoiceCallerPolicy;
+  allowFrom: string[];
   webhookPath: string;
   maxConcurrentCalls: number;
 }
@@ -1791,6 +1799,8 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       interruptible: true,
       welcomeGreeting: 'Hello! How can I help you today?',
     },
+    callerPolicy: 'open',
+    allowFrom: [],
     webhookPath: '/voice',
     maxConcurrentCalls: 8,
   },
@@ -4046,6 +4056,22 @@ function normalizeSlackWebhookConfig(
   };
 }
 
+function normalizeVoiceCallerPolicy(
+  value: unknown,
+  fallback: VoiceCallerPolicy,
+): VoiceCallerPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
 function normalizeVoiceConfig(
   value: unknown,
   fallback: RuntimeVoiceConfig,
@@ -4060,6 +4086,11 @@ function normalizeVoiceConfig(
     enabled: normalizeBoolean(raw.enabled, fallback.enabled),
     provider: normalizeVoiceProvider(raw.provider, fallback.provider),
     mode: normalizeVoiceMode(raw.mode, fallback.mode),
+    callerPolicy: normalizeVoiceCallerPolicy(
+      raw.callerPolicy,
+      fallback.callerPolicy,
+    ),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
     twilio: {
       accountSid: normalizeString(
         rawTwilio.accountSid,
