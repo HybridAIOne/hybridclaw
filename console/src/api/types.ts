@@ -756,6 +756,8 @@ export interface AdminConfig {
     enabled: boolean;
     provider: 'twilio';
     mode: 'relay' | 'realtime';
+    callerPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
     twilio: {
       accountSid: string;
       authToken: string;
