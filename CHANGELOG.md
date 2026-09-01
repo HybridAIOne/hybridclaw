@@ -9,16 +9,22 @@
   in a conversation routes to the same cache instead of relying on a randomly
   assigned key. A ten-call tool-using turn previously reprocessed the full
   ~40K-token prefix on six of its calls; those calls now read from cache.
-  Manifesto: Principle IX - A coworker thinks before they spend.
+- **Voice consult reassurances no longer invent status**: While a voice consult
+  runs, the periodic "still working" prompt now pins the realtime model to the
+  consulted agent's actual tool activity and forbids speculation, questions,
+  and claims of needing access or credentials — a live call had heard a made-up
+  credentials request while the consult was succeeding.
+
+## [0.30.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.0) - 2026-08-31
+
 ### Added
 
 - **Agents are configurable from the web console**: `/admin/agents` opens on a
   new Configuration tab that edits an agent's display name, workspace
-  directory, pinned model, and — grouped, searchable, with per-group toggles —
-  which skills it may load and which tools it may call. Agents can also be
-  created and deleted from the browser. Each allowlist starts unrestricted:
-  unchecking an entry converts it into an explicit allowlist, and "Reset to
-  all" clears it so skills and tools installed later stay available.
+  directory, pinned model, and which skills it may load and tools it may call.
+  Agents can also be created and deleted from the browser. Scope cards explain
+  unrestricted versus selected-only access, and a searchable command palette
+  keeps restricted allowlists focused on the entries that are actually enabled.
 - **Per-agent tool allowlists**: the new `agents.list[].tools` key restricts
   which tools an agent may call, mirroring `agents.list[].skills`. It is
   intersected with the caller's allowlist, so it can only narrow a turn's
@@ -29,6 +35,10 @@
   from plugin IDs, npm packages, local paths, and archive URLs. It reports
   failures inline and refreshes the live registry after the gateway reloads the
   plugin runtime.
+- **Arbitrary runtime secrets can be added from the web console**: The Secrets
+  page accepts any valid secret name and a masked write-only value when the
+  operator has overwrite permission, while preventing accidental replacement
+  through the add flow.
 - **Realtime speech settings are now visible and editable everywhere**: The
   new `/speech` command reports the realtime provider — including which
   backend `auto` resolved to — model, voice, and credential status, and
@@ -40,6 +50,17 @@
   provider, model, and voice, and the channels catalog marks the Voice card
   "realtime speech ready" when a realtime credential is available even
   without Twilio.
+- **Multiple sessions per chat with `/new` and `/sessions switch`**: `/new`
+  starts a fresh session for the current chat while preserving the previous
+  conversation, `/sessions list` shows the sessions recorded for the chat, and
+  `/sessions switch <number|session-id>` re-activates an earlier one. In
+  Microsoft Teams the session list arrives with an Adaptive Card whose buttons
+  switch sessions or start a new one.
+- **Discord agents can opt in to bot-authored alert channels**: The new
+  `discord.botMessageChannels` allowlist lets bot and webhook messages trigger
+  an agent in selected channels. The default remains deny-all, the agent always
+  ignores its own messages, and startup fails closed until its bot identity is
+  known.
 
 ### Changed
 
@@ -51,15 +72,6 @@
   automatically on startup, and `config get`/`config set` on the old keys
   point at the new location instead of silently doing nothing; `voice.*`
   remains purely the Twilio phone channel.
-- **Multiple sessions per chat with `/new` and `/sessions switch`**: `/new`
-  starts a fresh session for the current chat while preserving the previous
-  conversation, `/sessions list` shows the sessions recorded for the chat, and
-  `/sessions switch <number|session-id>` re-activates an earlier one. In
-  Microsoft Teams the session list arrives with an Adaptive Card whose buttons
-  switch sessions or start a new one.
-
-### Changed
-
 - **Microsoft Teams conversations map to sessions the Teams-native way**: every
   team-channel post is its own session (replying in the post's thread continues
   it), each group chat is one shared session governed by the group policy
@@ -67,6 +79,21 @@
   keep one ongoing session per user. Existing channel-thread sessions are
   re-keyed automatically; group chats start fresh sessions under the new
   per-conversation keys.
+- **Browser Use Cloud uses the V4 defaults** for newly created browser sessions.
+
+### Fixed
+
+- **Console approval cards respond immediately**: Approving or denying a tool
+  call resolves its pending card as soon as the action is submitted, while a
+  failed turn resume restores the card so the operator can retry.
+- **Discord reads include structured embeds**: Alert and webhook messages whose
+  payload lives in embeds no longer appear empty to the `discord` read action.
+  Results include bounded titles, descriptions, links, timestamps, authors,
+  footers, and fields.
+- **Lexware voucher lists always include the required status**: Invoice,
+  quotation, expense, report, and bank-plan requests default `voucherStatus` to
+  the documented `any` wildcard when `--status` is omitted, avoiding an HTTP
+  400 response from the Lexware API.
 
 ## [0.29.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.3) - 2026-08-25
 

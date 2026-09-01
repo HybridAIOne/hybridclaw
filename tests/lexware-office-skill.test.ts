@@ -78,15 +78,42 @@ test('Lexware Office helper --help exits cleanly', () => {
     'list-products [--article-number VALUE] [--type PRODUCT|SERVICE] [--page N] [--size N]',
   );
   expect(result.stdout).toContain(
-    'list-invoices [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]',
+    'list-invoices [--status STATUS] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]',
   );
   expect(result.stdout).toContain(
-    'list-quotations [--status open|accepted|rejected|draft] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]',
+    'list-quotations [--status STATUS] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]',
   );
   expect(result.stdout).toContain(
-    'list-expenses [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]',
+    'list-expenses [--status STATUS] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]',
   );
+  expect(result.stdout).toContain(
+    'GET /v1/voucherlist requires voucherStatus',
+  );
+  expect(result.stdout).toContain('defaults --status to "any"');
   expect(result.stdout).toContain('eval-scenarios');
+});
+
+test('Lexware Office helper prints usage for --help after an operation', () => {
+  const result = runHelper(['http-request', 'list-invoices', '--help']);
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain('Lexware Office skill helper');
+  expect(result.stdout).not.toContain('httpRequest');
+});
+
+test('Lexware Office helper rejects unknown flags instead of ignoring them', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'list-invoices',
+    '--stauts',
+    'open',
+  ]);
+
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain('Unknown arguments for http-request');
+  expect(result.stderr).toContain('--stauts');
 });
 
 test('Lexware Office helper plans reads, writes, reports, and transaction matching', () => {
@@ -298,8 +325,26 @@ test('Lexware Office helper builds bank transaction read workflow', () => {
   expect(payload.filterPaymentItemType).toBe('partPaymentFinancialTransaction');
 });
 
-test('Lexware Office helper omits any status filter for bank transaction scans', () => {
-  const result = runHelper([
+test('Lexware Office helper always sends the required voucherStatus parameter', () => {
+  const invoices = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'list-invoices',
+  ]);
+  const quotations = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'list-quotations',
+  ]);
+  const expenses = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'list-expenses',
+  ]);
+  const bank = runHelper([
     '--format',
     'json',
     'http-request',
@@ -307,11 +352,34 @@ test('Lexware Office helper omits any status filter for bank transaction scans',
     '--status',
     'any',
   ]);
+  const statement = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'income-statement-plan',
+    '--start-date',
+    '2026-10-01',
+    '--end-date',
+    '2026-12-31',
+  ]);
 
-  expect(result.status).toBe(0);
-  const payload = JSON.parse(result.stdout);
-  expect(payload.requestSequence[0].url).not.toContain('voucherStatus=any');
-  expect(payload.requestSequence[0].url).not.toContain('voucherStatus=');
+  for (const result of [invoices, quotations, expenses]) {
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).httpRequest.url).toContain(
+      'voucherStatus=any',
+    );
+  }
+  expect(bank.status).toBe(0);
+  expect(JSON.parse(bank.stdout).requestSequence[0].url).toContain(
+    'voucherStatus=any',
+  );
+  expect(statement.status).toBe(0);
+  for (const request of JSON.parse(statement.stdout).requestSequence.slice(
+    0,
+    2,
+  )) {
+    expect(request.url).toContain('voucherStatus=any');
+  }
 });
 
 test('Lexware Office helper aggregates income statements from fetched voucher pages', () => {

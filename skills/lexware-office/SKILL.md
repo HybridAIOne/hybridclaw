@@ -266,6 +266,12 @@ the voucher after explicit operator grant.
 - Never build an Authorization header manually in a prompt. Use
   `bearerSecretName: "LEXWARE_OFFICE_API_KEY"`.
 - Prefer helper-emitted `httpRequest` payloads over handcrafted API calls.
+- Lexware requires the `voucherStatus` query parameter on
+  `GET /v1/voucherlist`; requests without it fail with HTTP 400. The helper
+  always sends it, defaulting `--status` to `any` for `list-invoices`,
+  `list-quotations`, `list-expenses`, `list-bank-transactions`, and the
+  voucherlist-based report plans. Pass an explicit `--status` (single value or
+  comma-separated; run `--help` for accepted values) only to filter.
 - Read before write when IDs, versions, posting categories, contact IDs, or
   invoice recipient details are ambiguous.
 - If multiple contacts or invoices match, stop and ask for the exact ID before

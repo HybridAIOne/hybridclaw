@@ -4,17 +4,35 @@
  *
  * The control has exactly two states and never blurs them: `null` means "no
  * allowlist" (everything available now and everything added later), and an
- * array means "only these". Unchecking an entry while in the `null` state
- * snapshots the catalog minus that entry, so narrowing is always explicit.
+ * array means "only these". The mode cards make the choice explicit;
+ * "Selected only" starts empty (or restores the selection stashed when the
+ * mode last flipped to "all"), and nothing persists until the page is saved.
+ *
+ * Restricted mode shows only the enabled entries; additions go through a
+ * command-palette dialog that searches the catalog (and, for tools, accepts
+ * exact names the catalog cannot list, such as MCP tools).
  *
  * NOT a global enable/disable surface (`/admin/skills` and `tools.disabled`
  * own that); entries this picker offers may still be off fleet-wide.
  */
-import { useMemo, useState } from 'react';
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Button } from '../components/button';
-import { Checkbox } from '../components/checkbox';
-import { Input } from '../components/input';
-import { SegmentedToggle } from '../components/ui';
+import paletteStyles from '../components/command-palette.module.css';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../components/dialog';
+import { Search } from '../components/icons';
+import { cx } from '../lib/cx';
 import styles from './agent-config.module.css';
 
 export interface AgentScopeItem {
@@ -30,13 +48,24 @@ export interface AgentScopeGroup {
   items: AgentScopeItem[];
 }
 
-function matchesQuery(item: AgentScopeItem, query: string): boolean {
+interface CatalogEntry extends AgentScopeItem {
+  group: string;
+}
+
+type PaletteRow =
+  | { kind: 'catalog'; entry: CatalogEntry }
+  | { kind: 'custom'; name: string };
+
+const MAX_PALETTE_ROWS = 50;
+
+function matchesQuery(entry: CatalogEntry, query: string): boolean {
   if (!query) return true;
   const needle = query.toLowerCase();
   return (
-    item.id.toLowerCase().includes(needle) ||
-    item.label.toLowerCase().includes(needle) ||
-    (item.description || '').toLowerCase().includes(needle)
+    entry.id.toLowerCase().includes(needle) ||
+    entry.label.toLowerCase().includes(needle) ||
+    entry.group.toLowerCase().includes(needle) ||
+    (entry.description || '').toLowerCase().includes(needle)
   );
 }
 
@@ -44,6 +73,9 @@ export function AgentScopePicker(props: {
   title: string;
   description: string;
   allLabel: string;
+  /** One-liner for the "all" mode card. */
+  allNote: string;
+  /** One-liner for the "selected only" mode card. */
   restrictedNote: string;
   searchPlaceholder: string;
   groups: AgentScopeGroup[];
@@ -54,62 +86,119 @@ export function AgentScopePicker(props: {
   /** Offers a free-text row for entries the catalog cannot list (MCP tools). */
   allowCustomEntries?: boolean;
 }) {
+  const listboxId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [addOpen, setAddOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [customEntry, setCustomEntry] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+  /** Last custom selection, restored when flipping back from "all". */
+  const [stash, setStash] = useState<string[] | null>(null);
 
-  const catalogIds = useMemo(
-    () => props.groups.flatMap((group) => group.items.map((item) => item.id)),
+  const catalog = useMemo<CatalogEntry[]>(
+    () =>
+      props.groups.flatMap((group) =>
+        group.items.map((item) => ({ ...item, group: group.label })),
+      ),
     [props.groups],
   );
-  const selectedIds = useMemo(
-    () => new Set(props.value ?? catalogIds),
-    [props.value, catalogIds],
+  const catalogById = useMemo(
+    () => new Map(catalog.map((entry) => [entry.id, entry])),
+    [catalog],
   );
   const unrestricted = props.value === null;
-
-  const visibleGroups = useMemo(
-    () =>
-      props.groups
-        .map((group) => ({
-          label: group.label,
-          items: group.items.filter((item) => matchesQuery(item, query)),
-        }))
-        .filter((group) => group.items.length > 0),
-    [props.groups, query],
-  );
+  const selected = props.value ?? [];
+  const selectedIds = useMemo(() => new Set(selected), [selected]);
+  const totalCount = catalog.length;
 
   function setSelection(next: Set<string>): void {
-    const catalog = new Set(catalogIds);
-    const ordered = catalogIds.filter((id) => next.has(id));
-    const extras = [...next].filter((id) => !catalog.has(id));
+    const ordered = catalog
+      .map((entry) => entry.id)
+      .filter((id) => next.has(id));
+    const extras = [...next].filter((id) => !catalogById.has(id));
     props.onChange([...ordered, ...extras]);
   }
 
-  function toggleItem(id: string, checked: boolean): void {
+  function addEntry(id: string): void {
+    setSelection(new Set([...selectedIds, id]));
+  }
+
+  function removeEntry(id: string): void {
     const next = new Set(selectedIds);
-    if (checked) next.add(id);
-    else next.delete(id);
+    next.delete(id);
     setSelection(next);
   }
 
-  function toggleGroup(group: AgentScopeGroup, checked: boolean): void {
-    const next = new Set(selectedIds);
-    for (const item of group.items) {
-      if (checked) next.add(item.id);
-      else next.delete(item.id);
+  const paletteRows = useMemo<PaletteRow[]>(() => {
+    const trimmed = query.trim();
+    const rows: PaletteRow[] = catalog
+      .filter(
+        (entry) => !selectedIds.has(entry.id) && matchesQuery(entry, trimmed),
+      )
+      .slice(0, MAX_PALETTE_ROWS)
+      .map((entry) => ({ kind: 'catalog', entry }));
+    if (
+      props.allowCustomEntries &&
+      trimmed &&
+      !catalogById.has(trimmed) &&
+      !selectedIds.has(trimmed)
+    ) {
+      rows.push({ kind: 'custom', name: trimmed });
     }
-    setSelection(next);
+    return rows;
+  }, [catalog, catalogById, query, selectedIds, props.allowCustomEntries]);
+
+  const activeRow = Math.min(activeIndex, Math.max(paletteRows.length - 1, 0));
+
+  function closePalette(): void {
+    setAddOpen(false);
+    setQuery('');
+    setActiveIndex(0);
   }
 
-  function addCustomEntry(): void {
-    const name = customEntry.trim();
-    if (!name) return;
-    setCustomEntry('');
-    setSelection(new Set([...selectedIds, name]));
+  function pickRow(row: PaletteRow): void {
+    addEntry(row.kind === 'catalog' ? row.entry.id : row.name);
+    if (row.kind === 'custom') setQuery('');
+    inputRef.current?.focus();
   }
 
-  const selectedCount = selectedIds.size;
-  const totalCount = catalogIds.length;
+  function handlePaletteKeyDown(
+    event: ReactKeyboardEvent<HTMLInputElement>,
+  ): void {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveIndex(
+        paletteRows.length === 0 ? 0 : (activeRow + 1) % paletteRows.length,
+      );
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex(
+        paletteRows.length === 0
+          ? 0
+          : (activeRow - 1 + paletteRows.length) % paletteRows.length,
+      );
+    } else if (event.key === 'Enter') {
+      const row = paletteRows[activeRow];
+      if (!row) return;
+      event.preventDefault();
+      pickRow(row);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      closePalette();
+    }
+  }
+
+  function chooseAll(): void {
+    if (unrestricted) return;
+    setStash(selected);
+    props.onChange(null);
+  }
+
+  function chooseCustom(): void {
+    if (!unrestricted) return;
+    props.onChange(stash ?? []);
+  }
+
+  const lowerTitle = props.title.toLowerCase();
 
   return (
     <section className={styles.scopeCard}>
@@ -118,131 +207,209 @@ export function AgentScopePicker(props: {
           <h3 className={styles.scopeTitle}>{props.title}</h3>
           <p className="supporting-text">{props.description}</p>
         </div>
-        <SegmentedToggle
-          ariaLabel={`${props.title} scope`}
-          size="sm"
-          value={unrestricted ? 'all' : 'custom'}
-          options={[
-            { value: 'all', label: props.allLabel },
-            { value: 'custom', label: 'Selected only' },
-          ]}
-          onChange={(mode) =>
-            props.onChange(mode === 'all' ? null : [...catalogIds])
-          }
-        />
       </header>
 
-      <div className={styles.scopeToolbar}>
-        <Input
-          aria-label={props.searchPlaceholder}
-          placeholder={props.searchPlaceholder}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <span className={styles.scopeCount}>
-          {unrestricted
-            ? `all ${totalCount} available`
-            : `${selectedCount} of ${totalCount} selected`}
-        </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={unrestricted}
-          onClick={() => props.onChange(null)}
+      <fieldset
+        className={styles.scopeModes}
+        aria-label={`${props.title} scope`}
+      >
+        <button
+          type="button"
+          aria-pressed={unrestricted}
+          className={cx(
+            styles.scopeMode,
+            unrestricted && styles.scopeModeActive,
+          )}
+          onClick={chooseAll}
         >
-          Reset to all
-        </Button>
-      </div>
+          <span className={styles.scopeModeTitle}>
+            <span className={styles.scopeModeDot} aria-hidden="true" />
+            <strong>{props.allLabel}</strong>
+          </span>
+          <small>{props.allNote}</small>
+        </button>
+        <button
+          type="button"
+          aria-pressed={!unrestricted}
+          className={cx(
+            styles.scopeMode,
+            !unrestricted && styles.scopeModeActive,
+          )}
+          onClick={chooseCustom}
+        >
+          <span className={styles.scopeModeTitle}>
+            <span className={styles.scopeModeDot} aria-hidden="true" />
+            <strong>Selected only</strong>
+          </span>
+          <small>{props.restrictedNote}</small>
+        </button>
+      </fieldset>
 
       {props.loading ? (
         <div className="empty-state">Loading catalog...</div>
-      ) : visibleGroups.length === 0 ? (
-        <div className="empty-state">Nothing matches “{query}”.</div>
-      ) : (
-        <div className={styles.scopeGroups}>
-          {visibleGroups.map((group) => {
-            const checkedCount = group.items.filter((item) =>
-              selectedIds.has(item.id),
-            ).length;
-            return (
-              <div className={styles.scopeGroup} key={group.label}>
-                <div className={styles.scopeGroupHead}>
-                  <Checkbox
-                    aria-label={`Select all ${group.label}`}
-                    checked={
-                      checkedCount === group.items.length
-                        ? true
-                        : checkedCount === 0
-                          ? false
-                          : 'indeterminate'
-                    }
-                    onCheckedChange={(checked) => toggleGroup(group, checked)}
-                  />
-                  <strong>{group.label}</strong>
-                  <span className={styles.scopeCount}>
-                    {checkedCount}/{group.items.length}
-                  </span>
-                </div>
-                <div className={styles.scopeItems}>
-                  {group.items.map((item) => (
-                    <label className={styles.scopeItem} key={item.id}>
-                      <Checkbox
-                        checked={selectedIds.has(item.id)}
-                        onCheckedChange={(checked) =>
-                          toggleItem(item.id, checked)
-                        }
-                      />
-                      <span className={styles.scopeItemText}>
-                        <span className={styles.scopeItemName}>
-                          {item.label}
-                          {item.badges?.map((badge) => (
-                            <em className={styles.scopeBadge} key={badge}>
-                              {badge}
-                            </em>
-                          ))}
-                        </span>
-                        {item.description ? (
-                          <small>{item.description}</small>
-                        ) : null}
+      ) : unrestricted ? null : (
+        <>
+          <div className={styles.scopeListActions}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setAddOpen(true)}
+            >
+              Add {lowerTitle}…
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={selected.length === 0}
+              onClick={() => props.onChange([])}
+            >
+              Clear all
+            </Button>
+            <span className={styles.scopeCount}>
+              {selected.length} of {totalCount} selected
+            </span>
+          </div>
+
+          {selected.length === 0 ? (
+            <div className="empty-state">
+              Nothing selected — this agent gets no {lowerTitle}.
+            </div>
+          ) : (
+            <div className={styles.scopeList}>
+              {selected.map((id) => {
+                const entry = catalogById.get(id);
+                return (
+                  <div className={styles.scopeRow} key={id}>
+                    <span className={styles.scopeItemText}>
+                      <span className={styles.scopeItemName}>
+                        {entry?.label ?? id}
+                        {entry?.badges?.map((badge) => (
+                          <em className={styles.scopeBadge} key={badge}>
+                            {badge}
+                          </em>
+                        ))}
                       </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                      {entry?.description ? (
+                        <small>{entry.description}</small>
+                      ) : null}
+                    </span>
+                    {entry ? (
+                      <span className={styles.scopeRowGroup}>
+                        {entry.group}
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      className={styles.scopeRemove}
+                      aria-label={`Remove ${id}`}
+                      onClick={() => removeEntry(id)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
 
-      {props.allowCustomEntries ? (
-        <div className={styles.scopeToolbar}>
-          <Input
-            aria-label={`Add ${props.title.toLowerCase()} by name`}
-            placeholder="Add by exact name (for example github__create_issue)"
-            value={customEntry}
-            onChange={(event) => setCustomEntry(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter') return;
-              event.preventDefault();
-              addCustomEntry();
-            }}
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!customEntry.trim()}
-            onClick={addCustomEntry}
-          >
-            Add
-          </Button>
-        </div>
-      ) : null}
-
-      <p className="supporting-text">
-        {unrestricted
-          ? `${props.allLabel} stay available.`
-          : props.restrictedNote}
-      </p>
+      <Dialog
+        open={addOpen}
+        onOpenChange={(open) => (open ? setAddOpen(true) : closePalette())}
+      >
+        <DialogContent
+          size="lg"
+          className={paletteStyles.dialog}
+          initialFocus={inputRef}
+        >
+          <DialogHeader visuallyHidden>
+            <DialogTitle>Add {lowerTitle}</DialogTitle>
+            <DialogDescription>
+              Search the catalog and pick entries to enable for this agent.
+            </DialogDescription>
+          </DialogHeader>
+          <div className={paletteStyles.searchBox}>
+            <Search width={18} height={18} />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActiveIndex(0);
+              }}
+              onKeyDown={handlePaletteKeyDown}
+              placeholder={props.searchPlaceholder}
+              aria-label={props.searchPlaceholder}
+              role="combobox"
+              aria-expanded="true"
+              aria-controls={listboxId}
+              aria-activedescendant={
+                paletteRows[activeRow]
+                  ? `${listboxId}-option-${activeRow}`
+                  : undefined
+              }
+            />
+          </div>
+          <div id={listboxId} className={paletteStyles.results} role="listbox">
+            {paletteRows.map((row, index) => (
+              <button
+                id={`${listboxId}-option-${index}`}
+                key={
+                  row.kind === 'catalog' ? row.entry.id : `custom:${row.name}`
+                }
+                type="button"
+                role="option"
+                aria-selected={index === activeRow}
+                className={
+                  index === activeRow ? paletteStyles.active : undefined
+                }
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => pickRow(row)}
+              >
+                {row.kind === 'catalog' ? (
+                  <>
+                    <span>
+                      <strong>
+                        {row.entry.label}
+                        {row.entry.badges?.map((badge) => (
+                          <em className={styles.scopeBadge} key={badge}>
+                            {badge}
+                          </em>
+                        ))}
+                      </strong>
+                      {row.entry.description ? (
+                        <small>{row.entry.description}</small>
+                      ) : null}
+                    </span>
+                    <em>{row.entry.group}</em>
+                  </>
+                ) : (
+                  <>
+                    <span>
+                      <strong>Add “{row.name}”</strong>
+                      <small>Not in the catalog — enabled by exact name.</small>
+                    </span>
+                    <em>custom</em>
+                  </>
+                )}
+              </button>
+            ))}
+            {paletteRows.length === 0 ? (
+              <div className={paletteStyles.empty}>
+                {query.trim()
+                  ? `Nothing matches “${query.trim()}”.`
+                  : `Every catalog entry is already selected.`}
+              </div>
+            ) : null}
+          </div>
+          <div className={paletteStyles.hint}>
+            <span>↑↓ Navigate</span>
+            <span>↵ Add</span>
+            <span>Esc Done</span>
+          </div>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

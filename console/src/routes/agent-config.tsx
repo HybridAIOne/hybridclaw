@@ -349,10 +349,12 @@ export function AgentConfigPage(props: {
       </section>
 
       <AgentScopePicker
+        key={`skills:${agent.id}`}
         title="Skills"
         description="Skills this agent may load. Everything else stays out of its prompt."
         allLabel="All skills"
-        restrictedNote="Only the selected skills load. Skills installed later stay off for this agent until you add them here."
+        allNote="Every installed skill, including ones installed later."
+        restrictedNote="Only the skills on the list. New installs stay off until added."
         searchPlaceholder="Search skills"
         groups={withUnknownEntries(skillGroups, draft.skills)}
         value={draft.skills}
@@ -361,10 +363,12 @@ export function AgentConfigPage(props: {
       />
 
       <AgentScopePicker
+        key={`tools:${agent.id}`}
         title="Tools"
         description="Tools this agent may call. Globally disabled tools stay off regardless."
         allLabel="All tools"
-        restrictedNote="Only the selected tools are offered to the model. Plugin and MCP tools added later stay off for this agent until you add them here."
+        allNote="Every available tool, including plugin and MCP tools added later."
+        restrictedNote="Only the tools on the list. New plugin and MCP tools stay off until added."
         searchPlaceholder="Search tools"
         groups={withUnknownEntries(toolGroups, draft.tools)}
         value={draft.tools}

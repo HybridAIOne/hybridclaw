@@ -598,6 +598,7 @@ export interface AdminConfig {
     sendPolicy: 'open' | 'allowlist' | 'disabled';
     sendAllowedChannelIds: string[];
     freeResponseChannels: string[];
+    botMessageChannels: string[];
     textChunkLimit: number;
     maxLinesPerMessage: number;
     humanDelay: {

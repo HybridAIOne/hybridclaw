@@ -31,6 +31,7 @@ Use HybridClaw's `message` tool for Discord work. This skill is for actions, not
 - Prefer explicit numeric `guildId`, `channelId`, `messageId`, and `userId` values.
 - If the user gives a channel name, include `guildId` so the tool can resolve it safely.
 - Read first, act second.
+- Alert and webhook messages (Monit, CI, deploy bots) usually have an empty `content` and carry their payload in `embeds`. `read` returns an `embeds` array per message (`title`, `description`, `url`, `timestamp`, `author.name`, `footer.text`, and `fields[].name`/`fields[].value`) — check it before concluding a message is empty. It is capped at 5 embeds per message and 10 fields per embed.
 - Keep outbound Discord copy short and conversational.
 - Do not use markdown tables in Discord messages.
 - Confirm before deleting, mass-posting, or editing a message that materially changes meaning.

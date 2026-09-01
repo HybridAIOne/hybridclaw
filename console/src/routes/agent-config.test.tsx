@@ -124,14 +124,23 @@ describe('AgentConfigPage', () => {
     expect(screen.getByText('all tools')).toBeTruthy();
   });
 
-  it('narrows an unrestricted allowlist when a tool is unchecked', async () => {
+  it('starts empty when restricting and adds entries via the palette', async () => {
     updateAdminAgentMock.mockResolvedValue(makeAgent({ tools: ['read'] }));
     renderWithProviders(
       <AgentConfigPage selectedAgentId="support" onAgentChange={() => {}} />,
     );
 
-    const bash = await screen.findByRole('checkbox', { name: 'bash' });
-    fireEvent.click(bash);
+    const restrictToggles = await screen.findAllByRole('button', {
+      name: /Selected only/,
+    });
+    fireEvent.click(restrictToggles[1]);
+    expect(screen.getByText(/Nothing selected/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add tools…' }));
+    fireEvent.click(await screen.findByRole('option', { name: /read/ }));
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Search tools' }), {
+      key: 'Escape',
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => {
@@ -143,6 +152,78 @@ describe('AgentConfigPage', () => {
     });
   });
 
+  it('restores the stashed selection when flipping back to selected only', async () => {
+    fetchAdminAgentsMock.mockResolvedValue([makeAgent({ tools: ['read'] })]);
+    renderWithProviders(
+      <AgentConfigPage selectedAgentId="support" onAgentChange={() => {}} />,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Remove read' }));
+    fireEvent.click(screen.getByRole('button', { name: /All tools/ }));
+    expect(screen.queryByRole('button', { name: 'Remove read' })).toBeNull();
+
+    const restrictToggles = screen.getAllByRole('button', {
+      name: /Selected only/,
+    });
+    fireEvent.click(restrictToggles[1]);
+    expect(screen.getByRole('button', { name: 'Remove read' })).toBeTruthy();
+  });
+
+  it('adds a catalog entry through the search palette', async () => {
+    fetchAdminAgentsMock.mockResolvedValue([makeAgent({ tools: ['read'] })]);
+    updateAdminAgentMock.mockResolvedValue(
+      makeAgent({ tools: ['read', 'bash'] }),
+    );
+    renderWithProviders(
+      <AgentConfigPage selectedAgentId="support" onAgentChange={() => {}} />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add tools…' }));
+    fireEvent.click(await screen.findByRole('option', { name: /bash/ }));
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Search tools' }), {
+      key: 'Escape',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(updateAdminAgentMock).toHaveBeenCalledWith(
+        'test-token',
+        'support',
+        expect.objectContaining({ tools: ['read', 'bash'] }),
+      );
+    });
+  });
+
+  it('adds a custom tool by exact name through the palette', async () => {
+    fetchAdminAgentsMock.mockResolvedValue([makeAgent({ tools: ['read'] })]);
+    updateAdminAgentMock.mockResolvedValue(
+      makeAgent({ tools: ['read', 'github__create_issue'] }),
+    );
+    renderWithProviders(
+      <AgentConfigPage selectedAgentId="support" onAgentChange={() => {}} />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add tools…' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search tools' }), {
+      target: { value: 'github__create_issue' },
+    });
+    fireEvent.click(
+      screen.getByRole('option', { name: /Add “github__create_issue”/ }),
+    );
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Search tools' }), {
+      key: 'Escape',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(updateAdminAgentMock).toHaveBeenCalledWith(
+        'test-token',
+        'support',
+        expect.objectContaining({ tools: ['read', 'github__create_issue'] }),
+      );
+    });
+  });
+
   it('sends null when an allowlist is reset to everything', async () => {
     fetchAdminAgentsMock.mockResolvedValue([makeAgent({ skills: ['pdf'] })]);
     updateAdminAgentMock.mockResolvedValue(makeAgent());
@@ -150,10 +231,7 @@ describe('AgentConfigPage', () => {
       <AgentConfigPage selectedAgentId="support" onAgentChange={() => {}} />,
     );
 
-    const resetButtons = await screen.findAllByRole('button', {
-      name: 'Reset to all',
-    });
-    fireEvent.click(resetButtons[0]);
+    fireEvent.click(await screen.findByRole('button', { name: /All skills/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => {
