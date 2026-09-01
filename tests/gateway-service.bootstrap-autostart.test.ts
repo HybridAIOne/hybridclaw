@@ -102,7 +102,7 @@ const { setupHome } = setupGatewayTest({
   },
 });
 
-test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once per session', async () => {
+test('ensureGatewayBootstrapAutostart stores BOOTSTRAP opener once per agent workspace', async () => {
   setupHome();
 
   runAgentMock.mockResolvedValue({
@@ -112,12 +112,16 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
     toolExecutions: [],
   });
 
-  const { getRecentStructuredAuditForSession, initDatabase } = await import(
-    '../src/memory/db.ts'
-  );
-  const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
-    '../src/gateway/gateway-service.ts'
-  );
+  const {
+    getRecentStructuredAuditForSession,
+    initDatabase,
+    listMemoryValues,
+  } = await import('../src/memory/db.ts');
+  const {
+    ensureGatewayBootstrapAutostart,
+    getGatewayBootstrapAutostartState,
+    getGatewayHistory,
+  } = await import('../src/gateway/gateway-service.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
 
   initDatabase({ quiet: true });
@@ -276,9 +280,29 @@ test('ensureGatewayBootstrapAutostart stores prelude and bootstrap opener once p
   await ensureGatewayBootstrapAutostart({ sessionId });
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   expect(getGatewayHistory(sessionId, 10).history).toHaveLength(2);
+
+  const secondSessionId =
+    'agent:main:channel:web:chat:dm:peer:bootstrap-test-second-session';
+  await ensureGatewayBootstrapAutostart({ sessionId: secondSessionId });
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  expect(getGatewayHistory(secondSessionId, 10).history).toEqual([]);
+  expect(
+    getGatewayBootstrapAutostartState({ sessionId: secondSessionId }),
+  ).toEqual({ status: 'completed', fileName: 'BOOTSTRAP.md' });
+  expect(
+    listMemoryValues('gateway.bootstrap_autostart.workspace.v1'),
+  ).toEqual([
+    expect.objectContaining({
+      value: expect.objectContaining({
+        status: 'completed',
+        fileName: 'BOOTSTRAP.md',
+        ownerSessionId: storedSession?.id || sessionId,
+      }),
+    }),
+  ]);
 });
 
-test('ensureGatewayBootstrapAutostart retries after a failed opener without consuming a hatching turn', async () => {
+test('ensureGatewayBootstrapAutostart releases the workspace claim after a failed opener', async () => {
   setupHome();
 
   runAgentMock
@@ -303,12 +327,12 @@ test('ensureGatewayBootstrapAutostart retries after a failed opener without cons
 
   initDatabase({ quiet: true });
 
-  const sessionId =
+  const failedSessionId =
     'agent:main:channel:web:chat:dm:peer:bootstrap-retry-after-error';
-  await ensureGatewayBootstrapAutostart({ sessionId });
+  await ensureGatewayBootstrapAutostart({ sessionId: failedSessionId });
 
   expect(runAgentMock).toHaveBeenCalledTimes(1);
-  expect(getGatewayHistory(sessionId, 10).history).toEqual([
+  expect(getGatewayHistory(failedSessionId, 10).history).toEqual([
     expect.objectContaining({
       role: 'assistant',
       content: DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
@@ -323,17 +347,70 @@ test('ensureGatewayBootstrapAutostart retries after a failed opener without cons
     'hatchingTurnsWithoutMessage',
   );
 
-  await ensureGatewayBootstrapAutostart({ sessionId });
+  const retrySessionId =
+    'agent:main:channel:web:chat:dm:peer:bootstrap-retry-after-error-second';
+  await ensureGatewayBootstrapAutostart({ sessionId: retrySessionId });
 
   expect(runAgentMock).toHaveBeenCalledTimes(2);
   expect(
-    getGatewayHistory(sessionId, 10).history.some(
+    getGatewayHistory(retrySessionId, 10).history.some(
       (message) => message.content === 'Recovered onboarding opener.',
     ),
   ).toBe(true);
   expect(JSON.parse(fs.readFileSync(statePath, 'utf8'))).toMatchObject({
     hatchingTurnsWithoutMessage: 1,
   });
+});
+
+test('ensureGatewayBootstrapAutostart reclaims a stale workspace claim', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Recovered from stale workspace claim.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { initDatabase, listMemoryValues, setMemoryValue } = await import(
+    '../src/memory/db.ts'
+  );
+  const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const claimScope = 'gateway.bootstrap_autostart.workspace.v1';
+  const firstSessionId =
+    'agent:main:channel:web:chat:dm:peer:bootstrap-stale-first';
+  await ensureGatewayBootstrapAutostart({ sessionId: firstSessionId });
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+
+  const marker = listMemoryValues(claimScope)[0];
+  expect(marker).toBeTruthy();
+  if (!marker) throw new Error('Expected workspace autostart marker');
+  setMemoryValue(claimScope, marker.key, {
+    status: 'started',
+    fileName: 'BOOTSTRAP.md',
+    at: '2026-01-01T00:00:00.000Z',
+  });
+
+  const secondSessionId =
+    'agent:main:channel:web:chat:dm:peer:bootstrap-stale-second';
+  await ensureGatewayBootstrapAutostart({ sessionId: secondSessionId });
+
+  expect(runAgentMock).toHaveBeenCalledTimes(2);
+  expect(getGatewayHistory(secondSessionId, 10).history).toEqual([
+    expect.objectContaining({
+      role: 'assistant',
+      content: DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
+    }),
+    expect.objectContaining({
+      role: 'assistant',
+      content: 'Recovered from stale workspace claim.',
+    }),
+  ]);
 });
 
 test('cleanupGatewayNoUserChatSessions preserves bootstrap autostart before its prelude is stored', async () => {
@@ -878,11 +955,19 @@ test('ensureGatewayBootstrapAutostart keeps bootstrap opener when auxiliary gene
 test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per session', async () => {
   setupHome();
 
-  callAuxiliaryModelMock.mockResolvedValueOnce({
-    provider: 'hybridai',
-    model: 'auxiliary/test',
-    content: 'Why did the computer go to therapy?\nIt had too many unresolved issues.',
-  });
+  callAuxiliaryModelMock
+    .mockResolvedValueOnce({
+      provider: 'hybridai',
+      model: 'auxiliary/test',
+      content:
+        'Why did the computer go to therapy?\nIt had too many unresolved issues.',
+    })
+    .mockResolvedValueOnce({
+      provider: 'hybridai',
+      model: 'auxiliary/test',
+      content:
+        'Why did the computer go to therapy?\nIt had too many unresolved issues.',
+    });
 
   const { initDatabase } = await import('../src/memory/db.ts');
   const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
@@ -972,6 +1057,19 @@ test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per se
   await ensureGatewayBootstrapAutostart({ sessionId });
   expect(runAgentMock).not.toHaveBeenCalled();
   expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(1);
+
+  const secondSessionId =
+    'agent:main:channel:web:chat:dm:peer:boot-md-test-second';
+  await ensureGatewayBootstrapAutostart({ sessionId: secondSessionId });
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(2);
+  expect(getGatewayHistory(secondSessionId, 10).history).toEqual([
+    expect.objectContaining({
+      role: 'assistant',
+      content:
+        'Why did the computer go to therapy?\nIt had too many unresolved issues.',
+    }),
+  ]);
 });
 
 test('ensureGatewayBootstrapAutostart can hatch a selected agent in an existing session', async () => {
@@ -1281,7 +1379,7 @@ test('ensureGatewayBootstrapAutostart ignores BOOT.md even when it is customized
   expect(getGatewayHistory(sessionId, 10).history).toEqual([]);
 });
 
-test('ensureGatewayBootstrapAutostart prevents duplicate concurrent runs for the same fresh session', async () => {
+test('ensureGatewayBootstrapAutostart prevents concurrent BOOTSTRAP runs across sessions', async () => {
   setupHome();
 
   let resolveRun:
@@ -1309,9 +1407,16 @@ test('ensureGatewayBootstrapAutostart prevents duplicate concurrent runs for the
 
   initDatabase({ quiet: true });
 
-  const sessionId = 'agent:main:channel:web:chat:dm:peer:bootstrap-race-test';
-  const firstRun = ensureGatewayBootstrapAutostart({ sessionId });
-  const secondRun = ensureGatewayBootstrapAutostart({ sessionId });
+  const firstSessionId =
+    'agent:main:channel:web:chat:dm:peer:bootstrap-race-test-first';
+  const secondSessionId =
+    'agent:main:channel:web:chat:dm:peer:bootstrap-race-test-second';
+  const firstRun = ensureGatewayBootstrapAutostart({
+    sessionId: firstSessionId,
+  });
+  const secondRun = ensureGatewayBootstrapAutostart({
+    sessionId: secondSessionId,
+  });
   await vi.waitFor(() => {
     expect(runAgentMock).toHaveBeenCalledTimes(1);
   });
@@ -1325,7 +1430,7 @@ test('ensureGatewayBootstrapAutostart prevents duplicate concurrent runs for the
   await Promise.all([firstRun, secondRun]);
 
   expect(runAgentMock).toHaveBeenCalledTimes(1);
-  expect(getGatewayHistory(sessionId, 10).history).toEqual([
+  expect(getGatewayHistory(firstSessionId, 10).history).toEqual([
     expect.objectContaining({
       role: 'assistant',
       content: DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
@@ -1335,4 +1440,5 @@ test('ensureGatewayBootstrapAutostart prevents duplicate concurrent runs for the
       content: 'Hello once.',
     }),
   ]);
+  expect(getGatewayHistory(secondSessionId, 10).history).toEqual([]);
 });
