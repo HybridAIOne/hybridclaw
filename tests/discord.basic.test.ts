@@ -9,6 +9,7 @@ import {
   isAuthorizedCommandUser,
   isTrigger,
   parseCommand,
+  renderMessageText,
   shouldIgnoreBotAuthoredMessage,
   shouldReplyInFreeMode,
   shouldSkipFreeReplyBecauseOtherUsersMentioned,
@@ -519,4 +520,100 @@ test('the free-mode gate lets an allowlisted alert through, but not an empty one
   expect(
     shouldReplyInFreeMode({ ...base, content: '', isAllowlistedBotMessage: true }),
   ).toBe(false);
+});
+
+test('an allowlisted bot message triggers in mention mode but not when handling is off', () => {
+  const base = {
+    content: '',
+    text: '[embed] Build failed',
+    isDm: false,
+    commandsOnly: false,
+    prefix: '!claw',
+    botMentionRegex: null,
+    hasBotMention: false,
+    isAllowlistedBotMessage: true,
+  };
+  expect(isTrigger({ ...base, guildMessageMode: 'mention' })).toBe(true);
+  expect(isTrigger({ ...base, guildMessageMode: 'off' })).toBe(false);
+  expect(
+    isTrigger({
+      ...base,
+      guildMessageMode: 'mention',
+      isAllowlistedBotMessage: false,
+    }),
+  ).toBe(false);
+});
+
+test('suppress patterns match the rendered text of an embed-only message', () => {
+  expect(
+    isTrigger({
+      content: '',
+      text: '[embed] Build succeeded',
+      isDm: false,
+      commandsOnly: false,
+      guildMessageMode: 'free',
+      prefix: '!claw',
+      botMentionRegex: null,
+      hasBotMention: false,
+      suppressPatterns: ['build succeeded'],
+      isAllowlistedBotMessage: true,
+    }),
+  ).toBe(false);
+});
+
+test('an allowlisted alert that pings other users is not skipped', () => {
+  const base = {
+    guildMessageMode: 'free' as const,
+    hasBotMention: false,
+    hasPrefixInvocation: false,
+    botUserId: 'bot',
+    mentionedUserIds: ['oncall'],
+  };
+  expect(shouldSkipFreeReplyBecauseOtherUsersMentioned(base)).toBe(true);
+  expect(
+    shouldSkipFreeReplyBecauseOtherUsersMentioned({
+      ...base,
+      isAllowlistedBotMessage: true,
+    }),
+  ).toBe(false);
+});
+
+test('renderMessageText falls back from content to embeds to attachments to system text', () => {
+  const base = { botMentionRegex: null, prefix: '!claw' };
+  expect(
+    renderMessageText({
+      ...base,
+      content: '!claw hello',
+      embeds: [ALERT_EMBED],
+      attachmentNames: ['a.png'],
+    }),
+  ).toBe('hello');
+  expect(
+    renderMessageText({
+      ...base,
+      content: '',
+      embeds: [ALERT_EMBED],
+      attachmentNames: [],
+    }),
+  ).toBe(`[embed] ${summarizeEmbeds([ALERT_EMBED])}`);
+  expect(
+    renderMessageText({
+      ...base,
+      content: ' ',
+      embeds: [{}],
+      attachmentNames: ['a.png', null, ' b.pdf '],
+    }),
+  ).toBe('[attachments] a.png, b.pdf');
+  expect(
+    renderMessageText({
+      ...base,
+      content: '',
+      embeds: [],
+      attachmentNames: [],
+      systemContent: 'pinned a message',
+    }),
+  ).toBe('[system] pinned a message');
+  expect(
+    renderMessageText({ ...base, content: '', embeds: [], attachmentNames: [] }),
+  ).toBe('');
 });
