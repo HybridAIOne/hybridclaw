@@ -9,7 +9,8 @@ import {
 import * as pluginPolicy from '../plugins/vonage-voice/src/caller-policy.js';
 
 const LISTED = '+4915123456789';
-// Carriers deliver E.164 digits without a leading '+'.
+// Twilio sends `From` as `+<digits>`, Vonage as bare digits; the caller here
+// deliberately omits the '+' so matching is exercised across both formats.
 const CALLER = '4915123456789';
 
 test('open accepts every caller and disabled rejects every caller', () => {
@@ -96,6 +97,8 @@ test('allowlist with a missing list refuses rather than throwing', () => {
 test('normalizeCallerIdentity yields a canonical +digits form', () => {
   expect(normalizeCallerIdentity('+49 151 234 567-89')).toBe(LISTED);
   expect(normalizeCallerIdentity(CALLER)).toBe(LISTED);
+  expect(normalizeCallerIdentity('++4915123456789')).toBe(LISTED);
+  expect(normalizeCallerIdentity('49+15123456789')).toBe(LISTED);
   expect(normalizeCallerIdentity('   ')).toBeNull();
   expect(normalizeCallerIdentity('anonymous')).toBeNull();
 });

@@ -17,9 +17,7 @@ import type { VoiceCallerPolicy } from '../../config/runtime-config.js';
 export function normalizeCallerIdentity(
   value: string | null | undefined,
 ): string | null {
-  const candidate = String(value ?? '').replace(/[^\d+]/g, '');
-  if (!candidate) return null;
-  const digits = candidate.startsWith('+') ? candidate.slice(1) : candidate;
+  const digits = String(value ?? '').replace(/\D/g, '');
   return digits ? `+${digits}` : null;
 }
 

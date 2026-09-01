@@ -8,9 +8,7 @@
  * internals, matching the existing per-channel duplication of these helpers.
  */
 export function normalizeCallerIdentity(value) {
-  const candidate = String(value ?? '').replace(/[^\d+]/g, '');
-  if (!candidate) return null;
-  const digits = candidate.startsWith('+') ? candidate.slice(1) : candidate;
+  const digits = String(value ?? '').replace(/\D/g, '');
   return digits ? `+${digits}` : null;
 }
 

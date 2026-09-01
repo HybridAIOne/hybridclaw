@@ -26,7 +26,7 @@ export function resolveConfig(api) {
   // Caller gating is a property of the phone channel rather than of this
   // transport, so it comes from the core voice config the same way
   // speech.realtime.* does.
-  const voice = (api.config && api.config.voice) || {};
+  const voice = api.config?.voice || {};
   const callerPolicy =
     typeof voice.callerPolicy === 'string' ? voice.callerPolicy : 'open';
   const allowFrom = Array.isArray(voice.allowFrom)

@@ -968,11 +968,12 @@ export async function handleVoiceWebhook(
       return true;
     }
     const voiceConfig = getConfigSnapshot().voice;
+    const from = String(body.From || '').trim();
     if (
       !isCallerAllowed({
         callerPolicy: voiceConfig.callerPolicy,
         allowFrom: voiceConfig.allowFrom,
-        from: String(body.From || ''),
+        from,
       })
     ) {
       // The refused number is logged so an operator can add a legitimate
@@ -982,8 +983,7 @@ export async function handleVoiceWebhook(
           callSid,
           remoteIp,
           callerPolicy: voiceConfig.callerPolicy,
-          caller:
-            normalizeCallerIdentity(String(body.From || '')) || 'withheld',
+          caller: normalizeCallerIdentity(from) || 'withheld',
         },
         'Voice webhook rejected: caller not permitted by callerPolicy',
       );
@@ -993,7 +993,7 @@ export async function handleVoiceWebhook(
     const session = sessionStore.getOrCreateFromWebhook({
       callSid,
       remoteIp,
-      from: String(body.From || '').trim(),
+      from,
       to: String(body.To || '').trim(),
       callerName: String(body.CallerName || '').trim() || undefined,
     });
@@ -1006,7 +1006,7 @@ export async function handleVoiceWebhook(
       {
         callSid,
         remoteIp,
-        from: String(body.From || '').trim(),
+        from,
         to: String(body.To || '').trim(),
       },
       'Voice webhook accepted',
