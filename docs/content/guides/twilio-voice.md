@@ -218,8 +218,11 @@ before the concurrency limit, so a refused call does not consume a slot.
 
 Notes:
 
-- entries may be written with spaces, dashes, or without the leading `+`; they
-  are compared in a canonical `+<digits>` form
+- entries must include the country code. `+4915123456789` and
+  `49 151 234 567-89` both work; a national format such as `0151 23456789`
+  does not, because it normalizes to `+015123456789` and can never match what
+  the carrier sends. The gateway logs a warning at startup for allowlist
+  entries that look like a national format.
 - a caller who withholds their number arrives with an empty `From` and so never
   matches an allowlist
 - the refused number is written to the gateway log, so you can see which number

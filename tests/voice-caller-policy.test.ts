@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 
 import {
+  findNationalFormatAllowEntries,
   isCallerAllowed,
   normalizeCallerAllowList,
   normalizeCallerIdentity,
@@ -118,4 +119,34 @@ test('the vonage plugin mirror agrees with the core implementation', () => {
   for (const params of cases) {
     expect(pluginPolicy.isCallerAllowed(params)).toBe(isCallerAllowed(params));
   }
+});
+
+test('national-format allowlist entries are flagged, valid ones are not', () => {
+  expect(
+    findNationalFormatAllowEntries([
+      '0171-9727750',
+      '015123456789',
+      LISTED,
+      '49 151 234 567-89',
+      '*',
+      '',
+    ]),
+  ).toEqual(['0171-9727750', '015123456789']);
+});
+
+test('a national-format entry genuinely fails to match, justifying the warning', () => {
+  expect(
+    isCallerAllowed({
+      callerPolicy: 'allowlist',
+      allowFrom: ['0171-9727750'],
+      from: '491719727750',
+    }),
+  ).toBe(false);
+  expect(
+    isCallerAllowed({
+      callerPolicy: 'allowlist',
+      allowFrom: ['+491719727750'],
+      from: '491719727750',
+    }),
+  ).toBe(true);
 });

@@ -54,3 +54,21 @@ export function isCallerAllowed(params: {
   if (!caller) return false;
   return allowFrom.includes(caller);
 }
+
+/**
+ * Allowlist entries that look like a national dialling format — no `+` and a
+ * trunk prefix `0` — which can never match the E.164 value a carrier sends.
+ * `0171 9727750` normalizes to `+01719727750`, not `+491719727750`, so the
+ * entry silently never matches; surfacing it beats a dead allowlist.
+ */
+export function findNationalFormatAllowEntries(
+  values: readonly string[] | null | undefined,
+): string[] {
+  const suspicious: string[] = [];
+  for (const value of Array.isArray(values) ? values : []) {
+    const raw = String(value ?? '').trim();
+    if (!raw || raw === '*' || raw.startsWith('+')) continue;
+    if (raw.replace(/[^\d]/g, '').startsWith('0')) suspicious.push(raw);
+  }
+  return suspicious;
+}

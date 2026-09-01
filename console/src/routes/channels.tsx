@@ -2500,7 +2500,7 @@ function VoiceChannelEditor(props: {
           <AllowListField
             label="Allowed callers"
             value={field.value as string[]}
-            placeholder="+14155551212 or *"
+            placeholder="+4915123456789 (with country code) or *"
             onChange={field.onChange}
           />
         )}
