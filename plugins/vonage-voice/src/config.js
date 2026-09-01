@@ -1,3 +1,5 @@
+import { isCallerPolicy } from './caller-policy.js';
+
 const E164_RE = /^\+[1-9]\d{7,14}$/;
 
 export function resolveConfig(api) {
@@ -23,6 +25,15 @@ export function resolveConfig(api) {
   }
   if (!privateKey) throw new Error('VONAGE_PRIVATE_KEY is required.');
   if (!signatureSecret) throw new Error('VONAGE_SIGNATURE_SECRET is required.');
+  const callerPolicy = String(config.callerPolicy || 'open').trim() || 'open';
+  if (!isCallerPolicy(callerPolicy)) {
+    throw new Error(
+      'Vonage callerPolicy must be "open", "allowlist", or "disabled".',
+    );
+  }
+  const allowFrom = Array.isArray(config.allowFrom)
+    ? config.allowFrom.map((value) => String(value))
+    : [];
   const mode = String(config.mode || 'turn').trim() || 'turn';
   if (mode !== 'turn' && mode !== 'realtime') {
     throw new Error('Vonage mode must be "turn" or "realtime".');
@@ -33,6 +44,8 @@ export function resolveConfig(api) {
     publicBaseUrl,
     privateKey,
     signatureSecret,
+    callerPolicy,
+    allowFrom,
     mode,
     language: String(config.language || 'en-US').trim() || 'en-US',
     welcomeGreeting:

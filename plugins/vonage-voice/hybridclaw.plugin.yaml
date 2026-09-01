@@ -26,6 +26,15 @@ configSchema:
     publicBaseUrl:
       type: string
       pattern: '^https://'
+    callerPolicy:
+      type: string
+      enum: [open, allowlist, disabled]
+      default: open
+    allowFrom:
+      type: array
+      default: []
+      items:
+        type: string
     mode:
       type: string
       enum: [turn, realtime]
@@ -47,6 +56,11 @@ configSchema:
 configUiHints:
   applicationId:
     label: Application ID
+  callerPolicy:
+    label: Caller Policy
+  allowFrom:
+    label: Allowed Callers
+    placeholder: '+4915123456789'
   mode:
     label: Call Mode
   fromNumber:
