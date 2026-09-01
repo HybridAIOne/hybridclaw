@@ -68,6 +68,30 @@ test('a withheld number never satisfies an allowlist', () => {
   }
 });
 
+test('an unset or unrecognised policy stays on the open default', () => {
+  // Config that predates the setting, or any snapshot that skipped
+  // normalization, must not silently refuse every caller.
+  for (const callerPolicy of [undefined, null, '' as never, 'nonsense' as never]) {
+    expect(
+      isCallerAllowed({ callerPolicy, allowFrom: undefined, from: CALLER }),
+    ).toBe(true);
+    expect(pluginPolicy.isCallerAllowed({ callerPolicy, from: CALLER })).toBe(
+      true,
+    );
+  }
+});
+
+test('allowlist with a missing list refuses rather than throwing', () => {
+  expect(
+    isCallerAllowed({
+      callerPolicy: 'allowlist',
+      allowFrom: undefined,
+      from: CALLER,
+    }),
+  ).toBe(false);
+  expect(normalizeCallerAllowList(undefined)).toEqual([]);
+});
+
 test('normalizeCallerIdentity yields a canonical +digits form', () => {
   expect(normalizeCallerIdentity('+49 151 234 567-89')).toBe(LISTED);
   expect(normalizeCallerIdentity(CALLER)).toBe(LISTED);

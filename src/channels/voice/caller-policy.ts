@@ -23,9 +23,11 @@ export function normalizeCallerIdentity(
   return digits ? `+${digits}` : null;
 }
 
-export function normalizeCallerAllowList(values: readonly string[]): string[] {
+export function normalizeCallerAllowList(
+  values: readonly string[] | null | undefined,
+): string[] {
   const list: string[] = [];
-  for (const value of values) {
+  for (const value of Array.isArray(values) ? values : []) {
     if (String(value ?? '').trim() === '*') {
       list.push('*');
       continue;
@@ -37,12 +39,15 @@ export function normalizeCallerAllowList(values: readonly string[]): string[] {
 }
 
 export function isCallerAllowed(params: {
-  callerPolicy: VoiceCallerPolicy;
-  allowFrom: readonly string[];
+  callerPolicy: VoiceCallerPolicy | null | undefined;
+  allowFrom: readonly string[] | null | undefined;
   from: string | null | undefined;
 }): boolean {
   if (params.callerPolicy === 'disabled') return false;
-  if (params.callerPolicy === 'open') return true;
+  // Anything that is not an explicit allowlist is open, which keeps an
+  // unset or unrecognised policy on the documented default instead of
+  // silently refusing every caller.
+  if (params.callerPolicy !== 'allowlist') return true;
   const allowFrom = normalizeCallerAllowList(params.allowFrom);
   if (allowFrom.includes('*')) return true;
   const caller = normalizeCallerIdentity(params.from);

@@ -16,7 +16,7 @@ export function normalizeCallerIdentity(value) {
 
 export function normalizeCallerAllowList(values) {
   const list = [];
-  for (const value of values || []) {
+  for (const value of Array.isArray(values) ? values : []) {
     if (String(value ?? '').trim() === '*') {
       list.push('*');
       continue;
@@ -29,7 +29,10 @@ export function normalizeCallerAllowList(values) {
 
 export function isCallerAllowed(params) {
   if (params.callerPolicy === 'disabled') return false;
-  if (params.callerPolicy === 'open') return true;
+  // Anything that is not an explicit allowlist is open, which keeps an
+  // unset or unrecognised policy on the documented default instead of
+  // silently refusing every caller.
+  if (params.callerPolicy !== 'allowlist') return true;
   const allowFrom = normalizeCallerAllowList(params.allowFrom);
   if (allowFrom.includes('*')) return true;
   const caller = normalizeCallerIdentity(params.from);
