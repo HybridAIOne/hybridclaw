@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Empty per-agent allowlists apply without a gateway restart**: Setting an
+  agent's `skills` or `tools` allowlist to `[]` from `hybridclaw agent config`,
+  the console, or `config.json` is picked up by the running gateway. The
+  registry previously fingerprinted an empty allowlist the same as an absent
+  one, so the change was never detected until restart.
+
 ## [0.30.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.0) - 2026-08-31
 
 ### Added
