@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Vonage realtime calls play smoothly**: Model audio is now paced against
+  the wall clock with a small lead instead of one frame per timer tick, so
+  event-loop jitter no longer starves the phone leg into choppy, robotic
+  playback. Long replies also stop re-copying the whole playback queue every
+  20 ms.
+- **Vonage realtime calls no longer open with a farewell**: The answer NCCO
+  carried a trailing "Goodbye." talk that Vonage played into the call as soon
+  as the websocket connected, which the realtime model heard as the caller's
+  first words and answered with a goodbye. The connect action is now the whole
+  NCCO.
+
 ## [0.30.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.0) - 2026-08-31
 
 ### Added
