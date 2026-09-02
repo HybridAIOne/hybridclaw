@@ -36,6 +36,8 @@ export interface OpenAIRealtimeCallbacks {
   onReady: () => void;
   onAudioDelta: (base64Audio: string) => void;
   onSpeechStarted: () => void;
+  onSpeechStopped?: () => void;
+  onResponseCreated?: () => void;
   onInputTranscript: (transcript: string) => void;
   onOutputTranscript: (transcript: string) => void;
   onFunctionCall: (call: RealtimeFunctionCall) => void;
@@ -255,6 +257,7 @@ export class OpenAIRealtimeClient {
     }
     if (type === 'response.created') {
       this.responseActive = true;
+      this.callbacks.onResponseCreated?.();
       return;
     }
     if (type === 'response.done') {
@@ -270,6 +273,10 @@ export class OpenAIRealtimeClient {
     }
     if (type === 'input_audio_buffer.speech_started') {
       this.callbacks.onSpeechStarted();
+      return;
+    }
+    if (type === 'input_audio_buffer.speech_stopped') {
+      this.callbacks.onSpeechStopped?.();
       return;
     }
     if (type === 'conversation.item.input_audio_transcription.completed') {

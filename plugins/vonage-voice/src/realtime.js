@@ -5,7 +5,8 @@
  * Upgrades authenticate with a single-use stream token minted by the answer
  * webhook — Vonage does not sign websocket upgrades, so possession of a
  * fresh token minted for that call is the auth. Binary frames are 16-bit LE
- * mono PCM at 8 kHz in both directions.
+ * mono PCM at 8 kHz in both directions; the text frame `{"action":"clear"}`
+ * drops audio Vonage has buffered but not yet played (barge-in).
  *
  * NOT the call-state owner: the answer/event webhooks in runtime.js own the
  * session table, capacity, and teardown signaling.
@@ -15,6 +16,7 @@ import { buildVoiceSessionKey } from './utils.js';
 
 const STREAM_TOKEN_TTL_MS = 30_000;
 const WS_OPEN = 1;
+const CLEAR_COMMAND = JSON.stringify({ action: 'clear' });
 
 export function createVonageRealtimeStreams(api, config) {
   const tokens = new Map();
@@ -73,6 +75,9 @@ export function createVonageRealtimeStreams(api, config) {
           sendAudio: (frame) => {
             if (ws.readyState === WS_OPEN) ws.send(frame);
           },
+          clearAudio: () => {
+            if (ws.readyState === WS_OPEN) ws.send(CLEAR_COMMAND);
+          },
           onError: (message) => {
             ctx.logger.warn(
               { callUuid: call.uuid, message },
@@ -100,8 +105,8 @@ export function createVonageRealtimeStreams(api, config) {
           );
           return;
         }
-        // Text frames are Vonage lifecycle events (websocket:connected);
-        // nothing to act on.
+        // Text frames are Vonage lifecycle events (websocket:connected,
+        // websocket:cleared); nothing to act on.
       });
       ws.on('close', () => {
         activeStreams.delete(stream);

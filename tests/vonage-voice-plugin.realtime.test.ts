@@ -12,7 +12,7 @@ const CALL = { uuid: 'call-1', from: '+15550001111', to: '+15550002222' };
 
 class FakeStreamSocket {
   readyState = 1;
-  sent: Buffer[] = [];
+  sent: Array<Buffer | string> = [];
   closeCode: number | null = null;
   private listeners = new Map<string, Array<(...args: unknown[]) => void>>();
 
@@ -22,7 +22,7 @@ class FakeStreamSocket {
     this.listeners.set(event, existing);
   }
 
-  send(data: Buffer): void {
+  send(data: Buffer | string): void {
     this.sent.push(data);
   }
 
@@ -140,9 +140,15 @@ test('a minted token upgrades once and wires audio to the realtime session', asy
   // Model audio goes out through the session's sendAudio seam.
   const sessionOptions = (
     api.createRealtimeVoiceSession as ReturnType<typeof vi.fn>
-  ).mock.calls[0][0] as { sendAudio: (frame: Buffer) => void };
+  ).mock.calls[0][0] as {
+    sendAudio: (frame: Buffer) => void;
+    clearAudio: () => void;
+  };
   sessionOptions.sendAudio(Buffer.alloc(320, 2));
   expect(ws.sent).toHaveLength(1);
+  // Barge-in drops what Vonage has buffered via its clear command.
+  sessionOptions.clearAudio();
+  expect(ws.sent[1]).toBe(JSON.stringify({ action: 'clear' }));
 
   ws.close();
   expect(session.close).toHaveBeenCalled();

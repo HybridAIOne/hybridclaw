@@ -17,6 +17,7 @@
  * upstream socket in `openai-realtime.ts`; this module never touches raw JSON.
  */
 import type { RuntimeSpeechRealtimeConfig } from '../../config/runtime-config.js';
+import { logger } from '../../logger.js';
 import { isRecord } from '../../utils/type-guards.js';
 import {
   OpenAIRealtimeClient,
@@ -142,6 +143,9 @@ export class RealtimeCallBridge {
   private reassureTimer: NodeJS.Timeout | null = null;
   private callerSpeaking = false;
   private closed = false;
+  private turnSpeechStoppedAt = 0;
+  private turnResponseCreatedAt = 0;
+  private turnFirstAudioPending = false;
 
   constructor(options: RealtimeBridgeOptions) {
     this.options = options;
@@ -182,6 +186,18 @@ export class RealtimeCallBridge {
         },
         onAudioDelta: (base64Audio) => {
           this.options.onStateChange('speaking');
+          if (this.turnFirstAudioPending) {
+            this.turnFirstAudioPending = false;
+            logger.debug(
+              {
+                surface: options.surface,
+                vadToResponseMs:
+                  this.turnResponseCreatedAt - this.turnSpeechStoppedAt,
+                vadToFirstAudioMs: Date.now() - this.turnSpeechStoppedAt,
+              },
+              'Realtime turn latency',
+            );
+          }
           void this.options.sendAudio(base64Audio).catch((error) => {
             this.options.onError(
               `Failed to forward audio to the caller: ${String(
@@ -189,6 +205,15 @@ export class RealtimeCallBridge {
               )}`,
             );
           });
+        },
+        onSpeechStopped: () => {
+          this.turnSpeechStoppedAt = Date.now();
+          this.turnFirstAudioPending = false;
+        },
+        onResponseCreated: () => {
+          if (!this.turnSpeechStoppedAt) return;
+          this.turnResponseCreatedAt = Date.now();
+          this.turnFirstAudioPending = true;
         },
         onSpeechStarted: () => {
           this.callerSpeaking = true;

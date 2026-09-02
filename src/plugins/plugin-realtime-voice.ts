@@ -3,14 +3,13 @@
  *
  * Wraps the core `RealtimeCallBridge` behind a linear-PCM transport contract:
  * plugins hand in 16-bit LE mono 8 kHz caller audio and receive model audio
- * back as 20 ms frames paced against the wall clock. The far end plays in
- * real time, so frames are scheduled on a fixed timeline (not "one per timer
- * tick"): a late tick sends every frame that fell due, and playback starts a
- * few frames ahead so timer jitter never starves the far end. This keeps a
- * transport without a clear/flush primitive (Vonage websockets) both smooth
- * and quick to barge in — cutting playback only ever leaves the small lead
- * the far end already buffered. µ-law companding to the realtime session's
- * `audio/pcmu` is exact per-sample; no resampling happens anywhere.
+ * back as 20 ms frames the moment the model produces them, so nothing on our
+ * side sits between the model and the caller. The far end (Vonage buffers
+ * about 60 s of websocket audio) plays in order, so only a bounded window is
+ * kept in flight and the rest is released as playback advances; barge-in
+ * drops the local queue and asks the transport to clear what the far end has
+ * buffered. µ-law companding to the realtime session's `audio/pcmu` is exact
+ * per-sample; no resampling happens anywhere.
  *
  * Consults run through the plugin inbound-message dispatcher, so approvals,
  * audit, and session history behave exactly like the plugin's turn-based
@@ -39,15 +38,10 @@ import type {
 
 const FRAME_BYTES = 320; // 20 ms of 16-bit mono at 8 kHz
 const FRAME_INTERVAL_MS = 20;
-// Ticks run faster than the frame rate so a frame goes out within ~10 ms of
-// its slot; Node timers only ever fire late, never early.
-const PACER_TICK_MS = 10;
-// Playback starts this many frames ahead of real time, so ordinary timer
-// jitter is absorbed by the far end's buffer instead of heard as dropouts.
-const LEAD_FRAMES = 3;
-// After a stall longer than this the schedule restarts with a fresh lead
-// rather than bursting the whole backlog at the far end.
-const MAX_CATCHUP_MS = 500;
+// Audio in flight at the far end is capped well under Vonage's ~60 s websocket
+// buffer; anything beyond is released as playback advances.
+const SEND_AHEAD_MS = 20_000;
+const DRAIN_TICK_MS = 20;
 // 60ms (PR #1395 call, 2026-08-19): a response tail shorter than one frame is
 // zero-padded out after a short lull rather than waiting for the next response.
 const PARTIAL_FLUSH_AFTER_MS = 60;
@@ -87,7 +81,7 @@ export function createPluginRealtimeVoiceSession(
   let headOffset = 0;
   let queuedBytes = 0;
   let lastAppendAt = 0;
-  let nextFrameAt: number | null = null;
+  let playheadAt = 0;
   let closed = false;
 
   const sendFrame = (frame: Buffer): void => {
@@ -139,29 +133,25 @@ export function createPluginRealtimeVoiceSession(
     queued = [];
     headOffset = 0;
     queuedBytes = 0;
-    nextFrameAt = null;
+    playheadAt = 0;
   };
 
-  const pacer = setInterval(() => {
-    if (queuedBytes === 0) return;
+  const drain = (): void => {
     const now = Date.now();
-    if (nextFrameAt === null || now - nextFrameAt > MAX_CATCHUP_MS) {
-      nextFrameAt = now - (LEAD_FRAMES - 1) * FRAME_INTERVAL_MS;
-    }
-    while (now >= nextFrameAt) {
+    if (playheadAt < now) playheadAt = now;
+    while (queuedBytes > 0 && playheadAt - now < SEND_AHEAD_MS) {
       const frame = takeFrame();
       if (frame) {
         sendFrame(frame);
-        nextFrameAt += FRAME_INTERVAL_MS;
-        continue;
-      }
-      if (queuedBytes > 0 && now - lastAppendAt >= PARTIAL_FLUSH_AFTER_MS) {
+      } else {
+        if (now - lastAppendAt < PARTIAL_FLUSH_AFTER_MS) return;
         sendFrame(takeBytes(queuedBytes));
-        nextFrameAt += FRAME_INTERVAL_MS;
       }
-      return;
+      playheadAt += FRAME_INTERVAL_MS;
     }
-  }, PACER_TICK_MS);
+  };
+
+  const pacer = setInterval(drain, DRAIN_TICK_MS);
 
   const teardown = (): void => {
     if (closed) return;
@@ -181,6 +171,7 @@ export function createPluginRealtimeVoiceSession(
     surface: 'phone',
     audioFormat: { type: 'audio/pcmu' },
     sendAudio: async (base64Audio) => {
+      if (closed) return;
       const pcm = muLawToPcm16(Buffer.from(base64Audio, 'base64'));
       if (pcm.length === 0) return;
       if (queuedBytes + pcm.length > MAX_QUEUED_BYTES) {
@@ -193,9 +184,11 @@ export function createPluginRealtimeVoiceSession(
       queued.push(pcm);
       queuedBytes += pcm.length;
       lastAppendAt = Date.now();
+      drain();
     },
     clearPlayback: async () => {
       clearQueue();
+      options.clearAudio?.();
     },
     consultAgent: async (request, hooks) => {
       const result = await deps.dispatch({

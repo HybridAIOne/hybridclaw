@@ -4,11 +4,13 @@
 
 ### Fixed
 
-- **Vonage realtime calls play smoothly**: Model audio is now paced against
-  the wall clock with a small lead instead of one frame per timer tick, so
-  event-loop jitter no longer starves the phone leg into choppy, robotic
-  playback. Long replies also stop re-copying the whole playback queue every
-  20 ms.
+- **Vonage realtime calls play smoothly and answer sooner**: Model audio is
+  forwarded to the phone leg the moment it arrives instead of one frame per
+  timer tick, so event-loop jitter no longer starves playback into choppy,
+  robotic audio and nothing on the gateway side delays the reply. Barge-in
+  now clears what Vonage has already buffered through its websocket clear
+  command. A debug log line per turn reports the time from end of speech to
+  the first reply audio for both phone and web voice.
 - **Vonage realtime calls no longer open with a farewell**: The answer NCCO
   carried a trailing "Goodbye." talk that Vonage played into the call as soon
   as the websocket connected, which the realtime model heard as the caller's

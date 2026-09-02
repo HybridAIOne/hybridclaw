@@ -68,6 +68,7 @@ const SESSION_IDENTITY = {
 async function createSession(params?: {
   apiKey?: string;
   sentFrames?: Buffer[];
+  clearAudio?: () => void;
 }) {
   vi.doMock('../src/config/config.js', () => ({
     OPENAI_API_KEY: params?.apiKey ?? 'test-key',
@@ -99,6 +100,7 @@ async function createSession(params?: {
       sendAudio: (frame) => {
         sentFrames.push(frame);
       },
+      clearAudio: params?.clearAudio,
     },
     {
       pluginId: 'vonage-voice',
@@ -176,22 +178,17 @@ function audioDelta(frames: number): Record<string, unknown> {
   };
 }
 
-test('playback starts a few frames ahead, then follows the wall clock', async () => {
+test('model audio is forwarded as 20 ms frames the moment it arrives', async () => {
   vi.useFakeTimers();
   const { session, realtime, sentFrames } = await createSession();
   realtime.open();
 
   realtime.serverEvent(audioDelta(5));
-  await vi.advanceTimersByTimeAsync(10);
-  expect(sentFrames).toHaveLength(3);
+  expect(sentFrames).toHaveLength(5);
   for (const frame of sentFrames) {
     expect(frame.length).toBe(320);
     expect(frame.equals(muLawToPcm16(Buffer.alloc(160, 0xff)))).toBe(true);
   }
-  await vi.advanceTimersByTimeAsync(20);
-  expect(sentFrames).toHaveLength(4);
-  await vi.advanceTimersByTimeAsync(20);
-  expect(sentFrames).toHaveLength(5);
   await vi.advanceTimersByTimeAsync(200);
   expect(sentFrames).toHaveLength(5);
   session.close();
@@ -219,54 +216,39 @@ test('frames are assembled across small deltas without losing samples', async ()
   session.close();
 });
 
-test('a late tick catches up on every frame that fell due', async () => {
+test('only a bounded window is in flight; the rest follows playback', async () => {
   vi.useFakeTimers();
   const { session, realtime, sentFrames } = await createSession();
   realtime.open();
 
-  realtime.serverEvent(audioDelta(30));
-  await vi.advanceTimersByTimeAsync(10);
-  expect(sentFrames).toHaveLength(3);
-
-  // The event loop stalls for 200 ms: the far end drained its lead, so the
-  // next tick refills it with all ten frames that came due meanwhile.
-  vi.setSystemTime(Date.now() + 200);
-  await vi.advanceTimersByTimeAsync(10);
-  expect(sentFrames).toHaveLength(13);
-  await vi.advanceTimersByTimeAsync(20);
-  expect(sentFrames).toHaveLength(14);
+  // 30 s of audio: 20 s goes out immediately, the remainder as time passes.
+  realtime.serverEvent(audioDelta(1_500));
+  expect(sentFrames).toHaveLength(1_000);
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(sentFrames).toHaveLength(1_050);
+  await vi.advanceTimersByTimeAsync(9_000);
+  expect(sentFrames).toHaveLength(1_500);
   session.close();
 });
 
-test('a long idle gap restarts with a fresh lead instead of a burst', async () => {
+test('barge-in drops queued audio and clears the far end', async () => {
   vi.useFakeTimers();
-  const { session, realtime, sentFrames } = await createSession();
+  const clearAudio = vi.fn();
+  const { session, realtime, sentFrames } = await createSession({
+    clearAudio,
+  });
   realtime.open();
 
-  realtime.serverEvent(audioDelta(3));
-  await vi.advanceTimersByTimeAsync(10);
-  expect(sentFrames).toHaveLength(3);
-
-  await vi.advanceTimersByTimeAsync(2_000);
-  realtime.serverEvent(audioDelta(30));
-  await vi.advanceTimersByTimeAsync(10);
-  expect(sentFrames).toHaveLength(6);
-  session.close();
-});
-
-test('barge-in drops queued audio and nothing further is sent', async () => {
-  vi.useFakeTimers();
-  const { session, realtime, sentFrames } = await createSession();
-  realtime.open();
-
-  realtime.serverEvent(audioDelta(3));
-  await vi.advanceTimersByTimeAsync(10);
-  expect(sentFrames).toHaveLength(3);
-
-  realtime.serverEvent(audioDelta(20));
+  realtime.serverEvent(audioDelta(1_500));
+  expect(sentFrames).toHaveLength(1_000);
   realtime.serverEvent({ type: 'input_audio_buffer.speech_started' });
-  await vi.advanceTimersByTimeAsync(200);
-  expect(sentFrames).toHaveLength(3);
+  expect(clearAudio).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(sentFrames).toHaveLength(1_000);
+
+  // The next response starts fresh rather than waiting out the old window.
+  realtime.serverEvent(audioDelta(2));
+  expect(sentFrames).toHaveLength(1_002);
   session.close();
 });
 
@@ -339,13 +321,13 @@ test('consults dispatch through the plugin seam and persist transcripts', async 
   session.close();
 });
 
-test('close stops the pacer and the upstream socket', async () => {
+test('close stops playback and the upstream socket', async () => {
   vi.useFakeTimers();
   const { session, realtime, sentFrames } = await createSession();
   realtime.open();
 
-  realtime.serverEvent(audioDelta(2));
   session.close();
+  realtime.serverEvent(audioDelta(2));
   await vi.advanceTimersByTimeAsync(200);
 
   expect(sentFrames).toHaveLength(0);
