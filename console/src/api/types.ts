@@ -771,6 +771,10 @@ export interface AdminConfig {
       interruptible: boolean;
       welcomeGreeting: string;
     };
+    prompt: {
+      greeting: string;
+      instructions: string;
+    };
     webhookPath: string;
     maxConcurrentCalls: number;
   };

@@ -174,6 +174,10 @@ Requirements and notes:
   `marin`, `cedar`, `alloy`).
 - `speech.realtime.instructions` is appended to the built-in call
   instructions; use it for tone, language, or caller-handling guidance.
+- `voice.prompt.greeting` and `voice.prompt.instructions` apply to phone
+  calls only, on top of the shared `speech.realtime.*` values, for any
+  transport including the Vonage plugin. Use them when calls should open in a
+  different language or persona than the web console voice.
 - `voice.relay.*` settings are ignored in realtime mode, and
   `channelInstructions.voice` still applies to the consulted agent turns.
 - Realtime API audio is billed by OpenAI per minute of input and output audio

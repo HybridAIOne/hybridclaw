@@ -27,8 +27,12 @@ Configure the plugin:
 Store `VONAGE_PRIVATE_KEY` and `VONAGE_SIGNATURE_SECRET` through HybridClaw's
 credential flow. Do not put either secret in plugin config.
 
-Optional settings are `mode` (`turn` or `realtime`), `language`,
-`welcomeGreeting`, `interruptible`, and `maxConcurrentCalls`.
+Optional settings are `mode` (`turn` or `realtime`) and
+`maxConcurrentCalls`. Everything that describes the phone conversation rather
+than the transport lives in the core `voice.*` config, shared with the Twilio
+channel and editable in the web console under Channels → Voice: the caller
+policy, and for turn mode the `voice.relay.language`,
+`voice.relay.welcomeGreeting`, and `voice.relay.interruptible` settings.
 
 ## Vonage Application
 
@@ -55,7 +59,9 @@ Realtime mode runs calls as natural speech-to-speech conversations with
 instant barge-in, using the gateway's realtime voice engine — the same
 `speech.realtime.*` settings (provider, model, voice, instructions) and
 credential (`OPENAI_API_KEY` or the HybridAI provider) that power the Twilio
-realtime mode and the web console voice mode. The Twilio channel itself can
+realtime mode and the web console voice mode. `voice.prompt.greeting` and
+`voice.prompt.instructions` apply on top for phone calls only, so a call
+can open in another language or persona than the web voice. The Twilio channel itself can
 stay disabled. Answered calls where no realtime credential is configured are
 declined with a spoken notice instead of connecting silently.
 

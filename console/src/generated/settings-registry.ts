@@ -2760,6 +2760,18 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 'relay',
     },
     {
+      path: 'voice.prompt.greeting',
+      section: 'voice',
+      kind: 'string',
+      defaultValue: '',
+    },
+    {
+      path: 'voice.prompt.instructions',
+      section: 'voice',
+      kind: 'string',
+      defaultValue: '',
+    },
+    {
       path: 'voice.provider',
       section: 'voice',
       kind: 'string',

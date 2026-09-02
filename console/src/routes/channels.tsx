@@ -2669,6 +2669,41 @@ function VoiceChannelEditor(props: {
         )}
       />
 
+      <h4>Phone prompt</h4>
+      <p className="muted-copy">
+        Realtime-mode overrides for phone calls only (<code>voice.prompt</code>
+        ), on any transport including the Vonage plugin. The web chat voice
+        keeps the shared settings above.
+      </p>
+
+      <FormField
+        name="voice.prompt.greeting"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Phone greeting</FieldLabel>
+            <Textarea rows={2} {...field} />
+            <FieldDescription>
+              Spoken first on every call. Leave empty to use the shared
+              greeting.
+            </FieldDescription>
+          </Field>
+        )}
+      />
+
+      <FormField
+        name="voice.prompt.instructions"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Phone instructions</FieldLabel>
+            <Textarea rows={3} {...field} />
+            <FieldDescription>
+              Appended after the shared extra instructions for phone calls, e.g.
+              the language to speak.
+            </FieldDescription>
+          </Field>
+        )}
+      />
+
       <ChannelInstructionsField kind="voice" />
 
       <p className="muted-copy">

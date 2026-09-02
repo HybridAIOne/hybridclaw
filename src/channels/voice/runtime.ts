@@ -19,7 +19,10 @@ import {
   buildMediaStreamMediaPayload,
   parseMediaStreamMessage,
 } from './media-stream.js';
-import { RealtimeCallBridge } from './realtime-bridge.js';
+import {
+  RealtimeCallBridge,
+  resolvePhoneRealtimeConfig,
+} from './realtime-bridge.js';
 import { resolveRealtimeConnection } from './realtime-credentials.js';
 import { ReplayProtector, validateTwilioSignature } from './security.js';
 import { type VoiceCallSession, VoiceCallSessionStore } from './session.js';
@@ -734,7 +737,9 @@ function handleMediaStreamConnection(ws: WebSocket, remoteIp: string): void {
             );
           }
           callSid = session.callSid;
-          const realtimeConfig = getConfigSnapshot().speech.realtime;
+          const realtimeConfig = resolvePhoneRealtimeConfig(
+            getConfigSnapshot(),
+          );
           const resolved = resolveRealtimeConnection(realtimeConfig.provider);
           if (!resolved.connection) {
             throw new Error(resolved.error);

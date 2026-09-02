@@ -23,10 +23,11 @@ export function resolveConfig(api) {
   }
   if (!privateKey) throw new Error('VONAGE_PRIVATE_KEY is required.');
   if (!signatureSecret) throw new Error('VONAGE_SIGNATURE_SECRET is required.');
-  // Caller gating is a property of the phone channel rather than of this
-  // transport, so it comes from the core voice config the same way
-  // speech.realtime.* does.
+  // Caller gating, the turn-mode greeting, language, and barge-in are
+  // properties of the phone channel rather than of this transport, so they
+  // come from the core voice config the same way speech.realtime.* does.
   const voice = api.config?.voice || {};
+  const relay = voice.relay || {};
   const callerPolicy =
     typeof voice.callerPolicy === 'string' ? voice.callerPolicy : 'open';
   const allowFrom = Array.isArray(voice.allowFrom)
@@ -45,11 +46,11 @@ export function resolveConfig(api) {
     callerPolicy,
     allowFrom,
     mode,
-    language: String(config.language || 'en-US').trim() || 'en-US',
+    language: String(relay.language || 'en-US').trim() || 'en-US',
     welcomeGreeting:
-      String(config.welcomeGreeting || '').trim() ||
+      String(relay.welcomeGreeting || '').trim() ||
       'Hello! How can I help you today?',
-    interruptible: config.interruptible !== false,
+    interruptible: relay.interruptible !== false,
     maxConcurrentCalls: Number(config.maxConcurrentCalls || 8),
   };
 }

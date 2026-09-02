@@ -659,12 +659,25 @@ export interface RuntimeVoiceRelayConfig {
   welcomeGreeting: string;
 }
 
+/**
+ * Phone-only prompt overrides for realtime mode. `speech.realtime.*` is
+ * shared with the web console voice; these apply on top for calls from any
+ * transport.
+ */
+export interface RuntimeVoicePromptConfig {
+  /** Spoken first; empty falls back to `speech.realtime.greeting`. */
+  greeting: string;
+  /** Appended after `speech.realtime.instructions` for phone calls only. */
+  instructions: string;
+}
+
 export interface RuntimeVoiceConfig {
   enabled: boolean;
   provider: RuntimeVoiceProvider;
   mode: RuntimeVoiceMode;
   twilio: RuntimeVoiceTwilioConfig;
   relay: RuntimeVoiceRelayConfig;
+  prompt: RuntimeVoicePromptConfig;
   /**
    * Which inbound callers reach the assistant. `allowlist` accepts only the
    * numbers in `allowFrom`; a caller who withholds their number is never
@@ -1798,6 +1811,10 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       language: 'en-US',
       interruptible: true,
       welcomeGreeting: 'Hello! How can I help you today?',
+    },
+    prompt: {
+      greeting: '',
+      instructions: '',
     },
     callerPolicy: 'open',
     allowFrom: [],
@@ -4082,6 +4099,7 @@ function normalizeVoiceConfig(
   const raw = isRecord(value) ? value : {};
   const rawTwilio = isRecord(raw.twilio) ? raw.twilio : {};
   const rawRelay = isRecord(raw.relay) ? raw.relay : {};
+  const rawPrompt = isRecord(raw.prompt) ? raw.prompt : {};
   return {
     enabled: normalizeBoolean(raw.enabled, fallback.enabled),
     provider: normalizeVoiceProvider(raw.provider, fallback.provider),
@@ -4131,6 +4149,16 @@ function normalizeVoiceConfig(
         rawRelay.welcomeGreeting,
         fallback.relay.welcomeGreeting,
         { allowEmpty: false },
+      ),
+    },
+    prompt: {
+      greeting: normalizeString(rawPrompt.greeting, fallback.prompt.greeting, {
+        allowEmpty: true,
+      }),
+      instructions: normalizeString(
+        rawPrompt.instructions,
+        fallback.prompt.instructions,
+        { allowEmpty: true },
       ),
     },
     webhookPath: normalizeApiPath(raw.webhookPath, fallback.webhookPath),

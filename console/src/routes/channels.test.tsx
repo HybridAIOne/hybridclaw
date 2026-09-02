@@ -227,6 +227,10 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
         interruptible: true,
         welcomeGreeting: 'Hello! How can I help you today?',
       },
+      prompt: {
+        greeting: '',
+        instructions: '',
+      },
       webhookPath: '/voice',
       maxConcurrentCalls: 8,
     },
