@@ -1133,6 +1133,7 @@ async function runContainerInner(
 
   const input: ContainerInput = {
     sessionId,
+    runId: params.runId,
     agentId,
     messages,
     chatbotId: modelRuntime.chatbotId,
