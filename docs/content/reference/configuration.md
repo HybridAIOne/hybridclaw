@@ -198,6 +198,8 @@ saved revision history directly.
   HybridAI chatbot instead of running the local agent loop. Proxy agents
   require `kind: "hybridai"`, an HTTPS `baseUrl`, `chatbotId`, and a
   SecretRef-backed `apiKey`; `conversationScope` can be `channel` or `user`.
+  Proxied turns are still recorded in the local session, so `/thumbs` and
+  channel reactions rate them and the feedback is forwarded to that chatbot.
 - `agents.list[].skills` and `agents.list[].tools` restrict which skills that
   agent may load and which tools it may call. Omit either key to leave the
   agent unrestricted, including for skills and tools installed later; an empty
