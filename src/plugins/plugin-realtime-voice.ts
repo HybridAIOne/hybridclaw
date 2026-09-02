@@ -3,11 +3,14 @@
  *
  * Wraps the core `RealtimeCallBridge` behind a linear-PCM transport contract:
  * plugins hand in 16-bit LE mono 8 kHz caller audio and receive model audio
- * back as paced 20 ms frames, so a transport without a clear/flush primitive
- * (Vonage websockets) still gets prompt barge-in — cutting playback only ever
- * drops ≤1 queued frame plus what the far end already buffered. µ-law
- * companding to the realtime session's `audio/pcmu` is exact per-sample; no
- * resampling happens anywhere.
+ * back as 20 ms frames paced against the wall clock. The far end plays in
+ * real time, so frames are scheduled on a fixed timeline (not "one per timer
+ * tick"): a late tick sends every frame that fell due, and playback starts a
+ * few frames ahead so timer jitter never starves the far end. This keeps a
+ * transport without a clear/flush primitive (Vonage websockets) both smooth
+ * and quick to barge in — cutting playback only ever leaves the small lead
+ * the far end already buffered. µ-law companding to the realtime session's
+ * `audio/pcmu` is exact per-sample; no resampling happens anywhere.
  *
  * Consults run through the plugin inbound-message dispatcher, so approvals,
  * audit, and session history behave exactly like the plugin's turn-based
@@ -36,8 +39,17 @@ import type {
 
 const FRAME_BYTES = 320; // 20 ms of 16-bit mono at 8 kHz
 const FRAME_INTERVAL_MS = 20;
+// Ticks run faster than the frame rate so a frame goes out within ~10 ms of
+// its slot; Node timers only ever fire late, never early.
+const PACER_TICK_MS = 10;
+// Playback starts this many frames ahead of real time, so ordinary timer
+// jitter is absorbed by the far end's buffer instead of heard as dropouts.
+const LEAD_FRAMES = 3;
+// After a stall longer than this the schedule restarts with a fresh lead
+// rather than bursting the whole backlog at the far end.
+const MAX_CATCHUP_MS = 500;
 // 60ms (PR #1395 call, 2026-08-19): a response tail shorter than one frame is
-// zero-padded out after three ticks rather than waiting for the next response.
+// zero-padded out after a short lull rather than waiting for the next response.
 const PARTIAL_FLUSH_AFTER_MS = 60;
 // ~5 min of queued model audio (~4.8 MB as PCM16); realtime responses burst
 // faster than playback, so long relayed replies queue — but never this much.
@@ -72,8 +84,10 @@ export function createPluginRealtimeVoiceSession(
   const identity = options.session;
 
   let queued: Buffer[] = [];
+  let headOffset = 0;
   let queuedBytes = 0;
   let lastAppendAt = 0;
+  let nextFrameAt: number | null = null;
   let closed = false;
 
   const sendFrame = (frame: Buffer): void => {
@@ -87,32 +101,73 @@ export function createPluginRealtimeVoiceSession(
     }
   };
 
+  const takeBytes = (count: number): Buffer => {
+    const out = Buffer.alloc(FRAME_BYTES);
+    let filled = 0;
+    while (filled < count) {
+      const chunk = queued[0];
+      const take = Math.min(count - filled, chunk.length - headOffset);
+      chunk.copy(out, filled, headOffset, headOffset + take);
+      filled += take;
+      headOffset += take;
+      if (headOffset === chunk.length) {
+        queued.shift();
+        headOffset = 0;
+      }
+    }
+    queuedBytes -= count;
+    return out;
+  };
+
+  const takeFrame = (): Buffer | null => {
+    if (queuedBytes < FRAME_BYTES) return null;
+    const head = queued[0];
+    if (head.length - headOffset >= FRAME_BYTES) {
+      const frame = head.subarray(headOffset, headOffset + FRAME_BYTES);
+      headOffset += FRAME_BYTES;
+      if (headOffset === head.length) {
+        queued.shift();
+        headOffset = 0;
+      }
+      queuedBytes -= FRAME_BYTES;
+      return frame;
+    }
+    return takeBytes(FRAME_BYTES);
+  };
+
+  const clearQueue = (): void => {
+    queued = [];
+    headOffset = 0;
+    queuedBytes = 0;
+    nextFrameAt = null;
+  };
+
   const pacer = setInterval(() => {
     if (queuedBytes === 0) return;
-    if (queuedBytes < FRAME_BYTES) {
-      if (Date.now() - lastAppendAt < PARTIAL_FLUSH_AFTER_MS) return;
-      const padded = Buffer.concat([
-        ...queued,
-        Buffer.alloc(FRAME_BYTES - queuedBytes),
-      ]);
-      queued = [];
-      queuedBytes = 0;
-      sendFrame(padded);
+    const now = Date.now();
+    if (nextFrameAt === null || now - nextFrameAt > MAX_CATCHUP_MS) {
+      nextFrameAt = now - (LEAD_FRAMES - 1) * FRAME_INTERVAL_MS;
+    }
+    while (now >= nextFrameAt) {
+      const frame = takeFrame();
+      if (frame) {
+        sendFrame(frame);
+        nextFrameAt += FRAME_INTERVAL_MS;
+        continue;
+      }
+      if (queuedBytes > 0 && now - lastAppendAt >= PARTIAL_FLUSH_AFTER_MS) {
+        sendFrame(takeBytes(queuedBytes));
+        nextFrameAt += FRAME_INTERVAL_MS;
+      }
       return;
     }
-    let frame = Buffer.concat(queued);
-    queued = frame.length > FRAME_BYTES ? [frame.subarray(FRAME_BYTES)] : [];
-    queuedBytes = frame.length - FRAME_BYTES;
-    frame = frame.subarray(0, FRAME_BYTES);
-    sendFrame(frame);
-  }, FRAME_INTERVAL_MS);
+  }, PACER_TICK_MS);
 
   const teardown = (): void => {
     if (closed) return;
     closed = true;
     clearInterval(pacer);
-    queued = [];
-    queuedBytes = 0;
+    clearQueue();
   };
 
   const bridge = new RealtimeCallBridge({
@@ -127,6 +182,7 @@ export function createPluginRealtimeVoiceSession(
     audioFormat: { type: 'audio/pcmu' },
     sendAudio: async (base64Audio) => {
       const pcm = muLawToPcm16(Buffer.from(base64Audio, 'base64'));
+      if (pcm.length === 0) return;
       if (queuedBytes + pcm.length > MAX_QUEUED_BYTES) {
         logger.warn(
           { pluginId: deps.pluginId },
@@ -139,8 +195,7 @@ export function createPluginRealtimeVoiceSession(
       lastAppendAt = Date.now();
     },
     clearPlayback: async () => {
-      queued = [];
-      queuedBytes = 0;
+      clearQueue();
     },
     consultAgent: async (request, hooks) => {
       const result = await deps.dispatch({
