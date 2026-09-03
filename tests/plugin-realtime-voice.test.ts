@@ -13,6 +13,11 @@ const REALTIME_CONFIG = {
   instructions: '',
 };
 
+const PHONE_PROMPT_CONFIG = {
+  greeting: 'Hi from the phone config!',
+  instructions: '',
+};
+
 class FakeRealtimeSocket implements RealtimeSocket {
   readyState = 1;
   url = '';
@@ -72,7 +77,10 @@ async function createSession(params?: {
   vi.doMock('../src/config/config.js', () => ({
     OPENAI_API_KEY: params?.apiKey ?? 'test-key',
     HYBRIDAI_BASE_URL: 'https://hybridai.example',
-    getConfigSnapshot: () => ({ speech: { realtime: REALTIME_CONFIG } }),
+    getConfigSnapshot: () => ({
+      speech: { realtime: REALTIME_CONFIG },
+      voice: { prompt: PHONE_PROMPT_CONFIG },
+    }),
   }));
   vi.doMock('../src/gateway/voice-transcript-store.js', () => ({
     persistVoiceTranscript,
@@ -94,7 +102,6 @@ async function createSession(params?: {
   const session = createPluginRealtimeVoiceSession(
     {
       caller: { from: '+15550001111', to: '+15550002222' },
-      greeting: 'Hi from the plugin!',
       session: SESSION_IDENTITY,
       sendAudio: (frame) => {
         sentFrames.push(frame);
@@ -127,7 +134,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-test('opens a µ-law phone session with the plugin greeting', async () => {
+test('opens a µ-law phone session with the phone greeting', async () => {
   const { session, realtime } = await createSession();
   realtime.open();
 
@@ -143,7 +150,7 @@ test('opens a µ-law phone session with the plugin greeting', async () => {
   realtime.serverEvent({ type: 'session.updated' });
   const [greeting] = realtime.sentOfType('response.create');
   expect(greeting.response).toEqual({
-    instructions: 'Greet the caller by saying: "Hi from the plugin!"',
+    instructions: 'Greet the caller by saying: "Hi from the phone config!"',
   });
   session.close();
 });

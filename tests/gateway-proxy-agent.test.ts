@@ -136,8 +136,12 @@ test('handleGatewayMessage forwards proxy agents to HybridAI without running loc
   );
   vi.stubGlobal('fetch', fetchMock);
 
-  const { initDatabase, getConversationHistory, getSessionById } =
-    await import('../src/memory/db.ts');
+  const {
+    initDatabase,
+    getConversationHistory,
+    getLatestAssistantMessageId,
+    getSessionById,
+  } = await import('../src/memory/db.ts');
   const { updateRuntimeConfig } = await import(
     '../src/config/runtime-config.ts'
   );
@@ -207,10 +211,18 @@ test('handleGatewayMessage forwards proxy agents to HybridAI without running loc
     stream: true,
   });
   expect(getSessionById(result.sessionId || 'session-proxy')?.message_count).toBe(
-    0,
+    2,
   );
-  expect(getConversationHistory(result.sessionId || 'session-proxy', 10)).toEqual(
-    [],
+  expect(
+    getConversationHistory(result.sessionId || 'session-proxy', 10).map(
+      (message) => [message.role, message.agent_id, message.content],
+    ),
+  ).toEqual([
+    ['assistant', 'support', 'Hello from HybridAI'],
+    ['user', null, 'Help me'],
+  ]);
+  expect(result.assistantMessageId).toBe(
+    getLatestAssistantMessageId(result.sessionId || 'session-proxy'),
   );
 });
 

@@ -16,8 +16,25 @@
   conversation-reference lookups use that key instead of the instance id.
   The container also advertises the current Teams conversation again by
   recognizing the conversation-id shape.
+- **Empty per-agent allowlists apply without a gateway restart**: Setting an
+  agent's `skills` or `tools` allowlist to `[]` from `hybridclaw agent config`,
+  the console, or `config.json` is picked up by the running gateway. The
+  registry previously fingerprinted an empty allowlist the same as an absent
+  one, so the change was never detected until restart.
 ### Added
 
+- **Inbound callers can be gated with an allowlist**: `voice.callerPolicy`
+  (`open`, `allowlist`, or `disabled`) and `voice.allowFrom` apply to both the
+  Twilio channel and the Vonage plugin before a call consumes a concurrency
+  slot. Refused callers hear a short spoken notice and their number is logged.
+  Editable from the console under Channels → Voice.
+- **Phone-only realtime greeting and instructions**: `voice.prompt.greeting`
+  and `voice.prompt.instructions` apply on top of the shared
+  `speech.realtime.*` settings for phone calls on any transport, so calls can
+  open in a different language or persona than the web console voice. The
+  Vonage plugin now reads its turn-mode greeting, language, and barge-in
+  setting from the core `voice.relay.*` config instead of its own keys, so
+  every phone conversation setting is in one place and visible in the console.
 - **HybridAI model calls carry correlation headers**: Every request the agent
   runtime sends to the `hybridai` provider includes `X-HybridClaw-Session-Id`,
   `X-HybridClaw-Run-Id`, `X-HybridClaw-Agent-Id`, and `X-HybridClaw-Channel-Id`.

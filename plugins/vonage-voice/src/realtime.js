@@ -63,7 +63,6 @@ export function createVonageRealtimeStreams(api, config) {
       try {
         session = api.createRealtimeVoiceSession({
           caller: { from: call.from, to: call.to },
-          greeting: config.welcomeGreeting,
           session: {
             sessionId: buildVoiceSessionKey(agentId, call.uuid),
             channelId: `voice:${call.uuid}`,

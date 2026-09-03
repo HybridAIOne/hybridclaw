@@ -190,6 +190,45 @@ test('listAgents refreshes externally updated database-backed registry', async (
   expect(listAgents().map((agent) => agent.id)).toEqual(['main', 'external']);
 });
 
+test('registry picks up an externally cleared skill allowlist without a restart', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const {
+    initDatabase,
+    listAgents: listDatabaseAgents,
+    upsertAgentWithTeamRevision,
+  } = await import('../src/memory/db.ts');
+  const { initAgentRegistry, resolveAgentConfig } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+
+  initDatabase({ quiet: true });
+  initAgentRegistry({
+    list: [
+      { id: 'main', name: 'Main Agent' },
+      { id: 'foo', name: 'Foo' },
+    ],
+  });
+
+  expect(resolveAgentConfig('foo').skills).toBeUndefined();
+
+  const restricted = { id: 'foo', name: 'Foo', skills: [] as string[] };
+  upsertAgentWithTeamRevision({
+    agent: restricted,
+    finalAgents: listDatabaseAgents().map((agent) =>
+      agent.id === 'foo' ? restricted : agent,
+    ),
+    meta: {
+      route: 'test.agent.foo',
+      source: 'agent-registry-test',
+    },
+  });
+
+  expect(resolveAgentConfig('foo').skills).toEqual([]);
+});
+
 test('config sync preserves database-only agent settings across registry reloads', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

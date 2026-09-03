@@ -756,6 +756,8 @@ export interface AdminConfig {
     enabled: boolean;
     provider: 'twilio';
     mode: 'relay' | 'realtime';
+    callerPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
     twilio: {
       accountSid: string;
       authToken: string;
@@ -768,6 +770,10 @@ export interface AdminConfig {
       language: string;
       interruptible: boolean;
       welcomeGreeting: string;
+    };
+    prompt: {
+      greeting: string;
+      instructions: string;
     };
     webhookPath: string;
     maxConcurrentCalls: number;

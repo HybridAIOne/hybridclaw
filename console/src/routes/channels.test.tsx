@@ -212,6 +212,8 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       enabled: false,
       provider: 'twilio',
       mode: 'relay',
+      callerPolicy: 'open',
+      allowFrom: [],
       twilio: {
         accountSid: '',
         authToken: '',
@@ -224,6 +226,10 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
         language: 'en-US',
         interruptible: true,
         welcomeGreeting: 'Hello! How can I help you today?',
+      },
+      prompt: {
+        greeting: '',
+        instructions: '',
       },
       webhookPath: '/voice',
       maxConcurrentCalls: 8,
