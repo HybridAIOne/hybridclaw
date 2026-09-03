@@ -219,11 +219,13 @@ node skills/langfuse/langfuse.cjs --format json run list-traces --host https://u
   of scope. Use the Langfuse UI for those.
 - Page size is capped at 100; use `--page` (legacy) or `--cursor` (modern
   endpoints) to paginate. The helper rejects `--limit` above 100.
-- For broad trace queries that time out on Langfuse Cloud, prefer
-  `list-observations` (with `--trace-id` when traversing from a known trace).
-- In OpenTelemetry-instrumented apps, trace-level `input`/`output` can be null —
-  the content lives in a `GENERATION` observation, so read observations to see
-  prompts/outputs.
+- Trace reads use Langfuse's v2 Observations API. `list-traces` returns logical
+  root observation rows (one application root per trace); `get-trace` returns
+  every observation row sharing the requested trace ID. Follow `meta.cursor`
+  with `--cursor` when more rows are available.
+- Langfuse v4 has no separate trace-level `input`/`output`. Reconstruct them
+  from the root observation; prompts and outputs may instead live on a child
+  `GENERATION` observation.
 - Before creating a score config, list existing ones (`list-score-configs`);
   configs cannot be deleted.
 - Never print, inspect, or ask for `LANGFUSE_BASIC_AUTH`; the gateway injects it

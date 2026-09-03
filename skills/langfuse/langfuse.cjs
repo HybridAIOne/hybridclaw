@@ -10,6 +10,7 @@ const BASIC_AUTH_SECRET = 'LANGFUSE_BASIC_AUTH';
 const HOST_ENV = 'LANGFUSE_HOST';
 const HOST_PLACEHOLDER = `<env:${HOST_ENV}>`;
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
+const TRACE_OBSERVATION_FIELDS = 'core,basic,io,trace_context';
 
 const COST_MEASUREMENT = {
   system: 'UsageTotals',
@@ -226,14 +227,22 @@ function buildHttpRequest(operation, { base, secretName, url, method = 'GET', js
   return payload;
 }
 
-function parsePagination(args, query) {
+function parsePagination(args, query, { cursorOnly = false } = {}) {
   const page = popFlag(args, '--page');
-  if (page !== undefined) query.page = parsePositiveInteger(page, '--page');
+  if (page !== undefined) {
+    if (cursorOnly) {
+      die('--page is not supported by Langfuse v2; pass meta.cursor with --cursor.');
+    }
+    query.page = parsePositiveInteger(page, '--page');
+  }
   const limit = popFlag(args, '--limit');
   if (limit !== undefined) {
     const value = parsePositiveInteger(limit, '--limit');
     if (value > 100) {
-      die('--limit cannot exceed 100 (Langfuse page-size cap); use --page to paginate.');
+      const paginationFlag = cursorOnly ? '--cursor' : '--page';
+      die(
+        `--limit cannot exceed 100 (Langfuse page-size cap); use ${paginationFlag} to paginate.`,
+      );
     }
     query.limit = value;
   }
@@ -301,26 +310,73 @@ function commandHttpRequest(args) {
       payload = build({ url: '/api/public/projects' });
       break;
     case 'list-traces': {
-      const query = {};
-      parsePagination(args, query);
-      query.userId = popFlag(args, '--user-id');
-      query.name = popFlag(args, '--name');
-      query.sessionId = popFlag(args, '--session-id');
-      query.fromTimestamp = popFlag(args, '--from-timestamp');
-      query.toTimestamp = popFlag(args, '--to-timestamp');
-      query.environment = popRepeatedFlag(args, '--environment');
-      query.tags = popRepeatedFlag(args, '--tag');
-      query.version = popFlag(args, '--version');
-      query.release = popFlag(args, '--release');
-      query.orderBy = popFlag(args, '--order-by');
-      payload = build({ url: appendQuery('/api/public/traces', query) });
+      const query = { fields: TRACE_OBSERVATION_FIELDS };
+      parsePagination(args, query, { cursorOnly: true });
+      query.fromStartTime = popFlag(args, '--from-timestamp');
+      query.toStartTime = popFlag(args, '--to-timestamp');
+
+      const filters = [
+        {
+          type: 'boolean',
+          column: 'isRootObservation',
+          operator: '=',
+          value: true,
+        },
+      ];
+      const userId = popFlag(args, '--user-id');
+      if (userId !== undefined) {
+        filters.push({ type: 'string', column: 'userId', operator: '=', value: userId });
+      }
+      const name = popFlag(args, '--name');
+      if (name !== undefined) {
+        filters.push({
+          type: 'stringOptions',
+          column: 'traceName',
+          operator: 'any of',
+          value: [name],
+        });
+      }
+      const sessionId = popFlag(args, '--session-id');
+      if (sessionId !== undefined) {
+        filters.push({
+          type: 'string',
+          column: 'sessionId',
+          operator: '=',
+          value: sessionId,
+        });
+      }
+      const environments = popRepeatedFlag(args, '--environment');
+      if (environments.length > 0) {
+        filters.push({
+          type: 'stringOptions',
+          column: 'environment',
+          operator: 'any of',
+          value: environments,
+        });
+      }
+      const tags = popRepeatedFlag(args, '--tag');
+      if (tags.length > 0) {
+        filters.push({
+          type: 'arrayOptions',
+          column: 'tags',
+          operator: 'all of',
+          value: tags,
+        });
+      }
+      query.filter = JSON.stringify(filters);
+      payload = build({ url: appendQuery('/api/public/v2/observations', query) });
       break;
     }
-    case 'get-trace':
+    case 'get-trace': {
+      const query = {
+        fields: TRACE_OBSERVATION_FIELDS,
+        traceId: requireText(popFlag(args, '--trace-id'), '--trace-id'),
+      };
       payload = build({
-        url: `/api/public/traces/${encodeSegment(popFlag(args, '--trace-id'), '--trace-id')}`,
+        url: appendQuery('/api/public/v2/observations', query),
       });
       break;
+    }
     case 'list-observations': {
       const query = {};
       parsePagination(args, query);
@@ -791,7 +847,7 @@ Pagination (list operations):
 Read operations (green):
   health
   get-project
-  list-traces [--user-id u] [--name n] [--session-id s] [--from-timestamp iso] [--to-timestamp iso] [--tag t]... [--environment e]... [--page p] [--limit l]
+  list-traces [--user-id u] [--name n] [--session-id s] [--from-timestamp iso] [--to-timestamp iso] [--tag t]... [--environment e]... [--cursor c] [--limit l]
   get-trace --trace-id id
   list-observations [--name n] [--type GENERATION|SPAN|EVENT] [--trace-id id] [--user-id u] [--from-start-time iso] [--page p] [--limit l]
   get-observation --observation-id id
