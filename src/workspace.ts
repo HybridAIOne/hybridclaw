@@ -931,6 +931,80 @@ export function loadDailyMemoryFile(
   return null;
 }
 
+/** How many previous days of daily memory notes are shown in the prompt. */
+export const DAILY_MEMORY_LOOKBACK_DAYS = 7;
+/** Shared character budget for previous days' notes (today's note is separate). */
+export const DAILY_MEMORY_HISTORY_MAX_CHARS = 12_000;
+
+/**
+ * Load today's daily memory note plus the notes of the previous
+ * DAILY_MEMORY_LOOKBACK_DAYS days, newest first. Notes written yesterday are
+ * only promoted into MEMORY.md by the nightly consolidation, so without this
+ * lookback anything the user asked the agent to remember would vanish from the
+ * prompt at midnight. Older notes share DAILY_MEMORY_HISTORY_MAX_CHARS.
+ */
+export function loadRecentDailyMemoryFiles(
+  agentId: string,
+  options: {
+    now?: Date;
+    contextFiles?: ContextFile[];
+    lookbackDays?: number;
+    historyMaxChars?: number;
+  } = {},
+): ContextFile[] {
+  const wsDir = agentWorkspaceDir(agentId);
+  const files = options.contextFiles ?? loadStaticBootstrapFiles(agentId);
+  const userTimezone = resolveUserTimezoneFromContextFiles(files);
+  const now = options.now ?? new Date();
+  const lookbackDays = Math.max(
+    0,
+    Math.floor(options.lookbackDays ?? DAILY_MEMORY_LOOKBACK_DAYS),
+  );
+  const result: ContextFile[] = [];
+
+  const today = loadDailyMemoryFile(agentId, { now, contextFiles: files });
+  if (today) result.push(today);
+
+  let remaining = Math.max(
+    0,
+    Math.floor(options.historyMaxChars ?? DAILY_MEMORY_HISTORY_MAX_CHARS),
+  );
+  const seen = new Set(result.map((file) => file.name));
+  for (
+    let daysAgo = 1;
+    daysAgo <= lookbackDays && remaining > 0;
+    daysAgo += 1
+  ) {
+    const stamp = currentDateStampInTimezone(
+      userTimezone,
+      new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000),
+    );
+    const name = `memory/${stamp}.md`;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const filePath = path.join(wsDir, name);
+    if (!fs.existsSync(filePath)) continue;
+    try {
+      // Older notes are loaded whole or not at all; a truncated note would
+      // silently drop its newest (appended) entries. Stop at the first note
+      // that no longer fits so the prompt stays newest-first and complete.
+      if (fs.statSync(filePath).size > remaining) break;
+      const raw = readBoundedWorkspaceTextFile(filePath, remaining);
+      const content = raw?.trim() || '';
+      if (!content) continue;
+      result.push({ name, content });
+      remaining -= content.length;
+    } catch (err) {
+      logger.warn(
+        { agentId, file: name, err },
+        'Failed to read daily memory file',
+      );
+    }
+  }
+
+  return result;
+}
+
 export function loadBootstrapFiles(agentId: string): ContextFile[] {
   const files = loadStaticBootstrapFiles(agentId);
   const dailyMemoryFile = loadDailyMemoryFile(agentId, { contextFiles: files });
