@@ -729,7 +729,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/secret [list|set|status|unset|route]` | local TUI/web | Manage encrypted secrets and HTTP auth routes |
 | `/second-opinion [compare|validate|fact-check]` | local and chat channels | Ask a stronger configured model to compare, validate, or fact-check |
 | `/sessions [list|switch <number|session-id>|active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]` | local and chat channels | List or switch sessions for the current chat, inspect active session tracking, or prune old persisted sessions |
-| `/show [all|thinking|tools|none]` | local and chat channels | Control thinking/tool activity visibility |
+| `/show [all|thinking|tools|none]` | local and chat channels | Control thinking/ordinary-tool visibility; memory access stays visible |
 | `/skill ...` or `/<skill>` | local TUI/web | Manage skills or explicitly invoke one skill |
 | `/status` | local and chat channels | Show runtime, session, and agent status |
 | `/thumbs up|down [comment]` or `/thumbs clear` | local and chat channels | Rate the last answer, optionally adding a correction or the expected answer |

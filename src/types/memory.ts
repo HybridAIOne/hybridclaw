@@ -9,6 +9,16 @@ export interface MemoryCitation {
   confidence: number;
 }
 
+/** Prompt-time built-in memory access exposed to clients for transparency. */
+export interface MemoryAccess {
+  /** Whether the semantic store was searched for this turn. */
+  semanticRecallAttempted: boolean;
+  /** Whether the decayed session summary was attached to the prompt. */
+  summaryIncluded: boolean;
+  /** Every semantic memory attached to the prompt, not only those cited. */
+  recalledMemories: MemoryCitation[];
+}
+
 export interface SemanticMemoryEntry {
   id: number;
   session_id: string;

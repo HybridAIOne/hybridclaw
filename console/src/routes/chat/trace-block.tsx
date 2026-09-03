@@ -4,6 +4,8 @@ import { renderMarkdown } from '../../lib/markdown';
 import css from './chat-page.module.css';
 import type { TraceChatMessage, TraceStep } from './chat-ui-message';
 
+const MEMORY_RECALL_ACTIVITY_TOOL_NAME = 'memory_recall';
+
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
   const seconds = ms / 1000;
@@ -26,14 +28,30 @@ function summaryLabel(
         .reverse()
         .find((step) => step.kind !== 'draft') ?? steps[steps.length - 1];
     if (last?.kind === 'tool' && last.status === 'running') {
-      return `${last.toolName}…`;
+      return last.toolName === MEMORY_RECALL_ACTIVITY_TOOL_NAME
+        ? 'Accessing memory…'
+        : `${last.toolName}…`;
     }
     if (last?.kind === 'thinking') return 'Thinking…';
     return 'Working…';
   }
-  const toolCount = steps.filter((step) => step.kind === 'tool').length;
+  const memoryStep = steps.find(
+    (step) =>
+      step.kind === 'tool' &&
+      step.toolName === MEMORY_RECALL_ACTIVITY_TOOL_NAME,
+  );
+  const memorySummary =
+    memoryStep?.kind === 'tool'
+      ? (memoryStep.resultPreview?.split(':', 1)[0] ?? 'Memory accessed')
+      : null;
+  const toolCount = steps.filter(
+    (step) =>
+      step.kind === 'tool' &&
+      step.toolName !== MEMORY_RECALL_ACTIVITY_TOOL_NAME,
+  ).length;
   const thought = steps.some((step) => step.kind === 'thinking');
   const parts: string[] = [];
+  if (memorySummary) parts.push(memorySummary);
   if (toolCount > 0) {
     parts.push(`${toolCount} tool call${toolCount === 1 ? '' : 's'}`);
     if (thought) parts.push('thinking');
@@ -84,6 +102,10 @@ function TraceStepRow(props: { step: TraceStep; live: boolean }) {
   }
 
   const running = live && step.status === 'running';
+  const toolName =
+    step.toolName === MEMORY_RECALL_ACTIVITY_TOOL_NAME
+      ? 'Memory recall'
+      : step.toolName;
   return (
     <div className={css.traceStep}>
       <span className={css.traceStepMarker} aria-hidden="true">
@@ -91,7 +113,7 @@ function TraceStepRow(props: { step: TraceStep; live: boolean }) {
       </span>
       <div className={css.traceStepBody}>
         <div className={css.traceToolLine}>
-          <span className={css.traceToolName}>{step.toolName}</span>
+          <span className={css.traceToolName}>{toolName}</span>
           {step.argsPreview ? (
             <span className={css.traceToolPreview} title={step.argsPreview}>
               {step.argsPreview}
