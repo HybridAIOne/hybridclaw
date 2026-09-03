@@ -22,7 +22,7 @@ configSchema:
       minLength: 1
     fromNumber:
       type: string
-      pattern: '^\\+[1-9][0-9]{7,14}$'
+      pattern: '^\+[1-9][0-9]{7,14}$'
     publicBaseUrl:
       type: string
       pattern: '^https://'

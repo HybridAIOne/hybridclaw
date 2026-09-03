@@ -16,6 +16,12 @@
   Vonage plugin now reads its turn-mode greeting, language, and barge-in
   setting from the core `voice.relay.*` config instead of its own keys, so
   every phone conversation setting is in one place and visible in the console.
+- **HybridAI model calls carry correlation headers**: Every request the agent
+  runtime sends to the `hybridai` provider includes `X-HybridClaw-Session-Id`,
+  `X-HybridClaw-Run-Id`, `X-HybridClaw-Agent-Id`, and `X-HybridClaw-Channel-Id`.
+  The values match the session and run ids in the audit `wire.jsonl`, so the
+  backend traces behind one HybridClaw turn can be grouped and linked back to
+  the local session. Other providers are unaffected.
 
 ## [0.30.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.0) - 2026-08-31
 
