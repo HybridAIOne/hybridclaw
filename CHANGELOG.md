@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Codex requests reuse their prompt cache**: Requests to the Codex Responses
+  API now carry a `prompt_cache_key` derived from the session id, so every call
+  in a conversation routes to the same cache instead of relying on a randomly
+  assigned key. A ten-call tool-using turn previously reprocessed the full
+  ~40K-token prefix on six of its calls; those calls now read from cache.
+- **Voice consult reassurances no longer invent status**: While a voice consult
+  runs, the periodic "still working" prompt now pins the realtime model to the
+  consulted agent's actual tool activity and forbids speculation, questions,
+  and claims of needing access or credentials — a live call had heard a made-up
+  credentials request while the consult was succeeding.
+
 ## [0.30.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.1) - 2026-09-03
 
 ### Added

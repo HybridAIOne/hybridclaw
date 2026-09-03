@@ -78,6 +78,60 @@ describe('OpenAI Codex provider', () => {
     expect(result.choices[0]?.message.content).toBe('Created llm-wiki');
   });
 
+  test('sends a stable prompt_cache_key derived from the session id', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.prompt_cache_key).toBe('sess_abc123');
+      return new Response(
+        JSON.stringify({
+          id: 'resp_5',
+          model: 'gpt-5.4',
+          output: [],
+          output_text: 'ok',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await callOpenAICodexProvider({ ...baseArgs, sessionId: 'sess_abc123' });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  test('omits prompt_cache_key when no session id is set', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.prompt_cache_key).toBeUndefined();
+      return new Response(
+        JSON.stringify({
+          id: 'resp_6',
+          model: 'gpt-5.4',
+          output: [],
+          output_text: 'ok',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await callOpenAICodexProvider(baseArgs);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   test('backfills empty completed stream payloads from streamed text deltas', async () => {
     const deltas: string[] = [];
     vi.stubGlobal(

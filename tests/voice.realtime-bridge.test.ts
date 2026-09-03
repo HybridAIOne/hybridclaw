@@ -455,6 +455,55 @@ test('long consults speak out-of-band reassurance with live tool activity', asyn
   }
 });
 
+test('reassurance prompt names only real tool activity and forbids invented status', async () => {
+  vi.useFakeTimers();
+  try {
+    let toolProgress: (event: {
+      toolName: string;
+      phase: 'start' | 'finish';
+    }) => void = () => {};
+    const consultAgent = vi.fn(
+      (_request: string, hooks: { onToolProgress: typeof toolProgress }) => {
+        toolProgress = hooks.onToolProgress;
+        return new Promise<string>(() => {});
+      },
+    );
+    const { socket } = createBridge({ consultAgent, surface: 'web' });
+    socket.open();
+    socket.serverEvent({
+      type: 'response.function_call_arguments.done',
+      call_id: 'call_1',
+      name: 'consult_agent',
+      arguments: JSON.stringify({ request: 'Show the latest invoice' }),
+    });
+    await Promise.resolve();
+
+    // Before any tool has started, the prompt forbids guessing at activity.
+    await vi.advanceTimersByTimeAsync(7_000);
+    const [first] = socket.sentOfType('response.create');
+    const firstText = String(
+      (first.response as { instructions?: string }).instructions,
+    );
+    expect(firstText).toContain('Do not guess what it is doing.');
+    expect(firstText).toContain(
+      'do not claim to need access, credentials, or more details',
+    );
+    expect(firstText).toContain('do not ask the user anything');
+
+    // Once a tool starts, the prompt pins the message to that activity.
+    toolProgress({ toolName: 'http_request', phase: 'start' });
+    await vi.advanceTimersByTimeAsync(12_000);
+    const second = socket.sentOfType('response.create')[1];
+    const secondText = String(
+      (second.response as { instructions?: string }).instructions,
+    );
+    expect(secondText).toContain('"http request"');
+    expect(secondText).not.toContain('Do not guess what it is doing.');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test('reassurance stays silent while the caller speaks or the model talks', async () => {
   vi.useFakeTimers();
   try {
