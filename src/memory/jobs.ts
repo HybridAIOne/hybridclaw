@@ -253,11 +253,18 @@ export function createJob(input: CreateJobInput): number {
             expr: input.cronExpr,
             tz: '',
           };
+    // Cron tasks start with last_run = now. The scheduler fires a cron task
+    // whenever the previous cron occurrence is later than last_run, so a fresh
+    // task with last_run = NULL would fire once immediately (catch-up run)
+    // instead of waiting for its first real occurrence. One-shot tasks must
+    // keep last_run NULL (it marks them as already executed).
+    const initialLastRun =
+      schedule.kind === 'cron' ? new Date().toISOString() : null;
     database
       .prepare(
         `INSERT INTO jobs
-          (id, kind, legacy_task_id, session_id, channel_id, schedule, action, delivery, enabled, sort_order, created_at, updated_at)
-         VALUES (?, 'scheduled_task', ?, ?, ?, ?, ?, ?, 1, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+          (id, kind, legacy_task_id, session_id, channel_id, schedule, action, delivery, enabled, sort_order, last_run, created_at, updated_at)
+         VALUES (?, 'scheduled_task', ?, ?, ?, ?, ?, ?, 1, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
       )
       .run(
         `task:${jobId}`,
@@ -273,6 +280,7 @@ export function createJob(input: CreateJobInput): number {
           webhookUrl: '',
         }),
         0,
+        initialLastRun,
       );
     return jobId;
   });

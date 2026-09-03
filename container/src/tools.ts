@@ -119,6 +119,88 @@ type ScheduledTaskInfo = {
 };
 
 let pendingSchedules: ScheduleSideEffect[] = [];
+
+// Sessions whose channel cannot receive scheduled-task output. The gateway
+// queues proactive messages for these channels and later drops them, so a
+// task created without an explicit delivery channel would run but never be
+// seen by the user.
+const CHANNELS_WITHOUT_PROACTIVE_DELIVERY = new Set(['web']);
+
+const CRON_FIELD_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0, 59], // minute
+  [0, 23], // hour
+  [1, 31], // day of month
+  [1, 12], // month
+  [0, 7], // day of week (0 and 7 are Sunday)
+];
+const CRON_MONTH_NAMES = new Set([
+  'jan',
+  'feb',
+  'mar',
+  'apr',
+  'may',
+  'jun',
+  'jul',
+  'aug',
+  'sep',
+  'oct',
+  'nov',
+  'dec',
+]);
+const CRON_DOW_NAMES = new Set([
+  'sun',
+  'mon',
+  'tue',
+  'wed',
+  'thu',
+  'fri',
+  'sat',
+]);
+
+/**
+ * Validates a standard 5-field cron expression before it is queued as a
+ * schedule side effect. The gateway stores the expression without validation
+ * and the scheduler silently never fires an unparsable one, so rejecting it
+ * here is the only point where the model learns the schedule is broken.
+ * Returns an error message, or null when the expression is acceptable.
+ */
+export function validateCronExpression(expr: string): string | null {
+  const fields = expr.trim().split(/\s+/);
+  if (fields.length !== 5) {
+    return `Error: cron expression must have exactly 5 fields (minute hour day-of-month month day-of-week), got ${fields.length}: "${expr}". For a single point in time use "at" or "at_seconds" instead.`;
+  }
+  for (let index = 0; index < 5; index += 1) {
+    const rawField = fields[index];
+    const [min, max] = CRON_FIELD_RANGES[index];
+    const names =
+      index === 3 ? CRON_MONTH_NAMES : index === 4 ? CRON_DOW_NAMES : null;
+    for (const part of rawField.toLowerCase().split(',')) {
+      const match =
+        /^(\*|[a-z]{3}|\d{1,2})(?:-([a-z]{3}|\d{1,2}))?(?:\/(\d{1,2}))?$/.exec(
+          part,
+        );
+      if (!match) {
+        return `Error: invalid cron field "${rawField}" in "${expr}". Only *, numbers, ranges (a-b), lists (a,b) and steps (*/n) are supported.`;
+      }
+      const [, start, end, step] = match;
+      for (const token of [start, end]) {
+        if (token === undefined || token === '*') continue;
+        if (/^\d+$/.test(token)) {
+          const value = Number(token);
+          if (value < min || value > max) {
+            return `Error: value ${value} out of range ${min}-${max} in cron field "${rawField}" of "${expr}".`;
+          }
+        } else if (!names || !names.has(token)) {
+          return `Error: name "${token}" is not allowed in cron field "${rawField}" of "${expr}".`;
+        }
+      }
+      if (step !== undefined && Number(step) < 1) {
+        return `Error: step must be at least 1 in cron field "${rawField}" of "${expr}".`;
+      }
+    }
+  }
+  return null;
+}
 let pendingDelegations: DelegationSideEffect[] = [];
 let injectedTasks: ScheduledTaskInfo[] = [];
 let scheduleSideEffectsEnabled = true;
@@ -3727,6 +3809,14 @@ async function executeToolInternal(
         const prompt = promptInput;
         const channelId =
           readStringValue(args.channel) || readStringValue(args.channelId);
+        if (
+          !channelId &&
+          CHANNELS_WITHOUT_PROACTIVE_DELIVERY.has(gatewayChannelId)
+        ) {
+          return failTool(
+            'Error: scheduled task output cannot be delivered into this web chat session; the task would run but its result would be discarded. Pass "channel" with a configured messaging channel target (for example a Telegram/Discord/Slack target) or an email address. If no such channel is configured, tell the user that one must be set up before scheduling.',
+          );
+        }
         const atSeconds = readPositiveNumberValue(
           args.at_seconds ?? args.atSeconds,
         );
@@ -3755,13 +3845,16 @@ async function executeToolInternal(
         }
 
         if (args.cron) {
+          const cronExpr = String(args.cron).trim();
+          const cronError = validateCronExpression(cronExpr);
+          if (cronError) return failTool(cronError);
           pendingSchedules.push({
             action: 'add',
-            cronExpr: args.cron,
+            cronExpr,
             prompt,
             channelId,
           });
-          return `Scheduled recurring task with cron "${args.cron}"${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
+          return `Scheduled recurring task with cron "${cronExpr}" (UTC)${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         if (args.every) {
@@ -5162,9 +5255,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       description:
         'Manage scheduled tasks and reminders. Actions:\n' +
         '- "list": show all scheduled tasks\n' +
-        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring cron expression), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered.\n' +
+        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring 5-field cron expression, evaluated in UTC), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered. In web chat sessions "channel" is required because task output cannot be delivered into the web chat.\n' +
         '- "remove": delete a task by taskId\n' +
-        'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself.',
+        'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself. A success result means the task was queued for creation at the end of this turn; quote the schedule from the result when confirming to the user.',
       parameters: {
         type: 'object',
         properties: {
@@ -5190,7 +5283,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           cron: {
             type: 'string',
             description:
-              'Cron expression for recurring schedule (e.g. "0 9 * * *")',
+              'Standard 5-field cron expression for recurring schedule, evaluated in UTC (e.g. "0 7 * * *" for 09:00 Europe/Berlin summer time). Convert from the user timezone before setting it.',
           },
           every: {
             type: 'number',
