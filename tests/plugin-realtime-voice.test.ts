@@ -13,6 +13,11 @@ const REALTIME_CONFIG = {
   instructions: '',
 };
 
+const PHONE_PROMPT_CONFIG = {
+  greeting: 'Hi from the phone config!',
+  instructions: '',
+};
+
 class FakeRealtimeSocket implements RealtimeSocket {
   readyState = 1;
   url = '';
@@ -68,11 +73,15 @@ const SESSION_IDENTITY = {
 async function createSession(params?: {
   apiKey?: string;
   sentFrames?: Buffer[];
+  clearAudio?: () => void;
 }) {
   vi.doMock('../src/config/config.js', () => ({
     OPENAI_API_KEY: params?.apiKey ?? 'test-key',
     HYBRIDAI_BASE_URL: 'https://hybridai.example',
-    getConfigSnapshot: () => ({ speech: { realtime: REALTIME_CONFIG } }),
+    getConfigSnapshot: () => ({
+      speech: { realtime: REALTIME_CONFIG },
+      voice: { prompt: PHONE_PROMPT_CONFIG },
+    }),
   }));
   vi.doMock('../src/gateway/voice-transcript-store.js', () => ({
     persistVoiceTranscript,
@@ -94,11 +103,11 @@ async function createSession(params?: {
   const session = createPluginRealtimeVoiceSession(
     {
       caller: { from: '+15550001111', to: '+15550002222' },
-      greeting: 'Hi from the plugin!',
       session: SESSION_IDENTITY,
       sendAudio: (frame) => {
         sentFrames.push(frame);
       },
+      clearAudio: params?.clearAudio,
     },
     {
       pluginId: 'vonage-voice',
@@ -127,7 +136,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-test('opens a µ-law phone session with the plugin greeting', async () => {
+test('opens a µ-law phone session with the phone greeting', async () => {
   const { session, realtime } = await createSession();
   realtime.open();
 
@@ -143,7 +152,7 @@ test('opens a µ-law phone session with the plugin greeting', async () => {
   realtime.serverEvent({ type: 'session.updated' });
   const [greeting] = realtime.sentOfType('response.create');
   expect(greeting.response).toEqual({
-    instructions: 'Greet the caller by saying: "Hi from the plugin!"',
+    instructions: 'Greet the caller by saying: "Hi from the phone config!"',
   });
   session.close();
 });
@@ -168,35 +177,85 @@ test('creating a session without a realtime credential fails closed', async () =
   );
 });
 
-test('model audio is paced into 20ms PCM frames and cleared on barge-in', async () => {
+function audioDelta(frames: number): Record<string, unknown> {
+  // One µ-law byte per sample; 160 samples per 20 ms frame.
+  return {
+    type: 'response.output_audio.delta',
+    delta: Buffer.alloc(160 * frames, 0xff).toString('base64'),
+  };
+}
+
+test('model audio is forwarded as 20 ms frames the moment it arrives', async () => {
   vi.useFakeTimers();
   const { session, realtime, sentFrames } = await createSession();
   realtime.open();
 
-  // Two frames' worth of silence (320 µ-law bytes → 640 PCM bytes).
-  const mulaw = Buffer.alloc(320, 0xff);
-  realtime.serverEvent({
-    type: 'response.output_audio.delta',
-    delta: mulaw.toString('base64'),
-  });
-  await vi.advanceTimersByTimeAsync(20);
-  expect(sentFrames).toHaveLength(1);
-  expect(sentFrames[0].length).toBe(320);
-  expect(sentFrames[0].equals(muLawToPcm16(mulaw).subarray(0, 320))).toBe(
-    true,
-  );
-
-  await vi.advanceTimersByTimeAsync(20);
-  expect(sentFrames).toHaveLength(2);
-
-  // Queue more audio, then barge in before it plays: nothing further sends.
-  realtime.serverEvent({
-    type: 'response.output_audio.delta',
-    delta: mulaw.toString('base64'),
-  });
-  realtime.serverEvent({ type: 'input_audio_buffer.speech_started' });
+  realtime.serverEvent(audioDelta(5));
+  expect(sentFrames).toHaveLength(5);
+  for (const frame of sentFrames) {
+    expect(frame.length).toBe(320);
+    expect(frame.equals(muLawToPcm16(Buffer.alloc(160, 0xff)))).toBe(true);
+  }
   await vi.advanceTimersByTimeAsync(200);
-  expect(sentFrames).toHaveLength(2);
+  expect(sentFrames).toHaveLength(5);
+  session.close();
+});
+
+test('frames are assembled across small deltas without losing samples', async () => {
+  vi.useFakeTimers();
+  const { session, realtime, sentFrames } = await createSession();
+  realtime.open();
+
+  const samples: number[] = [];
+  let chunk = 0;
+  for (const size of [50, 70, 200, 40, 120, 160]) {
+    const mulaw = Buffer.alloc(size, 0x40 + chunk++);
+    samples.push(...mulaw);
+    realtime.serverEvent({
+      type: 'response.output_audio.delta',
+      delta: mulaw.toString('base64'),
+    });
+  }
+  await vi.advanceTimersByTimeAsync(100);
+  expect(sentFrames).toHaveLength(4);
+  const played = Buffer.concat(sentFrames);
+  expect(played.equals(muLawToPcm16(Buffer.from(samples)))).toBe(true);
+  session.close();
+});
+
+test('only a bounded window is in flight; the rest follows playback', async () => {
+  vi.useFakeTimers();
+  const { session, realtime, sentFrames } = await createSession();
+  realtime.open();
+
+  // 30 s of audio: 20 s goes out immediately, the remainder as time passes.
+  realtime.serverEvent(audioDelta(1_500));
+  expect(sentFrames).toHaveLength(1_000);
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(sentFrames).toHaveLength(1_050);
+  await vi.advanceTimersByTimeAsync(9_000);
+  expect(sentFrames).toHaveLength(1_500);
+  session.close();
+});
+
+test('barge-in drops queued audio and clears the far end', async () => {
+  vi.useFakeTimers();
+  const clearAudio = vi.fn();
+  const { session, realtime, sentFrames } = await createSession({
+    clearAudio,
+  });
+  realtime.open();
+
+  realtime.serverEvent(audioDelta(1_500));
+  expect(sentFrames).toHaveLength(1_000);
+  realtime.serverEvent({ type: 'input_audio_buffer.speech_started' });
+  expect(clearAudio).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(sentFrames).toHaveLength(1_000);
+
+  // The next response starts fresh rather than waiting out the old window.
+  realtime.serverEvent(audioDelta(2));
+  expect(sentFrames).toHaveLength(1_002);
   session.close();
 });
 
@@ -215,6 +274,10 @@ test('a sub-frame audio tail is zero-padded out instead of sticking', async () =
   await vi.advanceTimersByTimeAsync(40);
   expect(sentFrames).toHaveLength(1);
   expect(sentFrames[0].length).toBe(320);
+  expect(sentFrames[0].subarray(0, 200).equals(muLawToPcm16(mulaw))).toBe(
+    true,
+  );
+  expect(sentFrames[0].subarray(200).equals(Buffer.alloc(120))).toBe(true);
   session.close();
 });
 
@@ -265,16 +328,13 @@ test('consults dispatch through the plugin seam and persist transcripts', async 
   session.close();
 });
 
-test('close stops the pacer and the upstream socket', async () => {
+test('close stops playback and the upstream socket', async () => {
   vi.useFakeTimers();
   const { session, realtime, sentFrames } = await createSession();
   realtime.open();
 
-  realtime.serverEvent({
-    type: 'response.output_audio.delta',
-    delta: Buffer.alloc(320, 0xff).toString('base64'),
-  });
   session.close();
+  realtime.serverEvent(audioDelta(2));
   await vi.advanceTimersByTimeAsync(200);
 
   expect(sentFrames).toHaveLength(0);

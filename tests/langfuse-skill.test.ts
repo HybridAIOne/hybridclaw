@@ -115,6 +115,10 @@ test('langfuse helper enforces the 100 page-size cap and forwards cursor', () =>
   expect(overLimit.status).not.toBe(0);
   expect(overLimit.stderr).toContain('cannot exceed 100');
 
+  const tracePage = build(['list-traces', '--page', '2']);
+  expect(tracePage.status).not.toBe(0);
+  expect(tracePage.stderr).toContain('pass meta.cursor with --cursor');
+
   const cursored = build(['list-observations', '--limit', '100', '--cursor', 'abc']);
   expect(cursored.status).toBe(0);
   expect(JSON.parse(cursored.stdout).httpRequest.url).toBe(
@@ -163,7 +167,25 @@ test('langfuse helper runs when copied as a standalone skill package', () => {
 });
 
 test('langfuse helper builds gateway-backed reads with placeholder auth and host', () => {
-  const traces = build(['list-traces', '--user-id', 'alice', '--limit', '50']);
+  const traces = build([
+    'list-traces',
+    '--user-id',
+    'alice',
+    '--name',
+    'support-chat',
+    '--session-id',
+    'session-1',
+    '--tag',
+    'production',
+    '--environment',
+    'prod',
+    '--from-timestamp',
+    '2026-09-01T00:00:00Z',
+    '--to-timestamp',
+    '2026-09-02T00:00:00Z',
+    '--limit',
+    '50',
+  ]);
   const prompt = build([
     'get-prompt',
     '--host',
@@ -180,7 +202,6 @@ test('langfuse helper builds gateway-backed reads with placeholder auth and host
     operation: 'list-traces',
     stakesTier: 'green',
     httpRequest: {
-      url: '<env:LANGFUSE_HOST>/api/public/traces?limit=50&userId=alice',
       method: 'GET',
       headers: { Authorization: 'Basic <secret:LANGFUSE_BASIC_AUTH>' },
       skillName: 'langfuse',
@@ -197,10 +218,57 @@ test('langfuse helper builds gateway-backed reads with placeholder auth and host
   expect(tracesPayload.httpRequest).not.toHaveProperty('secretHeaders');
   expect(traces.stdout).not.toContain('Bearer');
 
+  const tracesUrl = new URL(
+    tracesPayload.httpRequest.url.replace('<env:LANGFUSE_HOST>', 'https://example.com'),
+  );
+  expect(tracesUrl.pathname).toBe('/api/public/v2/observations');
+  expect(tracesUrl.searchParams.get('fields')).toBe('core,basic,io,trace_context');
+  expect(tracesUrl.searchParams.get('limit')).toBe('50');
+  expect(tracesUrl.searchParams.get('fromStartTime')).toBe('2026-09-01T00:00:00Z');
+  expect(tracesUrl.searchParams.get('toStartTime')).toBe('2026-09-02T00:00:00Z');
+  expect(JSON.parse(tracesUrl.searchParams.get('filter') || '[]')).toEqual([
+    { type: 'boolean', column: 'isRootObservation', operator: '=', value: true },
+    { type: 'string', column: 'userId', operator: '=', value: 'alice' },
+    {
+      type: 'stringOptions',
+      column: 'traceName',
+      operator: 'any of',
+      value: ['support-chat'],
+    },
+    { type: 'string', column: 'sessionId', operator: '=', value: 'session-1' },
+    {
+      type: 'stringOptions',
+      column: 'environment',
+      operator: 'any of',
+      value: ['prod'],
+    },
+    {
+      type: 'arrayOptions',
+      column: 'tags',
+      operator: 'all of',
+      value: ['production'],
+    },
+  ]);
+
   expect(prompt.status).toBe(0);
   expect(JSON.parse(prompt.stdout).httpRequest.url).toBe(
     'https://us.cloud.langfuse.com/api/public/v2/prompts/team%2Fsupport%20reply?label=production',
   );
+});
+
+test('langfuse helper gets a trace through v2 observations', () => {
+  const result = build(['get-trace', '--trace-id', 'trace/id']);
+
+  expect(result.status).toBe(0);
+  const url = new URL(
+    JSON.parse(result.stdout).httpRequest.url.replace(
+      '<env:LANGFUSE_HOST>',
+      'https://example.com',
+    ),
+  );
+  expect(url.pathname).toBe('/api/public/v2/observations');
+  expect(url.searchParams.get('traceId')).toBe('trace/id');
+  expect(url.searchParams.get('fields')).toBe('core,basic,io,trace_context');
 });
 
 test('langfuse helper forwards metrics query and rejects invalid JSON', () => {
@@ -357,11 +425,13 @@ test('langfuse helper run executes requests through the gateway', async () => {
     expect(result.status).toBe(0);
     expect(receivedAuthorization).toBe('Bearer gateway-token');
     expect(receivedBody).toMatchObject({
-      url: '<env:LANGFUSE_HOST>/api/public/traces?userId=alice',
       method: 'GET',
       headers: { Authorization: 'Basic <secret:LANGFUSE_BASIC_AUTH>' },
       skillName: 'langfuse',
     });
+    expect(String(receivedBody?.url)).toContain(
+      '<env:LANGFUSE_HOST>/api/public/v2/observations?',
+    );
     expect(JSON.parse(result.stdout)).toMatchObject({
       command: 'run',
       operation: 'list-traces',

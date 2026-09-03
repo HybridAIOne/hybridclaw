@@ -9,9 +9,11 @@ import {
   isAuthorizedCommandUser,
   isTrigger,
   parseCommand,
+  renderMessageText,
   shouldIgnoreBotAuthoredMessage,
   shouldReplyInFreeMode,
   shouldSkipFreeReplyBecauseOtherUsersMentioned,
+  summarizeEmbeds,
 } from '../src/channels/discord/inbound.js';
 import {
   type MentionLookup,
@@ -452,4 +454,166 @@ test('human messages are unaffected by the bot allowlist', () => {
       botMessageChannels: [],
     }),
   ).toBe(false);
+});
+
+// --- Embed-only messages (alert webhooks) ---------------------------------
+// Unassuming prose on purpose: no question mark, request verb, problem signal
+// or inline code, so it exercises the relevance gate the way an alert does.
+const ALERT_EMBED = {
+  author: { name: 'CI' },
+  title: 'Build succeeded',
+  description: 'Pipeline finished in 4m 12s',
+  url: 'https://example.com/runs/1',
+  footer: { text: 'triggered by scheduler' },
+  fields: [{ name: 'Environment', value: 'staging' }],
+};
+
+test('summarizeEmbeds renders an embed as text', () => {
+  expect(summarizeEmbeds([ALERT_EMBED])).toBe(
+    [
+      'CI',
+      'Build succeeded',
+      'Pipeline finished in 4m 12s',
+      'Environment: staging',
+      'triggered by scheduler',
+      'https://example.com/runs/1',
+    ].join('\n'),
+  );
+});
+
+test('summarizeEmbeds renders nothing for an embed with no text', () => {
+  // e.g. an image-only embed — the agent must not be handed a blank turn.
+  for (const embeds of [[], [{}], [{ title: '  ' }]]) {
+    expect(summarizeEmbeds(embeds)).toBe('');
+  }
+});
+
+test('summarizeEmbeds bounds what one message can contribute', () => {
+  const many = summarizeEmbeds([1, 2, 3, 4].map((n) => ({ title: `e${n}` })));
+  expect(many).toContain('e3');
+  expect(many).not.toContain('e4');
+
+  const fields = summarizeEmbeds([
+    { fields: Array.from({ length: 12 }, (_u, i) => ({ name: `f${i}`, value: 'v' })) },
+  ]);
+  expect(fields).toContain('f5: v');
+  expect(fields).not.toContain('f6: v');
+
+  const long = summarizeEmbeds([{ title: 'x'.repeat(5000) }]);
+  expect(long.length).toBeLessThanOrEqual(600);
+  expect(long.endsWith('…')).toBe(true);
+});
+
+test('the free-mode gate lets an allowlisted alert through, but not an empty one', () => {
+  const base = {
+    guildMessageMode: 'free' as const,
+    hasBotMention: false,
+    hasPrefixInvocation: false,
+    isReplyToBot: false,
+    hasAttachments: false,
+  };
+  const content = summarizeEmbeds([ALERT_EMBED]);
+  expect(shouldReplyInFreeMode({ ...base, content })).toBe(false);
+  expect(
+    shouldReplyInFreeMode({ ...base, content, isAllowlistedBotMessage: true }),
+  ).toBe(true);
+  expect(
+    shouldReplyInFreeMode({ ...base, content: '', isAllowlistedBotMessage: true }),
+  ).toBe(false);
+});
+
+test('an allowlisted bot message triggers in mention mode but not when handling is off', () => {
+  const base = {
+    content: '',
+    text: '[embed] Build failed',
+    isDm: false,
+    commandsOnly: false,
+    prefix: '!claw',
+    botMentionRegex: null,
+    hasBotMention: false,
+    isAllowlistedBotMessage: true,
+  };
+  expect(isTrigger({ ...base, guildMessageMode: 'mention' })).toBe(true);
+  expect(isTrigger({ ...base, guildMessageMode: 'off' })).toBe(false);
+  expect(
+    isTrigger({
+      ...base,
+      guildMessageMode: 'mention',
+      isAllowlistedBotMessage: false,
+    }),
+  ).toBe(false);
+});
+
+test('suppress patterns match the rendered text of an embed-only message', () => {
+  expect(
+    isTrigger({
+      content: '',
+      text: '[embed] Build succeeded',
+      isDm: false,
+      commandsOnly: false,
+      guildMessageMode: 'free',
+      prefix: '!claw',
+      botMentionRegex: null,
+      hasBotMention: false,
+      suppressPatterns: ['build succeeded'],
+      isAllowlistedBotMessage: true,
+    }),
+  ).toBe(false);
+});
+
+test('an allowlisted alert that pings other users is not skipped', () => {
+  const base = {
+    guildMessageMode: 'free' as const,
+    hasBotMention: false,
+    hasPrefixInvocation: false,
+    botUserId: 'bot',
+    mentionedUserIds: ['oncall'],
+  };
+  expect(shouldSkipFreeReplyBecauseOtherUsersMentioned(base)).toBe(true);
+  expect(
+    shouldSkipFreeReplyBecauseOtherUsersMentioned({
+      ...base,
+      isAllowlistedBotMessage: true,
+    }),
+  ).toBe(false);
+});
+
+test('renderMessageText falls back from content to embeds to attachments to system text', () => {
+  const base = { botMentionRegex: null, prefix: '!claw' };
+  expect(
+    renderMessageText({
+      ...base,
+      content: '!claw hello',
+      embeds: [ALERT_EMBED],
+      attachmentNames: ['a.png'],
+    }),
+  ).toBe('hello');
+  expect(
+    renderMessageText({
+      ...base,
+      content: '',
+      embeds: [ALERT_EMBED],
+      attachmentNames: [],
+    }),
+  ).toBe(`[embed] ${summarizeEmbeds([ALERT_EMBED])}`);
+  expect(
+    renderMessageText({
+      ...base,
+      content: ' ',
+      embeds: [{}],
+      attachmentNames: ['a.png', null, ' b.pdf '],
+    }),
+  ).toBe('[attachments] a.png, b.pdf');
+  expect(
+    renderMessageText({
+      ...base,
+      content: '',
+      embeds: [],
+      attachmentNames: [],
+      systemContent: 'pinned a message',
+    }),
+  ).toBe('[system] pinned a message');
+  expect(
+    renderMessageText({ ...base, content: '', embeds: [], attachmentNames: [] }),
+  ).toBe('');
 });

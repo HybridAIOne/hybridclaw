@@ -383,11 +383,13 @@ test('maybeHandleMSTeamsFileConsentInvoke uploads the pending file and sends a f
   const fetchMock = vi.fn(async () => new Response('', { status: 200 }));
   vi.stubGlobal('fetch', fetchMock);
   const sendActivity = vi.fn(async () => ({ id: 'reply-1' }));
+  const deleteActivity = vi.fn(async () => {});
   const handled = await maybeHandleMSTeamsFileConsentInvoke({
     activity: {
       type: 'invoke',
       name: 'fileConsent/invoke',
       conversation: { id: 'conversation-123' },
+      replyToId: 'consent-card-1',
       value: {
         type: 'fileUpload',
         action: 'accept',
@@ -404,9 +406,11 @@ test('maybeHandleMSTeamsFileConsentInvoke uploads the pending file and sends a f
       },
     },
     sendActivity,
+    deleteActivity,
   } as never);
 
   expect(handled).toBe(true);
+  expect(deleteActivity).toHaveBeenCalledWith('consent-card-1');
   expect(fetchMock).toHaveBeenCalledWith(
     'https://upload.example.com/file',
     expect.objectContaining({
@@ -438,6 +442,59 @@ test('maybeHandleMSTeamsFileConsentInvoke uploads the pending file and sends a f
       ],
     }),
   );
+});
+
+test('maybeHandleMSTeamsFileConsentInvoke clears the consent card when declined', async () => {
+  const {
+    buildTeamsUploadedFileAttachment,
+    maybeHandleMSTeamsFileConsentInvoke,
+  } = await importAttachmentsModule();
+  const tempDir = makeTempDir('hybridclaw-msteams-');
+  const filePath = path.join(tempDir, 'report.pdf');
+  fs.writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
+
+  const consentCard = await buildTeamsUploadedFileAttachment({
+    turnContext: {
+      activity: {
+        conversation: {
+          id: 'conversation-123',
+          conversationType: 'personal',
+        },
+        serviceUrl: 'https://smba.trafficmanager.net/de/tenant-id/',
+      },
+    } as never,
+    filePath,
+    mimeType: 'application/pdf',
+  });
+  const uploadId = String(
+    (consentCard as { content?: { declineContext?: { uploadId?: string } } })
+      .content?.declineContext?.uploadId || '',
+  );
+
+  const fetchMock = vi.fn(async () => new Response('', { status: 200 }));
+  vi.stubGlobal('fetch', fetchMock);
+  const sendActivity = vi.fn(async () => ({ id: 'reply-1' }));
+  const deleteActivity = vi.fn(async () => {});
+  const handled = await maybeHandleMSTeamsFileConsentInvoke({
+    activity: {
+      type: 'invoke',
+      name: 'fileConsent/invoke',
+      conversation: { id: 'conversation-123' },
+      replyToId: 'consent-card-1',
+      value: {
+        type: 'fileUpload',
+        action: 'decline',
+        context: { uploadId },
+      },
+    },
+    sendActivity,
+    deleteActivity,
+  } as never);
+
+  expect(handled).toBe(true);
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(deleteActivity).toHaveBeenCalledWith('consent-card-1');
+  expect(sendActivity).toHaveBeenNthCalledWith(2, 'Skipped sending report.pdf.');
 });
 
 test('buildTeamsAttachmentContext accepts direct Microsoft CDN image attachments', async () => {

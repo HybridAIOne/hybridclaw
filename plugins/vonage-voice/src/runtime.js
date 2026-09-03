@@ -1,4 +1,5 @@
 import { transferVonageCallToNcco } from './api.js';
+import { isCallerAllowed, normalizeCallerIdentity } from './caller-policy.js';
 import {
   extractBearerToken,
   verifyVonageWebhookJwt,
@@ -18,6 +19,8 @@ import { createVonageRealtimeStreams } from './realtime.js';
 import { buildVoiceSessionKey } from './utils.js';
 
 const MAX_BODY_BYTES = 256 * 1024;
+const CALLER_REFUSED_MESSAGE =
+  'Sorry, this number is not available for your call. Goodbye.';
 const MAX_SILENT_TIMEOUTS = 3;
 
 function sendJson(res, status, body) {
@@ -145,6 +148,33 @@ export function createVonageRuntime(api, config) {
         return;
       }
       if (
+        !isCallerAllowed({
+          callerPolicy: config.callerPolicy,
+          allowFrom: config.allowFrom,
+          from: answer.from,
+        })
+      ) {
+        // The refused number is logged so an operator can add a legitimate
+        // caller to allowFrom; without it the allowlist is undiagnosable.
+        ctx.logger.warn(
+          {
+            callUuid: answer.uuid,
+            callerPolicy: config.callerPolicy,
+            caller: normalizeCallerIdentity(answer.from) || 'withheld',
+          },
+          'Vonage call refused: caller not permitted by callerPolicy',
+        );
+        sendJson(
+          ctx.res,
+          200,
+          buildGoodbyeNcco({
+            message: CALLER_REFUSED_MESSAGE,
+            language: config.language,
+          }),
+        );
+        return;
+      }
+      if (
         !sessions.has(answer.uuid) &&
         sessions.size >= config.maxConcurrentCalls
       ) {
@@ -191,7 +221,6 @@ export function createVonageRuntime(api, config) {
           buildRealtimeConnectNcco({
             websocketUri: realtimeStreams.websocketUri(token),
             callUuid: answer.uuid,
-            language: config.language,
           }),
         );
         return;

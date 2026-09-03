@@ -122,6 +122,7 @@ import {
   shutdownThreema,
 } from '../channels/threema/runtime.js';
 import { isThreemaChannelId } from '../channels/threema/target.js';
+import { findNationalFormatAllowEntries } from '../channels/voice/caller-policy.js';
 import { resolveRealtimeConnection } from '../channels/voice/realtime-credentials.js';
 import { initVoice, shutdownVoice } from '../channels/voice/runtime.js';
 import {
@@ -3588,10 +3589,22 @@ async function startVoiceIntegration(): Promise<boolean> {
         },
       },
     );
+    if (voiceConfig.callerPolicy === 'allowlist') {
+      const nationalFormat = findNationalFormatAllowEntries(
+        voiceConfig.allowFrom,
+      );
+      if (nationalFormat.length > 0) {
+        logger.warn(
+          { entries: nationalFormat },
+          'Voice allowlist entries are missing a country code and will never match; use E.164 (+4915123456789, not 015123456789)',
+        );
+      }
+    }
     logger.info(
       {
         provider: voiceConfig.provider,
         mode: voiceConfig.mode,
+        callerPolicy: voiceConfig.callerPolicy,
         webhookPath: voiceConfig.webhookPath,
         maxConcurrentCalls: voiceConfig.maxConcurrentCalls,
       },

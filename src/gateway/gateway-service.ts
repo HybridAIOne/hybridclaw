@@ -693,6 +693,13 @@ const TRACE_EXPORT_ALL_CONCURRENCY = 4;
 const GATEWAY_PROCESS_STARTED_AT = new Date().toISOString();
 const MAX_HISTORY_MESSAGES = 40;
 const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
+// Stable KV namespace (owner call, 2026-09-01): BOOTSTRAP belongs to the
+// agent workspace; per-session OPENING behavior remains unchanged.
+const BOOTSTRAP_AUTOSTART_WORKSPACE_CLAIM_SCOPE =
+  'gateway.bootstrap_autostart.workspace.v1';
+// 15m (owner call, 2026-09-01): comfortably exceeds the 5m default agent
+// timeout while allowing a crashed gateway's workspace claim to recover.
+const BOOTSTRAP_AUTOSTART_STARTED_CLAIM_TTL_MS = 15 * 60_000;
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
 const BOOTSTRAP_PRELUDE_MAX_TOKENS = 48;
 const BOOTSTRAP_PRELUDE_TIMEOUT_MS = 5000;
@@ -707,7 +714,7 @@ const BOOTSTRAP_HATCHING_PROMPT_PARTS = [
 ] satisfies PromptPartName[];
 const OPENING_AUTOSTART_MAX_TOKENS = 512;
 const OPENING_AUTOSTART_TIMEOUT_MS = 5000;
-const activeBootstrapAutostartSessions = new Set<string>();
+const activeBootstrapAutostartSessions = new Map<string, string>();
 const assistantPresentationImagePathCache = new Map<string, string | null>();
 const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
 const ADMIN_AGENT_MARKDOWN_MAX_REVISIONS = 50;
@@ -915,8 +922,56 @@ function getBootstrapAutostartMarker(params: {
 function getBootstrapAutostartLockKey(
   sessionId: string,
   agentId: string,
+  fileName: 'BOOTSTRAP.md' | 'OPENING.md',
 ): string {
-  return `${sessionId}:${agentId}`;
+  return fileName === 'BOOTSTRAP.md'
+    ? `workspace:${agentId}`
+    : `session:${sessionId}:${agentId}`;
+}
+
+function getBootstrapAutostartClaimScope(
+  sessionId: string,
+  fileName: 'BOOTSTRAP.md' | 'OPENING.md',
+): string {
+  return fileName === 'BOOTSTRAP.md'
+    ? BOOTSTRAP_AUTOSTART_WORKSPACE_CLAIM_SCOPE
+    : sessionId;
+}
+
+function claimBootstrapAutostartMarker(params: {
+  claimScope: string;
+  markerKey: string;
+  bootstrapFile: 'BOOTSTRAP.md' | 'OPENING.md';
+  fileFingerprint: string;
+  ownerSessionId: string;
+  startedAt: string;
+}): boolean {
+  const claimValue = {
+    status: 'started',
+    fileName: params.bootstrapFile,
+    fileFingerprint: params.fileFingerprint,
+    ownerSessionId: params.ownerSessionId,
+    at: params.startedAt,
+  };
+  if (claimMemoryValue(params.claimScope, params.markerKey, claimValue)) {
+    return true;
+  }
+  if (params.bootstrapFile !== 'BOOTSTRAP.md') return false;
+
+  const existing = getMemoryValue(params.claimScope, params.markerKey) as {
+    status?: unknown;
+    at?: unknown;
+  } | null;
+  const startedAtMs = Date.parse(
+    typeof existing?.at === 'string' ? existing.at : '',
+  );
+  const staleStartedClaim =
+    existing?.status === 'started' &&
+    Number.isFinite(startedAtMs) &&
+    Date.now() - startedAtMs >= BOOTSTRAP_AUTOSTART_STARTED_CLAIM_TTL_MS;
+  if (!staleStartedClaim) return false;
+  if (!deleteMemoryValue(params.claimScope, params.markerKey)) return false;
+  return claimMemoryValue(params.claimScope, params.markerKey, claimValue);
 }
 
 export function resolveOnboardingTurnModel(params: {
@@ -8787,11 +8842,16 @@ export async function ensureGatewayBootstrapAutostart(params: {
     fileName: bootstrapFile,
   });
   const markerKey = marker.key;
-  const lockKey = getBootstrapAutostartLockKey(session.id, resolved.agentId);
+  const claimScope = getBootstrapAutostartClaimScope(session.id, bootstrapFile);
+  const lockKey = getBootstrapAutostartLockKey(
+    session.id,
+    resolved.agentId,
+    bootstrapFile,
+  );
   if (activeBootstrapAutostartSessions.has(lockKey)) {
     return;
   }
-  activeBootstrapAutostartSessions.add(lockKey);
+  activeBootstrapAutostartSessions.set(lockKey, session.id);
   let onboardingAuditContext: BootstrapOnboardingAuditContext | null = null;
   let hatchingCompletion: BootstrapHatchingTurnResult | null = null;
   const recordPendingHatchingTerminalAudit = (): void => {
@@ -8804,11 +8864,13 @@ export async function ensureGatewayBootstrapAutostart(params: {
 
   try {
     const markerStartedAt = new Date().toISOString();
-    const claimed = claimMemoryValue(session.id, markerKey, {
-      status: 'started',
-      fileName: bootstrapFile,
+    const claimed = claimBootstrapAutostartMarker({
+      claimScope,
+      markerKey,
+      bootstrapFile,
       fileFingerprint: marker.fileFingerprint,
-      at: markerStartedAt,
+      ownerSessionId: session.id,
+      startedAt: markerStartedAt,
     });
     if (!claimed) return;
 
@@ -8880,7 +8942,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     const chatbotId = chatbotResolution.chatbotId;
 
     if (modelRequiresChatbotId(model) && !chatbotId) {
-      deleteMemoryValue(session.id, markerKey);
+      deleteMemoryValue(claimScope, markerKey);
       const error =
         chatbotResolution.error ||
         'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
@@ -9080,7 +9142,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       });
 
       if (!openingResult) {
-        deleteMemoryValue(session.id, markerKey);
+        deleteMemoryValue(claimScope, markerKey);
         recordAuditEvent({
           sessionId: session.id,
           runId,
@@ -9145,8 +9207,11 @@ export async function ensureGatewayBootstrapAutostart(params: {
       const assistantMessageId = storeBootstrapAssistantMessage(
         openingResult.content,
       );
-      setMemoryValue(session.id, markerKey, {
+      setMemoryValue(claimScope, markerKey, {
         status: 'completed',
+        fileName: bootstrapFile,
+        fileFingerprint: marker.fileFingerprint,
+        ownerSessionId: session.id,
         assistantMessageId,
         completedAt: new Date().toISOString(),
       });
@@ -9193,6 +9258,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
 
     const output = await runAgent({
       sessionId: session.id,
+      runId,
       messages,
       chatbotId,
       enableRag,
@@ -9285,7 +9351,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     }
 
     if (output.status !== 'success' || !resultText) {
-      deleteMemoryValue(session.id, markerKey);
+      deleteMemoryValue(claimScope, markerKey);
       recordPendingHatchingTerminalAudit();
       recordAuditEvent({
         sessionId: session.id,
@@ -9323,10 +9389,11 @@ export async function ensureGatewayBootstrapAutostart(params: {
       });
       recordPendingHatchingTerminalAudit();
     }
-    setMemoryValue(session.id, markerKey, {
+    setMemoryValue(claimScope, markerKey, {
       status: 'completed',
       fileName: bootstrapFile,
       fileFingerprint: marker.fileFingerprint,
+      ownerSessionId: session.id,
       assistantMessageId,
       completedAt: new Date().toISOString(),
     });
@@ -9355,7 +9422,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       },
     });
   } catch (error) {
-    deleteMemoryValue(session.id, markerKey);
+    deleteMemoryValue(claimScope, markerKey);
     recordPendingHatchingTerminalAudit();
     logger.warn(
       { sessionId: session.id, agentId: resolved.agentId, channelId, error },
@@ -9380,7 +9447,7 @@ export function getGatewayBootstrapAutostartState(params: {
   const { session, resolved, bootstrapFile } = context;
 
   const marker = getMemoryValue(
-    session.id,
+    getBootstrapAutostartClaimScope(session.id, bootstrapFile),
     getBootstrapAutostartMarker({
       agentId: resolved.agentId,
       fileName: bootstrapFile,
@@ -9696,8 +9763,8 @@ function isProtectedNoUserChatCleanupSession(session: Session): boolean {
   const sessionKey = String(session.session_key || '').trim();
   const agentId = String(session.agent_id || '').trim();
   const bootstrapAutostartActive = Array.from(
-    activeBootstrapAutostartSessions,
-  ).some((lockKey) => lockKey.startsWith(`${session.id}:`));
+    activeBootstrapAutostartSessions.values(),
+  ).includes(session.id);
   const hasStoredConversation =
     session.message_count > 0 ||
     String(session.session_summary || '').trim().length > 0;

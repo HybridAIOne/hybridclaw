@@ -4,15 +4,13 @@ import { createVonageRealtimeStreams } from '../plugins/vonage-voice/src/realtim
 
 const CONFIG = {
   publicBaseUrl: 'https://voice.example.com',
-  welcomeGreeting: 'Hello there!',
-  language: 'en-US',
 };
 
 const CALL = { uuid: 'call-1', from: '+15550001111', to: '+15550002222' };
 
 class FakeStreamSocket {
   readyState = 1;
-  sent: Buffer[] = [];
+  sent: Array<Buffer | string> = [];
   closeCode: number | null = null;
   private listeners = new Map<string, Array<(...args: unknown[]) => void>>();
 
@@ -22,7 +20,7 @@ class FakeStreamSocket {
     this.listeners.set(event, existing);
   }
 
-  send(data: Buffer): void {
+  send(data: Buffer | string): void {
     this.sent.push(data);
   }
 
@@ -92,7 +90,6 @@ test('realtime connect NCCO points the call at the stream websocket', () => {
   const ncco = buildRealtimeConnectNcco({
     websocketUri: 'wss://voice.example.com/api/plugin-webhooks/vonage-voice/stream?token=abc',
     callUuid: 'call-1',
-    language: 'en-US',
   }) as Array<Record<string, unknown>>;
 
   expect(ncco[0].action).toBe('connect');
@@ -101,8 +98,9 @@ test('realtime connect NCCO points the call at the stream websocket', () => {
   expect(endpoint['content-type']).toBe('audio/l16;rate=8000');
   expect(endpoint.headers).toEqual({ callUuid: 'call-1' });
   expect(String(endpoint.uri)).toContain('?token=abc');
-  // The trailing talk ends the call cleanly once the websocket leg closes.
-  expect(ncco.at(-1)?.action).toBe('talk');
+  // Nothing may follow the connect: Vonage plays later actions into the
+  // call while the websocket is up, and the model hears them as the caller.
+  expect(ncco).toHaveLength(1);
 });
 
 test('a minted token upgrades once and wires audio to the realtime session', async () => {
@@ -120,7 +118,6 @@ test('a minted token upgrades once and wires audio to the realtime session', asy
   expect(api.createRealtimeVoiceSession).toHaveBeenCalledWith(
     expect.objectContaining({
       caller: { from: CALL.from, to: CALL.to },
-      greeting: CONFIG.welcomeGreeting,
       session: expect.objectContaining({
         sessionId: 'agent:main:channel:voice:chat:dm:peer:call-1',
         channelId: 'voice:call-1',
@@ -140,9 +137,15 @@ test('a minted token upgrades once and wires audio to the realtime session', asy
   // Model audio goes out through the session's sendAudio seam.
   const sessionOptions = (
     api.createRealtimeVoiceSession as ReturnType<typeof vi.fn>
-  ).mock.calls[0][0] as { sendAudio: (frame: Buffer) => void };
+  ).mock.calls[0][0] as {
+    sendAudio: (frame: Buffer) => void;
+    clearAudio: () => void;
+  };
   sessionOptions.sendAudio(Buffer.alloc(320, 2));
   expect(ws.sent).toHaveLength(1);
+  // Barge-in drops what Vonage has buffered via its clear command.
+  sessionOptions.clearAudio();
+  expect(ws.sent[1]).toBe(JSON.stringify({ action: 'clear' }));
 
   ws.close();
   expect(session.close).toHaveBeenCalled();

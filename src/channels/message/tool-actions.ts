@@ -34,8 +34,8 @@ import { getLineAuthStatus } from '../line/auth.js';
 import { sendToLineSelfChat } from '../line/runtime.js';
 import { normalizeLineChannelId } from '../line/target.js';
 import {
-  isMSTeamsSessionId,
   looksLikeMSTeamsConversationId,
+  resolveMSTeamsRequestSession,
 } from '../msteams/utils.js';
 import { sendToSignalChat } from '../signal/runtime.js';
 import { normalizeSignalChannelId } from '../signal/target.js';
@@ -56,6 +56,7 @@ import { getWhatsAppAuthStatus } from '../whatsapp/auth.js';
 import {
   canonicalizeWhatsAppUserJid,
   isWhatsAppJid,
+  jidToPhone,
   normalizePhoneNumber,
   phoneToJid,
 } from '../whatsapp/phone.js';
@@ -209,8 +210,7 @@ function normalizeMessageToolValue(rawValue: string | undefined): string {
 function isLikelyMSTeamsToolRequest(
   request: DiscordToolActionRequest,
 ): boolean {
-  const sessionId = normalizeMessageToolValue(request.sessionId);
-  if (isMSTeamsSessionId(sessionId)) {
+  if (resolveMSTeamsRequestSession(request.sessionId)) {
     return true;
   }
 
@@ -218,7 +218,7 @@ function isLikelyMSTeamsToolRequest(
   if (!channelId) return false;
   return (
     MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE.test(channelId) ||
-    isMSTeamsSessionId(channelId) ||
+    Boolean(resolveMSTeamsRequestSession(channelId)) ||
     looksLikeMSTeamsConversationId(channelId)
   );
 }
@@ -483,6 +483,30 @@ async function runWhatsAppMessageSendAction(
     throw new Error('WhatsApp is not linked.');
   }
 
+  // Make the result self-describing so the model cannot misreport who sent
+  // the message, to whom, or whether WhatsApp confirmed delivery. The
+  // transport only tells us the linked device accepted the message; there is
+  // no delivery receipt.
+  const linkedJid = whatsappAuth.jid
+    ? canonicalizeWhatsAppUserJid(whatsappAuth.jid)
+    : null;
+  const recipientJid = canonicalizeWhatsAppUserJid(channelId);
+  const isSelfMessage =
+    linkedJid != null && recipientJid != null && linkedJid === recipientJid;
+  const deliveryInfo = {
+    sentFrom: linkedJid
+      ? (jidToPhone(linkedJid) ?? linkedJid)
+      : 'the linked WhatsApp account',
+    recipient: jidToPhone(channelId) ?? channelId,
+    deliveryStatus: 'accepted_by_linked_device',
+    deliveryConfirmed: false,
+    ...(isSelfMessage
+      ? {
+          note: 'The recipient is the linked WhatsApp account itself. WhatsApp shows this as a message to yourself and does not send a push notification.',
+        }
+      : {}),
+  };
+
   if (filePath) {
     await sendWhatsAppMediaToChat({
       jid: channelId,
@@ -496,6 +520,7 @@ async function runWhatsAppMessageSendAction(
       transport: 'whatsapp',
       attachmentCount: 1,
       contentLength: content.length,
+      ...deliveryInfo,
     };
   }
 
@@ -506,6 +531,7 @@ async function runWhatsAppMessageSendAction(
     channelId,
     transport: 'whatsapp',
     contentLength: content.length,
+    ...deliveryInfo,
   };
 }
 

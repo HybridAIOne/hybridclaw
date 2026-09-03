@@ -135,3 +135,50 @@ test('updateJob only updates persisted scheduler jobs', async () => {
     },
   });
 });
+
+test('createJob seeds last_run for cron tasks so they do not fire immediately', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { createJob, getAllJobs } = await import('../src/memory/jobs.ts');
+
+  initDatabase({ quiet: true });
+
+  const before = Date.now();
+  const cronId = createJob({
+    kind: 'scheduled_task',
+    sessionId: 'session-1',
+    channelId: 'channel-1',
+    cronExpr: '0 7 * * *',
+    prompt: 'Morning briefing.',
+  });
+  const atId = createJob({
+    kind: 'scheduled_task',
+    sessionId: 'session-1',
+    channelId: 'channel-1',
+    cronExpr: '',
+    runAt: '2099-01-01T09:00:00.000Z',
+    prompt: 'One-shot reminder.',
+  });
+  const everyId = createJob({
+    kind: 'scheduled_task',
+    sessionId: 'session-1',
+    channelId: 'channel-1',
+    cronExpr: '',
+    everyMs: 600_000,
+    prompt: 'Interval task.',
+  });
+
+  const tasks = getAllJobs({ kind: 'scheduled_task', sessionId: 'session-1' });
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+
+  const cronTask = byId.get(cronId);
+  expect(cronTask?.last_run).toBeTruthy();
+  expect(Date.parse(String(cronTask?.last_run))).toBeGreaterThanOrEqual(
+    before - 1000,
+  );
+  expect(byId.get(atId)?.last_run).toBeNull();
+  expect(byId.get(everyId)?.last_run).toBeNull();
+});
