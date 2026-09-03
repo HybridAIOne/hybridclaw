@@ -5,3 +5,7 @@ export declare function isMSTeamsSessionId(
 export declare function isMSTeamsDmSessionId(
   value: string | null | undefined,
 ): boolean;
+
+export declare function looksLikeMSTeamsConversationId(
+  value: string | null | undefined,
+): boolean;

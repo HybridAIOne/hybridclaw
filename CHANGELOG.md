@@ -2,8 +2,39 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Teams and Slack message-tool sends work from multi-session chats again**:
+  Since the multi-session re-keying, chat sessions run under generated
+  `sess_*` instance ids while the channel identity lives in `session_key`,
+  but the `message` tool still classified sessions by their row id. Sends
+  into the current Teams or Slack chat failed with "No known Teams
+  conversation matched this request" (the reply-pipeline consent card still
+  delivered files, leaving the agent claiming the upload failed right before
+  it arrived). Teams and Slack routing now resolves the session row and
+  classifies it by its canonical session key, and active-session and stored
+  conversation-reference lookups use that key instead of the instance id.
+  The container also advertises the current Teams conversation again by
+  recognizing the conversation-id shape.
+- **Empty per-agent allowlists apply without a gateway restart**: Setting an
+  agent's `skills` or `tools` allowlist to `[]` from `hybridclaw agent config`,
+  the console, or `config.json` is picked up by the running gateway. The
+  registry previously fingerprinted an empty allowlist the same as an absent
+  one, so the change was never detected until restart.
 ### Added
 
+- **Inbound callers can be gated with an allowlist**: `voice.callerPolicy`
+  (`open`, `allowlist`, or `disabled`) and `voice.allowFrom` apply to both the
+  Twilio channel and the Vonage plugin before a call consumes a concurrency
+  slot. Refused callers hear a short spoken notice and their number is logged.
+  Editable from the console under Channels → Voice.
+- **Phone-only realtime greeting and instructions**: `voice.prompt.greeting`
+  and `voice.prompt.instructions` apply on top of the shared
+  `speech.realtime.*` settings for phone calls on any transport, so calls can
+  open in a different language or persona than the web console voice. The
+  Vonage plugin now reads its turn-mode greeting, language, and barge-in
+  setting from the core `voice.relay.*` config instead of its own keys, so
+  every phone conversation setting is in one place and visible in the console.
 - **HybridAI model calls carry correlation headers**: Every request the agent
   runtime sends to the `hybridai` provider includes `X-HybridClaw-Session-Id`,
   `X-HybridClaw-Run-Id`, `X-HybridClaw-Agent-Id`, and `X-HybridClaw-Channel-Id`.
@@ -23,6 +54,18 @@
   consulted agent's actual tool activity and forbids speculation, questions,
   and claims of needing access or credentials — a live call had heard a made-up
   credentials request while the consult was succeeding.
+- **Vonage realtime calls play smoothly and answer sooner**: Model audio is
+  forwarded to the phone leg the moment it arrives instead of one frame per
+  timer tick, so event-loop jitter no longer starves playback into choppy,
+  robotic audio and nothing on the gateway side delays the reply. Barge-in
+  now clears what Vonage has already buffered through its websocket clear
+  command. A debug log line per turn reports the time from end of speech to
+  the first reply audio for both phone and web voice.
+- **Vonage realtime calls no longer open with a farewell**: The answer NCCO
+  carried a trailing "Goodbye." talk that Vonage played into the call as soon
+  as the websocket connected, which the realtime model heard as the caller's
+  first words and answered with a goodbye. The connect action is now the whole
+  NCCO.
 
 ## [0.30.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.0) - 2026-08-31
 

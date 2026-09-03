@@ -6,6 +6,7 @@ import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { VOICE_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
+import { isCallerAllowed, normalizeCallerIdentity } from './caller-policy.js';
 import {
   type ConversationRelayInboundMessage,
   ConversationRelayResponseStream,
@@ -18,7 +19,10 @@ import {
   buildMediaStreamMediaPayload,
   parseMediaStreamMessage,
 } from './media-stream.js';
-import { RealtimeCallBridge } from './realtime-bridge.js';
+import {
+  RealtimeCallBridge,
+  resolvePhoneRealtimeConfig,
+} from './realtime-bridge.js';
 import { resolveRealtimeConnection } from './realtime-credentials.js';
 import { ReplayProtector, validateTwilioSignature } from './security.js';
 import { type VoiceCallSession, VoiceCallSessionStore } from './session.js';
@@ -304,6 +308,16 @@ function sendUnavailableTwiml(res: ServerResponse): void {
     200,
     buildHangupTwiml(
       'HybridClaw voice is unavailable right now. Please try again shortly.',
+    ),
+  );
+}
+
+function sendCallerRefusedTwiml(res: ServerResponse): void {
+  sendXml(
+    res,
+    200,
+    buildHangupTwiml(
+      'Sorry, this number is not available for your call. Goodbye.',
     ),
   );
 }
@@ -723,7 +737,9 @@ function handleMediaStreamConnection(ws: WebSocket, remoteIp: string): void {
             );
           }
           callSid = session.callSid;
-          const realtimeConfig = getConfigSnapshot().speech.realtime;
+          const realtimeConfig = resolvePhoneRealtimeConfig(
+            getConfigSnapshot(),
+          );
           const resolved = resolveRealtimeConnection(realtimeConfig.provider);
           if (!resolved.connection) {
             throw new Error(resolved.error);
@@ -956,10 +972,33 @@ export async function handleVoiceWebhook(
       sendXml(res, 400, buildEmptyTwiml());
       return true;
     }
+    const voiceConfig = getConfigSnapshot().voice;
+    const from = String(body.From || '').trim();
+    if (
+      !isCallerAllowed({
+        callerPolicy: voiceConfig.callerPolicy,
+        allowFrom: voiceConfig.allowFrom,
+        from,
+      })
+    ) {
+      // The refused number is logged so an operator can add a legitimate
+      // caller to allowFrom; without it the allowlist is undiagnosable.
+      logger.warn(
+        {
+          callSid,
+          remoteIp,
+          callerPolicy: voiceConfig.callerPolicy,
+          caller: normalizeCallerIdentity(from) || 'withheld',
+        },
+        'Voice webhook rejected: caller not permitted by callerPolicy',
+      );
+      sendCallerRefusedTwiml(res);
+      return true;
+    }
     const session = sessionStore.getOrCreateFromWebhook({
       callSid,
       remoteIp,
-      from: String(body.From || '').trim(),
+      from,
       to: String(body.To || '').trim(),
       callerName: String(body.CallerName || '').trim() || undefined,
     });
@@ -972,7 +1011,7 @@ export async function handleVoiceWebhook(
       {
         callSid,
         remoteIp,
-        from: String(body.From || '').trim(),
+        from,
         to: String(body.To || '').trim(),
       },
       'Voice webhook accepted',

@@ -174,6 +174,10 @@ Requirements and notes:
   `marin`, `cedar`, `alloy`).
 - `speech.realtime.instructions` is appended to the built-in call
   instructions; use it for tone, language, or caller-handling guidance.
+- `voice.prompt.greeting` and `voice.prompt.instructions` apply to phone
+  calls only, on top of the shared `speech.realtime.*` values, for any
+  transport including the Vonage plugin. Use them when calls should open in a
+  different language or persona than the web console voice.
 - `voice.relay.*` settings are ignored in realtime mode, and
   `channelInstructions.voice` still applies to the consulted agent turns.
 - Realtime API audio is billed by OpenAI per minute of input and output audio
@@ -192,6 +196,46 @@ Requirements and notes:
   sessions pick changes up immediately.
 - Configs written by v0.29.x used `voice.realtime.*` for these settings; the
   gateway migrates them to `speech.realtime.*` on startup.
+
+## Restrict Who Can Call
+
+By default the channel answers every inbound caller. Because a call reaches the
+agent with its usual tools, a number that is published or guessed is an open
+door. Gate it with `voice.callerPolicy`:
+
+```json
+{
+  "voice": {
+    "callerPolicy": "allowlist",
+    "allowFrom": ["+4915123456789", "+14155550123"]
+  }
+}
+```
+
+- `open` (default) answers every caller.
+- `allowlist` answers only the numbers in `voice.allowFrom`. A single `*`
+  entry accepts any caller.
+- `disabled` refuses every caller.
+
+Refused callers hear a short spoken message and the call ends. The check runs
+before the concurrency limit, so a refused call does not consume a slot.
+
+Notes:
+
+- entries must include the country code. `+4915123456789` and
+  `49 151 234 567-89` both work; a national format such as `0151 23456789`
+  does not, because it normalizes to `+015123456789` and can never match what
+  the carrier sends. The gateway logs a warning at startup for allowlist
+  entries that look like a national format.
+- a caller who withholds their number arrives with an empty `From` and so never
+  matches an allowlist
+- the refused number is written to the gateway log, so you can see which number
+  to add
+- both settings are editable in the admin console under
+  Channels → Voice → Caller access
+- an allowlist gates unknown callers; it is not a defence against caller ID
+  spoofing. Restrict the agent's tools as well if the assistant can act on
+  anything sensitive.
 
 ## Store The Twilio Secret
 

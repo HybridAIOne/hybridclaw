@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 const CONSOLE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const SRC_ROOT = path.join(CONSOLE_ROOT, 'src');
 const LEGACY_ACTION_CLASS = /\b(?:primary|secondary|ghost|danger)-button\b/u;
+const CROSS_FILE_COMPOSITION = /^\s*composes:.*\bfrom\b/mu;
 
 function sourceFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -20,6 +21,17 @@ describe('console design-system contract', () => {
     const violations = sourceFiles(SRC_ROOT).flatMap((file) => {
       const source = fs.readFileSync(file, 'utf8');
       return LEGACY_ACTION_CLASS.test(source)
+        ? [path.relative(SRC_ROOT, file)]
+        : [];
+    });
+
+    expect(violations).toEqual([]);
+  });
+
+  it('imports shared CSS Module classes without cross-file composition', () => {
+    const violations = sourceFiles(SRC_ROOT).flatMap((file) => {
+      const source = fs.readFileSync(file, 'utf8');
+      return CROSS_FILE_COMPOSITION.test(source)
         ? [path.relative(SRC_ROOT, file)]
         : [];
     });

@@ -243,7 +243,8 @@ function fingerprintString(value: string | undefined): string {
 }
 
 function fingerprintStringArray(values: string[] | undefined): string {
-  return values?.map(fingerprintString).join(',') ?? '';
+  if (!values) return '';
+  return `[${values.map(fingerprintString).join(',')}]`;
 }
 
 function fingerprintModel(model: AgentModelConfig | undefined): string {

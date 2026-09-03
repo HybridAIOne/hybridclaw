@@ -430,6 +430,55 @@ describe('response ratings', () => {
     });
   });
 
+  test('forwards proxy agent ratings to the upstream chatbot', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = await setup({
+      apiKey: 'hai-feedback-test-key',
+      hybridAIBaseUrl: 'https://hybridai.example/',
+      chatbotId: null,
+    });
+    const { updateRuntimeConfig } = await import(
+      '../src/config/runtime-config.js'
+    );
+    const { initAgentRegistry } = await import(
+      '../src/agents/agent-registry.js'
+    );
+    const proxy = {
+      kind: 'hybridai',
+      baseUrl: 'https://app.hybridai.one',
+      chatbotId: 'bot-upstream',
+      apiKey: '<secret:HYBRIDAI_API_KEY>',
+    };
+    updateRuntimeConfig((draft) => {
+      draft.agents.list = [{ id: 'main', proxy }];
+    });
+    initAgentRegistry({ list: [{ id: 'main', proxy }] });
+
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      rating: 'down',
+      comment: 'Expected 200',
+      sourceSurface: 'msteams',
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const [, request] = fetchMock.mock.calls[0] as [
+      string,
+      RequestInit & { body: string },
+    ];
+    expect(JSON.parse(request.body)).toMatchObject({
+      chatbot_id: 'bot-upstream',
+      rating: 'down',
+      better_response: 'Expected 200',
+    });
+  });
+
   test('forwards non-HybridAI model ratings when a HybridAI bot is active', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

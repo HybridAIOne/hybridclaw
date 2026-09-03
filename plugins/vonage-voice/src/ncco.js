@@ -90,7 +90,10 @@ export function buildGoodbyeNcco(params) {
 /**
  * Realtime mode: hand the call's audio to our websocket endpoint as linear
  * PCM at 8 kHz (matches the µ-law realtime session sample rate — no
- * resampling anywhere). The goodbye talk plays once the websocket leg ends.
+ * resampling anywhere). The connect action is the whole NCCO: Vonage ends
+ * the call when the websocket leg closes. A trailing talk must not follow it
+ * — Vonage plays it into the call as soon as the websocket is up, and the
+ * realtime model hears it as the caller's first utterance.
  */
 export function buildRealtimeConnectNcco(params) {
   return [
@@ -105,11 +108,6 @@ export function buildRealtimeConnectNcco(params) {
         },
       ],
     },
-    ...buildTalkActions({
-      text: 'Goodbye.',
-      language: params.language,
-      bargeIn: false,
-    }),
   ];
 }
 function readString(record, key) {
