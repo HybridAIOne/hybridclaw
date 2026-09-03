@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Empty per-agent allowlists apply without a gateway restart**: Setting an
+  agent's `skills` or `tools` allowlist to `[]` from `hybridclaw agent config`,
+  the console, or `config.json` is picked up by the running gateway. The
+  registry previously fingerprinted an empty allowlist the same as an absent
+  one, so the change was never detected until restart.
 ### Added
 
 - **Inbound callers can be gated with an allowlist**: `voice.callerPolicy`
