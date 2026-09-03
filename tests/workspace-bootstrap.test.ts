@@ -355,6 +355,75 @@ describe('workspace bootstrap lifecycle', () => {
     });
   });
 
+  test('loads the previous days of daily memory notes, newest first, within budget', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const memoryDir = path.join(workspaceDir, 'memory');
+    fs.mkdirSync(memoryDir, { recursive: true });
+    const now = new Date();
+    const stampDaysAgo = (days: number): string => {
+      const date = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+    fs.writeFileSync(
+      path.join(memoryDir, `${stampDaysAgo(0)}.md`),
+      '- today note\n',
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(memoryDir, `${stampDaysAgo(1)}.md`),
+      '- yesterday: user rules\n',
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(memoryDir, `${stampDaysAgo(3)}.md`),
+      '- three days ago\n',
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(memoryDir, `${stampDaysAgo(9)}.md`),
+      '- too old\n',
+      'utf-8',
+    );
+
+    const files = workspace.loadRecentDailyMemoryFiles('agent-test', { now });
+    expect(files.map((file) => file.name)).toEqual([
+      `memory/${stampDaysAgo(0)}.md`,
+      `memory/${stampDaysAgo(1)}.md`,
+      `memory/${stampDaysAgo(3)}.md`,
+    ]);
+    expect(files[1]?.content).toBe('- yesterday: user rules');
+
+    const budgeted = workspace.loadRecentDailyMemoryFiles('agent-test', {
+      now,
+      historyMaxChars: 30,
+    });
+    expect(budgeted.map((file) => file.name)).toEqual([
+      `memory/${stampDaysAgo(0)}.md`,
+      `memory/${stampDaysAgo(1)}.md`,
+    ]);
+
+    const todayOnly = workspace.loadRecentDailyMemoryFiles('agent-test', {
+      now,
+      lookbackDays: 0,
+    });
+    expect(todayOnly.map((file) => file.name)).toEqual([
+      `memory/${stampDaysAgo(0)}.md`,
+    ]);
+  });
+
   test('omits the default HEARTBEAT.md from bootstrap context', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');

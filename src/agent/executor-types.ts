@@ -15,6 +15,7 @@ import type { ScheduledTask } from '../types/scheduler.js';
 
 export interface ExecutorRequest {
   sessionId: string;
+  runId?: string;
   messages: ChatMessage[];
   chatbotId: string;
   enableRag: boolean;

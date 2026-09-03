@@ -1568,3 +1568,43 @@ test('non-send actions still delegate to Discord tool actions', async () => {
     transport: 'discord',
   });
 });
+
+test('WhatsApp send results describe sender, recipient and unconfirmed delivery', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: 'whatsapp:+49 123 456 7890',
+    content: 'hello phone',
+  });
+
+  expect(result).toMatchObject({
+    ok: true,
+    transport: 'whatsapp',
+    recipient: '+491234567890',
+    deliveryStatus: 'accepted_by_linked_device',
+    deliveryConfirmed: false,
+  });
+  expect(result).not.toHaveProperty('note');
+});
+
+test('WhatsApp send results warn when the recipient is the linked account itself', async () => {
+  const state = await importFreshMessageToolActions();
+  state.getWhatsAppAuthStatus.mockResolvedValueOnce({
+    linked: true,
+    jid: '491234567890:7@s.whatsapp.net',
+  } as never);
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: '491234567890@s.whatsapp.net',
+    content: 'note to self',
+  });
+
+  expect(result).toMatchObject({
+    ok: true,
+    sentFrom: '+491234567890',
+    recipient: '+491234567890',
+  });
+  expect(String(result.note)).toContain('does not send a push notification');
+});

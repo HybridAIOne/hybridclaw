@@ -1093,6 +1093,22 @@ export async function buildTeamsUploadedFileAttachment(params: {
   };
 }
 
+async function removeFileConsentCard(
+  turnContext: TurnContext,
+  activity: Partial<Activity>,
+): Promise<void> {
+  const consentActivityId = normalizeValue(activity.replyToId);
+  if (!consentActivityId) return;
+  try {
+    await turnContext.deleteActivity(consentActivityId);
+  } catch (error) {
+    logger.debug(
+      { error, activityId: consentActivityId },
+      'Failed to remove Teams file consent card',
+    );
+  }
+}
+
 export async function maybeHandleMSTeamsFileConsentInvoke(
   turnContext: TurnContext,
 ): Promise<boolean> {
@@ -1106,6 +1122,7 @@ export async function maybeHandleMSTeamsFileConsentInvoke(
     type: 'invokeResponse',
     value: { status: 200 },
   });
+  await removeFileConsentCard(turnContext, activity);
 
   const uploadId = normalizeValue(
     typeof consent.context?.uploadId === 'string'
@@ -1136,6 +1153,9 @@ export async function maybeHandleMSTeamsFileConsentInvoke(
 
   if (consent.action === 'decline') {
     removePendingFileUpload(uploadId);
+    await turnContext.sendActivity(
+      `Skipped sending ${pendingUpload.filename}.`,
+    );
     return true;
   }
 

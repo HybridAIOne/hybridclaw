@@ -2063,6 +2063,7 @@ async function handleGatewayMessageInner(
     }) =>
       runAgent({
         sessionId: req.executionSessionId || req.sessionId,
+        runId,
         messages,
         chatbotId: params.chatbotId,
         enableRag,
@@ -2167,6 +2168,7 @@ async function handleGatewayMessageInner(
     } else {
       output = await runAgent({
         sessionId: req.executionSessionId || req.sessionId,
+        runId,
         messages,
         chatbotId,
         enableRag,

@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  hasMessageSendToolExecution,
   normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
+  normalizeSilentMessageSendReply,
 } from '../src/gateway/chat-result.js';
 import type { GatewayChatResult } from '../src/gateway/gateway-types.js';
 
@@ -133,6 +135,67 @@ describe('normalizePlaceholderToolReply', () => {
       result:
         'Tool calls failed: browser_navigate, browser_snapshot. Last error: browser runtime is not installed.',
     });
+  });
+});
+
+describe('normalizeSilentMessageSendReply', () => {
+  const silentToken = '__MESSAGE_SEND_HANDLED__';
+
+  test('renders "Message sent." only when a message send actually succeeded', () => {
+    const result = normalizeSilentMessageSendReply(
+      makeResult({
+        result: silentToken,
+        toolsUsed: ['message'],
+        toolExecutions: [
+          {
+            name: 'message',
+            arguments: '{"action":"send","to":"+491234567890","content":"hi"}',
+            result: JSON.stringify({ ok: true, action: 'send' }),
+            isError: false,
+          },
+        ],
+      }),
+    );
+    expect(result.result).toBe('Message sent.');
+  });
+
+  test('surfaces the failure when the send failed and the model went silent', () => {
+    const failed = makeResult({
+      result: silentToken,
+      toolsUsed: ['message'],
+      toolExecutions: [
+        {
+          name: 'message',
+          arguments: '{"action":"send","to":"+491234567890","content":"hi"}',
+          result: 'Error: WhatsApp is not linked.',
+          isError: true,
+        },
+      ],
+    });
+    expect(hasMessageSendToolExecution(failed)).toBe(false);
+    const result = normalizeSilentMessageSendReply(failed);
+    expect(result.result).not.toBe('Message sent.');
+    expect(result.result).toContain('message failed');
+    expect(result.result).toContain('WhatsApp is not linked');
+  });
+
+  test('treats ok:false send results as failures', () => {
+    const failed = makeResult({
+      result: silentToken,
+      toolsUsed: ['message'],
+      toolExecutions: [
+        {
+          name: 'message',
+          arguments: '{"action":"send","to":"+491234567890","content":"hi"}',
+          result: JSON.stringify({ ok: false, error: 'rate limited' }),
+          isError: false,
+        },
+      ],
+    });
+    expect(hasMessageSendToolExecution(failed)).toBe(false);
+    expect(normalizeSilentMessageSendReply(failed).result).not.toBe(
+      'Message sent.',
+    );
   });
 });
 

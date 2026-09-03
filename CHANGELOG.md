@@ -9,6 +9,14 @@
   the console, or `config.json` is picked up by the running gateway. The
   registry previously fingerprinted an empty allowlist the same as an absent
   one, so the change was never detected until restart.
+### Added
+
+- **HybridAI model calls carry correlation headers**: Every request the agent
+  runtime sends to the `hybridai` provider includes `X-HybridClaw-Session-Id`,
+  `X-HybridClaw-Run-Id`, `X-HybridClaw-Agent-Id`, and `X-HybridClaw-Channel-Id`.
+  The values match the session and run ids in the audit `wire.jsonl`, so the
+  backend traces behind one HybridClaw turn can be grouped and linked back to
+  the local session. Other providers are unaffected.
 
 ## [0.30.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.0) - 2026-08-31
 
