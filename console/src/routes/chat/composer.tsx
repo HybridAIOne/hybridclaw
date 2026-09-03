@@ -24,6 +24,7 @@ import type {
   MediaItem,
 } from '../../api/chat-types';
 import { Popover, PopoverAnchor } from '../../components/popover';
+import a11yStyles from '../../lib/a11y.module.css';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { pluralize } from '../../lib/format';
@@ -763,11 +764,7 @@ export function Composer(props: {
           />
         ) : null}
       </Popover>
-      <div
-        className={css.slashLiveRegion}
-        aria-live="polite"
-        aria-atomic="true"
-      >
+      <div className={a11yStyles.srOnly} aria-live="polite" aria-atomic="true">
         {liveMessage}
       </div>
     </div>

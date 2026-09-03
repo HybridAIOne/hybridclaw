@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import a11yStyles from '../lib/a11y.module.css';
 import { getReleaseHighlights, LATEST_RELEASE_NOTES } from '../release-notes';
 import { Button } from './button';
 import {
@@ -69,7 +70,7 @@ export function WhatsNew(props: {
             <span className={styles.eyebrow}>HybridClaw update</span>
             <DialogTitle>What&apos;s new in v{props.version}</DialogTitle>
           </div>
-          <DialogDescription className={styles.srOnly}>
+          <DialogDescription className={a11yStyles.srOnly}>
             Release highlights for HybridClaw v{props.version}.
           </DialogDescription>
         </DialogHeader>

@@ -2113,10 +2113,6 @@ aside[data-state="collapsed"] .chatSidebarContent {
   color: var(--muted-foreground);
 }
 
-.slashLiveRegion {
-  composes: srOnly from "../../lib/a11y.module.css";
-}
-
 @media (max-width: 768px) {
   .approvalDetailRow {
     grid-template-columns: 1fr;

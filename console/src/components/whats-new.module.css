@@ -44,10 +44,6 @@
   text-transform: uppercase;
 }
 
-.srOnly {
-  composes: srOnly from "../lib/a11y.module.css";
-}
-
 .highlights {
   display: grid;
   gap: 10px;

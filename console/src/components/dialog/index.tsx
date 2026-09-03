@@ -21,6 +21,7 @@ import {
 } from '../../hooks/useFocusTrap';
 import { useHideOthers } from '../../hooks/useHideOthers';
 import { useScrollLock } from '../../hooks/useScrollLock';
+import a11yStyles from '../../lib/a11y.module.css';
 import { cx } from '../../lib/cx';
 import styles from './index.module.css';
 
@@ -258,7 +259,7 @@ export function DialogHeader(props: {
   return (
     <div
       className={cx(
-        props.visuallyHidden ? styles.srOnly : styles.header,
+        props.visuallyHidden ? a11yStyles.srOnly : styles.header,
         props.className,
       )}
     >
