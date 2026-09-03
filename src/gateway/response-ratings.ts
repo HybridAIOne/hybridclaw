@@ -1,3 +1,4 @@
+import { findAgentConfig } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   getHybridAIApiKey,
@@ -50,11 +51,25 @@ const HYBRIDAI_CHAT_FEEDBACK_URL = `${normalizeBaseUrl(
   HYBRIDAI_BASE_URL,
 )}/api/chat_feedback`;
 
-function resolveHybridAIChatFeedbackBotId(
-  sessionChatbotId: string | null | undefined,
+function resolveProxyAgentChatbotId(
+  agentId: string | null | undefined,
 ): string {
+  if (!agentId?.trim()) return '';
+  try {
+    return findAgentConfig(agentId)?.proxy?.chatbotId?.trim() || '';
+  } catch {
+    return '';
+  }
+}
+
+function resolveHybridAIChatFeedbackBotId(
+  target: Pick<ResponseRatingTarget, 'agent_id' | 'chatbot_id'>,
+): string {
+  // A proxy agent's answers come from its upstream chatbot, so feedback has
+  // to land there rather than on the session's (usually unset) chatbot.
   return (
-    sessionChatbotId?.trim() ||
+    resolveProxyAgentChatbotId(target.agent_id) ||
+    target.chatbot_id?.trim() ||
     OBSERVABILITY_BOT_ID.trim() ||
     HYBRIDAI_CHATBOT_ID.trim() ||
     ''
@@ -90,7 +105,7 @@ async function forwardHybridAIChatFeedbackForRating(input: {
     return;
   }
 
-  const chatbotId = resolveHybridAIChatFeedbackBotId(input.target.chatbot_id);
+  const chatbotId = resolveHybridAIChatFeedbackBotId(input.target);
   if (!chatbotId) return;
 
   const agentId = input.target.agent_id?.trim();
