@@ -10,7 +10,8 @@ HybridClaw's built-in memory is layered. Different stores solve different
 problems:
 
 - `MEMORY.md` is curated long-term workspace memory
-- `memory/YYYY-MM-DD.md` is today's raw memory intake
+- `memory/YYYY-MM-DD.md` files are raw daily memory intake; the current note
+  and recent prior notes bridge the gap until consolidation
 - raw session messages preserve the current conversation
 - `session_summary` compresses older current-session history
 - semantic memory stores query-recallable interaction summaries
@@ -57,10 +58,11 @@ user turn
   |                                                memory hook
   |
   +--> memory tool / pre-compaction memory flush ------> memory/YYYY-MM-DD.md
-                                                         (today only)
+                                                         (current daily note)
                                                                 |
                                                                 v
-                                               dynamic context loads today's file
+                                             dynamic context loads today +
+                                             up to seven prior daily notes
                                                                 |
                                                    nightly dream / /dream rewrites
                                                                 |
@@ -80,17 +82,17 @@ places:
    This includes durable files such as `MEMORY.md`.
 2. Dynamic context block
    This includes current date/time, host metadata, today's
-   `memory/YYYY-MM-DD.md` note when it exists, the current session summary, and
-   relevant retrieval snippets. It is appended after the static system prompt
-   so provider prefix caches can reuse the same system prompt bytes across
-   turns.
+   `memory/YYYY-MM-DD.md` note when it exists, up to seven prior daily notes
+   within a shared history budget, the current session summary, and relevant
+   retrieval snippets. It is appended after the static system prompt so
+   provider prefix caches can reuse the same system prompt bytes across turns.
 3. Memory recall
    This includes canonical cross-channel context and relevant semantic recall.
 4. Recent raw history
    Recent session messages are passed as normal chat history messages, not as a
    summary block.
 
-That means `MEMORY.md`, today's daily note, the semantic DB, and the current
+That means `MEMORY.md`, recent daily notes, the semantic DB, and the current
 session summary are separate sources. They enter the prompt through different
 paths and follow different update rules.
 
@@ -121,8 +123,10 @@ Important properties:
 - the `memory` tool appends here
 - the pre-compaction memory flush writes here before older history is
   summarized away
-- only today's daily note is injected into the per-turn dynamic context block
-- older daily notes are not loaded directly once they are no longer "today"
+- today's note is injected in full into the per-turn dynamic context block
+- up to seven prior daily notes are also loaded newest first, provided each
+  complete note fits within the shared 12,000-character history budget
+- older notes beyond that window or budget are not loaded directly
 - older daily notes are later folded into `MEMORY.md` during dream
   consolidation
 
@@ -236,8 +240,8 @@ The built-in path for a successful turn is roughly:
 1. Store the user and assistant messages in the session message log.
 2. Store one semantic memory for the completed interaction.
 3. Append the same exchange to canonical cross-channel memory.
-4. On the next turn, load bootstrap files including `MEMORY.md` and today's
-   daily note.
+4. On the next turn, load bootstrap files including `MEMORY.md`, today's daily
+   note, and recent prior daily notes within the lookback budget.
 5. Build the memory hook from canonical context, `session_summary`, and
    semantic recall.
 6. Include recent raw session history as chat messages.
@@ -309,7 +313,9 @@ The values below describe the built-in defaults in the current codebase.
 | Limit | Default | Meaning |
 | --- | ---: | --- |
 | bootstrap file read cap | `20,000` chars per file | `MEMORY.md` and other bootstrap files are trimmed before prompt assembly |
-| daily note prompt load | today only | only `memory/YYYY-MM-DD.md` for the current date is injected |
+| current daily note prompt load | up to `20,000` chars | today's `memory/YYYY-MM-DD.md` is injected when present |
+| prior daily note lookback | `7` days | complete prior notes are considered newest first |
+| prior daily note history budget | `12,000` chars | shared cap for prior notes; today's note has its own file cap |
 
 ### Recent Session History
 

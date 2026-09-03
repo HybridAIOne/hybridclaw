@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.30.0',
+  version: '0.30.1',
   highlights: [
-    'Configure agents in the console',
-    'Install plugins from the console',
-    'Manage multiple chat sessions',
-    'Configure realtime speech everywhere',
+    'See memory recall across channels',
+    'Keep agent actions and confirmations honest',
+    'Schedule recurring tasks reliably',
+    'Control inbound voice callers',
   ],
 } as const;
 
