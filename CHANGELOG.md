@@ -4,25 +4,26 @@
 
 ### Fixed
 
-- **Teams and Slack message-tool sends work from multi-session chats again**:
-  Since the multi-session re-keying, chat sessions run under generated
-  `sess_*` instance ids while the channel identity lives in `session_key`,
-  but the `message` tool still classified sessions by their row id. Sends
-  into the current Teams or Slack chat failed with "No known Teams
-  conversation matched this request" (the reply-pipeline consent card still
-  delivered files, leaving the agent claiming the upload failed right before
-  it arrived). Teams and Slack routing now resolves the session row and
-  classifies it by its canonical session key, and active-session and stored
-  conversation-reference lookups use that key instead of the instance id.
-  The container also advertises the current Teams conversation again by
-  recognizing the conversation-id shape.
-- **Empty per-agent allowlists apply without a gateway restart**: Setting an
-  agent's `skills` or `tools` allowlist to `[]` from `hybridclaw agent config`,
-  the console, or `config.json` is picked up by the running gateway. The
-  registry previously fingerprinted an empty allowlist the same as an absent
-  one, so the change was never detected until restart.
+- **Codex requests reuse their prompt cache**: Requests to the Codex Responses
+  API now carry a `prompt_cache_key` derived from the session id, so every call
+  in a conversation routes to the same cache instead of relying on a randomly
+  assigned key. A ten-call tool-using turn previously reprocessed the full
+  ~40K-token prefix on six of its calls; those calls now read from cache.
+- **Voice consult reassurances no longer invent status**: While a voice consult
+  runs, the periodic "still working" prompt now pins the realtime model to the
+  consulted agent's actual tool activity and forbids speculation, questions,
+  and claims of needing access or credentials — a live call had heard a made-up
+  credentials request while the consult was succeeding.
+
+## [0.30.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.1) - 2026-09-03
+
 ### Added
 
+- **Memory recall is visible across every client**: Built-in prompt-memory
+  lookups emit start and finish activity even when no memories match. Web chat
+  preserves the activity on the assistant turn, the TUI and text channels show
+  compact recall summaries, and API responses expose structured
+  `memoryAccess` metadata.
 - **Inbound callers can be gated with an allowlist**: `voice.callerPolicy`
   (`open`, `allowlist`, or `disabled`) and `voice.allowFrom` apply to both the
   Twilio channel and the Vonage plugin before a call consumes a concurrency
@@ -42,18 +43,48 @@
   backend traces behind one HybridClaw turn can be grouped and linked back to
   the local session. Other providers are unaffected.
 
+### Changed
+
+- **Agent actions are grounded in tool results**: Runtime guardrails prohibit
+  claiming that a message, schedule, memory, or configuration change succeeded
+  without a successful tool result from the current turn. Standing rules are
+  persisted before confirmation, future-delivery promises require a real
+  scheduled task, failed silent sends surface their errors, and WhatsApp send
+  results distinguish device acceptance from confirmed delivery. The dynamic
+  context also loads today's daily memory note plus up to seven prior notes
+  within a shared 12,000-character history budget, closing the gap before
+  nightly consolidation.
+- **Langfuse trace reads use the v2 Observations API**: `list-traces` returns
+  logical root observations and `get-trace` returns every observation sharing
+  the trace id, with cursor pagination compatible with Langfuse v4.
+
 ### Fixed
 
-- **Codex requests reuse their prompt cache**: Requests to the Codex Responses
-  API now carry a `prompt_cache_key` derived from the session id, so every call
-  in a conversation routes to the same cache instead of relying on a randomly
-  assigned key. A ten-call tool-using turn previously reprocessed the full
-  ~40K-token prefix on six of its calls; those calls now read from cache.
-- **Voice consult reassurances no longer invent status**: While a voice consult
-  runs, the periodic "still working" prompt now pins the realtime model to the
-  consulted agent's actual tool activity and forbids speculation, questions,
-  and claims of needing access or credentials — a live call had heard a made-up
-  credentials request while the consult was succeeding.
+- **Teams and Slack message-tool sends work from multi-session chats again**:
+  Routing resolves generated `sess_*` instance ids to their canonical session
+  keys before classifying the current conversation or looking up stored Teams
+  references.
+- **Recurring schedules are validated before creation**: Agent-created cron
+  expressions must contain five valid fields, web chat requires an explicit
+  delivery channel, and a new cron task waits for its first real occurrence
+  instead of firing an immediate catch-up run. Tool results and descriptions
+  now state that cron expressions use UTC.
+- **Workspace onboarding starts once per agent workspace**: Opening multiple
+  sessions can no longer launch overlapping `BOOTSTRAP.md` hatching runs for
+  the same agent. A stale claim left by a crashed gateway remains recoverable.
+- **Discord bot alerts use one consistent inbound representation**:
+  Allowlisted embed-only and attachment-only bot posts can trigger the agent,
+  participate in debouncing and reply context, and match suppression patterns.
+  Bot-authored text still cannot invoke commands.
+- **Proxy-agent replies can be rated**: HybridAI proxy turns are recorded in
+  the local session, so `/thumbs` and channel reactions can find the latest
+  answer and forward feedback to the proxy chatbot.
+- **Empty per-agent allowlists apply without a gateway restart**: Setting an
+  agent's `skills` or `tools` allowlist to `[]` is distinct from omitting the
+  allowlist, so live registry reloads apply deny-all changes immediately.
+- **Teams file-consent cards close after a decision**: Allowing or declining an
+  upload removes the live consent card, and declined uploads receive an
+  explicit skipped-send confirmation.
 - **Vonage realtime calls play smoothly and answer sooner**: Model audio is
   forwarded to the phone leg the moment it arrives instead of one frame per
   timer tick, so event-loop jitter no longer starves playback into choppy,
@@ -66,6 +97,12 @@
   as the websocket connected, which the realtime model heard as the caller's
   first words and answered with a goodbye. The connect action is now the whole
   NCCO.
+- **Vonage accepts valid E.164 caller numbers in plugin configuration**: The
+  `fromNumber` schema now passes the intended `+` escape to the regex engine
+  instead of requiring literal backslashes.
+- **Console builds avoid PostCSS composition warnings**: Shared dialog and
+  button styles are applied as component classes rather than cross-file CSS
+  module composition.
 
 ## [0.30.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.0) - 2026-08-31
 

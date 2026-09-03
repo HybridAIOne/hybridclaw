@@ -123,6 +123,18 @@ test('tool activity width uses production wide and zero-width handling', () => {
   expect(stripAnsi(line)).not.toContain('�');
 });
 
+test('memory recall activity uses a readable TUI label', () => {
+  const line = formatTuiToolActivityLine({
+    toolName: 'memory_recall',
+    preview: 'Recalled 2 memories',
+    columns: 80,
+    frameIndex: 0,
+  });
+
+  expect(stripAnsi(line)).toContain('memory recall');
+  expect(stripAnsi(line)).not.toContain('memory_recall');
+});
+
 test('tool activity block keeps active tools on separate rows', () => {
   const lines = formatTuiToolActivityBlock({
     entries: [

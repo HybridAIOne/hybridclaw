@@ -232,9 +232,10 @@ problems that are faster to diagnose from one aggregated report.
 HybridClaw separates the static system prompt from per-turn dynamic context.
 `buildSystemPromptFromHooks()` should be byte-stable for the same agent,
 selected prompt parts, tools, skills, and channel contract. Wall-clock data,
-host metadata, today's `memory/YYYY-MM-DD.md` note, session summaries, and
-retrieval snippets belong in the user-role dynamic context block that is
-placed after retained conversation history, next to the latest user turn.
+host metadata, today's and recent prior `memory/YYYY-MM-DD.md` notes, session
+summaries, and retrieval snippets belong in the user-role dynamic context block
+that is placed after retained conversation history, next to the latest user
+turn.
 History budgets drop a contiguous prefix of complete old turns; retained
 messages are never sliced or rewritten.
 
