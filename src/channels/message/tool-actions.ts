@@ -34,8 +34,8 @@ import { getLineAuthStatus } from '../line/auth.js';
 import { sendToLineSelfChat } from '../line/runtime.js';
 import { normalizeLineChannelId } from '../line/target.js';
 import {
-  isMSTeamsSessionId,
   looksLikeMSTeamsConversationId,
+  resolveMSTeamsRequestSession,
 } from '../msteams/utils.js';
 import { sendToSignalChat } from '../signal/runtime.js';
 import { normalizeSignalChannelId } from '../signal/target.js';
@@ -210,8 +210,7 @@ function normalizeMessageToolValue(rawValue: string | undefined): string {
 function isLikelyMSTeamsToolRequest(
   request: DiscordToolActionRequest,
 ): boolean {
-  const sessionId = normalizeMessageToolValue(request.sessionId);
-  if (isMSTeamsSessionId(sessionId)) {
+  if (resolveMSTeamsRequestSession(request.sessionId)) {
     return true;
   }
 
@@ -219,7 +218,7 @@ function isLikelyMSTeamsToolRequest(
   if (!channelId) return false;
   return (
     MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE.test(channelId) ||
-    isMSTeamsSessionId(channelId) ||
+    Boolean(resolveMSTeamsRequestSession(channelId)) ||
     looksLikeMSTeamsConversationId(channelId)
   );
 }

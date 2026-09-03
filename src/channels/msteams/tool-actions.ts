@@ -2,7 +2,6 @@ import {
   getAllSessions,
   getMemoryValue,
   getRecentMessages,
-  getSessionById,
 } from '../../memory/db.js';
 import type { Session } from '../../types/session.js';
 import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
@@ -11,12 +10,14 @@ import {
   sendToActiveMSTeamsSession,
 } from './runtime.js';
 import {
-  isMSTeamsDmSessionId,
-  isMSTeamsSessionId,
+  isMSTeamsDmSession,
+  isMSTeamsSession,
   isRecord,
   looksLikeMSTeamsConversationId,
   MSTEAMS_CONVERSATION_REFERENCE_KEY,
   normalizeValue,
+  resolveMSTeamsRequestSession,
+  resolveMSTeamsSessionKey,
 } from './utils.js';
 
 const MESSAGE_TOOL_READ_DEFAULT_LIMIT = 20;
@@ -74,8 +75,7 @@ function normalizeStoredMessageTimestamp(raw: string): string {
 }
 
 function isLikelyMSTeamsRequest(request: DiscordToolActionRequest): boolean {
-  const sessionId = normalizeValue(request.sessionId);
-  if (isMSTeamsSessionId(sessionId)) {
+  if (resolveMSTeamsRequestSession(request.sessionId)) {
     return true;
   }
 
@@ -85,7 +85,7 @@ function isLikelyMSTeamsRequest(request: DiscordToolActionRequest): boolean {
   }
   return (
     MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE.test(channelId) ||
-    isMSTeamsSessionId(channelId) ||
+    Boolean(resolveMSTeamsRequestSession(channelId)) ||
     looksLikeMSTeamsConversationId(channelId)
   );
 }
@@ -97,7 +97,7 @@ function pickMostRecentMatchingSession(
   const normalizedGuildId = normalizeValue(request.guildId) || null;
   const matched = getAllSessions().filter(
     (session) =>
-      isMSTeamsSessionId(session.id) &&
+      isMSTeamsSession(session) &&
       normalizeValue(session.channel_id) === channelId &&
       (!normalizedGuildId ||
         normalizeValue(session.guild_id) === normalizedGuildId),
@@ -108,10 +108,7 @@ function pickMostRecentMatchingSession(
 function resolveKnownMSTeamsSession(
   request: DiscordToolActionRequest,
 ): Session | null {
-  const sessionId = normalizeValue(request.sessionId);
-  const currentSession = isMSTeamsSessionId(sessionId)
-    ? getSessionById(sessionId) || null
-    : null;
+  const currentSession = resolveMSTeamsRequestSession(request.sessionId);
   const rawChannelId = normalizeValue(request.channelId);
 
   if (
@@ -128,11 +125,9 @@ function resolveKnownMSTeamsSession(
     return currentSession;
   }
 
-  if (isMSTeamsSessionId(rawChannelId)) {
-    const explicitSession = getSessionById(rawChannelId);
-    return explicitSession && isMSTeamsSessionId(explicitSession.id)
-      ? explicitSession
-      : null;
+  const explicitSession = resolveMSTeamsRequestSession(rawChannelId);
+  if (explicitSession) {
+    return explicitSession;
   }
 
   if (looksLikeMSTeamsConversationId(rawChannelId) || currentSession) {
@@ -146,13 +141,13 @@ function ensureAuthorizedMSTeamsSendTarget(
   request: DiscordToolActionRequest,
   targetSession: Session,
 ): void {
-  const requesterSessionId = normalizeValue(request.sessionId);
-  if (!isMSTeamsSessionId(requesterSessionId)) {
+  const requesterSession = resolveMSTeamsRequestSession(request.sessionId);
+  if (!requesterSession) {
     throw new Error(
       'Teams send is only allowed from the current Teams session.',
     );
   }
-  if (requesterSessionId !== targetSession.id) {
+  if (requesterSession.id !== targetSession.id) {
     throw new Error(
       'Teams send is only allowed to the current Teams session. Cross-session proactive Teams sends are not authorized.',
     );
@@ -160,9 +155,12 @@ function ensureAuthorizedMSTeamsSendTarget(
 }
 
 function readStoredMSTeamsReferenceUser(
-  sessionId: string,
+  targetSession: Session,
 ): StoredMSTeamsReferenceUser | null {
-  const stored = getMemoryValue(sessionId, MSTEAMS_CONVERSATION_REFERENCE_KEY);
+  const stored = getMemoryValue(
+    resolveMSTeamsSessionKey(targetSession),
+    MSTEAMS_CONVERSATION_REFERENCE_KEY,
+  );
   if (!isRecord(stored)) {
     return null;
   }
@@ -181,10 +179,10 @@ function readStoredMSTeamsReferenceUser(
 }
 
 function collectMSTeamsMemberCandidates(
-  sessionId: string,
+  targetSession: Session,
 ): MSTeamsMemberLookupCandidate[] {
   const candidates = new Map<string, MSTeamsMemberLookupCandidate>();
-  const storedUser = readStoredMSTeamsReferenceUser(sessionId);
+  const storedUser = readStoredMSTeamsReferenceUser(targetSession);
   if (storedUser) {
     candidates.set(storedUser.id, {
       id: storedUser.id,
@@ -194,7 +192,7 @@ function collectMSTeamsMemberCandidates(
   }
 
   for (const message of getRecentMessages(
-    sessionId,
+    targetSession.id,
     MESSAGE_TOOL_READ_MAX_LIMIT,
   )) {
     if (message.role === 'assistant') continue;
@@ -315,7 +313,7 @@ async function runMSTeamsSendAction(
   }
 
   const delivery = await sendToActiveMSTeamsSession({
-    sessionId: targetSession.id,
+    sessionId: resolveMSTeamsSessionKey(targetSession),
     text: content,
     filePath: resolvedFilePath,
   });
@@ -378,6 +376,7 @@ function runMSTeamsReadAction(
 function runMSTeamsChannelInfoAction(
   targetSession: Session,
 ): Record<string, unknown> {
+  const sessionKey = resolveMSTeamsSessionKey(targetSession);
   return {
     ok: true,
     action: 'channel-info',
@@ -386,10 +385,10 @@ function runMSTeamsChannelInfoAction(
       id: targetSession.channel_id,
       sessionId: targetSession.id,
       teamId: targetSession.guild_id,
-      isDm: isMSTeamsDmSessionId(targetSession.id),
-      active: hasActiveMSTeamsSession(targetSession.id),
+      isDm: isMSTeamsDmSession(targetSession),
+      active: hasActiveMSTeamsSession(sessionKey),
       proactiveAvailable: Boolean(
-        getMemoryValue(targetSession.id, MSTEAMS_CONVERSATION_REFERENCE_KEY),
+        getMemoryValue(sessionKey, MSTEAMS_CONVERSATION_REFERENCE_KEY),
       ),
       createdAt: targetSession.created_at,
       lastActive: targetSession.last_active,
@@ -401,7 +400,7 @@ function runMSTeamsMemberInfoAction(
   request: DiscordToolActionRequest,
   targetSession: Session,
 ): Record<string, unknown> {
-  const candidates = collectMSTeamsMemberCandidates(targetSession.id);
+  const candidates = collectMSTeamsMemberCandidates(targetSession);
   const lookup = resolveMSTeamsMemberCandidate(
     candidates,
     request.userId ||

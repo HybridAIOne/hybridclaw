@@ -7,7 +7,10 @@ import {
   formatMessageToolChannelList,
   normalizeMessageToolChannelKinds,
 } from '../shared/message-tool-channels.js';
-import { isMSTeamsSessionId } from '../shared/msteams-session-ids.js';
+import {
+  isMSTeamsSessionId,
+  looksLikeMSTeamsConversationId,
+} from '../shared/msteams-session-ids.js';
 import { buildSanitizedEnv } from '../shared/sensitive-env.js';
 import {
   currentDateStampInTimezone,
@@ -762,7 +765,15 @@ function resolveGatewayDiscordChannelFallback(): string {
 }
 
 function resolveGatewayMSTeamsChannelFallback(): string {
-  if (!isMSTeamsSessionId(currentSessionId)) return '';
+  // Teams sessions run under generated `sess_*` instance ids since the
+  // multi-session re-keying, so the conversation-id shape is the reliable
+  // signal; the session-id check keeps legacy Teams ids working.
+  if (
+    !isMSTeamsSessionId(currentSessionId) &&
+    !looksLikeMSTeamsConversationId(gatewayChannelId)
+  ) {
+    return '';
+  }
   return readStringValue(gatewayChannelId) || '';
 }
 

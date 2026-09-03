@@ -4,6 +4,18 @@
 
 ### Fixed
 
+- **Teams and Slack message-tool sends work from multi-session chats again**:
+  Since the multi-session re-keying, chat sessions run under generated
+  `sess_*` instance ids while the channel identity lives in `session_key`,
+  but the `message` tool still classified sessions by their row id. Sends
+  into the current Teams or Slack chat failed with "No known Teams
+  conversation matched this request" (the reply-pipeline consent card still
+  delivered files, leaving the agent claiming the upload failed right before
+  it arrived). Teams and Slack routing now resolves the session row and
+  classifies it by its canonical session key, and active-session and stored
+  conversation-reference lookups use that key instead of the instance id.
+  The container also advertises the current Teams conversation again by
+  recognizing the conversation-id shape.
 - **Empty per-agent allowlists apply without a gateway restart**: Setting an
   agent's `skills` or `tools` allowlist to `[]` from `hybridclaw agent config`,
   the console, or `config.json` is picked up by the running gateway. The
