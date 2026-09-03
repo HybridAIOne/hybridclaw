@@ -103,5 +103,5 @@ When a category warrants an evaluator setup, propose the type of evaluator and o
 | `objectType: TRACE` in queue | Use `objectType: OBSERVATION` with GENERATION obs ID |
 | Creating score config without checking existing | `GET /api/public/score-configs` first; can't delete |
 | Queue created before score configs | Create configs → collect IDs → create queue |
-| `--limit` > 100 on traces list | API hard cap; paginate with `--page` |
+| `--limit` > 100 on traces list | Helper safety cap; paginate with `--cursor` |
 | No rate limiting on queue item creation | `sleep 0.4` between calls to avoid 429 |

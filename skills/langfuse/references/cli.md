@@ -6,7 +6,7 @@ Documentation: https://langfuse.com/docs/api-and-data-platform/features/cli
 > instead of `langfuse-cli`, and do not export `LANGFUSE_PUBLIC_KEY` /
 > `LANGFUSE_SECRET_KEY` — the gateway injects credentials from
 > `LANGFUSE_BASIC_AUTH`. The endpoint, pagination (`--page` / `--cursor`,
-> `--limit` ≤ 100), and v2-vs-legacy guidance below still describes the REST API
+> `--limit` ≤ 100), and API-version guidance below still describes the REST API
 > the helper calls. See SKILL.md section 1.
 
 ## Install
@@ -55,5 +55,5 @@ export LANGFUSE_BASE_URL=https://cloud.langfuse.com
 - Prefer `observations` over `legacy-observations-v1s` — `observations` is the modern high-performance endpoint (cursor pagination, selective field groups); `legacy-observations-v1s` is the deprecated v1
 - Prefer `metrics` over `legacy-metrics-v1s` for the same reason
 - Prefer `scores` over `legacy-score-v1s` for list/get operations
-- For broad trace queries, `traces list` can time out on Langfuse Cloud — use `observations list` (with `--trace-id` if you're traversing from a known trace) instead. See the [Observations API docs](https://langfuse.com/docs/api-and-data-platform/features/observations-api) for the v1 → v2 mapping.
-- Pagination: legacy v1 endpoints use `--limit` and `--page`; modern endpoints (`observations`, `metrics`, `scores`) use cursor-based pagination — pass `--limit`, then thread `meta.cursor` from the response into the next request's `--cursor`
+- `list-traces` and `get-trace` use the v2 Observations API. The list operation returns logical root rows; the get operation returns all rows sharing a trace ID. See the [deprecated API migration guide](https://langfuse.com/faq/all/deprecated-api-migration#traces) for the response-shape change.
+- Pagination: legacy v1 endpoints use `--limit` and `--page`; modern endpoints (`traces`, `observations`, `metrics`, `scores`) use cursor-based pagination — pass `--limit`, then thread `meta.cursor` from the response into the next request's `--cursor`

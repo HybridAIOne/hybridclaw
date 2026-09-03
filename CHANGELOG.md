@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- **HybridAI model calls carry correlation headers**: Every request the agent
+  runtime sends to the `hybridai` provider includes `X-HybridClaw-Session-Id`,
+  `X-HybridClaw-Run-Id`, `X-HybridClaw-Agent-Id`, and `X-HybridClaw-Channel-Id`.
+  The values match the session and run ids in the audit `wire.jsonl`, so the
+  backend traces behind one HybridClaw turn can be grouped and linked back to
+  the local session. Other providers are unaffected.
+
 ### Fixed
 
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
