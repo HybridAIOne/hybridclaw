@@ -81,7 +81,6 @@ import {
 import type { HumanDelayConfig } from './human-delay.js';
 import {
   buildSessionIdFromContext as buildSessionIdFromContextInbound,
-  cleanIncomingContent as cleanIncomingContentInbound,
   type DiscordGuildMessageMode,
   hasDiscordMessageContentChanged,
   hasLooseBotMention as hasLooseBotMentionInbound,
@@ -92,6 +91,7 @@ import {
   isTrigger as isTriggerInbound,
   type ParsedCommand,
   parseCommand as parseCommandInbound,
+  renderMessageText as renderMessageTextInbound,
   shouldIgnoreBotAuthoredMessage as shouldIgnoreBotAuthoredMessageInbound,
   shouldReplyInFreeMode as shouldReplyInFreeModeInbound,
   shouldSkipFreeReplyBecauseOtherUsersMentioned as shouldSkipFreeReplyBecauseOtherUsersMentionedInbound,
@@ -387,34 +387,8 @@ async function buildInboundHistorySnapshot(
     let hiddenBotTextCount = 0;
 
     const summarizeHistoryMessageContent = (recent: DiscordMessage): string => {
-      const plainText = cleanIncomingContent(recent.content || '').trim();
-      if (plainText) return plainText;
-
-      const embedChunks = recent.embeds
-        .map((embed) =>
-          [embed.title?.trim(), embed.description?.trim()]
-            .filter(Boolean)
-            .join(' — '),
-        )
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .slice(0, 3);
-      if (embedChunks.length > 0) {
-        return `[embed] ${embedChunks.join(' | ')}`;
-      }
-
-      const attachmentNames = Array.from(recent.attachments.values())
-        .map((attachment) => attachment.name?.trim())
-        .filter((name): name is string => Boolean(name))
-        .slice(0, 5);
-      if (attachmentNames.length > 0) {
-        return `[attachments] ${attachmentNames.join(', ')}`;
-      }
-
-      const systemContent = recent.system
-        ? (recent.cleanContent || '').trim()
-        : '';
-      if (systemContent) return `[system] ${systemContent}`;
+      const text = renderDiscordMessageText(recent);
+      if (text) return text;
 
       hiddenTextCount += 1;
       if (recent.author?.bot) hiddenBotTextCount += 1;
@@ -815,52 +789,114 @@ function resolveChannelBehavior(msg: DiscordMessage): ResolvedChannelBehavior {
   };
 }
 
+/**
+ * Everything the inbound pipeline needs to know about a message, derived once
+ * so triggering, gating, debouncing and prompt building all read the same
+ * projection instead of re-deriving it from `msg.content`.
+ *
+ * Built only after `shouldIgnoreBotAuthoredMessage`, so a bot author here is
+ * one that an allowlisted channel let through.
+ */
+interface InboundDiscordMessage {
+  msg: DiscordMessage;
+  rawContent: string;
+  text: string;
+  isBotAuthored: boolean;
+  hasAttachments: boolean;
+  hasPrefixInvocation: boolean;
+  hasCommandInvocation: boolean;
+  hasBotMention: boolean;
+  isReplyToBot: boolean;
+  mentionedUserIds: string[];
+}
+
+function renderDiscordMessageText(msg: DiscordMessage): string {
+  return renderMessageTextInbound({
+    content: msg.content,
+    embeds: msg.embeds,
+    attachmentNames: Array.from(msg.attachments.values()).map(
+      (attachment) => attachment.name,
+    ),
+    systemContent: msg.system ? msg.cleanContent : null,
+    botMentionRegex,
+    prefix: DISCORD_PREFIX,
+  });
+}
+
+function describeInboundMessage(msg: DiscordMessage): InboundDiscordMessage {
+  const rawContent = msg.content || '';
+  const isBotAuthored = Boolean(msg.author.bot);
+  // Bot authors never invoke commands, so a webhook cannot run `!claw ...`.
+  const hasPrefixed = !isBotAuthored && hasPrefixInvocation(rawContent);
+  const hasSlash = !isBotAuthored && hasSlashCommandInvocation(rawContent);
+  return {
+    msg,
+    rawContent,
+    text: renderDiscordMessageText(msg),
+    isBotAuthored,
+    hasAttachments: msg.attachments.size > 0,
+    hasPrefixInvocation: hasPrefixed,
+    hasCommandInvocation: hasPrefixed || hasSlash,
+    hasBotMention: Boolean(client.user && msg.mentions.has(client.user)),
+    isReplyToBot: Boolean(
+      client.user && msg.mentions.repliedUser?.id === client.user.id,
+    ),
+    mentionedUserIds: Array.from(msg.mentions.users.keys()),
+  };
+}
+
+function isExplicitlyAddressed(inbound: InboundDiscordMessage): boolean {
+  return (
+    !inbound.msg.guild ||
+    inbound.isBotAuthored ||
+    inbound.hasPrefixInvocation ||
+    inbound.hasBotMention ||
+    inbound.isReplyToBot
+  );
+}
+
 function isTrigger(
-  msg: DiscordMessage,
+  inbound: InboundDiscordMessage,
   behavior: ResolvedChannelBehavior,
 ): boolean {
   return isTriggerInbound({
-    content: msg.content,
-    isDm: !msg.guild,
+    content: inbound.rawContent,
+    text: inbound.text,
+    isDm: !inbound.msg.guild,
     commandsOnly: DISCORD_COMMANDS_ONLY,
     guildMessageMode: behavior.guildMessageMode,
     prefix: DISCORD_PREFIX,
     botMentionRegex,
-    hasBotMention: Boolean(client.user && msg.mentions.has(client.user)),
+    hasBotMention: inbound.hasBotMention,
     suppressPatterns: behavior.suppressPatterns,
+    isAllowlistedBotMessage: inbound.isBotAuthored,
   });
 }
 
 function shouldHandleFreeModeMessage(
-  msg: DiscordMessage,
+  inbound: InboundDiscordMessage,
   behavior: ResolvedChannelBehavior,
-  content: string,
 ): boolean {
+  const { msg, text } = inbound;
   if (!msg.guild) return true;
 
-  const hasPrefixedInvocation = hasPrefixInvocation(msg.content || '');
-  const hasBotMention = Boolean(client.user && msg.mentions.has(client.user));
   const hasLooseBotMention =
     client.user != null
-      ? hasLooseBotMentionInbound(content, [
+      ? hasLooseBotMentionInbound(text, [
           client.user.username,
           client.user.globalName || '',
           msg.guild?.members.me?.displayName || '',
         ])
       : false;
-  const isReplyToBot = Boolean(
-    client.user && msg.mentions.repliedUser?.id === client.user.id,
-  );
-  const mentionedUserIds = Array.from(msg.mentions.users.keys());
-  const botUserId = client.user?.id ?? null;
 
   if (
     shouldSkipFreeReplyBecauseOtherUsersMentionedInbound({
       guildMessageMode: behavior.guildMessageMode,
-      hasBotMention,
-      hasPrefixInvocation: hasPrefixedInvocation,
-      botUserId,
-      mentionedUserIds,
+      hasBotMention: inbound.hasBotMention,
+      hasPrefixInvocation: inbound.hasPrefixInvocation,
+      botUserId: client.user?.id ?? null,
+      mentionedUserIds: inbound.mentionedUserIds,
+      isAllowlistedBotMessage: inbound.isBotAuthored,
     })
   ) {
     return false;
@@ -868,13 +904,14 @@ function shouldHandleFreeModeMessage(
 
   return shouldReplyInFreeModeInbound({
     guildMessageMode: behavior.guildMessageMode,
-    content,
-    hasBotMention,
+    content: text,
+    hasBotMention: inbound.hasBotMention,
     hasLooseBotMention,
-    isAddressedToChannel: isAddressedToChannelInbound(content),
-    hasPrefixInvocation: hasPrefixedInvocation,
-    isReplyToBot,
-    hasAttachments: msg.attachments.size > 0,
+    isAddressedToChannel: isAddressedToChannelInbound(text),
+    hasPrefixInvocation: inbound.hasPrefixInvocation,
+    isReplyToBot: inbound.isReplyToBot,
+    hasAttachments: inbound.hasAttachments,
+    isAllowlistedBotMessage: inbound.isBotAuthored,
   });
 }
 
@@ -913,16 +950,21 @@ function parseCommand(content: string): ParsedCommand {
   return parseCommandInbound(content, botMentionRegex, DISCORD_PREFIX);
 }
 
-function cleanIncomingContent(content: string): string {
-  return cleanIncomingContentInbound(content, botMentionRegex, DISCORD_PREFIX);
-}
-
 function summarizeContextMessage(msg: DiscordMessage): string {
   const author = msg.author?.username || 'user';
-  const content = (msg.content || '').trim();
-  const snippet =
-    content.length > 500 ? `${content.slice(0, 497)}...` : content;
+  const text = renderDiscordMessageText(msg);
+  const snippet = text.length > 500 ? `${text.slice(0, 497)}...` : text;
   return `${author}: ${snippet || '(no text)'}`;
+}
+
+function formatQueuedContent(item: {
+  msg: DiscordMessage;
+  content: string;
+}): string {
+  if (!item.msg.author.bot) return item.content;
+  const kind = item.msg.webhookId ? 'webhook' : 'bot';
+  const author = item.msg.author.username || kind;
+  return `[Posted by ${kind} ${author}, not a person]\n${item.content}`;
 }
 
 function buildChannelInfoContext(msg: DiscordMessage): string {
@@ -1471,17 +1513,18 @@ export async function initDiscord(
   };
 
   const maybeHandleReadWithoutReply = async (
-    msg: DiscordMessage,
-    content: string,
+    inbound: InboundDiscordMessage,
   ): Promise<boolean> => {
-    if (!content.trim()) return false;
+    const { msg } = inbound;
+    const text = inbound.text.trim();
+    if (!text) return false;
     if (!msg.guild) return false;
-    if (msg.attachments.size > 0) return false;
-    if (hasPrefixInvocation(msg.content || '')) return false;
-    if (hasSlashCommandInvocation(msg.content || '')) return false;
-    if (client.user && msg.mentions.has(client.user)) return false;
-    if (content.trim().length > 80) return false;
-    if (!READ_WITHOUT_REPLY_RE.test(content.trim())) return false;
+    if (inbound.isBotAuthored) return false;
+    if (inbound.hasAttachments) return false;
+    if (inbound.hasCommandInvocation) return false;
+    if (inbound.hasBotMention) return false;
+    if (text.length > 80) return false;
+    if (!READ_WITHOUT_REPLY_RE.test(text)) return false;
     if (Math.random() > READ_WITHOUT_REPLY_PROBABILITY) return false;
 
     try {
@@ -1956,9 +1999,12 @@ export async function initDiscord(
     const batchedContent =
       items.length > 1
         ? items
-            .map((item, index) => `Message ${index + 1}:\n${item.content}`)
+            .map(
+              (item, index) =>
+                `Message ${index + 1}:\n${formatQueuedContent(item)}`,
+            )
             .join('\n\n')
-        : sourceItem.content;
+        : formatQueuedContent(sourceItem);
     const channelInfoContext = buildChannelInfoContext(msg);
     const replyContext = await buildReplyContext(msg);
     const feedbackNote = negativeFeedbackByChannel.get(channelId) || '';
@@ -2195,10 +2241,10 @@ export async function initDiscord(
   };
 
   const queueConversationMessage = async (
-    msg: DiscordMessage,
-    content: string,
+    inbound: InboundDiscordMessage,
     behavior: ResolvedChannelBehavior,
   ): Promise<void> => {
+    const { msg, text: content } = inbound;
     const key = `${msg.channelId}:${msg.author.id}`;
     const cooldownKey = buildConversationCooldownKey(
       msg.channelId,
@@ -2212,11 +2258,7 @@ export async function initDiscord(
       ...behavior,
       humanDelay: adjustedHumanDelay,
     };
-    const wasExplicitlyAddressed =
-      !msg.guild ||
-      hasPrefixInvocation(msg.content || '') ||
-      Boolean(client.user && msg.mentions.has(client.user)) ||
-      Boolean(client.user && msg.mentions.repliedUser?.id === client.user.id);
+    const wasExplicitlyAddressed = isExplicitlyAddressed(inbound);
 
     let clearAckReaction: () => Promise<void> = async () => {};
     if (client.user && shouldApplyAckReaction(msg, behavior)) {
@@ -2240,9 +2282,9 @@ export async function initDiscord(
     };
     const existing = pendingBatches.get(key);
     const shouldDebounceMessage = shouldDebounceInbound({
-      content: msg.content || '',
-      hasAttachments: msg.attachments.size > 0,
-      isPrefixedCommand: hasPrefixInvocation(msg.content || ''),
+      content,
+      hasAttachments: inbound.hasAttachments,
+      isPrefixedCommand: inbound.hasPrefixInvocation,
     });
 
     if (!existing) {
@@ -2354,10 +2396,11 @@ export async function initDiscord(
 
   const updatePendingMessage = async (
     messageId: string,
-    nextMsg: DiscordMessage,
+    next: InboundDiscordMessage,
     nextContent: string,
     nextBehavior: ResolvedChannelBehavior,
   ): Promise<boolean> => {
+    const nextMsg = next.msg;
     for (const [key, pending] of pendingBatches) {
       const index = pending.items.findIndex(
         (item) => item.msg.id === messageId,
@@ -2372,9 +2415,7 @@ export async function initDiscord(
         pending.items[index].content = nextContent;
         pending.items[index].behavior = nextBehavior;
         pending.items[index].wasExplicitlyAddressed =
-          !nextMsg.guild ||
-          hasPrefixInvocation(nextMsg.content || '') ||
-          Boolean(client.user && nextMsg.mentions.has(client.user));
+          isExplicitlyAddressed(next);
         pending.items[index].cooldownKey = buildConversationCooldownKey(
           nextMsg.channelId,
           nextMsg.author.id,
@@ -2408,11 +2449,12 @@ export async function initDiscord(
       return;
     }
 
+    const inbound = describeInboundMessage(msg);
+    const { text: content } = inbound;
     const sessionId = getSessionId(msg);
     const guildId = msg.guild?.id || null;
     const channelId = msg.channelId;
     const behavior = resolveChannelBehavior(msg);
-    const content = cleanIncomingContent(msg.content);
     observeMessageParticipants(msg, content);
     const immediateMentionLookup = buildMentionLookup(
       [msg],
@@ -2449,9 +2491,7 @@ export async function initDiscord(
     };
 
     const parsed = parseCommand(msg.content);
-    const hasPrefixedInvocation = hasPrefixInvocation(msg.content);
-    const hasSlashInvocation = hasSlashCommandInvocation(msg.content);
-    const hasCommandInvocation = hasPrefixedInvocation || hasSlashInvocation;
+    const { hasCommandInvocation } = inbound;
     logger.debug(
       {
         sessionId,
@@ -2519,7 +2559,7 @@ export async function initDiscord(
       return;
     }
 
-    if (!isTrigger(msg, behavior)) {
+    if (!isTrigger(inbound, behavior)) {
       logger.debug(
         {
           sessionId,
@@ -2557,7 +2597,7 @@ export async function initDiscord(
       return;
     }
 
-    if (!shouldHandleFreeModeMessage(msg, behavior, content)) {
+    if (!shouldHandleFreeModeMessage(inbound, behavior)) {
       logger.debug(
         {
           channelId: msg.channelId,
@@ -2574,18 +2614,14 @@ export async function initDiscord(
       return;
     }
 
-    const readWithoutReplyHandled = await maybeHandleReadWithoutReply(
-      msg,
-      content,
-    );
-    if (readWithoutReplyHandled) {
+    if (await maybeHandleReadWithoutReply(inbound)) {
       return;
     }
 
     const rateLimitAllowed = await enforcePerUserRateLimit(msg, behavior);
     if (!rateLimitAllowed) return;
 
-    await queueConversationMessage(msg, content, behavior);
+    await queueConversationMessage(inbound, behavior);
   });
 
   client.on('messageUpdate', async (oldMsg, nextMsg) => {
@@ -2599,25 +2635,26 @@ export async function initDiscord(
       return;
     }
 
-    const updatedContent = cleanIncomingContent(fetched.content || '');
+    const inbound = describeInboundMessage(fetched);
+    const updatedContent = inbound.text;
     const behavior = resolveChannelBehavior(fetched);
     observeMessageParticipants(fetched, updatedContent);
-    if (!isTrigger(fetched, behavior)) {
-      await updatePendingMessage(fetched.id, fetched, '', behavior);
+    if (!isTrigger(inbound, behavior)) {
+      await updatePendingMessage(fetched.id, inbound, '', behavior);
       return;
     }
     if (
-      hasPrefixInvocation(fetched.content || '') &&
+      inbound.hasPrefixInvocation &&
       !isAuthorizedCommandUserId(fetched.author.id)
     ) {
-      await updatePendingMessage(fetched.id, fetched, '', behavior);
+      await updatePendingMessage(fetched.id, inbound, '', behavior);
       return;
     }
-    if (!shouldHandleFreeModeMessage(fetched, behavior, updatedContent)) {
-      await updatePendingMessage(fetched.id, fetched, '', behavior);
+    if (!shouldHandleFreeModeMessage(inbound, behavior)) {
+      await updatePendingMessage(fetched.id, inbound, '', behavior);
       return;
     }
-    await updatePendingMessage(fetched.id, fetched, updatedContent, behavior);
+    await updatePendingMessage(fetched.id, inbound, updatedContent, behavior);
 
     const inFlight = inFlightByMessageId.get(fetched.id);
     if (!inFlight || inFlight.aborted) return;
@@ -2633,7 +2670,7 @@ export async function initDiscord(
     if (updatedContent) {
       const rateLimitAllowed = await enforcePerUserRateLimit(fetched, behavior);
       if (!rateLimitAllowed) return;
-      await queueConversationMessage(fetched, updatedContent, behavior);
+      await queueConversationMessage(inbound, behavior);
     }
   });
 

@@ -16,7 +16,10 @@
  * framing lives in `media-stream.ts`, browser framing in the gateway) and the
  * upstream socket in `openai-realtime.ts`; this module never touches raw JSON.
  */
-import type { RuntimeSpeechRealtimeConfig } from '../../config/runtime-config.js';
+import type {
+  RuntimeSpeechRealtimeConfig,
+  RuntimeVoicePromptConfig,
+} from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
 import { isRecord } from '../../utils/type-guards.js';
 import {
@@ -87,6 +90,26 @@ export interface RealtimeBridgeOptions {
   onError: (message: string) => void;
   onClosed: () => void;
   socketFactory?: RealtimeSocketFactory;
+}
+
+/**
+ * The realtime config a phone call runs with: the shared `speech.realtime.*`
+ * settings with the phone-only `voice.prompt.*` greeting and instructions
+ * applied on top, for any transport.
+ */
+export function resolvePhoneRealtimeConfig(snapshot: {
+  speech: { realtime: RuntimeSpeechRealtimeConfig };
+  voice: { prompt: RuntimeVoicePromptConfig };
+}): RuntimeSpeechRealtimeConfig {
+  const shared = snapshot.speech.realtime;
+  const phone = snapshot.voice.prompt;
+  return {
+    ...shared,
+    greeting: phone.greeting.trim() || shared.greeting,
+    instructions: [shared.instructions.trim(), phone.instructions.trim()]
+      .filter(Boolean)
+      .join('\n'),
+  };
 }
 
 export function buildRealtimeInstructions(

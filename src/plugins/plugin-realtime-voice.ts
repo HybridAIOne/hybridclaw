@@ -20,7 +20,10 @@
  */
 import { muLawToPcm16, pcm16ToMuLaw } from '../channels/voice/audio-codec.js';
 import type { RealtimeSocketFactory } from '../channels/voice/openai-realtime.js';
-import { RealtimeCallBridge } from '../channels/voice/realtime-bridge.js';
+import {
+  RealtimeCallBridge,
+  resolvePhoneRealtimeConfig,
+} from '../channels/voice/realtime-bridge.js';
 import {
   isRealtimeCredentialConfigured,
   resolveRealtimeConnection,
@@ -69,12 +72,11 @@ export function createPluginRealtimeVoiceSession(
   options: PluginRealtimeVoiceSessionOptions,
   deps: PluginRealtimeVoiceDeps,
 ): PluginRealtimeVoiceSession {
-  const voiceConfig = getConfigSnapshot().speech.realtime;
+  const voiceConfig = resolvePhoneRealtimeConfig(getConfigSnapshot());
   const resolved = resolveRealtimeConnection(voiceConfig.provider);
   if (!resolved.connection) {
     throw new Error(resolved.error);
   }
-  const greeting = String(options.greeting || '').trim();
   const identity = options.session;
 
   let queued: Buffer[] = [];
@@ -162,7 +164,7 @@ export function createPluginRealtimeVoiceSession(
 
   const bridge = new RealtimeCallBridge({
     connection: resolved.connection,
-    config: greeting ? { ...voiceConfig, greeting } : voiceConfig,
+    config: voiceConfig,
     caller: {
       from: options.caller.from,
       to: options.caller.to,

@@ -22,7 +22,7 @@ configSchema:
       minLength: 1
     fromNumber:
       type: string
-      pattern: '^\\+[1-9][0-9]{7,14}$'
+      pattern: '^\+[1-9][0-9]{7,14}$'
     publicBaseUrl:
       type: string
       pattern: '^https://'
@@ -30,15 +30,6 @@ configSchema:
       type: string
       enum: [turn, realtime]
       default: turn
-    language:
-      type: string
-      default: en-US
-    welcomeGreeting:
-      type: string
-      default: Hello! How can I help you today?
-    interruptible:
-      type: boolean
-      default: true
     maxConcurrentCalls:
       type: integer
       default: 8

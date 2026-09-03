@@ -1174,8 +1174,30 @@ async function handleGatewayMessageInner(
         runId,
         abortSignal: activeGatewayRequest.signal,
       });
+      // Proxied turns skip the local agent loop, but the exchange still has
+      // to exist in this session so channel ratings (/thumbs, reactions) can
+      // find the answer and forward feedback to the upstream chatbot.
+      const userMessageId = memoryService.storeMessage({
+        sessionId: req.sessionId,
+        userId: req.userId,
+        username: req.username,
+        role: 'user',
+        content: req.content,
+      });
+      const assistantMessageId = result.result?.trim()
+        ? memoryService.storeMessage({
+            sessionId: req.sessionId,
+            userId: 'assistant',
+            username: null,
+            role: 'assistant',
+            content: result.result,
+            agentId,
+          })
+        : undefined;
       return attachSessionIdentity({
         ...result,
+        userMessageId,
+        assistantMessageId,
         assistantPresentation:
           getGatewayAssistantPresentationForMessageAgent(agentId),
       });
@@ -2063,6 +2085,7 @@ async function handleGatewayMessageInner(
     }) =>
       runAgent({
         sessionId: req.executionSessionId || req.sessionId,
+        runId,
         messages,
         chatbotId: params.chatbotId,
         enableRag,
@@ -2167,6 +2190,7 @@ async function handleGatewayMessageInner(
     } else {
       output = await runAgent({
         sessionId: req.executionSessionId || req.sessionId,
+        runId,
         messages,
         chatbotId,
         enableRag,

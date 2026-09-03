@@ -561,7 +561,8 @@ export interface PluginRealtimeVoiceSessionIdentity {
 
 /**
  * A realtime speech-to-speech voice session backed by the core realtime
- * engine (`speech.realtime.*` config and credentials). Transport audio is
+ * engine (`speech.realtime.*` plus the phone-only `voice.prompt.*`
+ * greeting and instructions, and the realtime credentials). Transport audio is
  * 16-bit LE mono PCM at 8 kHz; model audio is delivered as 20 ms frames as
  * soon as the model produces them, with a bounded amount in flight, and
  * `clearAudio` is invoked on barge-in so the transport can drop what the far
@@ -570,8 +571,6 @@ export interface PluginRealtimeVoiceSessionIdentity {
 export interface PluginRealtimeVoiceSessionOptions {
   caller: PluginRealtimeVoiceCallerInfo;
   session: PluginRealtimeVoiceSessionIdentity;
-  /** Overrides the configured realtime greeting for this call. */
-  greeting?: string;
   sendAudio: (frame: Buffer) => void;
   /** Drop model audio the far end has buffered but not yet played. */
   clearAudio?: () => void;

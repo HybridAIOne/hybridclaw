@@ -106,9 +106,9 @@ function normalizeAllowListEntry(value: string): string | null {
   return trimmed || null;
 }
 
-function dedupeAllowListEntries(values: string[]): string[] {
+function dedupeAllowListEntries(values: string[] | undefined): string[] {
   const entries: string[] = [];
-  for (const value of values) {
+  for (const value of Array.isArray(values) ? values : []) {
     if (!value || entries.includes(value)) continue;
     entries.push(value);
   }
@@ -2465,6 +2465,47 @@ function VoiceChannelEditor(props: {
         />
       </div>
 
+      <h4>Caller access</h4>
+      <p className="muted-copy">
+        Which inbound callers reach the assistant. A caller who withholds their
+        number is never matched by an allowlist.
+      </p>
+
+      <FormField
+        name="voice.callerPolicy"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Caller policy</FieldLabel>
+            <NativeSelect
+              value={field.value as string}
+              onChange={field.onChange}
+            >
+              <NativeSelectOption value="open">
+                open (accept every caller)
+              </NativeSelectOption>
+              <NativeSelectOption value="allowlist">
+                allowlist (accept only the numbers below)
+              </NativeSelectOption>
+              <NativeSelectOption value="disabled">
+                disabled (reject every caller)
+              </NativeSelectOption>
+            </NativeSelect>
+          </Field>
+        )}
+      />
+
+      <FormField
+        name="voice.allowFrom"
+        render={({ field }) => (
+          <AllowListField
+            label="Allowed callers"
+            value={field.value as string[]}
+            placeholder="+4915123456789 (with country code) or *"
+            onChange={field.onChange}
+          />
+        )}
+      />
+
       <h4>Relay voice</h4>
       <p className="muted-copy">
         Turn-based settings used by phone calls in relay mode.
@@ -2623,6 +2664,41 @@ function VoiceChannelEditor(props: {
             <Textarea rows={3} {...field} />
             <FieldDescription>
               Appended to the built-in realtime voice instructions.
+            </FieldDescription>
+          </Field>
+        )}
+      />
+
+      <h4>Phone prompt</h4>
+      <p className="muted-copy">
+        Realtime-mode overrides for phone calls only (<code>voice.prompt</code>
+        ), on any transport including the Vonage plugin. The web chat voice
+        keeps the shared settings above.
+      </p>
+
+      <FormField
+        name="voice.prompt.greeting"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Phone greeting</FieldLabel>
+            <Textarea rows={2} {...field} />
+            <FieldDescription>
+              Spoken first on every call. Leave empty to use the shared
+              greeting.
+            </FieldDescription>
+          </Field>
+        )}
+      />
+
+      <FormField
+        name="voice.prompt.instructions"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Phone instructions</FieldLabel>
+            <Textarea rows={3} {...field} />
+            <FieldDescription>
+              Appended after the shared extra instructions for phone calls, e.g.
+              the language to speak.
             </FieldDescription>
           </Field>
         )}

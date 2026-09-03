@@ -47,6 +47,7 @@ import {
   isHybridAIEmptyVisibleCompletion,
   ProviderRequestError,
   summarizeHybridAICompletionForDebug,
+  withHybridAICorrelationHeaders,
 } from './providers/shared.js';
 import { buildRalphPrompt, normalizeMessageContentToText } from './ralph.js';
 import { injectRuntimeCapabilitiesMessage } from './runtime-capabilities.js';
@@ -1969,6 +1970,14 @@ async function main(): Promise<void> {
   applyRuntimeEnv(firstInput.runtimeEnv);
   storedApiKey = firstInput.apiKey;
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
+  const firstRequestHeaders = withHybridAICorrelationHeaders({
+    provider: firstInput.provider,
+    sessionId: firstInput.sessionId,
+    runId: firstInput.runId,
+    agentId: firstInput.agentId,
+    channelId: firstInput.channelId,
+    requestHeaders: storedRequestHeaders,
+  });
   const firstTaskModels = resolveTaskModelsForRequest(firstInput.taskModels);
 
   console.error(
@@ -2003,7 +2012,7 @@ async function main(): Promise<void> {
     storedApiKey,
     firstInput.model,
     firstInput.chatbotId,
-    storedRequestHeaders,
+    firstRequestHeaders,
     firstInput.maxTokens,
     firstInput.modelBehavior,
     firstInput.debugModelResponses === true,
@@ -2060,7 +2069,7 @@ async function main(): Promise<void> {
       model: firstInput.model,
       chatbotId: firstInput.chatbotId,
       enableRag: firstInput.enableRag,
-      requestHeaders: storedRequestHeaders,
+      requestHeaders: firstRequestHeaders,
       ...inputRuntimeContext(firstInput),
       tools: resolveTools(firstInput),
       taskModels: firstTaskModels,
@@ -2156,10 +2165,17 @@ async function main(): Promise<void> {
 
     // Use stored apiKey — IPC file no longer contains it
     const apiKey = input.apiKey || storedApiKey;
-    const requestHeaders =
-      input.requestHeaders && Object.keys(input.requestHeaders).length > 0
-        ? input.requestHeaders
-        : storedRequestHeaders;
+    const requestHeaders = withHybridAICorrelationHeaders({
+      provider: input.provider,
+      sessionId: input.sessionId,
+      runId: input.runId,
+      agentId: input.agentId,
+      channelId: input.channelId,
+      requestHeaders:
+        input.requestHeaders && Object.keys(input.requestHeaders).length > 0
+          ? input.requestHeaders
+          : storedRequestHeaders,
+    });
     if (input.apiKey) storedApiKey = input.apiKey;
     if (input.requestHeaders && Object.keys(input.requestHeaders).length > 0) {
       storedRequestHeaders = { ...input.requestHeaders };

@@ -4,8 +4,6 @@ import { createVonageRealtimeStreams } from '../plugins/vonage-voice/src/realtim
 
 const CONFIG = {
   publicBaseUrl: 'https://voice.example.com',
-  welcomeGreeting: 'Hello there!',
-  language: 'en-US',
 };
 
 const CALL = { uuid: 'call-1', from: '+15550001111', to: '+15550002222' };
@@ -120,7 +118,6 @@ test('a minted token upgrades once and wires audio to the realtime session', asy
   expect(api.createRealtimeVoiceSession).toHaveBeenCalledWith(
     expect.objectContaining({
       caller: { from: CALL.from, to: CALL.to },
-      greeting: CONFIG.welcomeGreeting,
       session: expect.objectContaining({
         sessionId: 'agent:main:channel:voice:chat:dm:peer:call-1',
         channelId: 'voice:call-1',

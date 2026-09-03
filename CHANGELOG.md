@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Added
+
+- **Inbound callers can be gated with an allowlist**: `voice.callerPolicy`
+  (`open`, `allowlist`, or `disabled`) and `voice.allowFrom` apply to both the
+  Twilio channel and the Vonage plugin before a call consumes a concurrency
+  slot. Refused callers hear a short spoken notice and their number is logged.
+  Editable from the console under Channels → Voice.
+- **Phone-only realtime greeting and instructions**: `voice.prompt.greeting`
+  and `voice.prompt.instructions` apply on top of the shared
+  `speech.realtime.*` settings for phone calls on any transport, so calls can
+  open in a different language or persona than the web console voice. The
+  Vonage plugin now reads its turn-mode greeting, language, and barge-in
+  setting from the core `voice.relay.*` config instead of its own keys, so
+  every phone conversation setting is in one place and visible in the console.
+- **HybridAI model calls carry correlation headers**: Every request the agent
+  runtime sends to the `hybridai` provider includes `X-HybridClaw-Session-Id`,
+  `X-HybridClaw-Run-Id`, `X-HybridClaw-Agent-Id`, and `X-HybridClaw-Channel-Id`.
+  The values match the session and run ids in the audit `wire.jsonl`, so the
+  backend traces behind one HybridClaw turn can be grouped and linked back to
+  the local session. Other providers are unaffected.
+
 ### Fixed
 
 - **Vonage realtime calls play smoothly and answer sooner**: Model audio is

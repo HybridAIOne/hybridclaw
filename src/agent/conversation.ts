@@ -16,7 +16,7 @@ import {
 import type { ChatMessage } from '../types/api.js';
 import {
   formatCurrentTime,
-  loadDailyMemoryFile,
+  loadRecentDailyMemoryFiles,
   loadStaticBootstrapFiles,
   resolveUserTimezoneFromContextFiles,
 } from '../workspace.js';
@@ -73,7 +73,7 @@ export function buildDynamicContextMessage(
     const userTimezone = resolveUserTimezoneFromContextFiles(contextFiles);
     lines.push(`Current Date & Time: ${formatCurrentTime(userTimezone, now)}`);
 
-    const dailyMemoryFile = loadDailyMemoryFile(agentId, {
+    const dailyMemoryFiles = loadRecentDailyMemoryFiles(agentId, {
       now,
       contextFiles,
     });
@@ -82,7 +82,7 @@ export function buildDynamicContextMessage(
     }
     lines.push('</context>');
 
-    if (dailyMemoryFile) {
+    for (const dailyMemoryFile of dailyMemoryFiles) {
       dynamicSections.push(
         [
           `## Daily Memory (${dailyMemoryFile.name})`,

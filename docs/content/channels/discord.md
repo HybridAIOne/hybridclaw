@@ -59,9 +59,27 @@ an alerts channel fed by monitoring or CI webhooks. The agent's own messages
 are always ignored, including in these channels, so it can never reply to
 itself.
 
+Such alerts usually carry their payload in an **embed** rather than message
+text, so HybridClaw renders the embed (or, failing that, the attachment names)
+for the agent to read. In an allowlisted channel a bot post needs no mention
+and skips the `free`-mode relevance heuristics — a status line is not phrased
+as a request. A post with no readable text is still ignored, and
+`suppressPatterns` match the rendered embed text, so noisy alert types can be
+filtered out.
+
 ```text
 /config set discord.botMessageChannels ["123456789012345678"]
 ```
+
+The allowlist only lifts the mention requirement. Guild message handling must
+still be on for the channel: `discord.commandsOnly` must be `false`, and the
+channel's mode must resolve to `mention` or `free` (so not `groupPolicy:
+"disabled"`, and with `groupPolicy: "allowlist"` the channel needs an entry in
+`discord.guilds`).
+
+Bot- and webhook-authored messages never invoke `!claw` or slash commands, and
+edits to bot messages are not re-read, so a bot that updates an alert in place
+is seen only in its original state.
 
 Do not allowlist a channel that HybridClaw itself posts into through
 `discordWebhook`. Those messages arrive authored by the webhook rather than by
