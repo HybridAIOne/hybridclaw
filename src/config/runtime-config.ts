@@ -320,6 +320,7 @@ export type SignalGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type ThreemaDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageBackend = 'local' | 'bluebubbles';
 export type IMessageDmPolicy = 'open' | 'allowlist' | 'disabled';
+export type VoiceCallerPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type RuntimeAudioTranscriptionProvider =
   | 'hybridai'
@@ -658,12 +659,32 @@ export interface RuntimeVoiceRelayConfig {
   welcomeGreeting: string;
 }
 
+/**
+ * Phone-only prompt overrides for realtime mode. `speech.realtime.*` is
+ * shared with the web console voice; these apply on top for calls from any
+ * transport.
+ */
+export interface RuntimeVoicePromptConfig {
+  /** Spoken first; empty falls back to `speech.realtime.greeting`. */
+  greeting: string;
+  /** Appended after `speech.realtime.instructions` for phone calls only. */
+  instructions: string;
+}
+
 export interface RuntimeVoiceConfig {
   enabled: boolean;
   provider: RuntimeVoiceProvider;
   mode: RuntimeVoiceMode;
   twilio: RuntimeVoiceTwilioConfig;
   relay: RuntimeVoiceRelayConfig;
+  prompt: RuntimeVoicePromptConfig;
+  /**
+   * Which inbound callers reach the assistant. `allowlist` accepts only the
+   * numbers in `allowFrom`; a caller who withholds their number is never
+   * matched by an allowlist.
+   */
+  callerPolicy: VoiceCallerPolicy;
+  allowFrom: string[];
   webhookPath: string;
   maxConcurrentCalls: number;
 }
@@ -1791,6 +1812,12 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       interruptible: true,
       welcomeGreeting: 'Hello! How can I help you today?',
     },
+    prompt: {
+      greeting: '',
+      instructions: '',
+    },
+    callerPolicy: 'open',
+    allowFrom: [],
     webhookPath: '/voice',
     maxConcurrentCalls: 8,
   },
@@ -4046,6 +4073,22 @@ function normalizeSlackWebhookConfig(
   };
 }
 
+function normalizeVoiceCallerPolicy(
+  value: unknown,
+  fallback: VoiceCallerPolicy,
+): VoiceCallerPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
 function normalizeVoiceConfig(
   value: unknown,
   fallback: RuntimeVoiceConfig,
@@ -4056,10 +4099,16 @@ function normalizeVoiceConfig(
   const raw = isRecord(value) ? value : {};
   const rawTwilio = isRecord(raw.twilio) ? raw.twilio : {};
   const rawRelay = isRecord(raw.relay) ? raw.relay : {};
+  const rawPrompt = isRecord(raw.prompt) ? raw.prompt : {};
   return {
     enabled: normalizeBoolean(raw.enabled, fallback.enabled),
     provider: normalizeVoiceProvider(raw.provider, fallback.provider),
     mode: normalizeVoiceMode(raw.mode, fallback.mode),
+    callerPolicy: normalizeVoiceCallerPolicy(
+      raw.callerPolicy,
+      fallback.callerPolicy,
+    ),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
     twilio: {
       accountSid: normalizeString(
         rawTwilio.accountSid,
@@ -4100,6 +4149,16 @@ function normalizeVoiceConfig(
         rawRelay.welcomeGreeting,
         fallback.relay.welcomeGreeting,
         { allowEmpty: false },
+      ),
+    },
+    prompt: {
+      greeting: normalizeString(rawPrompt.greeting, fallback.prompt.greeting, {
+        allowEmpty: true,
+      }),
+      instructions: normalizeString(
+        rawPrompt.instructions,
+        fallback.prompt.instructions,
+        { allowEmpty: true },
       ),
     },
     webhookPath: normalizeApiPath(raw.webhookPath, fallback.webhookPath),
