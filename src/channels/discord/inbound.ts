@@ -171,10 +171,12 @@ export function shouldSkipFreeReplyBecauseOtherUsersMentioned(params: {
   hasPrefixInvocation: boolean;
   botUserId: string | null;
   mentionedUserIds: string[];
+  isAllowlistedBotMessage?: boolean;
 }): boolean {
   if (params.guildMessageMode !== 'free') return false;
   if (params.hasBotMention) return false;
   if (params.hasPrefixInvocation) return false;
+  if (params.isAllowlistedBotMessage) return false;
   if (params.mentionedUserIds.length === 0) return false;
 
   const botId = params.botUserId?.trim() || '';
@@ -190,6 +192,7 @@ export function shouldReplyInFreeMode(params: {
   hasPrefixInvocation: boolean;
   isReplyToBot: boolean;
   hasAttachments: boolean;
+  isAllowlistedBotMessage?: boolean;
 }): boolean {
   if (params.guildMessageMode !== 'free') return true;
   if (params.hasPrefixInvocation) return true;
@@ -200,6 +203,8 @@ export function shouldReplyInFreeMode(params: {
 
   const normalized = params.content.trim();
   if (!normalized) return false;
+  // After the empty check, so a textless bot post stays dropped.
+  if (params.isAllowlistedBotMessage) return true;
   if (FREE_MODE_ACK_ONLY_RE.test(normalized)) return false;
   if (URL_ONLY_RE.test(normalized)) return false;
   if (params.isAddressedToChannel) return true;
@@ -227,8 +232,14 @@ export function isAuthorizedCommandUser(params: {
   return allowed.has(params.userId);
 }
 
+/**
+ * `content` is the raw message content and drives command detection. `text`
+ * is the rendered message text (content, else embeds, else attachments) and
+ * drives suppress patterns, so an embed-only alert can be suppressed too.
+ */
 export function isTrigger(params: {
   content: string;
+  text?: string;
   isDm: boolean;
   commandsOnly: boolean;
   guildMessageMode: DiscordGuildMessageMode;
@@ -236,8 +247,10 @@ export function isTrigger(params: {
   botMentionRegex: RegExp | null;
   hasBotMention: boolean;
   suppressPatterns?: string[];
+  isAllowlistedBotMessage?: boolean;
 }): boolean {
-  const stripped = stripBotMentions(params.content, params.botMentionRegex);
+  const stripped =
+    params.text ?? stripBotMentions(params.content, params.botMentionRegex);
   const hasPrefixed = hasPrefixInvocation(
     params.content,
     params.botMentionRegex,
@@ -256,6 +269,7 @@ export function isTrigger(params: {
   if (shouldSuppressAutoReply(stripped, params.suppressPatterns)) return false;
   if (params.guildMessageMode === 'off') return false;
   if (params.guildMessageMode === 'free') return true;
+  if (params.isAllowlistedBotMessage) return true;
   if (params.hasBotMention) return true;
   return false;
 }
@@ -288,4 +302,91 @@ export function shouldIgnoreBotAuthoredMessage(params: {
     params.botMessageChannels.map((entry) => entry.trim()).filter(Boolean),
   );
   return !allowed.has(params.channelId);
+}
+
+export interface DiscordEmbedLike {
+  title?: string | null;
+  description?: string | null;
+  url?: string | null;
+  author?: { name?: string | null } | null;
+  footer?: { text?: string | null } | null;
+  fields?: ReadonlyArray<{
+    name?: string | null;
+    value?: string | null;
+  } | null> | null;
+}
+
+const EMBED_SUMMARY_MAX_EMBEDS = 3;
+const EMBED_SUMMARY_MAX_FIELDS = 6;
+const EMBED_SUMMARY_MAX_CHARS_PER_EMBED = 600;
+
+function summarizeEmbed(embed: DiscordEmbedLike): string {
+  const lines: string[] = [];
+  const push = (value: string | null | undefined): void => {
+    const trimmed = (value || '').trim();
+    if (trimmed) lines.push(trimmed);
+  };
+
+  push(embed.author?.name);
+  push(embed.title);
+  push(embed.description);
+  for (const field of (embed.fields ?? []).slice(0, EMBED_SUMMARY_MAX_FIELDS)) {
+    const name = (field?.name || '').trim();
+    const value = (field?.value || '').trim();
+    if (name && value) lines.push(`${name}: ${value}`);
+    else push(name || value);
+  }
+  push(embed.footer?.text);
+  push(embed.url);
+
+  const text = lines.join('\n');
+  if (text.length <= EMBED_SUMMARY_MAX_CHARS_PER_EMBED) return text;
+  return `${text.slice(0, EMBED_SUMMARY_MAX_CHARS_PER_EMBED - 1).trimEnd()}…`;
+}
+
+/** Plain-text rendering of a message's embeds; '' when they carry no text. */
+export function summarizeEmbeds(embeds: readonly DiscordEmbedLike[]): string {
+  return embeds
+    .slice(0, EMBED_SUMMARY_MAX_EMBEDS)
+    .map((embed) => summarizeEmbed(embed))
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+const MESSAGE_TEXT_MAX_ATTACHMENT_NAMES = 5;
+
+/**
+ * Single text projection of an inbound message, used for triggering, history
+ * snapshots and reply context alike: cleaned content, else embeds, else
+ * attachment names, else system text. '' when nothing is readable.
+ */
+export function renderMessageText(params: {
+  content: string | null | undefined;
+  embeds: readonly DiscordEmbedLike[];
+  attachmentNames: readonly (string | null | undefined)[];
+  systemContent?: string | null;
+  botMentionRegex: RegExp | null;
+  prefix: string;
+}): string {
+  const plainText = cleanIncomingContent(
+    params.content || '',
+    params.botMentionRegex,
+    params.prefix,
+  ).trim();
+  if (plainText) return plainText;
+
+  const embedSummary = summarizeEmbeds(params.embeds);
+  if (embedSummary) return `[embed] ${embedSummary}`;
+
+  const attachmentNames = params.attachmentNames
+    .map((name) => (name || '').trim())
+    .filter(Boolean)
+    .slice(0, MESSAGE_TEXT_MAX_ATTACHMENT_NAMES);
+  if (attachmentNames.length > 0) {
+    return `[attachments] ${attachmentNames.join(', ')}`;
+  }
+
+  const systemContent = (params.systemContent || '').trim();
+  if (systemContent) return `[system] ${systemContent}`;
+  return '';
 }
