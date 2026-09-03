@@ -195,9 +195,3 @@
 .drawerOpen {
   transform: translate(0);
 }
-
-/* Accessibility: screen-reader-only utility used by drawer header */
-
-.srOnly {
-  composes: srOnly from "../../lib/a11y.module.css";
-}
