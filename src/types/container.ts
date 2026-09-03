@@ -67,6 +67,7 @@ export interface ContainerInput {
     nonce: string;
   };
   sessionId: string;
+  runId?: string;
   agentId?: string;
   messages: ChatMessage[];
   chatbotId: string;

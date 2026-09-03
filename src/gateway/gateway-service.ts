@@ -9193,6 +9193,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
 
     const output = await runAgent({
       sessionId: session.id,
+      runId,
       messages,
       chatbotId,
       enableRag,

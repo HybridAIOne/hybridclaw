@@ -128,6 +128,7 @@ export async function runIsolatedScheduledTask(params: {
   try {
     const output = await runAgent({
       sessionId: activeSessionId,
+      runId,
       messages,
       chatbotId,
       enableRag: false,
