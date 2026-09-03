@@ -5,6 +5,7 @@ import {
   RealtimeCallBridge,
   type RealtimeBridgeOptions,
   type RealtimeBridgeState,
+  resolvePhoneRealtimeConfig,
 } from '../src/channels/voice/realtime-bridge.js';
 
 const REALTIME_CONFIG = {
@@ -505,4 +506,35 @@ test('transcripts are surfaced per role and close aborts consults', () => {
 
   bridge.close();
   expect(bridge.isOpen).toBe(false);
+});
+
+test('phone calls layer voice.prompt over the shared speech settings', () => {
+  const shared = {
+    provider: 'openai' as const,
+    model: 'gpt-realtime',
+    voice: 'marin',
+    greeting: 'Hello! How can I help you today?',
+    instructions: 'Be brief.',
+  };
+  expect(
+    resolvePhoneRealtimeConfig({
+      speech: { realtime: shared },
+      voice: { prompt: { greeting: '', instructions: '' } },
+    }),
+  ).toEqual(shared);
+  expect(
+    resolvePhoneRealtimeConfig({
+      speech: { realtime: shared },
+      voice: {
+        prompt: {
+          greeting: 'Hallo! Wie kann ich helfen?',
+          instructions: 'Sprich Deutsch.',
+        },
+      },
+    }),
+  ).toEqual({
+    ...shared,
+    greeting: 'Hallo! Wie kann ich helfen?',
+    instructions: 'Be brief.\nSprich Deutsch.',
+  });
 });

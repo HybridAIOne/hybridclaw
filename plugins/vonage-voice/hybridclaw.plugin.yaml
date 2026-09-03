@@ -30,15 +30,6 @@ configSchema:
       type: string
       enum: [turn, realtime]
       default: turn
-    language:
-      type: string
-      default: en-US
-    welcomeGreeting:
-      type: string
-      default: Hello! How can I help you today?
-    interruptible:
-      type: boolean
-      default: true
     maxConcurrentCalls:
       type: integer
       default: 8
