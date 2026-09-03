@@ -30,6 +30,21 @@
   backend traces behind one HybridClaw turn can be grouped and linked back to
   the local session. Other providers are unaffected.
 
+### Fixed
+
+- **Vonage realtime calls play smoothly and answer sooner**: Model audio is
+  forwarded to the phone leg the moment it arrives instead of one frame per
+  timer tick, so event-loop jitter no longer starves playback into choppy,
+  robotic audio and nothing on the gateway side delays the reply. Barge-in
+  now clears what Vonage has already buffered through its websocket clear
+  command. A debug log line per turn reports the time from end of speech to
+  the first reply audio for both phone and web voice.
+- **Vonage realtime calls no longer open with a farewell**: The answer NCCO
+  carried a trailing "Goodbye." talk that Vonage played into the call as soon
+  as the websocket connected, which the realtime model heard as the caller's
+  first words and answered with a goodbye. The connect action is now the whole
+  NCCO.
+
 ## [0.30.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.0) - 2026-08-31
 
 ### Added

@@ -385,8 +385,10 @@ realtime engine (configured by `speech.realtime.*`) fronts the conversation,
 consults the full agent through the plugin dispatch pipeline (so approvals,
 audit, and session history behave like any other turn), and persists spoken
 turns as voice transcripts. Transport audio is 16-bit LE mono PCM at 8 kHz;
-model audio arrives as paced 20 ms frames so barge-in can cut playback
-promptly. `api.isRealtimeVoiceAvailable()` reports whether realtime
+model audio arrives as 20 ms frames as soon as the model produces them, with
+a bounded amount in flight, and the optional `clearAudio` callback is invoked
+on barge-in so the transport can drop what the far end has buffered.
+`api.isRealtimeVoiceAvailable()` reports whether realtime
 credentials are configured. The bundled `vonage-voice` plugin's realtime mode
 is the reference implementation.
 

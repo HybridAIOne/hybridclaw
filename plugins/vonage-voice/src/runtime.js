@@ -221,7 +221,6 @@ export function createVonageRuntime(api, config) {
           buildRealtimeConnectNcco({
             websocketUri: realtimeStreams.websocketUri(token),
             callUuid: answer.uuid,
-            language: config.language,
           }),
         );
         return;
