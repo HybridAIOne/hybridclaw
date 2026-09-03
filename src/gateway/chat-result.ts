@@ -74,7 +74,10 @@ function extractToolFailureText(
   }
 
   const parsed = parseJsonObject(execution.result);
-  if (parsed?.success === false && typeof parsed.error === 'string') {
+  if (
+    (parsed?.success === false || parsed?.ok === false) &&
+    typeof parsed.error === 'string'
+  ) {
     return normalizeToolErrorText(parsed.error);
   }
 
@@ -88,11 +91,7 @@ function summarizePlaceholderToolFailure(
   const executions = Array.isArray(result.toolExecutions)
     ? result.toolExecutions
     : [];
-  const failedExecutions = executions.filter((execution) => {
-    if (execution.blocked || execution.isError) return true;
-    const parsed = parseJsonObject(execution.result);
-    return parsed?.success === false;
-  });
+  const failedExecutions = executions.filter(isFailedExecution);
   if (failedExecutions.length === 0) return null;
 
   const toolNames = [
@@ -142,26 +141,53 @@ export function isMessageSendAction(rawAction: unknown): boolean {
   );
 }
 
+function isMessageSendExecution(
+  execution: NonNullable<GatewayChatResult['toolExecutions']>[number],
+): boolean {
+  if (
+    String(execution.name || '')
+      .trim()
+      .toLowerCase() !== 'message'
+  ) {
+    return false;
+  }
+  const argsObj = parseJsonObject(execution.arguments);
+  if (argsObj && isMessageSendAction(argsObj.action)) return true;
+  const resultObj = parseJsonObject(execution.result);
+  return Boolean(resultObj && isMessageSendAction(resultObj.action));
+}
+
+function isFailedExecution(
+  execution: NonNullable<GatewayChatResult['toolExecutions']>[number],
+): boolean {
+  if (execution.blocked || execution.isError) return true;
+  const resultObj = parseJsonObject(execution.result);
+  return resultObj?.ok === false || resultObj?.success === false;
+}
+
+/**
+ * True when at least one `message` send in this turn actually succeeded.
+ * Failed, blocked, or `ok:false` sends do not count: the silent-reply token
+ * must never be rendered as "Message sent." when nothing was sent.
+ */
 export function hasMessageSendToolExecution(
   result: GatewayChatResult,
 ): boolean {
   if (!Array.isArray(result.toolExecutions)) return false;
-  for (const execution of result.toolExecutions) {
-    if (
-      String(execution.name || '')
-        .trim()
-        .toLowerCase() !== 'message'
-    ) {
-      continue;
-    }
+  return result.toolExecutions.some(
+    (execution) =>
+      isMessageSendExecution(execution) && !isFailedExecution(execution),
+  );
+}
 
-    const argsObj = parseJsonObject(execution.arguments);
-    if (argsObj && isMessageSendAction(argsObj.action)) return true;
-
-    const resultObj = parseJsonObject(execution.result);
-    if (resultObj && isMessageSendAction(resultObj.action)) return true;
-  }
-  return false;
+export function hasFailedMessageSendToolExecution(
+  result: GatewayChatResult,
+): boolean {
+  if (!Array.isArray(result.toolExecutions)) return false;
+  return result.toolExecutions.some(
+    (execution) =>
+      isMessageSendExecution(execution) && isFailedExecution(execution),
+  );
 }
 
 export function fallbackResultFromTools(result: GatewayChatResult): string {
@@ -217,21 +243,24 @@ export function normalizeSilentMessageSendReply(
   if (result.status !== 'success') return result;
   const sentByMessageTool = hasMessageSendToolExecution(result);
   const rawResult = result.result || '';
+  // When the model went silent after a send that failed, surface the failure
+  // instead of a generic placeholder; the user must not see "Message sent.".
+  const silentFallback = (): string => {
+    if (sentByMessageTool) return 'Message sent.';
+    if (hasFailedMessageSendToolExecution(result)) {
+      return summarizePlaceholderToolFailure(result) ?? 'Message send failed.';
+    }
+    return fallbackResultFromTools(result);
+  };
   if (isSilentReply(rawResult)) {
     return {
       ...result,
-      result: sentByMessageTool
-        ? 'Message sent.'
-        : fallbackResultFromTools(result),
+      result: silentFallback(),
     };
   }
   const cleanedResult = stripSilentToken(rawResult);
   if (cleanedResult === rawResult) return result;
-  const nextResult = cleanedResult.trim()
-    ? cleanedResult
-    : sentByMessageTool
-      ? 'Message sent.'
-      : fallbackResultFromTools(result);
+  const nextResult = cleanedResult.trim() ? cleanedResult : silentFallback();
   return {
     ...result,
     result: nextResult,

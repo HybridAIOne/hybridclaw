@@ -356,6 +356,10 @@ HybridClaw records forensic audit events by default:
   `~/.hybridclaw/data/audit/<session>/wire.jsonl`
 - tamper-evident hash chain from `_prevHash` to `_hash`
 - normalized SQLite tables: `audit_events` and `approvals`
+- model calls to the `hybridai` provider carry `X-HybridClaw-Session-Id`,
+  `X-HybridClaw-Run-Id`, `X-HybridClaw-Agent-Id`, and `X-HybridClaw-Channel-Id`
+  headers whose values match the `sessionId` and `runId` of the wire log, so
+  backend traces of one turn can be linked to the local audit trail
 - first-run `BOOTSTRAP.md` hatching emits structured `onboarding.*` events
   for lifecycle state, visible messages, welcome mail, workspace file updates,
   completion, and abort paths

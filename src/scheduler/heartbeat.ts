@@ -279,6 +279,7 @@ export function startHeartbeat(
       });
       const output = await runAgent({
         sessionId,
+        runId,
         messages,
         chatbotId,
         enableRag,
