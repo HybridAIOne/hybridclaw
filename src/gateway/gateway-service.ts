@@ -257,6 +257,7 @@ import {
 import { MCP_SERVER_NAME_RE, supportsMcpOAuth } from '../mcp/server-config.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
+import type { RememberedMediaItem } from '../media/session-media-history.js';
 import {
   type CloudMemoryContextFile,
   loadCloudMemoryContextFiles,
@@ -2515,6 +2516,30 @@ export function buildMediaPromptContext(media: MediaContextItem[]): string {
     'When the user asks about current-turn PDF/document attachments, prefer the injected `<file>` content or the supplied local path before reading chat history.',
     'Use MediaUrls as fallback when a local path is missing or fails to open.',
     'Use `browser_vision` only for questions about the active browser tab/page.',
+    '',
+    '',
+  ].join('\n');
+}
+
+export function buildPriorMediaPromptContext(
+  media: RememberedMediaItem[],
+): string {
+  if (media.length === 0) return '';
+  const payload = media.map((item, index) => ({
+    order: index + 1,
+    path: item.path,
+    mime: item.mimeType || 'unknown',
+    size: item.sizeBytes,
+    filename: item.filename,
+    attached_at: item.attachedAt,
+  }));
+  return [
+    '[PriorMediaContext]',
+    `PriorMediaPaths: ${JSON.stringify(media.map((item) => item.path))}`,
+    `PriorMediaItems: ${JSON.stringify(payload)}`,
+    'These files were attached earlier in this conversation and are still cached locally (newest first).',
+    'When the user refers to "the file", "it", or an earlier attachment without attaching it again, use these paths instead of asking for a re-upload.',
+    'They are not part of the current message; do not describe them unless the user asks about them.',
     '',
     '',
   ].join('\n');

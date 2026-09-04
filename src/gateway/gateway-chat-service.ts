@@ -49,6 +49,10 @@ import {
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
+import {
+  recallSessionMedia,
+  rememberSessionMedia,
+} from '../media/session-media-history.js';
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
   createFreshSessionInstance,
@@ -139,6 +143,7 @@ import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-ru
 import { registerActiveGatewayRequest } from './gateway-request-runtime.js';
 import {
   buildMediaPromptContext,
+  buildPriorMediaPromptContext,
   buildStoredTurnMessages,
   buildStoredUserTurnContent,
   buildTokenUsageAuditPayload,
@@ -1901,7 +1906,15 @@ async function handleGatewayMessageInner(
       'Routing Discord image question to vision_analyze tool',
     );
   }
-  const mediaContextBlock = buildMediaPromptContext(media);
+  const priorMedia =
+    media.length === 0 ? recallSessionMedia(req.sessionId) : [];
+  const mediaContextBlock =
+    media.length > 0
+      ? buildMediaPromptContext(media)
+      : buildPriorMediaPromptContext(priorMedia);
+  if (media.length > 0) {
+    rememberSessionMedia(req.sessionId, media);
+  }
   const skillArgsContext = explicitSkillInvocation
     ? await preprocessContextReferences({
         message: explicitSkillInvocation.args,

@@ -79,6 +79,89 @@ test('handleGatewayMessage stores user-visible attachment summaries instead of r
   expect(userMessage?.content).not.toContain('ImageMediaPaths:');
 });
 
+test('handleGatewayMessage offers cached attachments from earlier turns when a turn has none', async () => {
+  setupHome();
+
+  const cacheDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-prior-media-'),
+  );
+  const cachedPdf = path.join(cacheDir, 'price-list.pdf');
+  fs.writeFileSync(cachedPdf, '%PDF-1.4\n');
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Done.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'web:prior-media';
+  const baseRequest = {
+    sessionId,
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'web',
+    model: 'openai-codex/gpt-5-codex',
+    chatbotId: '',
+  };
+
+  await handleGatewayMessage({
+    ...baseRequest,
+    content: 'What is inside the file?',
+    media: [
+      {
+        path: cachedPdf,
+        url: '/api/artifact?path=price-list.pdf',
+        originalUrl: '/api/artifact?path=price-list.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 9,
+        filename: 'price-list.pdf',
+      },
+    ],
+  });
+  await handleGatewayMessage({
+    ...baseRequest,
+    content: 'Convert it into Excel.',
+    media: [],
+  });
+
+  type AgentRequest = { messages?: Array<{ role: string; content: string }> };
+  const secondTurn = runAgentMock.mock.calls[1]?.[0] as AgentRequest | undefined;
+  const secondPrompt = secondTurn?.messages?.at(-1)?.content ?? '';
+  expect(secondPrompt).toContain('Convert it into Excel.');
+  expect(secondPrompt).toContain('[PriorMediaContext]');
+  expect(secondPrompt).toContain(cachedPdf);
+  expect(secondPrompt).not.toContain('[MediaContext]');
+
+  const history = memoryService.getConversationHistory(sessionId, 10);
+  expect(
+    history.some(
+      (message) =>
+        message.role === 'user' && message.content === 'Convert it into Excel.',
+    ),
+  ).toBe(true);
+
+  fs.rmSync(cacheDir, { recursive: true, force: true });
+  await handleGatewayMessage({
+    ...baseRequest,
+    content: 'And now?',
+    media: [],
+  });
+  const thirdTurn = runAgentMock.mock.calls[2]?.[0] as AgentRequest | undefined;
+  expect(thirdTurn?.messages?.at(-1)?.content ?? '').not.toContain(
+    '[PriorMediaContext]',
+  );
+});
+
 test('getGatewayHistory omits silent message-send placeholders', async () => {
   setupHome();
 
