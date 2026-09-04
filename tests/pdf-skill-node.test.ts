@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, degrees } from 'pdf-lib';
 import { afterEach, describe, expect, test } from 'vitest';
 
 import { openPdfDocument } from '../skills/pdf/scripts/_pdf_runtime.mjs';
@@ -73,6 +73,25 @@ async function createPlainPdf(outputPath) {
   page.drawText('Last Name', { x: 50, y: 330, size: 12 });
   page.drawText('Country', { x: 50, y: 280, size: 12 });
   page.drawText('Germany', { x: 140, y: 280, size: 12 });
+  fs.writeFileSync(outputPath, await pdfDoc.save());
+}
+
+/**
+ * Landscape price lists are often stored as portrait pages with `/Rotate 90`
+ * and text runs rotated to match. In PDF user space the visual rows share an
+ * x coordinate, so grouping by raw y turns columns into lines.
+ */
+async function createRotatedTablePdf(outputPath) {
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([400, 400]);
+  page.setRotation(degrees(90));
+  const rotated = { size: 12, rotate: degrees(90) };
+  page.drawText('LDD-200', { x: 60, y: 40, ...rotated });
+  page.drawText('2 Weeks', { x: 60, y: 140, ...rotated });
+  page.drawText('$72.00', { x: 60, y: 240, ...rotated });
+  page.drawText('LDD-400', { x: 90, y: 40, ...rotated });
+  page.drawText('2 Weeks', { x: 90, y: 140, ...rotated });
+  page.drawText('$94.00', { x: 90, y: 240, ...rotated });
   fs.writeFileSync(outputPath, await pdfDoc.save());
 }
 
@@ -372,5 +391,25 @@ describe('PDF skill Node scripts', () => {
     expect(fs.statSync(outputPdf).size).toBeGreaterThan(
       fs.statSync(inputPdf).size,
     );
+  });
+
+  test('extracts rotated pages as the rows a reader sees', async () => {
+    const dir = makeTempDir();
+    const inputPdf = path.join(dir, 'rotated-table.pdf');
+
+    await createRotatedTablePdf(inputPdf);
+
+    const result = runNodeScript([
+      'skills/pdf/scripts/extract_pdf_text.mjs',
+      inputPdf,
+      '--json',
+    ]);
+    const extracted = JSON.parse(result.stdout);
+
+    expect(extracted.pageCount).toBe(1);
+    expect(extracted.pages[0].text.split('\n')).toEqual([
+      'LDD-200 2 Weeks $72.00',
+      'LDD-400 2 Weeks $94.00',
+    ]);
   });
 });
