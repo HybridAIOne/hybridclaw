@@ -77,6 +77,7 @@ import {
 } from '../channels/line/runtime.js';
 import { isLineChannelId } from '../channels/line/target.js';
 import {
+  buildResponseText as buildMSTeamsResponseText,
   buildMSTeamsSessionSwitcherCard,
   stripUnusableMSTeamsArtifactLinks,
 } from '../channels/msteams/delivery.js';
@@ -1797,12 +1798,19 @@ async function startMSTeamsIntegration(): Promise<boolean> {
             }),
           ),
         );
+        const memoryFooterOptions = {
+          showMemoryFooter: getConfigSnapshot().msteams.showMemoryFooter,
+        };
+        const memoryAccess = memoryFooterOptions.showMemoryFooter
+          ? result.memoryAccess
+          : undefined;
         if (result.status === 'error') {
           await context.stream.fail(
-            buildResponseText(
+            buildMSTeamsResponseText(
               formatAgentErrorReply(result.error),
               undefined,
-              result.memoryAccess,
+              memoryAccess,
+              memoryFooterOptions,
             ),
           );
           return;
@@ -1820,11 +1828,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
         const renderedText = stripSilentToken(String(result.result || ''));
         const artifacts = result.artifacts || [];
         const effectiveSessionId = result.sessionId || sessionId;
-        if (
-          !renderedText.trim() &&
-          artifacts.length === 0 &&
-          !result.memoryAccess
-        ) {
+        if (!renderedText.trim() && artifacts.length === 0 && !memoryAccess) {
           await context.stream.discard();
           return;
         }
@@ -1832,13 +1836,14 @@ async function startMSTeamsIntegration(): Promise<boolean> {
           memoryService.getSessionById(effectiveSessionId)?.show_mode,
         );
         let responseText =
-          renderedText.trim() || result.memoryAccess
-            ? buildResponseText(
+          renderedText.trim() || memoryAccess
+            ? buildMSTeamsResponseText(
                 stripUnusableMSTeamsArtifactLinks(renderedText),
                 sessionShowModeShowsTools(showMode)
                   ? result.toolsUsed
                   : undefined,
-                result.memoryAccess,
+                memoryAccess,
+                memoryFooterOptions,
               )
             : '';
         const pendingApproval = extractGatewayChatApprovalEvent(result);
