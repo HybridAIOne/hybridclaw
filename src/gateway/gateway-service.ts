@@ -104,6 +104,7 @@ import {
 import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
 import { getChannelPluginStatuses } from '../channels/channel-plugin-catalog.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import { isSafeDiscordCdnUrl } from '../channels/discord/discord-cdn-fetch.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
 import { getDiscordWebhookStatus } from '../channels/discord-webhook/runtime.js';
 import {
@@ -2513,7 +2514,13 @@ export function buildMediaPromptContext(media: MediaContextItem[]): string {
     'Prefer current-turn attachments and file inputs over `message` reads, `glob`, `find`, or workspace-wide discovery.',
     'When the user asks about current-turn image attachments, use `vision_analyze` with local image paths from `ImageMediaPaths` first.',
     'When the user asks about current-turn PDF/document attachments, prefer the injected `<file>` content or the supplied local path before reading chat history.',
-    'Use MediaUrls as fallback when a local path is missing or fails to open.',
+    ...(mediaUrls.some((url) => isSafeDiscordCdnUrl(String(url || '')))
+      ? [
+          'Use Discord CDN MediaUrls as fallback when a local path is missing or fails to open.',
+        ]
+      : [
+          'MediaUrls are channel-internal references and cannot be fetched by tools; if a local path fails, report that to the user instead of retrying with a URL.',
+        ]),
     'Use `browser_vision` only for questions about the active browser tab/page.',
     '',
     '',

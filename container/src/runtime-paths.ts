@@ -246,7 +246,28 @@ function resolveExtraMountPath(
   return null;
 }
 
+function isAbsoluteMediaCachePathOutsideWorkspace(rawPath: string): boolean {
+  const input = expandUserPath(String(rawPath || ''));
+  if (!input) return false;
+  const normalizedInput = normalizeSlashes(input);
+  if (!path.posix.isAbsolute(normalizedInput)) return false;
+  const resolved = path.resolve(input);
+  if (isWithinRoot(resolved, WORKSPACE_ROOT)) return false;
+  if (ALLOWED_HOST_ROOTS.some((root) => isWithinRoot(resolved, root))) {
+    return false;
+  }
+  return (
+    isWithinRoot(resolved, DISCORD_MEDIA_CACHE_ROOT) ||
+    isWithinRoot(resolved, UPLOADED_MEDIA_CACHE_ROOT)
+  );
+}
+
 export function resolveWorkspacePath(rawPath: string): string | null {
+  // In host mode the media caches can live under the workspace *display* root
+  // (for example DATA_DIR=/workspace/.data with display root /workspace).
+  // Such paths belong to resolveMediaPath; remapping them through the display
+  // alias would point at a non-existent file inside the actual workspace.
+  if (isAbsoluteMediaCachePathOutsideWorkspace(rawPath)) return null;
   return resolveRootBoundPath(rawPath, WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY);
 }
 
