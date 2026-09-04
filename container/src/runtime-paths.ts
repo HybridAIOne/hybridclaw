@@ -253,6 +253,9 @@ function isAbsoluteMediaCachePathOutsideWorkspace(rawPath: string): boolean {
   if (!path.posix.isAbsolute(normalizedInput)) return false;
   const resolved = path.resolve(input);
   if (isWithinRoot(resolved, WORKSPACE_ROOT)) return false;
+  if (ALLOWED_HOST_ROOTS.some((root) => isWithinRoot(resolved, root))) {
+    return false;
+  }
   return (
     isWithinRoot(resolved, DISCORD_MEDIA_CACHE_ROOT) ||
     isWithinRoot(resolved, UPLOADED_MEDIA_CACHE_ROOT)
