@@ -2545,6 +2545,72 @@ describe('gateway bootstrap', () => {
     await pendingApprovals.clearPendingApproval('teams:dm:user-aad-id');
   });
 
+  test('resolves Teams numeric approvals when the prompt is stored under the session instance id', async () => {
+    const state = await importFreshGatewayMain();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    const sessionKey = 'agent_main_channel_msteams_dm_user-aad-id';
+    const sessionInstanceId = 'sess_20260904_111833_744e0245';
+    const previousSessionId = state.currentSession.id;
+    state.currentSession.id = sessionInstanceId;
+    await pendingApprovals.setPendingApproval(sessionInstanceId, {
+      approvalId: 'approve123',
+      prompt: 'Need approval',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-aad-id',
+      resolvedAt: null,
+      disableButtons: null,
+      disableTimeout: null,
+    });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Approved.',
+      toolsUsed: [],
+      artifacts: [],
+    });
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+    };
+    const reply = vi.fn(async () => {});
+    const context = {
+      abortSignal: new AbortController().signal,
+      activity: { id: 'activity-1' },
+      policy: { replyStyle: 'thread' },
+      stream,
+      turnContext: { sendActivities: vi.fn() },
+    };
+
+    try {
+      await state.teamsMessageHandler?.(
+        sessionKey,
+        null,
+        'a:teams-current-conversation',
+        'user-aad-id',
+        'alice',
+        '4',
+        [],
+        reply,
+        context,
+      );
+
+      expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: 'yes approve123 for all',
+          sessionId: sessionKey,
+        }),
+      );
+      expect(reply).toHaveBeenCalledWith('Approved.');
+    } finally {
+      state.currentSession.id = previousSessionId;
+      await pendingApprovals.clearPendingApproval(sessionInstanceId);
+    }
+  });
+
   test('routes WhatsApp slash commands through the gateway command handler', async () => {
     const state = await importFreshGatewayMain({ whatsappLinked: true });
     const reply = vi.fn(async () => {});
