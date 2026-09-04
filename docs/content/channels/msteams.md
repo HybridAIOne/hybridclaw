@@ -167,6 +167,27 @@ JSON, CSV, Markdown, plain text, and XML retain their media type. Downloads are
 streamed into the managed cache with a default per-file limit of 100 MB,
 controlled by `msteams.mediaMaxMb` under **Advanced delivery settings**.
 
+## Memory footer
+
+Every Teams answer ends with a short memory-transparency footer such as
+`*Memory: Recalled 2 memories*` followed by the recalled `[mem:n]` previews and
+their confidence values. It is part of the memory transparency described in
+[Memory](../developer-guide/memory.md) and stays visible under `/show none`.
+
+Set `msteams.showMemoryFooter` to `false` (**Show memory footer** under the
+Teams channel settings in the admin console) to drop the footer from Teams
+replies. Memory recall itself is unchanged; the footer is only omitted from the
+delivered message. The `*Tools: …*` line is still controlled per session by
+`/show`.
+
+```json
+{
+  "msteams": {
+    "showMemoryFooter": false
+  }
+}
+```
+
 ## Rating answers
 
 Two ways to rate a HybridClaw answer from Teams:

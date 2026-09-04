@@ -2951,6 +2951,20 @@ function TeamsChannelEditor(props: {
                 </Field>
               )}
             />
+            <FormField
+              name="msteams.showMemoryFooter"
+              render={({ field }) => (
+                <Field orientation="horizontal">
+                  <Switch
+                    checked={Boolean(field.value)}
+                    onCheckedChange={field.onChange}
+                  />
+                  <FieldContent>
+                    <FieldLabel>Show memory footer</FieldLabel>
+                  </FieldContent>
+                </Field>
+              )}
+            />
           </div>
 
           <FormField
