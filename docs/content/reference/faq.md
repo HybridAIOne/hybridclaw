@@ -69,6 +69,12 @@ mode those same files are exposed to the runtime as
 `/uploaded-media-cache/...`, and HybridClaw prunes expired entries
 automatically.
 
+For conversations, the gateway also copies available files into
+`attachments/<session-hash>/<upload-hash>/<filename>` in the agent workspace.
+These copies support follow-up requests and remain until explicitly deleted.
+See [workspace attachment storage](configuration.md#shared-inbound-media-staging)
+for retention and workspace-sharing details.
+
 ## Why can't Telegram send a private message to a user who never messaged the bot?
 
 Because the standard Telegram Bot API does not let HybridClaw look up an

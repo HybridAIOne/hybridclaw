@@ -79,6 +79,133 @@ test('handleGatewayMessage stores user-visible attachment summaries instead of r
   expect(userMessage?.content).not.toContain('ImageMediaPaths:');
 });
 
+test('uploaded files remain discoverable across follow-ups and new attachments without polluting stored history', async () => {
+  setupHome();
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Done.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { createUploadedMediaContextItem, resolveUploadedMediaCacheHostDir } =
+    await import('../src/media/uploaded-media-cache.ts');
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { DEFAULT_AGENT_ID } = await import('../src/agents/agent-types.ts');
+  initDatabase({ quiet: true });
+  const request = {
+    sessionId: 'web:workspace-attachments',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user_a',
+    username: 'web',
+    model: 'openai-codex/gpt-5-codex',
+    chatbotId: '',
+    executorModeOverride: 'container' as const,
+  };
+  const first = await createUploadedMediaContextItem({
+    attachmentName: 'prices.pdf',
+    buffer: Buffer.from('first'),
+    mimeType: 'application/pdf',
+  });
+  await handleGatewayMessage({
+    ...request,
+    content: 'Read this.',
+    media: [first],
+  });
+  type AgentRequest = {
+    media: Array<{ path: string }>;
+    messages: Array<{ role: string; content: string }>;
+  };
+  const firstRun = runAgentMock.mock.calls[0][0] as AgentRequest;
+  expect(firstRun.media[0].path).toMatch(/^\/workspace\/attachments\//);
+  const stagedPath = firstRun.media[0].path.replace(
+    '/workspace',
+    agentWorkspaceDir(DEFAULT_AGENT_ID),
+  );
+  expect(fs.readFileSync(stagedPath, 'utf8')).toBe('first');
+  fs.rmSync(resolveUploadedMediaCacheHostDir(), {
+    recursive: true,
+    force: true,
+  });
+  await handleGatewayMessage({
+    ...request,
+    content: 'Convert it to Excel.',
+    media: [],
+  });
+  const secondRun = runAgentMock.mock.calls[1][0] as AgentRequest;
+  expect(secondRun.messages.at(-1)?.content).toContain('[SessionAttachments]');
+  expect(secondRun.messages.at(-1)?.content).not.toContain('prices.pdf');
+  expect(secondRun.media).toEqual([]);
+  expect(fs.readFileSync(stagedPath, 'utf8')).toBe('first');
+  const second = await createUploadedMediaContextItem({
+    attachmentName: 'prices.pdf',
+    buffer: Buffer.from('second'),
+    mimeType: 'application/pdf',
+  });
+  await handleGatewayMessage({
+    ...request,
+    content: 'Compare with the earlier file.',
+    media: [second],
+  });
+  const thirdRun = runAgentMock.mock.calls[2][0] as AgentRequest;
+  expect(thirdRun.messages.at(-1)?.content).toContain('[SessionAttachments]');
+  expect(thirdRun.messages.at(-1)?.content).toContain('[MediaContext]');
+  expect(thirdRun.media[0].path).not.toBe(firstRun.media[0].path);
+  expect(fs.readFileSync(stagedPath, 'utf8')).toBe('first');
+  const history = memoryService.getConversationHistory(request.sessionId, 10);
+  expect(
+    history.some(
+      (message) =>
+        message.role === 'user' && message.content === 'Convert it to Excel.',
+    ),
+  ).toBe(true);
+  expect(
+    history
+      .filter((message) => message.role === 'user')
+      .every(
+        (message) => !String(message.content).includes('[SessionAttachments]'),
+      ),
+  ).toBe(true);
+});
+
+test('unsafe attachment destinations fail before execution and release the active request', async () => {
+  const home = setupHome();
+  const workspace = path.join(home, 'workspace');
+  const outside = path.join(home, 'outside');
+  fs.mkdirSync(workspace);
+  fs.mkdirSync(outside);
+  fs.symlinkSync(outside, path.join(workspace, 'attachments'));
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  initDatabase({ quiet: true });
+  const controller = new AbortController();
+  const detach = vi.spyOn(controller.signal, 'removeEventListener');
+  await expect(
+    handleGatewayMessage({
+      sessionId: 'web:unsafe-attachments',
+      guildId: null,
+      channelId: 'web',
+      userId: 'user_a',
+      username: 'web',
+      model: 'openai-codex/gpt-5-codex',
+      chatbotId: '',
+      content: 'Read my earlier attachment.',
+      workspacePathOverride: workspace,
+      abortSignal: controller.signal,
+    }),
+  ).rejects.toThrow('session_attachments_unsafe_directory');
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(detach).toHaveBeenCalledWith('abort', expect.any(Function));
+  expect(fs.readdirSync(outside)).toEqual([]);
+});
+
 test('getGatewayHistory omits silent message-send placeholders', async () => {
   setupHome();
 
