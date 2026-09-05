@@ -5,6 +5,7 @@
  * validated media sources are copied, and existing workspace files are never overwritten.
  */
 import { createHash, randomUUID } from 'node:crypto';
+import { lstatSync, realpathSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -22,7 +23,32 @@ import {
 } from './uploaded-media-cache.js';
 
 function pathKey(value: string): string {
+  // lgtm[js/insufficient-password-hash] This digest derives a stable,
+  // filesystem-safe directory name from a session id or cache path; it is
+  // not a password verifier and nothing secret is derived from it.
   return createHash('sha256').update(value).digest('hex');
+}
+
+function directoryExistsSync(directory: string): boolean {
+  try {
+    const stat = lstatSync(directory);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new Error('session_attachments_unsafe_directory');
+    }
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+function realpathIfExistsSync(target: string): string | null {
+  try {
+    return realpathSync(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
 }
 
 async function directoryExists(directory: string): Promise<boolean> {
@@ -88,11 +114,35 @@ export async function stageSessionAttachments(params: {
   mode: 'host' | 'container';
   media: MediaContextItem[];
 }): Promise<{ media: MediaContextItem[]; directory: string | null }> {
+  const sessionHash = pathKey(params.sessionId);
+  if (params.media.length === 0) {
+    // Turns without uploads only look for earlier attachments. They neither
+    // create the workspace nor wait on the filesystem: the gateway path stays
+    // synchronous so timer-driven turns (full-auto, tests with fake timers)
+    // are not blocked on real I/O. Existing workspaces are resolved the same
+    // way as below so the hint matches the staged paths.
+    const workspaceRoot = realpathIfExistsSync(params.workspaceRoot);
+    if (!workspaceRoot) return { media: [], directory: null };
+    const attachmentsRoot = path.join(workspaceRoot, 'attachments');
+    const directory = path.join(attachmentsRoot, sessionHash);
+    if (
+      !directoryExistsSync(attachmentsRoot) ||
+      !directoryExistsSync(directory)
+    ) {
+      return { media: [], directory: null };
+    }
+    return {
+      media: [],
+      directory:
+        params.mode === 'host'
+          ? directory
+          : `/workspace/attachments/${sessionHash}`,
+    };
+  }
   // Workspace overrides may be created lazily by the executor on their first turn.
   await fs.mkdir(params.workspaceRoot, { recursive: true });
   const workspaceRoot = await fs.realpath(params.workspaceRoot);
   const attachmentsRoot = path.join(workspaceRoot, 'attachments');
-  const sessionHash = pathKey(params.sessionId);
   const directory = path.join(attachmentsRoot, sessionHash);
   const runtimeDirectory =
     params.mode === 'host'
@@ -101,10 +151,7 @@ export async function stageSessionAttachments(params: {
   let available =
     (await directoryExists(attachmentsRoot)) &&
     (await directoryExists(directory));
-  const mountAliases =
-    params.media.length > 0
-      ? buildValidatedMountAliases({ binds: CONTAINER_BINDS })
-      : [];
+  const mountAliases = buildValidatedMountAliases({ binds: CONTAINER_BINDS });
   const media: MediaContextItem[] = [];
   for (const item of params.media) {
     const source = item.path

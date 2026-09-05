@@ -79,6 +79,13 @@ test('Docker paths become ordinary workspace files that survive cache deletion',
   );
 });
 
+test('turns without uploads do not create a missing workspace', async () => {
+  workspace = path.join(root, 'new', 'workspace');
+  expect(await stage([])).toEqual({ media: [], directory: null });
+  expect((await stage([], 'session-a', 'host')).directory).toBeNull();
+  await expect(fs.access(workspace)).rejects.toMatchObject({ code: 'ENOENT' });
+});
+
 test('a first-turn workspace override can be created lazily', async () => {
   const { media } = await upload();
   workspace = path.join(root, 'new', 'workspace');
