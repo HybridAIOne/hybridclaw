@@ -90,6 +90,11 @@ HybridClaw keeps the stored media filenames normalized, reuses the same
 runtime-safe path mapping across channels, and prunes expired cached files
 automatically.
 
+Conversation attachments are also saved as ordinary workspace files under
+`attachments/<session-hash>/<upload-hash>/<filename>` so the agent can find them
+on later turns. These copies remain until explicitly deleted; see
+[attachment storage and retention](../reference/configuration.md#shared-inbound-media-staging).
+
 ## Delivery And Startup Behavior
 
 - Email seeds a missing mailbox cursor from the current folder head, so the

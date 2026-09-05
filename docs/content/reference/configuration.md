@@ -445,6 +445,28 @@ instead of per-channel temp directories.
 - The shared cache is pruned automatically, so these paths are meant for
   short-lived inbound media handling rather than permanent storage.
 
+Before agent execution, locally available attachments are copied into the
+agent workspace at `attachments/<session-hash>/<upload-hash>/<filename>`.
+The keys are hashes of the session instance ID and source path, so filenames
+remain readable and equal names from separate uploads do not overwrite each
+other. Docker tools see these files under `/workspace/attachments/`; host
+tools use the corresponding workspace path. Follow-up turns receive the
+current session's attachment directory and can discover earlier files with
+ordinary file tools, including when a new file is attached.
+
+Workspace copies remain until explicitly deleted, independently of the
+transport cache's 24-hour expiry. Resetting a conversation selects a new
+session directory; it does not delete earlier workspace files. Deleting chat
+history also does not delete these files. Remove the attachment directory or
+its files when they are no longer needed. These copies consume additional disk
+space and should be included in workspace retention and backup policies.
+
+Session directories organize files; they are **not** an access-control boundary.
+Sessions that share an agent workspace share filesystem access, and existing
+shared transport-cache mounts are unchanged. Staging validates source paths
+against existing media/mount rules and rejects symlink destinations instead of
+overwriting workspace files. Filenames and contents remain untrusted input.
+
 ## Audio Transcription Notes
 
 `media.audio` auto-detect prefers local CLIs first

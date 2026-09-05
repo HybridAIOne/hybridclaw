@@ -148,7 +148,7 @@ test('handleGatewayMessage prepends audio transcripts and preserves media contex
     | undefined;
   expect(request?.media).toEqual([
     expect.objectContaining({
-      path: fixture.relativeAudioPath,
+      path: expect.stringMatching(/^\/workspace\/attachments\//),
     }),
   ]);
 
@@ -160,7 +160,7 @@ test('handleGatewayMessage prepends audio transcripts and preserves media contex
   expect(userMessage?.content).toContain('hello from the voice note');
   expect(userMessage?.content).toContain('please summarize this');
   expect(userMessage?.content).toContain(
-    `AudioMediaPaths: ["${fixture.relativeAudioPath}"]`,
+    `AudioMediaPaths: ["${request?.media?.[0]?.path}"]`,
   );
 
   const history = fixture.memoryService.getConversationHistory(sessionId, 10);
@@ -224,6 +224,7 @@ test('handleGatewayMessage continues without transcript when audio transcription
 
   const request = runAgentMock.mock.calls[0]?.[0] as
     | {
+        media?: Array<{ path: string | null }>;
         messages?: Array<{ role: string; content: string }>;
         audioTranscriptsPrepended?: boolean;
       }
@@ -233,7 +234,7 @@ test('handleGatewayMessage continues without transcript when audio transcription
   expect(request?.audioTranscriptsPrepended).toBe(false);
   expect(userMessage?.content).toContain('keep going');
   expect(userMessage?.content).toContain(
-    `AudioMediaPaths: ["${fixture.relativeAudioPath}"]`,
+    `AudioMediaPaths: ["${request?.media?.[0]?.path}"]`,
   );
 
   const history = fixture.memoryService.getConversationHistory(sessionId, 10);

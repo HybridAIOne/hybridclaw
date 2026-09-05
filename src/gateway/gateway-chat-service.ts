@@ -1,3 +1,8 @@
+/**
+ * Gateway turns bind conversation state and inbound media to the resolved session.
+ * Attachments are staged as workspace files before execution; stored chat keeps
+ * user-visible summaries. Transport caching and sandbox enforcement live elsewhere.
+ */
 import path from 'node:path';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
@@ -33,6 +38,7 @@ import {
   getChannelByContextId,
 } from '../channels/channel-registry.js';
 import {
+  CONTAINER_SANDBOX_MODE,
   FULLAUTO_NEVER_APPROVE_TOOLS,
   HYBRIDAI_CHATBOT_ID,
   HYBRIDAI_MODEL,
@@ -50,9 +56,9 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
 import {
-  recallSessionMedia,
-  rememberSessionMedia,
-} from '../media/session-media-history.js';
+  buildSessionAttachmentsContext,
+  stageSessionAttachments,
+} from '../media/session-attachments.js';
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
   createFreshSessionInstance,
@@ -143,7 +149,6 @@ import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-ru
 import { registerActiveGatewayRequest } from './gateway-request-runtime.js';
 import {
   buildMediaPromptContext,
-  buildPriorMediaPromptContext,
   buildStoredTurnMessages,
   buildStoredUserTurnContent,
   buildTokenUsageAuditPayload,
@@ -1906,15 +1911,22 @@ async function handleGatewayMessageInner(
       'Routing Discord image question to vision_analyze tool',
     );
   }
-  const priorMedia =
-    media.length === 0 ? recallSessionMedia(req.sessionId) : [];
-  const mediaContextBlock =
-    media.length > 0
-      ? buildMediaPromptContext(media)
-      : buildPriorMediaPromptContext(priorMedia);
-  if (media.length > 0) {
-    rememberSessionMedia(req.sessionId, media);
-  }
+  const attachments = await stageSessionAttachments({
+    sessionId: req.sessionId,
+    workspaceRoot: workspacePath,
+    mode: req.executorModeOverride || CONTAINER_SANDBOX_MODE,
+    media,
+  }).catch((error: unknown) => {
+    activeGatewayRequest.release();
+    throw error;
+  });
+  media = attachments.media;
+  const mediaContextBlock = [
+    buildMediaPromptContext(media),
+    buildSessionAttachmentsContext(attachments.directory),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
   const skillArgsContext = explicitSkillInvocation
     ? await preprocessContextReferences({
         message: explicitSkillInvocation.args,
