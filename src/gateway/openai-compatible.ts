@@ -8,6 +8,10 @@ import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { HYBRIDAI_MODEL, MAX_CONCURRENT_CONTAINERS } from '../config/config.js';
 import {
+  getRuntimeConfig,
+  resolveDefaultAgentId,
+} from '../config/runtime-config.js';
+import {
   EVAL_MODEL_PROFILE_MARKER,
   parseEvalProfileModel,
 } from '../evals/eval-profile.js';
@@ -228,6 +232,28 @@ function acquireOpenAIExecutionSession(params: {
   };
 }
 
+/**
+ * Agent that answers an OpenAI-compatible request.
+ *
+ * An eval profile pins the agent explicitly; otherwise the gateway's own
+ * configured default applies, exactly as it does for chat channels and fresh
+ * web sessions. Falling back to the `main` constant here instead would pin the
+ * request session to `main` and pre-empt `agents.defaultAgentId`, because the
+ * session agent id outranks the configured default in
+ * `resolveAgentForRequest`.
+ */
+export function resolveOpenAICompatibleAgentId(params: {
+  freshAgentId?: string | null;
+  profileAgentId?: string | null;
+}): string {
+  return (
+    params.freshAgentId?.trim() ||
+    params.profileAgentId?.trim() ||
+    resolveDefaultAgentId(getRuntimeConfig()) ||
+    DEFAULT_AGENT_ID
+  );
+}
+
 function prepareOpenAICompatibleRequest(
   input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>,
 ): {
@@ -266,7 +292,10 @@ function prepareOpenAICompatibleRequest(
     profile.workspaceMode === 'fresh-agent'
       ? `eval-${randomUUID().replace(/-/g, '').slice(0, 16)}`
       : null;
-  const requestAgentId = freshAgentId || profile.agentId || DEFAULT_AGENT_ID;
+  const requestAgentId = resolveOpenAICompatibleAgentId({
+    freshAgentId,
+    profileAgentId: profile.agentId,
+  });
   const sessionId = buildSessionKey(
     requestAgentId,
     'openai',
