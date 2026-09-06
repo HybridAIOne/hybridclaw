@@ -187,6 +187,15 @@ test('remove only deletes tasks owned by the calling session', async () => {
     ),
   ).toBe(404);
   expect(
+    statusOf(() =>
+      runScheduledTaskToolAction({
+        action: 'remove',
+        sessionId: 'session-1',
+        taskId: otherTaskId + 1000,
+      }),
+    ),
+  ).toBe(404);
+  expect(
     runScheduledTaskToolAction({
       action: 'remove',
       sessionId: 'session-1',

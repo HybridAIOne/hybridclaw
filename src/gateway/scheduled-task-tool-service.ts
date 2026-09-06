@@ -12,7 +12,8 @@
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
 import { getSessionById } from '../memory/db.js';
-import { createJob, deleteJob, getAllJobs } from '../memory/jobs.js';
+import { createJob, deleteJob, getJob } from '../memory/jobs.js';
+import { resolveSessionIdCompat } from '../memory/sessions.js';
 import { rearmScheduler } from '../scheduler/scheduler.js';
 import { isRecord } from '../utils/type-guards.js';
 
@@ -59,10 +60,8 @@ export function runScheduledTaskToolAction(
     if (!Number.isInteger(taskId) || taskId <= 0) {
       throw new GatewayRequestError(400, 'Invalid `taskId`.');
     }
-    const owned = getAllJobs({ kind: 'scheduled_task', sessionId }).some(
-      (task) => task.id === taskId,
-    );
-    if (!owned) {
+    const job = getJob(taskId, { kind: 'scheduled_task' });
+    if (!job || job.session_id !== resolveSessionIdCompat(sessionId)) {
       throw new GatewayRequestError(
         404,
         `Unknown task #${taskId} for this session.`,
