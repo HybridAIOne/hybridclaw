@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { agentWorkspaceDir, ensureAgentDirs } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import type { ToolLedgerEntry } from '../types/tool-ledger.js';
 
 const TRANSCRIPTS_DIR_NAME = '.session-transcripts';
 
@@ -13,6 +14,7 @@ export interface TranscriptEntry {
   userId: string;
   username: string | null;
   content: string;
+  toolLedger?: ToolLedgerEntry[];
   createdAt?: string;
 }
 
@@ -42,6 +44,9 @@ export function appendSessionTranscript(
       userId: entry.userId,
       username: entry.username,
       content: entry.content,
+      ...(entry.toolLedger && entry.toolLedger.length > 0
+        ? { toolLedger: entry.toolLedger }
+        : {}),
       createdAt: entry.createdAt || new Date().toISOString(),
     };
     fs.appendFileSync(filePath, `${JSON.stringify(row)}\n`, 'utf-8');

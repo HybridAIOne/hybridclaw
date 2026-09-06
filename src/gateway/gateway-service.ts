@@ -470,6 +470,7 @@ import type {
   DelegationSideEffect,
   DelegationTaskSpec,
 } from '../types/side-effects.js';
+import { buildToolLedger } from '../types/tool-ledger.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import {
@@ -3873,12 +3874,14 @@ export function recordSuccessfulTurn(opts: {
   resultText: string;
   artifacts?: ArtifactMetadata[] | null;
   toolCallCount: number;
+  toolExecutions?: ToolExecution[];
   startedAt: number;
   replaceBuiltInMemory?: boolean;
 }): {
   userMessageId: number;
   assistantMessageId: number;
 } {
+  const toolLedger = buildToolLedger(opts.toolExecutions);
   const storedTurn =
     opts.replaceBuiltInMemory === true
       ? {
@@ -3897,6 +3900,7 @@ export function recordSuccessfulTurn(opts: {
             content: opts.resultText,
             agentId: opts.agentId,
             artifacts: opts.artifacts,
+            toolLedger,
           }),
         }
       : memoryService.storeTurn({
@@ -3912,6 +3916,7 @@ export function recordSuccessfulTurn(opts: {
             agentId: opts.agentId,
             content: opts.resultText,
             artifacts: opts.artifacts,
+            toolLedger,
           },
         });
   if (opts.replaceBuiltInMemory !== true) {
@@ -3962,6 +3967,7 @@ export function recordSuccessfulTurn(opts: {
     userId: 'assistant',
     username: null,
     content: opts.resultText,
+    toolLedger,
   });
 
   if (opts.replaceBuiltInMemory !== true) {

@@ -113,6 +113,38 @@ test('system prompt blocks isolate workspace memory updates from the static core
   expect(first[1]).not.toBe(second[1]);
 });
 
+test('buildConversationContext renders stored tool ledgers into assistant history', async () => {
+  const agentId = 'tool-ledger-agent';
+  await createWorkspaceWithBootstrapFiles(agentId);
+  const { buildConversationContext } = await import(
+    '../src/agent/conversation.js'
+  );
+
+  const ledger = [
+    { tool: 'message', args: 'send to:+49 151', ok: true, note: 'accepted' },
+  ];
+  const context = buildConversationContext({
+    agentId,
+    history: [
+      { role: 'assistant', content: 'Sent.', toolLedger: ledger },
+      { role: 'user', content: 'Send it' },
+      { role: 'assistant', content: 'Hi' },
+    ],
+    runtimeInfo: {
+      model: 'openai-codex/gpt-5.4',
+      workspacePath: '/workspace/tool-ledger-agent',
+    },
+  });
+
+  const assistantMessages = context.messages.filter(
+    (message) => message.role === 'assistant',
+  );
+  expect(assistantMessages.map((message) => message.content)).toEqual([
+    'Hi',
+    'Sent.\n\n[tool ledger: 1 call(s), all ok; message send to:+49 151 → ok: accepted]',
+  ]);
+});
+
 test('buildConversationContext appends dynamic context after unchanged history', async () => {
   vi.useFakeTimers();
 

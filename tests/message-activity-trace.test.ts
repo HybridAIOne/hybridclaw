@@ -59,6 +59,64 @@ describe('message activity trace persistence', () => {
     expect(user?.activityTrace).toBeUndefined();
   });
 
+  it('round-trips an assistant tool ledger through history and prompt loading', async () => {
+    const dbModule = await import('../src/memory/db.js');
+    const { buildToolLedger } = await import('../src/types/tool-ledger.js');
+    const dbPath = path.join(makeTempDir(), 'hybridclaw.db');
+    dbModule.initDatabase({ quiet: true, dbPath });
+
+    const session = dbModule.getOrCreateSession(
+      'agent:main:channel:web:chat:dm:peer:tool-ledger',
+      null,
+      'web',
+      'main',
+    );
+    dbModule.storeMessage(session.id, 'user_a', 'User A', 'user', 'Send it');
+    const ledger = buildToolLedger([
+      {
+        name: 'message',
+        arguments: '{"action":"send","to":"+49 151"}',
+        result: '{"ok":false,"error":"recipient unknown"}',
+        durationMs: 5,
+      },
+    ]);
+    const assistantId = dbModule.storeMessage(
+      session.id,
+      'assistant',
+      null,
+      'assistant',
+      'Done.',
+      'main',
+      null,
+      null,
+      ledger,
+    );
+
+    const history = dbModule.getConversationHistory(session.id, 10);
+    const assistant = history.find((m) => m.role === 'assistant');
+    expect(assistant?.id).toBe(assistantId);
+    expect(assistant?.toolLedger).toEqual([
+      {
+        tool: 'message',
+        args: 'send to:+49 151',
+        ok: false,
+        note: 'recipient unknown',
+      },
+    ]);
+    expect(assistant?.content).toBe('Done.');
+    expect(assistant).not.toHaveProperty('tool_ledger_json');
+    expect(history.find((m) => m.role === 'user')?.toolLedger).toBeUndefined();
+
+    const page = dbModule.getConversationHistoryPage(session.id, 50);
+    expect(
+      page.history.find((m) => m.role === 'assistant')?.toolLedger,
+    ).toEqual(assistant?.toolLedger);
+    expect(
+      dbModule.getRecentMessages(session.id).find((m) => m.role === 'assistant')
+        ?.toolLedger,
+    ).toEqual(assistant?.toolLedger);
+  });
+
   it('preserves activity traces when a session is branched', async () => {
     const dbModule = await import('../src/memory/db.js');
     const dbPath = path.join(makeTempDir(), 'hybridclaw.db');

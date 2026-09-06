@@ -2733,6 +2733,7 @@ async function handleGatewayMessageInner(
       resultText,
       artifacts: output.artifacts,
       toolCallCount: toolExecutions.length,
+      toolExecutions,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
     });

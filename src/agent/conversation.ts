@@ -15,6 +15,10 @@ import {
 } from '../skills/skills.js';
 import type { ChatMessage } from '../types/api.js';
 import {
+  appendToolLedgerTrailer,
+  type ToolLedgerEntry,
+} from '../types/tool-ledger.js';
+import {
   formatCurrentTime,
   loadRecentDailyMemoryFiles,
   loadStaticBootstrapFiles,
@@ -34,6 +38,14 @@ import { mergeAllowedToolNames, mergeBlockedToolNames } from './tool-policy.js';
 interface HistoryMessage {
   role: string;
   content: ChatMessage['content'];
+  toolLedger?: ToolLedgerEntry[];
+}
+
+function renderHistoryContent(msg: HistoryMessage): ChatMessage['content'] {
+  if (msg.role !== 'assistant' || typeof msg.content !== 'string') {
+    return msg.content;
+  }
+  return appendToolLedgerTrailer(msg.content, msg.toolLedger);
 }
 
 const HOSTNAME = sanitizeDynamicContextValue(os.hostname());
@@ -201,7 +213,7 @@ export function buildConversationContext(params: {
   const historyMessages = [...history].reverse().map(
     (msg): ChatMessage => ({
       role: msg.role as ChatMessage['role'],
-      content: msg.content,
+      content: renderHistoryContent(msg),
     }),
   );
 

@@ -1,5 +1,6 @@
 import type { ActivityTrace } from './activity-trace.js';
 import type { ArtifactMetadata } from './execution.js';
+import type { ToolLedgerEntry } from './tool-ledger.js';
 
 export type SessionShowMode = 'all' | 'thinking' | 'tools' | 'none';
 
@@ -46,6 +47,8 @@ export interface StoredMessage {
   artifacts?: ArtifactMetadata[];
   /** Web-chat activity trace (thinking + tool calls) for assistant turns. */
   activityTrace?: ActivityTrace;
+  /** Compact tool outcomes for assistant turns, rendered into later prompts. */
+  toolLedger?: ToolLedgerEntry[];
   /** Provenance of the turn, e.g. 'voice' for realtime speech transcripts. */
   source?: string | null;
   created_at: string;

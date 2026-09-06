@@ -29,6 +29,7 @@ import type {
   Session,
   StoredMessage,
 } from '../types/session.js';
+import type { ToolLedgerEntry } from '../types/tool-ledger.js';
 import { compactConversation } from './compaction.js';
 import {
   addKnowledgeEntity as dbAddKnowledgeEntity,
@@ -176,6 +177,7 @@ export interface MemoryBackend {
     agentId?: string | null,
     artifacts?: ArtifactMetadata[] | null,
     source?: string | null,
+    toolLedger?: ToolLedgerEntry[] | null,
   ) => number;
   storeSemanticMemory: (params: {
     sessionId: string;
@@ -249,6 +251,7 @@ export interface StoreTurnParams {
     agentId?: string | null;
     content: string;
     artifacts?: ArtifactMetadata[] | null;
+    toolLedger?: ToolLedgerEntry[] | null;
   };
 }
 
@@ -733,6 +736,7 @@ export class MemoryService {
     agentId?: string | null;
     artifacts?: ArtifactMetadata[] | null;
     source?: string | null;
+    toolLedger?: ToolLedgerEntry[] | null;
   }): number {
     return this.backend.storeMessage(
       params.sessionId,
@@ -743,6 +747,7 @@ export class MemoryService {
       params.agentId,
       params.artifacts,
       params.source,
+      params.toolLedger,
     );
   }
 
@@ -792,6 +797,7 @@ export class MemoryService {
       content: params.assistant.content,
       agentId: params.assistant.agentId,
       artifacts: params.assistant.artifacts,
+      toolLedger: params.assistant.toolLedger,
     });
 
     const interactionText = this.normalizeSemanticContent(

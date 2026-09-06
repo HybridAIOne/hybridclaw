@@ -143,6 +143,17 @@ Important properties:
 - HybridClaw keeps only a bounded recent slice for prompt assembly
 - that slice is further compressed by character limits before sending
 - older turns are eventually compacted out of raw history
+- each assistant turn carries a compact tool ledger (`tool_ledger_json`):
+  per tool call the tool name, identifying arguments, ok/error, and a short
+  result or failure excerpt, capped at 24 entries / 2,000 chars per turn
+
+The ledger is rendered into prompt history as a trailer on the assistant
+message (`[tool ledger: 2 call(s), 1 failed; message send to:… → ok: …; cron
+add → error: …]`) so a follow-up turn sees what actually happened rather than
+the model's own prose claim. Stored message content stays clean; the trailer
+is derived from the stored ledger at prompt time, so it is identical on every
+later turn and does not disturb prompt caching. Web chat and transcript exports
+do not render the trailer; they receive the structured `toolLedger` field.
 
 This is the highest-fidelity memory for the current session, but it is the
 least durable because it is the first thing that gets compacted.

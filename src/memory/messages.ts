@@ -12,6 +12,11 @@ import type {
   ResponseRatingValue,
   StoredMessage,
 } from '../types/session.js';
+import {
+  parseToolLedger,
+  serializeToolLedger,
+  type ToolLedgerEntry,
+} from '../types/tool-ledger.js';
 import { normalizeNonNegativeInteger } from '../utils/number-normalization.js';
 import { withMemoryDatabase } from './database.js';
 import { ensureSessionBranchesTable } from './schema/migrations.js';
@@ -31,7 +36,16 @@ interface ConversationHistoryPageRow {
   content: string | null;
   artifacts_json: string | null;
   activity_trace_json: string | null;
+  tool_ledger_json: string | null;
   created_at: string | null;
+}
+
+type StoredMessageRow = StoredMessage & { tool_ledger_json?: string | null };
+
+function hydrateStoredMessageRow(row: StoredMessageRow): StoredMessage {
+  const { tool_ledger_json, ...message } = row;
+  const toolLedger = parseToolLedger(tool_ledger_json);
+  return toolLedger ? { ...message, toolLedger } : message;
 }
 
 interface ResponseRatingRow {
@@ -150,6 +164,7 @@ export function storeMessage(
   agentId?: string | null,
   artifacts?: ArtifactMetadata[] | null,
   source?: string | null,
+  toolLedger?: ToolLedgerEntry[] | null,
 ): number {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
   const normalizedAgentId = agentId?.trim() || null;
@@ -164,9 +179,10 @@ export function storeMessage(
          agent_id,
          content,
          artifacts_json,
+         tool_ledger_json,
          source,
          created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
     )
     .run(
       resolvedSessionId,
@@ -176,6 +192,7 @@ export function storeMessage(
       normalizedAgentId,
       content,
       artifactsJson,
+      serializeToolLedger(toolLedger),
       source?.trim() || null,
     );
 
@@ -207,12 +224,12 @@ export function getConversationHistory(
   limit = 50,
 ): StoredMessage[] {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  return queryAll<StoredMessage, [string, number]>(
+  return queryAll<StoredMessageRow, [string, number]>(
     getMessageDatabase(),
     'SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
     resolvedSessionId,
     limit,
-  );
+  ).map(hydrateStoredMessageRow);
 }
 
 export function getLatestAssistantMessageId(sessionId: string): number | null {
@@ -568,6 +585,7 @@ export function getConversationHistoryPage(
          m.content,
          m.artifacts_json,
          m.activity_trace_json,
+         m.tool_ledger_json,
          m.created_at
        FROM sessions s
        LEFT JOIN (
@@ -610,6 +628,7 @@ export function getConversationHistoryPage(
       continue;
     }
     const activityTrace = parseActivityTrace(row.activity_trace_json);
+    const toolLedger = parseToolLedger(row.tool_ledger_json);
     history.push({
       id: row.id,
       session_id: row.session_id,
@@ -620,6 +639,7 @@ export function getConversationHistoryPage(
       content: row.content,
       artifacts: parseMessageArtifacts(row.artifacts_json),
       ...(activityTrace ? { activityTrace } : {}),
+      ...(toolLedger ? { toolLedger } : {}),
       created_at: row.created_at,
     });
   }
@@ -645,19 +665,19 @@ export function getRecentMessages(
       : null;
 
   if (boundedLimit == null) {
-    return queryAll<StoredMessage, [string]>(
+    return queryAll<StoredMessageRow, [string]>(
       getMessageDatabase(),
       'SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC',
       resolvedSessionId,
-    );
+    ).map(hydrateStoredMessageRow);
   }
 
-  const rows = queryAll<StoredMessage, [string, number]>(
+  const rows = queryAll<StoredMessageRow, [string, number]>(
     getMessageDatabase(),
     'SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
     resolvedSessionId,
     boundedLimit,
-  );
+  ).map(hydrateStoredMessageRow);
   return rows.reverse();
 }
 
