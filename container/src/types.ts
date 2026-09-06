@@ -450,21 +450,9 @@ export interface ContainerOutput {
   error?: string;
   effectiveUserPrompt?: string;
   sideEffects?: {
-    schedules?: ScheduleSideEffect[];
     delegations?: DelegationSideEffect[];
   };
 }
-
-export type ScheduleSideEffect =
-  | {
-      action: 'add';
-      cronExpr?: string;
-      runAt?: string;
-      everyMs?: number;
-      prompt: string;
-      channelId?: string;
-    }
-  | { action: 'remove'; taskId: number };
 
 export interface DelegationTaskSpec {
   prompt: string;

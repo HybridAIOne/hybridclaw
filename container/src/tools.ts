@@ -68,7 +68,6 @@ import {
   type MediaContextItem,
   type PluginRuntimeToolDefinition,
   type ProviderCredentials,
-  type ScheduleSideEffect,
   TASK_MODEL_KEYS,
   type TaskModelKey,
   type TaskModelPolicies,
@@ -121,13 +120,11 @@ type ScheduledTaskInfo = {
   createdAt: string;
 };
 
-let pendingSchedules: ScheduleSideEffect[] = [];
-
 // Sessions whose channel cannot receive scheduled-task output. The gateway
 // queues proactive messages for these channels and later drops them, so a
 // task created without an explicit delivery channel would run but never be
 // seen by the user.
-const CHANNELS_WITHOUT_PROACTIVE_DELIVERY = new Set(['web']);
+const CHANNELS_WITHOUT_PROACTIVE_DELIVERY = new Set(['web', 'heartbeat']);
 
 const CRON_FIELD_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0, 59], // minute
@@ -846,22 +843,14 @@ function cloneTaskModelPolicies(
 }
 
 export function resetSideEffects(): void {
-  pendingSchedules = [];
   pendingDelegations = [];
 }
 
 export function getPendingSideEffects():
-  | {
-      schedules?: ScheduleSideEffect[];
-      delegations?: DelegationSideEffect[];
-    }
+  | { delegations?: DelegationSideEffect[] }
   | undefined {
-  if (pendingSchedules.length === 0 && pendingDelegations.length === 0)
-    return undefined;
-  return {
-    schedules: pendingSchedules.length > 0 ? pendingSchedules : undefined,
-    delegations: pendingDelegations.length > 0 ? pendingDelegations : undefined,
-  };
+  if (pendingDelegations.length === 0) return undefined;
+  return { delegations: pendingDelegations };
 }
 
 export function setScheduledTasks(
@@ -1187,6 +1176,12 @@ function resolveGatewayMessageActionUrl(): string | null {
   return `${base}/api/message/action`;
 }
 
+function resolveGatewaySchedulerTaskUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) return null;
+  return `${base}/api/scheduler/task`;
+}
+
 function resolveGatewayPluginToolUrl(): string | null {
   const base = gatewayBaseUrl.replace(/\/+$/, '');
   if (!base) return null;
@@ -1330,6 +1325,57 @@ async function callGatewayMessageAction(
 
   if (parsed) return JSON.stringify(parsed, null, 2);
   return rawText || JSON.stringify({ ok: true }, null, 2);
+}
+
+async function callGatewaySchedulerTask(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const url = resolveGatewaySchedulerTaskUrl();
+  if (!url) {
+    throw new ToolExecutionFailure(
+      'Error: scheduled tasks are unavailable because gatewayBaseUrl is not configured.',
+    );
+  }
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...payload, sessionId: currentSessionId }),
+    });
+  } catch (err) {
+    throw new ToolExecutionFailure(
+      `Error: scheduled task request failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  const rawText = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const maybe = JSON.parse(rawText) as unknown;
+    if (maybe && typeof maybe === 'object' && !Array.isArray(maybe)) {
+      parsed = maybe as Record<string, unknown>;
+    }
+  } catch {
+    parsed = null;
+  }
+  if (!response.ok || !parsed || parsed.ok !== true) {
+    const detail =
+      typeof parsed?.error === 'string' && parsed.error.trim()
+        ? parsed.error
+        : rawText || `HTTP ${response.status}`;
+    throw new ToolExecutionFailure(
+      `Error: scheduled task ${payload.action === 'remove' ? 'removal' : 'creation'} failed (HTTP ${response.status}): ${detail}`,
+    );
+  }
+  return parsed;
 }
 
 async function callGatewayPluginTool(
@@ -3846,26 +3892,26 @@ async function executeToolInternal(
             return failTool(
               `Error: timestamp must be in the future: ${rawAt || runAt.toISOString()}`,
             );
-          pendingSchedules.push({
+          const created = await callGatewaySchedulerTask({
             action: 'add',
             runAt: runAt.toISOString(),
             prompt,
-            channelId,
+            channelId: channelId || gatewayChannelId || undefined,
           });
-          return `Scheduled one-shot task at ${runAt.toISOString()}${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
+          return `Scheduled one-shot task #${created.taskId} at ${runAt.toISOString()}${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         if (args.cron) {
           const cronExpr = String(args.cron).trim();
           const cronError = validateCronExpression(cronExpr);
           if (cronError) return failTool(cronError);
-          pendingSchedules.push({
+          const created = await callGatewaySchedulerTask({
             action: 'add',
             cronExpr,
             prompt,
-            channelId,
+            channelId: channelId || gatewayChannelId || undefined,
           });
-          return `Scheduled recurring task with cron "${cronExpr}" (UTC)${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
+          return `Scheduled recurring task #${created.taskId} with cron "${cronExpr}" (UTC)${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         if (args.every) {
@@ -3873,13 +3919,13 @@ async function executeToolInternal(
           if (Number.isNaN(secs) || secs < 10)
             return failTool('Error: "every" must be a number of seconds >= 10');
           const everyMs = Math.round(secs * 1000);
-          pendingSchedules.push({
+          const created = await callGatewaySchedulerTask({
             action: 'add',
             everyMs,
             prompt,
-            channelId,
+            channelId: channelId || gatewayChannelId || undefined,
           });
-          return `Scheduled interval task every ${secs}s${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
+          return `Scheduled interval task #${created.taskId} every ${secs}s${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         return failTool(
@@ -3893,9 +3939,11 @@ async function executeToolInternal(
             'Error: scheduled task removal is disabled for this run.',
           );
         }
-        if (!args.taskId) return failTool('Error: taskId is required');
-        pendingSchedules.push({ action: 'remove', taskId: args.taskId });
-        return `Scheduled removal of task #${args.taskId}`;
+        const taskId = Number(args.taskId);
+        if (!Number.isInteger(taskId) || taskId <= 0)
+          return failTool('Error: taskId is required');
+        await callGatewaySchedulerTask({ action: 'remove', taskId });
+        return `Removed task #${taskId}`;
       }
 
       return failTool(
@@ -5266,9 +5314,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       description:
         'Manage scheduled tasks and reminders. Actions:\n' +
         '- "list": show all scheduled tasks\n' +
-        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring 5-field cron expression, evaluated in UTC), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered. In web chat sessions "channel" is required because task output cannot be delivered into the web chat.\n' +
+        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring 5-field cron expression, evaluated in UTC), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered. In web chat and heartbeat sessions "channel" is required because task output cannot be delivered there.\n' +
         '- "remove": delete a task by taskId\n' +
-        'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself. A success result means the task was queued for creation at the end of this turn; quote the schedule from the result when confirming to the user.',
+        'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself. A success result means the task is saved and returns its id; an Error result means nothing was scheduled. Quote the id and schedule from the result when confirming to the user.',
       parameters: {
         type: 'object',
         properties: {

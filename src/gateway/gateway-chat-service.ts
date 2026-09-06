@@ -2512,7 +2512,6 @@ async function handleGatewayMessageInner(
         acceptedDelegations += requestedRuns;
         acceptedDelegationPlans.push(normalized.plan);
       },
-      allowSchedules: !isGoalContinuationSource(source),
     });
     const ackText =
       acceptedDelegations > 0
