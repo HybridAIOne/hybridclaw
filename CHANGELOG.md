@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Scheduler and side-effect failures are recorded instead of logged as
+  success**: Scheduled runs that cannot start (no chatbot configured, no
+  deliverable channel) or whose result cannot be delivered (channel send
+  failure, transport not linked) now mark the job as failed with the reason in
+  `lastError`, visible in the console scheduler view; one-shot tasks that never
+  ran are kept instead of deleted. Tasks with unparsable cron expressions are
+  disabled once with the parse error recorded rather than throwing on every
+  tick. Undeliverable queued proactive messages are marked as failed (retained
+  for 7 days) and counted in the scheduler view instead of being silently
+  dropped. Delegations skipped by the depth or per-turn limit and side-effect
+  processing errors are reported in the assistant reply.
+
 ## [0.30.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.1) - 2026-09-03
 
 ### Added

@@ -154,6 +154,14 @@ function formatRowMeta(job: AdminSchedulerJob): string {
   return `${job.id} · ${formatSchedule(job)}`;
 }
 
+function formatJobsSummary(data: AdminSchedulerResponse | undefined): string {
+  const count = data?.jobs.length || 0;
+  const summary = `${count} item${count === 1 ? '' : 's'}`;
+  const failed = data?.proactiveQueue?.failed || 0;
+  if (failed <= 0) return summary;
+  return `${summary} · ${failed} undeliverable proactive message${failed === 1 ? '' : 's'}`;
+}
+
 function formatRuntimeState(job: AdminSchedulerJob): string {
   if (job.disabled) return 'paused';
   if (job.boardStatus === 'review' && job.lastStatus === 'error') {
@@ -507,6 +515,7 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
     },
     lastRun: null,
     lastStatus: null,
+    lastError: null,
     nextRunAt: null,
     disabled: false,
     consecutiveErrors: 0,
@@ -576,6 +585,12 @@ function SchedulerTaskDetail(props: {
               <span>Last status</span>
               <strong>{props.job.lastStatus || 'n/a'}</strong>
             </div>
+            {props.job.lastError ? (
+              <div>
+                <span>Last error</span>
+                <strong>{props.job.lastError}</strong>
+              </div>
+            ) : null}
           </div>
 
           <Field>
@@ -999,6 +1014,12 @@ function SchedulerJobEditor(props: {
                   <span>Errors</span>
                   <strong>{selectedJob.consecutiveErrors}</strong>
                 </div>
+                {selectedJob.lastError ? (
+                  <div>
+                    <span>Last error</span>
+                    <strong>{selectedJob.lastError}</strong>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -1217,7 +1238,7 @@ export function SchedulerPage(props: { embedded?: boolean } = {}) {
           <CardHeader>
             <CardTitle>Jobs</CardTitle>
             <CardDescription>
-              {`${schedulerQuery.data?.jobs.length || 0} item${schedulerQuery.data?.jobs.length === 1 ? '' : 's'}`}
+              {formatJobsSummary(schedulerQuery.data)}
             </CardDescription>
           </CardHeader>
           <CardContent>

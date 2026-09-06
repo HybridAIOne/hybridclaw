@@ -19,6 +19,7 @@ function makeCronTask(cronExpr: string): ScheduledTask {
     enabled: 1,
     last_run: null,
     last_status: null,
+    last_error: null,
     consecutive_errors: 0,
     created_at: '2026-03-14T00:00:00.000Z',
   };

@@ -109,3 +109,90 @@ test('processSideEffects can ignore schedule side effects', async () => {
   ).toHaveLength(0);
   expect(rearmScheduler).not.toHaveBeenCalled();
 });
+
+test('processSideEffects reports schedule creation failures through onError', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const rearmScheduler = vi.fn();
+  vi.doMock('../src/scheduler/scheduler.js', () => ({
+    rearmScheduler,
+  }));
+  vi.doMock('../src/memory/jobs.js', () => ({
+    createJob: vi.fn(() => {
+      throw new Error('database is locked');
+    }),
+    deleteJob: vi.fn(),
+  }));
+
+  const { processSideEffects } = await import('../src/agent/side-effects.ts');
+
+  const onError = vi.fn();
+  processSideEffects(
+    {
+      status: 'success',
+      result: 'ok',
+      toolsUsed: [],
+      sideEffects: {
+        schedules: [
+          {
+            action: 'add',
+            cronExpr: '0 9 * * *',
+            prompt: 'Morning briefing.',
+          },
+        ],
+      },
+    },
+    'session-1',
+    'tui',
+    { onError },
+  );
+
+  expect(onError).toHaveBeenCalledWith(
+    'Scheduled task could not be created: database is locked',
+  );
+  expect(rearmScheduler).not.toHaveBeenCalled();
+});
+
+test('processSideEffects reports delegation handler failures through onError', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  vi.doMock('../src/scheduler/scheduler.js', () => ({
+    rearmScheduler: vi.fn(),
+  }));
+
+  const { formatSideEffectNotice, processSideEffects } = await import(
+    '../src/agent/side-effects.ts'
+  );
+
+  const onError = vi.fn();
+  processSideEffects(
+    {
+      status: 'success',
+      result: 'ok',
+      toolsUsed: [],
+      sideEffects: {
+        delegations: [{ action: 'delegate', prompt: 'Research pricing.' }],
+      },
+    },
+    'session-1',
+    'tui',
+    {
+      onDelegation: () => {
+        throw new Error('delegation queue unavailable');
+      },
+      onError,
+    },
+  );
+
+  expect(onError).toHaveBeenCalledWith(
+    'Delegation could not be started: delegation queue unavailable',
+  );
+  expect(formatSideEffectNotice([])).toBeNull();
+  expect(formatSideEffectNotice(['  ', 'Delegation was not started: x.'])).toBe(
+    '⚠️ Delegation was not started: x.',
+  );
+});

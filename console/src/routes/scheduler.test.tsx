@@ -414,6 +414,7 @@ function makeConfigJob(
     },
     lastRun: null,
     lastStatus: null,
+    lastError: null,
     nextRunAt: '2026-04-07T20:00:00.000Z',
     disabled: false,
     consecutiveErrors: 0,
@@ -458,6 +459,7 @@ describe('SchedulerPage', () => {
 
   it('loads the selected job from the jobId query parameter', async () => {
     fetchSchedulerMock.mockResolvedValue({
+      proactiveQueue: { queued: 0, failed: 0 },
       jobs: [makeConfigJob()],
     });
     window.history.replaceState({}, '', '/admin/scheduler?jobId=release-notes');
@@ -479,6 +481,7 @@ describe('SchedulerPage', () => {
 
   it('normalizes datetime-local input before saving at schedules', async () => {
     fetchSchedulerMock.mockResolvedValue({
+      proactiveQueue: { queued: 0, failed: 0 },
       jobs: [makeConfigJob()],
     });
     saveSchedulerJobMock.mockImplementation(
@@ -520,6 +523,7 @@ describe('SchedulerPage', () => {
 
   it('returns to the jobs board with SPA navigation after saving', async () => {
     fetchSchedulerMock.mockResolvedValue({
+      proactiveQueue: { queued: 0, failed: 0 },
       jobs: [makeConfigJob()],
     });
     saveSchedulerJobMock.mockResolvedValue({
@@ -547,6 +551,7 @@ describe('SchedulerPage', () => {
 
   it('saves one-shot jobs with the configured retry count', async () => {
     fetchSchedulerMock.mockResolvedValue({
+      proactiveQueue: { queued: 0, failed: 0 },
       jobs: [makeConfigJob()],
     });
     saveSchedulerJobMock.mockImplementation(
@@ -592,6 +597,7 @@ describe('SchedulerPage', () => {
 
   it('rejects one-shot retry counts above the backend limit', async () => {
     fetchSchedulerMock.mockResolvedValue({
+      proactiveQueue: { queued: 0, failed: 0 },
       jobs: [makeConfigJob()],
     });
     window.history.replaceState({}, '', '/admin/scheduler?jobId=release-notes');
@@ -624,6 +630,7 @@ describe('SchedulerPage', () => {
 
   it('shows a dropdown with enabled channel types', async () => {
     fetchSchedulerMock.mockResolvedValue({
+      proactiveQueue: { queued: 0, failed: 0 },
       jobs: [makeConfigJob()],
     });
     fetchConfigMock.mockResolvedValue({
@@ -672,6 +679,7 @@ describe('SchedulerPage', () => {
 
   it('uses the implicit tui target without showing a channel id field', async () => {
     fetchSchedulerMock.mockResolvedValue({
+      proactiveQueue: { queued: 0, failed: 0 },
       jobs: [makeConfigJob()],
     });
     saveSchedulerJobMock.mockImplementation(
@@ -708,6 +716,7 @@ describe('SchedulerPage', () => {
 
   it('shows a channel selector when discord has multiple configured targets', async () => {
     fetchSchedulerMock.mockResolvedValue({
+      proactiveQueue: { queued: 0, failed: 0 },
       jobs: [makeConfigJob()],
     });
     fetchChannelsMock.mockResolvedValue(
