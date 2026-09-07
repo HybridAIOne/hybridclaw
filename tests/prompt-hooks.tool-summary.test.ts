@@ -207,6 +207,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'If you created or updated the requested deliverable successfully, attach the asset in the final response instead of replying with a path plus "if you want, I can upload it."',
   );
   expect(prompt).toContain(
+    'When a generated file answers a question with data (a ranking, a list, figures, a table), the final reply must state those key results in text as well, before the file link.',
+  );
+  expect(prompt).toContain(
     'For deliverable-generation tasks, once the requested file exists and the generation command succeeded, stop.',
   );
   expect(prompt).toContain(
