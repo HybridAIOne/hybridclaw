@@ -154,6 +154,7 @@ import {
   prepareSessionAutoReset,
   readDynamicContextMessage,
   readSystemPromptMessage,
+  recordErrorTurn,
   recordSuccessfulTurn,
   resolveCanonicalContextScope,
   resolveChannelType,
@@ -2566,6 +2567,18 @@ async function handleGatewayMessageInner(
         },
       });
       recordPendingHatchingTerminalAudit();
+      const storedErrorTurn = recordErrorTurn({
+        sessionId: req.sessionId,
+        agentId,
+        channelId: req.channelId,
+        userId: req.userId,
+        username: req.username,
+        canonicalScopeId: canonicalContextScope,
+        userContent: storedUserContent,
+        error: errorMessage,
+        toolExecutions,
+        replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+      });
       recordAuditEvent({
         sessionId: req.sessionId,
         runId,
@@ -2573,6 +2586,7 @@ async function handleGatewayMessageInner(
           type: 'turn.end',
           turnIndex,
           finishReason: 'error',
+          assistantMessageId: storedErrorTurn.assistantMessageId,
         },
       });
       recordAuditEvent({
@@ -2582,8 +2596,8 @@ async function handleGatewayMessageInner(
           type: 'session.end',
           reason: 'error',
           stats: {
-            userMessages: 0,
-            assistantMessages: 0,
+            userMessages: 1,
+            assistantMessages: 1,
             toolCalls: toolExecutions.length,
             durationMs,
           },
@@ -2616,6 +2630,7 @@ async function handleGatewayMessageInner(
         toolExecutions,
         tokenUsage: output.tokenUsage,
         error: errorMessage,
+        assistantMessageId: storedErrorTurn.assistantMessageId,
       };
       captureGatewayChatResultError({
         message: errorMessage,

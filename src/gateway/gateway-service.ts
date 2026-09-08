@@ -4009,6 +4009,131 @@ export function recordSuccessfulTurn(opts: {
   return storedTurn;
 }
 
+export function buildErrorTurnPlaceholder(params: {
+  error: string;
+  toolExecutions: ToolExecution[];
+}): string {
+  const lines = [
+    `[This turn ended with an error before a reply was produced: ${params.error}]`,
+  ];
+  if (params.toolExecutions.length > 0) {
+    lines.push(
+      'Tool calls that already ran during this turn (their effects may have been applied):',
+    );
+    for (const execution of params.toolExecutions) {
+      const outcome = execution.blocked
+        ? 'blocked'
+        : execution.isError
+          ? 'failed'
+          : 'completed';
+      lines.push(`- ${execution.name}: ${outcome}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+export function recordErrorTurn(opts: {
+  sessionId: string;
+  agentId: string;
+  channelId: string;
+  userId: string;
+  username: string | null;
+  canonicalScopeId: string;
+  userContent: string;
+  error: string;
+  toolExecutions: ToolExecution[];
+  replaceBuiltInMemory?: boolean;
+}): {
+  userMessageId: number;
+  assistantMessageId: number;
+} {
+  const placeholder = buildErrorTurnPlaceholder({
+    error: opts.error,
+    toolExecutions: opts.toolExecutions,
+  });
+  const storedTurn =
+    opts.replaceBuiltInMemory === true
+      ? {
+          userMessageId: memoryService.storeMessage({
+            sessionId: opts.sessionId,
+            userId: opts.userId,
+            username: opts.username,
+            role: 'user',
+            content: opts.userContent,
+          }),
+          assistantMessageId: memoryService.storeMessage({
+            sessionId: opts.sessionId,
+            userId: 'assistant',
+            username: null,
+            role: 'assistant',
+            content: placeholder,
+            agentId: opts.agentId,
+          }),
+        }
+      : memoryService.storeTurn({
+          sessionId: opts.sessionId,
+          user: {
+            userId: opts.userId,
+            username: opts.username,
+            content: opts.userContent,
+          },
+          assistant: {
+            userId: 'assistant',
+            username: null,
+            agentId: opts.agentId,
+            content: placeholder,
+          },
+        });
+  if (opts.replaceBuiltInMemory !== true && opts.canonicalScopeId.trim()) {
+    try {
+      memoryService.appendCanonicalMessages({
+        agentId: opts.agentId,
+        userId: opts.canonicalScopeId,
+        newMessages: [
+          {
+            role: 'user',
+            content: opts.userContent,
+            sessionId: opts.sessionId,
+            channelId: opts.channelId,
+          },
+          {
+            role: 'assistant',
+            content: placeholder,
+            sessionId: opts.sessionId,
+            channelId: opts.channelId,
+          },
+        ],
+      });
+    } catch (err) {
+      logger.debug(
+        {
+          sessionId: opts.sessionId,
+          canonicalScopeId: opts.canonicalScopeId,
+          err,
+        },
+        'Failed to append canonical session memory for error turn',
+      );
+    }
+  }
+  appendSessionTranscript(opts.agentId, {
+    sessionId: opts.sessionId,
+    channelId: opts.channelId,
+    role: 'user',
+    userId: opts.userId,
+    username: opts.username,
+    content: opts.userContent,
+  });
+  appendSessionTranscript(opts.agentId, {
+    sessionId: opts.sessionId,
+    channelId: opts.channelId,
+    role: 'assistant',
+    userId: 'assistant',
+    username: null,
+    content: placeholder,
+  });
+  return storedTurn;
+}
+
 export function buildStoredTurnMessages(params: {
   sessionId: string;
   userId: string;

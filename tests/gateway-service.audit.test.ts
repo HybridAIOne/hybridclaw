@@ -884,6 +884,77 @@ test('handleGatewayMessage records agent handoff before agent-side timeouts', as
   });
 });
 
+test('handleGatewayMessage persists the user message and an assistant placeholder for error turns', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'error',
+    result: null,
+    toolsUsed: ['send_email', 'bash'],
+    toolExecutions: [
+      {
+        name: 'send_email',
+        arguments: '{"to":"bob@example.com"}',
+        result: 'sent',
+        durationMs: 12,
+      },
+      {
+        name: 'bash',
+        arguments: '{"command":"false"}',
+        result: 'exit 1',
+        durationMs: 3,
+        isError: true,
+      },
+    ],
+    error: 'Timeout waiting for agent output after 300000ms',
+  });
+
+  const {
+    getRecentMessages,
+    getRecentStructuredAuditForSession,
+    initDatabase,
+  } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const sessionId = 'session-error-turn-persisted';
+  const result = await handleGatewayMessage({
+    sessionId,
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: 'Email Bob the report',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('error');
+  const messages = getRecentMessages(sessionId);
+  const userMessage = messages.find((message) => message.role === 'user');
+  const assistantMessage = messages.find(
+    (message) => message.role === 'assistant',
+  );
+  expect(userMessage?.content).toBe('Email Bob the report');
+  expect(assistantMessage?.content).toContain(
+    'ended with an error before a reply was produced: Timeout waiting for agent output after 300000ms',
+  );
+  expect(assistantMessage?.content).toContain('- send_email: completed');
+  expect(assistantMessage?.content).toContain('- bash: failed');
+  expect(result.assistantMessageId).toBe(assistantMessage?.id);
+
+  const turnEnd = getRecentStructuredAuditForSession(sessionId, 20).find(
+    (row) => row.event_type === 'turn.end',
+  );
+  expect(JSON.parse(turnEnd?.payload || '{}')).toMatchObject({
+    type: 'turn.end',
+    finishReason: 'error',
+    assistantMessageId: assistantMessage?.id,
+  });
+});
+
 test('handleGatewayMessage stores redacted request logs when enabled', async () => {
   setupHome({ HYBRIDCLAW_LOG_REQUESTS: '1' });
   const secret = 'supersecret1234567890';
