@@ -251,8 +251,8 @@ curl http://127.0.0.1:9090/v1/chat/completions \
   does not authenticate API requests. Accepted credentials are a scoped `hck_`
   token carrying the `openai.api` action (preferred), `WEB_API_TOKEN`, or
   `GATEWAY_API_TOKEN`
-- without an agent selection the turn runs as the built-in `main` agent;
-  `agents.defaultAgentId` steers other surfaces but is **not** read here.
+- without an agent selection the turn runs as the configured default agent
+  (`agents.defaultAgentId`), falling back to the built-in `main` agent.
   Select one by appending `__hc_eval=agent=<agent-id>` to the model id or
   sending `X-HybridClaw-Eval-Profile: agent=<agent-id>` — which also marks the
   request as an eval request and auto-approves that turn's tool calls

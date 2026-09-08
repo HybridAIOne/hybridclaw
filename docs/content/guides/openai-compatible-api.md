@@ -88,9 +88,11 @@ token as the API key.
 
 ## 4. Choose which agent answers
 
-Without an explicit selection the turn runs as the built-in `main` agent. This
-is a fixed fallback on this endpoint: `agents.defaultAgentId` in the runtime
-config steers other surfaces, but `/v1/chat/completions` does **not** read it.
+Without an explicit selection the turn runs as the configured default agent:
+`agents.defaultAgentId` in the runtime config, as set by
+`hybridclaw agent activate <id>`. When nothing is configured, or the configured
+id is not in `agents.list`, the built-in `main` agent answers. Eval harnesses
+that need `main` regardless of configuration should select it explicitly.
 
 Select a specific agent by appending an agent flag to the model id:
 
