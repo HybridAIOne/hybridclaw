@@ -2566,6 +2566,36 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 'auto',
     },
     {
+      path: 'speech.realtime.turnDetection.eagerness',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: 'auto',
+    },
+    {
+      path: 'speech.realtime.turnDetection.prefixPaddingMs',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: null,
+    },
+    {
+      path: 'speech.realtime.turnDetection.silenceDurationMs',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: null,
+    },
+    {
+      path: 'speech.realtime.turnDetection.threshold',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: null,
+    },
+    {
+      path: 'speech.realtime.turnDetection.type',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: 'server_vad',
+    },
+    {
       path: 'speech.realtime.voice',
       section: 'speech',
       kind: 'string',

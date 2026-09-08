@@ -43,7 +43,6 @@ const CONSULT_BUSY_OUTPUT =
 const CONSULT_REASSURE_FIRST_MS = 7_000;
 const CONSULT_REASSURE_INTERVAL_MS = 12_000;
 
-
 export type RealtimeBridgeState = 'listening' | 'speaking' | 'thinking';
 
 export type RealtimeSurface = 'phone' | 'web';
