@@ -1,5 +1,15 @@
+/**
+ * Consolidation owns durable MEMORY.md updates, unlike daily-note tool writes.
+ * File transactions serialize cooperating writers; model results are committed only
+ * if their input snapshot is still current. External editors do not take this lock.
+ */
+
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  lockMemoryFile,
+  writeMemoryFileAtomic,
+} from '../../container/shared/memory-file.js';
 
 import {
   currentDateStampInTimezone,
@@ -683,15 +693,20 @@ export class MemoryConsolidationEngine {
       try {
         const entries = collectDailyMemoryEntries(workspaceDir);
         const memoryPath = path.join(workspaceDir, 'MEMORY.md');
-        const existing = fs.existsSync(memoryPath)
-          ? fs.readFileSync(memoryPath, 'utf-8')
-          : readMemoryTemplate();
-        const next = buildMemoryContent({ existing, entries });
-        dailyFilesCompiled += entries.length;
-        if (next === existing) continue;
-        fs.mkdirSync(path.dirname(memoryPath), { recursive: true });
-        fs.writeFileSync(memoryPath, next, 'utf-8');
-        workspacesUpdated += 1;
+        const release = lockMemoryFile(memoryPath);
+        try {
+          const existing = fs.existsSync(memoryPath)
+            ? fs.readFileSync(memoryPath, 'utf-8')
+            : readMemoryTemplate();
+          const next = buildMemoryContent({ existing, entries });
+          dailyFilesCompiled += entries.length;
+          if (next === existing) continue;
+          fs.mkdirSync(path.dirname(memoryPath), { recursive: true });
+          writeMemoryFileAtomic(memoryPath, next);
+          workspacesUpdated += 1;
+        } finally {
+          release();
+        }
       } catch (err) {
         logger.warn(
           { agentId: agent.id, workspaceDir, err },
@@ -772,9 +787,23 @@ export class MemoryConsolidationEngine {
         }
 
         if (next === existing) continue;
-        fs.mkdirSync(path.dirname(memoryPath), { recursive: true });
-        fs.writeFileSync(memoryPath, next, 'utf-8');
-        workspacesUpdated += 1;
+        const release = lockMemoryFile(memoryPath);
+        try {
+          const current = fs.existsSync(memoryPath)
+            ? fs.readFileSync(memoryPath, 'utf-8')
+            : null;
+          if (current !== (hasExistingMemory ? existing : null)) {
+            logger.warn(
+              { agentId: agent.id },
+              'Memory changed during cleanup; skipping stale rewrite',
+            );
+            continue;
+          }
+          writeMemoryFileAtomic(memoryPath, next);
+          workspacesUpdated += 1;
+        } finally {
+          release();
+        }
       } catch (err) {
         logger.warn(
           { agentId: agent.id, workspaceDir, err },

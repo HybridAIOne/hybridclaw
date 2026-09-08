@@ -433,3 +433,17 @@ skip parts of the native memory injection and compaction flow. Plugins that
 layer on top of native memory, such as additive external memory providers, do
 not change the built-in behavior described above unless they explicitly replace
 it.
+
+### Concurrent memory writes
+
+The memory tool and consolidation coordinate file updates through a sibling
+`<filename>.lock` directory shared by the host and container mount. The lock
+covers reading, validation, and atomic replacement, so independent chat,
+heartbeat, and scheduled sessions cannot silently overwrite each other's
+read/modify/write updates. Tools retry contention for up to five seconds;
+consolidation skips a busy file. Model cleanup discards its result if the source
+MEMORY.md changed during the model call.
+
+Locks are cooperative: shell commands and external editors do not participate.
+A crashed writer can leave a lock directory behind. Remove that directory only
+after verifying that no writer is running; locks are never stolen based on age.

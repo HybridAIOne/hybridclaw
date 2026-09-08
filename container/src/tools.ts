@@ -4,6 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  waitForMemoryFileLock,
+  writeMemoryFileAtomic,
+} from '../shared/memory-file.js';
+import {
   formatMessageToolChannelList,
   normalizeMessageToolChannelKinds,
 } from '../shared/message-tool-channels.js';
@@ -3099,79 +3103,89 @@ async function executeToolInternal(
         return `${relativePath}\n\n${content || '(empty)'}`;
       }
 
-      if (action === 'append') {
-        const content =
-          typeof args.content === 'string' ? args.content.trim() : '';
-        if (!content)
-          return failTool('Error: content is required for memory append');
+      const release = isMemoryWriteAction(action)
+        ? await waitForMemoryFileLock(filePath)
+        : undefined;
+      try {
+        if (action === 'append') {
+          const content =
+            typeof args.content === 'string' ? args.content.trim() : '';
+          if (!content)
+            return failTool('Error: content is required for memory append');
 
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        const existing = fs.existsSync(filePath)
-          ? fs.readFileSync(filePath, 'utf-8')
-          : '';
-        let next = existing.replace(/\s+$/, '');
-        if (next.length > 0) next += '\n\n';
-        next += `${content}\n`;
-        const limit = memoryCharLimit(relativePath);
-        if (next.length > limit) {
-          return failTool(
-            `Error: ${relativePath} would exceed ${limit} chars. Shorten content or remove older entries first.`,
-          );
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          const existing = fs.existsSync(filePath)
+            ? fs.readFileSync(filePath, 'utf-8')
+            : '';
+          let next = existing.replace(/\s+$/, '');
+          if (next.length > 0) next += '\n\n';
+          next += `${content}\n`;
+          const limit = memoryCharLimit(relativePath);
+          if (next.length > limit) {
+            return failTool(
+              `Error: ${relativePath} would exceed ${limit} chars. Shorten content or remove older entries first.`,
+            );
+          }
+          writeMemoryFileAtomic(filePath, next);
+          return `Appended ${content.length} chars to ${relativePath}`;
         }
-        fs.writeFileSync(filePath, next, 'utf-8');
-        return `Appended ${content.length} chars to ${relativePath}`;
-      }
 
-      if (action === 'write') {
-        const content = typeof args.content === 'string' ? args.content : '';
-        const limit = memoryCharLimit(relativePath);
-        if (content.length > limit) {
-          return failTool(
-            `Error: ${relativePath} exceeds ${limit} char limit.`,
-          );
+        if (action === 'write') {
+          const content = typeof args.content === 'string' ? args.content : '';
+          const limit = memoryCharLimit(relativePath);
+          if (content.length > limit) {
+            return failTool(
+              `Error: ${relativePath} exceeds ${limit} char limit.`,
+            );
+          }
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          writeMemoryFileAtomic(filePath, content);
+          return `Wrote ${content.length} chars to ${relativePath}`;
         }
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        fs.writeFileSync(filePath, content, 'utf-8');
-        return `Wrote ${content.length} chars to ${relativePath}`;
-      }
 
-      if (action === 'replace') {
-        const oldText = typeof args.old_text === 'string' ? args.old_text : '';
-        const newText = typeof args.new_text === 'string' ? args.new_text : '';
-        if (!oldText)
-          return failTool('Error: old_text is required for memory replace');
-        if (!fs.existsSync(filePath))
-          return failTool(`Error: File not found: ${relativePath}`);
-        const content = fs.readFileSync(filePath, 'utf-8');
-        if (!content.includes(oldText))
-          return failTool(`Error: old_text not found in ${relativePath}`);
-        const next = content.replace(oldText, newText);
-        const limit = memoryCharLimit(relativePath);
-        if (next.length > limit) {
-          return failTool(
-            `Error: replacement would exceed ${limit} chars for ${relativePath}.`,
-          );
+        if (action === 'replace') {
+          const oldText =
+            typeof args.old_text === 'string' ? args.old_text : '';
+          const newText =
+            typeof args.new_text === 'string' ? args.new_text : '';
+          if (!oldText)
+            return failTool('Error: old_text is required for memory replace');
+          if (!fs.existsSync(filePath))
+            return failTool(`Error: File not found: ${relativePath}`);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          if (!content.includes(oldText))
+            return failTool(`Error: old_text not found in ${relativePath}`);
+          const next = content.replace(oldText, newText);
+          const limit = memoryCharLimit(relativePath);
+          if (next.length > limit) {
+            return failTool(
+              `Error: replacement would exceed ${limit} chars for ${relativePath}.`,
+            );
+          }
+          writeMemoryFileAtomic(filePath, next);
+          return `Updated ${relativePath}`;
         }
-        fs.writeFileSync(filePath, next, 'utf-8');
-        return `Updated ${relativePath}`;
-      }
 
-      if (action === 'remove') {
-        const oldText = typeof args.old_text === 'string' ? args.old_text : '';
-        if (!oldText)
-          return failTool('Error: old_text is required for memory remove');
-        if (!fs.existsSync(filePath))
-          return failTool(`Error: File not found: ${relativePath}`);
-        const content = fs.readFileSync(filePath, 'utf-8');
-        if (!content.includes(oldText))
-          return failTool(`Error: old_text not found in ${relativePath}`);
-        fs.writeFileSync(filePath, content.replace(oldText, ''), 'utf-8');
-        return `Removed matching text from ${relativePath}`;
-      }
+        if (action === 'remove') {
+          const oldText =
+            typeof args.old_text === 'string' ? args.old_text : '';
+          if (!oldText)
+            return failTool('Error: old_text is required for memory remove');
+          if (!fs.existsSync(filePath))
+            return failTool(`Error: File not found: ${relativePath}`);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          if (!content.includes(oldText))
+            return failTool(`Error: old_text not found in ${relativePath}`);
+          writeMemoryFileAtomic(filePath, content.replace(oldText, ''));
+          return `Removed matching text from ${relativePath}`;
+        }
 
-      return failTool(
-        `Error: unknown memory action "${action}". Use read, append, write, replace, remove, list, or search.`,
-      );
+        return failTool(
+          `Error: unknown memory action "${action}". Use read, append, write, replace, remove, list, or search.`,
+        );
+      } finally {
+        release?.();
+      }
     }
 
     case 'message': {

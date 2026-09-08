@@ -307,6 +307,26 @@ describe.sequential('memory consolidation', () => {
     );
   });
 
+  test('does not overwrite memory changed while the cleanup model runs', async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-cleanup-race-'));
+    try {
+      const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+      fs.writeFileSync(memoryPath, '## Facts\n- Original fact.\n');
+      const { MemoryConsolidationEngine } = await loadConsolidationModule(workspaceDir);
+      const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+      vi.mocked(callAuxiliaryModel).mockImplementationOnce(async () => {
+        fs.writeFileSync(memoryPath, '## Facts\n- Concurrent update.\n');
+        return { provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ facts: ['Stale result'], decisions: [], patterns: [] }) };
+      });
+      const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 30, minConfidence: 0.1 });
+      expect((await engine.consolidateWithCleanup()).workspacesUpdated).toBe(0);
+      expect(fs.readFileSync(memoryPath, 'utf8')).toBe('## Facts\n- Concurrent update.\n');
+      expect(fs.existsSync(`${memoryPath}.lock`)).toBe(false);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   test('model-backed cleanup rewrites MEMORY.md without the daily digest block', async () => {
     const workspaceDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-memory-consolidation-llm-'),
