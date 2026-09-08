@@ -1,4 +1,9 @@
 export const TOOL_ACTIVITY_HEARTBEAT_MS = 10_000;
+export const STREAM_ACTIVITY_LINE = '[stream-activity]';
+
+export function emitStreamActivityLine(): void {
+  console.error(STREAM_ACTIVITY_LINE);
+}
 
 /**
  * Run a tool while periodically emitting an activity signal so the gateway's

@@ -1303,3 +1303,109 @@ test('ContainerExecutor forwards disabled inactivity timeout to the IPC output r
     expect.any(Object),
   );
 });
+
+test('ContainerExecutor treats heartbeat lines as activity without evicting stderr context', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const proc = makeFakeChildProcess();
+  const spawn = vi.fn(() => proc as never);
+  const notifiedAfterHeartbeat: number[] = [];
+  const readOutput = vi.fn(
+    async (
+      _sessionId: string,
+      _timeoutMs: number,
+      opts?: {
+        activity?: { lastActivityMs: number; notify: () => void };
+        terminalError?: () => string | null;
+      },
+    ) => {
+      proc.stderr.emit(
+        'data',
+        Buffer.from('Error: tool crashed while uploading report.pdf\n'),
+      );
+      const activity = opts?.activity;
+      if (activity) activity.lastActivityMs = 0;
+      for (let i = 0; i < 25; i += 1) {
+        proc.stderr.emit('data', Buffer.from('[stream-activity]\n'));
+      }
+      if (activity) notifiedAfterHeartbeat.push(activity.lastActivityMs);
+      proc.exitCode = 1;
+      proc.emit('close', 1, null);
+      return {
+        status: 'error' as const,
+        result: null,
+        toolsUsed: [],
+        artifacts: [],
+        error: opts?.terminalError?.() || 'missing terminal error',
+      };
+    },
+  );
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+  const { ContainerExecutor } = await import('../src/infra/container-runner.js');
+  const executor = new ContainerExecutor();
+  const output = await executor.exec({
+    sessionId: 'session-heartbeat-history',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'tui',
+  });
+
+  expect(notifiedAfterHeartbeat).toHaveLength(1);
+  expect(notifiedAfterHeartbeat[0]).toBeGreaterThan(0);
+  expect(output.status).toBe('error');
+  expect(output.error).toContain('tool crashed while uploading report.pdf');
+  expect(output.error).not.toContain('[stream-activity]');
+});

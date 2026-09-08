@@ -751,14 +751,14 @@ function getOrSpawnHostProcess(
         entry.activity?.notify();
         continue;
       }
+      if (isStreamActivityLine(line)) {
+        entry.activity?.notify();
+        continue;
+      }
       rememberStderrLine(entry, line);
       emitTextDelta(entry, line);
       emitThinkingDelta(entry, line);
       if (isThinkingDeltaLine(line)) {
-        entry.activity?.notify();
-        continue;
-      }
-      if (isStreamActivityLine(line)) {
         entry.activity?.notify();
         continue;
       }
@@ -791,13 +791,14 @@ function getOrSpawnHostProcess(
       } else if (consumeModelResponseDebugFileLine(tail)) {
         entry.activity?.notify();
         entry.stderrBuffer = '';
+      } else if (isStreamActivityLine(tail)) {
+        entry.activity?.notify();
+        entry.stderrBuffer = '';
       } else {
         rememberStderrLine(entry, tail);
         emitTextDelta(entry, tail);
         emitThinkingDelta(entry, tail);
-        if (isStreamActivityLine(tail)) {
-          entry.activity?.notify();
-        } else if (isThinkingDeltaLine(tail)) {
+        if (isThinkingDeltaLine(tail)) {
           entry.activity?.notify();
         } else if (
           !consumeCollapsedStreamDebugLine(

@@ -77,7 +77,10 @@ import {
   readChatCompletionUsageTokens,
   recordPerformanceSample,
 } from './token-usage.js';
-import { withToolActivityHeartbeat } from './tool-activity-heartbeat.js';
+import {
+  emitStreamActivityLine,
+  withToolActivityHeartbeat,
+} from './tool-activity-heartbeat.js';
 import {
   type ApprovalPrelude,
   approvalRuntime,
@@ -406,7 +409,7 @@ function emitStreamThinkingDelta(delta: string): void {
 }
 
 function emitStreamActivity(): void {
-  console.error('[stream-activity]');
+  emitStreamActivityLine();
 }
 
 function latestUserPrompt(messages: ChatMessage[]): string {
@@ -1108,6 +1111,7 @@ async function processRequest(
       messages: history,
       streamTextDeltas,
       onTextDelta: emitStreamDelta,
+      onActivity: emitStreamActivity,
     });
     if (resumed) {
       resumed.codexRuntime = 'app-server';
@@ -1143,6 +1147,7 @@ async function processRequest(
       providerCredentials,
       streamTextDeltas,
       onTextDelta: emitStreamDelta,
+      onActivity: emitStreamActivity,
     });
     output.codexRuntime = 'app-server';
     await emitRuntimeEvent({

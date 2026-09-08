@@ -55,3 +55,31 @@ test('stops the heartbeat when the tool rejects', async () => {
   await vi.advanceTimersByTimeAsync(5_000);
   expect(emit).toHaveBeenCalledTimes(1);
 });
+
+test('heartbeat writes the exact stderr line the gateway watchdog matches', async () => {
+  const { emitStreamActivityLine } = await import(
+    '../container/src/tool-activity-heartbeat.js'
+  );
+  const { isStreamActivityLine } = await import('../src/infra/stream-debug.js');
+  const stderr = vi.spyOn(console, 'error').mockImplementation(() => {});
+  let finish: (value: string) => void = () => {};
+
+  const promise = withToolActivityHeartbeat(
+    () =>
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      }),
+    emitStreamActivityLine,
+    1_000,
+  );
+
+  await vi.advanceTimersByTimeAsync(2_500);
+  expect(stderr).toHaveBeenCalledTimes(2);
+  for (const [line] of stderr.mock.calls) {
+    expect(isStreamActivityLine(String(line).trim())).toBe(true);
+  }
+
+  finish('done');
+  await expect(promise).resolves.toBe('done');
+  stderr.mockRestore();
+});
