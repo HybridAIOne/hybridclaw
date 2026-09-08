@@ -143,6 +143,10 @@
           "path": "guides/office-dependencies.md"
         },
         {
+          "title": "OpenAI-Compatible API",
+          "path": "guides/openai-compatible-api.md"
+        },
+        {
           "title": "TUI MCP",
           "path": "guides/tui-mcp.md"
         },

@@ -247,9 +247,17 @@ curl http://127.0.0.1:9090/v1/chat/completions \
 
 - `/v1/models` and `/v1/chat/completions` use the same local gateway process;
   they are not a separate service
-- requests must include `Authorization: Bearer <WEB_API_TOKEN>` or
-  `Authorization: Bearer <GATEWAY_API_TOKEN>`; loopback address alone does not
-  authenticate API requests
+- requests must include `Authorization: Bearer <token>`; loopback address alone
+  does not authenticate API requests. Accepted credentials are a scoped `hck_`
+  token carrying the `openai.api` action (preferred), `WEB_API_TOKEN`, or
+  `GATEWAY_API_TOKEN`
+- without an agent selection the turn runs as the built-in `main` agent;
+  `agents.defaultAgentId` steers other surfaces but is **not** read here.
+  Select one by appending `__hc_eval=agent=<agent-id>` to the model id or
+  sending `X-HybridClaw-Eval-Profile: agent=<agent-id>` — which also marks the
+  request as an eval request and auto-approves that turn's tool calls
+- each request runs in a fresh session; earlier entries in `messages` are
+  replayed as history for that turn and nothing persists between calls
 - delegated chat completions return an acknowledgement and include
   `hybridclaw.delegation` with `{ "id": "<completion-id>", "status": "queued" }`;
   non-streaming responses also set `X-HybridClaw-Delegation-Id`
@@ -264,8 +272,10 @@ curl http://127.0.0.1:9090/v1/chat/completions \
   top-level OpenAI-shaped `error`
 - polling intervals around 1-5 seconds are appropriate for delegated jobs,
   which may wait behind the delegation concurrency limit before running
-- these endpoints are intended for local tooling and eval harnesses rather than
-  public exposure
+- the same endpoints serve external integrations over a reachable HTTPS
+  hostname; see [OpenAI-Compatible API](../guides/openai-compatible-api.md) for
+  the token, agent-selection, and delegation-polling details a third-party
+  caller needs
 
 ## Auth And Providers
 

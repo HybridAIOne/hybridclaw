@@ -1,6 +1,6 @@
 ---
 title: Guides
-description: Practical workflows for generated apps, local providers, remote access, MCP, bundled skills, Twilio voice, local speech tooling, and optional office tooling.
+description: Practical workflows for generated apps, local providers, remote access, MCP, bundled skills, Twilio voice, local speech tooling, the OpenAI-compatible API, and optional office tooling.
 sidebar_position: 1
 ---
 
@@ -32,5 +32,7 @@ These pages focus on common operator workflows after the base install works.
 - [Voice and TTS](./voice-tts.md) for voice reply and speech backend setup
 - [Realtime Voice for Web Apps](./voice-web-api.md) for browser voice
   sessions from your own web app via scoped API tokens
+- [OpenAI-Compatible API](./openai-compatible-api.md) for sending prompts
+  to an agent from an external system over `/v1/chat/completions`
 - [Optional Office Dependencies](./office-dependencies.md) for host-side
   office tooling
