@@ -11439,6 +11439,7 @@ export async function handleGatewayCommand(
             sessionId: session.id,
             messageId,
             operatorUserId: String(req.userId || ''),
+            operatorDisplayName: req.username,
             rating,
             comment,
             sourceSurface,

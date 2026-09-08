@@ -295,6 +295,51 @@ describe('response ratings', () => {
     });
   });
 
+  test('forwards the rater display name when it differs from the user id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 201 });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = await setup({
+      apiKey: 'hai-feedback-test-key',
+      hybridAIBaseUrl: 'https://hybridai.example/',
+      chatbotId: 'bot-feedback',
+    });
+
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      operatorDisplayName: '  Ada Lovelace  ',
+      rating: 'up',
+      sourceSurface: 'msteams',
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const [, first] = fetchMock.mock.calls[0] as [
+      string,
+      RequestInit & { body: string },
+    ];
+    expect(JSON.parse(first.body)).toMatchObject({
+      external_user_id: 'operator-a',
+      external_user_name: 'Ada Lovelace',
+    });
+
+    // Channels fall back to the raw id as username; that must not be sent
+    // as a display name.
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-b',
+      operatorDisplayName: 'operator-b',
+      rating: 'down',
+      sourceSurface: 'msteams',
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const [, second] = fetchMock.mock.calls[1] as [
+      string,
+      RequestInit & { body: string },
+    ];
+    expect(JSON.parse(second.body)).not.toHaveProperty('external_user_name');
+  });
+
   test('applies reaction rating changes with matching-removal semantics', async () => {
     const service = await setup();
     const base = {

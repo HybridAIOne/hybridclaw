@@ -25,6 +25,12 @@ export interface SubmitResponseRatingInput {
   sessionId: string;
   messageId: number;
   operatorUserId: string;
+  /**
+   * Human-readable name of the rater (e.g. a Teams display name). Forwarded
+   * to HybridAI chat so the feedback board can show who rated instead of an
+   * opaque directory id; never used for identity matching.
+   */
+  operatorDisplayName?: string | null;
   rating: ResponseRatingValue | null;
   /** Optional free-text note, e.g. the expected answer for a thumbs-down. */
   comment?: string | null;
@@ -83,9 +89,11 @@ function warnHybridAIChatFeedbackForwardingFailed(
 }
 
 function resolveHybridAIChatFeedbackBrowserId(sessionId: string): string {
-  // HybridAI's feedback API requires a stable opaque browser_id. Web ratings
-  // are session-scoped and do not expose a separate browser fingerprint here,
-  // so use the HybridClaw session id rather than adding user-identifying data.
+  // HybridAI's feedback API requires a stable opaque browser_id. Ratings are
+  // session-scoped and expose no separate browser fingerprint, so use the
+  // HybridClaw session id. Note that channel DM session keys embed the peer
+  // id (e.g. `...:chat:dm:peer:<user id>`); the rater is sent explicitly as
+  // external_user_id anyway.
   return sessionId;
 }
 
@@ -93,6 +101,7 @@ async function forwardHybridAIChatFeedbackForRating(input: {
   sessionId: string;
   messageId: number;
   operatorUserId: string;
+  operatorDisplayName: string | null;
   rating: ResponseRatingValue;
   comment: string | null;
   target: ResponseRatingTarget;
@@ -118,6 +127,9 @@ async function forwardHybridAIChatFeedbackForRating(input: {
       ? `[${agentId}] ${input.target.assistant_content}`
       : input.target.assistant_content,
     external_user_id: input.operatorUserId,
+    ...(input.operatorDisplayName
+      ? { external_user_name: input.operatorDisplayName }
+      : {}),
     ...(input.rating === 'down' && input.comment
       ? { better_response: input.comment }
       : {}),
@@ -158,6 +170,7 @@ export function applyReactionRatingChanges(input: {
   sessionId: string;
   messageId: number;
   operatorUserId: string;
+  operatorDisplayName?: string | null;
   addedRatings: ResponseRatingValue[];
   removedRatings: ResponseRatingValue[];
   sourceSurface: string;
@@ -187,6 +200,7 @@ export function applyReactionRatingChanges(input: {
     sessionId: input.sessionId,
     messageId: input.messageId,
     operatorUserId: input.operatorUserId,
+    operatorDisplayName: input.operatorDisplayName,
     rating: next,
     sourceSurface: input.sourceSurface,
   });
@@ -198,6 +212,13 @@ export function submitResponseRating(
   const sessionId = input.sessionId.trim();
   if (!sessionId) throw new Error('Missing `sessionId`.');
   const operatorUserId = input.operatorUserId.trim() || 'web';
+  // Channels fall back to the raw user id as username; a name equal to the
+  // id adds nothing, so only forward genuinely human-readable labels.
+  const trimmedDisplayName = input.operatorDisplayName?.trim() || null;
+  const operatorDisplayName =
+    trimmedDisplayName && trimmedDisplayName !== operatorUserId
+      ? trimmedDisplayName
+      : null;
   const comment = input.rating ? input.comment?.trim() || null : null;
   const sourceSurface = input.sourceSurface?.trim().toLowerCase() || 'web';
   const target = getResponseRatingTarget({
@@ -268,6 +289,7 @@ export function submitResponseRating(
       sessionId,
       messageId: input.messageId,
       operatorUserId,
+      operatorDisplayName,
       rating: input.rating,
       comment,
       target,

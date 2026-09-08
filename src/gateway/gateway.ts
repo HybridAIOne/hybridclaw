@@ -1986,6 +1986,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
           sessionId: event.sessionId,
           messageId,
           operatorUserId: event.userId,
+          operatorDisplayName: event.username,
           addedRatings,
           removedRatings,
           sourceSurface: 'msteams',
