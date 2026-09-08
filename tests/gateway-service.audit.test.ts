@@ -906,7 +906,7 @@ test('handleGatewayMessage persists the user message and an assistant placeholde
         isError: true,
       },
     ],
-    error: 'Timeout waiting for agent output after 300000ms',
+    error: 'Model request failed: HTTP 502',
   });
 
   const {
@@ -939,10 +939,12 @@ test('handleGatewayMessage persists the user message and an assistant placeholde
   );
   expect(userMessage?.content).toBe('Email Bob the report');
   expect(assistantMessage?.content).toContain(
-    'ended with an error before a reply was produced: Timeout waiting for agent output after 300000ms',
+    'ended with an error before a reply was produced: Model request failed: HTTP 502',
   );
-  expect(assistantMessage?.content).toContain('- send_email: completed');
-  expect(assistantMessage?.content).toContain('- bash: failed');
+  expect(assistantMessage?.content).toContain(
+    '- send_email: completed; result: sent',
+  );
+  expect(assistantMessage?.content).toContain('- bash: failed; result: exit 1');
   expect(result.assistantMessageId).toBe(assistantMessage?.id);
 
   const turnEnd = getRecentStructuredAuditForSession(sessionId, 20).find(
@@ -952,6 +954,130 @@ test('handleGatewayMessage persists the user message and an assistant placeholde
     type: 'turn.end',
     finishReason: 'error',
     assistantMessageId: assistantMessage?.id,
+  });
+});
+
+test('handleGatewayMessage records streamed tool calls when a timeout output carries no executions', async () => {
+  setupHome();
+
+  runAgentMock.mockImplementation(async (params: any) => {
+    params.onToolProgress?.({
+      sessionId: params.sessionId,
+      toolName: 'send_email',
+      phase: 'start',
+      preview: 'to=bob@example.com',
+    });
+    params.onToolProgress?.({
+      sessionId: params.sessionId,
+      toolName: 'send_email',
+      phase: 'finish',
+      durationMs: 12,
+      preview: 'sent',
+    });
+    params.onToolProgress?.({
+      sessionId: params.sessionId,
+      toolName: 'bash',
+      phase: 'start',
+      preview: 'sleep 999',
+    });
+    return {
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: 'Timeout waiting for agent output after 300000ms',
+    };
+  });
+
+  const { getRecentMessages, initDatabase } = await import(
+    '../src/memory/db.ts'
+  );
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const sessionId = 'session-error-turn-streamed-tools';
+  const result = await handleGatewayMessage({
+    sessionId,
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: 'Email Bob the report',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('error');
+  const assistantMessage = getRecentMessages(sessionId).find(
+    (message) => message.role === 'assistant',
+  );
+  expect(assistantMessage?.content).toContain(
+    'Timeout waiting for agent output after 300000ms',
+  );
+  expect(assistantMessage?.content).toContain(
+    '- send_email: completed; result: sent',
+  );
+  expect(assistantMessage?.content).toContain(
+    '- bash: started, outcome unknown; result: sleep 999',
+  );
+});
+
+test('handleGatewayMessage persists the user message when the agent run throws', async () => {
+  setupHome();
+
+  runAgentMock.mockImplementation(async (params: any) => {
+    params.onToolProgress?.({
+      sessionId: params.sessionId,
+      toolName: 'write',
+      phase: 'start',
+      preview: 'notes.md',
+    });
+    throw new Error('container exited unexpectedly');
+  });
+
+  const {
+    getRecentMessages,
+    getRecentStructuredAuditForSession,
+    initDatabase,
+  } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const sessionId = 'session-error-turn-thrown';
+  const result = await handleGatewayMessage({
+    sessionId,
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'alice',
+    content: 'Write my notes',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('error');
+  expect(result.error).toBe('container exited unexpectedly');
+  const messages = getRecentMessages(sessionId);
+  const userMessage = messages.find((message) => message.role === 'user');
+  const assistantMessage = messages.find(
+    (message) => message.role === 'assistant',
+  );
+  expect(userMessage?.content).toBe('Write my notes');
+  expect(assistantMessage?.content).toContain('container exited unexpectedly');
+  expect(assistantMessage?.content).toContain(
+    '- write: started, outcome unknown; result: notes.md',
+  );
+  expect(result.assistantMessageId).toBe(assistantMessage?.id);
+
+  const sessionEnd = getRecentStructuredAuditForSession(sessionId, 20).find(
+    (row) => row.event_type === 'session.end',
+  );
+  expect(JSON.parse(sessionEnd?.payload || '{}')).toMatchObject({
+    reason: 'error',
+    stats: { userMessages: 1, assistantMessages: 1, toolCalls: 1 },
   });
 });
 
