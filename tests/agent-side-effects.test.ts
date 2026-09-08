@@ -68,6 +68,56 @@ test('processSideEffects persists explicit schedule delivery channels', async ()
   expect(rearmScheduler).toHaveBeenCalledTimes(1);
 });
 
+test('processSideEffects persists the cron timezone', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  vi.doMock('../src/scheduler/scheduler.js', () => ({
+    rearmScheduler: vi.fn(),
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAllJobs } = await import('../src/memory/jobs.ts');
+  const { processSideEffects } = await import('../src/agent/side-effects.ts');
+
+  initDatabase({ quiet: true });
+
+  processSideEffects(
+    {
+      status: 'success',
+      result: 'ok',
+      toolsUsed: [],
+      sideEffects: {
+        schedules: [
+          {
+            action: 'add',
+            cronExpr: '0 9 * * *',
+            tz: 'Europe/Berlin',
+            prompt: 'Write the morning briefing.',
+          },
+          {
+            action: 'add',
+            cronExpr: '0 9 * * *',
+            tz: 'Mars/Olympus',
+            prompt: 'Never stored.',
+          },
+        ],
+      },
+    },
+    'session-1',
+    'tui',
+  );
+
+  const tasks = getAllJobs({ kind: 'scheduled_task', sessionId: 'session-1' });
+  expect(tasks).toHaveLength(1);
+  expect(tasks[0]).toMatchObject({
+    cron_expr: '0 9 * * *',
+    tz: 'Europe/Berlin',
+    prompt: 'Write the morning briefing.',
+  });
+});
+
 test('processSideEffects can ignore schedule side effects', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

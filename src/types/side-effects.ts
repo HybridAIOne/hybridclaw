@@ -2,6 +2,7 @@ export type ScheduleSideEffect =
   | {
       action: 'add';
       cronExpr?: string;
+      tz?: string;
       runAt?: string;
       everyMs?: number;
       prompt: string;

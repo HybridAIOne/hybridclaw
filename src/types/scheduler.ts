@@ -3,6 +3,7 @@ export interface ScheduledTask {
   session_id: string;
   channel_id: string;
   cron_expr: string;
+  tz: string;
   run_at: string | null;
   every_ms: number | null;
   prompt: string;
@@ -17,6 +18,7 @@ export interface ScheduledTaskInput {
   id: number;
   channelId: string;
   cronExpr: string;
+  tz: string;
   runAt: string | null;
   everyMs: number | null;
   prompt: string;

@@ -1,4 +1,7 @@
-import { afterEach, describe, expect, test } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   executeTool,
@@ -46,6 +49,7 @@ describe.sequential('container cron tool', () => {
         id: 16,
         channelId: 'ops@example.com',
         cronExpr: '',
+        tz: '',
         runAt: null,
         everyMs: 1_800_000,
         prompt: 'Write a short operational update email.',
@@ -90,7 +94,7 @@ describe.sequential('container cron tool', () => {
     expect(getPendingSideEffects()).toBeUndefined();
   });
 
-  test('accepts standard cron expressions and marks them as UTC', async () => {
+  test('falls back to UTC when no timezone is known', async () => {
     const result = await executeTool(
       'cron',
       JSON.stringify({
@@ -110,6 +114,106 @@ describe.sequential('container cron tool', () => {
         prompt: 'Write the morning briefing.',
       },
     ]);
+  });
+
+  test('stores an explicit timezone with cron tasks', async () => {
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({
+        action: 'add',
+        cron: '0 9 * * *',
+        tz: 'Europe/Berlin',
+        prompt: 'Write the morning briefing.',
+      }),
+    );
+
+    expect(result).toContain('(Europe/Berlin)');
+    expect(getPendingSideEffects()?.schedules).toEqual([
+      {
+        action: 'add',
+        cronExpr: '0 9 * * *',
+        tz: 'Europe/Berlin',
+        prompt: 'Write the morning briefing.',
+      },
+    ]);
+  });
+
+  test('rejects unknown timezones', async () => {
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({
+        action: 'add',
+        cron: '0 9 * * *',
+        tz: 'Mars/Olympus',
+        prompt: 'Write the morning briefing.',
+      }),
+    );
+
+    expect(result).toContain('Error: unknown timezone');
+    expect(getPendingSideEffects()).toBeUndefined();
+  });
+
+  test('defaults the cron timezone to USER.md', async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-cron-workspace-'),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(workspaceRoot, 'USER.md'),
+        '# User\n\n**Timezone:** America/New_York\n',
+      );
+      vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+      vi.resetModules();
+      const tools = await import('../container/src/tools.js');
+
+      const result = await tools.executeTool(
+        'cron',
+        JSON.stringify({
+          action: 'add',
+          cron: '0 9 * * *',
+          prompt: 'Write the morning briefing.',
+        }),
+      );
+
+      expect(result).toContain('(America/New_York)');
+      expect(tools.getPendingSideEffects()?.schedules).toEqual([
+        {
+          action: 'add',
+          cronExpr: '0 9 * * *',
+          tz: 'America/New_York',
+          prompt: 'Write the morning briefing.',
+        },
+      ]);
+      tools.resetSideEffects();
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('lists the timezone of injected cron tasks', async () => {
+    setScheduledTasks([
+      {
+        id: 17,
+        channelId: '',
+        cronExpr: '0 9 * * *',
+        tz: 'Europe/Berlin',
+        runAt: null,
+        everyMs: null,
+        prompt: 'Write the morning briefing.',
+        enabled: 1,
+        lastRun: null,
+        createdAt: '2026-04-11T12:58:18.861Z',
+      },
+    ]);
+
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({ action: 'list' }),
+    );
+
+    expect(result).toContain('0 9 * * * (Europe/Berlin)');
   });
 
   test('requires an explicit delivery channel in web chat sessions', async () => {

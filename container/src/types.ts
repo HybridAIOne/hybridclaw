@@ -186,6 +186,7 @@ export interface ScheduledTaskInput {
   id: number;
   channelId: string;
   cronExpr: string;
+  tz: string;
   runAt: string | null;
   everyMs: number | null;
   prompt: string;
@@ -459,6 +460,7 @@ export type ScheduleSideEffect =
   | {
       action: 'add';
       cronExpr?: string;
+      tz?: string;
       runAt?: string;
       everyMs?: number;
       prompt: string;
