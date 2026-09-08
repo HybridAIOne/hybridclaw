@@ -3050,16 +3050,23 @@ describe('gateway bootstrap', () => {
     const exitSpy = vi
       .spyOn(process, 'exit')
       .mockImplementation((() => undefined) as never);
+    let releaseTurn: (() => void) | undefined;
+    let polls = 0;
     const state = await importFreshGatewayMain({
       onState: (nextState) => {
-        nextState.getInFlightExecutorCount.mockReturnValueOnce(1);
-        nextState.getInFlightExecutorCount.mockReturnValue(0);
+        nextState.getInFlightExecutorCount.mockImplementation(() => {
+          polls += 1;
+          if (polls === 3) releaseTurn?.();
+          return polls === 1 ? 1 : 0;
+        });
         nextState.setTimeout.mockImplementation((callback: () => void) => {
           callback();
           return { timer: true };
         });
       },
     });
+    const inFlightTurns = await import('../src/gateway/in-flight-turns.js');
+    releaseTurn = inFlightTurns.beginInFlightTurn();
     const sigtermHandler = state.processOn.mock.calls.find(
       ([event]) => event === 'SIGTERM',
     )?.[1] as (() => void) | undefined;
@@ -3072,12 +3079,15 @@ describe('gateway bootstrap', () => {
     await settle();
     await settle();
 
+    expect(inFlightTurns.isGatewayShuttingDown()).toBe(true);
+    expect(inFlightTurns.getInFlightTurnCount()).toBe(0);
     expect(stopAllExecutionsMock).toHaveBeenCalledTimes(1);
     const stopOrder = stopAllExecutionsMock.mock.invocationCallOrder[0];
     const pollOrders = state.getInFlightExecutorCount.mock.invocationCallOrder;
-    expect(pollOrders.length).toBeGreaterThanOrEqual(2);
-    expect(pollOrders[0]).toBeLessThan(stopOrder);
-    expect(pollOrders[1]).toBeLessThan(stopOrder);
+    expect(pollOrders.length).toBeGreaterThanOrEqual(4);
+    for (const pollOrder of pollOrders) {
+      expect(pollOrder).toBeLessThan(stopOrder);
+    }
     for (const channelShutdown of [
       state.shutdownDiscord,
       state.shutdownEmail,
@@ -3093,9 +3103,9 @@ describe('gateway bootstrap', () => {
     const broadcastShutdown =
       state.startGatewayHttpServer.mock.results[0]?.value.broadcastShutdown;
     expect(broadcastShutdown).toHaveBeenCalledTimes(1);
-    expect(broadcastShutdown.mock.invocationCallOrder[0]).toBeLessThan(
-      pollOrders[0],
-    );
+    const broadcastOrder = broadcastShutdown.mock.invocationCallOrder[0];
+    expect(broadcastOrder).toBeGreaterThan(pollOrders[pollOrders.length - 1]);
+    expect(broadcastOrder).toBeLessThan(stopOrder);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 

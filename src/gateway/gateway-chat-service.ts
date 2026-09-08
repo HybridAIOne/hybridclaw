@@ -182,6 +182,7 @@ import {
   recordBootstrapOnboardingStart,
   recordBootstrapOnboardingUserReply,
 } from './hatching-completion.js';
+import { isGatewayShuttingDown, trackInFlightTurn } from './in-flight-turns.js';
 import {
   executeModelRouting,
   type ModelRoutingAttempt,
@@ -767,23 +768,36 @@ function buildA2AChatThreadId(session: {
 
 const gatewaySessionQueue = new KeyedSerialQueue();
 
+export const GATEWAY_RESTARTING_ERROR =
+  'The gateway is restarting. Please resend your message in a moment.';
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
+  if (isGatewayShuttingDown()) {
+    return {
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: GATEWAY_RESTARTING_ERROR,
+    };
+  }
   const source = req.source?.trim() || 'gateway.chat';
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
   }
-  return gatewaySessionQueue.run(req.sessionId, () =>
-    withSpan(
-      'hybridclaw.gateway.handle_message',
-      {
-        'hybridclaw.session_id': req.sessionId,
-        'hybridclaw.agent_id': req.agentId || '',
-        'hybridclaw.channel_id': req.channelId || '',
-        'hybridclaw.model': req.model || '',
-      },
-      async () => handleGatewayMessageInner(req),
+  return trackInFlightTurn(() =>
+    gatewaySessionQueue.run(req.sessionId, () =>
+      withSpan(
+        'hybridclaw.gateway.handle_message',
+        {
+          'hybridclaw.session_id': req.sessionId,
+          'hybridclaw.agent_id': req.agentId || '',
+          'hybridclaw.channel_id': req.channelId || '',
+          'hybridclaw.model': req.model || '',
+        },
+        async () => handleGatewayMessageInner(req),
+      ),
     ),
   );
 }
