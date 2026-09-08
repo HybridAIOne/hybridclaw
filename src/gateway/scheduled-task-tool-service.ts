@@ -9,6 +9,7 @@
  * NOT the admin scheduler API (`gateway-scheduled-task-service.ts`), which
  * edits jobs on behalf of operators rather than the running agent turn.
  */
+import { isValidTimezone } from '../../container/shared/workspace-time.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
 import { getSessionById } from '../memory/db.js';
@@ -25,6 +26,7 @@ export type ScheduledTaskToolActionResult =
       sessionId: string;
       channelId: string;
       cronExpr?: string;
+      tz?: string;
       runAt?: string;
       everyMs?: number;
       prompt: string;
@@ -76,6 +78,7 @@ export function runScheduledTaskToolAction(
   const prompt = readString(body.prompt);
   if (!prompt) throw new GatewayRequestError(400, 'Missing `prompt`.');
   const cronExpr = readString(body.cronExpr);
+  const tz = readString(body.tz);
   const runAt = readString(body.runAt);
   const everyMs =
     typeof body.everyMs === 'number' && Number.isFinite(body.everyMs)
@@ -89,6 +92,12 @@ export function runScheduledTaskToolAction(
       400,
       'Provide exactly one of `cronExpr`, `runAt`, or `everyMs`.',
     );
+  }
+  if (tz && !cronExpr) {
+    throw new GatewayRequestError(400, '`tz` requires `cronExpr`.');
+  }
+  if (tz && !isValidTimezone(tz)) {
+    throw new GatewayRequestError(400, `Unknown timezone \`${tz}\`.`);
   }
   if (runAt) {
     const runAtMs = Date.parse(runAt);
@@ -110,13 +119,14 @@ export function runScheduledTaskToolAction(
     sessionId,
     channelId,
     cronExpr,
+    tz: tz || undefined,
     prompt,
     runAt: runAt || undefined,
     everyMs: everyMs > 0 ? everyMs : undefined,
   });
   rearmScheduler();
   logger.info(
-    { taskId, sessionId, channelId, cronExpr, runAt, everyMs },
+    { taskId, sessionId, channelId, cronExpr, tz, runAt, everyMs },
     'Cron tool created task',
   );
   return {
@@ -126,6 +136,7 @@ export function runScheduledTaskToolAction(
     sessionId,
     channelId,
     cronExpr: cronExpr || undefined,
+    tz: tz || undefined,
     runAt: runAt || undefined,
     everyMs: everyMs > 0 ? everyMs : undefined,
     prompt,

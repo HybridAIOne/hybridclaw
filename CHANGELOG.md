@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Agent-created cron tasks run in the user's timezone**: The `cron` tool
+  stores the timezone from `USER.md` (or an explicit `tz` argument) with each
+  recurring task, and the scheduler evaluates the expression in that timezone
+  instead of UTC. The task list, the console scheduler, and the admin API show
+  the stored timezone.
+
 ## [0.30.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.1) - 2026-09-03
 
 ### Added

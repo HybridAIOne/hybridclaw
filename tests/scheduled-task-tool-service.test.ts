@@ -105,6 +105,48 @@ test('add falls back to the session channel for delivery', async () => {
   ).toMatchObject({ channel_id: 'discord-channel-1', cron_expr: '0 7 * * *' });
 });
 
+test('add stores a valid cron timezone and rejects unknown ones', async () => {
+  const { getAllJobs, runScheduledTaskToolAction } = await setup();
+
+  const created = runScheduledTaskToolAction({
+    action: 'add',
+    sessionId: 'session-1',
+    cronExpr: '0 9 * * *',
+    tz: 'Europe/Berlin',
+    prompt: 'Write the briefing.',
+  });
+
+  expect(created).toMatchObject({ ok: true, tz: 'Europe/Berlin' });
+  expect(
+    getAllJobs({ kind: 'scheduled_task', sessionId: 'session-1' })[0],
+  ).toMatchObject({ cron_expr: '0 9 * * *', tz: 'Europe/Berlin' });
+  expect(
+    statusOf(() =>
+      runScheduledTaskToolAction({
+        action: 'add',
+        sessionId: 'session-1',
+        cronExpr: '0 9 * * *',
+        tz: 'Mars/Olympus',
+        prompt: 'Write the briefing.',
+      }),
+    ),
+  ).toBe(400);
+  expect(
+    statusOf(() =>
+      runScheduledTaskToolAction({
+        action: 'add',
+        sessionId: 'session-1',
+        everyMs: 60_000,
+        tz: 'Europe/Berlin',
+        prompt: 'Write the briefing.',
+      }),
+    ),
+  ).toBe(400);
+  expect(
+    getAllJobs({ kind: 'scheduled_task', sessionId: 'session-1' }),
+  ).toHaveLength(1);
+});
+
 test('rejects unknown sessions and malformed payloads without creating jobs', async () => {
   const { getAllJobs, rearmScheduler, runScheduledTaskToolAction } =
     await setup();

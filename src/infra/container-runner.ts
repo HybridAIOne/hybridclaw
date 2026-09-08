@@ -1173,6 +1173,7 @@ async function runContainerInner(
         id: task.id,
         channelId: task.channel_id,
         cronExpr: task.cron_expr,
+        tz: task.tz,
         runAt: task.run_at,
         everyMs: task.every_ms,
         prompt: task.prompt,

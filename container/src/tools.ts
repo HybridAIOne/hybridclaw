@@ -14,6 +14,7 @@ import {
 import { buildSanitizedEnv } from '../shared/sensitive-env.js';
 import {
   currentDateStampInTimezone,
+  isValidTimezone,
   readUserTimezoneFile,
 } from '../shared/workspace-time.js';
 import { runAudioTranscribe } from './audio-transcribe.js';
@@ -112,6 +113,7 @@ type ScheduledTaskInfo = {
   id: number;
   channelId: string;
   cronExpr: string;
+  tz: string;
   runAt: string | null;
   everyMs: number | null;
   prompt: string;
@@ -2231,6 +2233,11 @@ function currentDateStamp(): string {
   return currentDateStampInTimezone(resolveMemoryTimezone());
 }
 
+function resolveCronTimezone(): string {
+  const timezone = resolveMemoryTimezone();
+  return timezone && isValidTimezone(timezone) ? timezone : '';
+}
+
 function isMemoryWriteAction(action: string): boolean {
   return (
     action === 'append' ||
@@ -3844,7 +3851,7 @@ async function executeToolInternal(
             if (secs < 120) schedule = `every ${secs}s`;
             else if (secs < 7200) schedule = `every ${Math.round(secs / 60)}m`;
             else schedule = `every ${Math.round(secs / 3600)}h`;
-          } else schedule = t.cronExpr;
+          } else schedule = t.tz ? `${t.cronExpr} (${t.tz})` : t.cronExpr;
           const status = t.enabled ? 'enabled' : 'disabled';
           const destination = t.channelId ? ` -> ${t.channelId}` : '';
           return `#${t.id} [${status}] ${schedule}${destination} — ${t.prompt}`;
@@ -3905,13 +3912,21 @@ async function executeToolInternal(
           const cronExpr = String(args.cron).trim();
           const cronError = validateCronExpression(cronExpr);
           if (cronError) return failTool(cronError);
+          const explicitTz = readStringValue(args.tz ?? args.timezone);
+          if (explicitTz && !isValidTimezone(explicitTz)) {
+            return failTool(
+              `Error: unknown timezone "${explicitTz}". Use an IANA name such as "Europe/Berlin" or "America/New_York".`,
+            );
+          }
+          const tz = explicitTz || resolveCronTimezone();
           const created = await callGatewaySchedulerTask({
             action: 'add',
             cronExpr,
+            tz: tz || undefined,
             prompt,
             channelId: channelId || gatewayChannelId || undefined,
           });
-          return `Scheduled recurring task #${created.taskId} with cron "${cronExpr}" (UTC)${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
+          return `Scheduled recurring task #${created.taskId} with cron "${cronExpr}" (${tz || 'UTC'})${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         if (args.every) {
@@ -5314,7 +5329,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       description:
         'Manage scheduled tasks and reminders. Actions:\n' +
         '- "list": show all scheduled tasks\n' +
-        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring 5-field cron expression, evaluated in UTC), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered. In web chat and heartbeat sessions "channel" is required because task output cannot be delivered there.\n' +
+        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring 5-field cron expression, evaluated in the user timezone from USER.md, or in "tz" when given), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered. In web chat and heartbeat sessions "channel" is required because task output cannot be delivered there.\n' +
         '- "remove": delete a task by taskId\n' +
         'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself. A success result means the task is saved and returns its id; an Error result means nothing was scheduled. Quote the id and schedule from the result when confirming to the user.',
       parameters: {
@@ -5342,7 +5357,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           cron: {
             type: 'string',
             description:
-              'Standard 5-field cron expression for recurring schedule, evaluated in UTC (e.g. "0 7 * * *" for 09:00 Europe/Berlin summer time). Convert from the user timezone before setting it.',
+              'Standard 5-field cron expression for recurring schedule, written in local time of the user timezone (e.g. "0 9 * * *" for 09:00). Do not convert to UTC.',
+          },
+          tz: {
+            type: 'string',
+            description:
+              'Optional IANA timezone for "cron" (e.g. "Europe/Berlin"). Defaults to the user timezone from USER.md, then UTC.',
           },
           every: {
             type: 'number',

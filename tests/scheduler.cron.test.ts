@@ -7,12 +7,13 @@ import {
 } from '../src/scheduler/scheduler.js';
 import type { ScheduledTask } from '../src/types/scheduler.js';
 
-function makeCronTask(cronExpr: string): ScheduledTask {
+function makeCronTask(cronExpr: string, tz = ''): ScheduledTask {
   return {
     id: 1,
     session_id: 'session-1',
     channel_id: 'channel-1',
     cron_expr: cronExpr,
+    tz,
     run_at: null,
     every_ms: null,
     prompt: 'Say hello',
@@ -61,6 +62,15 @@ describe('scheduler cron normalization', () => {
     );
 
     expect(nextRunAt).toBe('2026-03-14T09:00:00.000Z');
+  });
+
+  test('getScheduledTaskNextRunAt evaluates the task timezone', () => {
+    const nextRunAt = getScheduledTaskNextRunAt(
+      makeCronTask('0 9 * * *', 'Europe/Berlin'),
+      new Date('2026-07-14T05:30:00.000Z').getTime(),
+    );
+
+    expect(nextRunAt).toBe('2026-07-14T07:00:00.000Z');
   });
 
   test('normalizes monday-zero-based weekday fields before cron parsing', () => {
