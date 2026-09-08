@@ -489,17 +489,23 @@ function nextFireMsForDbTask(
 
 function disableTaskWithUnparsableCron(task: ScheduledTask): boolean {
   if (!task.cron_expr || task.run_at || task.every_ms) return false;
+  const nowMs = Date.now();
+  const tz = task.tz || undefined;
   try {
-    parseCronExpression(task.cron_expr, { currentDateMs: Date.now() });
+    parseCronExpression(task.cron_expr, { currentDateMs: nowMs, tz });
     return false;
   } catch (err) {
-    disableJobWithError(
-      task.id,
-      `Invalid cron expression "${task.cron_expr}": ${describeJobError(err)}`,
-    );
+    let reason = `Invalid cron expression "${task.cron_expr}": ${describeJobError(err)}`;
+    if (tz) {
+      try {
+        parseCronExpression(task.cron_expr, { currentDateMs: nowMs });
+        reason = `Invalid timezone "${task.tz}": ${describeJobError(err)}`;
+      } catch {}
+    }
+    disableJobWithError(task.id, reason);
     logger.warn(
-      { taskId: task.id, cron: task.cron_expr, err },
-      'Scheduled task disabled: cron expression cannot be parsed',
+      { taskId: task.id, cron: task.cron_expr, tz: task.tz, err },
+      'Scheduled task disabled: schedule cannot be evaluated',
     );
     return true;
   }

@@ -1242,6 +1242,23 @@ export function SchedulerPage(props: { embedded?: boolean } = {}) {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {schedulerQuery.data?.proactiveQueue?.failedMessages?.length ? (
+              <ul
+                className="distill-data-list"
+                aria-label="Undeliverable proactive messages"
+              >
+                {schedulerQuery.data.proactiveQueue.failedMessages.map(
+                  (message) => (
+                    <li key={message.id}>
+                      {message.channelId} · {message.reason}
+                      {message.failedAt
+                        ? ` · ${formatDateTime(message.failedAt)}`
+                        : ''}
+                    </li>
+                  ),
+                )}
+              </ul>
+            ) : null}
             {schedulerQuery.isLoading ? (
               <div className="empty-state">Loading scheduler items...</div>
             ) : schedulerQuery.data?.jobs.length ? (

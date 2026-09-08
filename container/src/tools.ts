@@ -119,6 +119,8 @@ type ScheduledTaskInfo = {
   prompt: string;
   enabled: number;
   lastRun: string | null;
+  lastStatus?: string | null;
+  lastError?: string | null;
   createdAt: string;
 };
 
@@ -3854,7 +3856,11 @@ async function executeToolInternal(
           } else schedule = t.tz ? `${t.cronExpr} (${t.tz})` : t.cronExpr;
           const status = t.enabled ? 'enabled' : 'disabled';
           const destination = t.channelId ? ` -> ${t.channelId}` : '';
-          return `#${t.id} [${status}] ${schedule}${destination} — ${t.prompt}`;
+          const failure =
+            t.lastError && (t.lastStatus === 'error' || !t.enabled)
+              ? ` (last run failed: ${t.lastError})`
+              : '';
+          return `#${t.id} [${status}] ${schedule}${destination} — ${t.prompt}${failure}`;
         });
         return lines.join('\n');
       }

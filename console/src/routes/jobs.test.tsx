@@ -151,7 +151,7 @@ describe('JobsPage', () => {
       suspendedSessions: [],
     });
     fetchSchedulerMock.mockResolvedValue({
-      proactiveQueue: { queued: 0, failed: 0 },
+      proactiveQueue: { queued: 0, failed: 0, failedMessages: [] },
       jobs: [makeConfigJob()],
     });
     fetchBoardBudgetSummariesMock.mockResolvedValue({
@@ -193,7 +193,7 @@ describe('JobsPage', () => {
 
   it('renders budget chips with threshold and currency formatting', async () => {
     fetchSchedulerMock.mockResolvedValue({
-      proactiveQueue: { queued: 0, failed: 0 },
+      proactiveQueue: { queued: 0, failed: 0, failedMessages: [] },
       jobs: [
         makeConfigJob({
           id: 'neutral-job',
@@ -285,7 +285,7 @@ describe('JobsPage', () => {
 
   it('renders token budget chips with unit-aware threshold tones', async () => {
     fetchSchedulerMock.mockResolvedValue({
-      proactiveQueue: { queued: 0, failed: 0 },
+      proactiveQueue: { queued: 0, failed: 0, failedMessages: [] },
       jobs: [
         makeConfigJob({
           id: 'token-job',
@@ -362,7 +362,7 @@ describe('JobsPage', () => {
       suspendedSessions: [],
     });
     fetchSchedulerMock.mockResolvedValue({
-      proactiveQueue: { queued: 0, failed: 0 },
+      proactiveQueue: { queued: 0, failed: 0, failedMessages: [] },
       jobs: [
         makeConfigJob({
           action: {
@@ -463,7 +463,7 @@ describe('JobsPage', () => {
       suspendedSessions: [],
     });
     fetchSchedulerMock.mockResolvedValue({
-      proactiveQueue: { queued: 0, failed: 0 },
+      proactiveQueue: { queued: 0, failed: 0, failedMessages: [] },
       jobs: [],
     });
 

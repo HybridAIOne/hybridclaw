@@ -117,6 +117,40 @@ test('tasks with unparsable cron expressions are disabled once with the parse er
   ).toHaveLength(0);
 });
 
+test('tasks whose stored timezone is invalid are disabled instead of throwing every tick', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-06T08:00:00.000Z'));
+  const { jobs, scheduler } = await setupScheduler(makeTempHome());
+  const { withMemoryDatabase } = await import('../src/memory/db.ts');
+
+  const taskId = jobs.createJob({
+    kind: 'scheduled_task',
+    sessionId: 'dm:user-a',
+    channelId: '123456789012345678',
+    cronExpr: '* * * * *',
+    prompt: 'Bad zone',
+  });
+  withMemoryDatabase((db) => {
+    db.prepare(
+      "UPDATE jobs SET schedule = json_set(schedule, '$.tz', 'Mars/Olympus') WHERE legacy_task_id = ?",
+    ).run(taskId);
+  });
+  expect(jobs.getJob(taskId, { kind: 'scheduled_task' })?.tz).toBe(
+    'Mars/Olympus',
+  );
+
+  const runner = vi.fn(async () => {});
+  scheduler.startScheduler(runner);
+  await vi.advanceTimersByTimeAsync(0);
+  await vi.advanceTimersByTimeAsync(120_000);
+  scheduler.stopScheduler();
+
+  expect(runner).not.toHaveBeenCalled();
+  const task = jobs.getJob(taskId, { kind: 'scheduled_task' });
+  expect(task).toMatchObject({ enabled: 0, last_status: 'error' });
+  expect(task?.last_error).toContain('Invalid timezone "Mars/Olympus"');
+});
+
 test('config scheduler jobs expose the failure reason in their runtime state', async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-09-06T08:00:00.000Z'));

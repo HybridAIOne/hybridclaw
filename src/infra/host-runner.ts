@@ -1022,6 +1022,8 @@ async function runHostProcessInner(
         prompt: task.prompt,
         enabled: task.enabled,
         lastRun: task.last_run,
+        lastStatus: task.last_status,
+        lastError: task.last_error,
         createdAt: task.created_at,
       }),
     ),

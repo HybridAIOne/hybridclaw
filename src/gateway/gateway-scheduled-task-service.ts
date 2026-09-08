@@ -23,6 +23,7 @@ import { memoryService } from '../memory/memory-service.js';
 import {
   getFailedProactiveMessageCount,
   getQueuedProactiveMessageCount,
+  listFailedProactiveMessages,
 } from '../memory/proactive-queue.js';
 import { modelRequiresChatbotId } from '../providers/factory.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
@@ -258,6 +259,12 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
     proactiveQueue: {
       queued: getQueuedProactiveMessageCount(),
       failed: getFailedProactiveMessageCount(),
+      failedMessages: listFailedProactiveMessages(20).map((message) => ({
+        id: message.id,
+        channelId: message.channel_id,
+        reason: message.failure_reason || 'unknown',
+        failedAt: message.failed_at || '',
+      })),
     },
     jobs: [
       ...getAllJobs({ kind: 'scheduler_job' }).map((job) => {

@@ -1479,9 +1479,17 @@ export interface GatewayAdminSchedulerJob {
   taskId: number | null;
 }
 
+export interface GatewayAdminSchedulerFailedProactiveMessage {
+  id: number;
+  channelId: string;
+  reason: string;
+  failedAt: string;
+}
+
 export interface GatewayAdminSchedulerProactiveQueue {
   queued: number;
   failed: number;
+  failedMessages: GatewayAdminSchedulerFailedProactiveMessage[];
 }
 
 export interface GatewayAdminSchedulerResponse {

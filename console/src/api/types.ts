@@ -1151,9 +1151,17 @@ export interface AdminSchedulerJob {
   taskId: number | null;
 }
 
+export interface AdminSchedulerFailedProactiveMessage {
+  id: number;
+  channelId: string;
+  reason: string;
+  failedAt: string;
+}
+
 export interface AdminSchedulerProactiveQueue {
   queued: number;
   failed: number;
+  failedMessages: AdminSchedulerFailedProactiveMessage[];
 }
 
 export interface AdminSchedulerResponse {
