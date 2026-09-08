@@ -5,6 +5,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
 import type {
   ExecutorRequest,
   ExecutorSessionHealthSnapshot,
@@ -763,6 +764,8 @@ function getOrSpawnContainer(
     `HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR=${CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR}`,
     '-e',
     `HYBRIDCLAW_AGENT_ID=${agentId}`,
+    '-e',
+    `TZ=${resolveEffectiveTimezone()}`,
     '-e',
     `HYBRIDCLAW_AGENT_WORKSPACE_ROOT=${CONTAINER_WORKSPACE_ROOT}`,
     '-e',

@@ -447,3 +447,15 @@ MEMORY.md changed during the model call.
 Locks are cooperative: shell commands and external editors do not participate.
 A crashed writer can leave a lock directory behind. Remove that directory only
 after verifying that no writer is running; locks are never stolen based on age.
+
+### Saving daily notes
+
+`memory append` without a target saves to today's `memory/YYYY-MM-DD.md`.
+Reads without a target use `MEMORY.md`. Prefer `append` to save additional notes;
+`write` replaces the entire daily note and requires `confirm_overwrite: true`.
+Explicit targets remain subject to the today-only write restriction.
+
+Daily filenames use the timezone in `USER.md`. An empty or invalid timezone uses
+the host's resolved timezone, which the gateway passes to Docker as `TZ`.
+Dynamic context states the exact daily-note filename even when the UTC date
+falls on a different day.

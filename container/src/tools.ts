@@ -2220,6 +2220,7 @@ function resolveMemoryFilePath(args: Record<string, unknown>): string | null {
     normalizeMemoryFilePath(args.file_path) ||
     normalizeMemoryFilePath(args.path);
   if (direct) return direct;
+  if (args.file_path !== undefined || args.path !== undefined) return null;
 
   const target =
     typeof args.target === 'string' ? args.target.trim().toLowerCase() : '';
@@ -2231,7 +2232,12 @@ function resolveMemoryFilePath(args: Record<string, unknown>): string | null {
     return `memory/${date || currentDateStamp()}.md`;
   }
 
-  return 'MEMORY.md';
+  if (target) return null;
+  const action =
+    typeof args.action === 'string' ? args.action.trim().toLowerCase() : 'read';
+  return isMemoryWriteAction(action)
+    ? `memory/${currentDateStamp()}.md`
+    : 'MEMORY.md';
 }
 
 function listMemoryFiles(): string[] {
@@ -3131,6 +3137,11 @@ async function executeToolInternal(
         }
 
         if (action === 'write') {
+          if (args.confirm_overwrite !== true) {
+            return failTool(
+              'Error: memory write replaces the entire daily note. Set confirm_overwrite=true only to intentionally overwrite it; use append to save additional notes.',
+            );
+          }
           const content = typeof args.content === 'string' ? args.content : '';
           const limit = memoryCharLimit(relativePath);
           if (content.length > limit) {
@@ -4180,7 +4191,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'memory',
       description:
-        "Manage agent memory files. Read/search/list can access MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Write actions append/write/replace/remove are restricted to today's daily file so durable MEMORY.md rewrites flow only through dream consolidation.",
+        "Manage agent memory files. Read/search/list can access MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Omitted write targets default to today’s daily note. Prefer append; write replaces the entire note and requires confirm_overwrite=true. Write actions append/write/replace/remove are restricted to today's daily file so durable MEMORY.md rewrites flow only through dream consolidation.",
       parameters: {
         type: 'object',
         properties: {
@@ -4207,6 +4218,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           content: {
             type: 'string',
             description: 'Text payload for append/write',
+          },
+          confirm_overwrite: {
+            type: 'boolean',
+            description:
+              'Required true for write: confirms replacing the entire daily note, including all earlier entries.',
           },
           old_text: {
             type: 'string',
