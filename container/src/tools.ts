@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DAILY_MEMORY_MAX_CHARS } from '../shared/daily-memory.js';
 import {
   waitForMemoryFileLock,
   writeMemoryFileAtomic,
@@ -2148,7 +2149,6 @@ const ROOT_MEMORY_CHAR_LIMITS: Record<string, number> = {
   'MEMORY.md': 12_000,
   'USER.md': 8_000,
 };
-const DAILY_MEMORY_CHAR_LIMIT = 24_000;
 
 function normalizeDateStamp(input: string): string | null {
   const trimmed = input.trim();
@@ -2260,7 +2260,7 @@ function listMemoryFiles(): string[] {
 }
 
 function memoryCharLimit(relativePath: string): number {
-  return ROOT_MEMORY_CHAR_LIMITS[relativePath] || DAILY_MEMORY_CHAR_LIMIT;
+  return ROOT_MEMORY_CHAR_LIMITS[relativePath] || DAILY_MEMORY_MAX_CHARS;
 }
 
 interface TranscriptRow {

@@ -313,7 +313,7 @@ The values below describe the built-in defaults in the current codebase.
 | Limit | Default | Meaning |
 | --- | ---: | --- |
 | bootstrap file read cap | `20,000` chars per file | `MEMORY.md` and other bootstrap files are trimmed before prompt assembly |
-| current daily note prompt load | up to `20,000` chars | today's `memory/YYYY-MM-DD.md` is injected when present |
+| current daily note prompt load | up to `24,000` chars | today's `memory/YYYY-MM-DD.md` is injected when present |
 | prior daily note lookback | `7` days | complete prior notes are considered newest first |
 | prior daily note history budget | `12,000` chars | shared cap for prior notes; today's note has its own file cap |
 
@@ -459,3 +459,21 @@ Daily filenames use the timezone in `USER.md`. An empty or invalid timezone uses
 the host's resolved timezone, which the gateway passes to Docker as `TZ`.
 Dynamic context states the exact daily-note filename even when the UTC date
 falls on a different day.
+
+
+### Consolidation intake and preservation
+
+The memory tool, today's prompt note, and consolidation share a `24,000`
+character daily-file cap. Notes within the cap are read completely, including
+prose and entries after the sixth bullet. Oversized externally written notes
+retain their beginning and tail with a visible middle-truncation marker.
+Consolidation selects recent source notes within a separate `24,000` character
+input budget; older source files remain on disk.
+
+Model cleanup receives the existing memory document and replaces managed bullets
+under Facts, Decisions, and Patterns. Other headings, free text, and fenced
+examples are preserved verbatim. If the result exceeds the `12,000` character
+durable-file budget, deterministic consolidation is used instead of trimming
+operator content. Its digest prefers newest days; if the newest day alone is too
+large, both ends are retained with a truncation marker. Source daily files are
+never rewritten by consolidation.

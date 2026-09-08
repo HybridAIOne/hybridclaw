@@ -355,6 +355,26 @@ describe('workspace bootstrap lifecycle', () => {
     });
   });
 
+  test('daily prompt reads the tool cap and keeps the tail of oversized notes', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    vi.stubEnv('HOME', homeDir);
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+    workspace.ensureBootstrapFiles('agent-test');
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const dailyPath = path.join(workspaceDir, 'memory', `${currentLocalDateStamp()}.md`);
+    fs.mkdirSync(path.dirname(dailyPath), { recursive: true });
+    const valid = 'Beginning\n' + '界'.repeat(23_970) + '\nNewest entry.';
+    fs.writeFileSync(dailyPath, valid);
+    expect(workspace.loadDailyMemoryFile('agent-test')?.content).toBe(valid);
+    fs.writeFileSync(dailyPath, 'Beginning\n' + 'x'.repeat(100_000) + '\nNewest entry.');
+    const content = workspace.loadDailyMemoryFile('agent-test')?.content;
+    expect(content).toContain('Beginning');
+    expect(content).toContain('Newest entry.');
+    expect(content).toContain('[truncated middle]');
+    expect(content?.length).toBeLessThanOrEqual(24_000);
+  });
+
   test('loads the previous days of daily memory notes, newest first, within budget', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');

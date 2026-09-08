@@ -1,11 +1,17 @@
 /**
  * Consolidation owns durable MEMORY.md updates, unlike daily-note tool writes.
  * File transactions serialize cooperating writers; model results are committed only
- * if their input snapshot is still current. External editors do not take this lock.
+ * if their input snapshot is still current. Cleanup preserves non-managed text;
+ * external editors do not take this lock.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  DAILY_MEMORY_MAX_CHARS,
+  readDailyMemoryFile,
+  truncateDailyMemoryText,
+} from '../../container/shared/daily-memory.js';
 import {
   lockMemoryFile,
   writeMemoryFileAtomic,
@@ -44,10 +50,7 @@ export interface MemoryConsolidationReport {
 const DAILY_MEMORY_BLOCK_START = '<!-- BEGIN DAILY MEMORY DIGEST -->';
 const DAILY_MEMORY_BLOCK_END = '<!-- END DAILY MEMORY DIGEST -->';
 const DAILY_MEMORY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.md$/;
-const DAILY_MEMORY_DIGEST_MAX_CHARS = 6_000;
-const DAILY_MEMORY_FILE_MAX_CHARS = 4_000;
-const DAILY_MEMORY_SUMMARY_MAX_ITEMS = 6;
-const DAILY_MEMORY_LINE_MAX_CHARS = 220;
+const DAILY_MEMORY_DIGEST_MAX_CHARS = DAILY_MEMORY_MAX_CHARS;
 const MEMORY_FILE_MAX_CHARS = 12_000;
 const MODEL_MEMORY_ITEM_MAX_CHARS = 280;
 const MODEL_MEMORY_MAX_ITEMS_PER_SECTION = 18;
@@ -164,10 +167,7 @@ function addUniqueKey(seen: Set<string>, key: string): boolean {
   return true;
 }
 
-function truncateLine(
-  value: string,
-  maxChars = DAILY_MEMORY_LINE_MAX_CHARS,
-): string {
+function truncateLine(value: string, maxChars: number): string {
   const compact = compactWhitespace(value);
   if (compact.length <= maxChars) return compact;
   return `${compact.slice(0, maxChars - 3).trimEnd()}...`;
@@ -280,76 +280,62 @@ function countCanonicalMemoryItems(sections: CanonicalMemorySections): number {
   );
 }
 
-function renderMemorySection(
-  title: string,
-  items: string[],
-  placeholder: string,
-): string {
-  return [
-    `## ${title}`,
-    '',
-    items.length > 0
-      ? items.map((item) => `- ${item}`).join('\n')
-      : placeholder,
-  ].join('\n');
-}
-
 function renderCanonicalMemoryDocument(
   sections: CanonicalMemorySections,
+  existing: string,
 ): string {
-  return [
-    '# MEMORY.md - Session Memory',
-    '',
-    "_Things you've learned across conversations. Update as you go._",
-    '',
-    renderMemorySection(
-      'Facts',
-      sections.facts,
-      '_(No durable facts captured yet.)_',
-    ),
-    '',
-    renderMemorySection(
-      'Decisions',
-      sections.decisions,
-      '_(No durable decisions captured yet.)_',
-    ),
-    '',
-    renderMemorySection(
-      'Patterns',
-      sections.patterns,
-      '_(No recurring patterns captured yet.)_',
-    ),
-    '',
-    '---',
-    '',
-    'This is your persistent memory. Each session, read this first. Update it when you learn something worth remembering.',
-    '',
-  ].join('\n');
+  const remaining = new Set(['Facts', 'Decisions', 'Patterns']);
+  let active = false;
+  let fence: string | null = null;
+  const output: string[] = [];
+  for (const line of existing
+    .replace(DAILY_DIGEST_BLOCK_RE, '')
+    .match(/[^\n]*\n|[^\n]+$/g) || []) {
+    const fenceMatch = /^[ \t]*(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      output.push(line);
+      if (
+        fenceMatch &&
+        fenceMatch[1][0] === fence[0] &&
+        fenceMatch[1].length >= fence.length
+      )
+        fence = null;
+      continue;
+    }
+    if (fenceMatch) {
+      fence = fenceMatch[1];
+      output.push(line);
+      continue;
+    }
+    const heading = /^(#{1,6})[ \t]+(.+?)\s*$/.exec(line);
+    if (heading) {
+      active = heading[1] === '##' && MEMORY_SECTION_NAMES.has(heading[2]);
+      output.push(line);
+      if (active && remaining.delete(heading[2])) {
+        const key = heading[2].toLowerCase() as keyof CanonicalMemorySections;
+        output.push(
+          `${line.endsWith('\n') ? '' : '\n'}${sections[key].map((item) => `- ${item}\n`).join('')}`,
+        );
+      }
+    } else if (!active || !/^\s*[-*+]\s+/.test(line)) {
+      output.push(line);
+    }
+  }
+  for (const title of remaining) {
+    const key = title.toLowerCase() as keyof CanonicalMemorySections;
+    output.push(
+      `\n\n## ${title}\n${sections[key].map((item) => `- ${item}\n`).join('')}`,
+    );
+  }
+  return output.join('');
 }
 
 function fitCanonicalMemoryDocument(
   sections: CanonicalMemorySections,
+  existing: string,
 ): string | null {
-  const fitted: CanonicalMemorySections = {
-    facts: [...sections.facts],
-    decisions: [...sections.decisions],
-    patterns: [...sections.patterns],
-  };
-
-  let rendered = renderCanonicalMemoryDocument(fitted);
-  while (rendered.length > MEMORY_FILE_MAX_CHARS) {
-    const buckets: Array<keyof CanonicalMemorySections> = [
-      'patterns',
-      'facts',
-      'decisions',
-    ];
-    const target = buckets.find((key) => fitted[key].length > 0);
-    if (!target) return null;
-    fitted[target].pop();
-    rendered = renderCanonicalMemoryDocument(fitted);
-  }
-
-  return rendered;
+  const rendered = renderCanonicalMemoryDocument(sections, existing);
+  return rendered.length <= MEMORY_FILE_MAX_CHARS ? rendered : null;
 }
 
 function formatDailyEntriesForPrompt(entries: DailyMemoryEntry[]): string {
@@ -364,19 +350,7 @@ function buildModelCleanupPrompt(params: {
   entries: DailyMemoryEntry[];
   language?: string;
 }): string {
-  const sections = extractCanonicalMemorySections(params.existing);
-  const existingSummary =
-    countCanonicalMemoryItems(sections) > 0
-      ? [
-          '## Current durable memory',
-          '',
-          `Facts: ${sections.facts.length > 0 ? sections.facts.map((item) => `- ${item}`).join('\n') : 'None.'}`,
-          '',
-          `Decisions: ${sections.decisions.length > 0 ? sections.decisions.map((item) => `- ${item}`).join('\n') : 'None.'}`,
-          '',
-          `Patterns: ${sections.patterns.length > 0 ? sections.patterns.map((item) => `- ${item}`).join('\n') : 'None.'}`,
-        ].join('\n')
-      : '## Current durable memory\n\nNone.';
+  const existingSummary = `## Current durable memory\n\n${params.existing}`;
 
   return [
     'Rewrite the durable memory from these sources.',
@@ -440,7 +414,7 @@ async function rewriteMemoryContentWithModel(params: {
       fallbackReason: 'empty_model_output',
     };
   }
-  const content = fitCanonicalMemoryDocument(sections);
+  const content = fitCanonicalMemoryDocument(sections, params.existing);
   if (!content) {
     return {
       content: null,
@@ -454,30 +428,8 @@ async function rewriteMemoryContentWithModel(params: {
 }
 
 function summarizeDailyMemory(rawContent: string): string {
-  const trimmed = rawContent.trim();
-  if (!trimmed) return '';
-
-  const lines = trimmed
-    .replace(/\r/g, '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line, index) => !(index === 0 && line.startsWith('#')));
-  const seen = new Set<string>();
-  const items: string[] = [];
-
-  for (const line of lines) {
-    if (!/^([-*+]|\d+\.)\s+/.test(line) && !/^\[[ xX]\]\s+/.test(line)) {
-      continue;
-    }
-    const normalized = normalizeBullet(line);
-    const dedupeKey = normalized.toLowerCase();
-    if (!addUniqueKey(seen, dedupeKey)) continue;
-    items.push(`- ${truncateLine(normalized)}`);
-    if (items.length >= DAILY_MEMORY_SUMMARY_MAX_ITEMS) break;
-  }
-
-  return items.join('\n');
+  // Keep prose, long entries, and appended notes intact for model cleanup.
+  return rawContent.trim();
 }
 
 function buildDailyDigest(entries: DailyMemoryEntry[]): string {
@@ -581,34 +533,26 @@ function buildMemoryContent(params: {
   }
 
   if (firstEntryIndex >= params.entries.length) {
-    return baseContent;
+    const newest = params.entries.at(-1);
+    if (!newest) return baseContent;
+    const summaryBudget =
+      digestBudget - fixedDigestLength - `### ${newest.date}\n`.length;
+    if (summaryBudget <= 0) return baseContent;
+    return renderMemoryContent(
+      stripped,
+      buildDailyDigest([
+        {
+          date: newest.date,
+          summary: truncateDailyMemoryText(newest.summary, summaryBudget),
+        },
+      ]),
+    );
   }
 
   return renderMemoryContent(
     stripped,
     buildDailyDigest(params.entries.slice(firstEntryIndex)),
   );
-}
-
-function readDailyMemoryFile(filePath: string): string | null {
-  try {
-    const stats = fs.statSync(filePath);
-    if (stats.size <= 0) return '';
-    if (stats.size <= DAILY_MEMORY_FILE_MAX_CHARS) {
-      return fs.readFileSync(filePath, 'utf-8');
-    }
-
-    const fd = fs.openSync(filePath, 'r');
-    try {
-      const buffer = Buffer.alloc(DAILY_MEMORY_FILE_MAX_CHARS);
-      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
-      return `${buffer.toString('utf8', 0, bytesRead)}\n...[truncated]`;
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return null;
-  }
 }
 
 function collectDailyMemoryEntries(workspaceDir: string): DailyMemoryEntry[] {
@@ -634,7 +578,13 @@ function collectDailyMemoryEntries(workspaceDir: string): DailyMemoryEntry[] {
     if (!content.trim()) continue;
     const summary = summarizeDailyMemory(content);
     if (!summary) continue;
-    const entry = { date, summary };
+    const entry = {
+      date,
+      summary: truncateDailyMemoryText(
+        summary,
+        DAILY_MEMORY_DIGEST_MAX_CHARS - `### ${date}\n`.length,
+      ),
+    };
     const candidate = `### ${entry.date}\n${entry.summary}`;
     const nextSize = candidate.length + (selected.length > 0 ? 2 : 0);
     if (

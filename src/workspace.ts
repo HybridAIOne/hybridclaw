@@ -5,6 +5,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { readDailyMemoryFile } from '../container/shared/daily-memory.js';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
@@ -912,7 +913,7 @@ export function loadDailyMemoryFile(
   const todayMemoryPath = path.join(wsDir, todayMemoryName);
   if (fs.existsSync(todayMemoryPath)) {
     try {
-      const raw = readBoundedWorkspaceTextFile(todayMemoryPath, MAX_FILE_CHARS);
+      const raw = readDailyMemoryFile(todayMemoryPath);
       if (raw == null) {
         throw new Error('Failed to read daily memory file');
       }

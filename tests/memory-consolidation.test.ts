@@ -176,7 +176,7 @@ describe.sequential('memory consolidation', () => {
     }
   });
 
-  test('ignores prose-only daily memory files instead of synthesizing digest bullets', async () => {
+  test('includes prose-only daily memory files without discarding paragraphs', async () => {
     const workspaceDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-memory-consolidation-prose-'),
     );
@@ -210,9 +210,9 @@ describe.sequential('memory consolidation', () => {
     const report = engine.consolidate();
     const memoryPath = path.join(workspaceDir, 'MEMORY.md');
 
-    expect(report.dailyFilesCompiled).toBe(0);
-    expect(report.workspacesUpdated).toBe(0);
-    expect(fs.existsSync(memoryPath)).toBe(false);
+    expect(report.dailyFilesCompiled).toBe(1);
+    expect(report.workspacesUpdated).toBe(1);
+    expect(fs.readFileSync(memoryPath, 'utf8')).toContain('This is free-form prose without any bullet structure.\n\nIt should not be converted into a synthetic digest item.');
   });
 
   test('re-running consolidation replaces the managed digest instead of duplicating it', async () => {
@@ -405,6 +405,51 @@ describe.sequential('memory consolidation', () => {
     expect(memoryContent).toContain('Keep changes tightly scoped.');
     expect(memoryContent).toContain('User prefers concise replies.');
     expect(memoryContent).not.toContain('BEGIN DAILY MEMORY DIGEST');
+  });
+
+  test('cleanup sees long prose and late notes and preserves custom sections verbatim', async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-preservation-'));
+    try {
+      const { MemoryConsolidationEngine, currentDateStamp } = await loadConsolidationModule(workspaceDir);
+      const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+      const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+      const custom = '## Regeln\r\n\r\nCustom  spacing.\r\n- Keep this rule.\r\n\r\n```md\r\n## Facts\r\n- Example, not managed memory.\r\n```\r\n';
+      fs.writeFileSync(memoryPath, '# Operator title\nOpening free text.\n## Facts\n- Old fact.\nKeep this prose too.\n' + custom);
+      const dailyDir = path.join(workspaceDir, 'memory');
+      fs.mkdirSync(dailyDir);
+      const yesterday = currentDateStamp(new Date(Date.now() - 86400000));
+      const prose = 'Long prose ' + 'detail '.repeat(700) + 'important conclusion.';
+      const daily = Array.from({ length: 12 }, (_, i) => `- Entry ${i}`).join('\n') + '\n\n' + prose + '\n\nNewest appended fact.';
+      fs.writeFileSync(path.join(dailyDir, `${yesterday}.md`), daily);
+      vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({ provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ facts: ['New fact.'], decisions: [], patterns: [] }) });
+      const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
+      expect((await engine.consolidateWithCleanup()).modelCleanups).toBe(1);
+      const prompt = JSON.stringify(vi.mocked(callAuxiliaryModel).mock.calls[0][0].messages);
+      expect(prompt).toContain('Entry 11');
+      expect(prompt).toContain(prose);
+      expect(prompt).toContain('Newest appended fact.');
+      const result = fs.readFileSync(memoryPath, 'utf8');
+      expect(result).toContain(custom);
+      expect(result).toContain('# Operator title\nOpening free text.\n');
+      expect(result).toContain('Keep this prose too.');
+      expect(result).toContain('- New fact.');
+      expect(result).not.toContain('- Old fact.');
+    } finally { fs.rmSync(workspaceDir, { recursive: true, force: true }); }
+  });
+
+  test('cleanup exceeding the file budget preserves operator content through fallback', async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-preservation-budget-'));
+    try {
+      const { MemoryConsolidationEngine } = await loadConsolidationModule(workspaceDir);
+      const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+      const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+      const custom = '# Memory\n\n## Regeln\n' + 'x'.repeat(11_900) + '\n';
+      fs.writeFileSync(memoryPath, custom);
+      vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({ provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ facts: ['y'.repeat(280)], decisions: [], patterns: [] }) });
+      const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
+      expect((await engine.consolidateWithCleanup()).fallbacksUsed).toBe(1);
+      expect(fs.readFileSync(memoryPath, 'utf8')).toBe(custom);
+    } finally { fs.rmSync(workspaceDir, { recursive: true, force: true }); }
   });
 
   test('model-backed cleanup requests English output by default', async () => {
@@ -655,7 +700,7 @@ describe.sequential('memory consolidation', () => {
     const { MemoryConsolidationEngine, currentDateStamp } =
       await loadConsolidationModule(workspaceDir);
     const now = new Date();
-    const entries = Array.from({ length: 40 }, (_, index) => {
+    const entries = Array.from({ length: 120 }, (_, index) => {
       const date = new Date(now);
       date.setDate(date.getDate() - (index + 1));
       const stamp = currentDateStamp(date);
@@ -671,14 +716,14 @@ describe.sequential('memory consolidation', () => {
     const oldestEntry = entries.at(-1);
     expect(oldestEntry).toBeDefined();
 
-    const statSync = fs.statSync.bind(fs);
-    const statSpy = vi.spyOn(fs, 'statSync').mockImplementation((filePath) => {
+    const openSync = fs.openSync.bind(fs);
+    const openSpy = vi.spyOn(fs, 'openSync').mockImplementation((filePath, flags, mode) => {
       if (String(filePath) === oldestEntry?.filePath) {
         throw new Error(
           'Oldest file should not be touched after digest budget is full',
         );
       }
-      return statSync(filePath);
+      return openSync(filePath, flags, mode);
     });
 
     try {
@@ -696,13 +741,13 @@ describe.sequential('memory consolidation', () => {
 
       expect(report.dailyFilesCompiled).toBeGreaterThan(0);
       expect(memoryContent).toContain('Budget stop entry 1');
-      expect(memoryContent).not.toContain('Budget stop entry 40');
+      expect(memoryContent).not.toContain('Budget stop entry 120');
     } finally {
-      statSpy.mockRestore();
+      openSpy.mockRestore();
     }
   });
 
-  test('reads only a capped prefix for oversized daily memory files', async () => {
+  test('reads bounded head and tail for oversized daily memory files', async () => {
     const workspaceDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-memory-consolidation-large-daily-'),
     );
@@ -717,7 +762,7 @@ describe.sequential('memory consolidation', () => {
     const largeDailyPath = path.join(dailyDir, `${olderStamp}.md`);
     fs.writeFileSync(
       largeDailyPath,
-      `- Oversized daily memory ${'x'.repeat(6_000)}\n`,
+      `- Oversized daily memory ${'x'.repeat(100_000)}\nNewest appended fact.\n`,
       'utf-8',
     );
 
@@ -746,6 +791,8 @@ describe.sequential('memory consolidation', () => {
 
       expect(report.dailyFilesCompiled).toBe(1);
       expect(memoryContent).toContain('Oversized daily memory');
+      expect(memoryContent).toContain('Newest appended fact.');
+      expect(memoryContent).toContain('[truncated middle]');
       expect(memoryContent).not.toContain(
         'Large daily file should not be fully read',
       );
