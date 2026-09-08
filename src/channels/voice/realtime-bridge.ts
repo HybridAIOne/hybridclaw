@@ -308,7 +308,7 @@ export class RealtimeCallBridge {
           ? ` It is currently busy with: ${this.consultActivity}.`
           : '';
         this.client.createOutOfBandResponse(
-          `The assistant is still working on the request.${activity} Briefly reassure the ${
+          `The assistant is still working on the request.${activity} You do not have its answer yet: do not guess, summarize, or invent any result. Briefly reassure the ${
             this.options.surface === 'phone' ? 'caller' : 'user'
           } in one short natural sentence. Do not call tools.`,
         );
@@ -348,6 +348,10 @@ export class RealtimeCallBridge {
     this.consultInFlight = true;
     this.consultActivity = null;
     this.options.onStateChange('thinking');
+    // Caller noise or a backchannel during the consult must not open a second
+    // response next to the reassurance line; what they say is still recorded
+    // and answered together with the tool output.
+    this.client.setAutoResponse(false);
     this.scheduleReassurance(CONSULT_REASSURE_FIRST_MS);
     void this.options
       .consultAgent(request, {
@@ -382,6 +386,7 @@ export class RealtimeCallBridge {
         if (this.closed || !output) {
           return;
         }
+        this.client.setAutoResponse(true);
         this.options.onStateChange('listening');
         this.client.sendFunctionCallOutput(callId, output);
       });

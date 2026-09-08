@@ -538,3 +538,118 @@ test('phone calls layer voice.prompt over the shared speech settings', () => {
     instructions: 'Be brief.\nSprich Deutsch.',
   });
 });
+
+test('caller speech cancels every in-flight response, out-of-band ones included', () => {
+  const { socket, clears } = createBridge();
+  socket.open();
+  socket.serverEvent({
+    type: 'response.created',
+    response: { id: 'resp_conversation' },
+  });
+  socket.serverEvent({
+    type: 'response.created',
+    response: { id: 'resp_reassurance' },
+  });
+
+  socket.serverEvent({ type: 'input_audio_buffer.speech_started' });
+
+  expect(socket.sentOfType('response.cancel')).toEqual([
+    { type: 'response.cancel', response_id: 'resp_conversation' },
+    { type: 'response.cancel', response_id: 'resp_reassurance' },
+  ]);
+  expect(clears).toHaveLength(1);
+
+  // Both are gone; a repeat speech start has nothing left to cancel.
+  socket.serverEvent({ type: 'input_audio_buffer.speech_started' });
+  expect(socket.sentOfType('response.cancel')).toHaveLength(2);
+});
+
+test('a finished response no longer counts as active while another still plays', () => {
+  const { socket } = createBridge();
+  socket.open();
+  socket.serverEvent({ type: 'response.created', response: { id: 'a' } });
+  socket.serverEvent({ type: 'response.created', response: { id: 'b' } });
+  socket.serverEvent({ type: 'response.done', response: { id: 'a' } });
+
+  socket.serverEvent({ type: 'input_audio_buffer.speech_started' });
+  expect(socket.sentOfType('response.cancel')).toEqual([
+    { type: 'response.cancel', response_id: 'b' },
+  ]);
+});
+
+test('consults suspend auto-responses so caller noise cannot spawn a guessed answer', async () => {
+  let resolveConsult: (reply: string) => void = () => {};
+  const consultAgent = vi.fn(
+    () =>
+      new Promise<string>((resolve) => {
+        resolveConsult = resolve;
+      }),
+  );
+  const { socket } = createBridge({ consultAgent });
+  socket.open();
+  socket.serverEvent({ type: 'session.updated' });
+  expect(socket.sentOfType('response.create')).toHaveLength(1); // greeting
+
+  socket.serverEvent({
+    type: 'response.function_call_arguments.done',
+    call_id: 'call_1',
+    name: 'consult_agent',
+    arguments: JSON.stringify({ request: 'Open tasks this week?' }),
+  });
+  await Promise.resolve();
+
+  const turnDetectionOf = (event: Record<string, unknown>) =>
+    (
+      event.session as {
+        audio: { input: { turn_detection: Record<string, unknown> } };
+      }
+    ).audio.input.turn_detection;
+  const updates = socket.sentOfType('session.update');
+  expect(updates).toHaveLength(2);
+  expect(turnDetectionOf(updates[1])).toMatchObject({
+    type: 'server_vad',
+    create_response: false,
+    interrupt_response: true,
+  });
+
+  // The server acknowledges the toggle; that must not replay the greeting.
+  socket.serverEvent({ type: 'session.updated' });
+  expect(socket.sentOfType('response.create')).toHaveLength(1);
+
+  resolveConsult('Two open tasks.');
+  await flushAsync();
+
+  const after = socket.sentOfType('session.update');
+  expect(after).toHaveLength(3);
+  expect(turnDetectionOf(after[2])).toMatchObject({ create_response: true });
+  // Re-enabled before the tool output and its response.create go out.
+  const types = socket.sent.map((event) => event.type);
+  expect(types.lastIndexOf('session.update')).toBeLessThan(
+    types.lastIndexOf('conversation.item.create'),
+  );
+  expect(socket.sentOfType('response.create')).toHaveLength(2);
+});
+
+test('reassurance tells the model it has no answer yet', async () => {
+  vi.useFakeTimers();
+  try {
+    const consultAgent = vi.fn(() => new Promise<string>(() => {}));
+    const { socket } = createBridge({ consultAgent });
+    socket.open();
+    socket.serverEvent({
+      type: 'response.function_call_arguments.done',
+      call_id: 'call_1',
+      name: 'consult_agent',
+      arguments: JSON.stringify({ request: 'Slow request' }),
+    });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(7_000);
+    const [reassurance] = socket.sentOfType('response.create');
+    expect(reassurance.response).toMatchObject({
+      conversation: 'none',
+      instructions: expect.stringContaining('do not guess'),
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});

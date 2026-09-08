@@ -67,6 +67,21 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+// Responses the server opened without an id (older event shapes, tests) are
+// tracked under a synthetic key so cancel/accounting still balance.
+const ANONYMOUS_RESPONSE_PREFIX = 'anon:';
+
+function responseId(event: Record<string, unknown>): string {
+  return isRecord(event.response) ? normalizeString(event.response.id) : '';
+}
+
+/** Server-side VAD tuning; omitted fields keep the upstream defaults. */
+export interface RealtimeTurnDetection {
+  threshold?: number;
+  prefixPaddingMs?: number;
+  silenceDurationMs?: number;
+}
+
 export interface OpenAIRealtimeClientOptions {
   /** Realtime endpoint without the model query, e.g. from `resolveRealtimeConnection`. */
   url: string;
@@ -76,6 +91,7 @@ export interface OpenAIRealtimeClientOptions {
   audioFormat: RealtimeAudioFormat;
   instructions: string;
   tools: RealtimeFunctionTool[];
+  turnDetection?: RealtimeTurnDetection;
   callbacks: OpenAIRealtimeCallbacks;
   socketFactory?: RealtimeSocketFactory;
 }
@@ -88,12 +104,22 @@ const PENDING_AUDIO_LIMIT = 250;
 export class OpenAIRealtimeClient {
   private readonly socket: RealtimeSocket;
   private readonly callbacks: OpenAIRealtimeCallbacks;
-  private responseActive = false;
+  private readonly turnDetection: RealtimeTurnDetection;
+  // Every response the server has opened and not yet finished, by id. Out-of-
+  // band responses (`conversation: 'none'`) run concurrently with the
+  // conversation's own response, so a single boolean cannot describe "is the
+  // model talking" — and `response.cancel` without an id only ever stops the
+  // conversation one, leaving an out-of-band line playing over the caller.
+  private readonly activeResponseIds = new Set<string>();
+  private anonymousResponseCount = 0;
+  private autoResponse = true;
+  private ready = false;
   private closed = false;
   private pendingAudio: string[] = [];
 
   constructor(options: OpenAIRealtimeClientOptions) {
     this.callbacks = options.callbacks;
+    this.turnDetection = options.turnDetection || {};
     const factory = options.socketFactory || defaultSocketFactory;
     const url = `${options.url}?model=${encodeURIComponent(options.model)}`;
     this.socket = factory(url, {
@@ -110,7 +136,7 @@ export class OpenAIRealtimeClient {
             input: {
               format: options.audioFormat,
               transcription: { model: 'gpt-4o-mini-transcribe' },
-              turn_detection: { type: 'server_vad' },
+              turn_detection: this.turnDetectionPayload(),
             },
             output: {
               format: options.audioFormat,
@@ -145,7 +171,44 @@ export class OpenAIRealtimeClient {
   }
 
   get hasActiveResponse(): boolean {
-    return this.responseActive;
+    return this.activeResponseIds.size > 0;
+  }
+
+  /**
+   * Whether the server may open a response on its own when the caller stops
+   * speaking. Switched off while a function call is outstanding so caller
+   * noise or backchannels cannot spawn a second, guessed answer next to the
+   * reassurance line; the caller's words still land in the conversation and
+   * are answered once the tool output arrives.
+   */
+  setAutoResponse(enabled: boolean): void {
+    if (this.autoResponse === enabled) return;
+    this.autoResponse = enabled;
+    this.sendEvent({
+      type: 'session.update',
+      session: {
+        type: 'realtime',
+        audio: { input: { turn_detection: this.turnDetectionPayload() } },
+      },
+    });
+  }
+
+  private turnDetectionPayload(): Record<string, unknown> {
+    const tuning = this.turnDetection;
+    return {
+      type: 'server_vad',
+      ...(tuning.threshold !== undefined
+        ? { threshold: tuning.threshold }
+        : {}),
+      ...(tuning.prefixPaddingMs !== undefined
+        ? { prefix_padding_ms: tuning.prefixPaddingMs }
+        : {}),
+      ...(tuning.silenceDurationMs !== undefined
+        ? { silence_duration_ms: tuning.silenceDurationMs }
+        : {}),
+      create_response: this.autoResponse,
+      interrupt_response: true,
+    };
   }
 
   appendAudio(base64Audio: string): void {
@@ -187,10 +250,16 @@ export class OpenAIRealtimeClient {
     });
   }
 
+  /** Cancels every in-flight response, out-of-band ones included. */
   cancelResponse(): void {
-    if (!this.responseActive) return;
-    this.sendEvent({ type: 'response.cancel' });
-    this.responseActive = false;
+    for (const id of this.activeResponseIds) {
+      this.sendEvent(
+        id.startsWith(ANONYMOUS_RESPONSE_PREFIX)
+          ? { type: 'response.cancel' }
+          : { type: 'response.cancel', response_id: id },
+      );
+    }
+    this.activeResponseIds.clear();
   }
 
   sendFunctionCallOutput(callId: string, output: string): void {
@@ -252,16 +321,35 @@ export class OpenAIRealtimeClient {
     }
     const type = normalizeString(parsed.type);
     if (type === 'session.updated') {
-      this.callbacks.onReady();
+      // Later session.update round-trips (auto-response toggles) must not
+      // replay the greeting.
+      if (!this.ready) {
+        this.ready = true;
+        this.callbacks.onReady();
+      }
       return;
     }
     if (type === 'response.created') {
-      this.responseActive = true;
+      this.activeResponseIds.add(
+        responseId(parsed) ||
+          `${ANONYMOUS_RESPONSE_PREFIX}${++this.anonymousResponseCount}`,
+      );
       this.callbacks.onResponseCreated?.();
       return;
     }
     if (type === 'response.done') {
-      this.responseActive = false;
+      const id = responseId(parsed);
+      if (id && this.activeResponseIds.has(id)) {
+        this.activeResponseIds.delete(id);
+      } else {
+        // Unidentified completion: assume the oldest anonymous response.
+        for (const active of this.activeResponseIds) {
+          if (active.startsWith(ANONYMOUS_RESPONSE_PREFIX)) {
+            this.activeResponseIds.delete(active);
+            break;
+          }
+        }
+      }
       return;
     }
     if (type === 'response.output_audio.delta') {
