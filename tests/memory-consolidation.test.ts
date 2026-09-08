@@ -897,4 +897,104 @@ describe.sequential('memory consolidation', () => {
       readSpy.mockRestore();
     }
   });
+
+  const cleanupEngine = async (workspaceDir: string, sections: Record<string, string[]>) => {
+    const { MemoryConsolidationEngine, currentDateStamp } = await loadConsolidationModule(workspaceDir);
+    const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+    const dailyDir = path.join(workspaceDir, 'memory');
+    fs.mkdirSync(dailyDir, { recursive: true });
+    const yesterday = currentDateStamp(new Date(Date.now() - 86400000));
+    fs.writeFileSync(path.join(dailyDir, `${yesterday}.md`), '- Learned something.\n');
+    vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({ provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify(sections) });
+    const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
+    return engine.consolidateWithCleanup();
+  };
+
+  test('cleanup from the default template drops placeholders under populated sections only', async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-template-'));
+    try {
+      const template = fs.readFileSync(path.join(process.cwd(), 'templates', 'MEMORY.md'), 'utf8');
+      const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+      fs.writeFileSync(memoryPath, template);
+      expect((await cleanupEngine(workspaceDir, { facts: ['New fact.'], decisions: [], patterns: ['Prefers short replies.'] })).modelCleanups).toBe(1);
+      const result = fs.readFileSync(memoryPath, 'utf8');
+      expect(result).toContain('## Facts\n- New fact.\n\n## Decisions\n\n_(Important choices');
+      expect(result).not.toContain("_(Key things you've discovered");
+      expect(result).toContain('## Patterns\n- Prefers short replies.\n\n---\n');
+      expect(result).not.toContain('_(Recurring things');
+      expect(result.match(/_\(/g)?.length).toBe(1);
+      expect(result).toContain('This is your persistent memory.');
+    } finally { fs.rmSync(workspaceDir, { recursive: true, force: true }); }
+  });
+
+  test('cleanup from a CRLF template keeps line endings and a single placeholder for empty sections', async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-template-crlf-'));
+    try {
+      const template = fs.readFileSync(path.join(process.cwd(), 'templates', 'MEMORY.md'), 'utf8').replace(/\n/g, '\r\n');
+      const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+      fs.writeFileSync(memoryPath, template);
+      expect((await cleanupEngine(workspaceDir, { facts: ['New fact.'], decisions: [], patterns: [] })).modelCleanups).toBe(1);
+      const result = fs.readFileSync(memoryPath, 'utf8');
+      expect(result).toContain('## Facts\r\n- New fact.\r\n\r\n## Decisions\r\n\r\n_(Important choices');
+      expect(result).not.toContain("_(Key things you've discovered");
+      expect(result).toContain('## Patterns\r\n\r\n_(Recurring things');
+      expect(result.match(/_\(/g)?.length).toBe(2);
+      expect(result).not.toMatch(/[^\r]\n/);
+    } finally { fs.rmSync(workspaceDir, { recursive: true, force: true }); }
+  });
+
+  test('cleanup treats lowercase managed headings as managed without appending duplicates', async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-lowercase-'));
+    try {
+      const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+      fs.writeFileSync(memoryPath, '# Memory\n\n## facts\n- Old fact.\n\n## DECISIONS\n- Old decision.\n\n## Patterns\n- Old pattern.\n');
+      expect((await cleanupEngine(workspaceDir, { facts: ['New fact.'], decisions: ['New decision.'], patterns: ['New pattern.'] })).modelCleanups).toBe(1);
+      const result = fs.readFileSync(memoryPath, 'utf8');
+      expect(result).toBe('# Memory\n\n## facts\n- New fact.\n\n## DECISIONS\n- New decision.\n\n## Patterns\n- New pattern.\n');
+    } finally { fs.rmSync(workspaceDir, { recursive: true, force: true }); }
+  });
+
+  test('deterministic digest shares the budget so one large day does not evict small days', async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-fair-share-'));
+    try {
+      const { MemoryConsolidationEngine, currentDateStamp } = await loadConsolidationModule(workspaceDir);
+      const dailyDir = path.join(workspaceDir, 'memory');
+      fs.mkdirSync(dailyDir);
+      const stamp = (days: number) => currentDateStamp(new Date(Date.now() - days * 86400000));
+      fs.writeFileSync(path.join(dailyDir, `${stamp(1)}.md`), 'Large day start.\n' + 'x'.repeat(20_000) + '\nLarge day end.\n');
+      fs.writeFileSync(path.join(dailyDir, `${stamp(2)}.md`), '- Small day two.\n');
+      fs.writeFileSync(path.join(dailyDir, `${stamp(3)}.md`), '- Small day three.\n');
+      const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
+      expect(engine.consolidate().dailyFilesCompiled).toBe(3);
+      const result = fs.readFileSync(path.join(workspaceDir, 'MEMORY.md'), 'utf8');
+      expect(result.length).toBeLessThanOrEqual(12_000);
+      expect(result).toContain('- Small day two.');
+      expect(result).toContain('- Small day three.');
+      expect(result).toContain('Large day start.');
+      expect(result).toContain('Large day end.');
+      expect(result).toContain('[truncated middle]');
+      expect(result.indexOf(`### ${stamp(3)}`)).toBeLessThan(result.indexOf(`### ${stamp(1)}`));
+    } finally { fs.rmSync(workspaceDir, { recursive: true, force: true }); }
+  });
+
+  test('consolidate skips a workspace whose MEMORY.md lock is held', async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-locked-'));
+    try {
+      const { MemoryConsolidationEngine, currentDateStamp } = await loadConsolidationModule(workspaceDir);
+      const { logger } = await import('../src/logger.js');
+      const dailyDir = path.join(workspaceDir, 'memory');
+      fs.mkdirSync(dailyDir);
+      fs.writeFileSync(path.join(dailyDir, `${currentDateStamp(new Date(Date.now() - 86400000))}.md`), '- Note.\n');
+      const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+      fs.writeFileSync(memoryPath, '# Memory\n');
+      fs.mkdirSync(`${memoryPath}.lock`);
+      const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
+      const report = engine.consolidate();
+      expect(report.workspacesUpdated).toBe(0);
+      expect(report.dailyFilesCompiled).toBe(0);
+      expect(fs.readFileSync(memoryPath, 'utf8')).toBe('# Memory\n');
+      expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(expect.objectContaining({ workspaceDir }), expect.stringContaining('skipped a workspace'));
+      expect(fs.existsSync(`${memoryPath}.lock`)).toBe(true);
+    } finally { fs.rmSync(workspaceDir, { recursive: true, force: true }); }
+  });
 });

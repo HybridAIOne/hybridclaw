@@ -5,7 +5,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { readDailyMemoryFile } from '../container/shared/daily-memory.js';
+import {
+  readDailyMemoryFile,
+  truncateDailyMemoryText,
+} from '../container/shared/daily-memory.js';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
@@ -936,6 +939,7 @@ export function loadDailyMemoryFile(
 export const DAILY_MEMORY_LOOKBACK_DAYS = 7;
 /** Shared character budget for previous days' notes (today's note is separate). */
 export const DAILY_MEMORY_HISTORY_MAX_CHARS = 12_000;
+const DAILY_MEMORY_HISTORY_MIN_CHARS = 400;
 
 /**
  * Load today's daily memory note plus the notes of the previous
@@ -986,15 +990,17 @@ export function loadRecentDailyMemoryFiles(
     const filePath = path.join(wsDir, name);
     if (!fs.existsSync(filePath)) continue;
     try {
-      // Older notes are loaded whole or not at all; a truncated note would
-      // silently drop its newest (appended) entries. Stop at the first note
-      // that no longer fits so the prompt stays newest-first and complete.
-      if (fs.statSync(filePath).size > remaining) break;
-      const raw = readBoundedWorkspaceTextFile(filePath, remaining);
+      const raw = readDailyMemoryFile(filePath);
       const content = raw?.trim() || '';
       if (!content) continue;
-      result.push({ name, content });
-      remaining -= content.length;
+      if (
+        content.length > remaining &&
+        remaining < DAILY_MEMORY_HISTORY_MIN_CHARS
+      )
+        break;
+      const bounded = truncateDailyMemoryText(content, remaining);
+      result.push({ name, content: bounded });
+      remaining -= bounded.length;
     } catch (err) {
       logger.warn(
         { agentId, file: name, err },
@@ -1068,30 +1074,6 @@ export function resolveUserTimezoneFromContextFiles(
 ): string | undefined {
   const userFile = files.find((file) => file.name === 'USER.md');
   return extractUserTimezone(userFile?.content);
-}
-
-function readBoundedWorkspaceTextFile(
-  filePath: string,
-  maxChars: number,
-): string | null {
-  try {
-    const stats = fs.statSync(filePath);
-    if (stats.size <= 0) return '';
-    if (stats.size <= maxChars) {
-      return fs.readFileSync(filePath, 'utf-8');
-    }
-
-    const fd = fs.openSync(filePath, 'r');
-    try {
-      const buffer = Buffer.alloc(maxChars);
-      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
-      return `${buffer.toString('utf8', 0, bytesRead)}\n...[truncated]`;
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return null;
-  }
 }
 
 /**

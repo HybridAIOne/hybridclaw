@@ -44,12 +44,13 @@ export async function waitForMemoryFileLock(filePath) {
 
 export function writeMemoryFileAtomic(filePath, content) {
   const temporary = `${filePath}.${randomUUID()}.tmp`;
+  let mode;
   try {
-    fs.writeFileSync(temporary, content, {
-      encoding: 'utf8',
-      flag: 'wx',
-      mode: 0o600,
-    });
+    mode = fs.statSync(filePath).mode & 0o777;
+  } catch {}
+  try {
+    fs.writeFileSync(temporary, content, { encoding: 'utf8', flag: 'wx' });
+    if (mode !== undefined) fs.chmodSync(temporary, mode);
     fs.renameSync(temporary, filePath);
   } finally {
     fs.rmSync(temporary, { force: true });

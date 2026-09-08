@@ -124,8 +124,9 @@ Important properties:
 - the pre-compaction memory flush writes here before older history is
   summarized away
 - today's note is injected in full into the per-turn dynamic context block
-- up to seven prior daily notes are also loaded newest first, provided each
-  complete note fits within the shared 12,000-character history budget
+- up to seven prior daily notes are also loaded newest first within the shared
+  12,000-character history budget; a note larger than the remaining budget keeps
+  its beginning and tail with a visible middle-truncation marker
 - older notes beyond that window or budget are not loaded directly
 - older daily notes are later folded into `MEMORY.md` during dream
   consolidation
@@ -314,8 +315,8 @@ The values below describe the built-in defaults in the current codebase.
 | --- | ---: | --- |
 | bootstrap file read cap | `20,000` chars per file | `MEMORY.md` and other bootstrap files are trimmed before prompt assembly |
 | current daily note prompt load | up to `24,000` chars | today's `memory/YYYY-MM-DD.md` is injected when present |
-| prior daily note lookback | `7` days | complete prior notes are considered newest first |
-| prior daily note history budget | `12,000` chars | shared cap for prior notes; today's note has its own file cap |
+| prior daily note lookback | `7` days | prior notes are loaded newest first |
+| prior daily note history budget | `12,000` chars | shared cap for prior notes, head and tail retained when a note is truncated; today's note has its own file cap |
 
 ### Recent Session History
 
@@ -471,9 +472,12 @@ Consolidation selects recent source notes within a separate `24,000` character
 input budget; older source files remain on disk.
 
 Model cleanup receives the existing memory document and replaces managed bullets
-under Facts, Decisions, and Patterns. Other headings, free text, and fenced
-examples are preserved verbatim. If the result exceeds the `12,000` character
-durable-file budget, deterministic consolidation is used instead of trimming
-operator content. Its digest prefers newest days; if the newest day alone is too
-large, both ends are retained with a truncation marker. Source daily files are
-never rewritten by consolidation.
+under Facts, Decisions, and Patterns (heading case is ignored). Other headings,
+free text, and fenced examples are preserved verbatim; template placeholder
+lines are dropped once a section holds bullets and a single placeholder remains
+while it is empty. If the result exceeds the `12,000` character durable-file
+budget, deterministic consolidation is used instead of trimming operator
+content. Its digest gives every selected day a fair share of the remaining
+budget, so one large day is truncated at both ends rather than evicting smaller
+days; when even a shared budget is too small, the oldest days are dropped first.
+Source daily files are never rewritten by consolidation.

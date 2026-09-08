@@ -55,6 +55,19 @@ const MEMORY_FILE_MAX_CHARS = 12_000;
 const MODEL_MEMORY_ITEM_MAX_CHARS = 280;
 const MODEL_MEMORY_MAX_ITEMS_PER_SECTION = 18;
 const MEMORY_SECTION_NAMES = new Set(['Facts', 'Decisions', 'Patterns']);
+const MEMORY_SECTION_PLACEHOLDERS: Record<
+  keyof CanonicalMemorySections,
+  string
+> = {
+  facts:
+    "_(Key things you've discovered about the workspace, the user, the project.)_",
+  decisions:
+    '_(Important choices that were made. Record the "why" so you don\'t revisit them.)_',
+  patterns:
+    '_(Recurring things — how the user likes code formatted, common workflows, etc.)_',
+};
+const PLACEHOLDER_LINE_RE = /^\s*_\(.*\)_\s*$/;
+const DIGEST_MIN_TRUNCATED_CHARS = 600;
 const DEFAULT_MEMORY_TEMPLATE = `# MEMORY.md - Session Memory
 
 _Things you've learned across conversations. Update as you go._
@@ -104,6 +117,18 @@ const DAILY_DIGEST_PREFIX = [
   '_Auto-compiled from older `memory/YYYY-MM-DD.md` files._',
   '',
 ].join('\n');
+
+function canonicalMemorySectionName(heading: string): string | null {
+  const normalized = heading.trim().toLowerCase();
+  for (const name of MEMORY_SECTION_NAMES) {
+    if (name.toLowerCase() === normalized) return name;
+  }
+  return null;
+}
+
+function sectionKey(name: string): keyof CanonicalMemorySections {
+  return name.toLowerCase() as keyof CanonicalMemorySections;
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -247,11 +272,8 @@ function extractCanonicalMemorySections(
     .split('\n')) {
     const headingMatch = /^##\s+(.+?)\s*$/.exec(line.trim());
     if (headingMatch) {
-      const sectionName = headingMatch[1]?.trim();
-      if (sectionName === 'Facts') activeSection = 'facts';
-      else if (sectionName === 'Decisions') activeSection = 'decisions';
-      else if (sectionName === 'Patterns') activeSection = 'patterns';
-      else activeSection = null;
+      const sectionName = canonicalMemorySectionName(headingMatch[1] || '');
+      activeSection = sectionName ? sectionKey(sectionName) : null;
       continue;
     }
 
@@ -284,8 +306,10 @@ function renderCanonicalMemoryDocument(
   sections: CanonicalMemorySections,
   existing: string,
 ): string {
-  const remaining = new Set(['Facts', 'Decisions', 'Patterns']);
-  let active = false;
+  const remaining = new Set(MEMORY_SECTION_NAMES);
+  const eol = existing.includes('\r\n') ? '\r\n' : '\n';
+  let activeKey: keyof CanonicalMemorySections | null = null;
+  let placeholderKept = false;
   let fence: string | null = null;
   const output: string[] = [];
   for (const line of existing
@@ -309,25 +333,69 @@ function renderCanonicalMemoryDocument(
     }
     const heading = /^(#{1,6})[ \t]+(.+?)\s*$/.exec(line);
     if (heading) {
-      active = heading[1] === '##' && MEMORY_SECTION_NAMES.has(heading[2]);
+      const name =
+        heading[1] === '##' ? canonicalMemorySectionName(heading[2]) : null;
       output.push(line);
-      if (active && remaining.delete(heading[2])) {
-        const key = heading[2].toLowerCase() as keyof CanonicalMemorySections;
+      activeKey = null;
+      placeholderKept = false;
+      if (name && remaining.delete(name)) {
+        activeKey = sectionKey(name);
         output.push(
-          `${line.endsWith('\n') ? '' : '\n'}${sections[key].map((item) => `- ${item}\n`).join('')}`,
+          `${line.endsWith('\n') ? '' : eol}${sections[activeKey]
+            .map((item) => `- ${item}${eol}`)
+            .join('')}`,
         );
       }
-    } else if (!active || !/^\s*[-*+]\s+/.test(line)) {
-      output.push(line);
+      continue;
     }
+    if (!activeKey) {
+      output.push(line);
+      continue;
+    }
+    if (/^\s*[-*+]\s+/.test(line)) continue;
+    if (PLACEHOLDER_LINE_RE.test(line)) {
+      if (sections[activeKey].length === 0 && !placeholderKept) {
+        placeholderKept = true;
+        output.push(line);
+      } else if (/^\r?\n$/.test(output.at(-1) || '')) {
+        output.pop();
+      }
+      continue;
+    }
+    output.push(line);
   }
   for (const title of remaining) {
-    const key = title.toLowerCase() as keyof CanonicalMemorySections;
-    output.push(
-      `\n\n## ${title}\n${sections[key].map((item) => `- ${item}\n`).join('')}`,
-    );
+    const key = sectionKey(title);
+    const body =
+      sections[key].length > 0
+        ? sections[key].map((item) => `- ${item}${eol}`).join('')
+        : `${eol}${MEMORY_SECTION_PLACEHOLDERS[key]}${eol}`;
+    output.push(`${eol}${eol}## ${title}${eol}${body}`);
   }
-  return output.join('');
+  return insertEmptySectionPlaceholders(output.join(''), sections, eol);
+}
+
+function insertEmptySectionPlaceholders(
+  document: string,
+  sections: CanonicalMemorySections,
+  eol: string,
+): string {
+  let result = document;
+  for (const title of MEMORY_SECTION_NAMES) {
+    const key = sectionKey(title);
+    if (sections[key].length > 0) continue;
+    const match = new RegExp(`^##[ \\t]+${title}[ \\t]*\\r?\\n`, 'im').exec(
+      result,
+    );
+    if (!match) continue;
+    const bodyStart = match.index + match[0].length;
+    const after = result.slice(bodyStart);
+    const nextHeading = after.search(/^#{1,6}[ \t]+/m);
+    const body = nextHeading === -1 ? after : after.slice(0, nextHeading);
+    if (body.trim()) continue;
+    result = `${result.slice(0, bodyStart)}${eol}${MEMORY_SECTION_PLACEHOLDERS[key]}${eol}${after}`;
+  }
+  return result;
 }
 
 function fitCanonicalMemoryDocument(
@@ -465,10 +533,7 @@ function dedupeMemorySections(memoryContent: string): string {
     const trimmed = line.trim();
     const headingMatch = /^##\s+(.+?)\s*$/.exec(trimmed);
     if (headingMatch) {
-      const sectionName = headingMatch[1]?.trim() || '';
-      activeSection = MEMORY_SECTION_NAMES.has(sectionName)
-        ? sectionName
-        : null;
+      activeSection = canonicalMemorySectionName(headingMatch[1] || '');
       seenBullets = new Set<string>();
       output.push(line);
       continue;
@@ -510,49 +575,59 @@ function buildMemoryContent(params: {
     return baseContent;
   }
 
-  const formattedEntries = params.entries.map(
-    (entry) => `### ${entry.date}\n${entry.summary}`,
-  );
-  let bodyLength = formattedEntries.reduce(
-    (total, entry, index) => total + entry.length + (index > 0 ? 2 : 0),
-    0,
-  );
   const fixedDigestLength =
     DAILY_DIGEST_PREFIX.length + DAILY_MEMORY_BLOCK_END.length + 2;
-  let firstEntryIndex = 0;
-
-  while (
-    firstEntryIndex < formattedEntries.length &&
-    fixedDigestLength + bodyLength > digestBudget
-  ) {
-    bodyLength -= formattedEntries[firstEntryIndex]?.length || 0;
-    if (firstEntryIndex < formattedEntries.length - 1) {
-      bodyLength -= 2;
-    }
-    firstEntryIndex += 1;
-  }
-
-  if (firstEntryIndex >= params.entries.length) {
-    const newest = params.entries.at(-1);
-    if (!newest) return baseContent;
-    const summaryBudget =
-      digestBudget - fixedDigestLength - `### ${newest.date}\n`.length;
-    if (summaryBudget <= 0) return baseContent;
-    return renderMemoryContent(
-      stripped,
-      buildDailyDigest([
-        {
-          date: newest.date,
-          summary: truncateDailyMemoryText(newest.summary, summaryBudget),
-        },
-      ]),
-    );
-  }
-
-  return renderMemoryContent(
-    stripped,
-    buildDailyDigest(params.entries.slice(firstEntryIndex)),
+  const fitted = allocateDigestEntries(
+    params.entries,
+    digestBudget - fixedDigestLength,
   );
+  if (fitted.length === 0) return baseContent;
+  return renderMemoryContent(stripped, buildDailyDigest(fitted));
+}
+
+function digestEntryHeader(entry: DailyMemoryEntry): string {
+  return `### ${entry.date}\n`;
+}
+
+function allocateDigestEntries(
+  entries: DailyMemoryEntry[],
+  budget: number,
+): DailyMemoryEntry[] {
+  let candidates = [...entries];
+  while (candidates.length > 0) {
+    let remaining = budget - 2 * (candidates.length - 1);
+    const ordered = [...candidates].sort(
+      (left, right) => left.summary.length - right.summary.length,
+    );
+    const allocated = new Map<DailyMemoryEntry, number>();
+    let fits = true;
+    for (let index = 0; index < ordered.length; index += 1) {
+      const entry = ordered[index] as DailyMemoryEntry;
+      const need = digestEntryHeader(entry).length + entry.summary.length;
+      const share = Math.floor(remaining / (ordered.length - index));
+      if (share < need && share < DIGEST_MIN_TRUNCATED_CHARS) {
+        fits = false;
+        break;
+      }
+      const take = Math.min(need, share);
+      allocated.set(entry, take);
+      remaining -= take;
+    }
+    if (fits) {
+      return candidates.map((entry) => {
+        const limit =
+          (allocated.get(entry) || 0) - digestEntryHeader(entry).length;
+        return limit >= entry.summary.length
+          ? entry
+          : {
+              date: entry.date,
+              summary: truncateDailyMemoryText(entry.summary, limit),
+            };
+      });
+    }
+    candidates = candidates.slice(1);
+  }
+  return [];
 }
 
 function collectDailyMemoryEntries(workspaceDir: string): DailyMemoryEntry[] {

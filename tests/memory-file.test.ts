@@ -55,3 +55,16 @@ test('failed rename preserves the original and removes the temporary file', () =
   expect(fs.readFileSync(file, 'utf8')).toBe('original');
   expect(fs.readdirSync(path.dirname(file))).toEqual(['note.md']);
 });
+
+test('atomic write keeps the existing file mode', () => {
+  const file = temporaryFile();
+  fs.writeFileSync(file, 'original');
+  fs.chmodSync(file, 0o644);
+  writeMemoryFileAtomic(file, 'replacement');
+  expect(fs.statSync(file).mode & 0o777).toBe(0o644);
+  expect(fs.readFileSync(file, 'utf8')).toBe('replacement');
+  const fresh = path.join(path.dirname(file), 'fresh.md');
+  writeMemoryFileAtomic(fresh, 'new');
+  expect(fs.statSync(fresh).mode & 0o200).toBe(0o200);
+  expect(fs.statSync(fresh).mode & 0o044).toBe(0o044 & ~(process.umask() & 0o044));
+});
