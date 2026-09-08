@@ -476,6 +476,7 @@ function nextFireMsForDbTask(
   try {
     const ms = parseCronExpression(task.cron_expr, {
       currentDateMs: nowMs,
+      tz: task.tz || undefined,
     })
       .next()
       .toDate()
@@ -692,7 +693,7 @@ async function dispatchDbTask(task: ScheduledTask): Promise<void> {
   const prompt = wrapCronPrompt(
     `#${task.id}`,
     task.prompt,
-    DEFAULT_SCHEDULER_TIME_ZONE,
+    task.tz || undefined,
     task.channel_id,
   );
   await taskRunner({
@@ -923,13 +924,19 @@ async function tick(): Promise<void> {
         if (disableTaskWithUnparsableCron(task)) continue;
         const cron = parseCronExpression(task.cron_expr, {
           currentDateMs: nowMs,
+          tz: task.tz || undefined,
         });
         const prev = cron.prev();
         const lastRunMs = parseSchedulerTimestampMs(task.last_run) ?? 0;
 
         if (prev.toDate().getTime() > lastRunMs) {
           logger.info(
-            { taskId: task.id, cron: task.cron_expr, prompt: task.prompt },
+            {
+              taskId: task.id,
+              cron: task.cron_expr,
+              tz: task.tz,
+              prompt: task.prompt,
+            },
             'Cron task firing',
           );
           markJobRunStarted(task.id);

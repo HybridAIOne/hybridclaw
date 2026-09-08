@@ -2528,7 +2528,6 @@ async function handleGatewayMessageInner(
       onError: (message) => {
         sideEffectNotices.push(message);
       },
-      allowSchedules: !isGoalContinuationSource(source),
     });
     const sideEffectNotice = formatSideEffectNotice(sideEffectNotices);
     const ackText =

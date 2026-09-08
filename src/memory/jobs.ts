@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { isValidTimezone } from '../../container/shared/workspace-time.js';
 import type { RuntimeSchedulerJob } from '../config/runtime-config.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import { withMemoryDatabase } from './database.js';
@@ -24,6 +25,7 @@ export interface CreateJobInput {
   sessionId: string;
   channelId: string;
   cronExpr: string;
+  tz?: string;
   prompt: string;
   runAt?: string;
   everyMs?: number;
@@ -155,6 +157,7 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
     session_id: row.session_id || '',
     channel_id: row.channel_id || '',
     cron_expr: schedule.kind === 'cron' ? schedule.expr || '' : '',
+    tz: schedule.kind === 'cron' ? schedule.tz || '' : '',
     run_at: schedule.kind === 'at' ? schedule.at : null,
     every_ms: schedule.kind === 'every' ? schedule.everyMs : null,
     prompt: action.message,
@@ -253,8 +256,15 @@ export function createJob(input: CreateJobInput): number {
             at: null,
             everyMs: null,
             expr: input.cronExpr,
-            tz: '',
+            tz: input.tz?.trim() || '',
           };
+    if (
+      schedule.kind === 'cron' &&
+      schedule.tz &&
+      !isValidTimezone(schedule.tz)
+    ) {
+      throw new Error(`Unknown timezone "${schedule.tz}" for scheduled task.`);
+    }
     // Cron tasks start with last_run = now. The scheduler fires a cron task
     // whenever the previous cron occurrence is later than last_run, so a fresh
     // task with last_run = NULL would fire once immediately (catch-up run)

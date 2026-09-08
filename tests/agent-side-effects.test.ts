@@ -1,41 +1,11 @@
 import { expect, test, vi } from 'vitest';
-import { useCleanMocks, useTempDir } from './test-utils.ts';
+import {
+  formatSideEffectNotice,
+  processSideEffects,
+} from '../src/agent/side-effects.ts';
 
-const ORIGINAL_HOME = process.env.HOME;
-
-const makeTempHome = useTempDir('hybridclaw-sidefx-');
-
-function restoreEnvVar(name: string, value: string | undefined): void {
-  if (value === undefined) {
-    delete process.env[name];
-    return;
-  }
-  process.env[name] = value;
-}
-
-useCleanMocks({
-  restoreAllMocks: true,
-  cleanup: () => {
-    restoreEnvVar('HOME', ORIGINAL_HOME);
-  },
-  resetModules: true,
-});
-
-test('processSideEffects persists explicit schedule delivery channels', async () => {
-  const homeDir = makeTempHome();
-  process.env.HOME = homeDir;
-  vi.resetModules();
-
-  const rearmScheduler = vi.fn();
-  vi.doMock('../src/scheduler/scheduler.js', () => ({
-    rearmScheduler,
-  }));
-
-  const { initDatabase } = await import('../src/memory/db.ts');
-  const { getAllJobs } = await import('../src/memory/jobs.ts');
-  const { processSideEffects } = await import('../src/agent/side-effects.ts');
-
-  initDatabase({ quiet: true });
+test('processSideEffects hands every delegation to the handler', () => {
+  const onDelegation = vi.fn();
 
   processSideEffects(
     {
@@ -43,131 +13,55 @@ test('processSideEffects persists explicit schedule delivery channels', async ()
       result: 'ok',
       toolsUsed: [],
       sideEffects: {
-        schedules: [
-          {
-            action: 'add',
-            everyMs: 1_800_000,
-            channelId: 'ops@example.com',
-            prompt: 'Write a short operational update email.',
-          },
+        delegations: [
+          { action: 'delegate', prompt: 'summarize inbox' },
+          { action: 'delegate', mode: 'chain', chain: [{ prompt: 'a' }] },
         ],
       },
     },
     'session-1',
     'tui',
+    { onDelegation },
   );
 
-  const tasks = getAllJobs({ kind: 'scheduled_task', sessionId: 'session-1' });
-  expect(tasks).toHaveLength(1);
-  expect(tasks[0]).toMatchObject({
-    session_id: 'session-1',
-    channel_id: 'ops@example.com',
-    every_ms: 1_800_000,
-    prompt: 'Write a short operational update email.',
+  expect(onDelegation).toHaveBeenCalledTimes(2);
+  expect(onDelegation).toHaveBeenNthCalledWith(1, {
+    action: 'delegate',
+    prompt: 'summarize inbox',
   });
-  expect(rearmScheduler).toHaveBeenCalledTimes(1);
 });
 
-test('processSideEffects can ignore schedule side effects', async () => {
-  const homeDir = makeTempHome();
-  process.env.HOME = homeDir;
-  vi.resetModules();
+test('processSideEffects keeps processing after a handler throws', () => {
+  const onDelegation = vi
+    .fn()
+    .mockImplementationOnce(() => {
+      throw new Error('boom');
+    })
+    .mockImplementation(() => undefined);
 
-  const rearmScheduler = vi.fn();
-  vi.doMock('../src/scheduler/scheduler.js', () => ({
-    rearmScheduler,
-  }));
-
-  const { initDatabase } = await import('../src/memory/db.ts');
-  const { getAllJobs } = await import('../src/memory/jobs.ts');
-  const { processSideEffects } = await import('../src/agent/side-effects.ts');
-
-  initDatabase({ quiet: true });
-
-  processSideEffects(
-    {
-      status: 'success',
-      result: 'ok',
-      toolsUsed: [],
-      sideEffects: {
-        schedules: [
-          {
-            action: 'add',
-            everyMs: 1_800_000,
-            prompt: 'Write a short operational update email.',
-          },
-        ],
+  expect(() =>
+    processSideEffects(
+      {
+        status: 'success',
+        result: 'ok',
+        toolsUsed: [],
+        sideEffects: {
+          delegations: [
+            { action: 'delegate', prompt: 'first' },
+            { action: 'delegate', prompt: 'second' },
+          ],
+        },
       },
-    },
-    'session-1',
-    'tui',
-    { allowSchedules: false },
-  );
+      'session-1',
+      'tui',
+      { onDelegation },
+    ),
+  ).not.toThrow();
 
-  expect(
-    getAllJobs({ kind: 'scheduled_task', sessionId: 'session-1' }),
-  ).toHaveLength(0);
-  expect(rearmScheduler).not.toHaveBeenCalled();
+  expect(onDelegation).toHaveBeenCalledTimes(2);
 });
 
-test('processSideEffects reports schedule creation failures through onError', async () => {
-  const homeDir = makeTempHome();
-  process.env.HOME = homeDir;
-  vi.resetModules();
-
-  const rearmScheduler = vi.fn();
-  vi.doMock('../src/scheduler/scheduler.js', () => ({
-    rearmScheduler,
-  }));
-  vi.doMock('../src/memory/jobs.js', () => ({
-    createJob: vi.fn(() => {
-      throw new Error('database is locked');
-    }),
-    deleteJob: vi.fn(),
-  }));
-
-  const { processSideEffects } = await import('../src/agent/side-effects.ts');
-
-  const onError = vi.fn();
-  processSideEffects(
-    {
-      status: 'success',
-      result: 'ok',
-      toolsUsed: [],
-      sideEffects: {
-        schedules: [
-          {
-            action: 'add',
-            cronExpr: '0 9 * * *',
-            prompt: 'Morning briefing.',
-          },
-        ],
-      },
-    },
-    'session-1',
-    'tui',
-    { onError },
-  );
-
-  expect(onError).toHaveBeenCalledWith(
-    'Scheduled task could not be created: database is locked',
-  );
-  expect(rearmScheduler).not.toHaveBeenCalled();
-});
-
-test('processSideEffects reports delegation handler failures through onError', async () => {
-  const homeDir = makeTempHome();
-  process.env.HOME = homeDir;
-  vi.resetModules();
-
-  vi.doMock('../src/scheduler/scheduler.js', () => ({
-    rearmScheduler: vi.fn(),
-  }));
-
-  const { formatSideEffectNotice, processSideEffects } = await import(
-    '../src/agent/side-effects.ts'
-  );
-
+test('processSideEffects reports delegation handler failures through onError', () => {
   const onError = vi.fn();
   processSideEffects(
     {

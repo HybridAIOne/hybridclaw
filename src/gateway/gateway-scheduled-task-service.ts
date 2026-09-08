@@ -341,7 +341,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
                     at: null,
                     everyMs: null,
                     expr: task.cron_expr || null,
-                    tz: '',
+                    tz: task.tz,
                   },
             action: {
               kind: 'agent_turn',

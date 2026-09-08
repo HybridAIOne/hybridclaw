@@ -186,6 +186,7 @@ export interface ScheduledTaskInput {
   id: number;
   channelId: string;
   cronExpr: string;
+  tz: string;
   runAt: string | null;
   everyMs: number | null;
   prompt: string;
@@ -450,21 +451,9 @@ export interface ContainerOutput {
   error?: string;
   effectiveUserPrompt?: string;
   sideEffects?: {
-    schedules?: ScheduleSideEffect[];
     delegations?: DelegationSideEffect[];
   };
 }
-
-export type ScheduleSideEffect =
-  | {
-      action: 'add';
-      cronExpr?: string;
-      runAt?: string;
-      everyMs?: number;
-      prompt: string;
-      channelId?: string;
-    }
-  | { action: 'remove'; taskId: number };
 
 export interface DelegationTaskSpec {
   prompt: string;

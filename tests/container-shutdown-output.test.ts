@@ -11,3 +11,17 @@ test('builds a structured interrupted output for signal shutdown', () => {
       'Request interrupted: the agent process received SIGINT before producing a final response.',
   });
 });
+
+test('carries pending delegation side effects through an interrupted shutdown', () => {
+  const sideEffects = {
+    delegations: [{ action: 'delegate' as const, prompt: 'summarize inbox' }],
+  };
+
+  expect(buildInterruptedShutdownOutput('SIGTERM', sideEffects)).toMatchObject({
+    status: 'error',
+    sideEffects,
+  });
+  expect(buildInterruptedShutdownOutput('SIGTERM', undefined)).not.toHaveProperty(
+    'sideEffects',
+  );
+});

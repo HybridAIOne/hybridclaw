@@ -1,11 +1,8 @@
 import { logger } from '../logger.js';
-import { createJob, deleteJob } from '../memory/jobs.js';
-import { rearmScheduler } from '../scheduler/scheduler.js';
 import type { ContainerOutput } from '../types/container.js';
 import type { DelegationSideEffect } from '../types/side-effects.js';
 
 interface SideEffectHandlers {
-  allowSchedules?: boolean;
   onDelegation?: (effect: DelegationSideEffect) => void;
   onError?: (message: string) => void;
 }
@@ -26,96 +23,38 @@ export function processSideEffects(
   channelId: string,
   handlers: SideEffectHandlers = {},
 ): void {
-  const schedules =
-    handlers.allowSchedules === false ? [] : output.sideEffects?.schedules;
   const delegations = output.sideEffects?.delegations || [];
-  if ((!schedules || schedules.length === 0) && delegations.length === 0)
-    return;
+  if (delegations.length === 0) return;
 
-  let changed = false;
-
-  if (schedules && schedules.length > 0) {
-    for (const effect of schedules) {
-      try {
-        if (effect.action === 'add') {
-          const deliveryChannelId = effect.channelId?.trim() || channelId;
-          const taskId = createJob({
-            kind: 'scheduled_task',
+  for (const effect of delegations) {
+    try {
+      if (handlers.onDelegation) {
+        handlers.onDelegation(effect);
+      } else {
+        logger.warn(
+          {
             sessionId,
-            channelId: deliveryChannelId,
-            cronExpr: effect.cronExpr || '',
+            channelId,
+            mode:
+              effect.mode ||
+              (effect.chain?.length
+                ? 'chain'
+                : effect.tasks?.length
+                  ? 'parallel'
+                  : 'single'),
             prompt: effect.prompt,
-            runAt: effect.runAt,
-            everyMs: effect.everyMs,
-          });
-          logger.info(
-            {
-              taskId,
-              sessionId,
-              channelId: deliveryChannelId,
-              cronExpr: effect.cronExpr,
-              runAt: effect.runAt,
-              everyMs: effect.everyMs,
-            },
-            'Side-effect: created task',
-          );
-          changed = true;
-        } else if (effect.action === 'remove') {
-          deleteJob(effect.taskId);
-          logger.info(
-            { taskId: effect.taskId, sessionId },
-            'Side-effect: removed task',
-          );
-          changed = true;
-        }
-      } catch (err) {
-        logger.error({ effect, err }, 'Failed to process side-effect');
-        handlers.onError?.(
-          effect.action === 'remove'
-            ? `Scheduled task #${effect.taskId} could not be removed: ${describeSideEffectError(err)}`
-            : `Scheduled task could not be created: ${describeSideEffectError(err)}`,
+            label: effect.label,
+            tasks: effect.tasks?.length,
+            chain: effect.chain?.length,
+          },
+          'Side-effect: delegation dropped (no handler)',
         );
       }
+    } catch (err) {
+      logger.error({ effect, err }, 'Failed to process delegation side-effect');
+      handlers.onError?.(
+        `Delegation could not be started: ${describeSideEffectError(err)}`,
+      );
     }
   }
-
-  if (delegations.length > 0) {
-    for (const effect of delegations) {
-      try {
-        if (handlers.onDelegation) {
-          handlers.onDelegation(effect);
-        } else {
-          logger.info(
-            {
-              sessionId,
-              channelId,
-              mode:
-                effect.mode ||
-                (effect.chain?.length
-                  ? 'chain'
-                  : effect.tasks?.length
-                    ? 'parallel'
-                    : 'single'),
-              prompt: effect.prompt,
-              label: effect.label,
-              tasks: effect.tasks?.length,
-              chain: effect.chain?.length,
-            },
-            'Side-effect: delegation ignored (no handler)',
-          );
-        }
-      } catch (err) {
-        logger.error(
-          { effect, err },
-          'Failed to process delegation side-effect',
-        );
-        handlers.onError?.(
-          `Delegation could not be started: ${describeSideEffectError(err)}`,
-        );
-      }
-    }
-  }
-
-  // Re-arm scheduler so new tasks are picked up immediately
-  if (changed) rearmScheduler();
 }
