@@ -19,6 +19,7 @@ import { appendSessionTranscript } from '../session/session-transcripts.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
+import { buildToolLedger } from '../types/tool-ledger.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import {
   buildModelUsageAuditStats,
@@ -182,6 +183,7 @@ export async function runIsolatedScheduledTask(params: {
     }
 
     if (output.status === 'success' && output.result) {
+      const toolLedger = buildToolLedger(output.toolExecutions);
       memoryService.storeTurn({
         sessionId: activeSessionId,
         user: {
@@ -194,6 +196,7 @@ export async function runIsolatedScheduledTask(params: {
           username: null,
           agentId,
           content: output.result,
+          toolLedger,
         },
       });
       appendSessionTranscript(agentId, {
@@ -211,6 +214,7 @@ export async function runIsolatedScheduledTask(params: {
         userId: 'assistant',
         username: null,
         content: output.result,
+        toolLedger,
       });
       await onResult({
         text: output.result,

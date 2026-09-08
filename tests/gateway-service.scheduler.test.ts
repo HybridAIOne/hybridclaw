@@ -492,7 +492,14 @@ test('scheduled agent turns persist outputs for admin jobs detail', async () => 
     status: 'success',
     result:
       'HybridClaw.io focuses on a personal AI assistant with a gateway, TUI, and sandboxed container runtime.',
-    toolExecutions: [],
+    toolExecutions: [
+      {
+        name: 'web_fetch',
+        arguments: '{"url":"https://hybridclaw.io"}',
+        result: '<html>HybridClaw</html>',
+        isError: false,
+      },
+    ],
     artifacts: [],
   });
 
@@ -551,6 +558,18 @@ test('scheduled agent turns persist outputs for admin jobs detail', async () => 
       role: 'assistant',
       content:
         'HybridClaw.io focuses on a personal AI assistant with a gateway, TUI, and sandboxed container runtime.',
+    },
+  ]);
+  expect(
+    memoryService
+      .getConversationHistory(session.id)
+      .find((message) => message.role === 'assistant')?.toolLedger,
+  ).toEqual([
+    {
+      tool: 'web_fetch',
+      args: 'url:https://hybridclaw.io',
+      ok: true,
+      note: '<html>HybridClaw</html>',
     },
   ]);
   expect(

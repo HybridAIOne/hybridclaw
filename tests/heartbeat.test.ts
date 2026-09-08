@@ -211,7 +211,14 @@ test('delivers substantive heartbeat messages', async () => {
   mocks.runAgent.mockResolvedValue({
     status: 'success',
     result: 'Review the queued tasks today.',
-    toolExecutions: [],
+    toolExecutions: [
+      {
+        name: 'message',
+        arguments: '{"action":"send","channel":"telegram","to":"ops"}',
+        result: 'Error: channel not linked',
+        isError: true,
+      },
+    ],
   });
 
   const { startHeartbeat, stopHeartbeat } = await import(
@@ -225,7 +232,22 @@ test('delivers substantive heartbeat messages', async () => {
 
   expect(onMessage).toHaveBeenCalledWith('Review the queued tasks today.');
   expect(mocks.memoryService.storeTurn).toHaveBeenCalledTimes(1);
+  const expectedLedger = [
+    {
+      tool: 'message',
+      args: 'send channel:telegram to:ops',
+      ok: false,
+      note: 'channel not linked',
+    },
+  ];
+  expect(mocks.memoryService.storeTurn.mock.calls[0]?.[0]).toMatchObject({
+    assistant: { toolLedger: expectedLedger },
+  });
   expect(mocks.appendSessionTranscript).toHaveBeenCalledTimes(2);
+  expect(mocks.appendSessionTranscript.mock.calls[1]?.[1]).toMatchObject({
+    role: 'assistant',
+    toolLedger: expectedLedger,
+  });
   expect(mocks.maybeCompactSession).toHaveBeenCalledTimes(1);
 });
 

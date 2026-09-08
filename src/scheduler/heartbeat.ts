@@ -41,6 +41,7 @@ import { buildSessionKey } from '../session/session-key.js';
 import { maybeCompactSession } from '../session/session-maintenance.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import { runPeriodicSkillInspection } from '../skills/skills-inspection.js';
+import { buildToolLedger } from '../types/tool-ledger.js';
 import { hasActionableHeartbeatFile } from '../workspace.js';
 import { HEARTBEAT_POLL_PROMPT } from './heartbeat-prompt.js';
 import {
@@ -389,6 +390,7 @@ export function startHeartbeat(
       }
 
       // Real content — persist and deliver
+      const toolLedger = buildToolLedger(output.toolExecutions);
       memoryService.storeTurn({
         sessionId,
         user: {
@@ -401,6 +403,7 @@ export function startHeartbeat(
           username: null,
           agentId: resolvedAgentId,
           content: result,
+          toolLedger,
         },
       });
       appendSessionTranscript(resolvedAgentId, {
@@ -418,6 +421,7 @@ export function startHeartbeat(
         userId: 'assistant',
         username: null,
         content: result,
+        toolLedger,
       });
       await maybeCompactSession({
         sessionId,
