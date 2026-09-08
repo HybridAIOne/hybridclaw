@@ -77,6 +77,7 @@ import {
   readChatCompletionUsageTokens,
   recordPerformanceSample,
 } from './token-usage.js';
+import { withToolActivityHeartbeat } from './tool-activity-heartbeat.js';
 import {
   type ApprovalPrelude,
   approvalRuntime,
@@ -698,7 +699,10 @@ async function executePreparedToolCall(
           output: loopGuard.message,
           isError: true,
         }
-      : await executeToolWithMetadata(toolName, argsJson);
+      : await withToolActivityHeartbeat(
+          () => executeToolWithMetadata(toolName, argsJson),
+          emitStreamActivity,
+        );
   const toolDuration = Date.now() - toolStart;
   const result = runtimeResult.output;
   const isError = runtimeResult.isError;
