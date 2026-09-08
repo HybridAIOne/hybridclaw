@@ -16,7 +16,7 @@ import {
   stopWebhookOutboxProcessor,
 } from '../a2a/webhook-outbound.js';
 import {
-  getActiveExecutorCount,
+  getInFlightExecutorCount,
   stopAllExecutions,
 } from '../agent/executor.js';
 import {
@@ -3924,6 +3924,25 @@ function setupShutdown(broadcastShutdown: () => void): void {
       'set Discord maintenance presence',
       setDiscordMaintenancePresence,
     );
+    if (opts?.drain) {
+      broadcastShutdown();
+      const DRAIN_TIMEOUT_MS = 15_000;
+      const DRAIN_POLL_MS = 250;
+      const deadline = Date.now() + DRAIN_TIMEOUT_MS;
+      while (getInFlightExecutorCount() > 0 && Date.now() < deadline) {
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, DRAIN_POLL_MS),
+        );
+      }
+      const remaining = getInFlightExecutorCount();
+      if (remaining > 0) {
+        logger.warn(
+          { remaining, timeoutMs: DRAIN_TIMEOUT_MS },
+          'Drain timed out; stopping in-flight executions',
+        );
+      }
+      stopAllExecutions();
+    }
     await runShutdownStep('stop Discord runtime', shutdownDiscord);
     await runShutdownStep('stop email runtime', shutdownEmail);
     await runShutdownStep('stop Signal runtime', shutdownSignal);
@@ -3941,18 +3960,6 @@ function setupShutdown(broadcastShutdown: () => void): void {
       shutdownVoice({ drain: opts?.drain }),
     );
     await runShutdownStep('stop iMessage runtime', shutdownIMessage);
-    if (opts?.drain) {
-      broadcastShutdown();
-      stopAllExecutions();
-      const DRAIN_TIMEOUT_MS = 15_000;
-      const DRAIN_POLL_MS = 250;
-      const deadline = Date.now() + DRAIN_TIMEOUT_MS;
-      while (getActiveExecutorCount() > 0 && Date.now() < deadline) {
-        await new Promise<void>((resolve) =>
-          setTimeout(resolve, DRAIN_POLL_MS),
-        );
-      }
-    }
     await runShutdownStep('run managed media cleanup', () =>
       runManagedMediaCleanup('shutdown'),
     );
