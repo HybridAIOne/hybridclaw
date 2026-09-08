@@ -32,13 +32,20 @@ export interface RealtimeFunctionCall {
   arguments: string;
 }
 
+export interface RealtimeSpeechBoundary {
+  /** Position in the input audio buffer, ms since the session started. */
+  audioMs: number;
+  /** Conversation item the utterance becomes; keys the later transcript. */
+  itemId: string;
+}
+
 export interface OpenAIRealtimeCallbacks {
   onReady: () => void;
   onAudioDelta: (base64Audio: string) => void;
-  onSpeechStarted: () => void;
-  onSpeechStopped?: () => void;
+  onSpeechStarted: (boundary: RealtimeSpeechBoundary) => void;
+  onSpeechStopped?: (boundary: RealtimeSpeechBoundary) => void;
   onResponseCreated?: () => void;
-  onInputTranscript: (transcript: string) => void;
+  onInputTranscript: (transcript: string, itemId: string) => void;
   onOutputTranscript: (transcript: string) => void;
   onFunctionCall: (call: RealtimeFunctionCall) => void;
   onError: (message: string) => void;
@@ -67,6 +74,10 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function normalizeNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
 // Responses the server opened without an id (older event shapes, tests) are
 // tracked under a synthetic key so cancel/accounting still balance.
 const ANONYMOUS_RESPONSE_PREFIX = 'anon:';
@@ -75,11 +86,15 @@ function responseId(event: Record<string, unknown>): string {
   return isRecord(event.response) ? normalizeString(event.response.id) : '';
 }
 
-/** Server-side VAD tuning; omitted fields keep the upstream defaults. */
+/** Upstream turn detection; omitted fields keep the upstream defaults. */
 export interface RealtimeTurnDetection {
+  type?: 'server_vad' | 'semantic_vad';
+  /** `server_vad` only. */
   threshold?: number;
   prefixPaddingMs?: number;
   silenceDurationMs?: number;
+  /** `semantic_vad` only. */
+  eagerness?: 'auto' | 'low' | 'medium' | 'high';
 }
 
 export interface OpenAIRealtimeClientOptions {
@@ -195,6 +210,14 @@ export class OpenAIRealtimeClient {
 
   private turnDetectionPayload(): Record<string, unknown> {
     const tuning = this.turnDetection;
+    if (tuning.type === 'semantic_vad') {
+      return {
+        type: 'semantic_vad',
+        ...(tuning.eagerness ? { eagerness: tuning.eagerness } : {}),
+        create_response: this.autoResponse,
+        interrupt_response: true,
+      };
+    }
     return {
       type: 'server_vad',
       ...(tuning.threshold !== undefined
@@ -360,17 +383,26 @@ export class OpenAIRealtimeClient {
       return;
     }
     if (type === 'input_audio_buffer.speech_started') {
-      this.callbacks.onSpeechStarted();
+      this.callbacks.onSpeechStarted({
+        audioMs: normalizeNumber(parsed.audio_start_ms),
+        itemId: normalizeString(parsed.item_id),
+      });
       return;
     }
     if (type === 'input_audio_buffer.speech_stopped') {
-      this.callbacks.onSpeechStopped?.();
+      this.callbacks.onSpeechStopped?.({
+        audioMs: normalizeNumber(parsed.audio_end_ms),
+        itemId: normalizeString(parsed.item_id),
+      });
       return;
     }
     if (type === 'conversation.item.input_audio_transcription.completed') {
       const transcript = normalizeString(parsed.transcript).trim();
       if (transcript) {
-        this.callbacks.onInputTranscript(transcript);
+        this.callbacks.onInputTranscript(
+          transcript,
+          normalizeString(parsed.item_id),
+        );
       }
       return;
     }

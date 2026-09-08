@@ -653,3 +653,130 @@ test('reassurance tells the model it has no answer yet', async () => {
     vi.useRealTimers();
   }
 });
+
+test('turn detection follows speech.realtime.turnDetection; unset fields keep upstream defaults', () => {
+  const turnDetectionOf = (socket: FakeRealtimeSocket) =>
+    (
+      socket.sentOfType('session.update')[0].session as {
+        audio: { input: { turn_detection: Record<string, unknown> } };
+      }
+    ).audio.input.turn_detection;
+
+  const untouched = createBridge();
+  untouched.socket.open();
+  expect(turnDetectionOf(untouched.socket)).toEqual({
+    type: 'server_vad',
+    create_response: true,
+    interrupt_response: true,
+  });
+
+  const tuned = createBridge({
+    config: {
+      ...REALTIME_CONFIG,
+      turnDetection: {
+        type: 'server_vad',
+        threshold: 0.7,
+        prefixPaddingMs: null,
+        silenceDurationMs: 800,
+        eagerness: 'auto',
+      },
+    },
+  });
+  tuned.socket.open();
+  expect(turnDetectionOf(tuned.socket)).toEqual({
+    type: 'server_vad',
+    threshold: 0.7,
+    silence_duration_ms: 800,
+    create_response: true,
+    interrupt_response: true,
+  });
+
+  const semantic = createBridge({
+    config: {
+      ...REALTIME_CONFIG,
+      turnDetection: {
+        type: 'semantic_vad',
+        threshold: 0.7,
+        prefixPaddingMs: null,
+        silenceDurationMs: null,
+        eagerness: 'low',
+      },
+    },
+  });
+  semantic.socket.open();
+  expect(turnDetectionOf(semantic.socket)).toEqual({
+    type: 'semantic_vad',
+    eagerness: 'low',
+    create_response: true,
+    interrupt_response: true,
+  });
+});
+
+test('each caller utterance is reported as a speech segment with barge-in context', () => {
+  const segments: Array<Record<string, unknown>> = [];
+  const { socket } = createBridge({
+    onSpeechSegment: (segment) => {
+      segments.push(segment as unknown as Record<string, unknown>);
+    },
+  });
+  socket.open();
+
+  // A backchannel while the model talks: short, interrupts the response.
+  socket.serverEvent({ type: 'response.created', response: { id: 'r1' } });
+  socket.serverEvent({
+    type: 'input_audio_buffer.speech_started',
+    audio_start_ms: 4_000,
+    item_id: 'item_a',
+  });
+  socket.serverEvent({
+    type: 'input_audio_buffer.speech_stopped',
+    audio_end_ms: 4_260,
+    item_id: 'item_a',
+  });
+  socket.serverEvent({
+    type: 'conversation.item.input_audio_transcription.completed',
+    item_id: 'item_a',
+    transcript: 'Mhm.',
+  });
+
+  // A real question into silence.
+  socket.serverEvent({
+    type: 'input_audio_buffer.speech_started',
+    audio_start_ms: 9_000,
+    item_id: 'item_b',
+  });
+  socket.serverEvent({
+    type: 'input_audio_buffer.speech_stopped',
+    audio_end_ms: 11_400,
+    item_id: 'item_b',
+  });
+  socket.serverEvent({
+    type: 'conversation.item.input_audio_transcription.completed',
+    item_id: 'item_b',
+    transcript: 'Wie hoch ist der Umsatz mit Claas?',
+  });
+
+  expect(segments).toEqual([
+    expect.objectContaining({
+      itemId: 'item_a',
+      segmentMs: 260,
+      interruptedResponse: true,
+      consultInFlight: false,
+      transcriptChars: 4,
+      transcriptWords: 1,
+    }),
+    expect.objectContaining({
+      itemId: 'item_b',
+      segmentMs: 2_400,
+      interruptedResponse: false,
+      msIntoResponse: null,
+      transcriptWords: 7,
+    }),
+  ]);
+});
+
+test('instructions forbid inventing a result before the consult returns', () => {
+  const text = buildRealtimeInstructions(REALTIME_CONFIG, CALLER);
+  expect(text).toContain('never guess, summarize, or invent one');
+  expect(text).toContain('not a new request');
+});
