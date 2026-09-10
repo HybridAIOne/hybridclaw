@@ -29,9 +29,10 @@ import {
   recordUsageEventBatch,
   resolveSessionIdCompat,
 } from '../memory/db.js';
+import type { UsageAttribution } from '../memory/usage.js';
 import type { ModelRoutingZone } from '../providers/model-routing.js';
 
-export interface TokenUsageEvent {
+export interface TokenUsageEvent extends UsageAttribution {
   sessionId: string;
   agentId: string;
   model: string;
@@ -94,7 +95,7 @@ export interface TokenUsageBatchHashRow {
   batchId: string;
 }
 
-interface PreparedUsageEvent extends TokenUsageBatchHashRow {
+interface PreparedUsageEvent extends TokenUsageBatchHashRow, UsageAttribution {
   id: string;
   auditRunId?: string;
   batchHash: string;
@@ -348,6 +349,9 @@ export async function flushTokenUsageBuffer(): Promise<void> {
     recordUsageEventBatch(
       groups.flatMap((group) =>
         group.events.map((event) => ({
+          userId: event.userId,
+          channelKind: event.channelKind,
+          tenantId: event.tenantId,
           id: event.id,
           sessionId: event.sessionId,
           agentId: event.agentId,
@@ -409,6 +413,9 @@ function prepareUsageBatchGroups(
       event.totalTokens ?? inputTokens + outputTokens,
     );
     const prepared: PreparedUsageEvent = {
+      userId: event.userId,
+      channelKind: event.channelKind,
+      tenantId: event.tenantId,
       id: randomUUID(),
       sessionId,
       agentId,

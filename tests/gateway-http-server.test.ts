@@ -2612,6 +2612,10 @@ async function importFreshHealth(options?: {
     handleVoiceUpgrade,
     handleVoiceWebhook,
   }));
+  vi.doMock('../src/gateway/msteams-users.js', () => ({
+    getAdminMSTeamsUsers: vi.fn(() => ({ users: [], defaultAgentId: 'main' })),
+    updateAdminMSTeamsUser: vi.fn(() => ({ status: 200 })),
+  }));
   vi.doMock('../src/memory/db.js', () => ({
     claimQueuedProactiveMessages,
     getDelegationJob,
@@ -4340,6 +4344,51 @@ describe('gateway HTTP server', () => {
         ),
       ),
     ).toBe(0);
+  });
+
+  test('requires channel permissions to read and change Teams user mappings', async () => {
+    const state = await importFreshHealth({
+      webApiToken: 'web-token',
+      apiTokens: {
+        hck_teams_reader: { id: 'teams-reader', label: 'reader', claims: { actions: ['admin.channels.read'] } },
+        hck_chat_only: { id: 'chat-only', label: 'chat', claims: { actions: ['chat.send'] } },
+      },
+    });
+    const admin = await import('../src/gateway/msteams-users.js');
+    for (const [method, token, expectedStatus] of [
+      ['GET', '', 401], ['GET', 'hck_chat_only', 403], ['PUT', 'hck_teams_reader', 403],
+      ['GET', 'hck_teams_reader', 200], ['PUT', 'web-token', 200],
+    ] as const) {
+      const req = makeRequest({ method, url: '/api/admin/msteams/users',
+        noAuth: !token,
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+        remoteAddress: '203.0.113.10', body: { userId: 'user-a', agentId: 'sales' },
+      });
+      const res = makeResponse();
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+      expect(res.statusCode).toBe(expectedStatus);
+    }
+    expect(admin.updateAdminMSTeamsUser).toHaveBeenCalledTimes(1);
+    expect(admin.updateAdminMSTeamsUser).toHaveBeenCalledWith({ userId: 'user-a', agentId: 'sales' });
+    expect(admin.getAdminMSTeamsUsers).toHaveBeenCalledTimes(2);
+  });
+
+  test('returns Teams user mapping validation errors and rejects unsupported methods', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const admin = await import('../src/gateway/msteams-users.js');
+    vi.mocked(admin.updateAdminMSTeamsUser).mockReturnValue({ status: 400, error: 'Select an existing, active agent.' });
+    for (const method of ['PUT', 'POST']) {
+      const req = makeRequest({ method, url: '/api/admin/msteams/users',
+        headers: { authorization: 'Bearer web-token' },
+        body: { userId: 'user-a', agentId: 'missing' },
+      });
+      const res = makeResponse();
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+      expect(res.statusCode).toBe(method === 'PUT' ? 400 : 405);
+    }
+    expect(admin.getAdminMSTeamsUsers).not.toHaveBeenCalled();
   });
 
   test('generates the org Teams app manifest zip', async () => {

@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
-  max-width: 980px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 28px 24px 48px;
   width: 100%;
@@ -106,4 +106,39 @@
   border-color: var(--success, var(--border-strong));
   color: var(--success, var(--foreground));
   background: var(--success-soft, var(--muted));
+}
+
+.userTableWrap {
+  overflow-x: auto;
+}
+.userTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+.userTable th,
+.userTable td {
+  text-align: left;
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.userTable th {
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.userTable td:first-child {
+  min-width: 210px;
+  max-width: 300px;
+}
+.userTable td:nth-child(2) {
+  min-width: 170px;
+}
+.userIdentity {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+  margin-top: 4px;
 }

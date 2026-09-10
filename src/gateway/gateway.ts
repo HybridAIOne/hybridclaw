@@ -1780,6 +1780,8 @@ async function startMSTeamsIntegration(): Promise<boolean> {
               content,
               media,
               source: 'msteams',
+              agentId: context.agentId,
+              msteamsTenantId: context.tenantId,
               onTextDelta: (delta) => {
                 const filteredDelta = streamFilter.push(delta);
                 if (!filteredDelta) return;
@@ -1917,8 +1919,23 @@ async function startMSTeamsIntegration(): Promise<boolean> {
         await context.stream.fail(formatGatewayErrorReply(error));
       }
     },
-    async (sessionId, guildId, channelId, userId, username, args, reply) => {
+    async (
+      sessionId,
+      guildId,
+      channelId,
+      userId,
+      username,
+      args,
+      reply,
+      agentId,
+    ) => {
       try {
+        memoryService.getOrCreateSession(
+          sessionId,
+          guildId,
+          channelId,
+          agentId,
+        );
         const bridgedReply: ReplyFn = async (content) => {
           await reply(content);
         };

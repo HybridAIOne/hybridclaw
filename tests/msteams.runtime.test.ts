@@ -3,6 +3,10 @@ import { Readable } from 'node:stream';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+const observeUserMock = vi.fn();
+const resolveUserAgentMock = vi.fn(() => 'main');
+const channelPolicyMock = vi.fn(() => ({ allowed: true, replyStyle: 'thread', requireMention: false, tools: [] }));
+const buildSessionIdMock = vi.fn((_activity?: unknown, _agentId?: string) => 'teams:dm:user');
 const processMock = vi.fn();
 const credentialsFactoryMock = vi.fn();
 const authConfigMock = vi.fn();
@@ -167,6 +171,8 @@ async function importRuntime() {
       setMemoryValue: setMemoryValueMock,
     };
   });
+  vi.doMock('../src/memory/msteams-users.js', () => ({ observeMSTeamsUser: observeUserMock }));
+  vi.doMock('../src/channels/msteams/user-routing.js', () => ({ resolveMSTeamsUserAgent: resolveUserAgentMock }));
   vi.doMock('../src/channels/msteams/attachments.js', () => ({
     buildTeamsAttachmentContext: buildTeamsAttachmentContextMock,
     maybeHandleMSTeamsFileConsentInvoke:
@@ -181,7 +187,7 @@ async function importRuntime() {
     sendChunkedReply: sendChunkedReplyMock,
   }));
   vi.doMock('../src/channels/msteams/inbound.js', () => ({
-    buildSessionIdFromActivity: vi.fn(() => 'teams:dm:user'),
+    buildSessionIdFromActivity: buildSessionIdMock,
     cleanIncomingContent: cleanIncomingContentMock,
     extractPrimaryText: extractPrimaryTextMock,
     extractActorIdentity: vi.fn(() => ({
@@ -196,12 +202,7 @@ async function importRuntime() {
     parseCommand: parseCommandMock,
   }));
   vi.doMock('../src/channels/msteams/send-permissions.js', () => ({
-    resolveMSTeamsChannelPolicy: vi.fn(() => ({
-      allowed: true,
-      replyStyle: 'thread',
-      requireMention: false,
-      tools: [],
-    })),
+    resolveMSTeamsChannelPolicy: channelPolicyMock,
   }));
   vi.doMock('../src/channels/msteams/stream.js', () => ({
     MSTeamsStreamManager: class {
@@ -253,12 +254,71 @@ afterEach(() => {
   loggerInfoMock.mockReset();
   loggerWarnMock.mockReset();
   cloudAdapters.length = 0;
+  observeUserMock.mockClear();
+  resolveUserAgentMock.mockReset().mockReturnValue('main');
+  channelPolicyMock.mockReset().mockReturnValue({ allowed: true, replyStyle: 'thread', requireMention: false, tools: [] });
+  buildSessionIdMock.mockReset().mockReturnValue('teams:dm:user');
   msteamsAppPassword = 'teams-secret';
   vi.restoreAllMocks();
   vi.resetModules();
 });
 
 describe('Microsoft Teams runtime webhook adapter', () => {
+  test.each(['message', 'command'])('routes an allowed %s to the selected agent', async (kind) => {
+    resolveUserAgentMock.mockReturnValue('sales');
+    if (kind === 'command') parseCommandMock.mockReturnValue({ isCommand: true, command: 'status', args: [] });
+    processMock.mockImplementation(async (_req, _res, logic) => logic({
+      activity: { type: 'message', text: 'Hi', conversation: { id: 'conversation-a' }, from: { id: '29:user-a' } },
+      turnState: new Map(),
+    }));
+    const runtime = await importRuntime();
+    const onMessage = vi.fn(async () => {});
+    const onCommand = vi.fn(async () => {});
+    runtime.initMSTeams(onMessage, onCommand);
+    await runtime.handleMSTeamsWebhook(makeRequest({}), makeResponse());
+    expect(resolveUserAgentMock).toHaveBeenCalledWith('teams-tenant-id', 'user-id');
+    expect(buildSessionIdMock).toHaveBeenCalledWith(expect.anything(), 'sales');
+    expect(observeUserMock).toHaveBeenCalledWith(expect.objectContaining({ teamsUserId: '29:user-a', entraObjectId: 'user-aad-id', isMessage: kind === 'message' }));
+    if (kind === 'message') expect(onMessage.mock.calls[0]?.at(-1)).toMatchObject({ agentId: 'sales' });
+    else expect(onCommand.mock.calls[0]?.at(-1)).toBe('sales');
+  });
+
+  test.each(['denied', 'wrong-tenant', 'unmentioned'])('does not record or route a %s activity', async (reason) => {
+    if (reason === 'denied') channelPolicyMock.mockReturnValue({ allowed: false, replyStyle: 'thread', requireMention: false, tools: [] });
+    processMock.mockImplementation(async (_req, _res, logic) => logic({
+      activity: { type: 'message', text: 'Hi', conversation: { id: 'conversation-a' },
+        channelData: reason === 'wrong-tenant' ? { tenant: { id: 'another-tenant' } } : undefined },
+      turnState: new Map(),
+    }));
+    const runtime = await importRuntime();
+    if (reason === 'unmentioned') {
+      const inbound = await import('../src/channels/msteams/inbound.js');
+      vi.mocked(inbound.resolveTeamsConversationKind).mockReturnValue('group');
+      channelPolicyMock.mockReturnValue({ allowed: true, replyStyle: 'thread', requireMention: true, tools: [] });
+    }
+    const onMessage = vi.fn(async () => {});
+    runtime.initMSTeams(onMessage, vi.fn(async () => {}));
+    await runtime.handleMSTeamsWebhook(makeRequest({}), makeResponse());
+    expect(observeUserMock).not.toHaveBeenCalled();
+    expect(resolveUserAgentMock).not.toHaveBeenCalled();
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  test('an unavailable mapping fails without dispatching to the default agent', async () => {
+    resolveUserAgentMock.mockImplementation(() => { throw new Error('Assigned agent unavailable'); });
+    processMock.mockImplementation(async (_req, _res, logic) => logic({
+      activity: { type: 'message', text: 'Hi', conversation: { id: 'conversation-a' } }, turnState: new Map(),
+    }));
+    const runtime = await importRuntime();
+    const onMessage = vi.fn(async () => {});
+    const onCommand = vi.fn(async () => {});
+    runtime.initMSTeams(onMessage, onCommand);
+    await runtime.handleMSTeamsWebhook(makeRequest({}), makeResponse());
+    expect(onMessage).not.toHaveBeenCalled();
+    expect(onCommand).not.toHaveBeenCalled();
+    expect(sendChunkedReplyMock).toHaveBeenCalledWith(expect.objectContaining({ text: 'Assigned agent unavailable' }));
+  });
+
   test('rebuilds the adapter after the app password rotates', async () => {
     processMock.mockResolvedValue(undefined);
 
@@ -513,6 +573,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
       'User',
       ['approve', '3'],
       expect.any(Function),
+      'main',
     );
     expect(typingStartMock).toHaveBeenCalledTimes(1);
     expect(typingStopMock).toHaveBeenCalledTimes(1);
@@ -571,6 +632,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
       'User',
       ['approve', '2'],
       expect.any(Function),
+      'main',
     );
   });
 
@@ -613,6 +675,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
       'User',
       ['clear'],
       expect.any(Function),
+      'main',
     );
     expect(typingStartMock).not.toHaveBeenCalled();
     expect(typingStopMock).not.toHaveBeenCalled();

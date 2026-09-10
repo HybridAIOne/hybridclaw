@@ -131,10 +131,46 @@ incremental response. Teams supports this streaming experience only in
 one-on-one chats. Group chats and team channels use the standard typing and
 message-update fallback.
 
+## Users, usage, and agent routing
+
+Open **Channels → Microsoft Teams** in the admin console
+(`/admin/channels#teams`) and use **Bot users and agent routing**. The same
+table is available on the Teams app setup page (`/admin/teams`). Users appear after
+an allowed bot message or command. The table
+shows the display name, Entra object ID and Teams user ID when supplied by Teams,
+message count, sessions with recorded usage, tokens, estimated USD cost, and last
+activity. Search by name or either identifier; **Refresh users** updates the table.
+
+Choose an agent from a user's **Agent** selector. The selection saves immediately
+and applies to their next message or command, including in group chats and channel
+threads. **Default** removes the assignment and uses the configured default agent.
+Assignments are stored in the
+gateway database, scoped to the configured Teams tenant. If an assigned agent is
+deleted or archived, the bot asks for an administrator to repair the mapping;
+it does not send that user's turn to another agent.
+
+Each agent has a separate session key for a Teams conversation. Changing the
+assignment selects that agent's history; it does not copy the previous agent's
+history. Users mapped to the same agent in the same group chat or thread still
+share that conversation. A mapping is the starting agent selection, not an access
+restriction on explicit agent addressing or other existing bot commands.
+
+Usage tracking begins when this feature is installed. Messages exclude commands.
+Tokens and estimated costs are attributed to the initiating user, including
+recorded model retries and media generation, rather than assigning an entire group
+chat's totals to each participant. Historical usage without sender attribution and
+independent background work are excluded. Usage writes are buffered, so totals can
+lag a few seconds. These are recorded estimates, not an invoice.
+
+Routing does not change the Teams allowlists or mention requirements. Only
+administrators with channel-write permission can change mappings; channel-read
+permission is required to list users and usage. Tab SSO viewers and bot senders
+remain separate surfaces: this table tracks messages to the bot.
+
 ## Sessions
 
-HybridClaw maps Teams conversations to sessions using the containers Teams
-provides natively:
+Within each selected agent, HybridClaw maps Teams conversations to sessions
+using the containers Teams provides natively:
 
 - **Team channels:** every channel post starts its own session. Mention the
   bot in a new post for a fresh session; reply inside the post's thread to

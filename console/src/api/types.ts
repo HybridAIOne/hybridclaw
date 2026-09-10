@@ -945,6 +945,26 @@ export interface AdminConfigResponse {
   config: AdminConfig;
 }
 
+export interface AdminMSTeamsUser {
+  tenantId: string;
+  userId: string;
+  teamsUserId: string | null;
+  entraObjectId: string | null;
+  displayName: string | null;
+  agentId: string | null;
+  messageCount: number;
+  sessionCount: number;
+  totalTokens: number;
+  costUsd: number;
+  firstSeen: string;
+  lastSeen: string;
+}
+
+export interface AdminMSTeamsUsersResponse {
+  defaultAgentId: string;
+  users: AdminMSTeamsUser[];
+}
+
 export interface AdminMSTeamsTabStatusResponse {
   enabled: boolean;
   tenantId: string;

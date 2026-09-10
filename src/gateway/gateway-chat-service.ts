@@ -793,6 +793,15 @@ async function handleGatewayMessageInner(
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
   const source = req.source?.trim() || 'gateway.chat';
+  const usageAttribution =
+    req.msteamsTenantId &&
+    (source === 'msteams' || source.startsWith('msteams.'))
+      ? {
+          userId: req.userId,
+          channelKind: 'msteams',
+          tenantId: req.msteamsTenantId,
+        }
+      : {};
   if (
     isA2ALocalModeEnabled(getRuntimeConfig()) &&
     isA2ALocalModeExternalChannelSource(source)
@@ -2357,6 +2366,7 @@ async function handleGatewayMessageInner(
         usage: usagePayload,
       });
       enqueueTokenUsage({
+        ...usageAttribution,
         sessionId: req.sessionId,
         agentId,
         model,
@@ -2405,6 +2415,7 @@ async function handleGatewayMessageInner(
         });
         if (index === routingAttempts.length - 1) costUsd = attemptCostUsd;
         enqueueTokenUsage({
+          ...usageAttribution,
           sessionId: req.sessionId,
           agentId,
           model: attempt.model,
@@ -2427,7 +2438,7 @@ async function handleGatewayMessageInner(
       auditRunId: runId,
       toolExecutions,
     })) {
-      enqueueTokenUsage(event);
+      enqueueTokenUsage({ ...event, ...usageAttribution });
     }
     if (observedSkillName) {
       try {
