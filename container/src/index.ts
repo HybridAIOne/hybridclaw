@@ -2069,22 +2069,6 @@ async function processRequestInner(
       });
       callIndex += 1;
     }
-    if (
-      localToolCatalog &&
-      tools === localToolCatalog.tools &&
-      toolCalls.some(
-        (call, index) =>
-          call.function.name !==
-          choice.message.tool_calls?.[index]?.function.name,
-      )
-    ) {
-      // Append after a catalog-executed tool; keep prior messages and schemas
-      // intact even when the returned skill instructions name unexposed tools.
-      history.push({
-        role: 'user',
-        content: `Runtime tool reminder: The previous result does not expose additional functions. ${localToolCatalog.promptGuidance()}`,
-      });
-    }
     stalledTurns = advanceStalledTurnCount({
       current: stalledTurns,
       toolCalls: toolCalls.length,

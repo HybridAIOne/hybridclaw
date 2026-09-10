@@ -27,11 +27,22 @@ def guard_reasoning_stream(context, stream):
                 recent.append(response.token)
                 count += 1
                 if len(recent) >= 256 and count % 16 == 0:
-                    tokens = list(recent)
+                    # A Z scan of the reversed suffix reuses overlapping matches.
+                    # At most 1024 tokens are scanned per checkpoint, instead of
+                    # rescanning the same suffix separately for every period.
+                    tokens = list(reversed(recent))
+                    matches = [0] * len(tokens)
+                    left = right = 0
                     for period in range(1, min(256, len(tokens) // 4) + 1):
-                        span = max(256, period * 4)
-                        start = len(tokens) - span
-                        if all(tokens[i] == tokens[i + period] for i in range(start, len(tokens) - period)):
+                        if period <= right:
+                            matches[period] = min(right - period + 1, matches[period - left])
+                        length = matches[period]
+                        while period + length < len(tokens) and tokens[length] == tokens[period + length]:
+                            length += 1
+                        matches[period] = length
+                        if period + length - 1 > right:
+                            left, right = period, period + length - 1
+                        if length >= max(256, period * 4) - period:
                             raise ReasoningLoopError()
             yield response
     finally:

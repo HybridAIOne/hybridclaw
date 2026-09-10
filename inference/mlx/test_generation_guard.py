@@ -1,5 +1,6 @@
 """Long reasoning, loop cancellation and isolation checks without a GPU."""
 import unittest
+import random
 from types import SimpleNamespace
 from unittest.mock import Mock
 from generation_guard import ReasoningLoopError, guard_reasoning_stream
@@ -49,6 +50,30 @@ class GenerationGuardTests(unittest.TestCase):
         self.assertEqual(len(list(guard_reasoning_stream(Mock(), iter(stream)))), len(stream))
         for _ in range(2):
             self.assertEqual(len(list(guard_reasoning_stream(Mock(), iter(short)))), len(short))
+
+    def test_linear_scan_matches_the_original_periodicity_rule(self):
+        rng = random.Random(4)
+        fixtures = [[rng.randrange(11) for _ in range(4096)]]
+        for period in [1, 7, 63, 128, 191, 256]:
+            base = [rng.randrange(100) for _ in range(period)]
+            fixtures.append([999] * 33 + base * 12)
+            fixtures.append(sum((base + [1000 + i] for i in range(12)), []))
+        for tokens in fixtures:
+            expected = len(tokens)
+            for end in range(256, len(tokens) + 1, 16):
+                suffix = tokens[max(0, end - 1024):end]
+                if any(all(suffix[i] == suffix[i + period]
+                           for i in range(len(suffix) - max(256, period * 4), len(suffix) - period))
+                       for period in range(1, min(256, len(suffix) // 4) + 1)):
+                    expected = end - 1
+                    break
+            emitted = 0
+            try:
+                for _ in guard_reasoning_stream(Mock(), responses(tokens)):
+                    emitted += 1
+            except ReasoningLoopError:
+                pass
+            self.assertEqual(emitted, expected)
 
     def test_closing_or_failing_a_stream_cancels_the_native_context(self):
         context = Mock()

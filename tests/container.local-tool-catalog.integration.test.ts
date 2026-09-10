@@ -86,9 +86,10 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     for (const request of requests) { expect(request.tools).toHaveLength(10); expect(request.tools).toEqual(requests[0].tools); }
     expect(JSON.parse(String(requests[1].messages.at(-1)?.content)).total).toBe(105);
     expect(output.toolExecutions?.at(-1)).toMatchObject({ name: 'read', arguments: '{"path":"notes.txt"}', isError: false, approvalTier: 'green' });
-    expect(requests[3].messages.at(-1)).toMatchObject({ role: 'user', content: expect.stringContaining('Runtime tool reminder:') });
-    expect(requests[3].messages.at(-2)).toMatchObject({ role: 'tool', tool_call_id: 'call_call', content: expect.stringContaining('synthetic tool result') });
-    expect(requests[3].messages.at(-3)?.tool_calls?.[0].function.name).toBe('tool_catalog');
+    expect(requests[3].messages.filter((message) => String(message.content).includes('## Local tool call boundary'))).toHaveLength(1);
+    expect(requests[3].messages.some((message) => String(message.content).includes('Runtime tool reminder:'))).toBe(false);
+    expect(requests[3].messages.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'call_call', content: expect.stringContaining('synthetic tool result') });
+    expect(requests[3].messages.at(-2)?.tool_calls?.[0].function.name).toBe('tool_catalog');
     expect(output.toolHistory?.map((message) => message.role)).toEqual(['assistant', 'tool', 'assistant', 'tool', 'assistant', 'tool']);
     expect(output.toolHistory?.filter((message) => message.role === 'assistant').every((message) => message.tool_calls?.[0].function.name === 'tool_catalog')).toBe(true);
     expect(output.toolHistory?.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'call_call', content: expect.stringContaining('synthetic tool result') });

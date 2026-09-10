@@ -149,14 +149,13 @@ export class LocalToolCatalog {
   }
 
   resolveCall(call: ToolCall): ToolCall {
-    readArgs(call.function.arguments);
+    const args = readArgs(call.function.arguments);
     if (call.function.name !== NAME) {
       this.requireTool(call.function.name);
       return call;
     }
     if (!this.tools.some((tool) => tool.function.name === NAME))
       throw new Error('Tool discovery is not available in this request.');
-    const args = readArgs(call.function.arguments);
     if (typeof args.name !== 'string')
       throw new CatalogArgumentError(
         'Tool catalog requires a top-level name on every call. Use the exact tool name for describe/call, or an empty string for list.',
