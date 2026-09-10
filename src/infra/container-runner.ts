@@ -334,6 +334,14 @@ export function getActiveContainerCount(): number {
   return pool.size;
 }
 
+export function getInFlightContainerCount(): number {
+  let count = 0;
+  for (const entry of pool.values()) {
+    if (entry.activity) count += 1;
+  }
+  return count;
+}
+
 export function getActiveContainerSessionIds(): string[] {
   return Array.from(pool.keys()).sort((left, right) =>
     left.localeCompare(right),
@@ -1434,6 +1442,10 @@ export class ContainerExecutor {
 
   getActiveSessionCount(): number {
     return getActiveContainerCount();
+  }
+
+  getInFlightSessionCount(): number {
+    return getInFlightContainerCount();
   }
 
   getActiveSessionIds(): string[] {

@@ -859,6 +859,14 @@ export function getActiveHostProcessCount(): number {
   return pool.size;
 }
 
+export function getInFlightHostProcessCount(): number {
+  let count = 0;
+  for (const entry of pool.values()) {
+    if (entry.activity) count += 1;
+  }
+  return count;
+}
+
 export function stopSessionHostProcess(sessionId: string): boolean {
   const entry = pool.get(sessionId);
   if (!entry) return false;
@@ -1253,6 +1261,10 @@ export class HostExecutor {
 
   getActiveSessionCount(): number {
     return getActiveHostProcessCount();
+  }
+
+  getInFlightSessionCount(): number {
+    return getInFlightHostProcessCount();
   }
 
   getActiveSessionIds(): string[] {

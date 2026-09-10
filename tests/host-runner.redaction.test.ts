@@ -1411,3 +1411,103 @@ test('HostExecutor treats heartbeat lines as activity without evicting stderr co
   expect(output.error).toContain('tool crashed while uploading report.pdf');
   expect(output.error).not.toContain('[stream-activity]');
 });
+
+test('HostExecutor reports an in-flight session while readOutput is pending', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const spawn = vi.fn(() => makeFakeChildProcess() as never);
+  let finishOutput: (() => void) | undefined;
+  const readOutput = vi.fn(
+    () =>
+      new Promise<{
+        status: 'success';
+        result: string;
+        toolsUsed: string[];
+        artifacts: never[];
+      }>((resolve) => {
+        finishOutput = () =>
+          resolve({
+            status: 'success',
+            result: 'ok',
+            toolsUsed: [],
+            artifacts: [],
+          });
+      }),
+  );
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+  mockHostRuntimeReady();
+
+  const { HostExecutor, getInFlightHostProcessCount } = await import('../src/infra/host-runner.js');
+  const executor = new HostExecutor();
+  expect(getInFlightHostProcessCount()).toBe(0);
+  expect(executor.getInFlightSessionCount()).toBe(0);
+  const pending = executor.exec({
+    sessionId: 'session-in-flight',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'tui',
+  });
+  await vi.waitFor(() => expect(readOutput).toHaveBeenCalledTimes(1));
+
+  expect(getInFlightHostProcessCount()).toBe(1);
+  expect(executor.getInFlightSessionCount()).toBe(1);
+
+  finishOutput?.();
+  await pending;
+
+  expect(getInFlightHostProcessCount()).toBe(0);
+  expect(executor.getInFlightSessionCount()).toBe(0);
+});

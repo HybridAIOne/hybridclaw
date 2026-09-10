@@ -231,7 +231,7 @@ function createGatewayMainTestState(options?: {
       providerHealth: {},
       localBackends: {},
     })),
-    getActiveExecutorCount: vi.fn(() => 0),
+    getInFlightExecutorCount: vi.fn(() => 0),
     getWorkflowByCompanionTaskId: vi.fn(() => null),
     handleGatewayCommand: vi.fn(async ({ args }: { args: string[] }) => {
       if (args[0] === 'info') {
@@ -472,7 +472,7 @@ async function importFreshGatewayMain(options?: {
   vi.stubGlobal('clearTimeout', vi.fn());
 
   vi.doMock('../src/agent/executor.js', () => ({
-    getActiveExecutorCount: state.getActiveExecutorCount,
+    getInFlightExecutorCount: state.getInFlightExecutorCount,
     stopAllExecutions: vi.fn(),
   }));
   vi.doMock('../src/agent/proactive-policy.js', () => ({
@@ -3207,13 +3207,27 @@ describe('gateway bootstrap', () => {
     );
   });
 
-  test('SIGTERM shutdown stops executors before draining', async () => {
+  test('SIGTERM shutdown drains in-flight turns before stopping executors and channels', async () => {
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    let releaseTurn: (() => void) | undefined;
+    let polls = 0;
     const state = await importFreshGatewayMain({
       onState: (nextState) => {
-        nextState.getActiveExecutorCount.mockReturnValueOnce(1);
-        nextState.getActiveExecutorCount.mockReturnValue(0);
+        nextState.getInFlightExecutorCount.mockImplementation(() => {
+          polls += 1;
+          if (polls === 3) releaseTurn?.();
+          return polls === 1 ? 1 : 0;
+        });
+        nextState.setTimeout.mockImplementation((callback: () => void) => {
+          callback();
+          return { timer: true };
+        });
       },
     });
+    const inFlightTurns = await import('../src/gateway/in-flight-turns.js');
+    releaseTurn = inFlightTurns.beginInFlightTurn();
     const sigtermHandler = state.processOn.mock.calls.find(
       ([event]) => event === 'SIGTERM',
     )?.[1] as (() => void) | undefined;
@@ -3224,14 +3238,58 @@ describe('gateway bootstrap', () => {
 
     sigtermHandler?.();
     await settle();
+    await settle();
+
+    expect(inFlightTurns.isGatewayShuttingDown()).toBe(true);
+    expect(inFlightTurns.getInFlightTurnCount()).toBe(0);
+    expect(stopAllExecutionsMock).toHaveBeenCalledTimes(1);
+    const stopOrder = stopAllExecutionsMock.mock.invocationCallOrder[0];
+    const pollOrders = state.getInFlightExecutorCount.mock.invocationCallOrder;
+    expect(pollOrders.length).toBeGreaterThanOrEqual(4);
+    for (const pollOrder of pollOrders) {
+      expect(pollOrder).toBeLessThan(stopOrder);
+    }
+    for (const channelShutdown of [
+      state.shutdownDiscord,
+      state.shutdownEmail,
+      state.shutdownSlack,
+      state.shutdownTelegram,
+      state.shutdownWhatsApp,
+    ]) {
+      expect(channelShutdown).toHaveBeenCalledTimes(1);
+      expect(channelShutdown.mock.invocationCallOrder[0]).toBeGreaterThan(
+        stopOrder,
+      );
+    }
+    const broadcastShutdown =
+      state.startGatewayHttpServer.mock.results[0]?.value.broadcastShutdown;
+    expect(broadcastShutdown).toHaveBeenCalledTimes(1);
+    const broadcastOrder = broadcastShutdown.mock.invocationCallOrder[0];
+    expect(broadcastOrder).toBeGreaterThan(pollOrders[pollOrders.length - 1]);
+    expect(broadcastOrder).toBeLessThan(stopOrder);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  test('SIGINT shutdown stops executors without draining', async () => {
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    const state = await importFreshGatewayMain();
+    const sigintHandler = state.processOn.mock.calls.find(
+      ([event]) => event === 'SIGINT',
+    )?.[1] as (() => void) | undefined;
+    const executorModule = await import('../src/agent/executor.js');
+    const stopAllExecutionsMock = vi.mocked(executorModule.stopAllExecutions);
+
+    sigintHandler?.();
+    await settle();
 
     expect(stopAllExecutionsMock).toHaveBeenCalledTimes(1);
-    expect(stopAllExecutionsMock.mock.invocationCallOrder[0]).toBeLessThan(
-      state.getActiveExecutorCount.mock.invocationCallOrder[0] ?? Infinity,
-    );
+    expect(state.getInFlightExecutorCount).not.toHaveBeenCalled();
     expect(
       state.startGatewayHttpServer.mock.results[0]?.value.broadcastShutdown,
-    ).toHaveBeenCalledTimes(1);
+    ).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   test('shutdown continues when a cleanup step never resolves', async () => {
