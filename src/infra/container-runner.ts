@@ -5,6 +5,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
 import type {
   ExecutorRequest,
   ExecutorSessionHealthSnapshot,
@@ -764,6 +765,8 @@ function getOrSpawnContainer(
     '-e',
     `HYBRIDCLAW_AGENT_ID=${agentId}`,
     '-e',
+    `TZ=${resolveEffectiveTimezone()}`,
+    '-e',
     `HYBRIDCLAW_AGENT_WORKSPACE_ROOT=${CONTAINER_WORKSPACE_ROOT}`,
     '-e',
     `HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT=${params.workspaceDisplayRootOverride?.trim() || CONTAINER_WORKSPACE_ROOT}`,
@@ -896,14 +899,14 @@ function getOrSpawnContainer(
         entry.activity?.notify();
         continue;
       }
+      if (isStreamActivityLine(line)) {
+        entry.activity?.notify();
+        continue;
+      }
       rememberStderrLine(entry, line);
       emitTextDelta(entry, line);
       emitThinkingDelta(entry, line);
       if (isThinkingDeltaLine(line)) {
-        entry.activity?.notify();
-        continue;
-      }
-      if (isStreamActivityLine(line)) {
         entry.activity?.notify();
         continue;
       }
@@ -933,13 +936,14 @@ function getOrSpawnContainer(
       } else if (consumeModelResponseDebugFileLine(tail)) {
         entry.activity?.notify();
         entry.stderrBuffer = '';
+      } else if (isStreamActivityLine(tail)) {
+        entry.activity?.notify();
+        entry.stderrBuffer = '';
       } else {
         rememberStderrLine(entry, tail);
         emitTextDelta(entry, tail);
         emitThinkingDelta(entry, tail);
-        if (isStreamActivityLine(tail)) {
-          entry.activity?.notify();
-        } else if (isThinkingDeltaLine(tail)) {
+        if (isThinkingDeltaLine(tail)) {
           entry.activity?.notify();
         } else if (
           !consumeCollapsedStreamDebugLine(
@@ -1173,11 +1177,14 @@ async function runContainerInner(
         id: task.id,
         channelId: task.channel_id,
         cronExpr: task.cron_expr,
+        tz: task.tz,
         runAt: task.run_at,
         everyMs: task.every_ms,
         prompt: task.prompt,
         enabled: task.enabled,
         lastRun: task.last_run,
+        lastStatus: task.last_status,
+        lastError: task.last_error,
         createdAt: task.created_at,
       }),
     ),

@@ -187,3 +187,11 @@ test('buildConversationContext appends dynamic context after unchanged history',
     vi.useRealTimers();
   }
 });
+
+ test('dynamic context names the user daily note across the UTC date boundary', async () => {
+   await createWorkspaceWithBootstrapFiles('timezone-agent');
+   const { buildDynamicContextMessage } = await import('../src/agent/conversation.js');
+   const message = buildDynamicContextMessage({ agentId: 'timezone-agent', now: new Date('2026-05-12T23:30:00Z') });
+   expect(message.content).toContain('Date (UTC): 2026-05-12');
+   expect(message.content).toContain('Daily note: memory/2026-05-13.md');
+ });

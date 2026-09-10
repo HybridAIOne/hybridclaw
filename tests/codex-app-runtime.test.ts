@@ -370,6 +370,79 @@ describe('Codex app-server runtime helpers', () => {
     ).toHaveLength(1);
   });
 
+  test('reports activity while an app-server turn is outstanding', async () => {
+    vi.resetModules();
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    let appServer: ReturnType<typeof createMockChild> | null = null;
+    const spawn = vi.fn((_command: string, args: string[]) => {
+      const child = createMockChild();
+      if (args[0] === '--version') {
+        queueMicrotask(() => child.emit('exit', 0));
+        return child;
+      }
+      appServer = child;
+      child.stdin.write = vi.fn((line: string) => {
+        const message = JSON.parse(line) as { id?: number; method?: string };
+        if (message.method === 'initialize') {
+          writeJsonLine(child, { id: message.id, result: {} });
+        } else if (message.method === 'thread/start') {
+          writeJsonLine(child, {
+            id: message.id,
+            result: { thread: { id: 'thread-heartbeat' } },
+          });
+        } else if (message.method === 'turn/start') {
+          writeJsonLine(child, {
+            id: message.id,
+            result: { turn: { id: 'turn-heartbeat', status: 'in_progress' } },
+          });
+        }
+        return true;
+      });
+      return child;
+    });
+    vi.doMock('node:child_process', () => ({ spawn }));
+    const { runCodexAppServerTurn } = await import(
+      '../container/src/codex-app-server.js'
+    );
+    const onActivity = vi.fn();
+    try {
+      const turn = runCodexAppServerTurn({
+        sessionId: 'session-heartbeat',
+        messages: [{ role: 'user', content: 'run a long tool' }],
+        model: 'openai-codex/gpt-5.4',
+        cwd: '/workspace',
+        provider: 'openai-codex',
+        onActivity,
+      });
+      await vi.waitFor(() => {
+        const child = appServer as ReturnType<typeof createMockChild> | null;
+        expect(child).not.toBeNull();
+        expect(child?.stdin.write).toHaveBeenCalledTimes(3);
+      });
+      expect(onActivity).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(25_000);
+      expect(onActivity).toHaveBeenCalledTimes(2);
+
+      const child = appServer as unknown as ReturnType<typeof createMockChild>;
+      writeJsonLine(child, {
+        method: 'item/completed',
+        params: { item: { type: 'agentMessage', text: 'done' } },
+      });
+      writeJsonLine(child, {
+        method: 'turn/completed',
+        params: { turn: { status: 'completed' } },
+      });
+      const output = await turn;
+      expect(output.result).toBe('done');
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(onActivity).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('migrates user MCP servers without embedding sensitive environment values', () => {
     const args = buildCodexAppServerArgs(
       {

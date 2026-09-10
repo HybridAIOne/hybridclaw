@@ -2,7 +2,7 @@ import fs from 'node:fs';
 
 const timezoneValidityCache = new Map();
 
-function isValidTimezone(timezone) {
+export function isValidTimezone(timezone) {
   if (!timezone) return false;
   if (timezoneValidityCache.has(timezone)) {
     return timezoneValidityCache.get(timezone) === true;
@@ -71,7 +71,7 @@ function getTimezoneOffsetMs(timezone, date) {
 
 export function extractUserTimezone(content) {
   if (typeof content !== 'string' || !content.trim()) return undefined;
-  const match = content.match(/\*\*Timezone:\*\*\s*(.+)/i);
+  const match = content.match(/\*\*Timezone:\*\*[ \t]*([^\r\n]*)/i);
   const timezone = match?.[1]?.trim();
   return timezone || undefined;
 }

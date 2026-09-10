@@ -1,14 +1,3 @@
-export type ScheduleSideEffect =
-  | {
-      action: 'add';
-      cronExpr?: string;
-      runAt?: string;
-      everyMs?: number;
-      prompt: string;
-      channelId?: string;
-    }
-  | { action: 'remove'; taskId: number };
-
 export interface DelegationTaskSpec {
   prompt: string;
   label?: string;

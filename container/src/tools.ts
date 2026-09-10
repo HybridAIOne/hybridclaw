@@ -3,6 +3,11 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DAILY_MEMORY_MAX_CHARS } from '../shared/daily-memory.js';
+import {
+  waitForMemoryFileLock,
+  writeMemoryFileAtomic,
+} from '../shared/memory-file.js';
 import {
   formatMessageToolChannelList,
   normalizeMessageToolChannelKinds,
@@ -14,6 +19,7 @@ import {
 import { buildSanitizedEnv } from '../shared/sensitive-env.js';
 import {
   currentDateStampInTimezone,
+  isValidTimezone,
   readUserTimezoneFile,
 } from '../shared/workspace-time.js';
 import { runAudioTranscribe } from './audio-transcribe.js';
@@ -68,7 +74,6 @@ import {
   type MediaContextItem,
   type PluginRuntimeToolDefinition,
   type ProviderCredentials,
-  type ScheduleSideEffect,
   TASK_MODEL_KEYS,
   type TaskModelKey,
   type TaskModelPolicies,
@@ -113,21 +118,22 @@ type ScheduledTaskInfo = {
   id: number;
   channelId: string;
   cronExpr: string;
+  tz: string;
   runAt: string | null;
   everyMs: number | null;
   prompt: string;
   enabled: number;
   lastRun: string | null;
+  lastStatus?: string | null;
+  lastError?: string | null;
   createdAt: string;
 };
-
-let pendingSchedules: ScheduleSideEffect[] = [];
 
 // Sessions whose channel cannot receive scheduled-task output. The gateway
 // queues proactive messages for these channels and later drops them, so a
 // task created without an explicit delivery channel would run but never be
 // seen by the user.
-const CHANNELS_WITHOUT_PROACTIVE_DELIVERY = new Set(['web']);
+const CHANNELS_WITHOUT_PROACTIVE_DELIVERY = new Set(['web', 'heartbeat']);
 
 const CRON_FIELD_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0, 59], // minute
@@ -846,22 +852,14 @@ function cloneTaskModelPolicies(
 }
 
 export function resetSideEffects(): void {
-  pendingSchedules = [];
   pendingDelegations = [];
 }
 
 export function getPendingSideEffects():
-  | {
-      schedules?: ScheduleSideEffect[];
-      delegations?: DelegationSideEffect[];
-    }
+  | { delegations?: DelegationSideEffect[] }
   | undefined {
-  if (pendingSchedules.length === 0 && pendingDelegations.length === 0)
-    return undefined;
-  return {
-    schedules: pendingSchedules.length > 0 ? pendingSchedules : undefined,
-    delegations: pendingDelegations.length > 0 ? pendingDelegations : undefined,
-  };
+  if (pendingDelegations.length === 0) return undefined;
+  return { delegations: pendingDelegations };
 }
 
 export function setScheduledTasks(
@@ -1187,6 +1185,12 @@ function resolveGatewayMessageActionUrl(): string | null {
   return `${base}/api/message/action`;
 }
 
+function resolveGatewaySchedulerTaskUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) return null;
+  return `${base}/api/scheduler/task`;
+}
+
 function resolveGatewayPluginToolUrl(): string | null {
   const base = gatewayBaseUrl.replace(/\/+$/, '');
   if (!base) return null;
@@ -1330,6 +1334,57 @@ async function callGatewayMessageAction(
 
   if (parsed) return JSON.stringify(parsed, null, 2);
   return rawText || JSON.stringify({ ok: true }, null, 2);
+}
+
+async function callGatewaySchedulerTask(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const url = resolveGatewaySchedulerTaskUrl();
+  if (!url) {
+    throw new ToolExecutionFailure(
+      'Error: scheduled tasks are unavailable because gatewayBaseUrl is not configured.',
+    );
+  }
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...payload, sessionId: currentSessionId }),
+    });
+  } catch (err) {
+    throw new ToolExecutionFailure(
+      `Error: scheduled task request failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  const rawText = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const maybe = JSON.parse(rawText) as unknown;
+    if (maybe && typeof maybe === 'object' && !Array.isArray(maybe)) {
+      parsed = maybe as Record<string, unknown>;
+    }
+  } catch {
+    parsed = null;
+  }
+  if (!response.ok || !parsed || parsed.ok !== true) {
+    const detail =
+      typeof parsed?.error === 'string' && parsed.error.trim()
+        ? parsed.error
+        : rawText || `HTTP ${response.status}`;
+    throw new ToolExecutionFailure(
+      `Error: scheduled task ${payload.action === 'remove' ? 'removal' : 'creation'} failed (HTTP ${response.status}): ${detail}`,
+    );
+  }
+  return parsed;
 }
 
 async function callGatewayPluginTool(
@@ -2144,7 +2199,6 @@ const ROOT_MEMORY_CHAR_LIMITS: Record<string, number> = {
   'MEMORY.md': 12_000,
   'USER.md': 8_000,
 };
-const DAILY_MEMORY_CHAR_LIMIT = 24_000;
 
 function normalizeDateStamp(input: string): string | null {
   const trimmed = input.trim();
@@ -2185,6 +2239,11 @@ function currentDateStamp(): string {
   return currentDateStampInTimezone(resolveMemoryTimezone());
 }
 
+function resolveCronTimezone(): string {
+  const timezone = resolveMemoryTimezone();
+  return timezone && isValidTimezone(timezone) ? timezone : '';
+}
+
 function isMemoryWriteAction(action: string): boolean {
   return (
     action === 'append' ||
@@ -2216,6 +2275,7 @@ function resolveMemoryFilePath(args: Record<string, unknown>): string | null {
     normalizeMemoryFilePath(args.file_path) ||
     normalizeMemoryFilePath(args.path);
   if (direct) return direct;
+  if (args.file_path !== undefined || args.path !== undefined) return null;
 
   const target =
     typeof args.target === 'string' ? args.target.trim().toLowerCase() : '';
@@ -2227,7 +2287,12 @@ function resolveMemoryFilePath(args: Record<string, unknown>): string | null {
     return `memory/${date || currentDateStamp()}.md`;
   }
 
-  return 'MEMORY.md';
+  if (target) return null;
+  const action =
+    typeof args.action === 'string' ? args.action.trim().toLowerCase() : 'read';
+  return isMemoryWriteAction(action)
+    ? `memory/${currentDateStamp()}.md`
+    : 'MEMORY.md';
 }
 
 function listMemoryFiles(): string[] {
@@ -2250,7 +2315,7 @@ function listMemoryFiles(): string[] {
 }
 
 function memoryCharLimit(relativePath: string): number {
-  return ROOT_MEMORY_CHAR_LIMITS[relativePath] || DAILY_MEMORY_CHAR_LIMIT;
+  return ROOT_MEMORY_CHAR_LIMITS[relativePath] || DAILY_MEMORY_MAX_CHARS;
 }
 
 interface TranscriptRow {
@@ -3099,79 +3164,94 @@ async function executeToolInternal(
         return `${relativePath}\n\n${content || '(empty)'}`;
       }
 
-      if (action === 'append') {
-        const content =
-          typeof args.content === 'string' ? args.content.trim() : '';
-        if (!content)
-          return failTool('Error: content is required for memory append');
+      const release = isMemoryWriteAction(action)
+        ? await waitForMemoryFileLock(filePath)
+        : undefined;
+      try {
+        if (action === 'append') {
+          const content =
+            typeof args.content === 'string' ? args.content.trim() : '';
+          if (!content)
+            return failTool('Error: content is required for memory append');
 
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        const existing = fs.existsSync(filePath)
-          ? fs.readFileSync(filePath, 'utf-8')
-          : '';
-        let next = existing.replace(/\s+$/, '');
-        if (next.length > 0) next += '\n\n';
-        next += `${content}\n`;
-        const limit = memoryCharLimit(relativePath);
-        if (next.length > limit) {
-          return failTool(
-            `Error: ${relativePath} would exceed ${limit} chars. Shorten content or remove older entries first.`,
-          );
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          const existing = fs.existsSync(filePath)
+            ? fs.readFileSync(filePath, 'utf-8')
+            : '';
+          let next = existing.replace(/\s+$/, '');
+          if (next.length > 0) next += '\n\n';
+          next += `${content}\n`;
+          const limit = memoryCharLimit(relativePath);
+          if (next.length > limit) {
+            return failTool(
+              `Error: ${relativePath} would exceed ${limit} chars. Shorten content or remove older entries first.`,
+            );
+          }
+          writeMemoryFileAtomic(filePath, next);
+          return `Appended ${content.length} chars to ${relativePath}`;
         }
-        fs.writeFileSync(filePath, next, 'utf-8');
-        return `Appended ${content.length} chars to ${relativePath}`;
-      }
 
-      if (action === 'write') {
-        const content = typeof args.content === 'string' ? args.content : '';
-        const limit = memoryCharLimit(relativePath);
-        if (content.length > limit) {
-          return failTool(
-            `Error: ${relativePath} exceeds ${limit} char limit.`,
-          );
+        if (action === 'write') {
+          if (args.confirm_overwrite !== true) {
+            return failTool(
+              'Error: memory write replaces the entire daily note. Set confirm_overwrite=true only to intentionally overwrite it; use append to save additional notes.',
+            );
+          }
+          const content = typeof args.content === 'string' ? args.content : '';
+          const limit = memoryCharLimit(relativePath);
+          if (content.length > limit) {
+            return failTool(
+              `Error: ${relativePath} exceeds ${limit} char limit.`,
+            );
+          }
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          writeMemoryFileAtomic(filePath, content);
+          return `Wrote ${content.length} chars to ${relativePath}`;
         }
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        fs.writeFileSync(filePath, content, 'utf-8');
-        return `Wrote ${content.length} chars to ${relativePath}`;
-      }
 
-      if (action === 'replace') {
-        const oldText = typeof args.old_text === 'string' ? args.old_text : '';
-        const newText = typeof args.new_text === 'string' ? args.new_text : '';
-        if (!oldText)
-          return failTool('Error: old_text is required for memory replace');
-        if (!fs.existsSync(filePath))
-          return failTool(`Error: File not found: ${relativePath}`);
-        const content = fs.readFileSync(filePath, 'utf-8');
-        if (!content.includes(oldText))
-          return failTool(`Error: old_text not found in ${relativePath}`);
-        const next = content.replace(oldText, newText);
-        const limit = memoryCharLimit(relativePath);
-        if (next.length > limit) {
-          return failTool(
-            `Error: replacement would exceed ${limit} chars for ${relativePath}.`,
-          );
+        if (action === 'replace') {
+          const oldText =
+            typeof args.old_text === 'string' ? args.old_text : '';
+          const newText =
+            typeof args.new_text === 'string' ? args.new_text : '';
+          if (!oldText)
+            return failTool('Error: old_text is required for memory replace');
+          if (!fs.existsSync(filePath))
+            return failTool(`Error: File not found: ${relativePath}`);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          if (!content.includes(oldText))
+            return failTool(`Error: old_text not found in ${relativePath}`);
+          const next = content.replace(oldText, newText);
+          const limit = memoryCharLimit(relativePath);
+          if (next.length > limit) {
+            return failTool(
+              `Error: replacement would exceed ${limit} chars for ${relativePath}.`,
+            );
+          }
+          writeMemoryFileAtomic(filePath, next);
+          return `Updated ${relativePath}`;
         }
-        fs.writeFileSync(filePath, next, 'utf-8');
-        return `Updated ${relativePath}`;
-      }
 
-      if (action === 'remove') {
-        const oldText = typeof args.old_text === 'string' ? args.old_text : '';
-        if (!oldText)
-          return failTool('Error: old_text is required for memory remove');
-        if (!fs.existsSync(filePath))
-          return failTool(`Error: File not found: ${relativePath}`);
-        const content = fs.readFileSync(filePath, 'utf-8');
-        if (!content.includes(oldText))
-          return failTool(`Error: old_text not found in ${relativePath}`);
-        fs.writeFileSync(filePath, content.replace(oldText, ''), 'utf-8');
-        return `Removed matching text from ${relativePath}`;
-      }
+        if (action === 'remove') {
+          const oldText =
+            typeof args.old_text === 'string' ? args.old_text : '';
+          if (!oldText)
+            return failTool('Error: old_text is required for memory remove');
+          if (!fs.existsSync(filePath))
+            return failTool(`Error: File not found: ${relativePath}`);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          if (!content.includes(oldText))
+            return failTool(`Error: old_text not found in ${relativePath}`);
+          writeMemoryFileAtomic(filePath, content.replace(oldText, ''));
+          return `Removed matching text from ${relativePath}`;
+        }
 
-      return failTool(
-        `Error: unknown memory action "${action}". Use read, append, write, replace, remove, list, or search.`,
-      );
+        return failTool(
+          `Error: unknown memory action "${action}". Use read, append, write, replace, remove, list, or search.`,
+        );
+      } finally {
+        release?.();
+      }
     }
 
     case 'message': {
@@ -3798,10 +3878,14 @@ async function executeToolInternal(
             if (secs < 120) schedule = `every ${secs}s`;
             else if (secs < 7200) schedule = `every ${Math.round(secs / 60)}m`;
             else schedule = `every ${Math.round(secs / 3600)}h`;
-          } else schedule = t.cronExpr;
+          } else schedule = t.tz ? `${t.cronExpr} (${t.tz})` : t.cronExpr;
           const status = t.enabled ? 'enabled' : 'disabled';
           const destination = t.channelId ? ` -> ${t.channelId}` : '';
-          return `#${t.id} [${status}] ${schedule}${destination} — ${t.prompt}`;
+          const failure =
+            t.lastError && (t.lastStatus === 'error' || !t.enabled)
+              ? ` (last run failed: ${t.lastError})`
+              : '';
+          return `#${t.id} [${status}] ${schedule}${destination} — ${t.prompt}${failure}`;
         });
         return lines.join('\n');
       }
@@ -3846,26 +3930,34 @@ async function executeToolInternal(
             return failTool(
               `Error: timestamp must be in the future: ${rawAt || runAt.toISOString()}`,
             );
-          pendingSchedules.push({
+          const created = await callGatewaySchedulerTask({
             action: 'add',
             runAt: runAt.toISOString(),
             prompt,
-            channelId,
+            channelId: channelId || gatewayChannelId || undefined,
           });
-          return `Scheduled one-shot task at ${runAt.toISOString()}${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
+          return `Scheduled one-shot task #${created.taskId} at ${runAt.toISOString()}${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         if (args.cron) {
           const cronExpr = String(args.cron).trim();
           const cronError = validateCronExpression(cronExpr);
           if (cronError) return failTool(cronError);
-          pendingSchedules.push({
+          const explicitTz = readStringValue(args.tz ?? args.timezone);
+          if (explicitTz && !isValidTimezone(explicitTz)) {
+            return failTool(
+              `Error: unknown timezone "${explicitTz}". Use an IANA name such as "Europe/Berlin" or "America/New_York".`,
+            );
+          }
+          const tz = explicitTz || resolveCronTimezone();
+          const created = await callGatewaySchedulerTask({
             action: 'add',
             cronExpr,
+            tz: tz || undefined,
             prompt,
-            channelId,
+            channelId: channelId || gatewayChannelId || undefined,
           });
-          return `Scheduled recurring task with cron "${cronExpr}" (UTC)${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
+          return `Scheduled recurring task #${created.taskId} with cron "${cronExpr}" (${tz || 'UTC'})${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         if (args.every) {
@@ -3873,13 +3965,13 @@ async function executeToolInternal(
           if (Number.isNaN(secs) || secs < 10)
             return failTool('Error: "every" must be a number of seconds >= 10');
           const everyMs = Math.round(secs * 1000);
-          pendingSchedules.push({
+          const created = await callGatewaySchedulerTask({
             action: 'add',
             everyMs,
             prompt,
-            channelId,
+            channelId: channelId || gatewayChannelId || undefined,
           });
-          return `Scheduled interval task every ${secs}s${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
+          return `Scheduled interval task #${created.taskId} every ${secs}s${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
         }
 
         return failTool(
@@ -3893,9 +3985,11 @@ async function executeToolInternal(
             'Error: scheduled task removal is disabled for this run.',
           );
         }
-        if (!args.taskId) return failTool('Error: taskId is required');
-        pendingSchedules.push({ action: 'remove', taskId: args.taskId });
-        return `Scheduled removal of task #${args.taskId}`;
+        const taskId = Number(args.taskId);
+        if (!Number.isInteger(taskId) || taskId <= 0)
+          return failTool('Error: taskId is required');
+        await callGatewaySchedulerTask({ action: 'remove', taskId });
+        return `Removed task #${taskId}`;
       }
 
       return failTool(
@@ -4166,7 +4260,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'memory',
       description:
-        "Manage agent memory files. Read/search/list can access MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Write actions append/write/replace/remove are restricted to today's daily file so durable MEMORY.md rewrites flow only through dream consolidation.",
+        "Manage agent memory files. Read/search/list can access MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Omitted write targets default to today’s daily note. Prefer append; write replaces the entire note and requires confirm_overwrite=true. Write actions append/write/replace/remove are restricted to today's daily file so durable MEMORY.md rewrites flow only through dream consolidation.",
       parameters: {
         type: 'object',
         properties: {
@@ -4193,6 +4287,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           content: {
             type: 'string',
             description: 'Text payload for append/write',
+          },
+          confirm_overwrite: {
+            type: 'boolean',
+            description:
+              'Required true for write: confirms replacing the entire daily note, including all earlier entries.',
           },
           old_text: {
             type: 'string',
@@ -5266,9 +5365,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       description:
         'Manage scheduled tasks and reminders. Actions:\n' +
         '- "list": show all scheduled tasks\n' +
-        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring 5-field cron expression, evaluated in UTC), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered. In web chat sessions "channel" is required because task output cannot be delivered into the web chat.\n' +
+        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring 5-field cron expression, evaluated in the user timezone from USER.md, or in "tz" when given), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered. In web chat and heartbeat sessions "channel" is required because task output cannot be delivered there.\n' +
         '- "remove": delete a task by taskId\n' +
-        'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself. A success result means the task was queued for creation at the end of this turn; quote the schedule from the result when confirming to the user.',
+        'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself. A success result means the task is saved and returns its id; an Error result means nothing was scheduled. Quote the id and schedule from the result when confirming to the user.',
       parameters: {
         type: 'object',
         properties: {
@@ -5294,7 +5393,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           cron: {
             type: 'string',
             description:
-              'Standard 5-field cron expression for recurring schedule, evaluated in UTC (e.g. "0 7 * * *" for 09:00 Europe/Berlin summer time). Convert from the user timezone before setting it.',
+              'Standard 5-field cron expression for recurring schedule, written in local time of the user timezone (e.g. "0 9 * * *" for 09:00). Do not convert to UTC.',
+          },
+          tz: {
+            type: 'string',
+            description:
+              'Optional IANA timezone for "cron" (e.g. "Europe/Berlin"). Defaults to the user timezone from USER.md, then UTC.',
           },
           every: {
             type: 'number',
