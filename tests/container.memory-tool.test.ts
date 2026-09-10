@@ -69,6 +69,38 @@ describe.sequential('container memory tool', () => {
     ).toContain('- Durable fact.');
   });
 
+  test('concurrent appends keep every note and release locks after validation failures', async () => {
+    workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-appends-'));
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    const { executeTool } = await import('../container/src/tools.js');
+    const file_path = `memory/${currentLocalDateStamp()}.md`;
+    const results = await Promise.all(Array.from({ length: 5 }, (_, index) =>
+      executeTool('memory', JSON.stringify({ action: 'append', file_path, content: `entry ${index}` }))));
+    expect(results.every(result => result.includes('Appended'))).toBe(true);
+    const content = fs.readFileSync(path.join(workspaceRoot, file_path), 'utf8');
+    for (let index = 0; index < 5; index++) expect(content).toContain(`entry ${index}`);
+    const failure = await executeTool('memory', JSON.stringify({ action: 'append', file_path, content: 'x'.repeat(24_000) }));
+    expect(failure).toContain('would exceed');
+    expect(fs.existsSync(path.join(workspaceRoot, `${file_path}.lock`))).toBe(false);
+    expect(fs.readFileSync(path.join(workspaceRoot, file_path), 'utf8')).toBe(content);
+  });
+
+  test('defaults writes to today and requires explicit overwrite confirmation', async () => {
+    workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-defaults-'));
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    const { executeTool } = await import('../container/src/tools.js');
+    const file = path.join(workspaceRoot, `memory/${currentLocalDateStamp()}.md`);
+    expect(await executeTool('memory', JSON.stringify({ action: 'append', content: 'keep me' }))).toContain('Appended');
+    for (const confirm_overwrite of [undefined, false, 'true']) {
+      expect(await executeTool('memory', JSON.stringify({ action: 'write', content: 'replacement', confirm_overwrite }))).toContain('confirm_overwrite=true');
+      expect(fs.readFileSync(file, 'utf8')).toContain('keep me');
+    }
+    expect(await executeTool('memory', JSON.stringify({ action: 'write', content: 'replacement', confirm_overwrite: true }))).toContain('Wrote');
+    expect(fs.readFileSync(file, 'utf8')).toBe('replacement');
+    expect(await executeTool('memory', JSON.stringify({ action: 'append', file_path: '../escape.md', content: 'bad' }))).toContain('Error:');
+    expect(fs.readFileSync(file, 'utf8')).toBe('replacement');
+  });
+
   test('memoizes USER.md timezone reads while the file is unchanged', async () => {
     workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-memory-workspace-'),
