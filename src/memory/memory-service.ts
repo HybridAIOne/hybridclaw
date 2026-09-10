@@ -2,6 +2,7 @@
  * Prompt memory recalls only eligible rows in the current session, skipping
  * query embedding and retrieval when none exist. Unlike the storage layer,
  * this service assembles prompt context; it does not render client activity.
+ * Access notifications precede retrieval and assembly of the returned context.
  */
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { SESSION_COMPACTION_SUMMARY_MAX_CHARS } from '../config/config.js';
@@ -268,7 +269,7 @@ export interface BuildMemoryPromptParams {
   semanticLimit?: number;
   includeSemanticRecall?: boolean;
   touchSemanticRecall?: boolean;
-  onSemanticRecall?: () => void;
+  onMemoryAccess?: (kind: 'semantic' | 'summary') => void;
 }
 
 export interface BuildMemoryPromptResult {
@@ -852,13 +853,19 @@ export class MemoryService {
       (summaryConfidence == null ||
         summaryConfidence >= this.config.summaryDiscardThreshold);
 
+    const minConfidence = Math.max(
+      0,
+      Math.min(1, this.config.semanticMinConfidence),
+    );
     const semanticRecallAttempted =
       params.includeSemanticRecall !== false &&
       this.backend.hasRecallableSemanticMemories(
         params.session.id,
-        this.config.semanticMinConfidence,
+        minConfidence,
       );
-    if (semanticRecallAttempted) params.onSemanticRecall?.();
+    if (semanticRecallAttempted || includeSummary) {
+      params.onMemoryAccess?.(semanticRecallAttempted ? 'semantic' : 'summary');
+    }
     const semanticMemories = semanticRecallAttempted
       ? this.recallSemanticMemories({
           sessionId: params.session.id,
@@ -872,7 +879,7 @@ export class MemoryService {
               this.resolveSemanticPromptHardCap(),
             ),
           ),
-          minConfidence: this.config.semanticMinConfidence,
+          minConfidence,
           touch: params.touchSemanticRecall,
         })
       : [];

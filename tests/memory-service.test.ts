@@ -110,15 +110,53 @@ function makeSession(partial?: Partial<Session>): Session {
 }
 
 describe.sequential('semantic memory DB', () => {
+  test.each([
+    { configuredCutoff: 2, storedConfidence: 1 },
+    { configuredCutoff: -1, storedConfidence: 0 },
+    { configuredCutoff: 0.8, storedConfidence: 0.8 },
+  ])('prompt eligibility agrees with recall for confidence cutoff $configuredCutoff', ({
+    configuredCutoff,
+    storedConfidence,
+  }) => {
+    initDatabase({ quiet: true, dbPath: createTempDbPath() });
+    const session = getOrCreateSession('confidence-cutoff', null, 'web');
+    const memoryId = storeSemanticMemory({
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'User prefers concise writing.',
+      confidence: storedConfidence,
+      embedding: [1, 0],
+    });
+    const service = new MemoryService(
+      undefined,
+      { semanticMinConfidence: configuredCutoff },
+      { embedQuery: () => [1, 0] },
+    );
+    const recalled = service.recallSemanticMemories({
+      sessionId: session.id,
+      query: 'writing',
+    });
+    const prompt = service.buildPromptMemoryContext({
+      session,
+      query: 'writing',
+    });
+
+    expect(recalled.map((memory) => memory.id)).toEqual([memoryId]);
+    expect(prompt.semanticRecallAttempted).toBe(true);
+    expect(prompt.semanticMemories.map((memory) => memory.id)).toEqual([
+      memoryId,
+    ]);
+  });
+
   test('prompt recall skips embedding and retrieval until the session has eligible memories', () => {
     initDatabase({ quiet: true, dbPath: createTempDbPath() });
     const session = getOrCreateSession('recall-eligibility', null, 'web');
     getOrCreateSession('other-session', null, 'web');
     const embedQuery = vi.fn(() => [1, 0]);
-    const onSemanticRecall = vi.fn();
+    const onMemoryAccess = vi.fn();
     const service = new MemoryService(undefined, undefined, { embedQuery });
     const recall = vi.spyOn(service, 'recallSemanticMemories');
-    const params = { session, query: 'writing', onSemanticRecall };
+    const params = { session, query: 'writing', onMemoryAccess };
 
     expect(service.buildPromptMemoryContext(params).semanticRecallAttempted).toBe(
       false,
@@ -148,7 +186,7 @@ describe.sequential('semantic memory DB', () => {
     );
     expect(recall).not.toHaveBeenCalled();
     expect(embedQuery).not.toHaveBeenCalled();
-    expect(onSemanticRecall).not.toHaveBeenCalled();
+    expect(onMemoryAccess).not.toHaveBeenCalled();
 
     const eligibleId = storeSemanticMemory({
       sessionId: session.id,
@@ -164,7 +202,7 @@ describe.sequential('semantic memory DB', () => {
     ]);
     expect(recall).toHaveBeenCalledOnce();
     expect(embedQuery).toHaveBeenCalledOnce();
-    expect(onSemanticRecall).toHaveBeenCalledOnce();
+    expect(onMemoryAccess).toHaveBeenCalledOnce();
 
     forgetSemanticMemory(eligibleId);
     expect(service.buildPromptMemoryContext(params).semanticRecallAttempted).toBe(
@@ -172,7 +210,7 @@ describe.sequential('semantic memory DB', () => {
     );
     expect(recall).toHaveBeenCalledOnce();
     expect(embedQuery).toHaveBeenCalledOnce();
-    expect(onSemanticRecall).toHaveBeenCalledOnce();
+    expect(onMemoryAccess).toHaveBeenCalledOnce();
   });
 
   test('recalls topic-matched memories using LIKE-style matching', () => {

@@ -1789,13 +1789,16 @@ async function handleGatewayMessageInner(
           session,
           query: effectiveUserTurnContentStripped,
           includeSemanticRecall: !isGoalContinuationSource(source),
-          onSemanticRecall: () =>
+          onMemoryAccess: (kind) =>
             emitGatewayToolProgress(
               {
                 sessionId: req.sessionId,
                 toolName: MEMORY_RECALL_ACTIVITY_TOOL_NAME,
                 phase: 'start',
-                preview: 'Searching semantic memory',
+                preview:
+                  kind === 'semantic'
+                    ? 'Searching semantic memory'
+                    : 'Checking memory context',
               },
               { alwaysVisible: true },
             ),
@@ -1814,17 +1817,6 @@ async function handleGatewayMessageInner(
         }
       : undefined;
   if (memoryAccess) {
-    if (!semanticRecallAttempted) {
-      emitGatewayToolProgress(
-        {
-          sessionId: req.sessionId,
-          toolName: MEMORY_RECALL_ACTIVITY_TOOL_NAME,
-          phase: 'start',
-          preview: 'Checking memory context',
-        },
-        { alwaysVisible: true },
-      );
-    }
     emitGatewayToolProgress(
       {
         sessionId: req.sessionId,

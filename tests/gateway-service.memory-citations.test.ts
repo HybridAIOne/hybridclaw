@@ -109,6 +109,16 @@ test.each([
         .run(session.id),
     );
   }
+  const eventOrder: string[] = [];
+  const buildPromptMemoryContext =
+    memoryService.buildPromptMemoryContext.bind(memoryService);
+  vi.spyOn(memoryService, 'buildPromptMemoryContext').mockImplementation(
+    (params) => {
+      const result = buildPromptMemoryContext(params);
+      eventOrder.push('context-built');
+      return result;
+    },
+  );
   const recall = vi.spyOn(memoryService, 'recallSemanticMemories');
   runAgentMock.mockResolvedValue({
     status: 'success',
@@ -116,7 +126,9 @@ test.each([
     toolsUsed: [],
     toolExecutions: [],
   });
-  const onToolProgress = vi.fn();
+  const onToolProgress = vi.fn((event: { phase: 'start' | 'finish' }) => {
+    eventOrder.push(event.phase);
+  });
   const result = await handleGatewayMessage({
     sessionId: 'session-summary-memory',
     guildId: null,
@@ -133,7 +145,9 @@ test.each([
   if (stale) {
     expect(result.memoryAccess).toBeUndefined();
     expect(onToolProgress).not.toHaveBeenCalled();
+    expect(eventOrder).toEqual(['context-built']);
   } else {
+    expect(eventOrder).toEqual(['start', 'context-built', 'finish']);
     expect(result.memoryAccess).toEqual({
       semanticRecallAttempted: false,
       summaryIncluded: true,
@@ -165,7 +179,7 @@ test('handleGatewayMessage extracts cited memory references from the model respo
   updateSessionShowMode('session-memory-citations', 'none');
   vi.spyOn(memoryService, 'buildPromptMemoryContext').mockImplementation(
     (params) => {
-      params.onSemanticRecall?.();
+      params.onMemoryAccess?.('semantic');
       return {
         semanticRecallAttempted: true,
         promptSummary:
