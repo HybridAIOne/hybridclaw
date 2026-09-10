@@ -12,6 +12,7 @@ import type {
   SessionExpiryEvaluation,
   SessionResetPolicy,
 } from '../session/session-reset.js';
+import type { ChatMessage } from '../types/api.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type {
   KnowledgeEntityTypeValue,
@@ -183,6 +184,7 @@ export interface MemoryBackend {
     agentId?: string | null,
     artifacts?: ArtifactMetadata[] | null,
     source?: string | null,
+    toolHistory?: ChatMessage[],
   ) => number;
   storeSemanticMemory: (params: {
     sessionId: string;
@@ -260,6 +262,7 @@ export interface StoreTurnParams {
     agentId?: string | null;
     content: string;
     artifacts?: ArtifactMetadata[] | null;
+    toolHistory?: ChatMessage[];
   };
 }
 
@@ -747,6 +750,7 @@ export class MemoryService {
     agentId?: string | null;
     artifacts?: ArtifactMetadata[] | null;
     source?: string | null;
+    toolHistory?: ChatMessage[];
   }): number {
     return this.backend.storeMessage(
       params.sessionId,
@@ -757,6 +761,7 @@ export class MemoryService {
       params.agentId,
       params.artifacts,
       params.source,
+      params.toolHistory,
     );
   }
 
@@ -806,6 +811,7 @@ export class MemoryService {
       content: params.assistant.content,
       agentId: params.assistant.agentId,
       artifacts: params.assistant.artifacts,
+      toolHistory: params.assistant.toolHistory,
     });
 
     const interactionText = this.normalizeSemanticContent(

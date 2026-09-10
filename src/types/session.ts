@@ -46,6 +46,7 @@ export interface StoredMessage {
   artifacts?: ArtifactMetadata[];
   /** Web-chat activity trace (thinking + tool calls) for assistant turns. */
   activityTrace?: ActivityTrace;
+  tool_history_json?: string | null;
   /** Provenance of the turn, e.g. 'voice' for realtime speech transcripts. */
   source?: string | null;
   created_at: string;

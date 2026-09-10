@@ -1,7 +1,8 @@
 /**
- * Chat turns expose memory activity only for an actual semantic search or an
- * included session summary. The memory service owns recall eligibility;
- * this gateway path does not broaden its session scope or confidence policy.
+ * Gateway turns persist tool exchanges with assistant results, including failures.
+ * Memory activity reflects actual recall or an included summary; eligibility,
+ * session scope, and confidence policy belong to the memory service.
+ * Transports own authorization; transcript evidence never authorizes execution.
  */
 import path from 'node:path';
 import { createA2AEnvelope } from '../a2a/envelope.js';
@@ -2605,6 +2606,8 @@ async function handleGatewayMessageInner(
         canonicalScopeId: canonicalContextScope,
         userContent: storedUserContent,
         error: errorMessage,
+        toolHistory: output.toolHistory,
+        toolHistoryForReplay: output.toolHistoryForReplay,
         tools:
           toolExecutions.length > 0
             ? errorTurnToolsFromExecutions(toolExecutions)
@@ -2784,6 +2787,8 @@ async function handleGatewayMessageInner(
       userContent: storedUserContent,
       resultText,
       artifacts: output.artifacts,
+      toolHistory: output.toolHistory,
+      toolHistoryForReplay: output.toolHistoryForReplay,
       toolCallCount: toolExecutions.length,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,

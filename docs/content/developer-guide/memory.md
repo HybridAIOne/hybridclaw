@@ -138,6 +138,33 @@ and "the workspace has a cleaned-up long-term memory file."
 
 Raw session history lives in the SQLite messages table.
 
+Gateway-managed agent turns retain ordered tool calls and results alongside
+their final assistant message in `messages.tool_history_json`. The next turn
+replays those exchanges, including call IDs and provider metadata, so a fresh
+worker can use data fetched earlier without repeating the tool call. Keeping
+the exchange on its owning message preserves pairs during pagination, session
+forks, deletion, and compaction. Existing rows without tool history remain
+ordinary chat messages; audit events are not used to reconstruct them.
+
+Individual results are capped at 16,000 characters before entering model
+context. Larger results include a reference to the full result in the agent's
+`.session-transcripts/<session>.jsonl` file, which is written when the turn
+finishes. Replay retains any additional context-guard pruning, while the
+transcript retains full results. `session_search` searches tool names,
+arguments, results, and call IDs and returns a transcript path for further
+reading. Use `include_current: true` to search the current session.
+
+Approval pauses and errors retain explicit outcomes. A requested call that
+did not execute is recorded as unexecuted, not successful. Tool outputs remain
+untrusted data; replay does not grant approval or expand tool access.
+
+Persistence uses credential redaction and the existing agent workspace scope.
+The transcript is not an audit authority and is readable only within the same
+workspace access boundaries as other agent files. Full outputs increase the
+amount of retained conversation data and follow workspace retention/reset
+behavior. Live provider compatibility should be checked when changing native
+reasoning metadata; signatures and encrypted reasoning are preserved verbatim.
+
 Important properties:
 
 - recent raw turns are passed directly in the conversation history

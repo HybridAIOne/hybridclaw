@@ -21,6 +21,74 @@ const { setupHome } = setupGatewayTest({
   },
 });
 
+test('failed turns retain completed tool exchanges for the next request', async () => {
+  setupHome();
+  const toolHistory = [
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [
+        {
+          id: 'read-a',
+          type: 'function',
+          function: { name: 'read', arguments: '{"path":"report.txt"}' },
+        },
+      ],
+    },
+    { role: 'tool', tool_call_id: 'read-a', content: 'Inventory count: 42' },
+  ];
+  runAgentMock
+    .mockResolvedValueOnce({
+      status: 'error',
+      result: null,
+      error: 'Provider unavailable',
+      toolsUsed: ['read'],
+      toolHistory,
+      toolHistoryForReplay: toolHistory,
+      toolExecutions: [
+        {
+          name: 'read',
+          arguments: '{"path":"report.txt"}',
+          result: 'Inventory count: 42',
+          durationMs: 1,
+        },
+      ],
+    })
+    .mockResolvedValueOnce({
+      status: 'success',
+      result: 'The count was 42.',
+      toolsUsed: [],
+      toolExecutions: [],
+    });
+  const { initDatabase } = await import('../src/memory/db.js');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.js'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.js');
+  initDatabase({ quiet: true });
+  const request = {
+    sessionId: 'web:tool-error',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user_a',
+    username: 'web',
+    content: 'Read the inventory',
+    model: 'openai-codex/gpt-5-codex',
+    chatbotId: '',
+  };
+  const first = await handleGatewayMessage(request);
+  expect(first.status).toBe('error');
+  const stored = memoryService.getConversationHistory(request.sessionId);
+  expect(stored).toHaveLength(2);
+  expect(JSON.parse(stored[0].tool_history_json || '[]')).toEqual(toolHistory);
+  await handleGatewayMessage({ ...request, content: 'What was the count?' });
+  expect(runAgentMock.mock.calls[1][0].messages).toEqual(
+    expect.arrayContaining([
+      { role: 'tool', tool_call_id: 'read-a', content: 'Inventory count: 42' },
+    ]),
+  );
+});
+
 test('handleGatewayMessage stores user-visible attachment summaries instead of raw MediaContext blocks', async () => {
   setupHome();
 

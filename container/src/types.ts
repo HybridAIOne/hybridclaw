@@ -448,6 +448,8 @@ export interface ContainerOutput {
   codexRuntime?: CodexTurnRuntime;
   artifacts?: ArtifactMetadata[];
   toolExecutions?: ToolExecution[];
+  toolHistory?: ChatMessage[];
+  toolHistoryForReplay?: ChatMessage[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;
