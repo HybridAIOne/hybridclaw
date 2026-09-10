@@ -9820,7 +9820,7 @@ export function setRuntimeConfigSecretInput(
 export function configureRuntimeLocalEndpoint(
   endpoint: Omit<LocalEndpointConfig, 'apiKey'>,
   apiKey: SecretInput,
-  defaultModel: string,
+  defaultModel: string | undefined,
   meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
   loadRuntimeConfigFromSources({
@@ -9830,17 +9830,26 @@ export function configureRuntimeLocalEndpoint(
   const source = cloneConfig(currentConfigSource);
   const local = isRecord(source.local) ? source.local : {};
   const endpoints = Array.isArray(local.endpoints) ? local.endpoints : [];
+  const existing = endpoints.find(
+    (value) => isRecord(value) && value.name === endpoint.name,
+  );
+  if (isRecord(existing) && existing.type !== endpoint.type)
+    throw new Error(
+      `Endpoint name ${endpoint.name} is already used by another backend.`,
+    );
   local.endpoints = [
     ...endpoints.filter(
       (value) => !isRecord(value) || value.name !== endpoint.name,
     ),
-    { ...endpoint, apiKey },
+    { ...(isRecord(existing) ? existing : {}), ...endpoint, apiKey },
   ];
   source.local = local;
-  const hybridai = isRecord(source.hybridai) ? source.hybridai : {};
-  hybridai.defaultModel = defaultModel;
-  source.hybridai = hybridai;
-  // Endpoint, credential reference and default commit in one config revision.
+  if (defaultModel !== undefined) {
+    const hybridai = isRecord(source.hybridai) ? source.hybridai : {};
+    hybridai.defaultModel = defaultModel;
+    source.hybridai = hybridai;
+  }
+  // Reconnection preserves the latest default and endpoint tuning from disk.
   return saveRuntimeConfigSource(source, meta);
 }
 

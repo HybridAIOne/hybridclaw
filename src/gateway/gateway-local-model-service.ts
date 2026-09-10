@@ -2,7 +2,8 @@
  * Console local-model jobs belong to the gateway, so navigation cannot cancel them.
  * Only fixed catalog IDs reach the shared installer; this is not a shell or a
  * provider editor. Observed lifecycle changes invalidate model discovery.
- * Status exposes numeric activity samples, never credentials or subprocess diagnostics.
+ * Start also reconnects healthy workers; status never repairs configuration
+ * and exposes only readiness and numeric metrics, never credentials.
  */
 import type { ChildProcess } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
@@ -14,6 +15,10 @@ import {
   estimateMacModels,
 } from '../inference/local-model-catalog.js';
 import { LocalModelMetricsSampler } from '../inference/local-model-metrics.js';
+import {
+  connectMlxModel,
+  isMlxConnected,
+} from '../inference/mlx-connection.js';
 import {
   installMlxModel,
   MlxSetupError,
@@ -30,7 +35,7 @@ import {
 
 import { invalidateLocalModelDiscovery } from '../providers/local-discovery.js';
 
-type Stage = MlxSetupStage | 'starting' | 'stopping';
+type Stage = MlxSetupStage | 'starting' | 'connecting' | 'stopping';
 type Job = {
   action: 'setup' | 'start' | 'stop';
   modelId: string | null;
@@ -52,6 +57,8 @@ const STAGE_FAILURES: Record<Stage, string> = {
     'The model passed its checks, but configuration could not be saved. Check runtime-directory permissions and the mac-mlx provider name.',
   starting:
     'The model could not start. Close memory-heavy apps and try again. If this continues, run setup again.',
+  connecting:
+    'The local model could not connect to chat. Check runtime-directory permissions and the mac-mlx provider name, then retry.',
   stopping:
     'The model could not stop. Retry after the current request finishes.',
 };
@@ -63,6 +70,7 @@ export class GatewayLocalModelService {
   private child: ChildProcess | null = null;
   private closing = false;
   private lastRunning: boolean | undefined;
+  private lastConnected: boolean | undefined;
   private readonly metrics = new LocalModelMetricsSampler();
 
   async status() {
@@ -98,9 +106,11 @@ export class GatewayLocalModelService {
       }
     }
     const running = Boolean(health);
+    const connected = Boolean(installation) && isMlxConnected();
     const metrics = await this.metrics.sample(hardware, health);
-    if (this.lastRunning !== running) {
+    if (this.lastRunning !== running || this.lastConnected !== connected) {
       this.lastRunning = running;
+      this.lastConnected = connected;
       invalidateLocalModelDiscovery();
     }
     return {
@@ -111,6 +121,7 @@ export class GatewayLocalModelService {
       installation,
       installationError,
       running,
+      connected,
       metrics,
       job: this.job ? { ...this.job } : null,
     };
@@ -208,17 +219,26 @@ export class GatewayLocalModelService {
         },
       });
     } else if (job.action === 'start') {
-      if (await mlxHealth()) return;
-      signal.throwIfAborted();
-      const child = await startMlxChild(mlxHome(), signal);
-      this.child = child;
-      child.once('exit', () => {
-        if (this.child === child) this.child = null;
-        invalidateLocalModelDiscovery();
-      });
-      if (signal.aborted) {
-        await stopMlxChild(child);
+      let started: ChildProcess | undefined;
+      try {
+        if (!(await mlxHealth())) {
+          signal.throwIfAborted();
+          started = await startMlxChild(mlxHome(), signal);
+          this.child = started;
+          started.once('exit', () => {
+            if (this.child === started) this.child = null;
+            invalidateLocalModelDiscovery();
+          });
+        }
         signal.throwIfAborted();
+        job.stage = 'connecting';
+        connectMlxModel({ route: 'console.local.start' });
+      } catch (error) {
+        if (started) {
+          await stopMlxChild(started);
+          if (this.child === started) this.child = null;
+        }
+        throw error;
       }
     } else {
       signal.throwIfAborted();

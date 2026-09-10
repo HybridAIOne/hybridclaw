@@ -7,7 +7,8 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { GatewayLocalModelService } from '../src/gateway/gateway-local-model-service.js';
 import { GIB } from '../src/inference/local-model-catalog.js';
 
-const mocks = vi.hoisted(() => ({ install: vi.fn(), hardware: vi.fn(), home: vi.fn(), health: vi.fn(), read: vi.fn(), start: vi.fn(), stop: vi.fn(), invalidate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ install: vi.fn(), hardware: vi.fn(), home: vi.fn(), health: vi.fn(), read: vi.fn(), start: vi.fn(), stop: vi.fn(), invalidate: vi.fn(), connect: vi.fn(), connected: vi.fn() }));
+vi.mock('../src/inference/mlx-connection.js', () => ({ connectMlxModel: mocks.connect, isMlxConnected: mocks.connected }));
 vi.mock('../src/inference/mlx-install.js', () => ({ installMlxModel: mocks.install, MlxSetupError: class extends Error {} }));
 vi.mock('../src/inference/local-model-catalog.js', async (original) => ({ ...await original<typeof import('../src/inference/local-model-catalog.js')>(), detectMacHardware: mocks.hardware }));
 vi.mock('../src/inference/mlx-runtime.js', () => ({ mlxHome: mocks.home, mlxHealth: mocks.health, readMlxInstallation: mocks.read, startMlxChild: mocks.start, stopMlxChild: mocks.stop, mlxCredentials: () => ({ token: 'test-key', baseUrl: 'http://127.0.0.1:8321/v1' }) }));
@@ -16,6 +17,8 @@ let dir: string;
 let service: GatewayLocalModelService;
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.connect.mockReset();
+  mocks.connected.mockReturnValue(false);
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-console-'));
   mocks.home.mockReturnValue(dir);
   mocks.hardware.mockReturnValue({ platform: 'darwin', arch: 'arm64', release: '24.0.0', chip: 'Example Mac', memoryBytes: 32 * GIB });
@@ -123,4 +126,54 @@ test('returns allowlisted activity metrics without exposing native health payloa
   const result = await service.status();
   expect(result.metrics).toMatchObject({ generatedTokens: 123, tokensPerSecond: null, runtimeId: 'a'.repeat(32) });
   expect(JSON.stringify(result)).not.toContain('private-payload');
+});
+
+
+test('status distinguishes an unregistered healthy worker without repairing it', async () => {
+  fs.writeFileSync(path.join(dir, 'installation.json'), '{}');
+  mocks.read.mockReturnValue({ model: 'spark-x2.5-4b', contextWindow: 40960 });
+  mocks.health.mockResolvedValue({ status: 'ready' });
+  expect(await service.status()).toMatchObject({ running: true, connected: false });
+  expect(mocks.connect).not.toHaveBeenCalled();
+  mocks.invalidate.mockClear();
+  mocks.connected.mockReturnValue(true);
+  expect(await service.status()).toMatchObject({ running: true, connected: true });
+  expect(mocks.invalidate).toHaveBeenCalledOnce();
+});
+
+test('start reconnects an already healthy worker without spawning or taking ownership', async () => {
+  mocks.health.mockResolvedValue({ status: 'ready' });
+  service.command({ action: 'start' });
+  await vi.waitFor(async () => expect((await service.status()).job?.status).toBe('completed'));
+  expect(mocks.connect).toHaveBeenCalledWith({ route: 'console.local.start' });
+  expect(mocks.start).not.toHaveBeenCalled();
+  await service.close();
+  expect(mocks.stop).not.toHaveBeenCalled();
+});
+
+test.each([true, false])('connection failure cleans up only a worker started by the job (already running: %s)', async (running) => {
+  const child = new EventEmitter() as ChildProcess;
+  mocks.health.mockResolvedValue(running ? { status: 'ready' } : null);
+  mocks.start.mockResolvedValue(child);
+  mocks.connect.mockImplementation(() => { throw new Error('private-credential-payload'); });
+  service.command({ action: 'start' });
+  await vi.waitFor(async () => expect((await service.status()).job?.status).toBe('failed'));
+  const result = await service.status();
+  expect(result.job).toMatchObject({ stage: 'connecting', error: expect.stringContaining('could not connect to chat') });
+  expect(JSON.stringify(result)).not.toContain('private-credential-payload');
+  if (running) expect(mocks.stop).not.toHaveBeenCalled();
+  else expect(mocks.stop).toHaveBeenCalledExactlyOnceWith(child);
+});
+
+test('cancellation during startup unloads the new worker without registering it', async () => {
+  const child = new EventEmitter() as ChildProcess;
+  let ready!: (child: ChildProcess) => void;
+  mocks.start.mockImplementation(() => new Promise<ChildProcess>((resolve) => { ready = resolve; }));
+  service.command({ action: 'start' });
+  await vi.waitFor(() => expect(mocks.start).toHaveBeenCalled());
+  service.command({ action: 'cancel' });
+  ready(child);
+  await vi.waitFor(async () => expect((await service.status()).job?.status).toBe('cancelled'));
+  expect(mocks.connect).not.toHaveBeenCalled();
+  expect(mocks.stop).toHaveBeenCalledExactlyOnceWith(child);
 });

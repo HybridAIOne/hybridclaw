@@ -16,6 +16,7 @@ import {
   GIB,
 } from './local-model-catalog.js';
 import { benchmarkMlx } from './mlx-benchmark.js';
+import { connectMlxModel } from './mlx-connection.js';
 import { installMlxModel } from './mlx-install.js';
 import {
   mlxCredentials,
@@ -158,6 +159,7 @@ export async function handleMlxCommand(args: string[]): Promise<void> {
   )
     return;
   if (await mlxHealth(home)) {
+    connectMlxModel({ home, route: 'cli.local.serve' });
     console.log('Local model is already running.');
     return;
   }
@@ -181,6 +183,7 @@ export async function handleMlxCommand(args: string[]): Promise<void> {
           await stopMlxChild(child);
           return;
         }
+        connectMlxModel({ home, route: 'cli.local.serve' });
         console.log('Local model ready. Ctrl-C unloads it.');
         const [code] =
           child.exitCode !== null
@@ -188,6 +191,10 @@ export async function handleMlxCommand(args: string[]): Promise<void> {
             : await once(child, 'exit');
         if (stopping || code === 0) return;
       } catch (error) {
+        if (child) {
+          await stopMlxChild(child);
+          child = undefined;
+        }
         if (attempt === 2) throw error;
       }
       if (!stopping) {

@@ -9,21 +9,15 @@ import { once } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  configureRuntimeLocalEndpoint,
-  ensureRuntimeConfigFile,
-  getRuntimeConfig,
-} from '../config/runtime-config.js';
-import { saveNamedRuntimeSecrets } from '../security/runtime-secrets.js';
-import {
   detectMacHardware,
   estimateMacModels,
   GIB,
 } from './local-model-catalog.js';
 import { benchmarkMlx } from './mlx-benchmark.js';
+import { connectMlxModel } from './mlx-connection.js';
 import {
   MLX_COMPONENT,
   type MlxInstallation,
-  mlxCredentials,
   mlxHealth,
   mlxHome,
   startMlxChild,
@@ -188,23 +182,7 @@ export async function installMlxModel(
         path.join(home, 'benchmark.json'),
         JSON.stringify(report, null, 2),
       );
-      const { token, baseUrl } = mlxCredentials(home);
-      const config = getRuntimeConfig();
-      const existing = config.local.endpoints.find(
-        (endpoint) => endpoint.name === 'mac-mlx',
-      );
-      if (existing && existing.type !== 'mlx')
-        throw new Error(
-          'Endpoint name mac-mlx is already used by another backend.',
-        );
-      ensureRuntimeConfigFile();
-      saveNamedRuntimeSecrets({ LOCAL_ENDPOINT_MAC_MLX_API_KEY: token });
-      configureRuntimeLocalEndpoint(
-        { name: 'mac-mlx', type: 'mlx', enabled: true, baseUrl, zone: 'local' },
-        { source: 'store', id: 'LOCAL_ENDPOINT_MAC_MLX_API_KEY' },
-        `mac-mlx/${selected.id}`,
-        { route, source: 'user' },
-      );
+      connectMlxModel({ home, route, defaultModel: `mac-mlx/${selected.id}` });
       return report;
     } catch (error) {
       for (const [name, content] of previous) {

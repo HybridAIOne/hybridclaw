@@ -49,7 +49,9 @@ function SetupProgress({
             : job.action === 'setup'
               ? 'Setting up your local model'
               : job.action === 'start'
-                ? 'Starting local model…'
+                ? job.stage === 'connecting'
+                  ? 'Connecting local model…'
+                  : 'Starting local model…'
                 : 'Stopping local model…'}
         </CardTitle>
       </CardHeader>
@@ -114,12 +116,14 @@ function MacLocalModelsPage() {
   });
   const data = query.data;
   const running = data?.running;
+  const connected = data?.connected;
   const installedModelId = data?.installation?.modelId;
   useEffect(() => {
-    if (running === undefined || !installedModelId) return;
+    if (running === undefined || connected === undefined || !installedModelId)
+      return;
     // Commands return before startup finishes; refresh again on the observed state.
     void client.invalidateQueries({ queryKey: ['models', token] });
-  }, [client, token, running, installedModelId]);
+  }, [client, token, running, connected, installedModelId]);
   const selected = data?.candidates.find(
     (model) =>
       model.id === (selectedId ?? data.recommended) &&
@@ -267,12 +271,24 @@ function MacLocalModelsPage() {
                   >
                     {data.running ? 'Stop model' : 'Start model'}
                   </Button>
-                  {data.running && <a href="/chat">Open chat →</a>}
+                  {data.running && !data.connected && (
+                    <Button
+                      disabled={mutation.isPending}
+                      onClick={() => mutation.mutate({ action: 'start' })}
+                    >
+                      Connect to chat
+                    </Button>
+                  )}
+                  {data.running && data.connected && (
+                    <a href="/chat">Open chat →</a>
+                  )}
                   <a href="/admin/models">Provider settings</a>
                 </div>
                 <p className={styles.hint}>
                   {data.running
-                    ? 'Select this local model in chat to use it.'
+                    ? data.connected
+                      ? 'Select this local model in chat to use it.'
+                      : 'The model is running. Connect it to make it available in chat.'
                     : 'Start the model when you need it. Stopping frees its memory.'}
                 </p>
               </CardContent>

@@ -103,6 +103,53 @@ describe('runtime config secret refs', () => {
     expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
   });
 
+  test('reconnection preserves current on-disk defaults and endpoint tuning, and rejects a type conflict', async () => {
+    const homeDir = makeTempHome();
+    const secrets = await importFreshRuntimeSecrets(homeDir);
+    secrets.saveNamedRuntimeSecrets({ LOCAL_ENDPOINT_MAC_MLX_API_KEY: 'test-key' });
+    writeRawRuntimeConfig(homeDir);
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+    const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+    // Simulate settings saved by another process after this module loaded.
+    const source = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    source.hybridai.defaultModel = 'hybridai/claude-sonnet-4-5';
+    const endpoint = { name: 'mac-mlx', type: 'mlx' as const, enabled: false, baseUrl: 'http://127.0.0.1:8321/v1', zone: 'local' as const };
+    source.local.endpoints = [{ ...endpoint, apiKey: '', modelBehavior: { thinkingFormat: 'qwen' } }];
+    fs.writeFileSync(configPath, JSON.stringify(source));
+    runtimeConfig.configureRuntimeLocalEndpoint({ ...endpoint, enabled: true }, { source: 'store', id: 'LOCAL_ENDPOINT_MAC_MLX_API_KEY' }, undefined);
+    const saved = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(saved.hybridai.defaultModel).toBe(source.hybridai.defaultModel);
+    expect(saved.local.endpoints[0]).toMatchObject({ enabled: true, modelBehavior: source.local.endpoints[0].modelBehavior, apiKey: { source: 'store', id: 'LOCAL_ENDPOINT_MAC_MLX_API_KEY' } });
+    saved.local.endpoints[0].type = 'vllm';
+    saved.local.endpoints[0].baseUrl = 'http://127.0.0.1:8000/v1';
+    fs.writeFileSync(configPath, JSON.stringify(saved));
+    const before = fs.readFileSync(configPath, 'utf8');
+    expect(() => runtimeConfig.configureRuntimeLocalEndpoint(endpoint, '', undefined)).toThrow('another backend');
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
+  });
+
+  test('managed reconnection uses the installed credential and is idempotent', async () => {
+    const homeDir = makeTempHome();
+    writeRawRuntimeConfig(homeDir);
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+    const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+    const defaultModel = runtimeConfig.getRuntimeConfig().hybridai.defaultModel;
+    const workerHome = path.join(homeDir, 'worker');
+    fs.mkdirSync(workerHome);
+    fs.writeFileSync(path.join(workerHome, 'installation.json'), JSON.stringify({ version: 1, model: 'spark-x2.5-4b', repo: 'example/model', revision: 'a'.repeat(40), port: 8321, contextWindow: 40960, memoryLimitBytes: 8 * 1024 ** 3, cacheBytes: 1024 ** 3 }));
+    fs.writeFileSync(path.join(workerHome, 'token'), 'b'.repeat(64), { mode: 0o600 });
+    const { connectMlxModel, isMlxConnected } = await import('../src/inference/mlx-connection.ts');
+    expect(isMlxConnected(workerHome)).toBe(false);
+    connectMlxModel({ home: workerHome, route: 'console.local.start' });
+    expect(isMlxConnected(workerHome)).toBe(true);
+    expect(runtimeConfig.getRuntimeConfig().hybridai.defaultModel).toBe(defaultModel);
+    const saved = fs.readFileSync(configPath, 'utf8');
+    expect(saved).not.toContain('b'.repeat(64));
+    expect(JSON.parse(saved).local.endpoints).toContainEqual(expect.objectContaining({ name: 'mac-mlx', apiKey: { source: 'store', id: 'LOCAL_ENDPOINT_MAC_MLX_API_KEY' } }));
+    connectMlxModel({ home: workerHome, route: 'console.local.start' });
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(saved);
+  });
+
   test('loads memory recall settings from config.json', async () => {
     const homeDir = makeTempHome();
     writeRawRuntimeConfig(homeDir, (config) => {

@@ -57,6 +57,7 @@ function status(
     installation: null,
     installationError: null,
     running: false,
+    connected: true,
     metrics: {
       sampledAt: 1000,
       cpuPercent: null,
@@ -281,4 +282,36 @@ test.each([
   expect(mocks.fetch).not.toHaveBeenCalled();
   expect(mocks.control).not.toHaveBeenCalled();
   expect(screen.queryByText('Live activity')).toBeNull();
+});
+
+test('connects a running unregistered model and refreshes the picker on completion', async () => {
+  const installation = { modelId: 'spark-x2.5-4b', contextWindow: 40960 };
+  mocks.fetch.mockResolvedValue(
+    status({ installation, running: true, connected: false }),
+  );
+  const { queryClient } = renderWithProviders(<LocalModelsPage />);
+  const button = await screen.findByRole('button', { name: 'Connect to chat' });
+  expect(screen.queryByRole('link', { name: 'Open chat →' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Stop model' })).toBeDefined();
+  fireEvent.click(button);
+  await waitFor(() =>
+    expect(mocks.control).toHaveBeenCalledWith('test-key', { action: 'start' }),
+  );
+  await waitFor(() => expect(mocks.fetch.mock.calls.length).toBeGreaterThan(1));
+  queryClient.setQueryData(['models', 'test-key'], { models: [] });
+  await act(async () => {
+    queryClient.setQueryData(
+      ['local-models', 'test-key'],
+      status({ installation, running: true, connected: true }),
+    );
+  });
+  expect(
+    await screen.findByRole('link', { name: 'Open chat →' }),
+  ).toBeDefined();
+  expect(screen.queryByRole('button', { name: 'Connect to chat' })).toBeNull();
+  await waitFor(() =>
+    expect(
+      queryClient.getQueryState(['models', 'test-key'])?.isInvalidated,
+    ).toBe(true),
+  );
 });

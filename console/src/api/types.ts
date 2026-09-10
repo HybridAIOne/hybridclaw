@@ -2742,6 +2742,7 @@ export interface AdminLocalModelsResponse {
   installation: { modelId: string; contextWindow: number } | null;
   installationError: string | null;
   running: boolean;
+  connected: boolean;
   job: {
     action: 'setup' | 'start' | 'stop';
     modelId: string | null;
@@ -2751,6 +2752,7 @@ export interface AdminLocalModelsResponse {
       | 'loading'
       | 'checking'
       | 'activating'
+      | 'connecting'
       | 'starting'
       | 'stopping';
     status: 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed';

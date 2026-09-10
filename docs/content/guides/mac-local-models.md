@@ -12,7 +12,10 @@ Windows and Linux hosts do not show this setup entry. It shows the gateway Macâ€
 model from the current shortlist. Use **Compare models** for other candidates
 and their availability. **Download & set up** starts installation and local
 checks; progress continues when you leave the page. Use **Cancel** to stop it.
-After setup, **Start model** loads it and **Stop model** releases its memory.
+After setup, **Start model** loads it, connects it to the chat model picker, and
+preserves your default model. **Stop model** releases its memory. If a running
+model has lost its provider connection, **Connect to chat** restores it without
+restarting the model. `hybridclaw local serve` also restores this connection.
 An installed model is marked **Installed** in comparison and is not offered
 again as a setup recommendation. Other fitting models remain selectable.
 Select the installed model in chat to use it.

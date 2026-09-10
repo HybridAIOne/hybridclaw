@@ -7,7 +7,7 @@ import { installMlxModel } from '../src/inference/mlx-install.js';
 
 const mocks = vi.hoisted(() => ({ configure: vi.fn(), secrets: vi.fn(), benchmark: vi.fn(), stop: vi.fn(), home: vi.fn(), spawn: vi.fn(), health: vi.fn() }));
 vi.mock('node:child_process', () => ({ spawn: mocks.spawn }));
-vi.mock('../src/config/runtime-config.js', () => ({ configureRuntimeLocalEndpoint: mocks.configure, ensureRuntimeConfigFile: vi.fn(), getRuntimeConfig: () => ({ local: { endpoints: [] } }) }));
+vi.mock('../src/config/runtime-config.js', () => ({ configureRuntimeLocalEndpoint: mocks.configure, ensureRuntimeConfigFile: vi.fn(), reloadRuntimeConfig: () => ({ local: { endpoints: [] } }), getRuntimeConfig: () => ({ local: { endpoints: [] } }) }));
 vi.mock('../src/security/runtime-secrets.js', () => ({ saveNamedRuntimeSecrets: mocks.secrets }));
 vi.mock('../src/inference/local-model-catalog.js', async (original) => ({ ...await original<typeof import('../src/inference/local-model-catalog.js')>(), detectMacHardware: () => ({ platform: 'darwin', arch: 'arm64', release: '24', chip: 'Example Mac', memoryBytes: 32 * 1024 ** 3 }) }));
 vi.mock('../src/inference/mlx-runtime.js', () => ({ MLX_COMPONENT: '/tmp/example-runtime', mlxHome: mocks.home, mlxHealth: mocks.health, mlxCredentials: () => ({ token: 'test-key', baseUrl: 'http://127.0.0.1:8321/v1' }), startMlxChild: async () => ({ pid: 1 }), stopMlxChild: mocks.stop }));
