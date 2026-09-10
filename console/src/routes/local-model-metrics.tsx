@@ -181,10 +181,6 @@ export function LocalModelMetrics({
           </div>
         ))}
       </div>
-      <p className={styles.caption}>
-        CPU, memory and GPU cover this Mac. Tokens include reasoning and tool
-        calls.
-      </p>
     </section>
   );
 }

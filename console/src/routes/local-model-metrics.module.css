@@ -14,8 +14,7 @@
   font-size: 15px;
   font-weight: 600;
 }
-.heading > span,
-.caption {
+.heading > span {
   color: var(--muted-foreground);
   font-size: 12px;
 }
