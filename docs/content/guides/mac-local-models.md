@@ -22,7 +22,9 @@ Select the installed model in chat to use it.
 
 **Live activity** shows the last minute of Mac-wide CPU, memory and GPU readings,
 sampled by the gateway once per second, including while the page is closed.
-The page fetches the retained minute every 2.5 seconds, so navigation and refresh
+The page fetches lightweight activity and job state every 2.5 seconds. Full setup
+estimates and prerequisite checks refresh every 30 seconds, using asynchronous
+probes. Commands recheck current memory before admission. Navigation and refresh
 preserve the graph history. Memory usage is estimated
 from total memory minus free and reclaimable inactive pages. GPU utilization
 comes from macOS; unsupported or missing readings stay unavailable. **Tokens**
@@ -159,9 +161,10 @@ descriptions, required call fields, or arguments that violate the selected
 tool schema return corrective feedback to the model,
 with up to two corrections per request. A malformed call batch executes no
 actions, including any valid starter calls in that batch. Calls that try to execute unavailable tools still stop the request.
-After a catalog-executed action, the runtime appends a reminder
-of the available functions; earlier messages and schemas stay intact. The skill
-directory tool is named `skills_list`.
+Catalog guidance is supplied once before the agent loop. Successful actions
+append only their normal tool exchange, without repeated instruction messages;
+earlier messages and schemas stay intact. The skill directory tool is named
+`skills_list`.
 Keyword search ranks tool names, descriptions, and parameter names; skill
 search ranks names, descriptions, and categories. Results include a `next`
 call with the correct function name and arguments for the current request.
@@ -292,7 +295,10 @@ The invalid file is preserved instead of saving a normalized version that
 drops the endpoint. Startup identifies the configuration field and offers
 the existing configuration-revision recovery flow through
 `hybridclaw onboarding`. Restore the endpoint or select a configured model;
-use a build that supports the endpoint's backend. These checks do not require
+use a build that supports the endpoint's backend. A validated full replacement in
+Admin Settings or a config revision restore can repair the file; incremental
+updates remain blocked until it is valid. Rejected reloads do not replace the
+last-known-good recovery snapshot. These checks do not require
 the local service to be running. Older builds without these checks can still
 rewrite unsupported settings. When testing an unreleased backend, invoke the
 feature checkout's CLI by its explicit path.

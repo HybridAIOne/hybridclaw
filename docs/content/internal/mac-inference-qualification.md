@@ -371,3 +371,40 @@ handoffs and screenshot-style worker cards remain phases 2–4. The hardware
 recommendation list is input for future qualification, not an automatic model
 installation policy; advertised context and active MoE parameters alone do not
 establish a usable memory budget.
+
+
+## Review follow-up — 2026-09-10
+
+- Config reload validates before updating the last-known-good snapshot. Invalid
+  MLX URLs and zones use the same failure class as other endpoint failures.
+  Incremental writes remain blocked against invalid disk settings; validated
+  full Admin saves and snapshot restoration repair them. Six refresh guards
+  share one implementation. Recovery tests preserve the invalid file until a
+  valid replacement is supplied.
+- Full setup status runs bounded VM/uv probes asynchronously. A lightweight,
+  equally authorized activity view supplies 2.5-second polling; capacity and
+  prerequisite refreshes run every 30 seconds. Failed polling marks cached
+  data and disables controls. Desktop startup uses the same local eligibility
+  condition as its Labs menu.
+- Fixed native lifecycle error codes distinguish memory, context, timeout,
+  artifact and provider-name failures. Structured logs keep only these safe
+  diagnostics or allowlisted OS error codes, never raw library/subprocess data.
+- The per-action catalog reminder used by the earlier native qualification is
+  removed. Initial guidance, concrete argument validation, approval boundaries,
+  immutable prior messages and persisted tool exchanges remain covered by IPC
+  tests. This change has not been requalified on a live model.
+- Reasoning periodicity checks use a bounded linear Z scan. Synthetic tests
+  compare the exact stopping token with the previous rule. Three 32,768-token
+  CPU benchmarks (unique, random and repetitive-with-progress streams; three
+  repetitions each) measured about 2.2–5.6 times faster guard processing. These
+  measurements are not end-to-end GPU throughput claims.
+- HybridAI transports pass expected destination headers separately from the
+  assembled request. Missing, partial or mismatched request contracts fail
+  before fetch; successful responses still require acknowledgement. Ordinary
+  offers without an advertised contract remain usable. This is protocol
+  enforcement, not evidence of an operator's physical data residency.
+
+Small two-site formatting/wrapper duplication and the desktop/gateway platform
+predicate remain local to their packages, consistent with the repository's
+rule-of-three guidance. Tool-specific read/bash/skills examples are intentional
+model guidance; no generic abstraction or extra runtime policy was introduced.
