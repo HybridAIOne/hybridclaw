@@ -45,10 +45,20 @@ export function validateToolHistory(value) {
   const messages = [];
   const pending = new Set();
   for (const message of value) {
+    let content = message?.content;
+    if (
+      message?.role === 'assistant' &&
+      Array.isArray(content) &&
+      content.every(
+        (part) => part?.type === 'text' && typeof part.text === 'string',
+      )
+    ) {
+      content = content.map((part) => part.text).join('\n');
+    }
     if (
       !message ||
       typeof message !== 'object' ||
-      !(message.content === null || typeof message.content === 'string')
+      !(content === null || typeof content === 'string')
     ) {
       throw new Error('Invalid tool history message.');
     }
@@ -77,7 +87,7 @@ export function validateToolHistory(value) {
       }
       const next = {
         role: 'assistant',
-        content: message.content,
+        content,
         tool_calls: message.tool_calls.map((call) => ({
           id: call.id,
           type: 'function',

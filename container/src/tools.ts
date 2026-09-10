@@ -1332,7 +1332,12 @@ async function callGatewayMessageAction(
     );
   }
 
-  if (parsed) return JSON.stringify(parsed, null, 2);
+  if (parsed) {
+    const output = JSON.stringify(parsed, null, 2);
+    if (parsed.ok === false || parsed.success === false)
+      return failTool(output);
+    return output;
+  }
   return rawText || JSON.stringify({ ok: true }, null, 2);
 }
 
@@ -4265,7 +4270,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'memory',
       description:
-        "Manage agent memory files. Read/search/list can access MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Omitted write targets default to today’s daily note. Prefer append; write replaces the entire note and requires confirm_overwrite=true. Write actions append/write/replace/remove are restricted to today's daily file so durable MEMORY.md rewrites flow only through dream consolidation.",
+        "Manage agent memory files. Persist new standing rules and preferences with append before confirming they were saved; acknowledging them in prose does not persist them. Read/search/list can access MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Omitted write targets default to today’s daily note. Prefer append; write replaces the entire note and requires confirm_overwrite=true. Write actions append/write/replace/remove are restricted to today's daily file so durable MEMORY.md rewrites flow only through dream consolidation.",
       parameters: {
         type: 'object',
         properties: {
@@ -5372,7 +5377,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         '- "list": show all scheduled tasks\n' +
         '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring 5-field cron expression, evaluated in the user timezone from USER.md, or in "tz" when given), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered. In web chat and heartbeat sessions "channel" is required because task output cannot be delivered there.\n' +
         '- "remove": delete a task by taskId\n' +
-        'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself. A success result means the task is saved and returns its id; an Error result means nothing was scheduled. Quote the id and schedule from the result when confirming to the user.',
+        'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself. Writing to memory or HEARTBEAT.md does not schedule a task. A successful add saves the task and returns its id; use existing results or list to confirm an earlier task instead of adding it again. Quote the id, schedule, timezone, and delivery channel from the result when confirming.',
       parameters: {
         type: 'object',
         properties: {

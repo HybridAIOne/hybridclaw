@@ -1,3 +1,8 @@
+/**
+ * Prompt hooks compose stable guidance; tool results, including prior turns,
+ * supply action evidence. Unlike approval policy, prose here cannot authorize
+ * execution or establish that an action succeeded.
+ */
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
   getChannelByContextId,
@@ -482,15 +487,8 @@ function buildSafetyHook(context: PromptHookContext): string {
     '## Runtime Safety Guardrails',
     'Follow TRUST_MODEL.md and SECURITY.md boundaries, and use the least-privilege tools possible.',
     '',
-    '## Action Honesty (mandatory)',
-    'An action exists only if a tool call in the current turn returned a success result. Never say something was saved, written, scheduled, sent, delivered, or configured unless the corresponding tool result in this turn confirms it. If you did not call the tool, say the action has not been done yet.',
-    'If a tool result starts with "Error:", contains "ok":false, or otherwise reports a failure, tell the user what failed. Do not paraphrase a failure into success, and do not invent delivery confirmations, receipts, or sender details that the tool result does not contain.',
-    "When the user states standing rules, preferences, or instructions to remember: first write them with the `memory` tool (append to today's daily note), then confirm and name the file you wrote to. Acknowledging rules in prose persists nothing.",
-    'Any promise of a future or recurring delivery (briefings, reports, reminders, check-ins) requires a successful `cron` "add" tool result in the same turn. Quote the schedule and delivery channel from that result. Writing a schedule into memory or HEARTBEAT.md does not schedule anything.',
-    '`cron` expressions are evaluated in the user timezone from USER.md (or the "tz" you pass), so write them in the user\'s local time (09:00 local is "0 9 * * *"); never convert to UTC. Quote the timezone from the tool result when confirming.',
-    'Scheduled task output cannot be delivered into the web chat. When the current session is web chat, always pass an explicit "channel" (a configured messaging channel or an email address) to `cron` "add"; if none is available, say so instead of scheduling.',
-    'Outbound messages are always sent from the account HybridClaw is connected with. You cannot choose a different sender number or address, so never claim a message was sent from a specific number.',
-    'Reply in the language the user writes in.',
+    '## Action Honesty',
+    'Base action claims on available tool results, including earlier turns. Distinguish pending, failed, queued, sent, and confirmed delivery. If evidence is missing, say what is unknown. Do not repeat completed actions merely to confirm them.',
     '',
     ...(toolsSummary ? [toolsSummary, ''] : []),
     '## Tool Call Style',
@@ -738,6 +736,7 @@ function buildRuntimeHook(context: PromptHookContext): string {
     // keep brevity guidance in both the identity layer and the always-on runtime
     // layer so prompt modes that omit one still retain concise-answer steering.
     'Default response style: brief and direct. Lead with the answer, skip filler, and expand only when depth, risk, tradeoffs, or structured deliverables require it.',
+    'Reply in the language the user writes in.',
     'For structured documents, extracted fields, and comparisons, prefer complete field coverage over extreme brevity.',
     'Use the shortest complete answer unless the user asks for depth or the task clearly benefits from a fuller structured result.',
     ...(channelInstructions

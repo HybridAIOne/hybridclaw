@@ -1,3 +1,8 @@
+/**
+ * The app-server bridge retains completed native tool exchanges for gateway
+ * persistence. Approval and sandbox events remain audit metadata, never tool
+ * success; replay supplies context without re-executing historical actions.
+ */
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -11,6 +16,7 @@ import {
   readString as readUnknownString,
 } from './codex-app-utils.js';
 import { withToolActivityHeartbeat } from './tool-activity-heartbeat.js';
+import { TurnToolHistory } from './turn-tool-history.js';
 import type {
   ChatMessage,
   ContainerInput,
@@ -41,6 +47,7 @@ interface CodexProjection {
   textDeltas: string[];
   agentMessages: string[];
   toolExecutions: ToolExecution[];
+  toolHistory: TurnToolHistory;
   toolsUsed: Set<string>;
   tokenUsage: TokenUsageStats;
   approvalEvents: ToolExecution[];
@@ -144,9 +151,21 @@ export function buildCodexTurnText(messages: ChatMessage[]): string {
   const prior = messages
     .filter((message) => message.role !== 'system' && message !== latest)
     .map((message) => {
-      const content = stringifyContent(message.content).trim();
+      const content = [
+        stringifyContent(message.content).trim(),
+        ...(message.tool_calls || []).map(
+          (call) =>
+            `Tool call (${call.id}): ${call.function.name} ${call.function.arguments}`,
+        ),
+      ]
+        .filter(Boolean)
+        .join('\n');
       if (!content) return '';
-      return `${message.role}: ${content}`;
+      const label =
+        message.role === 'tool'
+          ? `Tool result (${message.tool_call_id})`
+          : message.role;
+      return `${label}: ${content}`;
     })
     .filter(Boolean);
 
@@ -213,6 +232,35 @@ function appendToolExecution(
 ): void {
   projection.toolExecutions.push(execution);
   projection.toolsUsed.add(execution.name);
+  if (
+    !['codex.command', 'codex.patch', 'codex.mcp', 'codex.tool'].includes(
+      execution.name,
+    )
+  )
+    return;
+  const callId = randomUUID();
+  const args =
+    execution.name === 'codex.command'
+      ? JSON.stringify({ command: execution.arguments })
+      : execution.name === 'codex.patch'
+        ? JSON.stringify({ changes: JSON.parse(execution.arguments) })
+        : execution.arguments;
+  projection.toolHistory.recordAssistant({
+    role: 'assistant',
+    content: null,
+    tool_calls: [
+      {
+        id: callId,
+        type: 'function',
+        function: { name: execution.name, arguments: args },
+      },
+    ],
+  });
+  projection.toolHistory.recordResult({
+    role: 'tool',
+    tool_call_id: callId,
+    content: `Tool ${execution.isError ? 'failed' : 'completed'}:\n${execution.result}`,
+  });
 }
 
 function projectionToolsUsed(projection: CodexProjection): string[] {
@@ -493,7 +541,9 @@ export function projectCodexThreadItem(
       arguments: readString(item, 'command'),
       result: readString(item, 'aggregatedOutput'),
       durationMs: readNumber(item, 'durationMs') ?? 0,
-      isError: readString(item, 'status') !== 'completed',
+      isError:
+        readString(item, 'status') !== 'completed' ||
+        (readNumber(item, 'exitCode') ?? 0) !== 0,
     });
     return;
   }
@@ -503,7 +553,7 @@ export function projectCodexThreadItem(
       arguments: JSON.stringify(item.changes ?? []),
       result: readString(item, 'status') || 'file change completed',
       durationMs: 0,
-      isError: readString(item, 'status') === 'failed',
+      isError: !['completed', 'applied'].includes(readString(item, 'status')),
     });
     return;
   }
@@ -521,6 +571,7 @@ export function projectCodexThreadItem(
       durationMs: readNumber(item, 'durationMs') ?? 0,
       isError:
         item.success === false ||
+        (isRecord(item.result) && item.result.isError === true) ||
         readString(item, 'status') === 'failed' ||
         Boolean(item.error),
     });
@@ -899,12 +950,13 @@ function parseTurnError(error: Record<string, unknown>): string {
   );
 }
 
-function createProjection(): CodexProjection {
+function createProjection(sessionId: string): CodexProjection {
   return {
     threadId: null,
     textDeltas: [],
     agentMessages: [],
     toolExecutions: [],
+    toolHistory: new TurnToolHistory(sessionId),
     toolsUsed: new Set<string>(),
     tokenUsage: emptyTokenUsage(),
     approvalEvents: [],
@@ -1003,6 +1055,7 @@ function outputFromProjection(
       result: completed.pendingApproval.prompt,
       toolsUsed: projectionToolsUsed(completed),
       toolExecutions,
+      ...finishToolHistory(completed),
       tokenUsage: completed.tokenUsage,
       pendingApproval: completed.pendingApproval,
       effectiveUserPrompt,
@@ -1014,6 +1067,7 @@ function outputFromProjection(
       result: resultText || null,
       toolsUsed: projectionToolsUsed(completed),
       toolExecutions,
+      ...finishToolHistory(completed),
       tokenUsage: completed.tokenUsage,
       error: completed.error,
       effectiveUserPrompt,
@@ -1024,8 +1078,21 @@ function outputFromProjection(
     result: resultText || '',
     toolsUsed: projectionToolsUsed(completed),
     toolExecutions,
+    ...finishToolHistory(completed),
     tokenUsage: completed.tokenUsage,
     effectiveUserPrompt,
+  };
+}
+
+function finishToolHistory(
+  projection: CodexProjection,
+): Pick<ContainerOutput, 'toolHistory' | 'toolHistoryForReplay'> {
+  return {
+    toolHistory: projection.toolHistory.finish('App-server turn ended.'),
+    toolHistoryForReplay: projection.toolHistory.finish(
+      'App-server turn ended.',
+      true,
+    ),
   };
 }
 
@@ -1042,6 +1109,7 @@ function errorOutputFromProjection(
       ...projection.toolExecutions,
       ...projection.approvalEvents,
     ],
+    ...finishToolHistory(projection),
     tokenUsage: projection.tokenUsage,
     error: error instanceof Error ? error.message : String(error),
     effectiveUserPrompt,
@@ -1062,6 +1130,8 @@ export async function resumePendingCodexAppServerApproval(
   pendingCodexApprovals.delete(params.sessionId);
   const directive = parseApprovalDirective(latestUserText(params.messages));
   if (!directive) return null;
+  // Exchanges before the approval prompt were persisted with that earlier turn.
+  pending.projection.toolHistory = new TurnToolHistory(params.sessionId);
   try {
     respondToCodexApproval(pending, directive);
     const next = await waitWithActivity(pending.client, params.onActivity);
@@ -1155,7 +1225,7 @@ export async function runCodexAppServerTurn(
     pendingCodexApprovals.delete(params.sessionId);
   }
   const effectiveUserPrompt = buildCodexTurnText(params.messages);
-  const projection = createProjection();
+  const projection = createProjection(params.sessionId);
   const client = new CodexAppServerClient(projection, params);
   let keepClientOpen = false;
   try {

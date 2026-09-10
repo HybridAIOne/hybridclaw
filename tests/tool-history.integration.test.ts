@@ -238,9 +238,18 @@ test('a fresh worker uses the previous turn’s stored result without calling th
     expect(history).toHaveLength(2);
     const context = buildContext({
       agentId: 'main',
-      promptMode: 'none',
+      promptMode: 'full',
       history,
     });
+    const systemPrompt = context.messages
+      .filter((message) => message.role === 'system')
+      .map((message) => message.content)
+      .join('\n');
+    expect(systemPrompt).toContain('including earlier turns');
+    expect(systemPrompt).not.toContain('An action exists only if');
+    expect(systemPrompt).not.toContain(
+      'requires a successful `cron` "add" tool result in the same turn',
+    );
     const previousResult = context.messages.find(
       (message) => message.role === 'tool',
     );

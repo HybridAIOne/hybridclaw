@@ -4,6 +4,7 @@ import {
   callAnthropicProviderStream,
 } from '../container/src/providers/anthropic.js';
 import type { ChatMessage, ToolDefinition } from '../container/src/types.js';
+import { TurnToolHistory } from '../container/src/turn-tool-history.js';
 
 function makeEventStreamResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
@@ -47,6 +48,57 @@ afterEach(() => {
 });
 
 describe('Anthropic container provider', () => {
+  test('persists a multi-block tool response without losing native content or call pairing', async () => {
+    const nativeContent = [
+      { type: 'text', text: 'Reading the report.' },
+      { type: 'text', text: 'Using the requested filename.' },
+      {
+        type: 'tool_use',
+        id: 'read-a',
+        name: 'read',
+        input: { path: 'report.txt' },
+      },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              id: 'msg_multi',
+              model: 'claude-sonnet-4-6',
+              role: 'assistant',
+              stop_reason: 'tool_use',
+              content: nativeContent,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+      ),
+    );
+    const response = await callAnthropicProvider(baseArgs);
+    const recorder = new TurnToolHistory('session-a');
+    const message: ChatMessage = {
+      ...response.choices[0].message,
+      role: 'assistant',
+    };
+    recorder.recordAssistant(message);
+    const result = recorder.recordResult({
+      role: 'tool',
+      tool_call_id: 'read-a',
+      content: '42',
+    });
+    recorder.retain([message, result]);
+    for (const forReplay of [false, true]) {
+      const saved = recorder.finish('Turn ended', forReplay);
+      expect(saved[0].content).toBe(
+        'Reading the report.\nUsing the requested filename.',
+      );
+      expect(saved[0].anthropic_content).toEqual(nativeContent);
+      expect(saved[0].tool_calls?.[0].id).toBe(saved[1].tool_call_id);
+      expect(saved[1].content).toBe('42');
+    }
+    expect(message.content).toEqual(nativeContent.slice(0, 2));
+  });
   test('sets an inference timeout signal on non-streaming API requests', async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
     const fetchMock = vi.fn(
