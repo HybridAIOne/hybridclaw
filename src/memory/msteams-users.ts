@@ -86,10 +86,10 @@ export function listMSTeamsUsers(tenantId: string): MSTeamsUser[] {
       db
         .prepare(`
     WITH usage AS (
-      SELECT user_id, COUNT(DISTINCT session_id) AS sessions,
+      SELECT tenant_id, user_id, COUNT(DISTINCT session_id) AS sessions,
         SUM(total_tokens) AS tokens, SUM(cost_usd) AS cost
       FROM usage_events WHERE channel_kind = 'msteams' AND tenant_id = ?
-      GROUP BY user_id
+      GROUP BY tenant_id, user_id
     )
     SELECT u.tenant_id AS tenantId, u.user_id AS userId,
       u.teams_user_id AS teamsUserId, u.entra_object_id AS entraObjectId,
@@ -98,6 +98,7 @@ export function listMSTeamsUsers(tenantId: string): MSTeamsUser[] {
       u.last_seen AS lastSeen, COALESCE(usage.sessions, 0) AS sessionCount,
       COALESCE(usage.tokens, 0) AS totalTokens, COALESCE(usage.cost, 0) AS costUsd
     FROM msteams_users u LEFT JOIN usage ON usage.user_id = u.user_id
+      AND usage.tenant_id = u.tenant_id
     WHERE u.tenant_id = ? ORDER BY u.last_seen DESC, u.user_id
   `)
         .all(

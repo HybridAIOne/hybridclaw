@@ -190,8 +190,9 @@ export function TeamsUsers() {
         <p className={styles.muted}>
           All-time usage since user tracking was enabled. Messages exclude
           commands; sessions, tokens and estimated USD costs reflect recorded
-          bot turns, including model retries. Older unattributed usage is
-          excluded. Usage may take a few seconds to appear.
+          bot turns and metered commands, including model retries. Older
+          unattributed usage is excluded. Usage may take a few seconds to
+          appear.
         </p>
       </CardContent>
     </Card>

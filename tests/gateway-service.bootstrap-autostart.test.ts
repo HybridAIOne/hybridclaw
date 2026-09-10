@@ -952,7 +952,7 @@ test('ensureGatewayBootstrapAutostart keeps bootstrap opener when auxiliary gene
   ]);
 });
 
-test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per session', async () => {
+test('OPENING.md runs once per session and attributes usage to the invoking Teams user', async () => {
   setupHome();
 
   callAuxiliaryModelMock
@@ -961,12 +961,14 @@ test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per se
       model: 'auxiliary/test',
       content:
         'Why did the computer go to therapy?\nIt had too many unresolved issues.',
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
     })
     .mockResolvedValueOnce({
       provider: 'hybridai',
       model: 'auxiliary/test',
       content:
         'Why did the computer go to therapy?\nIt had too many unresolved issues.',
+      usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
     });
 
   const { initDatabase } = await import('../src/memory/db.ts');
@@ -975,8 +977,17 @@ test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per se
   );
   const { ensureBootstrapFiles } = await import('../src/workspace.ts');
   const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { observeMSTeamsUser, listMSTeamsUsers } = await import(
+    '../src/memory/msteams-users.ts'
+  );
+  const { flushTokenUsageBuffer } = await import(
+    '../src/usage/token-usage-buffer.ts'
+  );
 
   initDatabase({ quiet: true });
+  for (const userId of ['user-a', 'user-b']) {
+    observeMSTeamsUser({ tenantId: 'tenant-a', userId, isMessage: false });
+  }
   ensureBootstrapFiles('main');
 
   const workspaceDir = agentWorkspaceDir('main');
@@ -1001,7 +1012,12 @@ test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per se
   );
 
   const sessionId = 'agent:main:channel:web:chat:dm:peer:boot-md-test';
-  await ensureGatewayBootstrapAutostart({ sessionId });
+  const usageAttribution = {
+    userId: 'user-a',
+    tenantId: 'tenant-a',
+    channelKind: 'msteams' as const,
+  };
+  await ensureGatewayBootstrapAutostart({ sessionId, usageAttribution });
 
   expect(runAgentMock).not.toHaveBeenCalled();
   expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(1);
@@ -1054,13 +1070,16 @@ test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per se
     }),
   ]);
 
-  await ensureGatewayBootstrapAutostart({ sessionId });
+  await ensureGatewayBootstrapAutostart({ sessionId, usageAttribution });
   expect(runAgentMock).not.toHaveBeenCalled();
   expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(1);
 
   const secondSessionId =
     'agent:main:channel:web:chat:dm:peer:boot-md-test-second';
-  await ensureGatewayBootstrapAutostart({ sessionId: secondSessionId });
+  await ensureGatewayBootstrapAutostart({
+    sessionId: secondSessionId,
+    usageAttribution: { ...usageAttribution, userId: 'user-b' },
+  });
   expect(runAgentMock).not.toHaveBeenCalled();
   expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(2);
   expect(getGatewayHistory(secondSessionId, 10).history).toEqual([
@@ -1070,6 +1089,12 @@ test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per se
         'Why did the computer go to therapy?\nIt had too many unresolved issues.',
     }),
   ]);
+  await flushTokenUsageBuffer();
+  const users = new Map(
+    listMSTeamsUsers('tenant-a').map((user) => [user.userId, user]),
+  );
+  expect(users.get('user-a')?.totalTokens).toBe(15);
+  expect(users.get('user-b')?.totalTokens).toBe(30);
 });
 
 test('ensureGatewayBootstrapAutostart can hatch a selected agent in an existing session', async () => {

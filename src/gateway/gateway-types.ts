@@ -264,6 +264,8 @@ export interface GatewayMediaUploadResult {
 }
 
 export interface GatewayCommandRequest {
+  /** Tenant captured by the authenticated Teams transport, never HTTP input. */
+  msteamsTenantId?: string;
   sessionId: string;
   sessionMode?: 'new' | 'resume';
   guildId: string | null;

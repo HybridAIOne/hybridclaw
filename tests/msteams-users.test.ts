@@ -244,6 +244,18 @@ describe('Teams user routing and attribution', () => {
       costUsd: 0.5,
       sessionCount: 1,
     });
+    expect(listMSTeamsUsers('TENANT-B')).toEqual([
+      expect.objectContaining({
+        userId: 'user-a',
+        totalTokens: 1000,
+        costUsd: 0.25,
+        sessionCount: 1,
+      }),
+    ]);
+    expect(
+      listMSTeamsUsers('tenant-a').find((user) => user.userId === 'user-a')
+        ?.totalTokens,
+    ).toBe(30);
   });
 
   test.each([

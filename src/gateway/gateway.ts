@@ -806,6 +806,7 @@ function resolveImplicitNumericApprovalArgs(params: {
 }
 
 async function handleTextChannelCommand(params: {
+  msteamsTenantId?: string;
   sessionId: string;
   guildId: string | null;
   channelId: string;
@@ -825,6 +826,7 @@ async function handleTextChannelCommand(params: {
   const { sessionId, guildId, channelId, userId, username, args, reply } =
     params;
   const handledApproval = await handleTextChannelApprovalCommand({
+    msteamsTenantId: params.msteamsTenantId,
     sessionId,
     guildId,
     channelId,
@@ -851,6 +853,7 @@ async function handleTextChannelCommand(params: {
     return;
   }
   const result = await handleGatewayCommand({
+    msteamsTenantId: params.msteamsTenantId,
     sessionId,
     guildId,
     channelId,
@@ -1800,6 +1803,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
             await reply(content);
           };
           await handleTextChannelCommand({
+            msteamsTenantId: context.tenantId,
             sessionId,
             guildId,
             channelId,
@@ -1980,19 +1984,20 @@ async function startMSTeamsIntegration(): Promise<boolean> {
       username,
       args,
       reply,
-      agentId,
+      context,
     ) => {
       try {
         memoryService.getOrCreateSession(
           sessionId,
           guildId,
           channelId,
-          agentId,
+          context.agentId,
         );
         const bridgedReply: ReplyFn = async (content) => {
           await reply(content);
         };
         await handleTextChannelCommand({
+          msteamsTenantId: context.tenantId,
           sessionId,
           guildId,
           channelId,

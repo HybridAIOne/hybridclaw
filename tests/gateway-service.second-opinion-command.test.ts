@@ -197,7 +197,7 @@ test('second-opinion verdict parser validates typed critique output', async () =
   );
 });
 
-test('second-opinion validate-last sends the previous answer to a stronger tool-less model call', async () => {
+test.each([false, true])('second-opinion validates the previous answer and attributes Teams usage (%s)', async (teams) => {
   setupHome();
   mockModelCatalog(['openai-codex/gpt-5.5']);
 
@@ -229,10 +229,22 @@ test('second-opinion validate-last sends the previous answer to a stronger tool-
     },
   ]);
 
+  const { observeMSTeamsUser, listMSTeamsUsers } = await import(
+    '../src/memory/msteams-users.ts'
+  );
+  const { flushTokenUsageBuffer } = await import(
+    '../src/usage/token-usage-buffer.ts'
+  );
+  for (const userId of ['user-a', 'user-b']) {
+    observeMSTeamsUser({ tenantId: 'tenant-a', userId, isMessage: false });
+  }
+
   const result = await handleGatewayCommand({
     sessionId: session.id,
     guildId: null,
-    channelId: 'web',
+    channelId: teams ? '19:group-a' : 'web',
+    userId: 'user-a',
+    msteamsTenantId: teams ? 'tenant-a' : undefined,
     args: ['second-opinion', 'validate'],
   });
 
@@ -273,6 +285,12 @@ test('second-opinion validate-last sends the previous answer to a stronger tool-
     },
     usage: { totalTokens: 30 },
   });
+  await flushTokenUsageBuffer();
+  const users = new Map(
+    listMSTeamsUsers('tenant-a').map((user) => [user.userId, user]),
+  );
+  expect(users.get('user-a')?.totalTokens).toBe(teams ? 30 : 0);
+  expect(users.get('user-b')?.totalTokens).toBe(0);
 });
 
 test('second-opinion defaults to the provider-specific strongest available model', async () => {

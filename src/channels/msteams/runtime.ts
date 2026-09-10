@@ -102,7 +102,7 @@ export type CommandHandler = (
   username: string,
   args: string[],
   reply: ReplyFn,
-  agentId: string,
+  context: Pick<MSTeamsMessageContext, 'agentId' | 'tenantId'>,
 ) => Promise<void>;
 
 export interface MSTeamsReactionEvent {
@@ -747,7 +747,7 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
           username,
           commandArgs,
           reply,
-          agentId,
+          { agentId, tenantId: configuredTenant },
         );
       } finally {
         if (showTyping) typingController.stop();

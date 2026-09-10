@@ -12754,6 +12754,43 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test.each(['/api/chat', '/api/command'])('ignores forged Teams attribution on HTTP commands at %s', async (url) => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({
+      kind: 'plain',
+      text: 'Ready',
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url,
+      body: {
+        sessionId: 'session-http-attribution',
+        channelId: 'web',
+        userId: 'user-a',
+        content: '/status',
+        args: ['status'],
+        source: 'msteams',
+        msteamsTenantId: 'forged-tenant',
+        usageAttribution: {
+          tenantId: 'forged-tenant',
+          userId: 'other-user',
+          channelKind: 'msteams',
+        },
+      },
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+    expect(res.statusCode).toBe(200);
+    expect(state.handleGatewayCommand).toHaveBeenCalledTimes(1);
+    expect(state.handleGatewayCommand.mock.calls[0]?.[0]).not.toHaveProperty(
+      'msteamsTenantId',
+    );
+    expect(state.handleGatewayCommand.mock.calls[0]?.[0]).not.toHaveProperty(
+      'usageAttribution',
+    );
+  });
+
   test('rejects api command requests without an explicit session id', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({

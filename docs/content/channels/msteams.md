@@ -157,7 +157,8 @@ restriction on explicit agent addressing or other existing bot commands.
 
 Usage tracking begins when this feature is installed. Messages exclude commands.
 Tokens and estimated costs are attributed to the initiating user, including
-recorded model retries and media generation, rather than assigning an entire group
+recorded model retries, media generation, second-opinion commands, approval resumes,
+and agent-switch startup turns, rather than assigning an entire group
 chat's totals to each participant. Historical usage without sender attribution and
 independent background work are excluded. Usage writes are buffered, so totals can
 lag a few seconds. These are recorded estimates, not an invoice.

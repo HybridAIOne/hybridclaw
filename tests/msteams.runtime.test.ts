@@ -280,7 +280,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     expect(buildSessionIdMock).toHaveBeenCalledWith(expect.anything(), 'sales');
     expect(observeUserMock).toHaveBeenCalledWith(expect.objectContaining({ teamsUserId: '29:user-a', entraObjectId: 'user-aad-id', isMessage: kind === 'message' }));
     if (kind === 'message') expect(onMessage.mock.calls[0]?.at(-1)).toMatchObject({ agentId: 'sales' });
-    else expect(onCommand.mock.calls[0]?.at(-1)).toBe('sales');
+    else expect(onCommand.mock.calls[0]?.at(-1)).toEqual({ agentId: 'sales', tenantId: 'teams-tenant-id' });
   });
 
   test.each(['denied', 'wrong-tenant', 'unmentioned'])('does not record or route a %s activity', async (reason) => {
@@ -573,7 +573,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
       'User',
       ['approve', '3'],
       expect.any(Function),
-      'main',
+      { agentId: 'main', tenantId: 'teams-tenant-id' },
     );
     expect(typingStartMock).toHaveBeenCalledTimes(1);
     expect(typingStopMock).toHaveBeenCalledTimes(1);
@@ -632,7 +632,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
       'User',
       ['approve', '2'],
       expect.any(Function),
-      'main',
+      { agentId: 'main', tenantId: 'teams-tenant-id' },
     );
   });
 
@@ -675,7 +675,7 @@ describe('Microsoft Teams runtime webhook adapter', () => {
       'User',
       ['clear'],
       expect.any(Function),
-      'main',
+      { agentId: 'main', tenantId: 'teams-tenant-id' },
     );
     expect(typingStartMock).not.toHaveBeenCalled();
     expect(typingStopMock).not.toHaveBeenCalled();
