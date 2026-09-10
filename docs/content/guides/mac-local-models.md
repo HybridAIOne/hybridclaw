@@ -123,7 +123,15 @@ The worker also appends a stable instruction naming its actual exposed schemas
 before inference. Skill instructions mentioning `read` do not expose `read`;
 when absent, the model must describe and call it through `tool_catalog`.
 References to tool names in other instructions are workflow examples, not an
-expanded callable set. The skill directory tool is named `skills_list`.
+expanded callable set. A description returns the `tool_catalog` invocation
+schema with the target's parameters nested under `arguments`. Every catalog
+call includes `name`; a general listing uses an empty string. Missing tool
+descriptions or required call fields return corrective feedback to the model,
+with up to two corrections per request. A malformed call batch executes no
+actions. Calls that try to execute unavailable tools still stop the request.
+After a catalog-executed action, the runtime appends a reminder
+of the available functions; earlier messages and schemas stay intact. The skill
+directory tool is named `skills_list`.
 Directory tools run when the model calls them; they are not invoked automatically
 for every message. Full skill mode already includes the eligible skill list.
 

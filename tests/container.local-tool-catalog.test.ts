@@ -10,7 +10,7 @@ function tool(name: string, description = name): ToolDefinition {
 function call(name: string, args: Record<string, unknown>): ToolCall {
   return { id: 'call_1', type: 'function', function: { name, arguments: JSON.stringify(args) } };
 }
-function catalogCall(args: Record<string, unknown>): ToolCall { return call('tool_catalog', args); }
+function catalogCall(args: Record<string, unknown>): ToolCall { return call('tool_catalog', { ...(args.action === 'list' ? { name: '' } : {}), ...args }); }
 const available = [...DEFAULT_LOCAL_STARTER_TOOLS.map((name) => tool(name)), tool('memory'), tool('mcp__lookup')];
 
 describe('local tool catalog boundary', () => {
@@ -18,6 +18,7 @@ describe('local tool catalog boundary', () => {
     const catalog = new LocalToolCatalog(available);
     const before = JSON.stringify(catalog.tools);
     expect(catalog.tools).toHaveLength(10);
+    expect(catalog.tools.find((entry) => entry.function.name === 'tool_catalog')?.function.parameters.required).toEqual(['action', 'name']);
     expect(catalog.tools.map((entry) => entry.function.name)).not.toContain('memory');
     expect(catalog.discoveryResult(catalogCall({ action: 'describe', name: 'memory' }))?.output).toContain('parameters');
     catalog.resolveCall(catalogCall({ action: 'call', name: 'memory', arguments: {} }));
@@ -29,7 +30,10 @@ describe('local tool catalog boundary', () => {
   });
   test('never restores filtered tools, including direct and replayed calls', () => {
     const catalog = new LocalToolCatalog([tool('read'), tool('memory')], ['bash']);
-    for (const request of [catalogCall({ action: 'describe', name: 'bash' }), catalogCall({ action: 'call', name: 'bash', arguments: {} }), call('bash', {})]) expect(() => catalog.resolveCall(request)).toThrow('not available');
+    for (const request of [catalogCall({ action: 'call', name: 'bash', arguments: {} }), call('bash', {})]) expect(() => catalog.resolveCall(request)).toThrow('not available');
+    const missing = catalog.discoveryResult(catalogCall({ action: 'describe', name: 'bash' }));
+    expect(missing?.isError).toBe(true);
+    expect(missing?.output).not.toContain('parameters');
     expect(catalog.discoveryResult(catalogCall({ action: 'list' }))?.output).not.toContain('bash');
     expect(new LocalToolCatalog([]).tools).toEqual([]);
     expect(() => new LocalToolCatalog([]).resolveCall(catalogCall({ action: 'list' }))).toThrow('not available');
@@ -90,4 +94,62 @@ test('prompt guidance reflects actual exposed schemas without granting hidden to
   expect(noDiscovery.promptGuidance()).toContain('Tool discovery is not exposed');
   expect(noDiscovery.promptGuidance()).not.toContain('call tool_catalog');
   expect(new LocalToolCatalog([]).promptGuidance()).toContain('No functions are exposed');
+});
+
+
+test('returns corrective lookup errors without echoing unknown names or restoring tools', () => {
+  const catalog = new LocalToolCatalog([tool('read'), tool('skills_list')], ['skills_list']);
+  const schemas = JSON.stringify(catalog.tools);
+  const missing = catalogCall({ action: 'describe', name: 'sensitive-placeholder' });
+  expect(catalog.resolveCall(missing)).toBe(missing);
+  const result = catalog.discoveryResult(missing);
+  expect(result).toMatchObject({ isError: true, output: expect.stringContaining('Skill names and file paths are not tool names') });
+  expect(result?.output).toContain('describe the tool named read');
+  expect(result?.output).not.toContain('sensitive-placeholder');
+  expect(catalog.discoveryResult(catalogCall({ action: 'describe', name: 'read' }))?.isError).toBe(false);
+  catalog.discoveryResult(missing);
+  expect(() => catalog.resolveCall(missing)).toThrow('not available');
+  expect(catalog.discoveryResult(catalogCall({ action: 'describe', name: 'read' }))?.isError).toBe(false);
+  expect(JSON.stringify(catalog.tools)).toBe(schemas);
+  expect(() => catalog.resolveCall(catalogCall({ action: 'call', name: 'pdf', arguments: {} }))).toThrow('not available');
+  const noRead = new LocalToolCatalog([tool('memory')], []);
+  expect(noRead.discoveryResult(missing)?.output).not.toContain('tool named read');
+});
+
+
+test('describes the exact catalog invocation without exposing another function', () => {
+  const read = tool('read', 'Read a file.');
+  read.function.parameters = { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] };
+  const catalog = new LocalToolCatalog([read], []);
+  const before = JSON.stringify(catalog.tools);
+  const result = JSON.parse(catalog.discoveryResult(catalogCall({ action: 'describe', name: 'read' }))!.output);
+  expect(result.function.name).toBe('tool_catalog');
+  expect(result.function.parameters.properties.action.enum).toEqual(['call']);
+  expect(result.function.parameters.properties.name.enum).toEqual(['read']);
+  expect(result.function.parameters.properties.arguments).toEqual(read.function.parameters);
+  expect(result.function.parameters.required).toEqual(['action', 'name', 'arguments']);
+  expect(JSON.stringify(catalog.tools)).toBe(before);
+});
+
+
+test('only malformed catalog call fields can receive bounded correction', () => {
+  const catalog = new LocalToolCatalog(available, ['skills_list']);
+  for (const args of [{ action: 'call', arguments: { path: 'notes.txt' } }, { action: 'call', name: 'read' }]) {
+    try { catalog.resolveCall(catalogCall(args)); throw new Error('Expected validation failure'); }
+    catch (error) { expect(catalog.recoverArgumentError(error)).toMatchObject({ isError: true, output: expect.stringContaining('No tool in this batch was executed') }); }
+  }
+  try { catalog.resolveCall(catalogCall({ action: 'call' })); }
+  catch (error) { expect(catalog.recoverArgumentError(error)).toBeNull(); }
+  expect(catalog.recoverArgumentError(new Error('sensitive-placeholder'))).toBeNull();
+  const restricted = new LocalToolCatalog([tool('skills_list')], []);
+  try { restricted.resolveCall(catalogCall({ action: 'call', name: 'read', arguments: {} })); }
+  catch (error) { expect(restricted.recoverArgumentError(error)).toBeNull(); }
+});
+
+
+test('requires the catalog name field even when listing tools', () => {
+  const catalog = new LocalToolCatalog(available);
+  const invalid = call('tool_catalog', { action: 'list' });
+  expect(() => catalog.resolveCall(invalid)).toThrow('top-level name');
+  expect(catalog.discoveryResult(catalogCall({ action: 'list' }))?.isError).toBe(false);
 });

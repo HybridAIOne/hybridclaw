@@ -67,7 +67,7 @@ async function harness(replies: Array<Record<string, unknown>>, overrides: Parti
   } };
 }
 function catalog(action: string, name?: string, args?: Record<string, unknown>): Record<string, unknown> {
-  return { role: 'assistant', content: null, tool_calls: [{ id: `call_${action}`, type: 'function', function: { name: 'tool_catalog', arguments: JSON.stringify({ action, name, arguments: args }) } }] };
+  return { role: 'assistant', content: null, tool_calls: [{ id: `call_${action}`, type: 'function', function: { name: 'tool_catalog', arguments: JSON.stringify({ action, name: name ?? (action === 'list' ? '' : undefined), arguments: args }) } }] };
 }
 
 describe('local catalog through real agent IPC and model HTTP', () => {
@@ -86,8 +86,10 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     for (const request of requests) { expect(request.tools).toHaveLength(10); expect(request.tools).toEqual(requests[0].tools); }
     expect(JSON.parse(String(requests[1].messages.at(-1)?.content)).total).toBe(105);
     expect(output.toolExecutions?.at(-1)).toMatchObject({ name: 'read', arguments: '{"path":"notes.txt"}', isError: false, approvalTier: 'green' });
-    expect(requests[3].messages.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'call_call', content: expect.stringContaining('synthetic tool result') });
-    expect(requests[3].messages.at(-2)?.tool_calls?.[0].function.name).toBe('tool_catalog');
+    expect(requests[3].messages.at(-1)).toMatchObject({ role: 'user', content: expect.stringContaining('Runtime tool reminder:') });
+    expect(requests[3].messages.at(-2)).toMatchObject({ role: 'tool', tool_call_id: 'call_call', content: expect.stringContaining('synthetic tool result') });
+    expect(requests[3].messages.at(-3)?.tool_calls?.[0].function.name).toBe('tool_catalog');
+    for (let i = 1; i < 4; i++) expect(requests[i].messages.slice(0, requests[i - 1].messages.length)).toEqual(requests[i - 1].messages);
     const next = await followup({ localStarterTools: ['memory'] });
     expect(next.status).toBe('success');
     expect(requests.at(-1)?.tools.map((t) => t.function.name)).toEqual(['memory', 'tool_catalog']);
@@ -96,6 +98,7 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     expect(requests.at(-1)?.tools).toHaveLength(114);
     expect(requests.at(-1)?.tools.some((t) => t.function.name === 'tool_catalog')).toBe(false);
     expect(requests.at(-1)?.messages[0].content).not.toContain('## Local tool call boundary');
+    expect(requests.at(-1)?.messages.some((m) => String(m.content).includes('Runtime tool reminder:'))).toBe(false);
     await followup({ localToolMode: 'starred', localStarterTools: [] });
     expect(requests.at(-1)?.tools.map((t) => t.function.name)).toEqual(['tool_catalog']);
     await followup({ isLocal: false });
@@ -119,4 +122,84 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     expect(replay.error).toContain('no longer available');
     expect(requests).toHaveLength(1);
   });
+});
+
+
+test('recovers a skill-name lookup through the catalog with two stable schemas', async () => {
+  const { output, requests } = await harness([
+    catalog('list'), catalog('describe', 'pdf'), catalog('describe', 'read'),
+    catalog('call', 'read', { path: 'notes.txt' }),
+  ], { localStarterTools: ['skills_list'] });
+  expect(output.status).toBe('success');
+  expect(output.toolExecutions?.map((entry) => [entry.name, entry.isError])).toEqual([
+    ['tool_catalog', false], ['tool_catalog', true], ['tool_catalog', false], ['read', false],
+  ]);
+  expect(requests).toHaveLength(5);
+  expect(requests[2].messages.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'call_describe', content: expect.stringContaining('Skill names and file paths are not tool names') });
+  expect(requests[2].messages.at(-2)?.tool_calls?.[0].function.arguments).toBe('{"action":"describe","name":"pdf"}');
+  expect(output.toolExecutions?.at(-1)?.result).toContain('synthetic tool result');
+  for (const request of requests) {
+    expect(request.tools.map((t) => t.function.name)).toEqual(['skills_list', 'tool_catalog']);
+    expect(request.tools).toEqual(requests[0].tools);
+    expect(request.messages.filter((m) => m.role === 'system')).toEqual(requests[0].messages.filter((m) => m.role === 'system'));
+  }
+});
+
+test('stops repeated missing descriptions and still rejects unavailable actions', async () => {
+  const { output, requests } = await harness([
+    catalog('describe', 'pdf'), catalog('describe', 'pdf'), catalog('describe', 'pdf'),
+  ], { localStarterTools: ['skills_list'] });
+  expect(output.status).toBe('error');
+  expect(output.error).toContain('not available');
+  expect(requests).toHaveLength(3);
+  expect(output.toolExecutions).toHaveLength(2);
+  expect(output.toolExecutions?.every((entry) => entry.isError)).toBe(true);
+  const blocked = await harness([
+    catalog('describe', 'read'), catalog('call', 'read', { path: 'notes.txt' }),
+  ], { localStarterTools: ['skills_list'], blockedTools: ['read'] });
+  expect(blocked.output.status).toBe('error');
+  expect(blocked.output.toolExecutions).toHaveLength(1);
+  expect(blocked.output.toolExecutions?.[0]).toMatchObject({ name: 'tool_catalog', isError: true });
+  expect(blocked.output.error).toContain('not available');
+});
+
+
+test('rejects a malformed catalog batch before any sibling executes and allows a corrected call', async () => {
+  const invalid = catalog('call', undefined, { path: 'notes.txt' });
+  const sibling = catalog('call', 'write', { path: 'must-not-exist.txt', contents: 'not executed' });
+  const mixed = { ...invalid, tool_calls: [
+    ...((sibling.tool_calls as Array<Record<string, unknown>>).map((call) => ({ ...call, id: 'valid-sibling' }))),
+    ...(invalid.tool_calls as Array<Record<string, unknown>>),
+  ] };
+  const { output, requests, dir } = await harness([
+    mixed, catalog('call', 'read', { path: 'notes.txt' }),
+  ], { localStarterTools: ['skills_list'] });
+  expect(output.status).toBe('success');
+  expect(fs.existsSync(path.join(dir, 'must-not-exist.txt'))).toBe(false);
+  expect(output.toolExecutions?.slice(0, 2).every((entry) => entry.name === 'tool_catalog' && entry.isError && entry.blocked)).toBe(true);
+  expect(output.toolExecutions?.at(-1)).toMatchObject({ name: 'read', isError: false });
+  expect(requests[1].messages.slice(-2).every((m) => m.role === 'tool' && String(m.content).includes('No tool in this batch was executed'))).toBe(true);
+  expect(requests[1].tools).toEqual(requests[0].tools);
+});
+
+test('shares the correction budget across missing descriptions and malformed calls', async () => {
+  const { output, requests } = await harness([
+    catalog('describe', 'pdf'), catalog('call', undefined, {}), catalog('call', undefined, {}),
+  ], { localStarterTools: ['skills_list'] });
+  expect(output.status).toBe('error');
+  expect(output.error).toContain('top-level name');
+  expect(requests).toHaveLength(3);
+  expect(output.toolExecutions).toHaveLength(2);
+  const full = await harness([catalog('call', undefined, {})], { localToolMode: 'full' });
+  expect(full.output.status).toBe('error');
+  expect(full.requests).toHaveLength(1);
+});
+
+
+test('adds no catalog reminder after a directly exposed starter call', async () => {
+  const direct = { role: 'assistant', content: null, tool_calls: [{ id: 'direct-read', type: 'function', function: { name: 'read', arguments: '{"path":"notes.txt"}' } }] };
+  const { requests, output } = await harness([direct]);
+  expect(output.status).toBe('success');
+  expect(requests[1].messages.at(-1)).toMatchObject({ role: 'tool', content: expect.stringContaining('synthetic tool result') });
+  expect(requests[1].messages.some((m) => String(m.content).includes('Runtime tool reminder:'))).toBe(false);
 });

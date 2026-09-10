@@ -1,12 +1,8 @@
 /**
- * Agent worker fixes model-facing schemas before each request's tool loop.
- * Gateway context and local schema guidance are instructions, not permissions;
- * concrete tool calls still pass catalog, policy, and approval checks.
- */
-/**
- * Agent loop: policy sees the effective tool and its original arguments.
- * Local catalog wrappers resolve before approval, hooks, batching, and audit;
- * model history retains original calls and stable model-facing definitions.
+ * Agent loop preserves model schemas/history while concrete actions pass policy.
+ * Local wrappers resolve before approval, hooks, batching and audit. Invalid
+ * catalog arguments can receive bounded feedback; rejected batches never execute.
+ * Gateway instructions and discovery results do not grant tool permissions.
  */
 import path from 'node:path';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
@@ -1511,13 +1507,52 @@ async function processRequest(
 
     let toolCalls = choice.message.tool_calls || [];
     let invalidToolCallError = validateStructuredToolCalls(toolCalls);
+    let catalogCorrection: string | null = null;
     if (!invalidToolCallError && localToolCatalog) {
       try {
         toolCalls = toolCalls.map((call) => localToolCatalog.resolveCall(call));
       } catch (error) {
         invalidToolCallError =
           error instanceof Error ? error.message : 'Invalid local tool call.';
+        if (
+          tools === localToolCatalog.tools &&
+          toolCalls.every((call) => call.function.name === 'tool_catalog')
+        ) {
+          catalogCorrection =
+            localToolCatalog.recoverArgumentError(error)?.output ?? null;
+        }
       }
+    }
+    if (catalogCorrection) {
+      // Keep the original rejected calls for valid tool-result pairing. Nothing
+      // from this batch reaches approval or execution, including valid siblings.
+      history.push({
+        role: 'assistant',
+        content: choice.message.content,
+        tool_calls: choice.message.tool_calls,
+      });
+      for (const call of toolCalls) {
+        history.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: catalogCorrection,
+        });
+        toolsUsed.push(call.function.name);
+        toolExecutions.push({
+          name: call.function.name,
+          arguments: call.function.arguments,
+          result: catalogCorrection,
+          durationMs: 0,
+          isError: true,
+          blocked: true,
+          blockedReason: 'Invalid local tool catalog arguments.',
+        });
+      }
+      stalledTurns += 1;
+      console.error(
+        '[model] rejected local catalog arguments; requesting correction',
+      );
+      continue;
     }
     if (invalidToolCallError) {
       console.error(
@@ -1948,6 +1983,22 @@ async function processRequest(
         artifactPaths,
       });
       callIndex += 1;
+    }
+    if (
+      localToolCatalog &&
+      tools === localToolCatalog.tools &&
+      toolCalls.some(
+        (call, index) =>
+          call.function.name !==
+          choice.message.tool_calls?.[index]?.function.name,
+      )
+    ) {
+      // Append after a catalog-executed tool; keep prior messages and schemas
+      // intact even when the returned skill instructions name unexposed tools.
+      history.push({
+        role: 'user',
+        content: `Runtime tool reminder: The previous result does not expose additional functions. ${localToolCatalog.promptGuidance()}`,
+      });
     }
     stalledTurns = advanceStalledTurnCount({
       current: stalledTurns,

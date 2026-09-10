@@ -116,6 +116,50 @@ tests, 61 targeted unit tests, and five worker IPC/model-HTTP tests passed.
 The IPC checks preserve schema and system-message stability within a turn and
 verify full-mode behavior, permission restrictions, and approval replay.
 
+### Missing-description recovery (2026-09-10)
+
+The next live PDF turn completed `tool_catalog` list, then stopped on an unknown
+tool lookup. A native continuation replay reproduced `action=describe` with
+`name=pdf`: the model confused a skill name with a tool name. Returning a
+corrective lookup error made it describe `read` next. Returning the standalone
+`read` function schema then produced an unexposed direct call, which MLX rejected.
+
+Catalog descriptions therefore show the actual `tool_catalog` invocation schema,
+including the target name and its nested argument schema. Another native
+continuation omitted the top-level `name` field from its catalog call. Missing
+descriptions and missing call fields share a budget of two corrective results
+per request. Invalid argument batches are recorded as blocked and no sibling
+action executes. The catalog never executes an unknown target or echoes its
+name in a lookup error. Attempts to call
+unavailable tools, disabled discovery, and revoked approval targets remain
+rejected. Native generation still rejects unexposed functions; no call rewriting
+or runtime configuration change is part of this correction.
+
+The final schema requires `name` on every catalog call (empty for general
+listings). After a catalog-executed action, an append-only runtime reminder
+repeats the exposed functions; previous messages and system/tool definitions
+are unchanged. The reminder distinguishes tool names in skill instructions from the
+functions exposed in the current request.
+
+An isolated native worker then completed the original dog-joke PDF request with
+only `skills_list` and `tool_catalog` exposed, using the installed Spark model
+and recorded system/dynamic context. Its permitted underlying tools were limited
+to `read`, `write`, `bash`, and `skills_list` to avoid external side effects; the
+user's configuration and running gateway were not changed. The worker read the
+bundled PDF skill and helpers and executed the bundled PDF generator. It
+reported one PDF artifact after 125.54 seconds, with eight tool records including
+two errors it recovered from. Text extraction confirmed the joke on one page,
+and the rendered page was visually checked. This qualifies one native PDF workflow in the
+isolated fixture, not general model reliability or the full configured MCP set.
+
+Validation: 24 catalog unit tests, ten real worker IPC/model-HTTP tests, root
+lint/typechecks, container lint, formatting, and the production build passed.
+Tests cover bounded recovery, shared correction budgets, malformed batches
+executing no siblings, missing name fields, filtered targets, disabled discovery,
+security hooks, approval replay, full/direct-tool preservation, and exact
+preservation of earlier messages and schemas. Full unit/e2e suites, Docker-to-Mac
+GPU execution, and credentialed remote-provider tests were not rerun.
+
 ## Reproducible measurement
 
 The [raw synthetic smoke report](mac-inference-smoke.json) was captured on an

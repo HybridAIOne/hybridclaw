@@ -2,7 +2,8 @@
  * Local requests expose stable starter schemas and bounded discovery results.
  * Only tools admitted by the request policy enter this catalog. Calls unwrap
  * before approval/audit; unlike tools.ts this module never executes actions.
- * Prompt guidance names only the schemas actually exposed for this request.
+ * Invalid lookups/argument shapes return bounded feedback; unavailable actions
+ * remain rejected. Prompt guidance names only the exposed request schemas.
  */
 import {
   DEFAULT_LOCAL_STARTER_TOOLS,
@@ -15,6 +16,9 @@ const NAME = 'tool_catalog';
 // Tokenizer-aware schema budgets are deferred; native context admission still applies.
 const PAGE_SIZE = 10;
 const MAX_SCHEMA_CHARS = 24_000;
+// Engineering choice, 2026-09-10: two catalog corrections per request.
+// Missing fields/lookups may recover; unavailable actions stay fail-fast.
+const MAX_CATALOG_CORRECTIONS = 2;
 const CATALOG_TOOL: ToolDefinition = {
   type: 'function',
   function: {
@@ -36,7 +40,8 @@ const CATALOG_TOOL: ToolDefinition = {
         },
         name: {
           type: 'string',
-          description: 'Exact tool name for describe or call.',
+          description:
+            'Required on every call. Exact tool name for describe or call; use an empty string for list.',
         },
         arguments: {
           type: 'object',
@@ -45,7 +50,7 @@ const CATALOG_TOOL: ToolDefinition = {
             'Arguments matching the described tool schema; required for call.',
         },
       },
-      required: ['action'],
+      required: ['action', 'name'],
     },
   },
 };
@@ -62,10 +67,13 @@ function readArgs(text: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+class CatalogArgumentError extends Error {}
+
 export class LocalToolCatalog {
   readonly tools: ToolDefinition[];
   private readonly byName: Map<string, ToolDefinition>;
   private readonly starters: Set<string>;
+  private corrections = 0;
 
   constructor(
     availableTools: ToolDefinition[],
@@ -130,6 +138,10 @@ export class LocalToolCatalog {
     if (!this.tools.some((tool) => tool.function.name === NAME))
       throw new Error('Tool discovery is not available in this request.');
     const args = readArgs(call.function.arguments);
+    if (typeof args.name !== 'string')
+      throw new CatalogArgumentError(
+        'Tool catalog requires a top-level name on every call. Use the exact tool name for describe/call, or an empty string for list.',
+      );
     if (args.action === 'list') {
       if (args.query !== undefined && typeof args.query !== 'string')
         throw new Error('Tool catalog query must be a string.');
@@ -143,18 +155,27 @@ export class LocalToolCatalog {
       return call;
     }
     if (args.action === 'describe') {
-      this.requireTool(args.name);
+      if (typeof args.name !== 'string' || !args.name.trim())
+        throw new Error('Tool catalog describe requires an exact tool name.');
+      if (this.corrections >= MAX_CATALOG_CORRECTIONS)
+        this.requireTool(args.name);
       return call;
     }
     if (args.action !== 'call')
       throw new Error('Tool catalog action must be list, describe, or call.');
+    if (typeof args.name !== 'string' || !args.name.trim())
+      throw new CatalogArgumentError(
+        'Tool catalog call requires a top-level name containing the exact tool name. Put the file path inside arguments.path, not name.',
+      );
     const tool = this.requireTool(args.name);
     if (
       !args.arguments ||
       typeof args.arguments !== 'object' ||
       Array.isArray(args.arguments)
     )
-      throw new Error('Tool catalog call requires an arguments object.');
+      throw new CatalogArgumentError(
+        'Tool catalog call requires an arguments object.',
+      );
     return {
       ...call,
       function: {
@@ -164,12 +185,58 @@ export class LocalToolCatalog {
     };
   }
 
+  recoverArgumentError(error: unknown): ToolRunResult | null {
+    if (
+      !(error instanceof CatalogArgumentError) ||
+      this.corrections >= MAX_CATALOG_CORRECTIONS
+    )
+      return null;
+    this.corrections += 1;
+    return {
+      output: `Error: ${error.message} No tool in this batch was executed. Retry tool_catalog with all three fields: action="call", name (the exact described tool name), and arguments (an object matching its parameters).`,
+      isError: true,
+    };
+  }
+
   discoveryResult(call: ToolCall): ToolRunResult | null {
     if (call.function.name !== NAME) return null;
     this.resolveCall(call);
     const args = readArgs(call.function.arguments);
     if (args.action === 'describe') {
-      const output = JSON.stringify(this.requireTool(args.name));
+      const tool = this.byName.get(args.name as string);
+      if (!tool) {
+        this.corrections += 1;
+        return {
+          output: [
+            'Error: Tool is not available in this request. No action was executed.',
+            'Skill names and file paths are not tool names. Use tool_catalog action=list with a keyword query to find a permitted tool, then describe its exact name.',
+            this.byName.has('read')
+              ? 'To read a skill file, describe the tool named read, then call it through tool_catalog with the skill location as path.'
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+          isError: true,
+        };
+      }
+      // Describe the callable wrapper, not a new top-level function. The model
+      // sees the target's exact parameters without changing its supplied tools.
+      const output = JSON.stringify({
+        type: 'function',
+        function: {
+          name: NAME,
+          description: `Execute ${tool.function.name} using action="call", name="${tool.function.name}", and arguments matching the schema below. ${tool.function.description}`,
+          parameters: {
+            type: 'object',
+            properties: {
+              action: { type: 'string', enum: ['call'] },
+              name: { type: 'string', enum: [tool.function.name] },
+              arguments: tool.function.parameters,
+            },
+            required: ['action', 'name', 'arguments'],
+          },
+        },
+      });
       return output.length > MAX_SCHEMA_CHARS
         ? {
             output:
