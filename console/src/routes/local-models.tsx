@@ -143,7 +143,6 @@ function MacLocalModelsPage() {
   return (
     <div className={styles.page}>
       <PageHeader
-        description="Run a model on your Mac. Setup picks from the current shortlist and leaves room for macOS and your other apps."
         actions={
           <Button
             variant="outline"
