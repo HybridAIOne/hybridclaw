@@ -125,6 +125,8 @@ export interface ContainerOutput {
   artifacts?: ArtifactMetadata[];
   memoryCitations?: MemoryCitation[];
   toolExecutions?: ToolExecution[];
+  toolHistory?: ChatMessage[];
+  toolHistoryForReplay?: ChatMessage[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;

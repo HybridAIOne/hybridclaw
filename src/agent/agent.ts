@@ -1,3 +1,8 @@
+/**
+ * Agent execution validates replayable tool history at the worker boundary and
+ * applies confidential placeholders across turns. Executors run tools; this
+ * layer does not grant permissions or turn audit records into instructions.
+ */
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { makeAuditRunId } from '../audit/audit-events.js';
@@ -11,6 +16,10 @@ import {
   isConfidentialRedactionEnabled,
 } from '../security/confidential-runtime.js';
 import { withResolvedSecretLeakRules } from '../security/secret-leak-corpus.js';
+import {
+  sanitizeToolHistory,
+  transformToolHistory,
+} from '../session/tool-history.js';
 import type { ContainerOutput } from '../types/container.js';
 import type {
   PendingApproval,
@@ -203,6 +212,12 @@ async function runAgentInner(
       'agent.approval_progress',
     ),
   });
+  if (output.toolHistory)
+    output.toolHistory = sanitizeToolHistory(output.toolHistory);
+  if (output.toolHistoryForReplay)
+    output.toolHistoryForReplay = sanitizeToolHistory(
+      output.toolHistoryForReplay,
+    );
   if (!confidential.enabled) return output;
   const rehydratedToolExecutions = output.toolExecutions?.map(
     (execution) =>
@@ -231,6 +246,16 @@ async function runAgentInner(
           'agent.effective_user_prompt',
         )
       : output.effectiveUserPrompt,
+    toolHistory: output.toolHistory
+      ? transformToolHistory(output.toolHistory, (text) =>
+          confidential.rehydrate(text, 'agent.tool_history'),
+        )
+      : undefined,
+    toolHistoryForReplay: output.toolHistoryForReplay
+      ? transformToolHistory(output.toolHistoryForReplay, (text) =>
+          confidential.rehydrate(text, 'agent.tool_history_replay'),
+        )
+      : undefined,
     toolExecutions: rehydratedToolExecutions ?? output.toolExecutions,
     pendingApproval: rehydratedPendingApproval ?? output.pendingApproval,
   };

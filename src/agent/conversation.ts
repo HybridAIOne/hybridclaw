@@ -1,5 +1,8 @@
+/**
+ * Conversation prompts replay persisted tool exchanges alongside their final
+ * assistant message. Audit events are never promoted into prompt instructions.
+ */
 import os from 'node:os';
-
 import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '../../container/shared/dynamic-context.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
@@ -7,6 +10,7 @@ import {
   type HistoryOptimizationStats,
   optimizeHistoryMessagesForPrompt,
 } from '../session/token-efficiency.js';
+import { expandStoredMessage } from '../session/tool-history.js';
 import {
   loadSkills,
   resolveSkillInvocationForTurn,
@@ -34,6 +38,8 @@ import { mergeAllowedToolNames, mergeBlockedToolNames } from './tool-policy.js';
 interface HistoryMessage {
   role: string;
   content: ChatMessage['content'];
+  session_id?: string;
+  tool_history_json?: string | null;
 }
 
 const HOSTNAME = sanitizeDynamicContextValue(os.hostname());
@@ -198,12 +204,7 @@ export function buildConversationContext(params: {
     );
   }
 
-  const historyMessages = [...history].reverse().map(
-    (msg): ChatMessage => ({
-      role: msg.role as ChatMessage['role'],
-      content: msg.content,
-    }),
-  );
+  const historyMessages = [...history].reverse().flatMap(expandStoredMessage);
 
   const optimizedHistory = optimizeHistoryMessagesForPrompt(historyMessages);
 

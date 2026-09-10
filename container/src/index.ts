@@ -1,3 +1,8 @@
+/**
+ * Worker turns retain full tool exchanges and the surviving model-visible
+ * messages separately. The gateway owns durable storage; this loop neither
+ * replays tool side effects nor treats historical calls as approvals.
+ */
 import path from 'node:path';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import {
@@ -126,6 +131,7 @@ import {
   setWebSearchConfig,
   TOOL_DEFINITIONS,
 } from './tools.js';
+import { TurnToolHistory } from './turn-tool-history.js';
 import {
   type ArtifactMetadata,
   type ChatCompletionResponse,
@@ -606,6 +612,7 @@ function formatToolNameForLog(toolName: string): string {
 
 function appendCompletedToolCall(params: {
   completed: CompletedToolCallExecution;
+  turnToolHistory: TurnToolHistory;
   toolsUsed: string[];
   toolExecutions: ToolExecution[];
   history: ChatMessage[];
@@ -621,7 +628,9 @@ function appendCompletedToolCall(params: {
     params.artifactPaths.add(artifactKey);
     params.artifacts.push(artifact);
   }
-  params.history.push(params.completed.historyMessage);
+  params.history.push(
+    params.turnToolHistory.recordResult(params.completed.historyMessage),
+  );
   recordToolCallOutcome(
     params.toolCallHistory,
     params.completed.toolName,
@@ -1012,6 +1021,25 @@ function inputRuntimeContext(
 async function processRequest(
   params: ProcessRequestParams,
 ): Promise<ContainerOutput> {
+  const turnToolHistory = new TurnToolHistory(params.sessionId);
+  const output = await processRequestInner(params, turnToolHistory);
+  const reason = output.pendingApproval
+    ? 'Awaiting human approval; execution has not occurred.'
+    : output.error || 'The turn ended before this call could execute.';
+  const toolHistory = turnToolHistory.finish(reason);
+  return toolHistory.length
+    ? {
+        ...output,
+        toolHistory,
+        toolHistoryForReplay: turnToolHistory.finish(reason, true),
+      }
+    : output;
+}
+
+async function processRequestInner(
+  params: ProcessRequestParams,
+  turnToolHistory: TurnToolHistory,
+): Promise<ContainerOutput> {
   const {
     sessionId,
     messages,
@@ -1054,13 +1082,21 @@ async function processRequest(
     event: 'before_agent_start',
     messageCount: messages.length,
   });
-  const preparedHistory = skipContainerSystemPrompt
-    ? messages.map((message) => ({ ...message }))
-    : injectRuntimeCapabilitiesMessage(messages);
+  const preparedHistory = (
+    skipContainerSystemPrompt
+      ? messages.map((message) => ({ ...message }))
+      : injectRuntimeCapabilitiesMessage(messages)
+  ).map((message) => {
+    const next = { ...message };
+    if (provider !== 'anthropic') delete next.anthropic_content;
+    if (provider !== 'openai-codex') delete next.openai_response_items;
+    return next;
+  });
   let history: ChatMessage[] =
     provider === 'anthropic'
       ? preparedHistory
       : collapseSystemMessages(preparedHistory);
+  turnToolHistory.retain(history);
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
   const toolCallHistory: ToolCallHistoryEntry[] = [];
@@ -1229,16 +1265,19 @@ async function processRequest(
       approvedToolCall.argsJson,
       approval,
     );
-    history.push({
+    const approvedMessage: ChatMessage = {
       role: 'assistant',
       content: null,
       tool_calls: [approvedCall],
-    });
+    };
+    turnToolHistory.recordAssistant(approvedMessage);
+    history.push(approvedMessage);
     const completed = await executePreparedToolCall(
       { call: approvedCall, approval },
       toolCallHistory,
     );
     appendCompletedToolCall({
+      turnToolHistory,
       completed,
       toolsUsed,
       toolExecutions,
@@ -1333,6 +1372,7 @@ async function processRequest(
         return overflow;
       }
       history = compacted.history;
+      turnToolHistory.retain(history);
       compactionRetries += 1;
       console.error(
         `[context] in-loop compaction retry=${compactionRetries} compactedMessages=${compacted.compactedMessages} summarySource=${compacted.summarySource}`,
@@ -1549,6 +1589,7 @@ async function processRequest(
         choice.message.openai_response_items;
     }
 
+    turnToolHistory.recordAssistant(assistantMessage);
     history.push(assistantMessage);
     if (toolCalls.length === 0) {
       if (ralphEnabled) {
@@ -1767,6 +1808,7 @@ async function processRequest(
               successfulToolCallsThisTurn += 1;
             }
             appendCompletedToolCall({
+              turnToolHistory,
               completed,
               toolsUsed,
               toolExecutions,
@@ -1865,6 +1907,7 @@ async function processRequest(
         successfulToolCallsThisTurn += 1;
       }
       appendCompletedToolCall({
+        turnToolHistory,
         completed,
         toolsUsed,
         toolExecutions,

@@ -1,3 +1,9 @@
+/**
+ * Gateway turns persist replayable tool exchanges with their assistant result,
+ * including partial failures. Transport authorization remains the HTTP/channel
+ * boundary's responsibility; transcript evidence never authorizes execution.
+ */
+
 import path from 'node:path';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
@@ -2582,6 +2588,8 @@ async function handleGatewayMessageInner(
         canonicalScopeId: canonicalContextScope,
         userContent: storedUserContent,
         error: errorMessage,
+        toolHistory: output.toolHistory,
+        toolHistoryForReplay: output.toolHistoryForReplay,
         tools:
           toolExecutions.length > 0
             ? errorTurnToolsFromExecutions(toolExecutions)
@@ -2758,6 +2766,8 @@ async function handleGatewayMessageInner(
       userContent: storedUserContent,
       resultText,
       artifacts: output.artifacts,
+      toolHistory: output.toolHistory,
+      toolHistoryForReplay: output.toolHistoryForReplay,
       toolCallCount: toolExecutions.length,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
