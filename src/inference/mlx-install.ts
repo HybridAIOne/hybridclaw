@@ -168,7 +168,6 @@ export async function installMlxModel(
         license: selected.license,
         port: 8321,
         contextWindow: selected.contextWindow,
-        maxTokens: selected.maxTokens,
         memoryLimitBytes: estimate.memoryLimitBytes,
         cacheBytes: selected.cacheBytes,
       };

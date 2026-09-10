@@ -4,19 +4,28 @@ import tempfile
 import unittest
 from pathlib import Path
 from model_store import digest, validate_manifest, write_private
-from server import ContextBudgetError, GeneratedToolCallError, generation_error, preparation_error, validate_body, validate_context_budget, validate_generated_tool_calls, validate_profile
+from server import ContextBudgetError, GeneratedToolCallError, generation_error, preparation_error, validate_body, resolve_output_budget, validate_generated_tool_calls, validate_profile
 from trusted_architectures import SPARK_ARTIFACT, SPARK_AUTO_MAP, validate_model_code
 
 
 class BoundaryTests(unittest.TestCase):
-    def test_context_admission_reports_exact_counts_including_output_reserve(self):
-        validate_context_budget(38912, 2048, 40960, 114)
-        with self.assertRaises(ContextBudgetError) as caught:
-            validate_context_budget(38913, 2048, 40960, 114)
-        error = preparation_error(caught.exception)
-        self.assertIs(error, caught.exception)
-        self.assertIn("38913 prompt tokens + 2048 output tokens > 40960 tokens (114 tools)", str(error))
-        self.assertIn("Reduce instructions or enabled tools", str(error))
+    def test_output_uses_remaining_exact_context_without_a_short_reasoning_cap(self):
+        self.assertEqual(resolve_output_budget(22533, 40960, 40960, 2), 18427)
+        self.assertEqual(resolve_output_budget(40959, 40960, 40960, 2), 1)
+        self.assertEqual(resolve_output_budget(100, 4096, 4096, 10), 3996)
+
+    def test_explicit_request_caps_are_honored_within_remaining_context(self):
+        self.assertEqual(resolve_output_budget(100, 32, 40960, 2), 32)
+        self.assertEqual(resolve_output_budget(40950, 512, 40960, 2), 10)
+
+    def test_full_or_overflowing_prompts_fail_before_generation(self):
+        for prompt_tokens in [40960, 50649]:
+            with self.assertRaises(ContextBudgetError) as caught:
+                resolve_output_budget(prompt_tokens, 40960, 40960, 114)
+            error = preparation_error(caught.exception)
+            self.assertIs(error, caught.exception)
+            self.assertIn(f"{prompt_tokens} prompt tokens + 1 output tokens > 40960 tokens (114 tools)", str(error))
+            self.assertIn("Reduce instructions or enabled tools", str(error))
 
     def test_preparation_errors_do_not_expose_library_messages_or_guess_overflow(self):
         for original in [ValueError("private prompt text"), RuntimeError("private schema text"), KeyError("private field")]:
@@ -56,11 +65,11 @@ class BoundaryTests(unittest.TestCase):
 
     def test_larger_context_requires_the_qualified_spark_artifact(self):
         profile = {"repo": SPARK_ARTIFACT[0], "revision": SPARK_ARTIFACT[1], "port": 8321,
-                   "contextWindow": 40960, "maxTokens": 2048, "memoryLimitBytes": 7 * 1024**3,
+                   "contextWindow": 40960, "memoryLimitBytes": 7 * 1024**3,
                    "cacheBytes": 2 * 1024**3}
         validate_profile(profile)
         for override in [{"contextWindow": 40961}, {"contextWindow": True}, {"repo": "example/model"},
-                         {"revision": "a" * 40}, {"maxTokens": 40961}, {"cacheBytes": 8 * 1024**3}]:
+                         {"revision": "a" * 40}, {"cacheBytes": 8 * 1024**3}]:
             with self.assertRaises(ValueError): validate_profile({**profile, **override})
         validate_profile({**profile, "repo": "example/model", "contextWindow": 8192})
 
@@ -84,6 +93,19 @@ class BoundaryTests(unittest.TestCase):
         for extra in [{"model": "other"}, {"draft_model": "remote/model"}, {"adapters": "../private"}, {"max_tokens": 65}, {"max_tokens": -1}, {"max_tokens": True}, {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://example.com/image"}}]}]}, {"tools": [{"type": "function", "function": {"name": "bad/name"}}]}]:
             with self.assertRaises(ValueError):
                 validate_body({**body, **extra}, "test-model", 64)
+
+    def test_output_request_budget_accepts_long_generation_and_rejects_invalid_caps(self):
+        body = {"model": "test-model", "messages": [{"role": "user", "content": "test"}]}
+        self.assertEqual(validate_body(body, "test-model", 40960), body)
+        for key in ["max_tokens", "max_completion_tokens"]:
+            for cap in [4096, 18427, 40960]:
+                request = {**body, key: cap}
+                self.assertEqual(validate_body(request, "test-model", 40960), request)
+            for cap in [None, True, 0, -1, 1.5, "4096", 40961]:
+                with self.assertRaises(ValueError):
+                    validate_body({**body, key: cap}, "test-model", 40960)
+        with self.assertRaises(ValueError):
+            validate_body({**body, "max_tokens": -1, "max_completion_tokens": 64}, "test-model", 40960)
 
     def test_manifest_integrity_and_paths(self):
         with tempfile.TemporaryDirectory() as directory:

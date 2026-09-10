@@ -221,6 +221,44 @@ produce a successful “Done.” turn; valid tool calls following reasoning stil
 execute through their normal checks. This does not establish improved native
 model reliability or latency.
 
+## Context-sized reasoning and skill state (2026-09-10)
+
+The managed installation stored a 2,048-token generation cap independently of
+its 40,960-token context. That field is removed: the native tokenizer computes
+`min(requested output limit, installed context - exact prompt tokens)` before
+prefill or generation. With no request limit, all remaining context is available.
+The former failing call's 22,533-token prompt has 18,427 tokens available under
+this rule. Setup's deliberately small qualification requests retain explicit
+limits. Existing model weights and admitted context/memory budgets are unchanged.
+
+A request-local guard cancels native generation on at least four exact reasoning
+cycles spanning at least 256 tokens, checking periods up to 256 tokens every 16
+tokens. It ignores normal/tool states and clears history at state boundaries.
+Its fixed error contains no model output. This conservative guard does not
+classify semantic or paraphrased repetition.
+
+Native HTTP and sandbox IPC deadlines expire on inactivity. MLX uses SSE on the
+wire for collected answers too, so long reasoning produces observable progress.
+Transport storage remains bounded (64 MiB native response, 96 MiB base64 IPC),
+allowing the admitted context to emit individual token frames. Cancelling the
+consumer still cancels native generation; model/destination/auth checks remain
+at the existing boundaries. Longer requests can occupy the single worker and
+its admitted cache for longer, but cannot exceed the configured context or
+memory allocation. No tool schemas, permissions, approvals, or prompt history
+are changed by the generation guard.
+
+The original full-skill prompt predates the operator's switch to starred skill
+mode. A later recorded prompt, after the switch, contains zero inline skill
+entries and the directory instruction. Tests explicitly exercise instance
+starred mode with zero stars, mandatory skill behavior, and agent overrides.
+
+Validation: 135 targeted Vitest tests, 18 Python tests, root/container lint and
+typechecks, formatting, and the production build passed. The Python tests use
+synthetic token streams, and transport tests simulate clock advancement; they
+are not new GPU performance or end-to-end task-success measurements. The running
+native service must be restarted to load the changed Python component. No
+operator configuration or running process was changed during these checks.
+
 ## Reproducible measurement
 
 The [raw synthetic smoke report](mac-inference-smoke.json) was captured on an

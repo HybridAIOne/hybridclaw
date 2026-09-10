@@ -26,7 +26,6 @@ export interface MlxInstallation {
   license: string;
   port: number;
   contextWindow: number;
-  maxTokens: number;
   memoryLimitBytes: number;
   cacheBytes: number;
 }
@@ -51,9 +50,6 @@ export function readMlxInstallation(home = mlxHome()): MlxInstallation {
     !Number.isInteger(value.contextWindow) ||
     value.contextWindow < 2048 ||
     value.contextWindow > 40960 ||
-    !Number.isInteger(value.maxTokens) ||
-    value.maxTokens < 1 ||
-    value.maxTokens > value.contextWindow ||
     !Number.isSafeInteger(value.memoryLimitBytes) ||
     value.memoryLimitBytes <= 0 ||
     !Number.isSafeInteger(value.cacheBytes) ||

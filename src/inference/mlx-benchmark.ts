@@ -27,7 +27,7 @@ export async function benchmarkMlx(home: string) {
       stream_options: { include_usage: true },
       // 2026-09-10, Codex Spark qualification: reserve room for reasoning and
       // visible output; larger quality/context benchmarks remain separate.
-      max_tokens: Math.min(512, installation.maxTokens),
+      max_tokens: 512,
       messages: [
         {
           role: 'user',

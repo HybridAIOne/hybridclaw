@@ -2,11 +2,17 @@
  * MLX transport preserves native loopback isolation for Docker workers.
  * Relay IDs select turn-scoped IPC files, never a host URL or credential.
  * Direct host calls use the same compatible API with isolated task caches.
+ * Active responses keep their idle deadline alive regardless of total duration.
  */
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import {
+  fetchMlxWithIdleTimeout,
+  MLX_IDLE_TIMEOUT_MS,
+  MLX_MAX_RELAY_BYTES,
+} from '../../shared/mlx-http.js';
 
 export async function fetchMlx(
   url: string,
@@ -29,14 +35,10 @@ export async function fetchMlx(
     )
       throw new Error('MLX must remain on host loopback.');
     headers.set('X-HybridClaw-Task', task || randomBytes(16).toString('hex'));
-    return fetch(url, {
+    return fetchMlxWithIdleTimeout(url, {
       ...init,
       headers,
       redirect: 'error',
-      signal: AbortSignal.any([
-        AbortSignal.timeout(180_000),
-        ...(init.signal ? [init.signal] : []),
-      ]),
     });
   }
   const relay = headers.get('X-HybridClaw-Relay') || '';
@@ -64,7 +66,7 @@ export async function fetchMlx(
   let responseStatus = 0;
   let contentType = '';
   const chunks: Uint8Array[] = [];
-  const deadline = Date.now() + 180_000;
+  let deadline = Date.now() + MLX_IDLE_TIMEOUT_MS;
   const cancelRelay = () => {
     finished = true;
     try {
@@ -90,10 +92,12 @@ export async function fetchMlx(
           fs.constants.O_NONBLOCK,
       );
       const stat = fs.fstatSync(file);
-      if (!stat.isFile() || stat.size > 16 * 1024 ** 2)
+      if (!stat.isFile() || stat.size > MLX_MAX_RELAY_BYTES)
         throw new Error('Invalid relay response.');
       const data = Buffer.alloc(Math.max(0, stat.size - offset));
-      offset += fs.readSync(file, data, 0, data.length, offset);
+      const read = fs.readSync(file, data, 0, data.length, offset);
+      offset += read;
+      if (read > 0) deadline = Date.now() + MLX_IDLE_TIMEOUT_MS;
       pending += data.toString('utf8');
       const lines = pending.split('\n');
       pending = lines.pop() || '';

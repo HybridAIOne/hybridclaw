@@ -89,7 +89,13 @@ Its estimate counts nine full-attention caches and 27 bounded sliding-window
 caches, including prefill headroom. Other supported models retain their
 8,192-token qualification ceiling. Existing installations retain their saved
 context; rerun setup for the same model to recalculate it using cached downloads.
-Spark retains its default reasoning mode, which shares the output token budget.
+Spark retains its default reasoning mode. Each request can generate up to the
+space remaining after its exact tokenized prompt; there is no separate 2,048-token
+installation cap. For example, a 22,533-token prompt in a 40,960-token context
+leaves 18,427 tokens for reasoning and the answer. An explicit smaller API request
+limit is respected. Generation never grows beyond the installed context/memory
+budget. Existing installations use this behavior after restarting the model,
+without downloading the weights again.
 Advertised 262K/1M limits are not allocation recommendations. Short contexts can
 be exceeded by the agent's base instructions and tool schemas, even in an empty
 chat. Resetting that chat cannot shrink its base prompt. Catalog
@@ -151,6 +157,17 @@ A reasoning-only local response is not a completion confirmation. If generation
 ends without a visible answer or tool call, the turn reports an error. Reaching
 the output-token limit is reported separately from a context overflow; the
 runtime preserves recorded tool results and does not synthesize “Done.”
+
+MLX stops sustained exact reasoning cycles: at least four repetitions covering
+at least 256 tokens, with cycle lengths up to 256 tokens. Visible output
+and tool arguments are excluded from this reasoning guard. Near-repetitions
+and paraphrased loops are not detected. Long reasoning with new content can
+continue until the remaining context is used.
+
+MLX requests use streaming internally even when the caller collects one answer.
+Active streams refresh their inactivity deadline; they have no three-minute
+wall-clock cutoff. Inactivity, cancellation, the admitted context, and finite
+transport size bounds still stop stalled or oversized requests.
 
 For small local models, starring `read` and `bash` avoids catalog round trips for
 routine skill use. **Starred + directory** in Skills reduces the inline catalog;
@@ -231,8 +248,8 @@ or stopping a model in Labs also invalidates the cached model list.
 
 An online model can still reject a request that exceeds its context window.
 The MLX context-limit error reports the actual prompt tokens, reserved output
-tokens, installed limit, and tool count. Tool schemas and instructions count
-toward this budget even in a fresh chat. Reduce the agent's instructions or
+tokens needed for any generation, installed limit, and tool count. Tool schemas
+and instructions count toward this budget even in a fresh chat. Reduce the agent's instructions or
 enabled tools, or select a model with a larger context window. Other request
 preparation failures are reported separately, without exposing library errors
 that may contain prompt content or credentials.

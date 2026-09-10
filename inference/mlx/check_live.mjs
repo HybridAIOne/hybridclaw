@@ -51,7 +51,7 @@ export async function checkLive(home) {
     ).status === 401;
   checks.modelPin = (await chat({ model: 'other-model' })).status === 400;
   checks.outputBudget =
-    (await chat({ max_tokens: profile.maxTokens + 1 })).status === 400;
+    (await chat({ max_tokens: profile.contextWindow + 1 })).status === 400;
   checks.remoteCode = (await chat({ adapters: 'remote/model' })).status === 400;
   await (await chat()).json();
   const cached = await (
@@ -67,7 +67,7 @@ export async function checkLive(home) {
   const stream = await chat(
     {
       stream: true,
-      max_tokens: profile.maxTokens,
+      max_tokens: profile.contextWindow,
       messages: [
         { role: 'user', content: 'Write a long story about a garden.' },
       ],
@@ -95,7 +95,7 @@ export async function checkLive(home) {
   const cancellation = new AbortController();
   const pending = chat(
     {
-      max_tokens: profile.maxTokens,
+      max_tokens: profile.contextWindow,
       messages: [
         { role: 'user', content: 'Write a long story about a forest.' },
       ],

@@ -2,6 +2,7 @@
 
 The upstream generator supplies chat/tool streaming. This boundary owns auth,
 resource admission, task cache isolation and lifecycle, never agent tools.
+Generation uses remaining context; repeated reasoning is stopped independently.
 """
 
 import argparse
@@ -22,6 +23,7 @@ from functools import partial
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+from generation_guard import ReasoningLoopError, guard_reasoning_stream
 from model_store import validate_manifest
 from trusted_architectures import SPARK_ARTIFACT, register_packaged_model
 
@@ -42,9 +44,12 @@ class ContextBudgetError(ValueError):
         )
 
 
-def validate_context_budget(prompt_tokens, output_tokens, context_window, tool_count):
-    if prompt_tokens + output_tokens > context_window:
-        raise ContextBudgetError(prompt_tokens, output_tokens, context_window, tool_count)
+def resolve_output_budget(prompt_tokens, requested_tokens, context_window, tool_count):
+    # 2026-09-10, owner request: allow long reasoning within the admitted KV
+    # budget. Explicit request caps still apply; larger context awaits qualification.
+    if prompt_tokens >= context_window:
+        raise ContextBudgetError(prompt_tokens, 1, context_window, tool_count)
+    return min(requested_tokens, context_window - prompt_tokens)
 
 
 def preparation_error(error):
@@ -84,21 +89,21 @@ def validate_generated_tool_calls(response, allowed):
 
 
 def generation_error(error):
-    if isinstance(error, GeneratedToolCallError):
+    if isinstance(error, (GeneratedToolCallError, ReasoningLoopError)):
         return str(error)
     if isinstance(error, MemoryError):
         return "Local inference ran out of memory. Close other apps and retry."
     return "Local inference failed; check the local model runtime."
 
 
-def validate_body(body, model, max_tokens):
+def validate_body(body, model, context_window):
     if not isinstance(body, dict) or set(body) - ALLOWED_KEYS:
         raise ValueError("Unsupported request fields")
     if body.get("model") != model:
         raise ValueError("Only the installed model is available")
-    count = body.get("max_completion_tokens", body.get("max_tokens", max_tokens))
-    if type(count) is not int or not 1 <= count <= max_tokens:
-        raise ValueError("Output budget exceeds installation limit")
+    for key in ("max_tokens", "max_completion_tokens"):
+        if key in body and (type(body[key]) is not int or not 1 <= body[key] <= context_window):
+            raise ValueError("Output budget exceeds context limit")
     messages = body.get("messages")
     if not isinstance(messages, list) or not messages:
         raise ValueError("Messages are required")
@@ -127,12 +132,12 @@ def validate_body(body, model, max_tokens):
 
 
 def validate_profile(profile):
-    for key in ["port", "contextWindow", "maxTokens", "memoryLimitBytes", "cacheBytes"]:
+    for key in ["port", "contextWindow", "memoryLimitBytes", "cacheBytes"]:
         if type(profile.get(key)) is not int or profile[key] <= 0:
             raise ValueError("Invalid installation resource budget")
     context_limit = 40960 if (profile.get("repo"), profile.get("revision")) == SPARK_ARTIFACT else 8192
     if not (1024 <= profile["port"] <= 65535 and 2048 <= profile["contextWindow"] <= context_limit and
-            profile["maxTokens"] <= profile["contextWindow"] and profile["cacheBytes"] <= profile["memoryLimitBytes"]):
+            profile["cacheBytes"] <= profile["memoryLimitBytes"]):
         raise ValueError("Invalid installation limits")
 
 
@@ -179,7 +184,7 @@ def serve(home):
     args = argparse.Namespace(model=str(model_path), adapter_path=None, draft_model=None,
         trust_remote_code=False, chat_template="", use_default_chat_template=False,
         chat_template_args={"enable_thinking": enable_thinking}, pipeline=False, num_draft_tokens=0,
-        allowed_origins=[], max_tokens=profile["maxTokens"], temp=0.2, top_p=0.95, top_k=20, min_p=0,
+        allowed_origins=[], max_tokens=profile["contextWindow"], temp=0.2, top_p=0.95, top_k=20, min_p=0,
         decode_concurrency=1, prompt_concurrency=1, prefill_step_size=256,
         prompt_cache_size=2, prompt_cache_bytes=profile["cacheBytes"])
 
@@ -240,7 +245,7 @@ def serve(home):
 
         def _tokenize(self, tokenizer, request, arguments):
             result = super()._tokenize(tokenizer, request, arguments)
-            validate_context_budget(
+            arguments.max_tokens = resolve_output_budget(
                 len(result[0]), arguments.max_tokens, profile["contextWindow"],
                 len(request.tools or []),
             )
@@ -252,7 +257,7 @@ def serve(home):
             except Exception as error:
                 raise preparation_error(error) from None
             self.context = ctx
-            return ctx, stream
+            return ctx, guard_reasoning_stream(ctx, stream)
 
     generator = Generator(provider, LRUPromptCache(2, profile["cacheBytes"]))
     admission = threading.Lock()
@@ -313,7 +318,7 @@ def serve(home):
                     "peakMemoryBytes": mx.get_peak_memory(), "activeMemoryBytes": mx.get_active_memory(),
                 })
             elif self.path == "/v1/models":
-                self.reply(200, {"object": "list", "data": [{"id": profile["model"], "object": "model", "context_length": profile["contextWindow"], "max_tokens": profile["maxTokens"], "owned_by": "local", "vision": False}]})
+                self.reply(200, {"object": "list", "data": [{"id": profile["model"], "object": "model", "context_length": profile["contextWindow"], "max_tokens": profile["contextWindow"], "owned_by": "local", "vision": False}]})
             else:
                 self.reply(404, {"error": "Unknown route"})
 
@@ -332,7 +337,7 @@ def serve(home):
                 if self.headers.get("Transfer-Encoding") or not 0 < length <= MAX_BODY:
                     raise ValueError("Invalid request length")
                 raw = self.rfile.read(length)
-                body = validate_body(json.loads(raw), profile["model"], profile["maxTokens"])
+                body = validate_body(json.loads(raw), profile["model"], profile["contextWindow"])
             except (ValueError, TypeError, TimeoutError):
                 self.reply(400, {"error": "Invalid request or budget; check the installed model limits"})
                 return

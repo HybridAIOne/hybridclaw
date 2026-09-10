@@ -33,6 +33,9 @@ test('activates only after the local tool check and uses console provenance', as
   expect(stages).toEqual(['runtime', 'download', 'loading', 'checking', 'activating']);
   expect(mocks.configure).toHaveBeenCalledWith(expect.objectContaining({ name: 'mac-mlx', zone: 'local' }), expect.anything(), 'mac-mlx/spark-x2.5-4b', { route: 'console.local.setup', source: 'user' });
   expect(mocks.spawn.mock.calls[0][2].stdio).toEqual(['ignore', 'ignore', 'ignore']);
+  const profile = JSON.parse(fs.readFileSync(path.join(dir, 'installation.json'), 'utf8'));
+  expect(profile.contextWindow).toBe(40960);
+  expect(profile).not.toHaveProperty('maxTokens');
   expect(mocks.stop).toHaveBeenCalled();
   expect(fs.existsSync(path.join(dir, 'setup.lock'))).toBe(false);
 });

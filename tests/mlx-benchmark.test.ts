@@ -6,7 +6,7 @@ vi.mock('../src/inference/mlx-runtime.js', () => ({
     token: 'test-key',
     installation: {
       model: 'test-model',
-      maxTokens: 512,
+      contextWindow: 4096,
       memoryLimitBytes: 4096,
     },
   }),

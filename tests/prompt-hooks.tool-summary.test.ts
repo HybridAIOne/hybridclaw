@@ -667,6 +667,12 @@ test('local skill stars trim the prompt while preserving the full eligible direc
     expect(cloud).toContain('<name>docx</name>');
     const denied = buildSystemPromptFromHooks({ ...context, includePromptParts: ['skills'], blockedTools: ['skills_list'] });
     expect(denied).not.toContain('Additional skills:');
+    config.skills.localStarterSkills = [];
+    const directoryOnly = buildSystemPromptFromHooks({ ...context, skills: skills.filter((skill) => !skill.always), includePromptParts: ['skills'] });
+    expect(directoryOnly).not.toContain('<available_skills>');
+    expect(directoryOnly).not.toContain('<name>');
+    expect(directoryOnly).toContain('Additional skills:');
+    expect(directoryOnly).toContain('skills_list');
     config.skills.localSkillMode = 'full';
     expect(buildSystemPromptFromHooks({ ...context, includePromptParts: ['skills'] })).toContain('<name>docx</name>');
   } finally { spy.mockRestore(); }

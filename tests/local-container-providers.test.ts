@@ -1406,3 +1406,23 @@ test.each([false, true])('Ollama structured reasoning never fabricates Done (str
   expect(text.join('')).not.toContain('Done.');
   if (stream) expect(thinking.join('')).toBe('Still reasoning.');
 });
+
+test('MLX collects a long streamed response without imposing an output cap', async () => {
+  const reasoning = Array.from({ length: 4096 }, (_, i) => `Distinct step ${i}. `).join('');
+  const request = vi.fn(async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    expect(body.stream).toBe(true);
+    expect(body.stream_options.include_usage).toBe(true);
+    expect(body).not.toHaveProperty('max_tokens');
+    return makeEventStreamResponse([
+      `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: reasoning } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'Completed answer.' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1000, completion_tokens: 4096 } })}\n\n`,
+      'data: [DONE]\n\n',
+    ]);
+  });
+  vi.stubGlobal('fetch', request);
+  const result = await callLocalOpenAICompatProvider({ provider: 'mlx', baseUrl: 'http://127.0.0.1:8321/v1', apiKey: 'test-key', model: 'mlx/spark-x2.5-4b', chatbotId: '', enableRag: false, requestHeaders: undefined, messages: baseMessages, tools: [], isLocal: true, contextWindow: 40960, maxTokens: undefined, thinkingFormat: undefined });
+  expect(request).toHaveBeenCalledOnce();
+  expect(result.choices[0].message.content).toBe('Completed answer.');
+  expect(result.usage?.completion_tokens).toBe(4096);
+});

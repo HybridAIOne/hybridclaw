@@ -2,10 +2,15 @@
  * Per-turn file relay: sandbox requests reach only the host-selected MLX model.
  * Unlike a network proxy, workers cannot choose a URL, credentials or headers.
  * Fixed files live directly in the existing IPC mount; symlinks are rejected.
+ * Native request activity refreshes the idle deadline without a duration cap.
  */
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  fetchMlxWithIdleTimeout,
+  MLX_MAX_RESPONSE_BYTES,
+} from '../../container/shared/mlx-http.js';
 import { assertMlxEndpoint } from './mlx-endpoint.js';
 
 export function startMlxRelay(options: {
@@ -89,21 +94,20 @@ export function startMlxRelay(options: {
         if (fs.existsSync(cancelPath)) cancelled.abort();
       }, 25);
       try {
-        const response = await fetch(`${options.baseUrl}/chat/completions`, {
-          method: 'POST',
-          redirect: 'error',
-          signal: AbortSignal.any([
-            abort.signal,
-            cancelled.signal,
-            AbortSignal.timeout(180_000),
-          ]),
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${options.apiKey}`,
-            'X-HybridClaw-Task': options.task,
+        const response = await fetchMlxWithIdleTimeout(
+          `${options.baseUrl}/chat/completions`,
+          {
+            method: 'POST',
+            redirect: 'error',
+            signal: AbortSignal.any([abort.signal, cancelled.signal]),
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${options.apiKey}`,
+              'X-HybridClaw-Task': options.task,
+            },
+            body: JSON.stringify(payload.body),
           },
-          body: JSON.stringify(payload.body),
-        });
+        );
         write({
           status: response.status,
           contentType:
@@ -113,7 +117,7 @@ export function startMlxRelay(options: {
         if (response.body)
           for await (const chunk of response.body) {
             bytes += chunk.byteLength;
-            if (bytes > 8 * 1024 ** 2)
+            if (bytes > MLX_MAX_RESPONSE_BYTES)
               throw new Error('Relay output budget exceeded');
             write({ data: Buffer.from(chunk).toString('base64') });
           }

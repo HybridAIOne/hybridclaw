@@ -27,6 +27,7 @@ afterEach(() => {
   for (const dir of directories.splice(0))
     fs.rmSync(dir, { recursive: true, force: true });
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 const hardware = {
   platform: 'darwin',
@@ -52,7 +53,6 @@ test.each([
       license: model.license,
       port: 18323,
       contextWindow: 2048,
-      maxTokens: 512,
       memoryLimitBytes: 4 * GIB,
       cacheBytes: GIB,
       ...override,
@@ -74,7 +74,6 @@ test('validates context ceilings before starting an installed model', async () =
     license: spark.license,
     port: 18323,
     contextWindow: 40960,
-    maxTokens: 2048,
     memoryLimitBytes: 7 * GIB,
     cacheBytes: 2 * GIB,
   };
@@ -414,4 +413,31 @@ test('a busy 32 GiB Mac gets a smaller recommendation without double-counting sp
   });
   expect(result.recommended).toBe('spark-x2.5-4b');
   expect(result.memoryLimitBytes).toBe(6 * GIB);
+});
+
+test('sandbox relay keeps progressing beyond its original deadline', async () => {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  let signal!: AbortSignal;
+  let now = Date.now();
+  vi.spyOn(Date, 'now').mockImplementation(() => now);
+  vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
+    signal = init.signal;
+    return new Response(new ReadableStream<Uint8Array>({
+      start(value) { controller = value; },
+    }), { headers: { 'content-type': 'text/event-stream' } });
+  }));
+  const { directory, relay } = relayFixture();
+  const response = await fetchMlx('http://mlx.invalid/v1/chat/completions', {
+    method: 'POST', headers: { 'X-HybridClaw-Relay': relay.id },
+    body: JSON.stringify({ model: 'test-model' }),
+  }, undefined, directory);
+  const reader = response.body!.getReader();
+  for (let step = 0; step < 5; step++) {
+    now += 120_000;
+    controller.enqueue(new TextEncoder().encode('data: reasoning\n\n'));
+    expect((await reader.read()).done).toBe(false);
+    expect(signal.aborted).toBe(false);
+  }
+  controller.close();
+  expect((await reader.read()).done).toBe(true);
 });

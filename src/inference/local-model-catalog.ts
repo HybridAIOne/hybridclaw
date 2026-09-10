@@ -104,7 +104,6 @@ export function estimateMacModels(hardware: MacHardware) {
       contextWindow,
       requiredBytes,
       fits: supported && contextWindow > 0,
-      maxTokens: Math.min(2048, Math.floor(contextWindow / 4)),
       cacheBytes: contextWindow
         ? estimateMacModelCacheBytes(model, contextWindow)
         : 0,
