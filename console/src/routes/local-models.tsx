@@ -6,7 +6,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Navigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
-import { controlLocalModel, fetchLocalModels } from '../api/client';
+import {
+  controlLocalModel,
+  fetchLocalModelActivity,
+  fetchLocalModels,
+} from '../api/client';
 import type {
   AdminLocalModelCommand,
   AdminLocalModelsResponse,
@@ -102,7 +106,16 @@ function MacLocalModelsPage() {
   const query = useQuery({
     queryKey: ['local-models', token],
     queryFn: () => fetchLocalModels(token),
-    // 2026-09-10, console setup choice: poll while visible; jobs live in the gateway.
+    // Engineering choice, 2026-09-10: capacity refreshes every 30s; activity every 2.5s.
+    // Commands independently recheck admission against current memory.
+    refetchInterval: (query) =>
+      query.state.status === 'error' ? false : 30_000,
+    retry: false,
+  });
+  const activity = useQuery({
+    queryKey: ['local-model-activity', token],
+    queryFn: () => fetchLocalModelActivity(token),
+    enabled: Boolean(query.data),
     refetchInterval: (query) => (query.state.status === 'error' ? false : 2500),
     retry: false,
   });
@@ -111,10 +124,17 @@ function MacLocalModelsPage() {
       controlLocalModel(token, command),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ['local-models', token] });
+      await client.invalidateQueries({
+        queryKey: ['local-model-activity', token],
+      });
       await client.invalidateQueries({ queryKey: ['models', token] });
     },
   });
-  const data = query.data;
+  const data = query.data && {
+    ...query.data,
+    ...(activity.dataUpdatedAt >= query.dataUpdatedAt ? activity.data : {}),
+  };
+  const loadError = query.error || activity.error;
   const running = data?.running;
   const connected = data?.connected;
   const installedModelId = data?.installation?.modelId;
@@ -124,6 +144,10 @@ function MacLocalModelsPage() {
     // Commands return before startup finishes; refresh again on the observed state.
     void client.invalidateQueries({ queryKey: ['models', token] });
   }, [client, token, running, connected, installedModelId]);
+  useEffect(() => {
+    if (activity.data?.job?.status === 'completed')
+      void client.invalidateQueries({ queryKey: ['local-models', token] });
+  }, [client, token, activity.data?.job?.status]);
   const selected = data?.candidates.find(
     (model) =>
       model.id === (selectedId ?? data.recommended) &&
@@ -146,7 +170,10 @@ function MacLocalModelsPage() {
         actions={
           <Button
             variant="outline"
-            onClick={() => void query.refetch()}
+            onClick={() => {
+              void query.refetch();
+              void activity.refetch();
+            }}
             disabled={query.isFetching}
           >
             Refresh
@@ -156,10 +183,16 @@ function MacLocalModelsPage() {
       {query.isPending && (
         <p role="status">Checking the gateway Mac and available memory…</p>
       )}
-      {query.error && (
+      {loadError && (
         <div className={styles.notice} role="alert">
           <strong>Local model controls are unavailable</strong>
-          <p>{getErrorMessage(query.error)}</p>
+          {data && (
+            <p>
+              Showing the last successful update. Status and setup estimates may
+              be outdated; refresh to use the controls.
+            </p>
+          )}
+          <p>{getErrorMessage(loadError)}</p>
           <p>
             If you just updated HybridClaw, restart the gateway to load the
             setup API, then refresh this page. Open the console using localhost
@@ -190,7 +223,7 @@ function MacLocalModelsPage() {
             <LocalModelMetrics
               history={data.metricsHistory}
               running={data.running}
-              stale={query.isError}
+              stale={Boolean(loadError)}
             />
           )}
           {!data.supported && (
@@ -240,7 +273,7 @@ function MacLocalModelsPage() {
           {busy && data.job && (
             <SetupProgress
               job={data.job}
-              pending={mutation.isPending}
+              pending={Boolean(loadError) || mutation.isPending}
               cancel={() => mutation.mutate({ action: 'cancel' })}
             />
           )}
@@ -261,7 +294,7 @@ function MacLocalModelsPage() {
                 </p>
                 <div className={styles.actions}>
                   <Button
-                    disabled={mutation.isPending}
+                    disabled={Boolean(loadError) || mutation.isPending}
                     onClick={() =>
                       mutation.mutate({
                         action: data.running ? 'stop' : 'start',
@@ -272,7 +305,7 @@ function MacLocalModelsPage() {
                   </Button>
                   {data.running && !data.connected && (
                     <Button
-                      disabled={mutation.isPending}
+                      disabled={Boolean(loadError) || mutation.isPending}
                       onClick={() => mutation.mutate({ action: 'start' })}
                     >
                       Connect to chat
@@ -342,6 +375,7 @@ function MacLocalModelsPage() {
                     <div className={styles.actions}>
                       <Button
                         disabled={
+                          Boolean(loadError) ||
                           mutation.isPending ||
                           !selected.fits ||
                           !data.uvAvailable ||
@@ -406,7 +440,9 @@ function MacLocalModelsPage() {
                       <Button
                         variant="outline"
                         disabled={
-                          !model.fits || model.id === data.installation?.modelId
+                          Boolean(loadError) ||
+                          !model.fits ||
+                          model.id === data.installation?.modelId
                         }
                         onClick={() => setSelectedId(model.id)}
                       >

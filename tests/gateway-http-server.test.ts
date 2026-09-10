@@ -2463,6 +2463,7 @@ async function importFreshHealth(options?: {
   );
 
   const localModelStatus = vi.fn(async () => ({ supported: true, running: false }));
+  const localModelActivity = vi.fn(async () => ({ running: false, connected: false, installation: null, installationError: null, metricsHistory: [], job: null }));
   const localModelCommand = vi.fn();
   const startLocalModelMetrics = vi.fn();
   const closeLocalModels = vi.fn(async () => {});
@@ -2473,6 +2474,7 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/gateway/gateway-local-model-service.js', () => ({
     GatewayLocalModelService: class {
       status = localModelStatus;
+      activity = localModelActivity;
       command = localModelCommand;
       startMetrics = startLocalModelMetrics;
       close = closeLocalModels;
@@ -2919,6 +2921,7 @@ async function importFreshHealth(options?: {
   return {
     dataDir,
     localModelStatus,
+    localModelActivity,
     localModelCommand,
     startLocalModelMetrics,
     closeLocalModels,
@@ -17593,4 +17596,28 @@ test('starts local model sampling with the HTTP server and closes it on shutdown
   expect(state.localModelStatus).not.toHaveBeenCalled();
   state.httpServer.broadcastShutdown();
   expect(state.closeLocalModels).toHaveBeenCalledOnce();
+});
+
+test('routes lightweight activity without probing setup and enforces the same read boundary', async () => {
+  const state = await importFreshHealth({ apiTokens: {
+    'hck_test_activity_read': { id: 'activity', label: 'activity', claims: { actions: ['admin.skills.read'] } },
+  } });
+  const response = makeResponse();
+  state.handler(makeRequest({ url: '/api/admin/local-models?view=activity', headers: { host: 'localhost:9090' } }) as never, response as never);
+  await settle();
+  expect(response.statusCode).toBe(200);
+  expect(state.localModelActivity).toHaveBeenCalledOnce();
+  expect(state.localModelStatus).not.toHaveBeenCalled();
+  for (const request of [
+    { noAuth: true, headers: { host: 'localhost:9090' } },
+    { noAuth: true, headers: { host: 'localhost:9090', authorization: 'Bearer hck_test_activity_read' } },
+    { remoteAddress: '192.0.2.10', headers: { host: 'localhost:9090' } },
+    { headers: { host: 'localhost:9090', 'x-forwarded-for': '192.0.2.10' } },
+  ]) {
+    const denied = makeResponse();
+    state.handler(makeRequest({ url: '/api/admin/local-models?view=activity', ...request }) as never, denied as never);
+    await settle();
+    expect([401, 403]).toContain(denied.statusCode);
+  }
+  expect(state.localModelActivity).toHaveBeenCalledOnce();
 });

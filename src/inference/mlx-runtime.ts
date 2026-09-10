@@ -3,6 +3,7 @@
  * credentials and installation state remain local to the configured home.
  * This is lifecycle management, not automatic model or cloud fallback.
  */
+
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,6 +18,7 @@ import {
   MAC_MODEL_CATALOG,
 } from './local-model-catalog.js';
 import { assertMlxEndpoint } from './mlx-endpoint.js';
+import { MlxOperationError } from './mlx-operation-error.js';
 
 export interface MlxInstallation {
   version: 1;
@@ -111,16 +113,12 @@ export async function startMlxChild(
       candidate.repo === installation.repo &&
       candidate.revision === installation.revision,
   );
-  if (!model)
-    throw new Error(
-      'The installed artifact is not in the supported shortlist. Run hybridclaw local setup.',
-    );
+  if (!model) throw new MlxOperationError('artifact');
   if (installation.contextWindow > model.maxContextWindow)
-    throw new Error('The installed context exceeds this model’s tested limit.');
+    throw new MlxOperationError('context');
   const hardware = detectMacHardware();
   const capacity = estimateMacModels(hardware);
-  if (!capacity.supported)
-    throw new Error('MLX requires Apple silicon and macOS 15 or later.');
+  if (!capacity.supported) throw new MlxOperationError('platform');
   if (
     model.weightBytes * 1.1 +
       GIB +
@@ -128,11 +126,9 @@ export async function startMlxChild(
       installation.cacheBytes >
     Math.min(capacity.memoryLimitBytes, installation.memoryLimitBytes)
   ) {
-    throw new Error(
-      'Insufficient available memory for the installed context. Close other apps or choose a smaller local model.',
-    );
+    throw new MlxOperationError('memory');
   }
-  if (await mlxHealth(home)) throw new Error('MLX is already running.');
+  if (await mlxHealth(home)) throw new MlxOperationError('running');
   const child = spawn(
     path.join(home, 'venv', 'bin', 'python'),
     [path.join(MLX_COMPONENT, 'server.py'), home],
@@ -167,13 +163,11 @@ export async function startMlxChild(
     for (let n = 0; n < 600; n++) {
       if (signal?.aborted) throw new Error('MLX startup cancelled.');
       if (failed || child.exitCode !== null || child.signalCode !== null)
-        throw new Error(
-          'MLX could not start; check the installation and available memory.',
-        );
+        throw new MlxOperationError('startup');
       if (await mlxHealth(home)) return child;
       await delay(500);
     }
-    throw new Error('MLX model loading timed out.');
+    throw new MlxOperationError('timeout');
   } catch (error) {
     await stopMlxChild(child);
     throw error;

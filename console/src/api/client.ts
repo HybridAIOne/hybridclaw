@@ -61,6 +61,7 @@ import type {
   AdminLanHttpAccessMode,
   AdminLocalContextSettings,
   AdminLocalContextSettingsUpdate,
+  AdminLocalModelActivity,
   AdminLocalModelCommand,
   AdminLocalModelsResponse,
   AdminLogsResponse,
@@ -1941,6 +1942,13 @@ export function fetchLocalModels(token: string) {
   return requestJson<AdminLocalModelsResponse>('/api/admin/local-models', {
     token,
   });
+}
+
+export function fetchLocalModelActivity(token: string) {
+  return requestJson<AdminLocalModelActivity>(
+    '/api/admin/local-models?view=activity',
+    { token },
+  );
 }
 
 export function controlLocalModel(token: string, body: AdminLocalModelCommand) {

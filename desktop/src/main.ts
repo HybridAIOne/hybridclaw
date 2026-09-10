@@ -25,6 +25,8 @@ import { MAC_WINDOW_CHROME_CSS } from './window-chrome.js';
 
 const APP_NAME = 'HybridClaw';
 const IS_MAC = process.platform === 'darwin';
+const SUPPORTS_LOCAL_MODELS =
+  IS_MAC && process.arch === 'arm64' && Number.parseInt(os.release(), 10) >= 24;
 
 const SAFE_EXTERNAL_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
 
@@ -595,10 +597,7 @@ function buildMenu(): Menu {
         },
         {
           label: 'Labs',
-          visible:
-            IS_MAC &&
-            process.arch === 'arm64' &&
-            Number.parseInt(os.release(), 10) >= 24,
+          visible: SUPPORTS_LOCAL_MODELS,
           submenu: [
             {
               label: 'Set Up Local Model…',
@@ -699,7 +698,7 @@ void app
 
     powerMonitor.on('suspend', () => mlxRuntime.suspend());
     powerMonitor.on('resume', () => mlxRuntime.resume());
-    void mlxRuntime.start();
+    if (SUPPORTS_LOCAL_MODELS) void mlxRuntime.start();
     await openRoute('chat');
 
     app.on('activate', () => {

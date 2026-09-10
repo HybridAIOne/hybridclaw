@@ -2760,6 +2760,16 @@ export interface AdminLocalModelsResponse {
   } | null;
 }
 
+export type AdminLocalModelActivity = Pick<
+  AdminLocalModelsResponse,
+  | 'installation'
+  | 'installationError'
+  | 'running'
+  | 'connected'
+  | 'metricsHistory'
+  | 'job'
+>;
+
 export type AdminLocalModelCommand =
   | { action: 'setup'; modelId: string }
   | { action: 'start' | 'stop' | 'cancel' };

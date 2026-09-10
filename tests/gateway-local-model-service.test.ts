@@ -1,3 +1,4 @@
+import { MlxOperationError } from '../src/inference/mlx-operation-error.js';
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
@@ -8,7 +9,16 @@ import { GatewayLocalModelService } from '../src/gateway/gateway-local-model-ser
 import { LocalModelMetricsSampler } from '../src/inference/local-model-metrics.js';
 import { GIB } from '../src/inference/local-model-catalog.js';
 
-const mocks = vi.hoisted(() => ({ install: vi.fn(), hardware: vi.fn(), home: vi.fn(), health: vi.fn(), read: vi.fn(), start: vi.fn(), stop: vi.fn(), invalidate: vi.fn(), connect: vi.fn(), connected: vi.fn() }));
+const mocks = vi.hoisted(() => ({ install: vi.fn(), hardware: vi.fn(), home: vi.fn(), health: vi.fn(), read: vi.fn(), start: vi.fn(), stop: vi.fn(), invalidate: vi.fn(), connect: vi.fn(), connected: vi.fn(), log: vi.fn(), probe: vi.fn(), syncProbe: vi.fn() }));
+vi.mock('node:child_process', async (original) => {
+  const { promisify } = await import('node:util');
+  return {
+    ...await original<typeof import('node:child_process')>(),
+    execFile: Object.assign(() => {}, { [promisify.custom]: mocks.probe }),
+    execFileSync: mocks.syncProbe,
+  };
+});
+vi.mock('../src/logger.js', () => ({ logger: { warn: mocks.log } }));
 vi.mock('../src/inference/mlx-connection.js', () => ({ connectMlxModel: mocks.connect, isMlxConnected: mocks.connected }));
 vi.mock('../src/inference/mlx-install.js', () => ({ installMlxModel: mocks.install, MlxSetupError: class extends Error {} }));
 vi.mock('../src/inference/local-model-catalog.js', async (original) => ({ ...await original<typeof import('../src/inference/local-model-catalog.js')>(), detectMacHardware: mocks.hardware }));
@@ -18,6 +28,8 @@ let dir: string;
 let service: GatewayLocalModelService;
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.probe.mockResolvedValue({ stdout: "", stderr: "" });
+  mocks.syncProbe.mockImplementation(() => { throw new Error("Synchronous status probe"); });
   mocks.connect.mockReset();
   mocks.connected.mockReturnValue(false);
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-console-'));
@@ -230,4 +242,45 @@ test('keeps collecting host activity when the installation cannot supply health'
   await vi.waitFor(() => expect(sample).toHaveBeenCalled());
   expect(sample).toHaveBeenCalledWith(expect.objectContaining({ arch: 'arm64' }), null);
   expect(JSON.stringify(await service.status())).not.toContain('private-credential-payload');
+});
+
+test('activity polling does not run capacity or prerequisite probes', async () => {
+  mocks.hardware.mockClear();
+  const stat = vi.spyOn(fs.promises, 'statfs');
+  for (let i = 0; i < 5; i++) {
+    const activity = await service.activity();
+    expect(activity).not.toHaveProperty('candidates');
+    expect(activity).not.toHaveProperty('hardware');
+  }
+  expect(mocks.hardware).not.toHaveBeenCalled();
+  expect(stat).not.toHaveBeenCalled();
+});
+
+test.each(['memory', 'timeout', 'provider_conflict'] as const)('reports and logs a specific safe %s failure', async (code) => {
+  mocks.start.mockRejectedValue(new MlxOperationError(code));
+  service.command({ action: 'start' });
+  await vi.waitFor(async () => expect((await service.activity()).job?.status).toBe('failed'));
+  const result = await service.activity();
+  expect(result.job?.error).toBe(new MlxOperationError(code).message);
+  expect(mocks.log).toHaveBeenCalledWith(expect.objectContaining({ failureCode: code, stage: 'starting' }), 'Local model operation failed');
+});
+
+test('logs only allowlisted failure metadata for arbitrary subprocess errors', async () => {
+  mocks.start.mockRejectedValue(Object.assign(new Error('secret-private-payload'), { code: 'ENOSPC', stderr: 'secret-private-payload' }));
+  service.command({ action: 'start' });
+  await vi.waitFor(() => expect(mocks.log).toHaveBeenCalled());
+  expect(mocks.log.mock.calls[0][0]).toMatchObject({ failureCode: 'ENOSPC' });
+  expect(JSON.stringify(mocks.log.mock.calls)).not.toContain('secret-private-payload');
+});
+
+test('full status runs bounded probes concurrently while the event loop stays available', async () => {
+  const release: Array<() => void> = [];
+  mocks.probe.mockImplementation(() => new Promise((resolve) => { release.push(() => resolve({ stdout: '', stderr: '' })); }));
+  const pending = service.status();
+  expect(mocks.probe).toHaveBeenCalledTimes(2);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(mocks.syncProbe).not.toHaveBeenCalled();
+  expect(mocks.probe.mock.calls.every((call) => call[2].timeout === 2000 && call[2].maxBuffer > 0)).toBe(true);
+  release.forEach((resolve) => resolve());
+  expect((await pending).uvAvailable).toBe(true);
 });

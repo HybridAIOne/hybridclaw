@@ -6,13 +6,15 @@
  * and exposes only readiness and gateway-retained numeric metrics, never credentials.
  */
 import type { ChildProcess } from 'node:child_process';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import {
   detectMacHardware,
   estimateMacModels,
+  parseMacAvailableMemory,
   supportsMacLocalModels,
 } from '../inference/local-model-catalog.js';
 import { LocalModelMetricsSampler } from '../inference/local-model-metrics.js';
@@ -26,6 +28,7 @@ import {
   MlxSetupError,
   type MlxSetupStage,
 } from '../inference/mlx-install.js';
+import { MlxOperationError } from '../inference/mlx-operation-error.js';
 import {
   mlxCredentials,
   mlxHealth,
@@ -34,8 +37,11 @@ import {
   startMlxChild,
   stopMlxChild,
 } from '../inference/mlx-runtime.js';
+import { logger } from '../logger.js';
 
 import { invalidateLocalModelDiscovery } from '../providers/local-discovery.js';
+
+const exec = promisify(execFile);
 
 type Stage = MlxSetupStage | 'starting' | 'connecting' | 'stopping';
 type Job = {
@@ -77,7 +83,7 @@ export class GatewayLocalModelService {
 
   startMetrics(): void {
     if (this.closing || this.metrics) return;
-    const hardware = detectMacHardware();
+    const hardware = detectMacHardware(false);
     if (!supportsMacLocalModels(hardware)) return;
     const sampler = new LocalModelMetricsSampler();
     this.metrics = new LocalModelMetricsHistory(async () => {
@@ -90,21 +96,42 @@ export class GatewayLocalModelService {
   }
 
   async status() {
-    const hardware = detectMacHardware();
+    const hardware = detectMacHardware(false);
+    // Full setup refreshes are infrequent; probes never block the event loop.
+    const supported = supportsMacLocalModels(hardware);
+    const [vm, uv] = await Promise.all([
+      supported
+        ? exec('/usr/bin/vm_stat', [], {
+            timeout: 2000,
+            maxBuffer: 64 * 1024,
+          }).catch(() => null)
+        : null,
+      supported
+        ? exec('uv', ['--version'], { timeout: 2000, maxBuffer: 4096 }).catch(
+            () => null,
+          )
+        : null,
+    ]);
+    if (vm)
+      hardware.availableMemoryEstimateBytes = parseMacAvailableMemory(
+        vm.stdout,
+      );
     const estimate = estimateMacModels(hardware);
-    let uvAvailable = false;
-    if (estimate.supported) {
-      try {
-        execFileSync('uv', ['--version'], { timeout: 2000, stdio: 'ignore' });
-        uvAvailable = true;
-      } catch {
-        /* The UI offers the prerequisite instructions. */
-      }
-    }
+    const uvAvailable = uv !== null;
     let diskPath = mlxHome();
     while (!fs.existsSync(diskPath) && path.dirname(diskPath) !== diskPath)
       diskPath = path.dirname(diskPath);
-    const disk = fs.statfsSync(diskPath);
+    const disk = await fs.promises.statfs(diskPath);
+    return {
+      hardware,
+      ...estimate,
+      uvAvailable,
+      freeDiskBytes: disk.bavail * disk.bsize,
+      ...(await this.activity()),
+    };
+  }
+
+  async activity() {
     let installation: { modelId: string; contextWindow: number } | null = null;
     let installationError: string | null = null;
     let health: Record<string, unknown> | null = null;
@@ -129,10 +156,6 @@ export class GatewayLocalModelService {
       invalidateLocalModelDiscovery();
     }
     return {
-      hardware,
-      ...estimate,
-      uvAvailable,
-      freeDiskBytes: disk.bavail * disk.bsize,
       installation,
       installationError,
       running,
@@ -209,11 +232,40 @@ export class GatewayLocalModelService {
         },
         (error: unknown) => {
           job.status = controller.signal.aborted ? 'cancelled' : 'failed';
-          if (job.status === 'failed')
-            job.error =
-              error instanceof MlxSetupError
-                ? error.message
-                : STAGE_FAILURES[job.stage];
+          if (job.status === 'failed') {
+            const safeError =
+              error instanceof MlxOperationError ||
+              error instanceof MlxSetupError;
+            job.error = safeError ? error.message : STAGE_FAILURES[job.stage];
+            const code =
+              error && typeof error === 'object' && 'code' in error
+                ? error.code
+                : null;
+            const systemCode =
+              typeof code === 'string' &&
+              [
+                'ENOENT',
+                'EACCES',
+                'ENOSPC',
+                'ENOMEM',
+                'ETIMEDOUT',
+                'ECONNREFUSED',
+              ].includes(code)
+                ? code
+                : null;
+            logger.warn(
+              {
+                action: job.action,
+                stage: job.stage,
+                failureCode:
+                  error instanceof MlxOperationError
+                    ? error.code
+                    : (systemCode ?? 'local_operation_failed'),
+                diagnostic: job.error,
+              },
+              'Local model operation failed',
+            );
+          }
         },
       )
       .finally(() => {

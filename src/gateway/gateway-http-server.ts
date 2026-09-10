@@ -10868,7 +10868,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             if (method === 'GET') {
-              sendJson(res, 200, await localModels.status());
+              sendJson(
+                res,
+                200,
+                url.searchParams.get('view') === 'activity'
+                  ? await localModels.activity()
+                  : await localModels.status(),
+              );
             } else if (method === 'POST') {
               localModels.command(await readJsonBody(req));
               sendJson(res, 202, { accepted: true });

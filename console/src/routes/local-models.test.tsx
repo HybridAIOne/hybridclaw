@@ -7,10 +7,12 @@ import { LocalModelsPage } from './local-models';
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
   control: vi.fn(),
+  activity: vi.fn(),
   supported: true as boolean | undefined,
 }));
 vi.mock('../api/client', () => ({
   fetchLocalModels: mocks.fetch,
+  fetchLocalModelActivity: mocks.activity,
   controlLocalModel: mocks.control,
 }));
 vi.mock('../components/app-shell', () => ({
@@ -77,6 +79,8 @@ function status(
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.supported = true;
+  // Keep existing status-only tests focused; activity arrives in dedicated tests.
+  mocks.activity.mockImplementation(() => new Promise(() => {}));
   mocks.fetch.mockResolvedValue(status());
   mocks.control.mockResolvedValue({ accepted: true });
 });
@@ -316,4 +320,34 @@ test('connects a running unregistered model and refreshes the picker on completi
       queryClient.getQueryState(['models', 'test-key'])?.isInvalidated,
     ).toBe(true),
   );
+});
+
+test('refreshes live activity without downloading the full setup catalog', async () => {
+  const installation = { modelId: 'spark-x2.5-4b', contextWindow: 40960 };
+  mocks.fetch.mockResolvedValue(status({ installation, running: false }));
+  mocks.activity.mockResolvedValue({
+    installation,
+    installationError: null,
+    running: true,
+    connected: true,
+    metricsHistory: [],
+    job: null,
+  });
+  renderWithProviders(<LocalModelsPage />);
+  await screen.findByRole('button', { name: 'Stop model' });
+  expect(mocks.activity).toHaveBeenCalledWith('test-key');
+  expect(mocks.fetch).toHaveBeenCalledOnce();
+});
+
+test('labels cached status and disables actions after activity polling fails', async () => {
+  const installation = { modelId: 'spark-x2.5-4b', contextWindow: 40960 };
+  mocks.fetch.mockResolvedValue(status({ installation, running: true }));
+  mocks.activity.mockRejectedValue(new Error('Offline'));
+  renderWithProviders(<LocalModelsPage />);
+  await screen.findByText(/Showing the last successful update/);
+  expect(
+    (screen.getByRole('button', { name: 'Stop model' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect(mocks.control).not.toHaveBeenCalled();
 });

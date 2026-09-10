@@ -3,6 +3,7 @@
  * Only setup/start actions write the endpoint and private credential reference;
  * status is read-only. Serving reconnects without selecting a default model.
  */
+
 import {
   configureRuntimeLocalEndpoint,
   ensureRuntimeConfigFile,
@@ -10,6 +11,7 @@ import {
   reloadRuntimeConfig,
 } from '../config/runtime-config.js';
 import { saveNamedRuntimeSecrets } from '../security/runtime-secrets.js';
+import { MlxOperationError } from './mlx-operation-error.js';
 import { mlxCredentials, mlxHome } from './mlx-runtime.js';
 
 export function isMlxConnected(home = mlxHome()): boolean {
@@ -46,9 +48,7 @@ export function connectMlxModel({
     (entry) => entry.name === 'mac-mlx',
   );
   if (existing && existing.type !== 'mlx')
-    throw new Error(
-      'Endpoint name mac-mlx is already used by another backend.',
-    );
+    throw new MlxOperationError('provider_conflict');
   if (isMlxConnected(home) && defaultModel === undefined) return;
   saveNamedRuntimeSecrets({ LOCAL_ENDPOINT_MAC_MLX_API_KEY: token });
   configureRuntimeLocalEndpoint(

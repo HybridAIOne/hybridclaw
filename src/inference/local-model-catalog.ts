@@ -32,7 +32,7 @@ export const MAC_MODEL_CATALOG = LOCAL_MODEL_SHORTLIST.flatMap((entry) =>
     : [],
 );
 
-export function detectMacHardware(): MacHardware {
+export function detectMacHardware(includeMemoryEstimate = true): MacHardware {
   const hardware: MacHardware = {
     platform: os.platform(),
     arch: os.arch(),
@@ -40,7 +40,7 @@ export function detectMacHardware(): MacHardware {
     chip: os.cpus()[0]?.model || 'unknown',
     memoryBytes: os.totalmem(),
   };
-  if (hardware.platform === 'darwin') {
+  if (includeMemoryEstimate && hardware.platform === 'darwin') {
     try {
       hardware.availableMemoryEstimateBytes = parseMacAvailableMemory(
         execFileSync('/usr/bin/vm_stat', { encoding: 'utf8', timeout: 2000 }),
