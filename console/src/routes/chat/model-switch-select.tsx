@@ -723,7 +723,6 @@ export function ModelSwitchSelect(props: {
                     data-discovered={
                       model.isLocal ? model.meta.discovered : undefined
                     }
-                    className={model.isLocal ? chrome.localItem : undefined}
                     textValue={`${model.displayName} ${model.groupLabel} ${
                       model.routeLabel ?? ''
                     }${model.isLocal && model.meta.discovered === false ? ' Offline' : ''}`}

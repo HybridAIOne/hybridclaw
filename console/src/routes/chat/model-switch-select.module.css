@@ -167,19 +167,3 @@
   background: var(--danger-soft);
   color: var(--danger);
 }
-
-.localItem[data-local="true"][data-discovered="true"] {
-  box-shadow: inset 3px 0 0 var(--success);
-}
-
-.localItem[data-local="true"][data-discovered="true"]:not([data-highlighted]) {
-  background: var(--success-soft);
-}
-
-.localItem[data-local="true"][data-discovered="false"] {
-  box-shadow: inset 3px 0 0 var(--danger);
-}
-
-.localItem[data-local="true"][data-discovered="false"]:not([data-highlighted]) {
-  background: var(--danger-soft);
-}
