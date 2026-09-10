@@ -1,3 +1,8 @@
+/**
+ * Chat turns expose memory activity only for an actual semantic search or an
+ * included session summary. The memory service owns recall eligibility;
+ * this gateway path does not broaden its session scope or confidence policy.
+ */
 import path from 'node:path';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
@@ -1770,25 +1775,11 @@ async function handleGatewayMessageInner(
   const pluginPromptSummary = formatPluginPromptContext(
     pluginPromptDetails.sections,
   );
-  const semanticRecallAttempted = !isGoalContinuationSource(source);
-  const builtInMemoryAccessed = !pluginMemoryBehavior.replacesBuiltInMemory;
   const memoryAccessStartedAt = Date.now();
-  if (builtInMemoryAccessed) {
-    emitGatewayToolProgress(
-      {
-        sessionId: req.sessionId,
-        toolName: MEMORY_RECALL_ACTIVITY_TOOL_NAME,
-        phase: 'start',
-        preview: semanticRecallAttempted
-          ? 'Searching semantic memory'
-          : 'Checking memory context',
-      },
-      { alwaysVisible: true },
-    );
-  }
   const memoryContext: BuildMemoryPromptResult =
     pluginMemoryBehavior.replacesBuiltInMemory
       ? {
+          semanticRecallAttempted: false,
           promptSummary: null,
           summaryConfidence: null,
           semanticMemories: [],
@@ -1797,19 +1788,43 @@ async function handleGatewayMessageInner(
       : memoryService.buildPromptMemoryContext({
           session,
           query: effectiveUserTurnContentStripped,
-          includeSemanticRecall: semanticRecallAttempted,
+          includeSemanticRecall: !isGoalContinuationSource(source),
+          onSemanticRecall: () =>
+            emitGatewayToolProgress(
+              {
+                sessionId: req.sessionId,
+                toolName: MEMORY_RECALL_ACTIVITY_TOOL_NAME,
+                phase: 'start',
+                preview: 'Searching semantic memory',
+              },
+              { alwaysVisible: true },
+            ),
         });
   const sessionSummary = String(session.session_summary || '').trim();
-  const memoryAccess: MemoryAccess | undefined = builtInMemoryAccessed
-    ? {
-        semanticRecallAttempted,
-        summaryIncluded: sessionSummary
-          ? Boolean(memoryContext.promptSummary?.includes(sessionSummary))
-          : false,
-        recalledMemories: memoryContext.citationIndex,
-      }
-    : undefined;
+  const summaryIncluded = Boolean(
+    sessionSummary && memoryContext.promptSummary?.includes(sessionSummary),
+  );
+  const { semanticRecallAttempted } = memoryContext;
+  const memoryAccess: MemoryAccess | undefined =
+    semanticRecallAttempted || summaryIncluded
+      ? {
+          semanticRecallAttempted,
+          summaryIncluded,
+          recalledMemories: memoryContext.citationIndex,
+        }
+      : undefined;
   if (memoryAccess) {
+    if (!semanticRecallAttempted) {
+      emitGatewayToolProgress(
+        {
+          sessionId: req.sessionId,
+          toolName: MEMORY_RECALL_ACTIVITY_TOOL_NAME,
+          phase: 'start',
+          preview: 'Checking memory context',
+        },
+        { alwaysVisible: true },
+      );
+    }
     emitGatewayToolProgress(
       {
         sessionId: req.sessionId,
