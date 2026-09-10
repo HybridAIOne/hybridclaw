@@ -420,6 +420,10 @@ import {
   validateMSTeamsTabIdToken,
 } from './msteams-tab.js';
 import {
+  getAdminMSTeamsUsers,
+  updateAdminMSTeamsUser,
+} from './msteams-users.js';
+import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleCompletionRetrieve,
   handleOpenAICompatibleModelList,
@@ -10902,6 +10906,21 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT' || method === 'DELETE')
           ) {
             await handleApiAdminChannels(req, res, url);
+            return;
+          }
+          if (pathname === '/api/admin/msteams/users') {
+            if (method === 'GET') {
+              sendJson(res, 200, getAdminMSTeamsUsers());
+            } else if (method === 'PUT') {
+              const result = updateAdminMSTeamsUser(await readJsonBody(req));
+              sendJson(
+                res,
+                result.status,
+                result.error ? { error: result.error } : getAdminMSTeamsUsers(),
+              );
+            } else {
+              sendMethodNotAllowed(res);
+            }
             return;
           }
           if (pathname === '/api/admin/msteams/tab-manifest') {

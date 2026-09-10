@@ -309,6 +309,7 @@ function createGatewayMainTestState(options?: {
     })),
     memoryServiceSetDecayRate: vi.fn(),
     memoryServiceSetLanguage: vi.fn(),
+    memoryServiceGetOrCreateSession: vi.fn(),
     onConfigChange: vi.fn(),
     processOn: vi.spyOn(process, 'on'),
     rearmScheduler: vi.fn(),
@@ -379,6 +380,7 @@ async function importFreshGatewayMain(options?: {
   onState?: (state: ReturnType<typeof createGatewayMainTestState>) => void;
 }) {
   vi.resetModules();
+  vi.stubEnv('HYBRIDCLAW_DATA_DIR', makeTempDir('gateway-main-state-'));
 
   const state = createGatewayMainTestState(options);
   options?.onState?.(state);
@@ -666,6 +668,7 @@ async function importFreshGatewayMain(options?: {
       consolidateMemories: state.memoryServiceConsolidate,
       consolidateMemoriesWithCleanup: state.memoryServiceConsolidateWithCleanup,
       getSessionById: vi.fn(() => state.currentSession),
+      getOrCreateSession: state.memoryServiceGetOrCreateSession,
       setConsolidationDecayRate: state.memoryServiceSetDecayRate,
       setConsolidationLanguage: state.memoryServiceSetLanguage,
     },
@@ -811,6 +814,7 @@ useCleanMocks({
   restoreAllMocks: true,
   resetModules: true,
   unstubAllGlobals: true,
+  unstubAllEnvs: true,
   unmock: [
     '../src/agent/executor.js',
     '../src/agent/proactive-policy.js',
@@ -2515,6 +2519,118 @@ describe('gateway bootstrap', () => {
     expect(reply).toHaveBeenCalledWith('rendered:plain output');
   });
 
+  test('preserves the captured tenant on Teams commands and explicit approval resumes', async () => {
+    const state = await importFreshGatewayMain();
+    const reply = vi.fn(async () => {});
+    const context = { agentId: 'sales', tenantId: 'tenant-a' };
+    const sessionId = 'teams:group:group-a';
+    await state.teamsCommandHandler?.(
+      sessionId,
+      null,
+      '19:group-a',
+      'user-a',
+      'Example User',
+      ['second-opinion', 'validate'],
+      reply,
+      context,
+    );
+    expect(state.memoryServiceGetOrCreateSession).toHaveBeenCalledWith(
+      sessionId,
+      null,
+      '19:group-a',
+      'sales',
+    );
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-a',
+        msteamsTenantId: 'tenant-a',
+      }),
+    );
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval(sessionId, {
+      approvalId: 'approve-teams',
+      prompt: 'Approve the next tool',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-a',
+      resolvedAt: null,
+      disableButtons: null,
+      disableTimeout: null,
+    });
+    try {
+      await state.teamsCommandHandler?.(
+        sessionId,
+        null,
+        '19:group-a',
+        'user-a',
+        'Example User',
+        ['approve', 'yes'],
+        reply,
+        context,
+      );
+      expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-a',
+          msteamsTenantId: 'tenant-a',
+          source: 'msteams.approval',
+        }),
+      );
+    } finally {
+      await pendingApprovals.clearPendingApproval(sessionId);
+    }
+  });
+
+  test.each(['user-a', 'user-b'])('preserves Teams attribution and ownership on approved commands (%s)', async (userId) => {
+    const state = await importFreshGatewayMain();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    const sessionId = 'teams:group:command-approval';
+    await pendingApprovals.setPendingApproval(sessionId, {
+      approvalId: 'approve-command',
+      prompt: 'Approve the next command',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-a',
+      resolvedAt: null,
+      disableButtons: null,
+      disableTimeout: null,
+      commandAction: { approveArgs: ['second-opinion', 'validate'] },
+    });
+    try {
+      await state.teamsCommandHandler?.(
+        sessionId,
+        null,
+        '19:group-a',
+        userId,
+        'Example User',
+        ['approve', 'yes'],
+        vi.fn(async () => {}),
+        { agentId: 'sales', tenantId: 'tenant-a' },
+      );
+      if (userId === 'user-a') {
+        expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'user-a',
+            msteamsTenantId: 'tenant-a',
+            args: ['second-opinion', 'validate'],
+          }),
+        );
+        expect(pendingApprovals.getPendingApproval(sessionId)).toBeNull();
+      } else {
+        expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+        expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+        expect(pendingApprovals.getPendingApproval(sessionId)?.userId).toBe(
+          'user-a',
+        );
+      }
+    } finally {
+      await pendingApprovals.clearPendingApproval(sessionId);
+    }
+  });
+
   test('stores Teams pending approvals and advertises numeric replies', async () => {
     const state = await importFreshGatewayMain();
     const pendingApprovals = await import(
@@ -2611,6 +2727,8 @@ describe('gateway bootstrap', () => {
     };
     const reply = vi.fn(async () => {});
     const context = {
+      agentId: 'main',
+      tenantId: 'tenant-a',
       abortSignal: new AbortController().signal,
       activity: { id: 'activity-1' },
       policy: { replyStyle: 'thread' },
@@ -2633,6 +2751,9 @@ describe('gateway bootstrap', () => {
     expect(state.handleGatewayMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'yes approve123 for session',
+        msteamsTenantId: 'tenant-a',
+        source: 'msteams.approval',
+        userId: 'user-aad-id',
         sessionId: 'teams:dm:user-aad-id',
       }),
     );
@@ -2673,6 +2794,8 @@ describe('gateway bootstrap', () => {
     };
     const reply = vi.fn(async () => {});
     const context = {
+      agentId: 'main',
+      tenantId: 'tenant-a',
       abortSignal: new AbortController().signal,
       activity: { id: 'activity-1' },
       policy: { replyStyle: 'thread' },
@@ -2696,6 +2819,8 @@ describe('gateway bootstrap', () => {
       expect(state.handleGatewayMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           content: 'yes approve123 for all',
+          msteamsTenantId: 'tenant-a',
+          source: 'msteams.approval',
           sessionId: sessionKey,
         }),
       );

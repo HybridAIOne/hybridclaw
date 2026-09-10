@@ -1,9 +1,14 @@
+/**
+ * Second opinions retain their own usage entry and the invoking user's attribution.
+ * They compare an answer without resuming the main agent or altering its history.
+ */
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import { getUsageTotals } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
+import type { UsageAttribution } from '../memory/usage.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import {
   getAvailableModelList,
@@ -757,6 +762,7 @@ function classifySynthesisOutcome(params: {
 export async function runSecondOpinionCommand(
   session: Session,
   args: string[],
+  usageAttribution?: UsageAttribution,
 ): Promise<string> {
   const parsed = parseSecondOpinionArgs(args);
   if ('error' in parsed) throw new Error(parsed.error);
@@ -977,6 +983,7 @@ export async function runSecondOpinionCommand(
     response.usage?.inputTokens ?? modelMetadataCheck.estimatedInputTokens;
 
   enqueueTokenUsage({
+    ...usageAttribution,
     sessionId: session.id,
     agentId: resolved.agentId,
     model: response.model,

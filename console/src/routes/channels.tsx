@@ -49,6 +49,8 @@ import { buildChannelCatalog, type ChannelKind } from './channels-catalog';
 type SecretSource = 'config' | 'env' | 'runtime-secrets' | null;
 type ChannelInstructionKind = keyof AdminConfig['channelInstructions'];
 
+import { TeamsUsers } from './teams-users';
+
 function channelFragment(kind: ChannelKind): string {
   return kind === 'msteams' ? 'teams' : kind;
 }
@@ -2788,6 +2790,8 @@ function TeamsChannelEditor(props: {
           render={<a href="/admin/connectors#teams-sso">App Setup</a>}
         />
       </div>
+
+      <TeamsUsers />
 
       <details className="channel-advanced-settings">
         <summary>Teams app setup instructions</summary>

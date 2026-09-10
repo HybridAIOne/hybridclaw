@@ -39,7 +39,9 @@ afterAll(() => {
 });
 
 test('upgrades schema 58 without losing chat or scheduler failure data', async () => {
-  const { runMigrations } = await import('../src/memory/schema/migrations.js');
+  const { DATABASE_SCHEMA_VERSION, runMigrations } = await import(
+    '../src/memory/schema/migrations.js'
+  );
   const database = new Database(':memory:');
   try {
     runMigrations(database, { quiet: true });
@@ -63,7 +65,9 @@ test('upgrades schema 58 without losing chat or scheduler failure data', async (
     runMigrations(database, { quiet: true });
     runMigrations(database, { quiet: true });
 
-    expect(database.pragma('user_version', { simple: true })).toBe(59);
+    expect(database.pragma('user_version', { simple: true })).toBe(
+      DATABASE_SCHEMA_VERSION,
+    );
     expect(
       database.prepare('SELECT content, tool_history_json FROM messages').all(),
     ).toEqual([{ content: 'Existing reply', tool_history_json: null }]);

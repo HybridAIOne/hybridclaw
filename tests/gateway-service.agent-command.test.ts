@@ -131,12 +131,18 @@ test('agent create seeds BOOTSTRAP.md when workspace directory exists first', as
   expect(state.onboardingCompletedAt).toBeUndefined();
 });
 
-test('agent switch starts active BOOTSTRAP hatching in a reused session', async () => {
+test.each([false, true])('agent switch starts BOOTSTRAP hatching and attributes Teams usage (%s)', async (teams) => {
   setupHome();
 
   runAgentMock.mockResolvedValue({
     status: 'success',
     result: 'Hi. I am hatching now.',
+    tokenUsage: {
+      apiUsageAvailable: true,
+      apiPromptTokens: 10,
+      apiCompletionTokens: 5,
+      apiTotalTokens: 15,
+    },
     toolsUsed: [],
     toolExecutions: [],
   });
@@ -157,13 +163,23 @@ test('agent switch starts active BOOTSTRAP hatching in a reused session', async 
   });
   ensureBootstrapFiles('research');
 
+  const { observeMSTeamsUser, listMSTeamsUsers } = await import(
+    '../src/memory/msteams-users.ts'
+  );
+  const { flushTokenUsageBuffer } = await import(
+    '../src/usage/token-usage-buffer.ts'
+  );
+  for (const userId of ['user-1', 'user-2']) {
+    observeMSTeamsUser({ tenantId: 'tenant-a', userId, isMessage: false });
+  }
   const sessionId = 'session-agent-switch-bootstrap';
   storeMessage(sessionId, 'user-1', 'user', 'user', 'previous turn', 'bob');
 
   const result = await handleGatewayCommand({
     sessionId,
     guildId: null,
-    channelId: 'web',
+    channelId: teams ? '19:group-a' : 'web',
+    msteamsTenantId: teams ? 'tenant-a' : undefined,
     userId: 'user-1',
     username: 'user',
     args: ['agent', 'switch', 'research'],
@@ -207,6 +223,12 @@ test('agent switch starts active BOOTSTRAP hatching in a reused session', async 
       ]),
     );
   });
+  await flushTokenUsageBuffer();
+  const users = new Map(
+    listMSTeamsUsers('tenant-a').map((user) => [user.userId, user]),
+  );
+  expect(users.get('user-1')?.totalTokens).toBe(teams ? 15 : 0);
+  expect(users.get('user-2')?.totalTokens).toBe(0);
 });
 
 test('agent switch omits hatching hint when BOOTSTRAP is not active', async () => {

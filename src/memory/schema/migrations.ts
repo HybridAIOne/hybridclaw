@@ -23,7 +23,7 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 59;
+export const DATABASE_SCHEMA_VERSION = 60;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3586,6 +3586,42 @@ function migrateV59(
   );
 }
 
+function migrateV60(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  database.exec(`CREATE TABLE IF NOT EXISTS msteams_users (
+    tenant_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    teams_user_id TEXT,
+    entra_object_id TEXT,
+    display_name TEXT,
+    agent_id TEXT,
+    message_count INTEGER NOT NULL DEFAULT 0,
+    first_seen TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    last_seen TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (tenant_id, user_id)
+  )`);
+  if (tableExists(database, 'usage_events')) {
+    for (const column of ['user_id', 'channel_kind', 'tenant_id']) {
+      addColumnIfMissing({
+        database,
+        table: 'usage_events',
+        column,
+        ddl: `${column} TEXT`,
+        quiet: opts?.quiet === true,
+      });
+    }
+    database.exec(`CREATE INDEX IF NOT EXISTS idx_usage_events_channel_user
+    ON usage_events(channel_kind, tenant_id, user_id)`);
+  }
+  recordMigration(
+    database,
+    60,
+    'Track Teams users, agent mappings and per-user usage',
+  );
+}
+
 export function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3731,6 +3767,7 @@ export function runMigrations(
   }
 
   if (currentVersion < 59) migrateV59(database, opts);
+  if (currentVersion < 60) migrateV60(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

@@ -237,3 +237,33 @@ test('a heartbeat turn starts on the bottom rung', async () => {
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   expect(runAgentMock.mock.calls[0]?.[0].model).toBe('lmstudio/test-cheap');
 });
+
+test.each([false, true])('attributes Teams usage to the captured sender with tier routing=%s', async (routingEnabled) => {
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig((draft) => { draft.routing.enabled = routingEnabled; });
+  const { observeMSTeamsUser, listMSTeamsUsers } = await import('../src/memory/msteams-users.ts');
+  const { flushTokenUsageBuffer } = await import('../src/usage/token-usage-buffer.ts');
+  observeMSTeamsUser({ tenantId: 'tenant-a', userId: 'user-a', isMessage: true });
+  observeMSTeamsUser({ tenantId: 'tenant-a', userId: 'user-b', isMessage: true });
+  runAgentMock.mockImplementation(async (params) => ({
+    status: routingEnabled && params.model === 'lmstudio/test-cheap' ? 'error' : 'success',
+    result: 'done',
+    error: routingEnabled && params.model === 'lmstudio/test-cheap' ? 'Provider returned HTTP 503' : undefined,
+    toolsUsed: [], toolExecutions: [],
+    tokenUsage: { modelCalls: 1, apiUsageAvailable: true, apiPromptTokens: 10, apiCompletionTokens: 5, apiTotalTokens: 15,
+      apiCacheUsageAvailable: false, apiCacheReadTokens: 0, apiCacheWriteTokens: 0,
+      estimatedPromptTokens: 10, estimatedCompletionTokens: 5, estimatedTotalTokens: 15 },
+  }));
+  const result = await fixture.handleGatewayMessage({
+    sessionId: 'agent:main:channel:msteams:chat:group:peer:group-a',
+    guildId: null, channelId: '19:group-a', userId: 'user-a', username: 'Example User',
+    source: 'msteams', msteamsTenantId: 'tenant-a', content: 'Complete the task.',
+    chatbotId: 'bot_test', model: routingEnabled ? undefined : 'lmstudio/test-strong',
+    workspacePathOverride: fixture.workspacePath,
+  });
+  expect(result.status).toBe('success');
+  await flushTokenUsageBuffer();
+  const users = new Map(listMSTeamsUsers('tenant-a').map((user) => [user.userId, user]));
+  expect(users.get('user-a')?.totalTokens).toBe(routingEnabled ? 30 : 15);
+  expect(users.get('user-b')?.totalTokens).toBe(0);
+});
