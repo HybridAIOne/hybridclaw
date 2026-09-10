@@ -1,3 +1,8 @@
+/**
+ * Runner binds model credentials and per-agent configuration to one request.
+ * Local starter names control schema visibility; the independent allowed/blocked
+ * tool lists remain the permission boundary enforced by the worker.
+ */
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -7,6 +12,7 @@ import type {
   ExecutorRequest,
   ExecutorSessionHealthSnapshot,
 } from '../agent/executor-types.js';
+import { resolveLocalStarterTools } from '../agent/local-tool-config.js';
 import { mergeAllowedToolNames } from '../agent/tool-policy.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
@@ -1025,6 +1031,9 @@ async function runHostProcessInner(
       }),
     ),
     skillCatalog: params.skillCatalog,
+    localStarterTools: modelRuntime.isLocal
+      ? resolveLocalStarterTools(agentId)
+      : undefined,
     allowedTools: effectiveAllowedTools,
     blockedTools,
     media,

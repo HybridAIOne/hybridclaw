@@ -74,6 +74,7 @@ export interface AgentConfig {
   model?: AgentModelConfig;
   skills?: string[];
   tools?: string[];
+  localStarterTools?: string[];
   workspace?: string;
   chatbotId?: string;
   enableRag?: boolean;

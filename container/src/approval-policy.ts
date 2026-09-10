@@ -1,3 +1,8 @@
+/**
+ * Policy classifies concrete tool actions and preserves pinned denials.
+ * The loop must unwrap catalog calls first; only list/describe are read-only
+ * discovery here, never the underlying action requested through the catalog.
+ */
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -2913,7 +2918,9 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'read' ||
       lowerTool === 'glob' ||
       lowerTool === 'grep' ||
-      lowerTool === 'session_search'
+      lowerTool === 'session_search' ||
+      (lowerTool === 'tool_catalog' &&
+        (args.action === 'list' || args.action === 'describe'))
     ) {
       return {
         tier: 'green',

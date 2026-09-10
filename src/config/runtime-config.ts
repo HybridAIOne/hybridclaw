@@ -5,6 +5,7 @@
  * Local setup commits its endpoint, secret reference and default together;
  * this store does not start inference or decide protected-data routing.
  */
+
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,6 +14,10 @@ import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
 } from '../../container/shared/context-guard-config.js';
+import {
+  DEFAULT_LOCAL_STARTER_TOOLS,
+  normalizeLocalStarterTools,
+} from '../../container/shared/local-tool-config.js';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,
@@ -1133,6 +1138,7 @@ export interface RuntimeConfig {
     installed: RuntimeInstalledSkillManifest[];
   };
   tools: {
+    localStarterTools?: string[];
     disabled: string[];
     httpRequest: RuntimeHttpRequestToolConfig;
   };
@@ -1612,6 +1618,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     installed: [],
   },
   tools: {
+    localStarterTools: [...DEFAULT_LOCAL_STARTER_TOOLS],
     disabled: [],
     httpRequest: {
       authRules: [],
@@ -3071,6 +3078,10 @@ function normalizeAgentConfig(
     : fallback?.tools
       ? [...fallback.tools]
       : undefined;
+  const localStarterTools = normalizeLocalStarterTools(
+    value.localStarterTools,
+    'agents.list[].localStarterTools',
+  );
   const owner = normalizeString(value.owner, fallback?.owner ?? '', {
     allowEmpty: true,
   });
@@ -3128,6 +3139,7 @@ function normalizeAgentConfig(
     ...(model ? { model } : {}),
     ...(skills !== undefined ? { skills } : {}),
     ...(tools !== undefined ? { tools } : {}),
+    ...(localStarterTools !== undefined ? { localStarterTools } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
@@ -7776,6 +7788,10 @@ function normalizeRuntimeConfig(
       installed: normalizeRuntimeInstalledSkillManifests(rawSkills.installed),
     },
     tools: {
+      localStarterTools: normalizeLocalStarterTools(
+        isRecord(raw.tools) ? raw.tools.localStarterTools : undefined,
+        'tools.localStarterTools',
+      ) ?? [...DEFAULT_LOCAL_STARTER_TOOLS],
       disabled: normalizeStringArray(
         raw.tools && isRecord(raw.tools) ? raw.tools.disabled : undefined,
         DEFAULT_RUNTIME_CONFIG.tools.disabled,

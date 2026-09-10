@@ -96,6 +96,45 @@ chat. Resetting that chat cannot shrink its base prompt. Catalog
 metadata lives in `src/inference/local-model-shortlist.ts`; unsupported entries
 remain visible and never participate in automatic selection.
 
+## Local starter tools
+
+Local models receive up to nine starter tool schemas plus `tool_catalog`.
+The catalog lists additional permitted tools, describes one tool's arguments,
+and invokes it through the normal security hooks and approvals. Its schema
+stays fixed during the tool loop; the full MCP catalog is not added to every
+model request. Remote model requests retain their full catalogs.
+
+Configure the instance default and optional per-agent replacements in
+`~/.hybridclaw/config.json` (or the configured runtime home):
+
+```json
+{
+  "tools": {
+    "localStarterTools": [
+      "read", "write", "edit", "bash", "glob", "grep",
+      "skills_list", "web_search", "web_fetch"
+    ]
+  },
+  "agents": {
+    "list": [
+      { "id": "main" },
+      { "id": "researcher", "localStarterTools": ["read", "web_search", "web_fetch"] }
+    ]
+  }
+}
+```
+
+Merge these fields into existing settings, retaining other agent entries.
+Each list accepts zero to nine unique tool names. An omitted or `null` agent
+list inherits the instance default; `[]` uses discovery only. A custom list
+replaces the default rather than appending to it. Tool allowlists, disabled
+tools, and approvals still apply. `tool_catalog` is added automatically when
+additional permitted tools exist; disabling it with `tools.disabled` leaves
+only the selected starters. Changes apply on the next request.
+
+Compact schemas reduce prompt overhead but do not guarantee that a large
+instruction set or long conversation fits every model's context window.
+
 ## Operating the service
 
 ```bash

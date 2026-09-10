@@ -2740,6 +2740,22 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: [],
     },
     {
+      path: 'tools.localStarterTools',
+      section: 'tools',
+      kind: 'list',
+      defaultValue: [
+        'read',
+        'write',
+        'edit',
+        'bash',
+        'glob',
+        'grep',
+        'skills_list',
+        'web_search',
+        'web_fetch',
+      ],
+    },
+    {
       path: 'ui.navigation',
       section: 'ui',
       kind: 'list',

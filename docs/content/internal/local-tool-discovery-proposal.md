@@ -1,21 +1,28 @@
 ---
-title: Local Tool Discovery Proposal
+title: Local Tool Discovery
 description: Fixed starter tools with bounded discovery and normal action approval.
 ---
 
-# Local tool discovery proposal
+# Local tool discovery
 
-Status: proposed, not implemented. Requested by the owner on 2026-09-10 after
-the 114-tool Spark request exceeded its context window. Automatic approval
-review requires explicit implementation approval for the agent-loop and
-approval-boundary changes below.
+Implemented for local model requests following the owner's 2026-09-10 request.
+The compact catalog addresses the 114-tool Spark context overflow. Starter
+selection is configurable at instance and agent scope.
 
 ## Model-facing contract
 
-Local provider requests expose nine basic tools when allowed by the agent's
-existing policy: `read`, `write`, `edit`, `bash`, `glob`, `grep`,
+By default, local provider requests expose nine basic tools when allowed by
+the agent's existing policy: `read`, `write`, `edit`, `bash`, `glob`, `grep`,
 `skills_list`, `web_search`, and `web_fetch`. The owner selected nine plus one
 on 2026-09-10; `memory` is available through discovery.
+
+The instance default is `tools.localStarterTools`; an agent can replace it
+with `agents.list[].localStarterTools` in runtime configuration. Omitted or
+`null` agent values inherit; `[]` exposes discovery only. Lists accept at most
+nine unique non-empty names, including installed MCP/plugin tools. The reserved
+`tool_catalog` name cannot be a starter. Blocked or unavailable selections are
+omitted; they never grant permissions. Settings apply to the next request,
+including requests handled by a pooled worker.
 
 One additional `tool_catalog` tool provides three actions:
 
@@ -58,7 +65,13 @@ return an explicit error rather than truncated, invalid JSON. These bounds do
 not guarantee that arbitrary tool results or long conversations fit; the
 existing context guard and native context limit remain necessary.
 
-## Required verification before implementation is considered complete
+## Verification boundaries
+
+The focused check includes 196 unit tests and four real IPC/model-HTTP
+integration tests. Typecheck, root/container lint, formatting, and the full
+build passed. Native GPU inference and the full PDF workflow remain unverified:
+the existing MLX endpoint refused the live health connection.
+
 
 - Check the model request contains only the permitted starter tools and
   discovery; cloud requests retain their full catalogs.
@@ -79,7 +92,7 @@ existing context guard and native context limit remain necessary.
 
 Using the installed Spark tokenizer and a reconstruction of the recorded
 request, the full 114-tool catalog needs 52,439 tokens including a 2,048-token
-output reserve. The proposed ten definitions need 21,292 tokens with the
+output reserve. The ten default definitions need 21,292 tokens with the
 same reserve, leaving 19,668 tokens below the 40,960 limit. No model generation,
 MCP tool execution, runtime reconfiguration, or restart was used for this
 comparison. See the [qualification record](mac-inference-qualification.md).

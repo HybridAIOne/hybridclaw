@@ -71,11 +71,20 @@ The subsequent user-reported live error confirms 50,652 prompt tokens plus
 2,048 output tokens against the 40,960-token limit, with 114 tools. The
 reconstruction above uses a slightly different prepared message body.
 
-A proposed fixed starter catalog (nine basic tools plus `tool_catalog`) measured
+The fixed default starter catalog (nine basic tools plus `tool_catalog`) measured
 19,244 prompt tokens plus 2,048 output tokens, leaving 19,668 tokens within the
-same limit. This is a tokenizer-only comparison of a proposed schema, not an
-implemented or inference-tested workflow. See the
-[local tool discovery proposal](local-tool-discovery-proposal.md).
+same limit. The catalog is implemented and tested through real agent IPC and a synthetic
+model HTTP endpoint. Native inference could not be rerun because the local
+MLX endpoint was not listening; full PDF execution remains unqualified. See the
+[local tool discovery design](local-tool-discovery-proposal.md).
+
+Compact-catalog validation: 196 targeted unit tests and four integration tests
+passed. The integration tests exercise real agent IPC and a synthetic model
+HTTP endpoint, verify a 114-tool source catalog becomes ten model-facing
+schemas, retain original call history, apply pooled-request overrides, preserve
+cloud catalogs, block denied targets, preserve security hooks, and recheck
+revoked tools during approval replay. Root typecheck/lint, container lint,
+formatting, and the full build passed. No gateway or model restart was performed.
 
 The boundary preserves numeric context-overflow diagnostics (prompt, output
 reserve, limit and tool count), separates Python memory failures, and redacts

@@ -277,6 +277,7 @@ export interface ContainerInput {
   activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
   skillCatalog?: SessionSkillCatalogEntry[];
+  localStarterTools?: string[];
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
