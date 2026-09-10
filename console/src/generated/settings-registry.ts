@@ -1824,6 +1824,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: true,
     },
     {
+      path: 'msteams.showMemoryFooter',
+      section: 'msteams',
+      kind: 'boolean',
+      defaultValue: true,
+    },
+    {
       path: 'msteams.tab.allowFrom',
       section: 'msteams',
       kind: 'list',

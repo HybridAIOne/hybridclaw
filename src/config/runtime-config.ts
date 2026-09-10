@@ -612,6 +612,7 @@ export interface RuntimeMSTeamsConfig {
   requireMention: boolean;
   textChunkLimit: number;
   replyStyle: MSTeamsReplyStyle;
+  showMemoryFooter: boolean;
   mediaMaxMb: number;
   dangerouslyAllowNameMatching: boolean;
   mediaAllowHosts: string[];
@@ -1695,6 +1696,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     requireMention: true,
     textChunkLimit: 4_000,
     replyStyle: 'thread',
+    showMemoryFooter: true,
     // 100 MB (owner call, 2026-08-21): Teams downloads stream to the managed
     // cache; the console upload limit remains 20 MB.
     mediaMaxMb: 100,
@@ -5034,6 +5036,10 @@ function normalizeMSTeamsConfig(
       },
     ),
     replyStyle: normalizeMSTeamsReplyStyle(raw.replyStyle, fallback.replyStyle),
+    showMemoryFooter: normalizeBoolean(
+      raw.showMemoryFooter,
+      fallback.showMemoryFooter,
+    ),
     mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
       min: 1,
       max: 100,

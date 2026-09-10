@@ -178,3 +178,31 @@ test('sendChunkedReply retries transient Teams transport failures', async () => 
     vi.useRealTimers();
   }
 });
+
+test('buildResponseText appends the memory footer unless disabled', async () => {
+  const { buildResponseText } = await import('../src/channels/msteams/delivery.js');
+  const memoryAccess = {
+    semanticRecallAttempted: true,
+    summaryIncluded: false,
+    recalledMemories: [
+      {
+        ref: '[mem:1]',
+        memoryId: 1,
+        content: 'User prefers concise changelog entries.',
+        confidence: 0.9,
+      },
+    ],
+  };
+
+  expect(buildResponseText('Hello', ['search'], memoryAccess)).toBe(
+    'Hello\n\n*Memory: Recalled 1 memory*\n[mem:1]: User prefers concise changelog entries. (90%)\n*Tools: search*',
+  );
+  expect(
+    buildResponseText('Hello', ['search'], memoryAccess, {
+      showMemoryFooter: false,
+    }),
+  ).toBe('Hello\n*Tools: search*');
+  expect(
+    buildResponseText('', undefined, memoryAccess, { showMemoryFooter: false }),
+  ).toBe('');
+});
