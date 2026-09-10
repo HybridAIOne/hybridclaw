@@ -19,6 +19,7 @@ export const RUNTIME_PROVIDER_IDS = [
   'lmstudio',
   'llamacpp',
   'vllm',
+  'mlx',
 ] as const;
 
 export const OPENAI_COMPAT_RUNTIME_PROVIDER_IDS = [
@@ -37,6 +38,7 @@ export const OPENAI_COMPAT_RUNTIME_PROVIDER_IDS = [
   'lmstudio',
   'llamacpp',
   'vllm',
+  'mlx',
 ] as const;
 
 export type RuntimeProvider = (typeof RUNTIME_PROVIDER_IDS)[number];
@@ -63,6 +65,7 @@ const RUNTIME_PROVIDER_MODEL_PREFIXES: Array<[RuntimeProvider, string]> = [
   ['lmstudio', 'lmstudio/'],
   ['llamacpp', 'llamacpp/'],
   ['vllm', 'vllm/'],
+  ['mlx', 'mlx/'],
 ];
 
 const RUNTIME_PROVIDER_ID_SET = new Set<string>(RUNTIME_PROVIDER_IDS);

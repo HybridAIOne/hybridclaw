@@ -1,3 +1,9 @@
+/**
+ * Local compatible adapters preserve the selected backend and its limits.
+ * Managed MLX requires authenticated discovery on literal loopback; it cannot
+ * use generic fallback credentials or fabricate a context window while offline.
+ * A missing MLX entry triggers fresh discovery, including after local startup.
+ */
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   LOCAL_DEFAULT_CONTEXT_WINDOW,
@@ -9,6 +15,7 @@ import {
   LOCAL_VLLM_BASE_URL,
   LOCAL_VLLM_MODEL_BEHAVIOR,
 } from '../config/config.js';
+import { assertMlxEndpoint } from '../inference/mlx-endpoint.js';
 import {
   normalizeModelBehavior,
   resolveModelBehavior,
@@ -56,7 +63,7 @@ function resolveLocalRuntimeModel(
 }
 
 function createLocalOpenAICompatProvider(params: {
-  backend: Extract<LocalBackendType, 'llamacpp' | 'lmstudio' | 'vllm'>;
+  backend: Extract<LocalBackendType, 'llamacpp' | 'lmstudio' | 'vllm' | 'mlx'>;
   baseUrl: () => string;
   apiKey?: () => string;
   modelBehavior?: () => LocalModelBehavior | undefined;
@@ -84,15 +91,34 @@ function createLocalOpenAICompatProvider(params: {
         runtimeParams.model,
         backend,
       );
+      if (backend === 'mlx') {
+        if (!resolvedModel.endpointName || !resolvedModel.apiKey) {
+          throw new Error(
+            'MLX requires an authenticated named endpoint. Run hybridclaw local setup.',
+          );
+        }
+        assertMlxEndpoint(resolvedModel.baseUrl || '');
+      }
       const normalizedModel = resolvedModel.modelId;
       let modelInfo =
         getLocalModelInfo(runtimeParams.model) ||
-        getLocalModelInfo(normalizedModel);
+        (backend === 'mlx' ? null : getLocalModelInfo(normalizedModel));
       if (!modelInfo && resolvedModel.endpointName) {
-        await discoverAllLocalModels();
+        // An empty cached result can predate startup. MLX requires the exact
+        // named endpoint's live limits before the first inference request.
+        await discoverAllLocalModels(
+          backend === 'mlx' ? { force: true } : undefined,
+        );
         modelInfo =
           getLocalModelInfo(runtimeParams.model) ||
-          getLocalModelInfo(normalizedModel);
+          (backend === 'mlx' ? null : getLocalModelInfo(normalizedModel));
+      }
+      if (backend === 'mlx') {
+        modelInfo = getLocalModelInfo(runtimeParams.model);
+        if (modelInfo?.backend !== 'mlx')
+          throw new Error(
+            'The selected MLX model is unavailable. Start the local model first.',
+          );
       }
       const configuredBehavior = normalizeModelBehavior(
         resolvedModel.modelBehavior ||
@@ -129,6 +155,7 @@ function createLocalOpenAICompatProvider(params: {
         agentId,
         isLocal: true,
         contextWindow: modelInfo?.contextWindow ?? LOCAL_DEFAULT_CONTEXT_WINDOW,
+        ...(backend === 'mlx' ? { maxTokens: modelInfo?.maxTokens } : {}),
         thinkingFormat: resolvedBehavior?.thinkingFormat,
         modelBehavior: resolvedBehavior,
       };
@@ -153,4 +180,11 @@ export const vllmProvider = createLocalOpenAICompatProvider({
   baseUrl: () => LOCAL_VLLM_BASE_URL,
   apiKey: () => LOCAL_VLLM_API_KEY,
   modelBehavior: () => LOCAL_VLLM_MODEL_BEHAVIOR,
+});
+
+export const mlxProvider = createLocalOpenAICompatProvider({
+  backend: 'mlx',
+  baseUrl: () => {
+    throw new Error('Configure a named MLX endpoint.');
+  },
 });

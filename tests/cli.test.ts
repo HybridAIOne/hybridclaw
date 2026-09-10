@@ -4761,7 +4761,7 @@ describe('CLI hybridai commands', () => {
 
     expect(updateRuntimeConfig).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
-      'Disabled local backends: ollama, lmstudio, llamacpp, vllm.',
+      'Disabled local backends: ollama, lmstudio, llamacpp, mlx, vllm.',
     );
     expect(logSpy).toHaveBeenCalledWith('Default model: hybridai/gpt-5.6-luna');
   });

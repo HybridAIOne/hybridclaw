@@ -210,6 +210,52 @@ describe('local providers', () => {
     expect(factory.resolveModelProvider('gpt-5-nano')).toBe('hybridai');
   });
 
+  test('MLX uses named authenticated loopback discovery and propagates real limits', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = false;
+      config.local.endpoints = [
+        {
+          name: 'mac-mlx',
+          type: 'mlx',
+          enabled: true,
+          baseUrl: 'http://127.0.0.1:8321/v1',
+          apiKey: 'test-key',
+          zone: 'local',
+        },
+      ];
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                { id: 'test-model', context_length: 4096, max_tokens: 1024 },
+              ],
+            }),
+            { headers: { 'Content-Type': 'application/json' } },
+          ),
+      ),
+    );
+    const { factory } = await importFreshModules(homeDir);
+    expect(factory.resolveModelProvider('mac-mlx/test-model')).toBe('mlx');
+    await expect(
+      factory.resolveModelRuntimeCredentials({ model: 'mac-mlx/test-model' }),
+    ).resolves.toMatchObject({
+      provider: 'mlx',
+      model: 'mlx/test-model',
+      isLocal: true,
+      maxTokens: 1024,
+      contextWindow: 4096,
+      apiKey: 'test-key',
+    });
+    await expect(
+      factory.resolveModelRuntimeCredentials({ model: 'mlx/unconfigured' }),
+    ).rejects.toThrow('authenticated named endpoint');
+  });
+
   test('provider factory resolves named local endpoint prefixes', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
@@ -355,4 +401,49 @@ describe('local providers', () => {
       modelBehavior: { thinkingFormat: 'qwen' },
     });
   });
+});
+
+test.each([false, true])('MLX refreshes an empty cached endpoint after startup (same model on another endpoint: %s)', async (otherEndpoint) => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.local.backends.ollama.enabled = false;
+    config.local.discovery.intervalMs = 3_600_000;
+    config.local.endpoints = [{ name: 'mac-mlx', type: 'mlx', enabled: true, baseUrl: 'http://127.0.0.1:8321/v1', apiKey: 'test-key', zone: 'local' }];
+    if (otherEndpoint) config.local.endpoints.push({ name: 'gpu', type: 'vllm', enabled: true, baseUrl: 'http://127.0.0.1:8331/v1', zone: 'hai' });
+  });
+  let running = false;
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    const mlx = url === 'http://127.0.0.1:8321/v1/models';
+    if (mlx) {
+      expect(init?.headers).toMatchObject({ Authorization: 'Bearer test-key' });
+      if (!running) throw new Error('Connection refused');
+    }
+    return new Response(JSON.stringify({ data: [{ id: 'test-model', context_length: mlx ? 4096 : 65536, max_tokens: mlx ? 1024 : 4096 }] }), { headers: { 'Content-Type': 'application/json' } });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const { discovery, factory } = await importFreshModules(homeDir);
+  await discovery.discoverAllLocalModels();
+  expect(discovery.getLocalModelInfo('mac-mlx/test-model')).toBeNull();
+  if (otherEndpoint) expect(discovery.getLocalModelInfo('test-model')?.backend).toBe('vllm');
+  running = true;
+  const credentials = await factory.resolveModelRuntimeCredentials({ model: 'mac-mlx/test-model' });
+  expect(credentials).toMatchObject({ provider: 'mlx', contextWindow: 4096, maxTokens: 1024, model: 'mlx/test-model' });
+  expect(fetchMock.mock.calls.filter(([url]) => url.includes(':8321/'))).toHaveLength(2);
+});
+
+test.each(['offline', 'unauthorized', 'missing-limits'])('MLX still fails closed after fresh discovery when %s', async (failure) => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.local.backends.ollama.enabled = false;
+    config.local.endpoints = [{ name: 'mac-mlx', type: 'mlx', enabled: true, baseUrl: 'http://127.0.0.1:8321/v1', apiKey: 'test-key', zone: 'local' }];
+  });
+  const fetchMock = vi.fn(async () => {
+    if (failure === 'offline') throw new Error('Connection refused');
+    return new Response(JSON.stringify({ data: [{ id: 'test-model' }] }), { status: failure === 'unauthorized' ? 401 : 200, headers: { 'Content-Type': 'application/json' } });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const { discovery, factory } = await importFreshModules(homeDir);
+  await discovery.discoverAllLocalModels();
+  await expect(factory.resolveModelRuntimeCredentials({ model: 'mac-mlx/test-model' })).rejects.toThrow('MLX model is unavailable');
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });

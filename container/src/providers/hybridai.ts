@@ -1,3 +1,4 @@
+import { fetchHybridAIDestination } from '../../shared/hybridai-destination.js';
 import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
 import type {
   AnthropicContentBlock,
@@ -173,11 +174,15 @@ export async function callHybridAIProvider(
       },
     });
   }
-  const response = await fetch(`${args.baseUrl}/v1/chat/completions`, {
-    method: 'POST',
-    headers: buildHybridAIRequestHeaders(args),
-    body: JSON.stringify(body),
-  });
+  const response = await fetchHybridAIDestination(
+    `${args.baseUrl}/v1/chat/completions`,
+    {
+      method: 'POST',
+      headers: buildHybridAIRequestHeaders(args),
+      body: JSON.stringify(body),
+    },
+    args.requestHeaders,
+  );
 
   if (!response.ok) {
     const text = await response.text();
@@ -220,13 +225,17 @@ export async function callHybridAIProviderStream(
     });
   }
 
-  const response = await fetch(`${args.baseUrl}/v1/chat/completions`, {
-    method: 'POST',
-    headers: buildHybridAIRequestHeaders(args, {
-      Accept: 'text/event-stream, application/x-ndjson, application/json',
-    }),
-    body: JSON.stringify(body),
-  });
+  const response = await fetchHybridAIDestination(
+    `${args.baseUrl}/v1/chat/completions`,
+    {
+      method: 'POST',
+      headers: buildHybridAIRequestHeaders(args, {
+        Accept: 'text/event-stream, application/x-ndjson, application/json',
+      }),
+      body: JSON.stringify(body),
+    },
+    args.requestHeaders,
+  );
 
   if (!response.ok) {
     const text = await response.text();

@@ -242,6 +242,7 @@ import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { handleGoalCommand } from '../goals/goal-command.js';
 import { pauseActiveGoalForSession } from '../goals/goal-runtime.js';
 import { parseAgentIdentity } from '../identity/agent-id.js';
+import { supportsMacLocalModels } from '../inference/local-model-catalog.js';
 import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
@@ -3032,7 +3033,8 @@ function isLocalModelProvider(model: string | null | undefined): boolean {
     provider === 'ollama' ||
     provider === 'lmstudio' ||
     provider === 'llamacpp' ||
-    provider === 'vllm'
+    provider === 'vllm' ||
+    provider === 'mlx'
   );
 }
 
@@ -5210,6 +5212,11 @@ export async function getGatewayStatus(
   return {
     status: 'ok',
     webAuthConfigured: Boolean(WEB_API_TOKEN),
+    localModelsSupported: supportsMacLocalModels({
+      platform: process.platform,
+      arch: process.arch,
+      release: os.release(),
+    }),
     pid: process.pid,
     lifecycle: getGatewayLifecycleStatus(),
     version: APP_VERSION,
@@ -7269,7 +7276,12 @@ function resolveSkillsHubAuxiliaryModel(
 }
 
 export async function getGatewayAdminModels(): Promise<GatewayAdminModelsResponse> {
-  await refreshAvailableModelCatalogs({ includeHybridAI: true });
+  await refreshAvailableModelCatalogs({
+    includeHybridAI: true,
+    // 30s (owner offline-badge request, 2026-09-10): match picker polling;
+    // discovery remains read-only and does not load or start a model.
+    localMaxAgeMs: 30_000,
+  });
 
   const runtimeConfig = getRuntimeConfig();
   const dailyUsage = new Map(
@@ -7295,7 +7307,13 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     number
   >();
   const localProviderHints = new Map<string, GatewayModelProviderKey>();
-  for (const provider of ['ollama', 'lmstudio', 'llamacpp', 'vllm'] as const) {
+  for (const provider of [
+    'ollama',
+    'lmstudio',
+    'llamacpp',
+    'vllm',
+    'mlx',
+  ] as const) {
     for (const modelId of getAvailableModelList(provider)) {
       if (!localProviderHints.has(modelId)) {
         localProviderHints.set(modelId, provider);
@@ -12328,13 +12346,13 @@ export async function handleGatewayCommand(
           if (providerFilterArg && !providerFilter) {
             return badCommand(
               'Unknown Provider',
-              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
+              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm|mlx]`',
             );
           }
           if (listModifierArg && !expandedModelList) {
             return badCommand(
               'Usage',
-              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
+              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm|mlx]`',
             );
           }
           if (providerFilter && gatewayStatus) {
@@ -12469,7 +12487,9 @@ export async function handleGatewayCommand(
           const pricing = metadata.pricingUsdPerToken;
           const pricingLine = normalizedRuntimeModel.startsWith('openai-codex/')
             ? 'Pricing: subscription included (0 EUR)'
-            : /^(ollama|lmstudio|llamacpp|vllm)\//.test(normalizedRuntimeModel)
+            : /^(ollama|lmstudio|llamacpp|vllm|mlx)\//.test(
+                  normalizedRuntimeModel,
+                )
               ? 'Pricing: local model (0 EUR)'
               : pricing.input != null || pricing.output != null
                 ? `Pricing: ${

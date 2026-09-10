@@ -8,6 +8,11 @@ body,
   min-height: 100%;
 }
 
+/* Keep desktop sidebar layouts against the viewport during scroll bounce. */
+html:has([data-hc-sidebar-root]) {
+  overscroll-behavior-y: none;
+}
+
 body {
   margin: 0;
   background: var(--page-bg);
@@ -1342,21 +1347,6 @@ code {
 
 .skills-header-search {
   flex: 0 1 360px;
-}
-
-.skills-enabled-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel-bg);
-  color: var(--muted-foreground);
-  font-size: 0.84rem;
-  font-weight: 700;
-  white-space: nowrap;
 }
 
 .skill-detail-page {
@@ -4513,6 +4503,10 @@ th {
 
   .topbar h2 {
     font-size: 1.1rem;
+  }
+
+  .topbar-tools {
+    flex-shrink: 0;
   }
 
   .page-header {

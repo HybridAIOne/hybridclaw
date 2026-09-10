@@ -61,7 +61,12 @@
     "AGENTS.md",
     "SECURITY.md",
     "TRUST_MODEL.md",
-    "config.example.json"
+    "config.example.json",
+    "inference/mlx/*.py",
+    "inference/mlx/*.mjs",
+    "inference/mlx/pyproject.toml",
+    "inference/mlx/uv.lock",
+    "inference/mlx/THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
     "check:node": "node ./scripts/check-node-version.mjs",

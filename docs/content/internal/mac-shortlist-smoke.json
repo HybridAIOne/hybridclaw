@@ -1,0 +1,66 @@
+{
+  "benchmark": {
+    "timestamp": "2026-09-10T08:26:47.634Z",
+    "hardware": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "release": "25.4.0",
+      "chip": "Apple M5",
+      "memoryBytes": 34359738368,
+      "availableMemoryEstimateBytes": 5985337344
+    },
+    "model": "spark-x2.5-4b",
+    "repo": "abenzerps/Spark-X2.5-4B-MLX-4bit",
+    "revision": "b23819d4d60c2767fbf6ee3b3527f5f33205be7e",
+    "engine": "mlx-lm/0.31.3",
+    "contextWindow": 4096,
+    "firstTokenMs": 255,
+    "elapsedMs": 14609,
+    "promptTokens": 29,
+    "completionTokens": 454,
+    "effectivePrefillTokensPerSecond": 113.52835510817633,
+    "effectiveDecodeTokensPerSecond": 31.56051341925908,
+    "toolRoundTripPassed": true,
+    "health": {
+      "status": "ready",
+      "model": "spark-x2.5-4b",
+      "revision": "b23819d4d60c2767fbf6ee3b3527f5f33205be7e",
+      "engine": "mlx-lm/0.31.3",
+      "componentSha256": "92e13c062d7e4fbac39c0bf0ffa5148c7d11e35648523bb28efcb247c4497ef2",
+      "zone": "local",
+      "peakMemoryBytes": 2587977717,
+      "activeMemoryBytes": 2434014301
+    },
+    "note": "Single-run installation smoke test. Effective rates include HTTP overhead; not a quality benchmark."
+  },
+  "boundaries": {
+    "timestamp": "2026-09-10T08:26:53.091Z",
+    "model": "spark-x2.5-4b",
+    "revision": "b23819d4d60c2767fbf6ee3b3527f5f33205be7e",
+    "cancelRecoveryMs": 1354,
+    "checks": {
+      "unauthorized": true,
+      "browserBlocked": true,
+      "modelPin": true,
+      "outputBudget": true,
+      "remoteCode": true,
+      "sameTaskCache": true,
+      "separateTaskCache": true,
+      "singleAdmission": true,
+      "cancelAndRecover": true,
+      "nonStreamingCancelAndRecover": true,
+      "contextOverflow": true,
+      "health": true
+    },
+    "health": {
+      "status": "ready",
+      "model": "spark-x2.5-4b",
+      "revision": "b23819d4d60c2767fbf6ee3b3527f5f33205be7e",
+      "engine": "mlx-lm/0.31.3",
+      "componentSha256": "92e13c062d7e4fbac39c0bf0ffa5148c7d11e35648523bb28efcb247c4497ef2",
+      "zone": "local",
+      "peakMemoryBytes": 2886877965,
+      "activeMemoryBytes": 2455247956
+    }
+  }
+}

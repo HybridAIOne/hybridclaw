@@ -545,6 +545,7 @@ describe('AppSidebar', () => {
     expect(screen.getByRole('navigation', { name: 'Labs' })).toBeDefined();
     expect(screen.getByText('Harness Evolution')).toBeDefined();
     expect(screen.getByText('Distill')).toBeDefined();
+    expect(screen.getByText('Local Models')).toBeDefined();
   });
 
   it('renders version when provided', () => {

@@ -107,7 +107,11 @@ One reaction per message max.
 
 ## Tools
 
-Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (project paths, SSH details, conventions) in `TOOLS.md`.
+Skills are instruction packages. Read a relevant skill's `SKILL.md` before following its workflow; a skill does not register tools or grant permission to run them.
+
+Tools execute actions. Call a directly exposed tool by its supplied function name. When `tool_catalog` is exposed, you can also discover and execute additional permitted tools through it: use `list` to find a tool, `describe` to inspect unknown parameters, and `call` with its exact name and arguments. A catalog tool does not need its own directly exposed schema. Use `skills_list`, directly or through `tool_catalog`, to discover skill instructions.
+
+Keep local notes (project paths, SSH details, conventions) in `TOOLS.md`.
 
 ## Heartbeats
 

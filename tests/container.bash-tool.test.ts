@@ -1,7 +1,13 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:child_process')>();
+  return { ...original, spawnSync: vi.fn(original.spawnSync) };
+});
 
 describe.sequential('container bash tool persistence', () => {
   type ToolsModule = typeof import('../container/src/tools.js');
@@ -43,6 +49,7 @@ describe.sequential('container bash tool persistence', () => {
   afterEach(() => {
     tools?.resetPersistentBashSessions();
     tools = null;
+    vi.mocked(spawnSync).mockReset();
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.resetModules();
@@ -188,4 +195,56 @@ describe.sequential('container bash tool persistence', () => {
     expect(second).toBe(`${path.basename(workspaceRoot)}:`);
     expect(aliasResult).toContain('command not found');
   });
+
+  test.each([false, true])('keeps exact command contents in stdin, outside argv (persistent=%s)', async (persistBashState) => {
+    const { executeTool } = await createBashTestRuntime({ persistBashState });
+    const command = "  printf '%s\\n' 'quote \" and dollar $ and backtick `'\n# trailing whitespace\n\n";
+    const result = await executeTool('bash', bashCommand(command));
+    expect(result).toBe('quote " and dollar $ and backtick `\n');
+    const call = vi.mocked(spawnSync).mock.calls.find(([file]) => file === 'bash');
+    expect(call).toBeDefined();
+    expect(call![1]).not.toContain(command);
+    expect(JSON.stringify(call![1])).not.toContain('trailing whitespace');
+    expect(call![2]).toMatchObject({ input: `${command}\0` });
+  });
+
+  test.each([false, true])('child commands see EOF after the command frame (persistent=%s)', async (persistBashState) => {
+    const { executeTool } = await createBashTestRuntime({ persistBashState });
+    const result = await executeTool('bash', bashCommand('if IFS= read -r line; then printf unexpected-input; else printf stdin-eof; fi'));
+    expect(result).toBe('stdin-eof');
+    const heredoc = "cat <<'EOF'\nline one\nline two\nEOF";
+    expect(await executeTool('bash', bashCommand(heredoc))).toBe('line one\nline two\n');
+  });
+
+  test.each([false, true])('preserves nonzero command status (persistent=%s)', async (persistBashState) => {
+    const { executeToolWithMetadata } = await createBashTestRuntime({ persistBashState });
+    const result = await executeToolWithMetadata('bash', bashCommand('printf failed; exit 7'));
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('exit code 7');
+    expect(result.output).toContain('failed');
+  });
+
+  test.each([false, true])('rejects invalid input and blocked commands before launch (persistent=%s)', async (persistBashState) => {
+    const { executeToolWithMetadata } = await createBashTestRuntime({ persistBashState });
+    for (const command of [null, 123, ['printf test'], 'printf first\0printf second', 'eval "printf unsafe"']) {
+      const result = await executeToolWithMetadata('bash', JSON.stringify({ command }));
+      expect(result.isError).toBe(true);
+    }
+    expect(spawnSync).not.toHaveBeenCalled();
+  });
+
+  test.each([false, true])('Docker receives the same framed stdin and fixed wrapper (persistent=%s)', async (persistBashState) => {
+    vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', 'test-sandbox');
+    vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CWD', '/workspace');
+    vi.mocked(spawnSync).mockReturnValue({ pid: 1, status: 0, signal: null, stdout: 'sandbox-result', stderr: '', output: ['', 'sandbox-result', ''] });
+    const { executeTool } = await createBashTestRuntime({ persistBashState });
+    const command = 'printf approved-sandbox-command';
+    expect(await executeTool('bash', bashCommand(command))).toBe('sandbox-result');
+    const [file, args, options] = vi.mocked(spawnSync).mock.calls[0];
+    expect(file).toBe('docker');
+    expect(args!.slice(0, 6)).toEqual(['exec', '-i', '-w', '/workspace', 'test-sandbox', 'bash']);
+    expect(args).not.toContain(command);
+    expect(options).toMatchObject({ input: `${command}\0` });
+  });
+
 });

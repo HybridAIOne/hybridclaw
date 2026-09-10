@@ -25,11 +25,11 @@ describe('thinking extractor', () => {
     });
   });
 
-  test('returns fallback content for thinking-only responses', () => {
-    const result = extractThinkingBlocks('<think>reasoning only</think>');
+  test.each(['<think>reasoning only</think>', '<think>reasoning only'])('does not invent completion for reasoning-only output: %s', (text) => {
+    const result = extractThinkingBlocks(text);
 
     expect(result.thinking).toBe('reasoning only');
-    expect(result.content).toBe('Done.');
+    expect(result.content).toBeNull();
     expect(result.thinkingOnly).toBe(true);
   });
 
@@ -120,4 +120,9 @@ describe('thinking extractor', () => {
     expect(emitter.getRawContent()).toBe('<think>plan more</think>Hello');
     expect(emitter.getVisibleContent()).toBe('Hello');
   });
+});
+
+
+test('preserves a visible completion actually returned by the model', () => {
+  expect(extractThinkingBlocks('<think>finished</think>Done.').content).toBe('Done.');
 });
