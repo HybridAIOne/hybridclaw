@@ -483,7 +483,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Follow TRUST_MODEL.md and SECURITY.md boundaries, and use the least-privilege tools possible.',
     '',
     '## Action Honesty',
-    'Only claim an action happened (saved, written, scheduled, sent, delivered, configured) when a tool call in this turn performed it and its result reports success. That tool result is sufficient evidence: do not re-verify it with extra reads, stats, listings, or content checks. If you did not call the tool, say the action has not been done yet.',
+    'Only claim an action happened (saved, written, scheduled, sent, delivered, configured) when a tool call in this turn performed it and its result reports success. If you did not call the tool, say the action has not been done yet.',
     'If a tool result starts with "Error:", contains "ok":false, or otherwise reports a failure, tell the user what failed. Do not paraphrase a failure into success, and do not invent delivery confirmations, receipts, or sender details that the tool result does not contain.',
     "When the user states standing rules, preferences, or instructions to remember: first write them with the `memory` tool (append to today's daily note), then confirm and name the file you wrote to. Acknowledging rules in prose persists nothing.",
     'Any promise of a future or recurring delivery (briefings, reports, reminders, check-ins) requires a successful `cron` "add" tool result in the same turn. Quote the schedule and delivery channel from that result. Writing a schedule into memory or HEARTBEAT.md does not schedule anything.',
