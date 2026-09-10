@@ -70,6 +70,59 @@ function makeStructuredSummary(label: string): string {
 }
 
 describe('memory compaction', () => {
+  test('summaries receive tool evidence with its owning assistant message', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-tool-compaction-'));
+    const toolHistory = [
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'call-a',
+            type: 'function',
+            function: { name: 'read', arguments: '{"path":"report.txt"}' },
+          },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'call-a', content: 'Inventory count: 42' },
+    ];
+    const prompts: string[] = [];
+    try {
+      await compactConversation({
+        session: makeSession(),
+        messages: [
+          makeMessage(1, 'user', 'Read the inventory'),
+          {
+            ...makeMessage(2, 'assistant', 'Done'),
+            tool_history_json: JSON.stringify(toolHistory),
+          },
+          makeMessage(3, 'user', 'Next'),
+          makeMessage(4, 'assistant', 'Continuing'),
+        ],
+        backend: {
+          deleteMessagesByIds: (_id, ids) => ids.length,
+          storeSemanticMemory: () => 1,
+          updateSessionSummary: () => {},
+        },
+        promptRunner: {
+          run: async ({ userPrompt }) => {
+            prompts.push(userPrompt);
+            return makeStructuredSummary('Inventory count: 42');
+          },
+        },
+        config: {
+          keepRecentMessages: 1,
+          compactRatio: 0.9,
+          archiveBaseDir: root,
+        },
+      });
+      expect(prompts.join('\n')).toContain('Inventory count: 42');
+      expect(prompts.join('\n')).toContain('call-a');
+      expect(prompts.join('\n')).toContain('report.txt');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
   test('compactConversation preserves system messages and a recent tail', async () => {
     const archiveBaseDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-compact-tail-'),

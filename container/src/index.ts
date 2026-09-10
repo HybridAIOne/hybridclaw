@@ -1,8 +1,9 @@
 /**
- * Agent loop preserves model schemas/history while concrete actions pass policy.
- * Local wrappers resolve before approval, hooks, batching and audit. Invalid
- * catalog arguments can receive bounded feedback; rejected batches never execute.
- * Gateway instructions and discovery results do not grant tool permissions.
+ * Agent loop keeps request schemas stable while concrete actions pass policy.
+ * Local wrappers resolve before approval; rejected batches never execute.
+ * Full tool exchanges and surviving model context are retained separately;
+ * durable storage belongs to the gateway. Neither instructions nor historical
+ * calls grant permissions or approvals, and replay never repeats side effects.
  */
 import path from 'node:path';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
@@ -141,6 +142,7 @@ import {
   setWebSearchConfig,
   TOOL_DEFINITIONS,
 } from './tools.js';
+import { TurnToolHistory } from './turn-tool-history.js';
 import {
   type ArtifactMetadata,
   type ChatCompletionResponse,
@@ -623,6 +625,7 @@ function formatToolNameForLog(toolName: string): string {
 
 function appendCompletedToolCall(params: {
   completed: CompletedToolCallExecution;
+  turnToolHistory: TurnToolHistory;
   toolsUsed: string[];
   toolExecutions: ToolExecution[];
   history: ChatMessage[];
@@ -638,7 +641,9 @@ function appendCompletedToolCall(params: {
     params.artifactPaths.add(artifactKey);
     params.artifacts.push(artifact);
   }
-  params.history.push(params.completed.historyMessage);
+  params.history.push(
+    params.turnToolHistory.recordResult(params.completed.historyMessage),
+  );
   recordToolCallOutcome(
     params.toolCallHistory,
     params.completed.toolName,
@@ -1037,6 +1042,25 @@ function inputRuntimeContext(
 async function processRequest(
   params: ProcessRequestParams,
 ): Promise<ContainerOutput> {
+  const turnToolHistory = new TurnToolHistory(params.sessionId);
+  const output = await processRequestInner(params, turnToolHistory);
+  const reason = output.pendingApproval
+    ? 'Awaiting human approval; execution has not occurred.'
+    : output.error || 'The turn ended before this call could execute.';
+  const toolHistory = turnToolHistory.finish(reason);
+  return toolHistory.length
+    ? {
+        ...output,
+        toolHistory,
+        toolHistoryForReplay: turnToolHistory.finish(reason, true),
+      }
+    : output;
+}
+
+async function processRequestInner(
+  params: ProcessRequestParams,
+  turnToolHistory: TurnToolHistory,
+): Promise<ContainerOutput> {
   const {
     sessionId,
     messages,
@@ -1095,9 +1119,16 @@ async function processRequest(
     event: 'before_agent_start',
     messageCount: messages.length,
   });
-  const preparedHistory = skipContainerSystemPrompt
-    ? messages.map((message) => ({ ...message }))
-    : injectRuntimeCapabilitiesMessage(messages);
+  const preparedHistory = (
+    skipContainerSystemPrompt
+      ? messages.map((message) => ({ ...message }))
+      : injectRuntimeCapabilitiesMessage(messages)
+  ).map((message) => {
+    const next = { ...message };
+    if (provider !== 'anthropic') delete next.anthropic_content;
+    if (provider !== 'openai-codex') delete next.openai_response_items;
+    return next;
+  });
   if (localToolCatalog && tools === localToolCatalog.tools) {
     // Added once before the loop; actual schemas remain the source of truth.
     preparedHistory.push({
@@ -1109,6 +1140,7 @@ async function processRequest(
     provider === 'anthropic'
       ? preparedHistory
       : collapseSystemMessages(preparedHistory);
+  turnToolHistory.retain(history);
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
   const toolCallHistory: ToolCallHistoryEntry[] = [];
@@ -1299,17 +1331,20 @@ async function processRequest(
       approvedToolCall.argsJson,
       approval,
     );
-    history.push({
+    const approvedMessage: ChatMessage = {
       role: 'assistant',
       content: null,
       tool_calls: [approvedCall],
-    });
+    };
+    turnToolHistory.recordAssistant(approvedMessage);
+    history.push(approvedMessage);
     const completed = await executePreparedToolCall(
       { call: approvedCall, approval },
       toolCallHistory,
       localToolCatalog,
     );
     appendCompletedToolCall({
+      turnToolHistory,
       completed,
       toolsUsed,
       toolExecutions,
@@ -1404,6 +1439,7 @@ async function processRequest(
         return overflow;
       }
       history = compacted.history;
+      turnToolHistory.retain(history);
       compactionRetries += 1;
       console.error(
         `[context] in-loop compaction retry=${compactionRetries} compactedMessages=${compacted.compactedMessages} summarySource=${compacted.summarySource}`,
@@ -1543,17 +1579,21 @@ async function processRequest(
     if (catalogCorrection) {
       // Keep the original rejected calls for valid tool-result pairing. Nothing
       // from this batch reaches approval or execution, including valid siblings.
-      history.push({
+      const rejectedMessage: ChatMessage = {
         role: 'assistant',
         content: choice.message.content,
         tool_calls: choice.message.tool_calls,
-      });
+      };
+      turnToolHistory.recordAssistant(rejectedMessage);
+      history.push(rejectedMessage);
       for (const call of toolCalls) {
-        history.push({
-          role: 'tool',
-          tool_call_id: call.id,
-          content: catalogCorrection,
-        });
+        history.push(
+          turnToolHistory.recordResult({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: catalogCorrection,
+          }),
+        );
         toolsUsed.push(call.function.name);
         toolExecutions.push({
           name: call.function.name,
@@ -1694,6 +1734,7 @@ async function processRequest(
         choice.message.openai_response_items;
     }
 
+    turnToolHistory.recordAssistant(assistantMessage);
     history.push(assistantMessage);
     if (toolCalls.length === 0) {
       if (ralphEnabled) {
@@ -1917,6 +1958,7 @@ async function processRequest(
               successfulToolCallsThisTurn += 1;
             }
             appendCompletedToolCall({
+              turnToolHistory,
               completed,
               toolsUsed,
               toolExecutions,
@@ -2016,6 +2058,7 @@ async function processRequest(
         successfulToolCallsThisTurn += 1;
       }
       appendCompletedToolCall({
+        turnToolHistory,
         completed,
         toolsUsed,
         toolExecutions,

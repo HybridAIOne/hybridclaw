@@ -1,3 +1,9 @@
+/**
+ * Gateway turns persist tool exchanges with assistant results, including failures.
+ * Memory activity reflects actual recall or an included summary; eligibility,
+ * session scope, and confidence policy belong to the memory service.
+ * Transports own authorization; transcript evidence never authorizes execution.
+ */
 import path from 'node:path';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
@@ -1773,25 +1779,11 @@ async function handleGatewayMessageInner(
   const pluginPromptSummary = formatPluginPromptContext(
     pluginPromptDetails.sections,
   );
-  const semanticRecallAttempted = !isGoalContinuationSource(source);
-  const builtInMemoryAccessed = !pluginMemoryBehavior.replacesBuiltInMemory;
   const memoryAccessStartedAt = Date.now();
-  if (builtInMemoryAccessed) {
-    emitGatewayToolProgress(
-      {
-        sessionId: req.sessionId,
-        toolName: MEMORY_RECALL_ACTIVITY_TOOL_NAME,
-        phase: 'start',
-        preview: semanticRecallAttempted
-          ? 'Searching semantic memory'
-          : 'Checking memory context',
-      },
-      { alwaysVisible: true },
-    );
-  }
   const memoryContext: BuildMemoryPromptResult =
     pluginMemoryBehavior.replacesBuiltInMemory
       ? {
+          semanticRecallAttempted: false,
           promptSummary: null,
           summaryConfidence: null,
           semanticMemories: [],
@@ -1800,18 +1792,34 @@ async function handleGatewayMessageInner(
       : memoryService.buildPromptMemoryContext({
           session,
           query: effectiveUserTurnContentStripped,
-          includeSemanticRecall: semanticRecallAttempted,
+          includeSemanticRecall: !isGoalContinuationSource(source),
+          onMemoryAccess: (kind) =>
+            emitGatewayToolProgress(
+              {
+                sessionId: req.sessionId,
+                toolName: MEMORY_RECALL_ACTIVITY_TOOL_NAME,
+                phase: 'start',
+                preview:
+                  kind === 'semantic'
+                    ? 'Searching semantic memory'
+                    : 'Checking memory context',
+              },
+              { alwaysVisible: true },
+            ),
         });
   const sessionSummary = String(session.session_summary || '').trim();
-  const memoryAccess: MemoryAccess | undefined = builtInMemoryAccessed
-    ? {
-        semanticRecallAttempted,
-        summaryIncluded: sessionSummary
-          ? Boolean(memoryContext.promptSummary?.includes(sessionSummary))
-          : false,
-        recalledMemories: memoryContext.citationIndex,
-      }
-    : undefined;
+  const summaryIncluded = Boolean(
+    sessionSummary && memoryContext.promptSummary?.includes(sessionSummary),
+  );
+  const { semanticRecallAttempted } = memoryContext;
+  const memoryAccess: MemoryAccess | undefined =
+    semanticRecallAttempted || summaryIncluded
+      ? {
+          semanticRecallAttempted,
+          summaryIncluded,
+          recalledMemories: memoryContext.citationIndex,
+        }
+      : undefined;
   if (memoryAccess) {
     emitGatewayToolProgress(
       {
@@ -2598,6 +2606,8 @@ async function handleGatewayMessageInner(
         canonicalScopeId: canonicalContextScope,
         userContent: storedUserContent,
         error: errorMessage,
+        toolHistory: output.toolHistory,
+        toolHistoryForReplay: output.toolHistoryForReplay,
         tools:
           toolExecutions.length > 0
             ? errorTurnToolsFromExecutions(toolExecutions)
@@ -2777,6 +2787,8 @@ async function handleGatewayMessageInner(
       userContent: storedUserContent,
       resultText,
       artifacts: output.artifacts,
+      toolHistory: output.toolHistory,
+      toolHistoryForReplay: output.toolHistoryForReplay,
       toolCallCount: toolExecutions.length,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,

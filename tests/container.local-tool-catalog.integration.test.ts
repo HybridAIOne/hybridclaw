@@ -89,6 +89,10 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     expect(requests[3].messages.at(-1)).toMatchObject({ role: 'user', content: expect.stringContaining('Runtime tool reminder:') });
     expect(requests[3].messages.at(-2)).toMatchObject({ role: 'tool', tool_call_id: 'call_call', content: expect.stringContaining('synthetic tool result') });
     expect(requests[3].messages.at(-3)?.tool_calls?.[0].function.name).toBe('tool_catalog');
+    expect(output.toolHistory?.map((message) => message.role)).toEqual(['assistant', 'tool', 'assistant', 'tool', 'assistant', 'tool']);
+    expect(output.toolHistory?.filter((message) => message.role === 'assistant').every((message) => message.tool_calls?.[0].function.name === 'tool_catalog')).toBe(true);
+    expect(output.toolHistory?.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'call_call', content: expect.stringContaining('synthetic tool result') });
+    expect(output.toolHistoryForReplay).toEqual(output.toolHistory);
     for (let i = 1; i < 4; i++) expect(requests[i].messages.slice(0, requests[i - 1].messages.length)).toEqual(requests[i - 1].messages);
     const next = await followup({ localStarterTools: ['memory'] });
     expect(next.status).toBe('success');
@@ -181,6 +185,10 @@ test('rejects a malformed catalog batch before any sibling executes and allows a
   expect(output.toolExecutions?.at(-1)).toMatchObject({ name: 'read', isError: false });
   expect(requests[1].messages.slice(-2).every((m) => m.role === 'tool' && String(m.content).includes('No tool in this batch was executed'))).toBe(true);
   expect(requests[1].tools).toEqual(requests[0].tools);
+  expect(output.toolHistory?.[0].tool_calls).toEqual(mixed.tool_calls);
+  expect(output.toolHistory?.slice(1, 3)).toEqual(requests[1].messages.slice(-2));
+  expect(output.toolHistory?.slice(1, 3).every((message) => String(message.content).includes('No tool in this batch was executed'))).toBe(true);
+  expect(output.toolHistoryForReplay).toEqual(output.toolHistory);
 });
 
 test('shares the correction budget across missing descriptions and malformed calls', async () => {
@@ -229,7 +237,7 @@ test('rejects wrong underlying arguments before a valid sibling write and recove
   const invalid = catalog('call', 'bash', { path: 'private-placeholder' });
   const sibling = catalog('call', 'write', { path: 'must-not-exist.txt', contents: 'not executed' });
   const { output, dir, requests } = await harness([
-    { role: 'assistant', content: null, tool_calls: [...sibling.tool_calls as object[], ...invalid.tool_calls as object[]] },
+    { role: 'assistant', content: null, tool_calls: [...(sibling.tool_calls as Array<Record<string, unknown>>).map((call) => ({ ...call, id: 'valid-write' })), ...invalid.tool_calls as object[]] },
     catalog('describe', 'bash'), catalog('call', 'bash', { command: 'pwd' }),
   ], { localStarterTools: ['skills_list'] });
   expect(output.status).toBe('success');
@@ -287,4 +295,30 @@ test('keeps valid tool calls following reasoning instead of treating them as emp
   expect(output.status).toBe('success');
   expect(output.result).toBe('Read completed.');
   expect(output.toolExecutions?.[0]).toMatchObject({ name: 'read', isError: false });
+});
+
+
+test('replays local tool history with catalog guidance and strips foreign provider metadata', async () => {
+  const messages: ChatMessage[] = [
+    { role: 'assistant', content: null, tool_calls: [{
+      id: 'previous-read', type: 'function', function: { name: 'read', arguments: '{"path":"notes.txt"}' },
+    }],
+      anthropic_content: [{ type: 'tool_use', id: 'previous-read', name: 'read', input: { path: 'notes.txt' } }],
+      openai_response_items: [{ type: 'reasoning', id: 'reasoning_a', summary: [] }],
+    },
+    { role: 'tool', tool_call_id: 'previous-read', content: 'Previously read notes.' },
+    { role: 'user', content: 'Use the previous result.' },
+  ];
+  const original = structuredClone(messages);
+  const { output, requests } = await harness([], { messages, localStarterTools: ['skills_list'] });
+  expect(output.status).toBe('success');
+  expect(requests).toHaveLength(1);
+  const request = requests[0];
+  expect(request.tools.map((tool) => tool.function.name)).toEqual(['skills_list', 'tool_catalog']);
+  expect(request.messages[0].content).toContain('Additional permitted tools are available through tool_catalog');
+  expect(request.messages.find((message) => message.role === 'assistant')?.tool_calls).toEqual(original[0].tool_calls);
+  expect(request.messages.find((message) => message.role === 'tool')).toEqual(original[1]);
+  expect(request.messages.every((message) => !message.anthropic_content && !message.openai_response_items)).toBe(true);
+  expect(output.toolExecutions).toEqual([]);
+  expect(messages).toEqual(original);
 });

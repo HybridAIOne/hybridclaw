@@ -63,6 +63,7 @@ function makeBackend(): MemoryBackend {
     getCompactionCandidateMessages: () => null,
     storeMessage: () => 1,
     storeSemanticMemory: () => 1,
+    hasRecallableSemanticMemories: () => false,
     recallSemanticMemories: () => [],
     forgetSemanticMemory: () => false,
     decaySemanticMemories: () => 0,

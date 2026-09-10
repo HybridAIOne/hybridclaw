@@ -287,15 +287,20 @@ model output or library payloads. Tool discovery, eligibility, and action
 approvals remain enforced by the agent runtime.
 
 Startup and configuration saves reject malformed or unsupported endpoint
-entries and defaults that reference a missing or disabled named endpoint.
+entries and defaults that select a disabled named endpoint.
 The invalid file is preserved instead of saving a normalized version that
 drops the endpoint. Startup identifies the configuration field and offers
 the existing configuration-revision recovery flow through
 `hybridclaw onboarding`. Restore the endpoint or select a configured model;
 use a build that supports the endpoint's backend. These checks do not require
 the local service to be running. Older builds without these checks can still
-rewrite unsupported settings, so keep the CLI linked to the feature checkout
-when testing an unreleased backend.
+rewrite unsupported settings. When testing an unreleased backend, invoke the
+feature checkout's CLI by its explicit path.
+
+An unknown default-model prefix produces a startup warning while allowing the
+gateway to start for configuration repair. The saved reference is preserved;
+requests using it fail before credentials or network calls, without falling back
+to another provider.
 
 Desktop **Labs → Start Local Model** / **Stop Local Model** manage an owned service.
 Sleep unloads it, wake restores it, and quitting stops it. An already-running

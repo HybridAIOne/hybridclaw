@@ -1,11 +1,85 @@
 import { ApplicationIntegrationType, InteractionContextType } from 'discord.js';
-import { expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 
 import {
   buildSlashCommandDefinitions,
   isGlobalSlashCommand,
   parseSlashInteractionArgs,
+  type SlashCommandDefinition,
+  type SlashCommandOptionDefinition,
 } from '../src/channels/discord/slash-commands.js';
+import * as commandRegistry from '../src/command-registry.js';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+test('all Discord command and option descriptions satisfy the API length limit', () => {
+  function checkDescription(
+    definition: SlashCommandDefinition | SlashCommandOptionDefinition,
+    path: string,
+  ): void {
+    const length = Array.from(definition.description).length;
+    expect(length, path).toBeGreaterThan(0);
+    expect(length, path).toBeLessThanOrEqual(100);
+    if ('options' in definition) {
+      for (const option of definition.options ?? []) {
+        checkDescription(option, `${path}.${option.name}`);
+      }
+    }
+  }
+
+  for (const definition of buildSlashCommandDefinitions([])) {
+    checkDescription(definition, definition.name);
+  }
+});
+
+test.each([
+  { description: 'a'.repeat(101), expected: `${'a'.repeat(97)}...` },
+  {
+    description: `${'a'.repeat(96)}🦞${'b'.repeat(10)}`,
+    expected: `${'a'.repeat(96)}🦞...`,
+  },
+])('long descriptions are shortened at every Discord option depth', ({
+  description,
+  expected,
+}) => {
+  const definitions: commandRegistry.CanonicalSlashCommandDefinition[] = [
+    {
+      name: 'example',
+      description,
+      options: [{ kind: 'string', name: 'query', description }],
+    },
+    {
+      name: 'group',
+      description,
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'nested',
+          description,
+          options: [{ kind: 'string', name: 'query', description }],
+        },
+      ],
+    },
+    { name: 'boundary', description: 'b'.repeat(100) },
+  ];
+  vi.spyOn(
+    commandRegistry,
+    'buildCanonicalSlashCommandDefinitions',
+  ).mockReturnValue(definitions);
+
+  const [command, group, boundary] = buildSlashCommandDefinitions([]);
+  expect(command.description).toBe(expected);
+  expect(command.options?.[0].description).toBe(expected);
+  const nested = group.options?.[0];
+  expect(nested?.description).toBe(expected);
+  expect(nested && 'options' in nested && nested.options?.[0].description).toBe(
+    expected,
+  );
+  expect(boundary.description).toBe('b'.repeat(100));
+  expect(definitions[0].description).toBe(description);
+});
 
 function makeInteraction(params: {
   commandName: string;
@@ -395,16 +469,4 @@ test('slash commands parse in DMs and guilds the same way', () => {
   expect(mcpArgs).toEqual(['mcp', 'list']);
   expect(isGlobalSlashCommand('status')).toBe(true);
   expect(isGlobalSlashCommand('help')).toBe(true);
-});
-
-
-test('every Discord command and nested option has a valid description length', () => {
-  type Entry = { name: string; description: string; options?: Entry[] };
-  const check = (entry: Entry, parent = '') => {
-    const name = `${parent}/${entry.name}`;
-    expect(Array.from(entry.description).length, name).toBeGreaterThan(0);
-    expect(Array.from(entry.description).length, name).toBeLessThanOrEqual(100);
-    for (const option of entry.options ?? []) check(option, name);
-  };
-  for (const command of buildSlashCommandDefinitions([])) check(command);
 });

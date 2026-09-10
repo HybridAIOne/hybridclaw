@@ -17,6 +17,43 @@ afterEach(() => {
 });
 
 describe('confidential runtime context', () => {
+  test('redacts replayed native tool inputs and text without modifying signed thinking', () => {
+    const ctx = createConfidentialRuntimeContext(RULES);
+    const message = {
+      role: 'assistant',
+      content: 'Serviceplan',
+      tool_calls: [
+        {
+          id: 'call-a',
+          type: 'function',
+          function: { name: 'read', arguments: '{"path":"Serviceplan.txt"}' },
+        },
+      ],
+      anthropic_content: [
+        {
+          type: 'thinking',
+          thinking: 'Read the requested file.',
+          signature: 'opaque-signature',
+        },
+        { type: 'text', text: 'Serviceplan' },
+        {
+          type: 'tool_use',
+          id: 'call-a',
+          name: 'read',
+          input: { path: 'Serviceplan.txt' },
+        },
+      ],
+    };
+    const [dehydrated] = ctx.dehydrate([message]);
+    expect(JSON.stringify(dehydrated)).not.toContain('Serviceplan');
+    expect(dehydrated.anthropic_content[0]).toEqual(
+      message.anthropic_content[0],
+    );
+    expect(dehydrated.anthropic_content[2].input).toEqual(
+      JSON.parse(String(dehydrated.tool_calls[0].function.arguments)),
+    );
+    expect(message.content).toBe('Serviceplan');
+  });
   test('runtime config keeps confidential redaction off by default', () => {
     setConfidentialRuleSetForTesting(RULES);
     expect(isConfidentialRedactionEnabled()).toBe(false);

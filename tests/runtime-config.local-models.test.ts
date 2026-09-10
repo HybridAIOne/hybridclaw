@@ -85,7 +85,6 @@ describe('local model configuration integrity', () => {
   );
 
   test.each([
-    { endpoints: [], message: 'no matching local.endpoints entry' },
     {
       endpoints: [{ ...endpoint, enabled: false }],
       message: 'disabled local endpoint',
@@ -137,21 +136,35 @@ describe('local model configuration integrity', () => {
     expect(config.getRuntimeConfig().hybridai.defaultModel).toBe(model);
   });
 
-  test('rejects removing the selected endpoint without replacing the default', async () => {
+  test('keeps a missing endpoint reference available for repair without inventing a provider', async () => {
+    writeConfig([]);
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const config = await import('../src/config/runtime-config.js');
+    expect(config.getRuntimeConfigLoadError()).toBeNull();
+    expect(config.getRuntimeConfig().hybridai.defaultModel).toBe('mac-mlx/spark-x2.5-4b');
+    expect(config.getRuntimeConfig().local.endpoints).toEqual([]);
+    const { resolveModelRuntimeCredentials, UnknownModelProviderError } = await import('../src/providers/factory.js');
+    await expect(resolveModelRuntimeCredentials({ model: config.getRuntimeConfig().hybridai.defaultModel })).rejects.toThrow(UnknownModelProviderError);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test('removing an endpoint preserves its default reference and fails inference without falling back', async () => {
     writeConfig([endpoint]);
     const config = await import('../src/config/runtime-config.js');
-    const before = fs.readFileSync(configPath, 'utf8');
     const draft = config.getRuntimeConfig();
     draft.local.endpoints = [];
-
-    expect(() => config.saveRuntimeConfig(draft)).toThrow(
-      'no matching local.endpoints entry',
-    );
-    expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
-    expect(config.getRuntimeConfig().local.endpoints).toHaveLength(1);
-
+    const saved = config.saveRuntimeConfig(draft);
+    expect(saved.local.endpoints).toEqual([]);
+    expect(saved.hybridai.defaultModel).toBe('mac-mlx/spark-x2.5-4b');
+    expect(JSON.parse(fs.readFileSync(configPath, 'utf8')).hybridai.defaultModel).toBe(saved.hybridai.defaultModel);
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const { resolveModelRuntimeCredentials, UnknownModelProviderError } = await import('../src/providers/factory.js');
+    await expect(resolveModelRuntimeCredentials({ model: saved.hybridai.defaultModel })).rejects.toThrow(UnknownModelProviderError);
+    expect(fetch).not.toHaveBeenCalled();
     draft.hybridai.defaultModel = 'hybridai/gpt-5-nano';
-    expect(config.saveRuntimeConfig(draft).local.endpoints).toEqual([]);
+    expect(config.saveRuntimeConfig(draft).hybridai.defaultModel).toBe('hybridai/gpt-5-nano');
   });
 
   test('keeps invalid disk config intact during refresh-based updates and recovers after correction', async () => {

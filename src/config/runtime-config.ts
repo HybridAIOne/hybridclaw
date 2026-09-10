@@ -1,6 +1,6 @@
 /**
  * Runtime configuration validates source data before making it active.
- * Invalid local endpoints and dangling defaults block normalization writes;
+ * Invalid local endpoints and disabled named defaults block normalization writes;
  * refresh-based updates cannot replace those files with an in-memory fallback.
  * Local setup commits its endpoint, secret reference and default together;
  * this store does not start inference or decide protected-data routing.
