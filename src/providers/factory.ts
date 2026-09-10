@@ -1,3 +1,8 @@
+/**
+ * Model resolution rejects unknown providers before credentials or requests are used.
+ * Startup may handle UnknownModelProviderError to keep configuration accessible;
+ * this factory never substitutes a provider for an unknown model prefix.
+ */
 import { HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { anthropicProvider } from './anthropic.js';
@@ -97,6 +102,10 @@ function getModelPrefix(model: string): string | null {
   return model.slice(0, slashIndex).toLowerCase();
 }
 
+export class UnknownModelProviderError extends Error {
+  override name = 'UnknownModelProviderError';
+}
+
 function resolvePrefixedProvider(model: string, prefix: string): AIProvider {
   const provider = PROVIDER_BY_MODEL_PREFIX.get(prefix);
   if (provider) return provider;
@@ -109,7 +118,7 @@ function resolvePrefixedProvider(model: string, prefix: string): AIProvider {
 
   if (KNOWN_PROVIDER_BY_ID.has(prefix as AIProviderId)) return hybridAIProvider;
 
-  throw new Error(
+  throw new UnknownModelProviderError(
     `Unknown provider prefix \`${prefix}\` in model \`${model}\`.`,
   );
 }
@@ -124,7 +133,7 @@ function resolveBareModelProvider(model: string): AIProvider {
   if (localBackend) {
     const provider = KNOWN_PROVIDER_BY_ID.get(localBackend);
     if (provider) return provider;
-    throw new Error(
+    throw new UnknownModelProviderError(
       `Unknown local model backend \`${localBackend}\` for model \`${model}\`.`,
     );
   }

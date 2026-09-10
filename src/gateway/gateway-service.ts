@@ -3880,6 +3880,8 @@ export function recordSuccessfulTurn(opts: {
   resultText: string;
   artifacts?: ArtifactMetadata[] | null;
   toolCallCount: number;
+  toolHistory?: ChatMessage[];
+  toolHistoryForReplay?: ChatMessage[];
   startedAt: number;
   replaceBuiltInMemory?: boolean;
 }): {
@@ -3904,6 +3906,7 @@ export function recordSuccessfulTurn(opts: {
             content: opts.resultText,
             agentId: opts.agentId,
             artifacts: opts.artifacts,
+            toolHistory: opts.toolHistoryForReplay,
           }),
         }
       : memoryService.storeTurn({
@@ -3919,6 +3922,7 @@ export function recordSuccessfulTurn(opts: {
             agentId: opts.agentId,
             content: opts.resultText,
             artifacts: opts.artifacts,
+            toolHistory: opts.toolHistoryForReplay,
           },
         });
   if (opts.replaceBuiltInMemory !== true) {
@@ -3969,6 +3973,7 @@ export function recordSuccessfulTurn(opts: {
     userId: 'assistant',
     username: null,
     content: opts.resultText,
+    toolHistory: opts.toolHistory,
   });
 
   if (opts.replaceBuiltInMemory !== true) {
@@ -4120,6 +4125,8 @@ export function recordErrorTurn(opts: {
   userContent: string;
   error: string;
   tools: ErrorTurnToolRecord[];
+  toolHistory?: ChatMessage[];
+  toolHistoryForReplay?: ChatMessage[];
   delegationAcknowledgement?: string | null;
   replaceBuiltInMemory?: boolean;
 }): {
@@ -4148,6 +4155,7 @@ export function recordErrorTurn(opts: {
             role: 'assistant',
             content: placeholder,
             agentId: opts.agentId,
+            toolHistory: opts.toolHistoryForReplay,
           }),
         }
       : memoryService.storeTurn({
@@ -4162,6 +4170,7 @@ export function recordErrorTurn(opts: {
             username: null,
             agentId: opts.agentId,
             content: placeholder,
+            toolHistory: opts.toolHistoryForReplay,
           },
         });
   if (opts.replaceBuiltInMemory !== true && opts.canonicalScopeId.trim()) {
@@ -4210,6 +4219,7 @@ export function recordErrorTurn(opts: {
     userId: 'assistant',
     username: null,
     content: placeholder,
+    toolHistory: opts.toolHistory,
   });
   return storedTurn;
 }
@@ -9198,13 +9208,18 @@ export async function ensureGatewayBootstrapAutostart(params: {
       return;
     }
 
-    const storeBootstrapAssistantMessage = (content: string): number => {
+    const storeBootstrapAssistantMessage = (
+      content: string,
+      toolHistory?: ChatMessage[],
+      toolHistoryForReplay?: ChatMessage[],
+    ): number => {
       const assistantMessageId = memoryService.storeMessage({
         sessionId: session.id,
         userId: 'assistant',
         username: null,
         role: 'assistant',
         content,
+        toolHistory: toolHistoryForReplay,
         agentId: resolved.agentId,
       });
       appendSessionTranscript(resolved.agentId, {
@@ -9214,6 +9229,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         userId: 'assistant',
         username: null,
         content,
+        toolHistory,
       });
       return assistantMessageId;
     };
@@ -9477,6 +9493,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         ...loadPolicyFullAutoNeverApprove(agentWorkspaceDir(resolved.agentId)),
       ],
       scheduledTasks: [],
+      blockedTools: ['delegate'],
       skillCatalog: buildEligibleSkillCatalog(skills),
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
@@ -9584,7 +9601,11 @@ export async function ensureGatewayBootstrapAutostart(params: {
       return;
     }
 
-    const assistantMessageId = storeBootstrapAssistantMessage(resultText);
+    const assistantMessageId = storeBootstrapAssistantMessage(
+      resultText,
+      output.toolHistory,
+      output.toolHistoryForReplay,
+    );
     if (onboardingAuditContext) {
       recordBootstrapOnboardingAssistantMessage(onboardingAuditContext, {
         turnIndex,
@@ -14858,7 +14879,10 @@ export async function handleGatewayCommand(
                 task.consecutive_errors > 0
                   ? ` · errors ${task.consecutive_errors}`
                   : '';
-              return `#${task.id} ${task.enabled ? 'enabled' : 'disabled'} (${scheduleLabel}) [${statusLabel}${errorSuffix}] — ${task.prompt.slice(0, 60)}`;
+              const lastError = task.last_error
+                ? ` · last error: ${task.last_error}`
+                : '';
+              return `#${task.id} ${task.enabled ? 'enabled' : 'disabled'} (${scheduleLabel}) [${statusLabel}${errorSuffix}] — ${task.prompt.slice(0, 60)}${lastError}`;
             })
             .join('\n');
           return infoCommand('Scheduled Tasks', list);

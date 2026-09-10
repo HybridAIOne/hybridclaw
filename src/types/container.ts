@@ -18,10 +18,7 @@ import type {
   TaskModelPolicies,
 } from './models.js';
 import type { ScheduledTaskInput } from './scheduler.js';
-import type {
-  DelegationSideEffect,
-  ScheduleSideEffect,
-} from './side-effects.js';
+import type { DelegationSideEffect } from './side-effects.js';
 import type { TokenUsageStats } from './usage.js';
 
 export interface MediaContextItem {
@@ -125,12 +122,13 @@ export interface ContainerOutput {
   artifacts?: ArtifactMetadata[];
   memoryCitations?: MemoryCitation[];
   toolExecutions?: ToolExecution[];
+  toolHistory?: ChatMessage[];
+  toolHistoryForReplay?: ChatMessage[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;
   effectiveUserPrompt?: string;
   sideEffects?: {
-    schedules?: ScheduleSideEffect[];
     delegations?: DelegationSideEffect[];
   };
 }

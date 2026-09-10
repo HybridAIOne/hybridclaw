@@ -1,3 +1,8 @@
+/**
+ * Confidential placeholders cover replayed tool arguments and provider-native
+ * text/input copies as well as chat text. Signed reasoning stays opaque;
+ * this filter does not authorize tool execution or alter approval policy.
+ */
 import { recordAuditEvent } from '../audit/audit-events.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
@@ -49,6 +54,7 @@ export interface DehydrateMessageContent {
   role?: string;
   content: unknown;
   tool_calls?: DehydrateMessageToolCall[];
+  anthropic_content?: Array<{ type: string; [key: string]: unknown }>;
 }
 
 export interface ConfidentialRuntimeAuditOptions {
@@ -242,10 +248,32 @@ function dehydrateContent<T extends DehydrateMessageContent>(
     addRuntimeStats(stats, toolCallsResult.stats);
   }
 
-  if (!contentResult.mutated && !toolCallsResult.mutated) {
+  let nativeContentMutated = false;
+  const nativeContent = message.anthropic_content?.map((block) => {
+    const raw =
+      block.type === 'text' && typeof block.text === 'string'
+        ? block.text
+        : block.type === 'tool_use'
+          ? JSON.stringify(block.input)
+          : undefined;
+    if (raw === undefined) return block;
+    const result = dehydrateConfidential(raw, ruleSet, mappings);
+    addConfidentialResult(stats, result);
+    if (result.text === raw) return block;
+    nativeContentMutated = true;
+    return block.type === 'text'
+      ? { ...block, text: result.text }
+      : { ...block, input: JSON.parse(result.text) };
+  });
+  if (
+    !contentResult.mutated &&
+    !toolCallsResult.mutated &&
+    !nativeContentMutated
+  ) {
     return { message, stats };
   }
   const next: T = { ...message };
+  if (nativeContentMutated) next.anthropic_content = nativeContent;
   if (contentResult.mutated) {
     (next as { content: unknown }).content = contentResult.content;
   }

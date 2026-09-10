@@ -272,6 +272,10 @@ function createGatewayMainTestState(options?: {
     setChannelPluginAvailabilityListener: vi.fn(),
     stopGatewayPlugins: vi.fn(async () => {}),
     listQueuedProactiveMessages: vi.fn(() => []),
+    markQueuedProactiveMessageFailed: vi.fn(),
+    deleteQueuedProactiveMessage: vi.fn(),
+    sendToChannel: vi.fn(async () => {}),
+    sendToWhatsAppChat: vi.fn(async () => {}),
     loggerDebug: vi.fn(),
     loggerError: vi.fn(),
     loggerFatal: vi.fn(),
@@ -500,7 +504,7 @@ async function importFreshGatewayMain(options?: {
   }));
   vi.doMock('../src/channels/discord/runtime.js', () => ({
     initDiscord: state.initDiscord,
-    sendToChannel: vi.fn(),
+    sendToChannel: state.sendToChannel,
     shutdownDiscord: state.shutdownDiscord,
     setDiscordMaintenancePresence: state.setDiscordMaintenancePresence,
   }));
@@ -579,7 +583,7 @@ async function importFreshGatewayMain(options?: {
     isWhatsAppTransportInstalled: vi.fn(
       () => options?.whatsappTransportInstalled !== false,
     ),
-    sendToWhatsAppChat: vi.fn(async () => {}),
+    sendToWhatsAppChat: state.sendToWhatsAppChat,
     sendWhatsAppMediaToChat: vi.fn(async () => {}),
     shutdownWhatsApp: state.shutdownWhatsApp,
     WHATSAPP_PLUGIN_INSTALL_HINT:
@@ -643,13 +647,16 @@ async function importFreshGatewayMain(options?: {
   }));
   vi.doMock('../src/memory/db.js', () => ({
     closeDatabase: vi.fn(),
-    deleteQueuedProactiveMessage: vi.fn(),
+    deleteQueuedProactiveMessage: state.deleteQueuedProactiveMessage,
     enqueueProactiveMessage: vi.fn(() => ({ dropped: 0, queued: 1 })),
     failStaleDelegationJobs: state.failStaleDelegationJobs,
+    getFailedProactiveMessageCount: vi.fn(() => 0),
     getMostRecentSessionChannelId: vi.fn(
       () => state.currentMostRecentSessionChannelId,
     ),
     getQueuedProactiveMessageCount: vi.fn(() => 0),
+    markQueuedProactiveMessageFailed: state.markQueuedProactiveMessageFailed,
+    pruneFailedProactiveMessages: vi.fn(() => 0),
     getWorkflowByCompanionTaskId: state.getWorkflowByCompanionTaskId,
     initDatabase: state.initDatabase,
     listQueuedProactiveMessages: state.listQueuedProactiveMessages,
@@ -734,6 +741,7 @@ async function importFreshGatewayMain(options?: {
   }));
   vi.doMock('../src/gateway/proactive-delivery.js', () => ({
     deliverWebhookMessage: vi.fn(async () => {}),
+    hasImmediateProactiveDeliveryPath: vi.fn(() => true),
     hasQueuedProactiveDeliveryPath: vi.fn(() => true),
     isDiscordChannelId: vi.fn(() => true),
     isEmailAddress: vi.fn(() => false),
@@ -1296,27 +1304,29 @@ describe('gateway bootstrap', () => {
     );
   });
 
-  test('skips last-channel scheduled jobs when no deliverable channel exists', async () => {
+  test('fails last-channel scheduled jobs when no deliverable channel exists', async () => {
     const state = await importFreshGatewayMain({
       onState: (draft) => {
         draft.currentMostRecentSessionChannelId = null;
       },
     });
 
-    await state.scheduledTaskRunner?.({
-      source: 'scheduler-job',
-      jobId: 'release-notes',
-      sessionId: 'scheduler:release-notes',
-      channelId: 'scheduler',
-      prompt: 'publish release notes',
-      actionKind: 'agent_turn',
-      delivery: {
-        kind: 'last-channel',
-      },
-    });
+    await expect(
+      state.scheduledTaskRunner?.({
+        source: 'scheduler-job',
+        jobId: 'release-notes',
+        sessionId: 'scheduler:release-notes',
+        channelId: 'scheduler',
+        prompt: 'publish release notes',
+        actionKind: 'agent_turn',
+        delivery: {
+          kind: 'last-channel',
+        },
+      }),
+    ).rejects.toThrow('No delivery channel available');
 
     expect(state.runGatewayScheduledTask).not.toHaveBeenCalled();
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expect(state.loggerWarn).toHaveBeenCalledWith(
       {
         jobId: 'release-notes',
         taskId: undefined,
@@ -1326,13 +1336,98 @@ describe('gateway bootstrap', () => {
       },
       'Scheduled task skipped: no delivery channel available',
     );
-    expect(state.loggerError).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        jobId: 'release-notes',
-        delivery: 'last-channel',
+  });
+
+  test('rejects scheduled runs when the task reports an error', async () => {
+    const state = await importFreshGatewayMain();
+    state.runGatewayScheduledTask.mockImplementation(
+      async (...args: unknown[]) => {
+        const onError = args[5] as (error: unknown) => void;
+        onError(new Error('No chatbot configured for model "gpt-4.1-mini"'));
+      },
+    );
+
+    await expect(
+      state.scheduledTaskRunner?.({
+        source: 'scheduled-task',
+        taskId: 7,
+        sessionId: 'dm:user',
+        channelId: '123456789012345678',
+        prompt: 'Drink water',
+        actionKind: 'agent_turn',
+        delivery: { kind: 'channel', channelId: '123456789012345678' },
       }),
+    ).rejects.toThrow('No chatbot configured');
+
+    expect(state.loggerError).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 7, source: 'scheduled-task' }),
       'Scheduled task failed',
     );
+  });
+
+  test('rejects scheduled runs when WhatsApp delivery fails', async () => {
+    const state = await importFreshGatewayMain({ whatsappLinked: true });
+    state.sendToWhatsAppChat.mockRejectedValueOnce(
+      new Error('socket closed'),
+    );
+    state.runGatewayScheduledTask.mockImplementation(
+      async (...args: unknown[]) => {
+        const onResult = args[4] as (result: {
+          text: string;
+        }) => Promise<void>;
+        const onError = args[5] as (error: unknown) => void;
+        try {
+          await onResult({ text: 'Reminder: drink water' });
+        } catch (error) {
+          onError(error);
+        }
+      },
+    );
+
+    await expect(
+      state.scheduledTaskRunner?.({
+        source: 'scheduled-task',
+        taskId: 8,
+        sessionId: 'dm:user',
+        channelId: '491701234567@s.whatsapp.net',
+        prompt: 'Drink water',
+        actionKind: 'agent_turn',
+        delivery: {
+          kind: 'channel',
+          channelId: '491701234567@s.whatsapp.net',
+        },
+      }),
+    ).rejects.toThrow(
+      'Delivery to 491701234567@s.whatsapp.net failed: socket closed',
+    );
+    expect(state.sendToWhatsAppChat).toHaveBeenCalledTimes(1);
+  });
+
+  test('marks queued proactive messages as failed when delivery fails instead of deleting them', async () => {
+    const state = await importFreshGatewayMain({
+      onState: (draft) => {
+        draft.sendToChannel.mockRejectedValueOnce(new Error('discord down'));
+        draft.listQueuedProactiveMessages.mockReturnValue([
+          {
+            id: 41,
+            channel_id: '123456789012345678',
+            text: 'Morning briefing',
+            source: 'schedule:3',
+            queued_at: '2026-09-06T06:00:00.000Z',
+            failed_at: null,
+            failure_reason: null,
+          },
+        ]);
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(state.markQueuedProactiveMessageFailed).toHaveBeenCalledWith(
+        41,
+        'discord down',
+      );
+    });
+    expect(state.deleteQueuedProactiveMessage).not.toHaveBeenCalledWith(41);
   });
 
   test('does not deliver scheduler HEARTBEAT_OK results to the TUI inbox', async () => {
@@ -2868,7 +2963,7 @@ describe('gateway bootstrap', () => {
     );
 
     expect(reply).toHaveBeenCalledWith(
-      'The request was interrupted before I could reply. Please send it again.',
+      'The request was interrupted before I could reply. Tools I had already started may have completed, so check before sending it again.',
     );
   });
 

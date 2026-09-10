@@ -564,3 +564,41 @@ test('scheduled agent turns persist outputs for admin jobs detail', async () => 
     ],
   });
 });
+
+test('runGatewayScheduledTask reports a missing chatbot as a task error instead of resolving silently', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  vi.doMock('../src/providers/hybridai-bots.js', () => ({
+    fetchHybridAIAccountChatbotId: vi.fn(async () => {
+      throw new Error('HybridAI API key is not configured');
+    }),
+    fetchHybridAIBots: vi.fn(async () => []),
+    HybridAIBotFetchError: class extends Error {},
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { runGatewayScheduledTask } = await import(
+    '../src/gateway/gateway-scheduled-task-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const onResult = vi.fn(async () => {});
+  const onError = vi.fn();
+  await runGatewayScheduledTask(
+    'dm:user-a',
+    '123456789012345678',
+    'Reply exactly with: Drink water',
+    3,
+    onResult,
+    onError,
+  );
+
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(onResult).not.toHaveBeenCalled();
+  expect(onError).toHaveBeenCalledTimes(1);
+  const [error] = onError.mock.calls[0] as [unknown];
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).message).toContain('No chatbot configured');
+});

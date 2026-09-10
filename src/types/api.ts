@@ -1,3 +1,8 @@
+/**
+ * Model messages retain tool IDs and opaque provider replay metadata across
+ * gateway/worker boundaries. These types describe protocol data, not approval
+ * or the transport-facing conversation presentation.
+ */
 export interface ChatContentTextPart {
   type: 'text';
   text: string;
@@ -29,6 +34,8 @@ export interface ChatMessage {
   content: ChatMessageContent;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
+  anthropic_content?: Array<{ type: string; [key: string]: unknown }>;
+  openai_response_items?: Array<Record<string, unknown>>;
 }
 
 export interface ToolCall {

@@ -186,11 +186,14 @@ export interface ScheduledTaskInput {
   id: number;
   channelId: string;
   cronExpr: string;
+  tz: string;
   runAt: string | null;
   everyMs: number | null;
   prompt: string;
   enabled: number;
   lastRun: string | null;
+  lastStatus?: string | null;
+  lastError?: string | null;
   createdAt: string;
 }
 
@@ -445,26 +448,16 @@ export interface ContainerOutput {
   codexRuntime?: CodexTurnRuntime;
   artifacts?: ArtifactMetadata[];
   toolExecutions?: ToolExecution[];
+  toolHistory?: ChatMessage[];
+  toolHistoryForReplay?: ChatMessage[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;
   effectiveUserPrompt?: string;
   sideEffects?: {
-    schedules?: ScheduleSideEffect[];
     delegations?: DelegationSideEffect[];
   };
 }
-
-export type ScheduleSideEffect =
-  | {
-      action: 'add';
-      cronExpr?: string;
-      runAt?: string;
-      everyMs?: number;
-      prompt: string;
-      channelId?: string;
-    }
-  | { action: 'remove'; taskId: number };
 
 export interface DelegationTaskSpec {
   prompt: string;

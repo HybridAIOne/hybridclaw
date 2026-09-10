@@ -1,4 +1,7 @@
-import { afterEach, describe, expect, test } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
   executeTool,
@@ -7,18 +10,58 @@ import {
   setGatewayContext,
   setScheduledTasks,
   setScheduleSideEffectsEnabled,
+  setSessionContext,
   validateCronExpression,
 } from '../container/src/tools.js';
 
+const GATEWAY_URL = 'http://gateway.test';
+const ORIGINAL_FETCH = globalThis.fetch;
+
+type FetchCall = { url: string; init: RequestInit };
+
+function installGatewayFetch(
+  respond: (
+    call: FetchCall,
+  ) => { status?: number; body: Record<string, unknown> } | Error = () => ({
+    body: { ok: true, action: 'add', taskId: 42 },
+  }),
+): FetchCall[] {
+  const calls: FetchCall[] = [];
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const call = { url: String(input), init: init ?? {} };
+    calls.push(call);
+    const outcome = respond(call);
+    if (outcome instanceof Error) throw outcome;
+    return new Response(JSON.stringify(outcome.body), {
+      status: outcome.status ?? 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+  return calls;
+}
+
+function readRequestBody(call: FetchCall): Record<string, unknown> {
+  return JSON.parse(String(call.init.body)) as Record<string, unknown>;
+}
+
 describe.sequential('container cron tool', () => {
+  beforeEach(() => {
+    setGatewayContext(GATEWAY_URL, 'gateway-token', '1234567890123456789');
+    setSessionContext('session-cron');
+  });
+
   afterEach(() => {
+    globalThis.fetch = ORIGINAL_FETCH;
     resetSideEffects();
     setScheduleSideEffectsEnabled(true);
     setScheduledTasks(undefined);
     setGatewayContext(undefined, undefined, '');
+    setSessionContext('');
   });
 
-  test('accepts an explicit delivery channel when adding a task', async () => {
+  test('creates the job through the gateway and returns the persisted id', async () => {
+    const calls = installGatewayFetch();
+
     const result = await executeTool(
       'cron',
       JSON.stringify({
@@ -29,15 +72,110 @@ describe.sequential('container cron tool', () => {
       }),
     );
 
+    expect(result).toContain('Scheduled interval task #42');
     expect(result).toContain('ops@example.com');
-    expect(getPendingSideEffects()?.schedules).toEqual([
-      {
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe(`${GATEWAY_URL}/api/scheduler/task`);
+    expect(
+      (calls[0].init.headers as Record<string, string>).Authorization,
+    ).toBe('Bearer gateway-token');
+    expect(readRequestBody(calls[0])).toEqual({
+      action: 'add',
+      everyMs: 1_800_000,
+      channelId: 'ops@example.com',
+      prompt: 'Write a short operational update email.',
+      sessionId: 'session-cron',
+    });
+    expect(getPendingSideEffects()).toBeUndefined();
+  });
+
+  test('falls back to the session channel when no explicit channel is given', async () => {
+    const calls = installGatewayFetch();
+
+    await executeTool(
+      'cron',
+      JSON.stringify({
         action: 'add',
-        everyMs: 1_800_000,
-        channelId: 'ops@example.com',
+        cron: '0 7 * * *',
+        prompt: 'Write the morning briefing.',
+      }),
+    );
+
+    expect(readRequestBody(calls[0])).toMatchObject({
+      cronExpr: '0 7 * * *',
+      channelId: '1234567890123456789',
+    });
+  });
+
+  test('reports a tool error when the gateway rejects the job', async () => {
+    installGatewayFetch(() => ({
+      status: 404,
+      body: { error: 'Unknown session: session-cron' },
+    }));
+
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({
+        action: 'add',
+        every: 1800,
         prompt: 'Write a short operational update email.',
-      },
-    ]);
+      }),
+    );
+
+    expect(result).toContain('Error: scheduled task creation failed (HTTP 404)');
+    expect(result).toContain('Unknown session: session-cron');
+  });
+
+  test('reports a tool error when the gateway is unreachable', async () => {
+    installGatewayFetch(() => new Error('ECONNREFUSED'));
+
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({
+        action: 'add',
+        every: 1800,
+        prompt: 'Write a short operational update email.',
+      }),
+    );
+
+    expect(result).toContain('Error: scheduled task request failed');
+    expect(result).toContain('ECONNREFUSED');
+  });
+
+  test('refuses to schedule without a configured gateway', async () => {
+    const calls = installGatewayFetch();
+    setGatewayContext(undefined, undefined, '1234567890123456789');
+
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({
+        action: 'add',
+        every: 1800,
+        prompt: 'Write a short operational update email.',
+      }),
+    );
+
+    expect(result).toContain('Error:');
+    expect(result).toContain('gatewayBaseUrl is not configured');
+    expect(calls).toHaveLength(0);
+  });
+
+  test('removes a task through the gateway', async () => {
+    const calls = installGatewayFetch(() => ({
+      body: { ok: true, action: 'remove', taskId: 16 },
+    }));
+
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({ action: 'remove', taskId: 16 }),
+    );
+
+    expect(result).toBe('Removed task #16');
+    expect(readRequestBody(calls[0])).toEqual({
+      action: 'remove',
+      taskId: 16,
+      sessionId: 'session-cron',
+    });
   });
 
   test('lists the delivery channel for injected scheduled tasks', async () => {
@@ -46,6 +184,7 @@ describe.sequential('container cron tool', () => {
         id: 16,
         channelId: 'ops@example.com',
         cronExpr: '',
+        tz: '',
         runAt: null,
         everyMs: 1_800_000,
         prompt: 'Write a short operational update email.',
@@ -64,7 +203,69 @@ describe.sequential('container cron tool', () => {
     expect(result).toContain('#16');
   });
 
+  test('lists the last failure for tasks that errored or were disabled', async () => {
+    setScheduledTasks([
+      {
+        id: 21,
+        channelId: 'ops@example.com',
+        cronExpr: '0 9 * * *',
+        tz: 'Europe/Berlin',
+        runAt: null,
+        everyMs: null,
+        prompt: 'Morning briefing',
+        enabled: 1,
+        lastRun: '2026-09-08T07:00:00.000Z',
+        lastStatus: 'error',
+        lastError: 'Delivery to email failed: not linked',
+        createdAt: '2026-09-01T12:00:00.000Z',
+      },
+      {
+        id: 22,
+        channelId: 'ops@example.com',
+        cronExpr: '61 * * * *',
+        tz: '',
+        runAt: null,
+        everyMs: null,
+        prompt: 'Broken',
+        enabled: 0,
+        lastRun: null,
+        lastStatus: 'error',
+        lastError: 'Invalid cron expression "61 * * * *"',
+        createdAt: '2026-09-01T12:00:00.000Z',
+      },
+      {
+        id: 23,
+        channelId: 'ops@example.com',
+        cronExpr: '',
+        tz: '',
+        runAt: null,
+        everyMs: 60_000,
+        prompt: 'Healthy',
+        enabled: 1,
+        lastRun: '2026-09-08T07:00:00.000Z',
+        lastStatus: 'success',
+        lastError: 'stale error from an earlier run',
+        createdAt: '2026-09-01T12:00:00.000Z',
+      },
+    ]);
+
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({ action: 'list' }),
+    );
+
+    expect(result).toContain(
+      '#21 [enabled] 0 9 * * * (Europe/Berlin) -> ops@example.com — Morning briefing (last run failed: Delivery to email failed: not linked)',
+    );
+    expect(result).toContain(
+      '#22 [disabled] 61 * * * * -> ops@example.com — Broken (last run failed: Invalid cron expression "61 * * * *")',
+    );
+    expect(result).toContain('#23 [enabled] every 60s -> ops@example.com — Healthy');
+    expect(result).not.toContain('stale error');
+  });
+
   test('blocks schedule creation when side effects are disabled', async () => {
+    const calls = installGatewayFetch();
     setScheduleSideEffectsEnabled(false);
 
     const result = await executeTool(
@@ -77,9 +278,11 @@ describe.sequential('container cron tool', () => {
     );
 
     expect(result).toContain('scheduled task creation is disabled');
-    expect(getPendingSideEffects()).toBeUndefined();
+    expect(calls).toHaveLength(0);
   });
-  test('rejects malformed cron expressions instead of queueing them', async () => {
+
+  test('rejects malformed cron expressions before calling the gateway', async () => {
+    const calls = installGatewayFetch();
     for (const cron of ['9:00 daily', '0 0 9 * * *', '0 9 * * ?', '60 9 * * *']) {
       const result = await executeTool(
         'cron',
@@ -87,10 +290,12 @@ describe.sequential('container cron tool', () => {
       );
       expect(result, cron).toContain('Error:');
     }
-    expect(getPendingSideEffects()).toBeUndefined();
+    expect(calls).toHaveLength(0);
   });
 
-  test('accepts standard cron expressions and marks them as UTC', async () => {
+  test('falls back to UTC when no timezone is known', async () => {
+    const calls = installGatewayFetch();
+
     const result = await executeTool(
       'cron',
       JSON.stringify({
@@ -102,30 +307,137 @@ describe.sequential('container cron tool', () => {
     );
 
     expect(result).toContain('(UTC)');
-    expect(getPendingSideEffects()?.schedules).toEqual([
-      {
-        action: 'add',
-        cronExpr: '30 6 * * mon-fri',
-        channelId: 'ops@example.com',
-        prompt: 'Write the morning briefing.',
-      },
-    ]);
+    expect(result).toContain('#42');
+    expect(readRequestBody(calls[0])).toMatchObject({
+      action: 'add',
+      cronExpr: '30 6 * * mon-fri',
+      channelId: 'ops@example.com',
+      prompt: 'Write the morning briefing.',
+    });
   });
 
-  test('requires an explicit delivery channel in web chat sessions', async () => {
-    setGatewayContext(undefined, undefined, 'web');
+  test('stores an explicit timezone with cron tasks', async () => {
+    const calls = installGatewayFetch();
 
-    const withoutChannel = await executeTool(
+    const result = await executeTool(
       'cron',
       JSON.stringify({
         action: 'add',
-        cron: '0 7 * * *',
+        cron: '0 9 * * *',
+        tz: 'Europe/Berlin',
         prompt: 'Write the morning briefing.',
       }),
     );
-    expect(withoutChannel).toContain('Error:');
-    expect(withoutChannel).toContain('"channel"');
-    expect(getPendingSideEffects()).toBeUndefined();
+
+    expect(result).toContain('(Europe/Berlin)');
+    expect(result).toContain('#42');
+    expect(readRequestBody(calls[0])).toMatchObject({
+      action: 'add',
+      cronExpr: '0 9 * * *',
+      tz: 'Europe/Berlin',
+      prompt: 'Write the morning briefing.',
+    });
+  });
+
+  test('rejects unknown timezones before calling the gateway', async () => {
+    const calls = installGatewayFetch();
+
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({
+        action: 'add',
+        cron: '0 9 * * *',
+        tz: 'Mars/Olympus',
+        prompt: 'Write the morning briefing.',
+      }),
+    );
+
+    expect(result).toContain('Error: unknown timezone');
+    expect(calls).toHaveLength(0);
+  });
+
+  test('defaults the cron timezone to USER.md', async () => {
+    const calls = installGatewayFetch();
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-cron-workspace-'),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(workspaceRoot, 'USER.md'),
+        '# User\n\n**Timezone:** America/New_York\n',
+      );
+      vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+      vi.resetModules();
+      const tools = await import('../container/src/tools.js');
+      tools.setGatewayContext(GATEWAY_URL, 'gateway-token', '1234567890123456789');
+      tools.setSessionContext('session-cron');
+
+      const result = await tools.executeTool(
+        'cron',
+        JSON.stringify({
+          action: 'add',
+          cron: '0 9 * * *',
+          prompt: 'Write the morning briefing.',
+        }),
+      );
+
+      expect(result).toContain('(America/New_York)');
+      expect(readRequestBody(calls[0])).toMatchObject({
+        action: 'add',
+        cronExpr: '0 9 * * *',
+        tz: 'America/New_York',
+        prompt: 'Write the morning briefing.',
+      });
+      tools.setGatewayContext(undefined, undefined, '');
+      tools.setSessionContext('');
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('lists the timezone of injected cron tasks', async () => {
+    setScheduledTasks([
+      {
+        id: 17,
+        channelId: '',
+        cronExpr: '0 9 * * *',
+        tz: 'Europe/Berlin',
+        runAt: null,
+        everyMs: null,
+        prompt: 'Write the morning briefing.',
+        enabled: 1,
+        lastRun: null,
+        createdAt: '2026-04-11T12:58:18.861Z',
+      },
+    ]);
+
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({ action: 'list' }),
+    );
+
+    expect(result).toContain('0 9 * * * (Europe/Berlin)');
+  });
+
+  test('requires an explicit delivery channel in web chat and heartbeat sessions', async () => {
+    const calls = installGatewayFetch();
+
+    for (const channel of ['web', 'heartbeat']) {
+      setGatewayContext(GATEWAY_URL, 'gateway-token', channel);
+      const withoutChannel = await executeTool(
+        'cron',
+        JSON.stringify({
+          action: 'add',
+          cron: '0 7 * * *',
+          prompt: 'Write the morning briefing.',
+        }),
+      );
+      expect(withoutChannel, channel).toContain('Error:');
+      expect(withoutChannel, channel).toContain('"channel"');
+    }
+    expect(calls).toHaveLength(0);
 
     const withChannel = await executeTool(
       'cron',
@@ -136,22 +448,8 @@ describe.sequential('container cron tool', () => {
         prompt: 'Write the morning briefing.',
       }),
     );
-    expect(withChannel).toContain('Scheduled recurring task');
-    expect(getPendingSideEffects()?.schedules).toHaveLength(1);
-  });
-
-  test('does not require a channel outside web chat sessions', async () => {
-    setGatewayContext(undefined, undefined, '1234567890123456789');
-
-    const result = await executeTool(
-      'cron',
-      JSON.stringify({
-        action: 'add',
-        cron: '0 7 * * *',
-        prompt: 'Write the morning briefing.',
-      }),
-    );
-    expect(result).toContain('Scheduled recurring task');
+    expect(withChannel).toContain('Scheduled recurring task #42');
+    expect(calls).toHaveLength(1);
   });
 
   test('validateCronExpression covers ranges, lists, steps and names', () => {

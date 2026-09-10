@@ -47,10 +47,7 @@ export function sliceTailAtCodePointBoundary(
   return text.slice(start);
 }
 
-interface PromptHistoryMessage {
-  role: ChatMessage['role'];
-  content: ChatMessage['content'];
-}
+type PromptHistoryMessage = ChatMessage;
 
 export interface HistoryOptimizationOptions {
   maxTotalChars: number;
@@ -75,7 +72,16 @@ function normalizePositiveInt(value: number, fallback: number): number {
 
 function sumChars(messages: PromptHistoryMessage[]): number {
   return messages.reduce(
-    (total, message) => total + messageContentChars(message.content),
+    (total, message) =>
+      total +
+      messageContentChars(message.content) +
+      (message.tool_calls ? JSON.stringify(message.tool_calls).length : 0) +
+      (message.anthropic_content
+        ? JSON.stringify(message.anthropic_content).length
+        : 0) +
+      (message.openai_response_items
+        ? JSON.stringify(message.openai_response_items).length
+        : 0),
     0,
   );
 }
@@ -135,7 +141,7 @@ function normalizeMessageContentToText(
 }
 
 export function estimateTokenCountFromMessages(
-  messages: Array<Pick<ChatMessage, 'role' | 'content'>>,
+  messages: ChatMessage[],
 ): number {
   if (!Array.isArray(messages) || messages.length === 0) return 0;
 
@@ -143,6 +149,19 @@ export function estimateTokenCountFromMessages(
   for (const message of messages) {
     total += 4; // Approximate per-message framing overhead.
     total += estimateTokenCountFromText(message.role);
+    total += estimateTokenCountFromText(
+      message.tool_calls ? JSON.stringify(message.tool_calls) : null,
+    );
+    total += estimateTokenCountFromText(
+      message.anthropic_content
+        ? JSON.stringify(message.anthropic_content)
+        : null,
+    );
+    total += estimateTokenCountFromText(
+      message.openai_response_items
+        ? JSON.stringify(message.openai_response_items)
+        : null,
+    );
     total += estimateTokenCountFromText(
       normalizeMessageContentToText(message.content),
     );
