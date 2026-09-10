@@ -16,6 +16,7 @@ export async function registerSlashCommands(
   if (!application) return;
 
   const registeredNames = new Set<string>();
+  // Keep global upserts sequential to avoid a startup burst on the shared route.
   for (const definition of definitions) {
     try {
       // POST is an upsert by name. Keep IDs stable for cached DM commands.
