@@ -268,6 +268,10 @@ import {
   readRequestBody,
   sendJson,
 } from './gateway-http-utils.js';
+import {
+  getLocalContextSettings,
+  saveLocalContextSettings,
+} from './gateway-local-context-settings.js';
 import { GatewayLocalModelService } from './gateway-local-model-service.js';
 import { getGatewayAdminLogs } from './gateway-log-service.js';
 import {
@@ -11102,6 +11106,21 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'PUT' || method === 'DELETE')
           ) {
             await handleApiAdminPolicy(req, res, url);
+            return;
+          }
+          if (
+            (pathname === '/api/admin/tools/local-settings' ||
+              pathname === '/api/admin/skills/local-settings') &&
+            (method === 'GET' || method === 'PUT')
+          ) {
+            const kind = pathname.includes('/tools/') ? 'tools' : 'skills';
+            sendJson(
+              res,
+              200,
+              method === 'GET'
+                ? getLocalContextSettings(kind)
+                : saveLocalContextSettings(kind, await readJsonBody(req)),
+            );
             return;
           }
           if (pathname === '/api/admin/tools' && method === 'GET') {

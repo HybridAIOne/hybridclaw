@@ -2488,6 +2488,18 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: [],
     },
     {
+      path: 'skills.localSkillMode',
+      section: 'skills',
+      kind: 'string',
+      defaultValue: 'full',
+    },
+    {
+      path: 'skills.localStarterSkills',
+      section: 'skills',
+      kind: 'list',
+      defaultValue: [],
+    },
+    {
       path: 'skills.speechToText.defaultProvider',
       section: 'skills',
       kind: 'string',
@@ -2754,6 +2766,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
         'web_search',
         'web_fetch',
       ],
+    },
+    {
+      path: 'tools.localToolMode',
+      section: 'tools',
+      kind: 'string',
+      defaultValue: 'starred',
     },
     {
       path: 'ui.navigation',

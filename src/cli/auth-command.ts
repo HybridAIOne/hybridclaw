@@ -2193,7 +2193,9 @@ function clearLocalBackends(): void {
   });
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log('Disabled local backends: ollama, lmstudio, llamacpp, vllm.');
+  console.log(
+    'Disabled local backends: ollama, lmstudio, llamacpp, mlx, vllm.',
+  );
   if (isLocalProviderModel(nextConfig.hybridai.defaultModel)) {
     console.log(
       `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,

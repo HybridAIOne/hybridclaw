@@ -73,6 +73,12 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 vi.mock('../api/client', () => ({
+  fetchLocalContextSettings: async () => ({
+    instance: { mode: 'full', starred: [] },
+    agents: [],
+    disabled: [],
+  }),
+  saveLocalContextSettings: vi.fn(),
   fetchSkills: () => fetchSkillsMock(),
   fetchAdaptiveSkillHealth: () => fetchHealthMock(),
   fetchAdaptiveSkillAmendments: () => fetchAmendmentsMock(),

@@ -17,3 +17,13 @@ export function resolveLocalStarterTools(agentId?: string): string[] {
       DEFAULT_LOCAL_STARTER_TOOLS),
   ];
 }
+
+export function resolveLocalToolMode(agentId?: string): 'full' | 'starred' {
+  const config = getRuntimeConfig();
+  const id = agentId?.trim() || DEFAULT_AGENT_ID;
+  return (
+    config.agents.list?.find((entry) => entry.id === id)?.localToolMode ??
+    config.tools.localToolMode ??
+    'starred'
+  );
+}

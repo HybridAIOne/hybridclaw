@@ -74,6 +74,9 @@ export interface AgentConfig {
   model?: AgentModelConfig;
   skills?: string[];
   tools?: string[];
+  localSkillMode?: 'full' | 'starred';
+  localStarterSkills?: string[];
+  localToolMode?: 'full' | 'starred';
   localStarterTools?: string[];
   workspace?: string;
   chatbotId?: string;

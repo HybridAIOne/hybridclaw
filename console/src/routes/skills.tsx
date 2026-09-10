@@ -31,6 +31,11 @@ import {
 import { Checkbox } from '../components/checkbox';
 import { Field, FieldContent, FieldLabel } from '../components/field';
 import { Input } from '../components/input';
+import {
+  LocalContextControls,
+  LocalContextProvider,
+  LocalContextStar,
+} from '../components/local-context-settings';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
@@ -284,6 +289,14 @@ function createEmptyDraft(): SkillDraft {
 }
 
 export function SkillsPage() {
+  return (
+    <LocalContextProvider kind="skills">
+      <SkillsCatalogPage />
+    </LocalContextProvider>
+  );
+}
+
+function SkillsCatalogPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -820,7 +833,10 @@ export function SkillsPage() {
                           })
                         }
                         placeholder="// Script content..."
-                        style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
+                        style={{
+                          fontFamily: 'monospace',
+                          fontSize: '0.85rem',
+                        }}
                       />
                     </Field>
                   </div>
@@ -847,6 +863,7 @@ export function SkillsPage() {
         </Card>
       ) : null}
 
+      <LocalContextControls />
       <div className="metric-grid">
         <MetricCard
           label="Installed skills"
@@ -954,6 +971,10 @@ export function SkillsPage() {
                     return (
                       <tr key={skill.name}>
                         <td>
+                          <LocalContextStar
+                            name={skill.name}
+                            unavailable={!skill.available || skill.blocked}
+                          />
                           <Link
                             className="table-link-button"
                             to={skillDetailPath(skill.name)}

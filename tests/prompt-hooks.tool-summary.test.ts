@@ -645,3 +645,29 @@ test('buildRetrievedContextPrompt returns empty text when no retrieval is presen
   expect(buildRetrievedContextPrompt(null)).toBe('');
   expect(buildRetrievedContextPrompt('   ')).toBe('');
 });
+
+
+test('local skill stars trim the prompt while preserving the full eligible directory and mandatory skills', () => {
+  const config = structuredClone(runtimeConfig.getRuntimeConfig());
+  config.skills.localSkillMode = 'starred'; config.skills.localStarterSkills = ['pdf'];
+  config.agents.list = [{ id: 'main' }, { id: 'worker', localSkillMode: 'starred', localStarterSkills: [] }];
+  const spy = vi.spyOn(runtimeConfig, 'getRuntimeConfig').mockReturnValue(config);
+  try {
+    const skills = [makeSkill(), makeSkill({ name: 'docx', location: 'skills/docx/SKILL.md', description: 'Word documents' }), makeSkill({ name: 'mandatory', location: 'skills/mandatory/SKILL.md', always: true })];
+    const context = { agentId: 'main', skills, skillPromptMode: 'compact' as const, includePromptParts: ['skills'] as const, runtimeInfo: { model: 'mlx/example' } };
+    const prompt = buildSystemPromptFromHooks({ ...context, includePromptParts: ['skills'] });
+    expect(prompt).toContain('<name>pdf</name>');
+    expect(prompt).toContain('<name>mandatory</name>');
+    expect(prompt).not.toContain('<name>docx</name>');
+    expect(prompt).toContain('skills_list');
+    expect(buildEligibleSkillCatalog(skills).map((s) => s.name)).toEqual(['pdf', 'docx', 'mandatory']);
+    const worker = buildSystemPromptFromHooks({ ...context, agentId: 'worker', includePromptParts: ['skills'] });
+    expect(worker).not.toContain('<name>pdf</name>');
+    const cloud = buildSystemPromptFromHooks({ ...context, includePromptParts: ['skills'], runtimeInfo: { model: 'openai/gpt-4.1' } });
+    expect(cloud).toContain('<name>docx</name>');
+    const denied = buildSystemPromptFromHooks({ ...context, includePromptParts: ['skills'], blockedTools: ['skills_list'] });
+    expect(denied).not.toContain('Additional skills:');
+    config.skills.localSkillMode = 'full';
+    expect(buildSystemPromptFromHooks({ ...context, includePromptParts: ['skills'] })).toContain('<name>docx</name>');
+  } finally { spy.mockRestore(); }
+});

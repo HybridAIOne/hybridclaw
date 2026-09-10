@@ -4,6 +4,7 @@
  * model history retains original calls and stable model-facing definitions.
  */
 import path from 'node:path';
+import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import {
   cleanupAllBrowserSessions,
@@ -981,6 +982,7 @@ interface ProcessRequestParams {
   webSearch?: ContainerInput['webSearch'];
   providerCredentials?: ContainerInput['providerCredentials'];
   tools: ToolDefinition[];
+  localToolMode?: ContainerInput['localToolMode'];
   localStarterTools?: string[];
   localDiscoveryDisabled?: boolean;
   taskModels?: ContainerInput['taskModels'];
@@ -1047,6 +1049,7 @@ async function processRequest(
     providerCredentials,
     tools: availableTools,
     localStarterTools,
+    localToolMode,
     localDiscoveryDisabled,
     taskModels,
     contextGuard,
@@ -1067,7 +1070,11 @@ async function processRequest(
         localDiscoveryDisabled,
       )
     : undefined;
-  const tools = localToolCatalog?.tools ?? availableTools;
+  const tools =
+    isLocal &&
+    normalizeLocalContextMode(localToolMode, 'localToolMode') === 'full'
+      ? availableTools
+      : (localToolCatalog?.tools ?? availableTools);
   const processStartedAt = Date.now();
   console.error('[hybridclaw-agent] agent request start');
   await emitRuntimeEvent({
@@ -2127,6 +2134,7 @@ async function main(): Promise<void> {
       requestHeaders: firstRequestHeaders,
       ...inputRuntimeContext(firstInput),
       tools: resolveTools(firstInput),
+      localToolMode: firstInput.localToolMode,
       localStarterTools: firstInput.localStarterTools,
       localDiscoveryDisabled: firstInput.blockedTools?.includes('tool_catalog'),
       taskModels: firstTaskModels,
@@ -2172,6 +2180,7 @@ async function main(): Promise<void> {
         requestHeaders: firstInput.requestHeaders,
         ...inputRuntimeContext(firstInput),
         tools: resolveTools(firstInput),
+        localToolMode: firstInput.localToolMode,
         localStarterTools: firstInput.localStarterTools,
         localDiscoveryDisabled:
           firstInput.blockedTools?.includes('tool_catalog'),
@@ -2338,6 +2347,7 @@ async function main(): Promise<void> {
       requestHeaders,
       ...inputRuntimeContext(input),
       tools: resolveTools(input),
+      localToolMode: input.localToolMode,
       localStarterTools: input.localStarterTools,
       localDiscoveryDisabled: input.blockedTools?.includes('tool_catalog'),
       taskModels,
@@ -2382,6 +2392,7 @@ async function main(): Promise<void> {
         requestHeaders,
         ...inputRuntimeContext(input),
         tools: resolveTools(input),
+        localToolMode: input.localToolMode,
         localStarterTools: input.localStarterTools,
         localDiscoveryDisabled: input.blockedTools?.includes('tool_catalog'),
         taskModels,

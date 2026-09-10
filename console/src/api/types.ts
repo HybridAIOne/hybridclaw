@@ -2743,3 +2743,19 @@ export interface AdminLocalModelsResponse {
 export type AdminLocalModelCommand =
   | { action: 'setup'; modelId: string }
   | { action: 'start' | 'stop' | 'cancel' };
+
+export interface AdminLocalContextSettings {
+  instance: { mode: 'full' | 'starred'; starred: string[] };
+  agents: Array<{
+    id: string;
+    name: string;
+    mode: 'full' | 'starred' | null;
+    starred: string[] | null;
+  }>;
+  disabled: string[];
+}
+export interface AdminLocalContextSettingsUpdate {
+  agentId: string | null;
+  mode: 'full' | 'starred' | null;
+  starred: string[] | null;
+}

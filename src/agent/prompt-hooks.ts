@@ -1,3 +1,8 @@
+/**
+ * Prompt hooks compose the initial instruction blocks for a request.
+ * Local stars affect only skill presentation; eligibility stays with skills.ts
+ * and the complete permitted directory remains available to skills_list.
+ */
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
   getChannelByContextId,
@@ -36,6 +41,7 @@ import {
   type SkillInvocation,
 } from '../skills/skills.js';
 import { buildContextPrompt, loadStaticBootstrapFiles } from '../workspace.js';
+import { selectLocalPromptSkills } from './local-skill-config.js';
 import type {
   ExtendedPromptHookName,
   PromptPartName,
@@ -267,9 +273,23 @@ function buildBootstrapHook(context: PromptHookContext): string {
 
 function buildSelectedSkillsPrompt(context: PromptHookContext): string {
   if (!isBootstrapPartSelected('skills', context)) return '';
-  return context.skillPromptMode === 'compact'
-    ? buildCompactSkillsPrompt(context.skills)
-    : buildSkillsSection(buildSkillsPrompt(context.skills));
+  const selection = selectLocalPromptSkills(
+    context.skills,
+    context.agentId,
+    context.runtimeInfo?.model,
+  );
+  const prompt =
+    context.skillPromptMode === 'compact'
+      ? buildCompactSkillsPrompt(selection.skills)
+      : buildSkillsSection(buildSkillsPrompt(selection.skills));
+  const directoryAvailable =
+    !context.blockedTools?.includes('skills_list') &&
+    (!context.allowedTools || context.allowedTools.includes('skills_list'));
+  const directory =
+    selection.discovery && directoryAvailable
+      ? 'Additional skills: use skills_list to search the full eligible skill directory when a relevant skill is absent above. If skills_list is not directly exposed, find and call it through tool_catalog. Read the returned SKILL.md location with read before following its instructions.'
+      : '';
+  return [prompt, directory].filter(Boolean).join('\n\n');
 }
 
 function buildBootstrapSystemBlocks(context: PromptHookContext): {

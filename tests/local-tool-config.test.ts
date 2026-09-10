@@ -49,3 +49,17 @@ describe('local starter configuration', () => {
     expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
   });
 });
+
+
+test('resolves full/starred mode independently per agent and rejects invalid modes', async () => {
+  const { updateRuntimeConfig } = await import('../src/config/runtime-config.js');
+  const { resolveLocalToolMode } = await import('../src/agent/local-tool-config.js');
+  expect(resolveLocalToolMode('main')).toBe('starred');
+  updateRuntimeConfig((draft) => { draft.tools.localToolMode = 'full'; draft.agents.list = [{ id: 'main' }, { id: 'worker', localToolMode: 'starred' }]; });
+  expect(resolveLocalToolMode('main')).toBe('full');
+  expect(resolveLocalToolMode('worker')).toBe('starred');
+  const configPath = path.join(runtimeHome, 'config.json');
+  const before = fs.readFileSync(configPath, 'utf8');
+  expect(() => updateRuntimeConfig((draft) => { Object.assign(draft.tools, { localToolMode: 'invalid' }); })).toThrow('full or starred');
+  expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
+});

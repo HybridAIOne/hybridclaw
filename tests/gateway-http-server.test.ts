@@ -2456,6 +2456,10 @@ async function importFreshHealth(options?: {
 
   const localModelStatus = vi.fn(async () => ({ supported: true, running: false }));
   const localModelCommand = vi.fn();
+  const getLocalContextSettings = vi.fn(() => ({ instance: { mode: 'starred', starred: ['read'] }, agents: [], disabled: [] }));
+  const saveLocalContextSettings = vi.fn(() => getLocalContextSettings());
+  vi.doMock('../src/gateway/gateway-local-context-settings.js', () => ({ getLocalContextSettings, saveLocalContextSettings }));
+
   vi.doMock('../src/gateway/gateway-local-model-service.js', () => ({
     GatewayLocalModelService: class {
       status = localModelStatus;
@@ -2902,6 +2906,8 @@ async function importFreshHealth(options?: {
     dataDir,
     localModelStatus,
     localModelCommand,
+    getLocalContextSettings,
+    saveLocalContextSettings,
     handler,
     httpServer,
     listenArgs,
@@ -17463,4 +17469,27 @@ test('routes authenticated loopback status and actions to local-model service', 
   await settle();
   expect(post.statusCode).toBe(202);
   expect(state.localModelCommand).toHaveBeenCalledWith({ action: 'setup', modelId: 'spark-x2.5-4b' });
+});
+
+
+test.each(['tools', 'skills'])('authenticates local %s settings and requires config write permission', async (kind) => {
+  const state = await importFreshHealth({ apiTokens: { hck_test_context_read: { id: 'context-read', label: 'context-read', claims: { actions: ['admin.tools.read', 'admin.skills.read'] } } } });
+  for (const authorization of [undefined, 'Bearer hck_test_context_read']) {
+    const res = makeResponse();
+    state.handler(makeRequest({ url: `/api/admin/${kind}/local-settings`, method: 'PUT', noAuth: true, headers: authorization ? { authorization } : {}, body: { agentId: null, mode: 'full', starred: [] } }) as never, res as never);
+    await settle();
+    expect([401, 403]).toContain(res.statusCode);
+    expect(state.saveLocalContextSettings).not.toHaveBeenCalled();
+  }
+  const read = makeResponse();
+  state.handler(makeRequest({ url: `/api/admin/${kind}/local-settings` }) as never, read as never);
+  await settle();
+  expect(read.statusCode).toBe(200);
+  expect(state.getLocalContextSettings).toHaveBeenCalledWith(kind);
+  const write = makeResponse();
+  const body = { agentId: 'main', mode: 'starred', starred: [] };
+  state.handler(makeRequest({ url: `/api/admin/${kind}/local-settings`, method: 'PUT', body }) as never, write as never);
+  await settle();
+  expect(write.statusCode).toBe(200);
+  expect(state.saveLocalContextSettings).toHaveBeenCalledWith(kind, body);
 });

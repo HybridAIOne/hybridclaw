@@ -12,7 +12,10 @@ import type {
   ExecutorRequest,
   ExecutorSessionHealthSnapshot,
 } from '../agent/executor-types.js';
-import { resolveLocalStarterTools } from '../agent/local-tool-config.js';
+import {
+  resolveLocalStarterTools,
+  resolveLocalToolMode,
+} from '../agent/local-tool-config.js';
 import { mergeAllowedToolNames } from '../agent/tool-policy.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
@@ -1031,6 +1034,9 @@ async function runHostProcessInner(
       }),
     ),
     skillCatalog: params.skillCatalog,
+    localToolMode: modelRuntime.isLocal
+      ? resolveLocalToolMode(agentId)
+      : undefined,
     localStarterTools: modelRuntime.isLocal
       ? resolveLocalStarterTools(agentId)
       : undefined,

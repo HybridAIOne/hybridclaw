@@ -17,7 +17,7 @@ export const DEFAULT_LOCAL_STARTER_TOOLS = [
   'web_fetch',
 ];
 
-export function normalizeLocalStarterTools(value, field) {
+export function normalizeLocalStarredNames(value, field) {
   if (value === undefined || value === null) return undefined;
   if (
     !Array.isArray(value) ||
@@ -29,10 +29,25 @@ export function normalizeLocalStarterTools(value, field) {
     );
   }
   const names = value.map((name) => name.trim());
-  if (new Set(names).size !== names.length || names.includes('tool_catalog')) {
-    throw new Error(
-      `${field} must contain unique names and must not include tool_catalog.`,
-    );
+  if (new Set(names).size !== names.length) {
+    throw new Error(`${field} must contain unique names.`);
   }
+  return names;
+}
+
+// Owner decision, 2026-09-10: local requests default to starred schemas;
+// Full remains an explicit per-instance or per-agent choice in Admin Tools.
+export function normalizeLocalContextMode(value, field) {
+  if (value === undefined || value === null) return undefined;
+  if (value !== 'full' && value !== 'starred') {
+    throw new Error(`${field} must be full or starred.`);
+  }
+  return value;
+}
+
+export function normalizeLocalStarterTools(value, field) {
+  const names = normalizeLocalStarredNames(value, field);
+  if (names?.includes('tool_catalog'))
+    throw new Error(`${field} must not include tool_catalog.`);
   return names;
 }

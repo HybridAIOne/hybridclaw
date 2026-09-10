@@ -86,11 +86,16 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     const next = await followup({ localStarterTools: ['memory'] });
     expect(next.status).toBe('success');
     expect(requests.at(-1)?.tools.map((t) => t.function.name)).toEqual(['memory', 'tool_catalog']);
+    await followup({ localToolMode: 'full' });
+    expect(requests.at(-1)?.tools).toHaveLength(114);
+    expect(requests.at(-1)?.tools.some((t) => t.function.name === 'tool_catalog')).toBe(false);
+    await followup({ localToolMode: 'starred', localStarterTools: [] });
+    expect(requests.at(-1)?.tools.map((t) => t.function.name)).toEqual(['tool_catalog']);
     await followup({ isLocal: false });
     expect(requests.at(-1)?.tools).toHaveLength(114);
   });
-  test('denies a catalog target removed by the request block list', async () => {
-    const { output } = await harness([catalog('call', 'read', { path: 'notes.txt' })], { blockedTools: ['read'] });
+  test.each(['starred', 'full'] as const)('denies a catalog target removed by the request block list in %s mode', async (localToolMode) => {
+    const { output } = await harness([catalog('call', 'read', { path: 'notes.txt' })], { localToolMode, blockedTools: ['read'] });
     expect(output.status).toBe('error'); expect(output.error).toContain('not available');
     expect(output.toolExecutions).toEqual([]);
   });

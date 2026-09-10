@@ -59,6 +59,8 @@ import type {
   AdminInteractionResumeResponse,
   AdminJobsContextResponse,
   AdminLanHttpAccessMode,
+  AdminLocalContextSettings,
+  AdminLocalContextSettingsUpdate,
   AdminLocalModelCommand,
   AdminLocalModelsResponse,
   AdminLogsResponse,
@@ -1947,4 +1949,24 @@ export function controlLocalModel(token: string, body: AdminLocalModelCommand) {
     method: 'POST',
     body,
   });
+}
+
+export function fetchLocalContextSettings(
+  token: string,
+  kind: 'tools' | 'skills',
+): Promise<AdminLocalContextSettings> {
+  return requestJson<AdminLocalContextSettings>(
+    `/api/admin/${kind}/local-settings`,
+    { token },
+  );
+}
+export function saveLocalContextSettings(
+  token: string,
+  kind: 'tools' | 'skills',
+  payload: AdminLocalContextSettingsUpdate,
+): Promise<AdminLocalContextSettings> {
+  return requestJson<AdminLocalContextSettings>(
+    `/api/admin/${kind}/local-settings`,
+    { token, method: 'PUT', body: payload },
+  );
 }

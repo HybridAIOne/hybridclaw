@@ -16,6 +16,8 @@ import {
 } from '../../container/shared/context-guard-config.js';
 import {
   DEFAULT_LOCAL_STARTER_TOOLS,
+  normalizeLocalContextMode,
+  normalizeLocalStarredNames,
   normalizeLocalStarterTools,
 } from '../../container/shared/local-tool-config.js';
 import {
@@ -1129,6 +1131,8 @@ export interface RuntimeConfig {
   browser: RuntimeBrowserConfig;
   agents: AgentsConfig;
   skills: {
+    localSkillMode?: 'full' | 'starred';
+    localStarterSkills?: string[];
     extraDirs: string[];
     disabled: string[];
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
@@ -1138,6 +1142,7 @@ export interface RuntimeConfig {
     installed: RuntimeInstalledSkillManifest[];
   };
   tools: {
+    localToolMode?: 'full' | 'starred';
     localStarterTools?: string[];
     disabled: string[];
     httpRequest: RuntimeHttpRequestToolConfig;
@@ -1604,6 +1609,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     list: [{ id: DEFAULT_AGENT_ID }],
   },
   skills: {
+    // Implementation choice, 2026-09-10: start skills in full mode; curated skill stars deferred.
+    localSkillMode: 'full',
+    localStarterSkills: [],
     extraDirs: [],
     disabled: [],
     channelDisabled: {},
@@ -1618,6 +1626,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     installed: [],
   },
   tools: {
+    localToolMode: 'starred',
     localStarterTools: [...DEFAULT_LOCAL_STARTER_TOOLS],
     disabled: [],
     httpRequest: {
@@ -3078,6 +3087,18 @@ function normalizeAgentConfig(
     : fallback?.tools
       ? [...fallback.tools]
       : undefined;
+  const localSkillMode = normalizeLocalContextMode(
+    value.localSkillMode,
+    'agents.list[].localSkillMode',
+  );
+  const localStarterSkills = normalizeLocalStarredNames(
+    value.localStarterSkills,
+    'agents.list[].localStarterSkills',
+  );
+  const localToolMode = normalizeLocalContextMode(
+    value.localToolMode,
+    'agents.list[].localToolMode',
+  );
   const localStarterTools = normalizeLocalStarterTools(
     value.localStarterTools,
     'agents.list[].localStarterTools',
@@ -3139,6 +3160,9 @@ function normalizeAgentConfig(
     ...(model ? { model } : {}),
     ...(skills !== undefined ? { skills } : {}),
     ...(tools !== undefined ? { tools } : {}),
+    ...(localSkillMode !== undefined ? { localSkillMode } : {}),
+    ...(localStarterSkills !== undefined ? { localStarterSkills } : {}),
+    ...(localToolMode !== undefined ? { localToolMode } : {}),
     ...(localStarterTools !== undefined ? { localStarterTools } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
@@ -7764,6 +7788,16 @@ function normalizeRuntimeConfig(
     browser: normalizeBrowserConfig(rawBrowser, DEFAULT_RUNTIME_CONFIG.browser),
     agents: normalizeAgentsConfig(rawAgents, DEFAULT_RUNTIME_CONFIG.agents),
     skills: {
+      localSkillMode:
+        normalizeLocalContextMode(
+          rawSkills.localSkillMode,
+          'skills.localSkillMode',
+        ) ?? 'full',
+      localStarterSkills:
+        normalizeLocalStarredNames(
+          rawSkills.localStarterSkills,
+          'skills.localStarterSkills',
+        ) ?? [],
       extraDirs: normalizeStringArray(
         rawSkills.extraDirs,
         DEFAULT_RUNTIME_CONFIG.skills.extraDirs,
@@ -7788,6 +7822,11 @@ function normalizeRuntimeConfig(
       installed: normalizeRuntimeInstalledSkillManifests(rawSkills.installed),
     },
     tools: {
+      localToolMode:
+        normalizeLocalContextMode(
+          isRecord(raw.tools) ? raw.tools.localToolMode : undefined,
+          'tools.localToolMode',
+        ) ?? 'starred',
       localStarterTools: normalizeLocalStarterTools(
         isRecord(raw.tools) ? raw.tools.localStarterTools : undefined,
         'tools.localStarterTools',

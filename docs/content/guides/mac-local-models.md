@@ -96,6 +96,29 @@ chat. Resetting that chat cannot shrink its base prompt. Catalog
 metadata lives in `src/inference/local-model-shortlist.ts`; unsupported entries
 remain visible and never participate in automatic selection.
 
+## Stars for local tools and skills
+
+In Admin, open **Plugins & Tools → Tools** or **Skills**. The **Local model**
+card on each page uses the same controls:
+
+1. Choose **Instance default** or an agent in **Apply to**.
+2. Star up to nine entries in the catalog. Click a starred chip to remove it.
+3. Choose **Full** or **Starred + directory**. Changes save immediately and
+   apply on the next request; use **Use instance default** to clear an override.
+
+For tools, the directory is `tool_catalog`, which lists, describes, and calls
+other permitted tools. For skills, `skills_list` searches the full eligible
+catalog and returns SKILL.md locations to read. Mandatory `always` skills stay
+in the prompt. Stars never enable a blocked or disabled tool or skill.
+
+These controls apply to local models. Tools default to starred mode; skills
+default to full mode with no stars until you choose them. Full tool mode sends
+the entire permitted schema list and may exceed a smaller model's context.
+
+The configuration fields are `tools.localToolMode` / `tools.localStarterTools`
+and `skills.localSkillMode` / `skills.localStarterSkills`. Modes accept `full`
+or `starred`; agents may override the same fields in `agents.list[]`.
+
 ## Local starter tools
 
 Local models receive up to nine starter tool schemas plus `tool_catalog`.

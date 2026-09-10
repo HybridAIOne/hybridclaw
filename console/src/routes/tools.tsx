@@ -1,3 +1,8 @@
+/**
+ * Admin tool catalog keeps usage evidence separate from local prompt stars.
+ * Exposure controls never enable tools or change their approval policy.
+ */
+
 import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchTools } from '../api/client';
@@ -5,6 +10,11 @@ import type { AdminToolCatalogEntry } from '../api/types';
 import { useAuth } from '../auth';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { Input } from '../components/input';
+import {
+  LocalContextControls,
+  LocalContextProvider,
+  LocalContextStar,
+} from '../components/local-context-settings';
 import { TabbedPageActions } from '../components/tabbed-page';
 import {
   MetricCard,
@@ -116,6 +126,14 @@ function ToolErrorPreview(props: {
 }
 
 export function ToolsPage(props: { embedded?: boolean } = {}) {
+  return (
+    <LocalContextProvider kind="tools">
+      <ToolsCatalogPage {...props} />
+    </LocalContextProvider>
+  );
+}
+
+function ToolsCatalogPage(props: { embedded?: boolean }) {
   const auth = useAuth();
   const [filter, setFilter] = useState('');
   const deferredFilter = useDeferredValue(filter);
@@ -176,6 +194,7 @@ export function ToolsPage(props: { embedded?: boolean } = {}) {
         <PageHeader actions={filterInput} />
       )}
 
+      <LocalContextControls />
       <div className="metric-grid">
         <MetricCard
           label="Catalog tools"
@@ -250,6 +269,7 @@ export function ToolsPage(props: { embedded?: boolean } = {}) {
                     {sortedTools.map((tool) => (
                       <tr key={tool.name}>
                         <td>
+                          <LocalContextStar name={tool.name} />
                           <strong>{tool.name}</strong>
                           <ToolErrorPreview
                             recentErrors={tool.recentErrors}

@@ -620,6 +620,17 @@ export function resolveAdminRbacAction(
     if (method === 'DELETE') return 'admin.policy.delete';
     return null;
   }
+  if (
+    pathname === '/api/admin/tools/local-settings' ||
+    pathname === '/api/admin/skills/local-settings'
+  ) {
+    if (method === 'GET')
+      return pathname.includes('/tools/')
+        ? 'admin.tools.read'
+        : 'admin.skills.read';
+    if (method === 'PUT') return 'admin.config.write';
+    return null;
+  }
   if (pathname === '/api/admin/tools' && method === 'GET') {
     return 'admin.tools.read';
   }
