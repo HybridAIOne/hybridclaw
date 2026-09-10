@@ -1,3 +1,4 @@
+import type { LocalModelMetrics } from '../../../src/inference/local-model-metrics.js';
 export const LOG_LEVELS = [
   'fatal',
   'error',
@@ -24,6 +25,7 @@ export interface GatewayChannelPluginStatus {
 
 export interface GatewayStatus {
   status: 'ok';
+  localModelsSupported?: boolean;
   webAuthConfigured: boolean;
   pid?: number;
   lifecycle?: {
@@ -1047,7 +1049,11 @@ export interface ChatModel {
   id: string;
   /** Gateway provider key (matches `GatewayStatus.providerHealth` keys). */
   provider: string;
-  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
+  /** Catalog routing zone; unknown for a selection absent from the catalog. */
+  zone?: 'local' | 'hai' | 'region' | 'cloud';
+  /** Latest local discovery result; absent when discovery status is unknown. */
+  discovered?: boolean;
+  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx' | null;
   contextWindow: number | null;
   isReasoning: boolean;
   family: string | null;
@@ -1099,7 +1105,8 @@ export interface AdminModelsResponse {
         | 'ollama'
         | 'lmstudio'
         | 'llamacpp'
-        | 'vllm';
+        | 'vllm'
+        | 'mlx';
       model: string | null;
     };
   };
@@ -2699,4 +2706,86 @@ export interface DeleteSessionResult {
   deletedAuditEntries: number;
   deletedStructuredAuditEntries: number;
   deletedApprovalEntries: number;
+}
+
+export interface AdminLocalModelsResponse {
+  metricsHistory: LocalModelMetrics[];
+  hardware: {
+    chip: string;
+    memoryBytes: number;
+    availableMemoryEstimateBytes?: number;
+  };
+  supported: boolean;
+  uvAvailable: boolean;
+  reservedBytes: number;
+  memoryLimitBytes: number;
+  freeDiskBytes: number;
+  recommended: string | null;
+  candidates: Array<{
+    id: string;
+    label: string;
+    note: string;
+    repo: string;
+    revision: string;
+    license: string;
+    weightBytes: number;
+    requiredBytes: number;
+    contextWindow: number;
+    fits: boolean;
+  }>;
+  unavailable: Array<{
+    id: string;
+    label: string;
+    sourceRepo: string;
+    reason?: string;
+  }>;
+  installation: { modelId: string; contextWindow: number } | null;
+  installationError: string | null;
+  running: boolean;
+  connected: boolean;
+  job: {
+    action: 'setup' | 'start' | 'stop';
+    modelId: string | null;
+    stage:
+      | 'runtime'
+      | 'download'
+      | 'loading'
+      | 'checking'
+      | 'activating'
+      | 'connecting'
+      | 'starting'
+      | 'stopping';
+    status: 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed';
+    error: string | null;
+  } | null;
+}
+
+export type AdminLocalModelActivity = Pick<
+  AdminLocalModelsResponse,
+  | 'installation'
+  | 'installationError'
+  | 'running'
+  | 'connected'
+  | 'metricsHistory'
+  | 'job'
+>;
+
+export type AdminLocalModelCommand =
+  | { action: 'setup'; modelId: string }
+  | { action: 'start' | 'stop' | 'cancel' };
+
+export interface AdminLocalContextSettings {
+  instance: { mode: 'full' | 'starred'; starred: string[] };
+  agents: Array<{
+    id: string;
+    name: string;
+    mode: 'full' | 'starred' | null;
+    starred: string[] | null;
+  }>;
+  disabled: string[];
+}
+export interface AdminLocalContextSettingsUpdate {
+  agentId: string | null;
+  mode: 'full' | 'starred' | null;
+  starred: string[] | null;
 }

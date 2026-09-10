@@ -54,6 +54,7 @@ const PROVIDER_META: Record<
   lmstudio: { label: 'LM Studio', loginName: null },
   llamacpp: { label: 'llama.cpp', loginName: null },
   vllm: { label: 'vLLM', loginName: null },
+  mlx: { label: 'MLX', loginName: null },
 };
 
 const AUTH_ERROR_RE =
@@ -258,6 +259,15 @@ export function diagnoseProviderForModels(
     case 'ollama':
     case 'lmstudio':
     case 'llamacpp':
+    case 'mlx': {
+      if (
+        !config.local.endpoints.some(
+          (endpoint) => endpoint.type === 'mlx' && endpoint.enabled,
+        )
+      )
+        return disabled(filter, 'local setup');
+      return null;
+    }
     case 'vllm': {
       if (config.local.backends[filter]?.enabled !== true) {
         return disabled(

@@ -78,6 +78,15 @@ export function getActiveExecutorCount(): number {
   );
 }
 
+export function getInFlightExecutorCount(): number {
+  const executors = initializedExecutors();
+  if (executors.length === 0) return getExecutor().getInFlightSessionCount();
+  return executors.reduce(
+    (sum, executor) => sum + executor.getInFlightSessionCount(),
+    0,
+  );
+}
+
 export function getActiveExecutorSessionIds(): string[] {
   const executors = initializedExecutors();
   const active = (executors.length === 0 ? [getExecutor()] : executors).flatMap(

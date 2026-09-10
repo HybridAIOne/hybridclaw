@@ -142,7 +142,8 @@ export interface TaskModelPolicy {
     | 'ollama'
     | 'lmstudio'
     | 'llamacpp'
-    | 'vllm';
+    | 'vllm'
+    | 'mlx';
   providerMethod?: string;
   baseUrl?: string;
   apiKey?: string;
@@ -251,7 +252,8 @@ export interface ContainerInput {
     | 'ollama'
     | 'lmstudio'
     | 'llamacpp'
-    | 'vllm';
+    | 'vllm'
+    | 'mlx';
   providerMethod?: string;
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
@@ -278,6 +280,8 @@ export interface ContainerInput {
   activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
   skillCatalog?: SessionSkillCatalogEntry[];
+  localToolMode?: 'full' | 'starred';
+  localStarterTools?: string[];
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
@@ -448,6 +452,8 @@ export interface ContainerOutput {
   codexRuntime?: CodexTurnRuntime;
   artifacts?: ArtifactMetadata[];
   toolExecutions?: ToolExecution[];
+  toolHistory?: ChatMessage[];
+  toolHistoryForReplay?: ChatMessage[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;

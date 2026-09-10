@@ -4,6 +4,7 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
+import { expandStoredMessage } from '../session/tool-history.js';
 import type { ChatMessage } from '../types/api.js';
 import type {
   CompactionConfig,
@@ -109,19 +110,11 @@ function normalizeStoredMessageRole(role: string): ChatMessage['role'] {
 }
 
 function toChatMessages(messages: StoredMessage[]): ChatMessage[] {
-  return messages.map((message) => ({
-    role: normalizeStoredMessageRole(message.role),
-    content: message.content,
-  }));
+  return messages.flatMap(expandStoredMessage);
 }
 
 function estimateMessageTokens(message: StoredMessage): number {
-  return estimateTokenCountFromMessages([
-    {
-      role: normalizeStoredMessageRole(message.role),
-      content: message.content,
-    },
-  ]);
+  return estimateTokenCountFromMessages(expandStoredMessage(message));
 }
 
 function resolveCompactionConfig(
@@ -156,6 +149,9 @@ function formatStoredMessagesForPrompt(messages: StoredMessage[]): string {
       return [
         `---`,
         `id=${message.id} role=${normalizeStoredMessageRole(message.role)} created_at=${message.created_at}${username}`,
+        ...expandStoredMessage(message)
+          .slice(0, -1)
+          .map((entry) => JSON.stringify(entry)),
         message.content.trim() || '(empty)',
       ].join('\n');
     })

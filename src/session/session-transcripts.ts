@@ -1,8 +1,14 @@
+/**
+ * Agent-local transcripts retain chat and full tool exchanges for retrieval.
+ * They are searchable evidence, not instructions or the gateway audit trail.
+ */
 import fs from 'node:fs';
 import path from 'node:path';
-
+import { sessionTranscriptFilename } from '../../container/shared/tool-history.js';
 import { agentWorkspaceDir, ensureAgentDirs } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import type { ChatMessage } from '../types/api.js';
+import { sanitizeToolHistory } from './tool-history.js';
 
 const TRANSCRIPTS_DIR_NAME = '.session-transcripts';
 
@@ -14,11 +20,7 @@ export interface TranscriptEntry {
   username: string | null;
   content: string;
   createdAt?: string;
-}
-
-function safeSessionFilename(sessionId: string): string {
-  const normalized = sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-  return normalized || 'session';
+  toolHistory?: ChatMessage[];
 }
 
 export function appendSessionTranscript(
@@ -30,10 +32,13 @@ export function appendSessionTranscript(
     const workspace = agentWorkspaceDir(agentId);
     const transcriptDir = path.join(workspace, TRANSCRIPTS_DIR_NAME);
     fs.mkdirSync(transcriptDir, { recursive: true });
+    if (fs.lstatSync(transcriptDir).isSymbolicLink()) {
+      throw new Error('Session transcript directory must not be a symlink.');
+    }
 
     const filePath = path.join(
       transcriptDir,
-      `${safeSessionFilename(entry.sessionId)}.jsonl`,
+      sessionTranscriptFilename(entry.sessionId),
     );
     const row = {
       sessionId: entry.sessionId,
@@ -44,7 +49,44 @@ export function appendSessionTranscript(
       content: entry.content,
       createdAt: entry.createdAt || new Date().toISOString(),
     };
-    fs.appendFileSync(filePath, `${JSON.stringify(row)}\n`, 'utf-8');
+    const toolRows = entry.toolHistory?.length
+      ? sanitizeToolHistory(entry.toolHistory).map((message) => ({
+          ...row,
+          role: message.role,
+          content:
+            message.role === 'assistant'
+              ? [
+                  message.content || '',
+                  ...(message.tool_calls || []).map(
+                    (call) =>
+                      `${call.function.name} ${call.function.arguments} (tool_call_id=${call.id})`,
+                  ),
+                ].join('\n')
+              : message.content,
+          ...(message.tool_call_id
+            ? { tool_call_id: message.tool_call_id }
+            : {}),
+        }))
+      : [];
+    const fd = fs.openSync(
+      filePath,
+      fs.constants.O_WRONLY |
+        fs.constants.O_APPEND |
+        fs.constants.O_CREAT |
+        fs.constants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      fs.writeFileSync(
+        fd,
+        [...toolRows, row]
+          .map((value) => `${JSON.stringify(value)}\n`)
+          .join(''),
+        'utf-8',
+      );
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch (err) {
     logger.debug(
       { agentId, sessionId: entry.sessionId, err },

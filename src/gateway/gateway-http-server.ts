@@ -268,6 +268,11 @@ import {
   readRequestBody,
   sendJson,
 } from './gateway-http-utils.js';
+import {
+  getLocalContextSettings,
+  saveLocalContextSettings,
+} from './gateway-local-context-settings.js';
+import { GatewayLocalModelService } from './gateway-local-model-service.js';
 import { getGatewayAdminLogs } from './gateway-log-service.js';
 import {
   getGatewayAdminPlugins,
@@ -10287,6 +10292,8 @@ export interface GatewayHttpServer {
 }
 
 export function startGatewayHttpServer(): GatewayHttpServer {
+  const localModels = new GatewayLocalModelService();
+
   let gatewayReady = false;
   const gatewayStartMs = Date.now();
   const terminalManager = createAdminTerminalManager();
@@ -10852,6 +10859,30 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiAdminAgentScoreboard(res);
             return;
           }
+          if (pathname === '/api/admin/local-models') {
+            if (!isLoopbackWebRequest(req)) {
+              sendJson(res, 403, {
+                error:
+                  'Open the console directly on the gateway Mac using localhost to manage local models.',
+              });
+              return;
+            }
+            if (method === 'GET') {
+              sendJson(
+                res,
+                200,
+                url.searchParams.get('view') === 'activity'
+                  ? await localModels.activity()
+                  : await localModels.status(),
+              );
+            } else if (method === 'POST') {
+              localModels.command(await readJsonBody(req));
+              sendJson(res, 202, { accepted: true });
+            } else {
+              sendMethodNotAllowed(res);
+            }
+            return;
+          }
           if (pathname === '/api/admin/harness-evolution' && method === 'GET') {
             await handleApiAdminHarnessEvolution(res, url);
             return;
@@ -11090,6 +11121,21 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'PUT' || method === 'DELETE')
           ) {
             await handleApiAdminPolicy(req, res, url);
+            return;
+          }
+          if (
+            (pathname === '/api/admin/tools/local-settings' ||
+              pathname === '/api/admin/skills/local-settings') &&
+            (method === 'GET' || method === 'PUT')
+          ) {
+            const kind = pathname.includes('/tools/') ? 'tools' : 'skills';
+            sendJson(
+              res,
+              200,
+              method === 'GET'
+                ? getLocalContextSettings(kind)
+                : saveLocalContextSettings(kind, await readJsonBody(req)),
+            );
             return;
           }
           if (pathname === '/api/admin/tools' && method === 'GET') {
@@ -11594,6 +11640,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
   });
 
   server.listen(HEALTH_PORT, HEALTH_HOST, () => {
+    localModels.startMetrics();
     logger.info(
       { host: HEALTH_HOST, port: HEALTH_PORT },
       'Gateway HTTP server started',
@@ -11605,6 +11652,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       gatewayReady = true;
     },
     broadcastShutdown(): void {
+      void localModels.close();
       const shutdownMessage: AdminTerminalServerMessage = {
         type: 'shutdown',
         restartExpectedMs: 1500,

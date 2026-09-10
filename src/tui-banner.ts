@@ -260,6 +260,8 @@ function resolveProviderLabel(model: string): string {
       return 'LM Studio';
     case 'llamacpp':
       return 'llama.cpp';
+    case 'mlx':
+      return 'MLX';
     case 'vllm':
       return 'vLLM';
     default:

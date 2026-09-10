@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.30.1',
+  version: '0.31.0',
   highlights: [
-    'See memory recall across channels',
-    'Keep agent actions and confirmations honest',
-    'Schedule recurring tasks reliably',
-    'Control inbound voice callers',
+    'Run local models on your Mac',
+    'Choose starter tools and skills',
+    'Keep tool history across turns',
+    'Schedule tasks in your timezone',
   ],
 } as const;
 

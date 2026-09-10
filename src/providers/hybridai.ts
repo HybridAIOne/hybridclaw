@@ -1,9 +1,11 @@
+import { hybridAIDestinationHeaders } from '../../container/shared/hybridai-destination.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { HYBRIDAI_BASE_URL, HYBRIDAI_ENABLE_RAG } from '../config/config.js';
 import {
   discoverHybridAIModels,
   getDiscoveredHybridAIModelContextWindow,
+  getDiscoveredHybridAIModelDestination,
   getDiscoveredHybridAIModelMaxTokens,
 } from './hybridai-discovery.js';
 import type {
@@ -33,6 +35,9 @@ async function resolveHybridAIRuntimeCredentials(
     enableRag,
     requestHeaders: {
       'User-Agent': HYBRIDCLAW_USER_AGENT,
+      ...hybridAIDestinationHeaders(
+        getDiscoveredHybridAIModelDestination(params.model),
+      ),
     },
     agentId,
     contextWindow:

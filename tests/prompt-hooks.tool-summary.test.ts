@@ -645,3 +645,84 @@ test('buildRetrievedContextPrompt returns empty text when no retrieval is presen
   expect(buildRetrievedContextPrompt(null)).toBe('');
   expect(buildRetrievedContextPrompt('   ')).toBe('');
 });
+
+
+test('local skill stars trim the prompt while preserving the full eligible directory and mandatory skills', () => {
+  const config = structuredClone(runtimeConfig.getRuntimeConfig());
+  config.skills.localSkillMode = 'starred'; config.skills.localStarterSkills = ['pdf'];
+  config.agents.list = [{ id: 'main' }, { id: 'worker', localSkillMode: 'starred', localStarterSkills: [] }];
+  const spy = vi.spyOn(runtimeConfig, 'getRuntimeConfig').mockReturnValue(config);
+  try {
+    const skills = [makeSkill(), makeSkill({ name: 'docx', location: 'skills/docx/SKILL.md', description: 'Word documents' }), makeSkill({ name: 'mandatory', location: 'skills/mandatory/SKILL.md', always: true })];
+    const context = { agentId: 'main', skills, skillPromptMode: 'compact' as const, includePromptParts: ['skills'] as const, runtimeInfo: { model: 'mlx/example' } };
+    const prompt = buildSystemPromptFromHooks({ ...context, includePromptParts: ['skills'] });
+    expect(prompt).toContain('<name>pdf</name>');
+    expect(prompt).toContain('<name>mandatory</name>');
+    expect(prompt).not.toContain('<name>docx</name>');
+    expect(prompt).toContain('skills_list');
+    expect(buildEligibleSkillCatalog(skills).map((s) => s.name)).toEqual(['pdf', 'docx', 'mandatory']);
+    const worker = buildSystemPromptFromHooks({ ...context, agentId: 'worker', includePromptParts: ['skills'] });
+    expect(worker).not.toContain('<name>pdf</name>');
+    const cloud = buildSystemPromptFromHooks({ ...context, includePromptParts: ['skills'], runtimeInfo: { model: 'openai/gpt-4.1' } });
+    expect(cloud).toContain('<name>docx</name>');
+    const denied = buildSystemPromptFromHooks({ ...context, includePromptParts: ['skills'], blockedTools: ['skills_list'] });
+    expect(denied).not.toContain('Additional skills:');
+    config.skills.localStarterSkills = [];
+    const directoryOnly = buildSystemPromptFromHooks({ ...context, skills: skills.filter((skill) => !skill.always), includePromptParts: ['skills'] });
+    expect(directoryOnly).not.toContain('<available_skills>');
+    expect(directoryOnly).not.toContain('<name>');
+    expect(directoryOnly).toContain('Additional skills:');
+    expect(directoryOnly).toContain('skills_list');
+    config.skills.localSkillMode = 'full';
+    expect(buildSystemPromptFromHooks({ ...context, includePromptParts: ['skills'] })).toContain('<name>docx</name>');
+  } finally { spy.mockRestore(); }
+});
+
+
+test.each([
+  { provider: 'mlx', instanceMode: 'starred', agentMode: undefined, compact: true },
+  { provider: 'mlx', instanceMode: 'full', agentMode: undefined, compact: false },
+  { provider: 'mlx', instanceMode: 'full', agentMode: 'starred', compact: true },
+  { provider: 'mlx', instanceMode: 'starred', agentMode: 'full', compact: false },
+  { provider: 'openai', instanceMode: 'starred', agentMode: undefined, compact: false },
+] as const)('tool prompt matches exposure for $provider, instance $instanceMode, agent $agentMode', ({ provider, instanceMode, agentMode, compact }) => {
+  const original = runtimeConfig.getRuntimeConfig();
+  const configSpy = vi.spyOn(runtimeConfig, 'getRuntimeConfig').mockReturnValue({
+    ...original,
+    tools: { ...original.tools, localToolMode: instanceMode, localStarterTools: ['skills_list'] },
+    agents: { ...original.agents, list: [{ id: 'test-agent', localToolMode: agentMode }] },
+  });
+  const providerSpy = vi.spyOn(providerFactory, 'resolveModelProvider').mockReturnValue(provider);
+  try {
+    const context = {
+      agentId: 'test-agent', skills: [],
+      runtimeInfo: { model: `${provider}/test-model` },
+      allowedTools: ['read', 'skills_list'], blockedTools: ['bash'],
+    };
+    const prompt = buildSystemPromptFromHooks(context);
+    const tools = prompt.split('## Your Tools')[1]?.split('## Tool Call Style')[0];
+    expect(tools).toBeDefined();
+    if (compact) {
+      expect(tools).not.toContain('**Files**:');
+      expect(tools).not.toContain('**Skills**:');
+      expect(tools).toContain('Tool access has two paths: direct function calls');
+      expect(tools).toContain('A permitted catalog tool can run this way without its own directly exposed schema');
+      expect(tools).toContain('the target tool name in name, and its parameters in arguments');
+      expect(tools).toContain('Skills do not register functions or grant tool permissions');
+      expect(tools).not.toContain('Only the function schemas supplied with this request');
+      expect(tools).toContain('If tool_catalog is exposed, call it with action=list before describing additional tools');
+      expect(tools).toContain('describe only if its arguments are unknown');
+      expect(tools).toContain('When tool_catalog is absent, available tools are limited to the exposed functions');
+      expect(tools).toContain('Discovery never bypasses tool permissions or action approvals');
+    } else {
+      expect(tools).toContain('**Files**: `read`');
+      expect(tools).toContain('**Skills**: `skills_list`');
+      expect(tools).not.toContain('tool_catalog');
+    }
+    expect(tools).not.toContain('`bash`');
+    expect(buildSystemPromptFromHooks(context)).toBe(prompt);
+  } finally {
+    providerSpy.mockRestore();
+    configSpy.mockRestore();
+  }
+});

@@ -1,3 +1,11 @@
+/**
+ * Runtime configuration validates source data before making it active.
+ * Invalid local endpoints and disabled named defaults block normalization writes;
+ * refresh-based updates cannot replace those files with an in-memory fallback.
+ * Local setup commits its endpoint, secret reference and default together;
+ * this store does not start inference or decide protected-data routing.
+ */
+
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,6 +14,12 @@ import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
 } from '../../container/shared/context-guard-config.js';
+import {
+  DEFAULT_LOCAL_STARTER_TOOLS,
+  normalizeLocalContextMode,
+  normalizeLocalStarredNames,
+  normalizeLocalStarterTools,
+} from '../../container/shared/local-tool-config.js';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,
@@ -47,6 +61,7 @@ import {
   normalizeSlackWebhookUrl,
   SLACK_WEBHOOK_DEFAULT_TARGET,
 } from '../channels/slack-webhook/target.js';
+import { assertMlxEndpoint } from '../inference/mlx-endpoint.js';
 import { supportsMcpOAuth } from '../mcp/server-config.js';
 import type {
   MemoryEmbeddingDtype,
@@ -122,6 +137,10 @@ import {
 } from '../utils/normalized-strings.js';
 import { expandHomePath } from '../utils/path.js';
 import { isRecord } from '../utils/type-guards.js';
+import {
+  LocalModelConfigError,
+  validateDefaultModelEndpoint,
+} from './local-model-validation.js';
 import {
   clearRuntimeAssetRevisions as clearTrackedRuntimeAssetRevisions,
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
@@ -1112,6 +1131,8 @@ export interface RuntimeConfig {
   browser: RuntimeBrowserConfig;
   agents: AgentsConfig;
   skills: {
+    localSkillMode?: 'full' | 'starred';
+    localStarterSkills?: string[];
     extraDirs: string[];
     disabled: string[];
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
@@ -1121,6 +1142,8 @@ export interface RuntimeConfig {
     installed: RuntimeInstalledSkillManifest[];
   };
   tools: {
+    localToolMode?: 'full' | 'starred';
+    localStarterTools?: string[];
     disabled: string[];
     httpRequest: RuntimeHttpRequestToolConfig;
   };
@@ -1586,6 +1609,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     list: [{ id: DEFAULT_AGENT_ID }],
   },
   skills: {
+    // Implementation choice, 2026-09-10: start skills in full mode; curated skill stars deferred.
+    localSkillMode: 'full',
+    localStarterSkills: [],
     extraDirs: [],
     disabled: [],
     channelDisabled: {},
@@ -1600,6 +1626,8 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     installed: [],
   },
   tools: {
+    localToolMode: 'starred',
+    localStarterTools: [...DEFAULT_LOCAL_STARTER_TOOLS],
     disabled: [],
     httpRequest: {
       authRules: [],
@@ -1994,6 +2022,10 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       llamacpp: {
         enabled: false,
         baseUrl: 'http://127.0.0.1:8081/v1',
+      },
+      mlx: {
+        enabled: false,
+        baseUrl: 'http://127.0.0.1:8321/v1',
       },
       vllm: {
         enabled: false,
@@ -3055,6 +3087,22 @@ function normalizeAgentConfig(
     : fallback?.tools
       ? [...fallback.tools]
       : undefined;
+  const localSkillMode = normalizeLocalContextMode(
+    value.localSkillMode,
+    'agents.list[].localSkillMode',
+  );
+  const localStarterSkills = normalizeLocalStarredNames(
+    value.localStarterSkills,
+    'agents.list[].localStarterSkills',
+  );
+  const localToolMode = normalizeLocalContextMode(
+    value.localToolMode,
+    'agents.list[].localToolMode',
+  );
+  const localStarterTools = normalizeLocalStarterTools(
+    value.localStarterTools,
+    'agents.list[].localStarterTools',
+  );
   const owner = normalizeString(value.owner, fallback?.owner ?? '', {
     allowEmpty: true,
   });
@@ -3112,6 +3160,10 @@ function normalizeAgentConfig(
     ...(model ? { model } : {}),
     ...(skills !== undefined ? { skills } : {}),
     ...(tools !== undefined ? { tools } : {}),
+    ...(localSkillMode !== undefined ? { localSkillMode } : {}),
+    ...(localStarterSkills !== undefined ? { localStarterSkills } : {}),
+    ...(localToolMode !== undefined ? { localToolMode } : {}),
+    ...(localStarterTools !== undefined ? { localStarterTools } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
@@ -5513,37 +5565,58 @@ function normalizeLocalEndpointPricing(
 }
 
 function normalizeLocalEndpointConfigs(value: unknown): LocalEndpointConfig[] {
-  if (!Array.isArray(value)) return [];
+  if (value === undefined) return [];
+  if (!Array.isArray(value))
+    throw new LocalModelConfigError('local.endpoints must be an array.');
   const endpoints: LocalEndpointConfig[] = [];
   const seen = new Set<string>();
-  for (const raw of value) {
-    if (!isRecord(raw)) continue;
+  for (const [index, raw] of value.entries()) {
+    if (!isRecord(raw))
+      throw new LocalModelConfigError(
+        `local.endpoints[${index}] must be an object.`,
+      );
     const name = normalizeLocalEndpointName(raw.name);
     const type = normalizeLocalEndpointType(raw.type);
-    if (!name || !type || seen.has(name)) continue;
+    if (!name)
+      throw new LocalModelConfigError(
+        `local.endpoints[${index}].name must be a non-empty endpoint name using letters, numbers, dots, underscores or hyphens, without a reserved provider name.`,
+      );
+    if (!type)
+      throw new LocalModelConfigError(
+        `local.endpoints[${index}].type is not supported by this HybridClaw build. Use a build that supports this backend or correct the endpoint type in config.json.`,
+      );
+    if (seen.has(name))
+      throw new LocalModelConfigError(
+        `local.endpoints[${index}].name duplicates another endpoint. Give each endpoint a unique name.`,
+      );
     seen.add(name);
     const enabled = normalizeBoolean(raw.enabled, true);
-    const fallbackBaseUrl =
-      type === 'ollama'
-        ? DEFAULT_RUNTIME_CONFIG.local.backends.ollama.baseUrl
-        : type === 'lmstudio'
-          ? DEFAULT_RUNTIME_CONFIG.local.backends.lmstudio.baseUrl
-          : type === 'llamacpp'
-            ? DEFAULT_RUNTIME_CONFIG.local.backends.llamacpp.baseUrl
-            : DEFAULT_RUNTIME_CONFIG.local.backends.vllm.baseUrl;
+    const fallbackBaseUrl = DEFAULT_RUNTIME_CONFIG.local.backends[type].baseUrl;
     const resolvedApiKey = resolveConfiguredSecretInput(raw.apiKey, {
       path: `local.endpoints.${name}.apiKey`,
       required: isSecretRefInput(raw.apiKey) && enabled,
     });
+    const endpointBaseUrl = normalizeBaseUrl(raw.baseUrl, fallbackBaseUrl);
+    if (type === 'mlx') {
+      try {
+        assertMlxEndpoint(endpointBaseUrl);
+      } catch {
+        throw new LocalModelConfigError(
+          'MLX requires http://127.0.0.1:<port>/v1 on this Mac.',
+        );
+      }
+      if (raw.zone !== undefined && raw.zone !== 'local')
+        throw new LocalModelConfigError('MLX endpoint zone must be local.');
+    }
     const pricing = normalizeLocalEndpointPricing(raw.pricing, name);
     endpoints.push({
       name,
       type,
       enabled,
-      baseUrl: normalizeBaseUrl(raw.baseUrl, fallbackBaseUrl),
+      baseUrl: endpointBaseUrl,
       apiKey: normalizeString(resolvedApiKey, '', { allowEmpty: true }),
       modelBehavior: normalizeModelBehaviorConfig(raw.modelBehavior),
-      zone: normalizeModelRoutingZone(raw.zone),
+      zone: type === 'mlx' ? 'local' : normalizeModelRoutingZone(raw.zone),
       ...(pricing ? { pricing } : {}),
     });
   }
@@ -7054,6 +7127,7 @@ function buildRoutingModelReferenceCatalog(params: {
       'lmstudio',
       'llamacpp',
       'vllm',
+      'mlx',
       ...params.localEndpoints.map((endpoint) => endpoint.name),
     ]),
   };
@@ -7320,6 +7394,9 @@ function normalizeRuntimeConfig(
     : {};
   const rawLlamacppBackend = isRecord(rawLocalBackends.llamacpp)
     ? rawLocalBackends.llamacpp
+    : {};
+  const rawMlxBackend = isRecord(rawLocalBackends.mlx)
+    ? rawLocalBackends.mlx
     : {};
   const rawVllmBackend = isRecord(rawLocalBackends.vllm)
     ? rawLocalBackends.vllm
@@ -7605,6 +7682,7 @@ function normalizeRuntimeConfig(
   const localEndpointConfigs = normalizeLocalEndpointConfigs(
     rawLocal.endpoints,
   );
+  validateDefaultModelEndpoint(hybridDefaultModel, localEndpointConfigs);
   const modelRouting = normalizeModelRoutingConfig(
     rawRouting,
     DEFAULT_RUNTIME_CONFIG.routing,
@@ -7716,6 +7794,16 @@ function normalizeRuntimeConfig(
     browser: normalizeBrowserConfig(rawBrowser, DEFAULT_RUNTIME_CONFIG.browser),
     agents: normalizeAgentsConfig(rawAgents, DEFAULT_RUNTIME_CONFIG.agents),
     skills: {
+      localSkillMode:
+        normalizeLocalContextMode(
+          rawSkills.localSkillMode,
+          'skills.localSkillMode',
+        ) ?? 'full',
+      localStarterSkills:
+        normalizeLocalStarredNames(
+          rawSkills.localStarterSkills,
+          'skills.localStarterSkills',
+        ) ?? [],
       extraDirs: normalizeStringArray(
         rawSkills.extraDirs,
         DEFAULT_RUNTIME_CONFIG.skills.extraDirs,
@@ -7740,6 +7828,15 @@ function normalizeRuntimeConfig(
       installed: normalizeRuntimeInstalledSkillManifests(rawSkills.installed),
     },
     tools: {
+      localToolMode:
+        normalizeLocalContextMode(
+          isRecord(raw.tools) ? raw.tools.localToolMode : undefined,
+          'tools.localToolMode',
+        ) ?? 'starred',
+      localStarterTools: normalizeLocalStarterTools(
+        isRecord(raw.tools) ? raw.tools.localStarterTools : undefined,
+        'tools.localStarterTools',
+      ) ?? [...DEFAULT_LOCAL_STARTER_TOOLS],
       disabled: normalizeStringArray(
         raw.tools && isRecord(raw.tools) ? raw.tools.disabled : undefined,
         DEFAULT_RUNTIME_CONFIG.tools.disabled,
@@ -8272,6 +8369,16 @@ function normalizeRuntimeConfig(
           ),
           modelBehavior: normalizeModelBehaviorConfig(
             rawLlamacppBackend.modelBehavior,
+          ),
+        },
+        mlx: {
+          enabled: normalizeBoolean(rawMlxBackend.enabled, false),
+          baseUrl: normalizeBaseUrl(
+            rawMlxBackend.baseUrl,
+            DEFAULT_RUNTIME_CONFIG.local.backends.mlx.baseUrl,
+          ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawMlxBackend.modelBehavior,
           ),
         },
         vllm: {
@@ -9162,6 +9269,8 @@ function loadRuntimeConfigFromSources(
     patch: diskPatch,
     source: diskSource,
   } = loadConfigPatchFromDisk();
+  // A rejected file must not replace the last known valid recovery snapshot.
+  const normalized = normalizeRuntimeConfig(diskPatch);
   try {
     syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta, observedFile);
   } catch (err) {
@@ -9178,7 +9287,7 @@ function loadRuntimeConfigFromSources(
     containerSandboxModeExplicit: hasOwn(rawContainer, 'sandboxMode'),
     containerMaxConcurrentExplicit: hasOwn(rawContainer, 'maxConcurrent'),
   };
-  return normalizeRuntimeConfig(diskPatch);
+  return normalized;
 }
 
 function reloadRuntimeConfigFromSources(
@@ -9630,21 +9739,31 @@ function saveRuntimeConfigSource(
   return cloneConfig(normalized);
 }
 
+// Partial updates must never overwrite an invalid disk config with stale memory.
+// Full Admin saves and revision restores validate their replacement independently.
+function refreshBeforeConfigUpdate(
+  route: string,
+  operation: string,
+): RuntimeConfig {
+  try {
+    return loadRuntimeConfigFromSources({ route, source: 'external' });
+  } catch (err) {
+    if (err instanceof LocalModelConfigError) throw err;
+    console.warn(
+      `[runtime-config] ${operation} using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return currentConfig;
+  }
+}
+
 export function updateRuntimeConfig(
   mutator: (draft: RuntimeConfig) => void,
   meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
-  let baseConfig = currentConfig;
-  try {
-    baseConfig = loadRuntimeConfigFromSources({
-      route: 'runtime-config.refresh-before-save',
-      source: 'external',
-    });
-  } catch (err) {
-    console.warn(
-      `[runtime-config] update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  const baseConfig = refreshBeforeConfigUpdate(
+    'runtime-config.refresh-before-save',
+    'update',
+  );
   const draft = cloneConfig(baseConfig);
   mutator(draft);
   return saveRuntimeConfig(draft, meta);
@@ -9653,18 +9772,11 @@ export function updateRuntimeConfig(
 export function migrateLegacySchedulerJobsFromRuntimeConfig(
   meta?: RuntimeConfigChangeMeta,
 ): RuntimeSchedulerJob[] {
-  let baseSource = currentConfigSource;
-  try {
-    loadRuntimeConfigFromSources({
-      route: 'runtime-config.refresh-before-scheduler-job-migration',
-      source: 'external',
-    });
-    baseSource = currentConfigSource;
-  } catch (err) {
-    console.warn(
-      `[runtime-config] scheduler job migration using in-memory config source after reload failure: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  refreshBeforeConfigUpdate(
+    'runtime-config.refresh-before-scheduler-job-migration',
+    'scheduler job migration',
+  );
+  const baseSource = currentConfigSource;
 
   const currentLegacy = readLegacySchedulerJobsFromSource(baseSource);
   const legacyJobs = currentLegacy.hasJobs
@@ -9695,22 +9807,51 @@ export function setRuntimeConfigSecretInput(
   value: SecretInput | '',
   meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
-  let baseSource = currentConfigSource;
-  try {
-    loadRuntimeConfigFromSources({
-      route: 'runtime-config.refresh-before-secret-save',
-      source: 'external',
-    });
-    baseSource = currentConfigSource;
-  } catch (err) {
-    console.warn(
-      `[runtime-config] secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  refreshBeforeConfigUpdate(
+    'runtime-config.refresh-before-secret-save',
+    'secret input update',
+  );
+  const baseSource = currentConfigSource;
 
   const draftSource = cloneConfig(baseSource);
   setSecretInputOnSource(draftSource, secretPath, value);
   return saveRuntimeConfigSource(draftSource, meta);
+}
+
+export function configureRuntimeLocalEndpoint(
+  endpoint: Omit<LocalEndpointConfig, 'apiKey'>,
+  apiKey: SecretInput,
+  defaultModel: string | undefined,
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  loadRuntimeConfigFromSources({
+    route: 'runtime-config.local-setup-refresh',
+    source: 'external',
+  });
+  const source = cloneConfig(currentConfigSource);
+  const local = isRecord(source.local) ? source.local : {};
+  const endpoints = Array.isArray(local.endpoints) ? local.endpoints : [];
+  const existing = endpoints.find(
+    (value) => isRecord(value) && value.name === endpoint.name,
+  );
+  if (isRecord(existing) && existing.type !== endpoint.type)
+    throw new Error(
+      `Endpoint name ${endpoint.name} is already used by another backend.`,
+    );
+  local.endpoints = [
+    ...endpoints.filter(
+      (value) => !isRecord(value) || value.name !== endpoint.name,
+    ),
+    { ...(isRecord(existing) ? existing : {}), ...endpoint, apiKey },
+  ];
+  source.local = local;
+  if (defaultModel !== undefined) {
+    const hybridai = isRecord(source.hybridai) ? source.hybridai : {};
+    hybridai.defaultModel = defaultModel;
+    source.hybridai = hybridai;
+  }
+  // Reconnection preserves the latest default and endpoint tuning from disk.
+  return saveRuntimeConfigSource(source, meta);
 }
 
 export function setRuntimeConfigLocalEndpointSecretInput(
@@ -9723,18 +9864,11 @@ export function setRuntimeConfigLocalEndpointSecretInput(
     throw new Error(`Invalid local endpoint name: ${endpointName}`);
   }
 
-  let baseSource = currentConfigSource;
-  try {
-    loadRuntimeConfigFromSources({
-      route: 'runtime-config.refresh-before-local-endpoint-secret-save',
-      source: 'external',
-    });
-    baseSource = currentConfigSource;
-  } catch (err) {
-    console.warn(
-      `[runtime-config] local endpoint secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  refreshBeforeConfigUpdate(
+    'runtime-config.refresh-before-local-endpoint-secret-save',
+    'local endpoint secret input update',
+  );
+  const baseSource = currentConfigSource;
 
   const draftSource = cloneConfig(baseSource);
   const local = isRecord(draftSource.local) ? draftSource.local : {};
@@ -9761,18 +9895,11 @@ export function setRuntimeConfigSlackWebhookSecretInput(
     throw new Error(`Invalid Slack webhook target name: ${targetName}`);
   }
 
-  let baseSource = currentConfigSource;
-  try {
-    loadRuntimeConfigFromSources({
-      route: 'runtime-config.refresh-before-slack-webhook-secret-save',
-      source: 'external',
-    });
-    baseSource = currentConfigSource;
-  } catch (err) {
-    console.warn(
-      `[runtime-config] Slack webhook secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  refreshBeforeConfigUpdate(
+    'runtime-config.refresh-before-slack-webhook-secret-save',
+    'Slack webhook secret input update',
+  );
+  const baseSource = currentConfigSource;
 
   const draftSource = cloneConfig(baseSource);
   const slackWebhook = isRecord(draftSource.slackWebhook)
@@ -9800,18 +9927,11 @@ export function setRuntimeConfigDiscordWebhookSecretInput(
     throw new Error(`Invalid Discord webhook target name: ${targetName}`);
   }
 
-  let baseSource = currentConfigSource;
-  try {
-    loadRuntimeConfigFromSources({
-      route: 'runtime-config.refresh-before-discord-webhook-secret-save',
-      source: 'external',
-    });
-    baseSource = currentConfigSource;
-  } catch (err) {
-    console.warn(
-      `[runtime-config] Discord webhook secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  refreshBeforeConfigUpdate(
+    'runtime-config.refresh-before-discord-webhook-secret-save',
+    'Discord webhook secret input update',
+  );
+  const baseSource = currentConfigSource;
 
   const draftSource = cloneConfig(baseSource);
   const discordWebhook = isRecord(draftSource.discordWebhook)

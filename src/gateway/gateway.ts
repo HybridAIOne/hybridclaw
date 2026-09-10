@@ -16,7 +16,7 @@ import {
   stopWebhookOutboxProcessor,
 } from '../a2a/webhook-outbound.js';
 import {
-  getActiveExecutorCount,
+  getInFlightExecutorCount,
   stopAllExecutions,
 } from '../agent/executor.js';
 import {
@@ -264,6 +264,11 @@ import type {
   GatewayChatResult,
   GatewayCommandResult,
 } from './gateway-types.js';
+import {
+  getInFlightTurnCount,
+  markGatewayShuttingDown,
+  withInFlightTurn,
+} from './in-flight-turns.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
   clearPendingApproval,
@@ -1539,147 +1544,151 @@ async function startDiscordIntegration(): Promise<boolean> {
 
   try {
     await initDiscord(
-      async (
-        sessionId: string,
-        guildId: string | null,
-        channelId: string,
-        userId: string,
-        username: string,
-        content: string,
-        media,
-        _reply: ReplyFn,
-        context,
-      ) => {
-        try {
-          let sawTextDelta = false;
-          const streamFilter = createSilentReplyStreamFilter();
-          const appendStreamText = async (text: string): Promise<void> => {
-            if (!text) return;
-            if (!sawTextDelta) sawTextDelta = true;
-            await context.stream.append(text);
-          };
-          const result = normalizePendingApprovalReply(
-            normalizePlaceholderToolReply(
-              await handleGatewayMessage({
-                sessionId,
-                guildId,
-                channelId,
-                userId,
-                username,
-                content,
-                media,
-                source: 'discord',
-                onTextDelta: (delta) => {
-                  const filteredDelta = streamFilter.push(delta);
-                  if (!filteredDelta) return;
-                  void appendStreamText(filteredDelta);
-                },
-                onToolProgress: (event) => {
-                  if (sawTextDelta) return;
-                  if (event.phase === 'start') {
-                    context.emitLifecyclePhase('toolUse');
-                  } else {
-                    context.emitLifecyclePhase('thinking');
-                  }
-                },
-                onProactiveMessage: async (message) => {
-                  await deliverProactiveMessage(
-                    message.channelId || channelId,
-                    message.text,
-                    'delegate',
-                    message.artifacts,
-                  );
-                },
-                abortSignal: context.abortSignal,
-              }),
-            ),
-          );
-          if (result.status === 'error') {
-            await context.stream.fail(
-              buildResponseText(
-                formatAgentErrorReply(result.error),
-                undefined,
-                result.memoryAccess,
+      withInFlightTurn(
+        async (
+          sessionId: string,
+          guildId: string | null,
+          channelId: string,
+          userId: string,
+          username: string,
+          content: string,
+          media,
+          _reply: ReplyFn,
+          context,
+        ) => {
+          try {
+            let sawTextDelta = false;
+            const streamFilter = createSilentReplyStreamFilter();
+            const appendStreamText = async (text: string): Promise<void> => {
+              if (!text) return;
+              if (!sawTextDelta) sawTextDelta = true;
+              await context.stream.append(text);
+            };
+            const result = normalizePendingApprovalReply(
+              normalizePlaceholderToolReply(
+                await handleGatewayMessage({
+                  sessionId,
+                  guildId,
+                  channelId,
+                  userId,
+                  username,
+                  content,
+                  media,
+                  source: 'discord',
+                  onTextDelta: (delta) => {
+                    const filteredDelta = streamFilter.push(delta);
+                    if (!filteredDelta) return;
+                    void appendStreamText(filteredDelta);
+                  },
+                  onToolProgress: (event) => {
+                    if (sawTextDelta) return;
+                    if (event.phase === 'start') {
+                      context.emitLifecyclePhase('toolUse');
+                    } else {
+                      context.emitLifecyclePhase('thinking');
+                    }
+                  },
+                  onProactiveMessage: async (message) => {
+                    await deliverProactiveMessage(
+                      message.channelId || channelId,
+                      message.text,
+                      'delegate',
+                      message.artifacts,
+                    );
+                  },
+                  abortSignal: context.abortSignal,
+                }),
               ),
             );
-            return;
-          }
-          const pendingApproval = extractGatewayChatApprovalEvent(result);
-          const effectiveSessionId = result.sessionId || sessionId;
-          if (!pendingApproval) {
-            const bufferedDelta = streamFilter.flush();
-            if (bufferedDelta) {
-              await appendStreamText(bufferedDelta);
+            if (result.status === 'error') {
+              await context.stream.fail(
+                buildResponseText(
+                  formatAgentErrorReply(result.error),
+                  undefined,
+                  result.memoryAccess,
+                ),
+              );
+              return;
             }
-          }
-          if (streamFilter.isSilent() || isSilentReply(result.result)) {
-            await clearPendingApproval(effectiveSessionId, {
-              disableButtons: true,
-            });
-            await context.stream.discard();
-            return;
-          }
-          const rawText = stripSilentToken(String(result.result));
-          const showMode = normalizeSessionShowMode(
-            memoryService.getSessionById(effectiveSessionId)?.show_mode,
-          );
-          const userText = simplifyImageAttachmentNarration(
-            rawText,
-            result.artifacts,
-          );
-          const renderedText = await rewriteUserMentionsForMessage(
-            userText,
-            context.sourceMessage,
-            context.mentionLookup,
-          );
-          const responseText = buildResponseText(
-            renderedText,
-            sessionShowModeShowsTools(showMode) ? result.toolsUsed : undefined,
-            result.memoryAccess,
-          );
-          if (pendingApproval) {
-            const { cleanup } = await handlePendingApprovalRouting({
-              pendingApproval,
-              responseText,
-              sessionId: effectiveSessionId,
-              userId,
-              channelId,
-              buttonPresentation: DISCORD_APPROVAL_PRESENTATION,
-              sendApprovalNotification: context.sendApprovalNotification,
-              sendText: (text) => context.stream.finalize(text),
-              formatTextPrompt: ({ approvalUserId, storedPrompt }) =>
-                `<@${approvalUserId}> ${storedPrompt}`,
-            });
-            if (cleanup) {
+            const pendingApproval = extractGatewayChatApprovalEvent(result);
+            const effectiveSessionId = result.sessionId || sessionId;
+            if (!pendingApproval) {
+              const bufferedDelta = streamFilter.flush();
+              if (bufferedDelta) {
+                await appendStreamText(bufferedDelta);
+              }
+            }
+            if (streamFilter.isSilent() || isSilentReply(result.result)) {
+              await clearPendingApproval(effectiveSessionId, {
+                disableButtons: true,
+              });
               await context.stream.discard();
+              return;
             }
-            return;
-          }
-          const attachments = buildArtifactAttachments(result.artifacts);
-          if (!rawText.trim()) {
+            const rawText = stripSilentToken(String(result.result));
+            const showMode = normalizeSessionShowMode(
+              memoryService.getSessionById(effectiveSessionId)?.show_mode,
+            );
+            const userText = simplifyImageAttachmentNarration(
+              rawText,
+              result.artifacts,
+            );
+            const renderedText = await rewriteUserMentionsForMessage(
+              userText,
+              context.sourceMessage,
+              context.mentionLookup,
+            );
+            const responseText = buildResponseText(
+              renderedText,
+              sessionShowModeShowsTools(showMode)
+                ? result.toolsUsed
+                : undefined,
+              result.memoryAccess,
+            );
+            if (pendingApproval) {
+              const { cleanup } = await handlePendingApprovalRouting({
+                pendingApproval,
+                responseText,
+                sessionId: effectiveSessionId,
+                userId,
+                channelId,
+                buttonPresentation: DISCORD_APPROVAL_PRESENTATION,
+                sendApprovalNotification: context.sendApprovalNotification,
+                sendText: (text) => context.stream.finalize(text),
+                formatTextPrompt: ({ approvalUserId, storedPrompt }) =>
+                  `<@${approvalUserId}> ${storedPrompt}`,
+              });
+              if (cleanup) {
+                await context.stream.discard();
+              }
+              return;
+            }
+            const attachments = buildArtifactAttachments(result.artifacts);
+            if (!rawText.trim()) {
+              await clearPendingApproval(effectiveSessionId, {
+                disableButtons: true,
+              });
+              await context.stream.discard();
+              return;
+            }
             await clearPendingApproval(effectiveSessionId, {
               disableButtons: true,
             });
-            await context.stream.discard();
-            return;
+            if (result.components && !sawTextDelta) {
+              await _reply(responseText, attachments, result.components);
+              await context.stream.discard();
+              return;
+            }
+            await context.stream.finalize(responseText, attachments);
+          } catch (error) {
+            logger.error(
+              { error, sessionId, channelId },
+              'Discord message handling failed',
+            );
+            await context.stream.fail(formatGatewayErrorReply(error));
           }
-          await clearPendingApproval(effectiveSessionId, {
-            disableButtons: true,
-          });
-          if (result.components && !sawTextDelta) {
-            await _reply(responseText, attachments, result.components);
-            await context.stream.discard();
-            return;
-          }
-          await context.stream.finalize(responseText, attachments);
-        } catch (error) {
-          logger.error(
-            { error, sessionId, channelId },
-            'Discord message handling failed',
-          );
-          await context.stream.fail(formatGatewayErrorReply(error));
-        }
-      },
+        },
+      ),
       async (
         sessionId: string,
         guildId: string | null,
@@ -1778,198 +1787,200 @@ async function startMSTeamsIntegration(): Promise<boolean> {
 
   const { initMSTeams } = await import('../channels/msteams/runtime.js');
   initMSTeams(
-    async (
-      sessionId,
-      guildId,
-      channelId,
-      userId,
-      username,
-      content,
-      media,
-      reply,
-      context,
-    ) => {
-      try {
-        const implicitApprovalArgs = resolveImplicitNumericApprovalArgs({
-          sessionId,
-          userId,
-          content,
-        });
-        if (implicitApprovalArgs) {
-          const bridgedReply: ReplyFn = async (content) => {
-            await reply(content);
-          };
-          await handleTextChannelCommand({
+    withInFlightTurn(
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content,
+        media,
+        reply,
+        context,
+      ) => {
+        try {
+          const implicitApprovalArgs = resolveImplicitNumericApprovalArgs({
             sessionId,
-            guildId,
-            channelId,
             userId,
-            username,
-            args: implicitApprovalArgs,
-            reply: bridgedReply,
+            content,
           });
-          return;
-        }
-
-        let sawTextDelta = false;
-        const streamFilter = createSilentReplyStreamFilter();
-        const appendStreamText = async (text: string): Promise<void> => {
-          if (!text) return;
-          if (!sawTextDelta) sawTextDelta = true;
-          await context.stream.append(text);
-        };
-        const result = normalizePendingApprovalReply(
-          normalizePlaceholderToolReply(
-            await handleGatewayMessage({
+          if (implicitApprovalArgs) {
+            const bridgedReply: ReplyFn = async (content) => {
+              await reply(content);
+            };
+            await handleTextChannelCommand({
               sessionId,
               guildId,
               channelId,
               userId,
               username,
-              content,
-              media,
-              source: 'msteams',
-              onTextDelta: (delta) => {
-                const filteredDelta = streamFilter.push(delta);
-                if (!filteredDelta) return;
-                void appendStreamText(filteredDelta);
-              },
-              onToolProgress: (event) => {
-                if (sawTextDelta) return;
-                void context.stream.updateInformative(
-                  event.phase === 'start'
-                    ? formatMSTeamsActivityVerb(event.toolName)
-                    : 'Thinking…',
-                );
-              },
-              abortSignal: context.abortSignal,
-            }),
-          ),
-        );
-        const memoryFooterOptions = {
-          showMemoryFooter: getConfigSnapshot().msteams.showMemoryFooter,
-        };
-        const memoryAccess = memoryFooterOptions.showMemoryFooter
-          ? result.memoryAccess
-          : undefined;
-        if (result.status === 'error') {
-          await context.stream.fail(
-            buildMSTeamsResponseText(
-              formatAgentErrorReply(result.error),
-              undefined,
-              memoryAccess,
-              memoryFooterOptions,
+              args: implicitApprovalArgs,
+              reply: bridgedReply,
+            });
+            return;
+          }
+
+          let sawTextDelta = false;
+          const streamFilter = createSilentReplyStreamFilter();
+          const appendStreamText = async (text: string): Promise<void> => {
+            if (!text) return;
+            if (!sawTextDelta) sawTextDelta = true;
+            await context.stream.append(text);
+          };
+          const result = normalizePendingApprovalReply(
+            normalizePlaceholderToolReply(
+              await handleGatewayMessage({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                content,
+                media,
+                source: 'msteams',
+                onTextDelta: (delta) => {
+                  const filteredDelta = streamFilter.push(delta);
+                  if (!filteredDelta) return;
+                  void appendStreamText(filteredDelta);
+                },
+                onToolProgress: (event) => {
+                  if (sawTextDelta) return;
+                  void context.stream.updateInformative(
+                    event.phase === 'start'
+                      ? formatMSTeamsActivityVerb(event.toolName)
+                      : 'Thinking…',
+                  );
+                },
+                abortSignal: context.abortSignal,
+              }),
             ),
           );
-          return;
-        }
-
-        const bufferedDelta = streamFilter.flush();
-        if (bufferedDelta) {
-          await appendStreamText(bufferedDelta);
-        }
-        if (streamFilter.isSilent() || isSilentReply(result.result)) {
-          await context.stream.discard();
-          return;
-        }
-
-        const renderedText = stripSilentToken(String(result.result || ''));
-        const artifacts = result.artifacts || [];
-        const effectiveSessionId = result.sessionId || sessionId;
-        if (!renderedText.trim() && artifacts.length === 0 && !memoryAccess) {
-          await context.stream.discard();
-          return;
-        }
-        const showMode = normalizeSessionShowMode(
-          memoryService.getSessionById(effectiveSessionId)?.show_mode,
-        );
-        let responseText =
-          renderedText.trim() || memoryAccess
-            ? buildMSTeamsResponseText(
-                stripUnusableMSTeamsArtifactLinks(renderedText),
-                sessionShowModeShowsTools(showMode)
-                  ? result.toolsUsed
-                  : undefined,
+          const memoryFooterOptions = {
+            showMemoryFooter: getConfigSnapshot().msteams.showMemoryFooter,
+          };
+          const memoryAccess = memoryFooterOptions.showMemoryFooter
+            ? result.memoryAccess
+            : undefined;
+          if (result.status === 'error') {
+            await context.stream.fail(
+              buildMSTeamsResponseText(
+                formatAgentErrorReply(result.error),
+                undefined,
                 memoryAccess,
                 memoryFooterOptions,
-              )
-            : '';
-        const pendingApproval = extractGatewayChatApprovalEvent(result);
-        if (pendingApproval) {
-          await handlePendingApprovalRouting({
-            pendingApproval,
-            responseText,
-            sessionId: effectiveSessionId,
-            userId,
-            channelId,
-            buttonPresentation: TEAMS_APPROVAL_PRESENTATION,
-            sendText: (text) => context.stream.finalize(text),
-            formatTextPrompt: ({ approval, responseText }) => {
-              const visiblePrompt = getApprovalVisibleText(
-                approval,
-                TEAMS_APPROVAL_PRESENTATION,
-                responseText,
-              );
-              return `${visiblePrompt}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`;
-            },
-          });
-          return;
-        }
+              ),
+            );
+            return;
+          }
 
-        let attachments:
-          | Awaited<
-              ReturnType<
-                typeof import('../channels/msteams/attachments.js')['buildTeamsArtifactAttachments']
-              >
-            >
-          | undefined;
-        try {
-          const { buildTeamsArtifactAttachments } = await import(
-            '../channels/msteams/attachments.js'
+          const bufferedDelta = streamFilter.flush();
+          if (bufferedDelta) {
+            await appendStreamText(bufferedDelta);
+          }
+          if (streamFilter.isSilent() || isSilentReply(result.result)) {
+            await context.stream.discard();
+            return;
+          }
+
+          const renderedText = stripSilentToken(String(result.result || ''));
+          const artifacts = result.artifacts || [];
+          const effectiveSessionId = result.sessionId || sessionId;
+          if (!renderedText.trim() && artifacts.length === 0 && !memoryAccess) {
+            await context.stream.discard();
+            return;
+          }
+          const showMode = normalizeSessionShowMode(
+            memoryService.getSessionById(effectiveSessionId)?.show_mode,
           );
-          attachments = await buildTeamsArtifactAttachments({
-            turnContext: context.turnContext,
-            artifacts,
-          });
-        } catch (error) {
-          logger.warn(
-            {
-              error,
-              sessionId,
+          let responseText =
+            renderedText.trim() || memoryAccess
+              ? buildMSTeamsResponseText(
+                  stripUnusableMSTeamsArtifactLinks(renderedText),
+                  sessionShowModeShowsTools(showMode)
+                    ? result.toolsUsed
+                    : undefined,
+                  memoryAccess,
+                  memoryFooterOptions,
+                )
+              : '';
+          const pendingApproval = extractGatewayChatApprovalEvent(result);
+          if (pendingApproval) {
+            await handlePendingApprovalRouting({
+              pendingApproval,
+              responseText,
+              sessionId: effectiveSessionId,
+              userId,
               channelId,
-              artifactCount: artifacts.length,
-            },
-            'Failed to build Teams artifact attachments',
-          );
-          const deliveryNotice =
-            'The artifact was created, but Teams could not deliver the file. Try the bot’s direct chat; if this already is a direct chat, enable file support (`supportsFiles`) in the Teams app manifest.';
-          responseText = responseText
-            ? `${responseText}\n\n${deliveryNotice}`
-            : deliveryNotice;
-        }
+              buttonPresentation: TEAMS_APPROVAL_PRESENTATION,
+              sendText: (text) => context.stream.finalize(text),
+              formatTextPrompt: ({ approval, responseText }) => {
+                const visiblePrompt = getApprovalVisibleText(
+                  approval,
+                  TEAMS_APPROVAL_PRESENTATION,
+                  responseText,
+                );
+                return `${visiblePrompt}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`;
+              },
+            });
+            return;
+          }
 
-        if (attachments?.length && sawTextDelta) {
-          await context.stream.finalize(responseText);
-          await reply('', attachments);
+          let attachments:
+            | Awaited<
+                ReturnType<
+                  typeof import('../channels/msteams/attachments.js')['buildTeamsArtifactAttachments']
+                >
+              >
+            | undefined;
+          try {
+            const { buildTeamsArtifactAttachments } = await import(
+              '../channels/msteams/attachments.js'
+            );
+            attachments = await buildTeamsArtifactAttachments({
+              turnContext: context.turnContext,
+              artifacts,
+            });
+          } catch (error) {
+            logger.warn(
+              {
+                error,
+                sessionId,
+                channelId,
+                artifactCount: artifacts.length,
+              },
+              'Failed to build Teams artifact attachments',
+            );
+            const deliveryNotice =
+              'The artifact was created, but Teams could not deliver the file. Try the bot’s direct chat; if this already is a direct chat, enable file support (`supportsFiles`) in the Teams app manifest.';
+            responseText = responseText
+              ? `${responseText}\n\n${deliveryNotice}`
+              : deliveryNotice;
+          }
+
+          if (attachments?.length && sawTextDelta) {
+            await context.stream.finalize(responseText);
+            await reply('', attachments);
+            recordMSTeamsReactionTargetsForStream(
+              effectiveSessionId,
+              context.stream,
+            );
+            return;
+          }
+          await context.stream.finalize(responseText, attachments);
           recordMSTeamsReactionTargetsForStream(
             effectiveSessionId,
             context.stream,
           );
-          return;
+        } catch (error) {
+          logger.error(
+            { error, sessionId, channelId },
+            'Teams message handling failed',
+          );
+          await context.stream.fail(formatGatewayErrorReply(error));
         }
-        await context.stream.finalize(responseText, attachments);
-        recordMSTeamsReactionTargetsForStream(
-          effectiveSessionId,
-          context.stream,
-        );
-      } catch (error) {
-        logger.error(
-          { error, sessionId, channelId },
-          'Teams message handling failed',
-        );
-        await context.stream.fail(formatGatewayErrorReply(error));
-      }
-    },
+      },
+    ),
     async (sessionId, guildId, channelId, userId, username, args, reply) => {
       try {
         const bridgedReply: ReplyFn = async (content) => {
@@ -2120,121 +2131,123 @@ async function startWhatsAppIntegration(): Promise<boolean> {
 
   try {
     await initWhatsApp(
-      async (
-        sessionId,
-        guildId,
-        channelId,
-        userId,
-        username,
-        content,
-        media,
-        reply,
-        context,
-      ) => {
-        try {
-          const slashCommands = resolveTextChannelSlashCommands(content);
-          if (slashCommands) {
-            const textReply: ReplyFn = async (message) => {
-              await reply(message);
-            };
-            for (const args of slashCommands) {
-              await handleTextChannelCommand({
+      withInFlightTurn(
+        async (
+          sessionId,
+          guildId,
+          channelId,
+          userId,
+          username,
+          content,
+          media,
+          reply,
+          context,
+        ) => {
+          try {
+            const slashCommands = resolveTextChannelSlashCommands(content);
+            if (slashCommands) {
+              const textReply: ReplyFn = async (message) => {
+                await reply(message);
+              };
+              for (const args of slashCommands) {
+                await handleTextChannelCommand({
+                  sessionId,
+                  guildId,
+                  channelId,
+                  userId,
+                  username,
+                  args,
+                  reply: textReply,
+                });
+              }
+              return;
+            }
+
+            const result = normalizePlaceholderToolReply(
+              await handleGatewayMessage({
                 sessionId,
                 guildId,
                 channelId,
                 userId,
                 username,
-                args,
-                reply: textReply,
-              });
-            }
-            return;
-          }
-
-          const result = normalizePlaceholderToolReply(
-            await handleGatewayMessage({
-              sessionId,
-              guildId,
-              channelId,
-              userId,
-              username,
-              content,
-              media,
-              onProactiveMessage: async (message) => {
-                await deliverProactiveMessage(
-                  message.channelId || channelId,
-                  message.text,
-                  'delegate',
-                  message.artifacts,
-                );
-              },
-              abortSignal: context.abortSignal,
-              source: 'whatsapp',
-            }),
-          );
-          if (result.status === 'error') {
-            await reply(
-              buildResponseText(
-                formatChannelGatewayErrorReply(result.error),
-                undefined,
-                result.memoryAccess,
-              ),
+                content,
+                media,
+                onProactiveMessage: async (message) => {
+                  await deliverProactiveMessage(
+                    message.channelId || channelId,
+                    message.text,
+                    'delegate',
+                    message.artifacts,
+                  );
+                },
+                abortSignal: context.abortSignal,
+                source: 'whatsapp',
+              }),
             );
-            return;
-          }
-
-          const cleanedResultText = stripSilentToken(
-            String(result.result || ''),
-          );
-          const artifacts = result.artifacts || [];
-          if (isSilentReply(result.result)) {
-            return;
-          }
-          if (
-            !cleanedResultText.trim() &&
-            artifacts.length === 0 &&
-            !result.memoryAccess
-          ) {
-            return;
-          }
-
-          const effectiveSessionId = result.sessionId || sessionId;
-          const showMode = normalizeSessionShowMode(
-            memoryService.getSessionById(effectiveSessionId)?.show_mode,
-          );
-          if (cleanedResultText.trim() || result.memoryAccess) {
-            const responseText = buildResponseText(
-              cleanedResultText,
-              sessionShowModeShowsTools(showMode)
-                ? result.toolsUsed
-                : undefined,
-              result.memoryAccess,
-            );
-            await reply(responseText);
-          }
-          for (const artifact of artifacts) {
-            try {
-              await sendWhatsAppMediaToChat({
-                jid: channelId,
-                filePath: artifact.path,
-                mimeType: artifact.mimeType,
-                filename: artifact.filename,
-              });
-            } catch (error) {
-              logger.warn(
-                { error, channelId, artifactPath: artifact.path },
-                'Failed to send WhatsApp artifact',
+            if (result.status === 'error') {
+              await reply(
+                buildResponseText(
+                  formatChannelGatewayErrorReply(result.error),
+                  undefined,
+                  result.memoryAccess,
+                ),
               );
+              return;
             }
+
+            const cleanedResultText = stripSilentToken(
+              String(result.result || ''),
+            );
+            const artifacts = result.artifacts || [];
+            if (isSilentReply(result.result)) {
+              return;
+            }
+            if (
+              !cleanedResultText.trim() &&
+              artifacts.length === 0 &&
+              !result.memoryAccess
+            ) {
+              return;
+            }
+
+            const effectiveSessionId = result.sessionId || sessionId;
+            const showMode = normalizeSessionShowMode(
+              memoryService.getSessionById(effectiveSessionId)?.show_mode,
+            );
+            if (cleanedResultText.trim() || result.memoryAccess) {
+              const responseText = buildResponseText(
+                cleanedResultText,
+                sessionShowModeShowsTools(showMode)
+                  ? result.toolsUsed
+                  : undefined,
+                result.memoryAccess,
+              );
+              await reply(responseText);
+            }
+            for (const artifact of artifacts) {
+              try {
+                await sendWhatsAppMediaToChat({
+                  jid: channelId,
+                  filePath: artifact.path,
+                  mimeType: artifact.mimeType,
+                  filename: artifact.filename,
+                });
+              } catch (error) {
+                logger.warn(
+                  { error, channelId, artifactPath: artifact.path },
+                  'Failed to send WhatsApp artifact',
+                );
+              }
+            }
+          } catch (error) {
+            logger.error(
+              { error, sessionId, channelId },
+              'WhatsApp message handling failed',
+            );
+            await reply(formatChannelGatewayErrorReply(error));
           }
-        } catch (error) {
-          logger.error(
-            { error, sessionId, channelId },
-            'WhatsApp message handling failed',
-          );
-          await reply(formatChannelGatewayErrorReply(error));
-        }
-      },
+        },
+      ),
     );
   } catch (error) {
     if (isWhatsAppAuthLockError(error)) {
@@ -2290,97 +2303,99 @@ async function startLineIntegration(): Promise<boolean> {
 
   try {
     await initLine(
-      async (
-        sessionId,
-        guildId,
-        channelId,
-        userId,
-        username,
-        content,
-        media,
-        reply,
-        context,
-      ) => {
-        try {
-          const slashCommands = resolveTextChannelSlashCommands(content);
-          if (slashCommands) {
-            for (const args of slashCommands) {
-              await handleTextChannelCommand({
+      withInFlightTurn(
+        async (
+          sessionId,
+          guildId,
+          channelId,
+          userId,
+          username,
+          content,
+          media,
+          reply,
+          context,
+        ) => {
+          try {
+            const slashCommands = resolveTextChannelSlashCommands(content);
+            if (slashCommands) {
+              for (const args of slashCommands) {
+                await handleTextChannelCommand({
+                  sessionId,
+                  guildId,
+                  channelId,
+                  userId,
+                  username,
+                  args,
+                  reply,
+                });
+              }
+              return;
+            }
+
+            const result = normalizePlaceholderToolReply(
+              await handleGatewayMessage({
                 sessionId,
                 guildId,
                 channelId,
                 userId,
                 username,
-                args,
-                reply,
-              });
+                content,
+                media,
+                onProactiveMessage: async (message) => {
+                  await deliverProactiveMessage(
+                    message.channelId || channelId,
+                    message.text,
+                    'delegate',
+                    message.artifacts,
+                  );
+                },
+                abortSignal: context.abortSignal,
+                source: 'line',
+              }),
+            );
+            if (result.status === 'error') {
+              await reply(
+                buildResponseText(
+                  formatChannelGatewayErrorReply(result.error),
+                  undefined,
+                  result.memoryAccess,
+                ),
+              );
+              return;
             }
-            return;
-          }
+            if (isSilentReply(result.result)) return;
 
-          const result = normalizePlaceholderToolReply(
-            await handleGatewayMessage({
-              sessionId,
-              guildId,
-              channelId,
-              userId,
-              username,
-              content,
-              media,
-              onProactiveMessage: async (message) => {
-                await deliverProactiveMessage(
-                  message.channelId || channelId,
-                  message.text,
-                  'delegate',
-                  message.artifacts,
-                );
-              },
-              abortSignal: context.abortSignal,
-              source: 'line',
-            }),
-          );
-          if (result.status === 'error') {
-            await reply(
-              buildResponseText(
-                formatChannelGatewayErrorReply(result.error),
-                undefined,
-                result.memoryAccess,
-              ),
+            const cleanedText = stripSilentToken(String(result.result || ''));
+            if (cleanedText.trim() || result.memoryAccess) {
+              const effectiveSessionId = result.sessionId || sessionId;
+              const showMode = normalizeSessionShowMode(
+                memoryService.getSessionById(effectiveSessionId)?.show_mode,
+              );
+              await reply(
+                buildResponseText(
+                  cleanedText,
+                  sessionShowModeShowsTools(showMode)
+                    ? result.toolsUsed
+                    : undefined,
+                  result.memoryAccess,
+                ),
+              );
+            }
+            if ((result.artifacts || []).length > 0) {
+              logger.warn(
+                { channelId, artifactCount: result.artifacts?.length || 0 },
+                'LINE self-chat does not support artifact delivery',
+              );
+            }
+          } catch (error) {
+            logger.error(
+              { error, sessionId, channelId },
+              'LINE message handling failed',
             );
-            return;
+            await reply(formatChannelGatewayErrorReply(error));
           }
-          if (isSilentReply(result.result)) return;
-
-          const cleanedText = stripSilentToken(String(result.result || ''));
-          if (cleanedText.trim() || result.memoryAccess) {
-            const effectiveSessionId = result.sessionId || sessionId;
-            const showMode = normalizeSessionShowMode(
-              memoryService.getSessionById(effectiveSessionId)?.show_mode,
-            );
-            await reply(
-              buildResponseText(
-                cleanedText,
-                sessionShowModeShowsTools(showMode)
-                  ? result.toolsUsed
-                  : undefined,
-                result.memoryAccess,
-              ),
-            );
-          }
-          if ((result.artifacts || []).length > 0) {
-            logger.warn(
-              { channelId, artifactCount: result.artifacts?.length || 0 },
-              'LINE self-chat does not support artifact delivery',
-            );
-          }
-        } catch (error) {
-          logger.error(
-            { error, sessionId, channelId },
-            'LINE message handling failed',
-          );
-          await reply(formatChannelGatewayErrorReply(error));
-        }
-      },
+        },
+      ),
     );
   } catch (error) {
     if (error instanceof LineAuthLockError) {
@@ -2444,130 +2459,132 @@ async function startEmailIntegration(): Promise<boolean> {
 
   try {
     await initEmail(
-      async (
-        sessionId,
-        guildId,
-        channelId,
-        userId,
-        username,
-        content,
-        media,
-        reply,
-        context,
-      ) => {
-        try {
-          const slashCommands = resolveTextChannelSlashCommands(content);
-          if (slashCommands) {
-            const textReply: ReplyFn = async (message) => {
-              await reply(message);
-            };
-            for (const args of slashCommands) {
-              await handleTextChannelCommand({
+      withInFlightTurn(
+        async (
+          sessionId,
+          guildId,
+          channelId,
+          userId,
+          username,
+          content,
+          media,
+          reply,
+          context,
+        ) => {
+          try {
+            const slashCommands = resolveTextChannelSlashCommands(content);
+            if (slashCommands) {
+              const textReply: ReplyFn = async (message) => {
+                await reply(message);
+              };
+              for (const args of slashCommands) {
+                await handleTextChannelCommand({
+                  sessionId,
+                  guildId,
+                  channelId,
+                  userId,
+                  username,
+                  args,
+                  reply: textReply,
+                });
+              }
+              return;
+            }
+
+            const result = normalizePlaceholderToolReply(
+              await handleGatewayMessage({
                 sessionId,
                 guildId,
                 channelId,
                 userId,
                 username,
-                args,
-                reply: textReply,
-              });
+                content,
+                agentId: context.agentId,
+                media,
+                onProactiveMessage: async (message) => {
+                  await deliverProactiveMessage(
+                    message.channelId || channelId,
+                    message.text,
+                    'delegate',
+                    message.artifacts,
+                  );
+                },
+                abortSignal: context.abortSignal,
+                source: 'email',
+              }),
+            );
+            if (result.status === 'error') {
+              await reply(
+                buildResponseText(
+                  formatChannelGatewayErrorReply(result.error),
+                  undefined,
+                  result.memoryAccess,
+                ),
+              );
+              return;
             }
-            return;
-          }
 
-          const result = normalizePlaceholderToolReply(
-            await handleGatewayMessage({
-              sessionId,
-              guildId,
-              channelId,
-              userId,
-              username,
-              content,
-              agentId: context.agentId,
-              media,
-              onProactiveMessage: async (message) => {
-                await deliverProactiveMessage(
-                  message.channelId || channelId,
-                  message.text,
-                  'delegate',
-                  message.artifacts,
-                );
-              },
-              abortSignal: context.abortSignal,
-              source: 'email',
-            }),
-          );
-          if (result.status === 'error') {
-            await reply(
-              buildResponseText(
-                formatChannelGatewayErrorReply(result.error),
-                undefined,
-                result.memoryAccess,
-              ),
+            const cleanedResultText = stripSilentToken(
+              String(result.result || ''),
             );
-            return;
-          }
+            const artifacts = result.artifacts || [];
+            if (isSilentReply(result.result)) {
+              return;
+            }
+            if (
+              !cleanedResultText.trim() &&
+              artifacts.length === 0 &&
+              !result.memoryAccess
+            ) {
+              return;
+            }
 
-          const cleanedResultText = stripSilentToken(
-            String(result.result || ''),
-          );
-          const artifacts = result.artifacts || [];
-          if (isSilentReply(result.result)) {
-            return;
-          }
-          if (
-            !cleanedResultText.trim() &&
-            artifacts.length === 0 &&
-            !result.memoryAccess
-          ) {
-            return;
-          }
-
-          const effectiveSessionId = result.sessionId || sessionId;
-          const showMode = normalizeSessionShowMode(
-            memoryService.getSessionById(effectiveSessionId)?.show_mode,
-          );
-          const emailMetadata = buildEmailDeliveryMetadata({
-            agentId: result.agentId,
-            model: result.model,
-            provider: result.provider,
-            tokenUsage: result.tokenUsage,
-          });
-          if (cleanedResultText.trim() || result.memoryAccess) {
-            const responseText = buildResponseText(
-              cleanedResultText,
-              sessionShowModeShowsTools(showMode)
-                ? result.toolsUsed
-                : undefined,
-              result.memoryAccess,
+            const effectiveSessionId = result.sessionId || sessionId;
+            const showMode = normalizeSessionShowMode(
+              memoryService.getSessionById(effectiveSessionId)?.show_mode,
             );
-            await reply(responseText, {
-              ...(emailMetadata ? { metadata: emailMetadata } : {}),
+            const emailMetadata = buildEmailDeliveryMetadata({
+              agentId: result.agentId,
+              model: result.model,
+              provider: result.provider,
+              tokenUsage: result.tokenUsage,
             });
-          }
-          for (const artifact of artifacts) {
-            try {
-              await context.sendAttachment({
-                filePath: artifact.path,
-                mimeType: artifact.mimeType,
-                filename: artifact.filename,
+            if (cleanedResultText.trim() || result.memoryAccess) {
+              const responseText = buildResponseText(
+                cleanedResultText,
+                sessionShowModeShowsTools(showMode)
+                  ? result.toolsUsed
+                  : undefined,
+                result.memoryAccess,
+              );
+              await reply(responseText, {
                 ...(emailMetadata ? { metadata: emailMetadata } : {}),
               });
-            } catch (error) {
-              logger.warn(
-                { error, channelId, artifactPath: artifact.path },
-                'Failed to send email artifact',
-              );
             }
+            for (const artifact of artifacts) {
+              try {
+                await context.sendAttachment({
+                  filePath: artifact.path,
+                  mimeType: artifact.mimeType,
+                  filename: artifact.filename,
+                  ...(emailMetadata ? { metadata: emailMetadata } : {}),
+                });
+              } catch (error) {
+                logger.warn(
+                  { error, channelId, artifactPath: artifact.path },
+                  'Failed to send email artifact',
+                );
+              }
+            }
+          } catch (error) {
+            logger.error(
+              { error, sessionId, channelId },
+              'Email message handling failed',
+            );
+            await reply(formatChannelGatewayErrorReply(error));
           }
-        } catch (error) {
-          logger.error(
-            { error, sessionId, channelId },
-            'Email message handling failed',
-          );
-          await reply(formatChannelGatewayErrorReply(error));
-        }
-      },
+        },
+      ),
     );
   } catch (error) {
     logger.warn({ error }, 'Email integration failed to start');
@@ -2602,142 +2619,144 @@ async function startTelegramIntegration(): Promise<boolean> {
 
   try {
     await initTelegram(
-      async (
-        sessionId,
-        guildId,
-        channelId,
-        userId,
-        username,
-        content,
-        media,
-        reply: TelegramReplyFn,
-        context,
-      ) => {
-        try {
-          const implicitApprovalArgs = resolveImplicitNumericApprovalArgs({
-            sessionId,
-            userId,
-            content,
-          });
-          if (implicitApprovalArgs) {
-            const bridgedReply: ReplyFn = async (message) => {
-              await reply(message);
-            };
-            await handleTextChannelCommand({
+      withInFlightTurn(
+        async (
+          sessionId,
+          guildId,
+          channelId,
+          userId,
+          username,
+          content,
+          media,
+          reply: TelegramReplyFn,
+          context,
+        ) => {
+          try {
+            const implicitApprovalArgs = resolveImplicitNumericApprovalArgs({
               sessionId,
-              guildId,
-              channelId,
               userId,
-              username,
-              args: implicitApprovalArgs,
-              reply: bridgedReply,
+              content,
             });
-            return;
-          }
-
-          const slashCommands = resolveTextChannelSlashCommands(content);
-          if (slashCommands) {
-            const bridgedReply: ReplyFn = async (message) => {
-              await reply(message);
-            };
-            for (const args of slashCommands) {
+            if (implicitApprovalArgs) {
+              const bridgedReply: ReplyFn = async (message) => {
+                await reply(message);
+              };
               await handleTextChannelCommand({
                 sessionId,
                 guildId,
                 channelId,
                 userId,
                 username,
-                args,
+                args: implicitApprovalArgs,
                 reply: bridgedReply,
               });
+              return;
             }
-            return;
-          }
 
-          const result = normalizePlaceholderToolReply(
-            await handleGatewayMessage({
-              sessionId,
-              guildId,
-              channelId,
-              userId,
-              username,
-              content,
-              media,
-              onProactiveMessage: async (message) => {
-                await deliverProactiveMessage(
-                  message.channelId || channelId,
-                  message.text,
-                  'delegate',
-                  message.artifacts,
-                );
-              },
-              abortSignal: context.abortSignal,
-              source: 'telegram',
-            }),
-          );
-          if (result.status === 'error') {
-            await reply(
-              buildResponseText(
-                formatChannelGatewayErrorReply(result.error),
-                undefined,
-                result.memoryAccess,
-              ),
+            const slashCommands = resolveTextChannelSlashCommands(content);
+            if (slashCommands) {
+              const bridgedReply: ReplyFn = async (message) => {
+                await reply(message);
+              };
+              for (const args of slashCommands) {
+                await handleTextChannelCommand({
+                  sessionId,
+                  guildId,
+                  channelId,
+                  userId,
+                  username,
+                  args,
+                  reply: bridgedReply,
+                });
+              }
+              return;
+            }
+
+            const result = normalizePlaceholderToolReply(
+              await handleGatewayMessage({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                content,
+                media,
+                onProactiveMessage: async (message) => {
+                  await deliverProactiveMessage(
+                    message.channelId || channelId,
+                    message.text,
+                    'delegate',
+                    message.artifacts,
+                  );
+                },
+                abortSignal: context.abortSignal,
+                source: 'telegram',
+              }),
             );
-            return;
-          }
-
-          const cleanedResultText = stripSilentToken(
-            String(result.result || ''),
-          );
-          const artifacts = result.artifacts || [];
-          if (isSilentReply(result.result)) {
-            return;
-          }
-          if (
-            !cleanedResultText.trim() &&
-            artifacts.length === 0 &&
-            !result.memoryAccess
-          ) {
-            return;
-          }
-
-          const effectiveSessionId = result.sessionId || sessionId;
-          const showMode = normalizeSessionShowMode(
-            memoryService.getSessionById(effectiveSessionId)?.show_mode,
-          );
-          if (cleanedResultText.trim() || result.memoryAccess) {
-            const responseText = buildResponseText(
-              cleanedResultText,
-              sessionShowModeShowsTools(showMode)
-                ? result.toolsUsed
-                : undefined,
-              result.memoryAccess,
-            );
-            await reply(responseText);
-          }
-          for (const artifact of artifacts) {
-            try {
-              await sendTelegramMediaToChat({
-                target: channelId,
-                filePath: artifact.path,
-                mimeType: artifact.mimeType,
-                filename: artifact.filename,
-              });
-            } catch (error) {
-              logger.warn(
-                { error, channelId, artifactPath: artifact.path },
-                'Failed to send Telegram artifact',
+            if (result.status === 'error') {
+              await reply(
+                buildResponseText(
+                  formatChannelGatewayErrorReply(result.error),
+                  undefined,
+                  result.memoryAccess,
+                ),
               );
+              return;
             }
+
+            const cleanedResultText = stripSilentToken(
+              String(result.result || ''),
+            );
+            const artifacts = result.artifacts || [];
+            if (isSilentReply(result.result)) {
+              return;
+            }
+            if (
+              !cleanedResultText.trim() &&
+              artifacts.length === 0 &&
+              !result.memoryAccess
+            ) {
+              return;
+            }
+
+            const effectiveSessionId = result.sessionId || sessionId;
+            const showMode = normalizeSessionShowMode(
+              memoryService.getSessionById(effectiveSessionId)?.show_mode,
+            );
+            if (cleanedResultText.trim() || result.memoryAccess) {
+              const responseText = buildResponseText(
+                cleanedResultText,
+                sessionShowModeShowsTools(showMode)
+                  ? result.toolsUsed
+                  : undefined,
+                result.memoryAccess,
+              );
+              await reply(responseText);
+            }
+            for (const artifact of artifacts) {
+              try {
+                await sendTelegramMediaToChat({
+                  target: channelId,
+                  filePath: artifact.path,
+                  mimeType: artifact.mimeType,
+                  filename: artifact.filename,
+                });
+              } catch (error) {
+                logger.warn(
+                  { error, channelId, artifactPath: artifact.path },
+                  'Failed to send Telegram artifact',
+                );
+              }
+            }
+          } catch (error) {
+            logger.error(
+              { error, sessionId, channelId },
+              'Telegram message handling failed',
+            );
+            await reply(formatChannelGatewayErrorReply(error));
           }
-        } catch (error) {
-          logger.error(
-            { error, sessionId, channelId },
-            'Telegram message handling failed',
-          );
-          await reply(formatChannelGatewayErrorReply(error));
-        }
-      },
+        },
+      ),
     );
   } catch (error) {
     logger.warn({ error }, 'Telegram integration failed to start');
@@ -2773,131 +2792,133 @@ async function startSignalIntegration(): Promise<boolean> {
 
   try {
     await initSignal(
-      async (
-        sessionId,
-        guildId,
-        channelId,
-        userId,
-        username,
-        content,
-        reply: SignalReplyFn,
-        context,
-      ) => {
-        try {
-          const implicitApprovalArgs = resolveImplicitNumericApprovalArgs({
-            sessionId,
-            userId,
-            content,
-          });
-          if (implicitApprovalArgs) {
-            const bridgedReply: ReplyFn = async (message) => {
-              await reply(message);
-            };
-            await handleTextChannelCommand({
+      withInFlightTurn(
+        async (
+          sessionId,
+          guildId,
+          channelId,
+          userId,
+          username,
+          content,
+          reply: SignalReplyFn,
+          context,
+        ) => {
+          try {
+            const implicitApprovalArgs = resolveImplicitNumericApprovalArgs({
               sessionId,
-              guildId,
-              channelId,
               userId,
-              username,
-              args: implicitApprovalArgs,
-              reply: bridgedReply,
+              content,
             });
-            return;
-          }
-
-          const slashCommands = resolveTextChannelSlashCommands(content);
-          if (slashCommands) {
-            const bridgedReply: ReplyFn = async (message) => {
-              await reply(message);
-            };
-            for (const args of slashCommands) {
+            if (implicitApprovalArgs) {
+              const bridgedReply: ReplyFn = async (message) => {
+                await reply(message);
+              };
               await handleTextChannelCommand({
                 sessionId,
                 guildId,
                 channelId,
                 userId,
                 username,
-                args,
+                args: implicitApprovalArgs,
                 reply: bridgedReply,
               });
+              return;
             }
-            return;
-          }
 
-          const result = normalizePlaceholderToolReply(
-            await handleGatewayMessage({
-              sessionId,
-              guildId,
-              channelId,
-              userId,
-              username,
-              content,
-              onProactiveMessage: async (message) => {
-                await deliverProactiveMessage(
-                  message.channelId || channelId,
-                  message.text,
-                  'delegate',
-                  message.artifacts,
-                );
-              },
-              abortSignal: context.abortSignal,
-              source: 'signal',
-            }),
-          );
-          if (result.status === 'error') {
-            await reply(
-              buildResponseText(
-                formatChannelGatewayErrorReply(result.error),
-                undefined,
+            const slashCommands = resolveTextChannelSlashCommands(content);
+            if (slashCommands) {
+              const bridgedReply: ReplyFn = async (message) => {
+                await reply(message);
+              };
+              for (const args of slashCommands) {
+                await handleTextChannelCommand({
+                  sessionId,
+                  guildId,
+                  channelId,
+                  userId,
+                  username,
+                  args,
+                  reply: bridgedReply,
+                });
+              }
+              return;
+            }
+
+            const result = normalizePlaceholderToolReply(
+              await handleGatewayMessage({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                content,
+                onProactiveMessage: async (message) => {
+                  await deliverProactiveMessage(
+                    message.channelId || channelId,
+                    message.text,
+                    'delegate',
+                    message.artifacts,
+                  );
+                },
+                abortSignal: context.abortSignal,
+                source: 'signal',
+              }),
+            );
+            if (result.status === 'error') {
+              await reply(
+                buildResponseText(
+                  formatChannelGatewayErrorReply(result.error),
+                  undefined,
+                  result.memoryAccess,
+                ),
+              );
+              return;
+            }
+
+            const cleanedResultText = stripSilentToken(
+              String(result.result || ''),
+            );
+            const artifacts = result.artifacts || [];
+            if (isSilentReply(result.result)) {
+              return;
+            }
+            if (
+              !cleanedResultText.trim() &&
+              artifacts.length === 0 &&
+              !result.memoryAccess
+            ) {
+              return;
+            }
+
+            const effectiveSessionId = result.sessionId || sessionId;
+            const showMode = normalizeSessionShowMode(
+              memoryService.getSessionById(effectiveSessionId)?.show_mode,
+            );
+            if (cleanedResultText.trim() || result.memoryAccess) {
+              const responseText = buildResponseText(
+                cleanedResultText,
+                sessionShowModeShowsTools(showMode)
+                  ? result.toolsUsed
+                  : undefined,
                 result.memoryAccess,
-              ),
+              );
+              await reply(responseText);
+            }
+            if (artifacts.length > 0) {
+              logger.warn(
+                { channelId, artifactCount: artifacts.length },
+                'Signal channel does not yet support outbound artifacts; dropping',
+              );
+            }
+          } catch (error) {
+            logger.error(
+              { error, sessionId, channelId },
+              'Signal message handling failed',
             );
-            return;
+            await reply(formatChannelGatewayErrorReply(error));
           }
-
-          const cleanedResultText = stripSilentToken(
-            String(result.result || ''),
-          );
-          const artifacts = result.artifacts || [];
-          if (isSilentReply(result.result)) {
-            return;
-          }
-          if (
-            !cleanedResultText.trim() &&
-            artifacts.length === 0 &&
-            !result.memoryAccess
-          ) {
-            return;
-          }
-
-          const effectiveSessionId = result.sessionId || sessionId;
-          const showMode = normalizeSessionShowMode(
-            memoryService.getSessionById(effectiveSessionId)?.show_mode,
-          );
-          if (cleanedResultText.trim() || result.memoryAccess) {
-            const responseText = buildResponseText(
-              cleanedResultText,
-              sessionShowModeShowsTools(showMode)
-                ? result.toolsUsed
-                : undefined,
-              result.memoryAccess,
-            );
-            await reply(responseText);
-          }
-          if (artifacts.length > 0) {
-            logger.warn(
-              { channelId, artifactCount: artifacts.length },
-              'Signal channel does not yet support outbound artifacts; dropping',
-            );
-          }
-        } catch (error) {
-          logger.error(
-            { error, sessionId, channelId },
-            'Signal message handling failed',
-          );
-          await reply(formatChannelGatewayErrorReply(error));
-        }
-      },
+        },
+      ),
     );
   } catch (error) {
     logger.warn({ error }, 'Signal integration failed to start');
@@ -3016,129 +3037,131 @@ async function startSlackIntegration(): Promise<boolean> {
 
   try {
     await initSlack(
-      async (
-        sessionId,
-        guildId,
-        channelId,
-        userId,
-        username,
-        content,
-        media,
-        reply,
-        context,
-      ) => {
-        try {
-          const textReply: ReplyFn = async (message) => {
-            await reply(message);
-          };
-          let sawTextDelta = false;
-          const result = await executeTextChannelGatewayTurn({
-            sessionId,
-            guildId,
-            channelId,
-            userId,
-            username,
-            content,
-            media,
-            source: 'slack',
-            reply: textReply,
-            onProactiveMessage: async (message) => {
-              await deliverProactiveMessage(
-                message.channelId || channelId,
-                message.text,
-                'delegate',
-                message.artifacts,
-              );
-            },
-            onTextDelta: (delta) => {
-              if (!delta || sawTextDelta) return;
-              sawTextDelta = true;
-              context.emitLifecyclePhase?.('streaming');
-            },
-            onToolProgress: (event) => {
-              if (sawTextDelta) return;
-              if (event.phase === 'start') {
-                context.emitLifecyclePhase?.('toolUse');
-              } else {
-                context.emitLifecyclePhase?.('thinking');
-              }
-            },
-          });
-          if (!result) {
-            return;
-          }
-          if (result.status === 'error') {
-            await reply(
-              buildResponseText(
-                formatAgentErrorReply(result.error),
-                undefined,
-                result.memoryAccess,
-              ),
-            );
-            return;
-          }
-
-          const cleanedResultText = stripSilentToken(
-            String(result.result || ''),
-          );
-          const artifacts = result.artifacts || [];
-          if (isSilentReply(result.result)) {
-            return;
-          }
-          if (
-            !cleanedResultText.trim() &&
-            artifacts.length === 0 &&
-            !result.memoryAccess
-          ) {
-            return;
-          }
-
-          const effectiveSessionId = result.sessionId || sessionId;
-          const showMode = normalizeSessionShowMode(
-            memoryService.getSessionById(effectiveSessionId)?.show_mode,
-          );
-          const pendingApproval = extractGatewayChatApprovalEvent(result);
-          const responseText =
-            cleanedResultText.trim() || result.memoryAccess
-              ? buildResponseText(
-                  cleanedResultText,
-                  sessionShowModeShowsTools(showMode)
-                    ? result.toolsUsed
-                    : undefined,
-                  result.memoryAccess,
-                )
-              : '';
-          if (pendingApproval) {
-            await handlePendingApprovalRouting({
-              pendingApproval,
-              responseText,
-              sessionId: effectiveSessionId,
-              userId,
+      withInFlightTurn(
+        async (
+          sessionId,
+          guildId,
+          channelId,
+          userId,
+          username,
+          content,
+          media,
+          reply,
+          context,
+        ) => {
+          try {
+            const textReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            let sawTextDelta = false;
+            const result = await executeTextChannelGatewayTurn({
+              sessionId,
+              guildId,
               channelId,
-              buttonPresentation: SLACK_APPROVAL_PRESENTATION,
-              sendApprovalNotification: context.sendApprovalNotification,
-              sendText: reply,
+              userId,
+              username,
+              content,
+              media,
+              source: 'slack',
+              reply: textReply,
+              onProactiveMessage: async (message) => {
+                await deliverProactiveMessage(
+                  message.channelId || channelId,
+                  message.text,
+                  'delegate',
+                  message.artifacts,
+                );
+              },
+              onTextDelta: (delta) => {
+                if (!delta || sawTextDelta) return;
+                sawTextDelta = true;
+                context.emitLifecyclePhase?.('streaming');
+              },
+              onToolProgress: (event) => {
+                if (sawTextDelta) return;
+                if (event.phase === 'start') {
+                  context.emitLifecyclePhase?.('toolUse');
+                } else {
+                  context.emitLifecyclePhase?.('thinking');
+                }
+              },
             });
-            return;
+            if (!result) {
+              return;
+            }
+            if (result.status === 'error') {
+              await reply(
+                buildResponseText(
+                  formatAgentErrorReply(result.error),
+                  undefined,
+                  result.memoryAccess,
+                ),
+              );
+              return;
+            }
+
+            const cleanedResultText = stripSilentToken(
+              String(result.result || ''),
+            );
+            const artifacts = result.artifacts || [];
+            if (isSilentReply(result.result)) {
+              return;
+            }
+            if (
+              !cleanedResultText.trim() &&
+              artifacts.length === 0 &&
+              !result.memoryAccess
+            ) {
+              return;
+            }
+
+            const effectiveSessionId = result.sessionId || sessionId;
+            const showMode = normalizeSessionShowMode(
+              memoryService.getSessionById(effectiveSessionId)?.show_mode,
+            );
+            const pendingApproval = extractGatewayChatApprovalEvent(result);
+            const responseText =
+              cleanedResultText.trim() || result.memoryAccess
+                ? buildResponseText(
+                    cleanedResultText,
+                    sessionShowModeShowsTools(showMode)
+                      ? result.toolsUsed
+                      : undefined,
+                    result.memoryAccess,
+                  )
+                : '';
+            if (pendingApproval) {
+              await handlePendingApprovalRouting({
+                pendingApproval,
+                responseText,
+                sessionId: effectiveSessionId,
+                userId,
+                channelId,
+                buttonPresentation: SLACK_APPROVAL_PRESENTATION,
+                sendApprovalNotification: context.sendApprovalNotification,
+                sendText: reply,
+              });
+              return;
+            }
+            if (responseText) {
+              await reply(responseText);
+            }
+            for (const artifact of artifacts) {
+              await sendSlackFileToTarget({
+                target: context.inbound.target,
+                filePath: artifact.path,
+                filename: artifact.filename,
+              });
+            }
+          } catch (error) {
+            logger.error(
+              { error, sessionId, channelId },
+              'Slack message handling failed',
+            );
+            await reply(formatGatewayErrorReply(error));
           }
-          if (responseText) {
-            await reply(responseText);
-          }
-          for (const artifact of artifacts) {
-            await sendSlackFileToTarget({
-              target: context.inbound.target,
-              filePath: artifact.path,
-              filename: artifact.filename,
-            });
-          }
-        } catch (error) {
-          logger.error(
-            { error, sessionId, channelId },
-            'Slack message handling failed',
-          );
-          await reply(formatGatewayErrorReply(error));
-        }
-      },
+        },
+      ),
       async (sessionId, guildId, channelId, userId, username, args, reply) => {
         try {
           await handleTextChannelCommand({
@@ -3510,76 +3533,91 @@ async function startVoiceIntegration(): Promise<boolean> {
 
   try {
     await initVoice(
-      async (
-        sessionId,
-        guildId,
-        channelId,
-        userId,
-        username,
-        content,
-        media,
-        reply,
-        context,
-      ) => {
-        try {
-          const textReply: ReplyFn = async (message) => {
-            await reply(message);
-          };
-          let sawTextDelta = false;
-          const streamFilter = createSilentReplyStreamFilter();
-          const voiceTextStream = createVoiceTextStreamFormatter();
-          const result = await executeTextChannelGatewayTurn({
-            sessionId,
-            guildId,
-            channelId,
-            userId,
-            username,
-            content,
-            media,
-            source: 'voice',
-            reply: textReply,
-            abortSignal: context.abortSignal,
-            onToolProgress: context.onToolProgress
-              ? (event) => context.onToolProgress?.(event)
-              : undefined,
-            onTextDelta: (delta) => {
-              const filteredDelta = streamFilter.push(delta);
-              if (!filteredDelta) return;
-              for (const voiceDelta of voiceTextStream.push(filteredDelta)) {
+      withInFlightTurn(
+        async (
+          sessionId,
+          guildId,
+          channelId,
+          userId,
+          username,
+          content,
+          media,
+          reply,
+          context,
+        ) => {
+          try {
+            const textReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            let sawTextDelta = false;
+            const streamFilter = createSilentReplyStreamFilter();
+            const voiceTextStream = createVoiceTextStreamFormatter();
+            const result = await executeTextChannelGatewayTurn({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              content,
+              media,
+              source: 'voice',
+              reply: textReply,
+              abortSignal: context.abortSignal,
+              onToolProgress: context.onToolProgress
+                ? (event) => context.onToolProgress?.(event)
+                : undefined,
+              onTextDelta: (delta) => {
+                const filteredDelta = streamFilter.push(delta);
+                if (!filteredDelta) return;
+                for (const voiceDelta of voiceTextStream.push(filteredDelta)) {
+                  sawTextDelta = true;
+                  void context.responseStream
+                    .push(voiceDelta)
+                    .catch((error) => {
+                      if (isVoiceGatewayAbort(error, context.abortSignal)) {
+                        return;
+                      }
+                      logger.debug(
+                        { error, callSid: context.callSid, channelId },
+                        'Voice text delta streaming failed',
+                      );
+                    });
+                }
+              },
+              onProactiveMessage: async (message) => {
+                logger.debug(
+                  {
+                    callSid: context.callSid,
+                    artifactCount: message.artifacts?.length || 0,
+                  },
+                  'Skipping proactive voice follow-up',
+                );
+              },
+              resultTransform: (result) =>
+                normalizePendingApprovalReply(result),
+            });
+            if (!result) {
+              return;
+            }
+            if (result.status === 'error') {
+              await reply(formatChannelGatewayErrorReply(result.error));
+              return;
+            }
+
+            const trailingDelta = streamFilter.flush();
+            if (trailingDelta) {
+              for (const voiceDelta of voiceTextStream.push(trailingDelta)) {
                 sawTextDelta = true;
-                void context.responseStream.push(voiceDelta).catch((error) => {
+                await context.responseStream.push(voiceDelta).catch((error) => {
                   if (isVoiceGatewayAbort(error, context.abortSignal)) {
                     return;
                   }
-                  logger.debug(
-                    { error, callSid: context.callSid, channelId },
-                    'Voice text delta streaming failed',
-                  );
+                  throw error;
                 });
               }
-            },
-            onProactiveMessage: async (message) => {
-              logger.debug(
-                {
-                  callSid: context.callSid,
-                  artifactCount: message.artifacts?.length || 0,
-                },
-                'Skipping proactive voice follow-up',
-              );
-            },
-            resultTransform: (result) => normalizePendingApprovalReply(result),
-          });
-          if (!result) {
-            return;
-          }
-          if (result.status === 'error') {
-            await reply(formatChannelGatewayErrorReply(result.error));
-            return;
-          }
+            }
 
-          const trailingDelta = streamFilter.flush();
-          if (trailingDelta) {
-            for (const voiceDelta of voiceTextStream.push(trailingDelta)) {
+            for (const voiceDelta of voiceTextStream.flush()) {
               sawTextDelta = true;
               await context.responseStream.push(voiceDelta).catch((error) => {
                 if (isVoiceGatewayAbort(error, context.abortSignal)) {
@@ -3588,51 +3626,41 @@ async function startVoiceIntegration(): Promise<boolean> {
                 throw error;
               });
             }
-          }
 
-          for (const voiceDelta of voiceTextStream.flush()) {
-            sawTextDelta = true;
-            await context.responseStream.push(voiceDelta).catch((error) => {
-              if (isVoiceGatewayAbort(error, context.abortSignal)) {
-                return;
+            if (isSilentReply(result.result)) {
+              return;
+            }
+
+            const cleanedResultText = stripSilentToken(
+              String(result.result || ''),
+            );
+            if (!sawTextDelta && cleanedResultText.trim()) {
+              await reply(cleanedResultText);
+            }
+          } catch (error) {
+            if (isVoiceGatewayAbort(error, context.abortSignal)) {
+              logger.debug(
+                { sessionId, channelId, callSid: context.callSid },
+                'Voice message handling aborted after relay disconnect',
+              );
+              return;
+            }
+            logger.error(
+              { error, sessionId, channelId, callSid: context.callSid },
+              'Voice message handling failed',
+            );
+            try {
+              await reply(
+                formatChannelGatewayErrorReply('Response interrupted.'),
+              );
+            } catch (replyError) {
+              if (!isVoiceGatewayAbort(replyError, context.abortSignal)) {
+                throw replyError;
               }
-              throw error;
-            });
-          }
-
-          if (isSilentReply(result.result)) {
-            return;
-          }
-
-          const cleanedResultText = stripSilentToken(
-            String(result.result || ''),
-          );
-          if (!sawTextDelta && cleanedResultText.trim()) {
-            await reply(cleanedResultText);
-          }
-        } catch (error) {
-          if (isVoiceGatewayAbort(error, context.abortSignal)) {
-            logger.debug(
-              { sessionId, channelId, callSid: context.callSid },
-              'Voice message handling aborted after relay disconnect',
-            );
-            return;
-          }
-          logger.error(
-            { error, sessionId, channelId, callSid: context.callSid },
-            'Voice message handling failed',
-          );
-          try {
-            await reply(
-              formatChannelGatewayErrorReply('Response interrupted.'),
-            );
-          } catch (replyError) {
-            if (!isVoiceGatewayAbort(replyError, context.abortSignal)) {
-              throw replyError;
             }
           }
-        }
-      },
+        },
+      ),
       {
         transcriptPersister: (params) => {
           persistVoiceTranscript({
@@ -3740,130 +3768,132 @@ async function startIMessageIntegration(): Promise<boolean> {
 
   try {
     await initIMessage(
-      async (
-        sessionId,
-        guildId,
-        channelId,
-        userId,
-        username,
-        content,
-        media,
-        reply,
-        context,
-      ) => {
-        try {
-          const slashCommands = resolveTextChannelSlashCommands(content);
-          if (slashCommands) {
-            const textReply: ReplyFn = async (message) => {
-              await reply(message);
-            };
-            for (const args of slashCommands) {
-              await handleTextChannelCommand({
+      withInFlightTurn(
+        async (
+          sessionId,
+          guildId,
+          channelId,
+          userId,
+          username,
+          content,
+          media,
+          reply,
+          context,
+        ) => {
+          try {
+            const slashCommands = resolveTextChannelSlashCommands(content);
+            if (slashCommands) {
+              const textReply: ReplyFn = async (message) => {
+                await reply(message);
+              };
+              for (const args of slashCommands) {
+                await handleTextChannelCommand({
+                  sessionId,
+                  guildId,
+                  channelId,
+                  userId,
+                  username,
+                  args,
+                  reply: textReply,
+                });
+              }
+              return;
+            }
+
+            const result = normalizePlaceholderToolReply(
+              await handleGatewayMessage({
                 sessionId,
                 guildId,
                 channelId,
                 userId,
                 username,
-                args,
-                reply: textReply,
-              });
+                content,
+                media,
+                onProactiveMessage: async (message) => {
+                  await deliverProactiveMessage(
+                    message.channelId || channelId,
+                    message.text,
+                    'delegate',
+                    message.artifacts,
+                  );
+                },
+                abortSignal: context.abortSignal,
+                source: 'imessage',
+              }),
+            );
+            if (result.status === 'error') {
+              const failureText = formatChannelGatewayErrorReply(result.error);
+              if (
+                isDefaultChannelInterruptedReply(failureText) &&
+                isLocalIMessageSelfChatContext(context)
+              ) {
+                return;
+              }
+              await reply(
+                buildResponseText(failureText, undefined, result.memoryAccess),
+              );
+              return;
             }
-            return;
-          }
 
-          const result = normalizePlaceholderToolReply(
-            await handleGatewayMessage({
-              sessionId,
-              guildId,
-              channelId,
-              userId,
-              username,
-              content,
-              media,
-              onProactiveMessage: async (message) => {
-                await deliverProactiveMessage(
-                  message.channelId || channelId,
-                  message.text,
-                  'delegate',
-                  message.artifacts,
-                );
-              },
-              abortSignal: context.abortSignal,
-              source: 'imessage',
-            }),
-          );
-          if (result.status === 'error') {
-            const failureText = formatChannelGatewayErrorReply(result.error);
+            const cleanedResultText = stripSilentToken(
+              String(result.result || ''),
+            );
+            const artifacts = result.artifacts || [];
+            if (isSilentReply(result.result)) {
+              return;
+            }
             if (
-              isDefaultChannelInterruptedReply(failureText) &&
-              isLocalIMessageSelfChatContext(context)
+              !cleanedResultText.trim() &&
+              artifacts.length === 0 &&
+              !result.memoryAccess
             ) {
               return;
             }
-            await reply(
-              buildResponseText(failureText, undefined, result.memoryAccess),
+
+            const effectiveSessionId = result.sessionId || sessionId;
+            const showMode = normalizeSessionShowMode(
+              memoryService.getSessionById(effectiveSessionId)?.show_mode,
             );
-            return;
-          }
+            const responseText =
+              cleanedResultText.trim() || result.memoryAccess
+                ? buildResponseText(
+                    cleanedResultText,
+                    sessionShowModeShowsTools(showMode)
+                      ? result.toolsUsed
+                      : undefined,
+                    result.memoryAccess,
+                  )
+                : '';
 
-          const cleanedResultText = stripSilentToken(
-            String(result.result || ''),
-          );
-          const artifacts = result.artifacts || [];
-          if (isSilentReply(result.result)) {
-            return;
-          }
-          if (
-            !cleanedResultText.trim() &&
-            artifacts.length === 0 &&
-            !result.memoryAccess
-          ) {
-            return;
-          }
-
-          const effectiveSessionId = result.sessionId || sessionId;
-          const showMode = normalizeSessionShowMode(
-            memoryService.getSessionById(effectiveSessionId)?.show_mode,
-          );
-          const responseText =
-            cleanedResultText.trim() || result.memoryAccess
-              ? buildResponseText(
-                  cleanedResultText,
-                  sessionShowModeShowsTools(showMode)
-                    ? result.toolsUsed
-                    : undefined,
-                  result.memoryAccess,
-                )
-              : '';
-
-          if (artifacts.length > 0) {
-            await sendIMessageMediaToChat({
-              target: channelId,
-              filePath: artifacts[0].path,
-              mimeType: artifacts[0].mimeType,
-              filename: artifacts[0].filename,
-              caption: responseText || undefined,
-            });
-            for (let index = 1; index < artifacts.length; index += 1) {
+            if (artifacts.length > 0) {
               await sendIMessageMediaToChat({
                 target: channelId,
-                filePath: artifacts[index].path,
-                mimeType: artifacts[index].mimeType,
-                filename: artifacts[index].filename,
+                filePath: artifacts[0].path,
+                mimeType: artifacts[0].mimeType,
+                filename: artifacts[0].filename,
+                caption: responseText || undefined,
               });
+              for (let index = 1; index < artifacts.length; index += 1) {
+                await sendIMessageMediaToChat({
+                  target: channelId,
+                  filePath: artifacts[index].path,
+                  mimeType: artifacts[index].mimeType,
+                  filename: artifacts[index].filename,
+                });
+              }
+              return;
             }
-            return;
-          }
 
-          await reply(responseText);
-        } catch (error) {
-          logger.error(
-            { error, sessionId, channelId },
-            'iMessage message handling failed',
-          );
-          await reply(formatGatewayErrorReply(error));
-        }
-      },
+            await reply(responseText);
+          } catch (error) {
+            logger.error(
+              { error, sessionId, channelId },
+              'iMessage message handling failed',
+            );
+            await reply(formatGatewayErrorReply(error));
+          }
+        },
+      ),
     );
   } catch (error) {
     logger.warn({ error }, 'iMessage integration failed to start');
@@ -3977,6 +4007,28 @@ function setupShutdown(broadcastShutdown: () => void): void {
       'set Discord maintenance presence',
       setDiscordMaintenancePresence,
     );
+    if (opts?.drain) {
+      markGatewayShuttingDown();
+      const DRAIN_TIMEOUT_MS = 15_000;
+      const DRAIN_POLL_MS = 250;
+      const deadline = Date.now() + DRAIN_TIMEOUT_MS;
+      const inFlight = () =>
+        getInFlightExecutorCount() + getInFlightTurnCount();
+      while (inFlight() > 0 && Date.now() < deadline) {
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, DRAIN_POLL_MS),
+        );
+      }
+      const remaining = inFlight();
+      if (remaining > 0) {
+        logger.warn(
+          { remaining, timeoutMs: DRAIN_TIMEOUT_MS },
+          'Drain timed out; stopping in-flight executions',
+        );
+      }
+      broadcastShutdown();
+      stopAllExecutions();
+    }
     await runShutdownStep('stop Discord runtime', shutdownDiscord);
     await runShutdownStep('stop email runtime', shutdownEmail);
     await runShutdownStep('stop Signal runtime', shutdownSignal);
@@ -3994,18 +4046,6 @@ function setupShutdown(broadcastShutdown: () => void): void {
       shutdownVoice({ drain: opts?.drain }),
     );
     await runShutdownStep('stop iMessage runtime', shutdownIMessage);
-    if (opts?.drain) {
-      broadcastShutdown();
-      stopAllExecutions();
-      const DRAIN_TIMEOUT_MS = 15_000;
-      const DRAIN_POLL_MS = 250;
-      const deadline = Date.now() + DRAIN_TIMEOUT_MS;
-      while (getActiveExecutorCount() > 0 && Date.now() < deadline) {
-        await new Promise<void>((resolve) =>
-          setTimeout(resolve, DRAIN_POLL_MS),
-        );
-      }
-    }
     await runShutdownStep('run managed media cleanup', () =>
       runManagedMediaCleanup('shutdown'),
     );

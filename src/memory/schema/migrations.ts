@@ -23,7 +23,7 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 58;
+export const DATABASE_SCHEMA_VERSION = 59;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3568,6 +3568,24 @@ function migrateV58(
   );
 }
 
+function migrateV59(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'messages',
+    column: 'tool_history_json',
+    ddl: 'tool_history_json TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(
+    database,
+    59,
+    'Persist replayable tool exchanges per assistant message',
+  );
+}
+
 export function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3711,6 +3729,8 @@ export function runMigrations(
   if (currentVersion < 58 || schedulerFailureReasonsNeedMigration(database)) {
     migrateV58(database, opts);
   }
+
+  if (currentVersion < 59) migrateV59(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

@@ -31,6 +31,14 @@ import {
 import { Checkbox } from '../components/checkbox';
 import { Field, FieldContent, FieldLabel } from '../components/field';
 import { Input } from '../components/input';
+import {
+  type CatalogFilter,
+  LocalContextCatalogFilter,
+  LocalContextControls,
+  LocalContextProvider,
+  LocalContextStar,
+  useLocalContextSettings,
+} from '../components/local-context-settings';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
@@ -284,11 +292,20 @@ function createEmptyDraft(): SkillDraft {
 }
 
 export function SkillsPage() {
+  return (
+    <LocalContextProvider kind="skills">
+      <SkillsCatalogPage />
+    </LocalContextProvider>
+  );
+}
+
+function SkillsCatalogPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
   const [filter, setFilter] = useState('');
-  const [enabledOnly, setEnabledOnly] = useState(false);
+  const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('all');
+  const { starred } = useLocalContextSettings();
   const [selectedSkillName, setSelectedSkillName] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [createMode, setCreateMode] = useState<'form' | 'zip'>('form');
@@ -451,7 +468,13 @@ export function SkillsPage() {
   });
 
   const filteredSkills = (skillsQuery.data?.skills || []).filter((skill) => {
-    if (enabledOnly && !skill.enabled) return false;
+    if (
+      catalogFilter === 'active' &&
+      (!skill.enabled || !skill.available || skill.blocked)
+    )
+      return false;
+    if (catalogFilter === 'starred' && !starred.includes(skill.name))
+      return false;
     const haystack = [
       skill.name,
       skill.category,
@@ -820,7 +843,10 @@ export function SkillsPage() {
                           })
                         }
                         placeholder="// Script content..."
-                        style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
+                        style={{
+                          fontFamily: 'monospace',
+                          fontSize: '0.85rem',
+                        }}
                       />
                     </Field>
                   </div>
@@ -847,6 +873,7 @@ export function SkillsPage() {
         </Card>
       ) : null}
 
+      <LocalContextControls />
       <div className="metric-grid">
         <MetricCard
           label="Installed skills"
@@ -882,15 +909,10 @@ export function SkillsPage() {
             {`${sortedInstalledSkills.length} skill${sortedInstalledSkills.length === 1 ? '' : 's'} visible`}
           </CardDescription>
           <CardAction>
-            <label className="skills-enabled-filter">
-              <Switch
-                checked={enabledOnly}
-                aria-label="Show enabled skills only"
-                size="sm"
-                onCheckedChange={setEnabledOnly}
-              />
-              <span>Enabled only</span>
-            </label>
+            <LocalContextCatalogFilter
+              value={catalogFilter}
+              onChange={setCatalogFilter}
+            />
           </CardAction>
         </CardHeader>
         <CardContent>
@@ -954,6 +976,10 @@ export function SkillsPage() {
                     return (
                       <tr key={skill.name}>
                         <td>
+                          <LocalContextStar
+                            name={skill.name}
+                            unavailable={!skill.available || skill.blocked}
+                          />
                           <Link
                             className="table-link-button"
                             to={skillDetailPath(skill.name)}

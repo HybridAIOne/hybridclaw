@@ -215,3 +215,11 @@ describe('admin RBAC role bundles', () => {
     );
   });
 });
+
+test('local model installation requires its own management permission', () => {
+  expect(resolveAdminRbacAction('/api/admin/local-models', 'GET')).toBe('admin.models.read');
+  expect(resolveAdminRbacAction('/api/admin/local-models', 'POST')).toBe('admin.local_models.manage');
+  expect(isAdminActionAllowed({ role: 'admin.viewer' }, 'admin.local_models.manage')).toBe(false);
+  expect(isAdminActionAllowed({ actions: ['admin.models.write'] }, 'admin.local_models.manage')).toBe(false);
+  expect(isAdminActionAllowed({ role: 'admin.full' }, 'admin.local_models.manage')).toBe(true);
+});

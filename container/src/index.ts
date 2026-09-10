@@ -1,4 +1,12 @@
+/**
+ * Agent loop keeps request schemas stable while concrete actions pass policy.
+ * Local wrappers resolve before approval; rejected batches never execute.
+ * Full tool exchanges and surviving model context are retained separately;
+ * durable storage belongs to the gateway. Neither instructions nor historical
+ * calls grant permissions or approvals, and replay never repeats side effects.
+ */
 import path from 'node:path';
+import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import {
   cleanupAllBrowserSessions,
@@ -23,6 +31,7 @@ import {
 } from './extensions.js';
 import { compactInLoop } from './in-loop-compaction.js';
 import { waitForInput, writeHealthOutput, writeOutput } from './ipc.js';
+import { LocalToolCatalog } from './local-tool-catalog.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
@@ -108,7 +117,10 @@ import {
   formatLineSafeToolProgressText,
   formatToolCallStartProgressText,
 } from './tool-progress-log.js';
-import { setEligibleSkillsCatalog } from './tools/skills-list.js';
+import {
+  setEligibleSkillsCatalog,
+  setSkillDiscoveryTools,
+} from './tools/skills-list.js';
 import {
   executeToolWithMetadata,
   getMessageToolDescription,
@@ -130,6 +142,7 @@ import {
   setWebSearchConfig,
   TOOL_DEFINITIONS,
 } from './tools.js';
+import { TurnToolHistory } from './turn-tool-history.js';
 import {
   type ArtifactMetadata,
   type ChatCompletionResponse,
@@ -612,6 +625,7 @@ function formatToolNameForLog(toolName: string): string {
 
 function appendCompletedToolCall(params: {
   completed: CompletedToolCallExecution;
+  turnToolHistory: TurnToolHistory;
   toolsUsed: string[];
   toolExecutions: ToolExecution[];
   history: ChatMessage[];
@@ -627,7 +641,9 @@ function appendCompletedToolCall(params: {
     params.artifactPaths.add(artifactKey);
     params.artifacts.push(artifact);
   }
-  params.history.push(params.completed.historyMessage);
+  params.history.push(
+    params.turnToolHistory.recordResult(params.completed.historyMessage),
+  );
   recordToolCallOutcome(
     params.toolCallHistory,
     params.completed.toolName,
@@ -676,6 +692,7 @@ function buildContextOverflowOutput(params: {
 async function executePreparedToolCall(
   prepared: PreparedToolCallExecution,
   toolCallHistory: ToolCallHistoryEntry[],
+  localToolCatalog?: LocalToolCatalog,
 ): Promise<CompletedToolCallExecution> {
   const { call, approval } = prepared;
   const toolName = call.function.name;
@@ -704,10 +721,11 @@ async function executePreparedToolCall(
           output: loopGuard.message,
           isError: true,
         }
-      : await withToolActivityHeartbeat(
+      : (localToolCatalog?.discoveryResult(call) ??
+        (await withToolActivityHeartbeat(
           () => executeToolWithMetadata(toolName, argsJson),
           emitStreamActivity,
-        );
+        )));
   const toolDuration = Date.now() - toolStart;
   const result = runtimeResult.output;
   const isError = runtimeResult.isError;
@@ -982,6 +1000,9 @@ interface ProcessRequestParams {
   webSearch?: ContainerInput['webSearch'];
   providerCredentials?: ContainerInput['providerCredentials'];
   tools: ToolDefinition[];
+  localToolMode?: ContainerInput['localToolMode'];
+  localStarterTools?: string[];
+  localDiscoveryDisabled?: boolean;
   taskModels?: ContainerInput['taskModels'];
   contextGuard?: ContainerInput['contextGuard'];
   channelId: string;
@@ -1021,6 +1042,25 @@ function inputRuntimeContext(
 async function processRequest(
   params: ProcessRequestParams,
 ): Promise<ContainerOutput> {
+  const turnToolHistory = new TurnToolHistory(params.sessionId);
+  const output = await processRequestInner(params, turnToolHistory);
+  const reason = output.pendingApproval
+    ? 'Awaiting human approval; execution has not occurred.'
+    : output.error || 'The turn ended before this call could execute.';
+  const toolHistory = turnToolHistory.finish(reason);
+  return toolHistory.length
+    ? {
+        ...output,
+        toolHistory,
+        toolHistoryForReplay: turnToolHistory.finish(reason, true),
+      }
+    : output;
+}
+
+async function processRequestInner(
+  params: ProcessRequestParams,
+  turnToolHistory: TurnToolHistory,
+): Promise<ContainerOutput> {
   const {
     sessionId,
     messages,
@@ -1044,7 +1084,10 @@ async function processRequest(
     media,
     webSearch,
     providerCredentials,
-    tools,
+    tools: availableTools,
+    localStarterTools,
+    localToolMode,
+    localDiscoveryDisabled,
     taskModels,
     contextGuard,
     channelId,
@@ -1057,19 +1100,47 @@ async function processRequest(
     escalationTarget,
     approvedToolCall,
   } = params;
+  const localToolCatalog = isLocal
+    ? new LocalToolCatalog(
+        availableTools,
+        localStarterTools,
+        localDiscoveryDisabled,
+      )
+    : undefined;
+  const tools =
+    isLocal &&
+    normalizeLocalContextMode(localToolMode, 'localToolMode') === 'full'
+      ? availableTools
+      : (localToolCatalog?.tools ?? availableTools);
+  setSkillDiscoveryTools(availableTools, tools);
   const processStartedAt = Date.now();
   console.error('[hybridclaw-agent] agent request start');
   await emitRuntimeEvent({
     event: 'before_agent_start',
     messageCount: messages.length,
   });
-  const preparedHistory = skipContainerSystemPrompt
-    ? messages.map((message) => ({ ...message }))
-    : injectRuntimeCapabilitiesMessage(messages);
+  const preparedHistory = (
+    skipContainerSystemPrompt
+      ? messages.map((message) => ({ ...message }))
+      : injectRuntimeCapabilitiesMessage(messages)
+  ).map((message) => {
+    const next = { ...message };
+    if (provider !== 'anthropic') delete next.anthropic_content;
+    if (provider !== 'openai-codex') delete next.openai_response_items;
+    return next;
+  });
+  if (localToolCatalog && tools === localToolCatalog.tools) {
+    // Added once before the loop; actual schemas remain the source of truth.
+    preparedHistory.push({
+      role: 'system',
+      content: localToolCatalog.promptGuidance(),
+    });
+  }
   let history: ChatMessage[] =
     provider === 'anthropic'
       ? preparedHistory
       : collapseSystemMessages(preparedHistory);
+  turnToolHistory.retain(history);
   const toolsUsed: string[] = [];
   const toolExecutions: ToolExecution[] = [];
   const toolCallHistory: ToolCallHistoryEntry[] = [];
@@ -1186,6 +1257,26 @@ async function processRequest(
   });
 
   if (approvedToolCall) {
+    // The tool may have been disabled while this approval was pending.
+    if (localToolCatalog) {
+      try {
+        localToolCatalog.resolveCall({
+          id: 'approval_replay',
+          type: 'function',
+          function: {
+            name: approvedToolCall.toolName,
+            arguments: approvedToolCall.argsJson,
+          },
+        });
+      } catch {
+        return {
+          status: 'error',
+          result: null,
+          toolsUsed: [],
+          error: 'The approved tool is no longer available in this request.',
+        };
+      }
+    }
     const approval = await resolveToolApproval({
       toolName: approvedToolCall.toolName,
       argsJson: approvedToolCall.argsJson,
@@ -1240,16 +1331,20 @@ async function processRequest(
       approvedToolCall.argsJson,
       approval,
     );
-    history.push({
+    const approvedMessage: ChatMessage = {
       role: 'assistant',
       content: null,
       tool_calls: [approvedCall],
-    });
+    };
+    turnToolHistory.recordAssistant(approvedMessage);
+    history.push(approvedMessage);
     const completed = await executePreparedToolCall(
       { call: approvedCall, approval },
       toolCallHistory,
+      localToolCatalog,
     );
     appendCompletedToolCall({
+      turnToolHistory,
       completed,
       toolsUsed,
       toolExecutions,
@@ -1344,6 +1439,7 @@ async function processRequest(
         return overflow;
       }
       history = compacted.history;
+      turnToolHistory.retain(history);
       compactionRetries += 1;
       console.error(
         `[context] in-loop compaction retry=${compactionRetries} compactedMessages=${compacted.compactedMessages} summarySource=${compacted.summarySource}`,
@@ -1460,8 +1556,61 @@ async function processRequest(
         : {}),
     });
 
-    const toolCalls = choice.message.tool_calls || [];
-    const invalidToolCallError = validateStructuredToolCalls(toolCalls);
+    let toolCalls = choice.message.tool_calls || [];
+    let invalidToolCallError = validateStructuredToolCalls(toolCalls);
+    let catalogCorrection: string | null = null;
+    if (!invalidToolCallError && localToolCatalog) {
+      try {
+        toolCalls = toolCalls.map((call) => localToolCatalog.resolveCall(call));
+      } catch (error) {
+        invalidToolCallError =
+          error instanceof Error ? error.message : 'Invalid local tool call.';
+        if (
+          tools === localToolCatalog.tools &&
+          toolCalls.every((call) =>
+            tools.some((tool) => tool.function.name === call.function.name),
+          )
+        ) {
+          catalogCorrection =
+            localToolCatalog.recoverArgumentError(error)?.output ?? null;
+        }
+      }
+    }
+    if (catalogCorrection) {
+      // Keep the original rejected calls for valid tool-result pairing. Nothing
+      // from this batch reaches approval or execution, including valid siblings.
+      const rejectedMessage: ChatMessage = {
+        role: 'assistant',
+        content: choice.message.content,
+        tool_calls: choice.message.tool_calls,
+      };
+      turnToolHistory.recordAssistant(rejectedMessage);
+      history.push(rejectedMessage);
+      for (const call of toolCalls) {
+        history.push(
+          turnToolHistory.recordResult({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: catalogCorrection,
+          }),
+        );
+        toolsUsed.push(call.function.name);
+        toolExecutions.push({
+          name: call.function.name,
+          arguments: call.function.arguments,
+          result: catalogCorrection,
+          durationMs: 0,
+          isError: true,
+          blocked: true,
+          blockedReason: 'Invalid local tool catalog arguments.',
+        });
+      }
+      stalledTurns += 1;
+      console.error(
+        '[model] rejected local catalog arguments; requesting correction',
+      );
+      continue;
+    }
     if (invalidToolCallError) {
       console.error(
         `[model] invalid structured tool call provider=${provider || 'hybridai'} model=${model} error=${invalidToolCallError}`,
@@ -1488,6 +1637,31 @@ async function processRequest(
       hasToolCalls: toolCalls.length > 0,
       ralphEnabled,
     });
+    if (
+      isLocal &&
+      toolCalls.length === 0 &&
+      (choice.finish_reason === 'length' || !assistantSegment.text?.trim())
+    ) {
+      const failed: ContainerOutput = {
+        status: 'error',
+        result: null,
+        toolsUsed,
+        ...(artifacts.length > 0 ? { artifacts } : {}),
+        toolExecutions,
+        tokenUsage: finalizeTokenUsage(tokenUsage),
+        error:
+          choice.finish_reason === 'length'
+            ? 'The local model reached its output-token limit before completing its response. Try a shorter prompt or a model with a larger output budget.'
+            : 'The local model returned no final answer or tool call. Reasoning alone does not confirm task completion.',
+        effectiveUserPrompt,
+      };
+      await emitRuntimeEvent({
+        event: 'turn_end',
+        status: failed.status,
+        toolsUsed,
+      });
+      return failed;
+    }
     const branchChoice = assistantSegment.ralphChoice;
     if (
       provider === 'hybridai' &&
@@ -1560,6 +1734,7 @@ async function processRequest(
         choice.message.openai_response_items;
     }
 
+    turnToolHistory.recordAssistant(assistantMessage);
     history.push(assistantMessage);
     if (toolCalls.length === 0) {
       if (ralphEnabled) {
@@ -1745,7 +1920,11 @@ async function processRequest(
             async (prepared) => {
               const batchToolName = prepared.call.function.name;
               if (!isLoopGuardedToolName(batchToolName)) {
-                return executePreparedToolCall(prepared, toolCallHistory);
+                return executePreparedToolCall(
+                  prepared,
+                  toolCallHistory,
+                  localToolCatalog,
+                );
               }
 
               const priorGuarded = guardedSequence;
@@ -1759,6 +1938,7 @@ async function processRequest(
                 const completed = await executePreparedToolCall(
                   prepared,
                   draftToolCallHistory,
+                  localToolCatalog,
                 );
                 recordToolCallOutcome(
                   draftToolCallHistory,
@@ -1778,6 +1958,7 @@ async function processRequest(
               successfulToolCallsThisTurn += 1;
             }
             appendCompletedToolCall({
+              turnToolHistory,
               completed,
               toolsUsed,
               toolExecutions,
@@ -1871,11 +2052,13 @@ async function processRequest(
           approval,
         },
         toolCallHistory,
+        localToolCatalog,
       );
       if (completed.succeeded) {
         successfulToolCallsThisTurn += 1;
       }
       appendCompletedToolCall({
+        turnToolHistory,
         completed,
         toolsUsed,
         toolExecutions,
@@ -2083,6 +2266,9 @@ async function main(): Promise<void> {
       requestHeaders: firstRequestHeaders,
       ...inputRuntimeContext(firstInput),
       tools: resolveTools(firstInput),
+      localToolMode: firstInput.localToolMode,
+      localStarterTools: firstInput.localStarterTools,
+      localDiscoveryDisabled: firstInput.blockedTools?.includes('tool_catalog'),
       taskModels: firstTaskModels,
       contextGuard: firstInput.contextGuard,
       channelId: firstInput.channelId,
@@ -2126,6 +2312,10 @@ async function main(): Promise<void> {
         requestHeaders: firstInput.requestHeaders,
         ...inputRuntimeContext(firstInput),
         tools: resolveTools(firstInput),
+        localToolMode: firstInput.localToolMode,
+        localStarterTools: firstInput.localStarterTools,
+        localDiscoveryDisabled:
+          firstInput.blockedTools?.includes('tool_catalog'),
         taskModels: firstTaskModels,
         contextGuard: firstInput.contextGuard,
         channelId: firstInput.channelId,
@@ -2289,6 +2479,9 @@ async function main(): Promise<void> {
       requestHeaders,
       ...inputRuntimeContext(input),
       tools: resolveTools(input),
+      localToolMode: input.localToolMode,
+      localStarterTools: input.localStarterTools,
+      localDiscoveryDisabled: input.blockedTools?.includes('tool_catalog'),
       taskModels,
       contextGuard: input.contextGuard,
       channelId: input.channelId,
@@ -2331,6 +2524,9 @@ async function main(): Promise<void> {
         requestHeaders,
         ...inputRuntimeContext(input),
         tools: resolveTools(input),
+        localToolMode: input.localToolMode,
+        localStarterTools: input.localStarterTools,
+        localDiscoveryDisabled: input.blockedTools?.includes('tool_catalog'),
         taskModels,
         contextGuard: input.contextGuard,
         channelId: input.channelId,

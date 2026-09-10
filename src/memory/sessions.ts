@@ -671,8 +671,8 @@ export function forkSessionBranch(
     copySessionKvStore(sourceSession.id, nextSessionId);
     getSessionDatabase()
       .prepare(
-        `INSERT INTO messages (session_id, user_id, username, role, agent_id, content, artifacts_json, activity_trace_json, created_at)
-       SELECT ?, user_id, username, role, agent_id, content, artifacts_json, activity_trace_json, created_at
+        `INSERT INTO messages (session_id, user_id, username, role, agent_id, content, artifacts_json, activity_trace_json, tool_history_json, created_at)
+       SELECT ?, user_id, username, role, agent_id, content, artifacts_json, activity_trace_json, tool_history_json, created_at
        FROM messages
        WHERE session_id = ?
          AND id < ?

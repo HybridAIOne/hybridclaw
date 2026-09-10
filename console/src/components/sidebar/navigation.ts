@@ -30,6 +30,7 @@ export type SidebarNavItem = {
   label: string;
   icon: ComponentType;
   requiresEmail?: boolean;
+  requiresLocalMac?: boolean;
 };
 
 export type SidebarNavGroup = {
@@ -114,6 +115,12 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
         icon: Harness,
       },
       { to: '/admin/distill', label: 'Distill', icon: Flask },
+      {
+        to: '/admin/local-models',
+        label: 'Local Models',
+        icon: Models,
+        requiresLocalMac: true,
+      },
     ],
   },
 ];

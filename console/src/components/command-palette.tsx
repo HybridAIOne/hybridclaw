@@ -1,3 +1,7 @@
+/**
+ * Native setup commands honor the gateway eligibility supplied by the shell.
+ * Search filters navigation only; gateway APIs remain the authority for access.
+ */
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
@@ -27,6 +31,7 @@ interface CommandEntry {
   label: string;
   detail: string;
   group: 'Pages' | 'Settings';
+  requiresLocalMac?: boolean;
   href: string;
   searchText: string;
 }
@@ -39,6 +44,7 @@ const PAGE_COMMANDS: ReadonlyArray<CommandEntry> = SIDEBAR_NAV_GROUPS.flatMap(
       detail: group.label,
       group: 'Pages' as const,
       href: item.to,
+      requiresLocalMac: item.requiresLocalMac,
       searchText: `${item.label} ${group.label} ${item.to}`.toLowerCase(),
     })),
 );
@@ -94,14 +100,21 @@ function fuzzyScore(haystack: string, query: string): number | null {
   return queryIndex === query.length ? 100 + spread : null;
 }
 
-function searchCommands(query: string): ReadonlyArray<CommandEntry> {
+function searchCommands(
+  query: string,
+  localModelsSupported: boolean,
+): ReadonlyArray<CommandEntry> {
   const normalized = query.trim().toLowerCase();
-  if (!normalized) return PAGE_COMMANDS;
+  const commands = (normalized ? COMMANDS : PAGE_COMMANDS).filter(
+    (entry) => !entry.requiresLocalMac || localModelsSupported,
+  );
+  if (!normalized) return commands;
 
-  return COMMANDS.map((entry) => ({
-    entry,
-    score: fuzzyScore(entry.searchText, normalized),
-  }))
+  return commands
+    .map((entry) => ({
+      entry,
+      score: fuzzyScore(entry.searchText, normalized),
+    }))
     .filter(
       (result): result is { entry: CommandEntry; score: number } =>
         result.score !== null,
@@ -119,12 +132,19 @@ function searchCommands(query: string): ReadonlyArray<CommandEntry> {
     .map((result) => result.entry);
 }
 
-export function CommandPalette() {
+export function CommandPalette({
+  localModelsSupported = false,
+}: {
+  localModelsSupported?: boolean;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
-  const results = useMemo(() => searchCommands(query), [query]);
+  const results = useMemo(
+    () => searchCommands(query, localModelsSupported),
+    [query, localModelsSupported],
+  );
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {

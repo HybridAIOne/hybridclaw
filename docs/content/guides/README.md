@@ -10,6 +10,7 @@ These pages focus on common operator workflows after the base install works.
 
 ## In This Section
 
+- [Mac Local Model Setup](./mac-local-models.md) for memory-aware MLX installation
 - [Local Providers](./local-providers.md) for LM Studio, Ollama, and vLLM
 - [Apps Gallery](./apps.md) for generated web apps, documents, games, tools,
   and live connector-backed apps

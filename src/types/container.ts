@@ -98,6 +98,8 @@ export interface ContainerInput {
   activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
   skillCatalog?: SessionSkillCatalogEntry[];
+  localToolMode?: 'full' | 'starred';
+  localStarterTools?: string[];
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
@@ -122,6 +124,8 @@ export interface ContainerOutput {
   artifacts?: ArtifactMetadata[];
   memoryCitations?: MemoryCitation[];
   toolExecutions?: ToolExecution[];
+  toolHistory?: ChatMessage[];
+  toolHistoryForReplay?: ChatMessage[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;

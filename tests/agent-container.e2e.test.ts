@@ -111,16 +111,11 @@ describe.skipIf(!DOCKER_E2E)(
 
     // ── Browser automation ──────────────────────────────────────────────
 
-    test('playwright chromium is installed', () => {
-      const moduleResult = exec(
-        'node -e "var p = require(\'playwright\'); console.log(typeof p.chromium.launch)"',
+    test('playwright chromium launches and renders a page', () => {
+      const result = exec(
+        'node -e "(async () => { const { chromium } = require(\'playwright\'); const browser = await chromium.launch({ headless: true }); try { const page = await browser.newPage(); await page.setContent(\'<h1>Browser ready</h1>\'); console.log(await page.locator(\'h1\').textContent()); } finally { await browser.close(); } })().catch(error => { console.error(error); process.exitCode = 1; });"',
       );
-      expect(moduleResult).toBe('function');
-
-      const binaryResult = exec(
-        'find /ms-playwright -name chrome-headless-shell -o -name chrome 2>/dev/null | head -1',
-      );
-      expect(binaryResult.length).toBeGreaterThan(0);
+      expect(result).toBe('Browser ready');
     });
 
     // ── LibreOffice (full runtime target) ───────────────────────────────
