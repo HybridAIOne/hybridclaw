@@ -2,7 +2,7 @@
  * Console local-model jobs belong to the gateway, so navigation cannot cancel them.
  * Only fixed catalog IDs reach the shared installer; this is not a shell or a
  * provider editor. Observed lifecycle changes invalidate model discovery.
- * Status exposes no credentials or subprocess diagnostics.
+ * Status exposes numeric activity samples, never credentials or subprocess diagnostics.
  */
 import type { ChildProcess } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
@@ -13,6 +13,7 @@ import {
   detectMacHardware,
   estimateMacModels,
 } from '../inference/local-model-catalog.js';
+import { LocalModelMetricsSampler } from '../inference/local-model-metrics.js';
 import {
   installMlxModel,
   MlxSetupError,
@@ -62,6 +63,7 @@ export class GatewayLocalModelService {
   private child: ChildProcess | null = null;
   private closing = false;
   private lastRunning: boolean | undefined;
+  private readonly metrics = new LocalModelMetricsSampler();
 
   async status() {
     const hardware = detectMacHardware();
@@ -81,7 +83,7 @@ export class GatewayLocalModelService {
     const disk = fs.statfsSync(diskPath);
     let installation: { modelId: string; contextWindow: number } | null = null;
     let installationError: string | null = null;
-    let running = false;
+    let health: Record<string, unknown> | null = null;
     if (fs.existsSync(path.join(mlxHome(), 'installation.json'))) {
       try {
         const installed = readMlxInstallation();
@@ -89,12 +91,14 @@ export class GatewayLocalModelService {
           modelId: installed.model,
           contextWindow: installed.contextWindow,
         };
-        running = Boolean(await mlxHealth());
+        health = await mlxHealth();
       } catch {
         installationError =
           'The saved installation could not be read. Run setup again to repair it.';
       }
     }
+    const running = Boolean(health);
+    const metrics = await this.metrics.sample(hardware, health);
     if (this.lastRunning !== running) {
       this.lastRunning = running;
       invalidateLocalModelDiscovery();
@@ -107,6 +111,7 @@ export class GatewayLocalModelService {
       installation,
       installationError,
       running,
+      metrics,
       job: this.job ? { ...this.job } : null,
     };
   }

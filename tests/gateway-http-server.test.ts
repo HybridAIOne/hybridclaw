@@ -17561,3 +17561,22 @@ test.each(['tools', 'skills'])('authenticates local %s settings and requires con
   expect(write.statusCode).toBe(200);
   expect(state.saveLocalContextSettings).toHaveBeenCalledWith(kind, body);
 });
+
+
+test('protects local activity readings with the same loopback and admin boundary', async () => {
+  const state = await importFreshHealth({ apiTokens: {
+    'hck_test_metrics_read': { id: 'metrics-read', label: 'metrics-read', claims: { actions: ['admin.skills.read'] } },
+  } });
+  for (const request of [
+    { noAuth: true, headers: { host: 'localhost:9090' } },
+    { noAuth: true, headers: { host: 'localhost:9090', authorization: 'Bearer hck_test_metrics_read' } },
+    { remoteAddress: '192.0.2.10', headers: { host: 'localhost:9090' } },
+    { headers: { host: 'localhost:9090', 'x-forwarded-for': '192.0.2.10' } },
+  ]) {
+    const response = makeResponse();
+    state.handler(makeRequest({ url: '/api/admin/local-models', ...request }) as never, response as never);
+    await settle();
+    expect([401, 403]).toContain(response.statusCode);
+    expect(state.localModelStatus).not.toHaveBeenCalled();
+  }
+});

@@ -114,3 +114,13 @@ test('invalidates discovery after a failed lifecycle operation without exposing 
   expect(result.job?.status).toBe('failed');
   expect(JSON.stringify(result)).not.toContain('secret-private-payload');
 });
+
+
+test('returns allowlisted activity metrics without exposing native health payloads', async () => {
+  fs.writeFileSync(path.join(dir, 'installation.json'), '{}');
+  mocks.read.mockReturnValue({ model: 'spark-x2.5-4b', contextWindow: 40960 });
+  mocks.health.mockResolvedValue({ metrics: { instanceId: 'a'.repeat(32), generatedTokens: 123, prompt: 'private-payload' }, credentials: 'private-payload' });
+  const result = await service.status();
+  expect(result.metrics).toMatchObject({ generatedTokens: 123, tokensPerSecond: null, runtimeId: 'a'.repeat(32) });
+  expect(JSON.stringify(result)).not.toContain('private-payload');
+});

@@ -15,6 +15,7 @@ import { Button } from '../components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
+import { LocalModelMetrics } from './local-model-metrics';
 import styles from './local-models.module.css';
 
 const GIB = 1024 ** 3;
@@ -174,6 +175,13 @@ export function LocalModelsPage() {
               <span>Model files stay on this Mac</span>
             </div>
           </div>
+          {data.supported && (
+            <LocalModelMetrics
+              sample={data.metrics}
+              running={data.running}
+              stale={query.isError}
+            />
+          )}
           {!data.supported && (
             <div className={styles.notice}>
               Managed setup requires Apple silicon and macOS 15 or later on the

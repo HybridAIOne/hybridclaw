@@ -14,6 +14,16 @@ After setup, **Start model** loads it and **Stop model** releases its memory.
 An installed model is marked **Installed** in comparison and is not offered
 again as a setup recommendation. Other fitting models remain selectable.
 Select the installed model in chat to use it.
+
+**Live activity** shows the last minute of Mac-wide CPU, memory and GPU readings,
+updated every 2.5 seconds while the page is visible. Memory usage is estimated
+from total memory minus free and reclaimable inactive pages. GPU utilization
+comes from macOS; unsupported or missing readings stay unavailable. **Tokens**
+shows the local model's generated tokens per second and total since its last
+start, including reasoning and tool-call output. The first rate needs two
+samples. Token counters require the current MLX runtime; after an update,
+restart the gateway and start the model again. Readings stay in memory and do
+not include prompts, generated text, or task identifiers.
 Models assigned to the local routing zone appear first in the picker with a
 green **Local** badge and a dedicated filter. The badge describes the inference
 destination, not whether the model is running. If MLX was absent from the last

@@ -47,6 +47,16 @@ function status(
     installation: null,
     installationError: null,
     running: false,
+    metrics: {
+      sampledAt: 1000,
+      cpuPercent: null,
+      memoryUsedBytes: 16 * GIB,
+      memoryTotalBytes: 32 * GIB,
+      gpuPercent: null,
+      tokensPerSecond: 0,
+      generatedTokens: 0,
+      runtimeId: null,
+    },
     job: null,
     ...overrides,
   };

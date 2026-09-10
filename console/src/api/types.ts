@@ -1,3 +1,4 @@
+import type { LocalModelMetrics } from '../../../src/inference/local-model-metrics.js';
 export const LOG_LEVELS = [
   'fatal',
   'error',
@@ -2707,6 +2708,7 @@ export interface DeleteSessionResult {
 }
 
 export interface AdminLocalModelsResponse {
+  metrics: LocalModelMetrics;
   hardware: {
     chip: string;
     memoryBytes: number;

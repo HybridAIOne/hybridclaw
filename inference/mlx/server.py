@@ -25,6 +25,7 @@ from pathlib import Path
 
 from generation_guard import ReasoningLoopError, guard_reasoning_stream
 from model_store import validate_manifest
+from runtime_metrics import RuntimeMetrics
 from trusted_architectures import SPARK_ARTIFACT, register_packaged_model
 
 COMPONENT_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
@@ -218,6 +219,8 @@ def serve(home):
     idle = threading.Event()
     idle.set()
 
+    metrics = RuntimeMetrics()
+
     class Generator(ResponseGenerator):
         context = None
         response_queue = None
@@ -257,7 +260,7 @@ def serve(home):
             except Exception as error:
                 raise preparation_error(error) from None
             self.context = ctx
-            return ctx, guard_reasoning_stream(ctx, stream)
+            return ctx, metrics.observe(guard_reasoning_stream(ctx, stream))
 
     generator = Generator(provider, LRUPromptCache(2, profile["cacheBytes"]))
     admission = threading.Lock()
@@ -316,6 +319,7 @@ def serve(home):
                     "status": "ready" if generator._generation_thread.is_alive() else "failed", "model": profile["model"],
                     "revision": manifest["revision"], "engine": "mlx-lm/0.31.3", "componentSha256": COMPONENT_SHA256, "zone": "local",
                     "peakMemoryBytes": mx.get_peak_memory(), "activeMemoryBytes": mx.get_active_memory(),
+                    "metrics": metrics.snapshot(),
                 })
             elif self.path == "/v1/models":
                 self.reply(200, {"object": "list", "data": [{"id": profile["model"], "object": "model", "context_length": profile["contextWindow"], "max_tokens": profile["contextWindow"], "owned_by": "local", "vision": False}]})
