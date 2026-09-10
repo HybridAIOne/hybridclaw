@@ -30,14 +30,13 @@ describe('Button', () => {
     expect(className).toContain(styles.sizeDefault);
   });
 
-  it.each<ButtonVariant>([
-    'ghost',
-    'outline',
-    'danger',
-  ])('applies variant class for %s', (variant) => {
-    render(<Button variant={variant}>Save</Button>);
-    expect(screen.getByRole('button').className).toContain(styles[variant]);
-  });
+  it.each<ButtonVariant>(['ghost', 'outline', 'danger'])(
+    'applies variant class for %s',
+    (variant) => {
+      render(<Button variant={variant}>Save</Button>);
+      expect(screen.getByRole('button').className).toContain(styles[variant]);
+    },
+  );
 
   it.each<[ButtonSize, keyof typeof styles]>([
     ['sm', 'sizeSm'],

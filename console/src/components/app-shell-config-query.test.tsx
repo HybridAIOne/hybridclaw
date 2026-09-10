@@ -115,30 +115,31 @@ describe('AppShell config query', () => {
   });
 });
 
-it.each([
-  true,
-  false,
-  undefined,
-])('hides the native setup navigation unless supported, including at its direct URL: %s', (localModelsSupported) => {
-  useAuthMock.mockReturnValue({
-    status: 'ready',
-    token: '',
-    gatewayStatus: { version: 'test' },
-    logout: vi.fn(),
-  });
-  useQueryMock.mockReturnValue({ data: { localModelsSupported } });
-  routerStateMock.pathname = '/admin/local-models';
-  render(
-    <AppShell>
-      <section />
-    </AppShell>,
-  );
-  const groups = AppSidebarMock.mock.calls.at(-1)?.[0].groups as Array<{
-    items: Array<{ to: string }>;
-  }>;
-  const routes = groups.flatMap((group) => group.items.map((item) => item.to));
-  expect(routes.includes('/admin/local-models')).toBe(
-    localModelsSupported === true,
-  );
-  expect(routes).toContain('/admin/distill');
-});
+it.each([true, false, undefined])(
+  'hides the native setup navigation unless supported, including at its direct URL: %s',
+  (localModelsSupported) => {
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      token: '',
+      gatewayStatus: { version: 'test' },
+      logout: vi.fn(),
+    });
+    useQueryMock.mockReturnValue({ data: { localModelsSupported } });
+    routerStateMock.pathname = '/admin/local-models';
+    render(
+      <AppShell>
+        <section />
+      </AppShell>,
+    );
+    const groups = AppSidebarMock.mock.calls.at(-1)?.[0].groups as Array<{
+      items: Array<{ to: string }>;
+    }>;
+    const routes = groups.flatMap((group) =>
+      group.items.map((item) => item.to),
+    );
+    expect(routes.includes('/admin/local-models')).toBe(
+      localModelsSupported === true,
+    );
+    expect(routes).toContain('/admin/distill');
+  },
+);

@@ -57,67 +57,69 @@ function renderControls(kind: 'tools' | 'skills') {
   );
 }
 
-test.each([
-  'tools',
-  'skills',
-] as const)('saves %s stars and full mode for the instance', async (kind) => {
-  renderControls(kind);
-  await screen.findByText('1/9 starred');
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Star write in catalog' }),
-  );
-  await screen.findByText('2/9 starred');
-  expect(mocks.save).toHaveBeenLastCalledWith('test-key', kind, {
-    agentId: null,
-    mode: 'starred',
-    starred: ['read', 'write'],
-  });
-  fireEvent.click(screen.getByRole('button', { name: 'Full' }));
-  await waitFor(() =>
+test.each(['tools', 'skills'] as const)(
+  'saves %s stars and full mode for the instance',
+  async (kind) => {
+    renderControls(kind);
+    await screen.findByText('1/9 starred');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Star write in catalog' }),
+    );
+    await screen.findByText('2/9 starred');
     expect(mocks.save).toHaveBeenLastCalledWith('test-key', kind, {
       agentId: null,
-      mode: 'full',
+      mode: 'starred',
       starred: ['read', 'write'],
-    }),
-  );
-  expect(
-    (
-      screen.getByRole('button', {
-        name: 'Star blocked in catalog',
-      }) as HTMLButtonElement
-    ).disabled,
-  ).toBe(true);
-});
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }));
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenLastCalledWith('test-key', kind, {
+        agentId: null,
+        mode: 'full',
+        starred: ['read', 'write'],
+      }),
+    );
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Star blocked in catalog',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  },
+);
 
-test.each([
-  'tools',
-  'skills',
-] as const)('creates an independent %s agent override and restores inheritance', async (kind) => {
-  renderControls(kind);
-  await screen.findByText('1/9 starred');
-  fireEvent.change(
-    screen.getByRole('combobox', { name: `Local ${kind} scope` }),
-    { target: { value: 'worker' } },
-  );
-  expect(screen.getByText('Using instance default')).toBeDefined();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Unstar read in catalog' }),
-  );
-  await screen.findByText('0/9 starred');
-  expect(mocks.save).toHaveBeenLastCalledWith('test-key', kind, {
-    agentId: 'worker',
-    mode: 'starred',
-    starred: [],
-  });
-  expect(stored.instance.starred).toEqual(['read']);
-  fireEvent.click(screen.getByRole('button', { name: 'Use instance default' }));
-  await screen.findByText('1/9 starred');
-  expect(mocks.save).toHaveBeenLastCalledWith('test-key', kind, {
-    agentId: 'worker',
-    mode: null,
-    starred: null,
-  });
-});
+test.each(['tools', 'skills'] as const)(
+  'creates an independent %s agent override and restores inheritance',
+  async (kind) => {
+    renderControls(kind);
+    await screen.findByText('1/9 starred');
+    fireEvent.change(
+      screen.getByRole('combobox', { name: `Local ${kind} scope` }),
+      { target: { value: 'worker' } },
+    );
+    expect(screen.getByText('Using instance default')).toBeDefined();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Unstar read in catalog' }),
+    );
+    await screen.findByText('0/9 starred');
+    expect(mocks.save).toHaveBeenLastCalledWith('test-key', kind, {
+      agentId: 'worker',
+      mode: 'starred',
+      starred: [],
+    });
+    expect(stored.instance.starred).toEqual(['read']);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Use instance default' }),
+    );
+    await screen.findByText('1/9 starred');
+    expect(mocks.save).toHaveBeenLastCalledWith('test-key', kind, {
+      agentId: 'worker',
+      mode: null,
+      starred: null,
+    });
+  },
+);
 
 test('keeps saved stars visible after a failed save', async () => {
   mocks.save.mockRejectedValue(new Error('Save rejected'));
@@ -137,30 +139,30 @@ test('keeps saved stars visible after a failed save', async () => {
   ).toBe('false');
 });
 
-test.each([
-  'tools',
-  'skills',
-] as const)('caps %s at nine but lets a user remove an unlisted star', async (kind) => {
-  stored.instance.starred = [
-    'read',
-    ...Array.from({ length: 8 }, (_, i) => `unlisted${i}`),
-  ];
-  renderControls(kind);
-  await screen.findByText('9/9 starred');
-  expect(
-    (
-      screen.getByRole('button', {
-        name: 'Star write in catalog',
-      }) as HTMLButtonElement
-    ).disabled,
-  ).toBe(true);
-  fireEvent.click(screen.getByRole('button', { name: 'Unstar unlisted0' }));
-  await screen.findByText('8/9 starred');
-  expect(
-    (
-      screen.getByRole('button', {
-        name: 'Star write in catalog',
-      }) as HTMLButtonElement
-    ).disabled,
-  ).toBe(false);
-});
+test.each(['tools', 'skills'] as const)(
+  'caps %s at nine but lets a user remove an unlisted star',
+  async (kind) => {
+    stored.instance.starred = [
+      'read',
+      ...Array.from({ length: 8 }, (_, i) => `unlisted${i}`),
+    ];
+    renderControls(kind);
+    await screen.findByText('9/9 starred');
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Star write in catalog',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Unstar unlisted0' }));
+    await screen.findByText('8/9 starred');
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Star write in catalog',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  },
+);

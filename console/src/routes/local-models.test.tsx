@@ -239,56 +239,56 @@ test('removes the setup recommendation after installation completes', async () =
   ).toBeNull();
 });
 
-test.each([
-  true,
-  false,
-])('invalidates picker status when background health changes to %s', async (running) => {
-  const installation = { modelId: 'spark-x2.5-4b', contextWindow: 40960 };
-  mocks.fetch.mockResolvedValue(status({ installation, running: !running }));
-  const { queryClient } = renderWithProviders(<LocalModelsPage />);
-  await screen.findByRole('button', {
-    name: running ? 'Start model' : 'Stop model',
-  });
-  queryClient.setQueryData(['models', 'test-key'], { models: [] });
-  expect(queryClient.getQueryState(['models', 'test-key'])?.isInvalidated).toBe(
-    false,
-  );
-
-  // The job finishes after command acceptance; this is the later polling response.
-  await act(async () => {
-    queryClient.setQueryData(
-      ['local-models', 'test-key'],
-      status({ installation, running }),
-    );
-  });
-  await waitFor(() =>
+test.each([true, false])(
+  'invalidates picker status when background health changes to %s',
+  async (running) => {
+    const installation = { modelId: 'spark-x2.5-4b', contextWindow: 40960 };
+    mocks.fetch.mockResolvedValue(status({ installation, running: !running }));
+    const { queryClient } = renderWithProviders(<LocalModelsPage />);
+    await screen.findByRole('button', {
+      name: running ? 'Start model' : 'Stop model',
+    });
+    queryClient.setQueryData(['models', 'test-key'], { models: [] });
     expect(
       queryClient.getQueryState(['models', 'test-key'])?.isInvalidated,
-    ).toBe(true),
-  );
-  queryClient.setQueryData(['models', 'test-key'], { models: [] });
-  await act(async () => {
-    queryClient.setQueryData(
-      ['local-models', 'test-key'],
-      status({ installation, running, freeDiskBytes: 80 * GIB }),
-    );
-  });
-  expect(queryClient.getQueryState(['models', 'test-key'])?.isInvalidated).toBe(
-    false,
-  );
-});
+    ).toBe(false);
 
-test.each([
-  false,
-  undefined,
-])('redirects unsupported or unknown hosts without requesting local setup: %s', (supported) => {
-  mocks.supported = supported;
-  renderWithProviders(<LocalModelsPage />);
-  expect(screen.getByTestId('redirect').textContent).toBe('/admin/models');
-  expect(mocks.fetch).not.toHaveBeenCalled();
-  expect(mocks.control).not.toHaveBeenCalled();
-  expect(screen.queryByText('Live activity')).toBeNull();
-});
+    // The job finishes after command acceptance; this is the later polling response.
+    await act(async () => {
+      queryClient.setQueryData(
+        ['local-models', 'test-key'],
+        status({ installation, running }),
+      );
+    });
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryState(['models', 'test-key'])?.isInvalidated,
+      ).toBe(true),
+    );
+    queryClient.setQueryData(['models', 'test-key'], { models: [] });
+    await act(async () => {
+      queryClient.setQueryData(
+        ['local-models', 'test-key'],
+        status({ installation, running, freeDiskBytes: 80 * GIB }),
+      );
+    });
+    expect(
+      queryClient.getQueryState(['models', 'test-key'])?.isInvalidated,
+    ).toBe(false);
+  },
+);
+
+test.each([false, undefined])(
+  'redirects unsupported or unknown hosts without requesting local setup: %s',
+  (supported) => {
+    mocks.supported = supported;
+    renderWithProviders(<LocalModelsPage />);
+    expect(screen.getByTestId('redirect').textContent).toBe('/admin/models');
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.control).not.toHaveBeenCalled();
+    expect(screen.queryByText('Live activity')).toBeNull();
+  },
+);
 
 test('connects a running unregistered model and refreshes the picker on completion', async () => {
   const installation = { modelId: 'spark-x2.5-4b', contextWindow: 40960 };
