@@ -12,9 +12,10 @@ approval-boundary changes below.
 
 ## Model-facing contract
 
-Local provider requests expose ten basic tools when allowed by the agent's
-existing policy: `read`, `write`, `edit`, `bash`, `glob`, `grep`, `memory`,
-`skills_list`, `web_search`, and `web_fetch`.
+Local provider requests expose nine basic tools when allowed by the agent's
+existing policy: `read`, `write`, `edit`, `bash`, `glob`, `grep`,
+`skills_list`, `web_search`, and `web_fetch`. The owner selected nine plus one
+on 2026-09-10; `memory` is available through discovery.
 
 One additional `tool_catalog` tool provides three actions:
 
@@ -78,7 +79,7 @@ existing context guard and native context limit remain necessary.
 
 Using the installed Spark tokenizer and a reconstruction of the recorded
 request, the full 114-tool catalog needs 52,439 tokens including a 2,048-token
-output reserve. The proposed eleven definitions need 21,625 tokens with the
-same reserve, leaving 19,335 tokens below the 40,960 limit. No model generation,
+output reserve. The proposed ten definitions need 21,292 tokens with the
+same reserve, leaving 19,668 tokens below the 40,960 limit. No model generation,
 MCP tool execution, runtime reconfiguration, or restart was used for this
 comparison. See the [qualification record](mac-inference-qualification.md).

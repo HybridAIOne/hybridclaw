@@ -71,8 +71,8 @@ The subsequent user-reported live error confirms 50,652 prompt tokens plus
 2,048 output tokens against the 40,960-token limit, with 114 tools. The
 reconstruction above uses a slightly different prepared message body.
 
-A proposed fixed starter catalog (ten basic tools plus `tool_catalog`) measured
-19,577 prompt tokens plus 2,048 output tokens, leaving 19,335 tokens within the
+A proposed fixed starter catalog (nine basic tools plus `tool_catalog`) measured
+19,244 prompt tokens plus 2,048 output tokens, leaving 19,668 tokens within the
 same limit. This is a tokenizer-only comparison of a proposed schema, not an
 implemented or inference-tested workflow. See the
 [local tool discovery proposal](local-tool-discovery-proposal.md).
