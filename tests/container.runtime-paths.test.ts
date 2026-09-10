@@ -176,6 +176,41 @@ describe.sequential('container runtime path aliases', () => {
     expect(resolveWorkspacePath(uploadedFile)).toBe(uploadedFile);
   });
 
+  test('does not remap uploaded-media cache host paths through the workspace display alias', async () => {
+    // Cloud sandboxes: DATA_DIR sits under the /workspace display root, so a
+    // host media path must not be rewritten into <workspace>/.data/... by
+    // resolveWorkspacePath; resolveMediaPath owns it.
+    const workspaceRoot = '/workspace/.data/data/agents/main/workspace';
+    const uploadedRoot = '/workspace/.data/data/uploaded-media-cache';
+    const discordRoot = '/workspace/.data/data/discord-media-cache';
+    const uploadedFile = `${uploadedRoot}/2026-09-04/original.png`;
+    const discordFile = `${discordRoot}/2026-09-04/photo.jpg`;
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/workspace');
+    vi.stubEnv('HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT', uploadedRoot);
+    vi.stubEnv('HYBRIDCLAW_AGENT_MEDIA_ROOT', discordRoot);
+    vi.stubEnv(
+      'HYBRIDCLAW_AGENT_ALLOWED_ROOTS',
+      JSON.stringify([workspaceRoot]),
+    );
+    vi.resetModules();
+
+    const { resolveWorkspacePath, resolveMediaPath } = await import(
+      '../container/src/runtime-paths.ts'
+    );
+
+    expect(resolveWorkspacePath(uploadedFile)).toBeNull();
+    expect(resolveWorkspacePath(discordFile)).toBeNull();
+    expect(resolveMediaPath(uploadedFile)).toBe(uploadedFile);
+    expect(resolveMediaPath(discordFile)).toBe(discordFile);
+    expect(
+      resolveWorkspacePath(uploadedFile) || resolveMediaPath(uploadedFile),
+    ).toBe(uploadedFile);
+    expect(resolveWorkspacePath('/workspace/notes/todo.md')).toBe(
+      `${workspaceRoot}/notes/todo.md`,
+    );
+  });
+
   test('resolves uploaded-media cache display paths', async () => {
     const { resolveMediaPath } = await import(
       '../container/src/runtime-paths.ts'
