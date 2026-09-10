@@ -396,3 +396,15 @@ test('slash commands parse in DMs and guilds the same way', () => {
   expect(isGlobalSlashCommand('status')).toBe(true);
   expect(isGlobalSlashCommand('help')).toBe(true);
 });
+
+
+test('every Discord command and nested option has a valid description length', () => {
+  type Entry = { name: string; description: string; options?: Entry[] };
+  const check = (entry: Entry, parent = '') => {
+    const name = `${parent}/${entry.name}`;
+    expect(Array.from(entry.description).length, name).toBeGreaterThan(0);
+    expect(Array.from(entry.description).length, name).toBeLessThanOrEqual(100);
+    for (const option of entry.options ?? []) check(option, name);
+  };
+  for (const command of buildSlashCommandDefinitions([])) check(command);
+});
