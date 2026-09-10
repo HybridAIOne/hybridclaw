@@ -24,6 +24,8 @@ import { runResourceHygieneMaintenance } from '../doctor/resource-hygiene.js';
 import { logger } from '../logger.js';
 import {
   deleteJob,
+  describeJobError,
+  disableJobWithError,
   getAllJobs,
   getJob,
   markJobFailure,
@@ -79,6 +81,7 @@ type TaskRunner = (request: SchedulerDispatchRequest) => Promise<void>;
 interface ConfigJobMeta {
   lastRun: string | null;
   lastStatus: 'success' | 'error' | null;
+  lastError: string | null;
   nextRunAt: string | null;
   consecutiveErrors: number;
   disabled: boolean;
@@ -88,6 +91,7 @@ interface ConfigJobMeta {
 export interface ConfigJobRuntimeState {
   lastRun: string | null;
   lastStatus: 'success' | 'error' | null;
+  lastError: string | null;
   nextRunAt: string | null;
   disabled: boolean;
   consecutiveErrors: number;
@@ -158,6 +162,7 @@ function defaultConfigJobMeta(): ConfigJobMeta {
   return {
     lastRun: null,
     lastStatus: null,
+    lastError: null,
     nextRunAt: null,
     consecutiveErrors: 0,
     disabled: false,
@@ -184,9 +189,14 @@ function normalizeConfigJobMeta(value: unknown): ConfigJobMeta {
     Number.isFinite(value.consecutiveErrors)
       ? Math.max(0, Math.floor(value.consecutiveErrors))
       : 0;
+  const lastError =
+    typeof value.lastError === 'string' && value.lastError.trim()
+      ? value.lastError.trim()
+      : null;
   return {
     lastRun,
     lastStatus,
+    lastError,
     nextRunAt,
     consecutiveErrors,
     disabled: Boolean(value.disabled),
@@ -466,6 +476,7 @@ function nextFireMsForDbTask(
   try {
     const ms = parseCronExpression(task.cron_expr, {
       currentDateMs: nowMs,
+      tz: task.tz || undefined,
     })
       .next()
       .toDate()
@@ -473,6 +484,30 @@ function nextFireMsForDbTask(
     return Number.isFinite(ms) ? ms : null;
   } catch {
     return null;
+  }
+}
+
+function disableTaskWithUnparsableCron(task: ScheduledTask): boolean {
+  if (!task.cron_expr || task.run_at || task.every_ms) return false;
+  const nowMs = Date.now();
+  const tz = task.tz || undefined;
+  try {
+    parseCronExpression(task.cron_expr, { currentDateMs: nowMs, tz });
+    return false;
+  } catch (err) {
+    let reason = `Invalid cron expression "${task.cron_expr}": ${describeJobError(err)}`;
+    if (tz) {
+      try {
+        parseCronExpression(task.cron_expr, { currentDateMs: nowMs });
+        reason = `Invalid timezone "${task.tz}": ${describeJobError(err)}`;
+      } catch {}
+    }
+    disableJobWithError(task.id, reason);
+    logger.warn(
+      { taskId: task.id, cron: task.cron_expr, tz: task.tz, err },
+      'Scheduled task disabled: schedule cannot be evaluated',
+    );
+    return true;
   }
 }
 
@@ -621,6 +656,7 @@ function computeNextFireMs(nowMs = Date.now()): number | null {
   let earliest: number | null = null;
 
   for (const task of dbTasks) {
+    if (disableTaskWithUnparsableCron(task)) continue;
     const fireMs = nextFireMsForDbTask(task, nowMs);
     if (fireMs === null) continue;
     if (earliest === null || fireMs < earliest) earliest = fireMs;
@@ -663,7 +699,7 @@ async function dispatchDbTask(task: ScheduledTask): Promise<void> {
   const prompt = wrapCronPrompt(
     `#${task.id}`,
     task.prompt,
-    DEFAULT_SCHEDULER_TIME_ZONE,
+    task.tz || undefined,
     task.channel_id,
   );
   await taskRunner({
@@ -745,18 +781,23 @@ function markConfigJobSuccess(
 ): void {
   const meta = getConfigJobMeta(job.id);
   meta.lastStatus = 'success';
+  meta.lastError = null;
   meta.consecutiveErrors = 0;
   if (markOneShotDone) meta.oneShotCompleted = true;
   syncConfigJobNextRunAt(job, Date.now());
   persistSchedulerState();
 }
 
-function markRunOnceConfigJobFailure(job: RuntimeSchedulerJob): {
+function markRunOnceConfigJobFailure(
+  job: RuntimeSchedulerJob,
+  reason: unknown,
+): {
   exhaustedRetries: boolean;
   consecutiveErrors: number;
 } {
   const meta = getConfigJobMeta(job.id);
   meta.lastStatus = 'error';
+  meta.lastError = describeJobError(reason);
   meta.consecutiveErrors = Math.max(0, meta.consecutiveErrors) + 1;
   const exhaustedRetries =
     meta.consecutiveErrors > resolveRunOnceConfigJobMaxRetries(job);
@@ -775,12 +816,16 @@ function markRunOnceConfigJobFailure(job: RuntimeSchedulerJob): {
   };
 }
 
-function markConfigJobFailure(job: RuntimeSchedulerJob): {
+function markConfigJobFailure(
+  job: RuntimeSchedulerJob,
+  reason: unknown,
+): {
   disabled: boolean;
   consecutiveErrors: number;
 } {
   const meta = getConfigJobMeta(job.id);
   meta.lastStatus = 'error';
+  meta.lastError = describeJobError(reason);
   meta.consecutiveErrors = Math.max(0, meta.consecutiveErrors) + 1;
   if (meta.consecutiveErrors >= MAX_CONSECUTIVE_FAILURES) {
     meta.disabled = true;
@@ -827,6 +872,7 @@ async function tick(): Promise<void> {
                 const failure = markJobFailure(
                   task.id,
                   MAX_CONSECUTIVE_FAILURES,
+                  err,
                 );
                 logger.error(
                   { taskId: task.id, err },
@@ -863,6 +909,7 @@ async function tick(): Promise<void> {
                 const failure = markJobFailure(
                   task.id,
                   MAX_CONSECUTIVE_FAILURES,
+                  err,
                 );
                 logger.error({ taskId: task.id, err }, 'Interval task failed');
                 if (failure.disabled) {
@@ -880,15 +927,22 @@ async function tick(): Promise<void> {
         }
 
         if (!task.cron_expr) continue;
+        if (disableTaskWithUnparsableCron(task)) continue;
         const cron = parseCronExpression(task.cron_expr, {
           currentDateMs: nowMs,
+          tz: task.tz || undefined,
         });
         const prev = cron.prev();
         const lastRunMs = parseSchedulerTimestampMs(task.last_run) ?? 0;
 
         if (prev.toDate().getTime() > lastRunMs) {
           logger.info(
-            { taskId: task.id, cron: task.cron_expr, prompt: task.prompt },
+            {
+              taskId: task.id,
+              cron: task.cron_expr,
+              tz: task.tz,
+              prompt: task.prompt,
+            },
             'Cron task firing',
           );
           markJobRunStarted(task.id);
@@ -897,7 +951,11 @@ async function tick(): Promise<void> {
               markJobSuccess(task.id);
             })
             .catch((err) => {
-              const failure = markJobFailure(task.id, MAX_CONSECUTIVE_FAILURES);
+              const failure = markJobFailure(
+                task.id,
+                MAX_CONSECUTIVE_FAILURES,
+                err,
+              );
               logger.error({ taskId: task.id, err }, 'Cron task failed');
               if (failure.disabled) {
                 logger.warn(
@@ -952,7 +1010,7 @@ async function tick(): Promise<void> {
               markConfigJobSuccess(completedJob, true);
             })
             .catch((err) => {
-              const failure = markRunOnceConfigJobFailure(runningJob);
+              const failure = markRunOnceConfigJobFailure(runningJob, err);
               logger.error(
                 { jobId: job.id, jobLabel, err },
                 'Scheduler one-shot job failed',
@@ -1005,8 +1063,8 @@ async function tick(): Promise<void> {
                 runningJob || job,
               );
               const failure = runOnceFailure
-                ? markRunOnceConfigJobFailure(runningJob || job)
-                : markConfigJobFailure(runningJob || job);
+                ? markRunOnceConfigJobFailure(runningJob || job, err)
+                : markConfigJobFailure(runningJob || job, err);
               logger.error(
                 { jobId: job.id, jobLabel, agentId: job.agentId, err },
                 'Assigned backlog job failed',
@@ -1057,8 +1115,8 @@ async function tick(): Promise<void> {
             .catch((err) => {
               const runOnceFailure = isReviewTrackedRunOnceConfigJob(job);
               const failure = runOnceFailure
-                ? markRunOnceConfigJobFailure(job)
-                : markConfigJobFailure(job);
+                ? markRunOnceConfigJobFailure(job, err)
+                : markConfigJobFailure(job, err);
               logger.error(
                 { jobId: job.id, jobLabel, err },
                 'Scheduler one-shot job failed',
@@ -1103,7 +1161,7 @@ async function tick(): Promise<void> {
               markConfigJobSuccess(job, false);
             })
             .catch((err) => {
-              const failure = markConfigJobFailure(job);
+              const failure = markConfigJobFailure(job, err);
               logger.error(
                 { jobId: job.id, jobLabel, err },
                 'Scheduler interval job failed',
@@ -1149,7 +1207,7 @@ async function tick(): Promise<void> {
             markConfigJobSuccess(job, false);
           })
           .catch((err) => {
-            const failure = markConfigJobFailure(job);
+            const failure = markConfigJobFailure(job, err);
             logger.error(
               { jobId: job.id, jobLabel, err },
               'Scheduler cron job failed',
@@ -1179,6 +1237,7 @@ function toRuntimeState(meta: ConfigJobMeta): ConfigJobRuntimeState {
   return {
     lastRun: meta.lastRun,
     lastStatus: meta.lastStatus,
+    lastError: meta.lastError,
     nextRunAt: meta.nextRunAt,
     disabled: meta.disabled,
     consecutiveErrors: meta.consecutiveErrors,
@@ -1279,6 +1338,7 @@ export function resetConfigJobRuntime(jobId: string): boolean {
   const meta = getConfigJobMeta(normalizedJobId);
   meta.lastRun = null;
   meta.lastStatus = null;
+  meta.lastError = null;
   meta.nextRunAt = null;
   meta.consecutiveErrors = 0;
   meta.disabled = false;

@@ -317,7 +317,9 @@ function writeInterruptedShutdownOutput(reason: NodeJS.Signals): void {
   if (!requestInFlight) return;
   requestInFlight = false;
   try {
-    writeOutput(buildInterruptedShutdownOutput(reason));
+    writeOutput(
+      buildInterruptedShutdownOutput(reason, getPendingSideEffects()),
+    );
   } catch (error) {
     console.error('[hybridclaw-agent] shutdown output write failed:', error);
   }
