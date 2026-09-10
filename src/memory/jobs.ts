@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { isValidTimezone } from '../../container/shared/workspace-time.js';
 import type { RuntimeSchedulerJob } from '../config/runtime-config.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import { withMemoryDatabase } from './database.js';
@@ -24,6 +25,7 @@ export interface CreateJobInput {
   sessionId: string;
   channelId: string;
   cronExpr: string;
+  tz?: string;
   prompt: string;
   runAt?: string;
   everyMs?: number;
@@ -46,6 +48,7 @@ interface JobRow {
   enabled: number;
   last_run: string | null;
   last_status: string | null;
+  last_error: string | null;
   consecutive_errors: number;
   sort_order: number;
   created_at: string;
@@ -154,6 +157,7 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
     session_id: row.session_id || '',
     channel_id: row.channel_id || '',
     cron_expr: schedule.kind === 'cron' ? schedule.expr || '' : '',
+    tz: schedule.kind === 'cron' ? schedule.tz || '' : '',
     run_at: schedule.kind === 'at' ? schedule.at : null,
     every_ms: schedule.kind === 'every' ? schedule.everyMs : null,
     prompt: action.message,
@@ -163,6 +167,7 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
       row.last_status === 'success' || row.last_status === 'error'
         ? row.last_status
         : null,
+    last_error: row.last_error?.trim() || null,
     consecutive_errors: Math.max(0, Math.floor(row.consecutive_errors || 0)),
     created_at: row.created_at,
   };
@@ -171,8 +176,8 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
 function rowSelectClause(): string {
   return `SELECT id, kind, legacy_task_id, session_id, channel_id, name, description,
                  agent_id, board_status, max_retries, schedule, action, delivery,
-                 enabled, last_run, last_status, consecutive_errors, sort_order,
-                 created_at, updated_at
+                 enabled, last_run, last_status, last_error, consecutive_errors,
+                 sort_order, created_at, updated_at
           FROM jobs`;
 }
 
@@ -251,8 +256,15 @@ export function createJob(input: CreateJobInput): number {
             at: null,
             everyMs: null,
             expr: input.cronExpr,
-            tz: '',
+            tz: input.tz?.trim() || '',
           };
+    if (
+      schedule.kind === 'cron' &&
+      schedule.tz &&
+      !isValidTimezone(schedule.tz)
+    ) {
+      throw new Error(`Unknown timezone "${schedule.tz}" for scheduled task.`);
+    }
     // Cron tasks start with last_run = now. The scheduler fires a cron task
     // whenever the previous cron occurrence is later than last_run, so a fresh
     // task with last_run = NULL would fire once immediately (catch-up run)
@@ -489,15 +501,31 @@ export function markJobSuccess(jobId: string | number): void {
   withMemoryDatabase((database) => {
     database
       .prepare(
-        "UPDATE jobs SET last_status = ?, consecutive_errors = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+        "UPDATE jobs SET last_status = ?, last_error = NULL, consecutive_errors = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
       )
       .run('success', normalizeJobId(jobId));
   });
 }
 
+const JOB_ERROR_MAX_LENGTH = 500;
+
+export function describeJobError(error: unknown): string {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : String(error ?? 'Unknown error');
+  const normalized = message.replace(/\s+/g, ' ').trim() || 'Unknown error';
+  return normalized.length > JOB_ERROR_MAX_LENGTH
+    ? `${normalized.slice(0, JOB_ERROR_MAX_LENGTH - 3)}...`
+    : normalized;
+}
+
 export function markJobFailure(
   jobId: string | number,
   maxConsecutiveErrors = 5,
+  reason?: unknown,
 ): { disabled: boolean; consecutiveErrors: number } {
   return withMemoryDatabase((database) => {
     const normalizedJobId = normalizeJobId(jobId);
@@ -515,12 +543,31 @@ export function markJobFailure(
       nextCount >= Math.max(1, Math.floor(maxConsecutiveErrors));
     database
       .prepare(
-        "UPDATE jobs SET last_status = ?, consecutive_errors = ?, enabled = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+        "UPDATE jobs SET last_status = ?, last_error = ?, consecutive_errors = ?, enabled = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
       )
-      .run('error', nextCount, shouldDisable ? 0 : 1, normalizedJobId);
+      .run(
+        'error',
+        reason === undefined ? null : describeJobError(reason),
+        nextCount,
+        shouldDisable ? 0 : 1,
+        normalizedJobId,
+      );
     return {
       disabled: shouldDisable,
       consecutiveErrors: nextCount,
     };
+  });
+}
+
+export function disableJobWithError(
+  jobId: string | number,
+  reason: unknown,
+): void {
+  withMemoryDatabase((database) => {
+    database
+      .prepare(
+        "UPDATE jobs SET enabled = 0, last_status = 'error', last_error = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+      )
+      .run(describeJobError(reason), normalizeJobId(jobId));
   });
 }

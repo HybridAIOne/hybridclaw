@@ -10,6 +10,7 @@ import {
   isRecord,
   readString as readUnknownString,
 } from './codex-app-utils.js';
+import { withToolActivityHeartbeat } from './tool-activity-heartbeat.js';
 import type {
   ChatMessage,
   ContainerInput,
@@ -73,6 +74,7 @@ interface RunCodexAppServerTurnParams {
   providerCredentials?: ContainerInput['providerCredentials'];
   streamTextDeltas?: boolean;
   onTextDelta?: (delta: string) => void;
+  onActivity?: () => void;
 }
 
 const CODEX_REQUEST_TIMEOUT_MS = 30_000;
@@ -1049,7 +1051,7 @@ function errorOutputFromProjection(
 export async function resumePendingCodexAppServerApproval(
   params: Pick<
     RunCodexAppServerTurnParams,
-    'sessionId' | 'messages' | 'streamTextDeltas' | 'onTextDelta'
+    'sessionId' | 'messages' | 'streamTextDeltas' | 'onTextDelta' | 'onActivity'
   >,
 ): Promise<ContainerOutput | null> {
   const effectiveUserPrompt = buildCodexTurnText(params.messages);
@@ -1062,7 +1064,7 @@ export async function resumePendingCodexAppServerApproval(
   if (!directive) return null;
   try {
     respondToCodexApproval(pending, directive);
-    const next = await pending.client.waitForCompletionOrApproval();
+    const next = await waitWithActivity(pending.client, params.onActivity);
     if (next.kind === 'approval') {
       pending.projection.pendingApproval = buildPendingApproval(
         next.approvalId,
@@ -1094,6 +1096,14 @@ export async function resumePendingCodexAppServerApproval(
       error,
     );
   }
+}
+
+function waitWithActivity(
+  client: CodexAppServerClient,
+  onActivity: (() => void) | undefined,
+): ReturnType<CodexAppServerClient['waitForCompletionOrApproval']> {
+  const wait = () => client.waitForCompletionOrApproval();
+  return onActivity ? withToolActivityHeartbeat(wait, onActivity) : wait();
 }
 
 async function checkCodexCliAvailable(): Promise<void> {
@@ -1202,7 +1212,7 @@ export async function runCodexAppServerTurn(
 
     const next = projection.completed
       ? { kind: 'completed' as const, projection }
-      : await client.waitForCompletionOrApproval();
+      : await waitWithActivity(client, params.onActivity);
     if (next.kind === 'approval') {
       projection.pendingApproval = buildPendingApproval(
         next.approvalId,

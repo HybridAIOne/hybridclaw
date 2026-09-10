@@ -2,7 +2,7 @@ import fs from 'node:fs';
 
 const timezoneValidityCache = new Map();
 
-function isValidTimezone(timezone) {
+export function isValidTimezone(timezone) {
   if (!timezone) return false;
   if (timezoneValidityCache.has(timezone)) {
     return timezoneValidityCache.get(timezone) === true;
