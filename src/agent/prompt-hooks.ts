@@ -290,7 +290,7 @@ function buildSelectedSkillsPrompt(context: PromptHookContext): string {
     (!context.allowedTools || context.allowedTools.includes('skills_list'));
   const directory =
     selection.discovery && directoryAvailable
-      ? 'Additional skills: use skills_list to search the full eligible skill directory when a relevant skill is absent above. If skills_list is not directly exposed, find and call it through tool_catalog. For a complete skill inventory, call skills_list instead of extrapolating from the starred skills. Read the returned SKILL.md location with read before following its instructions.'
+      ? 'Additional skills: use skills_list to search the full eligible skill directory when a relevant skill is absent above. If skills_list is not directly exposed, find and call it through tool_catalog. For a complete skill inventory, call skills_list instead of extrapolating from the starred skills. Search summaries first, select an exact skill name for details, then execute the returned next call to read its SKILL.md before following the instructions. Search results are metadata only.'
       : '';
   return [prompt, directory].filter(Boolean).join('\n\n');
 }

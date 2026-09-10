@@ -2,13 +2,15 @@
  * Local requests expose stable starter schemas and bounded discovery results.
  * Only tools admitted by the request policy enter this catalog. Calls unwrap
  * before approval/audit; unlike tools.ts this module never executes actions.
- * Invalid lookups/argument shapes return bounded feedback; unavailable actions
- * remain rejected. Prompt guidance names only the exposed request schemas.
+ * Deferred arguments are schema-checked; invalid shapes return bounded feedback.
+ * Unavailable actions remain rejected; guidance names the exposed schemas.
  */
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
 import {
   DEFAULT_LOCAL_STARTER_TOOLS,
   normalizeLocalStarterTools,
 } from '../shared/local-tool-config.js';
+import { searchCatalog } from './catalog-search.js';
 import type { ToolCall, ToolDefinition, ToolRunResult } from './types.js';
 
 const NAME = 'tool_catalog';
@@ -24,14 +26,15 @@ const CATALOG_TOOL: ToolDefinition = {
   function: {
     name: NAME,
     description:
-      'Discover and use additional tools without loading the full catalog. Use action=list with an optional keyword query and offset to browse tool summaries. Use action=describe with a name to get one tool schema, then action=call with that name and arguments to execute it. Calls use the normal permissions and approvals. For tools not shown in the starter set, use this tool instead of guessing arguments.',
+      'Discover tools in steps: action=list searches short summaries with query and offset; follow a result’s next call to describe its input schema; then action=call executes that exact name with matching arguments. Use keywords for the task, not a guessed tool name. If an exact name and its parameters are already known, skip discovery. Skills are instruction packages: discover them with skills_list, not a tool named after the skill. Calls keep normal permissions and approvals.',
     parameters: {
       type: 'object',
       properties: {
         action: { type: 'string', enum: ['list', 'describe', 'call'] },
         query: {
           type: 'string',
-          description: 'Keyword search across tool names and descriptions.',
+          description:
+            'Keywords ranked across tool names, descriptions, and parameter names.',
         },
         offset: {
           type: 'integer',
@@ -74,6 +77,10 @@ export class LocalToolCatalog {
   private readonly byName: Map<string, ToolDefinition>;
   private readonly starters: Set<string>;
   private corrections = 0;
+  private readonly validators = new Map<
+    string,
+    ReturnType<AjvJsonSchemaValidator['getValidator']>
+  >();
 
   constructor(
     availableTools: ToolDefinition[],
@@ -110,6 +117,12 @@ export class LocalToolCatalog {
         : 'No functions are exposed in this request.',
       directory && !names.includes('read')
         ? 'To read a skill file, first call tool_catalog with {"action":"describe","name":"read"}, then call tool_catalog with {"action":"call","name":"read","arguments":{"path":"the skill location"}}. Never emit a direct read call: it is not an exposed function.'
+        : '',
+      directory && this.byName.has('bash') && !names.includes('bash')
+        ? 'To run a command from skill instructions, first call tool_catalog with {"action":"describe","name":"bash"}, then call tool_catalog with {"action":"call","name":"bash","arguments":{"command":"the command"}}. Never emit a direct bash call: it is not an exposed function.'
+        : '',
+      directory && this.byName.has('skills_list')
+        ? 'Skill discovery is staged: search skills_list summaries, request details with the exact skill name, then execute the returned next call to read its instructions. Search results are not skill instructions. Follow next.name and next.arguments exactly; discovery does not expose additional functions.'
         : '',
       directory
         ? 'For other tools absent from the exposed functions, use tool_catalog to list or describe them, then call them through tool_catalog. The directory can reject tools that are unavailable or blocked.'
@@ -176,6 +189,25 @@ export class LocalToolCatalog {
       throw new CatalogArgumentError(
         'Tool catalog call requires an arguments object.',
       );
+    let validate = this.validators.get(tool.function.name);
+    if (!validate) {
+      try {
+        // Isolate schema ids across tools; no remote resolver or coercion is installed.
+        validate = new AjvJsonSchemaValidator().getValidator(
+          tool.function.parameters,
+        );
+      } catch {
+        throw new Error(
+          'This tool schema cannot be validated for local discovery. No action was executed.',
+        );
+      }
+      this.validators.set(tool.function.name, validate);
+    }
+    if (!validate(args.arguments).valid) {
+      throw new CatalogArgumentError(
+        `Arguments do not match the selected tool schema. Use tool_catalog action=describe with name=${JSON.stringify(tool.function.name)} to inspect required fields and types, then retry.`,
+      );
+    }
     return {
       ...call,
       function: {
@@ -250,22 +282,39 @@ export class LocalToolCatalog {
     const query =
       typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
     const offset = typeof args.offset === 'number' ? args.offset : 0;
-    const matches = [...this.byName.values()]
-      .filter((tool) => !this.starters.has(tool.function.name))
-      .filter((tool) =>
-        `${tool.function.name} ${tool.function.description}`
-          .toLowerCase()
-          .includes(query),
-      )
-      .sort((a, b) => a.function.name.localeCompare(b.function.name));
+    const matches = searchCatalog(
+      [...this.byName.values()].filter(
+        (tool) => !this.starters.has(tool.function.name),
+      ),
+      query,
+      (tool) => ({
+        name: tool.function.name,
+        description: tool.function.description,
+        keywords: Object.keys(tool.function.parameters.properties ?? {}).join(
+          ' ',
+        ),
+      }),
+    );
     const page = matches.slice(offset, offset + PAGE_SIZE);
     return {
       output: JSON.stringify({
         tools: page.map((tool) => ({
           name: tool.function.name,
           description: tool.function.description.slice(0, 160),
+          required: (tool.function.parameters.required ?? []).slice(0, 16),
+          next: {
+            name: NAME,
+            arguments: { action: 'describe', name: tool.function.name },
+          },
         })),
         total: matches.length,
+        availableCount:
+          this.byName.size -
+          [...this.byName.keys()].filter((name) => this.starters.has(name))
+            .length,
+        hint: matches.length
+          ? 'Choose a matching tool and execute its next call to load the schema. Then use tool_catalog action=call; only supplied function names are directly callable.'
+          : 'No keyword matches. Try fewer keywords or omit query to browse the permitted tools. Skill names are not tool names; use skills_list for skill discovery.',
         nextOffset:
           offset + page.length < matches.length ? offset + page.length : null,
       }),

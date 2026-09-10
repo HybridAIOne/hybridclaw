@@ -112,7 +112,10 @@ import {
   formatLineSafeToolProgressText,
   formatToolCallStartProgressText,
 } from './tool-progress-log.js';
-import { setEligibleSkillsCatalog } from './tools/skills-list.js';
+import {
+  setEligibleSkillsCatalog,
+  setSkillDiscoveryTools,
+} from './tools/skills-list.js';
 import {
   executeToolWithMetadata,
   getMessageToolDescription,
@@ -1076,6 +1079,7 @@ async function processRequest(
     normalizeLocalContextMode(localToolMode, 'localToolMode') === 'full'
       ? availableTools
       : (localToolCatalog?.tools ?? availableTools);
+  setSkillDiscoveryTools(availableTools, tools);
   const processStartedAt = Date.now();
   console.error('[hybridclaw-agent] agent request start');
   await emitRuntimeEvent({
@@ -1516,7 +1520,9 @@ async function processRequest(
           error instanceof Error ? error.message : 'Invalid local tool call.';
         if (
           tools === localToolCatalog.tools &&
-          toolCalls.every((call) => call.function.name === 'tool_catalog')
+          toolCalls.every((call) =>
+            tools.some((tool) => tool.function.name === call.function.name),
+          )
         ) {
           catalogCorrection =
             localToolCatalog.recoverArgumentError(error)?.output ?? null;

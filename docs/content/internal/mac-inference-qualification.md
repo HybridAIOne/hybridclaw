@@ -160,6 +160,38 @@ security hooks, approval replay, full/direct-tool preservation, and exact
 preservation of earlier messages and schemas. Full unit/e2e suites, Docker-to-Mac
 GPU execution, and credentialed remote-provider tests were not rerun.
 
+## Staged discovery qualification (2026-09-10)
+
+The Hermes-inspired flow was exercised with the running Spark-X2.5 4B service
+and a private temporary worker workspace. Only `skills_list` and `tool_catalog`
+were exposed; the permitted underlying tools were `read`, `write`, `bash`, and
+`skills_list`. The fixture retained the recorded system/dynamic context while
+omitting the inline skill catalog and supplying one eligible PDF entry through
+`skillCatalog`, representing compact skill discovery. It copied the bundled PDF
+helpers and exposed no MCP credentials. The gateway and user configuration were
+unchanged.
+
+During iteration, one run completed skill search, exact-name selection, and
+instruction reads but was rejected when the model emitted an unexposed function
+(92.34 seconds, no artifact). Another emitted a malformed catalog call alongside
+an exposed starter and stopped before executing anything (20.07 seconds). The
+final code gives explicit deferred-shell syntax and permits bounded correction
+for mixed batches only when every function is exposed. No sibling executes in
+a malformed batch; unexposed functions are still rejected.
+
+The final run completed in 85.34 seconds with nine tool records and one PDF.
+The model searched skill summaries, selected `pdf`, read its SKILL.md, described
+`bash`, and used the catalog to invoke the generator. It recovered from a
+malformed catalog call and a misspelled script filename. Text extraction
+confirmed the title and dog joke on one page, and the rendered page was checked.
+This is one successful isolated run, not a reliability estimate or qualification
+of the full configured MCP set.
+
+Final validation: 79 unit tests and 14 real worker IPC/model-HTTP tests passed,
+along with root lint/typechecks, container lint, formatting, and the production
+build. Full unit/e2e suites, remote-provider/MCP execution, and Docker-to-Mac GPU
+execution were not rerun for this focused discovery change.
+
 ## Reproducible measurement
 
 The [raw synthetic smoke report](mac-inference-smoke.json) was captured on an

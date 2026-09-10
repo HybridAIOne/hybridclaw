@@ -203,3 +203,64 @@ test('adds no catalog reminder after a directly exposed starter call', async () 
   expect(requests[1].messages.at(-1)).toMatchObject({ role: 'tool', content: expect.stringContaining('synthetic tool result') });
   expect(requests[1].messages.some((m) => String(m.content).includes('Runtime tool reminder:'))).toBe(false);
 });
+
+
+test('follows staged skill summaries, details, and approved reading with fixed schemas', async () => {
+  const { output, requests, followup } = await harness([
+    catalog('call', 'skills_list', { query: 'PDF create' }),
+    catalog('call', 'skills_list', { name: 'pdf' }),
+    catalog('call', 'read', { path: 'notes.txt' }),
+  ], { localStarterTools: [], allowedTools: ['read', 'skills_list'], skillCatalog: [{ name: 'pdf', description: 'Create PDF files.', category: 'office', location: 'notes.txt' }] });
+  expect(output.status).toBe('success');
+  const records = output.toolExecutions!;
+  expect(JSON.parse(records[0].result).skills[0].next).toEqual({ name: 'tool_catalog', arguments: { action: 'call', name: 'skills_list', arguments: { name: 'pdf' } } });
+  expect(JSON.parse(records[1].result)).toMatchObject({ instructionsLoaded: false, next: { name: 'tool_catalog', arguments: { action: 'call', name: 'read', arguments: { path: 'notes.txt' } } } });
+  expect(records[2]).toMatchObject({ name: 'read', approvalTier: 'green', isError: false, result: expect.stringContaining('synthetic tool result') });
+  for (let index = 1; index < requests.length; index++) {
+    expect(requests[index].tools).toEqual(requests[0].tools);
+    expect(requests[index].messages.slice(0, requests[index - 1].messages.length)).toEqual(requests[index - 1].messages);
+  }
+  await followup({ skillCatalog: [], blockedTools: ['read'] });
+  expect(requests.at(-1)?.tools.map((tool) => tool.function.name)).toEqual(['tool_catalog']);
+});
+
+test('rejects wrong underlying arguments before a valid sibling write and recovers', async () => {
+  const invalid = catalog('call', 'bash', { path: 'private-placeholder' });
+  const sibling = catalog('call', 'write', { path: 'must-not-exist.txt', contents: 'not executed' });
+  const { output, dir, requests } = await harness([
+    { role: 'assistant', content: null, tool_calls: [...sibling.tool_calls as object[], ...invalid.tool_calls as object[]] },
+    catalog('describe', 'bash'), catalog('call', 'bash', { command: 'pwd' }),
+  ], { localStarterTools: ['skills_list'] });
+  expect(output.status).toBe('success');
+  expect(fs.existsSync(path.join(dir, 'must-not-exist.txt'))).toBe(false);
+  expect(output.toolExecutions?.slice(0, 2).every((tool) => tool.blocked && tool.isError)).toBe(true);
+  expect(requests[1].messages.slice(-2).every((message) => String(message.content).includes('Arguments do not match'))).toBe(true);
+  expect(output.toolExecutions?.at(-1)).toMatchObject({ name: 'bash', isError: false, approvalTier: 'green' });
+});
+
+
+test('recovers mixed exposed calls without executing a valid starter sibling', async () => {
+  const direct = { id: 'starter-write', type: 'function', function: { name: 'write', arguments: JSON.stringify({ path: 'must-not-exist.txt', contents: 'not executed' }) } };
+  const invalid = catalog('call', undefined, {});
+  const { output, dir, requests } = await harness([
+    { role: 'assistant', content: null, tool_calls: [direct, ...invalid.tool_calls as object[]] },
+    catalog('call', 'read', { path: 'notes.txt' }),
+  ], { localStarterTools: ['write'] });
+  expect(output.status).toBe('success');
+  expect(fs.existsSync(path.join(dir, 'must-not-exist.txt'))).toBe(false);
+  expect(output.toolExecutions?.slice(0, 2).map((tool) => [tool.name, tool.blocked, tool.isError])).toEqual([['write', true, true], ['tool_catalog', true, true]]);
+  expect(requests[1].messages.slice(-2).every((message) => String(message.content).includes('No tool in this batch was executed'))).toBe(true);
+  expect(output.toolExecutions?.at(-1)).toMatchObject({ name: 'read', isError: false });
+});
+
+test('never recovers a mixed batch containing an unexposed direct function', async () => {
+  const direct = { id: 'unexposed-write', type: 'function', function: { name: 'write', arguments: JSON.stringify({ path: 'must-not-exist.txt', contents: 'not executed' }) } };
+  const invalid = catalog('call', undefined, {});
+  const { output, dir, requests } = await harness([
+    { role: 'assistant', content: null, tool_calls: [...invalid.tool_calls as object[], direct] },
+  ], { localStarterTools: ['skills_list'] });
+  expect(output.status).toBe('error');
+  expect(output.toolExecutions).toEqual([]);
+  expect(requests).toHaveLength(1);
+  expect(fs.existsSync(path.join(dir, 'must-not-exist.txt'))).toBe(false);
+});

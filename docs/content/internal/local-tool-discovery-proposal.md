@@ -28,12 +28,15 @@ One additional `tool_catalog` tool provides three actions:
 
 | Action | Input | Result |
 | --- | --- | --- |
-| `list` | optional keyword `query` and page `offset` | At most ten remaining tool names and short descriptions, with a next-page offset |
+| `list` | optional keyword `query` and page `offset` | Up to ten ranked summaries, required field names, and exact next calls to describe matching tools |
 | `describe` | exact tool `name` | One complete input schema, subject to a size bound |
 | `call` | exact tool `name` and an `arguments` object | The normal tool result, after the usual policy and approval checks |
 
-Names and descriptions are searched deterministically. Schemas are returned
-only for selected tools. Model-facing definitions remain fixed for the turn;
+Names, descriptions, and parameter names are searched deterministically with
+multiple keywords. Exact names rank highest. Schemas are returned only for
+selected tools. A miss preserves the permitted tool count and explains how to
+broaden the query or browse. Search results include the exact `next.name` and
+`next.arguments` to request a schema. Model-facing definitions remain fixed for the turn;
 there is no expanding tool array or replacement of earlier messages. Remote
 model requests keep their current tool catalog. The trigger is the existing
 `isLocal` runtime flag, which also covers configured Ollama, LM Studio, and
@@ -65,28 +68,43 @@ return an explicit error rather than truncated, invalid JSON. These bounds do
 not guarantee that arbitrary tool results or long conversations fit; the
 existing context guard and native context limit remain necessary.
 
-## Verification boundaries
+## Staged skill discovery
 
-The focused check includes 196 unit tests and four real IPC/model-HTTP
-integration tests. Typecheck, root/container lint, formatting, and the full
-build passed. Native GPU inference and the full PDF workflow remain unverified:
-the existing MLX endpoint refused the live health connection.
+The 2026-09-10 owner request pointed to Hermes Agent's progressive discovery
+implementation (`tools/tool_search.py` and `tools/skills_tool.py`). HybridClaw
+uses the same separation of summaries, details, and execution while retaining
+the owner's nine-starters-plus-one-directory budget. It does not add Hermes's
+three separate bridge schemas to every local request.
 
+`skills_list` search results contain short routing metadata and pagination.
+Selecting an exact skill name returns full metadata plus a concrete next call
+to read the SKILL.md. That next call reflects this request's actual exposure:
+`read` when direct, a `tool_catalog` call when deferred, and null when read is
+blocked or unreachable. The directory does not read files or execute skill
+content. Existing read controls and linked-file handling remain authoritative.
+The eligible catalog and exposure snapshot reset between pooled requests.
 
-- Check the model request contains only the permitted starter tools and
-  discovery; cloud requests retain their full catalogs.
-- Exercise list, search, pagination, describe, and call through the real agent
-  IPC loop against a synthetic model endpoint. Verify tool definitions and
-  historical assistant calls stay unchanged after discovery.
-- Verify MCP/plugin dispatch and artifact capture use the real tool identity.
-- Verify allow/block filters on listing, description, direct calls, catalog
-  calls, and approval replay; test malformed and recursive calls.
-- Verify red/denied actions cannot inherit read-only discovery approval,
-  security hooks receive the underlying action, and `bash` remains sequential.
-- Test per-request isolation in a pooled runtime and bounded discovery output.
-- Run targeted tests, root/container lint, typecheck, and the full build.
-- Run a separate local inference qualification for discovery followed by tool
-  execution; PDF creation remains unqualified until its full workflow passes.
+## Argument validation and verification
+
+Deferred calls validate their argument objects against the selected tool's
+JSON Schema before resolving to the underlying action. The existing MCP SDK's
+AJV validator is used without coercion or external reference resolution, with
+an isolated compiled validator per tool to prevent schema-id collisions.
+Invalid arguments share the two-correction budget with malformed catalog calls
+and missing descriptions. The error points back to the schema step without
+echoing argument values. Unsupported or unresolvable schemas fail closed.
+A malformed batch executes no siblings. Mixed starter/catalog batches receive
+correction only when every called function is exposed; unexposed names remain
+fatal. Approvals still evaluate the real
+action, and approval replay still rechecks current permissions.
+
+Targeted tests cover search ranking, summary/detail separation, pagination,
+allowed and blocked read routing, request resets, nested schema violations,
+external references, schema-id collisions, and corrective errors. Real worker
+IPC tests exercise the staged flow, schema/history stability, blocked targets,
+security hooks, destructive-action approval, replay, and rejecting malformed
+batches before any action. Native model qualification is recorded separately
+in the [qualification record](mac-inference-qualification.md).
 
 ## Token comparison
 

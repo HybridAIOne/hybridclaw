@@ -65,7 +65,7 @@ describe('local tool catalog boundary', () => {
     const last = JSON.parse(catalog.discoveryResult(catalogCall({ action: 'list', offset: 20 }))!.output);
     expect(last.tools).toHaveLength(5); expect(last.nextOffset).toBeNull();
     const search = JSON.parse(catalog.discoveryResult(catalogCall({ action: 'list', query: 'ITEM_24' }))!.output);
-    expect(search.tools).toHaveLength(1);
+    expect(search.tools[0].name).toBe('mcp__item_24');
     const huge = new LocalToolCatalog([tool('huge', 'x'.repeat(25_000))]);
     expect(huge.discoveryResult(catalogCall({ action: 'describe', name: 'huge' }))?.isError).toBe(true);
   });
@@ -85,6 +85,8 @@ test('prompt guidance reflects actual exposed schemas without granting hidden to
   const prompt = compact.promptGuidance();
   expect(prompt).toContain('functions in this request are skills_list and tool_catalog.');
   expect(prompt).toContain('Never emit a direct read call');
+  expect(prompt).toContain('Never emit a direct bash call');
+  expect(prompt).toContain('"action":"call","name":"bash","arguments":{"command":');
   expect(prompt).toContain('"action":"describe","name":"read"');
   expect(prompt).toContain('unavailable or blocked');
   expect(compact.promptGuidance()).toBe(prompt);
@@ -93,6 +95,7 @@ test('prompt guidance reflects actual exposed schemas without granting hidden to
   const noDiscovery = new LocalToolCatalog(available, ['skills_list'], true);
   expect(noDiscovery.promptGuidance()).toContain('Tool discovery is not exposed');
   expect(noDiscovery.promptGuidance()).not.toContain('call tool_catalog');
+  expect(new LocalToolCatalog([tool('skills_list')], []).promptGuidance()).not.toContain('name":"bash');
   expect(new LocalToolCatalog([]).promptGuidance()).toContain('No functions are exposed');
 });
 
@@ -152,4 +155,52 @@ test('requires the catalog name field even when listing tools', () => {
   const invalid = call('tool_catalog', { action: 'list' });
   expect(() => catalog.resolveCall(invalid)).toThrow('top-level name');
   expect(catalog.discoveryResult(catalogCall({ action: 'list' }))?.isError).toBe(false);
+});
+
+
+test('ranks multiword capabilities and parameter names, with an explicit schema step', () => {
+  const lookup = tool('mcp__calendar_search', 'Find scheduled events.');
+  lookup.function.parameters = { type: 'object', properties: { attendee_email: { type: 'string' } }, required: ['attendee_email'] };
+  const catalog = new LocalToolCatalog([lookup, tool('mcp__files_search', 'Find files.'), tool('mcp__pdf_create', 'Create PDF files.')], []);
+  const page = JSON.parse(catalog.discoveryResult(catalogCall({ action: 'list', query: 'create PDF' }))!.output);
+  expect(page.tools[0]).toMatchObject({ name: 'mcp__pdf_create', next: { name: 'tool_catalog', arguments: { action: 'describe', name: 'mcp__pdf_create' } } });
+  const byParameter = JSON.parse(catalog.discoveryResult(catalogCall({ action: 'list', query: 'attendee email' }))!.output);
+  expect(byParameter.tools[0].name).toBe(lookup.function.name);
+  expect(byParameter.tools[0].required).toEqual(['attendee_email']);
+  expect(JSON.stringify(byParameter)).not.toContain('parameters');
+  const empty = JSON.parse(catalog.discoveryResult(catalogCall({ action: 'list', query: 'absent' }))!.output);
+  expect(empty).toMatchObject({ tools: [], total: 0, availableCount: 3 });
+  expect(empty.hint).toContain('fewer keywords');
+});
+
+test('validates nested arguments before resolving an action without coercion or payload echoes', () => {
+  const target = tool('target');
+  target.function.parameters = { type: 'object', properties: { command: { type: 'string' }, options: { type: 'object', properties: { mode: { type: 'string', enum: ['safe'] } }, required: ['mode'] } }, required: ['command', 'options'], additionalProperties: false };
+  for (const args of [{ path: 'private-placeholder' }, { command: 123, options: { mode: 'safe' } }, { command: 'pwd', options: { mode: 'wrong' } }]) {
+    const catalog = new LocalToolCatalog([target], []);
+    try { catalog.resolveCall(catalogCall({ action: 'call', name: 'target', arguments: args })); throw new Error('Expected rejection'); }
+    catch (error) {
+      const correction = catalog.recoverArgumentError(error);
+      expect(correction?.output).toContain('Arguments do not match');
+      expect(correction?.output).not.toContain('private-placeholder');
+    }
+  }
+  const args = { command: 'pwd', options: { mode: 'safe' } };
+  const original = catalogCall({ action: 'call', name: 'target', arguments: args });
+  expect(new LocalToolCatalog([target], []).resolveCall(original).function.arguments).toBe(JSON.stringify(args));
+  expect(original.function.name).toBe('tool_catalog');
+});
+
+test('isolates schema ids and refuses schemas requiring external resolution', () => {
+  const a = tool('one'); const b = tool('two');
+  Object.assign(a.function.parameters, { $id: 'https://example.com/shared', required: ['a'] });
+  Object.assign(b.function.parameters, { $id: 'https://example.com/shared', required: ['b'] });
+  const catalog = new LocalToolCatalog([a, b], []);
+  expect(catalog.resolveCall(catalogCall({ action: 'call', name: 'one', arguments: { a: true } })).function.name).toBe('one');
+  expect(() => catalog.resolveCall(catalogCall({ action: 'call', name: 'two', arguments: { a: true } }))).toThrow('do not match');
+  expect(catalog.resolveCall(catalogCall({ action: 'call', name: 'two', arguments: { b: true } })).function.name).toBe('two');
+  const external = tool('external'); Object.assign(external.function.parameters, { $ref: 'https://example.com/missing' });
+  const blocked = new LocalToolCatalog([external], []);
+  try { blocked.resolveCall(catalogCall({ action: 'call', name: 'external', arguments: {} })); throw new Error('Expected rejection'); }
+  catch (error) { expect(String(error)).toContain('cannot be validated'); expect(blocked.recoverArgumentError(error)).toBeNull(); }
 });

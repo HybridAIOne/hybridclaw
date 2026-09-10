@@ -113,8 +113,10 @@ or agent, including disabled stars. Search applies within the selected filter.
 These display filters do not change which tools or skills are sent to the model.
 
 For tools, the directory is `tool_catalog`, which lists, describes, and calls
-other permitted tools. For skills, `skills_list` searches the full eligible
-catalog and returns SKILL.md locations to read. Mandatory `always` skills stay
+other permitted tools. Both directories use progressive discovery: short
+search results, selected details, then an explicit call to read or execute.
+For skills, `skills_list` searches the full eligible catalog; select a result
+with `name` to get its metadata and next SKILL.md read call. Mandatory `always` skills stay
 in the prompt. Stars never enable a blocked or disabled tool or skill.
 
 In starred tool mode, the prompt identifies the supplied function schemas as the
@@ -126,12 +128,20 @@ References to tool names in other instructions are workflow examples, not an
 expanded callable set. A description returns the `tool_catalog` invocation
 schema with the target's parameters nested under `arguments`. Every catalog
 call includes `name`; a general listing uses an empty string. Missing tool
-descriptions or required call fields return corrective feedback to the model,
+descriptions, required call fields, or arguments that violate the selected
+tool schema return corrective feedback to the model,
 with up to two corrections per request. A malformed call batch executes no
-actions. Calls that try to execute unavailable tools still stop the request.
+actions, including any valid starter calls in that batch. Calls that try to execute unavailable tools still stop the request.
 After a catalog-executed action, the runtime appends a reminder
 of the available functions; earlier messages and schemas stay intact. The skill
 directory tool is named `skills_list`.
+Keyword search ranks tool names, descriptions, and parameter names; skill
+search ranks names, descriptions, and categories. Results include a `next`
+call with the correct function name and arguments for the current request.
+A search miss offers broader browsing rather than implying the capability is
+unavailable. If a name and its parameters are already known, the model can
+skip the search step. Schemas that cannot be validated locally fail before
+execution; discovery does not fetch external schema references.
 Directory tools run when the model calls them; they are not invoked automatically
 for every message. Full skill mode already includes the eligible skill list.
 
