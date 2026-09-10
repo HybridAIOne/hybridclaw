@@ -151,6 +151,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       textChunkLimit: 4000,
       replyStyle: 'thread',
       mediaMaxMb: 20,
+      showMemoryFooter: true,
       dangerouslyAllowNameMatching: false,
       mediaAllowHosts: [],
       mediaAuthAllowHosts: [],

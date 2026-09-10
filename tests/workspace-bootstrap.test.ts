@@ -355,6 +355,26 @@ describe('workspace bootstrap lifecycle', () => {
     });
   });
 
+  test('daily prompt reads the tool cap and keeps the tail of oversized notes', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    vi.stubEnv('HOME', homeDir);
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+    workspace.ensureBootstrapFiles('agent-test');
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const dailyPath = path.join(workspaceDir, 'memory', `${currentLocalDateStamp()}.md`);
+    fs.mkdirSync(path.dirname(dailyPath), { recursive: true });
+    const valid = 'Beginning\n' + '界'.repeat(23_970) + '\nNewest entry.';
+    fs.writeFileSync(dailyPath, valid);
+    expect(workspace.loadDailyMemoryFile('agent-test')?.content).toBe(valid);
+    fs.writeFileSync(dailyPath, 'Beginning\n' + 'x'.repeat(100_000) + '\nNewest entry.');
+    const content = workspace.loadDailyMemoryFile('agent-test')?.content;
+    expect(content).toContain('Beginning');
+    expect(content).toContain('Newest entry.');
+    expect(content).toContain('[truncated middle]');
+    expect(content?.length).toBeLessThanOrEqual(24_000);
+  });
+
   test('loads the previous days of daily memory notes, newest first, within budget', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
@@ -422,6 +442,30 @@ describe('workspace bootstrap lifecycle', () => {
     expect(todayOnly.map((file) => file.name)).toEqual([
       `memory/${stampDaysAgo(0)}.md`,
     ]);
+  });
+
+  test('prior daily notes keep their tail when truncated to the history budget', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    vi.stubEnv('HOME', homeDir);
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+    workspace.ensureBootstrapFiles('agent-test');
+    const memoryDir = path.join(ipc.agentWorkspaceDir('agent-test'), 'memory');
+    fs.mkdirSync(memoryDir, { recursive: true });
+    const now = new Date();
+    const stampDaysAgo = (days: number): string => {
+      const date = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    };
+    fs.writeFileSync(path.join(memoryDir, `${stampDaysAgo(1)}.md`), 'Beginning\n' + 'x'.repeat(100_000) + '\nNewest entry.');
+    fs.writeFileSync(path.join(memoryDir, `${stampDaysAgo(2)}.md`), '- two days ago\n');
+    const files = workspace.loadRecentDailyMemoryFiles('agent-test', { now });
+    expect(files.map((file) => file.name)).toEqual([`memory/${stampDaysAgo(1)}.md`]);
+    const content = files[0]?.content || '';
+    expect(content).toContain('Beginning');
+    expect(content).toContain('Newest entry.');
+    expect(content).toContain('[truncated middle]');
+    expect(content.length).toBeLessThanOrEqual(workspace.DAILY_MEMORY_HISTORY_MAX_CHARS);
   });
 
   test('omits the default HEARTBEAT.md from bootstrap context', async () => {

@@ -4328,6 +4328,7 @@ describe('CLI hybridai commands', () => {
         requireMention: true,
         textChunkLimit: 4000,
         replyStyle: 'thread',
+        showMemoryFooter: true,
         mediaMaxMb: 20,
         dangerouslyAllowNameMatching: false,
         mediaAllowHosts: [],
