@@ -182,3 +182,56 @@ test('createJob seeds last_run for cron tasks so they do not fire immediately', 
   expect(byId.get(atId)?.last_run).toBeNull();
   expect(byId.get(everyId)?.last_run).toBeNull();
 });
+
+test('job failures record a reason that success clears again', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const {
+    createJob,
+    disableJobWithError,
+    getJob,
+    markJobFailure,
+    markJobSuccess,
+  } = await import('../src/memory/jobs.ts');
+
+  initDatabase({ quiet: true });
+
+  const taskId = createJob({
+    kind: 'scheduled_task',
+    sessionId: 'session-1',
+    channelId: 'channel-1',
+    cronExpr: '',
+    runAt: '2099-01-01T09:00:00.000Z',
+    prompt: 'One-shot reminder.',
+  });
+
+  const failure = markJobFailure(
+    taskId,
+    5,
+    new Error('Delivery to channel-1 failed: socket closed'),
+  );
+  expect(failure).toEqual({ disabled: false, consecutiveErrors: 1 });
+  expect(getJob(taskId, { kind: 'scheduled_task' })).toMatchObject({
+    enabled: 1,
+    last_status: 'error',
+    last_error: 'Delivery to channel-1 failed: socket closed',
+    consecutive_errors: 1,
+  });
+
+  markJobSuccess(taskId);
+  expect(getJob(taskId, { kind: 'scheduled_task' })).toMatchObject({
+    last_status: 'success',
+    last_error: null,
+    consecutive_errors: 0,
+  });
+
+  disableJobWithError(taskId, 'Invalid cron expression "61 * * * *"');
+  expect(getJob(taskId, { kind: 'scheduled_task' })).toMatchObject({
+    enabled: 0,
+    last_status: 'error',
+    last_error: 'Invalid cron expression "61 * * * *"',
+  });
+});

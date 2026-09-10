@@ -1,3 +1,8 @@
+/**
+ * Semantic rows stay scoped to their resolved session and recall confidence floor.
+ * Unlike prompt assembly, this module owns stored-row eligibility and retrieval;
+ * it does not embed queries or report client activity.
+ */
 import Database from 'better-sqlite3';
 import type { SemanticMemoryEntry } from '../types/memory.js';
 import type { StoredMessage } from '../types/session.js';
@@ -648,6 +653,22 @@ function recallSemanticMemoriesByRecent(params: {
     touchSemanticMemoryRows(mapped);
   }
   return mapped;
+}
+
+export function hasRecallableSemanticMemories(
+  sessionId: string,
+  minConfidence: number,
+): boolean {
+  return Boolean(
+    queryOne<{ found: number }>(
+      getSemanticMemoryDatabase(),
+      `SELECT 1 AS found FROM semantic_memories
+       WHERE session_id = ? AND deleted = 0 AND confidence >= ?
+       LIMIT 1`,
+      resolveSessionIdCompat(sessionId),
+      minConfidence,
+    ),
+  );
 }
 
 export function listSemanticMemoriesForSession(

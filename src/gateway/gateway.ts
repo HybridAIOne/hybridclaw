@@ -77,6 +77,7 @@ import {
 } from '../channels/line/runtime.js';
 import { isLineChannelId } from '../channels/line/target.js';
 import {
+  buildResponseText as buildMSTeamsResponseText,
   buildMSTeamsSessionSwitcherCard,
   stripUnusableMSTeamsArtifactLinks,
 } from '../channels/msteams/delivery.js';
@@ -177,11 +178,14 @@ import {
   deleteQueuedProactiveMessage,
   enqueueProactiveMessage,
   failStaleDelegationJobs,
+  getFailedProactiveMessageCount,
   getLatestAssistantMessageId,
   getMostRecentSessionChannelId,
   getQueuedProactiveMessageCount,
   initDatabase,
   listQueuedProactiveMessages,
+  markQueuedProactiveMessageFailed,
+  pruneFailedProactiveMessages,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { initOtel, shutdownOtel } from '../observability/otel.js';
@@ -283,6 +287,7 @@ import {
 import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
+  resolvePendingApprovalSessionId,
   resolveTextChannelSlashCommands,
 } from './text-channel-commands.js';
 import { persistVoiceTranscript } from './voice-transcript-store.js';
@@ -786,7 +791,9 @@ function resolveImplicitNumericApprovalArgs(params: {
   userId: string;
   content: string;
 }): string[] | null {
-  const pending = getPendingApproval(params.sessionId);
+  const pending = getPendingApproval(
+    resolvePendingApprovalSessionId(params.sessionId),
+  );
   if (!pending || pending.userId !== params.userId) return null;
 
   const normalized = params.content.trim();
@@ -945,12 +952,27 @@ async function executeTextChannelGatewayTurn(params: {
   return params.resultTransform ? params.resultTransform(result) : result;
 }
 
+interface ProactiveDeliveryOutcome {
+  status: 'delivered' | 'queued' | 'suppressed' | 'failed';
+  reason?: string;
+}
+
+function proactiveDeliveryFailed(reason: unknown): ProactiveDeliveryOutcome {
+  return {
+    status: 'failed',
+    reason:
+      reason instanceof Error
+        ? reason.message
+        : String(reason ?? 'Delivery failed'),
+  };
+}
+
 async function deliverProactiveMessage(
   channelId: string,
   text: string,
   source: string,
   artifacts?: ArtifactMetadata[],
-): Promise<void> {
+): Promise<ProactiveDeliveryOutcome> {
   if (
     isA2ALocalModeEnabled(getConfigSnapshot()) &&
     channelId.trim() !== 'tui'
@@ -959,11 +981,11 @@ async function deliverProactiveMessage(
       { source, channelId },
       'Proactive channel delivery suppressed by A2A local mode',
     );
-    return;
+    return { status: 'suppressed', reason: 'A2A local mode' };
   }
   if (shouldSuppressProactiveMessage({ source, text })) {
     logger.debug({ source, channelId }, 'Proactive message suppressed');
-    return;
+    return { status: 'suppressed', reason: 'Heartbeat OK' };
   }
 
   if (!isWithinActiveHours()) {
@@ -991,16 +1013,16 @@ async function deliverProactiveMessage(
           'Queued proactive message does not persist attachments; only text was queued',
         );
       }
-      return;
+      return { status: 'queued', reason: 'Outside active hours' };
     }
     logger.info(
       { source, channelId, activeHours: proactiveWindowLabel() },
       'Proactive message suppressed (outside active hours)',
     );
-    return;
+    return { status: 'suppressed', reason: 'Outside active hours' };
   }
 
-  await sendProactiveMessageNow(channelId, text, source, artifacts);
+  return sendProactiveMessageNow(channelId, text, source, artifacts);
 }
 
 async function sendProactiveMessageNow(
@@ -1008,7 +1030,7 @@ async function sendProactiveMessageNow(
   text: string,
   source: string,
   artifacts?: ArtifactMetadata[],
-): Promise<void> {
+): Promise<ProactiveDeliveryOutcome> {
   if (
     isA2ALocalModeEnabled(getConfigSnapshot()) &&
     channelId.trim() !== 'tui'
@@ -1017,7 +1039,7 @@ async function sendProactiveMessageNow(
       { source, channelId },
       'Immediate channel delivery suppressed by A2A local mode',
     );
-    return;
+    return { status: 'suppressed', reason: 'A2A local mode' };
   }
   const attachments = buildArtifactAttachments(artifacts);
   if (isLineChannelId(channelId)) {
@@ -1026,7 +1048,7 @@ async function sendProactiveMessageNow(
         { source, channelId },
         `Proactive LINE message suppressed: transport plugin is not installed. ${LINE_PLUGIN_INSTALL_HINT}`,
       );
-      return;
+      return { status: 'failed', reason: 'transport plugin is not installed' };
     }
     const lineAuth = await getLineAuthStatus();
     if (!lineAuth.linked) {
@@ -1034,7 +1056,7 @@ async function sendProactiveMessageNow(
         { source, channelId },
         'Proactive LINE message suppressed: LINE not linked',
       );
-      return;
+      return { status: 'failed', reason: 'LINE not linked' };
     }
     if (attachments.length > 0) {
       logger.warn(
@@ -1042,8 +1064,16 @@ async function sendProactiveMessageNow(
         'Proactive LINE delivery currently sends text only',
       );
     }
-    await sendToLineSelfChat(channelId, text);
-    return;
+    try {
+      await sendToLineSelfChat(channelId, text);
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error },
+        'Failed to send proactive message to LINE chat',
+      );
+      return proactiveDeliveryFailed(error);
+    }
+    return { status: 'delivered' };
   }
   if (isWhatsAppJid(channelId)) {
     if (!isWhatsAppTransportInstalled()) {
@@ -1051,7 +1081,7 @@ async function sendProactiveMessageNow(
         { source, channelId },
         `Proactive WhatsApp message suppressed: transport plugin is not installed. ${WHATSAPP_PLUGIN_INSTALL_HINT}`,
       );
-      return;
+      return { status: 'failed', reason: 'transport plugin is not installed' };
     }
     const whatsappAuth = await getWhatsAppAuthStatus();
     if (!whatsappAuth.linked) {
@@ -1059,7 +1089,7 @@ async function sendProactiveMessageNow(
         { source, channelId, text },
         'Proactive WhatsApp message suppressed: WhatsApp not linked',
       );
-      return;
+      return { status: 'failed', reason: 'WhatsApp not linked' };
     }
     if (attachments.length > 0) {
       logger.warn(
@@ -1074,9 +1104,9 @@ async function sendProactiveMessageNow(
         { source, channelId, error },
         'Failed to send proactive message to WhatsApp chat',
       );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
+      return proactiveDeliveryFailed(error);
     }
-    return;
+    return { status: 'delivered' };
   }
 
   if (isIMessageHandle(channelId)) {
@@ -1085,7 +1115,7 @@ async function sendProactiveMessageNow(
         { source, channelId, text, artifactCount: attachments.length },
         'Proactive iMessage message suppressed: iMessage channel is not configured',
       );
-      return;
+      return { status: 'failed', reason: 'iMessage channel is not configured' };
     }
     try {
       if (artifacts && artifacts.length > 0) {
@@ -1104,7 +1134,7 @@ async function sendProactiveMessageNow(
             filename: artifacts[index].filename,
           });
         }
-        return;
+        return { status: 'delivered' };
       }
 
       await sendToIMessageChat(channelId, text);
@@ -1113,9 +1143,9 @@ async function sendProactiveMessageNow(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to iMessage chat',
       );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
+      return proactiveDeliveryFailed(error);
     }
-    return;
+    return { status: 'delivered' };
   }
 
   if (isEmailAddress(channelId)) {
@@ -1127,7 +1157,7 @@ async function sendProactiveMessageNow(
         { source, channelId, text, artifactCount: attachments.length },
         'Proactive email message suppressed: email channel is not configured',
       );
-      return;
+      return { status: 'failed', reason: 'email channel is not configured' };
     }
 
     try {
@@ -1147,7 +1177,7 @@ async function sendProactiveMessageNow(
             filename: artifacts[index].filename,
           });
         }
-        return;
+        return { status: 'delivered' };
       }
 
       await sendToEmail(channelId, text);
@@ -1156,9 +1186,9 @@ async function sendProactiveMessageNow(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to email recipient',
       );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
+      return proactiveDeliveryFailed(error);
     }
-    return;
+    return { status: 'delivered' };
   }
 
   if (isSlackWebhookChannelTarget(channelId)) {
@@ -1168,7 +1198,10 @@ async function sendProactiveMessageNow(
         { source, channelId, text, artifactCount: attachments.length },
         'Proactive Slack webhook message suppressed: Slack webhook channel is not configured',
       );
-      return;
+      return {
+        status: 'failed',
+        reason: 'Slack webhook channel is not configured',
+      };
     }
 
     try {
@@ -1181,15 +1214,14 @@ async function sendProactiveMessageNow(
       if (text.trim()) {
         await sendToSlackWebhookTarget(channelId, text);
       }
-      return;
+      return { status: 'delivered' };
     } catch (error) {
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to Slack webhook target',
       );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
+      return proactiveDeliveryFailed(error);
     }
-    return;
   }
 
   if (isDiscordWebhookChannelTarget(channelId)) {
@@ -1199,7 +1231,10 @@ async function sendProactiveMessageNow(
         { source, channelId, text, artifactCount: attachments.length },
         'Proactive Discord webhook message suppressed: Discord webhook channel is not configured',
       );
-      return;
+      return {
+        status: 'failed',
+        reason: 'Discord webhook channel is not configured',
+      };
     }
 
     try {
@@ -1212,15 +1247,14 @@ async function sendProactiveMessageNow(
       if (text.trim()) {
         await sendToDiscordWebhookTarget(channelId, text);
       }
-      return;
+      return { status: 'delivered' };
     } catch (error) {
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to Discord webhook target',
       );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
+      return proactiveDeliveryFailed(error);
     }
-    return;
   }
 
   if (isSlackChannelTarget(channelId)) {
@@ -1233,7 +1267,7 @@ async function sendProactiveMessageNow(
         { source, channelId, text, artifactCount: attachments.length },
         'Proactive Slack message suppressed: Slack is not configured',
       );
-      return;
+      return { status: 'failed', reason: 'Slack is not configured' };
     }
 
     try {
@@ -1247,15 +1281,14 @@ async function sendProactiveMessageNow(
           filename: artifact.filename,
         });
       }
-      return;
+      return { status: 'delivered' };
     } catch (error) {
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to Slack conversation',
       );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
+      return proactiveDeliveryFailed(error);
     }
-    return;
   }
 
   if (isSignalChannelId(channelId)) {
@@ -1269,7 +1302,7 @@ async function sendProactiveMessageNow(
         { source, channelId, text, artifactCount: attachments.length },
         'Proactive Signal message suppressed: Signal channel is not configured',
       );
-      return;
+      return { status: 'failed', reason: 'Signal channel is not configured' };
     }
 
     try {
@@ -1282,15 +1315,14 @@ async function sendProactiveMessageNow(
           'Signal channel does not yet support proactive attachments; dropping artifacts',
         );
       }
-      return;
+      return { status: 'delivered' };
     } catch (error) {
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to Signal chat',
       );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
+      return proactiveDeliveryFailed(error);
     }
-    return;
   }
 
   if (isTelegramChannelId(channelId)) {
@@ -1301,7 +1333,7 @@ async function sendProactiveMessageNow(
         { source, channelId, text, artifactCount: attachments.length },
         'Proactive Telegram message suppressed: Telegram channel is not configured',
       );
-      return;
+      return { status: 'failed', reason: 'Telegram channel is not configured' };
     }
 
     try {
@@ -1316,15 +1348,14 @@ async function sendProactiveMessageNow(
           filename: artifact.filename,
         });
       }
-      return;
+      return { status: 'delivered' };
     } catch (error) {
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to Telegram chat',
       );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
+      return proactiveDeliveryFailed(error);
     }
-    return;
   }
 
   if (isThreemaChannelId(channelId)) {
@@ -1340,7 +1371,10 @@ async function sendProactiveMessageNow(
         { source, channelId, text, artifactCount: attachments.length },
         'Proactive Threema message suppressed: Threema channel is not configured or is disabled',
       );
-      return;
+      return {
+        status: 'failed',
+        reason: 'Threema channel is not configured or is disabled',
+      };
     }
 
     try {
@@ -1353,15 +1387,14 @@ async function sendProactiveMessageNow(
           'Threema channel does not support proactive attachments; dropping artifacts',
         );
       }
-      return;
+      return { status: 'delivered' };
     } catch (error) {
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to Threema chat',
       );
-      logger.info({ source, channelId, text }, 'Proactive message fallback');
+      return proactiveDeliveryFailed(error);
     }
-    return;
   }
 
   if (!isDiscordChannelId(channelId)) {
@@ -1387,7 +1420,7 @@ async function sendProactiveMessageNow(
         'Queued proactive local delivery does not persist attachments; only text was queued',
       );
     }
-    return;
+    return { status: 'queued' };
   }
 
   if (!DISCORD_TOKEN) {
@@ -1395,7 +1428,7 @@ async function sendProactiveMessageNow(
       { source, channelId, text, artifactCount: attachments.length },
       'Proactive message (no Discord delivery)',
     );
-    return;
+    return { status: 'failed', reason: 'Discord is not configured' };
   }
 
   try {
@@ -1405,8 +1438,9 @@ async function sendProactiveMessageNow(
       { source, channelId, error, artifactCount: attachments.length },
       'Failed to send proactive message to Discord channel',
     );
-    logger.info({ source, channelId, text }, 'Proactive message fallback');
+    return proactiveDeliveryFailed(error);
   }
+  return { status: 'delivered' };
 }
 
 async function deliverWebhookMessage(
@@ -1455,29 +1489,44 @@ async function flushQueuedProactiveMessages(): Promise<void> {
     'Flushing queued proactive messages',
   );
 
-  let droppedUndeliverable = 0;
+  pruneFailedProactiveMessages();
+  let failedUndeliverable = 0;
   for (const item of pending) {
     if (!isWithinActiveHours()) break;
     if (shouldDropQueuedProactiveMessage(item)) {
-      deleteQueuedProactiveMessage(item.id);
-      droppedUndeliverable += 1;
+      markQueuedProactiveMessageFailed(
+        item.id,
+        `No proactive delivery path for channel "${item.channel_id}"`,
+      );
+      failedUndeliverable += 1;
       continue;
     }
     if (!hasImmediateProactiveDeliveryPath(item)) {
       continue;
     }
-    await sendProactiveMessageNow(
+    const outcome = await sendProactiveMessageNow(
       item.channel_id,
       item.text,
       `${item.source}:queued`,
     );
+    if (outcome.status === 'failed') {
+      markQueuedProactiveMessageFailed(
+        item.id,
+        outcome.reason || 'Delivery failed',
+      );
+      failedUndeliverable += 1;
+      continue;
+    }
     deleteQueuedProactiveMessage(item.id);
   }
 
-  if (droppedUndeliverable > 0) {
-    logger.info(
-      { dropped: droppedUndeliverable },
-      'Dropped undeliverable queued proactive messages',
+  if (failedUndeliverable > 0) {
+    logger.warn(
+      {
+        failed: failedUndeliverable,
+        totalFailed: getFailedProactiveMessageCount(),
+      },
+      'Queued proactive messages marked as failed (undeliverable)',
     );
   }
 }
@@ -1799,12 +1848,19 @@ async function startMSTeamsIntegration(): Promise<boolean> {
             }),
           ),
         );
+        const memoryFooterOptions = {
+          showMemoryFooter: getConfigSnapshot().msteams.showMemoryFooter,
+        };
+        const memoryAccess = memoryFooterOptions.showMemoryFooter
+          ? result.memoryAccess
+          : undefined;
         if (result.status === 'error') {
           await context.stream.fail(
-            buildResponseText(
+            buildMSTeamsResponseText(
               formatAgentErrorReply(result.error),
               undefined,
-              result.memoryAccess,
+              memoryAccess,
+              memoryFooterOptions,
             ),
           );
           return;
@@ -1822,11 +1878,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
         const renderedText = stripSilentToken(String(result.result || ''));
         const artifacts = result.artifacts || [];
         const effectiveSessionId = result.sessionId || sessionId;
-        if (
-          !renderedText.trim() &&
-          artifacts.length === 0 &&
-          !result.memoryAccess
-        ) {
+        if (!renderedText.trim() && artifacts.length === 0 && !memoryAccess) {
           await context.stream.discard();
           return;
         }
@@ -1834,13 +1886,14 @@ async function startMSTeamsIntegration(): Promise<boolean> {
           memoryService.getSessionById(effectiveSessionId)?.show_mode,
         );
         let responseText =
-          renderedText.trim() || result.memoryAccess
-            ? buildResponseText(
+          renderedText.trim() || memoryAccess
+            ? buildMSTeamsResponseText(
                 stripUnusableMSTeamsArtifactLinks(renderedText),
                 sessionShowModeShowsTools(showMode)
                   ? result.toolsUsed
                   : undefined,
-                result.memoryAccess,
+                memoryAccess,
+                memoryFooterOptions,
               )
             : '';
         const pendingApproval = extractGatewayChatApprovalEvent(result);
@@ -4023,7 +4076,7 @@ async function runScheduledTask(
         : null;
 
   if (request.delivery.kind === 'last-channel' && !resolvedDeliveryChannelId) {
-    logger.info(
+    logger.warn(
       {
         jobId: request.jobId,
         taskId: request.taskId,
@@ -4033,7 +4086,9 @@ async function runScheduledTask(
       },
       'Scheduled task skipped: no delivery channel available',
     );
-    return;
+    throw new Error(
+      'No delivery channel available: no recently used channel supports proactive delivery.',
+    );
   }
 
   if (request.actionKind === 'system_event') {
@@ -4050,11 +4105,16 @@ async function runScheduledTask(
         'No delivery channel available for scheduled system event delivery.',
       );
     }
-    await deliverProactiveMessage(
+    const outcome = await deliverProactiveMessage(
       resolvedDeliveryChannelId,
       request.prompt,
       `${sourceLabel}:system`,
     );
+    if (outcome.status === 'failed') {
+      throw new Error(
+        `Delivery to ${resolvedDeliveryChannelId} failed: ${outcome.reason || 'unknown error'}`,
+      );
+    }
     return;
   }
 
@@ -4068,6 +4128,7 @@ async function runScheduledTask(
         ? `cron:${request.taskId}`
         : undefined;
 
+  let runError: unknown = null;
   await runGatewayScheduledTask(
     request.sessionId,
     runChannelId,
@@ -4117,12 +4178,17 @@ async function runScheduledTask(
         );
         return;
       }
-      await deliverProactiveMessage(
+      const outcome = await deliverProactiveMessage(
         resolvedDeliveryChannelId,
         result.text,
         sourceLabel,
         result.artifacts,
       );
+      if (outcome.status === 'failed') {
+        throw new Error(
+          `Delivery to ${resolvedDeliveryChannelId} failed: ${outcome.reason || 'unknown error'}`,
+        );
+      }
       logger.info(
         {
           jobId: request.jobId,
@@ -4136,6 +4202,7 @@ async function runScheduledTask(
       );
     },
     (error) => {
+      runError = error ?? new Error('Scheduled task failed.');
       logger.error(
         {
           jobId: request.jobId,
@@ -4150,6 +4217,9 @@ async function runScheduledTask(
     runKey,
     request.agentId,
   );
+  if (runError !== null) {
+    throw runError instanceof Error ? runError : new Error(String(runError));
+  }
 }
 
 function isSchedulerNoopTuiResult(text: string): boolean {

@@ -318,7 +318,14 @@ export function startHeartbeat(
           'Skill inspection failed',
         );
       }
-      processSideEffects(output, sessionId, heartbeatChannelId);
+      processSideEffects(output, sessionId, heartbeatChannelId, {
+        onError: (message) => {
+          logger.warn(
+            { sessionId, channelId: heartbeatChannelId, message },
+            'Heartbeat side-effect failed',
+          );
+        },
+      });
 
       if (output.status === 'error') {
         logger.warn({ error: output.error }, 'Heartbeat agent error');

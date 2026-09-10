@@ -917,6 +917,14 @@ async function importFreshHealth(options?: {
       result.title ? `${result.title}\n${result.text}` : result.text,
   );
   const runGatewayPluginTool = vi.fn(async () => 'plugin-tool-result');
+  const runScheduledTaskToolAction = vi.fn(() => ({
+    ok: true,
+    action: 'add',
+    taskId: 7,
+    sessionId: 'session-cron',
+    channelId: 'ops@example.com',
+    prompt: 'Write the briefing.',
+  }));
   type TestStoredApp = {
     id: string;
     title: string;
@@ -2882,6 +2890,9 @@ async function importFreshHealth(options?: {
     ResponseRatingNotFoundError,
     submitResponseRating,
   }));
+  vi.doMock('../src/gateway/scheduled-task-tool-service.js', () => ({
+    runScheduledTaskToolAction,
+  }));
 
   const gatewayHttpServer = await import(
     '../src/gateway/gateway-http-server.js'
@@ -2954,6 +2965,7 @@ async function importFreshHealth(options?: {
     saveGatewayAdminPolicyRule,
     deleteGatewayAdminPolicyRule,
     runGatewayPluginTool,
+    runScheduledTaskToolAction,
     getGatewayAdminModels,
     getGatewayAdminPlugins,
     getGatewayAdminScheduler,
@@ -13707,6 +13719,62 @@ describe('gateway HTTP server', () => {
       ok: true,
       secretName: 'DATEV_PASSWORD',
       value: 'datev-cleartext-secret',
+    });
+  });
+
+  test('restricts the scheduler task endpoint to gateway token auth and returns the persisted job', async () => {
+    const state = await importFreshHealth({
+      webApiToken: 'web-token',
+      gatewayApiToken: 'gateway-token',
+    });
+    const body = {
+      action: 'add',
+      sessionId: 'session-cron',
+      cronExpr: '0 7 * * *',
+      channelId: 'ops@example.com',
+      prompt: 'Write the briefing.',
+    };
+
+    const webReq = makeRequest({
+      method: 'POST',
+      url: '/api/scheduler/task',
+      headers: { authorization: 'Bearer web-token' },
+      body,
+    });
+    const webRes = makeResponse();
+    state.handler(webReq as never, webRes as never);
+    await settle();
+    expect(webRes.statusCode).toBe(401);
+    expect(state.runScheduledTaskToolAction).not.toHaveBeenCalled();
+
+    const gatewayReq = makeRequest({
+      method: 'POST',
+      url: '/api/scheduler/task',
+      headers: { authorization: 'Bearer gateway-token' },
+      body,
+    });
+    const gatewayRes = makeResponse();
+    state.handler(gatewayReq as never, gatewayRes as never);
+    await settle();
+    expect(state.runScheduledTaskToolAction).toHaveBeenCalledWith(body);
+    expect(gatewayRes.statusCode).toBe(200);
+    expect(JSON.parse(gatewayRes.body)).toMatchObject({ ok: true, taskId: 7 });
+
+    state.runScheduledTaskToolAction.mockImplementationOnce(() => {
+      throw new state.GatewayRequestError(404, 'Unknown session: missing');
+    });
+    const missingReq = makeRequest({
+      method: 'POST',
+      url: '/api/scheduler/task',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: { ...body, sessionId: 'missing' },
+    });
+    const missingRes = makeResponse();
+    state.handler(missingReq as never, missingRes as never);
+    await settle();
+    expect(missingRes.statusCode).toBe(404);
+    expect(JSON.parse(missingRes.body)).toEqual({
+      error: 'Unknown session: missing',
     });
   });
 

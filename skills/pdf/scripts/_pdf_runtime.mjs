@@ -71,17 +71,43 @@ function normalizeText(value) {
     .trim();
 }
 
-function groupPageTextItems(items) {
+/**
+ * Project a text item's transform into viewport space so page rotation
+ * (`/Rotate`) and rotated text runs group into the lines a reader sees.
+ * Falls back to raw PDF user-space coordinates when no viewport is given.
+ */
+function positionTextItem(item, options) {
+  const transform = Array.isArray(item.transform) ? item.transform : [];
+  const width = Number(item.width || 0);
+  const rawHeight = Math.abs(Number(item.height || 0));
+  const { viewport, Util } = options;
+  if (!viewport || !Util || transform.length < 6) {
+    return {
+      x: Number(transform[4] || 0),
+      y: Number(transform[5] || 0),
+      width,
+      height: rawHeight,
+    };
+  }
+  const projected = Util.transform(viewport.transform, transform);
+  const height = Math.hypot(projected[2], projected[3]) || rawHeight;
+  // Viewport y grows downwards; negate it so "larger y is higher on the
+  // page" keeps holding for the line ordering below.
+  return {
+    x: Number(projected[4] || 0),
+    y: -Number(projected[5] || 0),
+    width,
+    height,
+  };
+}
+
+function groupPageTextItems(items, options = {}) {
   const positioned = items
     .map((item) => {
       if (!('str' in item)) return null;
       const text = normalizeText(item.str);
       if (!text) return null;
-      const transform = Array.isArray(item.transform) ? item.transform : [];
-      const x = Number(transform[4] || 0);
-      const y = Number(transform[5] || 0);
-      const width = Number(item.width || 0);
-      const height = Math.abs(Number(item.height || 0));
+      const { x, y, width, height } = positionTextItem(item, options);
       return {
         text,
         x,
@@ -135,12 +161,17 @@ export async function extractPdfText(inputPath, pageNumbers) {
   const selectedPages = parsePageSelection(pageNumbers, pdf.numPages);
   const pages = [];
 
+  const { Util } = await loadPdfJs();
+
   for (const pageNumber of selectedPages) {
     const page = await pdf.getPage(pageNumber);
     const textContent = await page.getTextContent();
     pages.push({
       pageNumber,
-      text: groupPageTextItems(textContent.items),
+      text: groupPageTextItems(textContent.items, {
+        viewport: page.getViewport({ scale: 1 }),
+        Util,
+      }),
     });
   }
 

@@ -1,9 +1,16 @@
+/**
+ * Message storage attaches validated tool exchanges to their final assistant
+ * row so retrieval/deletion cannot split pairs. Unlike audit storage, these
+ * rows are conversation context and never confer execution authority.
+ */
 import type Database from 'better-sqlite3';
+import { sanitizeToolHistory } from '../session/tool-history.js';
 import {
   type ActivityTrace,
   parseActivityTrace,
   serializeActivityTrace,
 } from '../types/activity-trace.js';
+import type { ChatMessage } from '../types/api.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type {
   ConversationBranchFamily,
@@ -150,10 +157,16 @@ export function storeMessage(
   agentId?: string | null,
   artifacts?: ArtifactMetadata[] | null,
   source?: string | null,
+  toolHistory?: ChatMessage[],
 ): number {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
   const normalizedAgentId = agentId?.trim() || null;
   const artifactsJson = serializeMessageArtifacts(artifacts);
+  if (toolHistory?.length && role !== 'assistant')
+    throw new Error('Tool history requires an assistant message.');
+  const toolHistoryJson = toolHistory?.length
+    ? JSON.stringify(sanitizeToolHistory(toolHistory))
+    : null;
   const result = getMessageDatabase()
     .prepare(
       `INSERT INTO messages (
@@ -165,8 +178,9 @@ export function storeMessage(
          content,
          artifacts_json,
          source,
+         tool_history_json,
          created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
     )
     .run(
       resolvedSessionId,
@@ -177,6 +191,7 @@ export function storeMessage(
       content,
       artifactsJson,
       source?.trim() || null,
+      toolHistoryJson,
     );
 
   getMessageDatabase()

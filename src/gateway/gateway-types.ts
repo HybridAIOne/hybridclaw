@@ -1471,6 +1471,7 @@ export interface GatewayAdminSchedulerJob {
   delivery: RuntimeSchedulerJob['delivery'];
   lastRun: string | null;
   lastStatus: 'success' | 'error' | null;
+  lastError: string | null;
   nextRunAt: string | null;
   disabled: boolean;
   consecutiveErrors: number;
@@ -1480,7 +1481,21 @@ export interface GatewayAdminSchedulerJob {
   taskId: number | null;
 }
 
+export interface GatewayAdminSchedulerFailedProactiveMessage {
+  id: number;
+  channelId: string;
+  reason: string;
+  failedAt: string;
+}
+
+export interface GatewayAdminSchedulerProactiveQueue {
+  queued: number;
+  failed: number;
+  failedMessages: GatewayAdminSchedulerFailedProactiveMessage[];
+}
+
 export interface GatewayAdminSchedulerResponse {
+  proactiveQueue: GatewayAdminSchedulerProactiveQueue;
   jobs: GatewayAdminSchedulerJob[];
 }
 

@@ -23,7 +23,7 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 58;
+export const DATABASE_SCHEMA_VERSION = 60;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -1092,7 +1092,9 @@ function migrateV1(database: Database.Database): void {
       channel_id TEXT NOT NULL,
       text TEXT NOT NULL,
       source TEXT NOT NULL,
-      queued_at TEXT DEFAULT (datetime('now'))
+      queued_at TEXT DEFAULT (datetime('now')),
+      failed_at TEXT,
+      failure_reason TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_proactive_queue_id ON proactive_message_queue(id);
 
@@ -3522,7 +3524,69 @@ function migrateV57(
   recordMigration(database, 57, 'Persist per-agent tool allowlists');
 }
 
+function schedulerFailureReasonsNeedMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    (tableExists(database, 'jobs') &&
+      !columnExists(database, 'jobs', 'last_error')) ||
+    (tableExists(database, 'proactive_message_queue') &&
+      !columnExists(database, 'proactive_message_queue', 'failed_at'))
+  );
+}
+
 function migrateV58(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'jobs',
+    column: 'last_error',
+    ddl: 'last_error TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'proactive_message_queue',
+    column: 'failed_at',
+    ddl: 'failed_at TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'proactive_message_queue',
+    column: 'failure_reason',
+    ddl: 'failure_reason TEXT',
+    quiet,
+  });
+  recordMigration(
+    database,
+    58,
+    'Record scheduler failure reasons and undeliverable proactive messages',
+  );
+}
+
+function migrateV59(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'messages',
+    column: 'tool_history_json',
+    ddl: 'tool_history_json TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(
+    database,
+    59,
+    'Persist replayable tool exchanges per assistant message',
+  );
+}
+
+function migrateV60(
   database: Database.Database,
   opts?: InitDatabaseOptions,
 ): void {
@@ -3553,7 +3617,7 @@ function migrateV58(
   }
   recordMigration(
     database,
-    58,
+    60,
     'Track Teams users, agent mappings and per-user usage',
   );
 }
@@ -3698,8 +3762,12 @@ export function runMigrations(
   if (currentVersion < 57 || agentToolsNeedMigration(database)) {
     migrateV57(database, opts);
   }
+  if (currentVersion < 58 || schedulerFailureReasonsNeedMigration(database)) {
+    migrateV58(database, opts);
+  }
 
-  if (currentVersion < 58) migrateV58(database, opts);
+  if (currentVersion < 59) migrateV59(database, opts);
+  if (currentVersion < 60) migrateV60(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

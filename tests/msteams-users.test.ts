@@ -246,7 +246,9 @@ describe('Teams user routing and attribution', () => {
     });
   });
 
-  test('migrates a v57 database without attributing historical usage', () => {
+  test.each([
+    57, 59,
+  ])('migrates a v%s database without attributing historical usage', (version) => {
     recordUsageEvent({
       sessionId: 'historical',
       agentId: 'main',
@@ -259,7 +261,12 @@ describe('Teams user routing and attribution', () => {
     db.exec(
       'DROP TABLE msteams_users; DROP INDEX idx_usage_events_channel_user; ALTER TABLE usage_events DROP COLUMN user_id; ALTER TABLE usage_events DROP COLUMN channel_kind; ALTER TABLE usage_events DROP COLUMN tenant_id;',
     );
-    db.pragma('user_version = 57');
+    if (version === 57) {
+      db.exec(
+        'ALTER TABLE jobs DROP COLUMN last_error; ALTER TABLE proactive_message_queue DROP COLUMN failed_at; ALTER TABLE proactive_message_queue DROP COLUMN failure_reason; ALTER TABLE messages DROP COLUMN tool_history_json;',
+      );
+    }
+    db.pragma(`user_version = ${version}`);
     db.close();
     initDatabase({ dbPath, quiet: true });
     observe();
@@ -267,5 +274,21 @@ describe('Teams user routing and attribution', () => {
       totalTokens: 0,
       costUsd: 0,
     });
+    const migrated = new Database(dbPath, { readonly: true });
+    try {
+      expect(migrated.pragma('user_version', { simple: true })).toBe(60);
+      for (const [table, column] of [
+        ['jobs', 'last_error'],
+        ['proactive_message_queue', 'failed_at'],
+        ['proactive_message_queue', 'failure_reason'],
+        ['messages', 'tool_history_json'],
+      ]) {
+        expect(migrated.pragma(`table_info(${table})`)).toEqual(
+          expect.arrayContaining([expect.objectContaining({ name: column })]),
+        );
+      }
+    } finally {
+      migrated.close();
+    }
   });
 });

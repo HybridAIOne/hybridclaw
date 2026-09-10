@@ -1,12 +1,17 @@
+/**
+ * Conversation prompts replay persisted tool exchanges alongside their final
+ * assistant message. Audit events are never promoted into prompt instructions.
+ */
 import os from 'node:os';
-
 import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '../../container/shared/dynamic-context.js';
+import { currentDateStampInTimezone } from '../../container/shared/workspace-time.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
 import {
   type HistoryOptimizationStats,
   optimizeHistoryMessagesForPrompt,
 } from '../session/token-efficiency.js';
+import { expandStoredMessage } from '../session/tool-history.js';
 import {
   loadSkills,
   resolveSkillInvocationForTurn,
@@ -34,6 +39,8 @@ import { mergeAllowedToolNames, mergeBlockedToolNames } from './tool-policy.js';
 interface HistoryMessage {
   role: string;
   content: ChatMessage['content'];
+  session_id?: string;
+  tool_history_json?: string | null;
 }
 
 const HOSTNAME = sanitizeDynamicContextValue(os.hostname());
@@ -71,6 +78,9 @@ export function buildDynamicContextMessage(
   if (agentId) {
     const contextFiles = loadStaticBootstrapFiles(agentId);
     const userTimezone = resolveUserTimezoneFromContextFiles(contextFiles);
+    lines.push(
+      `Daily note: memory/${currentDateStampInTimezone(userTimezone, now)}.md`,
+    );
     lines.push(`Current Date & Time: ${formatCurrentTime(userTimezone, now)}`);
 
     const dailyMemoryFiles = loadRecentDailyMemoryFiles(agentId, {
@@ -198,12 +208,7 @@ export function buildConversationContext(params: {
     );
   }
 
-  const historyMessages = [...history].reverse().map(
-    (msg): ChatMessage => ({
-      role: msg.role as ChatMessage['role'],
-      content: msg.content,
-    }),
-  );
+  const historyMessages = [...history].reverse().flatMap(expandStoredMessage);
 
   const optimizedHistory = optimizeHistoryMessagesForPrompt(historyMessages);
 

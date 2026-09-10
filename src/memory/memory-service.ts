@@ -1,3 +1,9 @@
+/**
+ * Prompt memory recalls only eligible rows in the current session, skipping
+ * query embedding and retrieval when none exist. Unlike the storage layer,
+ * this service assembles prompt context; it does not render client activity.
+ * Access notifications precede retrieval and assembly of the returned context.
+ */
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { SESSION_COMPACTION_SUMMARY_MAX_CHARS } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
@@ -6,6 +12,7 @@ import type {
   SessionExpiryEvaluation,
   SessionResetPolicy,
 } from '../session/session-reset.js';
+import type { ChatMessage } from '../types/api.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type {
   KnowledgeEntityTypeValue,
@@ -50,6 +57,7 @@ import {
   getOrCreateSession as dbGetOrCreateSession,
   getRecentMessages as dbGetRecentMessages,
   getSessionById as dbGetSessionById,
+  hasRecallableSemanticMemories as dbHasRecallableSemanticMemories,
   listMemoryValues as dbListMemoryValues,
   markSessionMemoryFlush as dbMarkSessionMemoryFlush,
   queryKnowledgeGraph as dbQueryKnowledgeGraph,
@@ -176,6 +184,7 @@ export interface MemoryBackend {
     agentId?: string | null,
     artifacts?: ArtifactMetadata[] | null,
     source?: string | null,
+    toolHistory?: ChatMessage[],
   ) => number;
   storeSemanticMemory: (params: {
     sessionId: string;
@@ -188,6 +197,10 @@ export interface MemoryBackend {
     embedding?: number[] | null;
     sourceMessageId?: number | null;
   }) => number;
+  hasRecallableSemanticMemories: (
+    sessionId: string,
+    minConfidence: number,
+  ) => boolean;
   recallSemanticMemories: (params: {
     sessionId: string;
     query: string;
@@ -249,6 +262,7 @@ export interface StoreTurnParams {
     agentId?: string | null;
     content: string;
     artifacts?: ArtifactMetadata[] | null;
+    toolHistory?: ChatMessage[];
   };
 }
 
@@ -258,9 +272,11 @@ export interface BuildMemoryPromptParams {
   semanticLimit?: number;
   includeSemanticRecall?: boolean;
   touchSemanticRecall?: boolean;
+  onMemoryAccess?: (kind: 'semantic' | 'summary') => void;
 }
 
 export interface BuildMemoryPromptResult {
+  semanticRecallAttempted: boolean;
   promptSummary: string | null;
   summaryConfidence: number | null;
   semanticMemories: SemanticMemoryEntry[];
@@ -318,6 +334,7 @@ const DEFAULT_BACKEND: MemoryBackend = {
   getCompactionCandidateMessages: dbGetCompactionCandidateMessages,
   storeMessage: dbStoreMessage,
   storeSemanticMemory: dbStoreSemanticMemory,
+  hasRecallableSemanticMemories: dbHasRecallableSemanticMemories,
   recallSemanticMemories: dbRecallSemanticMemories,
   forgetSemanticMemory: dbForgetSemanticMemory,
   decaySemanticMemories,
@@ -733,6 +750,7 @@ export class MemoryService {
     agentId?: string | null;
     artifacts?: ArtifactMetadata[] | null;
     source?: string | null;
+    toolHistory?: ChatMessage[];
   }): number {
     return this.backend.storeMessage(
       params.sessionId,
@@ -743,6 +761,7 @@ export class MemoryService {
       params.agentId,
       params.artifacts,
       params.source,
+      params.toolHistory,
     );
   }
 
@@ -792,6 +811,7 @@ export class MemoryService {
       content: params.assistant.content,
       agentId: params.assistant.agentId,
       artifacts: params.assistant.artifacts,
+      toolHistory: params.assistant.toolHistory,
     });
 
     const interactionText = this.normalizeSemanticContent(
@@ -839,24 +859,36 @@ export class MemoryService {
       (summaryConfidence == null ||
         summaryConfidence >= this.config.summaryDiscardThreshold);
 
-    const semanticMemories =
-      params.includeSemanticRecall === false
-        ? []
-        : this.recallSemanticMemories({
-            sessionId: params.session.id,
-            query: params.query,
-            limit: Math.max(
-              1,
-              Math.min(
-                Math.floor(
-                  params.semanticLimit || this.config.semanticRecallLimit,
-                ),
-                this.resolveSemanticPromptHardCap(),
+    const minConfidence = Math.max(
+      0,
+      Math.min(1, this.config.semanticMinConfidence),
+    );
+    const semanticRecallAttempted =
+      params.includeSemanticRecall !== false &&
+      this.backend.hasRecallableSemanticMemories(
+        params.session.id,
+        minConfidence,
+      );
+    if (semanticRecallAttempted || includeSummary) {
+      params.onMemoryAccess?.(semanticRecallAttempted ? 'semantic' : 'summary');
+    }
+    const semanticMemories = semanticRecallAttempted
+      ? this.recallSemanticMemories({
+          sessionId: params.session.id,
+          query: params.query,
+          limit: Math.max(
+            1,
+            Math.min(
+              Math.floor(
+                params.semanticLimit || this.config.semanticRecallLimit,
               ),
+              this.resolveSemanticPromptHardCap(),
             ),
-            minConfidence: this.config.semanticMinConfidence,
-            touch: params.touchSemanticRecall,
-          });
+          ),
+          minConfidence,
+          touch: params.touchSemanticRecall,
+        })
+      : [];
     const citationIndex: MemoryCitation[] = semanticMemories.map(
       (memory, i) => ({
         ref: `[mem:${i + 1}]`,
@@ -893,6 +925,7 @@ export class MemoryService {
 
     const promptSummary = sections.join('\n\n').trim();
     return {
+      semanticRecallAttempted,
       promptSummary: promptSummary || null,
       summaryConfidence,
       semanticMemories,

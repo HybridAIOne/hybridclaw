@@ -329,6 +329,13 @@ describe('runtime config migration logging', () => {
       voice: 'cedar',
       greeting: 'Hi there!',
       instructions: 'Be brief.',
+      turnDetection: {
+        type: 'server_vad',
+        threshold: null,
+        prefixPaddingMs: null,
+        silenceDurationMs: null,
+        eagerness: 'auto',
+      },
     });
     expect(stored.speech.realtime.provider).toBe('openai');
     expect(stored.voice.realtime).toBeUndefined();

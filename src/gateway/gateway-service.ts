@@ -104,6 +104,7 @@ import {
 import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
 import { getChannelPluginStatuses } from '../channels/channel-plugin-catalog.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import { isSafeDiscordCdnUrl } from '../channels/discord/discord-cdn-fetch.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
 import { getDiscordWebhookStatus } from '../channels/discord-webhook/runtime.js';
 import {
@@ -2513,7 +2514,13 @@ export function buildMediaPromptContext(media: MediaContextItem[]): string {
     'Prefer current-turn attachments and file inputs over `message` reads, `glob`, `find`, or workspace-wide discovery.',
     'When the user asks about current-turn image attachments, use `vision_analyze` with local image paths from `ImageMediaPaths` first.',
     'When the user asks about current-turn PDF/document attachments, prefer the injected `<file>` content or the supplied local path before reading chat history.',
-    'Use MediaUrls as fallback when a local path is missing or fails to open.',
+    ...(mediaUrls.some((url) => isSafeDiscordCdnUrl(String(url || '')))
+      ? [
+          'Use Discord CDN MediaUrls as fallback when a local path is missing or fails to open.',
+        ]
+      : [
+          'MediaUrls are channel-internal references and cannot be fetched by tools; if a local path fails, report that to the user instead of retrying with a URL.',
+        ]),
     'Use `browser_vision` only for questions about the active browser tab/page.',
     '',
     '',
@@ -3873,6 +3880,8 @@ export function recordSuccessfulTurn(opts: {
   resultText: string;
   artifacts?: ArtifactMetadata[] | null;
   toolCallCount: number;
+  toolHistory?: ChatMessage[];
+  toolHistoryForReplay?: ChatMessage[];
   startedAt: number;
   replaceBuiltInMemory?: boolean;
 }): {
@@ -3897,6 +3906,7 @@ export function recordSuccessfulTurn(opts: {
             content: opts.resultText,
             agentId: opts.agentId,
             artifacts: opts.artifacts,
+            toolHistory: opts.toolHistoryForReplay,
           }),
         }
       : memoryService.storeTurn({
@@ -3912,6 +3922,7 @@ export function recordSuccessfulTurn(opts: {
             agentId: opts.agentId,
             content: opts.resultText,
             artifacts: opts.artifacts,
+            toolHistory: opts.toolHistoryForReplay,
           },
         });
   if (opts.replaceBuiltInMemory !== true) {
@@ -3962,6 +3973,7 @@ export function recordSuccessfulTurn(opts: {
     userId: 'assistant',
     username: null,
     content: opts.resultText,
+    toolHistory: opts.toolHistory,
   });
 
   if (opts.replaceBuiltInMemory !== true) {
@@ -4006,6 +4018,209 @@ export function recordSuccessfulTurn(opts: {
     },
   });
 
+  return storedTurn;
+}
+
+export type ErrorTurnToolOutcome =
+  | 'completed'
+  | 'failed'
+  | 'blocked'
+  | 'started, outcome unknown';
+
+export interface ErrorTurnToolRecord {
+  name: string;
+  outcome: ErrorTurnToolOutcome;
+  preview?: string;
+}
+
+const ERROR_TURN_PREVIEW_MAX_CHARS = 160;
+
+function compactErrorTurnPreview(raw: string | undefined): string | undefined {
+  const text = String(raw || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return undefined;
+  return text.length > ERROR_TURN_PREVIEW_MAX_CHARS
+    ? `${text.slice(0, ERROR_TURN_PREVIEW_MAX_CHARS - 1)}…`
+    : text;
+}
+
+export function errorTurnToolsFromExecutions(
+  toolExecutions: ToolExecution[],
+): ErrorTurnToolRecord[] {
+  return toolExecutions.map((execution) => ({
+    name: execution.name,
+    outcome: execution.blocked
+      ? 'blocked'
+      : execution.isError
+        ? 'failed'
+        : 'completed',
+    preview: compactErrorTurnPreview(
+      execution.blocked ? execution.blockedReason : execution.result,
+    ),
+  }));
+}
+
+export function trackObservedToolCall(
+  observed: ErrorTurnToolRecord[],
+  event: Pick<ToolProgressEvent, 'toolName' | 'phase' | 'preview'>,
+): void {
+  if (event.phase === 'start') {
+    observed.push({
+      name: event.toolName,
+      outcome: 'started, outcome unknown',
+      preview: compactErrorTurnPreview(event.preview),
+    });
+    return;
+  }
+  const preview = compactErrorTurnPreview(event.preview);
+  const outcome: ErrorTurnToolOutcome = /^error\b/i.test(preview || '')
+    ? 'failed'
+    : 'completed';
+  const open = observed.find(
+    (record) =>
+      record.name === event.toolName &&
+      record.outcome === 'started, outcome unknown',
+  );
+  if (open) {
+    open.outcome = outcome;
+    open.preview = preview ?? open.preview;
+    return;
+  }
+  observed.push({ name: event.toolName, outcome, preview });
+}
+
+export function buildErrorTurnPlaceholder(params: {
+  error: string;
+  tools: ErrorTurnToolRecord[];
+  delegationAcknowledgement?: string | null;
+}): string {
+  const lines = [
+    `[This turn ended with an error before a reply was produced: ${params.error}]`,
+  ];
+  if (params.tools.length > 0) {
+    lines.push(
+      'Tool calls that already ran during this turn (their effects may have been applied):',
+    );
+    for (const tool of params.tools) {
+      lines.push(
+        tool.preview
+          ? `- ${tool.name}: ${tool.outcome}; result: ${tool.preview}`
+          : `- ${tool.name}: ${tool.outcome}`,
+      );
+    }
+  }
+  const ack = params.delegationAcknowledgement?.trim();
+  if (ack) lines.push(`Delegations were still started: ${ack}`);
+  return lines.join('\n');
+}
+
+export function recordErrorTurn(opts: {
+  sessionId: string;
+  agentId: string;
+  channelId: string;
+  userId: string;
+  username: string | null;
+  canonicalScopeId: string;
+  userContent: string;
+  error: string;
+  tools: ErrorTurnToolRecord[];
+  toolHistory?: ChatMessage[];
+  toolHistoryForReplay?: ChatMessage[];
+  delegationAcknowledgement?: string | null;
+  replaceBuiltInMemory?: boolean;
+}): {
+  userMessageId: number;
+  assistantMessageId: number;
+} {
+  const placeholder = buildErrorTurnPlaceholder({
+    error: opts.error,
+    tools: opts.tools,
+    delegationAcknowledgement: opts.delegationAcknowledgement,
+  });
+  const storedTurn =
+    opts.replaceBuiltInMemory === true
+      ? {
+          userMessageId: memoryService.storeMessage({
+            sessionId: opts.sessionId,
+            userId: opts.userId,
+            username: opts.username,
+            role: 'user',
+            content: opts.userContent,
+          }),
+          assistantMessageId: memoryService.storeMessage({
+            sessionId: opts.sessionId,
+            userId: 'assistant',
+            username: null,
+            role: 'assistant',
+            content: placeholder,
+            agentId: opts.agentId,
+            toolHistory: opts.toolHistoryForReplay,
+          }),
+        }
+      : memoryService.storeTurn({
+          sessionId: opts.sessionId,
+          user: {
+            userId: opts.userId,
+            username: opts.username,
+            content: opts.userContent,
+          },
+          assistant: {
+            userId: 'assistant',
+            username: null,
+            agentId: opts.agentId,
+            content: placeholder,
+            toolHistory: opts.toolHistoryForReplay,
+          },
+        });
+  if (opts.replaceBuiltInMemory !== true && opts.canonicalScopeId.trim()) {
+    try {
+      memoryService.appendCanonicalMessages({
+        agentId: opts.agentId,
+        userId: opts.canonicalScopeId,
+        newMessages: [
+          {
+            role: 'user',
+            content: opts.userContent,
+            sessionId: opts.sessionId,
+            channelId: opts.channelId,
+          },
+          {
+            role: 'assistant',
+            content: placeholder,
+            sessionId: opts.sessionId,
+            channelId: opts.channelId,
+          },
+        ],
+      });
+    } catch (err) {
+      logger.debug(
+        {
+          sessionId: opts.sessionId,
+          canonicalScopeId: opts.canonicalScopeId,
+          err,
+        },
+        'Failed to append canonical session memory for error turn',
+      );
+    }
+  }
+  appendSessionTranscript(opts.agentId, {
+    sessionId: opts.sessionId,
+    channelId: opts.channelId,
+    role: 'user',
+    userId: opts.userId,
+    username: opts.username,
+    content: opts.userContent,
+  });
+  appendSessionTranscript(opts.agentId, {
+    sessionId: opts.sessionId,
+    channelId: opts.channelId,
+    role: 'assistant',
+    userId: 'assistant',
+    username: null,
+    content: placeholder,
+    toolHistory: opts.toolHistory,
+  });
   return storedTurn;
 }
 
@@ -8993,13 +9208,18 @@ export async function ensureGatewayBootstrapAutostart(params: {
       return;
     }
 
-    const storeBootstrapAssistantMessage = (content: string): number => {
+    const storeBootstrapAssistantMessage = (
+      content: string,
+      toolHistory?: ChatMessage[],
+      toolHistoryForReplay?: ChatMessage[],
+    ): number => {
       const assistantMessageId = memoryService.storeMessage({
         sessionId: session.id,
         userId: 'assistant',
         username: null,
         role: 'assistant',
         content,
+        toolHistory: toolHistoryForReplay,
         agentId: resolved.agentId,
       });
       appendSessionTranscript(resolved.agentId, {
@@ -9009,6 +9229,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         userId: 'assistant',
         username: null,
         content,
+        toolHistory,
       });
       return assistantMessageId;
     };
@@ -9272,6 +9493,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         ...loadPolicyFullAutoNeverApprove(agentWorkspaceDir(resolved.agentId)),
       ],
       scheduledTasks: [],
+      blockedTools: ['delegate'],
       skillCatalog: buildEligibleSkillCatalog(skills),
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
@@ -9379,7 +9601,11 @@ export async function ensureGatewayBootstrapAutostart(params: {
       return;
     }
 
-    const assistantMessageId = storeBootstrapAssistantMessage(resultText);
+    const assistantMessageId = storeBootstrapAssistantMessage(
+      resultText,
+      output.toolHistory,
+      output.toolHistoryForReplay,
+    );
     if (onboardingAuditContext) {
       recordBootstrapOnboardingAssistantMessage(onboardingAuditContext, {
         turnIndex,
@@ -14653,7 +14879,10 @@ export async function handleGatewayCommand(
                 task.consecutive_errors > 0
                   ? ` · errors ${task.consecutive_errors}`
                   : '';
-              return `#${task.id} ${task.enabled ? 'enabled' : 'disabled'} (${scheduleLabel}) [${statusLabel}${errorSuffix}] — ${task.prompt.slice(0, 60)}`;
+              const lastError = task.last_error
+                ? ` · last error: ${task.last_error}`
+                : '';
+              return `#${task.id} ${task.enabled ? 'enabled' : 'disabled'} (${scheduleLabel}) [${statusLabel}${errorSuffix}] — ${task.prompt.slice(0, 60)}${lastError}`;
             })
             .join('\n');
           return infoCommand('Scheduled Tasks', list);

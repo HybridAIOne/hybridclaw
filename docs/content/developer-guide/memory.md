@@ -124,8 +124,9 @@ Important properties:
 - the pre-compaction memory flush writes here before older history is
   summarized away
 - today's note is injected in full into the per-turn dynamic context block
-- up to seven prior daily notes are also loaded newest first, provided each
-  complete note fits within the shared 12,000-character history budget
+- up to seven prior daily notes are also loaded newest first within the shared
+  12,000-character history budget; a note larger than the remaining budget keeps
+  its beginning and tail with a visible middle-truncation marker
 - older notes beyond that window or budget are not loaded directly
 - older daily notes are later folded into `MEMORY.md` during dream
   consolidation
@@ -136,6 +137,33 @@ and "the workspace has a cleaned-up long-term memory file."
 ### Raw Session History
 
 Raw session history lives in the SQLite messages table.
+
+Gateway-managed agent turns retain ordered tool calls and results alongside
+their final assistant message in `messages.tool_history_json`. The next turn
+replays those exchanges, including call IDs and provider metadata, so a fresh
+worker can use data fetched earlier without repeating the tool call. Keeping
+the exchange on its owning message preserves pairs during pagination, session
+forks, deletion, and compaction. Existing rows without tool history remain
+ordinary chat messages; audit events are not used to reconstruct them.
+
+Individual results are capped at 16,000 characters before entering model
+context. Larger results include a reference to the full result in the agent's
+`.session-transcripts/<session>.jsonl` file, which is written when the turn
+finishes. Replay retains any additional context-guard pruning, while the
+transcript retains full results. `session_search` searches tool names,
+arguments, results, and call IDs and returns a transcript path for further
+reading. Use `include_current: true` to search the current session.
+
+Approval pauses and errors retain explicit outcomes. A requested call that
+did not execute is recorded as unexecuted, not successful. Tool outputs remain
+untrusted data; replay does not grant approval or expand tool access.
+
+Persistence uses credential redaction and the existing agent workspace scope.
+The transcript is not an audit authority and is readable only within the same
+workspace access boundaries as other agent files. Full outputs increase the
+amount of retained conversation data and follow workspace retention/reset
+behavior. Live provider compatibility should be checked when changing native
+reasoning metadata; signatures and encrypted reasoning are preserved verbatim.
 
 Important properties:
 
@@ -287,9 +315,14 @@ something.
 
 ## Recall Transparency
 
-Every built-in prompt-memory check is exposed to the active client. Semantic
-recall emits `memory_recall` start and finish activity, including lookups with
-no matches. The finished activity reports whether the session summary was
+Prompt assembly skips semantic query embedding and retrieval when the current
+session has no non-deleted memories meeting the confidence cutoff. If no
+session summary is included either, no memory activity or `memoryAccess`
+metadata is emitted. When eligible memories exist, semantic recall emits
+`memory_recall` start and finish activity, including searches with no matches.
+Both semantic recall and summary-only access start during prompt assembly,
+before the completed context is returned to the gateway.
+The finished activity reports whether the session summary was
 included and lists every semantic memory attached to the prompt, independently
 of whether the assistant cites it in the final answer.
 
@@ -300,7 +333,10 @@ a compact memory footer with the recalled previews and confidence values. API
 clients receive the same data as structured `memoryAccess` result metadata.
 
 Memory transparency remains visible under `/show none`; that setting hides
-thinking and ordinary tool activity, not prompt-memory access. When a plugin
+thinking and ordinary tool activity, not prompt-memory access. Microsoft Teams
+deployments can drop the delivered footer with `msteams.showMemoryFooter:
+false`; the `memoryAccess` result metadata and the `memory_recall` activity are
+unaffected. When a plugin
 replaces built-in memory, the plugin owns its own access reporting and the
 built-in `memory_recall` event is not emitted.
 
@@ -313,9 +349,9 @@ The values below describe the built-in defaults in the current codebase.
 | Limit | Default | Meaning |
 | --- | ---: | --- |
 | bootstrap file read cap | `20,000` chars per file | `MEMORY.md` and other bootstrap files are trimmed before prompt assembly |
-| current daily note prompt load | up to `20,000` chars | today's `memory/YYYY-MM-DD.md` is injected when present |
-| prior daily note lookback | `7` days | complete prior notes are considered newest first |
-| prior daily note history budget | `12,000` chars | shared cap for prior notes; today's note has its own file cap |
+| current daily note prompt load | up to `24,000` chars | today's `memory/YYYY-MM-DD.md` is injected when present |
+| prior daily note lookback | `7` days | prior notes are loaded newest first |
+| prior daily note history budget | `12,000` chars | shared cap for prior notes, head and tail retained when a note is truncated; today's note has its own file cap |
 
 ### Recent Session History
 
@@ -433,3 +469,50 @@ skip parts of the native memory injection and compaction flow. Plugins that
 layer on top of native memory, such as additive external memory providers, do
 not change the built-in behavior described above unless they explicitly replace
 it.
+
+### Concurrent memory writes
+
+The memory tool and consolidation coordinate file updates through a sibling
+`<filename>.lock` directory shared by the host and container mount. The lock
+covers reading, validation, and atomic replacement, so independent chat,
+heartbeat, and scheduled sessions cannot silently overwrite each other's
+read/modify/write updates. Tools retry contention for up to five seconds;
+consolidation skips a busy file. Model cleanup discards its result if the source
+MEMORY.md changed during the model call.
+
+Locks are cooperative: shell commands and external editors do not participate.
+A crashed writer can leave a lock directory behind. Remove that directory only
+after verifying that no writer is running; locks are never stolen based on age.
+
+### Saving daily notes
+
+`memory append` without a target saves to today's `memory/YYYY-MM-DD.md`.
+Reads without a target use `MEMORY.md`. Prefer `append` to save additional notes;
+`write` replaces the entire daily note and requires `confirm_overwrite: true`.
+Explicit targets remain subject to the today-only write restriction.
+
+Daily filenames use the timezone in `USER.md`. An empty or invalid timezone uses
+the host's resolved timezone, which the gateway passes to Docker as `TZ`.
+Dynamic context states the exact daily-note filename even when the UTC date
+falls on a different day.
+
+
+### Consolidation intake and preservation
+
+The memory tool, today's prompt note, and consolidation share a `24,000`
+character daily-file cap. Notes within the cap are read completely, including
+prose and entries after the sixth bullet. Oversized externally written notes
+retain their beginning and tail with a visible middle-truncation marker.
+Consolidation selects recent source notes within a separate `24,000` character
+input budget; older source files remain on disk.
+
+Model cleanup receives the existing memory document and replaces managed bullets
+under Facts, Decisions, and Patterns (heading case is ignored). Other headings,
+free text, and fenced examples are preserved verbatim; template placeholder
+lines are dropped once a section holds bullets and a single placeholder remains
+while it is empty. If the result exceeds the `12,000` character durable-file
+budget, deterministic consolidation is used instead of trimming operator
+content. Its digest gives every selected day a fair share of the remaining
+budget, so one large day is truncated at both ends rather than evicting smaller
+days; when even a shared budget is too small, the oldest days are dropped first.
+Source daily files are never rewritten by consolidation.

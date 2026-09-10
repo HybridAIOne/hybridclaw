@@ -20,6 +20,11 @@ import {
   upsertJob,
 } from '../memory/jobs.js';
 import { memoryService } from '../memory/memory-service.js';
+import {
+  getFailedProactiveMessageCount,
+  getQueuedProactiveMessageCount,
+  listFailedProactiveMessages,
+} from '../memory/proactive-queue.js';
 import { modelRequiresChatbotId } from '../providers/factory.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
 import {
@@ -251,6 +256,16 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
   const nowMs = Date.now();
 
   return {
+    proactiveQueue: {
+      queued: getQueuedProactiveMessageCount(),
+      failed: getFailedProactiveMessageCount(),
+      failedMessages: listFailedProactiveMessages(20).map((message) => ({
+        id: message.id,
+        channelId: message.channel_id,
+        reason: message.failure_reason || 'unknown',
+        failedAt: message.failed_at || '',
+      })),
+    },
     jobs: [
       ...getAllJobs({ kind: 'scheduler_job' }).map((job) => {
         const runtime = statuses.get(job.id);
@@ -276,6 +291,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
           delivery: job.delivery,
           lastRun: runtime?.lastRun || null,
           lastStatus: runtime?.lastStatus || null,
+          lastError: runtime?.lastError || null,
           nextRunAt: runtime?.nextRunAt || null,
           disabled: runtime?.disabled || false,
           consecutiveErrors: runtime?.consecutiveErrors || 0,
@@ -332,7 +348,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
                     at: null,
                     everyMs: null,
                     expr: task.cron_expr || null,
-                    tz: '',
+                    tz: task.tz,
                   },
             action: {
               kind: 'agent_turn',
@@ -346,6 +362,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
             },
             lastRun: task.last_run,
             lastStatus,
+            lastError: task.last_error,
             nextRunAt: getScheduledTaskNextRunAt(task, nowMs),
             disabled: !task.enabled,
             consecutiveErrors: Math.max(0, task.consecutive_errors || 0),
@@ -548,6 +565,11 @@ export async function runGatewayScheduledTask(
         resolutionError: chatbotResolution.error ?? null,
       },
       'Scheduled task skipped due to missing chatbot configuration',
+    );
+    onError(
+      new Error(
+        `No chatbot configured for model "${model}"${chatbotResolution.error ? `: ${chatbotResolution.error}` : ''}. Set a default HybridAI chatbot id or assign one to the session before this task can run.`,
+      ),
     );
     return;
   }
