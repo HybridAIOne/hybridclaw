@@ -587,3 +587,245 @@ test('phone calls layer voice.prompt over the shared speech settings', () => {
     instructions: 'Be brief.\nSprich Deutsch.',
   });
 });
+
+test('caller speech cancels every in-flight response, out-of-band ones included', () => {
+  const { socket, clears } = createBridge();
+  socket.open();
+  socket.serverEvent({
+    type: 'response.created',
+    response: { id: 'resp_conversation' },
+  });
+  socket.serverEvent({
+    type: 'response.created',
+    response: { id: 'resp_reassurance' },
+  });
+
+  socket.serverEvent({ type: 'input_audio_buffer.speech_started' });
+
+  expect(socket.sentOfType('response.cancel')).toEqual([
+    { type: 'response.cancel', response_id: 'resp_conversation' },
+    { type: 'response.cancel', response_id: 'resp_reassurance' },
+  ]);
+  expect(clears).toHaveLength(1);
+
+  // Both are gone; a repeat speech start has nothing left to cancel.
+  socket.serverEvent({ type: 'input_audio_buffer.speech_started' });
+  expect(socket.sentOfType('response.cancel')).toHaveLength(2);
+});
+
+test('a finished response no longer counts as active while another still plays', () => {
+  const { socket } = createBridge();
+  socket.open();
+  socket.serverEvent({ type: 'response.created', response: { id: 'a' } });
+  socket.serverEvent({ type: 'response.created', response: { id: 'b' } });
+  socket.serverEvent({ type: 'response.done', response: { id: 'a' } });
+
+  socket.serverEvent({ type: 'input_audio_buffer.speech_started' });
+  expect(socket.sentOfType('response.cancel')).toEqual([
+    { type: 'response.cancel', response_id: 'b' },
+  ]);
+});
+
+test('consults suspend auto-responses so caller noise cannot spawn a guessed answer', async () => {
+  let resolveConsult: (reply: string) => void = () => {};
+  const consultAgent = vi.fn(
+    () =>
+      new Promise<string>((resolve) => {
+        resolveConsult = resolve;
+      }),
+  );
+  const { socket } = createBridge({ consultAgent });
+  socket.open();
+  socket.serverEvent({ type: 'session.updated' });
+  expect(socket.sentOfType('response.create')).toHaveLength(1); // greeting
+
+  socket.serverEvent({
+    type: 'response.function_call_arguments.done',
+    call_id: 'call_1',
+    name: 'consult_agent',
+    arguments: JSON.stringify({ request: 'Open tasks this week?' }),
+  });
+  await Promise.resolve();
+
+  const turnDetectionOf = (event: Record<string, unknown>) =>
+    (
+      event.session as {
+        audio: { input: { turn_detection: Record<string, unknown> } };
+      }
+    ).audio.input.turn_detection;
+  const updates = socket.sentOfType('session.update');
+  expect(updates).toHaveLength(2);
+  expect(turnDetectionOf(updates[1])).toMatchObject({
+    type: 'server_vad',
+    create_response: false,
+    interrupt_response: true,
+  });
+
+  // The server acknowledges the toggle; that must not replay the greeting.
+  socket.serverEvent({ type: 'session.updated' });
+  expect(socket.sentOfType('response.create')).toHaveLength(1);
+
+  resolveConsult('Two open tasks.');
+  await flushAsync();
+
+  const after = socket.sentOfType('session.update');
+  expect(after).toHaveLength(3);
+  expect(turnDetectionOf(after[2])).toMatchObject({ create_response: true });
+  // Re-enabled before the tool output and its response.create go out.
+  const types = socket.sent.map((event) => event.type);
+  expect(types.lastIndexOf('session.update')).toBeLessThan(
+    types.lastIndexOf('conversation.item.create'),
+  );
+  expect(socket.sentOfType('response.create')).toHaveLength(2);
+});
+
+test('reassurance tells the model it has no answer yet', async () => {
+  vi.useFakeTimers();
+  try {
+    const consultAgent = vi.fn(() => new Promise<string>(() => {}));
+    const { socket } = createBridge({ consultAgent });
+    socket.open();
+    socket.serverEvent({
+      type: 'response.function_call_arguments.done',
+      call_id: 'call_1',
+      name: 'consult_agent',
+      arguments: JSON.stringify({ request: 'Slow request' }),
+    });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(7_000);
+    const [reassurance] = socket.sentOfType('response.create');
+    expect(reassurance.response).toMatchObject({
+      conversation: 'none',
+      instructions: expect.stringContaining('do not guess'),
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('turn detection follows speech.realtime.turnDetection; unset fields keep upstream defaults', () => {
+  const turnDetectionOf = (socket: FakeRealtimeSocket) =>
+    (
+      socket.sentOfType('session.update')[0].session as {
+        audio: { input: { turn_detection: Record<string, unknown> } };
+      }
+    ).audio.input.turn_detection;
+
+  const untouched = createBridge();
+  untouched.socket.open();
+  expect(turnDetectionOf(untouched.socket)).toEqual({
+    type: 'server_vad',
+    create_response: true,
+    interrupt_response: true,
+  });
+
+  const tuned = createBridge({
+    config: {
+      ...REALTIME_CONFIG,
+      turnDetection: {
+        type: 'server_vad',
+        threshold: 0.7,
+        prefixPaddingMs: null,
+        silenceDurationMs: 800,
+        eagerness: 'auto',
+      },
+    },
+  });
+  tuned.socket.open();
+  expect(turnDetectionOf(tuned.socket)).toEqual({
+    type: 'server_vad',
+    threshold: 0.7,
+    silence_duration_ms: 800,
+    create_response: true,
+    interrupt_response: true,
+  });
+
+  const semantic = createBridge({
+    config: {
+      ...REALTIME_CONFIG,
+      turnDetection: {
+        type: 'semantic_vad',
+        threshold: 0.7,
+        prefixPaddingMs: null,
+        silenceDurationMs: null,
+        eagerness: 'low',
+      },
+    },
+  });
+  semantic.socket.open();
+  expect(turnDetectionOf(semantic.socket)).toEqual({
+    type: 'semantic_vad',
+    eagerness: 'low',
+    create_response: true,
+    interrupt_response: true,
+  });
+});
+
+test('each caller utterance is reported as a speech segment with barge-in context', () => {
+  const segments: Array<Record<string, unknown>> = [];
+  const { socket } = createBridge({
+    onSpeechSegment: (segment) => {
+      segments.push(segment as unknown as Record<string, unknown>);
+    },
+  });
+  socket.open();
+
+  // A backchannel while the model talks: short, interrupts the response.
+  socket.serverEvent({ type: 'response.created', response: { id: 'r1' } });
+  socket.serverEvent({
+    type: 'input_audio_buffer.speech_started',
+    audio_start_ms: 4_000,
+    item_id: 'item_a',
+  });
+  socket.serverEvent({
+    type: 'input_audio_buffer.speech_stopped',
+    audio_end_ms: 4_260,
+    item_id: 'item_a',
+  });
+  socket.serverEvent({
+    type: 'conversation.item.input_audio_transcription.completed',
+    item_id: 'item_a',
+    transcript: 'Mhm.',
+  });
+
+  // A real question into silence.
+  socket.serverEvent({
+    type: 'input_audio_buffer.speech_started',
+    audio_start_ms: 9_000,
+    item_id: 'item_b',
+  });
+  socket.serverEvent({
+    type: 'input_audio_buffer.speech_stopped',
+    audio_end_ms: 11_400,
+    item_id: 'item_b',
+  });
+  socket.serverEvent({
+    type: 'conversation.item.input_audio_transcription.completed',
+    item_id: 'item_b',
+    transcript: 'Wie hoch ist der Umsatz mit Claas?',
+  });
+
+  expect(segments).toEqual([
+    expect.objectContaining({
+      itemId: 'item_a',
+      segmentMs: 260,
+      interruptedResponse: true,
+      consultInFlight: false,
+      transcriptChars: 4,
+      transcriptWords: 1,
+    }),
+    expect.objectContaining({
+      itemId: 'item_b',
+      segmentMs: 2_400,
+      interruptedResponse: false,
+      msIntoResponse: null,
+      transcriptWords: 7,
+    }),
+  ]);
+});
+
+test('instructions forbid inventing a result before the consult returns', () => {
+  const text = buildRealtimeInstructions(REALTIME_CONFIG, CALLER);
+  expect(text).toContain('never guess, summarize, or invent one');
+  expect(text).toContain('not a new request');
+});

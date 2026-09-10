@@ -120,6 +120,6 @@ describe.sequential('container read tool paths', () => {
     );
 
     expect(result).not.toContain('other session data');
-    expect(result).toContain('File not found');
+    expect(result).toContain('Path escapes workspace');
   });
 });

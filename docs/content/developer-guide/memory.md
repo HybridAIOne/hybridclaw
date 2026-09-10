@@ -300,7 +300,10 @@ a compact memory footer with the recalled previews and confidence values. API
 clients receive the same data as structured `memoryAccess` result metadata.
 
 Memory transparency remains visible under `/show none`; that setting hides
-thinking and ordinary tool activity, not prompt-memory access. When a plugin
+thinking and ordinary tool activity, not prompt-memory access. Microsoft Teams
+deployments can drop the delivered footer with `msteams.showMemoryFooter:
+false`; the `memoryAccess` result metadata and the `memory_recall` activity are
+unaffected. When a plugin
 replaces built-in memory, the plugin owns its own access reporting and the
 built-in `memory_recall` event is not emitted.
 

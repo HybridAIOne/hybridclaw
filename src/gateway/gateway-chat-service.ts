@@ -142,7 +142,9 @@ import {
   buildStoredTurnMessages,
   buildStoredUserTurnContent,
   buildTokenUsageAuditPayload,
+  type ErrorTurnToolRecord,
   enqueueDelegationBatchFromSideEffects,
+  errorTurnToolsFromExecutions,
   extractDelegationDepth,
   formatCanonicalContextPrompt,
   formatPluginPromptContext,
@@ -154,6 +156,7 @@ import {
   prepareSessionAutoReset,
   readDynamicContextMessage,
   readSystemPromptMessage,
+  recordErrorTurn,
   recordSuccessfulTurn,
   resolveCanonicalContextScope,
   resolveChannelType,
@@ -162,6 +165,7 @@ import {
   resolveOnboardingTurnModel,
   resolveSessionAutoResetPolicy,
   shouldForceNewTuiSession,
+  trackObservedToolCall,
 } from './gateway-service.js';
 import type {
   GatewayChatRequest,
@@ -2037,6 +2041,8 @@ async function handleGatewayMessageInner(
     | 'awaiting-agent-output'
     | 'processing-agent-output' = 'pre-agent';
   let hatchingCompletion: BootstrapHatchingTurnResult | null = null;
+  const observedToolCalls: ErrorTurnToolRecord[] = [];
+  let turnPersisted = false;
   const recordPendingHatchingTerminalAudit = (): void => {
     recordBootstrapHatchingTerminalAudit({
       audit: onboardingAuditContext,
@@ -2077,6 +2083,7 @@ async function handleGatewayMessageInner(
         ? (delta: string): void => req.onThinkingDelta?.(delta)
         : undefined;
     const onToolProgress = (event: ToolProgressEvent): void => {
+      trackObservedToolCall(observedToolCalls, event);
       emitGatewayToolProgress(event);
     };
     const onApprovalProgress = (approval: PendingApproval): void => {
@@ -2566,6 +2573,23 @@ async function handleGatewayMessageInner(
         },
       });
       recordPendingHatchingTerminalAudit();
+      const storedErrorTurn = recordErrorTurn({
+        sessionId: req.sessionId,
+        agentId,
+        channelId: req.channelId,
+        userId: req.userId,
+        username: req.username,
+        canonicalScopeId: canonicalContextScope,
+        userContent: storedUserContent,
+        error: errorMessage,
+        tools:
+          toolExecutions.length > 0
+            ? errorTurnToolsFromExecutions(toolExecutions)
+            : observedToolCalls,
+        delegationAcknowledgement,
+        replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+      });
+      turnPersisted = true;
       recordAuditEvent({
         sessionId: req.sessionId,
         runId,
@@ -2573,6 +2597,7 @@ async function handleGatewayMessageInner(
           type: 'turn.end',
           turnIndex,
           finishReason: 'error',
+          assistantMessageId: storedErrorTurn.assistantMessageId,
         },
       });
       recordAuditEvent({
@@ -2582,8 +2607,8 @@ async function handleGatewayMessageInner(
           type: 'session.end',
           reason: 'error',
           stats: {
-            userMessages: 0,
-            assistantMessages: 0,
+            userMessages: 1,
+            assistantMessages: 1,
             toolCalls: toolExecutions.length,
             durationMs,
           },
@@ -2616,6 +2641,7 @@ async function handleGatewayMessageInner(
         toolExecutions,
         tokenUsage: output.tokenUsage,
         error: errorMessage,
+        assistantMessageId: storedErrorTurn.assistantMessageId,
       };
       captureGatewayChatResultError({
         message: errorMessage,
@@ -2736,6 +2762,7 @@ async function handleGatewayMessageInner(
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
     });
+    turnPersisted = true;
     if (onboardingAuditContext) {
       recordBootstrapOnboardingAssistantMessage(onboardingAuditContext, {
         turnIndex,
@@ -2885,6 +2912,28 @@ async function handleGatewayMessageInner(
       },
     });
     recordPendingHatchingTerminalAudit();
+    let storedErrorTurn: { assistantMessageId: number } | null = null;
+    if (!turnPersisted) {
+      try {
+        storedErrorTurn = recordErrorTurn({
+          sessionId: req.sessionId,
+          agentId,
+          channelId: req.channelId,
+          userId: req.userId,
+          username: req.username,
+          canonicalScopeId: canonicalContextScope,
+          userContent: buildStoredUserTurnContent(userTurnContent, media),
+          error: errorMsg,
+          tools: observedToolCalls,
+          replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+        });
+      } catch (storeErr) {
+        logger.error(
+          { ...debugMeta, err: storeErr },
+          'Failed to persist error turn after gateway failure',
+        );
+      }
+    }
     recordAuditEvent({
       sessionId: req.sessionId,
       runId,
@@ -2892,6 +2941,9 @@ async function handleGatewayMessageInner(
         type: 'turn.end',
         turnIndex,
         finishReason: 'error',
+        ...(storedErrorTurn
+          ? { assistantMessageId: storedErrorTurn.assistantMessageId }
+          : {}),
       },
     });
     recordAuditEvent({
@@ -2901,9 +2953,9 @@ async function handleGatewayMessageInner(
         type: 'session.end',
         reason: 'error',
         stats: {
-          userMessages: 0,
-          assistantMessages: 0,
-          toolCalls: 0,
+          userMessages: storedErrorTurn ? 1 : 0,
+          assistantMessages: storedErrorTurn ? 1 : 0,
+          toolCalls: observedToolCalls.length,
           durationMs,
         },
       },
@@ -2937,6 +2989,9 @@ async function handleGatewayMessageInner(
       memoryAccess,
       toolExecutions: undefined,
       error: errorMsg,
+      ...(storedErrorTurn
+        ? { assistantMessageId: storedErrorTurn.assistantMessageId }
+        : {}),
     });
     captureGatewayChatResultError({
       message: errorMsg,
