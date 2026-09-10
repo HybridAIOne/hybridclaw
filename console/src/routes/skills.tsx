@@ -32,9 +32,12 @@ import { Checkbox } from '../components/checkbox';
 import { Field, FieldContent, FieldLabel } from '../components/field';
 import { Input } from '../components/input';
 import {
+  type CatalogFilter,
+  LocalContextCatalogFilter,
   LocalContextControls,
   LocalContextProvider,
   LocalContextStar,
+  useLocalContextSettings,
 } from '../components/local-context-settings';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { Switch } from '../components/switch';
@@ -301,7 +304,8 @@ function SkillsCatalogPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [filter, setFilter] = useState('');
-  const [enabledOnly, setEnabledOnly] = useState(false);
+  const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('all');
+  const { starred } = useLocalContextSettings();
   const [selectedSkillName, setSelectedSkillName] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [createMode, setCreateMode] = useState<'form' | 'zip'>('form');
@@ -464,7 +468,13 @@ function SkillsCatalogPage() {
   });
 
   const filteredSkills = (skillsQuery.data?.skills || []).filter((skill) => {
-    if (enabledOnly && !skill.enabled) return false;
+    if (
+      catalogFilter === 'active' &&
+      (!skill.enabled || !skill.available || skill.blocked)
+    )
+      return false;
+    if (catalogFilter === 'starred' && !starred.includes(skill.name))
+      return false;
     const haystack = [
       skill.name,
       skill.category,
@@ -899,15 +909,10 @@ function SkillsCatalogPage() {
             {`${sortedInstalledSkills.length} skill${sortedInstalledSkills.length === 1 ? '' : 's'} visible`}
           </CardDescription>
           <CardAction>
-            <label className="skills-enabled-filter">
-              <Switch
-                checked={enabledOnly}
-                aria-label="Show enabled skills only"
-                size="sm"
-                onCheckedChange={setEnabledOnly}
-              />
-              <span>Enabled only</span>
-            </label>
+            <LocalContextCatalogFilter
+              value={catalogFilter}
+              onChange={setCatalogFilter}
+            />
           </CardAction>
         </CardHeader>
         <CardContent>

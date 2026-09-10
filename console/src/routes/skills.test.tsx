@@ -5,6 +5,7 @@ import type {
   AdminAdaptiveSkillAmendmentsResponse,
   AdminAdaptiveSkillHealthMetric,
   AdminAdaptiveSkillHealthResponse,
+  AdminLocalContextSettings,
   AdminSecretMutationResponse,
   AdminSecretsResponse,
   AdminSkill,
@@ -17,6 +18,8 @@ import { renderWithProviders } from '../test-utils';
 import { SkillDetailView } from './skill-detail';
 import { SkillsPage } from './skills';
 
+const fetchLocalSettingsMock =
+  vi.fn<() => Promise<AdminLocalContextSettings>>();
 const fetchSkillsMock = vi.fn<() => Promise<AdminSkillsResponse>>();
 const fetchHealthMock =
   vi.fn<() => Promise<AdminAdaptiveSkillHealthResponse>>();
@@ -73,11 +76,7 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 vi.mock('../api/client', () => ({
-  fetchLocalContextSettings: async () => ({
-    instance: { mode: 'full', starred: [] },
-    agents: [],
-    disabled: [],
-  }),
+  fetchLocalContextSettings: () => fetchLocalSettingsMock(),
   saveLocalContextSettings: vi.fn(),
   fetchSkills: () => fetchSkillsMock(),
   fetchAdaptiveSkillHealth: () => fetchHealthMock(),
@@ -200,6 +199,12 @@ function makeHealthMetric(
 
 describe('SkillsPage', () => {
   beforeEach(() => {
+    fetchLocalSettingsMock.mockReset();
+    fetchLocalSettingsMock.mockResolvedValue({
+      instance: { mode: 'full', starred: [] },
+      agents: [],
+      disabled: [],
+    });
     fetchSkillsMock.mockReset();
     fetchHealthMock.mockReset();
     fetchAmendmentsMock.mockReset();
@@ -254,6 +259,8 @@ describe('SkillsPage', () => {
       makeResponse([
         makeSkill({ name: 'pdf', description: 'PDF tools.', enabled: false }),
         makeSkill({ name: 'memory', description: 'Memory utilities.' }),
+        makeSkill({ name: 'missing', available: false }),
+        makeSkill({ name: 'blocked', blocked: true }),
       ]),
     );
 
@@ -277,14 +284,55 @@ describe('SkillsPage', () => {
       expect(screen.getByText('pdf')).toBeTruthy();
     });
 
-    fireEvent.click(
-      screen.getByRole('switch', { name: 'Show enabled skills only' }),
-    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Show skills' }), {
+      target: { value: 'active' },
+    });
     await waitFor(() => {
       expect(screen.queryByText('pdf')).toBeNull();
     });
     expect(screen.getByText('memory')).toBeTruthy();
     expect(screen.getByText('1 skill visible')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'missing' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'blocked' })).toBeNull();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Show skills' }), {
+      target: { value: 'all' },
+    });
+    expect(screen.getByText('4 skills visible')).toBeTruthy();
+  });
+
+  it('filters stars for the selected scope while keeping disabled stars visible', async () => {
+    fetchLocalSettingsMock.mockResolvedValue({
+      instance: { mode: 'full', starred: ['pdf'] },
+      agents: [
+        { id: 'worker', name: 'Worker', mode: 'starred', starred: ['memory'] },
+      ],
+      disabled: ['pdf'],
+    });
+    fetchSkillsMock.mockResolvedValue(
+      makeResponse([
+        makeSkill({ name: 'pdf', enabled: false }),
+        makeSkill({ name: 'memory' }),
+      ]),
+    );
+    renderWithProviders(<SkillsPage />);
+    await screen.findByRole('button', { name: 'Unstar pdf in catalog' });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Show skills' }), {
+      target: { value: 'starred' },
+    });
+    expect(screen.getByRole('link', { name: 'pdf' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'memory' })).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText('Filter skills'), {
+      target: { value: 'memory' },
+    });
+    await screen.findByText('0 skills visible');
+    fireEvent.change(
+      screen.getByRole('combobox', { name: 'Local skills scope' }),
+      {
+        target: { value: 'worker' },
+      },
+    );
+    expect(screen.getByRole('link', { name: 'memory' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'pdf' })).toBeNull();
   });
 
   it('links installed skills to their detail pages', async () => {

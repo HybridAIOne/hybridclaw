@@ -106,6 +106,12 @@ card on each page uses the same controls:
 3. Choose **Full** or **Starred + directory**. Changes save immediately and
    apply on the next request; use **Use instance default** to clear an override.
 
+Use the catalog selector to show **All**, **Only active**, or **Only starred**
+entries. Active tools exclude the instance's disabled tools; active skills must
+be enabled, available, and unblocked. Starred entries follow the selected instance
+or agent, including disabled stars. Search applies within the selected filter.
+These display filters do not change which tools or skills are sent to the model.
+
 For tools, the directory is `tool_catalog`, which lists, describes, and calls
 other permitted tools. For skills, `skills_list` searches the full eligible
 catalog and returns SKILL.md locations to read. Mandatory `always` skills stay

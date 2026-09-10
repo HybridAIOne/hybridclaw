@@ -8,12 +8,22 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchTools } from '../api/client';
 import type { AdminToolCatalogEntry } from '../api/types';
 import { useAuth } from '../auth';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
 import { Input } from '../components/input';
 import {
+  type CatalogFilter,
+  LocalContextCatalogFilter,
   LocalContextControls,
   LocalContextProvider,
   LocalContextStar,
+  useLocalContextSettings,
 } from '../components/local-context-settings';
 import { TabbedPageActions } from '../components/tabbed-page';
 import {
@@ -136,6 +146,8 @@ export function ToolsPage(props: { embedded?: boolean } = {}) {
 function ToolsCatalogPage(props: { embedded?: boolean }) {
   const auth = useAuth();
   const [filter, setFilter] = useState('');
+  const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('all');
+  const { starred, query: settingsQuery } = useLocalContextSettings();
   const deferredFilter = useDeferredValue(filter);
 
   const toolsQuery = useQuery({
@@ -148,18 +160,32 @@ function ToolsCatalogPage(props: { embedded?: boolean }) {
     const groups = toolsQuery.data?.groups || [];
     return groups.flatMap((group) =>
       group.tools
-        .filter((tool) =>
-          [tool.name, tool.group, tool.kind]
+        .filter((tool) => {
+          if (
+            catalogFilter === 'active' &&
+            (!settingsQuery.data ||
+              settingsQuery.data.disabled.includes(tool.name))
+          )
+            return false;
+          if (catalogFilter === 'starred' && !starred.includes(tool.name))
+            return false;
+          return [tool.name, tool.group, tool.kind]
             .join(' ')
             .toLowerCase()
-            .includes(needle),
-        )
+            .includes(needle);
+        })
         .map((tool) => ({
           ...tool,
           groupLabel: group.label,
         })),
     );
-  }, [deferredFilter, toolsQuery.data?.groups]);
+  }, [
+    deferredFilter,
+    toolsQuery.data?.groups,
+    catalogFilter,
+    starred,
+    settingsQuery.data,
+  ]);
 
   const {
     sortedRows: sortedTools,
@@ -222,6 +248,15 @@ function ToolsCatalogPage(props: { embedded?: boolean }) {
         <Card>
           <CardHeader>
             <CardTitle>Catalog</CardTitle>
+            <CardDescription>
+              {`${sortedTools.length} tool${sortedTools.length === 1 ? '' : 's'} visible`}
+            </CardDescription>
+            <CardAction>
+              <LocalContextCatalogFilter
+                value={catalogFilter}
+                onChange={setCatalogFilter}
+              />
+            </CardAction>
           </CardHeader>
           <CardContent>
             {toolsQuery.isLoading ? (

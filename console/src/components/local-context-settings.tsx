@@ -1,6 +1,7 @@
 /**
  * Shared local-context controls edit prompt exposure for tools or skills.
  * Stars save per instance or agent and never enable a disabled capability.
+ * Catalog visibility shares these stars but never changes prompt exposure.
  * This is separate from the permission switches in the surrounding catalogs.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -73,7 +74,7 @@ function useSettings(kind: Kind) {
   };
 }
 const Context = createContext<ReturnType<typeof useSettings> | null>(null);
-function useSettingsContext() {
+export function useLocalContextSettings() {
   const settings = useContext(Context);
   if (!settings)
     throw new Error('Local context controls require their provider.');
@@ -90,7 +91,7 @@ export function LocalContextProvider({
   return <Context.Provider value={settings}>{children}</Context.Provider>;
 }
 export function LocalContextControls() {
-  const settings = useSettingsContext();
+  const settings = useLocalContextSettings();
   const { kind, query, mutation, starred, mode, agentId, inherited, disabled } =
     settings;
   return (
@@ -187,7 +188,7 @@ export function LocalContextStar({
   name: string;
   unavailable?: boolean;
 }) {
-  const settings = useSettingsContext();
+  const settings = useLocalContextSettings();
   const selected = settings.starred.includes(name);
   if (settings.kind === 'tools' && name === 'tool_catalog') return null;
   const limit = !selected && settings.starred.length >= 9;
@@ -210,5 +211,33 @@ export function LocalContextStar({
     >
       <span aria-hidden="true">{selected ? '★' : '☆'}</span>
     </Button>
+  );
+}
+
+export type CatalogFilter = 'all' | 'active' | 'starred';
+
+export function LocalContextCatalogFilter({
+  value,
+  onChange,
+}: {
+  value: CatalogFilter;
+  onChange: (value: CatalogFilter) => void;
+}) {
+  const { kind, query } = useLocalContextSettings();
+  return (
+    <NativeSelect
+      size="sm"
+      aria-label={`Show ${kind}`}
+      value={value}
+      onChange={(event) => onChange(event.target.value as CatalogFilter)}
+    >
+      <option value="all">All</option>
+      <option value="active" disabled={kind === 'tools' && !query.data}>
+        Only active
+      </option>
+      <option value="starred" disabled={!query.data}>
+        Only starred
+      </option>
+    </NativeSelect>
   );
 }
