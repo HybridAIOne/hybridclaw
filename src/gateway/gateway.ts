@@ -283,6 +283,7 @@ import {
 import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
+  resolvePendingApprovalSessionId,
   resolveTextChannelSlashCommands,
 } from './text-channel-commands.js';
 import { persistVoiceTranscript } from './voice-transcript-store.js';
@@ -786,7 +787,9 @@ function resolveImplicitNumericApprovalArgs(params: {
   userId: string;
   content: string;
 }): string[] | null {
-  const pending = getPendingApproval(params.sessionId);
+  const pending = getPendingApproval(
+    resolvePendingApprovalSessionId(params.sessionId),
+  );
   if (!pending || pending.userId !== params.userId) return null;
 
   const normalized = params.content.trim();

@@ -6,6 +6,7 @@ import {
 } from '../approval-commands.js';
 import { buildResponseText } from '../channels/discord/delivery.js';
 import { parseIdArg, parseLowerArg } from '../command-parsing.js';
+import { memoryService } from '../memory/memory-service.js';
 import {
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
@@ -126,6 +127,24 @@ function buildApprovalUserMessage(params: {
   return null;
 }
 
+/**
+ * Channels address sessions by their session key while pending approvals are
+ * remembered under the resolved session instance id. Resolve the key so a
+ * bare numeric reply or `/approve` finds the prompt after a session rotation.
+ */
+export function resolvePendingApprovalSessionId(sessionId: string): string {
+  if (getPendingApproval(sessionId)) return sessionId;
+  const resolvedSessionId = memoryService.getSessionById(sessionId)?.id;
+  if (
+    resolvedSessionId &&
+    resolvedSessionId !== sessionId &&
+    getPendingApproval(resolvedSessionId)
+  ) {
+    return resolvedSessionId;
+  }
+  return sessionId;
+}
+
 export async function handleTextChannelApprovalCommand(params: {
   sessionId: string;
   guildId: string | null;
@@ -138,7 +157,8 @@ export async function handleTextChannelApprovalCommand(params: {
   if (parseLowerArg(args, 0) !== 'approve') return null;
 
   await cleanupExpiredPendingApprovals();
-  const pending = getPendingApproval(sessionId);
+  const pendingSessionId = resolvePendingApprovalSessionId(sessionId);
+  const pending = getPendingApproval(pendingSessionId);
   const action = parseLowerArg(args, 1, { defaultValue: 'view' });
   const providedApprovalId = parseIdArg(args, 2);
   const currentApprovalId = pending?.approvalId || '';
@@ -256,7 +276,7 @@ export async function handleTextChannelApprovalCommand(params: {
       };
     }
 
-    await clearPendingApproval(sessionId, { disableButtons: true });
+    await clearPendingApproval(pendingSessionId, { disableButtons: true });
     if (
       action === 'no' ||
       action === 'deny' ||
