@@ -1,5 +1,7 @@
 /**
  * Runtime configuration validates source data before making it active.
+ * Invalid local endpoints and dangling defaults block normalization writes;
+ * refresh-based updates cannot replace those files with an in-memory fallback.
  * Local setup commits its endpoint, secret reference and default together;
  * this store does not start inference or decide protected-data routing.
  */
@@ -128,6 +130,10 @@ import {
 } from '../utils/normalized-strings.js';
 import { expandHomePath } from '../utils/path.js';
 import { isRecord } from '../utils/type-guards.js';
+import {
+  LocalModelConfigError,
+  validateDefaultModelEndpoint,
+} from './local-model-validation.js';
 import {
   clearRuntimeAssetRevisions as clearTrackedRuntimeAssetRevisions,
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
@@ -5433,14 +5439,30 @@ function normalizeLocalEndpointPricing(
 }
 
 function normalizeLocalEndpointConfigs(value: unknown): LocalEndpointConfig[] {
-  if (!Array.isArray(value)) return [];
+  if (value === undefined) return [];
+  if (!Array.isArray(value))
+    throw new LocalModelConfigError('local.endpoints must be an array.');
   const endpoints: LocalEndpointConfig[] = [];
   const seen = new Set<string>();
-  for (const raw of value) {
-    if (!isRecord(raw)) continue;
+  for (const [index, raw] of value.entries()) {
+    if (!isRecord(raw))
+      throw new LocalModelConfigError(
+        `local.endpoints[${index}] must be an object.`,
+      );
     const name = normalizeLocalEndpointName(raw.name);
     const type = normalizeLocalEndpointType(raw.type);
-    if (!name || !type || seen.has(name)) continue;
+    if (!name)
+      throw new LocalModelConfigError(
+        `local.endpoints[${index}].name must be a non-empty endpoint name using letters, numbers, dots, underscores or hyphens, without a reserved provider name.`,
+      );
+    if (!type)
+      throw new LocalModelConfigError(
+        `local.endpoints[${index}].type is not supported by this HybridClaw build. Use a build that supports this backend or correct the endpoint type in config.json.`,
+      );
+    if (seen.has(name))
+      throw new LocalModelConfigError(
+        `local.endpoints[${index}].name duplicates another endpoint. Give each endpoint a unique name.`,
+      );
     seen.add(name);
     const enabled = normalizeBoolean(raw.enabled, true);
     const fallbackBaseUrl = DEFAULT_RUNTIME_CONFIG.local.backends[type].baseUrl;
@@ -7528,6 +7550,7 @@ function normalizeRuntimeConfig(
   const localEndpointConfigs = normalizeLocalEndpointConfigs(
     rawLocal.endpoints,
   );
+  validateDefaultModelEndpoint(hybridDefaultModel, localEndpointConfigs);
   const modelRouting = normalizeModelRoutingConfig(
     rawRouting,
     DEFAULT_RUNTIME_CONFIG.routing,
@@ -9574,6 +9597,7 @@ export function updateRuntimeConfig(
       source: 'external',
     });
   } catch (err) {
+    if (err instanceof LocalModelConfigError) throw err;
     console.warn(
       `[runtime-config] update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -9594,6 +9618,7 @@ export function migrateLegacySchedulerJobsFromRuntimeConfig(
     });
     baseSource = currentConfigSource;
   } catch (err) {
+    if (err instanceof LocalModelConfigError) throw err;
     console.warn(
       `[runtime-config] scheduler job migration using in-memory config source after reload failure: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -9636,6 +9661,7 @@ export function setRuntimeConfigSecretInput(
     });
     baseSource = currentConfigSource;
   } catch (err) {
+    if (err instanceof LocalModelConfigError) throw err;
     console.warn(
       `[runtime-config] secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -9691,6 +9717,7 @@ export function setRuntimeConfigLocalEndpointSecretInput(
     });
     baseSource = currentConfigSource;
   } catch (err) {
+    if (err instanceof LocalModelConfigError) throw err;
     console.warn(
       `[runtime-config] local endpoint secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -9729,6 +9756,7 @@ export function setRuntimeConfigSlackWebhookSecretInput(
     });
     baseSource = currentConfigSource;
   } catch (err) {
+    if (err instanceof LocalModelConfigError) throw err;
     console.warn(
       `[runtime-config] Slack webhook secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -9768,6 +9796,7 @@ export function setRuntimeConfigDiscordWebhookSecretInput(
     });
     baseSource = currentConfigSource;
   } catch (err) {
+    if (err instanceof LocalModelConfigError) throw err;
     console.warn(
       `[runtime-config] Discord webhook secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
     );

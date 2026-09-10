@@ -114,6 +114,17 @@ reports live in `<runtime-home>/inference/mlx/`; the usual runtime home is
 `~/.hybridclaw`, or `HYBRIDCLAW_DATA_DIR` when configured. Model downloads are
 retained for retry and are not automatically deleted when switching models.
 
+Startup and configuration saves reject malformed or unsupported endpoint
+entries and defaults that reference a missing or disabled named endpoint.
+The invalid file is preserved instead of saving a normalized version that
+drops the endpoint. Startup identifies the configuration field and offers
+the existing configuration-revision recovery flow through
+`hybridclaw onboarding`. Restore the endpoint or select a configured model;
+use a build that supports the endpoint's backend. These checks do not require
+the local service to be running. Older builds without these checks can still
+rewrite unsupported settings, so keep the CLI linked to the feature checkout
+when testing an unreleased backend.
+
 Desktop **Labs → Start Local Model** / **Stop Local Model** manage an owned service.
 Sleep unloads it, wake restores it, and quitting stops it. An already-running
 external service remains owned by its original launcher. The foreground CLI
