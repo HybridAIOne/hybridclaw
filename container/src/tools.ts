@@ -1,3 +1,8 @@
+/**
+ * Tool implementations execute only after the agent loop's permission checks.
+ * Bash commands travel on stdin to fixed shell wrappers, never in launch arguments;
+ * local guards still apply, and this dispatcher does not grant action approval.
+ */
 import { type SpawnSyncReturns, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -362,12 +367,17 @@ const BASH_DOCKER_CWD = String(
 const TASK_SANDBOX_FS_ENABLED = Boolean(BASH_DOCKER_CONTAINER);
 let persistentBashSession: PersistentBashSession | null = null;
 const PERSISTENT_BASH_SESSION_PREFIX = 'hybridclaw-shell';
+// 2026-09-10, Codex CI review: keep command contents out of process argv.
+// NUL framing preserves whitespace and gives child commands an exhausted stdin.
+const READ_BASH_COMMAND_SCRIPT = `IFS= read -r -d '' __hybridclaw_command || exit 125`;
+const STATELESS_BASH_WRAPPER_SCRIPT = `${READ_BASH_COMMAND_SCRIPT}
+eval "$__hybridclaw_command"`;
 const PERSISTENT_BASH_WRAPPER_SCRIPT = `
 __hybridclaw_session_dir=$1
 __hybridclaw_snapshot=$2
 __hybridclaw_cwd_file=$3
 __hybridclaw_default_cwd=$4
-__hybridclaw_command=$5
+${READ_BASH_COMMAND_SCRIPT}
 __hybridclaw_snapshot_tmp="\${__hybridclaw_snapshot}.tmp"
 __hybridclaw_cwd_tmp="\${__hybridclaw_cwd_file}.tmp"
 umask 077
@@ -498,7 +508,6 @@ function getPersistentBashSession(): PersistentBashSession {
 
 function buildPersistentBashWrapperArgs(
   session: PersistentBashSession,
-  command: string,
 ): string[] {
   return [
     session.initialized ? '-c' : '-lc',
@@ -508,7 +517,6 @@ function buildPersistentBashWrapperArgs(
     session.snapshotPath,
     session.cwdPath,
     session.defaultCwd,
-    command,
   ];
 }
 
@@ -517,10 +525,10 @@ function runPersistentBash(params: {
   timeoutMs: number;
 }): string {
   const session = getPersistentBashSession();
-  const wrapperArgs = buildPersistentBashWrapperArgs(session, params.command);
+  const wrapperArgs = buildPersistentBashWrapperArgs(session);
   const result = TASK_SANDBOX_FS_ENABLED
-    ? runDockerExecBash(wrapperArgs, params.timeoutMs)
-    : runHostBash(wrapperArgs, params.timeoutMs);
+    ? runDockerExecBash(wrapperArgs, params.timeoutMs, params.command)
+    : runHostBash(wrapperArgs, params.timeoutMs, params.command);
   if (result.error === undefined || result.status !== null) {
     session.initialized = true;
   }
@@ -531,6 +539,7 @@ function runPersistentBash(params: {
 function runDockerExecBash(
   args: string[],
   timeoutMs: number,
+  command: string,
 ): SpawnSyncReturns<string> {
   return spawnSync(
     'docker',
@@ -544,6 +553,7 @@ function runDockerExecBash(
       ...args,
     ],
     {
+      input: `${command}\0`,
       timeout: timeoutMs,
       encoding: 'utf-8',
       maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
@@ -566,13 +576,10 @@ function buildBashRuntimeEnv(): Record<string, string> {
 function runHostBash(
   args: string[],
   timeoutMs: number,
+  command: string,
 ): SpawnSyncReturns<string> {
-  // lgtm[js/command-line-injection] Executing a caller-supplied command is the
-  // explicit contract of the approval-gated bash tool; arguments are passed
-  // positionally to a fixed executable rather than interpolated into a command.
-  // lgtm[js/shell-command-injection-from-environment] Workspace paths are
-  // positional wrapper arguments and cwd metadata, not shell source text.
   return spawnSync('bash', args, {
+    input: `${command}\0`,
     timeout: timeoutMs,
     encoding: 'utf-8',
     cwd: WORKSPACE_ROOT,
@@ -613,10 +620,10 @@ function runStatelessBash(params: {
   command: string;
   timeoutMs: number;
 }): string {
-  const args = ['-lc', params.command];
+  const args = ['-lc', STATELESS_BASH_WRAPPER_SCRIPT];
   const result = TASK_SANDBOX_FS_ENABLED
-    ? runDockerExecBash(args, params.timeoutMs)
-    : runHostBash(args, params.timeoutMs);
+    ? runDockerExecBash(args, params.timeoutMs, params.command)
+    : runHostBash(args, params.timeoutMs, params.command);
   return formatBashExecutionResult(result, params.timeoutMs);
 }
 
@@ -3087,6 +3094,9 @@ async function executeToolInternal(
       return runSkillsList(args);
 
     case 'bash': {
+      if (typeof args.command !== 'string' || args.command.includes('\0')) {
+        return failTool('Error: command must be a string without NUL bytes');
+      }
       const blocked = guardCommand(args.command);
       if (blocked) return failTool(blocked);
       const timeoutMs = resolveBashTimeoutMs(args);
