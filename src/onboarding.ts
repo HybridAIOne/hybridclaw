@@ -1,3 +1,8 @@
+/**
+ * Runtime onboarding always enforces valid configuration and operator trust.
+ * Gateway/TUI startup can defer an unknown model to request-time validation;
+ * unlike the provider factory, it does not require a usable model to proceed.
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
@@ -32,7 +37,11 @@ import {
   resolveTuiCommandLabel,
   shouldPrintTuiStartHint,
 } from './onboarding-tui-hint.js';
-import { isCodexModel, resolveModelProvider } from './providers/factory.js';
+import {
+  isCodexModel,
+  resolveModelProvider,
+  UnknownModelProviderError,
+} from './providers/factory.js';
 import {
   fetchHybridAIAccountChatbotId,
   normalizeBots,
@@ -100,9 +109,27 @@ function shouldOfferAgentHomeMigrations(bootstrappedConfig: boolean): boolean {
 }
 
 function isLocalProvider(
-  provider: ReturnType<typeof resolveModelProvider>,
+  provider: ReturnType<typeof resolveModelProvider> | null,
 ): boolean {
-  return isLocalBackendType(provider);
+  return provider !== null && isLocalBackendType(provider);
+}
+
+function resolveOnboardingModelProvider(
+  model: string,
+  requireCredentials: boolean,
+): ReturnType<typeof resolveModelProvider> | null {
+  try {
+    return resolveModelProvider(model);
+  } catch (error) {
+    if (requireCredentials || !(error instanceof UnknownModelProviderError)) {
+      throw error;
+    }
+    printWarn(
+      `${error.message} Startup will continue, but requests using this model will fail. ` +
+        'Choose a configured model in the console or run `hybridclaw config set hybridai.defaultModel <model>`.',
+    );
+    return null;
+  }
 }
 
 function trustModelDocPath(): string {
@@ -1583,7 +1610,12 @@ export async function ensureRuntimeCredentials(
     anthropicConfiguredMethod,
   );
   const currentModel = runtimeConfig.hybridai.defaultModel.trim();
-  const resolvedCurrentProvider = resolveModelProvider(currentModel);
+  const force = options.force === true;
+  const requireCredentials = options.requireCredentials !== false;
+  const resolvedCurrentProvider = resolveOnboardingModelProvider(
+    currentModel,
+    requireCredentials || force,
+  );
   const currentProviderIsLocal = isLocalProvider(resolvedCurrentProvider);
   const currentAuth =
     options.preferredAuth ||
@@ -1598,32 +1630,35 @@ export async function ensureRuntimeCredentials(
             : resolvedCurrentProvider === 'huggingface'
               ? 'huggingface'
               : 'hybridai');
-  const force = options.force === true;
-  const requireCredentials = options.requireCredentials !== false;
   let securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
-  const hasRequiredCredentials = currentProviderIsLocal
-    ? true
-    : currentAuth === 'anthropic'
-      ? anthropicReady
-      : currentAuth === 'openai-codex'
-        ? codexStatus.authenticated
-        : currentAuth === 'openrouter'
-          ? !!existingOpenRouterKey
-          : currentAuth === 'mistral'
-            ? !!existingMistralKey
-            : currentAuth === 'huggingface'
-              ? !!existingHuggingFaceKey
-              : !!existingKey;
+  const hasRequiredCredentials =
+    resolvedCurrentProvider === null
+      ? false
+      : currentProviderIsLocal
+        ? true
+        : currentAuth === 'anthropic'
+          ? anthropicReady
+          : currentAuth === 'openai-codex'
+            ? codexStatus.authenticated
+            : currentAuth === 'openrouter'
+              ? !!existingOpenRouterKey
+              : currentAuth === 'mistral'
+                ? !!existingMistralKey
+                : currentAuth === 'huggingface'
+                  ? !!existingHuggingFaceKey
+                  : !!existingKey;
   if (
     !needsSecurityAcceptance &&
     (hasRequiredCredentials || !requireCredentials)
   ) {
     if (rl) await maybeRunSpeechToTextProviderOnboarding(rl);
-    await maybeBackfillDefaultHybridAIChatbotId({
-      authMethod: currentAuth,
-      existingKey,
-    });
+    if (resolvedCurrentProvider !== null) {
+      await maybeBackfillDefaultHybridAIChatbotId({
+        authMethod: currentAuth,
+        existingKey,
+      });
+    }
     rl?.close();
     return;
   }
@@ -1718,8 +1753,9 @@ export async function ensureRuntimeCredentials(
     );
     const refreshedCurrentModel =
       refreshedRuntimeConfig.hybridai.defaultModel.trim();
-    const refreshedResolvedProvider = resolveModelProvider(
+    const refreshedResolvedProvider = resolveOnboardingModelProvider(
       refreshedCurrentModel,
+      requireCredentials || force,
     );
     const refreshedProviderIsLocal = isLocalProvider(refreshedResolvedProvider);
     const refreshedAuth =
@@ -1736,19 +1772,22 @@ export async function ensureRuntimeCredentials(
                 ? 'huggingface'
                 : 'hybridai');
     const refreshedCodexStatus = getCodexAuthStatus();
-    const refreshedHasRequiredCredentials = refreshedProviderIsLocal
-      ? true
-      : refreshedAuth === 'anthropic'
-        ? refreshedAnthropicReady
-        : refreshedAuth === 'openai-codex'
-          ? refreshedCodexStatus.authenticated
-          : refreshedAuth === 'openrouter'
-            ? !!refreshedExistingOpenRouterKey
-            : refreshedAuth === 'mistral'
-              ? !!refreshedExistingMistralKey
-              : refreshedAuth === 'huggingface'
-                ? !!refreshedExistingHuggingFaceKey
-                : !!refreshedExistingKey;
+    const refreshedHasRequiredCredentials =
+      refreshedResolvedProvider === null
+        ? false
+        : refreshedProviderIsLocal
+          ? true
+          : refreshedAuth === 'anthropic'
+            ? refreshedAnthropicReady
+            : refreshedAuth === 'openai-codex'
+              ? refreshedCodexStatus.authenticated
+              : refreshedAuth === 'openrouter'
+                ? !!refreshedExistingOpenRouterKey
+                : refreshedAuth === 'mistral'
+                  ? !!refreshedExistingMistralKey
+                  : refreshedAuth === 'huggingface'
+                    ? !!refreshedExistingHuggingFaceKey
+                    : !!refreshedExistingKey;
 
     await maybeRunSpeechToTextProviderOnboarding(rl);
 
@@ -1760,11 +1799,13 @@ export async function ensureRuntimeCredentials(
     }
 
     if ((refreshedHasRequiredCredentials || !requireCredentials) && !force) {
-      await maybeBackfillDefaultHybridAIChatbotId({
-        authMethod: refreshedAuth,
-        existingKey: refreshedExistingKey,
-        forcePrint: refreshedHasRequiredCredentials,
-      });
+      if (refreshedResolvedProvider !== null) {
+        await maybeBackfillDefaultHybridAIChatbotId({
+          authMethod: refreshedAuth,
+          existingKey: refreshedExistingKey,
+          forcePrint: refreshedHasRequiredCredentials,
+        });
+      }
       if (refreshedHasRequiredCredentials) {
         printSuccess(
           'Security trust model already accepted and the active model provider is configured.',

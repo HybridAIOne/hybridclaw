@@ -315,9 +315,14 @@ something.
 
 ## Recall Transparency
 
-Every built-in prompt-memory check is exposed to the active client. Semantic
-recall emits `memory_recall` start and finish activity, including lookups with
-no matches. The finished activity reports whether the session summary was
+Prompt assembly skips semantic query embedding and retrieval when the current
+session has no non-deleted memories meeting the confidence cutoff. If no
+session summary is included either, no memory activity or `memoryAccess`
+metadata is emitted. When eligible memories exist, semantic recall emits
+`memory_recall` start and finish activity, including searches with no matches.
+Both semantic recall and summary-only access start during prompt assembly,
+before the completed context is returned to the gateway.
+The finished activity reports whether the session summary was
 included and lists every semantic memory attached to the prompt, independently
 of whether the assistant cites it in the final answer.
 
