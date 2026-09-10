@@ -4,11 +4,30 @@ import tempfile
 import unittest
 from pathlib import Path
 from model_store import digest, validate_manifest, write_private
-from server import validate_body, validate_profile
+from server import ContextBudgetError, preparation_error, validate_body, validate_context_budget, validate_profile
 from trusted_architectures import SPARK_ARTIFACT, SPARK_AUTO_MAP, validate_model_code
 
 
 class BoundaryTests(unittest.TestCase):
+    def test_context_admission_reports_exact_counts_including_output_reserve(self):
+        validate_context_budget(38912, 2048, 40960, 114)
+        with self.assertRaises(ContextBudgetError) as caught:
+            validate_context_budget(38913, 2048, 40960, 114)
+        error = preparation_error(caught.exception)
+        self.assertIs(error, caught.exception)
+        self.assertIn("38913 prompt tokens + 2048 output tokens > 40960 tokens (114 tools)", str(error))
+        self.assertIn("Reduce instructions or enabled tools", str(error))
+
+    def test_preparation_errors_do_not_expose_library_messages_or_guess_overflow(self):
+        for original in [ValueError("private prompt text"), RuntimeError("private schema text"), KeyError("private field")]:
+            error = preparation_error(original)
+            self.assertNotIn("private", str(error))
+            self.assertNotIn("context limit exceeded", str(error))
+            self.assertIn("messages and tool definitions", str(error))
+        error = preparation_error(MemoryError("private allocation context"))
+        self.assertIn("ran out of memory", str(error))
+        self.assertNotIn("private", str(error))
+
     def test_larger_context_requires_the_qualified_spark_artifact(self):
         profile = {"repo": SPARK_ARTIFACT[0], "revision": SPARK_ARTIFACT[1], "port": 8321,
                    "contextWindow": 40960, "maxTokens": 2048, "memoryLimitBytes": 7 * 1024**3,

@@ -45,6 +45,23 @@ and an installed budget too small even when the current Mac has more capacity.
 Full unit/e2e and remote-provider live suites were not run for this focused
 memory-admission correction.
 
+### Follow-up preparation diagnostic — 2026-09-10
+
+A later gateway request used 114 tools and failed during preparation. The old
+service collapsed all preparation exceptions into the same model/context
+message, so that log alone cannot establish whether the cause was context
+overflow or a runtime/template failure. The previous 43-tool qualification
+does not establish that this larger catalog fits. Local tokenization of that
+recorded system context with the core catalog measured 29,679 prompt tokens;
+the additional MCP schemas were not retrieved and the complete request was
+not reproduced.
+
+The boundary preserves numeric context-overflow diagnostics (prompt, output
+reserve, limit and tool count), separates Python memory failures, and redacts
+all other library messages. Seven pure Python boundary tests pass, including
+exact-limit admission, one-token overflow, and sensitive error-text rejection.
+No context or memory limit is raised by this diagnostic change.
+
 ## Reproducible measurement
 
 The [raw synthetic smoke report](mac-inference-smoke.json) was captured on an

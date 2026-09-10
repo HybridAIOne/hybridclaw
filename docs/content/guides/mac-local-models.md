@@ -121,6 +121,14 @@ message. Unknown discovery status uses a neutral badge. While chat is open,
 local status refreshes every 30 seconds, subject to request latency. Starting
 or stopping a model in Labs also invalidates the cached model list.
 
+An online model can still reject a request that exceeds its context window.
+The MLX context-limit error reports the actual prompt tokens, reserved output
+tokens, installed limit, and tool count. Tool schemas and instructions count
+toward this budget even in a fresh chat. Reduce the agent's instructions or
+enabled tools, or select a model with a larger context window. Other request
+preparation failures are reported separately, without exposing library errors
+that may contain prompt content or credentials.
+
 Startup and configuration saves reject malformed or unsupported endpoint
 entries and defaults that reference a missing or disabled named endpoint.
 The invalid file is preserved instead of saving a normalized version that

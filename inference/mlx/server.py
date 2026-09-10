@@ -30,6 +30,36 @@ MAX_BODY = 2 * 1024 * 1024
 ALLOWED_KEYS = {"model", "messages", "tools", "tool_choice", "stream", "stream_options", "max_tokens", "max_completion_tokens", "temperature", "top_p", "seed", "stop", "parallel_tool_calls"}
 
 
+class ContextBudgetError(ValueError):
+    """Only numeric admission diagnostics may cross the local HTTP boundary."""
+
+    def __init__(self, prompt_tokens, output_tokens, context_window, tool_count):
+        super().__init__(
+            f"Local context limit exceeded: {prompt_tokens} prompt tokens + "
+            f"{output_tokens} output tokens > {context_window} tokens "
+            f"({tool_count} tools). Reduce instructions or enabled tools, "
+            "or select a model with a larger context window."
+        )
+
+
+def validate_context_budget(prompt_tokens, output_tokens, context_window, tool_count):
+    if prompt_tokens + output_tokens > context_window:
+        raise ContextBudgetError(prompt_tokens, output_tokens, context_window, tool_count)
+
+
+def preparation_error(error):
+    if isinstance(error, ContextBudgetError):
+        return error
+    # Library messages can include prompt content, schema values or file paths.
+    # Keep the known failure category, never their text or arbitrary class names.
+    if isinstance(error, MemoryError):
+        return ValueError("Local request preparation ran out of memory. Close other apps and retry.")
+    return ValueError(
+        "Local model could not prepare the messages and tool definitions. "
+        "Check the local runtime and its message and tool support."
+    )
+
+
 def validate_body(body, model, max_tokens):
     if not isinstance(body, dict) or set(body) - ALLOWED_KEYS:
         raise ValueError("Unsupported request fields")
@@ -179,15 +209,17 @@ def serve(home):
 
         def _tokenize(self, tokenizer, request, arguments):
             result = super()._tokenize(tokenizer, request, arguments)
-            if len(result[0]) + arguments.max_tokens > profile["contextWindow"]:
-                raise ValueError("Context budget exceeded")
+            validate_context_budget(
+                len(result[0]), arguments.max_tokens, profile["contextWindow"],
+                len(request.tools or []),
+            )
             return result
 
         def generate(self, *args, **kwargs):
             try:
                 ctx, stream = super().generate(*args, **kwargs)
-            except Exception:
-                raise ValueError("Local request could not be prepared; check model and context limits") from None
+            except Exception as error:
+                raise preparation_error(error) from None
             self.context = ctx
             return ctx, stream
 
