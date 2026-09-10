@@ -2516,7 +2516,7 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'sessions',
       description:
-        'List or switch sessions for this chat, inspect active sandbox sessions, or prune old persisted sessions',
+        'List or switch chat sessions, inspect active sandbox sessions, or prune old sessions',
     },
     {
       name: 'audit',

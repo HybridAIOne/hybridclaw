@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Discord slash commands tolerate individual registration failures**:
+  Command and option descriptions fit Discord's 100-character limit, including
+  `/sessions`. Registration continues after a failed command, reports its name
+  and the success/failure counts, and preserves guild commands whose global
+  replacements did not register.
+
 ## [0.30.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.1) - 2026-09-03
 
 ### Added
