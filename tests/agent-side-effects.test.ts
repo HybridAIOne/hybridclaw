@@ -1,5 +1,8 @@
 import { expect, test, vi } from 'vitest';
-import { processSideEffects } from '../src/agent/side-effects.ts';
+import {
+  formatSideEffectNotice,
+  processSideEffects,
+} from '../src/agent/side-effects.ts';
 
 test('processSideEffects hands every delegation to the handler', () => {
   const onDelegation = vi.fn();
@@ -56,4 +59,34 @@ test('processSideEffects keeps processing after a handler throws', () => {
   ).not.toThrow();
 
   expect(onDelegation).toHaveBeenCalledTimes(2);
+});
+
+test('processSideEffects reports delegation handler failures through onError', () => {
+  const onError = vi.fn();
+  processSideEffects(
+    {
+      status: 'success',
+      result: 'ok',
+      toolsUsed: [],
+      sideEffects: {
+        delegations: [{ action: 'delegate', prompt: 'Research pricing.' }],
+      },
+    },
+    'session-1',
+    'tui',
+    {
+      onDelegation: () => {
+        throw new Error('delegation queue unavailable');
+      },
+      onError,
+    },
+  );
+
+  expect(onError).toHaveBeenCalledWith(
+    'Delegation could not be started: delegation queue unavailable',
+  );
+  expect(formatSideEffectNotice([])).toBeNull();
+  expect(formatSideEffectNotice(['  ', 'Delegation was not started: x.'])).toBe(
+    '⚠️ Delegation was not started: x.',
+  );
 });

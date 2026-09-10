@@ -203,6 +203,67 @@ describe.sequential('container cron tool', () => {
     expect(result).toContain('#16');
   });
 
+  test('lists the last failure for tasks that errored or were disabled', async () => {
+    setScheduledTasks([
+      {
+        id: 21,
+        channelId: 'ops@example.com',
+        cronExpr: '0 9 * * *',
+        tz: 'Europe/Berlin',
+        runAt: null,
+        everyMs: null,
+        prompt: 'Morning briefing',
+        enabled: 1,
+        lastRun: '2026-09-08T07:00:00.000Z',
+        lastStatus: 'error',
+        lastError: 'Delivery to email failed: not linked',
+        createdAt: '2026-09-01T12:00:00.000Z',
+      },
+      {
+        id: 22,
+        channelId: 'ops@example.com',
+        cronExpr: '61 * * * *',
+        tz: '',
+        runAt: null,
+        everyMs: null,
+        prompt: 'Broken',
+        enabled: 0,
+        lastRun: null,
+        lastStatus: 'error',
+        lastError: 'Invalid cron expression "61 * * * *"',
+        createdAt: '2026-09-01T12:00:00.000Z',
+      },
+      {
+        id: 23,
+        channelId: 'ops@example.com',
+        cronExpr: '',
+        tz: '',
+        runAt: null,
+        everyMs: 60_000,
+        prompt: 'Healthy',
+        enabled: 1,
+        lastRun: '2026-09-08T07:00:00.000Z',
+        lastStatus: 'success',
+        lastError: 'stale error from an earlier run',
+        createdAt: '2026-09-01T12:00:00.000Z',
+      },
+    ]);
+
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({ action: 'list' }),
+    );
+
+    expect(result).toContain(
+      '#21 [enabled] 0 9 * * * (Europe/Berlin) -> ops@example.com — Morning briefing (last run failed: Delivery to email failed: not linked)',
+    );
+    expect(result).toContain(
+      '#22 [disabled] 61 * * * * -> ops@example.com — Broken (last run failed: Invalid cron expression "61 * * * *")',
+    );
+    expect(result).toContain('#23 [enabled] every 60s -> ops@example.com — Healthy');
+    expect(result).not.toContain('stale error');
+  });
+
   test('blocks schedule creation when side effects are disabled', async () => {
     const calls = installGatewayFetch();
     setScheduleSideEffectsEnabled(false);

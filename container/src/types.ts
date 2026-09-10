@@ -192,6 +192,8 @@ export interface ScheduledTaskInput {
   prompt: string;
   enabled: number;
   lastRun: string | null;
+  lastStatus?: string | null;
+  lastError?: string | null;
   createdAt: string;
 }
 

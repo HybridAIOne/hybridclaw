@@ -10,6 +10,7 @@ export interface ScheduledTask {
   enabled: number;
   last_run: string | null;
   last_status: string | null;
+  last_error: string | null;
   consecutive_errors: number;
   created_at: string;
 }
@@ -24,5 +25,7 @@ export interface ScheduledTaskInput {
   prompt: string;
   enabled: number;
   lastRun: string | null;
+  lastStatus?: string | null;
+  lastError?: string | null;
   createdAt: string;
 }

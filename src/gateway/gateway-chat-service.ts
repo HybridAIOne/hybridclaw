@@ -14,7 +14,10 @@ import {
   type PromptPartName,
   parsePromptPartList,
 } from '../agent/prompt-parts.js';
-import { processSideEffects } from '../agent/side-effects.js';
+import {
+  formatSideEffectNotice,
+  processSideEffects,
+} from '../agent/side-effects.js';
 import { isSilentReply } from '../agent/silent-reply.js';
 import {
   resolveAgentConfig,
@@ -2465,6 +2468,7 @@ async function handleGatewayMessageInner(
     const acceptedDelegationPlans: NonNullable<
       ReturnType<typeof normalizeDelegationEffect>['plan']
     >[] = [];
+    const sideEffectNotices: string[] = [];
     processSideEffects(output, req.sessionId, req.channelId, {
       onDelegation: (effect) => {
         const normalized = normalizeDelegationEffect(effect, model);
@@ -2476,6 +2480,9 @@ async function handleGatewayMessageInner(
               effect,
             },
             'Delegation skipped — invalid payload',
+          );
+          sideEffectNotices.push(
+            `Delegation was not started: ${normalized.error || 'invalid payload'}.`,
           );
           return;
         }
@@ -2489,6 +2496,9 @@ async function handleGatewayMessageInner(
               maxDepth: PROACTIVE_DELEGATION_MAX_DEPTH,
             },
             'Delegation skipped — depth limit reached',
+          );
+          sideEffectNotices.push(
+            `Delegation was not started: nesting depth limit (${PROACTIVE_DELEGATION_MAX_DEPTH}) reached.`,
           );
           return;
         }
@@ -2507,15 +2517,22 @@ async function handleGatewayMessageInner(
             },
             'Delegation skipped — per-turn limit reached',
           );
+          sideEffectNotices.push(
+            `Delegation of ${requestedRuns} task${requestedRuns === 1 ? '' : 's'} was not started: per-turn limit of ${PROACTIVE_DELEGATION_MAX_PER_TURN} delegate runs reached.`,
+          );
           return;
         }
         acceptedDelegations += requestedRuns;
         acceptedDelegationPlans.push(normalized.plan);
       },
+      onError: (message) => {
+        sideEffectNotices.push(message);
+      },
     });
+    const sideEffectNotice = formatSideEffectNotice(sideEffectNotices);
     const ackText =
       acceptedDelegations > 0
-        ? `Started ${acceptedDelegations} delegate ${acceptedDelegations === 1 ? 'job' : 'jobs'}. I'll synthesize the final answer when they finish.`
+        ? `Started ${acceptedDelegations} delegate ${acceptedDelegations === 1 ? 'job' : 'jobs'}. I'll synthesize the final answer when they finish.${sideEffectNotice ? ` ${sideEffectNotice}` : ''}`
         : null;
     const delegationDescriptor =
       acceptedDelegationPlans.length > 0
@@ -2635,10 +2652,13 @@ async function handleGatewayMessageInner(
       return attachSessionIdentity(result);
     }
 
+    const agentResultText =
+      output.result || buildEmptyAgentResponseFallback(output.artifacts);
     const rawResultText =
       delegationAcknowledgement ||
-      output.result ||
-      buildEmptyAgentResponseFallback(output.artifacts);
+      (sideEffectNotice
+        ? `${agentResultText}\n\n${sideEffectNotice}`
+        : agentResultText);
     const unnormalizedResultText = routingExecutionNotice
       ? `${routingExecutionNotice}${rawResultText}`
       : rawResultText;
