@@ -1,3 +1,8 @@
+/**
+ * Native setup eligibility comes from the gateway host, never the browser OS.
+ * Unknown capability stays hidden; navigation and setup routes share this state.
+ * This presentation boundary does not grant permission to call gateway APIs.
+ */
 import { useQuery } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
 import { createContext, type ReactNode, useContext } from 'react';
@@ -19,10 +24,12 @@ const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
 
 type AppShellConfigContextValue = {
   emailEnabled: boolean;
+  localModelsSupported: boolean;
 };
 
 const AppShellConfigContext = createContext<AppShellConfigContextValue>({
   emailEnabled: false,
+  localModelsSupported: false,
 });
 
 export function AppShell(props: { children: ReactNode }) {
@@ -42,16 +49,23 @@ export function AppShell(props: { children: ReactNode }) {
   const emailEnabled =
     (statusQuery.data?.emailEnabled ?? auth.gatewayStatus?.emailEnabled) ===
     true;
+  const localModelsSupported =
+    (statusQuery.data?.localModelsSupported ??
+      auth.gatewayStatus?.localModelsSupported) === true;
   const sidebarGroups = SIDEBAR_NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter(
-      (item) => !item.requiresEmail || emailEnabled || pathname === item.to,
+      (item) =>
+        (!item.requiresEmail || emailEnabled || pathname === item.to) &&
+        (!item.requiresLocalMac || localModelsSupported),
     ),
   })).filter((group) => group.items.length > 0);
   const currentNavItem = resolveCurrentAdminNavItem(pathname);
 
   return (
-    <AppShellConfigContext.Provider value={{ emailEnabled }}>
+    <AppShellConfigContext.Provider
+      value={{ emailEnabled, localModelsSupported }}
+    >
       <SidebarProvider style={SIDEBAR_STYLE}>
         <AppSidebar
           groups={sidebarGroups}
@@ -68,7 +82,7 @@ export function AppShell(props: { children: ReactNode }) {
               </div>
             </div>
             <div className="topbar-tools">
-              <CommandPalette />
+              <CommandPalette localModelsSupported={localModelsSupported} />
               <ViewSwitchNav items={viewSwitchItems} />
             </div>
           </div>

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -594,6 +595,10 @@ function buildMenu(): Menu {
         },
         {
           label: 'Labs',
+          visible:
+            IS_MAC &&
+            process.arch === 'arm64' &&
+            Number.parseInt(os.release(), 10) >= 24,
           submenu: [
             {
               label: 'Set Up Local Model…',

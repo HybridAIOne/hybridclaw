@@ -1,9 +1,10 @@
 /**
- * Labs setup reflects the gateway Mac's measured capacity and background job.
+ * Labs setup is visible only on supported Apple silicon gateway hosts.
  * This page never selects remote fallback or marks a download ready before
  * local checks pass; provider endpoint editing remains on Providers.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Navigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { controlLocalModel, fetchLocalModels } from '../api/client';
 import type {
@@ -11,6 +12,7 @@ import type {
   AdminLocalModelsResponse,
 } from '../api/types';
 import { useAuth } from '../auth';
+import { useAppShellConfig } from '../components/app-shell';
 import { Button } from '../components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { PageHeader } from '../components/ui';
@@ -86,6 +88,12 @@ function SetupProgress({
 }
 
 export function LocalModelsPage() {
+  const { localModelsSupported } = useAppShellConfig();
+  if (!localModelsSupported) return <Navigate to="/admin/models" replace />;
+  return <MacLocalModelsPage />;
+}
+
+function MacLocalModelsPage() {
   const { token } = useAuth();
   const client = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);

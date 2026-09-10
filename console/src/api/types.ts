@@ -25,6 +25,7 @@ export interface GatewayChannelPluginStatus {
 
 export interface GatewayStatus {
   status: 'ok';
+  localModelsSupported?: boolean;
   webAuthConfigured: boolean;
   pid?: number;
   lifecycle?: {

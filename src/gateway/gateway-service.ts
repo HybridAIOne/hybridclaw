@@ -242,6 +242,7 @@ import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { handleGoalCommand } from '../goals/goal-command.js';
 import { pauseActiveGoalForSession } from '../goals/goal-runtime.js';
 import { parseAgentIdentity } from '../identity/agent-id.js';
+import { supportsMacLocalModels } from '../inference/local-model-catalog.js';
 import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
@@ -5201,6 +5202,11 @@ export async function getGatewayStatus(
   return {
     status: 'ok',
     webAuthConfigured: Boolean(WEB_API_TOKEN),
+    localModelsSupported: supportsMacLocalModels({
+      platform: process.platform,
+      arch: process.arch,
+      release: os.release(),
+    }),
     pid: process.pid,
     lifecycle: getGatewayLifecycleStatus(),
     version: APP_VERSION,

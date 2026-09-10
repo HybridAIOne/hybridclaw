@@ -10,6 +10,7 @@ import {
   GIB,
   MAC_MODEL_CATALOG,
   parseMacAvailableMemory,
+  supportsMacLocalModels,
 } from '../src/inference/local-model-catalog.js';
 import { LOCAL_MODEL_SHORTLIST } from '../src/inference/local-model-shortlist.js';
 import { assertMlxEndpoint } from '../src/inference/mlx-endpoint.js';
@@ -440,4 +441,20 @@ test('sandbox relay keeps progressing beyond its original deadline', async () =>
   }
   controller.close();
   expect((await reader.read()).done).toBe(true);
+});
+
+
+test.each([
+  ['darwin', 'arm64', '24.0.0', true],
+  ['darwin', 'arm64', '25.0.0', true],
+  ['darwin', 'x64', '24.0.0', false],
+  ['darwin', 'arm64', '23.0.0', false],
+  ['linux', 'arm64', '24.0.0', false],
+  ['win32', 'arm64', '24.0.0', false],
+  ['linux', 'x64', '6.0.0', false],
+  ['darwin', 'arm64', 'unknown', false],
+])('native local-model setup requires supported Apple silicon: %s/%s/%s', (platform, arch, release, supported) => {
+  const host = { ...hardware, platform, arch, release, memoryBytes: 32 * GIB };
+  expect(supportsMacLocalModels(host)).toBe(supported);
+  expect(estimateMacModels(host).supported).toBe(supported);
 });

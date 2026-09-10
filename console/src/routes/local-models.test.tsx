@@ -4,10 +4,20 @@ import type { AdminLocalModelsResponse } from '../api/types';
 import { renderWithProviders } from '../test-utils';
 import { LocalModelsPage } from './local-models';
 
-const mocks = vi.hoisted(() => ({ fetch: vi.fn(), control: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  fetch: vi.fn(),
+  control: vi.fn(),
+  supported: true as boolean | undefined,
+}));
 vi.mock('../api/client', () => ({
   fetchLocalModels: mocks.fetch,
   controlLocalModel: mocks.control,
+}));
+vi.mock('../components/app-shell', () => ({
+  useAppShellConfig: () => ({ localModelsSupported: mocks.supported }),
+}));
+vi.mock('@tanstack/react-router', () => ({
+  Navigate: ({ to }: { to: string }) => <div data-testid="redirect">{to}</div>,
 }));
 vi.mock('../auth', () => ({ useAuth: () => ({ token: 'test-key' }) }));
 const GIB = 1024 ** 3;
@@ -63,6 +73,7 @@ function status(
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.supported = true;
   mocks.fetch.mockResolvedValue(status());
   mocks.control.mockResolvedValue({ accepted: true });
 });
@@ -258,4 +269,16 @@ test.each([
   expect(queryClient.getQueryState(['models', 'test-key'])?.isInvalidated).toBe(
     false,
   );
+});
+
+test.each([
+  false,
+  undefined,
+])('redirects unsupported or unknown hosts without requesting local setup: %s', (supported) => {
+  mocks.supported = supported;
+  renderWithProviders(<LocalModelsPage />);
+  expect(screen.getByTestId('redirect').textContent).toBe('/admin/models');
+  expect(mocks.fetch).not.toHaveBeenCalled();
+  expect(mocks.control).not.toHaveBeenCalled();
+  expect(screen.queryByText('Live activity')).toBeNull();
 });

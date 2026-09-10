@@ -98,3 +98,24 @@ describe('CommandPalette', () => {
     expect(new URLSearchParams(window.location.search).get('tab')).toBe(tab);
   });
 });
+
+it.each([
+  true,
+  false,
+  undefined,
+])('shows native local setup in search only when the gateway supports it: %s', (localModelsSupported) => {
+  render(<CommandPalette localModelsSupported={localModelsSupported} />);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Search pages and settings' }),
+  );
+  expect(Boolean(screen.queryByRole('option', { name: /Local Models/ }))).toBe(
+    localModelsSupported === true,
+  );
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Search pages and settings' }),
+    { target: { value: 'local models' } },
+  );
+  expect(Boolean(screen.queryByRole('option', { name: /Local Models/ }))).toBe(
+    localModelsSupported === true,
+  );
+});

@@ -65,11 +65,18 @@ export function parseMacAvailableMemory(
   return (Number(free) + Number(inactive)) * pageSize;
 }
 
-export function estimateMacModels(hardware: MacHardware) {
-  const supported =
+export function supportsMacLocalModels(
+  hardware: Pick<MacHardware, 'platform' | 'arch' | 'release'>,
+): boolean {
+  return (
     hardware.platform === 'darwin' &&
     hardware.arch === 'arm64' &&
-    Number.parseInt(hardware.release, 10) >= 24;
+    Number.parseInt(hardware.release, 10) >= 24
+  );
+}
+
+export function estimateMacModels(hardware: MacHardware) {
+  const supported = supportsMacLocalModels(hardware);
   // 2026-09-09, Codex conservative defaults: reserve >=4 GiB or 25% for
   // macOS/agent/browser; prefill and allocator reserve is 1 GiB. Tune by benchmark.
   const reservedBytes = Math.max(4 * GIB, hardware.memoryBytes * 0.25);

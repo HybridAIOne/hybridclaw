@@ -168,6 +168,11 @@ test('getGatewayStatus includes build/runtime diagnostics', async () => {
 
   const status = await getGatewayStatus({ refreshProviderHealth: false });
 
+  expect(status.localModelsSupported).toBe(
+    process.platform === 'darwin' && process.arch === 'arm64' &&
+    Number.parseInt(os.release(), 10) >= 24,
+  );
+
   expect(status.build).toMatchObject({
     version: status.version,
     packageRoot: process.cwd(),

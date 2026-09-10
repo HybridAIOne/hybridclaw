@@ -6,7 +6,9 @@ description: Select, install and test a pinned MLX model using your Mac's unifie
 # Mac Local Model Setup
 
 On Apple silicon with macOS 15 or later, open **Labs → Local Models** in the
-web console. It shows the gateway Mac’s memory, free storage and a recommended
+web console. The setup page, navigation and search entry appear only when the
+gateway runs on a supported Apple silicon Mac with unified memory. Intel Macs,
+Windows and Linux hosts do not show this setup entry. It shows the gateway Mac’s memory, free storage and a recommended
 model from the current shortlist. Use **Compare models** for other candidates
 and their availability. **Download & set up** starts installation and local
 checks; progress continues when you leave the page. Use **Cancel** to stop it.
