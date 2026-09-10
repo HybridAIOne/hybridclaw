@@ -3,6 +3,11 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DAILY_MEMORY_MAX_CHARS } from '../shared/daily-memory.js';
+import {
+  waitForMemoryFileLock,
+  writeMemoryFileAtomic,
+} from '../shared/memory-file.js';
 import {
   formatMessageToolChannelList,
   normalizeMessageToolChannelKinds,
@@ -2144,7 +2149,6 @@ const ROOT_MEMORY_CHAR_LIMITS: Record<string, number> = {
   'MEMORY.md': 12_000,
   'USER.md': 8_000,
 };
-const DAILY_MEMORY_CHAR_LIMIT = 24_000;
 
 function normalizeDateStamp(input: string): string | null {
   const trimmed = input.trim();
@@ -2216,6 +2220,7 @@ function resolveMemoryFilePath(args: Record<string, unknown>): string | null {
     normalizeMemoryFilePath(args.file_path) ||
     normalizeMemoryFilePath(args.path);
   if (direct) return direct;
+  if (args.file_path !== undefined || args.path !== undefined) return null;
 
   const target =
     typeof args.target === 'string' ? args.target.trim().toLowerCase() : '';
@@ -2227,7 +2232,12 @@ function resolveMemoryFilePath(args: Record<string, unknown>): string | null {
     return `memory/${date || currentDateStamp()}.md`;
   }
 
-  return 'MEMORY.md';
+  if (target) return null;
+  const action =
+    typeof args.action === 'string' ? args.action.trim().toLowerCase() : 'read';
+  return isMemoryWriteAction(action)
+    ? `memory/${currentDateStamp()}.md`
+    : 'MEMORY.md';
 }
 
 function listMemoryFiles(): string[] {
@@ -2250,7 +2260,7 @@ function listMemoryFiles(): string[] {
 }
 
 function memoryCharLimit(relativePath: string): number {
-  return ROOT_MEMORY_CHAR_LIMITS[relativePath] || DAILY_MEMORY_CHAR_LIMIT;
+  return ROOT_MEMORY_CHAR_LIMITS[relativePath] || DAILY_MEMORY_MAX_CHARS;
 }
 
 interface TranscriptRow {
@@ -3099,79 +3109,94 @@ async function executeToolInternal(
         return `${relativePath}\n\n${content || '(empty)'}`;
       }
 
-      if (action === 'append') {
-        const content =
-          typeof args.content === 'string' ? args.content.trim() : '';
-        if (!content)
-          return failTool('Error: content is required for memory append');
+      const release = isMemoryWriteAction(action)
+        ? await waitForMemoryFileLock(filePath)
+        : undefined;
+      try {
+        if (action === 'append') {
+          const content =
+            typeof args.content === 'string' ? args.content.trim() : '';
+          if (!content)
+            return failTool('Error: content is required for memory append');
 
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        const existing = fs.existsSync(filePath)
-          ? fs.readFileSync(filePath, 'utf-8')
-          : '';
-        let next = existing.replace(/\s+$/, '');
-        if (next.length > 0) next += '\n\n';
-        next += `${content}\n`;
-        const limit = memoryCharLimit(relativePath);
-        if (next.length > limit) {
-          return failTool(
-            `Error: ${relativePath} would exceed ${limit} chars. Shorten content or remove older entries first.`,
-          );
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          const existing = fs.existsSync(filePath)
+            ? fs.readFileSync(filePath, 'utf-8')
+            : '';
+          let next = existing.replace(/\s+$/, '');
+          if (next.length > 0) next += '\n\n';
+          next += `${content}\n`;
+          const limit = memoryCharLimit(relativePath);
+          if (next.length > limit) {
+            return failTool(
+              `Error: ${relativePath} would exceed ${limit} chars. Shorten content or remove older entries first.`,
+            );
+          }
+          writeMemoryFileAtomic(filePath, next);
+          return `Appended ${content.length} chars to ${relativePath}`;
         }
-        fs.writeFileSync(filePath, next, 'utf-8');
-        return `Appended ${content.length} chars to ${relativePath}`;
-      }
 
-      if (action === 'write') {
-        const content = typeof args.content === 'string' ? args.content : '';
-        const limit = memoryCharLimit(relativePath);
-        if (content.length > limit) {
-          return failTool(
-            `Error: ${relativePath} exceeds ${limit} char limit.`,
-          );
+        if (action === 'write') {
+          if (args.confirm_overwrite !== true) {
+            return failTool(
+              'Error: memory write replaces the entire daily note. Set confirm_overwrite=true only to intentionally overwrite it; use append to save additional notes.',
+            );
+          }
+          const content = typeof args.content === 'string' ? args.content : '';
+          const limit = memoryCharLimit(relativePath);
+          if (content.length > limit) {
+            return failTool(
+              `Error: ${relativePath} exceeds ${limit} char limit.`,
+            );
+          }
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          writeMemoryFileAtomic(filePath, content);
+          return `Wrote ${content.length} chars to ${relativePath}`;
         }
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        fs.writeFileSync(filePath, content, 'utf-8');
-        return `Wrote ${content.length} chars to ${relativePath}`;
-      }
 
-      if (action === 'replace') {
-        const oldText = typeof args.old_text === 'string' ? args.old_text : '';
-        const newText = typeof args.new_text === 'string' ? args.new_text : '';
-        if (!oldText)
-          return failTool('Error: old_text is required for memory replace');
-        if (!fs.existsSync(filePath))
-          return failTool(`Error: File not found: ${relativePath}`);
-        const content = fs.readFileSync(filePath, 'utf-8');
-        if (!content.includes(oldText))
-          return failTool(`Error: old_text not found in ${relativePath}`);
-        const next = content.replace(oldText, newText);
-        const limit = memoryCharLimit(relativePath);
-        if (next.length > limit) {
-          return failTool(
-            `Error: replacement would exceed ${limit} chars for ${relativePath}.`,
-          );
+        if (action === 'replace') {
+          const oldText =
+            typeof args.old_text === 'string' ? args.old_text : '';
+          const newText =
+            typeof args.new_text === 'string' ? args.new_text : '';
+          if (!oldText)
+            return failTool('Error: old_text is required for memory replace');
+          if (!fs.existsSync(filePath))
+            return failTool(`Error: File not found: ${relativePath}`);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          if (!content.includes(oldText))
+            return failTool(`Error: old_text not found in ${relativePath}`);
+          const next = content.replace(oldText, newText);
+          const limit = memoryCharLimit(relativePath);
+          if (next.length > limit) {
+            return failTool(
+              `Error: replacement would exceed ${limit} chars for ${relativePath}.`,
+            );
+          }
+          writeMemoryFileAtomic(filePath, next);
+          return `Updated ${relativePath}`;
         }
-        fs.writeFileSync(filePath, next, 'utf-8');
-        return `Updated ${relativePath}`;
-      }
 
-      if (action === 'remove') {
-        const oldText = typeof args.old_text === 'string' ? args.old_text : '';
-        if (!oldText)
-          return failTool('Error: old_text is required for memory remove');
-        if (!fs.existsSync(filePath))
-          return failTool(`Error: File not found: ${relativePath}`);
-        const content = fs.readFileSync(filePath, 'utf-8');
-        if (!content.includes(oldText))
-          return failTool(`Error: old_text not found in ${relativePath}`);
-        fs.writeFileSync(filePath, content.replace(oldText, ''), 'utf-8');
-        return `Removed matching text from ${relativePath}`;
-      }
+        if (action === 'remove') {
+          const oldText =
+            typeof args.old_text === 'string' ? args.old_text : '';
+          if (!oldText)
+            return failTool('Error: old_text is required for memory remove');
+          if (!fs.existsSync(filePath))
+            return failTool(`Error: File not found: ${relativePath}`);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          if (!content.includes(oldText))
+            return failTool(`Error: old_text not found in ${relativePath}`);
+          writeMemoryFileAtomic(filePath, content.replace(oldText, ''));
+          return `Removed matching text from ${relativePath}`;
+        }
 
-      return failTool(
-        `Error: unknown memory action "${action}". Use read, append, write, replace, remove, list, or search.`,
-      );
+        return failTool(
+          `Error: unknown memory action "${action}". Use read, append, write, replace, remove, list, or search.`,
+        );
+      } finally {
+        release?.();
+      }
     }
 
     case 'message': {
@@ -4166,7 +4191,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'memory',
       description:
-        "Manage agent memory files. Read/search/list can access MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Write actions append/write/replace/remove are restricted to today's daily file so durable MEMORY.md rewrites flow only through dream consolidation.",
+        "Manage agent memory files. Read/search/list can access MEMORY.md, USER.md, and daily files at memory/YYYY-MM-DD.md. Omitted write targets default to today’s daily note. Prefer append; write replaces the entire note and requires confirm_overwrite=true. Write actions append/write/replace/remove are restricted to today's daily file so durable MEMORY.md rewrites flow only through dream consolidation.",
       parameters: {
         type: 'object',
         properties: {
@@ -4193,6 +4218,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           content: {
             type: 'string',
             description: 'Text payload for append/write',
+          },
+          confirm_overwrite: {
+            type: 'boolean',
+            description:
+              'Required true for write: confirms replacing the entire daily note, including all earlier entries.',
           },
           old_text: {
             type: 'string',

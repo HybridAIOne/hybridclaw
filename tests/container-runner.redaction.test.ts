@@ -668,6 +668,7 @@ test('ContainerExecutor injects gateway runtime env into docker launch', async (
     'HYBRIDCLAW_GATEWAY_URL=http://host.docker.internal:9090',
   );
   expect(runArgs).toContain('HYBRIDCLAW_GATEWAY_TOKEN=gateway-secret');
+  expect(runArgs).toContain(`TZ=${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
 });
 
 test('ContainerExecutor stages the container node_modules symlink before docker launch', async () => {
