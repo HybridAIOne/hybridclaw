@@ -9493,6 +9493,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         ...loadPolicyFullAutoNeverApprove(agentWorkspaceDir(resolved.agentId)),
       ],
       scheduledTasks: [],
+      blockedTools: ['delegate'],
       skillCatalog: buildEligibleSkillCatalog(skills),
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
@@ -14878,7 +14879,10 @@ export async function handleGatewayCommand(
                 task.consecutive_errors > 0
                   ? ` · errors ${task.consecutive_errors}`
                   : '';
-              return `#${task.id} ${task.enabled ? 'enabled' : 'disabled'} (${scheduleLabel}) [${statusLabel}${errorSuffix}] — ${task.prompt.slice(0, 60)}`;
+              const lastError = task.last_error
+                ? ` · last error: ${task.last_error}`
+                : '';
+              return `#${task.id} ${task.enabled ? 'enabled' : 'disabled'} (${scheduleLabel}) [${statusLabel}${errorSuffix}] — ${task.prompt.slice(0, 60)}${lastError}`;
             })
             .join('\n');
           return infoCommand('Scheduled Tasks', list);

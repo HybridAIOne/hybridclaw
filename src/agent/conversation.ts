@@ -4,6 +4,7 @@
  */
 import os from 'node:os';
 import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '../../container/shared/dynamic-context.js';
+import { currentDateStampInTimezone } from '../../container/shared/workspace-time.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
 import {
@@ -77,6 +78,9 @@ export function buildDynamicContextMessage(
   if (agentId) {
     const contextFiles = loadStaticBootstrapFiles(agentId);
     const userTimezone = resolveUserTimezoneFromContextFiles(contextFiles);
+    lines.push(
+      `Daily note: memory/${currentDateStampInTimezone(userTimezone, now)}.md`,
+    );
     lines.push(`Current Date & Time: ${formatCurrentTime(userTimezone, now)}`);
 
     const dailyMemoryFiles = loadRecentDailyMemoryFiles(agentId, {

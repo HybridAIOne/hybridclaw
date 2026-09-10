@@ -4,6 +4,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import Database from 'better-sqlite3';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import type { ChatMessage } from '../src/types/api.js';
 import type { ContainerOutput } from '../src/types/container.js';
@@ -35,6 +36,61 @@ beforeAll(async () => {
 afterAll(() => {
   vi.unstubAllEnvs();
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('upgrades schema 58 without losing chat or scheduler failure data', async () => {
+  const { runMigrations } = await import('../src/memory/schema/migrations.js');
+  const database = new Database(':memory:');
+  try {
+    runMigrations(database, { quiet: true });
+    database.exec(`
+      ALTER TABLE messages DROP COLUMN tool_history_json;
+      DELETE FROM migrations WHERE version = 59;
+      PRAGMA user_version = 58;
+      INSERT INTO messages (session_id, user_id, role, content)
+        VALUES ('session-a', 'assistant', 'assistant', 'Existing reply');
+      INSERT INTO jobs (id, kind, schedule, action, delivery, last_error)
+        VALUES ('job-a', 'scheduler_job', '{}', '{}', '{}', 'Delivery failed');
+      INSERT INTO proactive_message_queue
+        (channel_id, text, source, failed_at, failure_reason)
+        VALUES ('channel-a', 'Queued reply', 'scheduler',
+          '2026-09-10T00:00:00Z', 'Channel unavailable');
+    `);
+    const schedulerMigration = database
+      .prepare('SELECT * FROM migrations WHERE version = 58')
+      .get();
+
+    runMigrations(database, { quiet: true });
+    runMigrations(database, { quiet: true });
+
+    expect(database.pragma('user_version', { simple: true })).toBe(59);
+    expect(
+      database.prepare('SELECT content, tool_history_json FROM messages').all(),
+    ).toEqual([{ content: 'Existing reply', tool_history_json: null }]);
+    expect(database.prepare('SELECT last_error FROM jobs').get()).toEqual({
+      last_error: 'Delivery failed',
+    });
+    expect(
+      database
+        .prepare(
+          'SELECT failed_at, failure_reason FROM proactive_message_queue',
+        )
+        .get(),
+    ).toEqual({
+      failed_at: '2026-09-10T00:00:00Z',
+      failure_reason: 'Channel unavailable',
+    });
+    expect(
+      database.prepare('SELECT * FROM migrations WHERE version = 58').get(),
+    ).toEqual(schedulerMigration);
+    expect(
+      database
+        .prepare('SELECT version FROM migrations WHERE version = 59')
+        .all(),
+    ).toEqual([{ version: 59 }]);
+  } finally {
+    database.close();
+  }
 });
 
 async function runFreshWorker(

@@ -203,3 +203,42 @@ test('readOutput does not time out when inactivity and wall-clock timeouts are d
     }),
   );
 });
+
+test('readOutput outlives a silence longer than the inactivity window while activity is reported', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-03-11T00:00:00Z'));
+  vi.resetModules();
+
+  const { ensureSessionDirs, createActivityTracker, readOutput } = await import(
+    '../src/infra/ipc.ts'
+  );
+
+  ensureSessionDirs('session-1');
+  const outputPath = path.join(
+    homeDir,
+    '.hybridclaw',
+    'data',
+    'sessions',
+    'session-1',
+    'ipc',
+    'output.json',
+  );
+  const activity = createActivityTracker();
+  const heartbeat = setInterval(() => activity.notify(), 50);
+  setTimeout(() => {
+    clearInterval(heartbeat);
+    fs.writeFileSync(
+      outputPath,
+      JSON.stringify({ status: 'success', result: 'ok', toolsUsed: [] }),
+    );
+  }, 300);
+
+  const outputPromise = readOutput('session-1', 100, { activity });
+  await vi.advanceTimersByTimeAsync(360);
+
+  await expect(outputPromise).resolves.toEqual(
+    expect.objectContaining({ status: 'success', result: 'ok' }),
+  );
+});

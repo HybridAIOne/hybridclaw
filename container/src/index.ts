@@ -83,6 +83,10 @@ import {
   recordPerformanceSample,
 } from './token-usage.js';
 import {
+  emitStreamActivityLine,
+  withToolActivityHeartbeat,
+} from './tool-activity-heartbeat.js';
+import {
   type ApprovalPrelude,
   approvalRuntime,
   buildApprovalDeniedToolExecution,
@@ -319,7 +323,9 @@ function writeInterruptedShutdownOutput(reason: NodeJS.Signals): void {
   if (!requestInFlight) return;
   requestInFlight = false;
   try {
-    writeOutput(buildInterruptedShutdownOutput(reason));
+    writeOutput(
+      buildInterruptedShutdownOutput(reason, getPendingSideEffects()),
+    );
   } catch (error) {
     console.error('[hybridclaw-agent] shutdown output write failed:', error);
   }
@@ -411,7 +417,7 @@ function emitStreamThinkingDelta(delta: string): void {
 }
 
 function emitStreamActivity(): void {
-  console.error('[stream-activity]');
+  emitStreamActivityLine();
 }
 
 function latestUserPrompt(messages: ChatMessage[]): string {
@@ -707,7 +713,10 @@ async function executePreparedToolCall(
           output: loopGuard.message,
           isError: true,
         }
-      : await executeToolWithMetadata(toolName, argsJson);
+      : await withToolActivityHeartbeat(
+          () => executeToolWithMetadata(toolName, argsJson),
+          emitStreamActivity,
+        );
   const toolDuration = Date.now() - toolStart;
   const result = runtimeResult.output;
   const isError = runtimeResult.isError;
@@ -1140,6 +1149,7 @@ async function processRequestInner(
       messages: history,
       streamTextDeltas,
       onTextDelta: emitStreamDelta,
+      onActivity: emitStreamActivity,
     });
     if (resumed) {
       resumed.codexRuntime = 'app-server';
@@ -1175,6 +1185,7 @@ async function processRequestInner(
       providerCredentials,
       streamTextDeltas,
       onTextDelta: emitStreamDelta,
+      onActivity: emitStreamActivity,
     });
     output.codexRuntime = 'app-server';
     await emitRuntimeEvent({
