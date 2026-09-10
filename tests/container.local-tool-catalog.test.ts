@@ -73,3 +73,21 @@ describe('local tool catalog boundary', () => {
     expect(() => normalizeLocalStarterTools(value, 'tools.localStarterTools')).toThrow('tools.localStarterTools');
   });
 });
+
+
+test('prompt guidance reflects actual exposed schemas without granting hidden tools', () => {
+  const available = [tool('read'), tool('skills_list'), tool('bash')];
+  const compact = new LocalToolCatalog(available, ['skills_list']);
+  const prompt = compact.promptGuidance();
+  expect(prompt).toContain('functions in this request are skills_list and tool_catalog.');
+  expect(prompt).toContain('Never emit a direct read call');
+  expect(prompt).toContain('"action":"describe","name":"read"');
+  expect(prompt).toContain('unavailable or blocked');
+  expect(compact.promptGuidance()).toBe(prompt);
+  const direct = new LocalToolCatalog(available, ['read']);
+  expect(direct.promptGuidance()).not.toContain('Never emit a direct read call');
+  const noDiscovery = new LocalToolCatalog(available, ['skills_list'], true);
+  expect(noDiscovery.promptGuidance()).toContain('Tool discovery is not exposed');
+  expect(noDiscovery.promptGuidance()).not.toContain('call tool_catalog');
+  expect(new LocalToolCatalog([]).promptGuidance()).toContain('No functions are exposed');
+});

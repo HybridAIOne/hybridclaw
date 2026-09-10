@@ -2,6 +2,7 @@
  * Local requests expose stable starter schemas and bounded discovery results.
  * Only tools admitted by the request policy enter this catalog. Calls unwrap
  * before approval/audit; unlike tools.ts this module never executes actions.
+ * Prompt guidance names only the schemas actually exposed for this request.
  */
 import {
   DEFAULT_LOCAL_STARTER_TOOLS,
@@ -89,6 +90,26 @@ export class LocalToolCatalog {
     )
       this.tools.push(CATALOG_TOOL);
     this.tools.sort((a, b) => a.function.name.localeCompare(b.function.name));
+  }
+
+  promptGuidance(): string {
+    const names = this.tools.map((tool) => tool.function.name);
+    const directory = names.includes(NAME);
+    return [
+      '## Local tool call boundary',
+      names.length
+        ? `The only directly callable functions in this request are ${names.join(names.length === 2 ? ' and ' : ', ')}.`
+        : 'No functions are exposed in this request.',
+      directory && !names.includes('read')
+        ? 'To read a skill file, first call tool_catalog with {"action":"describe","name":"read"}, then call tool_catalog with {"action":"call","name":"read","arguments":{"path":"the skill location"}}. Never emit a direct read call: it is not an exposed function.'
+        : '',
+      directory
+        ? 'For other tools absent from the exposed functions, use tool_catalog to list or describe them, then call them through tool_catalog. The directory can reject tools that are unavailable or blocked.'
+        : 'Tool discovery is not exposed. Do not claim access to any additional tools.',
+      'All tool calls must use the names in the supplied function schemas.',
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   private requireTool(name: unknown): ToolDefinition {

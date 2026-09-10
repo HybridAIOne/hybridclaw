@@ -78,6 +78,11 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     ], { pluginTools });
     expect(output.status).toBe('success');
     expect(requests).toHaveLength(4);
+    const system = requests[0].messages.filter((message) => message.role === 'system');
+    expect(system.map((message) => message.content).join('\n')).toContain('## Local tool call boundary');
+    for (const request of requests) {
+      expect(request.messages.filter((message) => message.role === 'system')).toEqual(system);
+    }
     for (const request of requests) { expect(request.tools).toHaveLength(10); expect(request.tools).toEqual(requests[0].tools); }
     expect(JSON.parse(String(requests[1].messages.at(-1)?.content)).total).toBe(105);
     expect(output.toolExecutions?.at(-1)).toMatchObject({ name: 'read', arguments: '{"path":"notes.txt"}', isError: false, approvalTier: 'green' });
@@ -86,9 +91,11 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     const next = await followup({ localStarterTools: ['memory'] });
     expect(next.status).toBe('success');
     expect(requests.at(-1)?.tools.map((t) => t.function.name)).toEqual(['memory', 'tool_catalog']);
+    expect(requests.at(-1)?.messages[0].content).toContain('functions in this request are memory and tool_catalog.');
     await followup({ localToolMode: 'full' });
     expect(requests.at(-1)?.tools).toHaveLength(114);
     expect(requests.at(-1)?.tools.some((t) => t.function.name === 'tool_catalog')).toBe(false);
+    expect(requests.at(-1)?.messages[0].content).not.toContain('## Local tool call boundary');
     await followup({ localToolMode: 'starred', localStarterTools: [] });
     expect(requests.at(-1)?.tools.map((t) => t.function.name)).toEqual(['tool_catalog']);
     await followup({ isLocal: false });

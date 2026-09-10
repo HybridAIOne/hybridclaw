@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from model_store import digest, validate_manifest, write_private
-from server import ContextBudgetError, preparation_error, validate_body, validate_context_budget, validate_profile
+from server import ContextBudgetError, GeneratedToolCallError, generation_error, preparation_error, validate_body, validate_context_budget, validate_generated_tool_calls, validate_profile
 from trusted_architectures import SPARK_ARTIFACT, SPARK_AUTO_MAP, validate_model_code
 
 
@@ -27,6 +27,32 @@ class BoundaryTests(unittest.TestCase):
         error = preparation_error(MemoryError("private allocation context"))
         self.assertIn("ran out of memory", str(error))
         self.assertNotIn("private", str(error))
+
+    def test_generated_calls_preserve_the_exposed_schema_boundary(self):
+        for key in ["message", "delta"]:
+            def response(name, arguments):
+                return {"choices": [{key: {"tool_calls": [{"function": {
+                    "name": name, "arguments": arguments,
+                }}]}}]}
+            validate_generated_tool_calls(response("tool_catalog", '{"action":"list"}'), {"tool_catalog"})
+            with self.assertRaises(GeneratedToolCallError) as caught:
+                validate_generated_tool_calls(response("private-tool-name", '{"path":"private-path"}'), {"tool_catalog"})
+            message = generation_error(caught.exception)
+            self.assertIn("not exposed", message)
+            self.assertIn("tool_catalog", message)
+            self.assertNotIn("private", message)
+            for arguments in ['{"private":', '[]', 'null', '"private"', None, {}]:
+                with self.assertRaises(GeneratedToolCallError) as caught:
+                    validate_generated_tool_calls(response("tool_catalog", arguments), {"tool_catalog"})
+                self.assertIn("invalid tool arguments", generation_error(caught.exception))
+                self.assertNotIn("private", generation_error(caught.exception))
+            validate_generated_tool_calls({"choices": [{key: {"content": "hello"}}]}, set())
+
+    def test_generation_error_categories_never_expose_library_payloads(self):
+        for error in [ValueError("private output"), KeyError("private field"), RuntimeError("private kernel")]:
+            self.assertEqual(generation_error(error), "Local inference failed; check the local model runtime.")
+        self.assertIn("ran out of memory", generation_error(MemoryError("private allocation")))
+        self.assertNotIn("private", generation_error(MemoryError("private allocation")))
 
     def test_larger_context_requires_the_qualified_spark_artifact(self):
         profile = {"repo": SPARK_ARTIFACT[0], "revision": SPARK_ARTIFACT[1], "port": 8321,

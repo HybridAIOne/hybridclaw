@@ -119,6 +119,9 @@ in the prompt. Stars never enable a blocked or disabled tool or skill.
 
 In starred tool mode, the prompt identifies the supplied function schemas as the
 directly callable set and directs inventory questions through `tool_catalog`.
+The worker also appends a stable instruction naming its actual exposed schemas
+before inference. Skill instructions mentioning `read` do not expose `read`;
+when absent, the model must describe and call it through `tool_catalog`.
 References to tool names in other instructions are workflow examples, not an
 expanded callable set. The skill directory tool is named `skills_list`.
 Directory tools run when the model calls them; they are not invoked automatically
@@ -203,6 +206,12 @@ toward this budget even in a fresh chat. Reduce the agent's instructions or
 enabled tools, or select a model with a larger context window. Other request
 preparation failures are reported separately, without exposing library errors
 that may contain prompt content or credentials.
+
+During generation, MLX rejects calls to functions absent from the supplied
+schemas and arguments that are not JSON objects. Its errors distinguish these
+cases from memory failures using fixed messages that cannot include private
+model output or library payloads. Tool discovery, eligibility, and action
+approvals remain enforced by the agent runtime.
 
 Startup and configuration saves reject malformed or unsupported endpoint
 entries and defaults that reference a missing or disabled named endpoint.

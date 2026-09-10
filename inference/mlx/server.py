@@ -60,6 +60,37 @@ def preparation_error(error):
     )
 
 
+class GeneratedToolCallError(ValueError):
+    """Fixed boundary diagnostics, never raw model output or library errors."""
+
+
+def validate_generated_tool_calls(response, allowed):
+    for choice in response.get("choices", []):
+        for call in choice.get("message", choice.get("delta", {})).get("tool_calls", []):
+            function = call.get("function", {})
+            if function.get("name") not in allowed:
+                raise GeneratedToolCallError(
+                    "Local model tried to call a tool that was not exposed. "
+                    "Use tool_catalog for additional tools, or add the needed tool to the starred set."
+                )
+            try:
+                arguments = json.loads(function.get("arguments", ""))
+            except (ValueError, TypeError):
+                arguments = None
+            if not isinstance(arguments, dict):
+                raise GeneratedToolCallError(
+                    "Local model generated invalid tool arguments. Retry the request."
+                )
+
+
+def generation_error(error):
+    if isinstance(error, GeneratedToolCallError):
+        return str(error)
+    if isinstance(error, MemoryError):
+        return "Local inference ran out of memory. Close other apps and retry."
+    return "Local inference failed; check the local model runtime."
+
+
 def validate_body(body, model, max_tokens):
     if not isinstance(body, dict) or set(body) - ALLOWED_KEYS:
         raise ValueError("Unsupported request fields")
@@ -263,11 +294,7 @@ def serve(home):
             response = super().generate_response(*args, **kwargs)
             response["model"] = profile["model"]
             allowed = {t["function"]["name"] for t in self.body.get("tools", [])}
-            for choice in response.get("choices", []):
-                for call in choice.get("message", choice.get("delta", {})).get("tool_calls", []):
-                    function = call.get("function", {})
-                    if function.get("name") not in allowed or not isinstance(json.loads(function.get("arguments", "")), dict):
-                        raise ValueError("Invalid generated tool call")
+            validate_generated_tool_calls(response, allowed)
             return response
 
         def _set_completion_headers(self, status_code=200):
@@ -336,13 +363,15 @@ def serve(home):
                 super().do_POST()
             except (BrokenPipeError, ConnectionError, TimeoutError):
                 pass
-            except Exception:
-                # Never include a library error containing input text in logs or responses.
+            except Exception as error:
+                # Only fixed categories cross the boundary, never library/model payloads.
+                message = generation_error(error)
                 if not body.get("stream"):
                     self._headers_buffer = []
-                    self.reply(400, {"error": "Local inference failed; check model and context limits"})
+                    self.reply(400, {"error": message})
                 else:
-                    self.wfile.write(b'data: {"error":{"message":"Local inference failed"}}\n\n')
+                    payload = json.dumps({"error": {"message": message}})
+                    self.wfile.write(f"data: {payload}\n\n".encode())
                     self.wfile.flush()
                 self.close_connection = True
             finally:

@@ -1,4 +1,9 @@
 /**
+ * Agent worker fixes model-facing schemas before each request's tool loop.
+ * Gateway context and local schema guidance are instructions, not permissions;
+ * concrete tool calls still pass catalog, policy, and approval checks.
+ */
+/**
  * Agent loop: policy sees the effective tool and its original arguments.
  * Local catalog wrappers resolve before approval, hooks, batching, and audit;
  * model history retains original calls and stable model-facing definitions.
@@ -1084,6 +1089,13 @@ async function processRequest(
   const preparedHistory = skipContainerSystemPrompt
     ? messages.map((message) => ({ ...message }))
     : injectRuntimeCapabilitiesMessage(messages);
+  if (localToolCatalog && tools === localToolCatalog.tools) {
+    // Added once before the loop; actual schemas remain the source of truth.
+    preparedHistory.push({
+      role: 'system',
+      content: localToolCatalog.promptGuidance(),
+    });
+  }
   let history: ChatMessage[] =
     provider === 'anthropic'
       ? preparedHistory

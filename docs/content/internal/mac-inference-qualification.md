@@ -92,6 +92,30 @@ all other library messages. Seven pure Python boundary tests pass, including
 exact-limit admission, one-token overflow, and sensitive error-text rejection.
 No context or memory limit is raised by this diagnostic change.
 
+## Two-schema Spark diagnosis (2026-09-10)
+
+Native streaming replays used the installed Spark-X2.5 4B artifact and the
+recorded PDF request, with credentials and prompt content retained locally.
+These were model-response checks: returned tool calls were not executed.
+
+- The original two-schema request (`skills_list`, `tool_catalog`) reproduced
+  the generic inference error. Exposing `read` additionally returned a valid
+  `read` call, while replacing the earlier tool summary alone still failed.
+- The worker's final instruction naming its exact exposed schemas returned
+  `tool_catalog` with `action=describe` and `name=read`, without a stream error
+  (22.86 seconds in one run).
+- A follow-up fixture containing the real `read` schema returned an empty
+  completion. Further prompt-only experiments repeated discovery. The complete
+  two-schema PDF workflow is therefore not qualified on this 4B model.
+
+The implementation retains rejection of unexposed calls and invalid arguments;
+it does not automatically rewrite them into catalog calls. Fixed generation
+error categories distinguish unexposed tools, malformed arguments, and memory
+failures without returning model or library payloads. Nine pure Python boundary
+tests, 61 targeted unit tests, and five worker IPC/model-HTTP tests passed.
+The IPC checks preserve schema and system-message stability within a turn and
+verify full-mode behavior, permission restrictions, and approval replay.
+
 ## Reproducible measurement
 
 The [raw synthetic smoke report](mac-inference-smoke.json) was captured on an
