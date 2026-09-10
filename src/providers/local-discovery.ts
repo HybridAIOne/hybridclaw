@@ -240,7 +240,7 @@ function resolveOpenAICompatBaseUrl(configuredBaseUrl: string): string {
 }
 
 async function fetchOpenAICompatModels(
-  backend: Extract<LocalBackendType, 'llamacpp' | 'lmstudio' | 'vllm'>,
+  backend: Extract<LocalBackendType, 'llamacpp' | 'lmstudio' | 'vllm' | 'mlx'>,
   baseUrl: string,
   apiKey?: string,
   endpointName?: string,
@@ -256,7 +256,14 @@ async function fetchOpenAICompatModels(
     isRecord(payload) && Array.isArray(payload.data) ? payload.data : [];
 
   return data
-    .filter((entry) => isRecord(entry) && typeof entry.id === 'string')
+    .filter(
+      (entry) =>
+        isRecord(entry) &&
+        typeof entry.id === 'string' &&
+        (backend !== 'mlx' ||
+          (readContextWindowFromModelEntry(entry) !== undefined &&
+            readPositiveInteger(entry.max_tokens) !== undefined)),
+    )
     .slice(0, LOCAL_DISCOVERY_MAX_MODELS)
     .map((entry) =>
       createLocalModelInfo(
@@ -267,6 +274,13 @@ async function fetchOpenAICompatModels(
             entry as Record<string, unknown>,
           ),
           endpointName,
+          ...(backend === 'mlx'
+            ? {
+                maxTokens: readPositiveInteger(
+                  (entry as Record<string, unknown>).max_tokens,
+                ),
+              }
+            : {}),
         },
       ),
     )
@@ -455,6 +469,19 @@ async function discoverEndpointModels(
           endpoint.baseUrl,
           endpoint.name,
           endpoint.apiKey,
+        ),
+      ),
+      endpoint.modelBehavior,
+    );
+  }
+  if (endpoint.type === 'mlx') {
+    return applyModelBehavior(
+      applyEndpointMetadata(
+        await fetchOpenAICompatModels(
+          'mlx',
+          endpoint.baseUrl,
+          endpoint.apiKey,
+          endpoint.name,
         ),
       ),
       endpoint.modelBehavior,

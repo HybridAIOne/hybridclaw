@@ -1,3 +1,12 @@
+/**
+ * HybridAI catalog metadata preserves advertised destination contracts by exact ID.
+ * Legacy zone labels remain display metadata; a contract additionally binds the
+ * transport and requires server acknowledgement. Neither proves operator claims.
+ */
+import {
+  type HybridAIDestination,
+  parseHybridAIDestination,
+} from '../../container/shared/hybridai-destination.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import {
   HYBRIDAI_BASE_URL,
@@ -264,6 +273,7 @@ export interface HybridAIDiscoveryStore {
   getModelContextWindow: (model: string) => number | null;
   getModelMaxTokens: (model: string) => number | null;
   getModelVisionCapability: (model: string) => boolean | null;
+  getModelDestination: (model: string) => HybridAIDestination | null;
   getModelZone: (model: string) => ModelRoutingZone | null;
   getModelPricingUsdPerToken: (
     model: string,
@@ -278,6 +288,7 @@ interface HybridAIDiscoveryState {
   maxTokensModelKeyLookup: HybridAIModelKeyLookup;
   visionCapabilityByModel: Map<string, boolean>;
   visionCapabilityModelKeyLookup: HybridAIModelKeyLookup;
+  destinationByModel: Map<string, HybridAIDestination>;
   zoneByModel: Map<string, ModelRoutingZone>;
   zoneModelKeyLookup: HybridAIModelKeyLookup;
   pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
@@ -292,6 +303,7 @@ const buildEmptyHybridAIDiscoveryState = (): HybridAIDiscoveryState => ({
   maxTokensModelKeyLookup: buildHybridAIModelKeyLookup([]),
   visionCapabilityByModel: new Map(),
   visionCapabilityModelKeyLookup: buildHybridAIModelKeyLookup([]),
+  destinationByModel: new Map(),
   zoneByModel: new Map(),
   zoneModelKeyLookup: buildHybridAIModelKeyLookup([]),
   pricingByModel: new Map(),
@@ -303,6 +315,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     buildEmptyHybridAIDiscoveryState(),
   );
   let lastError: string | null = null;
+  const contractedModels = new Set<string>();
 
   async function fetchHybridAIModels(
     apiKey: string,
@@ -311,6 +324,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     let response: Response | null = null;
     for (const path of HYBRIDAI_DISCOVERY_PATHS) {
       const candidate = await fetch(`${baseUrl}${path}`, {
+        redirect: 'error',
         headers: {
           Authorization: `Bearer ${apiKey}`,
         },
@@ -337,6 +351,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     const maxTokens = new Map<string, number>();
     const visionCapabilities = new Map<string, boolean>();
     const zones = new Map<string, ModelRoutingZone>();
+    const destinations = new Map<string, HybridAIDestination>();
     const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
 
     for (const entry of getDiscoveryEntries(payload)) {
@@ -362,7 +377,23 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       if (visionCapability != null) {
         visionCapabilities.set(normalized, visionCapability);
       }
-      zones.set(normalized, normalizeModelRoutingZone(entry.zone));
+      const destination = parseHybridAIDestination(entry.destination, baseUrl);
+      if (destination) {
+        if (
+          entry.zone !== undefined &&
+          destination.zone !== normalizeModelRoutingZone(entry.zone)
+        ) {
+          throw new Error(
+            'HybridAI model zone conflicts with its destination contract',
+          );
+        }
+        destinations.set(normalized, destination);
+        contractedModels.add(normalized);
+      }
+      zones.set(
+        normalized,
+        destination?.zone ?? normalizeModelRoutingZone(entry.zone),
+      );
       const pricing = readDiscoveredModelPricingUsdPerToken(entry);
       if (pricing) {
         pricingByModel.set(normalized, pricing);
@@ -382,6 +413,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       visionCapabilityModelKeyLookup: buildHybridAIModelKeyLookup(
         visionCapabilities.keys(),
       ),
+      destinationByModel: destinations,
       zoneByModel: zones,
       zoneModelKeyLookup: buildHybridAIModelKeyLookup(zones.keys()),
       pricingByModel,
@@ -452,6 +484,17 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       );
       return state.visionCapabilityByModel.get(normalized) ?? null;
     },
+    getModelDestination: (model: string) => {
+      const key = normalizeHybridAIModelName(model);
+      const destination = discoveryStore.getState().destinationByModel.get(key);
+      if (contractedModels.has(key) && (lastError || !destination)) {
+        throw new Error(
+          'Destination discovery failed or withdrew its contract; refusing an unbound request.',
+        );
+      }
+      // Contracts require an exact catalog ID, never an ambiguous basename.
+      return destination ? { ...destination } : null;
+    },
     getModelZone: (model: string) => {
       const state = discoveryStore.getState();
       const normalized = resolveCachedHybridAIModelKey(
@@ -517,4 +560,10 @@ export function getDiscoveredHybridAIModelPricingUsdPerToken(
   model: string,
 ): { input: number | null; output: number | null } | null {
   return defaultHybridAIDiscoveryStore.getModelPricingUsdPerToken(model);
+}
+
+export function getDiscoveredHybridAIModelDestination(
+  model: string,
+): HybridAIDestination | null {
+  return defaultHybridAIDiscoveryStore.getModelDestination(model);
 }

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+const logger = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../src/logger.js', () => ({ logger }));
+
 async function importFreshDiscovery() {
   vi.resetModules();
   vi.doMock('../src/auth/hybridai-auth.js', () => ({
@@ -16,11 +19,6 @@ async function importFreshDiscovery() {
       }
     },
   }));
-  vi.doMock('../src/logger.js', () => ({
-    logger: {
-      warn: vi.fn(),
-    },
-  }));
   return import('../src/providers/hybridai-discovery.ts');
 }
 
@@ -29,11 +27,48 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.doUnmock('../src/auth/hybridai-auth.js');
   vi.doUnmock('../src/config/config.js');
-  vi.doUnmock('../src/logger.js');
+  logger.warn.mockClear();
   vi.resetModules();
 });
 
 describe('hybridai discovery', () => {
+  test('binds exact destination IDs and refuses unbound requests after discovery failure', async () => {
+    const destination = {
+      protocol: 'hybridai-destination-v1',
+      id: 'example-eu',
+      zone: 'region',
+      operator: 'Example operator',
+      region: 'EU',
+      retention: 'none',
+      fallback: 'deny',
+      apiBaseUrl: 'https://hybridai.one',
+    };
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'example-model', zone: 'region', destination }],
+          }),
+        ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const { createHybridAIDiscoveryStore } = await importFreshDiscovery();
+    const store = createHybridAIDiscoveryStore();
+    await store.discoverModels({ force: true });
+    expect(store.getModelDestination('hybridai/example-model')).toEqual(
+      destination,
+    );
+    expect(store.getModelDestination('other/example-model')).toBeNull();
+    expect(store.getModelZone('example-model')).toBe('region');
+    fetch.mockImplementation(
+      async () => new Response('unavailable', { status: 503 }),
+    );
+    await store.discoverModels({ force: true });
+    expect(() => store.getModelDestination('hybridai/example-model')).toThrow(
+      'refusing an unbound request',
+    );
+  });
+
   test('reads HybridAI context windows from context_length', async () => {
     vi.stubGlobal(
       'fetch',
@@ -215,7 +250,6 @@ describe('hybridai discovery', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const discovery = await importFreshDiscovery();
-    const { logger } = await import('../src/logger.js');
     const store = discovery.createHybridAIDiscoveryStore();
 
     await expect(store.discoverModels({ force: true })).resolves.toEqual([

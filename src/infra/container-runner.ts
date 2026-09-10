@@ -1,6 +1,8 @@
 /**
  * Container Runner — manages a pool of persistent containers.
  * Containers stay alive between requests and exit after an idle timeout.
+ * Native MLX credentials remain on the host; each turn receives only a relay
+ * capability pinned to its selected model. This is not a general network proxy.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -59,6 +61,7 @@ import {
 } from '../config/config.js';
 import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
+import { startMlxRelay } from '../inference/mlx-relay.js';
 import { logger } from '../logger.js';
 import { withAutoHybridAIConnectorsMcpServer } from '../mcp/hybridai-connectors.js';
 import { resolveMcpServersForRuntime } from '../mcp/mcp-oauth.js';
@@ -1270,6 +1273,21 @@ async function runContainerInner(
   }
   cleanupIpc(entry.ipcSessionId);
   ensureSessionDirs(entry.ipcSessionId);
+  const mlxRelay =
+    modelRuntime.provider === 'mlx'
+      ? startMlxRelay({
+          ipcPath: getSessionPaths(entry.ipcSessionId, agentId).ipcPath,
+          baseUrl: modelRuntime.baseUrl,
+          apiKey: modelRuntime.apiKey,
+          model: (modelRuntime.model || model).replace(/^mlx\//, ''),
+          task: `${agentId}:${sessionId}`,
+        })
+      : undefined;
+  if (mlxRelay) {
+    input.baseUrl = 'http://mlx.invalid/v1';
+    input.apiKey = '';
+    input.requestHeaders = { 'X-HybridClaw-Relay': mlxRelay.id };
+  }
   const activity = createActivityTracker();
   entry.workerSignature = workerSignature;
   entry.codexRuntime = input.codexRuntime;
@@ -1366,6 +1384,7 @@ async function runContainerInner(
 
     return output;
   } finally {
+    mlxRelay?.stop();
     abortSignal?.removeEventListener('abort', onAbort);
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ container: entry.containerName }, message);

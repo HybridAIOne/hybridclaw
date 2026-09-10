@@ -1,3 +1,8 @@
+/**
+ * Model choices retain their provider identity and highlight local routing zones.
+ * Local is a catalog destination, not a claim of availability or a substitute
+ * for the routing policy; automatic routing can still choose other destinations.
+ */
 import {
   type ButtonHTMLAttributes,
   type ComponentType,
@@ -74,6 +79,7 @@ export interface ParsedModel {
   displayName: string;
   vendor: string | null;
   provider: string;
+  isLocal: boolean;
   meta: ModelSwitchEntry;
 }
 
@@ -98,7 +104,8 @@ type KnownProvider =
   | 'Ollama'
   | 'LM Studio'
   | 'llama.cpp'
-  | 'vLLM';
+  | 'vLLM'
+  | 'MLX';
 
 // `Record<GatewayModelProviderKey, …>` makes the compiler flag any new gateway
 // provider that ships without an explicit display label — without it, new
@@ -124,6 +131,7 @@ const PROVIDER_LABELS: Record<GatewayModelProviderKey, KnownProvider> = {
   lmstudio: 'LM Studio',
   llamacpp: 'llama.cpp',
   vllm: 'vLLM',
+  mlx: 'MLX',
 };
 
 const VENDOR_LABELS: Record<string, string> = {
@@ -221,7 +229,7 @@ function prettifyModelName(slug: string): string {
 }
 
 function railKeyOf(model: ParsedModel): string {
-  return model.provider;
+  return model.isLocal ? 'Local' : model.provider;
 }
 
 function inferProviderKeyForSelectedModel(modelId: string): string {
@@ -240,6 +248,7 @@ function inferBackendForSelectedModel(
   if (provider === 'lmstudio') return 'lmstudio';
   if (provider === 'llamacpp') return 'llamacpp';
   if (provider === 'vllm') return 'vllm';
+  if (provider === 'mlx') return 'mlx';
   return null;
 }
 
@@ -253,6 +262,7 @@ function buildSelectedModelFallback(modelId: string): ModelSwitchEntry | null {
     id,
     provider,
     backend,
+    ...(provider === 'mlx' ? { zone: 'local' as const } : {}),
     contextWindow: null,
     isReasoning: false,
     family: null,
@@ -283,6 +293,7 @@ const PROVIDER_LOGOS: Partial<Record<KnownProvider, LogoComponent>> = {
   'llama.cpp': LlamaCppLogo,
   vLLM: VLLMLogo,
   Local: LocalIcon as LogoComponent,
+  MLX: LocalIcon as LogoComponent,
 };
 
 const VENDOR_LOGOS: Record<string, LogoComponent> = {
@@ -423,11 +434,12 @@ function routeLabelForLocalModel(
   parts: string[],
   entry: ModelSwitchEntry,
 ): string | null {
-  if (!entry.backend || parts.length < 2) return null;
+  const backend = entry.backend ?? inferBackendForSelectedModel(entry.provider);
+  if (!backend || parts.length < 2) return null;
   const route = parts[0]?.trim();
   if (!route) return null;
-  return route.toLowerCase() === entry.backend
-    ? pretty(entry.backend, PROVIDER_LABELS)
+  return route.toLowerCase() === backend
+    ? pretty(backend, PROVIDER_LABELS)
     : route;
 }
 
@@ -452,8 +464,12 @@ export function parseModel(entry: ModelSwitchEntry): ParsedModel {
     shortName = parts.slice(2).join('/');
   }
 
-  const groupLabel = vendor ? `${provider} · ${vendor}` : provider;
-  const providerRank = PROVIDER_RANK[provider as KnownProvider] ?? 50;
+  const isLocal = entry.zone === 'local';
+  const providerLabel = vendor ? `${provider} · ${vendor}` : provider;
+  const groupLabel = isLocal ? `Local · ${providerLabel}` : providerLabel;
+  const providerRank = isLocal
+    ? (PROVIDER_RANK.Local ?? 0)
+    : (PROVIDER_RANK[provider as KnownProvider] ?? 50);
   const vendorRank = vendor ? (VENDOR_ORDER[vendor] ?? 50) : 0;
   const routeLabel = routeLabelForLocalModel(parts, entry);
 
@@ -467,6 +483,7 @@ export function parseModel(entry: ModelSwitchEntry): ParsedModel {
     displayName: prettifyModelName(shortName),
     vendor,
     provider,
+    isLocal,
     meta: entry,
   };
 }
@@ -539,7 +556,11 @@ export function ModelSwitchSelect(props: {
     }
     return Array.from(counts.entries())
       .map(([key, count]) => ({ key, count }))
-      .sort((a, b) => a.key.localeCompare(b.key));
+      .sort(
+        (a, b) =>
+          Number(b.key === 'Local') - Number(a.key === 'Local') ||
+          a.key.localeCompare(b.key),
+      );
   }, [parsed]);
 
   const groups = useMemo(() => {
@@ -623,6 +644,9 @@ export function ModelSwitchSelect(props: {
           </span>
         ) : null}
         <SelectValue placeholder="Select model">{triggerLabel}</SelectValue>
+        {!routing && triggerModel?.isLocal && (
+          <span className={chrome.localBadge}>Local</span>
+        )}
         <SelectIcon />
       </SelectTrigger>
       <SelectContent
@@ -675,6 +699,8 @@ export function ModelSwitchSelect(props: {
                   <SelectItem
                     key={model.id}
                     value={model.id}
+                    data-local={model.isLocal ? 'true' : undefined}
+                    className={model.isLocal ? chrome.localItem : undefined}
                     textValue={`${model.displayName} ${model.groupLabel} ${
                       model.routeLabel ?? ''
                     }`}
@@ -693,6 +719,16 @@ export function ModelSwitchSelect(props: {
                       ) : null}
                     </SelectItemBody>
                     <SelectItemMeta>
+                      {model.isLocal && (
+                        <span className={chrome.localBadge}>
+                          <LocalIcon
+                            width="12"
+                            height="12"
+                            aria-hidden="true"
+                          />
+                          Local
+                        </span>
+                      )}
                       {ctx ? <span>{ctx}</span> : null}
                     </SelectItemMeta>
                   </SelectItem>

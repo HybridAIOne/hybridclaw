@@ -1,3 +1,4 @@
+import { fetchHybridAIDestination } from '../../container/shared/hybridai-destination.js';
 import { getProviderContextError } from '../../container/shared/provider-context.js';
 import { extractResponseTextContent } from '../../container/shared/response-text.js';
 import {
@@ -70,6 +71,7 @@ const REMOTE_AUXILIARY_FALLBACKS: Array<{
 ];
 const LOCAL_AUXILIARY_FALLBACK_ORDER: RuntimeProvider[] = [
   'vllm',
+  'mlx',
   'lmstudio',
   'llamacpp',
   'ollama',
@@ -1040,15 +1042,18 @@ async function callHybridAITextModel(
     options,
   );
 
-  const response = await fetch(`${context.baseUrl}/v1/chat/completions`, {
-    method: 'POST',
-    headers: buildJsonHeaders({
-      apiKey: context.apiKey,
-      requestHeaders: context.requestHeaders,
-    }),
-    body: JSON.stringify(body),
-    signal: createTimeoutSignal(options.timeoutMs),
-  });
+  const response = await fetchHybridAIDestination(
+    `${context.baseUrl}/v1/chat/completions`,
+    {
+      method: 'POST',
+      headers: buildJsonHeaders({
+        apiKey: context.apiKey,
+        requestHeaders: context.requestHeaders,
+      }),
+      body: JSON.stringify(body),
+      signal: createTimeoutSignal(options.timeoutMs),
+    },
+  );
   if (!response.ok) await parseError(response);
 
   const payload = (await response.json()) as {

@@ -1,0 +1,151 @@
+---
+title: Mac Local Model Setup
+description: Select, install and test a pinned MLX model using your Mac's unified-memory budget.
+---
+
+# Mac Local Model Setup
+
+On Apple silicon with macOS 15 or later, open **Labs → Local Models** in the
+web console. It shows the gateway Mac’s memory, free storage and a recommended
+model from the current shortlist. Use **Compare models** for other candidates
+and their availability. **Download & set up** starts installation and local
+checks; progress continues when you leave the page. Use **Cancel** to stop it.
+After setup, **Start model** loads it and **Stop model** releases its memory.
+An installed model is marked **Installed** in comparison and is not offered
+again as a setup recommendation. Other fitting models remain selectable.
+Select the installed model in chat to use it.
+Models assigned to the local routing zone appear first in the picker with a
+green **Local** badge and a dedicated filter. The badge describes the inference
+destination, not whether the model is running. If MLX was absent from the last
+discovery pass, chat refreshes its authenticated model metadata before resolving
+the request, without waiting for the periodic discovery interval.
+
+Open the console directly on the gateway Mac using localhost. These controls
+require full administrator access or the explicit `admin.local_models.manage`
+permission; ordinary provider-edit permission does not permit native setup.
+A console-started model belongs to the gateway and stops when the gateway exits.
+After a gateway restart, use **Start model** again before sending a local chat.
+If an updated console reports that the setup API is unavailable, restart the
+gateway and refresh the page.
+
+The desktop menu also provides **HybridClaw → Labs → Set Up Local Model…**,
+or run:
+
+```bash
+hybridclaw local setup
+```
+
+Setup shows the Mac's chip, unified memory, estimated model footprint,
+download size and context limit. It reserves at least 4 GiB, or 25% of RAM,
+for macOS, the browser and agent tools. It also caps the budget using current
+free and inactive pages, leaving another 1 GiB of that estimate unused.
+Speculative pages are not counted twice. A busy Mac can therefore receive a
+smaller recommendation than an idle Mac with the same RAM. It includes a working-memory allowance
+and both active and retained KV caches. These are conservative estimates,
+not GPU capacity measurements or model-quality rankings.
+
+Choose a model, approve its displayed download, and wait for local checks.
+Setup installs a pinned Python 3.12/MLX-LM runtime with
+[uv](https://docs.astral.sh/uv/getting-started/installation/), downloads an
+immutable model revision, verifies its manifest, warms the GPU and tests
+streaming, usage reporting and a tool round trip. Failed checks leave the
+previous default selected. `uv` must already be installed and available on PATH.
+The console shows named stages rather than estimated percentage completion.
+Closing the desktop setup window cancels that desktop installation; navigating
+away from the console page does not cancel its gateway-owned job.
+
+The catalog follows the supplied current model shortlist. These candidates can
+be installed through the managed Mac service:
+
+| Candidate | Downloaded weights | Idle Mac recommendation, before checking current availability |
+| --- | --- | --- |
+| Spark-X2.5 4B, MLX 4-bit | 2.2 GiB | 8 GiB Macs; short contexts |
+| Ternary Bonsai 27B, MLX 2-bit | 7.9 GiB | 16 GiB Macs |
+| Qwen3.8 27B, MLX 4-bit | 15.0 GiB | 24 GiB Macs |
+| Nex-N2.5 Mini, MLX 4-bit | 18.2 GiB | 32–64 GiB Macs |
+
+Recommendations follow the shortlist's progression among supported candidates
+that fit. Every
+candidate still has to pass streaming and tool checks on the user's Mac before
+activation; being in the catalog is not a general quality certification.
+
+**Compare models** in the console, **View full shortlist…** in the desktop
+chooser and `local setup --list` also
+show Gemma 4 12B, Qwen3.8 Flash Next, both GLM Flash EXL3 variants, DeepSeek V4
+Flash Vision Exp, GLM REAP, Nex Pro and GLM-5.3. Each unavailable entry explains
+its concrete runtime, format or unpublished-weight limitation. Larger memory
+alone cannot make an unsupported runtime installable. The
+[shortlist record](../internal/local-model-shortlist.md) links the inspected
+artifacts and records those distinctions.
+
+The post's GPU VRAM tiers are not Mac unified-memory promises. Bonsai's 8.49 GB
+MLX weights alone exceed the model budget on an 8 GiB Mac once macOS is reserved.
+EXL3 weights cannot load in MLX; a Mac conversion is explicitly identified when
+available. MoE estimates include all resident experts. The installer does not
+assume that experts or embeddings can be offloaded to NVMe without a penalty.
+
+Spark context ranges from 2,048 to 40,960 tokens depending on available memory.
+Its estimate counts nine full-attention caches and 27 bounded sliding-window
+caches, including prefill headroom. Other supported models retain their
+8,192-token qualification ceiling. Existing installations retain their saved
+context; rerun setup for the same model to recalculate it using cached downloads.
+Spark retains its default reasoning mode, which shares the output token budget.
+Advertised 262K/1M limits are not allocation recommendations. Short contexts can
+be exceeded by the agent's base instructions and tool schemas, even in an empty
+chat. Resetting that chat cannot shrink its base prompt. Catalog
+metadata lives in `src/inference/local-model-shortlist.ts`; unsupported entries
+remain visible and never participate in automatic selection.
+
+## Operating the service
+
+```bash
+hybridclaw local setup --list
+hybridclaw local setup --model spark-x2.5-4b --yes
+hybridclaw local serve
+hybridclaw local benchmark
+hybridclaw local stop
+```
+
+`--list --json` exposes the estimates for the desktop chooser. Setup selects
+`mac-mlx/<catalog-id>` as the default and stores the endpoint credential through
+HybridClaw's encrypted secret store. The service also keeps an owner-readable
+token file for lifecycle control. Artifacts, installation state and benchmark
+reports live in `<runtime-home>/inference/mlx/`; the usual runtime home is
+`~/.hybridclaw`, or `HYBRIDCLAW_DATA_DIR` when configured. Model downloads are
+retained for retry and are not automatically deleted when switching models.
+
+Desktop **Labs → Start Local Model** / **Stop Local Model** manage an owned service.
+Sleep unloads it, wake restores it, and quitting stops it. An already-running
+external service remains owned by its original launcher. The foreground CLI
+retries crashes at most three times, then stops with an error. It never changes
+the model or chooses a remote provider as part of recovery.
+
+MLX inference runs outside Docker on literal `127.0.0.1:8321`. Docker workers
+use a per-turn file relay on their existing `/ipc` mount. The relay fixes the
+model, destination and authentication on the host; it does not publish a
+network listener or accept arbitrary URLs. Host execution uses authenticated
+loopback directly. You do not need to switch Docker execution to host mode.
+
+The service accepts text chat and validated function calls. It rejects image
+URLs, alternate model paths, adapters and draft models. One request is admitted
+at a time; competing requests receive 429. Inference stays offline after
+installation, with task-isolated, bounded prefix caches and a bounded prefill
+chunk. Disconnects and turn cancellation stop active generation.
+
+## Validation and current scope
+
+This is the phase-1 inference foundation. It does not yet enforce confidential
+task routing across every tool, memory operation, auxiliary model or configured
+fallback ladder. Mandatory disclosure policy and resumable handoffs are later
+phases of the [hybrid compute plan](../internal/hybrid-compute-parity-plan.md).
+“The selected model runs on this Mac” is narrower than “the entire task cannot
+send data elsewhere.”
+
+The [shortlist qualification record](../internal/local-model-shortlist.md#validation)
+identifies tested hardware, model revisions, performance and remaining checks. Installation
+smoke tests do not establish frontier-model parity or general task correctness.
+
+Primary artifacts: [Spark MLX](https://huggingface.co/abenzerps/Spark-X2.5-4B-MLX-4bit),
+[Bonsai MLX](https://huggingface.co/prism-ml/Ternary-Bonsai-27B-mlx-2bit),
+[Qwen3.8 27B MLX](https://huggingface.co/mlx-community/Qwen3.8-27B-4bit),
+[Nex Mini MLX](https://huggingface.co/abenzerps/Nex-N2.5-mini-MLX-4bit).

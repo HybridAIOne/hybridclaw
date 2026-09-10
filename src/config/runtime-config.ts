@@ -1,3 +1,8 @@
+/**
+ * Runtime configuration validates source data before making it active.
+ * Local setup commits its endpoint, secret reference and default together;
+ * this store does not start inference or decide protected-data routing.
+ */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -47,6 +52,7 @@ import {
   normalizeSlackWebhookUrl,
   SLACK_WEBHOOK_DEFAULT_TARGET,
 } from '../channels/slack-webhook/target.js';
+import { assertMlxEndpoint } from '../inference/mlx-endpoint.js';
 import { supportsMcpOAuth } from '../mcp/server-config.js';
 import type {
   MemoryEmbeddingDtype,
@@ -1964,6 +1970,10 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       llamacpp: {
         enabled: false,
         baseUrl: 'http://127.0.0.1:8081/v1',
+      },
+      mlx: {
+        enabled: false,
+        baseUrl: 'http://127.0.0.1:8321/v1',
       },
       vllm: {
         enabled: false,
@@ -5433,27 +5443,26 @@ function normalizeLocalEndpointConfigs(value: unknown): LocalEndpointConfig[] {
     if (!name || !type || seen.has(name)) continue;
     seen.add(name);
     const enabled = normalizeBoolean(raw.enabled, true);
-    const fallbackBaseUrl =
-      type === 'ollama'
-        ? DEFAULT_RUNTIME_CONFIG.local.backends.ollama.baseUrl
-        : type === 'lmstudio'
-          ? DEFAULT_RUNTIME_CONFIG.local.backends.lmstudio.baseUrl
-          : type === 'llamacpp'
-            ? DEFAULT_RUNTIME_CONFIG.local.backends.llamacpp.baseUrl
-            : DEFAULT_RUNTIME_CONFIG.local.backends.vllm.baseUrl;
+    const fallbackBaseUrl = DEFAULT_RUNTIME_CONFIG.local.backends[type].baseUrl;
     const resolvedApiKey = resolveConfiguredSecretInput(raw.apiKey, {
       path: `local.endpoints.${name}.apiKey`,
       required: isSecretRefInput(raw.apiKey) && enabled,
     });
+    const endpointBaseUrl = normalizeBaseUrl(raw.baseUrl, fallbackBaseUrl);
+    if (type === 'mlx') {
+      assertMlxEndpoint(endpointBaseUrl);
+      if (raw.zone !== undefined && raw.zone !== 'local')
+        throw new Error('MLX endpoint zone must be local.');
+    }
     const pricing = normalizeLocalEndpointPricing(raw.pricing, name);
     endpoints.push({
       name,
       type,
       enabled,
-      baseUrl: normalizeBaseUrl(raw.baseUrl, fallbackBaseUrl),
+      baseUrl: endpointBaseUrl,
       apiKey: normalizeString(resolvedApiKey, '', { allowEmpty: true }),
       modelBehavior: normalizeModelBehaviorConfig(raw.modelBehavior),
-      zone: normalizeModelRoutingZone(raw.zone),
+      zone: type === 'mlx' ? 'local' : normalizeModelRoutingZone(raw.zone),
       ...(pricing ? { pricing } : {}),
     });
   }
@@ -6964,6 +6973,7 @@ function buildRoutingModelReferenceCatalog(params: {
       'lmstudio',
       'llamacpp',
       'vllm',
+      'mlx',
       ...params.localEndpoints.map((endpoint) => endpoint.name),
     ]),
   };
@@ -7230,6 +7240,9 @@ function normalizeRuntimeConfig(
     : {};
   const rawLlamacppBackend = isRecord(rawLocalBackends.llamacpp)
     ? rawLocalBackends.llamacpp
+    : {};
+  const rawMlxBackend = isRecord(rawLocalBackends.mlx)
+    ? rawLocalBackends.mlx
     : {};
   const rawVllmBackend = isRecord(rawLocalBackends.vllm)
     ? rawLocalBackends.vllm
@@ -8182,6 +8195,16 @@ function normalizeRuntimeConfig(
           ),
           modelBehavior: normalizeModelBehaviorConfig(
             rawLlamacppBackend.modelBehavior,
+          ),
+        },
+        mlx: {
+          enabled: normalizeBoolean(rawMlxBackend.enabled, false),
+          baseUrl: normalizeBaseUrl(
+            rawMlxBackend.baseUrl,
+            DEFAULT_RUNTIME_CONFIG.local.backends.mlx.baseUrl,
+          ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawMlxBackend.modelBehavior,
           ),
         },
         vllm: {
@@ -9621,6 +9644,33 @@ export function setRuntimeConfigSecretInput(
   const draftSource = cloneConfig(baseSource);
   setSecretInputOnSource(draftSource, secretPath, value);
   return saveRuntimeConfigSource(draftSource, meta);
+}
+
+export function configureRuntimeLocalEndpoint(
+  endpoint: Omit<LocalEndpointConfig, 'apiKey'>,
+  apiKey: SecretInput,
+  defaultModel: string,
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  loadRuntimeConfigFromSources({
+    route: 'runtime-config.local-setup-refresh',
+    source: 'external',
+  });
+  const source = cloneConfig(currentConfigSource);
+  const local = isRecord(source.local) ? source.local : {};
+  const endpoints = Array.isArray(local.endpoints) ? local.endpoints : [];
+  local.endpoints = [
+    ...endpoints.filter(
+      (value) => !isRecord(value) || value.name !== endpoint.name,
+    ),
+    { ...endpoint, apiKey },
+  ];
+  source.local = local;
+  const hybridai = isRecord(source.hybridai) ? source.hybridai : {};
+  hybridai.defaultModel = defaultModel;
+  source.hybridai = hybridai;
+  // Endpoint, credential reference and default commit in one config revision.
+  return saveRuntimeConfigSource(source, meta);
 }
 
 export function setRuntimeConfigLocalEndpointSecretInput(

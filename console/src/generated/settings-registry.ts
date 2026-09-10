@@ -1475,6 +1475,18 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: false,
     },
     {
+      path: 'local.backends.mlx.baseUrl',
+      section: 'local',
+      kind: 'string',
+      defaultValue: 'http://127.0.0.1:8321/v1',
+    },
+    {
+      path: 'local.backends.mlx.enabled',
+      section: 'local',
+      kind: 'boolean',
+      defaultValue: false,
+    },
+    {
       path: 'local.backends.ollama.baseUrl',
       section: 'local',
       kind: 'string',

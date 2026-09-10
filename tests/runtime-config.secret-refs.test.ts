@@ -61,6 +61,48 @@ afterEach(() => {
 });
 
 describe('runtime config secret refs', () => {
+  test('activates an MLX endpoint, secret reference and default together, rejecting unsafe replacements', async () => {
+    const homeDir = makeTempHome();
+    const secrets = await importFreshRuntimeSecrets(homeDir);
+    secrets.saveNamedRuntimeSecrets({
+      LOCAL_ENDPOINT_MAC_MLX_API_KEY: 'test-key',
+    });
+    writeRawRuntimeConfig(homeDir);
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+    const endpoint = {
+      name: 'mac-mlx',
+      type: 'mlx' as const,
+      enabled: true,
+      baseUrl: 'http://127.0.0.1:8321/v1',
+      zone: 'local' as const,
+    };
+    const secret = {
+      source: 'store' as const,
+      id: 'LOCAL_ENDPOINT_MAC_MLX_API_KEY',
+    };
+    runtimeConfig.configureRuntimeLocalEndpoint(
+      endpoint,
+      secret,
+      'mac-mlx/qwen3-4b',
+    );
+    const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+    const before = fs.readFileSync(configPath, 'utf8');
+    const saved = JSON.parse(before);
+    expect(saved.local.endpoints).toContainEqual({
+      ...endpoint,
+      apiKey: secret,
+    });
+    expect(saved.hybridai.defaultModel).toBe('mac-mlx/qwen3-4b');
+    expect(() =>
+      runtimeConfig.configureRuntimeLocalEndpoint(
+        { ...endpoint, baseUrl: 'https://example.com/v1' },
+        secret,
+        'mac-mlx/other',
+      ),
+    ).toThrow();
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
+  });
+
   test('loads memory recall settings from config.json', async () => {
     const homeDir = makeTempHome();
     writeRawRuntimeConfig(homeDir, (config) => {

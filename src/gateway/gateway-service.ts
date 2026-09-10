@@ -3025,7 +3025,8 @@ function isLocalModelProvider(model: string | null | undefined): boolean {
     provider === 'ollama' ||
     provider === 'lmstudio' ||
     provider === 'llamacpp' ||
-    provider === 'vllm'
+    provider === 'vllm' ||
+    provider === 'mlx'
   );
 }
 
@@ -7080,7 +7081,13 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     number
   >();
   const localProviderHints = new Map<string, GatewayModelProviderKey>();
-  for (const provider of ['ollama', 'lmstudio', 'llamacpp', 'vllm'] as const) {
+  for (const provider of [
+    'ollama',
+    'lmstudio',
+    'llamacpp',
+    'vllm',
+    'mlx',
+  ] as const) {
     for (const modelId of getAvailableModelList(provider)) {
       if (!localProviderHints.has(modelId)) {
         localProviderHints.set(modelId, provider);
@@ -12102,13 +12109,13 @@ export async function handleGatewayCommand(
           if (providerFilterArg && !providerFilter) {
             return badCommand(
               'Unknown Provider',
-              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
+              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm|mlx]`',
             );
           }
           if (listModifierArg && !expandedModelList) {
             return badCommand(
               'Usage',
-              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
+              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm|mlx]`',
             );
           }
           if (providerFilter && gatewayStatus) {
@@ -12243,7 +12250,9 @@ export async function handleGatewayCommand(
           const pricing = metadata.pricingUsdPerToken;
           const pricingLine = normalizedRuntimeModel.startsWith('openai-codex/')
             ? 'Pricing: subscription included (0 EUR)'
-            : /^(ollama|lmstudio|llamacpp|vllm)\//.test(normalizedRuntimeModel)
+            : /^(ollama|lmstudio|llamacpp|vllm|mlx)\//.test(
+                  normalizedRuntimeModel,
+                )
               ? 'Pricing: local model (0 EUR)'
               : pricing.input != null || pricing.output != null
                 ? `Pricing: ${

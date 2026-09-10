@@ -2454,6 +2454,16 @@ async function importFreshHealth(options?: {
     }),
   );
 
+  const localModelStatus = vi.fn(async () => ({ supported: true, running: false }));
+  const localModelCommand = vi.fn();
+  vi.doMock('../src/gateway/gateway-local-model-service.js', () => ({
+    GatewayLocalModelService: class {
+      status = localModelStatus;
+      command = localModelCommand;
+      close = vi.fn(async () => {});
+    },
+  }));
+
   vi.doMock('node:http', () => ({
     default: { createServer },
     createServer,
@@ -2890,6 +2900,8 @@ async function importFreshHealth(options?: {
 
   return {
     dataDir,
+    localModelStatus,
+    localModelCommand,
     handler,
     httpServer,
     listenArgs,
@@ -17408,4 +17420,47 @@ describe('gateway HTTP server', () => {
       '401 Unauthorized',
     );
   });
+});
+
+
+test.each([
+  { remoteAddress: '192.0.2.10', headers: { host: 'localhost:9090' } },
+  { headers: { host: 'example.com' } },
+  { headers: { host: 'localhost:9090', 'x-forwarded-for': '192.0.2.10' } },
+])('denies remote/forwarded local-model management before executing: %j', async (request) => {
+  const state = await importFreshHealth();
+  const req = makeRequest({ url: '/api/admin/local-models', method: 'POST', body: { action: 'start' }, ...request });
+  const res = makeResponse();
+  state.handler(req as never, res as never);
+  await settle();
+  expect(res.statusCode).toBe(403);
+  expect(state.localModelCommand).not.toHaveBeenCalled();
+});
+
+test('requires authentication and dedicated permission for local-model mutations', async () => {
+  const state = await importFreshHealth({ apiTokens: {
+    'hck_test_local_read': { id: 'test-local', label: 'test-local', claims: { actions: ['admin.models.read', 'admin.models.write'] } },
+  } });
+  for (const authorization of [undefined, 'Bearer hck_test_local_read']) {
+    const req = makeRequest({ url: '/api/admin/local-models', method: 'POST', noAuth: true, headers: { host: 'localhost:9090', ...(authorization ? { authorization } : {}) }, body: { action: 'start' } });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await settle();
+    expect([401, 403]).toContain(res.statusCode);
+    expect(state.localModelCommand).not.toHaveBeenCalled();
+  }
+});
+
+test('routes authenticated loopback status and actions to local-model service', async () => {
+  const state = await importFreshHealth();
+  const get = makeResponse();
+  state.handler(makeRequest({ url: '/api/admin/local-models', headers: { host: 'localhost:9090' } }) as never, get as never);
+  await settle();
+  expect(get.statusCode).toBe(200);
+  expect(state.localModelStatus).toHaveBeenCalledOnce();
+  const post = makeResponse();
+  state.handler(makeRequest({ url: '/api/admin/local-models', method: 'POST', headers: { host: 'localhost:9090' }, body: { action: 'setup', modelId: 'spark-x2.5-4b' } }) as never, post as never);
+  await settle();
+  expect(post.statusCode).toBe(202);
+  expect(state.localModelCommand).toHaveBeenCalledWith({ action: 'setup', modelId: 'spark-x2.5-4b' });
 });

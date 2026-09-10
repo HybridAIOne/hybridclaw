@@ -1046,7 +1046,9 @@ export interface ChatModel {
   id: string;
   /** Gateway provider key (matches `GatewayStatus.providerHealth` keys). */
   provider: string;
-  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
+  /** Catalog routing zone; unknown for a selection absent from the catalog. */
+  zone?: 'local' | 'hai' | 'region' | 'cloud';
+  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx' | null;
   contextWindow: number | null;
   isReasoning: boolean;
   family: string | null;
@@ -1098,7 +1100,8 @@ export interface AdminModelsResponse {
         | 'ollama'
         | 'lmstudio'
         | 'llamacpp'
-        | 'vllm';
+        | 'vllm'
+        | 'mlx';
       model: string | null;
     };
   };
@@ -2684,3 +2687,56 @@ export interface DeleteSessionResult {
   deletedStructuredAuditEntries: number;
   deletedApprovalEntries: number;
 }
+
+export interface AdminLocalModelsResponse {
+  hardware: {
+    chip: string;
+    memoryBytes: number;
+    availableMemoryEstimateBytes?: number;
+  };
+  supported: boolean;
+  uvAvailable: boolean;
+  reservedBytes: number;
+  memoryLimitBytes: number;
+  freeDiskBytes: number;
+  recommended: string | null;
+  candidates: Array<{
+    id: string;
+    label: string;
+    note: string;
+    repo: string;
+    revision: string;
+    license: string;
+    weightBytes: number;
+    requiredBytes: number;
+    contextWindow: number;
+    fits: boolean;
+  }>;
+  unavailable: Array<{
+    id: string;
+    label: string;
+    sourceRepo: string;
+    reason?: string;
+  }>;
+  installation: { modelId: string; contextWindow: number } | null;
+  installationError: string | null;
+  running: boolean;
+  job: {
+    action: 'setup' | 'start' | 'stop';
+    modelId: string | null;
+    stage:
+      | 'runtime'
+      | 'download'
+      | 'loading'
+      | 'checking'
+      | 'activating'
+      | 'starting'
+      | 'stopping';
+    status: 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed';
+    error: string | null;
+  } | null;
+}
+
+export type AdminLocalModelCommand =
+  | { action: 'setup'; modelId: string }
+  | { action: 'start' | 'stop' | 'cancel' };

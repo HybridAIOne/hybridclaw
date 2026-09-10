@@ -190,3 +190,94 @@ describe('parseModel', () => {
     expect(namedRoute?.getAttribute('aria-label')).toContain('haigpu1');
   });
 });
+
+describe('local model highlighting', () => {
+  const entries = [
+    model({ id: 'gpt-5', provider: 'hybridai', zone: 'cloud' }),
+    model({
+      id: 'gpu/qwen-27b',
+      provider: 'vllm',
+      backend: 'vllm',
+      zone: 'hai',
+    }),
+    model({ id: 'mac-mlx/spark-x2.5-4b', provider: 'mlx', zone: 'local' }),
+    model({
+      id: 'ollama/llama-3.1',
+      provider: 'ollama',
+      backend: 'ollama',
+      zone: 'local',
+    }),
+  ];
+  it('highlights local destinations, lists them first, and offers a Local filter', () => {
+    const onSwitch = vi.fn();
+    render(
+      createElement(ModelSwitchSelect, {
+        models: entries,
+        selectedModelId: 'gpt-5',
+        onSwitch,
+      }),
+    );
+    fireEvent.click(screen.getByRole('combobox', { name: 'Switch model' }));
+    const options = screen.getAllByRole('option');
+    expect(
+      options
+        .slice(0, 2)
+        .every((option) => option.getAttribute('data-local') === 'true'),
+    ).toBe(true);
+    expect(options[0].textContent).toContain('Local');
+    expect(
+      document
+        .querySelector('[data-value="gpu/qwen-27b"]')
+        ?.hasAttribute('data-local'),
+    ).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Local (2)' }));
+    expect(screen.getAllByRole('option')).toHaveLength(2);
+    fireEvent.click(
+      document.querySelector<HTMLElement>(
+        '[data-value="mac-mlx/spark-x2.5-4b"]',
+      ) as HTMLElement,
+    );
+    expect(onSwitch).toHaveBeenCalledWith('mac-mlx/spark-x2.5-4b');
+  });
+  it('keeps the Local badge visible on the selected model', () => {
+    render(
+      createElement(ModelSwitchSelect, {
+        models: entries,
+        selectedModelId: 'mac-mlx/spark-x2.5-4b',
+        onSwitch: vi.fn(),
+      }),
+    );
+    expect(
+      screen.getByRole('combobox', { name: 'Switch model' }).textContent,
+    ).toContain('Local');
+  });
+  it('does not label a self-hosted GPU or automatic routing as a local selection', () => {
+    const { rerender } = render(
+      createElement(ModelSwitchSelect, {
+        models: entries,
+        selectedModelId: 'gpu/qwen-27b',
+        onSwitch: vi.fn(),
+      }),
+    );
+    expect(
+      screen.getByRole('combobox', { name: 'Switch model' }).textContent,
+    ).not.toContain('Local');
+    rerender(
+      createElement(ModelSwitchSelect, {
+        models: entries,
+        selectedModelId: 'gpt-5',
+        routing: {
+          active: true,
+          startTier: 'economy',
+          startModel: 'mac-mlx/spark-x2.5-4b',
+        },
+        onSwitch: vi.fn(),
+      }),
+    );
+    expect(
+      screen.getByRole('combobox', {
+        name: 'Switch model, automatic routing active',
+      }).textContent,
+    ).not.toContain('Local');
+  });
+});

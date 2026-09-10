@@ -268,6 +268,7 @@ import {
   readRequestBody,
   sendJson,
 } from './gateway-http-utils.js';
+import { GatewayLocalModelService } from './gateway-local-model-service.js';
 import { getGatewayAdminLogs } from './gateway-log-service.js';
 import {
   getGatewayAdminPlugins,
@@ -10278,6 +10279,8 @@ export interface GatewayHttpServer {
 }
 
 export function startGatewayHttpServer(): GatewayHttpServer {
+  const localModels = new GatewayLocalModelService();
+
   let gatewayReady = false;
   const gatewayStartMs = Date.now();
   const terminalManager = createAdminTerminalManager();
@@ -10841,6 +10844,24 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/agent-scoreboard' && method === 'GET') {
             handleApiAdminAgentScoreboard(res);
+            return;
+          }
+          if (pathname === '/api/admin/local-models') {
+            if (!isLoopbackWebRequest(req)) {
+              sendJson(res, 403, {
+                error:
+                  'Open the console directly on the gateway Mac using localhost to manage local models.',
+              });
+              return;
+            }
+            if (method === 'GET') {
+              sendJson(res, 200, await localModels.status());
+            } else if (method === 'POST') {
+              localModels.command(await readJsonBody(req));
+              sendJson(res, 202, { accepted: true });
+            } else {
+              sendMethodNotAllowed(res);
+            }
             return;
           }
           if (pathname === '/api/admin/harness-evolution' && method === 'GET') {
@@ -11585,6 +11606,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       gatewayReady = true;
     },
     broadcastShutdown(): void {
+      void localModels.close();
       const shutdownMessage: AdminTerminalServerMessage = {
         type: 'shutdown',
         restartExpectedMs: 1500,

@@ -3,6 +3,7 @@ export const LOCAL_BACKEND_IDS = [
   'lmstudio',
   'llamacpp',
   'vllm',
+  'mlx',
 ] as const;
 
 export const RUNTIME_PROVIDER_IDS = [
@@ -43,6 +44,7 @@ export const OPENAI_COMPAT_PROVIDER_IDS = [
   'lmstudio',
   'llamacpp',
   'vllm',
+  'mlx',
 ] as const;
 
 export type LocalBackendType = (typeof LOCAL_BACKEND_IDS)[number];

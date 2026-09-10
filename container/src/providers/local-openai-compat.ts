@@ -11,6 +11,7 @@ import type {
   ToolCall,
   ToolDefinition,
 } from '../types.js';
+import { fetchMlx } from './mlx-transport.js';
 import {
   emitRawSseLineDebug,
   logLastPrompt,
@@ -675,7 +676,11 @@ export async function callLocalOpenAICompatProvider(
       },
     });
   }
-  const response = await fetch(url, {
+  const requestFetch =
+    args.provider === 'mlx'
+      ? (url: string, init: RequestInit) => fetchMlx(url, init, args.sessionId)
+      : fetch;
+  const response = await requestFetch(url, {
     method: 'POST',
     headers: {
       ...buildHeaders(args.apiKey),
@@ -729,7 +734,11 @@ export async function callLocalOpenAICompatProviderStream(
       },
     });
   }
-  const response = await fetch(url, {
+  const requestFetch =
+    args.provider === 'mlx'
+      ? (url: string, init: RequestInit) => fetchMlx(url, init, args.sessionId)
+      : fetch;
+  const response = await requestFetch(url, {
     method: 'POST',
     headers: {
       ...buildHeaders(args.apiKey),

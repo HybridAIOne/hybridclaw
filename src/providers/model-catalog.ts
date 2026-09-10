@@ -160,6 +160,7 @@ const PREFIX_BY_PROVIDER: Record<
   lmstudio: LMSTUDIO_MODEL_PREFIX,
   llamacpp: LLAMACPP_MODEL_PREFIX,
   vllm: VLLM_MODEL_PREFIX,
+  mlx: 'mlx/',
 };
 
 function compareModelNames(
@@ -227,6 +228,7 @@ function isLocalPrefixedModel(model: string): boolean {
     hasModelPrefix(model, PREFIX_BY_PROVIDER.lmstudio) ||
     hasModelPrefix(model, PREFIX_BY_PROVIDER.llamacpp) ||
     hasModelPrefix(model, PREFIX_BY_PROVIDER.vllm) ||
+    hasModelPrefix(model, PREFIX_BY_PROVIDER.mlx) ||
     Boolean(resolveLocalBackendFromEndpointModel(model))
   );
 }
@@ -345,6 +347,7 @@ function collectModelsForProvider(
     case 'lmstudio':
     case 'llamacpp':
     case 'vllm':
+    case 'mlx':
       return getDiscoveredLocalModelNames();
     case 'openrouter':
     case 'mistral':

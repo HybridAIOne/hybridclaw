@@ -59,6 +59,8 @@ import type {
   AdminInteractionResumeResponse,
   AdminJobsContextResponse,
   AdminLanHttpAccessMode,
+  AdminLocalModelCommand,
+  AdminLocalModelsResponse,
   AdminLogsResponse,
   AdminMcpConfig,
   AdminMcpOAuthStartResponse,
@@ -1930,5 +1932,19 @@ export function saveSkillEnabled(
     token,
     method: 'PUT',
     body: payload,
+  });
+}
+
+export function fetchLocalModels(token: string) {
+  return requestJson<AdminLocalModelsResponse>('/api/admin/local-models', {
+    token,
+  });
+}
+
+export function controlLocalModel(token: string, body: AdminLocalModelCommand) {
+  return requestJson<{ accepted: true }>('/api/admin/local-models', {
+    token,
+    method: 'POST',
+    body,
   });
 }
