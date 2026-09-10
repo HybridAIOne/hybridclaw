@@ -1,5 +1,10 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { TurnToolHistory } from '../container/src/turn-tool-history.js';
+import {
+  expandStoredMessage,
+  sanitizeToolHistory,
+} from '../src/session/tool-history.js';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   buildCodexApprovalResponseForDirective,
@@ -30,6 +35,7 @@ describe('Codex app-server runtime helpers', () => {
       textDeltas: [],
       agentMessages: [],
       toolExecutions: [],
+      toolHistory: new TurnToolHistory('session-test'),
       toolsUsed: new Set<string>(),
       tokenUsage: {
         modelCalls: 1,
@@ -111,6 +117,18 @@ describe('Codex app-server runtime helpers', () => {
           });
           setTimeout(() => {
             writeJsonLine(child, {
+              method: 'item/completed',
+              params: {
+                item: {
+                  type: 'commandExecution',
+                  command: `echo before-${index}`,
+                  aggregatedOutput: `before-${index}`,
+                  status: 'completed',
+                  exitCode: 0,
+                },
+              },
+            });
+            writeJsonLine(child, {
               id: approvalRequestId,
               method: 'item/commandExecution/requestApproval',
               params: { command: `echo ${index}` },
@@ -119,6 +137,18 @@ describe('Codex app-server runtime helpers', () => {
           return true;
         }
         if (message.id === approvalRequestId && message.result) {
+          writeJsonLine(child, {
+            method: 'item/completed',
+            params: {
+              item: {
+                type: 'commandExecution',
+                command: `echo ${index}`,
+                aggregatedOutput: String(index),
+                status: 'completed',
+                exitCode: 0,
+              },
+            },
+          });
           writeJsonLine(child, {
             method: 'item/completed',
             params: {
@@ -153,6 +183,34 @@ describe('Codex app-server runtime helpers', () => {
         { role: 'user', content: 'third' },
       ]),
     ).toContain('Current user request:\nthird');
+  });
+
+  test('replays call names, arguments and result ids even with empty assistant content', () => {
+    const messages = [
+      {
+        role: 'assistant' as const,
+        content: null,
+        tool_calls: [
+          {
+            id: 'write-a',
+            type: 'function' as const,
+            function: {
+              name: 'write',
+              arguments: '{"path":"report.txt","content":"42"}',
+            },
+          },
+        ],
+      },
+      { role: 'tool' as const, tool_call_id: 'write-a', content: 'Success' },
+      { role: 'user' as const, content: 'Which file did you save?' },
+    ];
+    const before = structuredClone(messages);
+    const prompt = buildCodexTurnText(messages);
+    expect(prompt).toContain(
+      'Tool call (write-a): write {"path":"report.txt","content":"42"}',
+    );
+    expect(prompt).toContain('Tool result (write-a): Success');
+    expect(messages).toEqual(before);
   });
 
   test('registers the HybridClaw callback MCP server with transient context', () => {
@@ -337,6 +395,9 @@ describe('Codex app-server runtime helpers', () => {
 
     expect(first.pendingApproval?.approvalId).toBeTruthy();
     expect(second.pendingApproval?.approvalId).toBeTruthy();
+    expect(first.toolHistory).toHaveLength(2);
+    expect(JSON.stringify(first.toolHistory)).toContain('before-0');
+    expect(JSON.stringify(first.toolHistory)).not.toContain('codex.approval');
     expect(
       await resumePendingCodexAppServerApproval({
         sessionId: 'session-c',
@@ -365,6 +426,14 @@ describe('Codex app-server runtime helpers', () => {
 
     expect(resumedFirst?.result).toBe('approved-0');
     expect(resumedSecond?.result).toBe('approved-1');
+    expect(resumedFirst?.toolHistory).toHaveLength(2);
+    expect(resumedFirst?.toolHistoryForReplay).toEqual(
+      resumedFirst?.toolHistory,
+    );
+    expect(JSON.stringify(resumedFirst?.toolHistory)).not.toContain('before-0');
+    expect(JSON.stringify(resumedSecond?.toolHistory)).not.toContain(
+      'before-1',
+    );
     expect(
       spawn.mock.calls.filter(([, args]) => args[0] === '--version'),
     ).toHaveLength(1);
@@ -441,6 +510,63 @@ describe('Codex app-server runtime helpers', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test('retains completed native exchanges when the app-server exits before finishing', async () => {
+    vi.resetModules();
+    const spawn = vi.fn((_command: string, args: string[]) => {
+      const child = createMockChild();
+      if (args[0] === '--version') {
+        queueMicrotask(() => child.emit('exit', 0));
+        return child;
+      }
+      child.stdin.write = vi.fn((line: string) => {
+        const message = JSON.parse(line);
+        if (message.method === 'initialize')
+          writeJsonLine(child, { id: message.id, result: {} });
+        if (message.method === 'thread/start')
+          writeJsonLine(child, {
+            id: message.id,
+            result: { thread: { id: 'thread-error' } },
+          });
+        if (message.method === 'turn/start') {
+          writeJsonLine(child, {
+            id: message.id,
+            result: { turn: { status: 'in_progress' } },
+          });
+          setTimeout(() => {
+            writeJsonLine(child, {
+              method: 'item/completed',
+              params: {
+                item: {
+                  type: 'commandExecution',
+                  command: 'echo saved',
+                  aggregatedOutput: 'saved',
+                  status: 'completed',
+                  exitCode: 0,
+                },
+              },
+            });
+            child.emit('exit', 1);
+          }, 0);
+        }
+        return true;
+      });
+      return child;
+    });
+    vi.doMock('node:child_process', () => ({ spawn }));
+    const { runCodexAppServerTurn } = await import(
+      '../container/src/codex-app-server.js'
+    );
+    const output = await runCodexAppServerTurn({
+      sessionId: 'session-error',
+      messages: [{ role: 'user', content: 'Run the command' }],
+      model: 'openai-codex/gpt-5.4',
+    });
+    expect(output.status).toBe('error');
+    expect(output.toolHistory).toHaveLength(2);
+    expect(JSON.stringify(output.toolHistory)).toContain('echo saved');
+    expect(output.toolHistoryForReplay).toEqual(output.toolHistory);
   });
 
   test('migrates user MCP servers without embedding sensitive environment values', () => {
@@ -559,6 +685,85 @@ describe('Codex app-server runtime helpers', () => {
       isError: false,
     });
     expect(projection.toolExecutions[1]?.arguments).toContain('src/index.ts');
+    const history = projection.toolHistory.finish('Done');
+    const replay = expandStoredMessage({
+      role: 'assistant',
+      content: 'Done',
+      tool_history_json: JSON.stringify(history),
+    });
+    const prompt = buildCodexTurnText([
+      ...replay,
+      { role: 'user', content: 'What did you do?' },
+    ]);
+    expect(prompt).toContain('codex.command {"command":"npm test"}');
+    expect(prompt).toContain('src/index.ts');
+    expect(history.filter((message) => message.role === 'tool')).toHaveLength(
+      2,
+    );
+  });
+
+  test('retains failed command and MCP outcomes explicitly in native tool history', () => {
+    const projection = makeProjection();
+    projectCodexThreadItem(projection, {
+      type: 'commandExecution',
+      command: 'test -f missing.txt',
+      aggregatedOutput: '',
+      status: 'completed',
+      exitCode: 1,
+    });
+    projectCodexThreadItem(projection, {
+      type: 'mcpToolCall',
+      server: 'example',
+      tool: 'lookup',
+      arguments: {},
+      status: 'completed',
+      result: {
+        isError: true,
+        content: [{ type: 'text', text: 'Unavailable' }],
+      },
+    });
+    expect(
+      projection.toolExecutions.every((execution) => execution.isError),
+    ).toBe(true);
+    const history = projection.toolHistory.finish('Done');
+    for (const message of history.filter((entry) => entry.role === 'tool')) {
+      expect(message.content).toMatch(/^Tool failed:\n/);
+    }
+  });
+
+  test('native tool history remains credential-redactable at the gateway boundary', () => {
+    const projection = makeProjection();
+    projectCodexThreadItem(projection, {
+      type: 'mcpToolCall',
+      server: 'example',
+      tool: 'lookup',
+      arguments: { api_key: 'test-key' },
+      result: { api_key: 'test-result-key', value: 'visible' },
+      status: 'completed',
+    });
+    const sanitized = sanitizeToolHistory(
+      projection.toolHistory.finish('Done'),
+    );
+    const serialized = JSON.stringify(sanitized);
+    expect(serialized).not.toContain('test-key');
+    expect(serialized).not.toContain('test-result-key');
+    expect(serialized).toContain('visible');
+  });
+
+  test.each([
+    'failed',
+    'declined',
+  ])('does not record a %s file change as successful', (status) => {
+    const projection = makeProjection();
+    projectCodexThreadItem(projection, {
+      type: 'fileChange',
+      changes: [{ path: 'report.txt' }],
+      status,
+    });
+    expect(projection.toolExecutions[0].isError).toBe(true);
+    expect(projection.toolHistory.finish('Done')[1].content).toBe(
+      `Tool failed:\n${status}`,
+    );
   });
 
   test('projects Codex MCP and dynamic tool items into HybridClaw tool executions', () => {
@@ -613,5 +818,6 @@ describe('Codex app-server runtime helpers', () => {
     expect(projection.toolExecutions[1]?.arguments).toContain(
       'workspace-write',
     );
+    expect(projection.toolHistory.finish('Done')).toEqual([]);
   });
 });

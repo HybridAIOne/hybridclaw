@@ -12555,6 +12555,67 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test.each([
+    ['/api/chat', 'queued'],
+    ['/api/chat', 'partial'],
+    ['/v1/chat/completions', 'queued'],
+    ['/v1/chat/completions', 'partial'],
+  ])('preserves %s streaming send outcome: %s', async (url, outcome) => {
+    const state = await importFreshHealth();
+    state.handleGatewayMessage.mockImplementationOnce(
+      async ({ onTextDelta }: { onTextDelta?: (delta: string) => void }) => {
+        onTextDelta?.('__MESSAGE_SEND_HANDLED__');
+        return {
+          status: 'success' as const,
+          result: '__MESSAGE_SEND_HANDLED__',
+          toolsUsed: ['message'],
+          toolExecutions: [
+            {
+              name: 'message',
+              arguments: '{"action":"send"}',
+              result:
+                outcome === 'queued' ? '{"ok":true,"queued":1}' : '{"ok":true}',
+              isError: false,
+            },
+            ...(outcome === 'partial'
+              ? [
+                  {
+                    name: 'message',
+                    arguments: '{"action":"send"}',
+                    result: '{"ok":false,"error":"rate limited"}',
+                    isError: true,
+                  },
+                ]
+              : []),
+          ],
+        };
+      },
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url,
+      body:
+        url === '/api/chat'
+          ? { content: 'send this', stream: true }
+          : {
+              model: 'gpt-5',
+              stream: true,
+              messages: [{ role: 'user', content: 'send this' }],
+            },
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain('__MESSAGE_SEND_HANDLED__');
+    expect(res.body).toContain(
+      outcome === 'queued'
+        ? 'Message queued for delivery.'
+        : 'message failed: rate limited.',
+    );
+    if (outcome === 'queued') expect(res.body).not.toContain('Message sent.');
+  });
+
   test('accepts media-only chat requests and forwards media to the gateway handler', async () => {
     const state = await importFreshHealth();
     const media = [

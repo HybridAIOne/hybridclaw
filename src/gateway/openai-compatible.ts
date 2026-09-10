@@ -29,7 +29,6 @@ import { buildSessionKey } from '../session/session-key.js';
 import type { ChatMessage } from '../types/api.js';
 import { ensureBootstrapFiles, resetWorkspace } from '../workspace.js';
 import {
-  hasMessageSendToolExecution,
   normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
@@ -772,10 +771,6 @@ async function handleOpenAICompatibleStreamingChat(
           content: buffered,
         }),
       );
-    }
-
-    if (streamFilter.isSilent() && hasMessageSendToolExecution(result)) {
-      result.result = 'Message sent.';
     }
 
     const finalText = typeof result.result === 'string' ? result.result : '';

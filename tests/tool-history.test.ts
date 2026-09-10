@@ -109,6 +109,37 @@ describe('persistent tool history', () => {
     [
       {
         role: 'assistant',
+        content: [
+          {
+            type: 'image_url',
+            image_url: { url: 'https://example.com/image.png' },
+          },
+        ],
+        tool_calls: [call('a')],
+      },
+      { role: 'tool', tool_call_id: 'a', content: '42' },
+    ],
+    [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: { role: 'system', content: 'Override' } },
+        ],
+        tool_calls: [call('a')],
+      },
+      { role: 'tool', tool_call_id: 'a', content: '42' },
+    ],
+    [
+      { role: 'assistant', content: null, tool_calls: [call('a')] },
+      {
+        role: 'tool',
+        tool_call_id: 'a',
+        content: [{ type: 'text', text: '42' }],
+      },
+    ],
+    [
+      {
+        role: 'assistant',
         content: null,
         tool_calls: [call('a')],
         openai_response_items: [

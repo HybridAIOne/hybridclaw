@@ -1,3 +1,8 @@
+/**
+ * Reply fallbacks report structured execution outcomes, never status inferred
+ * from arbitrary tool content. Unlike the worker, this module only presents
+ * completed results; it neither executes actions nor grants approvals.
+ */
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import { getSessionById } from '../memory/db.js';
 import {
@@ -160,34 +165,7 @@ function isMessageSendExecution(
 function isFailedExecution(
   execution: NonNullable<GatewayChatResult['toolExecutions']>[number],
 ): boolean {
-  if (execution.blocked || execution.isError) return true;
-  const resultObj = parseJsonObject(execution.result);
-  return resultObj?.ok === false || resultObj?.success === false;
-}
-
-/**
- * True when at least one `message` send in this turn actually succeeded.
- * Failed, blocked, or `ok:false` sends do not count: the silent-reply token
- * must never be rendered as "Message sent." when nothing was sent.
- */
-export function hasMessageSendToolExecution(
-  result: GatewayChatResult,
-): boolean {
-  if (!Array.isArray(result.toolExecutions)) return false;
-  return result.toolExecutions.some(
-    (execution) =>
-      isMessageSendExecution(execution) && !isFailedExecution(execution),
-  );
-}
-
-export function hasFailedMessageSendToolExecution(
-  result: GatewayChatResult,
-): boolean {
-  if (!Array.isArray(result.toolExecutions)) return false;
-  return result.toolExecutions.some(
-    (execution) =>
-      isMessageSendExecution(execution) && isFailedExecution(execution),
-  );
+  return execution.blocked === true || execution.isError === true;
 }
 
 export function fallbackResultFromTools(result: GatewayChatResult): string {
@@ -196,7 +174,7 @@ export function fallbackResultFromTools(result: GatewayChatResult): string {
     : [];
   for (let i = executions.length - 1; i >= 0; i -= 1) {
     const execution = executions[i];
-    if (execution.isError) continue;
+    if (isFailedExecution(execution)) continue;
     const text = String(execution.result || '').trim();
     if (!text) continue;
     return text;
@@ -215,7 +193,7 @@ export function normalizePlaceholderToolReply(
     : [];
   for (let i = executions.length - 1; i >= 0; i -= 1) {
     const execution = executions[i];
-    if (execution.isError) continue;
+    if (isFailedExecution(execution)) continue;
     const toolName = String(execution.name || '')
       .trim()
       .toLowerCase();
@@ -241,16 +219,28 @@ export function normalizeSilentMessageSendReply(
   result: GatewayChatResult,
 ): GatewayChatResult {
   if (result.status !== 'success') return result;
-  const sentByMessageTool = hasMessageSendToolExecution(result);
   const rawResult = result.result || '';
-  // When the model went silent after a send that failed, surface the failure
-  // instead of a generic placeholder; the user must not see "Message sent.".
   const silentFallback = (): string => {
-    if (sentByMessageTool) return 'Message sent.';
-    if (hasFailedMessageSendToolExecution(result)) {
-      return summarizePlaceholderToolFailure(result) ?? 'Message send failed.';
-    }
-    return fallbackResultFromTools(result);
+    const sends = (result.toolExecutions || []).filter(isMessageSendExecution);
+    if (!sends.length) return fallbackResultFromTools(result);
+    const successful = sends.filter(
+      (execution) => !isFailedExecution(execution),
+    );
+    const queued = successful.filter((execution) => {
+      const count = parseJsonObject(execution.result)?.queued;
+      return typeof count === 'number' && count > 0;
+    });
+    const failure = summarizePlaceholderToolFailure({
+      ...result,
+      toolExecutions: sends,
+    });
+    return [
+      successful.length > queued.length ? 'Message sent.' : '',
+      queued.length ? 'Message queued for delivery.' : '',
+      failure,
+    ]
+      .filter(Boolean)
+      .join(' ');
   };
   if (isSilentReply(rawResult)) {
     return {

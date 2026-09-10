@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   executeTool,
+  executeToolWithMetadata,
   getMessageToolDescription,
   setGatewayContext,
   setSessionContext,
@@ -59,6 +60,24 @@ describe.sequential('container message tool normalization', () => {
     >;
     expect(payload.action).toBe('send');
     expect(payload.channelId).toBe(CHANNEL_ID);
+  });
+
+  test.each([
+    { ok: false },
+    { success: false },
+  ])('marks a rejected HTTP 200 message response as failed: %j', async (status) => {
+    mockGatewayFetch({ ...status, error: 'rate limited' });
+    setGatewayContext('http://gateway.local', 'test-key', '');
+    const result = await executeToolWithMetadata(
+      'message',
+      JSON.stringify({
+        action: 'send',
+        channelId: 'email:user@example.com',
+        content: 'test message',
+      }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('rate limited');
   });
 
   test('strips discord: prefix from channel target before gateway call', async () => {

@@ -220,7 +220,6 @@ import {
 } from './chat-approval.js';
 import {
   filterChatResultForSession,
-  hasMessageSendToolExecution,
   normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
@@ -3785,12 +3784,6 @@ async function handleApiChatStream(
           delta: bufferedDelta,
           outputPresentation: assistantBubblePresentation,
         });
-      }
-      if (streamFilter.isSilent() && hasMessageSendToolExecution(result)) {
-        result = {
-          ...result,
-          result: 'Message sent.',
-        };
       }
     }
     const filteredResult = filterChatResultForSession(

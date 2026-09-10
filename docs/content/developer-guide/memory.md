@@ -146,6 +146,16 @@ the exchange on its owning message preserves pairs during pagination, session
 forks, deletion, and compaction. Existing rows without tool history remain
 ordinary chat messages; audit events are not used to reconstruct them.
 
+Action confirmations can use earlier tool results. Missing or compacted evidence
+means the outcome is unknown, not that an action never happened. Confirming an
+existing action does not require executing it again.
+
+The optional Codex app-server runtime retains completed command, file-change,
+MCP, and dynamic-tool exchanges too. Its next-turn transcript includes call
+names, arguments, IDs, and results. Approval and sandbox events stay in the
+audit metadata and do not count as completed tools. Anthropic text-block arrays
+are normalized for storage while native signed content stays intact.
+
 Individual results are capped at 16,000 characters before entering model
 context. Larger results include a reference to the full result in the agent's
 `.session-transcripts/<session>.jsonl` file, which is written when the turn

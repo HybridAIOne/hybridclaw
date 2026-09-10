@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
 import {
-  hasMessageSendToolExecution,
   normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
@@ -78,6 +77,21 @@ describe('normalizePlaceholderToolReply', () => {
       ],
     });
 
+    expect(normalizePlaceholderToolReply(result)).toBe(result);
+  });
+
+  test('does not interpret successfully read file content as an execution failure', () => {
+    const result = makeResult({
+      toolsUsed: ['read'],
+      toolExecutions: [
+        {
+          name: 'read',
+          arguments: '{"path":"fixture.json"}',
+          result: '{"ok":false,"success":false,"error":"example failure"}',
+          isError: false,
+        },
+      ],
+    });
     expect(normalizePlaceholderToolReply(result)).toBe(result);
   });
 
@@ -172,7 +186,6 @@ describe('normalizeSilentMessageSendReply', () => {
         },
       ],
     });
-    expect(hasMessageSendToolExecution(failed)).toBe(false);
     const result = normalizeSilentMessageSendReply(failed);
     expect(result.result).not.toBe('Message sent.');
     expect(result.result).toContain('message failed');
@@ -188,14 +201,65 @@ describe('normalizeSilentMessageSendReply', () => {
           name: 'message',
           arguments: '{"action":"send","to":"+491234567890","content":"hi"}',
           result: JSON.stringify({ ok: false, error: 'rate limited' }),
-          isError: false,
+          isError: true,
         },
       ],
     });
-    expect(hasMessageSendToolExecution(failed)).toBe(false);
     expect(normalizeSilentMessageSendReply(failed).result).not.toBe(
       'Message sent.',
     );
+  });
+
+  test.each([
+    'failed',
+    'blocked',
+  ])('preserves a %s send alongside a successful send', (outcome) => {
+    const result = normalizeSilentMessageSendReply(
+      makeResult({
+        result: silentToken,
+        toolExecutions: [
+          {
+            name: 'message',
+            arguments: '{"action":"send","channelId":"first@example.com"}',
+            result: '{"ok":true}',
+            isError: false,
+          },
+          {
+            name: 'message',
+            arguments: '{"action":"send","channelId":"second@example.com"}',
+            result: '{"ok":false,"error":"rate limited"}',
+            isError: outcome === 'failed',
+            blocked: outcome === 'blocked',
+            blockedReason:
+              outcome === 'blocked' ? 'approval denied' : undefined,
+          },
+        ],
+      }),
+    );
+    expect(result.result).toContain('Message sent.');
+    expect(result.result).toContain('message failed:');
+    expect(result.result).toContain(
+      outcome === 'blocked' ? 'approval denied' : 'rate limited',
+    );
+  });
+
+  test('reports queued delivery without claiming a message was sent', () => {
+    const result = normalizeSilentMessageSendReply(
+      makeResult({
+        result: silentToken,
+        toolExecutions: [
+          {
+            name: 'message',
+            arguments: '{"action":"send","channelId":"tui"}',
+            result:
+              '{"ok":true,"action":"send","transport":"local","queued":1,"dropped":0}',
+            isError: false,
+          },
+        ],
+      }),
+    );
+    expect(result.result).toBe('Message queued for delivery.');
+    expect(normalizeSilentMessageSendReply(result)).toEqual(result);
   });
 });
 
