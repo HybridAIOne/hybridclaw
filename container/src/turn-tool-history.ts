@@ -56,6 +56,8 @@ export class TurnToolHistory {
         content: `Tool not executed: ${reason}`,
       });
     }
+    // Fail the turn on a pairing bug: persisting it would corrupt future replay,
+    // and silently dropping history could hide tool side effects.
     return validateToolHistory(completed);
   }
 }

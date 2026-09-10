@@ -4,8 +4,8 @@
  * are never accepted here. Full results remain in the session transcript.
  */
 
-// 16k chars (Codex implementation decision, 2026-09-10): keep ordinary reads
-// intact within the 24k history budget; configurable retention is deferred.
+// Preserve ordinary reads while leaving room in the default 24k history budget.
+// 16k (Codex, 2026-09-10); retention configuration deferred until needed.
 export const TOOL_HISTORY_RESULT_MAX_CHARS = 16_000;
 
 export function sessionTranscriptFilename(sessionId) {
