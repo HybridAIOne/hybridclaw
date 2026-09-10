@@ -444,10 +444,6 @@ function MacLocalModelsPage() {
             <strong>Already using LM Studio, Ollama or another server?</strong>
             <a href="/admin/models">Connect it in Providers →</a>
           </div>
-          <p className={styles.hint}>
-            Inference runs on the gateway Mac. Task tools and other providers
-            follow their own data policies.
-          </p>
         </>
       )}
     </div>
