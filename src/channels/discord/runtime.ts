@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  type ApplicationCommandDataResolvable,
   AttachmentBuilder,
   Client,
   type Message as DiscordMessage,
@@ -122,6 +121,7 @@ import {
   formatDiscordSkillFeedbackMessage,
   resolveDiscordSkillFeedbackSessionId,
 } from './skill-feedback.js';
+import { registerSlashCommands } from './slash-command-registration.js';
 import {
   buildSlashCommandDefinitions,
   parseSlashInteractionArgs,
@@ -132,10 +132,7 @@ import {
   createDiscordToolActionRunner,
   type DiscordToolActionRequest,
 } from './tool-actions.js';
-import {
-  attachDiscordTransportErrorHandlers,
-  logDiscordApiError,
-} from './transport-errors.js';
+import { attachDiscordTransportErrorHandlers } from './transport-errors.js';
 import { createTypingController } from './typing.js';
 
 export type ReplyFn = (
@@ -1105,67 +1102,7 @@ async function ensureSlashCommands(): Promise<void> {
     includeHybridAI: true,
   });
   const definitions = buildSlashCommandDefinitions(modelChoices);
-  const definitionNames = new Set(
-    definitions.map((definition) => definition.name),
-  );
-
-  if (!client.application) return;
-  let globalRegisteredCount = 0;
-  try {
-    for (const definition of definitions) {
-      // POST is an upsert by name for global commands. Keep command IDs stable
-      // to avoid stale-client command references in DMs.
-      await client.application.commands.create(
-        definition as unknown as ApplicationCommandDataResolvable,
-      );
-      globalRegisteredCount += 1;
-      logger.debug(
-        { scope: 'global', command: definition.name },
-        'Upserted slash command',
-      );
-    }
-    logger.info(
-      { scope: 'global', count: globalRegisteredCount },
-      'Successfully registered slash commands',
-    );
-  } catch (error) {
-    logDiscordApiError({
-      error,
-      expectedAction: 'Global slash commands were not registered.',
-      unexpectedMessage: 'Failed to register global slash commands',
-    });
-  }
-
-  await Promise.allSettled(
-    [...client.guilds.cache.values()].map(async (guild) => {
-      try {
-        const refreshed = await guild.commands.fetch();
-        let removedCount = 0;
-        for (const command of refreshed.values()) {
-          if (!definitionNames.has(command.name)) {
-            continue;
-          }
-          await guild.commands.delete(command.id);
-          removedCount += 1;
-          logger.debug(
-            { guildId: guild.id, command: command.name },
-            'Removed guild slash command',
-          );
-        }
-        logger.info(
-          { guildId: guild.id, count: removedCount },
-          'Successfully cleaned up guild slash commands',
-        );
-      } catch (error) {
-        logDiscordApiError({
-          error,
-          expectedAction: 'Guild slash commands were not cleaned up.',
-          unexpectedMessage: 'Failed to clean up Discord guild slash commands',
-          metadata: { guildId: guild.id },
-        });
-      }
-    }),
-  );
+  await registerSlashCommands(client, definitions);
 }
 
 function trimRecentConversationMetrics(nowMs = Date.now()): void {
