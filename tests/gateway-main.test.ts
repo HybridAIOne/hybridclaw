@@ -2868,7 +2868,7 @@ describe('gateway bootstrap', () => {
     );
 
     expect(reply).toHaveBeenCalledWith(
-      'The request was interrupted before I could reply. Please send it again.',
+      'The request was interrupted before I could reply. Tools I had already started may have completed, so check before sending it again.',
     );
   });
 
