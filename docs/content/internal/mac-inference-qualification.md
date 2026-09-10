@@ -49,12 +49,33 @@ memory-admission correction.
 
 A later gateway request used 114 tools and failed during preparation. The old
 service collapsed all preparation exceptions into the same model/context
-message, so that log alone cannot establish whether the cause was context
-overflow or a runtime/template failure. The previous 43-tool qualification
-does not establish that this larger catalog fits. Local tokenization of that
-recorded system context with the core catalog measured 29,679 prompt tokens;
-the additional MCP schemas were not retrieved and the complete request was
-not reproduced.
+message. With the owner's approval, the configured MCP clients retrieved 71
+tool schemas through discovery only; no MCP tools were invoked. A local
+reconstruction using the recorded system/dynamic context, the same user
+request, and the 43 core plus 71 MCP definitions measured:
+
+| Catalog | Prompt tokens | Output reserve | Total | Installed limit |
+| --- | ---: | ---: | ---: | ---: |
+| 43 core tools | 29,679 | 2,048 | 31,727 | 40,960 |
+| 114 core + MCP tools | 50,391 | 2,048 | 52,439 | 40,960 |
+
+The added schemas contribute 20,712 tokens. The reconstructed full catalog
+exceeds the installed context by 11,479 tokens before generation; a fresh chat
+does not remove that overhead. These counts describe the reconstructed input,
+not a captured original HTTP body, and do not qualify a larger context or a
+successful PDF workflow. MCP descriptions and the recorded prompt stayed out
+of the repository. The installed limits and runtime configuration were not
+changed by this diagnosis.
+
+The subsequent user-reported live error confirms 50,652 prompt tokens plus
+2,048 output tokens against the 40,960-token limit, with 114 tools. The
+reconstruction above uses a slightly different prepared message body.
+
+A proposed fixed starter catalog (ten basic tools plus `tool_catalog`) measured
+19,577 prompt tokens plus 2,048 output tokens, leaving 19,335 tokens within the
+same limit. This is a tokenizer-only comparison of a proposed schema, not an
+implemented or inference-tested workflow. See the
+[local tool discovery proposal](local-tool-discovery-proposal.md).
 
 The boundary preserves numeric context-overflow diagnostics (prompt, output
 reserve, limit and tool count), separates Python memory failures, and redacts
