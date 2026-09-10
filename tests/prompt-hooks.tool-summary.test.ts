@@ -671,3 +671,48 @@ test('local skill stars trim the prompt while preserving the full eligible direc
     expect(buildSystemPromptFromHooks({ ...context, includePromptParts: ['skills'] })).toContain('<name>docx</name>');
   } finally { spy.mockRestore(); }
 });
+
+
+test.each([
+  { provider: 'mlx', instanceMode: 'starred', agentMode: undefined, compact: true },
+  { provider: 'mlx', instanceMode: 'full', agentMode: undefined, compact: false },
+  { provider: 'mlx', instanceMode: 'full', agentMode: 'starred', compact: true },
+  { provider: 'mlx', instanceMode: 'starred', agentMode: 'full', compact: false },
+  { provider: 'openai', instanceMode: 'starred', agentMode: undefined, compact: false },
+] as const)('tool prompt matches exposure for $provider, instance $instanceMode, agent $agentMode', ({ provider, instanceMode, agentMode, compact }) => {
+  const original = runtimeConfig.getRuntimeConfig();
+  const configSpy = vi.spyOn(runtimeConfig, 'getRuntimeConfig').mockReturnValue({
+    ...original,
+    tools: { ...original.tools, localToolMode: instanceMode, localStarterTools: ['skills_list'] },
+    agents: { ...original.agents, list: [{ id: 'test-agent', localToolMode: agentMode }] },
+  });
+  const providerSpy = vi.spyOn(providerFactory, 'resolveModelProvider').mockReturnValue(provider);
+  try {
+    const context = {
+      agentId: 'test-agent', skills: [],
+      runtimeInfo: { model: `${provider}/test-model` },
+      allowedTools: ['read', 'skills_list'], blockedTools: ['bash'],
+    };
+    const prompt = buildSystemPromptFromHooks(context);
+    const tools = prompt.split('## Your Tools')[1]?.split('## Tool Call Style')[0];
+    expect(tools).toBeDefined();
+    if (compact) {
+      expect(tools).not.toContain('**Files**:');
+      expect(tools).not.toContain('**Skills**:');
+      expect(tools).toContain('Only the function schemas supplied with this request are directly callable');
+      expect(tools).toContain('call tool_catalog with action=list before describing additional tools');
+      expect(tools).toContain('describe and call read through tool_catalog');
+      expect(tools).toContain('If tool_catalog is not exposed, use only the supplied functions');
+      expect(tools).toContain('Discovery never bypasses tool permissions or action approvals');
+    } else {
+      expect(tools).toContain('**Files**: `read`');
+      expect(tools).toContain('**Skills**: `skills_list`');
+      expect(tools).not.toContain('tool_catalog');
+    }
+    expect(tools).not.toContain('`bash`');
+    expect(buildSystemPromptFromHooks(context)).toBe(prompt);
+  } finally {
+    providerSpy.mockRestore();
+    configSpy.mockRestore();
+  }
+});

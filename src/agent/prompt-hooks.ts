@@ -1,7 +1,8 @@
 /**
  * Prompt hooks compose the initial instruction blocks for a request.
- * Local stars affect only skill presentation; eligibility stays with skills.ts
- * and the complete permitted directory remains available to skills_list.
+ * Local stars trim skill presentation and replace the broad tool inventory
+ * with schema/directory guidance. Eligibility and execution policy stay outside
+ * this module; prompt text never grants a capability.
  */
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
@@ -30,6 +31,7 @@ import {
 import { loadCloudMemoryContextFiles } from '../memory/cloud-memory.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
+import { isLocalBackendType } from '../providers/provider-ids.js';
 import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
 import {
   buildSessionContextPrompt,
@@ -42,6 +44,7 @@ import {
 } from '../skills/skills.js';
 import { buildContextPrompt, loadStaticBootstrapFiles } from '../workspace.js';
 import { selectLocalPromptSkills } from './local-skill-config.js';
+import { resolveLocalToolMode } from './local-tool-config.js';
 import type {
   ExtendedPromptHookName,
   PromptPartName,
@@ -287,7 +290,7 @@ function buildSelectedSkillsPrompt(context: PromptHookContext): string {
     (!context.allowedTools || context.allowedTools.includes('skills_list'));
   const directory =
     selection.discovery && directoryAvailable
-      ? 'Additional skills: use skills_list to search the full eligible skill directory when a relevant skill is absent above. If skills_list is not directly exposed, find and call it through tool_catalog. Read the returned SKILL.md location with read before following its instructions.'
+      ? 'Additional skills: use skills_list to search the full eligible skill directory when a relevant skill is absent above. If skills_list is not directly exposed, find and call it through tool_catalog. For a complete skill inventory, call skills_list instead of extrapolating from the starred skills. Read the returned SKILL.md location with read before following its instructions.'
       : '';
   return [prompt, directory].filter(Boolean).join('\n\n');
 }
@@ -480,10 +483,23 @@ function buildSafetyHook(context: PromptHookContext): string {
   const runtime = getRuntimeConfig();
   const accepted = isSecurityTrustAccepted(runtime);
   const securityDoc = readSecurityPromptGuardrails();
-  const toolsSummary = buildToolsSummary({
-    allowedTools: context.allowedTools,
-    blockedTools: context.blockedTools,
-  });
+  const model = context.runtimeInfo?.model;
+  const compactLocalTools =
+    model &&
+    isLocalBackendType(resolveModelProvider(model)) &&
+    resolveLocalToolMode(context.agentId) === 'starred';
+  const toolsSummary = compactLocalTools
+    ? [
+        '## Your Tools',
+        'Only the function schemas supplied with this request are directly callable. Tool names mentioned elsewhere in these instructions describe workflows, not additional exposed functions.',
+        'When tool_catalog is among those schemas, use action=list to discover additional permitted tools, action=describe to inspect a tool schema, and action=call with its exact name and arguments to execute it. For example, if read is not directly exposed, describe and call read through tool_catalog before reading a skill file.',
+        'When asked which tools are available, report the directly exposed names accurately and call tool_catalog with action=list before describing additional tools. Follow its pagination before claiming a complete inventory. Do not reconstruct the inventory from memory or examples in these instructions.',
+        'If tool_catalog is not exposed, use only the supplied functions and do not claim access to additional tools. Discovery never bypasses tool permissions or action approvals.',
+      ].join('\n')
+    : buildToolsSummary({
+        allowedTools: context.allowedTools,
+        blockedTools: context.blockedTools,
+      });
   const channelMessageToolHints = resolveChannelMessageToolHints({
     runtimeInfo: {
       channel: context.runtimeInfo?.channel,

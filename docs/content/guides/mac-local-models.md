@@ -117,6 +117,13 @@ other permitted tools. For skills, `skills_list` searches the full eligible
 catalog and returns SKILL.md locations to read. Mandatory `always` skills stay
 in the prompt. Stars never enable a blocked or disabled tool or skill.
 
+In starred tool mode, the prompt identifies the supplied function schemas as the
+directly callable set and directs inventory questions through `tool_catalog`.
+References to tool names in other instructions are workflow examples, not an
+expanded callable set. The skill directory tool is named `skills_list`.
+Directory tools run when the model calls them; they are not invoked automatically
+for every message. Full skill mode already includes the eligible skill list.
+
 These controls apply to local models. Tools default to starred mode; skills
 default to full mode with no stars until you choose them. Full tool mode sends
 the entire permitted schema list and may exceed a smaller model's context.
