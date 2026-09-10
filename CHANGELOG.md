@@ -14,6 +14,11 @@
   consulted agent's actual tool activity and forbids speculation, questions,
   and claims of needing access or credentials — a live call had heard a made-up
   credentials request while the consult was succeeding.
+- **Discord slash commands tolerate individual registration failures**:
+  Command and option descriptions fit Discord's 100-character limit, including
+  `/sessions`. Registration continues after a failed command, reports its name
+  and the success/failure counts, and preserves guild commands whose global
+  replacements did not register.
 - **Scheduler and side-effect failures are recorded instead of logged as
   success**: Scheduled runs that cannot start (no chatbot configured, no
   deliverable channel) or whose result cannot be delivered (channel send

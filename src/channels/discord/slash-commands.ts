@@ -1,3 +1,8 @@
+/**
+ * Discord command presentation bounds descriptions to Discord's API limit.
+ * The canonical registry owns command semantics; this adapter only formats
+ * Discord definitions and parses interactions, without registering commands.
+ */
 import {
   ApplicationCommandOptionType,
   ApplicationIntegrationType,
@@ -40,13 +45,20 @@ export type SlashCommandOptionDefinition =
   | SlashCommandStringOptionDefinition
   | SlashCommandSubcommandOptionDefinition;
 
+function formatDescription(description: string): string {
+  // Discord limits command, subcommand, and option descriptions to 100 characters.
+  const characters = Array.from(description);
+  if (characters.length <= 100) return description;
+  return `${characters.slice(0, 97).join('').trimEnd()}...`;
+}
+
 function convertStringOption(
   option: CanonicalSlashStringOptionDefinition,
 ): SlashCommandStringOptionDefinition {
   return {
     type: ApplicationCommandOptionType.String,
     name: option.name,
-    description: option.description,
+    description: formatDescription(option.description),
     required: option.required,
     choices: option.choices,
   };
@@ -62,7 +74,7 @@ function convertOption(
   return {
     type: ApplicationCommandOptionType.Subcommand,
     name: option.name,
-    description: option.description,
+    description: formatDescription(option.description),
     options: option.options?.map(convertStringOption),
   };
 }
@@ -72,7 +84,7 @@ function convertDefinition(
 ): SlashCommandDefinition {
   return {
     name: definition.name,
-    description: definition.description,
+    description: formatDescription(definition.description),
     options: definition.options?.map(convertOption),
   };
 }
