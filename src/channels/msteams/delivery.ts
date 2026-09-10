@@ -9,6 +9,8 @@ import {
 import { MSTEAMS_TEXT_CHUNK_LIMIT } from '../../config/config.js';
 import type { MSTeamsReplyStyle } from '../../config/runtime-config.js';
 import { chunkMessage } from '../../memory/chunk.js';
+import { formatMemoryAccessMarkdown } from '../../memory/recall-presentation.js';
+import type { MemoryAccess } from '../../types/memory.js';
 import { formatError } from '../../utils/text-format.js';
 import { sendMSTeamsActivityWithRetry } from './retry.js';
 
@@ -27,10 +29,23 @@ export interface BuildMSTeamsMessageActivityParams {
   replyToId?: string | null;
 }
 
-export function buildResponseText(text: string, toolsUsed?: string[]): string {
+export interface BuildMSTeamsResponseTextOptions {
+  /** `msteams.showMemoryFooter`; `false` drops the memory transparency footer. */
+  showMemoryFooter?: boolean;
+}
+
+export function buildResponseText(
+  text: string,
+  toolsUsed?: string[],
+  memoryAccess?: MemoryAccess,
+  options: BuildMSTeamsResponseTextOptions = {},
+): string {
   let body = text;
+  if (memoryAccess && options.showMemoryFooter !== false) {
+    body += `${body ? '\n\n' : ''}${formatMemoryAccessMarkdown(memoryAccess)}`;
+  }
   if (toolsUsed && toolsUsed.length > 0) {
-    body = `${body}\n*Tools: ${toolsUsed.join(', ')}*`;
+    body = `${body}${body ? '\n' : ''}*Tools: ${toolsUsed.join(', ')}*`;
   }
   return body;
 }

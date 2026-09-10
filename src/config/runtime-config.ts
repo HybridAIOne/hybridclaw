@@ -624,6 +624,7 @@ export interface RuntimeMSTeamsConfig {
   requireMention: boolean;
   textChunkLimit: number;
   replyStyle: MSTeamsReplyStyle;
+  showMemoryFooter: boolean;
   mediaMaxMb: number;
   dangerouslyAllowNameMatching: boolean;
   mediaAllowHosts: string[];
@@ -707,12 +708,33 @@ export interface RuntimeVoiceConfig {
  * mode, and plugin realtime sessions alike. Future speech-output settings
  * (TTS, dictation) belong here too.
  */
+export type RuntimeSpeechTurnDetectionType = 'server_vad' | 'semantic_vad';
+export type RuntimeSpeechVadEagerness = 'auto' | 'low' | 'medium' | 'high';
+
+/**
+ * Upstream turn detection for realtime sessions. Every numeric field is
+ * `null` by default so the upstream defaults apply; set them only from
+ * measured call data (see the `Realtime speech segment` log events).
+ */
+export interface RuntimeSpeechTurnDetectionConfig {
+  type: RuntimeSpeechTurnDetectionType;
+  /** `server_vad` only, 0..1 — higher means less sensitive to quiet audio. */
+  threshold: number | null;
+  /** `server_vad` only — audio kept before detected speech, in ms. */
+  prefixPaddingMs: number | null;
+  /** `server_vad` only — silence that ends a turn, in ms. */
+  silenceDurationMs: number | null;
+  /** `semantic_vad` only. */
+  eagerness: RuntimeSpeechVadEagerness;
+}
+
 export interface RuntimeSpeechRealtimeConfig {
   provider: RuntimeSpeechRealtimeProvider;
   model: string;
   voice: string;
   greeting: string;
   instructions: string;
+  turnDetection?: RuntimeSpeechTurnDetectionConfig;
 }
 
 export interface RuntimeSpeechConfig {
@@ -1707,6 +1729,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     requireMention: true,
     textChunkLimit: 4_000,
     replyStyle: 'thread',
+    showMemoryFooter: true,
     // 100 MB (owner call, 2026-08-21): Teams downloads stream to the managed
     // cache; the console upload limit remains 20 MB.
     mediaMaxMb: 100,
@@ -1840,6 +1863,13 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       voice: 'marin',
       greeting: 'Hello! How can I help you today?',
       instructions: '',
+      turnDetection: {
+        type: 'server_vad',
+        threshold: null,
+        prefixPaddingMs: null,
+        silenceDurationMs: null,
+        eagerness: 'auto',
+      },
     },
   },
   imessage: {
@@ -4217,7 +4247,63 @@ function normalizeSpeechConfig(
         fallback.realtime.instructions,
         { allowEmpty: true },
       ),
+      turnDetection: normalizeSpeechTurnDetection(
+        rawRealtime.turnDetection,
+        fallback.realtime.turnDetection ||
+          DEFAULT_RUNTIME_CONFIG.speech.realtime.turnDetection!,
+      ),
     },
+  };
+}
+
+function normalizeBoundedNumberOrNull(
+  value: unknown,
+  fallback: number | null,
+  min: number,
+  max: number,
+): number | null {
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return value < min || value > max ? fallback : value;
+}
+
+function normalizeSpeechTurnDetection(
+  value: unknown,
+  fallback: RuntimeSpeechTurnDetectionConfig,
+): RuntimeSpeechTurnDetectionConfig {
+  const raw = isRecord(value) ? value : {};
+  const type =
+    raw.type === 'server_vad' || raw.type === 'semantic_vad'
+      ? raw.type
+      : fallback.type;
+  const eagerness =
+    raw.eagerness === 'auto' ||
+    raw.eagerness === 'low' ||
+    raw.eagerness === 'medium' ||
+    raw.eagerness === 'high'
+      ? raw.eagerness
+      : fallback.eagerness;
+  return {
+    type,
+    threshold: normalizeBoundedNumberOrNull(
+      raw.threshold,
+      fallback.threshold,
+      0,
+      1,
+    ),
+    prefixPaddingMs: normalizeBoundedNumberOrNull(
+      raw.prefixPaddingMs,
+      fallback.prefixPaddingMs,
+      0,
+      5_000,
+    ),
+    silenceDurationMs: normalizeBoundedNumberOrNull(
+      raw.silenceDurationMs,
+      fallback.silenceDurationMs,
+      0,
+      5_000,
+    ),
+    eagerness,
   };
 }
 
@@ -5050,6 +5136,10 @@ function normalizeMSTeamsConfig(
       },
     ),
     replyStyle: normalizeMSTeamsReplyStyle(raw.replyStyle, fallback.replyStyle),
+    showMemoryFooter: normalizeBoolean(
+      raw.showMemoryFooter,
+      fallback.showMemoryFooter,
+    ),
     mediaMaxMb: normalizeInteger(raw.mediaMaxMb, fallback.mediaMaxMb, {
       min: 1,
       max: 100,

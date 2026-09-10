@@ -351,6 +351,7 @@ export let MSTEAMS_REQUIRE_MENTION = true;
 export let MSTEAMS_TEXT_CHUNK_LIMIT = 4_000;
 export let MSTEAMS_REPLY_STYLE: RuntimeConfig['msteams']['replyStyle'] =
   'thread';
+export let MSTEAMS_SHOW_MEMORY_FOOTER = true;
 // 100 MB (owner call, 2026-08-21): Teams downloads stream to the managed
 // cache; the console upload limit remains 20 MB.
 export let MSTEAMS_MEDIA_MAX_MB = 100;
@@ -890,6 +891,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     Math.min(20_000, config.msteams.textChunkLimit),
   );
   MSTEAMS_REPLY_STYLE = config.msteams.replyStyle;
+  MSTEAMS_SHOW_MEMORY_FOOTER = config.msteams.showMemoryFooter;
   MSTEAMS_MEDIA_MAX_MB = Math.max(1, config.msteams.mediaMaxMb);
   MSTEAMS_DANGEROUSLY_ALLOW_NAME_MATCHING =
     config.msteams.dangerouslyAllowNameMatching;

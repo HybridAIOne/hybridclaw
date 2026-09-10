@@ -279,6 +279,14 @@ saved revision history directly.
   calls, web console voice mode, and plugin realtime sessions:
   `speech.realtime.model`, `speech.realtime.voice`,
   `speech.realtime.greeting`, and `speech.realtime.instructions`.
+  `speech.realtime.turnDetection` configures upstream turn taking:
+  `type` (`server_vad`, the default, or `semantic_vad`), and for
+  `server_vad` the optional `threshold` (0–1), `prefixPaddingMs`, and
+  `silenceDurationMs` (`null`, the default, keeps the upstream value); for
+  `semantic_vad` the `eagerness` (`auto`, `low`, `medium`, `high`). Calibrate
+  these from the `Realtime speech segment` gateway log events of real calls
+  (segment length, whether it interrupted a playing response, transcript
+  size) rather than by guesswork.
   `speech.realtime.provider` selects the backend: `auto` (the default:
   HybridAI when a HybridAI credential is present, otherwise OpenAI), `openai`
   (requires an `OPENAI_API_KEY`), or `hybridai` (the HybridAI platform's

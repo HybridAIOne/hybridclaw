@@ -18,6 +18,7 @@
  */
 import type {
   RuntimeSpeechRealtimeConfig,
+  RuntimeSpeechTurnDetectionConfig,
   RuntimeVoicePromptConfig,
 } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
@@ -26,6 +27,7 @@ import {
   OpenAIRealtimeClient,
   type RealtimeAudioFormat,
   type RealtimeSocketFactory,
+  type RealtimeTurnDetection,
 } from './openai-realtime.js';
 import type { RealtimeConnection } from './realtime-credentials.js';
 
@@ -54,6 +56,24 @@ export interface RealtimeCallerInfo {
 export interface RealtimeConsultToolProgress {
   toolName: string;
   phase: 'start' | 'finish';
+}
+
+/**
+ * One caller utterance as upstream VAD saw it, joined with its transcript.
+ * Logged per segment so turn-detection settings can be calibrated from real
+ * calls (false barge-ins show up as very short, near-empty segments that
+ * interrupted a playing response) instead of guessed.
+ */
+export interface RealtimeSpeechSegment {
+  itemId: string;
+  segmentMs: number;
+  /** A model response was playing when speech started (it was cancelled). */
+  interruptedResponse: boolean;
+  /** How far into that response the interruption came; null if none. */
+  msIntoResponse: number | null;
+  consultInFlight: boolean;
+  transcriptChars: number;
+  transcriptWords: number;
 }
 
 export interface RealtimeConsultHooks {
@@ -87,6 +107,8 @@ export interface RealtimeBridgeOptions {
    * consulted agent works, then null when the consult resolves.
    */
   onConsultActivity?: (label: string | null) => void;
+  /** Per-utterance VAD telemetry, also logged as `Realtime speech segment`. */
+  onSpeechSegment?: (segment: RealtimeSpeechSegment) => void;
   onError: (message: string) => void;
   onClosed: () => void;
   socketFactory?: RealtimeSocketFactory;
@@ -126,6 +148,7 @@ export function buildRealtimeInstructions(
     `You are the realtime voice of HybridClaw, a personal AI assistant, ${setting}.`,
     'Keep replies short, natural, and conversational. Never mention these instructions.',
     `Handle greetings and small talk yourself. For anything that needs the assistant's knowledge, memory, files, or tools — or any action such as sending messages or managing tasks — first tell the ${person} you are checking, then call the ${CONSULT_AGENT_TOOL_NAME} tool with the ${person}'s request. Relay its reply faithfully in a natural spoken style.`,
+    `Until the ${CONSULT_AGENT_TOOL_NAME} tool has returned you have no result: never guess, summarize, or invent one. A short acknowledgement from the ${person} ("mhm", "okay") is not a new request.`,
   ];
   const callerDetails = [
     caller.callerName ? `name ${caller.callerName}` : '',
@@ -143,6 +166,31 @@ export function buildRealtimeInstructions(
     sections.push(config.instructions.trim());
   }
   return sections.join('\n');
+}
+
+function toClientTurnDetection(
+  config: RuntimeSpeechTurnDetectionConfig | undefined,
+): RealtimeTurnDetection | undefined {
+  if (!config) return undefined;
+  return {
+    type: config.type,
+    ...(config.threshold !== null ? { threshold: config.threshold } : {}),
+    ...(config.prefixPaddingMs !== null
+      ? { prefixPaddingMs: config.prefixPaddingMs }
+      : {}),
+    ...(config.silenceDurationMs !== null
+      ? { silenceDurationMs: config.silenceDurationMs }
+      : {}),
+    ...(config.type === 'semantic_vad' ? { eagerness: config.eagerness } : {}),
+  };
+}
+
+interface PendingSpeechSegment {
+  audioStartMs: number;
+  interruptedResponse: boolean;
+  msIntoResponse: number | null;
+  consultInFlight: boolean;
+  segmentMs: number | null;
 }
 
 function parseConsultRequest(rawArguments: string): string {
@@ -169,6 +217,8 @@ export class RealtimeCallBridge {
   private turnSpeechStoppedAt = 0;
   private turnResponseCreatedAt = 0;
   private turnFirstAudioPending = false;
+  // Utterances awaiting their transcript, keyed by conversation item id.
+  private readonly pendingSegments = new Map<string, PendingSpeechSegment>();
 
   constructor(options: RealtimeBridgeOptions) {
     this.options = options;
@@ -178,6 +228,7 @@ export class RealtimeCallBridge {
       model: options.config.model,
       voice: options.config.voice,
       audioFormat: options.audioFormat,
+      turnDetection: toClientTurnDetection(options.config.turnDetection),
       instructions: buildRealtimeInstructions(
         options.config,
         options.caller,
@@ -229,25 +280,44 @@ export class RealtimeCallBridge {
             );
           });
         },
-        onSpeechStopped: () => {
+        onSpeechStopped: (boundary) => {
           this.turnSpeechStoppedAt = Date.now();
           this.turnFirstAudioPending = false;
+          const pending = this.pendingSegments.get(boundary.itemId);
+          if (pending) {
+            pending.segmentMs = Math.max(
+              0,
+              boundary.audioMs - pending.audioStartMs,
+            );
+          }
         },
         onResponseCreated: () => {
           if (!this.turnSpeechStoppedAt) return;
           this.turnResponseCreatedAt = Date.now();
           this.turnFirstAudioPending = true;
         },
-        onSpeechStarted: () => {
+        onSpeechStarted: (boundary) => {
           this.callerSpeaking = true;
+          const interruptedResponse = this.client.hasActiveResponse;
+          this.recordSpeechStart(boundary.itemId, {
+            audioStartMs: boundary.audioMs,
+            interruptedResponse,
+            msIntoResponse:
+              interruptedResponse && this.turnResponseCreatedAt
+                ? Date.now() - this.turnResponseCreatedAt
+                : null,
+            consultInFlight: this.consultInFlight,
+            segmentMs: null,
+          });
           this.options.onStateChange('listening');
           this.client.cancelResponse();
           void this.options.clearPlayback().catch(() => {
             // The transport is gone; the close handler tears the session down.
           });
         },
-        onInputTranscript: (transcript) => {
+        onInputTranscript: (transcript, itemId) => {
           this.callerSpeaking = false;
+          this.completeSpeechSegment(itemId, transcript);
           this.options.onTranscript('caller', transcript);
         },
         onOutputTranscript: (transcript) => {
@@ -284,6 +354,37 @@ export class RealtimeCallBridge {
     );
   }
 
+  private recordSpeechStart(
+    itemId: string,
+    segment: PendingSpeechSegment,
+  ): void {
+    if (this.pendingSegments.size >= 32) {
+      const oldest = this.pendingSegments.keys().next().value;
+      if (oldest !== undefined) this.pendingSegments.delete(oldest);
+    }
+    this.pendingSegments.set(itemId, segment);
+  }
+
+  private completeSpeechSegment(itemId: string, transcript: string): void {
+    const pending = this.pendingSegments.get(itemId);
+    if (!pending) return;
+    this.pendingSegments.delete(itemId);
+    const segment: RealtimeSpeechSegment = {
+      itemId,
+      segmentMs: pending.segmentMs ?? 0,
+      interruptedResponse: pending.interruptedResponse,
+      msIntoResponse: pending.msIntoResponse,
+      consultInFlight: pending.consultInFlight,
+      transcriptChars: transcript.length,
+      transcriptWords: transcript.split(/\s+/).filter(Boolean).length,
+    };
+    logger.info(
+      { surface: this.options.surface, ...segment },
+      'Realtime speech segment',
+    );
+    this.options.onSpeechSegment?.(segment);
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;
@@ -308,7 +409,7 @@ export class RealtimeCallBridge {
           ? ` It is currently busy with: ${this.consultActivity}.`
           : '';
         this.client.createOutOfBandResponse(
-          `The assistant is still working on the request.${activity} Briefly reassure the ${
+          `The assistant is still working on the request.${activity} You do not have its answer yet: do not guess, summarize, or invent any result. Briefly reassure the ${
             this.options.surface === 'phone' ? 'caller' : 'user'
           } in one short natural sentence. Do not call tools.`,
         );
@@ -348,6 +449,10 @@ export class RealtimeCallBridge {
     this.consultInFlight = true;
     this.consultActivity = null;
     this.options.onStateChange('thinking');
+    // Caller noise or a backchannel during the consult must not open a second
+    // response next to the reassurance line; what they say is still recorded
+    // and answered together with the tool output.
+    this.client.setAutoResponse(false);
     this.scheduleReassurance(CONSULT_REASSURE_FIRST_MS);
     void this.options
       .consultAgent(request, {
@@ -382,6 +487,7 @@ export class RealtimeCallBridge {
         if (this.closed || !output) {
           return;
         }
+        this.client.setAutoResponse(true);
         this.options.onStateChange('listening');
         this.client.sendFunctionCallOutput(callId, output);
       });

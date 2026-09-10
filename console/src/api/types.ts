@@ -679,6 +679,7 @@ export interface AdminConfig {
     requireMention: boolean;
     textChunkLimit: number;
     replyStyle: 'thread' | 'top-level';
+    showMemoryFooter: boolean;
     mediaMaxMb: number;
     dangerouslyAllowNameMatching: boolean;
     mediaAllowHosts: string[];

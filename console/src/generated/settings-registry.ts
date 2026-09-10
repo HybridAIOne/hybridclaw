@@ -1836,6 +1836,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: true,
     },
     {
+      path: 'msteams.showMemoryFooter',
+      section: 'msteams',
+      kind: 'boolean',
+      defaultValue: true,
+    },
+    {
       path: 'msteams.tab.allowFrom',
       section: 'msteams',
       kind: 'list',
@@ -2576,6 +2582,36 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       section: 'speech',
       kind: 'string',
       defaultValue: 'auto',
+    },
+    {
+      path: 'speech.realtime.turnDetection.eagerness',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: 'auto',
+    },
+    {
+      path: 'speech.realtime.turnDetection.prefixPaddingMs',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: null,
+    },
+    {
+      path: 'speech.realtime.turnDetection.silenceDurationMs',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: null,
+    },
+    {
+      path: 'speech.realtime.turnDetection.threshold',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: null,
+    },
+    {
+      path: 'speech.realtime.turnDetection.type',
+      section: 'speech',
+      kind: 'string',
+      defaultValue: 'server_vad',
     },
     {
       path: 'speech.realtime.voice',
