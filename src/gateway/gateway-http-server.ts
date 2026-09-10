@@ -11634,6 +11634,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
   });
 
   server.listen(HEALTH_PORT, HEALTH_HOST, () => {
+    localModels.startMetrics();
     logger.info(
       { host: HEALTH_HOST, port: HEALTH_PORT },
       'Gateway HTTP server started',

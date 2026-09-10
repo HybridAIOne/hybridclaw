@@ -21,14 +21,18 @@ again as a setup recommendation. Other fitting models remain selectable.
 Select the installed model in chat to use it.
 
 **Live activity** shows the last minute of Mac-wide CPU, memory and GPU readings,
-updated every 2.5 seconds while the page is visible. Memory usage is estimated
+sampled by the gateway once per second, including while the page is closed.
+The page fetches the retained minute every 2.5 seconds, so navigation and refresh
+preserve the graph history. Memory usage is estimated
 from total memory minus free and reclaimable inactive pages. GPU utilization
 comes from macOS; unsupported or missing readings stay unavailable. **Tokens**
 shows the local model's generated tokens per second and total since its last
 start, including reasoning and tool-call output. The first rate needs two
 samples. Token counters require the current MLX runtime; after an update,
-restart the gateway and start the model again. Readings stay in memory and do
-not include prompts, generated text, or task identifiers.
+restart the gateway and start the model again. The rolling history stays in
+gateway memory until shutdown; it is not written to disk and does not survive
+a gateway restart. Failed probes remain gaps. Readings do not include prompts,
+generated text, or task identifiers.
 Models assigned to the local routing zone appear first in the picker with a
 green **Local** badge and a dedicated filter. The badge describes the inference
 destination, not whether the model is running. If MLX was absent from the last

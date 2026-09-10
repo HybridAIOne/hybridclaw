@@ -2709,7 +2709,7 @@ export interface DeleteSessionResult {
 }
 
 export interface AdminLocalModelsResponse {
-  metrics: LocalModelMetrics;
+  metricsHistory: LocalModelMetrics[];
   hardware: {
     chip: string;
     memoryBytes: number;

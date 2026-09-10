@@ -1,20 +1,19 @@
 /**
- * Activity graphs retain at most one minute of observed local-model samples.
+ * Activity graphs render the gateway-owned minute of local-model samples.
  * Unlike capacity recommendations, charts never fill missing readings with zero.
- * Polling belongs to the page; this view neither controls nor starts inference.
+ * Navigation never resets history; this view neither samples nor starts inference.
  */
-import { useEffect, useState } from 'react';
 import type { AdminLocalModelsResponse } from '../api/types';
 import styles from './local-model-metrics.module.css';
 
-type Sample = AdminLocalModelsResponse['metrics'];
+type Sample = AdminLocalModelsResponse['metricsHistory'][number];
 type Reading =
   | 'cpuPercent'
   | 'memoryPercent'
   | 'gpuPercent'
   | 'tokensPerSecond';
-// 2026-09-10, graph implementation choice: a 60s window at the page's 2.5s
-// cadence. Long-term telemetry storage and background collection are deferred.
+// 2026-09-10, owner request: display the gateway's rolling minute at 1Hz;
+// actual missing readings remain gaps, independent of browser polling.
 const WINDOW_MS = 60_000;
 
 function value(sample: Sample, key: Reading): number | null {
@@ -42,10 +41,19 @@ function Graph({
   const end = history.at(-1)?.sampledAt ?? 0;
   const segments: Array<Array<[number, number]>> = [];
   let segment: Array<[number, number]> = [];
-  let previousTime = 0;
+  let previous: Sample | undefined;
   for (const sample of history) {
     const amount = value(sample, reading);
-    if (amount === null || sample.sampledAt - previousTime > 7500) {
+    if (
+      amount === null ||
+      (previous && sample.sampledAt - previous.sampledAt > 3000) ||
+      (reading === 'tokensPerSecond' &&
+        previous &&
+        (sample.runtimeId !== previous.runtimeId ||
+          (sample.generatedTokens !== null &&
+            previous.generatedTokens !== null &&
+            sample.generatedTokens < previous.generatedTokens)))
+    ) {
       if (segment.length) segments.push(segment);
       segment = [];
     }
@@ -55,7 +63,7 @@ function Graph({
         50 - Math.min(1, amount / maximum) * 46,
       ]);
     }
-    previousTime = sample.sampledAt;
+    previous = sample;
   }
   if (segment.length) segments.push(segment);
   return (
@@ -88,39 +96,15 @@ function Graph({
 }
 
 export function LocalModelMetrics({
-  sample,
+  history,
   running,
   stale,
 }: {
-  sample: Sample | undefined;
+  history: Sample[];
   running: boolean;
   stale: boolean;
 }) {
-  const [history, setHistory] = useState<Sample[]>([]);
-  useEffect(() => {
-    if (stale || !sample) {
-      setHistory([]);
-      return;
-    }
-    setHistory((previous) => {
-      const last = previous.at(-1);
-      if (
-        last?.sampledAt === sample.sampledAt &&
-        last.runtimeId === sample.runtimeId
-      )
-        return previous;
-      const recent =
-        last &&
-        (last.runtimeId !== sample.runtimeId ||
-          last.sampledAt > sample.sampledAt)
-          ? []
-          : previous.filter(
-              (entry) => entry.sampledAt >= sample.sampledAt - WINDOW_MS,
-            );
-      return [...recent, sample].slice(-60);
-    });
-  }, [sample, stale]);
-  const current = stale ? undefined : sample;
+  const current = stale ? undefined : history.at(-1);
   const percentage = (key: Reading) => {
     const amount = current ? value(current, key) : null;
     return amount === null ? '—' : `${Math.round(amount)}%`;

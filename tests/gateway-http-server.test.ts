@@ -2464,6 +2464,8 @@ async function importFreshHealth(options?: {
 
   const localModelStatus = vi.fn(async () => ({ supported: true, running: false }));
   const localModelCommand = vi.fn();
+  const startLocalModelMetrics = vi.fn();
+  const closeLocalModels = vi.fn(async () => {});
   const getLocalContextSettings = vi.fn(() => ({ instance: { mode: 'starred', starred: ['read'] }, agents: [], disabled: [] }));
   const saveLocalContextSettings = vi.fn(() => getLocalContextSettings());
   vi.doMock('../src/gateway/gateway-local-context-settings.js', () => ({ getLocalContextSettings, saveLocalContextSettings }));
@@ -2472,7 +2474,8 @@ async function importFreshHealth(options?: {
     GatewayLocalModelService: class {
       status = localModelStatus;
       command = localModelCommand;
-      close = vi.fn(async () => {});
+      startMetrics = startLocalModelMetrics;
+      close = closeLocalModels;
     },
   }));
 
@@ -2917,6 +2920,8 @@ async function importFreshHealth(options?: {
     dataDir,
     localModelStatus,
     localModelCommand,
+    startLocalModelMetrics,
+    closeLocalModels,
     getLocalContextSettings,
     saveLocalContextSettings,
     handler,
@@ -17579,4 +17584,13 @@ test('protects local activity readings with the same loopback and admin boundary
     expect([401, 403]).toContain(response.statusCode);
     expect(state.localModelStatus).not.toHaveBeenCalled();
   }
+});
+
+
+test('starts local model sampling with the HTTP server and closes it on shutdown', async () => {
+  const state = await importFreshHealth();
+  expect(state.startLocalModelMetrics).toHaveBeenCalledOnce();
+  expect(state.localModelStatus).not.toHaveBeenCalled();
+  state.httpServer.broadcastShutdown();
+  expect(state.closeLocalModels).toHaveBeenCalledOnce();
 });

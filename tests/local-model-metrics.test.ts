@@ -5,7 +5,7 @@ import { LocalModelMetricsSampler, parseMacGpuPercent } from '../src/inference/l
 const mocks = vi.hoisted(() => ({ exec: vi.fn() }));
 vi.mock('node:child_process', async () => {
   const { promisify } = await import('node:util');
-  return { execFile: Object.assign(vi.fn(), { [promisify.custom]: mocks.exec }) };
+  return { execFile: Object.assign(vi.fn(), { [promisify.custom]: mocks.exec }), execFileSync: vi.fn() };
 });
 const hardware = { platform: 'darwin', arch: 'arm64', release: '24', chip: 'Example Mac', memoryBytes: 32 * 1024 ** 3, availableMemoryEstimateBytes: 8 * 1024 ** 3 };
 const health = (generatedTokens: unknown, instanceId = 'a'.repeat(32)) => ({ metrics: { instanceId, generatedTokens, prompt: 'private-payload' }, secret: 'private-payload' });
@@ -17,7 +17,9 @@ beforeEach(() => {
   clock = 1000; user = 100; idle = 300;
   vi.spyOn(performance, 'now').mockImplementation(() => clock);
   vi.spyOn(os, 'cpus').mockImplementation(() => [{ model: 'Example Mac', speed: 0, times: { user, idle, nice: 0, sys: 0, irq: 0 } }]);
-  mocks.exec.mockResolvedValue({ stdout: '"PerformanceStatistics" = {"Device Utilization %"=63}' });
+  mocks.exec.mockImplementation(async (command: string) => ({ stdout: command === '/usr/bin/vm_stat'
+    ? 'Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free: 262144.\nPages inactive: 262144.'
+    : '"PerformanceStatistics" = {"Device Utilization %"=63}' }));
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -76,16 +78,33 @@ test('does not invoke macOS commands on unsupported hosts', async () => {
   expect(mocks.exec).not.toHaveBeenCalled();
 });
 
-test('coalesces simultaneous and closely spaced polls without spawning extra processes', async () => {
+test('coalesces simultaneous probes without skipping the next one-second tick', async () => {
   const sampler = new LocalModelMetricsSampler();
   let finish!: (value: { stdout: string }) => void;
-  mocks.exec.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  mocks.exec.mockImplementation((command: string) => command === '/usr/bin/vm_stat' ? Promise.resolve({ stdout: '' }) : new Promise((resolve) => { finish = resolve; }));
   const first = sampler.sample(hardware, health(10));
   const second = sampler.sample(hardware, health(10));
   expect(first).toBe(second);
   finish({ stdout: '' });
-  const result = await first;
-  clock += 100;
-  expect(await sampler.sample(hardware, health(11))).toBe(result);
-  expect(mocks.exec).toHaveBeenCalledOnce();
+  await first;
+  expect(mocks.exec).toHaveBeenCalledTimes(2);
+  // A nominal one-second tick can arrive slightly early after timer jitter.
+  clock += 980; user += 75; idle += 25;
+  const next = sampler.sample(hardware, health(59));
+  finish({ stdout: '' });
+  expect(await next).toMatchObject({ cpuPercent: 75, tokensPerSecond: 50 });
+  expect(mocks.exec).toHaveBeenCalledTimes(4);
+});
+
+
+test('samples memory afresh and keeps GPU data when the memory probe fails', async () => {
+  const sampler = new LocalModelMetricsSampler();
+  expect((await sampler.sample(hardware, null)).memoryUsedBytes).toBe(24 * 1024 ** 3);
+  mocks.exec.mockImplementation(async (command: string) => {
+    if (command === '/usr/bin/vm_stat') throw new Error('private-payload');
+    return { stdout: '"PerformanceStatistics" = {"Device Utilization %"=45}' };
+  });
+  clock += 1000;
+  expect(await sampler.sample(hardware, null)).toMatchObject({ memoryUsedBytes: null, gpuPercent: 45 });
+  expect(mocks.exec).toHaveBeenCalledWith('/usr/bin/vm_stat', [], { encoding: 'utf8', timeout: 1000, maxBuffer: 64 * 1024 });
 });

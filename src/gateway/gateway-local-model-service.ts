@@ -3,7 +3,7 @@
  * Only fixed catalog IDs reach the shared installer; this is not a shell or a
  * provider editor. Observed lifecycle changes invalidate model discovery.
  * Start also reconnects healthy workers; status never repairs configuration
- * and exposes only readiness and numeric metrics, never credentials.
+ * and exposes only readiness and gateway-retained numeric metrics, never credentials.
  */
 import type { ChildProcess } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
@@ -13,8 +13,10 @@ import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import {
   detectMacHardware,
   estimateMacModels,
+  supportsMacLocalModels,
 } from '../inference/local-model-catalog.js';
 import { LocalModelMetricsSampler } from '../inference/local-model-metrics.js';
+import { LocalModelMetricsHistory } from '../inference/local-model-metrics-history.js';
 import {
   connectMlxModel,
   isMlxConnected,
@@ -71,7 +73,21 @@ export class GatewayLocalModelService {
   private closing = false;
   private lastRunning: boolean | undefined;
   private lastConnected: boolean | undefined;
-  private readonly metrics = new LocalModelMetricsSampler();
+  private metrics: LocalModelMetricsHistory | null = null;
+
+  startMetrics(): void {
+    if (this.closing || this.metrics) return;
+    const hardware = detectMacHardware();
+    if (!supportsMacLocalModels(hardware)) return;
+    const sampler = new LocalModelMetricsSampler();
+    this.metrics = new LocalModelMetricsHistory(async () => {
+      // Missing/invalid installations have no worker counters; host graphs
+      // still run, and the status endpoint reports installation errors.
+      const health = await mlxHealth().catch(() => null);
+      return sampler.sample(hardware, health);
+    });
+    this.metrics.start();
+  }
 
   async status() {
     const hardware = detectMacHardware();
@@ -107,7 +123,6 @@ export class GatewayLocalModelService {
     }
     const running = Boolean(health);
     const connected = Boolean(installation) && isMlxConnected();
-    const metrics = await this.metrics.sample(hardware, health);
     if (this.lastRunning !== running || this.lastConnected !== connected) {
       this.lastRunning = running;
       this.lastConnected = connected;
@@ -122,7 +137,7 @@ export class GatewayLocalModelService {
       installationError,
       running,
       connected,
-      metrics,
+      metricsHistory: this.metrics?.snapshot() ?? [],
       job: this.job ? { ...this.job } : null,
     };
   }
@@ -256,7 +271,7 @@ export class GatewayLocalModelService {
   async close(): Promise<void> {
     this.closing = true;
     this.cancellation?.abort();
-    await this.pending;
+    await Promise.all([this.pending, this.metrics?.close()]);
     if (this.child) await stopMlxChild(this.child);
     this.child = null;
   }

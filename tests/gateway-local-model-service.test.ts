@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { GatewayLocalModelService } from '../src/gateway/gateway-local-model-service.js';
+import { LocalModelMetricsSampler } from '../src/inference/local-model-metrics.js';
 import { GIB } from '../src/inference/local-model-catalog.js';
 
 const mocks = vi.hoisted(() => ({ install: vi.fn(), hardware: vi.fn(), home: vi.fn(), health: vi.fn(), read: vi.fn(), start: vi.fn(), stop: vi.fn(), invalidate: vi.fn(), connect: vi.fn(), connected: vi.fn() }));
@@ -26,7 +27,7 @@ beforeEach(() => {
   mocks.install.mockResolvedValue({});
   service = new GatewayLocalModelService();
 });
-afterEach(async () => { await service.close(); fs.rmSync(dir, { recursive: true, force: true }); vi.unstubAllGlobals(); });
+afterEach(async () => { await service.close(); fs.rmSync(dir, { recursive: true, force: true }); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 test.each([null, [], { action: 'shell' }, { action: ['start'] }, { action: 'setup', modelId: '../../tmp/model' }, { action: 'setup', modelId: 'qwen3.8-flash-next' }, { action: 'setup', modelId: 'spark-x2.5-4b', repo: 'example/model' }, { action: 'start', modelId: 'spark-x2.5-4b' }])('rejects unsupported inputs without invoking installation: %j', (body) => {
   expect(() => service.command(body)).toThrow();
@@ -123,8 +124,10 @@ test('returns allowlisted activity metrics without exposing native health payloa
   fs.writeFileSync(path.join(dir, 'installation.json'), '{}');
   mocks.read.mockReturnValue({ model: 'spark-x2.5-4b', contextWindow: 40960 });
   mocks.health.mockResolvedValue({ metrics: { instanceId: 'a'.repeat(32), generatedTokens: 123, prompt: 'private-payload' }, credentials: 'private-payload' });
+  service.startMetrics();
+  await vi.waitFor(async () => expect((await service.status()).metricsHistory).toHaveLength(1));
   const result = await service.status();
-  expect(result.metrics).toMatchObject({ generatedTokens: 123, tokensPerSecond: null, runtimeId: 'a'.repeat(32) });
+  expect(result.metricsHistory[0]).toMatchObject({ generatedTokens: 123, tokensPerSecond: null, runtimeId: 'a'.repeat(32) });
   expect(JSON.stringify(result)).not.toContain('private-payload');
 });
 
@@ -176,4 +179,55 @@ test('cancellation during startup unloads the new worker without registering it'
   await vi.waitFor(async () => expect((await service.status()).job?.status).toBe('cancelled'));
   expect(mocks.connect).not.toHaveBeenCalled();
   expect(mocks.stop).toHaveBeenCalledExactlyOnceWith(child);
+});
+
+
+test('collects on the gateway cadence without status requests and drains at shutdown', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(100_000);
+  const sample = vi.spyOn(LocalModelMetricsSampler.prototype, 'sample').mockImplementation(async () => ({
+    sampledAt: Date.now(), cpuPercent: 25, memoryUsedBytes: 16 * GIB, memoryTotalBytes: 32 * GIB,
+    gpuPercent: 40, tokensPerSecond: 0, generatedTokens: 0, runtimeId: null,
+  }));
+  service.startMetrics();
+  service.startMetrics();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(sample).toHaveBeenCalledTimes(6);
+  expect(mocks.health).toHaveBeenCalledTimes(6);
+  const result = await service.status();
+  expect(result.metricsHistory).toHaveLength(6);
+  expect((await service.status()).metricsHistory).toEqual(result.metricsHistory);
+  expect(sample).toHaveBeenCalledTimes(6);
+  expect(mocks.connect).not.toHaveBeenCalled();
+  await service.close();
+  service.startMetrics();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(sample).toHaveBeenCalledTimes(6);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test.each([
+  { platform: 'linux', arch: 'arm64', release: '6' },
+  { platform: 'darwin', arch: 'x64', release: '24' },
+  { platform: 'darwin', arch: 'arm64', release: '23' },
+])('does not start background collection on unsupported hardware: %j', async (hardware) => {
+  vi.useFakeTimers();
+  mocks.hardware.mockReturnValue({ ...hardware, chip: 'Example host', memoryBytes: 32 * GIB });
+  service.startMetrics();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(mocks.health).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+  expect((await service.status()).metricsHistory).toEqual([]);
+});
+
+test('keeps collecting host activity when the installation cannot supply health', async () => {
+  mocks.health.mockRejectedValue(new Error('private-credential-payload'));
+  const sample = vi.spyOn(LocalModelMetricsSampler.prototype, 'sample').mockResolvedValue({
+    sampledAt: Date.now(), cpuPercent: 25, memoryUsedBytes: 16 * GIB, memoryTotalBytes: 32 * GIB,
+    gpuPercent: 40, tokensPerSecond: 0, generatedTokens: 0, runtimeId: null,
+  });
+  service.startMetrics();
+  await vi.waitFor(() => expect(sample).toHaveBeenCalled());
+  expect(sample).toHaveBeenCalledWith(expect.objectContaining({ arch: 'arm64' }), null);
+  expect(JSON.stringify(await service.status())).not.toContain('private-credential-payload');
 });

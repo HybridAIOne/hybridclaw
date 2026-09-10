@@ -6,7 +6,10 @@
 import { execFile } from 'node:child_process';
 import os from 'node:os';
 import { promisify } from 'node:util';
-import type { MacHardware } from './local-model-catalog.js';
+import {
+  type MacHardware,
+  parseMacAvailableMemory,
+} from './local-model-catalog.js';
 
 const exec = promisify(execFile);
 
@@ -64,7 +67,6 @@ export class LocalModelMetricsSampler {
   private previous: {
     cpu: ReturnType<typeof cpuTimes>;
     time: number;
-    running: boolean;
     sample: LocalModelMetrics;
   } | null = null;
   private pending: Promise<LocalModelMetrics> | null = null;
@@ -75,17 +77,6 @@ export class LocalModelMetricsSampler {
   ): Promise<LocalModelMetrics> {
     if (this.pending) return this.pending;
     const tokens = tokenMetrics(health);
-    const previous = this.previous;
-    // 2026-09-10, graph implementation choice: coalesce tabs within 1s;
-    // the console polls every 2.5s. Continuous background sampling is deferred.
-    if (
-      previous &&
-      performance.now() - previous.time < 1000 &&
-      previous.running === Boolean(health) &&
-      previous.sample.runtimeId === (tokens?.instanceId ?? null)
-    ) {
-      return Promise.resolve(previous.sample);
-    }
     this.pending = this.collect(hardware, health, tokens).finally(() => {
       this.pending = null;
     });
@@ -97,34 +88,37 @@ export class LocalModelMetricsSampler {
     health: Record<string, unknown> | null,
     tokens: ReturnType<typeof tokenMetrics>,
   ): Promise<LocalModelMetrics> {
-    let gpuPercent: number | null = null;
-    if (hardware.platform === 'darwin' && hardware.arch === 'arm64') {
-      try {
-        // 2026-09-10, telemetry safety budget: 1s/2MiB bounds the OS probe;
-        // privileged GPU probes are deliberately excluded.
-        const { stdout } = await exec(
-          '/usr/sbin/ioreg',
-          ['-r', '-c', 'IOAccelerator', '-d', '1'],
-          {
-            encoding: 'utf8',
-            timeout: 1000,
-            maxBuffer: 2 * 1024 * 1024,
-          },
-        );
-        gpuPercent = parseMacGpuPercent(stdout);
-      } catch {
-        /* Unavailable is distinct from an idle GPU. */
-      }
-    }
     const cpu = cpuTimes();
     const now = performance.now();
+    const sampledAt = Date.now();
+    let gpuPercent: number | null = null;
+    let available: number | undefined;
+    if (hardware.platform === 'darwin' && hardware.arch === 'arm64') {
+      // 2026-09-10, telemetry safety budget: bounded asynchronous OS probes
+      // keep 1Hz collection off the event loop; privileged probes are excluded.
+      const [gpu, memory] = await Promise.allSettled([
+        exec('/usr/sbin/ioreg', ['-r', '-c', 'IOAccelerator', '-d', '1'], {
+          encoding: 'utf8',
+          timeout: 1000,
+          maxBuffer: 2 * 1024 * 1024,
+        }),
+        exec('/usr/bin/vm_stat', [], {
+          encoding: 'utf8',
+          timeout: 1000,
+          maxBuffer: 64 * 1024,
+        }),
+      ]);
+      if (gpu.status === 'fulfilled')
+        gpuPercent = parseMacGpuPercent(gpu.value.stdout);
+      if (memory.status === 'fulfilled')
+        available = parseMacAvailableMemory(memory.value.stdout);
+    }
     const previous = this.previous;
     const total = previous ? cpu.total - previous.cpu.total : 0;
     const idle = previous ? cpu.idle - previous.cpu.idle : 0;
-    const available = hardware.availableMemoryEstimateBytes;
     const elapsed = previous ? (now - previous.time) / 1000 : 0;
-    // 2026-09-10, graph sampling choice: three missed 2.5s polls break a
-    // rate series rather than displaying an average over an unobserved gap.
+    // 2026-09-10, 1Hz collection: tolerate timer/probe jitter, but break rates
+    // after three seconds instead of averaging across an unobserved gap.
     const generatedTokens = tokens?.generatedTokens ?? (health ? null : 0);
     const priorTokens = previous?.sample.generatedTokens;
     const tokensPerSecond =
@@ -134,18 +128,14 @@ export class LocalModelMetricsSampler {
             previous?.sample.runtimeId === tokens.instanceId &&
             priorTokens != null &&
             tokens.generatedTokens >= priorTokens &&
-            elapsed >= 1 &&
-            elapsed <= 7.5
+            elapsed > 0 &&
+            elapsed <= 3
           ? (tokens.generatedTokens - priorTokens) / elapsed
           : null;
     const sample: LocalModelMetrics = {
-      sampledAt: Date.now(),
+      sampledAt,
       cpuPercent:
-        elapsed >= 1 &&
-        elapsed <= 7.5 &&
-        total > 0 &&
-        idle >= 0 &&
-        idle <= total
+        elapsed > 0 && elapsed <= 3 && total > 0 && idle >= 0 && idle <= total
           ? (1 - idle / total) * 100
           : null,
       memoryUsedBytes:
@@ -161,7 +151,7 @@ export class LocalModelMetricsSampler {
       generatedTokens,
       runtimeId: tokens?.instanceId ?? null,
     };
-    this.previous = { cpu, time: now, running: Boolean(health), sample };
+    this.previous = { cpu, time: now, sample };
     return sample;
   }
 }

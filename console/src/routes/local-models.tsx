@@ -189,7 +189,7 @@ function MacLocalModelsPage() {
           </div>
           {data.supported && (
             <LocalModelMetrics
-              sample={data.metrics}
+              history={data.metricsHistory}
               running={data.running}
               stale={query.isError}
             />

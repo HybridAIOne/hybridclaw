@@ -1,5 +1,5 @@
 /**
- * Graph rendering preserves missing-data gaps and bounds retained samples.
+ * Graph rendering preserves gateway history across navigation and missing data.
  * Native counter accuracy is tested separately; these tests cover displayed state.
  */
 import { render, screen } from '@testing-library/react';
@@ -7,7 +7,7 @@ import { expect, test } from 'vitest';
 import type { AdminLocalModelsResponse } from '../api/types';
 import { LocalModelMetrics } from './local-model-metrics';
 
-type Sample = AdminLocalModelsResponse['metrics'];
+type Sample = AdminLocalModelsResponse['metricsHistory'][number];
 const sample = (overrides: Partial<Sample> = {}): Sample => ({
   sampledAt: 100_000,
   cpuPercent: 25,
@@ -21,7 +21,7 @@ const sample = (overrides: Partial<Sample> = {}): Sample => ({
 });
 
 test('shows four labeled graphs with host memory and actual model throughput', () => {
-  render(<LocalModelMetrics sample={sample()} running stale={false} />);
+  render(<LocalModelMetrics history={[sample()]} running stale={false} />);
   expect(screen.getAllByRole('img')).toHaveLength(4);
   expect(screen.getByText('25%')).toBeDefined();
   expect(screen.getByText('75%')).toBeDefined();
@@ -34,11 +34,13 @@ test('shows four labeled graphs with host memory and actual model throughput', (
 test('missing readings remain unavailable while idle readings show zero', () => {
   const { rerender } = render(
     <LocalModelMetrics
-      sample={sample({
-        gpuPercent: null,
-        tokensPerSecond: null,
-        generatedTokens: null,
-      })}
+      history={[
+        sample({
+          gpuPercent: null,
+          tokensPerSecond: null,
+          generatedTokens: null,
+        }),
+      ]}
       running
       stale={false}
     />,
@@ -53,13 +55,15 @@ test('missing readings remain unavailable while idle readings show zero', () => 
   expect(screen.queryByText('0%')).toBeNull();
   rerender(
     <LocalModelMetrics
-      sample={sample({
-        sampledAt: 102_500,
-        gpuPercent: 0,
-        tokensPerSecond: 0,
-        generatedTokens: 0,
-        runtimeId: null,
-      })}
+      history={[
+        sample({
+          sampledAt: 102_500,
+          gpuPercent: 0,
+          tokensPerSecond: 0,
+          generatedTokens: 0,
+          runtimeId: null,
+        }),
+      ]}
       running={false}
       stale={false}
     />,
@@ -69,29 +73,20 @@ test('missing readings remain unavailable while idle readings show zero', () => 
   expect(screen.getByText('Model stopped')).toBeDefined();
 });
 
-test('does not draw through missing samples or long polling gaps', () => {
+test('does not draw through missing readings or gaps in gateway sampling', () => {
+  const history = [
+    sample(),
+    sample({ sampledAt: 101_000, gpuPercent: null }),
+    sample({ sampledAt: 102_000 }),
+  ];
   const { rerender } = render(
-    <LocalModelMetrics sample={sample()} running stale={false} />,
-  );
-  rerender(
-    <LocalModelMetrics
-      sample={sample({ sampledAt: 102_500, gpuPercent: null })}
-      running
-      stale={false}
-    />,
-  );
-  rerender(
-    <LocalModelMetrics
-      sample={sample({ sampledAt: 105_000 })}
-      running
-      stale={false}
-    />,
+    <LocalModelMetrics history={history} running stale={false} />,
   );
   const gpu = screen.getByRole('img', { name: 'GPU over the last minute' });
   expect(gpu.querySelectorAll('g')).toHaveLength(2);
   rerender(
     <LocalModelMetrics
-      sample={sample({ sampledAt: 120_000 })}
+      history={[...history, sample({ sampledAt: 106_000 })]}
       running
       stale={false}
     />,
@@ -99,32 +94,83 @@ test('does not draw through missing samples or long polling gaps', () => {
   expect(gpu.querySelectorAll('g')).toHaveLength(3);
 });
 
-test('keeps a bounded rolling history and resets graphs on runtime restart or connection failure', () => {
-  const { rerender } = render(
-    <LocalModelMetrics sample={sample()} running stale={false} />,
+test('renders the retained minute on first load and restores intervening samples after navigation', () => {
+  const history = Array.from({ length: 60 }, (_, index) =>
+    sample({ sampledAt: 100_000 + index * 1000 }),
   );
-  for (let index = 1; index <= 40; index++) {
-    rerender(
-      <LocalModelMetrics
-        sample={sample({ sampledAt: 100_000 + index * 2500 })}
-        running
-        stale={false}
-      />,
-    );
-  }
-  const graph = screen.getByRole('img', { name: 'CPU over the last minute' });
-  const line = graph.querySelector('g path:last-of-type');
-  expect(line?.getAttribute('d')?.match(/L /g)).toHaveLength(24);
-  rerender(
+  const first = render(
+    <LocalModelMetrics history={history} running stale={false} />,
+  );
+  const graph = () =>
+    screen.getByRole('img', { name: 'CPU over the last minute' });
+  const line = () => graph().querySelector('g path')?.getAttribute('d');
+  expect(line()?.match(/L /g)).toHaveLength(59);
+  first.unmount();
+  // The gateway collected ten more seconds while no graph component existed.
+  const returned = [
+    ...history.slice(10),
+    ...Array.from({ length: 10 }, (_, index) =>
+      sample({ sampledAt: 160_000 + index * 1000 }),
+    ),
+  ];
+  const { rerender } = render(
+    <LocalModelMetrics history={returned} running stale={false} />,
+  );
+  const restored = line();
+  expect(restored?.match(/L /g)).toHaveLength(59);
+  expect(graph().querySelectorAll('g')).toHaveLength(1);
+  rerender(<LocalModelMetrics history={returned} running stale />);
+  expect(screen.getByText('Connection lost · refresh to resume')).toBeDefined();
+  expect(screen.queryByText('20.0 tok/s')).toBeNull();
+  expect(graph().querySelectorAll('g')).toHaveLength(0);
+  rerender(<LocalModelMetrics history={returned} running stale={false} />);
+  expect(line()).toBe(restored);
+});
+
+test('keeps host history across runtime restart but breaks the token series', () => {
+  render(
     <LocalModelMetrics
-      sample={sample({ sampledAt: 202_500, runtimeId: 'b'.repeat(32) })}
+      history={[
+        sample(),
+        sample({ sampledAt: 101_000 }),
+        sample({
+          sampledAt: 102_000,
+          runtimeId: 'b'.repeat(32),
+          generatedTokens: 5,
+        }),
+        sample({
+          sampledAt: 103_000,
+          runtimeId: 'b'.repeat(32),
+          generatedTokens: 15,
+        }),
+        sample({
+          sampledAt: 104_000,
+          runtimeId: 'b'.repeat(32),
+          generatedTokens: 0,
+        }),
+      ]}
       running
       stale={false}
     />,
   );
-  expect(graph.querySelectorAll('circle')).toHaveLength(1);
-  rerender(<LocalModelMetrics sample={sample()} running stale />);
-  expect(screen.getByText('Connection lost · refresh to resume')).toBeDefined();
-  expect(screen.queryByText('20.0 tok/s')).toBeNull();
-  expect(graph.querySelectorAll('g')).toHaveLength(0);
+  expect(
+    screen
+      .getByRole('img', { name: 'CPU over the last minute' })
+      .querySelectorAll('g'),
+  ).toHaveLength(1);
+  expect(
+    screen
+      .getByRole('img', { name: 'Tokens over the last minute' })
+      .querySelectorAll('g'),
+  ).toHaveLength(3);
+});
+
+test('an empty history waits for samples without inventing activity', () => {
+  render(<LocalModelMetrics history={[]} running stale={false} />);
+  expect(screen.getByText('Waiting for CPU readings')).toBeDefined();
+  expect(screen.getByText('Waiting for runtime counters')).toBeDefined();
+  expect(screen.queryByText('0%')).toBeNull();
+  expect(screen.queryByText('0.0 tok/s')).toBeNull();
+  for (const graph of screen.getAllByRole('img'))
+    expect(graph.querySelectorAll('g')).toHaveLength(0);
 });
