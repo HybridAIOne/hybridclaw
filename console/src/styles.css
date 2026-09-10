@@ -8,6 +8,11 @@ body,
   min-height: 100%;
 }
 
+/* Keep desktop sidebar layouts against the viewport during scroll bounce. */
+html:has([data-hc-sidebar-root]) {
+  overscroll-behavior-y: none;
+}
+
 body {
   margin: 0;
   background: var(--page-bg);
@@ -4498,6 +4503,10 @@ th {
 
   .topbar h2 {
     font-size: 1.1rem;
+  }
+
+  .topbar-tools {
+    flex-shrink: 0;
   }
 
   .page-header {
