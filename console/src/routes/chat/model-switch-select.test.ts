@@ -251,6 +251,68 @@ describe('local model highlighting', () => {
       screen.getByRole('combobox', { name: 'Switch model' }).textContent,
     ).toContain('Local');
   });
+  it('shows an offline local selection and updates it after discovery without switching models', () => {
+    const onSwitch = vi.fn();
+    const models = entries.map((entry) => ({ ...entry, discovered: false }));
+    const props = {
+      models,
+      selectedModelId: 'mac-mlx/spark-x2.5-4b',
+      onSwitch,
+    };
+    const { rerender } = render(createElement(ModelSwitchSelect, props));
+    const trigger = screen.getByRole('combobox', { name: 'Switch model' });
+    expect(trigger.textContent).toContain('Local · Offline');
+    expect(trigger.getAttribute('aria-description')).toContain('offline');
+    fireEvent.click(trigger);
+    const offline = screen.getByRole('option', { name: /Spark.*Offline/ });
+    expect(offline.getAttribute('data-discovered')).toBe('false');
+    expect(offline.textContent).toContain('Local · Offline');
+
+    rerender(
+      createElement(ModelSwitchSelect, {
+        ...props,
+        models: models.map((entry) => ({ ...entry, discovered: true })),
+      }),
+    );
+    expect(trigger.textContent).toContain('Local');
+    expect(trigger.textContent).not.toContain('Offline');
+    expect(trigger.hasAttribute('aria-description')).toBe(false);
+    expect(
+      screen
+        .getByRole('option', { name: /Spark/ })
+        .getAttribute('data-discovered'),
+    ).toBe('true');
+    expect(onSwitch).not.toHaveBeenCalled();
+
+    rerender(createElement(ModelSwitchSelect, props));
+    expect(trigger.textContent).toContain('Local · Offline');
+    expect(onSwitch).not.toHaveBeenCalled();
+  });
+  it('does not infer offline state from missing discovery or a different endpoint', () => {
+    render(
+      createElement(ModelSwitchSelect, {
+        models: entries.map((entry) => ({
+          ...entry,
+          discovered: entry.id === 'mac-mlx/spark-x2.5-4b' ? false : undefined,
+        })),
+        selectedModelId: 'gpt-5',
+        onSwitch: vi.fn(),
+      }),
+    );
+    fireEvent.click(screen.getByRole('combobox', { name: 'Switch model' }));
+    expect(screen.getAllByRole('option', { name: /Offline/ })).toHaveLength(1);
+    expect(
+      document.querySelector('[data-value="ollama/llama-3.1"]')?.textContent,
+    ).not.toContain('Offline');
+    expect(
+      document
+        .querySelector('[data-value="gpu/qwen-27b"]')
+        ?.hasAttribute('data-discovered'),
+    ).toBe(false);
+    expect(
+      screen.getByRole('combobox', { name: 'Switch model' }).textContent,
+    ).not.toContain('Offline');
+  });
   it('does not label a self-hosted GPU or automatic routing as a local selection', () => {
     const { rerender } = render(
       createElement(ModelSwitchSelect, {

@@ -114,6 +114,13 @@ reports live in `<runtime-home>/inference/mlx/`; the usual runtime home is
 `~/.hybridclaw`, or `HYBRIDCLAW_DATA_DIR` when configured. Model downloads are
 retained for retry and are not automatically deleted when switching models.
 
+The chat picker marks a detected local model with a green **Local** badge.
+A model absent from the latest discovery has a red **Local · Offline** badge
+in the dropdown and on the selected model; start its server before sending a
+message. Unknown discovery status uses a neutral badge. While chat is open,
+local status refreshes every 30 seconds, subject to request latency. Starting
+or stopping a model in Labs also invalidates the cached model list.
+
 Startup and configuration saves reject malformed or unsupported endpoint
 entries and defaults that reference a missing or disabled named endpoint.
 The invalid file is preserved instead of saving a normalized version that

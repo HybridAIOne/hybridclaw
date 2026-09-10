@@ -100,6 +100,7 @@ export function LocalModelsPage() {
       controlLocalModel(token, command),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ['local-models', token] });
+      await client.invalidateQueries({ queryKey: ['models', token] });
     },
   });
   const data = query.data;

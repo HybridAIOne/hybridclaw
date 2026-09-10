@@ -414,6 +414,7 @@ export function getAvailableModelList(provider?: string): string[] {
 
 export async function refreshAvailableModelCatalogs(opts?: {
   includeHybridAI?: boolean;
+  localMaxAgeMs?: number;
 }): Promise<ModelCatalogRefreshResult> {
   const tasks: Array<{
     provider: string;
@@ -421,7 +422,10 @@ export async function refreshAvailableModelCatalogs(opts?: {
   }> = [
     { provider: 'openai-codex', refresh: discoverCodexModels },
     { provider: 'anthropic', refresh: discoverAnthropicModels },
-    { provider: 'local', refresh: discoverAllLocalModels },
+    {
+      provider: 'local',
+      refresh: () => discoverAllLocalModels({ maxAgeMs: opts?.localMaxAgeMs }),
+    },
     { provider: 'huggingface', refresh: discoverHuggingFaceModels },
     { provider: 'mistral', refresh: discoverMistralModels },
     { provider: 'openrouter', refresh: discoverOpenRouterModels },

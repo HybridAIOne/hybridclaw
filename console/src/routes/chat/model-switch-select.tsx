@@ -1,7 +1,7 @@
 /**
  * Model choices retain their provider identity and highlight local routing zones.
- * Local is a catalog destination, not a claim of availability or a substitute
- * for the routing policy; automatic routing can still choose other destinations.
+ * Local availability reflects the latest discovery result, not installation.
+ * Badges do not enforce routing policy; automatic routing can use other zones.
  */
 import {
   type ButtonHTMLAttributes,
@@ -631,7 +631,15 @@ export function ModelSwitchSelect(props: {
         aria-label={
           routing ? 'Switch model, automatic routing active' : 'Switch model'
         }
+        aria-description={
+          !routing &&
+          triggerModel?.isLocal &&
+          triggerModel.meta.discovered === false
+            ? 'Selected local model is offline. Start its local server before sending a message.'
+            : undefined
+        }
         title={routingDescription ?? 'Switch model'}
+        data-local={!routing && triggerModel?.isLocal ? 'true' : undefined}
         className={cx(css.composerPill, chrome.triggerPill)}
       >
         {triggerModel ? (
@@ -645,7 +653,19 @@ export function ModelSwitchSelect(props: {
         ) : null}
         <SelectValue placeholder="Select model">{triggerLabel}</SelectValue>
         {!routing && triggerModel?.isLocal && (
-          <span className={chrome.localBadge}>Local</span>
+          <span
+            className={chrome.localBadge}
+            data-discovered={triggerModel.meta.discovered}
+            title={
+              triggerModel.meta.discovered === false
+                ? 'Local model is offline. Start its local server before sending a message.'
+                : undefined
+            }
+          >
+            {triggerModel.meta.discovered === false
+              ? 'Local · Offline'
+              : 'Local'}
+          </span>
         )}
         <SelectIcon />
       </SelectTrigger>
@@ -700,10 +720,13 @@ export function ModelSwitchSelect(props: {
                     key={model.id}
                     value={model.id}
                     data-local={model.isLocal ? 'true' : undefined}
+                    data-discovered={
+                      model.isLocal ? model.meta.discovered : undefined
+                    }
                     className={model.isLocal ? chrome.localItem : undefined}
                     textValue={`${model.displayName} ${model.groupLabel} ${
                       model.routeLabel ?? ''
-                    }`}
+                    }${model.isLocal && model.meta.discovered === false ? ' Offline' : ''}`}
                   >
                     <span aria-hidden="true" className={chrome.itemLogo}>
                       <VendorIcon
@@ -720,13 +743,23 @@ export function ModelSwitchSelect(props: {
                     </SelectItemBody>
                     <SelectItemMeta>
                       {model.isLocal && (
-                        <span className={chrome.localBadge}>
+                        <span
+                          className={chrome.localBadge}
+                          data-discovered={model.meta.discovered}
+                          title={
+                            model.meta.discovered === false
+                              ? 'Local model is offline. Start its local server before sending a message.'
+                              : undefined
+                          }
+                        >
                           <LocalIcon
                             width="12"
                             height="12"
                             aria-hidden="true"
                           />
-                          Local
+                          {model.meta.discovered === false
+                            ? 'Local · Offline'
+                            : 'Local'}
                         </span>
                       )}
                       {ctx ? <span>{ctx}</span> : null}

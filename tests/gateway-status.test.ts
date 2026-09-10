@@ -744,6 +744,101 @@ test('getGatewayAdminModels provider counts match the catalog rows', async () =>
   });
 });
 
+test('getGatewayAdminModels refreshes local offline status without waiting for the hourly catalog interval', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  mockHealthProbes();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'mac-mlx/spark-x2.5-4b';
+    config.local.discovery.intervalMs = 3_600_000;
+    config.local.endpoints = [
+      {
+        name: 'mac-mlx',
+        type: 'mlx',
+        enabled: true,
+        baseUrl: 'http://127.0.0.1:8321/v1',
+        apiKey: 'test-key',
+        zone: 'local',
+      },
+      {
+        name: 'other-mac',
+        type: 'mlx',
+        enabled: true,
+        baseUrl: 'http://127.0.0.1:8322/v1',
+        apiKey: 'test-key',
+        zone: 'local',
+      },
+    ];
+  });
+  let now = Date.now();
+  vi.spyOn(Date, 'now').mockImplementation(() => now);
+  let running = true;
+  const localRequests: Array<{ url: string; method: string }> = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (!/^http:\/\/127\.0\.0\.1:832[12]\/v1\/models$/.test(url)) {
+        throw new Error('Unexpected request');
+      }
+      localRequests.push({ url, method: init?.method ?? 'GET' });
+      if (!running && url.includes(':8321/'))
+        throw new Error('Connection refused');
+      return new Response(
+        JSON.stringify({
+          data: [
+            { id: 'spark-x2.5-4b', context_length: 40960, max_tokens: 2048 },
+          ],
+        }),
+        { status: 200 },
+      );
+    }),
+  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayAdminModels } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  initDatabase({ quiet: true });
+  expect((await getGatewayAdminModels()).models).toContainEqual(
+    expect.objectContaining({
+      id: 'mac-mlx/spark-x2.5-4b',
+      discovered: true,
+      zone: 'local',
+    }),
+  );
+  expect(localRequests).toHaveLength(2);
+
+  running = false;
+  now += 29_999;
+  await getGatewayAdminModels();
+  expect(localRequests).toHaveLength(2);
+  now += 1;
+  const offline = await getGatewayAdminModels();
+  expect(offline.models).toContainEqual(
+    expect.objectContaining({
+      id: 'mac-mlx/spark-x2.5-4b',
+      discovered: false,
+      zone: 'local',
+    }),
+  );
+  expect(offline.models).toContainEqual(
+    expect.objectContaining({
+      id: 'other-mac/spark-x2.5-4b',
+      discovered: true,
+    }),
+  );
+  expect(localRequests).toHaveLength(4);
+
+  running = true;
+  now += 30_000;
+  expect((await getGatewayAdminModels()).models).toContainEqual(
+    expect.objectContaining({ id: 'mac-mlx/spark-x2.5-4b', discovered: true }),
+  );
+  expect(localRequests).toHaveLength(6);
+  expect(localRequests.every((request) => request.method === 'GET')).toBe(true);
+});
+
 test('getGatewayAdminModels tags each row with its providerHealth key', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

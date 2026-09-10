@@ -7055,7 +7055,12 @@ function resolveSkillsHubAuxiliaryModel(
 }
 
 export async function getGatewayAdminModels(): Promise<GatewayAdminModelsResponse> {
-  await refreshAvailableModelCatalogs({ includeHybridAI: true });
+  await refreshAvailableModelCatalogs({
+    includeHybridAI: true,
+    // 30s (owner offline-badge request, 2026-09-10): match picker polling;
+    // discovery remains read-only and does not load or start a model.
+    localMaxAgeMs: 30_000,
+  });
 
   const runtimeConfig = getRuntimeConfig();
   const dailyUsage = new Map(

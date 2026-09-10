@@ -116,10 +116,16 @@ test('shows runtime controls for an installed model', async () => {
       running: true,
     }),
   );
-  renderWithProviders(<LocalModelsPage />);
+  const { queryClient } = renderWithProviders(<LocalModelsPage />);
+  queryClient.setQueryData(['models', 'test-key'], { models: [] });
   fireEvent.click(await screen.findByRole('button', { name: 'Stop model' }));
   await waitFor(() =>
     expect(mocks.control).toHaveBeenCalledWith('test-key', { action: 'stop' }),
+  );
+  await waitFor(() =>
+    expect(
+      queryClient.getQueryState(['models', 'test-key'])?.isInvalidated,
+    ).toBe(true),
   );
   expect(
     screen.queryByRole('button', { name: 'Download & set up' }),

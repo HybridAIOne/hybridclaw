@@ -1048,6 +1048,8 @@ export interface ChatModel {
   provider: string;
   /** Catalog routing zone; unknown for a selection absent from the catalog. */
   zone?: 'local' | 'hai' | 'region' | 'cloud';
+  /** Latest local discovery result; absent when discovery status is unknown. */
+  discovered?: boolean;
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx' | null;
   contextWindow: number | null;
   isReasoning: boolean;

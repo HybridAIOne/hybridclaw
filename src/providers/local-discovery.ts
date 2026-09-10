@@ -1,3 +1,8 @@
+/**
+ * Discovery caches endpoint-scoped model metadata without starting inference.
+ * Callers can bound cache age for availability displays; failed refreshes
+ * remove stale entries. Provider-wide health is a separate, aggregated probe.
+ */
 import {
   LOCAL_DEFAULT_CONTEXT_WINDOW,
   LOCAL_DEFAULT_MAX_TOKENS,
@@ -512,7 +517,10 @@ async function discoverEndpointModels(
 }
 
 export interface LocalDiscoveryStore {
-  discoverAllModels: (opts?: { force?: boolean }) => Promise<LocalModelInfo[]>;
+  discoverAllModels: (opts?: {
+    force?: boolean;
+    maxAgeMs?: number;
+  }) => Promise<LocalModelInfo[]>;
   getDiscoveredModels: () => LocalModelInfo[];
   getDiscoveredModelNames: () => string[];
   getModelInfo: (model: string) => LocalModelInfo | null;
@@ -601,6 +609,7 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
 
   async function discoverAllModels(opts?: {
     force?: boolean;
+    maxAgeMs?: number;
   }): Promise<LocalModelInfo[]> {
     if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
       lastDiscoveryAtMs = 0;
@@ -608,7 +617,10 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
       return [];
     }
 
-    const cacheTtlMs = Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS);
+    const cacheTtlMs = Math.min(
+      Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS),
+      opts?.maxAgeMs ?? Infinity,
+    );
     if (
       !opts?.force &&
       lastDiscoveryAtMs > 0 &&
@@ -733,6 +745,7 @@ const defaultLocalDiscoveryStore = createLocalDiscoveryStore();
 
 export async function discoverAllLocalModels(opts?: {
   force?: boolean;
+  maxAgeMs?: number;
 }): Promise<LocalModelInfo[]> {
   return defaultLocalDiscoveryStore.discoverAllModels(opts);
 }
