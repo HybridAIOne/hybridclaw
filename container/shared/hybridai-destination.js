@@ -56,21 +56,35 @@ export function hybridAIDestinationHeaders(destination) {
     : {};
 }
 
-export async function fetchHybridAIDestination(url, init) {
+export async function fetchHybridAIDestination(url, init, destinationHeaders) {
+  // Expected contract comes from resolved credentials, independently of request
+  // header assembly. A caller dropping any header must fail before egress.
+  const expected = new Headers(destinationHeaders);
   const headers = new Headers(init.headers);
-  const expectedId = headers.get('X-HybridAI-Destination-ID');
+  const names = [
+    'X-HybridAI-Destination-Protocol',
+    'X-HybridAI-Destination-ID',
+    'X-HybridAI-Destination-Zone',
+    'X-HybridAI-Destination-Fallback',
+  ];
+  const contracted = names.some(
+    (name) => expected.has(name) || headers.has(name),
+  );
+  if (
+    contracted &&
+    (expected.get(names[0]) !== 'hybridai-destination-v1' ||
+      !/^[A-Za-z0-9._-]{1,128}$/.test(expected.get(names[1]) || '') ||
+      !['hai', 'region', 'cloud'].includes(expected.get(names[2])) ||
+      expected.get(names[3]) !== 'deny' ||
+      names.some((name) => headers.get(name) !== expected.get(name)))
+  )
+    throw new Error(
+      'Missing or mismatched HybridAI destination request contract',
+    );
   const response = await fetch(url, { ...init, redirect: 'error' });
-  if (expectedId && response.ok) {
-    for (const name of [
-      'X-HybridAI-Destination-Protocol',
-      'X-HybridAI-Destination-ID',
-      'X-HybridAI-Destination-Zone',
-      'X-HybridAI-Destination-Fallback',
-    ]) {
-      if (
-        !headers.get(name) ||
-        response.headers.get(name) !== headers.get(name)
-      ) {
+  if (contracted && response.ok) {
+    for (const name of names) {
+      if (response.headers.get(name) !== expected.get(name)) {
         await response.body?.cancel();
         throw new Error(
           'HybridAI did not acknowledge the requested destination; response rejected',

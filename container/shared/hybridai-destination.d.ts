@@ -18,4 +18,5 @@ export function hybridAIDestinationHeaders(
 export function fetchHybridAIDestination(
   url: string,
   init: RequestInit,
+  destinationHeaders: Record<string, string> | undefined,
 ): Promise<Response>;

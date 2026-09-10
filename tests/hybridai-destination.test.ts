@@ -46,7 +46,7 @@ test('sends the selected destination, disallows redirects and verifies server ag
     fetchHybridAIDestination('https://example.com/v1/chat/completions', {
       method: 'POST',
       headers,
-    }),
+    }, headers),
   ).resolves.toBeInstanceOf(Response);
   expect(fetch.mock.calls[0][1]).toMatchObject({ redirect: 'error' });
 });
@@ -68,6 +68,28 @@ test.each([
   await expect(
     fetchHybridAIDestination('https://example.com/v1/chat/completions', {
       headers,
-    }),
+    }, headers),
   ).rejects.toThrow('did not acknowledge');
+});
+
+test.each([
+  'X-HybridAI-Destination-ID', 'X-HybridAI-Destination-Zone',
+  'X-HybridAI-Destination-Fallback', 'X-HybridAI-Destination-Protocol', 'all',
+])('rejects dropped request contract %s before any network call', async (name) => {
+  const expected = hybridAIDestinationHeaders(parseHybridAIDestination(destination, 'https://example.com'));
+  const headers = new Headers(expected);
+  if (name === 'all') for (const key of Object.keys(expected)) headers.delete(key);
+  else headers.delete(name);
+  const fetch = vi.fn();
+  vi.stubGlobal('fetch', fetch);
+  await expect(fetchHybridAIDestination('https://example.com/v1/chat/completions', { headers }, expected)).rejects.toThrow('request contract');
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+test('allows ordinary offers only when no destination contract is expected or attached', async () => {
+  const fetch = vi.fn(async () => new Response('{}'));
+  vi.stubGlobal('fetch', fetch);
+  await expect(fetchHybridAIDestination('https://example.com/v1/chat/completions', {}, undefined)).resolves.toBeInstanceOf(Response);
+  await expect(fetchHybridAIDestination('https://example.com/v1/chat/completions', { headers: { 'X-HybridAI-Destination-Zone': 'region' } }, undefined)).rejects.toThrow('request contract');
+  expect(fetch).toHaveBeenCalledOnce();
 });

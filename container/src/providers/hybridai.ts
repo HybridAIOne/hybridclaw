@@ -181,6 +181,7 @@ export async function callHybridAIProvider(
       headers: buildHybridAIRequestHeaders(args),
       body: JSON.stringify(body),
     },
+    args.requestHeaders,
   );
 
   if (!response.ok) {
@@ -233,6 +234,7 @@ export async function callHybridAIProviderStream(
       }),
       body: JSON.stringify(body),
     },
+    args.requestHeaders,
   );
 
   if (!response.ok) {

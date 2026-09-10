@@ -1053,6 +1053,7 @@ async function callHybridAITextModel(
       body: JSON.stringify(body),
       signal: createTimeoutSignal(options.timeoutMs),
     },
+    context.requestHeaders,
   );
   if (!response.ok) await parseError(response);
 
