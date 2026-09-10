@@ -1147,6 +1147,7 @@ export interface AdminSchedulerJob {
   };
   lastRun: string | null;
   lastStatus: 'success' | 'error' | null;
+  lastError: string | null;
   nextRunAt: string | null;
   disabled: boolean;
   consecutiveErrors: number;
@@ -1156,7 +1157,21 @@ export interface AdminSchedulerJob {
   taskId: number | null;
 }
 
+export interface AdminSchedulerFailedProactiveMessage {
+  id: number;
+  channelId: string;
+  reason: string;
+  failedAt: string;
+}
+
+export interface AdminSchedulerProactiveQueue {
+  queued: number;
+  failed: number;
+  failedMessages: AdminSchedulerFailedProactiveMessage[];
+}
+
 export interface AdminSchedulerResponse {
+  proactiveQueue: AdminSchedulerProactiveQueue;
   jobs: AdminSchedulerJob[];
 }
 

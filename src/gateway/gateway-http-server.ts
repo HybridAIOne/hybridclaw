@@ -443,6 +443,7 @@ import {
   ResponseRatingNotFoundError,
   submitResponseRating,
 } from './response-ratings.js';
+import { runScheduledTaskToolAction } from './scheduled-task-tool-service.js';
 import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
@@ -3983,6 +3984,14 @@ async function handleApiMessageAction(
 
   const result = await runMessageToolAction(request);
   sendJson(res, 200, result);
+}
+
+async function handleApiSchedulerTask(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = await readJsonBody(req);
+  sendJson(res, 200, runScheduledTaskToolAction(body));
 }
 
 async function handleApiPluginTool(
@@ -11313,6 +11322,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleApiBrowserTool(req, res, activeSseResponses);
+            return;
+          }
+          if (pathname === '/api/scheduler/task' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiSchedulerTask(req, res);
             return;
           }
           if (pathname === '/api/secret/inject' && method === 'POST') {
